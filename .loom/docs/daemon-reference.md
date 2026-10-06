@@ -34,8 +34,11 @@
 - [Stale-claim reconciliation & the sweep journal (#3953, fixed #3975, extended to PR-side claims #4367)](#stale-claim-reconciliation--the-sweep-journal-3953-fixed-3975-extended-to-pr-side-claims-4367)
 - [Stacked-PR dependency — #3729 (v1), #3747 (v2 item 1)](#stacked-pr-dependency--3729-v1-3747-v2-item-1)
 - [Epic supervisor (#3842)](#epic-supervisor-3842)
+- [Curator intake reconcile (#10041)](#curator-intake-reconcile-10041)
 - [Autonomous work finder (#3810)](#autonomous-work-finder-3810)
 - [Operability — config, start/stop, E2E (Phase D, #3813)](#operability--config-startstop-e2e-phase-d-3813)
+- [Reader withdrawal kill switch (`LOOM_READ_ROUTING`)](#reader-withdrawal-kill-switch-loom_read_routing)
+- [Read-pool routing (`forge.readPool.routing`)](#read-pool-routing-forgereadpoolrouting)
 - [Observability exporter (`observability`, #4705, epic #4702 Phase 1)](#observability-exporter-observability-4705-epic-4702-phase-1)
 - [Fleet dashboard (`loom-daemon serve`)](#fleet-dashboard-loom-daemon-serve)
 - [Locks and lifecycle](#locks-and-lifecycle)
@@ -1410,6 +1413,7 @@ and whose `.loom-local/local.json` is the host-local tier.
 | `fleet/hosts/<host>/local.json` | `render` | JSON object: that host's host-local tier. Optional — absent leaves the local tier alone |
 | `repos.yml` | `roster` | YAML, below |
 | `fleet/state.yml` | `state` | YAML, below |
+| `fleet/admins.json` | comment trust | JSON `{"admins": ["login", ...]}`: fleet admins trusted as comment authors in every fleet repo; unreadable means empty (fails closed). See [comment-trust](comment-trust.md) (#10303) |
 
 Other files in the store (a README, a host inventory) are never fetched.
 
@@ -1669,6 +1673,17 @@ reports `hold`, not `stop`. `status --json` carries `fleet_store.state`
 (desired, provenance, `by`/`since`/`reason`) and `fleet_store.enforced`
 (`proceed` / `hold` / `stop`); a transition — never the steady state — is also
 published on the event bus as `fleet.sync.state`.
+
+### ETA fit publication branch (#10395)
+
+Besides the reviewed state on `fleet.ref`, the store carries one machine
+artifact on its own branch, `fleet.etaFitRef` (default `eta-fit`): the fleet
+captain's fitted ETA coefficients (`eta/fit/<fit_id>.json` plus the
+`eta-fit-pub/v1` envelope `eta/fit/latest.json`). The captain's writer App needs
+`contents: write` on the store and the branch must be exempt from the `main`
+ruleset; other hosts read it with the App they already use. `fleet.etaFitMaxAgeDays`
+(default 3) bounds how old a publication may be. Contract, verification and
+fallback: [eta → one refresher](eta.md#fleet-refresh-task-autonomousetafleetrefresh-10263).
 
 ## Fleet model A/B — `sweep-experiment plan` (#8055 phase 1)
 
@@ -2291,6 +2306,29 @@ a key. Only the six keys below order the queue.
    issue that leaves the listing — every `loom:building` claim — is read again
    when it returns. Both affect ordering among starred issues only; see
    `StarredAtCache`'s "Accepted staleness" doc comment.
+
+   **Restart store.** Known starred-ats also persist across a daemon restart or
+   roll, so a roll does not re-read every starred issue's timeline at once. The
+   file is `starred-<sha16(cwd|repo)>.json` in the daemon's private listing-cache
+   dir (`${TMPDIR:-/tmp}/loom-forge-listing-cache`, or `LOOM_LISTING_CACHE_DIR`),
+   one per workspace key, written atomically and deleted after 7 days untouched.
+   It is consulted only on an in-process miss, after a loom-ui intent's
+   `requested_at` (which always wins), and a persisted value is reused only when
+   the issue's level-label set is unchanged, the value was seen within the
+   last 30 minutes (`last_seen`, rewritten at most every 5 minutes), and the
+   issue's listed `updated_at` is no later than the one the value was confirmed
+   under (a missing `updated_at` reads). Label events advance `updated_at`, so
+   an unstar and re-star made while the daemon was down is read, not masked.
+   The same `updated_at` check applies in process: a known starred-at is read
+   again on the first tick whose listing shows the issue updated. Unknown
+   starred-ats are never persisted, so the 10-minute retry still applies. Every
+   in-process drop is mirrored: an issue that leaves the starred set loses its
+   entry and a nothing-starred tick deletes the file, so an unstar and re-star
+   reads the new time. **`LOOM_STARRED_AT_PERSIST=0`** (also `false`/`off`/`no`)
+   turns the store off: nothing is read or written. `status` shows how lookups
+   were answered under `last_work_finder_tick.starred_at_cache` (`mem_hit`,
+   `disk_hit`, `intent_hit`, `read_known`, `read_none`, `read_err`, cumulative
+   since start); the `read_*` rows are the timeline reads that remain.
 3. **Red-main fixes first**: an issue whose body carries
    `<!-- loom:main-red-fix -->` at the start of a line, **only while its repo's
    `main` is verified red** (`WorkspaceHealthStates::is_halted`). A marker on a
@@ -2378,6 +2416,48 @@ repo (no enabled `buildGate`), there is no verified-red signal, so the latest
 `main` CI conclusion stands in for key 3: one cached `gh run list` per repo per
 tick, made only when the repo has a marker-bearing candidate.
 
+### Fleet-degraded operator alert (`autonomous.fleetAlert`, #10164)
+
+`loom-daemon health` computes DEGRADED only when a human runs it. With
+`autonomous.fleetAlert.enabled`, a background thread
+(`loom-daemon/src/fleet_alert/`) reads the daemon's own `DaemonStatus` over its
+IPC socket every `intervalSecs` and pushes an alert for any of these
+conditions, each keyed and alerted independently:
+
+| Key | Condition | Cause and fix named in the alert |
+|-----|-----------|----------------------------------|
+| `tokens-zero-healthy` | zero healthy token accounts | `auth_401` (blocked by an auth-class `.bad_tokens` entry such as `auth-dead: 401`, or with no `.bad_tokens` history; never self-heals): re-auth / `tokens import-from-monitor` / `tokens unblock`; exhausted: wait or add accounts; empty pool: `tokens bootstrap` |
+| `dispatch-halted` | main-health gate halted, or the last tick halted while tokens are still available | read `health`'s dispatch section |
+| `roles-persistent` | one or more roles with PERSISTENT tick failures | a launch refused for a missing guarded-canary receipt (exit 78) is named as a runtime/version mismatch (`runtimes.default`, opencode version) |
+| `capacity-limited` | disk or RAM headroom holds the effective cap below the configured `maxConcurrent` (#10214; even with nothing starred) | which term, the effective vs. configured cap, how many starred issues wait; free disk / RAM or add capacity |
+| `star-backlog` | more than 3x the effective cap of starred issues waiting on this host (#10214) | the count, the oldest star and a new star's FIFO position; unstar or re-rank, or add capacity |
+
+An unreachable status changes nothing (unknown is not healthy). A condition must
+hold `debounceTicks` consecutive ticks before one `Started` alert; one `Cleared`
+alert follows after `debounceTicks` good ticks; a still-held condition re-alerts
+at most once per `reminderHours` (so 24h is `1 + floor(24h / reminder)` alerts).
+Active alerts persist in `.loom/logs/fleet-alert-state.json`, so a restart does
+not re-announce them.
+
+Delivery is two independent sinks (one failing never suppresses the other):
+the event bus (an `operator_priority.escalation` event with issue `0`, which the
+Safehouse sink relays to the team Matrix room) and the loom-ui inbox
+(`LOOM_UI_INBOX_URL` + `LOOM_UI_INGEST_KEY`; keyed
+`mail-<host>-fleet-degraded-<condition>`, `resolve: true` on clear; the key is
+sent only as a Bearer header, never on argv or in logs; unset logs once and
+skips). **No forge call is made anywhere in this path**, so it still delivers
+while `gh` is rate-limited. `loom-daemon health` output and exit codes are
+unchanged.
+
+| Config (`autonomous.fleetAlert.*`) | Env | Default |
+|---|---|---|
+| `enabled` | `LOOM_FLEET_ALERT` | `false` (daemon flags default off) |
+| `reminderHours` | `LOOM_FLEET_ALERT_REMINDER_HOURS` | `6` |
+| `debounceTicks` | `LOOM_FLEET_ALERT_DEBOUNCE_TICKS` | `3` |
+| `intervalSecs` | `LOOM_FLEET_ALERT_INTERVAL_SECS` | `60` |
+
+Precedence is env > config > default.
+
 ### Starred-issue liveness and loom-ui stars (#9244 C)
 
 A starred issue is always either being worked on or escalated to the operator
@@ -2408,7 +2488,13 @@ starred issue in each managed repo:
   trusted comment on the issue, including the sweep's lease renewal (a long
   Builder phase with a live lease is not a stall on any host). The stall key
   hashes only those facts (never the stage, which host-local capacity can
-  change), so N hosts post one comment.
+  change), so N hosts post one comment. A `no-capacity` row the work finder
+  deferred carries a structured `capacity_wait` (gate, binding cap term,
+  host-wide position among waiting stars) and reads e.g. `queued #88 of 106
+  (cap 2, disk-limited)`; its position moving forward is progress, and a
+  queue that stops moving escalates naming that reason, position and what the
+  operator can do (#10214). The host-level causes are fleet-alert asks
+  (`capacity-limited`, `star-backlog`), not per-issue comments.
 
 An escalation is one comment on the issue, carrying
 `<!-- loom:operator-priority-escalation key=<kind>:<specifics> -->`. Each
@@ -2450,6 +2536,35 @@ commits / Squash merges / Rebase merges are not allowed"; for #9276 that was
 A generic refusal (bare 405, merge method, ruleset) never searches, and
 nothing a later comment mentions ever inherits. With no open incident the ask
 quotes the forge's refusal text instead.
+Every open same-repo blocker inherits, not only the first one named. With
+`propagate` on, a starred issue's children by its own text inherit the same
+way: `<!-- loom:park Blocked by: #C -->` records, `- [ ] #C` task-list entries,
+and the dependency phrases of a `loom:blocked` issue even when it is also held
+for the operator (#10012). Inheritance is transitive to depth 3 (a cycle stops), never crosses
+repos, makes at most 50 walk reads per repo per pass (closed children and
+blocker reads count), and a child of
+several starred issues takes the earliest starred-at. This is the in-memory
+ordering only; the label itself is not written yet.
+
+**What travels to children (#10012 §6).** One table in code
+(`star_liveness::propagation_rules`) says which labels go from a parent to
+its children, always downward. The star goes to child issues and their PRs and
+is removed with the parent's star. `external` goes to child issues and is
+removed when no ancestor carries it any more, so a child of an unapproved
+outside submission cannot get past the maintainer gate. A `tier:*` label is
+only a default: the child gets the nearest tiered ancestor's tier when it has
+none of its own. Propagation never overwrites a child's tier and never removes
+one. Removal only takes off a copy that propagation put there, never one a
+human put on the child, and never after an incomplete walk. The
+`<!-- loom:main-red-fix -->` body marker is copied once, by
+`create-issue.sh --parent`; no pass edits bodies. **Never propagate**: holds
+(`loom:blocked`, `loom:operator`, `loom:operator-only` and its sub-kinds,
+`loom:needs-capability`), claim, lifecycle and PR-lane labels, proposal kinds,
+`loom:epic-phase`, `loom:heavy`, `points:*`, the retired `loom:urgent`, and the
+#10307 level labels, which reach blockers by their own pass. A unit test fails
+when a `defaults/labels.json` label is in neither the table nor the
+never-propagate list. The table is the rule set only. The pass that writes
+these labels is not built yet.
 
 **loom-ui stars.** The `/ingest` ack may carry `operator_priority_intents`
 (`defaults/docs/telemetry-schema.md`). The pass applies each valid one (the one
@@ -2465,6 +2580,7 @@ default**):
 | `escalate` | `LOOM_OPERATOR_PRIORITY_ESCALATE` | `true` | post escalations and apply loom-ui intents; `false` still computes and shows every landing state |
 | `intervalSecs` | `LOOM_OPERATOR_PRIORITY_INTERVAL_SECS` | `120` | pass interval |
 | `poolsExhaustedGraceMinutes` | `LOOM_OPERATOR_PRIORITY_POOLS_GRACE_MINUTES` | `10` | wait before a `pools-exhausted` ask; `0` asks at once |
+| `propagate` | `LOOM_OPERATOR_PRIORITY_PROPAGATE` | `true` | a star also reaches its children by park record, task list and dependency phrase; `false` keeps only the blocker / incident / red-main inheritance |
 
 ### Ready queue view (`loom-daemon queue`, #8852)
 
@@ -2869,11 +2985,23 @@ rules with `git check-ignore`.
 | `autonomous.eta.enabled` | `LOOM_ETA_ENABLED` | `true` |
 | `autonomous.eta.dryRun` | `LOOM_ETA_DRY_RUN` | `false` (log `eta: would emit …`, enqueue nothing) |
 | `autonomous.eta.refreshSecs` | `LOOM_ETA_REFRESH_SECS` | `300` |
-| `autonomous.eta.historyScope` | `LOOM_ETA_HISTORY_SCOPE` | `augment` — `local` (this host's journals), `augment` (plus the cached fleet snapshot) or `fleet` (the snapshot alone). A no-op until `loom-daemon eta fleet backfill` caches one (#9343) |
+| `autonomous.eta.historyScope` | `LOOM_ETA_HISTORY_SCOPE` | `augment` — `local` (this host's journals), `augment` (plus the cached fleet snapshot) or `fleet` (the snapshot alone). A no-op until a snapshot is cached (#9343); since #10263 the fleet refresh task below caches one by default, so live estimates switch to `scope = fleet` on a host with reader Apps. `local` opts out |
+| `autonomous.eta.fit.enabled` | `LOOM_ETA_FIT_ENABLED` | `true`: the daily coefficient refit (#10245). It checks hourly, fits at most once per UTC day into `.loom/state/eta/fit/`, makes no forge call, and runs only with `autonomous.eta.enabled`. A no-op until a snapshot is cached. With `fleetRefresh.enabled` (below, #10263) the check runs at the end of every fleet refresh cycle instead of on its own task, so it always sees fresh snapshots. Read at start |
 | `autonomous.eta.current.{finish,land}` | none | `finish-v1` / `land-v1` |
+| `autonomous.eta.shadow.maxActive` | `LOOM_ETA_SHADOW_MAX_ACTIVE` | `13` registered heuristics per kind (floor 1, #10525): `current` plus the 12 `eta.snapshot` alternates (#10549, was 10). A build over it does not start the ETA tracker; the error names the excess heuristics. Read at start. See [eta → shadow fleet management](eta.md#shadow-fleet-management) |
+| `autonomous.eta.fleetRefresh.enabled` | `LOOM_ETA_FLEET_REFRESH_ENABLED` | **`true`** — the fleet snapshot backfill/refresh task (#10263). Default-on like `transcriptIngest`, and for the same kind of reason: it generates no work, only reads (reader Apps only, never the operator PAT), and is budgeted with a reserve floor, while default-off would leave the daily fit with no training data. Also requires `autonomous.eta.enabled` and an observability exporter. **Restart required**. **On a multi-host fleet declare `fleet.captain` together with `fleet.repo`** (#10329, #10395): only the captain refreshes and fits, and it publishes the fit through the store for every other host to serve. With no captain every host with a reader refreshes, against the same shared reader budgets; with a captain but no `fleet.repo` the other hosts cannot learn the fit and drift to `no_model`, so do not declare one there — see [Fleet captain](#fleet-captain-8848) and [eta → one refresher](eta.md#fleet-refresh-task-autonomousetafleetrefresh-10263) |
+| `fleet.etaAuthority` | `LOOM_ETA_AUTHORITY` | unset (#10498). The one host that computes and emits `eta.*` records and fits locally. Unset: the declared `fleet.captain`, else the host whose own `fleetRefresh.enabled` is on; several candidates fall back to the lowest host id with a warning. Re-read every pass. See [eta → one ETA authority](eta.md#one-eta-authority-per-fleet-fleetetaauthority-10498) |
+| `autonomous.eta.fleetRefresh.intervalSecs` | `LOOM_ETA_FLEET_REFRESH_INTERVAL_SECS` | `3600` (floor `900`); first cycle 120 s after start |
+| `autonomous.eta.fleetRefresh.maxCallsPerCycle` | `LOOM_ETA_FLEET_REFRESH_MAX_CALLS` | `300` forge calls per cycle for refresh passes, host-wide (`304`s and errors count) |
+| `autonomous.eta.fleetRefresh.backfillMaxCallsPerCycle` | `LOOM_ETA_FLEET_REFRESH_BACKFILL_MAX_CALLS` | `600` per cycle for backfill passes, host-wide (was `1500`, most of a 5,000/h installation, #10329); a larger backfill resumes next cycle. Spend per hour is `budget × 3600 / intervalSecs`, so a lowered `intervalSecs` multiplies it |
+| `autonomous.eta.fleetRefresh.reserveCalls` | `LOOM_ETA_FLEET_REFRESH_RESERVE` | `1500` — below this many remaining core calls, skip the rest of that reader installation's repos (App and repo owner, #10329) this cycle |
+| `autonomous.eta.fleetRefresh.backfillDays` | `LOOM_ETA_FLEET_REFRESH_BACKFILL_DAYS` | `21` (floor `15`, the fit window + 1) |
+| `autonomous.eta.fleetRefresh.signoz.*` (`enabled`, `endpoint`, `user`, `credentialFile`, `pageSize`, `maxPages`) | `LOOM_ETA_FLEET_SIGNOZ_*` (`_ENABLED`, `_ENDPOINT`, `_USER`, `_CREDENTIAL_FILE`, `_PAGE_SIZE`, `_MAX_PAGES`) | `false` (#9758). Caches the fleet's `sweep.outcome` records from SigNoz (the in-sweep half). Needs `endpoint` (ClickHouse HTTP) and `credentialFile`, the path of an owner-only password file outside every repo, never the secret. `pageSize` `500`, `maxPages` `200`. Runs inside the fleet refresh cycle, so it also needs `fleetRefresh.enabled`. See [`eta.md` → SigNoz in-sweep half](eta.md#signoz-in-sweep-half-fleetrefreshsignoz-9758) |
 
 Model, heuristics, explanation schema, scoring and queries:
-[`eta.md`](eta.md).
+[`eta.md`](eta.md); the fleet refresh task's passes, resume files, rate-limit
+backoff and calls per refresh: [`eta.md` → Fleet refresh
+task](eta.md#fleet-refresh-task-autonomousetafleetrefresh-10263).
 
 ## Reaper task
 
@@ -3198,31 +3326,56 @@ old→new-SHA comment, then swaps the verdict label (plus the per-tree companion
 | Head SHA unreadable | `Keep(NoHeadSha)` — fail safe. |
 | `loom:blocked` / `loom:operator` / `loom:operator-only` | `Keep(Held)` — still stale, but clearing would silently un-park a PR an operator (or Champion's capped-PR recovery pass) deliberately held. |
 | Force-push vs. new commits | Not distinguished, deliberately. Any head move invalidates the verdict; an appended commit is as much "not the tree that was reviewed" as a rebase. |
-| Head moved but the **tree** did not | `handle_invalidate` re-anchors instead of clearing (#9124) — see below. |
+| Head moved but the **change did not** | `handle_invalidate` re-anchors instead of clearing (#9124, #9416) — see below. |
 
-#### The tree-identical head move is not a stale verdict (#9124, #9576)
+#### An equivalent head move is not a stale verdict (#9124, #9576, #9416)
 
 `decide_verdict` stays a pure function: any head move off the marker SHA is
 `Invalidate`, with no inference from commit message, author or ref-update shape.
-The one carve-out sits strictly *downstream* of that answer and runs on
-**evidence**: `forge_tree_unchanged::tree_unchanged` asks GitHub's own
-`compare/{marker}...{head}`, and `files: []` **together with** `status`
-`identical` or `ahead` proves the two commits' trees are byte-for-byte identical.
-`files: []` alone does not: the three-dot compare diffs the merge-base, so a head
-force-pushed *back* to an ancestor reads `behind` with no files although the trees
-differ, and `diverged` has the same hole — both invalidate (PR #9581 review). When
-equality is proven the reviewed code *is* what is at the new head, so
-clearing the verdict buys a full extra Judge cycle and nothing else. The measured
-cause on this repo is the `#8248` required-check-freshness guard's automated
-`chore: re-date required checks …` commit (#8508).
+The carve-out sits strictly *downstream* of that answer and runs on **evidence**.
+A review verdict is a statement about **the change the PR makes**, not about a
+commit id, so `verdict_equivalence::detect` re-derives — from git objects and the
+forge's own compare endpoint, never from a comment or marker — whether the
+reviewed change is still the change in front of it. Three kinds, tried in this
+order:
+
+| Kind | Carried when | Computed by |
+|------|--------------|-------------|
+| `tree` (#9124, #9576) | the two heads' trees are byte-identical | `forge_tree_unchanged::tree_unchanged` — `compare/{marker}...{head}` reporting `files: []` **together with** `status` `identical`/`ahead` |
+| `clean-merge` (#9416) | the head is a two-parent merge whose **first** parent is the reviewed head, whose second parent is a commit on the PR's base branch, and whose tree equals `git merge-tree --write-tree <reviewed> <base-parent>` — so no hand edits and no conflict resolution | `verdict_equivalence::clean_merge`, local git (never fetches; an absent object is no answer) |
+| `rebase-patch-identical` (#9416) | the PR's own merge-base-relative patch is byte-identical before and after the move — same file set, statuses, resulting blob ids and patch text | `verdict_equivalence::patch_identity`, comparing `compare/{base}...{reviewed}` with `compare/{base}...{head}` |
+
+`files: []` alone proves nothing for the `tree` kind: the three-dot compare diffs
+the merge-base, so a head force-pushed *back* to an ancestor reads `behind` with
+no files although the trees differ, and `diverged` has the same hole — both
+invalidate (PR #9581 review). The `rebase-patch-identical` kind has the matching
+hole and the matching refusal: two **empty** merge-base-relative diffs only say
+"each head equals its own merge base", and those bases can differ, so that answers
+*no* rather than *yes*; so does any changed file whose `patch` the endpoint omitted
+(binary content, or a diff too large to serialize — no byte evidence either way),
+and so does a `files` array at the endpoint's 300-entry cap, which may be
+truncated.
+
+When any kind proves equivalence, the reviewed change *is* the change at the new
+head, so clearing the verdict buys a full extra Judge cycle and nothing else. The
+measured cause on this repo is the `#8248` required-check-freshness guard's
+automated `chore: re-date required checks …` commit (#8508); an audit of 16 merged
+PRs whose heads moved after approval found six moved heads — four clean fleet
+merges of `main`, two rebases — all six with byte-identical patches.
 
 | Property | Behavior |
 |----------|----------|
-| Kill switch | `LOOM_VERDICT_TREE_CARVEOUT` (`0`/`false`/`no`/`off` disables) — honoured by **both** paths, since it is read inside the shared module: the daemon pass (where it is nested inside `LOOM_VERDICT_STALENESS_RECONCILE`) and `forge tree-unchanged`, which with the switch off makes no compare call and exits 1 with no answer, so the shell guard invalidates too. Defaults **ON** — it can only ever *reduce* exposure, since it fires only on a positive proof of equality. |
-| Daemon pass | `reanchor_tree_unchanged_verdict` posts a marker for the new head and leaves the verdict label untouched. Nothing is disarmed: an armed auto-merge would land the reviewed tree. Counter: `VerdictReconcileStats::tree_identical_reanchors`. |
-| Shell guard | Reports `FRESH` (exit 0) with the reason naming the byte-identical trees, and writes nothing. It does **not** re-anchor — the marker write stays in the daemon — so it pays one compare call per pass until the periodic pass re-anchors. |
-| Comparison unavailable | `None` / no `TREE_UNCHANGED=1` line ⇒ **invalidate as before**. A `gh` failure, an unparsable response or one missing `status`/`files`, a ref the repo does not carry, an argument that is not a bare hex SHA, a non-GitHub forge, an absent `loom-daemon`, or one predating the verb all land here. Fail closed, in both paths. |
-| One implementation | `loom-daemon/src/forge_tree_unchanged.rs`. The daemon pass calls it in-process; the shell guard reaches it through `loom-daemon forge tree-unchanged <base> <head>` (prints `TREE_UNCHANGED=1|0`, exit 0; exit 1 = no answer). There is deliberately no copy of the comparison in shell — #9576 was caused by the shell guard having *no* tree comparison while the daemon had one, so PRs #9541/#9483 lost verdicts the daemon pass would have kept. |
+| CI is never exempted | Only the **review** carries over. Every required check re-runs against the new head, whichever kind applied — the base really did move, which is the point of the re-date remedy. Nothing in `verdict_equivalence` touches a check, a status, or an auto-merge arm. |
+| Kill switches | `LOOM_VERDICT_TREE_CARVEOUT` (`0`/`false`/`no`/`off`) disables **all three** kinds; `LOOM_VERDICT_EQUIVALENCE` is nested inside it and disables only #9416's `clean-merge` and `rebase-patch-identical`, leaving the `tree` kind in place. Both are read inside the shared module, so both paths honour them: the daemon pass (itself nested inside `LOOM_VERDICT_STALENESS_RECONCILE`) and `forge verdict-equivalent`, which with a switch off asks nothing and exits 1 with no answer, so the shell guard invalidates too. Default **ON** — each kind fires only on a positive proof and fails closed otherwise, so it can only ever *reduce* exposure. |
+| Daemon pass | `reanchor_equivalent_verdict` posts a `<!-- loom:verdict-sha … -->` marker for the new head plus a `<!-- loom:verdict-equivalence kind=… from=… to=… -->` audit line naming the kind, and leaves the verdict label untouched. Nothing is disarmed: an armed auto-merge would land the reviewed change. Counter: `VerdictReconcileStats::tree_identical_reanchors`. The equivalence marker is an audit record **only** — no code path reads it back as evidence, because a marker is prose anyone can write (#9548). |
+| Shell guard | Reports `FRESH` (exit 0) with the reason naming the kind, and writes nothing. It does **not** re-anchor — the marker write stays in the daemon — so it pays the comparison per pass until the periodic pass re-anchors. |
+| Comparison unavailable | `Indeterminate` / no `EQUIVALENCE_KIND=` line ⇒ **invalidate as before**. A `gh` failure, an unparsable/truncated/`files`-less compare, an unresolvable base ref, a missing git object, a shallow clone, a git predating `merge-tree --write-tree`, a `merge-tree` conflict, a cwd that is not a git repository, an argument that is not a bare hex SHA, a non-GitHub forge, an absent `loom-daemon`, or one predating the verb all land here. Fail closed, in both paths and for every kind. |
+| One implementation | `loom-daemon/src/verdict_equivalence/` (which calls `forge_tree_unchanged.rs` for kind 1 rather than copying it). The daemon pass calls `detect` in-process; the shell guard reaches it through `loom-daemon forge verdict-equivalent <pr> <reviewed> <head>` (prints `VERDICT_EQUIVALENT=1` + `EQUIVALENCE_KIND=<kind>`, or `VERDICT_EQUIVALENT=0`, exit 0 for both; exit 1 = no answer). There is deliberately no copy of any comparison in shell — #9576 was caused by the shell guard having *no* tree comparison while the daemon had one, so PRs #9541/#9483 lost verdicts the daemon pass would have kept. |
+| Champion's critical-file hold | The same verb makes the `#9016` operator release durable across an equivalent head move, instead of re-arming the hold on a diff the operator already signed off (`champion-critical-file-hold.md`; rationale in `critical-file-hold.md`). |
+
+`forge tree-unchanged <base> <head>` remains, unchanged, as the narrow
+tree-identical verb (`TREE_UNCHANGED=1|0`, exit 0; exit 1 = no answer);
+`forge verdict-equivalent` is its superset and is what the shell guard now calls.
 
 #### Attributing re-dates: commit trailers and `merge-pr redate-report` (#9746)
 
@@ -3265,6 +3418,30 @@ commits**, which keep the PR branch's re-date commits reachable (verified
 undercounts. The PR's `loom:stale-check-redate` comment stays the budget's
 durable record either way.
 
+#### Re-dates per PR and time to land (#10163)
+
+On 2026-10-04 chain head #9832 was re-dated three times in about 40 minutes
+while `main` kept moving under it, and 31 approved PRs waited behind it. The
+per-check table above says *why* re-dates happen. It does not say *which PR*
+keeps being re-dated or how long that PR waited, so the livelock did not show
+on the dashboard. `merge_pr::redate::chain_telemetry` adds the per-PR view.
+
+| Surface | What it shows |
+|---------|---------------|
+| `merge-pr redate-report` | A `Per PR` section in the text output and `chains` in `--json`. Each row has the PR, its re-date count, the first and last re-date times, the landing merge's time, `time_to_land_secs` (first re-date to landing), and `stuck` (not landed after at least the default re-date budget of 3). |
+| `metric.points` (OTLP) | `loom.merge.redate_prs{state=landed\|pending\|stuck}`, `loom.merge.redates_max{state=landed\|pending}` and `loom.merge.time_to_land_max` (seconds). These are trailing-24 h gauges sampled on the `host.health` cadence by `observability::ops::redate_chain`. They are never labelled by PR. Every host that manages the repo reports it, so read them with `max` across hosts. A non-zero `stuck`, or a rising `redates_max{state=pending}`, is the livelock signature. |
+
+Unlike the per-check table, these rows also read every local
+**remote-tracking** ref (`git log <ref> --remotes`). A re-date commit only
+reaches `main` when its PR merges, so a PR that is still livelocked has all of
+its re-dates on its own branch. Everything is read from local git: nothing is
+fetched and no forge call is made. A PR is therefore seen as of the clone's last
+fetch. A remote branch whose PR closed unmerged reads as not landed until it is
+pruned, and the window bounds that error. Landing lookups are capped at 64 PRs
+per pass, most re-dated first. Telemetry only observes the livelock. The
+daemon-enforced chain-head merge lock that would prevent it is a separate
+follow-up.
+
 #### Anchoring an unmarked verdict (#6319)
 
 Failing safe on a missing marker is correct, but it is not a resting state: an
@@ -3302,8 +3479,8 @@ run through `.loom/scripts/verdict-staleness-guard.sh`, which takes `--clear` /
 decision, **not** the code this pass runs — they are two mechanisms that must be
 kept agreeing, and the two places they share an implementation are the ones that
 were too costly to duplicate: the #8900 auto-merge disarm (`loom-daemon forge
-disable-auto-merge`) and the #9124 tree-identical test (`loom-daemon forge
-tree-unchanged`, #9576). Callers:
+disable-auto-merge`) and the #9124/#9576 equivalence test (`loom-daemon forge
+verdict-equivalent`, #9416). Callers:
 judge.md's "Stale-Verdict Sweep" (step 0 of every pass),
 doctor.md's "Stale-Verdict Check" (before claiming from either priority queue),
 champion-pr-merge.md's "Verdict-State Janitor → Part 2" (before the 6 safety
@@ -3600,6 +3777,20 @@ at the source (a `Done` epic auto-closes before anything downstream can even
 cite it as unpromoted); the Champion-side check is what actually resolves the
 trap once it has already occurred, including across a repo boundary this
 supervisor cannot cross.
+
+## Curator intake reconcile (#10041)
+
+Each work-finder listing of a workspace also runs a cadence-gated intake pass
+(`loom-daemon/src/intake_reconcile.rs`): every open **issue** (never a PR) with
+no `loom:*` label gets `loom:triage`, so Curator has one queue. Non-`loom:`
+labels such as `bug` do not count. Issues younger than 2 minutes are skipped (a
+filer may still be labeling), the pass is REST-only, idempotent, and batch-capped.
+`create-issue.sh` also adds `loom:triage` when the caller passes no `loom:*`
+label. **Requires the work finder**, which is opt-in and off by default
+(`LOOM_WORK_FINDER`, below): without it this pass never runs. When the work
+finder runs, the pass is on unless `LOOM_INTAKE_RECONCILE=0`; also
+`LOOM_INTAKE_RECONCILE_INTERVAL_SECS` (300), `LOOM_INTAKE_RECONCILE_MAX_PER_PASS` (50).
+Writes are gated by `write_scope` (#9548).
 
 ## Autonomous work finder (#3810)
 
@@ -4163,7 +4354,21 @@ repository is now the parallelism boundary:
   `loom:review-requested` count is unfiltered: Judge's queue has no label
   exclusions. The labels come from the same listing rows. A failed listing records nothing, and an entry older than
   `demandWidth.staleSecs` is ignored, so an axis nobody has observed recently is
-  **unobserved** and changes nothing. For a PR role,
+  **unobserved** and changes nothing. An axis has **two** readings (#9414): the
+  **fresh** sum (only entries younger than `staleSecs`), which the reservation
+  below and the #9410 build back-off use; and the **width** sum, which adds in
+  every stale entry's *last-known* count and is unobserved only when the axis
+  has no fresh entry at all **or** its total is zero. A judge/doctor entry
+  refreshes only when that role *runs* in that repository, and width is what
+  decides how often it does, so a fresh-only sum made width its own input:
+  a few stale repositories read as `0`, width dropped, fewer repositories were
+  visited, more entries went stale — which could hold judge at width 1 while
+  the real host review debt justified the whole Phase 1 budget. Over-counting
+  is safe on the width side only: width is clamped at
+  `min(max, roleMaxConcurrent budget)`, so its worst case is exactly the Phase
+  1 budget, and judge/doctor are queue-gated, so a wider budget cannot start a
+  run on a repository whose queue is actually empty (an empty queue returns
+  without spawning and does not use up the tick's budget). For a PR role,
   `width = clamp(ceil(debt / perRun), 1, min(max, roleMaxConcurrent budget))`
   (the Phase 1 budget when unobserved). Judge and doctor use that width as their
   effective budget, and a refusal at it is logged naming the width and the
@@ -4178,6 +4383,10 @@ repository is now the parallelism boundary:
   only on an admission, so every repository with debt is still reached within a
   bounded number of ticks. One `INFO` line is logged when a role's width or
   reservation changes, naming the debt, `perRun`, `max` and the Phase 1 budget.
+  It reports **both** readings as `debt <last-known> (fresh <fresh>)`, so a
+  drained host (`debt unobserved (fresh 0)`) is distinguishable from an
+  unvisited one (`debt unobserved (fresh unobserved)`) and the gap between the
+  two sums — how far behind the fresh sum has fallen — is visible (#9414).
   Idle-edge runs keep the Phase 1 budget. `demandWidth.enabled: false` restores
   exactly the Phase 1 admission (no ledger reads, no reservation, no `loom:pr`
   count).
@@ -4217,8 +4426,10 @@ of its own.
   runner's in-memory demand ledger (see [Concurrent across
   repositories](#concurrent-across-repositories-one-instance-per-repository-role-9391))
   with `autonomous.roleRunner.demandWidth.staleSecs`:
-  `debt = review + changes + merge` over the axes with a fresh entry. **No
-  forge call** is added. Each axis leaves out the PRs its role will not
+  `debt = review + changes + merge` over the axes with a fresh entry — the
+  **fresh** sum only, never the width reading that counts stale entries at
+  their last-known value (#9414), because an over-count here would keep new
+  builds held off. **No forge call** is added. Each axis leaves out the PRs its role will not
   drain: merge excludes operator-held PRs (`loom:blocked` / `loom:operator` /
   `loom:operator-only`), changes excludes parked PRs (`loom:blocked` /
   `loom:operator-only` — not `loom:operator`, which Doctor still drains;
@@ -5114,6 +5325,13 @@ knobs not yet audited here.
 | `autonomous.mainHealthGate.ciWorkflow` | `LOOM_GATE_CI_WORKFLOW` | *(unset)* | Forge workflow that must itself conclude `success` for forge-CI corroboration to vouch for a commit (#3987). Empty/whitespace → unset. Absent → today's unanimity rule, unchanged. See [Optional named verification workflow](#optional-named-verification-workflow-loom_gate_ci_workflow-3987) |
 | `autonomous.mainHealthGate.suppressDispatchDuringGate` | `LOOM_MAIN_HEALTH_GATE_SUPPRESS_DISPATCH` | `true` | Hold new dispatch off a root while its build-gate run is in flight (#4084), per-root so a sibling with no gate in flight keeps dispatching. Env truthy (`1`/`true`/`yes`/`on`) enables, any other value disables; wins over config. Set `false` to recover the pre-#4084 `is_halted`-only behavior. **Restart required** — resolved once at startup from the primary workspace config (#5963). See [build-gate.md → gate-in-flight dispatch suppressor](build-gate.md) |
 | **`forge.githubApp.mintTimeoutSeconds`** (not `autonomous.*` — it lives beside the `appId` / `privateKeyPath` that `github-app-token.sh` itself reads) | `LOOM_GITHUB_APP_MINT_TIMEOUT_SECS` | `90` | Bound on one `github-app-token.sh get-token` subprocess (#5630). Raised from the pre-#5630 fixed `20` because on a saturated host (`observed_idle=0%`) fork/exec + the JWT sign + two GitHub round-trips routinely exceeded 20s, failing a refresh tick that succeeds in ~30ms by hand. Zero/invalid → default. The mint is additionally retried **once** on a transport-level failure (timeout / spawn error), never on a parsed `{"status":"error"}` answer |
+| `forge.identities.readers[].owners` | *(config only)* | *(absent = every owner)* | The owners one reader App serves (W4-B), e.g. `["acme"]`. A reader limited to some owners is left out of every other owner's reader walk, so its `hash(owner/repo) mod N` uses only the readers that serve that owner: adding a reader for one owner reshuffles that owner's repos once and leaves every other owner's placement unchanged. Entries are owner names (lowercased); an invalid entry is dropped and `forge identities` reports it, as it does a list with no valid owner (that reader serves nothing). Re-read every 60 s |
+| `forge.readPool.routing.splitRepos` | `LOOM_READ_POOL_SPLIT=0` disables | `[]` | Hot repos (`owner/repo`) whose reads are split across the reader pool **per request** instead of all going to the repo's one home reader (W4-B). The reader is `SHA-256("loom-read-pool/split/v1:" + owner/repo + "\|" + affinity key)` mod N, where the affinity key is the request's identity — the `gh` subcommand, positional args, method and `-f`/`-F` fields, with `-H`, `--jq`, `--template`, `--include`, `--paginate`, the host flag and `--cache` removed, or a conditional read's URL — so one URL always lands on one reader and keeps its ETag (GitHub ETags are credential-specific; the cache key is unchanged, a 304 is only trusted from the reader that matched the sent validator, so a URL that moves costs one 200). A read with no key (the plain `read_credential` callers) keeps the home reader. Re-read every 60 s |
+| `forge.readPool.routing.spill` | `LOOM_READ_POOL_SPILL=0` disables the latch **and** the split (home reader only) | `true` | The spill latch (W4-B), per `(owner/repo, resource, home reader)`, in memory. **Off → partial** when the home bucket's projected use (`used / max(elapsed fraction, 1/6)`, the W1 bucket book; unknown in the first 10 minutes of a window while more than half remains) reaches `spillProjectedPct`; **→ full** at `spillFullPct` or when the home reader is withdrawn for that owner and resource. Partial moves exactly the requests whose `SHA-256("loom-read-pool/spill/v1:" + owner/repo + "\|" + affinity key)` is odd; full moves all. The target is the next reader in walk order that is not withdrawn and is projected below `targetMaxPct` (or unknown); with none, the request stays home. The latch pins the target it chose until it releases — later readings of the target never move a spilled URL (each move costs a full 200, since ETags are credential-specific) — and re-picks only when the pinned target is withdrawn, its token is stale, or it is projected at or above `spillFullPct`. The latch releases at the home bucket's reset (the later of the reset and a live withdrawal's end), capped at 3660 s after it engaged; with no known reset, 3600 s after. Better readings never release it early. An unknown home reading never engages it. Each transition emits a `forge.reader.spill` span |
+| `forge.readPool.routing.spillProjectedPct` | *(config only)* | `70` | Home projection that engages a partial spill. Must satisfy `0 < targetMaxPct < spillProjectedPct < spillFullPct ≤ 100`; an invalid set falls back to `60`/`70`/`90` (all three) with a warning in `forge identities` and the daemon log |
+| `forge.readPool.routing.spillFullPct` | *(config only)* | `90` | Home projection that engages a full spill |
+| `forge.readPool.routing.shedPct` | *(config only)* | `80` | W4-C headroom reserve: a `Hygiene`/`Observability` read whose first serving reader is projected at or above this, with no other reader below `targetMaxPct`, is shed (a budget exhaustion) before any real rate limit, so the rest of the bucket stays for `Gate` reads. Must satisfy `targetMaxPct < shedPct ≤ spillFullPct`; unset or invalid, it is `80` clamped into that range (with a warning when invalid). Gate reads ignore it |
+| `forge.readPool.routing.targetMaxPct` | *(config only)* | `60` | A spill never *starts* on a reader projected at or above this. A pinned target keeps its spill until it reaches `spillFullPct` (so the target band is hysteretic, and a target crossing this mark does not bounce URLs back home) |
 | *(env only — n/a)* | `LOOM_FORGE_CREDENTIAL_STALE_GRACE_SECS` | `1800` | How long after the **first** failure of a consecutive credential-refresh-failure streak the main-health gate treats its forge answers as untrustworthy and holds each repo's previous verdict (#5630). Env-only: the credentials are daemon-global, so a per-repo config key would be ambiguous. Zero/invalid → default. See [Stale-credential gate hold](#stale-credential-gate-hold-5630) below |
 | `autonomous.roleRunner.enabled` | `LOOM_ROLE_RUNNER` | `false` | Periodic standalone support-role runner on/off (#4015). **Resolved per registered root** (#4377) — see the callout below the table. **Live** — every `roleRunner.*` key (`enabled`, `roles`, `onIdle`, `model`, …) is re-read from that root's config on every role-runner tick, not cached at daemon startup; no restart needed for a config-only change (#5963) |
 | `autonomous.roleRunner.roles` | *(config only)* | the 7 **interval-default** roles (`architect` excluded, #5656) | Subset of `champion`/`curator`/`judge`/`doctor`/`auditor`/`guide`/`hermit`/`architect` to dispatch on the interval cadence; explicit empty array runs none. **The absent-key default is the interval-default subset, not the whole table**: `architect` is idle-addressable-only (see `onIdle` below) and is never swept in by the "unset ⇒ all defaults" fallback — naming it here explicitly is the deliberate opt-in to a timer-driven architect (1h cadence). **Allowlist, not an addition** — must be updated by hand when a new interval-default role ships, or it silently never dispatches (#5339); a non-empty pinned list missing an interval-default entry warns, once per resolved-config change, in one workspace-named aggregated line (#6163) (omitting `architect` never warns — that is correct, not stale; neither does omitting a role named in `onIdle`, which dispatches on the idle edge instead). Also resolved from each root's own config |
@@ -5125,7 +5343,7 @@ knobs not yet audited here.
 | `autonomous.roleRunner.demandWidth.max` | *(config only)* | `4` | Upper clamp on judge, doctor and champion width. Still capped by the role's `roleMaxConcurrent` budget, so at the default ceiling of 7 (budget 3) it binds only where the budget is 4 or more — demand never raises a role above its budget. Zero, negative or non-integer drops to the default. **Live** |
 | `autonomous.roleRunner.demandWidth.reserve` | *(config only)* | `true` | Champion-first ceiling reservation: admitting a role leaves free the unfilled `min(width, repositories with debt)` of each higher-priority PR role (champion > judge > doctor > others). `false` keeps the width but reserves nothing. **Live** |
 | `autonomous.roleRunner.demandWidth.nonPrFloor` | *(config only)* | `1` | Ceiling slots the reservation always leaves for non-PR roles: the reservation never exceeds `maxConcurrent − nonPrFloor`. Zero, negative or non-integer drops to the default. **Live** |
-| `autonomous.roleRunner.demandWidth.staleSecs` | *(config only)* | `1800` | Demand-ledger entries older than this many seconds are ignored; an axis with no fresh entry is unobserved and falls back to Phase 1 behaviour. Zero, negative or non-integer drops to the default. **Live** |
+| `autonomous.roleRunner.demandWidth.staleSecs` | *(config only)* | `1800` | Demand-ledger entries older than this many seconds are stale; an axis with no fresh entry is unobserved and falls back to Phase 1 behaviour. The reservation and the #9410 build back-off sum only fresh entries; the PR-role **width** adds in every stale entry's last-known count (#9414), so it is unobserved only when the axis has no fresh entry or a zero total. Zero, negative or non-integer drops to the default. **Live** |
 | `autonomous.roleRunner.model` | *(config only)* | `sonnet` | Model every role child is pinned to via `--model` (#4501). Resolved through the same `resolve_dispatch_model` chain as sweep dispatch: this key > `autonomous.model` > shipped default; blanks treated as unset. A role child never inherits the account's interactive CLI default |
 | `autonomous.roleRunner.onIdle` | *(config only)* | `[]` (none) | Subset of all **8** shipped roles — the 7 above **plus `architect`**, which is reachable here and nowhere else by default (#5656) — to fire on the work-finder **idle edge** (#4364) — the non-idle → idle transition (0 in-flight sweeps AND nothing dispatched this tick), in addition to the interval cadence. Absent → none (opposite default from `roles`); unknown names ignored with a warning. Debounced to min 60s per (root, role) and skipped while that role's interval/idle run is in progress. **Requires the work finder enabled** to observe idleness (a startup warning fires if set with the work finder off). **Also gated by that same root's own `enabled`** (#4377) — see below |
 | `autonomous.roleRunner.onIdleMaxWait` | *(config only)* | *(unset — no promotion, today's idle-edge-only firing)* | **Per-role starvation guard for an `onIdle` role (#7511).** A `{"<role>": "<duration>"}` object (e.g. `{"hermit": "24h", "auditor": "72h"}`, duration strings `<n>s`/`<n>m`/`<n>h`/`<n>d`) naming the longest a role may go without a completed tick before it is **promoted** into the next interval-cadence pass — see [`onIdleMaxWait` — promoting a starved `onIdle` role](#onidlemaxwait--promoting-a-starved-onidle-role-7511) below |
@@ -5166,7 +5384,7 @@ knobs not yet audited here.
 | `autonomous.autoUpdate.enabled` | `LOOM_AUTO_UPDATE` | `false` | Autonomous self-update loop on/off (#4055). **Opt-in** (it rebuilds + restarts the daemon process). Exactly one loop per daemon, not a per-workspace fan-out. See [Autonomous self-update loop](#autonomous-self-update-loop-4055) below |
 | `autonomous.autoUpdate.intervalSecs` | `LOOM_AUTO_UPDATE_INTERVAL_SECS` | `900` | Cadence between staleness checks. Zero/invalid → default |
 | `autonomous.autoUpdate.settleSecs` | `LOOM_AUTO_UPDATE_SETTLE_SECS` | `600` | Settle window: wait this long after first observing a stale commit — resetting on every further commit — before rolling, so a burst of merges collapses into one roll. Zero/invalid → default |
-| `autonomous.transcriptIngest.enabled` | `LOOM_TRANSCRIPT_INGEST` | **`true`** | Periodic transcript token/cost ingestion into `~/.loom/activity.db` (#8059, flipped default-on by #8477). **The one `autonomous.*` knob that defaults ON against the FLAGS-OFF convention**, deliberately: it generates no work (a passive, ledgered, idempotent telemetry writer), while default-*off* silently destroyed data — Claude Code deletes transcripts after `cleanupPeriodDays` (default 30), so every host that never hand-set the env var lost its cost history permanently. Env `0`/`false`/`no`/`off` opts out; an unrecognized value falls through to config/default rather than silently disabling. **Restart required** — resolved once before the thread is spawned. See [`transcript-token-ingest.md`](transcript-token-ingest.md) |
+| `autonomous.transcriptIngest.enabled` | `LOOM_TRANSCRIPT_INGEST` | **`true`** | Periodic transcript token/cost ingestion into `~/.loom/activity.db` (#8059, flipped default-on by #8477). **Deliberately defaults ON against FLAGS-OFF**, like the `autonomous.eta.*` writers: it generates no work (a passive, ledgered, idempotent telemetry writer), while default-*off* silently destroyed data — Claude Code deletes transcripts after `cleanupPeriodDays` (default 30), so every host that never hand-set the env var lost its cost history permanently. Env `0`/`false`/`no`/`off` opts out; an unrecognized value falls through to config/default rather than silently disabling. **Restart required** — resolved once before the thread is spawned. See [`transcript-token-ingest.md`](transcript-token-ingest.md) |
 | `autonomous.transcriptIngest.intervalSecs` | `LOOM_TRANSCRIPT_INGEST_INTERVAL` | `900` | Seconds between ingestion passes. Zero/invalid → default. **Restart required** |
 | `autonomous.transcriptIngest.windowHours` | `LOOM_TRANSCRIPT_INGEST_WINDOW_HOURS` | `24` | How far back each pass looks; `0` = full history (the unchanged-file ledger keeps that cheap after the first pass). **Restart required** |
 | `autonomous.transcriptArchive.enabled` | `LOOM_TRANSCRIPT_ARCHIVE_ENABLED` | `false` | Scheduled raw-transcript archive pass (#8758, part 1 of #8714's G2): the daemon runs the existing `archive-transcripts` pass (#8494) on `intervalSecs` cadence, no manual CLI step. FLAGS-OFF like every other `autonomous.*` toggle — the pass consumes real disk and the derived data it backstops is already preserved by `transcriptIngest`. The ledger is keyed per `(transcript, sink)`; existing pre-#8758 rows migrate to `sink='local'` on first open. **Restart required** — resolved once before the thread is spawned. See [`transcript-token-ingest.md`](transcript-token-ingest.md) |
@@ -6133,9 +6351,23 @@ sustain counter, because a rate-limit rejection is unambiguous:
   *not* count against the quota — learns the real reset epoch; the cooldown
   runs to the latest exhausted resource's reset, clamped to `[60s, 3600s]`,
   falling back to `fallbackCooldownSecs` when the probe fails.
+- Reset evidence belongs to the credential that failed (#8997): the trip
+  lands first (no probe storms, no recursion), `X-RateLimit-*` headers from
+  the failing response win when captured, and otherwise the probe runs with
+  the failing call's workspace root / `gh` program / `GH_CONFIG_DIR`. A probe
+  reading *healthy* during a primary-limit failure (ambient user token, or a
+  new installation's false-full `/rate_limit`) or carrying an expired reset
+  is distrusted: the trip takes `fallbackCooldownSecs` and the reading is not
+  shown as the budget.
+- The dispatch path's `loom:building` label flip and lease comment, and
+  safehouse's forge lookups, report rate-limited failures too (#8997), so the
+  first authoritative failure trips the breaker; their probe runs off-thread.
 - While cooling, the work-finder, claim/quarantine reconciliation, epic
-  supervisor, and role-runner ticks **skip entirely** — zero gh calls, zero
-  doomed role spawns. Running sweeps are never touched.
+  supervisor, role-runner ticks and safehouse lookups (title enrichment,
+  merge verification, merge reconciliation) **skip entirely** — zero gh
+  calls, zero doomed role spawns; safehouse keeps narrating with what it has,
+  and an unverified completion is reconciled after release. Running sweeps
+  are never touched.
 - The breaker **releases itself** on the first tick past the reset. Edges are
   logged once each way and published as `daemon.rate_limit_breaker.state`
   events; `loom-daemon status` shows the phase, the tripping loop, the resume
@@ -6153,6 +6385,49 @@ nothing changed answers `304 Not Modified`, which costs **zero** rate limit.
 The cache is in-memory, per (workspace, query), for the daemon's lifetime; a
 restart re-fetches each listing once. PR-side claim listings stay on
 `gh pr list` (they need `headRefName`, which REST issue rows do not carry).
+
+### Agent CI wait: `forge wait-checks` (#10330)
+
+`loom-daemon forge wait-checks <PR|SHA> [--timeout SECS] [--required-only]
+[--repo O/R] [--base BRANCH]` is the agent-side counterpart of the steady-state
+work above: it waits for a PR's (or a commit's) CI with REST reads revalidated by
+ETag — `pulls/{n}` (head SHA; the same entry `forge pr view --cached` holds),
+`commits/{sha}/check-runs` and `commits/{sha}/status` — so an unchanged poll is
+three free `304`s. The first poll is immediate; then 30s, ×1.5 per poll, capped
+at 120s (`--min-interval`/`--max-interval`, `LOOM_WAIT_CHECKS_MIN`/`_MAX`). On a
+simulated 15-minute run whose rollup changes 6 times that is 11 polls and 11
+quota-spending (non-`304`) responses, against ~16 unconditional GraphQL
+`gh pr checks` reads for the retired 60s prompt loop. Reads are recorded under caller `forge_wait_checks`, so
+`loom-daemon status` shows its `ok` / `not_modified` split.
+
+Exactly one sentinel line goes to stdout; callers branch on it, never on the exit
+code (clap's usage error is also `2`, and an older binary lacks the verb). Parse
+the sentinel from **stdout only** — never from a `2>&1` merge: notes, the RED
+detail lines, and any library warning go to stderr, and a merged stream would
+let one of them be read as the sentinel:
+
+| Sentinel | Exit | Meaning |
+|---|---|---|
+| `LOOM-CHECKS-GREEN <sha>` | 0 | every check (or, with `--required-only`, every required check) is terminal-success |
+| `LOOM-CHECKS-NONE <sha>` | 0 | zero rows, confirmed by the bounded zero-row settle (`merge_pr::zero_checks`), and the base branch requires no contexts |
+| `LOOM-CHECKS-RED <sha> <names>` | 1 | a terminal failure (`failure`/`timed_out`/`cancelled`/`action_required`, or any other non-success conclusion); stderr lists `<name>\t<url>\t<run_id>` per check for `gh run view <run_id> --log-failed` |
+| `LOOM-CHECKS-TIMEOUT <sha> <pending>` | 2 | the deadline passed with checks pending — including zero rows while required contexts exist (never `NONE`) |
+| `LOOM-CHECKS-ERROR <reason>` | 3 | unreadable or truncated rollup, auth/404, repeated read failures, a required-context lookup still failing after 3 attempts when the wait would otherwise settle (`required-lookup-failed: …`), or Gitea |
+| `LOOM-CHECKS-HEAD-MOVED <old> <new>` | 4 | PR mode: the head changed mid-wait, so no verdict for `<old>` applies to `<new>` |
+
+`--timeout 0` is one snapshot poll. Default mode settles on every observed check,
+and before `GREEN` also waits for a required context that has not registered yet
+(no check-run or status for it exists): that context is pending, not green. The
+required set is the same two-source lookup the merge guards use
+(`stale_checks::fetch::required_contexts`), made only when a verdict needs it and
+cached once it succeeds. A failed lookup is never cached and never read as
+"nothing required" (#10351): it is retried on the next poll, no poll settles
+`GREEN` while the set is unknown (a snapshot reports `TIMEOUT <sha>
+(required-contexts-unknown)`), and after 3 failed lookups a poll that would
+otherwise settle is `ERROR`. Under `--required-only`, a base branch that requires
+no contexts falls back to the default-mode decision over every observed check,
+with a stderr note — `gh pr checks --required` errors there ("no required checks
+reported"), so a vacuous `GREEN` would be a false pass.
 
 ### Cross-host dispatch-collision detection and enforcement (#4085, Phase 0 of #4028; enforcement added by #5789)
 
@@ -6592,9 +6867,9 @@ host is the declared captain. Collapsing "not applicable" into `false` would
 make the dashboard's "no host reports `is_captain: true`" check fire on every
 ordinary repo that has never opted in — the same "unknown != zero" contract
 every other optional field on that struct already follows. The dashboard
-(`dashboard/src/redaction.ts`'s `host.health` allowlist,
-`dashboard/web/src/fleet.ts`'s `singletonsArmedOnNonCaptain`/
-`noCaptainReporting`, rendered in `dashboard/web/src/views/fleetOverview.ts`)
+(`2AMLogic/loom-ui:src/redaction.ts`'s `host.health` allowlist,
+`loom-ui:web/src/fleet.ts`'s `singletonsArmedOnNonCaptain`/
+`noCaptainReporting`, rendered in `loom-ui:web/src/views/fleetOverview.ts`)
 flags (a) a singleton reported armed on a non-captain host, and (b) a fleet
 that has opted in (some host reports `is_captain` at all) but none of them is
 currently `true` — a typo'd or decommissioned captain id, or one that has
@@ -6712,6 +6987,40 @@ explicit disarm verb layered on top as an optional precision option**:
 Full module-level rationale (including why `evaluate()` stays pure while
 `run()` writes): `loom-daemon/src/fleet_captain.rs`'s "Two arm registries" /
 "Staleness policy" doc sections.
+
+#### The ETA fleet refresh: a fail-open singleton (#10329)
+
+`autonomous.eta.fleetRefresh` (#10263) publishes fleet-wide snapshots that are
+byte-deterministic and host-independent, from reader installations every host
+resolves identically. Running it on N hosts buys nothing and spends N times
+the shared reader budgets. Each tick re-reads the gate for the singleton job
+**`eta-fleet-refresh`**:
+
+| Gate | What the tick does |
+|---|---|
+| `Armed` (this host is the captain) | Arms `eta-fleet-refresh` (`host.health.armed_singleton_jobs`) and runs the cycle |
+| `Refused` (another host is) | **No forge call** (snapshots, backfill, raw events) and no `eta.fleet_refresh` record. The daily fit check still runs, on the snapshots this host has |
+| `NoCaptainDeclared` | Runs the cycle **unarmed**, and logs once that a multi-host fleet should declare a captain. Not listed in `captainless_singleton_jobs` |
+
+**Why it fails open, unlike `ci-telemetry-poll`**: the gate's fail-closed
+contract protects dedup-sensitive alerts, where a duplicate is a bug. A
+duplicate refresh only costs budget (each writer replaces whole files
+atomically and the output is deterministic). The task is on by default, so
+failing closed would silently stop every single-host install's fit.
+
+**A non-captain host's fit** sees the captain's snapshots only when its
+`LOOM_ETA_FLEET_SNAPSHOT_DIR` points at a directory shared with the captain.
+It then also honours the captain's six-hour backfill hold, read from the
+`refresh/` state beside the snapshots. Otherwise it fits on its own older
+snapshots, or has nothing to fit. The stand-down log line says which. Shipping
+the captain's coefficients to other hosts is separate follow-up work.
+
+**Operator step**: on a multi-host fleet, declare `fleet.captain` naming a
+host that has reader Apps, the OTLP exporter, and every fleet repo provisioned
+or already snapshotted (the repo set is that host's provisioned roots, its own
+repo, and every existing snapshot). Then re-enable `fleetRefresh` on any host
+where it was turned off as a mitigation; the other hosts stand down by
+themselves.
 
 ### Role-runner host roster (#6704, phases A and B)
 
@@ -7053,6 +7362,179 @@ carries each repo's own `token_pool_dir`/`ranking_present`/
 this loop uses), and `health --json`'s `tokens.detail.per_repo` surfaces it —
 see [token-pool.md's `loom-daemon health` distinction](token-pool.md#loom-daemon-healths-daemon-cwd-vs-operator-repo-distinction-5269)
 for the full incident writeup and the now-obsolete `$HOME`-refresh workaround.
+
+### Repo facts: base repo and canonical owner without a call per use (`LOOM_REPO_FACTS`)
+
+Several hot paths used to ask the forge the same static question on every
+pass: the worktree and primary-checkout reapers, `landed` and `clean` ran
+`gh api repos/{owner}/{repo} --jq .owner.login` (`clean.repo_owner`), and the
+open-linked-PR probe, the dispatch guards and the telemetry collector ran
+`gh repo view` (`worktree.resolve_repo`, `guard.repo_nwo`,
+`collector.repo_slug`). The answer changes only on a rename, a transfer or a
+remote edit. `loom-daemon/src/forge_repo_facts.rs` now answers it from two
+layers:
+
+1. **The base repo**, resolved locally the way gh resolves it (`GH_REPO` >
+   `gh repo set-default` > `upstream` > `github` > `origin`, the same port
+   write scoping uses). Each site keeps its own `GH_REPO` rule: placeholder
+   (`gh api`) sites honour `LOOM_REPO`/`GH_REPO`, `gh repo view` sites ignore
+   it. The answer is memoised until any git config file that defines it
+   changes. The fingerprint is `(dev, inode, length, mtime)` of every file
+   `git config --list --show-origin` read (system, global, includes),
+   `<common-dir>/config` and `<git-dir>/config.worktree` (presence counts),
+   plus the effective `GH_REPO`. A memo hit re-stats those files and forks
+   nothing. The ETag store's `origin` identity uses the same fingerprint, so a
+   `git remote set-url` is seen without a restart.
+2. **The canonical record**: the post-redirect `owner/name` from one
+   conditional `GET repos/<nwo>` (reader-first, call row `repo_facts.verify`,
+   op `repo.view`). It is kept in the private ETag store directory as
+   `repofacts-<hash>.json` (`0700` directory, atomic writes) and is re-read at
+   most every `LOOM_REPO_FACTS_VERIFY_SECS`. First-hand responses that name
+   the repo (issue listings' `repository_url`, pulls rows'
+   `base.repo.full_name`) refresh it for free when they match. When they do
+   not match, the record is marked suspect and re-read before its next use.
+   It is never rewritten from an observed body. A failed read backs off for
+   300 s. A 404, a 410 or "Could not resolve to a Repository" from a call that
+   used the fact marks the record suspect.
+
+**Ambiguous roots.** A checkout whose local answer may differ from gh's is
+cross-checked once per fingerprint against gh itself, using the command the
+site replaced (`repo_facts.crosscheck`). Such checkouts have more than one
+remote, a `gh-resolved` pin, a non-`github.com` or ssh-alias host, a
+`GH_REPO`/`LOOM_REPO` that differs from origin, or a `url.*.insteadOf` rewrite.
+On disagreement the root keeps its legacy forge calls for the life of the
+process, the counter `repo_facts.resolver_disagree` is bumped and a warning is
+logged. A remote that names a pre-rename slug bumps `repo_facts.redirected`
+and logs once per root. Fix it with `git remote set-url`.
+
+**Verified negatives are confirmed.** A `head=<owner>:<branch>` filter built
+from a stale owner returns `[]`, which reads as "no PR". So, for an owner that
+came from a record:
+
+- every row of a non-empty pulls answer must name the canonical repo as its
+  `base.repo.full_name`, else the status is `Unknown`;
+- an empty answer is `NoPr` only after a forced re-read of the record
+  (`repo_facts.confirm`) says the owner is unchanged. That costs at most one
+  read per root per reaper pass. A changed owner or a failed read gives
+  `Unknown`, which the reapers map to `SkipUnknownPrStatus`;
+- the open-linked-PR probe's `NoneOpen` gets the same confirm unless the
+  record was read in this lookup or this pass. A failed confirm is
+  `ProbeFailed`, so orphan recovery and check-claim never reset a claim on an
+  unconfirmed negative.
+
+`classify_worktree`, `classify_primary_checkout` and the landed ladder are
+unchanged. With a reachable forge the set of removals and switches is the same
+as before, and after a transfer it can only shrink.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LOOM_REPO_FACTS` | on | `0` makes every migrated site issue exactly its previous forge call and restores the ETag store's process-lifetime `origin` memo (the rollback switch). |
+| `LOOM_REPO_FACTS_VERIFY_SECS` | `21600` | How long a verified record is used before one conditional re-read. |
+
+### Untargeted reads route to readers; deferrable reads shed (`LOOM_FACADE_CWD_ROUTING`, `LOOM_READ_SHED`)
+
+Most daemon reads are built with no typed repository (`GhTarget::None`) and
+a working directory: `gh` itself works out the repo. Before W4-C such a read
+never reached a reader App, so it spent the writer's bucket. The `gh` choke
+point (`gh_invocation/cwd_route.rs`) now derives the repository for the
+**reader attempt only**. The authority is explicit repo, then
+`LOOM_REPO`/`GH_REPO`, then the sole local resolution:
+
+1. an explicit `-R`/`--repo` on `issue|pr view|list` (or
+   `gh repo view OWNER/REPO`). The subcommand allowlist is checked first,
+   so `pr edit -R`, `issue comment -R` or `pr merge -R` never derive;
+2. a `gh api repos/<owner>/<repo>/…` endpoint with a literal owner and repo;
+3. for a call gh resolves from its environment (a `{owner}/{repo}`
+   placeholder, or `issue|pr view|list` with no `-R`): `LOOM_REPO`
+   when it is set (the facade exports it as `GH_REPO`), else an inherited
+   `GH_REPO` — exactly the repo gh would read;
+4. otherwise the checkout's base repo (repo facts, above), only when it is
+   unambiguous, not pinned to legacy, and equal to the `origin` identity. Any
+   disagreement keeps the writer and bumps `facade.cwd_route.disagree`
+   (logged once per root);
+5. nothing else is derived: `api graphql`, `search`, `run`, `release`,
+   non-`repos/` endpoints, URL arguments, a non-`github.com` host, any
+   `gh api` call that is not a `GET` (a mutation sent through a read-intent
+   helper; `-f`/`-F` count as a body glued or not), the asker-dependent
+   endpoints (`/user`, `/installation/*`, `collaborators/*/permission`,
+   branch protection, rulesets), `issue|pr status`, and any argv naming
+   `@me` — those answer for whoever asks.
+
+Only a captured, unpinned read qualifies (no `.writer_identity()`,
+`.gh_config_dir()`, `.identity_role()` or `.without_token_env()`). A read
+with no working directory derives only from steps 1 and 2 (the argv names
+the repo). Reads that verify the daemon's own just-made write are pinned to
+the writer, since a reader may lag it: the dispatch guard's lease read-back
+(`guard.lease_comments`, behind the claim tie-break and the sole-claim
+confirmation), post-flip label read (`guard.issue_labels`) and claim
+timeline reads (`guard.claim_timeline`, behind the leaseless-claim yield
+and the phantom-claim revert), the claim check's `claim.labels` /
+`claim.lease_comments`, the reclaim verification (`claim.issue_labels`),
+the outcome write-back dedupe probe (`outcome.writeback_probe`),
+`comment.api_get` (a read-modify-write of a just-created object) and
+`merge_guard.head_sync`.
+`merge_group_ci.read` is pinned because a repo's `permissions` depend on who
+asks. The
+invocation's target is never changed: the reader attempt gets
+`GH_REPO=<derived>`, and the accounting row books `rp=<derived>`,
+`ro=derived`. The writer attempt (no reader, or the writer fallback) keeps
+exactly its pre-W4-C `GH_CONFIG_DIR` and `GH_REPO`.
+
+**Read classes.** `GhInvocation::read_class` tags a read `Gate` (the
+default), `Hygiene` or `Observability`. When the reader fails with a rate
+limit or a refused credential it is withdrawn and the next eligible reader
+serves the read. A `Gate` read takes any usable reader. A deferrable one
+needs headroom: on the first reader that could serve it, a projection below
+`shedPct` (the **headroom reserve**, default 80); on any later reader, below
+`targetMaxPct` (or no reading). When no reader is left (or the router
+reports it up front), a `Gate` read goes to the writer as before. A
+`Hygiene`/`Observability` read is **shed** only when the readers are out of
+**budget**: every reader that can see the repo is under a live rate-limit
+withdrawal or short of headroom, and none is out for another reason.
+Readers out for any other reason — the repo outside their installation (a
+coverage withdrawal), a stale or never-published token directory, a refused
+credential, an App-wide withdrawal — send a deferrable read to the writer
+like a `Gate` read, so reaping and intake never stop on a repo no reader can
+see. When shed, no request is sent, and the
+caller sees `Unavailable::Shed` ("deferred: reader budget low until
+<rfc3339> (loom-shed)"), which every such site maps to `UNKNOWN`,
+`PrStatus::Unknown`, `None` or a skipped pass, and which matches no
+rate-limit signature, so it never trips the breaker. A shed books an
+`o=shed` row (charged nothing) and exports a `forge.read.shed` span
+(`forge.read.{op,class,app,owner,resource,until}`); the daemon log gets one
+`info` line per operation at most every 300 s (the rest at `debug`), and
+`intake_reconcile` reports a shed listing as a skipped pass, not a failure.
+Classified sites:
+Hygiene — `worktree.issue_state`, `worktree.has_open_pr`, `clean.pr_list`,
+`clean.pr_by_number_rest`, `clean.pr_status_rest`, `worktree.landed_pulls`,
+`intake.list_open`; Observability — `stage_dwell`'s `api.rest`,
+`telemetry.repo_identity`. `worktree.issue_state_rest`,
+`worktree.issue_closed_at` and `visibility.repo` are conditional reads
+through the shared ETag store (#10512) and route as `Gate` — not shed, but
+mostly free `304`s. Nothing under `sweep_registry/`,
+`claim_reconciliation`, `merge_*`, verdict, quarantine or reclaim, nor
+`forge_check_claim`, `cli/lease_co_occupancy`, `role_runner/roster`,
+`worktree_reaper` or `primary_checkout_reaper`, is ever anything but `Gate`
+(a test enforces it).
+
+**Rollout precondition.** The shed protects the writer only if the readers
+have the capacity to absorb what moves onto them. Before enabling W4-C on a
+host, list the busiest repositories (by `loom-daemon forge calls --by repo`)
+in `forge.readPool.routing.splitRepos` so their reads spread across the
+pool rather than draining one home reader, and check that the readers' per
+owner `core` buckets (`forge calls --by bucket`) have room for the
+untargeted reads that will move to them.
+
+**Gone memo.** A reader 404 followed by a writer 404 for the same
+`(owner/repo, request)` is remembered for 3600 s: inside that window a
+`Hygiene`/`Observability` read returns the reader's 404 with no writer retry.
+A `Gate` read always confirms on the writer, and the reader is not withdrawn.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LOOM_FACADE_CWD_ROUTING` | on | `0` disables the derivation: every untargeted read stays on the writer. Typed reads keep the class-aware chain, so a typed `Observability` read (`telemetry.repo_identity`) can still be shed. Read on every call. |
+| `LOOM_READ_SHED` | on | `0` treats every read as `Gate`: no shed and no gone-memo shortcut, so `Hygiene`/`Observability` reads fall back to the writer. Derivation stays on. Read on every call. |
+| `LOOM_READ_ROUTING` | `v2` | `legacy` is the only exact revert: the pre-W4 path (no derivation, no classes, no reserve, the unconditional reader → writer fallback), and it reverts W4-A's scoped withdrawal and W4-B's split and spill with it. `LOOM_FACADE_CWD_ROUTING=0` plus `LOOM_READ_SHED=0` together restore W4-C's load placement only (untargeted reads on the writer, nothing shed), keeping W4-A/W4-B, the retry on the next reader and the writer pins. Read on every call. |
 
 ### Merged-PR worktree reaper (#4876)
 
@@ -8093,7 +8575,7 @@ leaves the daemon's behavior byte-for-byte unchanged:
 | — | `autonomous.roleRunner.demandWidth.max` | config only | `4` (width clamp, still capped by the role budget) |
 | — | `autonomous.roleRunner.demandWidth.reserve` | config only | `true` (Champion-first ceiling reservation) |
 | — | `autonomous.roleRunner.demandWidth.nonPrFloor` | config only | `1` (slots always left for non-PR roles) |
-| — | `autonomous.roleRunner.demandWidth.staleSecs` | config only | `1800` (ledger entries older than this are unobserved) |
+| — | `autonomous.roleRunner.demandWidth.staleSecs` | config only | `1800` (ledger entries older than this are stale: unobserved for the reservation and the #9410 back-off, counted at their last-known value for PR-role width, #9414) |
 | — | `autonomous.roleRunner.onIdle` | config only | `[]` (none; may name any of the 8 shipped roles, `architect` included) |
 | — | `autonomous.roleRunner.model` | config only (`roleRunner.model` > `autonomous.model` > default) | `sonnet` (`DEFAULT_DISPATCH_MODEL`) |
 | — | `autonomous.roleRunner.effort` | config only (`roleRunner.roleEfforts.<role>` > `roleRunner.effort` > unset) | *(unset ⇒ **no** `--effort` argument; the runtime CLI's own session default, #8054)* |
@@ -11001,6 +11483,61 @@ throwaway issue from `loom:triage` → Curator → `loom:issue` → work-finder
 dispatch → PR → merge, with a scripted label-transition assertion, and confirms
 the operator only ever created the issue.
 
+## Reader withdrawal kill switch (`LOOM_READ_ROUTING`)
+
+When a reader App fails a read, the daemon withdraws it from routing for a
+while and retries the read once on the writer. Since W4-A the withdrawal is
+scoped to the `(App, owner, resource)` bucket that failed, so one owner's
+exhausted `core` pool no longer takes the reader off every other owner and
+resource; the rules are in
+[`github-authentication.md`](github-authentication.md#several-apps-one-writer-a-pool-of-readers-9248-9537).
+
+| Env | Default | Effect |
+|---|---|---|
+| `LOOM_READ_ROUTING` | *(unset: scoped)* | `legacy` (any case) restores the pre-W4-A behaviour exactly: the old failure classifier, an App-wide withdrawal for any rate limit or credential failure (until the caller's reported reset, else 300 s), no on-demand `rate_limit` probe, and no scoped withdrawal consulted when choosing a reader. Any other value is the scoped default. Read on **every** withdrawal and reader choice (a plain env read, no cache), so a process started with it set behaves as before W4-A with no new release; the daemon picks it up on its next start |
+
+Scoped withdrawals live in the daemon's memory only (a restart clears them),
+are only ever extended, never shortened, and are listed by `loom-daemon
+status` under `reader withdrawals (scoped)`. Each withdrawal, scoped or
+App-wide, is exported as a `forge.reader.withdrawn` span
+([`telemetry-schema.md`](telemetry-schema.md)).
+
+## Read-pool routing (`forge.readPool.routing`)
+
+Since W4-B every reader choice goes through one routing step. A repo's
+reads start at its **home** reader, `hash(owner/repo) mod N` over the
+readers that serve its owner (a reader entry's optional `owners` list), and
+walk forward past a withdrawn reader or a stale token, exactly as before.
+Two additions move reads off home, and both keep each URL on one reader,
+because GitHub ETags are specific to the credential that served them:
+
+- **Split.** A repo in `forge.readPool.routing.splitRepos` starts each
+  request at a reader chosen from the request's affinity key (the `gh`
+  subcommand, positional args, method and fields, without `-H`, `--jq`,
+  `--include`, `--paginate`, the host flag or `--cache`; or a conditional
+  read's URL), so the repo spreads across the pool and an ETag rotation
+  never moves a URL.
+- **Spill latch.** When the home bucket's projected use reaches
+  `spillProjectedPct`, half the requests (a fixed half, by a second hash)
+  move to the next reader projected below `targetMaxPct`; at
+  `spillFullPct`, or while home is withdrawn, all of them do. The latch
+  holds until the home bucket's reset (capped at 61 minutes; one hour when
+  no reset is known), whatever later readings say, and keeps the target it
+  chose unless that target is withdrawn, stale or reaches `spillFullPct`;
+  each transition and each re-pick is a `forge.reader.spill` span. No
+  reading means no move.
+
+With no `splitRepos` and no home reading at or above `spillProjectedPct`
+the choice is the same reader as before W4-B. The keys are in the
+[config surface table](#config-surface-loomconfigjson--autonomous); the config is re-read
+every 60 s.
+
+| Env | Default | Effect |
+|---|---|---|
+| `LOOM_READ_POOL_SPILL` | *(unset: on)* | `0` keeps every read on its home reader: no split and no latch |
+| `LOOM_READ_POOL_SPLIT` | *(unset: on)* | `0` disables the split only |
+| `LOOM_READ_ROUTING` | *(unset: v2)* | `legacy` also restores the pre-W4-B walk: every reader counts (no `owners` filter), no split, no latch. In v2 a host whose egress policy gives the gateway the GitHub credential gets no reader pool (the writer path, unchanged); the plain `read_credential` path never had that check and still does not |
+
 ## Observability exporter (`observability`, #4705, epic #4702 Phase 1)
 
 An **opt-in, off-by-default** telemetry exporter that pushes fleet telemetry
@@ -11017,9 +11554,9 @@ setup, migrations, ingest-key generation and rotation, and pointing the
 `observability` block below at the result, with a companion guide for gating
 the authenticated view behind Cloudflare Access. Both live beside the backend
 in the upstream Loom repo (not shipped to consumer installs):
-[`dashboard/docs/deploy-runbook.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/deploy-runbook.md)
+`2AMLogic/loom-ui` `docs/deploy-runbook.md`
 and
-[`dashboard/docs/cloudflare-access.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/cloudflare-access.md).
+`2AMLogic/loom-ui` `docs/cloudflare-access.md`.
 
 ### Config surface (`.loom/config.json → observability`)
 

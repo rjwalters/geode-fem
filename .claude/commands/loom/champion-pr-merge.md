@@ -1575,6 +1575,9 @@ the ones sitting in a hold-only suspension (#6852) — both still carry
 
 ## Held-PR Census (report every pass, #6720)
 
+**Hold mail (#10000), once per pass:** a critical-file-held PR is merged by a human, never here, so resolve its mail by marker (no-op unconfigured; loader in `.loom/docs/inbox-mail.md`):
+`inbox_mail resolve-merged crithold-pr "<!-- champion:critical-file-hold -->"`
+
 A hold is invisible unless someone counts them. The 21-deep pile above was found
 only because an operator inspected PR labels by hand. Run this once per Champion
 pass — one `gh pr list` call — and put its output in the completion summary
@@ -1708,10 +1711,12 @@ ROT_THRESHOLD_DAYS=3   # continuously CONFLICTING at least this long -> "rotting
 DIGEST_ROWS=""
 CONFLICT_SINCE_MARKERS=""
 HELD_ROTTING=0
-# #9244: starred (loom:operator-priority) held PRs sort to the top, marked ⭐.
-for PR_NUM in $(printf '%s\n' "$HELD_JSON" | jq -r 'sort_by([.labels[].name] | index("loom:operator-priority") == null) | .[].number'); do
+# #9244/#10307: starred held PRs sort to the top (level 2 first), marked ⭐ / ⭐⭐.
+# level list: keep in sync with operator_levels.rs LEVELS until #10311 (LVL and STAR)
+LVL='[.labels[].name] | if (index("loom:operator-high-priority") or index("loom:high-priority-inherited")) then 2 elif index("loom:operator-priority") then 1 else 0 end'
+for PR_NUM in $(printf '%s\n' "$HELD_JSON" | jq -r "sort_by(-($LVL)) | .[].number"); do
   ROW=$(printf '%s\n' "$HELD_JSON" | jq -c --argjson n "$PR_NUM" '.[] | select(.number == $n)')
-  STAR=$(jq -e '[.labels[].name] | index("loom:operator-priority")' <<<"$ROW" >/dev/null && echo '⭐ ' || true)
+  STAR=$(case "$(jq -r "$LVL" <<<"$ROW")" in 2) echo '⭐⭐ ';; 1) echo '⭐ ';; esac)
   PR_MERGEABLE=$(jq -r '.mergeable' <<<"$ROW")
   AT_DOCTOR=$(jq -e '[.labels[].name] | index("loom:changes-requested")' <<<"$ROW" >/dev/null && echo true || echo false)
 
@@ -1979,18 +1984,17 @@ git checkout main 2>/dev/null || true
 # its own fresh, uncached head-SHA read ("Cached forge reads" above) as the
 # merge API's optimistic-concurrency precondition (#5579); --redate-stale-checks
 # performs the #8248 guard's OWN remedy, bypassing nothing (#8508). Capture the
-# exit code, not a bare `||`: 3/4/5 are DISTINCT from 1, never failures (below).
+# exit code, not a bare `||`: 3-6 are DISTINCT from 1, never failures (below).
 # 420s < this call's 600000 ms timeout ("Timeout invariant" above).
 MERGE_RC=0
 LOOM_AUTO_MERGE_TIMEOUT=420 \
   ./.loom/scripts/merge-pr.sh "$PR_NUMBER" --auto --redate-stale-checks || MERGE_RC=$?
 
-if [ "$MERGE_RC" -eq 3 ] || [ "$MERGE_RC" -eq 4 ] || [ "$MERGE_RC" -eq 5 ]; then
-  # 3 head moved (#5579) / 4 stale checks re-dated by this run (#8508) / 5
-  # settle-wait expired (#8896). None is a merge failure — nothing merged, the
-  # PR stays Judge-approved, and nothing goes onto the PR (not even the head
-  # SHAs 3/4 print to stderr). See "Exit codes 3, 4 and 5" in "Error Handling".
-  echo "PR #$PR_NUMBER not merged this pass (head moved, re-dated, or CI unsettled) — re-queuing instead of failing"
+if [ "$MERGE_RC" -eq 3 ] || [ "$MERGE_RC" -eq 4 ] || [ "$MERGE_RC" -eq 5 ] || [ "$MERGE_RC" -eq 6 ]; then
+  # 3 head moved (#5579) / 4 re-dated (#8508) / 5 settle-wait expired (#8896)
+  # / 6 chain-head lock held (#10167). Not failures: nothing merged, the PR
+  # stays Judge-approved, nothing goes onto it. See "exit codes 3-6" below.
+  echo "PR #$PR_NUMBER not merged this pass (exit $MERGE_RC) — re-queuing instead of failing"
 elif [ "$MERGE_RC" -ne 0 ]; then
   echo "Merge failed for PR #$PR_NUMBER"
   # Post failure comment (see Error Handling section)
@@ -2725,7 +2729,7 @@ If ANY safety criterion fails, do NOT merge. How the failure is handled depends 
 
 **Merge-risk holds** keep `loom:pr` like a transient failure, but comment **once** behind the `<!-- champion:merge-risk-hold -->` idempotency marker because the condition does not clear on its own, and additionally carry `loom:operator` (#5502) — the first-class "engine will not act further, a human is the only transition out" state, added alongside the marker and removed alongside its reversal, kept **filterable** without making sweep/shepherd skip the PR (see [`.loom/docs/label-state-machine.md`](../../../.loom/docs/label-state-machine.md)). Unlike a transient failure, the hold is **sticky**: later ticks re-check it against the release conditions (`loom:auto-merge-ok`, an explicit operator clearing comment, a new push, a new Judge review) rather than re-deriving it from a fresh axis read, and any merge that reverses one carries a mandatory reversal comment (#4742). The exact commands live with the criterion itself — see "Safety Criteria → 2. Merge-Risk Judgment → Sticky holds / Hold behavior"; do not duplicate them here.
 
-**Critical-file holds** work the same way, for the same reason (#6879): a critical-file FAIL cannot clear without either a human merge or a later push that narrows the diff, so it also keeps `loom:pr`, comments once behind its own idempotency marker (`<!-- champion:critical-file-hold -->`, distinct from `champion:merge-risk-hold`), and carries `loom:operator`. It does **not** need criterion #2's sticky-hold precheck — its check is a deterministic file-pattern match, so a diff cannot score differently on a later read — and its release conditions are simpler: the diff no longer touches any critical-file pattern, or (#9016) the operator hand-removes `loom:operator` at the head the hold was written against — a durable release Champion does not override at that head, which is what makes the `merge-pr.sh` human-merge path work against the #8112 contradiction guard. `loom:auto-merge-ok` does **not** release it — that override is explicitly scoped to criterion #2 only (see "Safety Criteria → 2 → `loom:auto-merge-ok` override"). The exact commands live in [`champion-critical-file-hold.md`](champion-critical-file-hold.md); do not duplicate them here.
+**Critical-file holds** work the same way (#6879): a FAIL keeps `loom:pr`, comments once behind `<!-- champion:critical-file-hold -->` (distinct from `champion:merge-risk-hold`), and carries `loom:operator`. No sticky-hold precheck (the file-pattern match is deterministic); it releases when the diff leaves every critical-file pattern, or (#9016) the operator hand-removes `loom:operator` at the held head — durable, which is what lets the `merge-pr.sh` human-merge path pass the #8112 guard. `loom:auto-merge-ok` does **not** release it (criterion #2 only). Commands: [`champion-critical-file-hold.md`](champion-critical-file-hold.md); do not duplicate them here.
 
 ### Transient failures — keep `loom:pr`, retry next tick
 
@@ -3192,13 +3196,13 @@ line into the pass summary — measurement only, never a merge-order input.
 Full policy: `.loom/docs/pr-congestion-signal.md` (source:
 `defaults/docs/pr-congestion-signal.md`).
 
-**Starred PRs first (`loom:operator-priority`, #9244).** The shared queue puts stars
+**Starred PRs first (`loom:operator-priority`, #9244; level 2 before the star, #10307).** The shared queue puts stars
 ahead of interactive work, then ordinary work (oldest first within each class). The star changes order only: all 6
 Safety Criteria, the Verdict-State Janitor, and every hold (merge-risk,
 critical-file, `loom:operator-only`, `loom:blocked`) apply unchanged. A starred
 PR that passes is merged this pass. A starred PR on a hold stays held and is
 never merged — it is listed first in the hold digest (Step 1 sorts it to the
-top, marked ⭐). A failed merge (exit 1, not the 3/4/5 re-queues below) on a
+top, marked ⭐). A failed merge (exit 1, not the 3-6 re-queues below) on a
 starred PR is retried **once** this pass; if that fails too, post the "Merge
 Failed" comment with the concrete refusal as a starred-PR escalation and do
 not retry it again this pass. Never add or remove the star.
@@ -3234,23 +3238,25 @@ This PR met all safety criteria but the merge operation failed. A human will nee
 *Automated by Champion role*"
 ```
 
-### Exception: exit codes 3, 4 and 5 — not merged, re-queue, not a failure (#5579, #8508, #8896)
+### Exception: exit codes 3-6 — not merged, re-queue, not a failure (#5579, #8508, #8896, #10167)
 
-`merge-pr.sh` reserves three codes (never the generic failure exit **1**) for
+`merge-pr.sh` reserves four codes (never the failure exit **1**) for
 "the merge did not happen and nothing is wrong":
 
-- **3** — the head branch moved between the fresh head-SHA read taken just
-  before merging and the merge call itself.
+- **3** — the head moved between the fresh head-SHA read taken just before
+  merging and the merge call.
 - **4** — the #8248 required-check freshness guard blocked the merge and
   `--redate-stale-checks` performed that guard's own remedy, a tree-identical
-  no-op commit. Nothing bypassed; bounded to one push per head, a repeat block
-  escalating to a durable `loom:operator` hold that returns exit 1.
+  no-op commit. Nothing bypassed; a spent budget (#9590) escalates to
+  `loom:operator` and returns exit 1.
 - **5** — `--auto`'s bounded settle-wait expired; nothing merged, no required
   check went red. **Do not "fix" a recurring exit 5 by raising
   `LOOM_AUTO_MERGE_TIMEOUT`** — Step 3 pins it under the caller's own timeout
   (#9096); re-queuing is cheap.
+- **6** — another PR on the base holds the chain-head merge lock: a defer
+  (bounded by its cap), not a failure; nothing written.
 
-**Do not follow the 5 failure steps above for any of the three outcomes:**
+**Do not follow the 5 failure steps above for any of these outcomes:**
 
 - Do **not** post the "Merge Failed" comment — the PR is still Judge-approved;
   the merge just did not happen.
@@ -3262,20 +3268,20 @@ This PR met all safety criteria but the merge operation failed. A human will nee
 applies to the new head (#5686)** — a head move is exactly what invalidates a
 verdict; this exception only says "not an error". The next pass's Verdict-State
 Janitor Part 2 resolves it; never short-circuit it by re-merging on a later tick
-without re-running it. Exit 5 moves no head and invalidates nothing.
+without re-running it. Exits 5 and 6 move no head, invalidate nothing.
 
-**No exit code at all is a fourth, different case (#9096).** This silence is
-conditioned on *having* an outcome to be silent about; all three reported
+**No exit code at all is a different case (#9096).** This silence is
+conditioned on *having* an outcome to be silent about; all four reported
 themselves. A killed call (no `CHAMPION-MERGE-OUTCOME` sentinel in Step 3's
 output) reported nothing, so — once a state re-read confirms it is not already
 merged — it gets a forge-visible **"Champion: Merge Outcome Unknown"** notice:
 neither "Merge Failed" (asserts an unobserved error, parks a mergeable PR on a
 human) nor this silence (leaving Step 2's "Proceeding with merge..." as the PR's
 last word — the #9096 stall). Marker-keyed to the head
-(`champion:merge-outcome-unknown`), it re-queues as 3/4/5 do, never firing on
+(`champion:merge-outcome-unknown`), it re-queues as 3-6 do, never firing on
 them.
 
-Exit 4's bound, exit 5's contract, why 3/4/5 are never commented on, the
+Exit 4's bound, exit 5's contract, why 3-6 are never commented on, the
 unknown-outcome recipe, and the merge-ancestry trap that defeats
 `git merge-base --is-ancestor` here:
 [`merge-pr-exit-code-exceptions.md`](../../../.loom/docs/merge-pr-exit-code-exceptions.md).

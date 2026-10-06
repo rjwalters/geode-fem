@@ -136,21 +136,19 @@ fi
 # exit 1 would read as a duplicate VERDICT, the worst possible lie a
 # duplicate check can tell.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# $GH_READ (docs/gh-cached.md interface, #9953): the short-TTL read cache when
+# the wrapper ships next to this script, plain `gh` otherwise. Only repeated
+# observation reads use it; writes stay literal `gh`.
+GH_READ="gh"; _ghc="$SCRIPT_DIR/gh-cached"; if [[ -x "$_ghc" ]] && "$_ghc" --version >/dev/null 2>&1; then GH_READ="$_ghc"; fi
 # shellcheck source=lib/script-helper.sh
 source "$SCRIPT_DIR/lib/script-helper.sh"
 export LOOM_SCRIPT_HELPER_MISSING_RC=2
 
 # Colors for output (only when stderr is a terminal)
 if [[ -t 2 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    NC='\033[0m'
+    RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[1;33m' NC='\033[0m'
 else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    NC=''
+    RED='' GREEN='' YELLOW='' NC=''
 fi
 
 print_error() {
@@ -248,7 +246,7 @@ EXAMPLES:
 EXIT CODES:
     0  No duplicates (and, with --issue, no related open work) found
     1  Potential duplicates (or related open work) found (listed to stdout)
-    2  Error (invalid arguments, gh command failed, etc.)
+    2  Error/inconclusive (invalid arguments, gh failed, API rate limit exhausted)
 
 INTEGRATION:
     Use in Architect/Hermit/Auditor roles before gh issue create:
@@ -307,11 +305,9 @@ is_rate_limit_error() {
     local text
     text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
     case "$text" in
-        *"api rate limit exceeded"*) return 0 ;;
-        *"api rate limit already exceeded"*) return 0 ;;
-        *"secondary rate limit"*) return 0 ;;
-        *"abuse detection mechanism"*) return 0 ;;
-        *"was submitted too quickly"*) return 0 ;;
+        *"api rate limit exceeded"* | *"api rate limit already exceeded"* | \
+            *"secondary rate limit"* | *"abuse detection mechanism"* | \
+            *"was submitted too quickly"*) return 0 ;;
     esac
     return 1
 }
@@ -375,7 +371,7 @@ search_similar_issues() {
             # (#4659), which itself failed under GraphQL exhaustion before
             # REST was ever attempted.
             local rest_issues
-            if rest_issues=$(gh api "repos/{owner}/{repo}/issues?state=open&per_page=50" 2>&1); then
+            if rest_issues=$("$GH_READ" api "repos/{owner}/{repo}/issues?state=open&per_page=50" 2>&1); then
                 # REST's /issues endpoint also returns PRs; exclude them.
                 issues=$(echo "$rest_issues" | jq -c '[.[] | select(.pull_request == null)]')
                 rest_fallback=true
@@ -425,7 +421,7 @@ search_merged_prs() {
             # See the matching comment in search_similar_issues(): `gh api`
             # resolves "{owner}/{repo}" locally, no GraphQL call (#4659).
             local rest_prs
-            if rest_prs=$(gh api "repos/{owner}/{repo}/pulls?state=closed&per_page=20" 2>&1); then
+            if rest_prs=$("$GH_READ" api "repos/{owner}/{repo}/pulls?state=closed&per_page=20" 2>&1); then
                 prs=$(echo "$rest_prs" | jq -c '[.[] | select(.merged_at != null)]')
                 rest_fallback=true
             else
@@ -463,7 +459,7 @@ search_closed_issues() {
             # See the matching comment in search_similar_issues(): `gh api`
             # resolves "{owner}/{repo}" locally, no GraphQL call (#4659).
             local rest_issues
-            if rest_issues=$(gh api "repos/{owner}/{repo}/issues?state=closed&per_page=20" 2>&1); then
+            if rest_issues=$("$GH_READ" api "repos/{owner}/{repo}/issues?state=closed&per_page=20" 2>&1); then
                 # REST's /issues endpoint also returns PRs; exclude them.
                 issues=$(echo "$rest_issues" | jq -c '[.[] | select(.pull_request == null)]')
                 rest_fallback=true
@@ -522,7 +518,7 @@ search_cross_references() {
     fi
 
     local timeline
-    if ! timeline=$(gh api "repos/${repo_nwo}/issues/${issue_num}/timeline" --paginate 2>&1); then
+    if ! timeline=$("$GH_READ" api "repos/${repo_nwo}/issues/${issue_num}/timeline" --paginate 2>&1); then
         print_warning "Failed to fetch timeline for #${issue_num}: $timeline"
         echo "[]"
         return 0
@@ -687,8 +683,22 @@ main() {
         exit 2
     fi
 
-    # Check forge authentication
-    if ! $FORGE auth status &> /dev/null; then
+    # Check forge authentication -- but tell an exhausted REST quota apart
+    # from a bad token first (#10025). `gh auth status` itself hits REST
+    # (`/user`), so under REST exhaustion it fails exactly like a missing
+    # login, and every Curator was told to re-run `gh auth login` while its
+    # token was fine. `gh api rate_limit` does not count against the quota, so
+    # it still answers: a zero `core.remaining` (or a rate-limit phrasing in
+    # the auth output itself) is a rate limit, reported with its reset time,
+    # exit 2 (inconclusive -- curator.md never blocks curation on it). Any
+    # other failure keeps the genuine-auth message.
+    local auth_out rl_reset
+    if ! auth_out=$($FORGE auth status 2>&1); then
+        rl_reset=$(gh api rate_limit --jq '.resources.core | select(.remaining == 0) | .reset | todate' 2>/dev/null || true)
+        if [[ -n "$rl_reset" ]] || is_rate_limit_error "$auth_out"; then
+            print_error "Forge API rate limit exhausted (REST core resets ${rl_reset:-within the hour}) -- not an auth failure. Result inconclusive; retry after the reset."
+            exit 2
+        fi
         print_error "Not authenticated with forge. Run 'gh auth login' (GitHub) or set GITEA_TOKEN (Gitea)."
         exit 2
     fi

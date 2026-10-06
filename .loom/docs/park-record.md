@@ -62,31 +62,54 @@ A hand-written record naming more than one `#N` on a single line is still
 tolerated by the reader (`park_record::parse` expands it into one record per
 reference) — the one-line-per-blocker rule binds the *writer*, not the parser.
 
-## Who writes one, and when
+## Who writes one, and when — `park-record apply` (#10152)
 
-Any role applying `loom:blocked` for a **dependency wait** — not every use of
-the label. Some parks are a human policy call (a quarantine/scope
-finding, an operator hold) rather than a resolvable dependency; those do not
-get a park record, because there is nothing for a future automated check to
-resolve. PR #8440's triage comment (filed alongside this issue's own backfill,
-#8925 AC4) is the worked example: `loom:blocked` there records an operator's
-"branch is contaminated, left for human triage" ruling, and deliberately
-carries no park record.
+**Cross-repo blockers (#10443).** A blocker in another repository is written
+`OWNER/REPO#N` (`Blocked by: example-org/tool-repo#202`). `--blocked-by` accepts `N`,
+`#N` (this repo) and `OWNER/REPO#N`, mixed and comma-separated; still one record
+per blocker. A qualified reference is **never** resolved against the local repo:
+`check-stale-blocked` reads its state in its own repo, `apply` refuses a closed
+one by looking it up there, and it is a self-block only when it names this very
+repo and number. `#9` and `o/r#9` are two distinct blockers. Records written
+with a bare number parse exactly as before (`repo` is `None`).
 
-When the park **is** a dependency wait, render the marker at the moment the
-label is applied and paste it into the artifact's **body** — never only into
-the comment that explains it:
+**Every** role applying `loom:blocked` writes one, through one command — never
+a bare label edit:
+
+```bash
+loom-daemon park-record apply --issue 8852 --blocked-by 8860 --by curator
+loom-daemon park-record apply --pr 8314 --blocked-by 8322 --by doctor \
+  --reason "needs an architecture ruling" --remove-label loom:treating
+loom-daemon park-record apply --issue 8440 --reason operator --by human   # no blocker
+```
+
+`apply` reads the artifact fresh, then:
+
+1. **Refuses** (exit 1, nothing changed) when there is neither `--blocked-by`
+   nor an explicit `--reason`. A park with no named blocker reads as
+   `blocked-unnamed` to star-liveness and UNDOCUMENTED to
+   `check-stale-blocked`, and is never released automatically — so it must be
+   a written choice (`--reason operator`, a quarantine/scope ruling …), which
+   renders an attributable `Blocked by: (unstated)` record, never an omission.
+2. **Refuses** a blocker that is already closed (#9102) — the unblock sweep
+   would release the park at once — and a self-block.
+3. Appends one record per blocker the body does **not** already declare in a
+   park record (idempotent: re-running changes nothing).
+4. Writes the **body first**, then adds `loom:blocked`, then removes each
+   `--remove-label` (e.g. `loom:building`). A failed body write applies no
+   label, so there is never a label-only park. Exit 4 on any forge failure.
+
+`--dry-run` prints the planned body and label changes. Comment as usual to
+explain *why* in prose — the marker is the part a machine can also read.
+
+`park-record render` (below) remains for composing a body by hand; a park
+record has no positional requirement in the body.
 
 ```bash
 loom-daemon park-record render --blocked-by 8322 --by doctor \
   --reason "needs an architecture ruling"
 # <!-- loom:park Blocked by: #8322 by=doctor at=2026-09-19T18:04:11Z reason="needs an architecture ruling" -->
 ```
-
-Paste the output line into the body (prepend/append; a park record has no
-positional requirement, unlike the lease record's "must be the first line").
-Comment as usual to explain *why* in prose — the comment and the marker are
-not in tension, the marker is just the part a machine can also read.
 
 ## Who reads one
 
@@ -95,7 +118,18 @@ not in tension, the marker is just the part a machine can also read.
   artifact's body to populate `Evidence::declared`; an artifact whose only
   blocker reference is NOT inside a park record is reported as **PROSE-ONLY**
   (`stale_blocked::undeclared`), separate from **UNDOCUMENTED** (no blocker
-  reference anywhere).
+  reference anywhere). Its forge reads are batched (#10480: one REST + ETag
+  listing, REST blocker reads, one GraphQL query per 100 issues) and run under
+  a **budget floor**: after the listing it reads the free `/rate_limit` probe,
+  and if the run's projected cost would leave fewer than
+  `--min-graphql-remaining` GraphQL points or `--min-core-remaining` core
+  requests (default 1000 each; `0` disables) it gathers nothing and reports
+  every artifact **NOT EVALUATED**, still exit 0. The same floors are
+  re-checked between reads from the forge's own rate-limit answers, so a run
+  stops part-way rather than draining the bucket. `--json` adds a
+  `forge_cost` object (`graphql_queries`, `graphql_points` from
+  `rateLimit.cost`, `rest_requests`, `rest_not_modified`, `budget_before`,
+  `projected`, `floor`, `budget_refused`, `budget_stopped`).
 - `guide.md`'s `check_and_unblock` / `check_and_unblock_prs` — the active
   unblock sweep. A rendered park record's `Blocked by: #N` line already
   matches `parse_dependencies`'s existing pattern, so no separate parser is
@@ -153,15 +187,16 @@ check_and_unblock_prs() {
 
     for dep in $deps; do
       # A declared blocker can itself be an issue or a PR — try both reads.
+      local dn="${dep##*#}" dr=""; [[ "$dep" == */* ]] && dr="${dep%#*}"  # OWNER/REPO#N: own repo (#10443)
       local state
-      state=$(gh issue view "$dep" --json state --jq '.state' 2>/dev/null) \
-        || state=$(gh pr view "$dep" --json state --jq '.state' 2>/dev/null) \
+      state=$(gh issue view "$dn" ${dr:+--repo "$dr"} --json state --jq '.state' 2>/dev/null) \
+        || state=$(gh pr view "$dn" ${dr:+--repo "$dr"} --json state --jq '.state' 2>/dev/null) \
         || state="UNKNOWN"
       if [ "$state" != "CLOSED" ] && [ "$state" != "MERGED" ]; then
         all_resolved=false
         break
       fi
-      resolved_deps="$resolved_deps #$dep"
+      resolved_deps="$resolved_deps $dr#$dn"
     done
 
     if [ "$all_resolved" = true ]; then

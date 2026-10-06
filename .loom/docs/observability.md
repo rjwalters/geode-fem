@@ -128,7 +128,7 @@ exporter trait + HTTPS implementation, retry-drain loop).
 definition (every host's key lives at a different, unshareable path). It
 defaults to `$HOME/.loom/observability/ingest.key`, so the common case needs
 no config value at all: install each host's key at that conventional path
-(`dashboard/docs/deploy-runbook.md` step 9a) and leave `ingestKeyFile` unset
+(`2AMLogic/loom-ui:docs/deploy-runbook.md` step 9a) and leave `ingestKeyFile` unset
 everywhere. A host that genuinely needs a non-default path (e.g. a system
 path for a service account) sets it in the gitignored, per-host
 `.loom-local/local.json` override tier (`config_resolver.rs`, highest
@@ -457,6 +457,14 @@ and review requested → merged. It reads ETag-cached stage listings every 5
 minutes plus at most 8 per-item reads per sample, never per tick. Details are
 in [`telemetry-schema.md`](telemetry-schema.md#metricpoints).
 
+**Merge-chain re-date pressure (#10163).** Three gauges track the #8508
+re-date remedy over a trailing 24 h: `loom.merge.redate_prs{state}`
+(`landed`, `pending`, `stuck`), `loom.merge.redates_max{state}` and
+`loom.merge.time_to_land_max`. They are read from local `git log` on the
+`host.health` cadence, with no forge call. A non-zero `stuck` series is a
+merge-chain head that `main` keeps moving under. Details are in
+[`telemetry-schema.md`](telemetry-schema.md#metricpoints).
+
 **Per-issue dispatch disposition (#9222).** `loom.dispatch.admission` only
 covers candidates that reached a `dispatch()` attempt — a candidate filtered
 out earlier (`workspace_halted`, `parked`, `deferred_saturation`,
@@ -519,6 +527,62 @@ from a slash-command argument (and its `loom.repo` from the workspace's git
 remote, as an `owner/name` slug or not at all). Details are in
 [`telemetry-schema.md`](telemetry-schema.md#metricpoints).
 
+**GitHub rate limit (#10022).** Each rate-limit breaker trip emits one
+`loom.ratelimit.trip` span (never one per re-trip while cooling), carrying the
+job that tripped it (`loom.ratelimit.source`), the cooldown end and, per pool,
+the probe's `used` split into this host's own share and the external share
+(`github.ratelimit.{core,graphql}.{used,own,external}`) — the `attribution:`
+line from `daemon.log`, now queryable fleet-wide. Every 60 s the collector
+probes `gh api rate_limit` (free: it does not count against the quota) and
+exports `github.ratelimit.{remaining,used,reset}` gauges labelled `resource`
+(`core`|`graphql`) and `account` (`app-<app id>` for the daemon's GitHub App,
+the `gh` login for an ambient credential, else `unknown` — never a token or
+path), and flushes `github.ratelimit.breaker_skips{reason=<job>}`: one per
+pass a job skipped while the breaker suppressed. A host that never enables an
+OTLP exporter exports none of this; its evidence stays in `daemon.log`.
+
+**Per-bucket rate limits and `loom.forge.calls` (W1).** GitHub bills each App
+installation separately, so the daemon also keeps a *bucket book*: the newest
+reading of every `(account, owner, resource)` pool it spends, from the free
+`x-ratelimit-*` headers of `gh api --include` calls and from one free
+`gh api rate_limit` probe per published credential directory after every
+reader-refresh pass. Each believed reading is exported as the same
+`github.ratelimit.{remaining,used,reset}` gauges with an extra `owner` label.
+`loom.forge.calls` is a delta counter of the requests the `gh` facade sent,
+labelled by caller, inventoried operation, identity role, credential bucket
+(`account`, `cred_owner`, `resource`), `target_owner` and `outcome`; the free
+`rate_limit` probe appears under `resource="other"` and is never charged to a
+bucket. On a host
+without an exporter, `loom-daemon forge calls --by bucket` shows the same
+picture from the local forge-call sink.
+
+**Long-running task liveness and self-update decisions (#10414).** Each
+long-running daemon loop beats a process-global liveness registry
+(`crate::task_liveness`) once per finished iteration. The loops are the
+self-update loop (`auto_update`), the ETA fleet refresh
+(`eta_fleet_refresh`), the 5-minute ETA pass (`eta_pass`) and each role-runner
+loop (`role_runner.<role>`). Every 60 s, on its own ticker independent of the
+collector pass, the daemon exports `loom.daemon.task_alive{task}`. The value
+is `1` while the loop has beaten within its staleness window. That window is
+two intervals plus 60 s, and the self-update loop adds its 35-minute tick
+bound. The value is `0` once the loop has gone quiet past that window or has
+marked itself dead. So a loop that exited, or whose blocking cycle never
+returns, reads `0` within one window. Before #10414 it simply went silent.
+`loom.daemon.task_faults{task,reason}` counts `panic` (an iteration panicked
+and the loop caught it), `overrun` (an iteration ran past the loop's own
+bound), `exit` (the loop stopped for good) and, on `task=eta_pass` only,
+`eta_non_authority_emit` (a host that is not the fleet's ETA authority reached
+the ETA sink; the records were dropped, #10498). The same entries are listed
+under `Task liveness:` in `loom-daemon status`, and as `task_liveness` in
+`status --json`. Alert on `task_alive == 0`, and also on the series going
+silent: that means the sampler or the whole daemon stopped. The self-update
+loop also emits one `auto_update.tick` log per tick. It records the decision
+(`skip`, `defer`, `stale_repo`, `fetch`, `rebuild`, `drain_wait`,
+`roll_stall`, `panic`), the installed and target versions, the defer reason,
+the drain state and the deciding build's version and revision. A host that
+stops converging now says why on every tick. See
+[`telemetry-schema.md` → `auto_update.tick`](telemetry-schema.md#auto_updatetick).
+
 To add a signal, add a `MetricName` or `SpanName` variant. If it needs a new
 label or attribute key, extend `OPS_METRIC_LABEL_KEYS` or
 `OPS_SPAN_ATTRIBUTE_KEYS` and the gateway collector's `keep_keys` in
@@ -550,7 +614,7 @@ Both are derived from the same rows as `loom-daemon queue`. See
 **Phase 3** renders the record on the fleet dashboard: per-host backlog /
 running / ready / blocked counts with a freshness badge (`idle` = recent tick,
 empty queue; `stale` = no new tick for 15 minutes; `no queue data` = the host
-never sent one), and a `#/queue` page listing every issue across the fleet
+never sent one), and a fleet-wide work queue listing every issue
 with its host, phase, waiting time, blocking reason and issue / PR links.
 
 ## 4. The backend: deploy your own Cloudflare Worker
@@ -560,7 +624,7 @@ Durable Object for live "what's running now" state, an hourly retention
 cron) that also serves the dashboard UI as static assets. Full deploy
 runbook — Wrangler setup, D1 migrations, admin token, per-host ingest key
 provisioning, verifying telemetry lands — is
-[`dashboard/docs/deploy-runbook.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/deploy-runbook.md).
+`2AMLogic/loom-ui` `docs/deploy-runbook.md`.
 This is **your own infrastructure**; nothing in Loom points at a shared
 backend by default.
 
@@ -578,11 +642,11 @@ dead-end login wall for an anonymous visitor.
 
 - Gating setup (custom domain requirement, route map, Access application
   config, the single-URL fallback mechanics):
-  [`dashboard/docs/cloudflare-access.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/cloudflare-access.md)
+  `2AMLogic/loom-ui` `docs/cloudflare-access.md`
 - Query API + live event tail, request/response shapes, pagination:
-  [`dashboard/docs/query-api.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/query-api.md)
+  `2AMLogic/loom-ui` `docs/query-api.md`
 - Token/cost analytics (burn curves, forecasting, per-repo attribution, and
-  why that surface is authenticated-only): `dashboard/docs/token-analytics.md`
+  why that surface is authenticated-only): `loom-ui:docs/token-analytics.md`
 
 ## 5b. Doc-maintenance throughput (Guide, local-only, issue #6136)
 
@@ -594,7 +658,7 @@ tracks a sweep's checkpoint file and phase transitions, which is what
 Curator, and Guide — run as role **prompts**
 (`defaults/.claude/commands/loom/<role>.md`), not as tracked sweeps, so none
 of them ever emit `sweep.*` records; their token spend falls into
-`dashboard/docs/token-analytics.md`'s "unattributed" bucket, reported as a
+`loom-ui:docs/token-analytics.md`'s "unattributed" bucket, reported as a
 single undifferentiated total with no per-role breakdown.
 
 Guide's Document Maintenance phase (the WORK_LOG.md/WORK_PLAN.md/README.md
@@ -704,7 +768,7 @@ fleet** (e.g. `2am-elastic`), provisioned via the ordinary `POST
 /admin/hosts` flow — not a binding to any single real machine. Full
 rationale (why not the orchestrating controller's own hostname, why this
 needs no `handleIngest` change) is in
-[`dashboard/docs/deploy-runbook.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/deploy-runbook.md)
+`2AMLogic/loom-ui` `docs/deploy-runbook.md`
 §"Provisioning a non-daemon emitter". In short: `handleIngest` always stamps
 every row with the authenticated key's own bound identity, never a
 client-supplied value, so "hostless ingest" is a provisioning decision, not
@@ -713,7 +777,7 @@ a schema one — exactly the same one-key-per-reporting-process model every
 real hostname so it survives the controller itself being replaced.
 
 `ephemeral_compute` rows land in the same `records` table as every other
-kind (`dashboard/migrations/0003_ephemeral_compute.sql`) — no dedicated
+kind (`loom-ui:migrations/0003_ephemeral_compute.sql`) — no dedicated
 per-kind table, see that migration's own header comment for the schema
 rationale — and carry no `repo`/`issue`. Redaction: **no field survives to
 `/public/*`** for this kind — job/instance/region/cost detail is private
@@ -733,7 +797,7 @@ over a `since`/`until` window and bucketed by UTC day, against the standing
 daily spot ceiling. `/public/spend` answers `{ "withheld": true }` rather than
 a zeroed summary, since no field of this kind survives redaction and a `$0.00`
 would read as a real idle window. See
-[`dashboard/docs/query-api.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/query-api.md).
+`2AMLogic/loom-ui` `docs/query-api.md`.
 
 **Attributing a job to the sweep that submitted it (#8835).** An
 `ephemeral_compute` record may carry one more field: `sweep_id`, the sweep
@@ -768,7 +832,7 @@ backend (not a shared Loom service — every fleet deploys its own). Its
 specific account/database IDs, Access application layout, credential file
 locations, and cutover history now live in that operator's own
 infrastructure repo (example-org/fleet-repo#305), not in this repo — this repo's
-[`dashboard/docs/reference-deployment.md`](https://github.com/rjwalters/loom/blob/main/dashboard/docs/reference-deployment.md)
+`2AMLogic/loom-ui` `docs/reference-deployment.md`
 only records the *shape* such a document should take (which values to
 capture, and why) so you can produce the equivalent for your own instance.
 
@@ -780,14 +844,15 @@ capture, and why) so you can produce the equivalent for your own instance.
 | [`.loom/docs/telemetry-fixtures.md`](telemetry-fixtures.md) | Offline synthetic graphs, expected query manifest, and live-comparison limits |
 | [`.loom/docs/ci-observability.md`](ci-observability.md) | Standing policy: every `2amlogic` GitHub Actions run/job/duration/outcome/log captured in SigNoz — poller (#8824; phase-1 reference: config, exactly-once ledger contract, local journal schema, `loom.ci.*` allowlist), completed-job log capture (#8825; phase-2 reference: `ci.job.log` chunking contract, per-job cap + truncation marker, independent `logs_done` idempotency, and why the **gateway** is the redaction boundary), retro surfaces + retention (#8826) |
 | [`.loom/docs/telemetry-overhead.md`](telemetry-overhead.md) | What lifecycle instrumentation costs on a representative run, realised attribute/event bounds, and what the measurement excludes |
-| `dashboard/docs/deploy-runbook.md` | Deploy your own Cloudflare backend end to end |
-| `dashboard/docs/cloudflare-access.md` | Gating the authenticated view behind SSO; single-URL fallback |
-| `dashboard/docs/query-api.md` | `/api/*` vs `/public/*` routes, redaction policy, live tail |
+| [`.loom/docs/session-output.md`](session-output.md) | Live agent output (`session.output`, #9764): the opt-in live producer contract — schema, content boundary (why a prompt cannot leak and why this cannot enable a managed-cloud export), ordering/de-duplication, gap + truncation signalling, the p95 ≤ 10 s latency budget and why a historical timestamp is not a latency, consumer queries, supported runtimes, rollout |
+| `loom-ui:docs/deploy-runbook.md` | Deploy your own Cloudflare backend end to end |
+| `loom-ui:docs/cloudflare-access.md` | Gating the authenticated view behind SSO; single-URL fallback |
+| `loom-ui:docs/query-api.md` | `/api/*` vs `/public/*` routes, redaction policy, live tail |
 | `defaults/observability/cycle-time-questions.md` | Cycle-time analytics on the OTLP sinks: the canonical question set (CT1–CT8), the rollup-vs-raw-TTL retention decision, and what it deliberately cannot answer |
-| `dashboard/docs/token-analytics.md` | Burn curves, forecasting, per-repo attribution |
+| `loom-ui:docs/token-analytics.md` | Burn curves, forecasting, per-repo attribution |
 | `defaults/scripts/guide-docs-telemetry.sh` | Local doc-maintenance throughput telemetry (§5b) — record + report, no daemon/Cloudflare involvement |
 | `defaults/scripts/merge-admission-telemetry.sh` | Local merge-admission-recheck outcome telemetry (§5c) — record + report, no daemon/Cloudflare involvement |
-| `dashboard/migrations/0003_ephemeral_compute.sql` | `ephemeral_compute` schema decision + hostless-ingest provisioning rationale (§5d) |
-| `dashboard/docs/reference-deployment.md` | Generic guidance/template for recording your own instance's deployment identity in your own infrastructure repo — carries no operator identity here |
+| `loom-ui:migrations/0003_ephemeral_compute.sql` | `ephemeral_compute` schema decision + hostless-ingest provisioning rationale (§5d) |
+| `loom-ui:docs/reference-deployment.md` | Generic guidance/template for recording your own instance's deployment identity in your own infrastructure repo — carries no operator identity here |
 | `loom-daemon/src/observability/mod.rs` | Config resolution, collector/queue/exporter/sender source of truth |
 | `loom-daemon/src/observability/ops.rs` | Shared `metric.points` / ops-span emission path for daemon loops (§3c) |

@@ -38,6 +38,10 @@
 #      a forge failure that wrote to stdout, and an exit-0 create that
 #      returned no URL — plus the block path's stderr discipline, captured
 #      with stdout and stderr SEPARATE.
+#  13. FOOTER CAUSE (#10140): a failing `forge comment --patch-created`
+#      footer step still exits 0 with stdout exactly the URL, and its stderr
+#      note names the daemon's exit code and first error line; a succeeding
+#      footer step prints no note.
 #
 # Black-box and hermetic: create-issue.sh + lib/ are copied into a throwaway
 # dir next to a STUB check-duplicate.sh and a STUB `gh` on PATH, so no test
@@ -201,6 +205,16 @@ cat > "$FAKE_BIN/loom-daemon" << 'STUB'
 # in the end-to-end case).
 if [[ "${1:-}" == "forge" && "${2:-}" == "comment" && "${3:-}" == "--patch-created" ]]; then
     printf '%s\n' "$*" >> "${STUB_DAEMON_ARGS:-/dev/null}"
+    # #10140: STUB_DAEMON_FOOTER=fail reproduces a failing footer step — a
+    # recognizable first error line (after a blank line, which must be
+    # skipped), a noise line, a stdout line that must NOT leak, exit 7.
+    if [[ "${STUB_DAEMON_FOOTER:-ok}" == "fail" ]]; then
+        echo "stub-daemon stdout must stay discarded"
+        printf '\n%s\n%s\n' \
+            "Error: gh api repos/example/repo/issues/9999 failed: API rate limit exceeded" \
+            "second line that is not the cause" >&2
+        exit 7
+    fi
     exit 0
 fi
 exit 1
@@ -492,6 +506,7 @@ run_create_split() {
         STUB_DUP_CALLS="$DUP_CALLS" \
         STUB_GH_CREATES="$GH_CREATES" \
         STUB_GH_MODE="${STUB_GH_MODE:-ok}" \
+        STUB_DAEMON_FOOTER="${STUB_DAEMON_FOOTER:-ok}" \
         bash "$CREATE_ISSUE" "$@" 2> "$WORK/stderr.txt"
     )"
     RC=$?
@@ -518,6 +533,102 @@ STUB_DUP_MODE=match run_create_split --title "sweep-lease-fence.sh:392 unbound v
 assert_eq "$RC" "3" "the duplicate block path exits 3"
 assert_contains "$STDERR" "NOT FILED" "…with its refusal text on stderr (never stdout-only)"
 assert_eq "$STDOUT" "" "…and no URL on stdout"
+
+echo
+
+# --- 13. A failing footer step names its cause (#10140) ---------------------
+# The footer is best-effort, but the note used to discard the daemon's exit
+# code and stderr, so the operator could not tell why it failed.
+echo "--- a failing dashboard-footer step names the daemon's exit code and error ---"
+STUB_DAEMON_FOOTER=fail run_create_split --title "Something new" --body "Body."
+assert_eq "$RC" "0" "a failing footer step still exits 0 (the issue is filed)"
+assert_eq "$STDOUT" "https://github.com/example/repo/issues/9999" \
+  "…stdout is exactly the URL (no daemon stdout, no stderr text mixed in)"
+assert_contains "$STDERR" "could not append the dashboard footer" "…the best-effort note is printed"
+assert_contains "$STDERR" "loom-daemon exit 7" "…and names the daemon's exit code"
+assert_contains "$STDERR" "API rate limit exceeded" "…and the daemon's first error line"
+assert_not_contains "$STDERR" "second line that is not the cause" "…but only the first error line"
+
+STUB_DAEMON_FOOTER=ok run_create_split --title "Something new" --body "Body."
+assert_eq "$RC" "0" "a succeeding footer step exits 0"
+assert_eq "$STDOUT" "https://github.com/example/repo/issues/9999" "…stdout is exactly the URL"
+assert_not_contains "$STDERR" "dashboard footer" "…and no footer note is printed"
+
+# --- 14. Single intake state (#10041) ---------------------------------------
+echo "--- no loom:* label -> loom:triage; an explicit loom:* label wins ---"
+run_create --title "Intake default" --body "Body."
+assert_contains "$(cat "$GH_CREATES")" "loom:triage" "no --label files with loom:triage"
+run_create --title "Intake bug only" --body "Body." --label bug
+assert_contains "$(cat "$GH_CREATES")" "loom:triage" "a non-loom label still gets loom:triage"
+run_create --title "Intake explicit" --body "Body." --label loom:building
+assert_not_contains "$(cat "$GH_CREATES")" "loom:triage" "--label loom:building does not add loom:triage"
+
+# --- 15. --parent glue (#10012) ---------------------------------------------
+# A stub loom-daemon (first on PATH) stands in for `forge parent body|link`.
+# No --repo is passed: the empty --repo array is the shape that aborts under
+# `set -u` on bash < 4.4, so the default invocation must file cleanly.
+echo "--- --parent: marker lands in the filed body; a missing daemon files nothing ---"
+PARENT_BIN="$WORK/parent-bin"
+mkdir -p "$PARENT_BIN"
+cat > "$PARENT_BIN/loom-daemon" << 'STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "forge" && "${2:-}" == "parent" && "${3:-}" == "body" ]]; then
+    printf '%s\n' "$*" >> "${STUB_DAEMON_ARGS:-/dev/null}"
+    cat
+    printf '\n<!-- loom:parent #7 -->\n'
+    exit 0
+fi
+if [[ "${1:-}" == "forge" && "${2:-}" == "parent" && "${3:-}" == "link" ]]; then
+    printf '%s\n' "$*" >> "${STUB_DAEMON_ARGS:-/dev/null}"
+    exit 0
+fi
+[[ "${1:-}" == "forge" && "${2:-}" == "comment" ]] && exit 0
+exit 1
+STUB
+chmod +x "$PARENT_BIN/loom-daemon"
+OLD_FAKE_BIN="$FAKE_BIN"
+FAKE_BIN="$PARENT_BIN:$FAKE_BIN"
+run_create --title "Child of seven" --body "Body." --parent 7
+FAKE_BIN="$OLD_FAKE_BIN"
+assert_eq "$RC" "0" "--parent without --repo files cleanly (empty repo array is set -u safe)"
+assert_contains "$(cat "$GH_CREATES")" "loom:parent #7" "the parent marker is in the filed body"
+assert_contains "$(cat "$DAEMON_ARGS")" "forge parent body --parent 7" "forge parent body ran with the parent number"
+assert_contains "$(cat "$DAEMON_ARGS")" "forge parent link --parent 7" "forge parent link ran after filing"
+
+# No daemon on PATH: the shell reports it (127), nothing filed.
+NODAEMON_BIN="$WORK/nodaemon-bin"
+mkdir -p "$NODAEMON_BIN"
+cp "$FAKE_BIN/gh" "$NODAEMON_BIN/gh"
+OLD_FAKE_BIN="$FAKE_BIN"
+FAKE_BIN="$NODAEMON_BIN"
+: > "$GH_CREATES"
+OUT="$(PATH="$NODAEMON_BIN:/usr/bin:/bin" LOOM_FORGE_TYPE=github LOOM_FILING_LOCK=0 \
+    STUB_GH_CREATES="$GH_CREATES" bash "$CREATE_ISSUE" --title "Orphan" --body "Body." --parent 7 2>&1)"
+RC=$?
+FAKE_BIN="$OLD_FAKE_BIN"
+assert_eq "$RC" "127" "--parent with no loom-daemon exits 127 (command not found)"
+assert_contains "$OUT" "loom-daemon" "…and names the missing binary"
+assert_eq "$(cat "$GH_CREATES")" "" "…and nothing was filed"
+
+# An explicitly empty or non-numeric --parent is an argument error, not "absent":
+# the daemon (clap's u32) rejects it with exit 2 and the script propagates that
+# before filing. The stub mimics clap's rejection of a non-number.
+cat > "$PARENT_BIN/loom-daemon" << 'STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "forge" && "${2:-}" == "parent" && "${3:-}" == "body" ]]; then
+    [[ "${5:-}" =~ ^[0-9]+$ ]] || { echo "error: invalid value '${5:-}' for '--parent <PARENT>'" >&2; exit 2; }
+fi
+exit 0
+STUB
+OLD_FAKE_BIN="$FAKE_BIN"
+FAKE_BIN="$PARENT_BIN:$FAKE_BIN"
+for BAD_PARENT in "" "abc"; do
+    run_create --title "Bad parent" --body "Body." --parent "$BAD_PARENT"
+    assert_eq "$RC" "2" "--parent '$BAD_PARENT' exits 2"
+    assert_contains "$OUT" "invalid value" "…and says why"
+    assert_eq "$(cat "$GH_CREATES")" "" "…and nothing was filed"
+done
+FAKE_BIN="$OLD_FAKE_BIN"
 
 echo
 echo "=== $TESTS_PASSED/$TESTS_RUN passed, $TESTS_FAILED failed ==="

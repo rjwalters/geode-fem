@@ -177,7 +177,7 @@ own discipline:
 
 - **Never wait indefinitely on a single tool call.** Long-running commands
   (`buildGate.command`, `gh pr checks --watch`) MUST be given an explicit
-  timeout — e.g. `gh pr checks <n>` (a one-shot snapshot), not `--watch` with no
+  timeout — e.g. `forge wait-checks <n> --timeout 20`, not `--watch` with no
   bound; wrap a build in `timeout <secs> …`. If it does not return, treat the
   check as **inconclusive** and proceed to a verdict rather than blocking.
 - **Emit progress as you go.** Print a short line at each step (checkout, check,
@@ -233,12 +233,13 @@ Your review authority extends past the PR to its **underlying issue**: an issue 
 
 ### Applying `loom:operator-only`: a sub-kind label is REQUIRED (#5819)
 
-**Never apply `loom:operator-only` on its own** — on an issue *or* a PR (an
-unanswerable review question you are not entitled to settle routes the same
-way). Choose exactly one sub-kind and apply both labels in the **same** command.
-This is purely additive — the base label is never removed or replaced, so every
-filter/skip keyed on it (sweep pre-flight, `warn-operator-gated.sh`, Doctor's
-operator-hold exclusion, Champion's queue exclusions) behaves exactly as before:
+Park only a PO-level question you are not entitled to settle, or a
+human-hands step — not a hard or uncertain review (#10001; rule: `curator.md`
+→ "Applying `loom:operator-only`"). **Never apply `loom:operator-only` on its
+own** — on an issue *or* a PR: apply exactly one sub-kind in the **same**
+command. Purely additive — every filter/skip keyed on the base label (sweep
+pre-flight, `warn-operator-gated.sh`, Doctor's and Champion's exclusions) is
+unchanged:
 
 | Sub-kind | Apply when |
 |---|---|
@@ -248,11 +249,9 @@ operator-hold exclusion, Champion's queue exclusions) behaves exactly as before:
 | `loom:operator-objective` | The question is determined once the operator states an objective — name the candidate objectives and the answer under each (#5826) |
 
 ```bash
-# Issue that encodes a still-pending human decision, surfaced during review:
-gh issue edit <issue-number> --add-label "loom:operator-only,loom:operator-decision"
-
-# PR whose review raises a question only a human can answer:
-gh pr edit <pr-number> --add-label "loom:operator-only,loom:operator-decision"
+# Issue (or PR: same command) holding a decision only a human can make, as
+# 2-4 ranked options each with a why (.loom/docs/operator-decision.md):
+loom-daemon operator-decision apply <number> --input d.json --also-label loom:operator-only
 ```
 
 **Being unsure which sub-kind applies means the review question is not yet
@@ -272,9 +271,8 @@ in machine-readable form: a literal `Blocked by #N` / `Depends on #N` /
 does not satisfy this — the phrase itself must be present so a later automated
 pass can tell when the blocker clears.
 
-**If you chose `loom:operator-decision`**, the same comment MUST name the
-disagreement axis and state why it is a preference rather than a fact — "needs
-a human ruling" alone does not satisfy this.
+**If you chose `loom:operator-decision`**, the options' whys MUST name the
+disagreement axis and why it is a preference, not a fact.
 
 **If you chose `loom:operator-objective`**, the same comment MUST list the
 candidate objectives and the answer under each, not just "needs an
@@ -508,7 +506,7 @@ pre-write state:
 | Pre-Iteration Environment Check (`gh repo view`) | Liveness probe — a cached success hides a broken environment |
 | Stale `loom:reviewing` Claim Check (`claim-staleness.sh`: claim timeline + comment reads) | Claim arbitration — 30s of staleness is exactly the window a competing claim lands in (the script makes these reads itself; never re-issue them through the cache) |
 | **Verdict-Time CAS Recheck** (`gh pr view $N --json labels`) | The entire mechanism is "observe writes that landed *during* my review"; a cached label set defeats it |
-| `gh pr checks` + `gh pr view --json mergeStateStatus` before a verdict | Verdict gating — never approve on a stale green |
+| `forge wait-checks` / `gh pr checks` + `gh pr view --json mergeStateStatus` before a verdict | Verdict gating — never approve on a stale green |
 
 `gh pr checks` and `gh repo view` are passthrough inside the wrapper anyway, so
 those two hold even if wrapped by accident; the rest rely on this list.
@@ -803,7 +801,7 @@ completion write — see `doctor.md`'s "Verdict-Time CAS Recheck".
       bare `gh pr comment` and NOT `gh pr review`
 - [ ] I am using `gh pr edit` for label changes
 - [ ] I understand `gh pr review --approve` WILL fail with "cannot approve your own PR"
-- [ ] All CI checks pass (verified via `gh pr checks`)
+- [ ] All CI checks pass (verified via `forge wait-checks`)
 - [ ] Merge state is CLEAN (verified via `gh pr view --json mergeStateStatus`)
 - [ ] I will NEVER call `gh pr review` in any form
 - [ ] I will run `post-verdict.sh` AND `gh pr edit` atomically (chained with `&&`)
@@ -1459,25 +1457,25 @@ FEEDBACK
 
 Local tests passing is not sufficient - you MUST verify that GitHub Actions CI workflows have completed successfully. This prevents situations where a PR is approved while CI is still running or failing.
 
-**Every command in this section runs as plain `gh` — never `"$GH_READ"`.** CI
+**Every `gh` read in this section is plain — never `"$GH_READ"`.** CI
 status and merge state are the reads a verdict is gated on, so they must
 observe current state unconditionally; a cached green from 30 seconds ago can
-predate the push that broke the build. (`gh pr checks` is passthrough inside
-the wrapper regardless, so this is belt-and-suspenders for it and load-bearing
-for the `mergeStateStatus` reads.) See "Cached Forge Reads" for the full policy.
+predate the push that broke the build. (`forge wait-checks` revalidates every
+read via ETag, so it is live too.) See "Cached Forge Reads" for the full policy.
 
 ### How to Check CI Status
 
-**Step 1: Check all PR checks**
+**Step 1: Snapshot all PR checks** (`--timeout 0` would read a no-checks repo as `TIMEOUT`)
 
 ```bash
-gh pr checks <PR_NUMBER>
+loom-daemon forge wait-checks <PR_NUMBER> --timeout 20
 ```
 
-This shows the status of all CI checks. Look for:
-- ✅ All checks show `pass` - Safe to approve
-- ❌ Any check shows `fail` - Request changes
-- ⏳ Any check shows `pending` - Wait for completion
+Branch on the first stdout line:
+- ✅ `LOOM-CHECKS-GREEN` / `-NONE` (no checks) - Safe to approve
+- ❌ `-RED` - Request changes (stderr: `<name>\t<url>\t<run_id>` per failure)
+- ⏳ `-TIMEOUT` / `-HEAD-MOVED` - Pending (see "When CI is Pending")
+- `-ERROR` or no sentinel (Gitea / older binary) - run `gh pr checks <PR_NUMBER>` once
 
 **Step 2: Verify merge state**
 
@@ -1504,7 +1502,7 @@ If CI checks are failing, **do NOT approve**. Instead, apply `loom:ci-failure` f
 
 The following CI checks are failing:
 
-[LIST THE FAILING CHECKS FROM `gh pr checks` OUTPUT]
+[LIST THE FAILING CHECKS (RED DETAIL)]
 
 Please fix these issues before the PR can be approved. Common causes:
 - Shellcheck warnings in shell scripts
@@ -1540,42 +1538,19 @@ If checks are still running, **do not block on them and do not approve on a gues
 2. **Release your claim** — remove `loom:reviewing` so a later pass picks it up cleanly.
 3. **Skip and continue the batch** — move on to the next PR. The next cron tick re-evaluates this PR once CI has settled.
 
-**Trap: empty `gh pr checks` output is NOT proof nothing is pending.** `gh pr
-checks` is GraphQL-backed and can return completely empty output (zero rows)
-during a transient forge failure (e.g. an intermittent TLS handshake error) —
-that empty state is indistinguishable from "nothing pending" to a naive `grep
--q pending`, and this has already happened in production: on kicad-tools PR
-#4792 (2026-08-13) a Judge poller read one empty response and declared CI
-"settled" 6 minutes into a ~40-minute board-test run (#6169). Guard against it
-by requiring at least one row back before trusting the absence of "pending" —
-retry once on a zero-row read before concluding there is genuinely nothing to
-wait for:
+**Pending-CI skip check.** `loom-daemon forge wait-checks <PR_NUMBER> --timeout 0` is a single ETag'd poll (no wait) that also handles the empty-rollup trap (#6169). Branch on the first **stdout** line:
 
 ```bash
-# ci_still_pending: true (pending) if any row shows pending/queued/in_progress.
-# A ZERO-ROW read is retried once before being trusted — on a real forge blip
-# the retry almost always returns real rows; only a read that is STILL empty
-# after the retry is treated as "genuinely no checks reported" (not pending).
-ci_still_pending() {
-  local pr="$1" out rows
-  out="$(gh pr checks "$pr" 2>/dev/null)"
-  rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-  if [[ "$rows" -eq 0 ]]; then
-    sleep 3
-    out="$(gh pr checks "$pr" 2>/dev/null)"
-    rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-    [[ "$rows" -eq 0 ]] && return 1   # confirmed empty on retry -- not pending
-  fi
-  printf '%s\n' "$out" | grep -qE "(pending|queued|in_progress)"
-}
-
-# Check if any checks are still pending; if so, release the claim and skip (no end-state label)
-if ci_still_pending <PR_NUMBER>; then
+first="$(loom-daemon forge wait-checks <PR_NUMBER> --timeout 0 2>/dev/null | head -n1)"
+case "$first" in
+  LOOM-CHECKS-TIMEOUT*)   # still pending: release the claim and skip (no end-state label)
     gh pr comment <number> --body "Code evaluation looks good; CI is still running. Releasing the claim and skipping — a later tick will re-evaluate once CI settles."
-    # Release the claim WITHOUT applying an end-state label — PR stays loom:review-requested
-    gh pr edit <number> --remove-label "loom:reviewing"
-    # Continue to the next PR in the batch
-fi
+    gh pr edit <number> --remove-label "loom:reviewing"   # PR stays loom:review-requested; continue to the next PR
+    ;;
+  LOOM-CHECKS-RED*) ;;    # failing checks: rerun without 2>/dev/null for <name>\t<url>\t<run_id>
+  LOOM-CHECKS-GREEN*|LOOM-CHECKS-NONE*) ;;
+  *) gh pr checks <PR_NUMBER> ;;   # no sentinel (older binary / Gitea): one snapshot, no loop
+esac
 ```
 
 ### CRITICAL: Never End Your Turn on a Background CI Monitor
@@ -1587,52 +1562,28 @@ This mirrors the orchestrator-level guardrail already documented in `sweep.md` (
 **There are exactly two safe paths when CI is pending and you cannot approve on a guess:**
 
 1. **Batch mode (there is a next PR to move to): skip and continue.** Use the "When CI is Pending" procedure above — release `loom:reviewing`, leave `loom:review-requested` in place, move on to the next PR. This is not a fallback of last resort; it is the correct default whenever a next PR exists, because a later tick re-evaluates this one.
-2. **Single-PR / manual invocation (there is no next PR — you were dispatched to judge exactly this one PR and a verdict is expected before your turn ends): block-poll in the foreground.** Loop **inside this same turn** — check `gh pr checks <PR_NUMBER>`, `sleep` a fixed interval, repeat — until the checks resolve or you hit an explicit, bounded cap. This is an ordinary shell loop that runs to completion and returns control to you before you write your final message; nothing about it depends on a future turn.
+2. **Single-PR / manual invocation (there is no next PR — you were dispatched to judge exactly this one PR and a verdict is expected before your turn ends): wait in the foreground.** Run `loom-daemon forge wait-checks` **inside this same turn** (bounded by `--timeout`; it also handles the empty-rollup trap, #6169). It returns control before you write your final message; nothing about it depends on a future turn. Branch on the first **stdout** line, never the exit code; keep stderr separate (RED detail).
 
 ```bash
-# Foreground block-poll — single-PR Judge invocation, no batch to fall back to.
-# Bounded: MAX_WAIT caps total wait time; never loop unboundedly.
-# ci_still_pending guards against the empty-output false-settle trap (#6169) —
-# see "When CI is Pending" above for the full rationale.
-ci_still_pending() {
-  local pr="$1" out rows
-  out="$(gh pr checks "$pr" 2>/dev/null)"
-  rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-  if [[ "$rows" -eq 0 ]]; then
-    sleep 3
-    out="$(gh pr checks "$pr" 2>/dev/null)"
-    rows="$(printf '%s\n' "$out" | grep -c $'\t' || true)"
-    [[ "$rows" -eq 0 ]] && return 1   # confirmed empty on retry -- not pending
-  fi
-  printf '%s\n' "$out" | grep -qE "(pending|queued|in_progress)"
-}
-
-MAX_WAIT=1800   # 30 min cap — tune to the repo's typical CI duration
-INTERVAL=60
-ELAPSED=0
-while ci_still_pending <PR_NUMBER>; do
-  if [[ "$ELAPSED" -ge "$MAX_WAIT" ]]; then
-    echo "CI still pending after ${MAX_WAIT}s — falling back to a conditional verdict."
-    break
-  fi
-  sleep "$INTERVAL"
-  ELAPSED=$((ELAPSED + INTERVAL))
-done
+err="$(mktemp)"; out="$(loom-daemon forge wait-checks <PR_NUMBER> --timeout 1800 2>"$err")"; first="${out%%$'\n'*}"
+case "$first" in
+  LOOM-CHECKS-GREEN*|LOOM-CHECKS-NONE*) ;;   # settled green
+  LOOM-CHECKS-RED*) cat "$err" ;;            # <name>\t<url>\t<run_id> per failure; gh run view <run_id> --log-failed
+  LOOM-CHECKS-TIMEOUT*|LOOM-CHECKS-HEAD-MOVED*|LOOM-CHECKS-ERROR*) ;;   # unsettled: conditional verdict below
+  *) gh pr checks <PR_NUMBER> ;;             # no sentinel (older binary / Gitea): one snapshot, no loop
+esac
 ```
 
 **If the cap is reached and CI is still pending, do not extend the wait and do not reach for a background watcher instead.** Post a conditional-verdict comment stating plainly that the code review passed but CI had not settled after the bounded wait, then — since there is no batch to hand this off to — release `loom:reviewing` and leave `loom:review-requested` in place, exactly as the skip-and-continue path does, so a later Judge invocation (the next cron tick, or a fresh manual dispatch) can re-evaluate once CI has settled.
 
-**Never substitute an armed `Monitor`/`ScheduleWakeup` timer or a `run_in_background` watcher for either path above.** A timer or background task that is still armed when you end your turn is not "waiting" — in headless `-p` mode it is simply killed along with the process, and the PR is orphaned with a stale claim and no verdict. If you have not personally observed the CI result (via a `gh pr checks` call whose output you read in this turn), you have not verified it, and you MUST NOT write a final message that implies the verdict is settled or "in progress elsewhere."
+**Never substitute an armed `Monitor`/`ScheduleWakeup` timer or a `run_in_background` watcher for either path above.** A timer or background task that is still armed when you end your turn is not "waiting" — in headless `-p` mode it is simply killed along with the process, and the PR is orphaned with a stale claim and no verdict. If you have not personally observed the CI result (a CI result you read in this turn), you have not verified it, and you MUST NOT write a final message that implies the verdict is settled or "in progress elsewhere."
 
 ### Example CI Verification Workflow
 
 ```bash
-# 1. Check CI status
-gh pr checks 42
-# Example output:
-# ✓ build-and-test   pass   2m35s   https://...
-# ✓ lint             pass   45s     https://...
-# ✓ typecheck        pass   1m12s   https://...
+# 1. Check CI status (Step 1 mapping)
+loom-daemon forge wait-checks 42 --timeout 20
+# Should output: LOOM-CHECKS-GREEN <sha>
 
 # 2. Verify merge state
 gh pr view 42 --json mergeStateStatus --jq '.mergeStateStatus'
@@ -1653,13 +1604,10 @@ VERDICT_SHA=$(gh pr view 42 --json headRefOid --jq '.headRefOid')
 3. CI was still failing (shellcheck, frontend tests)
 4. Had to run multiple doctor passes to fix remaining failures
 
-**The lesson:** Local tests may pass while CI fails due to:
-- Different test environments (CI has more checks)
-- Shellcheck or lint rules not run locally
-- Integration tests that only run in CI
-- Platform-specific issues (CI runs on different OS)
+**The lesson:** local tests can pass while CI fails (more checks, lint not run
+locally, CI-only integration tests, a different OS).
 
-**Always verify `gh pr checks` before approving.**
+**Always verify CI (`forge wait-checks`) before approving.**
 
 ## Formal Review & Inline Thread Reconciliation (REQUIRED Before Approval, #7647)
 
@@ -1795,7 +1743,7 @@ Red flags that should trigger a full evaluation instead:
 **3. Verify CI passes — and reconcile formal reviews/inline threads:**
 
 ```bash
-gh pr checks <PR_NUMBER>
+loom-daemon forge wait-checks <PR_NUMBER> --timeout 20   # GREEN/NONE (Step 1)
 gh pr view <PR_NUMBER> --json mergeStateStatus --jq '.mergeStateStatus'
 # A conflict-only re-push does not resolve anyone's outstanding review (#7647).
 ./.loom/scripts/check-review-feedback.sh --number <PR_NUMBER> --head-sha "$REVIEW_HEAD_SHA"

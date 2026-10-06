@@ -1,6 +1,6 @@
 ---
 name: anvil-deck-market
-description: Anvil Deck Market / Competitor Critic - Specialist subagent that executes the `anvil:deck-market` critic command. Owns rubric dimensions 3, 4 of the /40 deck rubric. Use when running parallel specialist critics on a deck version directory.
+description: Anvil Deck Market / Competitor Critic - Specialist subagent that executes the `anvil:deck-market` critic command. Owns rubric dimensions 3, 4 of the /49 deck rubric. Use when running parallel specialist critics on a deck version directory.
 tools: Read, Glob, Grep, Bash, Write
 staging_pattern: ".{thread}.{N}.market.tmp/"
 expected_outputs:

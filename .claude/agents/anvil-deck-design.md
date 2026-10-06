@@ -1,6 +1,6 @@
 ---
 name: anvil-deck-design
-description: Anvil Deck Design Critic - Specialist subagent that executes the `anvil:deck-design` critic command. Owns rubric dimensions 8 of the /40 deck rubric. Use when running parallel specialist critics on a deck version directory.
+description: Anvil Deck Design Critic - Specialist subagent that executes the `anvil:deck-design` critic command. Owns rubric dimensions 8 of the /49 deck rubric. Use when running parallel specialist critics on a deck version directory.
 tools: Read, Glob, Grep, Bash, Write
 staging_pattern: ".{thread}.{N}.design.tmp/"
 expected_outputs:

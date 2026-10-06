@@ -1,39 +1,3 @@
-# Loom Workflow Labels
-# These labels coordinate the Loom AI agent workflow
-# Sync with: .loom/scripts/sync-labels.sh (from the installed repo root)
-# Or manually: gh label create/edit commands
-#
-# SOURCE OF TRUTH / PARITY CONTRACT (#3896):
-#   .github/labels.yml (this repo's live label registry) and
-#   defaults/.github/labels.yml (the installer template copied into fresh
-#   installs) are kept BYTE-IDENTICAL. A fresh install must ship exactly the
-#   label set Loom itself uses, so there are NO intentional differences between
-#   the two files. Edit ONE file, then mirror the change to the other so they
-#   match exactly. CI enforces parity via defaults/scripts/check-labels-drift.sh
-#   (installer-tests job) — the build fails on any drift.
-
-# Core Workflow States
-# DEPRECATED: loom:in-progress removed (use role-specific labels)
-# - loom:building (Builder implementing issue)
-# - loom:curating (Curator enhancing issue)
-# - loom:reviewing (Judge reviewing PR)
-# - loom:treating (Doctor fixing bug/PR feedback)
-
-# Role-Specific Workflow Labels
-# Agent Proposal Labels
-# Status Labels
-# loom:operator-only vs loom:blocked: operator-only = a human must act OUTSIDE
-# automation (credentials, infra, hardware) and sweep/shepherd skip it entirely;
-# blocked = waiting on a dependency but otherwise automatable. Keep the
-# description at/under GitHub's 100-char label-description limit so sync-labels.sh
-# can create it (a longer description fails with HTTP 422 and the label never syncs).
-# Epic Labels
-# Tier Labels (Goal Alignment)
-# External Contribution Gate
-# Not part of the loom: workflow. Builders MUST skip issues carrying this label
-# (see builder.md "Ignore External Issues") — a non-collaborator submission needs
-# maintainer approval before Curator/Builder process it.
-
 # BEGIN LOOM LABELS
 # ============================================================================
 # LOOM-MANAGED BLOCK — everything between the BEGIN/END LOOM LABELS markers is
@@ -48,14 +12,15 @@
 # Sync with: .loom/scripts/sync-labels.sh (from the installed repo root)
 # Or manually: gh label create/edit commands
 #
-# SOURCE OF TRUTH / PARITY CONTRACT (#3896):
+# SOURCE OF TRUTH / PARITY CONTRACT (#3896, #10013):
+#   THIS FILE IS GENERATED from defaults/labels.json (the label registry, the
+#   single source of truth for label semantics). Do NOT edit it by hand: edit
+#   defaults/labels.json, then run `loom-daemon labels generate --write`.
 #   .github/labels.yml (this repo's live label registry) and
 #   defaults/.github/labels.yml (the installer template copied into fresh
-#   installs) are kept BYTE-IDENTICAL. A fresh install must ship exactly the
-#   label set Loom itself uses, so there are NO intentional differences between
-#   the two files. Edit ONE file, then mirror the change to the other so they
-#   match exactly. CI enforces parity via defaults/scripts/check-labels-drift.sh
-#   (installer-tests job) — the build fails on any drift.
+#   installs) are both generated and therefore BYTE-IDENTICAL. CI enforces it
+#   via defaults/scripts/check-labels-drift.sh (installer-tests job) and the
+#   label_registry unit tests — the build fails on any drift.
 
 # Core Workflow States
 - name: loom:triage
@@ -156,7 +121,7 @@
   color: "A16207"  # yellow-700 - a scheduling hold, one shade apart from the in-progress ambers and the operator orange
 
 - name: loom:auto-merge-ok
-  description: Override a Champion merge-risk hold (applied by Judge or human)
+  description: "Override a Champion merge-risk hold (applied by Judge or human)"
   color: "10B981"  # emerald-500 - signals safe to proceed
 
 - name: loom:ci-failure
@@ -181,7 +146,7 @@
   color: "d93f0b"  # red - indicates runtime/build issue
 
 - name: loom:auditor-capability-request
-  description: Auditor capability request for enhanced validation tooling
+  description: "Auditor capability request for enhanced validation tooling"
   color: "6366F1"  # indigo-500 - indicates meta/tooling request
 
 - name: loom:curated
@@ -190,7 +155,7 @@
 
 # Status Labels
 - name: loom:blocked
-  description: Implementation blocked, needs help or clarification
+  description: "Implementation blocked, needs help or clarification"
   color: "EF4444"  # red-500
 
 - name: loom:urgent
@@ -198,7 +163,7 @@
   color: "DC2626"  # red-600
 
 - name: loom:abort
-  description: Signal to abort the sweep for this issue (returns to loom:issue)
+  description: "Signal to abort the sweep for this issue (returns to loom:issue)"
   color: "F97316"  # orange-500 - warning/signal color
 
 # loom:operator-only vs loom:blocked: operator-only = a human must act or rule
@@ -260,6 +225,10 @@
   description: "operator-only sub-kind: preference/authority axis named; not a safe default (#5826)"
   color: "C2410C"  # orange-700 - darkest
 
+- name: loom:decision-malformed
+  description: "operator-decision bounced for missing/invalid decision block; Curator repairs or re-routes (#10057)"
+  color: "C2410C"  # same family as loom:operator-decision
+
 - name: loom:operator-objective
   description: "operator-only sub-kind: determined once operator states objective; lists candidates"
   color: "FED7AA"  # orange-200 - lightest of all: clears on a single stated preference
@@ -293,32 +262,60 @@
 # starts from Curator), and may run one starred sweep over the concurrency
 # cap. Skip/park labels still win: a starred issue carrying loom:blocked,
 # loom:operator-only, loom:operator-decision or loom:operator is never
-# dispatched. Applied by: humans (directly or via the loom-ui star). Removed
-# by: humans.
+# dispatched. Applied by: humans (directly or via the loom-ui star), and, for the
+# children of a starred parent, inherited (#10012: `create-issue.sh --parent`
+# stars a new child; the audit comment names `inherited_from=#P`). Removed by:
+# humans; a star propagation applied goes with the parent's star.
 - name: loom:operator-priority
-  description: "Land ASAP, ahead of all other work (not a hold). Applied by: humans, directly or via loom-ui star."
+  description: "Land ASAP, not a hold. Applied by: humans/loom-ui; inherited by a starred parent's children"
   color: "CA8A04"  # yellow-600 - matches loom-ui's star
+
+# loom:operator-high-priority (#10307) is operator priority LEVEL 2, the
+# double star: above loom:operator-priority, which it nests over (level >= 2
+# counts as starred everywhere; a level-2 item need not also carry the star).
+# Every starred-first pass drains by effective level, highest first. Capped:
+# at most 5 open issues fleet-wide by default (loom-ui enforces the cap at
+# click time; the daemon reports an over-cap level in the star-liveness
+# digest and never refuses a human's label). Its open blockers inherit the
+# level as loom:high-priority-inherited. Like the star it is NOT a hold:
+# every loom:operator- prefix match must exclude it by name. Applied by:
+# humans (directly or via the loom-ui double star). Removed by: humans.
+- name: loom:operator-high-priority
+  description: "Level 2, above the star (capped, not a hold). Applied by: humans, directly or via loom-ui."
+  color: "B45309"  # amber-700 - one shade above the star
+
+# loom:high-priority-inherited (#10307) is DERIVED, never a human's or a
+# role's: the daemon's star-liveness pass writes it on every open issue that
+# blocks a loom:operator-high-priority issue, directly or transitively (across
+# managed repos), with a provenance comment naming the source, and removes it
+# once no level-2 source reaches the issue. Every reader treats it exactly
+# like level 2. It never counts toward the level-2 cap and is never accepted
+# from a loom-ui intent. Applied by / removed by: the loom-daemon
+# star-liveness pass only.
+- name: loom:high-priority-inherited
+  description: "Blocks a level-2 issue, so treated as level 2. Applied by: loom-daemon star-liveness only."
+  color: "D97706"  # amber-600 - the double star's shade, lighter
 
 # Epic Labels
 - name: loom:epic
-  description: Multi-phase epic proposal (decomposes into implementation issues)
+  description: "Multi-phase epic proposal (decomposes into implementation issues)"
   color: "7C3AED"  # violet-600 - distinguishes from regular proposals
 
 - name: loom:epic-phase
-  description: Issue is part of an epic phase (references parent epic)
+  description: "Issue is part of an epic phase (references parent epic)"
   color: "8B5CF6"  # violet-500 - lighter variant for child issues
 
 # Tier Labels (Goal Alignment)
 - name: tier:goal-advancing
-  description: Directly implements a milestone deliverable or unblocks goal work
+  description: "Directly implements a milestone deliverable or unblocks goal work"
   color: "0E8A16"  # green - highest priority
 
 - name: tier:goal-supporting
-  description: Infrastructure, testing, or docs for milestone features
+  description: "Infrastructure, testing, or docs for milestone features"
   color: "FBCA04"  # yellow - medium priority
 
 - name: tier:maintenance
-  description: Cleanup, refactoring, or improvements not tied to current goals
+  description: "Cleanup, refactoring, or improvements not tied to current goals"
   color: "D4C5F9"  # purple - lower priority
 
 # Story-Point Size Labels (#9431, epic #9429): estimation is paused.
