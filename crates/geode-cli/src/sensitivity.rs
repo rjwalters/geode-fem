@@ -100,7 +100,12 @@ struct Gradients {
 
 /// Per-tet values with every tet of design region `region` set to
 /// `value`.
-fn with_region_value(base: &[f64], region_of_tet: &[usize], region: usize, value: f64) -> Vec<f64> {
+pub(crate) fn with_region_value(
+    base: &[f64],
+    region_of_tet: &[usize],
+    region: usize,
+    value: f64,
+) -> Vec<f64> {
     base.iter()
         .zip(region_of_tet)
         .map(|(&b, &r)| if r == region { value } else { b })
@@ -138,6 +143,8 @@ fn finish(
                 index: index.clone(),
                 value: *value,
                 gradient,
+                observable: None,
+                frequency_hz: None,
                 fd_gradient: None,
                 fd_rel_error: None,
             });
@@ -201,11 +208,20 @@ fn finish(
                 physical_group: p.physical_group.clone(),
                 kind: p.kind.name(),
                 value: p.value,
+                name: None,
+                motion: None,
+                axis: None,
+                pinned: Vec::new(),
+                moved_groups: None,
+                unit: None,
             })
             .collect(),
         entries,
         fd_check,
         wall_time_s: t0.elapsed().as_secs_f64(),
+        observables: Vec::new(),
+        forward_parity: None,
+        warnings: Vec::new(),
     })
 }
 

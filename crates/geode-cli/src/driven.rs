@@ -190,7 +190,8 @@ pub fn validate_export(p: &Problem) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Load, solve and report. With `outdir`, lumped-port specs also export
+/// Load, solve and report (`check_gradient`: `--check-gradient`, the
+/// sensitivity's FD self-check). With `outdir`, lumped-port specs also export
 /// per-row fields (and NTFF for a UPML open radiator); with
 /// `touchstone`, the spec also writes a Touchstone 2.0 `.sNp`
 /// ([`crate::touchstone`]): a lumped-port spec its S verbatim, a wave-port
@@ -203,8 +204,25 @@ pub fn run(
     outdir: Option<&Path>,
     touchstone: Option<&Path>,
     opts: SweepOptions,
+    check_gradient: bool,
 ) -> Result<DrivenReport, CliError> {
-    let p = problem::load(spec_path, Some(Analysis::Driven))?;
+    let mut p = problem::load(spec_path, Some(Analysis::Driven))?;
+    // `--check-gradient` (issue #883): the FD self-check, with the spec's
+    // `fd_check` settings or the defaults.
+    if check_gradient {
+        let Some(sens) = &mut p.sensitivity else {
+            return Err(CliError::InvalidSpec(
+                "--check-gradient needs a `sensitivity` section in the spec (the gradients it \
+                 verifies)"
+                    .to_string(),
+            ));
+        };
+        sens.fd_check.get_or_insert((
+            crate::spec::default_fd_relative_step(),
+            crate::spec::default_fd_tolerance(),
+        ));
+    }
+    let p = p;
     p.print_load_warnings();
     let plan = touchstone
         .map(|path| crate::touchstone::validate(&p, path))
@@ -230,10 +248,18 @@ pub fn run(
     // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
     // the `sensitivity` section only for a one-lumped-port direct dense
     // sweep without UPML.
+    // The N-port S-matrix sensitivity (issue #883) differentiates the
+    // forward just reported (it checks its own S against `results`).
     let sensitivities = p
         .sensitivity
         .as_ref()
-        .map(|sens| crate::sensitivity::driven(&p, sens, opts.jobs))
+        .map(|sens| {
+            if sens.n_port {
+                crate::s_sensitivity::driven(&p, sens, &results, opts.jobs)
+            } else {
+                crate::sensitivity::driven(&p, sens, opts.jobs)
+            }
+        })
         .transpose()?;
     let ports = port_summaries(&p);
     let touchstone_file = touchstone

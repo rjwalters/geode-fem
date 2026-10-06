@@ -788,6 +788,45 @@ impl Problem {
         PortMedium { eps_t, mu_t, mu_n }
     }
 
+    /// Rebuild every hybrid wave port's face from the current mesh nodes and
+    /// [`Problem::eps`] (issue #883): the finite-difference self-check of a
+    /// sensitivity moves nodes / changes a region's `ε_r` and re-runs the
+    /// shipped forward, whose hybrid faces must follow — exactly as
+    /// [`load`] builds them (lossy when a face tet is lossy or dispersive).
+    ///
+    /// # Errors
+    ///
+    /// `invalid_spec` if a face no longer builds (a degenerate morph).
+    pub fn rebuild_hybrid_faces(&mut self) -> Result<(), CliError> {
+        let mesh = &self.tagged.mesh;
+        for w in &mut self.wave_ports {
+            let Some(h) = &mut w.hybrid else { continue };
+            let faces = &w.surface.triangles;
+            let lossy = h.dispersive
+                || h.face
+                    .tet_of_tri
+                    .iter()
+                    .flatten()
+                    .any(|&t| self.eps[t].im != 0.0);
+            let face = if lossy {
+                HybridPortFace::from_volume_lossy(mesh, faces, &self.eps)
+            } else {
+                let re: Vec<f64> = self.eps.iter().map(|e| e.re).collect();
+                HybridPortFace::from_volume(mesh, faces, &re)
+            }
+            .and_then(|f| f.with_interior_pec(&self.edges, &self.pec_mask))
+            .map_err(|e| {
+                invalid(format!(
+                    "wave port `{}`: hybrid port face (rebuilt for the sensitivity check): {e}",
+                    w.surface.name
+                ))
+            })?;
+            h.face = face;
+            h.lossy = lossy;
+        }
+        Ok(())
+    }
+
     /// Each dispersive region's `(name, ε_r(hz))`, in spec order.
     pub fn dispersive_eps(&self, hz: f64) -> Vec<(&str, c64)> {
         self.dispersion
@@ -1182,9 +1221,15 @@ pub fn load_parsed(
         for (g, role) in shape_groups(prm)
             .iter()
             .map(|g| (g, "sensitivity shape group"))
-            .chain(prm.pinned.iter().flatten().map(|g| (g, "sensitivity pinned group")))
+            .chain(
+                prm.pinned
+                    .iter()
+                    .flatten()
+                    .map(|g| (g, "sensitivity pinned group")),
+            )
         {
-            if tagged.physical_group_tag(2, g).is_none() && tagged.physical_group_tag(3, g).is_none()
+            if tagged.physical_group_tag(2, g).is_none()
+                && tagged.physical_group_tag(3, g).is_none()
             {
                 missing.push(format!("`{g}` (dim 2 or 3, {role})"));
             }
@@ -2481,12 +2526,7 @@ fn validate_parameter_fields(
         }
         Some(_) => {}
     }
-    if let Some(g) = prm
-        .pinned
-        .iter()
-        .flatten()
-        .find(|g| groups.contains(g))
-    {
+    if let Some(g) = prm.pinned.iter().flatten().find(|g| groups.contains(g)) {
         return Err(invalid(format!(
             "sensitivity.parameters[{i}] (shape `{}`): group `{g}` both moves and is pinned",
             shape_name(prm)
@@ -2511,7 +2551,9 @@ fn validate_observables(sens: &crate::spec::SensitivitySpec) -> Result<(), CliEr
         let at = format!("sensitivity.observables[{i}] (`{}`)", o.quantity.name());
         let only = |field: &str, set: bool| -> Result<(), CliError> {
             if set {
-                return Err(invalid(format!("{at}: `{field}` does not apply to this quantity")));
+                return Err(invalid(format!(
+                    "{at}: `{field}` does not apply to this quantity"
+                )));
             }
             Ok(())
         };
@@ -2635,7 +2677,11 @@ fn resolve_sensitivity(
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
-    let region_of_tet = tagged.tet_physical_tags.iter().map(|t| index_of[t]).collect();
+    let region_of_tet = tagged
+        .tet_physical_tags
+        .iter()
+        .map(|t| index_of[t])
+        .collect();
     let (observables, frequency_indices) = if analysis == Analysis::Driven && ctx.n_port {
         (
             resolve_observables(sens, ctx)?,
@@ -2777,8 +2823,10 @@ fn resolve_observables(
                     for &e in &entries {
                         check(&at, e)?;
                     }
-                    let list: Vec<String> =
-                        entries.iter().map(|e| format!("{},{}", e[0], e[1])).collect();
+                    let list: Vec<String> = entries
+                        .iter()
+                        .map(|e| format!("{},{}", e[0], e[1]))
+                        .collect();
                     ObservableDef {
                         quantity: o.quantity,
                         entries,
@@ -2796,7 +2844,9 @@ fn resolve_observables(
                         .iter()
                         .position(|w| w.surface.name == name)
                         .ok_or_else(|| {
-                            invalid(format!("{at}: `{name}` is not one of the spec's wave ports"))
+                            invalid(format!(
+                                "{at}: `{name}` is not one of the spec's wave ports"
+                            ))
                         })?;
                     let w = &ctx.wave_ports[k];
                     let Some(h) = &w.hybrid else {
@@ -2830,7 +2880,11 @@ fn resolve_observables(
                         form,
                         wave_port: Some(k),
                         mode,
-                        label: format!("{}({}[{name}, mode {mode}])", form.name(), o.quantity.name()),
+                        label: format!(
+                            "{}({}[{name}, mode {mode}])",
+                            form.name(),
+                            o.quantity.name()
+                        ),
                         unit: form_unit(form, base),
                     }
                 }
