@@ -81,11 +81,13 @@ pub const FORWARD_PARITY_TOL: f64 = 1e-8;
 /// (the shipped readout): the two agree on eigenmodes to the eigen-solve
 /// residual.
 pub const PORT_MODE_PARITY_TOL: f64 = 1e-6;
-/// Absolute floor of the FD-check denominator, relative to the observable's
-/// magnitude per unit parameter scale (a component that is structurally
-/// zero, e.g. a face quantity w.r.t. a parameter that never reaches the
-/// face).
-const FD_ABS_FLOOR: f64 = 1e-9;
+/// Relative round-off of one forward solve's observable, the noise floor of
+/// a central difference: an entry whose gradient and FD estimate both sit
+/// below `FD_ROUNDOFF · M / h` (`M` the observable's magnitude scale, `h`
+/// the step) is structurally zero — e.g. `|S21|` of a uniform guide under
+/// a rigid shift of a slab — and is not judged against the difference of
+/// two round-off-level numbers.
+const FD_ROUNDOFF: f64 = 1e-10;
 
 type B = CompiledBackend;
 
@@ -321,6 +323,17 @@ fn form_of(form: ObservableForm, z: c64, dz: c64) -> (f64, f64) {
             20.0 / std::f64::consts::LN_10 * zd.re / m2,
         ),
         ObservableForm::PhaseDeg => (z.im.atan2(z.re).to_degrees(), (zd.im / m2).to_degrees()),
+    }
+}
+
+/// The magnitude scale `M` of a form's value for the FD round-off floor:
+/// `max(|value|, 1)`, times `20/ln 10` for dB and `180/π` for degrees (the
+/// value's change per unit relative change of `z`).
+fn magnitude_scale(form: ObservableForm, value: f64) -> f64 {
+    match form {
+        ObservableForm::Db => 20.0 / std::f64::consts::LN_10,
+        ObservableForm::PhaseDeg => 180.0 / std::f64::consts::PI,
+        _ => value.abs().max(1.0),
     }
 }
 
@@ -566,17 +579,18 @@ fn parameter_summary(
     }
 }
 
-/// The parameter's natural scale (the FD step and floor scale): `|value|`,
-/// else (a parameter at zero) `ε′` for `ε″`, `1` for `tan δ`, the motion's
-/// length for a shape parameter — all in the parameter's own unit.
+/// The parameter's natural scale (the FD step and floor scale), in its own
+/// unit: `|ε′|` for `eps_r`; `|ε_r|` for `eps_r_imag` and `1` for
+/// `tan δ` — a loss step is a step of the same relative size in `ε_r` as an
+/// `eps_r` step (a step relative to a small `ε″` itself sits in the solve's
+/// round-off); a shape parameter's motion length (the stretch extent, else
+/// the moving nodes' bounding-box size).
 fn parameter_scale(p: &Problem, prm: &SensitivityParameter) -> f64 {
-    if prm.value != 0.0 {
-        return prm.value.abs();
-    }
     match (&prm.shape, prm.kind) {
         (Some(sh), _) => sh.fd_length * p.length_unit_m(),
-        (None, SensitivityParameterKind::EpsRImag) => p.regions[prm.region].eps_r.re.abs(),
-        _ => 1.0,
+        (None, SensitivityParameterKind::EpsRImag) => p.regions[prm.region].eps_r.norm(),
+        (None, SensitivityParameterKind::TanDelta) => 1.0,
+        _ => prm.value.abs(),
     }
 }
 
@@ -792,7 +806,9 @@ pub fn driven(
                 let col = d.columns[k].as_ref();
                 let scale = parameter_scale(p, prm);
                 let h = step * scale;
-                let one_sided = prm.value == 0.0
+                // A loss parameter within one step of its lossless bound:
+                // `p − h` would be gain (and flip a filled port's branch).
+                let one_sided = prm.value < h
                     && matches!(
                         prm.kind,
                         SensitivityParameterKind::EpsRImag | SensitivityParameterKind::TanDelta
@@ -842,7 +858,7 @@ pub fn driven(
                         };
                         let e = &mut entries[(k * n_obs + oi) * n_f + si];
                         let floor = (FD_SCALE_FLOOR * gmax)
-                            .max(FD_ABS_FLOOR * e.value.abs().max(1.0) / scale);
+                            .max(FD_ROUNDOFF * magnitude_scale(o.form, e.value) / h);
                         let rel = rel_error(e.gradient, fd, floor);
                         let key = if rel.is_nan() { f64::INFINITY } else { rel };
                         if worst.is_none() || key > max_rel {
