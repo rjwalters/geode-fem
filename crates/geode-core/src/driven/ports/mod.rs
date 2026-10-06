@@ -41,7 +41,9 @@
 //!   [`solve_wave_port_spec_sweep_on_space`],
 //!   [`solve_mixed_port_spec_sweep_on_space`]) — geometric wave ports on an
 //!   order-pluggable H(curl) space, including p=2 (Epic #836 Phase 3a, issue
-//!   #884); the order-aware TE-only TM guard [`tm_guard_margin_at_order`].
+//!   #884); the order-aware TE-only TM guard [`tm_guard_margin_at_order`],
+//!   with its P2 face estimate
+//!   [`PortFaceProjection::tm_cutoff_estimate_at_order`].
 
 mod hybrid;
 mod hybrid_lossy;

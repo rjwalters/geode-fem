@@ -22,9 +22,11 @@
 //!    `Γ`, with exact reciprocity and passivity.
 //! 8. The adaptive PROM with p=2 wave ports reproduces the dense p=2 sweep.
 //! 9. p=1 bit identity of every `*_on_space` entry point, plus typed errors.
-//! 10. TM guard at p=2: the order-aware margin stays below the measured 3-D
-//!     p=2 TM cutoff. The full measurement table is the ignored
-//!     `tm_guard_p2_measurement_table`.
+//! 10. TM guard at p=2: the P2 face estimate and the order-aware margin
+//!     `max(δ₀, C₄·(k_c·max(h_n, h_f))⁴)` stay below the measured 3-D p=2 TM
+//!     cutoff, including on faces with no interior node (Judge, PR #887). A
+//!     p=2 solve guarded by a P1 face estimate keeps the p=1 law. The full
+//!     measurement table is the ignored `tm_guard_p2_measurement_table`.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -808,7 +810,7 @@ fn p1_on_space_entry_points_are_bit_identical() {
     // TM guard: the default (p=1) estimate is the historical margin.
     for (kc, h) in [(3.5, 0.0), (3.5, 0.5), (3.5, 1.2), (1.7, 3.0)] {
         assert_eq!(
-            tm_guard_margin_at_order(ElementOrder::P1, kc, h).to_bits(),
+            tm_guard_margin_at_order(ElementOrder::P1, kc, h, 2.0).to_bits(),
             tm_guard_margin(kc, h).to_bits()
         );
         let est = TmCutoffEstimate::from_levels([3.6, 3.53, 3.515]).with_axial_spacing(h);
@@ -976,43 +978,77 @@ fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<
         .reduce(f64::min)
 }
 
-/// The guard's face estimate and the axial spacing it reads over the guide
-/// (the CLI's window, [`tm_guard_axial_reach`]) for the `z = 0` face.
-fn guard_estimate(mesh: &TetMesh) -> TmCutoffEstimate {
+/// The guard's face estimate at `order` and the axial spacing it reads over
+/// the guide (the CLI's window, [`tm_guard_axial_reach`]) for the `z = 0`
+/// face.
+fn guard_estimate_at(mesh: &TetMesh, order: ElementOrder) -> TmCutoffEstimate {
     let port: Vec<[u32; 3]> = mesh
         .boundary_faces()
         .into_iter()
         .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-9))
         .collect();
     let face = project_port_face(mesh, &port).expect("port face");
-    let est = face.tm_cutoff_estimate(None).expect("TM estimate");
+    let est = face
+        .tm_cutoff_estimate_at_order(None, order)
+        .expect("TM estimate");
     let reach = tm_guard_axial_reach(est.k_c(), 0.0);
     est.with_axial_spacing(face.guide_axial_spacing(mesh, reach))
 }
 
-/// One measured case: returns `(k_c·h_n, 3-D p=2 undershoot against the
-/// face estimate)` and asserts the p=2 guard sits below the 3-D p=2 TM-like
-/// cutoff.
-fn check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> (f64, f64) {
-    let est = guard_estimate(mesh).with_element_order(ElementOrder::P2);
-    let k3d = box_tm_like_k(mesh, ElementOrder::P2, a, b).expect("TM-like p=2 mode");
-    let kh = est.axial_kh();
+/// The p=1 guard's estimate ([`guard_estimate_at`] at p=1).
+fn guard_estimate(mesh: &TetMesh) -> TmCutoffEstimate {
+    guard_estimate_at(mesh, ElementOrder::P1)
+}
+
+/// One measured case: returns `(k_c·max(h_n, h_f), 3-D p=2 undershoot
+/// against the face estimate)` and asserts the p=2 guard (P2 face estimate, p=2 law)
+/// sits below the 3-D p=2 TM-like cutoff. `None` when the classifier finds
+/// no TM-like p=2 mode (a very coarse box can mix TM and TE content).
+fn try_check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> Option<(f64, f64)> {
+    let est = guard_estimate_at(mesh, ElementOrder::P2);
+    assert_eq!(est.margin_law(), ElementOrder::P2);
+    let Some(k3d) = box_tm_like_k(mesh, ElementOrder::P2, a, b) else {
+        eprintln!("{label}: no TM-like p=2 mode (row skipped)");
+        return None;
+    };
+    let kh = est.resolution_kh();
     let under = 1.0 - k3d / est.k_c();
     let guard = est.guard_k_c();
-    let p1_guard = est.with_element_order(ElementOrder::P1).guard_k_c();
+    let p1 = guard_estimate(mesh);
+    let p1_guard = p1.guard_k_c();
+    // The p=2 solve guarded by the P1 face estimate falls back to the p=1
+    // law: that pairing is the p=1 guard, bit for bit.
+    let fallback = p1.with_element_order(ElementOrder::P2);
+    assert_eq!(fallback.margin_law(), ElementOrder::P1);
+    assert_eq!(fallback.guard_k_c().to_bits(), p1_guard.to_bits());
+    let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
     eprintln!(
-        "{label}: k_c·h_n {kh:.3}, 3-D p=2 TM {k3d:.4} (undershoot {:+.3} %, ÷(kh)⁴ {:.2e}); \
-         p=2 guard {guard:.4} (margin {:.2} %), p=1 guard {p1_guard:.4}",
+        "{label}: k_c·h {kh:.3} (k_c·h_n {:.3}, k_c·h_f {:.3}), face P2 est {:.4} \
+         (P1 est {:.4}, TM11 {tm11:.4}), 3-D p=2 TM {k3d:.4} (undershoot {:+.3} %, \
+         ÷(kh)⁴ {:.2e}); p=2 guard {guard:.4} (margin {:.2} %, {:.2} pt left), \
+         p=1 guard {p1_guard:.4}",
+        est.axial_kh(),
+        est.k_c() * est.face_spacing,
+        est.k_c(),
+        p1.k_c(),
         100.0 * under,
         under / kh.powi(4),
-        100.0 * est.margin()
+        100.0 * est.margin(),
+        100.0 * (1.0 - guard / k3d),
     );
     assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
-    (kh, under)
+    assert!(p1_guard < k3d, "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}");
+    Some((kh, under))
+}
+
+/// [`try_check_p2_guard`], requiring a TM-like mode.
+fn check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> (f64, f64) {
+    try_check_p2_guard(label, mesh, a, b).expect("TM-like p=2 mode")
 }
 
 /// The order-aware TM guard (issue #884): at p=2 the margin is
-/// `max(δ₀, C₄·(k_c·h_n)⁴)` and stays below the measured 3-D p=2 TM cutoff.
+/// `max(δ₀, C₄·(k_c·max(h_n, h_f))⁴)` on the P2 face estimate and stays below
+/// the measured 3-D p=2 TM cutoff.
 /// Two cases from the measurement table: the worst ratio (the 4 × 2 face
 /// of a `2 × 1` guide over one layer of 1.0) and the stepped-layer guide of
 /// PR #827 (where p=1 needs a 10 % margin). At p=2 the base 5 % covers both.
@@ -1032,12 +1068,62 @@ fn p2_tm_guard_stays_below_the_3d_p2_cutoff() {
     let (kh, under) = check_p2_guard("stepped 0.15 + 0.6, face 16×8", &g.mesh, a, b);
     assert!((kh - 2.107).abs() < 0.01 && under < 0.005, "{kh} {under}");
     // The base margin alone applies there, and p=1 needs more.
-    let est = guard_estimate(&g.mesh);
     assert_eq!(
-        est.with_element_order(ElementOrder::P2).margin(),
+        guard_estimate_at(&g.mesh, ElementOrder::P2).margin(),
         TM_GUARD_MARGIN
     );
+    let est = guard_estimate(&g.mesh);
     assert!(est.margin() > 0.1, "p=1 margin {}", est.margin());
+}
+
+/// The Judge's coarse-face counterexample (PR #887): the `2 × 1`-cell face
+/// of a `2 × 1` guide over one tet layer of 1.25. The face has no interior
+/// node, so the **P1** estimate cannot extrapolate and sits at its `h/4`
+/// value, 4.2 % above the continuum TM₁₁; under the p=2 law that guard
+/// (3.478) was above the 3-D p=2 TM cutoff (3.463). The **P2** face
+/// estimate lands on the continuum and its guard is safe. A p=2 solve
+/// guarded by the P1 estimate falls back to the p=1 law, which is safe too.
+#[test]
+fn p2_tm_guard_is_safe_on_a_face_with_no_interior_node() {
+    let (a, b) = (2.0, 1.0);
+    let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
+    let g = extruded_rect_waveguide_mesh(2, 1, 1, a, b, 1.25);
+    let p1 = guard_estimate(&g.mesh);
+    // No interior node at h: the P1 estimate is the unextrapolated h/4 value.
+    assert!(p1.k_face.is_infinite() && p1.order.is_none(), "{p1:?}");
+    assert!(p1.k_c() / tm11 - 1.0 > 0.04, "{p1:?}");
+    // The first PR #887 law (`max(5 %, 1e-4·(k_c·h_n)⁴)` on the P1 estimate)
+    // put the guard above the 3-D p=2 TM cutoff; the fallback does not.
+    let old_margin = TM_GUARD_MARGIN.max(1e-4 * p1.axial_kh().powi(4));
+    let unsafe_guard = (1.0 - old_margin) * p1.k_c();
+    assert!((unsafe_guard - 3.4780).abs() < 1e-3, "{unsafe_guard}");
+    let k3d = box_tm_like_k(&g.mesh, ElementOrder::P2, a, b).expect("TM-like mode");
+    assert!(unsafe_guard > k3d, "{unsafe_guard} vs {k3d}");
+    assert!(p1.with_element_order(ElementOrder::P2).guard_k_c() < k3d);
+    // The P2 face estimate is the continuum, and its p=2 guard is safe.
+    let p2 = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    assert_eq!(p2.face_order, ElementOrder::P2);
+    assert!((p2.k_c() / tm11 - 1.0).abs() < 1e-3, "{p2:?} vs {tm11}");
+    let (_, under) = check_p2_guard("face 2×1, one layer of 1.25", &g.mesh, a, b);
+    assert!(under < TM_GUARD_MARGIN, "undershoot {under}");
+    // The face (longest edge √2) is coarser than the axial layer, so it sets
+    // the p=2 margin, and the design note says to refine the face.
+    assert!((p2.face_spacing - 2f64.sqrt()).abs() < 1e-12, "{p2:?}");
+    assert!(p2.margin() > TM_GUARD_MARGIN, "{p2:?}");
+    let note = p2.p2_resolution_warning().expect("coarse-face note");
+    assert!(note.contains("port face"), "{note}");
+    // The P1-estimate fallback says why it is wide, and how to get the p=2 law.
+    let note = p1
+        .with_element_order(ElementOrder::P2)
+        .p2_resolution_warning()
+        .expect("fallback note");
+    assert!(note.contains("tm_cutoff_estimate_at_order"), "{note}");
+    // No note at p=1, nor for a fine face and guide at the base margin.
+    assert!(p1.p2_resolution_warning().is_none());
+    let fine = extruded_rect_waveguide_mesh(16, 8, 4, a, b, 1.0);
+    let est = guard_estimate_at(&fine.mesh, ElementOrder::P2);
+    assert_eq!(est.margin(), TM_GUARD_MARGIN);
+    assert!(est.p2_resolution_warning().is_none(), "{est:?}");
 }
 
 /// The p=2 margin law and its inverses are consistent.
@@ -1050,14 +1136,35 @@ fn p2_tm_guard_margin_law() {
         let want = TM_GUARD_MARGIN
             .max(TM_GUARD_AXIAL_COEFF_P2 * kh.powi(4))
             .min(1.0);
-        assert_eq!(tm_guard_margin_at_order(ElementOrder::P2, kc, h), want);
+        assert_eq!(tm_guard_margin_at_order(ElementOrder::P2, kc, h, 0.0), want);
+        // The face resolution enters through `max(h_n, h_f)`.
+        assert_eq!(tm_guard_margin_at_order(ElementOrder::P2, kc, 0.0, h), want);
+        assert_eq!(
+            tm_guard_margin_at_order(ElementOrder::P2, kc, 0.5 * h, h),
+            want
+        );
         // Never wider than the p=1 law on the same mesh.
         assert!(want <= tm_guard_margin(kc, h));
     }
-    let est =
-        TmCutoffEstimate::from_levels([3.6, 3.53, 3.515]).with_element_order(ElementOrder::P2);
+    let levels = [3.6, 3.53, 3.515];
+    // A P1 face estimate keeps the p=1 law even for a p=2 solve.
+    let p1_face = TmCutoffEstimate::from_levels(levels).with_element_order(ElementOrder::P2);
+    assert_eq!(p1_face.face_order, ElementOrder::P1);
+    assert_eq!(p1_face.margin_law(), ElementOrder::P1);
+    for h in [0.0, 0.5, 1.2] {
+        let p1 = TmCutoffEstimate::from_levels(levels).with_axial_spacing(h);
+        assert_eq!(
+            p1_face.with_axial_spacing(h).margin().to_bits(),
+            p1.margin().to_bits()
+        );
+    }
+    // A P2 face estimate at p=2 takes the p=2 law; at p=1 it keeps p=1.
+    let p2_face = TmCutoffEstimate::from_levels_at_order(levels, ElementOrder::P2);
+    assert_eq!(p2_face.margin_law(), ElementOrder::P1);
+    let est = p2_face.with_element_order(ElementOrder::P2);
+    assert_eq!(est.margin_law(), ElementOrder::P2);
     let kc = est.k_c();
-    // The spacing where the base margin stops applying: k_c·h_n ≈ 4.73.
+    // The spacing where the base margin stops applying: k_c·h ≈ 3.98.
     let h0 = est.base_margin_axial_spacing();
     assert!((kc * h0 - (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25)).abs() < 1e-12);
     assert!(kc * h0 < TM_GUARD_MEASURED_KH_P2);
@@ -1103,9 +1210,9 @@ fn tm_guard_p2_measurement_table() {
         (4.0, 2.0, 1, 1.95),
         (4.0, 2.0, 1, 3.0),
     ] {
-        for n in [2usize, 4, 8] {
+        for n in [1usize, 2, 4, 8] {
             let g = extruded_rect_waveguide_mesh(2 * n, n, nz, a, b, length);
-            record(check_p2_guard(
+            if let Some(r) = try_check_p2_guard(
                 &format!(
                     "structured {a}×{b}, face {}×{n}, {nz} layer(s) over {length}",
                     2 * n
@@ -1113,7 +1220,39 @@ fn tm_guard_p2_measurement_table() {
                 &g.mesh,
                 a,
                 b,
-            ));
+            ) {
+                record(r);
+            }
+        }
+    }
+    // Coarse and anisotropic faces (the Judge's probe of PR #887 and its
+    // neighbours): `nx × ny` faces of a guide, one or two layers.
+    for &(nx, ny, a, b, nz, length) in &[
+        (3usize, 1usize, 2.0, 1.0, 1usize, 0.5),
+        (3, 1, 2.0, 1.0, 1, 0.75),
+        (3, 1, 2.0, 1.0, 1, 1.25),
+        (3, 1, 2.0, 1.0, 1, 1.5),
+        (2, 2, 2.0, 1.0, 1, 0.75),
+        (2, 2, 2.0, 1.0, 1, 1.25),
+        (3, 2, 2.0, 1.0, 1, 1.0),
+        (3, 2, 2.0, 1.0, 1, 1.5),
+        (2, 1, 2.0, 1.0, 2, 1.0),
+        (2, 1, 2.0, 1.0, 2, 2.5),
+        (1, 1, 1.0, 1.0, 1, 0.5),
+        (1, 1, 1.0, 1.0, 1, 1.0),
+        (2, 2, 1.0, 1.0, 1, 0.75),
+        (2, 2, 1.0, 1.0, 1, 1.2),
+        (3, 1, 3.0, 1.0, 1, 0.75),
+        (3, 1, 3.0, 1.0, 1, 1.5),
+    ] {
+        let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+        if let Some(r) = try_check_p2_guard(
+            &format!("coarse face {a}×{b}, face {nx}×{ny}, {nz} layer(s) over {length}"),
+            &g.mesh,
+            a,
+            b,
+        ) {
+            record(r);
         }
     }
     for (nx, ny, a, zs) in [
@@ -1152,6 +1291,20 @@ fn tm_guard_p2_measurement_table() {
         (4.0, 2.0, 1.5, 1.0, 1.0),
         (4.0, 2.0, 2.0, 1.4, 1.4),
         (1.0, 1.0, 0.5, 0.3, 0.3),
+        // Coarse Gmsh faces (Judge, PR #887: ÷(k_c·h_n)⁴ = 3.2e-4 at lc 1.0
+        // under the P1 estimate).
+        (2.0, 1.0, 1.5, 1.0, 1.0),
+        (2.0, 1.0, 1.5, 1.2, 1.2),
+        (2.0, 1.0, 1.0, 1.2, 1.2),
+        (1.0, 1.0, 1.0, 0.8, 0.8),
+        (2.0, 1.0, 1.5, 0.8, 0.8),
+        (2.0, 1.0, 1.5, 1.4, 1.4),
+        (2.0, 1.0, 2.0, 1.0, 1.0),
+        (2.0, 1.0, 3.0, 1.2, 1.2),
+        (3.0, 1.0, 1.5, 1.0, 1.0),
+        (3.0, 1.0, 1.5, 1.4, 1.4),
+        (1.0, 1.0, 1.0, 1.2, 1.2),
+        (4.0, 2.0, 3.0, 2.0, 2.0),
     ] {
         let out = dir.join(format!("g_{a}x{b}_{d}_{lc}_{lc1}.msh"));
         let status = std::process::Command::new("gmsh")
@@ -1182,11 +1335,11 @@ fn tm_guard_p2_measurement_table() {
     }
     let _ = std::fs::remove_dir_all(&dir);
     eprintln!(
-        "worst p=2 undershoot {:.3} %, worst ÷(k_c·h_n)⁴ {worst_ratio:.2e} (C₄ = \
-         {TM_GUARD_AXIAL_COEFF_P2:.0e}); Gmsh rows {}",
+        "worst p=2 undershoot {:.3} %, worst ÷(k_c·h)⁴ {worst_ratio:.2e} (C₄ = \
+         {TM_GUARD_AXIAL_COEFF_P2:.1e}); Gmsh rows {}",
         100.0 * worst_under,
         if ran_gmsh { "run" } else { "skipped" }
     );
-    assert!(worst_under < 0.025, "p=2 undershoot {worst_under}");
+    assert!(worst_under < 0.06, "p=2 undershoot {worst_under}");
     assert!(worst_ratio < TM_GUARD_AXIAL_COEFF_P2, "ratio {worst_ratio}");
 }

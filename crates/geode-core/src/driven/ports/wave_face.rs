@@ -195,6 +195,22 @@ pub struct PortFaceProjection {
 }
 
 impl PortFaceProjection {
+    /// The longest edge of the port-face triangles (mesh units; issue
+    /// #884): the face resolution `h_f` the p=2 TM guard's margin reads
+    /// ([`TmCutoffEstimate::face_spacing`]). `0` for an empty face.
+    pub fn face_spacing(&self) -> f64 {
+        self.edges
+            .iter()
+            .map(|&[a, b]| {
+                let (p, q) = (
+                    self.tri_mesh.nodes[a as usize],
+                    self.tri_mesh.nodes[b as usize],
+                );
+                (p[0] - q[0]).hypot(p[1] - q[1])
+            })
+            .fold(0.0, f64::max)
+    }
+
     /// Number of interior (non-rim) edges — the modal problem size.
     pub fn n_interior_edges(&self) -> usize {
         self.interior_edge_mask.iter().filter(|&&k| k).count()
@@ -383,7 +399,66 @@ impl PortFaceProjection {
             p1_dirichlet_lowest(&n1, &t1, &f1)?,
             p1_dirichlet_lowest(&n2, &t2, &f2)?,
         ];
-        Ok(TmCutoffEstimate::from_levels(k))
+        Ok(TmCutoffEstimate::from_levels(k).with_face_spacing(self.face_spacing()))
+    }
+
+    /// The TE-only TM guard's estimate for a 3-D driven solve at element
+    /// order `order` (issue #884), with [`TmCutoffEstimate::element_order`]
+    /// set to `order`.
+    ///
+    /// - [`ElementOrder::P1`]: exactly [`Self::tm_cutoff_estimate`] (bit for
+    ///   bit), with the p=1 margin.
+    /// - [`ElementOrder::P2`]: the same three-level Richardson construction,
+    ///   but each level is the lowest Dirichlet eigenvalue of the **P2**
+    ///   (quadratic) Lagrange Laplacian on the face and on its two uniform
+    ///   refinements, extrapolated with the observed order clamped to
+    ///   `[0.5, 4]` (P2 Dirichlet eigenvalues converge at `O(h⁴)` on a
+    ///   convex face). The estimate is then tagged
+    ///   [`TmCutoffEstimate::face_order`] = P2, which is what lets the p=2
+    ///   axial law ([`TM_GUARD_AXIAL_COEFF_P2`]) apply.
+    ///
+    /// Why the face estimate has to be order-aware: the P1 estimate is only
+    /// as good as the coarsest P1 level the extrapolation can use. On a
+    /// face with no interior node (the `2 × 1`-cell face of a `2 × 1`
+    /// guide) the first level is `∞`, no extrapolation is possible, and the
+    /// estimate is the `h/4` P1 value 3.661, 4.2 % above the continuum
+    /// TM₁₁ = 3.512. The p=2 axial law has no room for that error: over one
+    /// tet layer of 1.25 it put the guard at 3.478, **above** the 3-D p=2
+    /// TM cutoff 3.463 (Judge probe, PR #887). The P2 estimate on that face
+    /// is 3.512 (the continuum to 10⁻⁵) and the guard 3.336.
+    ///
+    /// The P2 levels hold about 4× the DOFs of the P1 ones (the P2 nodes of
+    /// a level are the P1 nodes of the next refinement), a 2-D solve.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::lowest_tm_cutoff`].
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::lowest_tm_cutoff`].
+    pub fn tm_cutoff_estimate_at_order(
+        &self,
+        open_rim: Option<&[bool]>,
+        order: ElementOrder,
+    ) -> Result<TmCutoffEstimate, PortFaceError> {
+        match order {
+            ElementOrder::P1 => self.tm_cutoff_estimate(open_rim),
+            ElementOrder::P2 => {
+                let fixed0 = self.tm_conductor_rim_edges(open_rim);
+                let (n1, t1, f1) =
+                    refine_tri_mesh(&self.tri_mesh.nodes, &self.tri_mesh.tris, &fixed0);
+                let (n2, t2, f2) = refine_tri_mesh(&n1, &t1, &f1);
+                let k = [
+                    p2_dirichlet_lowest(&self.tri_mesh.nodes, &self.tri_mesh.tris, &fixed0)?,
+                    p2_dirichlet_lowest(&n1, &t1, &f1)?,
+                    p2_dirichlet_lowest(&n2, &t2, &f2)?,
+                ];
+                Ok(TmCutoffEstimate::from_levels_at_order(k, ElementOrder::P2)
+                    .with_element_order(ElementOrder::P2)
+                    .with_face_spacing(self.face_spacing()))
+            }
+        }
     }
 
     /// The axial mesh spacing `h_n` of the guide feeding the port (issue
@@ -1072,58 +1147,89 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
     TM_GUARD_MARGIN.max(TM_GUARD_AXIAL_COEFF * kh * kh).min(1.0)
 }
 
-/// Coefficient `C₄` of the axial term of the **p=2** TM guard margin
+/// Coefficient `C₄` of the mesh term of the **p=2** TM guard margin
 /// ([`tm_guard_margin_at_order`], issue #884):
-/// `δ = max(TM_GUARD_MARGIN, C₄·(k_c·h_n)⁴)`.
+/// `δ = max(TM_GUARD_MARGIN, C₄·(k_c·h)⁴)` with `h = max(h_n, h_f)`, the
+/// larger of the guide's axial spacing `h_n`
+/// ([`PortFaceProjection::guide_axial_spacing`] over
+/// [`tm_guard_axial_reach`]) and the port face's longest edge `h_f`
+/// ([`PortFaceProjection::face_spacing`]), and `k_c` the **P2** face
+/// estimate ([`PortFaceProjection::tm_cutoff_estimate_at_order`]).
 ///
 /// [`TM_GUARD_AXIAL_COEFF`] was fitted to the 3-D **lowest-order**
 /// Nédélec model. The second-order space of a p=2 driven solve
-/// ([`crate::assembly::hcurl_space::HcurlSpace`]) has its own TM cutoff, and
-/// that cutoff sits far closer to the continuum. Measured on the #824
-/// harness at p=2, with the all-PEC box's lowest TM-like resonance (the #871
-/// p=2 eigen with a gradient classifier) taken against the guard's own face
-/// estimate [`TmCutoffEstimate::k_c`], and `h_n` read over
-/// [`tm_guard_axial_reach`]:
+/// ([`crate::assembly::hcurl_space::HcurlSpace`]) has its own TM cutoff, far
+/// closer to the continuum. Measured on the #824 harness at p=2, with the
+/// all-PEC box's lowest TM-like resonance (the #871 p=2 eigen with a
+/// gradient classifier) taken against the guard's P2 face estimate
+/// (`tm_guard_p2_measurement_table` in `tests/wave_port_p2.rs`):
 ///
-/// | mesh along the guide | `k_c·h_n` | worst p=2 undershoot | worst `÷ (k_c·h_n)⁴` |
+/// | mesh along the guide | `k_c·h` | worst p=2 undershoot | worst `÷ (k_c·h)⁴` |
 /// |---|---|---|---|
-/// | structured, one or two layers, faces 4 × 2 … 16 × 8 | 0.44 … 5.27 | 1.98 % (4 × 2 face, 5.27) | 7.5·10⁻⁵ (4 × 2 face, 3.51) |
-/// | structured, stepped layers (fine at the port, coarse behind) | 2.11 … 3.51 | 0.27 % | 1.8·10⁻⁵ |
-/// | Gmsh, uniform (`lc` 0.25 … 1.4) and graded (0.08 → 0.5, 0.12 → 0.6, 0.6 → 0.12) | 1.12 … 3.51 | 0.04 % (most overshoot) | 4.5·10⁻⁵ |
+/// | structured, faces 4 × 2 … 16 × 8 of `2 × 1` / `4 × 2` guides (`k_c·h_f` ≤ 2.5), one to four layers | 0.62 … 5.27 | 2.03 % | 7.8·10⁻⁵ |
+/// | structured, coarse faces (2 × 1, 3 × 1, 2 × 2, 3 × 2 and 1 × 1 cells; `k_c·h_f` 2.9 … 6.3) | 3.33 … 6.28 | 5.43 % (3 × 1 face of a `3 × 1` guide, one layer of 1.5) | 8.9·10⁻⁵ |
+/// | structured, stepped layers (fine at the port, coarse behind) | 2.11 … 3.51 | 0.32 % | 2.1·10⁻⁵ |
+/// | Gmsh, uniform (`lc` 0.25 … 2.0, down to one cell across the guide) and graded (0.08 → 0.5, 0.12 → 0.6, 0.6 → 0.12) | 1.12 … 4.44 | 2.21 % (`2 × 1 × 3`, `lc` 1.2) | 1.45·10⁻⁴ (same) |
 ///
 /// Compare p=1 on the same meshes: 6.0 % on the stepped `2 × 1` guide, 18.5 %
-/// at `k_c·h_n` = 3.51. The p=2 undershoot is **not** a clean power law in
-/// `k_c·h_n`. It is dominated by the port-face resolution (the 4 × 2 face of
-/// a `2 × 1` guide is the worst case at every axial spacing) and stays below
-/// the 5 % base margin everywhere measured. `C₄ = 10⁻⁴` is therefore a
-/// **bound**, not a model: it covers the worst measured ratio with 33 %
-/// headroom, it leaves the base margin alone up to `k_c·h_n = (δ₀/C₄)^¼ ≈
-/// 4.7` (about 1.3 axial cells per TM-cutoff wavelength), and above that it
-/// widens the margin faster than any measured undershoot grew. Beyond
-/// [`TM_GUARD_MEASURED_KH_P2`] it is extrapolated.
-pub const TM_GUARD_AXIAL_COEFF_P2: f64 = 1e-4;
+/// at `k_c·h_n` = 3.51. Every row of the table has the p=2 guard below the
+/// 3-D p=2 TM-like cutoff, the tightest by 1.96 points (the 5.43 % row).
+///
+/// **Why `h` includes the face.** On a coarse port face the 3-D p=2 model's
+/// TM cutoff undershoots by more than the axial spacing alone predicts: 4.1
+/// % on the `2 × 1`-cell face of a `2 × 1` guide over one layer of 1.5
+/// against 1.8 % on its `4 × 2` face, and 5.4 % on the `3 × 1`-cell face of
+/// a `3 × 1` guide. With `h_n` alone the ratio `÷(k_c·h_n)⁴` reached
+/// 3.5·10⁻⁴ (Gmsh `lc` 1.2, `k_c·h_n` 2.67, `h_f` = 1), so no axial-only
+/// constant was both safe and useful. With `h = max(h_n, h_f)` the
+/// structured rows are under `9·10⁻⁵`. A fine face (`h_f ≤ h_n`) is not
+/// penalised: the margin is the axial law there.
+///
+/// **What `h` still misses.** The coarsest Gmsh guides (one cell across the
+/// `b = 1` side, `lc` ≥ 1) reach `1.45·10⁻⁴`: their interior tets are
+/// coarser than both the face edges and the axial read. Those rows sit at
+/// `k_c·h` ≈ 3.5, inside the base margin, with 2.85 points or more to
+/// spare, but they set the constant.
+///
+/// `C₄ = 2·10⁻⁴` covers the worst measured ratio with 38 % headroom. It
+/// leaves the base margin alone up to `k_c·h = (δ₀/C₄)^¼ ≈ 4.0` (about 1.6
+/// cells per TM-cutoff wavelength), against `k_c·h_n` ≈ 1.41 at p=1. The
+/// bound is measured, not a model: it holds for the rows above (`k_c·h`
+/// up to [`TM_GUARD_MEASURED_KH_P2`]), on rectangular guides, with the face
+/// estimate taken at P2. Beyond that range it is extrapolated
+/// ([`TmCutoffEstimate::p2_resolution_warning`] says so).
+pub const TM_GUARD_AXIAL_COEFF_P2: f64 = 2e-4;
 
-/// Largest `k_c^TM·h_n` the p=2 axial term ([`TM_GUARD_AXIAL_COEFF_P2`]) was
-/// measured at (issue #884: one tet layer of 1.5 on a `2 × 1` guide, `λ_c/1.19`).
-pub const TM_GUARD_MEASURED_KH_P2: f64 = 5.27;
+/// Largest `k_c^TM·max(h_n, h_f)` at which a p=2 undershoot was measured
+/// for [`TM_GUARD_AXIAL_COEFF_P2`] (issue #884: the `2 × 2` face of a
+/// `1 × 1` guide over one tet layer of 1.2, `λ_c/1.18`).
+pub const TM_GUARD_MEASURED_KH_P2: f64 = 5.33;
 
 /// The TE-only TM guard's relative margin at element order `order` (issue
 /// #884):
 ///
 /// - [`ElementOrder::P1`]: exactly [`tm_guard_margin`],
-///   `max(δ₀, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`;
-/// - [`ElementOrder::P2`]: `max(δ₀, TM_GUARD_AXIAL_COEFF_P2·(k_c·h_n)⁴)`,
-///   capped at `1`, with the same base margin `δ₀` = [`TM_GUARD_MARGIN`]
-///   (which also absorbs the lossy-uniaxial `Re ε_n` approximation).
+///   `max(δ₀, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`; `face_spacing` is ignored.
+/// - [`ElementOrder::P2`]: `max(δ₀, TM_GUARD_AXIAL_COEFF_P2·(k_c·h)⁴)` with
+///   `h = max(h_n, h_f)`, `h_f` = `face_spacing` (the port face's longest
+///   edge), capped at `1`, with the same base margin `δ₀` =
+///   [`TM_GUARD_MARGIN`] (which also absorbs the lossy-uniaxial `Re ε_n`
+///   approximation). `k_c` must then be a **P2** face estimate
+///   ([`PortFaceProjection::tm_cutoff_estimate_at_order`]); a P1 estimate
+///   can be several percent high on a coarse face, which this law does not
+///   cover ([`TmCutoffEstimate::margin_law`]).
 ///
-/// `order` is the order of the **3-D driven solve** the port terminates. The
-/// face estimate itself ([`PortFaceProjection::tm_cutoff_estimate`]) is
-/// order-independent.
-pub fn tm_guard_margin_at_order(order: ElementOrder, k_c: f64, axial_spacing: f64) -> f64 {
+/// `order` is the order of the **3-D driven solve** the port terminates.
+pub fn tm_guard_margin_at_order(
+    order: ElementOrder,
+    k_c: f64,
+    axial_spacing: f64,
+    face_spacing: f64,
+) -> f64 {
     match order {
         ElementOrder::P1 => tm_guard_margin(k_c, axial_spacing),
         ElementOrder::P2 => {
-            let kh = k_c * axial_spacing;
+            let kh = k_c * axial_spacing.max(face_spacing);
             if !kh.is_finite() {
                 return TM_GUARD_MARGIN;
             }
@@ -1164,18 +1270,44 @@ pub struct TmCutoffEstimate {
     /// [`ElementOrder::P1`] (the historical guard, bit for bit) until set
     /// with [`Self::with_element_order`].
     pub element_order: ElementOrder,
+    /// Lagrange order of the face Laplacian the three levels were computed
+    /// with (issue #884): [`ElementOrder::P1`] from
+    /// [`PortFaceProjection::tm_cutoff_estimate`] and [`Self::from_levels`],
+    /// [`ElementOrder::P2`] from
+    /// [`PortFaceProjection::tm_cutoff_estimate_at_order`] at p=2. The p=2
+    /// axial law applies only to a P2 face estimate; see
+    /// [`Self::margin_law`].
+    pub face_order: ElementOrder,
+    /// Longest edge `h_f` of the port-face triangles (mesh units;
+    /// [`PortFaceProjection::face_spacing`]; issue #884). The p=2 law sizes
+    /// its margin by `max(h_n, h_f)`; the p=1 law ignores it. `0` from
+    /// [`Self::from_levels`] until set with [`Self::with_face_spacing`].
+    pub face_spacing: f64,
 }
 
 impl TmCutoffEstimate {
-    /// Build from the three face values `[k_h, k_{h/2}, k_{h/4}]`, with no
-    /// axial spacing (`axial_spacing = 0`).
+    /// Build from the three face P1 values `[k_h, k_{h/2}, k_{h/4}]`, with
+    /// no axial spacing (`axial_spacing = 0`) and the p=1 margin.
     pub fn from_levels(k: [f64; 3]) -> Self {
+        Self::from_levels_at_order(k, ElementOrder::P1)
+    }
+
+    /// Build from three face values computed with the Lagrange order
+    /// `face_order` ([`Self::face_order`]). The observed convergence order
+    /// is clamped to `[0.5, 2]` for P1 and `[0.5, 4]` for P2 (the upper cap
+    /// only ever lowers the estimate). [`Self::element_order`] is P1 until
+    /// set with [`Self::with_element_order`].
+    pub fn from_levels_at_order(k: [f64; 3], face_order: ElementOrder) -> Self {
+        let p_max = match face_order {
+            ElementOrder::P1 => 2.0,
+            ElementOrder::P2 => 4.0,
+        };
         let [k0, k1, k2] = k;
         let lowest = k0.min(k1).min(k2);
         let (d1, d2) = (k0 - k1, k1 - k2);
         let finite = k.iter().all(|x| x.is_finite() && *x > 0.0);
         let (order, k_ext) = if finite && d1 > 0.0 && d2 > 1e-12 * k2 {
-            let p = (d1 / d2).log2().clamp(0.5, 2.0);
+            let p = (d1 / d2).log2().clamp(0.5, p_max);
             (Some(p), (k2 - d2 / (p.exp2() - 1.0)).min(lowest))
         } else {
             (None, lowest)
@@ -1188,6 +1320,8 @@ impl TmCutoffEstimate {
             k_extrapolated: k_ext.max(0.0),
             axial_spacing: 0.0,
             element_order: ElementOrder::P1,
+            face_order,
+            face_spacing: 0.0,
         }
     }
 
@@ -1201,13 +1335,46 @@ impl TmCutoffEstimate {
         }
     }
 
+    /// The same estimate with the port-face resolution `h_f` (the longest
+    /// face edge, mesh units) set (issue #884; [`Self::face_spacing`]).
+    #[must_use]
+    pub fn with_face_spacing(self, face_spacing: f64) -> Self {
+        Self {
+            face_spacing,
+            ..self
+        }
+    }
+
     /// The same estimate with the margin sized for a 3-D driven solve at
     /// element order `order` (issue #884; [`tm_guard_margin_at_order`]).
+    ///
+    /// On a **P1** face estimate ([`Self::face_order`]) `P2` keeps the p=1
+    /// law: see [`Self::margin_law`]. Use
+    /// [`PortFaceProjection::tm_cutoff_estimate_at_order`] for the p=2 law.
     #[must_use]
     pub fn with_element_order(self, order: ElementOrder) -> Self {
         Self {
             element_order: order,
             ..self
+        }
+    }
+
+    /// The order of the margin law [`Self::margin`] applies (issue #884):
+    /// [`ElementOrder::P2`] (`max(δ₀, C₄·(k_c·h_n)⁴)`) only when **both**
+    /// the 3-D solve ([`Self::element_order`]) and the face estimate
+    /// ([`Self::face_order`]) are p=2; [`ElementOrder::P1`] otherwise.
+    ///
+    /// A p=2 solve guarded by a P1 face estimate falls back to the p=1 law
+    /// on purpose. The P1 estimate can sit several percent above the
+    /// continuum on a coarse face (4.2 % on the `2 × 1`-cell face of a
+    /// `2 × 1` guide), and the p=2 law, measured against the 3-D p=2 model's
+    /// axial undershoot, has no room for that: it admitted a frequency
+    /// 0.45 % above the 3-D p=2 TM cutoff there (PR #887). The p=1 law is
+    /// conservative at p=2 on every mesh measured.
+    pub fn margin_law(&self) -> ElementOrder {
+        match (self.element_order, self.face_order) {
+            (ElementOrder::P2, ElementOrder::P2) => ElementOrder::P2,
+            _ => ElementOrder::P1,
         }
     }
 
@@ -1217,10 +1384,15 @@ impl TmCutoffEstimate {
     }
 
     /// The guard's relative margin `δ` ([`tm_guard_margin_at_order`] at
-    /// [`Self::element_order`], [`Self::k_c`] and [`Self::axial_spacing`];
+    /// [`Self::margin_law`], [`Self::k_c`] and [`Self::axial_spacing`];
     /// [`tm_guard_margin`] at p=1).
     pub fn margin(&self) -> f64 {
-        tm_guard_margin_at_order(self.element_order, self.k_c(), self.axial_spacing)
+        tm_guard_margin_at_order(
+            self.margin_law(),
+            self.k_c(),
+            self.axial_spacing,
+            self.face_spacing,
+        )
     }
 
     /// `k_c·h_n`, the axial resolution of the TM-cutoff wavelength at the
@@ -1245,14 +1417,16 @@ impl TmCutoffEstimate {
     /// `k ≤ (1 − δ₀)·k_c` this is `≥` the spacing where the axial term
     /// starts to widen the margin ([`Self::base_margin_axial_spacing`]).
     ///
-    /// At p=2 ([`Self::element_order`]) the law is
-    /// `(1 − C₄·(k_c·h_n)⁴)·k_c > k` ([`TM_GUARD_AXIAL_COEFF_P2`]).
+    /// Under the p=2 law ([`Self::margin_law`]) it is
+    /// `(1 − C₄·(k_c·h)⁴)·k_c > k` ([`TM_GUARD_AXIAL_COEFF_P2`]), and the
+    /// bound applies to `h = max(h_n, h_f)`: the port face's longest edge
+    /// [`Self::face_spacing`] must be below it as well.
     pub fn axial_spacing_admitting(&self, k: f64) -> Option<f64> {
         let k_c = self.k_c();
         if !(k_c.is_finite() && k < (1.0 - TM_GUARD_MARGIN) * k_c) {
             return None;
         }
-        Some(match self.element_order {
+        Some(match self.margin_law() {
             ElementOrder::P1 => ((1.0 - k / k_c) / TM_GUARD_AXIAL_COEFF).sqrt() / k_c,
             ElementOrder::P2 => ((1.0 - k / k_c) / TM_GUARD_AXIAL_COEFF_P2).powf(0.25) / k_c,
         })
@@ -1262,12 +1436,76 @@ impl TmCutoffEstimate {
     /// alone applies: `√(δ₀/C_h)/k_c` (`k_c·h_n` ≈ 1.41, about 4.4 cells
     /// per TM-cutoff wavelength).
     ///
-    /// At p=2 it is `(δ₀/C₄)^¼/k_c` (`k_c·h_n` ≈ 4.7).
+    /// Under the p=2 law ([`Self::margin_law`]) it is `(δ₀/C₄)^¼/k_c`
+    /// (`k_c·h` ≈ 4.0), a bound on `max(h_n, h_f)`.
     pub fn base_margin_axial_spacing(&self) -> f64 {
-        match self.element_order {
+        match self.margin_law() {
             ElementOrder::P1 => (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF).sqrt() / self.k_c(),
             ElementOrder::P2 => (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25) / self.k_c(),
         }
+    }
+
+    /// `k_c·h` with the spacing the margin law reads: `h_n` under the p=1
+    /// law, `max(h_n, h_f)` under the p=2 law ([`Self::margin_law`]).
+    pub fn resolution_kh(&self) -> f64 {
+        match self.margin_law() {
+            ElementOrder::P1 => self.axial_kh(),
+            ElementOrder::P2 => self.k_c() * self.axial_spacing.max(self.face_spacing),
+        }
+    }
+
+    /// A design note for a p=2 solve's guard (issue #884), `None` when the
+    /// guard is at its base margin, inside the measured range, with a P2
+    /// face estimate. Otherwise it says why the guard is wider (or less
+    /// certain) than it could be, and what to refine:
+    ///
+    /// - a P2 solve guarded by a **P1** face estimate (the p=1 law, which is
+    ///   safe but wide): build it with
+    ///   [`PortFaceProjection::tm_cutoff_estimate_at_order`];
+    /// - the mesh term widening the margin past [`TM_GUARD_MARGIN`], naming
+    ///   whether the port face (`h_f`) or the guide (`h_n`) sets it and the
+    ///   spacing that restores the base margin;
+    /// - `k_c·h` beyond [`TM_GUARD_MEASURED_KH_P2`] (the bound is
+    ///   extrapolated there).
+    ///
+    /// Always `None` for a p=1 solve.
+    pub fn p2_resolution_warning(&self) -> Option<String> {
+        if self.element_order != ElementOrder::P2 {
+            return None;
+        }
+        if self.face_order != ElementOrder::P2 {
+            return Some(format!(
+                "p=2 TM guard built from a P1 face estimate: the p=1 margin {:.2} % applies \
+                 (the P1 estimate can sit several percent above the TM cutoff on a coarse \
+                 face, which the p=2 law does not cover). Build the estimate with \
+                 `tm_cutoff_estimate_at_order(.., ElementOrder::P2)` for the p=2 margin",
+                100.0 * self.margin()
+            ));
+        }
+        let kh = self.resolution_kh();
+        let mut notes = Vec::new();
+        if self.margin() > TM_GUARD_MARGIN {
+            let (what, h) = if self.face_spacing >= self.axial_spacing {
+                ("the port face (longest edge", self.face_spacing)
+            } else {
+                ("the guide's axial mesh (h_n", self.axial_spacing)
+            };
+            notes.push(format!(
+                "the p=2 TM guard margin is {:.2} % (base {:.0} %): {what} {h:e}, k_c·h = \
+                 {kh:.2}) is coarse; refine it below {:e} for the base margin",
+                100.0 * self.margin(),
+                100.0 * TM_GUARD_MARGIN,
+                self.base_margin_axial_spacing()
+            ));
+        }
+        if kh > TM_GUARD_MEASURED_KH_P2 {
+            notes.push(format!(
+                "k_c·max(h_n, h_f) = {kh:.2} is beyond the measured {TM_GUARD_MEASURED_KH_P2} of \
+                 the p=2 TM guard law, so its margin is extrapolated; refine the coarser of \
+                 the port face and the guide"
+            ));
+        }
+        (!notes.is_empty()).then(|| notes.join("; "))
     }
 }
 
@@ -1317,20 +1555,81 @@ fn p1_dirichlet_lowest(
     tris: &[[u32; 3]],
     fixed_edges: &[[u32; 2]],
 ) -> Result<f64, PortFaceError> {
-    use faer::sparse::{SparseColMat, Triplet};
-
-    let n_nodes = nodes.len();
-    let mut fixed = vec![false; n_nodes];
+    let mut fixed = vec![false; nodes.len()];
     for e in fixed_edges {
         fixed[e[0] as usize] = true;
         fixed[e[1] as usize] = true;
     }
+    lagrange_dirichlet_lowest(
+        &fixed,
+        tris.iter().map(|tri| {
+            let coords = tri.map(|n| nodes[n as usize]);
+            let (k_local, m_local, tri_area) = crate::analytic::waveguide::tri_p1_local(&coords);
+            (*tri, k_local, m_local, tri_area)
+        }),
+        "P1",
+    )
+}
+
+/// Lowest eigenvalue `√λ₁` of the **P2** (quadratic) Lagrange Laplacian on
+/// `(nodes, tris)` with `E_z = 0` on every `fixed_edges` edge (both its
+/// vertices and its midpoint), with the conventions of
+/// [`p1_dirichlet_lowest`] (issue #884). The DOFs are the vertices, then one
+/// per edge midpoint, in the local order of
+/// [`crate::analytic::waveguide::tri_p2_local`].
+fn p2_dirichlet_lowest(
+    nodes: &[[f64; 2]],
+    tris: &[[u32; 3]],
+    fixed_edges: &[[u32; 2]],
+) -> Result<f64, PortFaceError> {
+    let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let mut mid: HashMap<[u32; 2], u32> = HashMap::new();
+    let mut n_dofs = nodes.len() as u32;
+    let mut midpoint = |a: u32, b: u32| -> u32 {
+        *mid.entry(key(a, b)).or_insert_with(|| {
+            n_dofs += 1;
+            n_dofs - 1
+        })
+    };
+    let elements: Vec<[u32; 6]> = tris
+        .iter()
+        .map(|&[a, b, c]| [a, b, c, midpoint(a, b), midpoint(a, c), midpoint(b, c)])
+        .collect();
+    let fixed_mid: Vec<u32> = fixed_edges.iter().map(|&[a, b]| midpoint(a, b)).collect();
+    let mut fixed = vec![false; n_dofs as usize];
+    for (e, &m) in fixed_edges.iter().zip(&fixed_mid) {
+        fixed[e[0] as usize] = true;
+        fixed[e[1] as usize] = true;
+        fixed[m as usize] = true;
+    }
+    lagrange_dirichlet_lowest(
+        &fixed,
+        tris.iter().zip(elements).map(|(tri, dofs)| {
+            let coords = tri.map(|n| nodes[n as usize]);
+            let (k_local, m_local, tri_area) = crate::analytic::waveguide::tri_p2_local(&coords);
+            (dofs, k_local, m_local, tri_area)
+        }),
+        "P2",
+    )
+}
+
+/// The shared Lagrange Dirichlet eigensolve of [`p1_dirichlet_lowest`] and
+/// [`p2_dirichlet_lowest`]: `√λ₁` of `K x = λ M x` over the DOFs not in
+/// `fixed`, assembled from `(dofs, k_local, m_local, signed_area)` per
+/// triangle. `0.0` with no fixed DOF, `∞` with no free one.
+fn lagrange_dirichlet_lowest<const N: usize>(
+    fixed: &[bool],
+    elements: impl Iterator<Item = ([u32; N], [[f64; N]; N], [[f64; N]; N], f64)>,
+    label: &str,
+) -> Result<f64, PortFaceError> {
+    use faer::sparse::{SparseColMat, Triplet};
+
     if !fixed.iter().any(|&f| f) {
         return Ok(0.0);
     }
-    let mut renumber = vec![usize::MAX; n_nodes];
+    let mut renumber = vec![usize::MAX; fixed.len()];
     let mut dim = 0usize;
-    for (r, &f) in renumber.iter_mut().zip(&fixed) {
+    for (r, &f) in renumber.iter_mut().zip(fixed) {
         if !f {
             *r = dim;
             dim += 1;
@@ -1341,19 +1640,17 @@ fn p1_dirichlet_lowest(
     }
 
     let mut area = 0.0_f64;
-    let mut k_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(9 * dim);
-    let mut m_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(9 * dim);
-    for tri in tris {
-        let coords = tri.map(|n| nodes[n as usize]);
-        let (k_local, m_local, tri_area) = crate::analytic::waveguide::tri_p1_local(&coords);
+    let mut k_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(N * N * dim);
+    let mut m_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(N * N * dim);
+    for (dofs, k_local, m_local, tri_area) in elements {
         area += tri_area.abs();
-        for i in 0..3 {
-            let ri = renumber[tri[i] as usize];
+        for i in 0..N {
+            let ri = renumber[dofs[i] as usize];
             if ri == usize::MAX {
                 continue;
             }
-            for j in 0..3 {
-                let rj = renumber[tri[j] as usize];
+            for j in 0..N {
+                let rj = renumber[dofs[j] as usize];
                 if rj == usize::MAX {
                     continue;
                 }
@@ -1365,7 +1662,7 @@ fn p1_dirichlet_lowest(
     let sparse = |t: &[Triplet<usize, usize, f64>]| {
         SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, t).map_err(|e| {
             PortFaceError::Modal(EigenError::FaerGevd(format!(
-                "TM cutoff (P1 Laplacian) sparse assembly: {e:?}"
+                "TM cutoff ({label} Laplacian) sparse assembly: {e:?}"
             )))
         })
     };
@@ -1409,7 +1706,7 @@ fn p1_dirichlet_lowest(
         }
         if max_iters >= dim {
             return Err(PortFaceError::Modal(EigenError::FaerGevd(format!(
-                "TM cutoff (P1 Laplacian, {dim} DOFs): the lowest eigenpair did not \
+                "TM cutoff ({label} Laplacian, {dim} DOFs): the lowest eigenpair did not \
                  converge with a {max_iters}-vector Lanczos basis"
             ))));
         }
@@ -1536,6 +1833,77 @@ mod tests {
         // Below the measured 3-D lowest-order Nédélec TM₁₁₀ of the
         // 8 × 4 × 1 box (3.349, `tests/wave_port.rs` re-measures it).
         assert!(guard < 3.349, "guard {guard}");
+    }
+
+    /// Issue #884 (Judge, PR #887): the order-aware face estimate. At p=1 it
+    /// is [`PortFaceProjection::tm_cutoff_estimate`] bit for bit. At p=2 the
+    /// levels are P2 Lagrange Dirichlet eigenvalues, which converge at
+    /// `O(h⁴)` and so reach the continuum even on the `2 × 1`-cell face,
+    /// where the P1 levels start at `∞` (no interior node) and cannot be
+    /// extrapolated.
+    #[test]
+    fn p2_face_tm_estimate_reaches_the_continuum_on_a_coarse_face() {
+        let (a, b) = (2.0, 1.0);
+        let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
+        for (nx, ny) in [(2, 1), (4, 2), (8, 4)] {
+            let face = rect_face(nx, ny, a, b);
+            let p1 = face.tm_cutoff_estimate(None).unwrap();
+            let at1 = face
+                .tm_cutoff_estimate_at_order(None, ElementOrder::P1)
+                .unwrap();
+            assert_eq!(format!("{p1:?}"), format!("{at1:?}"));
+            assert_eq!(at1.face_order, ElementOrder::P1);
+            let p2 = face
+                .tm_cutoff_estimate_at_order(None, ElementOrder::P2)
+                .unwrap();
+            assert_eq!(p2.face_order, ElementOrder::P2);
+            assert_eq!(p2.element_order, ElementOrder::P2);
+            assert_eq!(p2.margin_law(), ElementOrder::P2);
+            // Rayleigh-Ritz: every P2 level is above the continuum.
+            for k in [p2.k_face, p2.k_half, p2.k_quarter] {
+                assert!(k > tm11 * (1.0 - 1e-12), "{p2:?}");
+            }
+            assert!(
+                (p2.k_c() - tm11).abs() < 1e-3 * tm11,
+                "{nx}×{ny}: {p2:?} vs {tm11}"
+            );
+            if (nx, ny) == (2, 1) {
+                assert!(p1.k_face.is_infinite() && p1.order.is_none(), "{p1:?}");
+                assert!(p1.k_c() > 1.04 * tm11, "{p1:?}");
+            }
+        }
+        // P2 Dirichlet converges at about O(h⁴) on the structured face.
+        let p2_level = |n: usize| {
+            let face = rect_face(2 * n, n, a, b);
+            let fixed = face.tm_conductor_rim_edges(None);
+            p2_dirichlet_lowest(&face.tri_mesh.nodes, &face.tri_mesh.tris, &fixed).unwrap()
+        };
+        let (e2, e4) = (p2_level(2) - tm11, p2_level(4) - tm11);
+        let rate = (e2 / e4).log2();
+        assert!(rate > 3.5, "P2 rate {rate} ({e2:e}, {e4:e})");
+        // An open rim edge stays open at P2 too: the `y = b` side open
+        // gives `√((π/a)² + (π/2b)²)`, reached from the 4 × 2 face.
+        let face = rect_face(4, 2, a, b);
+        let g = extruded_rect_waveguide_mesh(4, 2, 1, a, b, 0.5);
+        let open: Vec<bool> = face
+            .global_edges
+            .iter()
+            .zip(&face.interior_edge_mask)
+            .map(|(e, &interior)| {
+                !interior
+                    && e.iter()
+                        .all(|&n| (g.mesh.nodes[n as usize][1] - b).abs() < 1e-12)
+            })
+            .collect();
+        assert!(open.iter().any(|&o| o));
+        let want = ((PI / a).powi(2) + (PI / (2.0 * b)).powi(2)).sqrt();
+        let opened = face
+            .tm_cutoff_estimate_at_order(Some(&open), ElementOrder::P2)
+            .unwrap();
+        assert!(
+            (opened.k_c() - want).abs() < 1e-3 * want,
+            "{opened:?} vs {want}"
+        );
     }
 
     /// The estimate's corner cases: a converged / non-monotone sequence is
