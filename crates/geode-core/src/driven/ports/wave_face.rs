@@ -1266,9 +1266,7 @@ impl TmCutoffEstimate {
     pub fn base_margin_axial_spacing(&self) -> f64 {
         match self.element_order {
             ElementOrder::P1 => (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF).sqrt() / self.k_c(),
-            ElementOrder::P2 => {
-                (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25) / self.k_c()
-            }
+            ElementOrder::P2 => (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25) / self.k_c(),
         }
     }
 }

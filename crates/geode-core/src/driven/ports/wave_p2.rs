@@ -387,7 +387,11 @@ impl PortFaceProjection {
     ///
     /// Panics if `space` is not a p=2 space or `face_dofs` has the wrong
     /// length.
-    pub fn lift_p2(&self, space: &HcurlSpace, face_dofs: &[f64]) -> Result<Vec<f64>, PortFaceError> {
+    pub fn lift_p2(
+        &self,
+        space: &HcurlSpace,
+        face_dofs: &[f64],
+    ) -> Result<Vec<f64>, PortFaceError> {
         assert_eq!(space.order(), ElementOrder::P2, "lift_p2 needs a p=2 space");
         assert_eq!(face_dofs.len(), self.n_dofs_p2(), "face DOF vector length");
         let n_edges = self.edges.len();
@@ -650,7 +654,10 @@ pub fn waveguide_mode_reduce_on_space(
     check_space(space, mesh)?;
     assert_eq!(x.len(), space.n_dofs(), "solution length != space.n_dofs()");
     let channels = modal_channels_on_space(space, mesh, 0, ports)?;
-    let mut out: Vec<Vec<c64>> = ports.iter().map(|p| Vec::with_capacity(p.n_modes())).collect();
+    let mut out: Vec<Vec<c64>> = ports
+        .iter()
+        .map(|p| Vec::with_capacity(p.n_modes()))
+        .collect();
     for ch in &channels {
         let a = ch
             .flux
@@ -897,7 +904,10 @@ fn mixed_p2<B: burn::tensor::backend::Backend>(
 
 /// The geometric ports of a spec list at p=2, or the Phase 3b error for the
 /// first hybrid port.
-fn geometric_ports_p2(space: &HcurlSpace, wave: &[WavePortSpec]) -> Result<Vec<WavePort>, DrivenError> {
+fn geometric_ports_p2(
+    space: &HcurlSpace,
+    wave: &[WavePortSpec],
+) -> Result<Vec<WavePort>, DrivenError> {
     wave.iter()
         .map(|spec| match spec {
             WavePortSpec::Geometric(p) => Ok(p.clone()),

@@ -44,8 +44,8 @@ use geode_core::driven::ports::{
     solve_mixed_port_sweep_on_space, solve_mixed_port_sweep_with_mode,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_spec_sweep_with_mode,
     solve_wave_port_sweep_on_space, solve_wave_port_sweep_with_mode, tm_guard_axial_reach,
-    tm_guard_margin, tm_guard_margin_at_order, wave_port_from_faces,
-    wave_port_from_faces_on_space, waveguide_mode_reduce, waveguide_mode_reduce_on_space,
+    tm_guard_margin, tm_guard_margin_at_order, wave_port_from_faces, wave_port_from_faces_on_space,
+    waveguide_mode_reduce, waveguide_mode_reduce_on_space,
 };
 use geode_core::driven::rom::{DrivenRom, RomSettings};
 use geode_core::driven::solve::{
@@ -221,15 +221,11 @@ fn p1_and_p2_face_modes_share_the_gauge() {
     let s2 = HcurlSpace::build(&g.mesh, ElementOrder::P2);
     let p1 = wave_port_from_faces(&g.mesh, &g.mesh.edges(), &g.port1_faces, &[one(); 3])
         .expect("p=1 port");
-    let p2 = wave_port_from_faces_on_space(&s2, &g.mesh, &g.port1_faces, &[one(); 3])
-        .expect("p=2 port");
+    let p2 =
+        wave_port_from_faces_on_space(&s2, &g.mesh, &g.port1_faces, &[one(); 3]).expect("p=2 port");
     let s = assemble_p2_surface_mass_triplets(&s2, &g.mesh, &g.port1_faces).expect("S_p");
     for m in 0..3 {
-        let p1c: Vec<c64> = p1.modes[m]
-            .mode
-            .iter()
-            .map(|&x| c64::new(x, 0.0))
-            .collect();
+        let p1c: Vec<c64> = p1.modes[m].mode.iter().map(|&x| c64::new(x, 0.0)).collect();
         let inj: Vec<f64> = s2.prolong_p1(&p1c).iter().map(|z| z.re).collect();
         let mut se = vec![0.0; s2.n_dofs()];
         for &(r, c, v) in &s {
@@ -247,7 +243,11 @@ fn p1_and_p2_face_modes_share_the_gauge() {
         let face = project_port_face(&g.mesh, &g.port1_faces).expect("port face");
         let m = face.solve_modes_p2(4).expect("p=2 modes incl. TE11");
         let want = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
-        assert!((m[3].k_c - want).abs() / want < 1e-3, "TE11 k_c {}", m[3].k_c);
+        assert!(
+            (m[3].k_c - want).abs() / want < 1e-3,
+            "TE11 k_c {}",
+            m[3].k_c
+        );
         let x: Vec<c64> = face
             .lift_p2(&space, &m[3].dofs)
             .expect("lift")
@@ -258,7 +258,10 @@ fn p1_and_p2_face_modes_share_the_gauge() {
     };
     let (c4, c8) = (te11(4), te11(8));
     eprintln!("TE11 gauge probe E_x(0.3a, 0.45b): 8×4 face {c4:.4}, 16×8 face {c8:.4}");
-    assert!(c4 * c8 > 0.0, "TE11 sign flips between meshes: {c4} vs {c8}");
+    assert!(
+        c4 * c8 > 0.0,
+        "TE11 sign flips between meshes: {c4} vs {c8}"
+    );
 }
 
 /// The p=2 field of `x` at the physical point `p` (in the closure of some
@@ -334,7 +337,12 @@ fn p2_straight_section_s21_phase_converges_faster() {
     for (i, (r1, r2)) in s11[0].iter().zip(&s11[1]).enumerate() {
         assert!(r2 < &(0.05 * r1), "level {i}: |S11| p=2 {r2} vs p=1 {r1}");
     }
-    assert!(err[1][2] < 0.5 * err[0][2], "finest: p=2 {} vs p=1 {}", err[1][2], err[0][2]);
+    assert!(
+        err[1][2] < 0.5 * err[0][2],
+        "finest: p=2 {} vs p=1 {}",
+        err[1][2],
+        err[0][2]
+    );
     assert!(
         err[1][0] < err[0][0],
         "p=2 not more accurate at the coarsest mesh"
@@ -360,10 +368,7 @@ fn p2_filled_guide_follows_the_analytic_filled_beta() {
             let k0 = pt.omega;
             let beta = (eps_r * k0 * k0 - (PI / a).powi(2)).sqrt();
             let want = c64::new((-beta * len).cos(), (-beta * len).sin());
-            let (eb, es) = (
-                (pt.beta[0].re - beta).abs() / beta,
-                (pt.s[2] - want).norm(),
-            );
+            let (eb, es) = ((pt.beta[0].re - beta).abs() / beta, (pt.s[2] - want).norm());
             eprintln!(
                 "{order:?} k0 = {k0}: β {:.6} (analytic {beta:.6}, rel {eb:.2e}), |S11| {:.2e}, \
                  |S21 − e^(−jβL)| {es:.2e}",
@@ -400,12 +405,10 @@ fn p2_filled_guide_follows_the_analytic_filled_beta() {
 /// `2 × 1 → 2 × 0.5` at ω = 2.4 on the `(4k, 2k, k, 2k, 2k)` mesh at `order`.
 fn height_step(k: usize, order: ElementOrder) -> (c64, c64, c64, f64) {
     let (a, b1, b2, l1, l2, omega) = (2.0, 1.0, 0.5, 1.0, 1.0, 2.4);
-    let g =
-        extruded_height_step_waveguide_mesh(4 * k, 2 * k, k, 2 * k, 2 * k, a, b1, b2, l1, l2);
+    let g = extruded_height_step_waveguide_mesh(4 * k, 2 * k, k, 2 * k, 2 * k, a, b1, b2, l1, l2);
     let (space, mask) = space_and_mask(&g.mesh, &g.sidewall_faces, order);
-    let ports = [&g.port1_faces, &g.port2_faces].map(|f| {
-        wave_port_from_faces_on_space(&space, &g.mesh, f, &[one()]).expect("wave port")
-    });
+    let ports = [&g.port1_faces, &g.port2_faces]
+        .map(|f| wave_port_from_faces_on_space(&space, &g.mesh, f, &[one()]).expect("wave port"));
     let eps = vec![one(); g.mesh.n_tets()];
     let pt = &wave_sweep(&space, &g.mesh, &eps, &mask, &ports, &[omega])[0];
     (pt.s[0], pt.s[2], pt.s[1], pt.residual_rel)
@@ -435,20 +438,15 @@ fn p2_height_step_is_closer_to_the_reference_than_p1() {
             e[o].push(d);
         }
     }
-    let (r11p1_fine, ..) = height_step(4, ElementOrder::P1);
-    let d_p1_fine = (r11p1_fine - reference).norm();
+    let (s11_p1_fine, ..) = height_step(4, ElementOrder::P1);
+    let d_p1_fine = (s11_p1_fine - reference).norm();
     eprintln!(
         "reference (p=2, k=4) S11 {reference:.6}, |S11| {:.5}; p=1 k=4 |S11 − ref| {d_p1_fine:.3e}",
         reference.norm()
     );
     // p=2 is closer to the reference than p=1 at every shared mesh …
-    for i in 0..2 {
-        assert!(
-            e[1][i] < e[0][i],
-            "level {i}: p=2 {} vs p=1 {}",
-            e[1][i],
-            e[0][i]
-        );
+    for (i, (d2, d1)) in e[1].iter().zip(&e[0]).enumerate() {
+        assert!(d2 < d1, "level {i}: p=2 {d2} vs p=1 {d1}");
     }
     // … and the refined p=1 sequence approaches the same value.
     assert!(
@@ -496,11 +494,10 @@ fn p2_mixed_lumped_and_wave_ports_are_reciprocal_and_match_the_sheet() {
     let mut worst = [0.0_f64; 2];
     for (o, &order) in ORDERS.iter().enumerate() {
         let (space, mask) = space_and_mask(&g.mesh, &g.sidewall_faces, order);
-        let wave =
-            [
-                wave_port_from_faces_on_space(&space, &g.mesh, &g.port1_faces, &[one()])
-                    .expect("wave port"),
-            ];
+        let wave = [
+            wave_port_from_faces_on_space(&space, &g.mesh, &g.port1_faces, &[one()])
+                .expect("wave port"),
+        ];
         for &r in &rs {
             let lumped = [sheet(&g.port2_faces, r)];
             let pts = solve_mixed_port_sweep_on_space::<B>(
@@ -1010,10 +1007,7 @@ fn check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> (f64, f64) {
         under / kh.powi(4),
         100.0 * est.margin()
     );
-    assert!(
-        guard < k3d,
-        "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}"
-    );
+    assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
     (kh, under)
 }
 
@@ -1060,14 +1054,12 @@ fn p2_tm_guard_margin_law() {
         // Never wider than the p=1 law on the same mesh.
         assert!(want <= tm_guard_margin(kc, h));
     }
-    let est = TmCutoffEstimate::from_levels([3.6, 3.53, 3.515])
-        .with_element_order(ElementOrder::P2);
+    let est =
+        TmCutoffEstimate::from_levels([3.6, 3.53, 3.515]).with_element_order(ElementOrder::P2);
     let kc = est.k_c();
     // The spacing where the base margin stops applying: k_c·h_n ≈ 4.73.
     let h0 = est.base_margin_axial_spacing();
-    assert!(
-        (kc * h0 - (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25)).abs() < 1e-12
-    );
+    assert!((kc * h0 - (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25)).abs() < 1e-12);
     assert!(kc * h0 < TM_GUARD_MEASURED_KH_P2);
     // `axial_spacing_admitting(k)` is the spacing where the guard reaches k.
     let k = 0.9 * kc;

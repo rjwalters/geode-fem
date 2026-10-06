@@ -346,9 +346,14 @@ pub(crate) fn modal_channels(
     wave: &[WavePort],
     edges: &[[u32; 2]],
 ) -> Result<Vec<ModalChannel>, DrivenError> {
-    modal_channels_with(mesh, n_lumped, wave, edges.len(), "edge count", |port, mode| {
-        Ok(assemble_modal_flux(mesh, &port.faces, mode, edges))
-    })
+    modal_channels_with(
+        mesh,
+        n_lumped,
+        wave,
+        edges.len(),
+        "edge count",
+        |port, mode| Ok(assemble_modal_flux(mesh, &port.faces, mode, edges)),
+    )
 }
 
 /// [`modal_channels`] with the modal-flux kernel supplied by the caller

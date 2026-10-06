@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Breaking (`geode-core` library):**
 - `DrivenSolution` gains an `order: ElementOrder` field, and `DrivenError` gains `UnsupportedAtOrder` and `SpaceMeshMismatch` (#838). Code that builds `DrivenSolution` literals or matches `DrivenError` exhaustively must be updated.
 - `PeriodicPairReport` gains `translation_fit_pairs` and `translation_residual` (#856). Code that builds it as a struct literal must be updated.
+- `TmCutoffEstimate` gains an `element_order` field (#884). Code that builds it as a struct literal must be updated; `TmCutoffEstimate::from_levels` defaults it to `ElementOrder::P1`, which keeps the historical margin bit for bit.
 - `SSensitivityError` gains `DegenerateCluster` and `PortMode`, and `SSensitivityPoint` gains `port_mode_warnings` (#872). Exhaustive matches on the error and struct literals of the point must be updated. A design touching a hybrid port face is no longer an `Unsupported` (Phase 3) error, and `port_fill` on a hybrid port is now an `InvalidDesign`.
 - The H(curl) estimator and the adaptive loop gain Robin-boundary and lost-mode API (#879). `BoundaryFaceKind` gains `Robin(usize)`, `EstimatorInput` gains `robin`, `EstimateComponents` gains `boundary_edge`, `EstimatorCoverage` gains `robin_faces` and `robin_edges`, `EstimatorError` gains `UnknownRobin` and `InvalidRobin`, and `StopReason` gains `TargetMetIncomplete` and `ModeLost`. Struct literals and exhaustive matches must be updated (`EstimatorInput::new` and `..Default::default()` literals are unaffected).
 
@@ -36,6 +37,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - The surface drive `g` is taken as constant per face (the uniform lumped port), so `div_Γ g = 0` is assumed.
     - The effectivity is validated against the volume energy norm; the surface part of the impedance norm is not measured.
 
+- **p=2 geometric wave ports** (#884, Epic #836 Phase 3a). Homogeneous (geometric and filled) wave ports, and mixed lumped + wave port sets, now run on an order-pluggable `HcurlSpace` through additive entry points; the existing signatures are unchanged.
+  - **Port-face mode solve at p=2.** `PortFaceProjection::solve_modes_p2` assembles the second-order Nédélec face pencil in the ascending-vertex trace layout of #857. The face DOFs are therefore the 3-D space's trace DOFs: `PortFaceProjection::lift_p2` is a unit-sign scatter with no 2×2 face mixing, and the lifted modes are orthonormal in the 3-D p=2 surface mass `S_p` (measured to 1e-10). The solve is residual-checked (#798), and the mode count is prechecked against the exact null dimension (interior nodes + interior edges + holes).
+  - **Gauge.** The p=2 modes keep the reference-integral sign of #300. It is evaluated as a continuous quadrature functional with a 1 % floor, over the p=1 reference list extended with TE_mn shapes, so TE₁₁ and higher modes are gauged and keep their sign across meshes.
+  - **Sweeps and ports:** `wave_port_on_space`, `wave_port_from_faces_on_space`, `solve_wave_port_sweep_on_space`, `solve_mixed_port_sweep_on_space`, `solve_wave_port_spec_sweep_on_space`, `solve_mixed_port_spec_sweep_on_space` and `waveguide_mode_reduce_on_space`.
+    - At p=1 each calls the existing entry point verbatim, which is asserted bit for bit.
+    - At p=2 the modal flux is `f = S_p e` through the p=2 trace kernel. The √y power weights, filled ports (#777) and impedance walls (#776) compose unchanged.
+  - **Adaptive PROM.** `DrivenRom::build_with_wave_ports` no longer rejects a p=2 operator.
+  - **Hybrid ports at p=2** remain `DrivenError::UnsupportedAtOrder` (Phase 3b).
+  - **Order-aware TE-only TM guard.** `TmCutoffEstimate::with_element_order` and `tm_guard_margin_at_order`. At p=2 the margin is `max(5 %, TM_GUARD_AXIAL_COEFF_P2·(k_c·h_n)⁴)` with `C₄ = 1e-4` and `TM_GUARD_MEASURED_KH_P2 = 5.27`.
+    - Re-measured against the 3-D p=2 TM-like box resonance on structured, stepped and Gmsh uniform / graded guides (`reference/gmsh/guide_box.geo`). The worst p=2 undershoot is 1.98 % at `k_c·h_n` = 5.27 (p=1: up to 25 %). The worst ratio `÷(k_c·h_n)⁴` is 7.5e-5.
+    - The undershoot is set by the face resolution, not by a clean power law, so `C₄` is a documented bound, not a model.
+    - p=1 keeps `0.025·(k_c·h_n)²`, bit for bit.
+  - New test target `wave_port_p2`. Measured:
+    - **Face TE₁₀ `k_c²`:** slope p=2 3.87 vs p=1 2.04.
+    - **Straight section, `|S₂₁ − e^{−jβL}|`:** slope p=2 3.94 (1.6e-5 at 42k DOFs). p=1 has an erratic slope of 2.89, because its port and volume β errors cancel. |S₁₁| is 180–3000× lower at p=2 at every level.
+    - **ε_r = 2.2 filled guide:** β error 1.4e-6 at p=2 vs 4.2e-3 at p=1.
+    - **Mixed wave + resistive sheet vs the closed-form Γ:** p=2 2.2e-5, p=1 8.9e-3.
+    - **E-plane height step:** p=2 on the coarsest mesh is about as accurate as p=1 on a 4× finer mesh (|ΔS₁₁| 1.7e-2 vs 1.5e-2 against the finest p=2 solve). This is reported, not rate-gated, because the step edge is singular.
+    - **p=2 PROM vs the dense sweep:** 1e-14.
+  - **Touchstone:** the CLI has no `element_order` until Phase 5a. The p=2 S-matrices have the p=1 layout and normalization, so the existing Touchstone writer applies unchanged once 5a exposes the order.
 - **p=2 eigen on tagged meshes** (#871, Epic #836 Phase 2). The lossless and lossy cavity eigensolves now run on an order-pluggable `HcurlSpace`, through additive entry points; the existing signatures are unchanged.
   - **Lossless:** `eigen::pec_cavity::{assemble_lossless_pencil_on_space, solve_pec_cavity_modes_on_space, solve_tagged_pec_cavity_modes_at_order}` return `SpaceCavityModes`. They take isotropic or diagonal `ε`/`ν`, the face-exact `HcurlSpace::pec_interior_mask`, and optional London walls (`LondonSurface`, `λ_L⁻¹ S_Γ` on K). At p=2 the London walls use the #857 trace kernel.
   - **Lossy:** `eigen::lossy_cavity::{assemble_lossy_pencil_on_space, solve_lossy_cavity_modes_on_space, solve_tagged_lossy_cavity_modes_at_order}` return `SpaceLossyCavityModes`. They take complex `ε`, full `(ε, ν)` tensors (fixed-shift UPML), and impedance walls (`FrozenWalls`: Leontovich, rough, London, `Fixed`/Silver-Müller). Each wall's `iω/Z_s(ω)` is frozen at a reference `ω` (the documented linearization, as for UPML; exact for London).
