@@ -1173,7 +1173,8 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 ///
 /// Compare p=1 on the same meshes: 6.0 % on the stepped `2 × 1` guide, 18.5 %
 /// at `k_c·h_n` = 3.51. Every row of the table has the p=2 guard below the
-/// 3-D p=2 TM-like cutoff, the tightest by 1.96 points (the 5.43 % row).
+/// 3-D p=2 TM-like cutoff, the tightest by 2.85 points (Gmsh `2 × 1 × 3`,
+/// `lc` 1.2).
 ///
 /// **Why `h` includes the face.** On a coarse port face the 3-D p=2 model's
 /// TM cutoff undershoots by more than the axial spacing alone predicts: 4.1

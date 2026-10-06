@@ -1037,7 +1037,10 @@ fn try_check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> Option<(f6
         100.0 * (1.0 - guard / k3d),
     );
     assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
-    assert!(p1_guard < k3d, "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}");
+    assert!(
+        p1_guard < k3d,
+        "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}"
+    );
     Some((kh, under))
 }
 
