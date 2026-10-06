@@ -10,7 +10,9 @@
 //! triangles. This module supplies the missing glue:
 //!
 //! 1. [`project_port_face`] checks the tagged triangles are coplanar,
-//!    picks an orthonormal in-plane basis, and projects them into a local
+//!    picks the plane's **canonical** orthonormal in-plane basis (a
+//!    function of the plane alone, not of the face list's order or
+//!    winding; issue #888), and projects them into a local
 //!    2-D [`TriMesh`] (counter-clockwise triangles, as the 2-D Nédélec
 //!    assembly requires). Local node `i` is the `i`-th smallest 3-D node
 //!    index on the face, so the map is **monotone**: every local edge
@@ -29,6 +31,13 @@
 //!    lifts each profile onto the 3-D edge table with
 //!    [`map_mode_profile_to_full_mesh`], yielding a [`WavePort`] ready for
 //!    [`super::solve_wave_port_sweep`].
+//!
+//! The mode signs (and the basis inside a degenerate cluster) follow the
+//! canonical gauge of issue #888 (`mode_gauge` module): the overlap with
+//! fixed reference fields in the canonical frame. Two ports of one guide,
+//! however they are meshed, listed or wound, therefore share a mode's sign
+//! convention, and the cross-port S of a straight guide carries the
+//! analytic `e^{−jβL}`.
 //!
 //! The 2-D modal solver returns M-orthonormal profiles in the 2-D
 //! Nédélec mass. On a planar face that mass **is** the port-face
