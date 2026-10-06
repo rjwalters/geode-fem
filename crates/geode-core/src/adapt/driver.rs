@@ -71,12 +71,24 @@
 //!
 //! # Stopping
 //!
-//! - [`StopReason::TargetMet`]: `eta_rel ≤ target_rel_error` **and** the
-//!   estimate is asymptotic. A pre-asymptotic estimate (fewer than
+//! - [`StopReason::TargetMet`]: `eta_rel ≤ target_rel_error`, the
+//!   estimate is asymptotic **and** its coverage is complete. A
+//!   pre-asymptotic estimate (fewer than
 //!   [`PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH`] points per wavelength
 //!   somewhere) may underestimate the error, so the loop keeps refining and
 //!   records [`AdaptWarning::TargetMetPreAsymptotic`] instead of declaring
 //!   success.
+//! - [`StopReason::TargetMetIncomplete`]: the target is reached on an
+//!   asymptotic estimate whose coverage is INCOMPLETE (uncovered boundary
+//!   faces such as wave ports, or UPML tets). `eta` omits those terms, so
+//!   the target is **not** declared met ([`AdaptReport::target_met`] is
+//!   `false`). Refining further cannot complete the coverage, so the loop
+//!   stops and says so.
+//! - [`StopReason::ModeLost`] (eigen): a tracked mode matched its
+//!   prolonged predecessor with an overlap below
+//!   [`MODE_TRACKING_MIN_OVERLAP`] on some level. The loop stops at that
+//!   level instead of marking and refining for what may be a different mode
+//!   (see "Eigen mode tracking").
 //! - [`StopReason::MaxIterations`]: `max_iterations` levels were solved.
 //! - [`StopReason::MaxDofs`]: the next refinement cannot fit the budget.
 //! - [`StopReason::NothingToMark`]: every eligible indicator is zero while
@@ -94,9 +106,16 @@
 //! level the previous eigenvectors are prolonged exactly to the new mesh
 //! and each tracked mode is matched to the candidate with the largest
 //! normalised `M`-overlap `|⟨P x_old, M x_new⟩| / (‖P x_old‖_M ‖x_new‖_M)`
-//! (greedy, best overlap first). An overlap below 0.5 is reported as
-//! [`AdaptWarning::ModeTracking`]: the mode may have swapped with a
-//! neighbour.
+//! (greedy, best overlap first). The overlap is checked **on every level,
+//! before marking** ([`LevelSolver::check_level`]): an overlap below
+//! [`MODE_TRACKING_MIN_OVERLAP`] means the best candidate may be a
+//! different mode (a near-degenerate neighbour that swapped in, or a mode
+//! the candidate set missed). The level is recorded with an
+//! [`AdaptWarning::ModeTracking`] and the loop stops with
+//! [`StopReason::ModeLost`], so no later level is marked and refined for
+//! the wrong mode. The result's modes are that level's best matches,
+//! flagged by the stop reason: re-run with a shift closer to the target,
+//! more [`EigenAdaptSpec::extra_candidates`] or a finer initial mesh.
 //!
 //! # Warm start
 //!
@@ -122,9 +141,12 @@
 //!
 //! # Honest limits
 //!
-//! - **Boundary residuals of impedance surfaces and lumped ports are not
-//!   estimated** (Phase 1 coverage). Those faces are reported as INCOMPLETE
-//!   coverage; the estimate is then not a bound near them.
+//! - **Impedance surfaces and lumped ports are estimated** (issue #879):
+//!   their faces are [`BoundaryFaceKind::Robin`] with the coefficient
+//!   `iω/Z_s(ω)` and the port drive of the frequency being estimated, so a
+//!   driven spec with PEC, natural, impedance and lumped-port faces has a
+//!   COMPLETE estimate. Wave/hybrid port faces (a custom [`LevelSolver`])
+//!   stay uncovered (Epic #835 Phase 5).
 //! - **p=2** runs (driven, non-periodic; lumped ports and impedance
 //!   surfaces at p=2 come from #836 Phase 1b), but the estimator's
 //!   effectivity is validated at p=1 only
@@ -148,7 +170,8 @@ use faer::sparse::SparseColMat;
 
 use crate::adapt::estimator::{
     BoundaryFaceKind, BoundaryKinds, ErrorEstimate, EstimatorError, EstimatorInput,
-    PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH, VALIDATED_EFFECTIVITY, VolumeSource, estimate_hcurl,
+    PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH, RobinBoundary, VALIDATED_EFFECTIVITY, VolumeSource,
+    estimate_hcurl,
 };
 use crate::adapt::refine::{BisectionMesh, RefineError, RefineOpts, Refined, mesh_quality};
 use crate::assembly::hcurl_space::HcurlSpace;
@@ -172,7 +195,8 @@ use crate::mesh::{TaggedTetMesh, TetMesh};
 /// Dörfler threshold (see [`dorfler_mark`]).
 pub const DORFLER_TIE_REL: f64 = 1e-9;
 
-/// Overlap below which a tracked eigenmode is reported as ambiguous.
+/// Overlap below which a tracked eigenmode is reported lost: the eigen loop
+/// stops on that level with [`StopReason::ModeLost`].
 pub const MODE_TRACKING_MIN_OVERLAP: f64 = 0.5;
 
 /// Upper bound on the trial refinements one budget-capped step may run.
@@ -272,17 +296,27 @@ pub enum StopReason {
     MaxDofs,
     /// Every eligible indicator is zero but the target is not met.
     NothingToMark,
+    /// `eta_rel ≤ target` on an asymptotic estimate whose coverage is
+    /// INCOMPLETE (uncovered boundary faces or UPML tets): the target is
+    /// not verified, so it is not declared met.
+    TargetMetIncomplete,
+    /// A tracked eigenmode was lost (overlap below
+    /// [`MODE_TRACKING_MIN_OVERLAP`]); the loop stopped at that level.
+    ModeLost,
 }
 
 impl StopReason {
     /// Stable snake-case name (`"target_met"`, `"max_iterations"`,
-    /// `"max_dofs"`, `"nothing_to_mark"`).
+    /// `"max_dofs"`, `"nothing_to_mark"`, `"target_met_incomplete"`,
+    /// `"mode_lost"`).
     pub fn name(self) -> &'static str {
         match self {
             Self::TargetMet => "target_met",
             Self::MaxIterations => "max_iterations",
             Self::MaxDofs => "max_dofs",
             Self::NothingToMark => "nothing_to_mark",
+            Self::TargetMetIncomplete => "target_met_incomplete",
+            Self::ModeLost => "mode_lost",
         }
     }
 }
@@ -324,7 +358,9 @@ pub enum AdaptWarning {
         /// DOFs the uncapped step would have produced after closure.
         uncapped_dofs: usize,
     },
-    /// A tracked eigenmode matched its predecessor with a low overlap.
+    /// A tracked eigenmode matched its predecessor with an overlap below
+    /// [`MODE_TRACKING_MIN_OVERLAP`] (the loop stops with
+    /// [`StopReason::ModeLost`]).
     ModeTracking {
         /// The level.
         level: usize,
@@ -400,7 +436,8 @@ impl std::fmt::Display for AdaptWarning {
                 f,
                 "level {level}: tracked mode {mode} matched its predecessor with overlap \
                  {overlap:.2} (< {MODE_TRACKING_MIN_OVERLAP}); it may have swapped with a \
-                 neighbouring mode, so check the eigenvalue sequence"
+                 neighbouring mode, so the loop stopped at this level (mode_lost) instead of \
+                 refining for it"
             ),
             Self::UnvalidatedOrder { order } => write!(
                 f,
@@ -633,6 +670,24 @@ impl AdaptReport {
                      set exclude_upml = false"
                 );
             }
+            StopReason::TargetMetIncomplete => {
+                let _ = write!(
+                    s,
+                    "; eta_rel reached the target {target:.1e}, but the estimate is INCOMPLETE \
+                     (see the coverage warning): it omits those terms, so the target is NOT \
+                     verified; refinement cannot complete the coverage, so the loop stopped"
+                );
+            }
+            StopReason::ModeLost => {
+                let _ = write!(
+                    s,
+                    "; target {target:.1e} NOT met: a tracked mode was LOST (overlap with its \
+                     predecessor below {MODE_TRACKING_MIN_OVERLAP}), so the loop stopped instead \
+                     of refining for what may be a different mode; the final modes are that \
+                     level's best matches; re-run with a shift closer to the target, more \
+                     extra_candidates or a finer initial mesh"
+                );
+            }
         }
         for w in &self.warnings {
             let _ = write!(s, "; WARNING: {w}");
@@ -808,6 +863,24 @@ pub trait LevelSolver {
     ///
     /// Any [`AdaptError`] (typically a prolongation failure).
     fn prolong(&mut self, coarse: &TetMesh, step: &Refined) -> Result<(), AdaptError>;
+    /// Called by the loop right after every
+    /// [`LevelSolver::solve_level`], before the stopping rules and before
+    /// marking: warnings to record for the level, and an optional stop
+    /// (for example [`StopReason::ModeLost`]), which takes precedence over
+    /// every other rule. The default continues with no warning.
+    fn check_level(&mut self, level: usize) -> LevelCheck {
+        let _ = level;
+        LevelCheck::default()
+    }
+}
+
+/// What [`LevelSolver::check_level`] returns.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LevelCheck {
+    /// Warnings raised on the level.
+    pub warnings: Vec<AdaptWarning>,
+    /// Stop the loop on this level (it is recorded, but not marked).
+    pub stop: Option<StopReason>,
 }
 
 /// Full DOFs of the uniform-order H(curl) space on `mesh`.
@@ -1037,10 +1110,21 @@ pub fn adapt_with<S: LevelSolver>(
             history.push(it);
         };
 
+        let check = solver.check_level(level);
+        warnings.extend(check.warnings);
+        if let Some(reason) = check.stop {
+            finish(it, &mut history);
+            stop_reason = reason;
+            break;
+        }
         let target_hit = eta_rel <= opts.target_rel_error;
         if target_hit && !pre_asymptotic {
             finish(it, &mut history);
-            stop_reason = StopReason::TargetMet;
+            stop_reason = if coverage_complete {
+                StopReason::TargetMet
+            } else {
+                StopReason::TargetMetIncomplete
+            };
             break;
         }
         if target_hit {
@@ -1214,12 +1298,13 @@ pub enum FaceBc {
     Pec,
     /// Natural / PMC (`n × ∇×E = 0`, no surface term).
     Natural,
-    /// Impedance surface `i` of [`DrivenAdaptSpec::surfaces`] (Leontovich
-    /// or Silver-Müller). Driven only. Its boundary residual is not
-    /// estimated (INCOMPLETE coverage).
+    /// Impedance surface `i` of [`DrivenAdaptSpec::surfaces`] (Leontovich,
+    /// rough conductor, London or Silver-Müller). Driven only. Estimated
+    /// as a [`BoundaryFaceKind::Robin`] face with `c = iω/Z_s(ω)`.
     Impedance(usize),
     /// Lumped port `i` of [`DrivenAdaptSpec::lumped_ports`]. Driven only.
-    /// Its boundary residual is not estimated (INCOMPLETE coverage).
+    /// Estimated as a [`BoundaryFaceKind::Robin`] face with
+    /// `c = iω/(R w / l)` and the drive `2c (V_inc / l) ê`.
     LumpedPort(usize),
 }
 
@@ -1301,11 +1386,15 @@ fn sorted3(mut f: [u32; 3]) -> [u32; 3] {
     f
 }
 
+/// Classify the boundary faces of a level. Impedance surface `i` is the
+/// estimator's [`BoundaryFaceKind::Robin`]`(i)` and lumped port `j` is
+/// `Robin(n_surfaces + j)` (the order of the per-frequency
+/// [`RobinBoundary`] table, see [`robin_table`]).
 fn classify(
     mesh: &TaggedTetMesh,
     map: Option<&PeriodicMap>,
     boundary: &(dyn Fn(&FaceCtx) -> FaceBc + Sync),
-    surface_kinds: &[&'static str],
+    n_surfaces: usize,
     n_ports: usize,
 ) -> Result<Classified, AdaptError> {
     let m = &mesh.mesh;
@@ -1318,12 +1407,12 @@ fn classify(
     let all_faces = map.map(|_| m.faces());
     let mut out = Classified {
         pec: Vec::new(),
-        impedance: vec![Vec::new(); surface_kinds.len()],
+        impedance: vec![Vec::new(); n_surfaces],
         ports: vec![Vec::new(); n_ports],
         kinds: BoundaryKinds::new(BoundaryFaceKind::Natural),
     };
     let mut pec = Vec::new();
-    let mut uncovered: Vec<(Vec<[u32; 3]>, BoundaryFaceKind)> = Vec::new();
+    let mut robin: Vec<(Vec<[u32; 3]>, BoundaryFaceKind)> = Vec::new();
     for f in m.boundary_faces() {
         if let (Some(map), Some(faces)) = (map, all_faces.as_ref())
             && let Ok(i) = faces.binary_search(&f)
@@ -1342,9 +1431,8 @@ fn classify(
             FaceBc::Impedance(i) => {
                 let Some(list) = out.impedance.get_mut(i) else {
                     return Err(AdaptError::InvalidSpec(format!(
-                        "face {f:?} is classified Impedance({i}), but only {} surfaces are \
-                         defined",
-                        surface_kinds.len()
+                        "face {f:?} is classified Impedance({i}), but only {n_surfaces} surfaces \
+                         are defined"
                     )));
                 };
                 list.push(f);
@@ -1361,13 +1449,13 @@ fn classify(
         }
     }
     for (i, list) in out.impedance.iter().enumerate() {
-        uncovered.push((list.clone(), BoundaryFaceKind::Uncovered(surface_kinds[i])));
+        robin.push((list.clone(), BoundaryFaceKind::Robin(i)));
     }
-    for list in &out.ports {
-        uncovered.push((list.clone(), BoundaryFaceKind::Uncovered("lumped_port")));
+    for (j, list) in out.ports.iter().enumerate() {
+        robin.push((list.clone(), BoundaryFaceKind::Robin(n_surfaces + j)));
     }
     let mut kinds = BoundaryKinds::new(BoundaryFaceKind::Natural).with(&pec, BoundaryFaceKind::Pec);
-    for (list, kind) in &uncovered {
+    for (list, kind) in &robin {
         kinds = kinds.with(list, *kind);
     }
     out.kinds = kinds;
@@ -1578,6 +1666,31 @@ fn surface_kind(model: &SurfaceImpedanceModel) -> &'static str {
     }
 }
 
+/// The estimator's Robin table at frequency `omega`: every impedance
+/// surface (`c = iω/Z_s(ω)`, the coefficient the operator assembles), then
+/// every lumped port (`c = iω/(R w/l)`, `g = 2c (V_inc/l) ê`), in the
+/// order [`classify`] numbers them.
+fn robin_table(spec: &DrivenAdaptSpec<'_>, omega: f64) -> Result<Vec<RobinBoundary>, AdaptError> {
+    let mut out = Vec::with_capacity(spec.surfaces.len() + spec.lumped_ports.len());
+    for m in &spec.surfaces {
+        out.push(RobinBoundary::impedance(
+            surface_kind(m),
+            m.weak_coefficient(omega)?,
+        ));
+    }
+    for p in &spec.lumped_ports {
+        out.push(RobinBoundary::lumped_port(
+            omega,
+            p.e_hat,
+            p.resistance,
+            p.width,
+            p.length,
+            p.v_inc,
+        ));
+    }
+    Ok(out)
+}
+
 /// An iterative solve at `omega`, optionally from the full-length initial
 /// guess `x0_full` (as a residual correction whose Krylov tolerance is
 /// rescaled so that `‖A x − b‖ ≤ tol ‖b‖` still holds). A guess whose
@@ -1710,12 +1823,11 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
             )));
         }
         let upml: Option<Vec<bool>> = spec.upml.map(|f| tets.iter().map(f).collect());
-        let kinds: Vec<&'static str> = spec.surfaces.iter().map(surface_kind).collect();
         let cls = classify(
             ctx.mesh,
             ctx.periodic_map,
             spec.boundary,
-            &kinds,
+            spec.surfaces.len(),
             spec.lumped_ports.len(),
         )?;
         let space = HcurlSpace::build(mesh, spec.order);
@@ -1804,6 +1916,7 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
             let iw = c64::new(0.0, w);
             let f = |t: usize, x: [f64; 3]| (spec.current)(&tets[t], x).map(|j| iw * j);
             let div_f = |t: usize, x: [f64; 3]| iw * (spec.current_div)(&tets[t], x);
+            let robin = robin_table(spec, w)?;
             let mut input = EstimatorInput::new(
                 mesh,
                 &space,
@@ -1816,7 +1929,8 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
             .with_source(VolumeSource {
                 f: &f,
                 div_f: &div_f,
-            });
+            })
+            .with_robin(&robin);
             if let Some(map) = ctx.periodic_map {
                 input = input.with_periodic_map(map);
             }
@@ -1990,6 +2104,8 @@ struct EigenLevelSolver<'s, 'a, B: Backend> {
     /// Prolonged tracked eigenvectors (full length on the new mesh).
     prolonged: Option<Vec<Vec<f64>>>,
     last: Vec<TrackedMode>,
+    /// The mode-tracking verdict of the last solved level.
+    pending: LevelCheck,
 }
 
 impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
@@ -2003,7 +2119,7 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
         let mesh = &ctx.mesh.mesh;
         let tets = tet_contexts(ctx.mesh);
         let eps: Vec<f64> = tets.iter().map(|t| (spec.eps)(t)).collect();
-        let cls = classify(ctx.mesh, ctx.periodic_map, spec.boundary, &[], 0)?;
+        let cls = classify(ctx.mesh, ctx.periodic_map, spec.boundary, 0, 0)?;
         let space = HcurlSpace::build(mesh, ElementOrder::P1);
         let mask = space.pec_interior_mask(mesh, &[&cls.pec])?;
         let materials = PecCavityMaterials::Isotropic(&eps);
@@ -2158,6 +2274,21 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
         if let Some(obs) = spec.observer {
             obs(ctx, &tracked);
         }
+        // Lost-mode check on this level (before the loop marks anything).
+        let mut pending = LevelCheck::default();
+        for d in &data {
+            if let Some(o) = d.overlap
+                && o < MODE_TRACKING_MIN_OVERLAP
+            {
+                pending.warnings.push(AdaptWarning::ModeTracking {
+                    level: ctx.level,
+                    mode: d.mode,
+                    overlap: o,
+                });
+                pending.stop = Some(StopReason::ModeLost);
+            }
+        }
+        self.pending = pending;
         self.last = tracked;
         self.prolonged = None;
         Ok(LevelOutcome {
@@ -2169,6 +2300,10 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
             solve_s,
             estimate_s,
         })
+    }
+
+    fn check_level(&mut self, _level: usize) -> LevelCheck {
+        std::mem::take(&mut self.pending)
     }
 
     fn prolong(&mut self, coarse: &TetMesh, step: &Refined) -> Result<(), AdaptError> {
@@ -2199,7 +2334,7 @@ pub fn adapt_eigen<B: Backend>(
     validate_settings(&spec.settings)?;
     let bm = bisection_mesh(spec.mesh.clone(), spec.periodic.as_ref())?;
     // Reject lossy / port faces up front, on the initial mesh.
-    let probe = classify(bm.mesh(), bm.periodic_map(), spec.boundary, &[], 0);
+    let probe = classify(bm.mesh(), bm.periodic_map(), spec.boundary, 0, 0);
     if let Err(AdaptError::InvalidSpec(msg)) = probe {
         return Err(AdaptError::Unsupported(format!(
             "the eigen loop is the lossless PEC / natural cavity: {msg}"
@@ -2210,23 +2345,9 @@ pub fn adapt_eigen<B: Backend>(
         device,
         prolonged: None,
         last: Vec::new(),
+        pending: LevelCheck::default(),
     };
-    let (mut report, bm) = adapt_with(bm, opts, &mut solver)?;
-    for h in &report.history {
-        if let LevelQuantities::Eigen(d) = &h.quantities {
-            for e in d {
-                if let Some(o) = e.overlap
-                    && o < MODE_TRACKING_MIN_OVERLAP
-                {
-                    report.warnings.push(AdaptWarning::ModeTracking {
-                        level: h.level,
-                        mode: e.mode,
-                        overlap: o,
-                    });
-                }
-            }
-        }
-    }
+    let (report, bm) = adapt_with(bm, opts, &mut solver)?;
     let periodic_map = bm.periodic_map().cloned();
     Ok(EigenAdaptResult {
         report,
