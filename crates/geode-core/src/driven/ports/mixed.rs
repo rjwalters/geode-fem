@@ -185,10 +185,6 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
     let edges = mesh.edges();
     let n_edges = edges.len();
     let channels = modal_channels(mesh, lumped.len(), wave, &edges)?;
-    let port_mode_counts: Vec<usize> = wave.iter().map(|p| p.modes.len()).collect();
-    let n_wave = channels.len();
-    let n_lumped = lumped.len();
-    let n_ports = n_lumped + n_wave;
 
     // Base operator: volume terms + lumped loads + walls, zero volume
     // source (ports are the only drive).
@@ -205,9 +201,45 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
         &zero_source,
         device,
     )?;
+    mixed_sweep_points::<B>(
+        &op,
+        bcs,
+        lumped.len(),
+        wave,
+        &channels,
+        n_edges,
+        omegas,
+        solver_mode,
+        device,
+    )
+}
+
+/// The per-ω body of the mixed lumped + wave sweep, shared by the p=1
+/// entry point [`solve_mixed_port_sweep_with_mode`] and the order-generic
+/// one ([`super::solve_mixed_port_sweep_on_space`], issue #884): the base
+/// operator `op` (lumped loads and walls already in it), the validated
+/// modal `channels` (full-length fluxes over the operator's `n_dofs`
+/// DOFs) and the PEC mask of `bcs`. The arithmetic is exactly the
+/// pre-#884 body of [`solve_mixed_port_sweep_with_mode`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mixed_sweep_points<B: burn::tensor::backend::Backend>(
+    op: &DrivenOperator,
+    bcs: &DrivenBcs<'_>,
+    n_lumped: usize,
+    wave: &[WavePort],
+    channels: &[ModalChannel],
+    n_dofs: usize,
+    omegas: &[f64],
+    solver_mode: SolverMode,
+    device: &B::Device,
+) -> Result<Vec<MixedPortSweepPoint>, DrivenError> {
+    let n_edges = n_dofs;
+    let port_mode_counts: Vec<usize> = wave.iter().map(|p| p.modes.len()).collect();
+    let n_wave = channels.len();
+    let n_ports = n_lumped + n_wave;
     let n_int = op.n_interior();
     // Interior-filtered modal fluxes (ω-independent).
-    let fluxes_int = interior_fluxes(&channels, bcs.pec_interior_mask);
+    let fluxes_int = interior_fluxes(channels, bcs.pec_interior_mask);
     let zero = c64::new(0.0, 0.0);
 
     omegas
@@ -216,7 +248,7 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             // Reported β, and the admittance factor y = β/μ_t (issue
             // #777; `y = β` for a vacuum port) that every operator / power
             // term below uses in place of β.
-            let (betas, ys) = channel_admittances(wave, &channels, omega);
+            let (betas, ys) = channel_admittances(wave, channels, omega);
             let solver = op.prepare_at::<B>(omega, solver_mode, device)?;
             let mut iters_per_rhs = Vec::with_capacity(n_wave + n_ports);
             let mut back_solve =
@@ -233,14 +265,14 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
             )?;
 
             // Power-wave weights: lumped √R_k, wave √y_q / √ω.
-            let weights = PowerWeights::new(&op, n_lumped, &ys, omega);
+            let weights = PowerWeights::new(op, n_lumped, &ys, omega);
 
             let mut s = vec![zero; n_ports * n_ports];
             let mut residual_rel = 0.0_f64;
             for j in 0..n_ports {
                 // Excitation RHS (interior) and its incident power wave ã_j.
-                let b = excitation_rhs(&op, omega, j, n_lumped, &channels, &fluxes_int, &ys);
-                let a_tilde = incident_wave(&op, j, n_lumped, &channels, &weights);
+                let b = excitation_rhs(op, omega, j, n_lumped, channels, &fluxes_int, &ys);
+                let a_tilde = incident_wave(op, j, n_lumped, channels, &weights);
 
                 // SMW: x = A⁻¹b − (A⁻¹U) M⁻¹ Uᵀ A⁻¹b.
                 let x = smw.solve(&fluxes_int, &b, &mut back_solve, &mut iters_per_rhs)?;
@@ -269,10 +301,10 @@ pub fn solve_mixed_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
 
                 // Scatter and read back every port's outgoing power wave.
                 s_column(
-                    &op,
+                    op,
                     bcs.pec_interior_mask,
                     n_edges,
-                    &channels,
+                    channels,
                     &weights,
                     j,
                     a_tilde,
@@ -314,7 +346,26 @@ pub(crate) fn modal_channels(
     wave: &[WavePort],
     edges: &[[u32; 2]],
 ) -> Result<Vec<ModalChannel>, DrivenError> {
-    let n_edges = edges.len();
+    modal_channels_with(mesh, n_lumped, wave, edges.len(), "edge count", |port, mode| {
+        Ok(assemble_modal_flux(mesh, &port.faces, mode, edges))
+    })
+}
+
+/// [`modal_channels`] with the modal-flux kernel supplied by the caller
+/// (issue #884: the p=1 Whitney kernel, or the p=2 trace kernel of
+/// [`super::wave_p2`]). Every profile must have length `n_dofs`
+/// (`what` names that count in the error).
+pub(crate) fn modal_channels_with<F>(
+    mesh: &TetMesh,
+    n_lumped: usize,
+    wave: &[WavePort],
+    n_dofs: usize,
+    what: &str,
+    mut flux: F,
+) -> Result<Vec<ModalChannel>, DrivenError>
+where
+    F: FnMut(&WavePort, &[f64]) -> Result<Vec<f64>, DrivenError>,
+{
     validate_driven_surfaces(mesh, "wave port", wave.iter().map(|p| p.faces.as_slice()))?;
     let n_wave: usize = wave.iter().map(|p| p.modes.len()).sum();
     let mut channels: Vec<ModalChannel> = Vec::with_capacity(n_wave);
@@ -326,13 +377,13 @@ pub(crate) fn modal_channels(
             });
         }
         for (m_idx, m) in port.modes.iter().enumerate() {
-            if m.mode.len() != n_edges {
+            if m.mode.len() != n_dofs {
                 return Err(DrivenError::InvalidPort {
                     index: n_lumped + p_idx,
                     reason: format!(
-                        "wave-port mode[{m_idx}] profile length {} must match edge count {}",
+                        "wave-port mode[{m_idx}] profile length {} must match {what} {}",
                         m.mode.len(),
-                        n_edges
+                        n_dofs
                     ),
                 });
             }
@@ -348,7 +399,7 @@ pub(crate) fn modal_channels(
                 port: p_idx,
                 mode: m_idx,
                 a_inc: m.a_inc,
-                flux: assemble_modal_flux(mesh, &port.faces, &m.mode, edges),
+                flux: flux(port, &m.mode)?,
             });
         }
     }
