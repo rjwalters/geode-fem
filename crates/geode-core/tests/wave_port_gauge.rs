@@ -33,7 +33,9 @@
 //! 9. the degenerate-cluster confirmation (issue #892): a cost guard on a
 //!    338-triangle circular face (≤ 2× the raw modal solve) and the p=1 /
 //!    p=2 agreement of its cluster decision, and the coax guide whose two
-//!    ports used to decide its TE₁₁ cluster differently (#896).
+//!    ports used to decide its TE₁₁ cluster differently (#896), and the
+//!    same guide's TE₃₁ pair at `n_modes = 6`, decided by face listing
+//!    while the confirming solve stopped at the kept modes (#892).
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_gauge -- --nocapture
@@ -689,4 +691,77 @@ fn coax_ports_decide_the_te11_cluster_alike() {
     let (x, y) = (s[2 * n + 1].norm(), s[3 * n].norm());
     eprintln!("coax TE11 block off-diagonal {x:.2e}, {y:.2e}");
     assert!(x < 0.02 && y < 0.02, "coax TE11 cross terms {x:e}, {y:e}");
+}
+
+/// The cluster decision of a face does not depend on `n_modes` or on how
+/// the face is listed (the #892 round-2 Judge probe). The confirming solve
+/// used to ask for exactly the kept modes; a candidate pair at the end of
+/// that block (the coax TE₃₁ pair, modes 5 / 6, at `n_modes = 6`) was then
+/// the last, poorly resolved pair of the shifted pass, and port 2 as listed
+/// kept it split while re-wound it merged. Every `n_modes` in `2..=8`, every
+/// listing, on both ports, must give the cluster pattern of a deep
+/// (`n_modes = 14`) solve of the listed face.
+#[test]
+fn cluster_decision_is_independent_of_n_modes_and_listing() {
+    let g = gmsh_guide("guide_coax_lc018_015.msh", 1.0, 2);
+    let pattern = |l: &[f64]| l.windows(2).map(|w| w[0] == w[1]).collect::<Vec<_>>();
+    let mut bad = Vec::new();
+    for (pn, faces) in [("port 1", &g.port1), ("port 2", &g.port2)] {
+        let variants = [
+            ("listed", faces.clone()),
+            ("re-wound", rewound(faces)),
+            ("permuted", permuted(faces)),
+        ];
+        let pfs: Vec<_> = variants
+            .iter()
+            .map(|(_, f)| project_port_face(&g.mesh, f).expect("coax face"))
+            .collect();
+        let lam = |pf: &geode_core::driven::ports::PortFaceProjection, k| {
+            pf.solve_modes(k)
+                .expect("coax modes")
+                .iter()
+                .map(|m| m.lambda)
+                .collect::<Vec<_>>()
+        };
+        let reference = pattern(&lam(&pfs[0], 14));
+        eprintln!("coax {pn}: reference cluster links {reference:?}");
+        for k in 2..=8 {
+            for ((vn, _), pf) in variants.iter().zip(&pfs) {
+                let p = pattern(&lam(pf, k));
+                if p[..] != reference[..p.len()] {
+                    bad.push(format!("{pn} {vn} n_modes={k}: {p:?}"));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "cluster decisions disagree: {bad:#?}");
+}
+
+/// The #892 round-2 blocker end to end: the coax guide at `n_modes = 6`,
+/// ω = 4.6. Port 2 as listed turned TE₃₁ (mode 6) by +176.5° with a 0.66
+/// off-diagonal in the TE₃₁ block, and re-winding it moved S by 1.7,
+/// silently. Now every listing (as listed, re-wound, permuted) gives the same
+/// S and the analytic phase.
+#[test]
+fn coax_te31_pair_is_independent_of_port_listing_at_six_modes() {
+    let g = gmsh_guide("guide_coax_lc018_015.msh", 1.0, 2);
+    let k = 6;
+    let (s, beta) = sweep(&g, &g.port1, &g.port2, k, 1.0, 4.6);
+    let (s_rw, _) = sweep(&g, &g.port1, &rewound(&g.port2), k, 1.0, 4.6);
+    let (s_pm, _) = sweep(&g, &g.port1, &permuted(&g.port2), k, 1.0, 4.6);
+    let d = max_diff(&s, &s_rw).max(max_diff(&s, &s_pm));
+    let err = phase_errors(&s, &beta, g.len);
+    let n = 2 * k;
+    let (x, y) = (s[(k + 4) * n + 5].norm(), s[(k + 5) * n + 4].norm());
+    eprintln!(
+        "coax n_modes=6: phases {err:+.2?}°, TE31 off-diagonal {x:.2e} / {y:.2e}, |ΔS| {d:e}"
+    );
+    assert!(
+        d < 1e-10,
+        "S moved by {d:e} when port 2 was re-wound / permuted"
+    );
+    for (m, e) in err.iter().enumerate() {
+        assert!(e.abs() < 10.0, "coax mode {m}: arg(S21/e^-jβL) = {e:+.2}°");
+    }
+    assert!(x < 0.02 && y < 0.02, "coax TE31 cross terms {x:e}, {y:e}");
 }

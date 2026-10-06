@@ -368,10 +368,7 @@ impl PortFaceProjection {
         // can hold; the harmonic fields are the TEM modes this path filters
         // out (#817). Asking for more is rejected up front rather than handed
         // to Lanczos.
-        let available = self
-            .n_interior_edges()
-            .saturating_sub(self.n_interior_nodes())
-            .saturating_sub(self.n_holes());
+        let available = self.available_modes_p1();
         if n_modes > available {
             return Err(PortFaceError::TooFewModes {
                 requested: n_modes,
@@ -459,13 +456,38 @@ impl PortFaceProjection {
         clusters_from_links(upto, &links)
     }
 
+    /// The face's p=1 physical-mode count (de Rham: interior edges minus
+    /// interior nodes minus one harmonic field per hole), the most modes
+    /// [`Self::solve_modes`] accepts.
+    fn available_modes_p1(&self) -> usize {
+        self.n_interior_edges()
+            .saturating_sub(self.n_interior_nodes())
+            .saturating_sub(self.n_holes())
+    }
+
     /// The lowest `n` cutoffs `k_c²` of this face solved at the order
     /// **other** than `order`, with the explicit shift `sigma`, or `None`
     /// if that solve fails or returns fewer than `n`.
+    ///
+    /// The solve asks for [`CONFIRMATION_MARGIN`] modes past `n` (clamped
+    /// to the other order's mode count) and drops them. A candidate pair
+    /// at the end of the block is otherwise the last pair of the shifted
+    /// Lanczos pass, whose top member is the least resolved: its p=2 gap,
+    /// and so the cluster decision, then followed round-off from the face
+    /// list's order and winding (#892 round 2: the coax TE₃₁ pair at
+    /// `n_modes = 6` merged on one listing of a port and stayed split on
+    /// another, a silent 180° flip). Two extra modes keep every pair under
+    /// test strictly inside the resolved set at the cost of two more
+    /// eigenvalues on an already-shifted solve.
     fn confirmation_cutoffs(&self, n: usize, order: ElementOrder, sigma: f64) -> Option<Vec<f64>> {
+        let available = match order {
+            ElementOrder::P1 => self.available_modes_p2(),
+            ElementOrder::P2 => self.available_modes_p1(),
+        };
+        let request = (n + CONFIRMATION_MARGIN).min(available).max(n);
         let lam: Vec<f64> = match order {
             ElementOrder::P1 => self
-                .solve_modes_p2_raw(n, Some(sigma))
+                .solve_modes_p2_raw(request, Some(sigma))
                 .ok()?
                 .iter()
                 .map(|m| m.lambda)
@@ -474,7 +496,7 @@ impl PortFaceProjection {
                 &self.tri_mesh,
                 &self.edges,
                 &self.interior_edge_mask,
-                n,
+                request,
                 Some(sigma),
             )
             .ok()?
@@ -832,6 +854,12 @@ impl PortFaceProjection {
         })
     }
 }
+
+/// Modes the cluster-confirming solve asks for past the block under test
+/// (`PortFaceProjection::confirmation_cutoffs`, #892): the top eigenpair of a
+/// shifted Lanczos pass is its least resolved, so no candidate pair may be
+/// the last of the confirming solve.
+const CONFIRMATION_MARGIN: usize = 2;
 
 /// Relative tolerance under which two components of a unit normal count as
 /// equal in magnitude for the canonical frame ([`canonical_normal`],

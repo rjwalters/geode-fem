@@ -181,6 +181,14 @@ impl PortFaceProjection {
         self.n_interior_nodes() + self.n_interior_edges() + self.n_holes()
     }
 
+    /// The face's p=2 physical-mode count, `2·E_int + 2·T − null`: the most
+    /// modes [`Self::solve_modes_p2_raw`] accepts.
+    pub(crate) fn available_modes_p2(&self) -> usize {
+        let n_keep = 2 * self.interior_edge_mask.iter().filter(|&&k| k).count()
+            + 2 * self.tri_mesh.tris.len();
+        n_keep.saturating_sub(self.null_dim_p2())
+    }
+
     /// Solve the `n_modes` lowest-cutoff cross-section modes of the face with
     /// the **second-order** Nédélec face pencil, in the 3-D trace layout
     /// (module docs). This is the p=2 counterpart of
@@ -235,7 +243,8 @@ impl PortFaceProjection {
         let layout = self.layout_p2();
         let n_keep = layout.keep.iter().filter(|&&k| k).count();
         let null_dim = self.null_dim_p2();
-        let available = n_keep.saturating_sub(null_dim);
+        let available = self.available_modes_p2();
+        debug_assert_eq!(available, n_keep.saturating_sub(null_dim));
         if n_modes > available {
             return Err(PortFaceError::TooFewModes {
                 requested: n_modes,
