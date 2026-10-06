@@ -96,6 +96,20 @@ The closed-form column is the differentiated Hammerstad–Jensen formula of
 the **open** line; the shielded `20h × 12h` box and the mesh put geode
 within 3 %.
 
+`db(S[0,0])` is not a physical sensitivity here: at −68 dB the matched
+line's `S11` is the mesh's residual reflection, so its gradient (exact for
+the morphed, fixed-topology mesh — the FD check passes) measures how that
+discretization residue moves; a re-meshed central difference gives
+−4.96 dB/mm against the adjoint's +2.97 dB/mm. Read `∂S11` only where `S11`
+is well above the mesh's reflection floor.
+
+Drop `"pinned": ["shield"]` and the run warns
+(`sensitivities.warnings[]`, kind `sensitivity_shape_moves_boundary`) that
+the stretch also widens the PEC shield box; turn the stretch into a
+`translate` without `pinned` and it warns (`sensitivity_shape_rigid`) that
+the whole model translates rigidly — every gradient then zero by
+construction.
+
 ## Using it in an optimizer / agent loop
 
 Edit the spec's `materials[].eps_r` (or `mu_r`), run, read

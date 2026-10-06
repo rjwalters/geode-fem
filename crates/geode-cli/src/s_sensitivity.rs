@@ -561,6 +561,111 @@ fn moved_groups(p: &Problem, col: &[[f64; 3]]) -> Vec<String> {
     out
 }
 
+/// Relative motion below which a node (or a node's normal motion) counts as
+/// still: the harmonic extension is exact zero on pinned / untouched
+/// components, so this only absorbs round-off.
+const STILL_TOL: f64 = 1e-9;
+
+/// Warnings of shape parameter `prm` whose column is `col` (never errors:
+/// the gradient is of a legitimate, if probably unintended, morph):
+///
+/// * `sensitivity_shape_rigid` — every node moves with one velocity (no
+///   `pinned` group, so the harmonic extension is a constant): the whole
+///   model translates rigidly and every gradient is zero by construction;
+/// * `sensitivity_shape_moves_boundary` — a `pec` / `leontovich` /
+///   `silver_muller` group that is not one of the parameter's own groups
+///   has a node (not one of the moving groups' nodes) moving along its
+///   face normal, i.e. the wall itself is reshaped or displaced. Motion in
+///   a wall's own plane (a wall sliding with a slab it bounds) and hybrid
+///   wave-port faces (which move in-plane with the cross-section by
+///   design) are not flagged.
+fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> Vec<WarningResult> {
+    let Some(sh) = prm.shape.as_ref() else {
+        return Vec::new();
+    };
+    let norm = |v: &[f64; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let max = col.iter().map(norm).fold(0.0, f64::max);
+    if max == 0.0 || !max.is_finite() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let v0 = col[0];
+    let rigid = col
+        .iter()
+        .all(|v| norm(&[v[0] - v0[0], v[1] - v0[1], v[2] - v0[2]]) <= STILL_TOL * max);
+    if rigid {
+        let w = WarningResult {
+            kind: "sensitivity_shape_rigid",
+            wave_port: None,
+            physical_group: None,
+            message: format!(
+                "shape parameter `{}` moves every node of the model with one velocity: with \
+                 no `pinned` group the motion's harmonic extension is a constant, so the whole \
+                 model translates rigidly and every gradient of `{}` is zero by construction — \
+                 add the fixed groups (shield, ground, port faces, outer walls) to `pinned`",
+                sh.name, sh.name
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        out.push(w);
+    }
+    let own: std::collections::HashSet<u32> = sh
+        .motion
+        .nodes(&p.tagged)
+        .map(|n| n.into_iter().collect())
+        .unwrap_or_default();
+    let walls = p
+        .pec
+        .iter()
+        .map(|s| ("pec", s))
+        .chain(p.leontovich.iter().map(|l| ("leontovich", &l.surface)))
+        .chain(p.silver_muller.iter().map(|s| ("silver_muller", s)));
+    let mut flagged: Vec<(&str, &str)> = Vec::new();
+    for (bc, surf) in walls {
+        if sh.motion.groups.contains(&surf.name) || flagged.iter().any(|(_, n)| *n == surf.name) {
+            continue;
+        }
+        let moves_normal = surf.triangles.iter().any(|t| {
+            let x = |i: usize| p.tagged.mesh.nodes[t[i] as usize];
+            let (a, b, c) = (x(0), x(1), x(2));
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let nn = norm(&n);
+            if nn == 0.0 {
+                return false;
+            }
+            t.iter().filter(|k| !own.contains(k)).any(|&k| {
+                let m = col[k as usize];
+                (m[0] * n[0] + m[1] * n[1] + m[2] * n[2]).abs() / nn > STILL_TOL * max
+            })
+        });
+        if moves_normal {
+            flagged.push((bc, &surf.name));
+        }
+    }
+    for (bc, name) in flagged {
+        let w = WarningResult {
+            kind: "sensitivity_shape_moves_boundary",
+            wave_port: None,
+            physical_group: Some(name.to_string()),
+            message: format!(
+                "shape parameter `{}` moves the `{bc}` boundary `{name}` (not one of its own \
+                 groups) off its plane: the gradient is of a morph that also reshapes or \
+                 displaces that wall — add `{name}` to `pinned` if it is fixed",
+                sh.name
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        out.push(w);
+    }
+    out
+}
+
 /// The parameter's summary in the report.
 fn parameter_summary(
     p: &Problem,
@@ -700,7 +805,13 @@ pub fn driven(
 
     // Forward parity against the report's own rows.
     let mut parity = 0.0_f64;
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<WarningResult> = sens
+        .parameters
+        .iter()
+        .zip(&d.columns)
+        .filter_map(|(prm, col)| col.as_ref().map(|c| shape_warnings(p, prm, c)))
+        .flatten()
+        .collect();
     for &fi in &sens.frequency_indices {
         let pt = point_of(fi);
         let row = &rows[fi];

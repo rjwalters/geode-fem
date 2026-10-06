@@ -1301,6 +1301,16 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   impedance wall; `parameters[].moved_groups` lists every named surface a
   shape parameter moves. A hybrid port face may move in its plane (strip
   width, substrate height): its modes are re-solved on the moved face.
+  A forgotten `pin` is warned about, never silently zero: a
+  `sensitivities.warnings[]` entry of kind `sensitivity_shape_rigid` when
+  every node moves with one velocity (nothing pinned — the harmonic
+  extension is a constant, the whole model translates rigidly and every
+  gradient is zero by construction), and `sensitivity_shape_moves_boundary`
+  (naming the group) when a `pec` / `leontovich` / `silver_muller` group
+  the parameter does not own has a node moving along its face normal
+  (motion in a wall's own plane — a wall sliding with the slab it bounds
+  — and hybrid port faces are not flagged). Both are also printed on
+  stderr; the run still succeeds.
 - **Observables.** `entry` / `entries` index the report's flat S-matrix
   order (lumped ports first, then the wave channels port-major,
   mode-minor — `results[].wave_channels[].channel`; `[0, 0]` is `S11`).
@@ -1313,6 +1323,16 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   port's reported channel `mode` (default `0`; `real` by default, `imag`
   and `mag` too): face quantities of Epic #841 Phase 3a's 2-D derivative,
   which only parameters that touch the port face move.
+- **Limitations of the values.** `db` (and `mag`) of an entry at the
+  mesh's reflection floor — `S11` of a matched line, −68 dB in the
+  microstrip cookbook — is discretization residue: its gradient is exact
+  for the fixed-topology morph (the FD check passes) but is not a
+  physical sensitivity, and a re-meshed difference can disagree in sign.
+  Between two **geometric** wave ports the `phase_deg` / `real` / `imag`
+  *values* of a cross-port entry (`S21`) may be 180° off until #888 fixes
+  the face-mode sign gauge; their *derivatives* are invariant to that
+  constant sign and unaffected, but do not target an absolute `S21` phase
+  across re-meshes yet.
 - **Forward parity.** The sensitivity solves its own forward on the same
   operator and must reproduce the report's `results[].s` to `1e-8`
   (relative; `sensitivities.forward_parity`, typically `≤ 1e-15`) and the
@@ -1352,7 +1372,7 @@ The report block (`observable = "driven_observables"`, `method =
 "adjoint_s_matrix"`) adds `observables[]` (`quantity`, `form`, `label`,
 `unit`, `entries` or `wave_port` / `mode` / `impedance_definition`),
 `forward_parity` and `warnings[]` (a near-degenerate face mode of a hybrid
-port the design touches), and each entry gains `observable` (index into
+port the design touches; a rigid or wall-moving shape parameter), and each entry gains `observable` (index into
 `observables[]`) and `frequency_hz`; `index = [i]` into `results[]`.
 Parameters gain `unit` (`"1"` / `"m"`) and, for shape, `name`, `motion`,
 `axis`, `pinned` and `moved_groups`. Entries are ordered parameter-major,

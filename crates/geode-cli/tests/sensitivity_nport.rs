@@ -280,7 +280,33 @@ fn assert_fd_agreement(report: &Value, what: &str) -> Value {
         f(&s["forward_parity"])
     );
     assert!(f(&s["forward_parity"]) <= 1e-12, "{what}: forward parity");
+    // Every FD spec pins what must not move: no forgotten-pin warning (the
+    // slab guide's walls slide in their own plane with the slab).
+    assert_eq!(shape_warnings(&s), Vec::<(String, Value)>::new(), "{what}");
     s
+}
+
+/// The `(kind, physical_group)` of every `sensitivity_shape_*` warning.
+fn shape_warnings(s: &Value) -> Vec<(String, Value)> {
+    s["warnings"]
+        .as_array()
+        .map(|w| {
+            w.iter()
+                .filter(|w| {
+                    w["kind"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("sensitivity_shape_")
+                })
+                .map(|w| {
+                    (
+                        w["kind"].as_str().unwrap().to_string(),
+                        w["physical_group"].clone(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Gradients the design must actually move (a dead parameter would pass FD
@@ -696,6 +722,130 @@ fn microstrip_cookbook_strip_width_check_gradient_agrees() {
     }
 }
 
+/// A forgotten `pinned` is warned about, never silently zero (issue #883
+/// review): on a coarse shielded microstrip section (hybrid ports, the
+/// smallest fixture with a shield) the strip-width stretch with the shield
+/// pinned raises nothing; without `pinned` it widens the PEC shield box
+/// (`sensitivity_shape_moves_boundary`, naming `shield`); a lateral strip
+/// `translate` without `pinned` moves the whole model rigidly
+/// (`sensitivity_shape_rigid`: every gradient zero by construction). The
+/// runs still succeed.
+#[test]
+fn unpinned_shape_parameters_warn_rigid_motion_and_moved_walls() {
+    use geode_core::analytic::microstrip::{ShieldedStripFace, StripMeshOpts};
+    use geode_core::driven::ports::strip_line_section;
+
+    let face = ShieldedStripFace::microstrip(8.0, 5.0, 1.0, 1.9, 4.4).build(&StripMeshOpts {
+        h_min: 0.15,
+        h_max: 1.0,
+        ratio: 1.6,
+        mirror_symmetric: true,
+    });
+    let sec = strip_line_section(&face, 2, 2.0);
+    let ex = &sec.extruded;
+    let (mut substrate, mut air) = (Vec::new(), Vec::new());
+    for (t, &tet) in ex.mesh.tets.iter().enumerate() {
+        if face.eps_r[ex.tet_source_tri[t]] > 1.0 {
+            substrate.push(tet);
+        } else {
+            air.push(tet);
+        }
+    }
+    let (mut shield, mut strip) = (Vec::new(), Vec::new());
+    for (e, (&pec, &sheet)) in face
+        .masks
+        .pec_edges
+        .iter()
+        .zip(&face.sheet_pec_edges)
+        .enumerate()
+    {
+        if pec {
+            for slab in 0..ex.n_slabs() {
+                let tris = ex.lateral_triangles(e, slab);
+                if sheet { &mut strip } else { &mut shield }.extend(tris);
+            }
+        }
+    }
+    let msh = write_msh(
+        &ex.mesh.nodes,
+        &[(1, "substrate", &substrate), (2, "air", &air)],
+        &[
+            (11, "port_in", &ex.port1_faces),
+            (12, "port_out", &ex.port2_faces),
+            (13, "shield", &shield),
+            (14, "strip", &strip),
+        ],
+    );
+    let run = |name: &str, parameter: Value| -> (Value, String) {
+        let dir = Scratch::new("geode-cli-nport-", name);
+        let mesh = dir.join("strip.msh");
+        std::fs::write(&mesh, &msh).unwrap();
+        let v = json!({
+            "schema_version": 1,
+            "mesh": {"path": mesh.display().to_string(), "length_unit_m": 1e-3},
+            "materials": [{"physical_group": "substrate", "eps_r": [4.4, 0.0]}],
+            "boundary_conditions": {"pec": ["shield", "strip"]},
+            "wave_ports": [{"physical_group": "port_in"}, {"physical_group": "port_out"}],
+            "frequencies": {"unit": "ghz", "values": [2.0]},
+            "sensitivity": {
+                "parameters": [parameter],
+                "observables": [{"quantity": "s", "entry": [1, 0], "form": "phase_deg"}]
+            }
+        });
+        let spec =
+            ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap());
+        let out = geode(&["driven", spec.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (ok(&out, name)["sensitivities"].clone(), stderr)
+    };
+    let stretch = |pinned: Value| {
+        json!({"kind": "shape", "name": "strip_width", "physical_group": "strip",
+               "motion": "stretch", "axis": [1, 0, 0], "pinned": pinned})
+    };
+
+    // Pinned: silent, and the gradient is live.
+    let (s, _) = run("pinned", stretch(json!(["shield"])));
+    assert_eq!(shape_warnings(&s), vec![], "{s:#}");
+    assert!(f(&s["entries"][0]["gradient"]).abs() > 1e-3, "{s:#}");
+
+    // Unpinned stretch: the shield box widens with the strip.
+    let (s, stderr) = run("unpinned-stretch", stretch(json!([])));
+    assert_eq!(
+        shape_warnings(&s),
+        vec![(
+            "sensitivity_shape_moves_boundary".to_string(),
+            json!("shield")
+        )],
+        "{s:#}"
+    );
+    let msg = s["warnings"][0]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("`shield`") && msg.contains("add `shield` to `pinned`"),
+        "{msg}"
+    );
+    assert!(
+        stderr.contains("warning: shape parameter `strip_width`"),
+        "{stderr}"
+    );
+
+    // Unpinned translate: a rigid motion of the whole model, gradients ≈ 0.
+    let (s, stderr) = run(
+        "unpinned-translate",
+        json!({"kind": "shape", "name": "strip_shift", "physical_group": "strip",
+               "motion": "translate", "axis": [1, 0, 0]}),
+    );
+    let kinds: Vec<String> = shape_warnings(&s).into_iter().map(|(k, _)| k).collect();
+    assert!(
+        kinds.contains(&"sensitivity_shape_rigid".to_string()),
+        "{:#}",
+        s["warnings"]
+    );
+    assert!(stderr.contains("zero by construction"), "{stderr}");
+    for e in s["entries"].as_array().unwrap() {
+        assert!(f(&e["gradient"]).abs() < 1e-6, "rigid motion: {e}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Rejections (pre-solve `invalid_spec`, via `geode check`)
 // ---------------------------------------------------------------------------
@@ -735,7 +885,7 @@ fn unsupported_n_port_combinations_are_rejected_naming_the_gap() {
                     "dispersion": {"model": "djordjevic_sarkar", "eps_r": 4.4,
                                    "tan_delta": 0.02, "f_ref_hz": 1e9}}]);
             }),
-            &["dispersion", "sensitivity"],
+            &["dispersion", "sensitivity", "Phase 2a"],
         ),
         (
             "anisotropic",

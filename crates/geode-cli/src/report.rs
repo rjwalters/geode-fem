@@ -620,7 +620,12 @@ pub struct WarningResult {
     /// `"impedance_accuracy_unavailable"`,
     /// `"multiplicity_uncertified"`, `"cluster_split"`,
     /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
-    /// measured `σ_max(S) > 1`), or `"termination_clamped"`.
+    /// measured `σ_max(S) > 1`), `"termination_clamped"`, or (driven
+    /// `sensitivities.warnings`, issue #883) `"sensitivity_port_mode"`,
+    /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
+    /// model: gradients zero by construction) and
+    /// `"sensitivity_shape_moves_boundary"` (a shape parameter moving a
+    /// wall it does not own off its plane: pin it if it is fixed).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -1637,7 +1642,9 @@ pub struct SensitivityReport {
     pub forward_parity: Option<f64>,
     /// N-port driven path: non-fatal conditions of the gradient (a
     /// near-degenerate face mode of a hybrid port the design touches, an
-    /// ill-conditioned bordered solve), each with its remedy.
+    /// ill-conditioned bordered solve, a shape parameter that translates
+    /// the whole model rigidly or moves an unpinned wall), each with its
+    /// remedy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
 }

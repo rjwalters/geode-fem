@@ -1957,7 +1957,8 @@ fn validate_dispersion(
         return Err(invalid(format!(
             "{at} cannot be combined with a `sensitivity` section: the adjoint differentiates \
              a frequency-independent permittivity, so its forward solve would not be the \
-             dispersive problem (drop `sensitivity`, or use a constant `eps_r`)"
+             dispersive problem, and a dispersion model's parameters have no gradient chain \
+             yet (Epic #841 Phase 2a; drop `sensitivity`, or use a constant `eps_r`)"
         )));
     }
     if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
@@ -2267,15 +2268,6 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                     "`sensitivity` on a driven spec needs `solver.mode = \"direct\"`: {lib} (one \
                      sparse LU serves the forward and the adjoint; adjoints stay direct-LU, an \
                      Epic #841 non-goal)"
-                )));
-            }
-            if let Some(m) = spec.materials.iter().find(|m| m.dispersion.is_some()) {
-                return Err(invalid(format!(
-                    "`sensitivity` on a driven spec does not support dispersive materials \
-                     (materials[{}] has `dispersion`): {lib}, while a dispersive region's ε(f) \
-                     changes per frequency and its model parameters have no gradient chain yet \
-                     (Epic #841 Phase 2a) — differentiate a constant `eps_r` instead",
-                    m.physical_group
                 )));
             }
         }
