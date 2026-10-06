@@ -68,7 +68,10 @@ use std::collections::HashMap;
 
 use faer::c64;
 
-use super::mode_gauge::gauge_whitney_modes;
+use super::mode_gauge::{
+    DEGENERATE_CANDIDATE_REL_TOL, DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL,
+    clusters_from_links, gauge_whitney_modes, relative_gap,
+};
 use super::wave::{PortMedium, PortMode, WavePort, map_mode_profile_to_full_mesh};
 use crate::analytic::waveguide::{TriMesh, WaveguideModeProfile, solve_waveguide_modes_ungauged};
 use crate::eigen::dense::EigenError;
@@ -379,12 +382,74 @@ impl PortFaceProjection {
             });
         }
         modes.extend(beyond);
+        let clusters = self.degenerate_clusters(&mut modes, n_modes);
         Ok(gauge_whitney_modes(
             &self.tri_mesh,
             &self.edges,
             &modes,
+            &clusters,
             n_modes,
         )?)
+    }
+
+    /// The degenerate clusters of `modes` (`k_c` ascending, the requested
+    /// `n_keep` first) for the canonical gauge (issue #888,
+    /// [`crate::driven::ports::DEGENERATE_CANDIDATE_REL_TOL`]). `modes` is
+    /// truncated after the cluster that holds mode `n_keep − 1`.
+    ///
+    /// A pair at round-off is degenerate outright. A candidate pair is
+    /// re-solved on the face refined once ([`refine_tri_mesh`]) and is
+    /// degenerate if its relative gap shrank to at most
+    /// [`crate::driven::ports::DEGENERATE_CONVERGENCE_RATIO`] of the gap
+    /// here. If the refined solve fails, candidates stay distinct.
+    fn degenerate_clusters(
+        &self,
+        modes: &mut Vec<WaveguideModeProfile>,
+        n_keep: usize,
+    ) -> Vec<(usize, usize)> {
+        let gap = |l: &[f64], i: usize| relative_gap(l[i], l[i + 1]);
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        // Modes needed: through the end of the candidate chain holding
+        // mode n_keep − 1.
+        let mut upto = n_keep;
+        while upto < lam.len() && gap(&lam, upto - 1) <= DEGENERATE_CANDIDATE_REL_TOL {
+            upto += 1;
+        }
+        modes.truncate(upto);
+        let lam = &lam[..upto];
+        let mut links: Vec<bool> = (0..upto.saturating_sub(1))
+            .map(|i| gap(lam, i) <= DEGENERATE_EXACT_REL_TOL)
+            .collect();
+        let candidates: Vec<usize> = (0..links.len())
+            .filter(|&i| !links[i] && gap(lam, i) <= DEGENERATE_CANDIDATE_REL_TOL)
+            .collect();
+        if !candidates.is_empty()
+            && let Some(fine) = self.refined_cutoffs(upto)
+        {
+            for i in candidates {
+                links[i] = gap(&fine, i) <= DEGENERATE_CONVERGENCE_RATIO * gap(lam, i);
+            }
+        }
+        clusters_from_links(upto, &links)
+    }
+
+    /// The lowest `n` cutoffs `k_c²` of the face refined once (each triangle
+    /// split in four, the rim kept), or `None` if that solve fails.
+    fn refined_cutoffs(&self, n: usize) -> Option<Vec<f64>> {
+        let rim: Vec<[u32; 2]> = self
+            .edges
+            .iter()
+            .zip(&self.interior_edge_mask)
+            .filter(|&(_, &interior)| !interior)
+            .map(|(e, _)| *e)
+            .collect();
+        let (nodes, tris, rim) = refine_tri_mesh(&self.tri_mesh.nodes, &self.tri_mesh.tris, &rim);
+        let mesh = TriMesh { nodes, tris };
+        let edges = mesh.edges();
+        let rim: std::collections::HashSet<[u32; 2]> = rim.into_iter().collect();
+        let mask: Vec<bool> = edges.iter().map(|e| !rim.contains(e)).collect();
+        let (modes, _) = solve_waveguide_modes_ungauged(&mesh, &edges, &mask, n).ok()?;
+        (modes.len() == n).then(|| modes.iter().map(|m| m.lambda).collect())
     }
 
     /// Lowest **TM** cutoff wavenumber `k_c^TM` of the port mesh

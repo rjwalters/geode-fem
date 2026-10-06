@@ -44,16 +44,24 @@
 //!
 //! # Degenerate clusters
 //!
-//! Inside a cluster of modes with cutoffs `k_c²` within
-//! [`DEGENERATE_REL_TOL`] of each other (the TE₁₀ / TE₀₁ pair of a square
-//! guide, TE₂₀ / TE₀₁ of a `2 × 1` guide) the solver's basis is arbitrary.
+//! A continuously degenerate pair (TE₁₀ / TE₀₁ of a square guide, TE₂₀ /
+//! TE₀₁ of a `2 × 1` guide) has no preferred basis, and the discretization
+//! splits it at `O(h²)` into a mesh-dependent one: on a structured square
+//! face the discrete modes are the diagonal combinations `TE₁₀ ± TE₀₁`. Two
+//! consecutive modes are one cluster when their relative cutoff gap is at
+//! round-off ([`DEGENERATE_EXACT_REL_TOL`]), or below
+//! [`DEGENERATE_CANDIDATE_REL_TOL`] and shrinking under refinement
+//! ([`DEGENERATE_CONVERGENCE_RATIO`]; the projected face is refined once
+//! and re-solved).
 //! The gauge builds the cluster's basis one direction at a time with the
 //! same rule: the first reference that reaches the floor and the lead ratio
 //! **within the part of the cluster not yet used** fixes the next direction
 //! (the combination of the members that overlaps it most, made positive);
 //! the next reference is then read in the orthogonal complement. The result
 //! is an orthogonal rotation of an M-orthonormal set, so it stays
-//! M-orthonormal; each slot keeps its own cutoff. A cluster cut by the
+//! M-orthonormal. The members share the cluster's mean cutoff, so the
+//! port's modal term over the cluster is basis-independent and the choice
+//! only fixes the S-parameter basis. A cluster cut by the
 //! requested mode count is completed from the further modes of the same
 //! solve before its basis is chosen, so the kept modes are the canonical
 //! ones (the first canonical directions), not an arbitrary member.
@@ -74,9 +82,47 @@ pub const GAUGE_FLOOR: f64 = 1e-2;
 /// which keeps the choice stable when two matched references are close.
 pub const GAUGE_LEAD_RATIO: f64 = 0.5;
 
-/// Relative cutoff gap `(k_c,j+1² − k_c,j²)/k_c,j+1²` at or below which two
-/// consecutive modes are one degenerate cluster for the canonical gauge.
-pub const DEGENERATE_REL_TOL: f64 = 1e-6;
+/// Relative cutoff gap ([`relative_gap`]) at or below which two consecutive
+/// modes are always one degenerate cluster: an exact (symmetry) degeneracy,
+/// at round-off.
+pub const DEGENERATE_EXACT_REL_TOL: f64 = 1e-6;
+
+/// Relative cutoff gap ([`relative_gap`]) up to which two consecutive modes
+/// are a **candidate** degenerate pair, confirmed by refinement
+/// ([`DEGENERATE_CONVERGENCE_RATIO`]).
+///
+/// A continuously degenerate pair is split by the discretization at
+/// `O(h²)`: measured 1.2 % for TE₁₀ / TE₀₁ on a 6 × 6 structured square
+/// face (whose diagonals make the discrete modes the diagonal combinations
+/// `TE₁₀ ± TE₀₁`), 0.19 % on a Gmsh square face at `lc = b/5`, 0.065 % for
+/// TE₂₀ / TE₀₁ on the 8 × 4 face of a `2 × 1` guide.
+pub const DEGENERATE_CANDIDATE_REL_TOL: f64 = 5e-2;
+
+/// A candidate pair is degenerate when its relative gap on the uniformly
+/// refined face (`h/2`) is at most this fraction of the gap on the face:
+/// a discretization split shrinks as `O(h²)` (ratio ≈ 1/4), a physical one
+/// stays (ratio ≈ 1).
+pub const DEGENERATE_CONVERGENCE_RATIO: f64 = 0.5;
+
+/// Relative gap `|b − a| / max(|a|, |b|)` of two cutoffs `k_c²`.
+pub fn relative_gap(a: f64, b: f64) -> f64 {
+    let m = a.abs().max(b.abs());
+    if m == 0.0 { 0.0 } else { (b - a).abs() / m }
+}
+
+/// Clusters `[start, end)` of `n` modes from the links `links[i]` (mode
+/// `i` and mode `i + 1` are degenerate; `links.len() = n − 1`).
+pub(crate) fn clusters_from_links(n: usize, links: &[bool]) -> Vec<(usize, usize)> {
+    let mut clusters = Vec::new();
+    let mut start = 0;
+    for j in 1..=n {
+        if j == n || !links[j - 1] {
+            clusters.push((start, j));
+            start = j;
+        }
+    }
+    clusters
+}
 
 /// Highest TE_mn index of the extended reference list.
 pub const REF_MAX_INDEX: usize = 6;
@@ -146,8 +192,9 @@ impl GaugeQuadrature {
 /// Coefficients of the canonical modes (issue #888, module docs).
 ///
 /// `fields[j][q]` is mode `j`'s transverse field at sample `q` of
-/// `quad`; the modes are M-orthonormal (`∫ e_i·e_j dA = δ_ij`) and
-/// sorted by `lambdas` (`k_c²`) ascending. Returns, for each of the first
+/// `quad`; the modes are M-orthonormal (`∫ e_i·e_j dA = δ_ij`), `k_c`
+/// ascending, partitioned into consecutive degenerate `clusters`
+/// (`[start, end)`, covering `0..fields.len()`). Returns, for each of the first
 /// `n_keep` slots, the coefficient vector `c` (length `fields.len()`) of
 /// the canonical mode `Σ_j c_j e_j`. A mode outside every degenerate
 /// cluster gets `±1` on itself.
@@ -158,32 +205,17 @@ impl GaugeQuadrature {
 ///
 /// # Panics
 ///
-/// Panics if `n_keep > fields.len()` or the lengths are inconsistent.
+/// Panics if `n_keep > fields.len()` or the sample counts differ.
 pub(crate) fn canonical_coefficients(
     quad: &GaugeQuadrature,
     fields: &[Vec<[f64; 2]>],
-    lambdas: &[f64],
+    clusters: &[(usize, usize)],
     n_keep: usize,
 ) -> Result<Vec<Vec<f64>>, EigenError> {
     let n = fields.len();
     assert!(n_keep <= n, "n_keep exceeds the mode count");
-    assert_eq!(lambdas.len(), n, "one cutoff per mode");
     let nq = quad.weights.len();
     assert!(fields.iter().all(|f| f.len() == nq), "field sample count");
-
-    // Clusters: maximal runs of consecutive modes within the tolerance.
-    let mut clusters: Vec<(usize, usize)> = Vec::new();
-    let mut start = 0;
-    for j in 1..=n {
-        let split = j == n || {
-            let (a, b) = (lambdas[j - 1], lambdas[j]);
-            (b - a).abs() > DEGENERATE_REL_TOL * b.abs().max(a.abs())
-        };
-        if split {
-            clusters.push((start, j));
-            start = j;
-        }
-    }
 
     // Overlaps g[r][j] = ∫ e_j·F_r and reference norms ‖F_r‖. Only the
     // modes of clusters that start below n_keep are needed.
@@ -263,9 +295,10 @@ pub(crate) fn canonical_coefficients(
 /// Gauge the lowest-order (Whitney) modes of a projected port face (issue
 /// #888): `modes` are the M-orthonormal profiles of
 /// `solve_waveguide_modes_ungauged`, `λ` ascending (the requested ones,
-/// then any further ones of the same solve); returns the first `n_keep`
-/// canonical modes ([`canonical_coefficients`]), each with the cutoff of
-/// its slot.
+/// then any further ones of the same solve), partitioned into degenerate
+/// `clusters`; returns the first `n_keep` canonical modes
+/// ([`canonical_coefficients`]), each with the cutoff of its slot (the
+/// cluster's mean inside a degenerate cluster).
 ///
 /// # Errors
 ///
@@ -274,6 +307,7 @@ pub(crate) fn gauge_whitney_modes(
     mesh: &TriMesh,
     edges: &[[u32; 2]],
     modes: &[WaveguideModeProfile],
+    clusters: &[(usize, usize)],
     n_keep: usize,
 ) -> Result<Vec<WaveguideModeProfile>, EigenError> {
     let index: std::collections::HashMap<(u32, u32), usize> = edges
@@ -320,8 +354,15 @@ pub(crate) fn gauge_whitney_modes(
             }
         }
     }
-    let lambdas: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
-    let coeffs = canonical_coefficients(&quad, &fields, &lambdas, n_keep)?;
+    let coeffs = canonical_coefficients(&quad, &fields, clusters, n_keep)?;
+    // A degenerate cluster's members share its mean cutoff, so the port's
+    // modal term over the cluster (`Σ jβ f fᵀ`) does not depend on the
+    // basis chosen inside it.
+    let mut lambda: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+    for &(s, e) in clusters.iter().filter(|c| c.1 - c.0 > 1) {
+        let mean = lambda[s..e].iter().sum::<f64>() / (e - s) as f64;
+        lambda[s..e].iter_mut().for_each(|l| *l = mean);
+    }
     Ok(coeffs
         .iter()
         .enumerate()
@@ -336,8 +377,12 @@ pub(crate) fn gauge_whitney_modes(
                 }
             }
             WaveguideModeProfile {
-                k_c: modes[slot].k_c,
-                lambda: modes[slot].lambda,
+                k_c: if lambda[slot] == modes[slot].lambda {
+                    modes[slot].k_c
+                } else {
+                    lambda[slot].max(0.0).sqrt()
+                },
+                lambda: lambda[slot],
                 e_edges,
             }
         })
