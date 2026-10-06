@@ -194,8 +194,8 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 
 use crate::analytic::port_mode_sensitivity::{
-    FaceDesign, FaceGroups, FaceModes, HybridModeDerivative, ModeSensitivityOpts,
-    ModeSensitivityWarning, PortFace, PortModeSensitivityError,
+    FaceDesign, FaceGroups, FaceModes, HybridModeDerivative, LineImpedances, LineSpec,
+    ModeSensitivityOpts, ModeSensitivityWarning, PortFace, PortModeSensitivityError,
 };
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::driven::ports::mixed::{ModalSmw, PowerWeights, dot_t};
@@ -590,6 +590,242 @@ pub struct GroupTranslation {
     pub dir: [f64; 3],
 }
 
+/// How the named groups of a [`GroupMotion`] move per unit parameter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GroupMotionKind {
+    /// Rigid translation: `∂X/∂θ = dir` on every group node (θ a
+    /// displacement along `dir`, in mesh units when `dir` is a unit vector).
+    Translate {
+        /// Motion per unit parameter.
+        dir: [f64; 3],
+    },
+    /// Stretch along the unit `axis` about the centre `c` of the groups'
+    /// extent, parameterized by the **extent itself**: `θ = max − min` of
+    /// `X·axis` over the group nodes (a strip width, a slab thickness), and
+    /// `∂X/∂θ = axis · (X·axis − c)/θ`, so the two extreme sides move by
+    /// `∓½` and the centre stays put.
+    Stretch {
+        /// The stretch axis (normalized internally).
+        axis: [f64; 3],
+    },
+}
+
+/// One shape parameter of [`ShapeDesign::from_group_motions`]: named 2-D
+/// and / or 3-D physical groups that move together (Epic #841 Phase 5a,
+/// issue #883 — the CLI's `kind = "shape"` parameter).
+#[derive(Debug, Clone)]
+pub struct GroupMotion {
+    /// Parameter name.
+    pub name: String,
+    /// The moving physical groups (each a 2-D or a 3-D group name).
+    pub groups: Vec<String>,
+    /// How they move.
+    pub kind: GroupMotionKind,
+}
+
+/// The distinct nodes of the 2-D or 3-D physical group `name` (a name that
+/// exists in both dimensions is ambiguous).
+fn named_group_nodes(tagged: &TaggedTetMesh, name: &str) -> Result<Vec<u32>, SSensitivityError> {
+    let mut nodes: Vec<u32> = match (
+        tagged.physical_group_tag(2, name),
+        tagged.physical_group_tag(3, name),
+    ) {
+        (Some(_), Some(_)) => {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "physical group `{name}` exists as both a 2-D and a 3-D group: rename one so \
+                 the motion is unambiguous"
+            )));
+        }
+        (Some(tag), None) => tagged
+            .triangles_with_tag(tag)
+            .into_iter()
+            .flatten()
+            .collect(),
+        (None, Some(tag)) => tagged
+            .tets_with_tag(tag)
+            .into_iter()
+            .flat_map(|t| tagged.mesh.tets[t as usize])
+            .collect(),
+        (None, None) => {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "no 2-D or 3-D physical group named `{name}` in the mesh"
+            )));
+        }
+    };
+    nodes.sort_unstable();
+    nodes.dedup();
+    if nodes.is_empty() {
+        return Err(SSensitivityError::InvalidDesign(format!(
+            "physical group `{name}` has no element"
+        )));
+    }
+    Ok(nodes)
+}
+
+impl GroupMotion {
+    /// The distinct nodes of every group of this motion, ascending.
+    ///
+    /// # Errors
+    ///
+    /// [`SSensitivityError::InvalidDesign`] for an unknown, empty or
+    /// ambiguous group, or no group at all.
+    pub fn nodes(&self, tagged: &TaggedTetMesh) -> Result<Vec<u32>, SSensitivityError> {
+        if self.groups.is_empty() {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "shape parameter `{}` names no group",
+                self.name
+            )));
+        }
+        let mut all = Vec::new();
+        for g in &self.groups {
+            all.extend(named_group_nodes(tagged, g)?);
+        }
+        all.sort_unstable();
+        all.dedup();
+        Ok(all)
+    }
+
+    /// The parameter's value on `tagged`: the extent along the axis for a
+    /// [`GroupMotionKind::Stretch`], `0` for a translation (a displacement
+    /// from the meshed geometry).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::nodes`], plus a zero / non-finite axis or a zero extent.
+    pub fn value(&self, tagged: &TaggedTetMesh) -> Result<f64, SSensitivityError> {
+        match self.kind {
+            GroupMotionKind::Translate { .. } => Ok(0.0),
+            GroupMotionKind::Stretch { axis } => {
+                let (_, lo, hi) = self.stretch_frame(tagged, axis)?;
+                Ok(hi - lo)
+            }
+        }
+    }
+
+    /// `(unit axis, min, max)` of `X·axis` over the group nodes.
+    fn stretch_frame(
+        &self,
+        tagged: &TaggedTetMesh,
+        axis: [f64; 3],
+    ) -> Result<([f64; 3], f64, f64), SSensitivityError> {
+        let a = unit(axis).ok_or_else(|| {
+            SSensitivityError::InvalidDesign(format!(
+                "shape parameter `{}`: the stretch axis {axis:?} must be finite and non-zero",
+                self.name
+            ))
+        })?;
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for n in self.nodes(tagged)? {
+            let x = tagged.mesh.nodes[n as usize];
+            let s = x[0] * a[0] + x[1] * a[1] + x[2] * a[2];
+            lo = lo.min(s);
+            hi = hi.max(s);
+        }
+        if !(hi - lo > 0.0) {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "shape parameter `{}`: its groups have zero extent along the stretch axis {a:?}",
+                self.name
+            )));
+        }
+        Ok((a, lo, hi))
+    }
+
+    /// The prescribed velocity `∂X/∂θ` on every group node.
+    fn prescribed(
+        &self,
+        tagged: &TaggedTetMesh,
+    ) -> Result<Vec<(u32, [f64; 3])>, SSensitivityError> {
+        let nodes = self.nodes(tagged)?;
+        match self.kind {
+            GroupMotionKind::Translate { dir } => {
+                if !dir.iter().all(|c| c.is_finite()) || dir.iter().all(|&c| c == 0.0) {
+                    return Err(SSensitivityError::InvalidDesign(format!(
+                        "shape parameter `{}`: the translation {dir:?} must be finite and \
+                         non-zero",
+                        self.name
+                    )));
+                }
+                Ok(nodes.into_iter().map(|n| (n, dir)).collect())
+            }
+            GroupMotionKind::Stretch { axis } => {
+                let (a, lo, hi) = self.stretch_frame(tagged, axis)?;
+                let (c, w) = (0.5 * (lo + hi), hi - lo);
+                Ok(nodes
+                    .into_iter()
+                    .map(|n| {
+                        let x = tagged.mesh.nodes[n as usize];
+                        let s = (x[0] * a[0] + x[1] * a[1] + x[2] * a[2] - c) / w;
+                        (n, [a[0] * s, a[1] * s, a[2] * s])
+                    })
+                    .collect())
+            }
+        }
+    }
+}
+
+/// `v/|v|`, or `None` for a zero / non-finite vector.
+fn unit(v: [f64; 3]) -> Option<[f64; 3]> {
+    let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    (n.is_finite() && n > 0.0).then(|| [v[0] / n, v[1] / n, v[2] / n])
+}
+
+impl ShapeDesign {
+    /// One column per [`GroupMotion`]: the named 2-D / 3-D groups' nodes move
+    /// as the motion prescribes, every node of a `pinned` 2-D / 3-D group
+    /// stays fixed (pinned wins on a shared node), and the motion is
+    /// extended into the volume harmonically by **one** Dirichlet solve per
+    /// parameter ([`crate::shape::harmonic_dirichlet_velocity`]: the field
+    /// [`Self::from_group_translations`] builds by summing per-node columns,
+    /// at a cost independent of the group size). Binding to group names is
+    /// what lets the design survive re-meshing (Epic #841 Phase 5a, issue
+    /// #883: the CLI's shape parameters).
+    ///
+    /// # Errors
+    ///
+    /// [`SSensitivityError::InvalidDesign`] for an unknown, empty or
+    /// ambiguous group, a degenerate motion, a group that is entirely pinned,
+    /// or a failed harmonic solve.
+    pub fn from_group_motions(
+        tagged: &TaggedTetMesh,
+        motions: &[GroupMotion],
+        pinned: &[&str],
+    ) -> Result<Self, SSensitivityError> {
+        let mut fixed = Vec::new();
+        for name in pinned {
+            fixed.extend(named_group_nodes(tagged, name)?);
+        }
+        fixed.sort_unstable();
+        fixed.dedup();
+        let mut is_pinned = vec![false; tagged.mesh.n_nodes()];
+        for &n in &fixed {
+            is_pinned[n as usize] = true;
+        }
+        let mut columns = Vec::with_capacity(motions.len());
+        for m in motions {
+            let prescribed: Vec<(u32, [f64; 3])> = m
+                .prescribed(tagged)?
+                .into_iter()
+                .filter(|(n, _)| !is_pinned[*n as usize])
+                .collect();
+            if prescribed.is_empty() {
+                return Err(SSensitivityError::InvalidDesign(format!(
+                    "every node of shape parameter `{}`'s groups is pinned",
+                    m.name
+                )));
+            }
+            let col = crate::shape::harmonic_dirichlet_velocity(&tagged.mesh, &prescribed, &fixed)
+                .map_err(|e| {
+                    SSensitivityError::InvalidDesign(format!(
+                        "harmonic extension of shape parameter `{}` failed: {e}",
+                        m.name
+                    ))
+                })?;
+            columns.push(col);
+        }
+        Self::from_columns(columns, motions.iter().map(|m| m.name.clone()).collect())
+    }
+}
+
 /// The full design: material regions, shape columns, and which wave ports
 /// are filled by a design region.
 #[derive(Debug, Clone, Default)]
@@ -701,6 +937,13 @@ pub struct SSensitivityOptions {
     pub symmetry: OperatorSymmetry,
     /// The solver of the forward ([`SolverMode::Direct`] only).
     pub solver_mode: SolverMode,
+    /// Also differentiate the **port-mode observables** (`β`, `ε_eff`,
+    /// `Z_PI` / `Z_PV` / `Z_VI`) of every reported channel of every hybrid
+    /// wave port ([`SSensitivityPoint::port_modes`], issue #883; default
+    /// `false`). One bordered 2-D LU per channel per ω (the derivative a
+    /// touched face already builds is reused); parameters that do not touch
+    /// the face have zero gradients.
+    pub port_mode_observables: bool,
     /// Test-only fault injection (see [`SensitivityFault`]).
     #[doc(hidden)]
     pub fault: Option<SensitivityFault>,
@@ -711,6 +954,7 @@ impl Default for SSensitivityOptions {
         Self {
             symmetry: OperatorSymmetry::ComplexSymmetric,
             solver_mode: SolverMode::Direct,
+            port_mode_observables: false,
             fault: None,
         }
     }
@@ -773,6 +1017,56 @@ pub struct SSensitivityPoint {
     /// near-degenerate face mode, an ill-conditioned bordered solve; issue
     /// #872). Empty when no hybrid port is touched.
     pub port_mode_warnings: Vec<HybridModeNote>,
+    /// With [`SSensitivityOptions::port_mode_observables`]: one entry per
+    /// reported channel of every hybrid wave port (port order, then channel
+    /// order). Empty otherwise.
+    pub port_modes: Vec<PortModeEntry>,
+}
+
+/// The port-mode observables of one reported channel of a hybrid wave port
+/// at one ω ([`SSensitivityPoint::port_modes`], issue #883): the 2-D face
+/// quantities of the channel the forward tracked, with their gradients in
+/// [`SSensitivitySweep::params`] order (Epic #841 Phase 3a's
+/// [`HybridModeDerivative::observables`] on the face design the 3-D design
+/// induces; zero for a parameter that does not touch the face).
+#[derive(Debug, Clone)]
+pub struct PortModeObservables {
+    /// Outgoing `β` (natural units, per mesh length unit).
+    pub beta: c64,
+    /// `ε_eff = β²/k₀²`.
+    pub eps_eff: c64,
+    /// The line impedances (Ω; `None` for a face without a floating
+    /// conductor).
+    pub line: Option<LineImpedances>,
+    /// `∂β/∂θ`.
+    pub d_beta: Vec<c64>,
+    /// `∂ε_eff/∂θ`.
+    pub d_eps_eff: Vec<c64>,
+    /// `∂Z_PI/∂θ` (with a line).
+    pub d_z_pi: Option<Vec<c64>>,
+    /// `∂Z_PV/∂θ` (with a line and voltage paths).
+    pub d_z_pv: Option<Vec<c64>>,
+    /// `∂Z_VI/∂θ` (with a line and voltage paths).
+    pub d_z_vi: Option<Vec<c64>>,
+    /// Relative gap to the nearest other face mode.
+    pub rel_gap: f64,
+    /// Non-fatal Phase 3a conditions (near-degenerate mode, an
+    /// ill-conditioned bordered solve).
+    pub warnings: Vec<ModeSensitivityWarning>,
+}
+
+/// One entry of [`SSensitivityPoint::port_modes`].
+#[derive(Debug, Clone)]
+pub struct PortModeEntry {
+    /// Wave-port index.
+    pub port: usize,
+    /// Port-local reported channel.
+    pub channel: usize,
+    /// The observables, or why they are undefined for this channel (an
+    /// exactly degenerate cluster, a mode that cannot be normalized, a
+    /// non-propagating mode's line impedance, …) — kept per channel so one
+    /// undefined channel does not fail the others.
+    pub result: Result<PortModeObservables, String>,
 }
 
 /// A non-fatal port-mode condition of one channel of a hybrid port θ
@@ -869,6 +1163,11 @@ pub fn s_matrix_sensitivity_sweep<B: Backend>(
             n_adjoint_solves: at.n_adjoint_solves,
             fields: prep.fields_of(&at),
             port_mode_warnings: prep.mode_notes(&at),
+            port_modes: if prep.opts.port_mode_observables {
+                prep.port_modes_at(oi, omega, &at)
+            } else {
+                Vec::new()
+            },
         });
     }
     Ok(SSensitivitySweep {
@@ -2634,5 +2933,127 @@ impl<'n> Prepared<'n> {
             power_weight: at.weight.clone(),
             incident_wave: at.a_tilde.clone(),
         }
+    }
+}
+
+impl Prepared<'_> {
+    /// The port-mode observables of every reported hybrid channel at
+    /// frequency index `oi` (issue #883).
+    fn port_modes_at(&self, oi: usize, omega: f64, at: &NetAt<'_>) -> Vec<PortModeEntry> {
+        let mut out = Vec::new();
+        let mut c0 = 0usize;
+        for (p, kind) in self.ports.iter().enumerate() {
+            match kind {
+                PortKind::Geometric { fluxes, .. } => c0 += fluxes.len(),
+                PortKind::Hybrid { per_omega, .. } => {
+                    let WavePortSpec::Hybrid(h) = &self.net.wave[p] else {
+                        unreachable!("port kind matches its spec")
+                    };
+                    let reported = &per_omega[oi].reported;
+                    for (local, ch) in reported.iter().enumerate() {
+                        out.push(PortModeEntry {
+                            port: p,
+                            channel: local,
+                            result: self.port_mode_channel(
+                                h,
+                                omega,
+                                ch,
+                                at.hyb[c0 + local].as_ref(),
+                            ),
+                        });
+                    }
+                    c0 += reported.len();
+                }
+            }
+        }
+        out
+    }
+
+    /// [`Self::port_modes_at`] for one channel: reuse a touched face's
+    /// derivative, else build one on an empty face design.
+    fn port_mode_channel(
+        &self,
+        h: &HybridWavePort,
+        omega: f64,
+        ch: &HybChan,
+        touched: Option<&HybAt<'_>>,
+    ) -> Result<PortModeObservables, String> {
+        let conductors: Vec<Vec<bool>> =
+            h.face.conductors.iter().map(|c| c.nodes.clone()).collect();
+        let paths: Vec<Vec<u32>> = h
+            .face
+            .conductors
+            .iter()
+            .map(|c| c.voltage_path.clone())
+            .collect();
+        let line = (!conductors.is_empty()).then(|| LineSpec {
+            conductor_nodes: &conductors,
+            voltage_paths: paths
+                .iter()
+                .all(|p| !p.is_empty())
+                .then_some(paths.as_slice()),
+        });
+        let n_params = self.params.len();
+        let (obs, map): (_, Vec<Option<usize>>) = match touched {
+            Some(hy) => (
+                hy.deriv.observables(&hy.face.design, line.as_ref()),
+                hy.face.param_map.clone(),
+            ),
+            None => {
+                let origin = ch
+                    .origin
+                    .as_ref()
+                    .ok_or_else(|| "the channel has no face-mode origin".to_string())?;
+                if origin.members.is_empty() {
+                    return Err(
+                        "a mesh-induced complex-pair member has no per-member port-mode \
+                                observables (Epic #841 Phase 3a scope)"
+                            .to_string(),
+                    );
+                }
+                let face = PortFace {
+                    mesh: &h.face.projection.tri_mesh,
+                    interior_edge_mask: &h.face.interior_edge_mask,
+                    free_node_mask: &h.face.free_node_mask,
+                    k0: omega,
+                };
+                let modes = match &origin.set {
+                    FaceModeSet::Real(set) => FaceModes::Real(set),
+                    FaceModeSet::Lossy(set) => FaceModes::Lossy(set),
+                };
+                let design = FaceDesign::new(&h.face.projection.tri_mesh);
+                let obs = HybridModeDerivative::new(
+                    face,
+                    &origin.eps,
+                    modes,
+                    origin.members[0],
+                    ModeSensitivityOpts::default(),
+                )
+                .and_then(|d| d.observables(&design, line.as_ref()));
+                (obs, vec![None; n_params])
+            }
+        };
+        let obs = obs.map_err(|e| e.to_string())?;
+        let zero = c64::new(0.0, 0.0);
+        let lift =
+            |d: &[c64]| -> Vec<c64> { map.iter().map(|m| m.map_or(zero, |j| d[j])).collect() };
+        Ok(PortModeObservables {
+            beta: obs.beta,
+            eps_eff: obs.eps_eff,
+            line: obs.line.as_ref().map(|l| l.value),
+            d_beta: lift(&obs.d_beta),
+            d_eps_eff: lift(&obs.d_eps_eff),
+            d_z_pi: obs.line.as_ref().map(|l| lift(&l.d_z_pi)),
+            d_z_pv: obs
+                .line
+                .as_ref()
+                .and_then(|l| l.d_z_pv.as_deref().map(lift)),
+            d_z_vi: obs
+                .line
+                .as_ref()
+                .and_then(|l| l.d_z_vi.as_deref().map(lift)),
+            rel_gap: obs.rel_gap,
+            warnings: obs.warnings,
+        })
     }
 }
