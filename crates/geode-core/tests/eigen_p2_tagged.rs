@@ -18,7 +18,10 @@
 //!    Leontovich walls vs Pozar's TE₁₀₁ wall-loss `Q`.
 //! 4. The exact gradient null count (dense full spectrum = closed form) on
 //!    four meshes at p=1 and p=2, and the gradient classifier doing the
-//!    null filtering alone (magnitude filter disabled).
+//!    null filtering alone (magnitude filter disabled). Loop harmonics
+//!    (issue #882): `b₁` from the Euler characteristic and the dense null
+//!    cluster `dim + h` on an annulus, a sphere shell and a box (4c), and
+//!    the `HarmonicFieldsPresent` warning on the annulus only (4d).
 //! 5. `∂λ/∂λ_L` (London wall), `∂λ/∂ε`, `∂f/∂ε` and `∂λ/∂θ` vs central FD
 //!    at p=2.
 //! 6. Unit invariance at p=2 (mesh units down to 1e-6).
@@ -39,12 +42,12 @@ use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::solve::{DrivenError, SurfaceImpedanceBc, SurfaceImpedanceModel};
 use geode_core::eigen::hcurl_null::GradientNullSpace;
 use geode_core::eigen::lossy_cavity::{
-    FrozenWalls, LossyCavityError, LossyCavityMaterials, LossyCavitySettings,
+    FrozenWalls, LossyCavityError, LossyCavityMaterials, LossyCavitySettings, LossyCavityWarning,
     solve_lossy_cavity_modes, solve_lossy_cavity_modes_on_space, solve_tagged_lossy_cavity_modes,
     solve_tagged_lossy_cavity_modes_at_order,
 };
 use geode_core::eigen::pec_cavity::{
-    PecCavityError, PecCavityMaterials, PecCavitySettings, SpaceCavityModes,
+    PecCavityError, PecCavityMaterials, PecCavitySettings, PecCavityWarning, SpaceCavityModes,
     assemble_lossless_pencil_on_space, solve_pec_cavity_modes_on_space,
     solve_pec_cavity_modes_with_materials, solve_tagged_pec_cavity_modes,
     solve_tagged_pec_cavity_modes_at_order,
@@ -52,6 +55,7 @@ use geode_core::eigen::pec_cavity::{
 use geode_core::eigen::sensitivity::{EigenSensitivity, SpaceEigenSensitivity};
 use geode_core::eigen::transmon::LondonSurface;
 use geode_core::elements::ElementOrder;
+use geode_core::mesh::electrostatic_fixtures::{coax_shell_mesh, sphere_shell_mesh};
 use geode_core::mesh::{TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
 use geode_core::testing::TestBackend;
 
@@ -666,7 +670,7 @@ fn golden3b_leontovich_walls_vs_pozar_q() {
 /// configurable, and London-only walls (exact) report nothing.
 #[test]
 fn golden3c_frozen_wall_mismatch_warning_across_band() {
-    use geode_core::eigen::lossy_cavity::{DEFAULT_WALL_REF_WARN_OFFSET, LossyCavityWarning};
+    use geode_core::eigen::lossy_cavity::DEFAULT_WALL_REF_WARN_OFFSET;
     let exact = box_exact();
     let ks = exact.map(f64::sqrt);
     let mesh = jittered_box(1, 0x3c);
@@ -712,7 +716,10 @@ fn golden3c_frozen_wall_mismatch_warning_across_band() {
             omega_ref,
             rel_offset,
             threshold,
-        } = w;
+        } = w
+        else {
+            panic!("unexpected warning on a box: {w}");
+        };
         assert_eq!(*index, want);
         assert_eq!(k0_re.to_bits(), sol.modes.modes[want].k0.re.to_bits());
         assert_eq!(omega_ref.to_bits(), ks[0].to_bits());
@@ -736,7 +743,7 @@ fn golden3c_frozen_wall_mismatch_warning_across_band() {
         !resolved
             .warnings
             .iter()
-            .any(|LossyCavityWarning::FrozenWallMismatch { index, .. }| *index == 2),
+            .any(|w| matches!(w, LossyCavityWarning::FrozenWallMismatch { index: 2, .. })),
         "{:?}",
         resolved.warnings
     );
@@ -876,6 +883,251 @@ fn golden4_exact_null_count_dense_tripwire() {
             assert!(null_max < 1e-8, "{what}: null cluster not at round-off");
             assert!(first > 5.0, "{what}: first physical {first}");
         }
+    }
+}
+
+/// A loop-harmonic fixture: label, mesh, PEC wall lists, and the loop
+/// harmonic count the dense spectrum must show beyond the gradient count.
+type HarmonicCase<'a> = (&'a str, &'a TetMesh, Vec<Vec<[u32; 3]>>, usize);
+
+/// The annulus `1 < r < 2`, `0 < z < 1` (`coax_shell_mesh`, `b₁ = 1`) with
+/// its inner-conductor triangles, outer-conductor triangles and `z = 0`
+/// end-cap triangles.
+fn annulus() -> (TetMesh, [Vec<[u32; 3]>; 3]) {
+    let coax = coax_shell_mesh(1.0, 2.0, 1.0, 8, 2, 1);
+    let bnd = coax.mesh.boundary_faces();
+    let all_in = |set: &[u32]| -> Vec<[u32; 3]> {
+        bnd.iter()
+            .copied()
+            .filter(|t| t.iter().all(|v| set.binary_search(v).is_ok()))
+            .collect()
+    };
+    let inner = all_in(&coax.inner);
+    let outer = all_in(&coax.outer);
+    let cap = plane_faces(&coax.mesh, 2, 0.0);
+    assert_eq!(inner.len(), coax.inner_triangles.len());
+    assert!(!outer.is_empty() && !cap.is_empty());
+    (coax.mesh, [inner, outer, cap])
+}
+
+/// Issue #882: the dense null cluster is `dim + h`, with `h` the loop
+/// harmonics. `b₁` is `1` on the annulus and `0` on the sphere shell
+/// (whose `b₂ = 1` cancels `χ = 2`) and on the box. `h` equals the
+/// reported bound wherever the count is flagged exact (no wall: `h = b₁`;
+/// whole boundary PEC: `h = 0`), and is `≤` the bound otherwise: PEC on the
+/// two conductors or on an end cap carries a loop around the handle and
+/// kills the harmonic (`h = 0 < 1`), PEC on a small patch does not
+/// (`h = 1`).
+#[test]
+fn golden4c_loop_harmonics_betti_1_dense_null_cluster() {
+    let (ann, [inner, outer, cap]) = annulus();
+    let ann_all = ann.boundary_faces();
+    let shell = sphere_shell_mesh(1.0, 2.0, 0, 1).mesh;
+    let shell_all = shell.boundary_faces();
+    let cube = box_mesh([2, 2, 2], [1.0; 3]);
+    let cases: Vec<HarmonicCase<'_>> = vec![
+        ("annulus, no PEC", &ann, vec![], 1),
+        ("annulus, all PEC", &ann, vec![ann_all], 0),
+        (
+            "annulus, PEC conductors",
+            &ann,
+            vec![inner.clone(), outer],
+            0,
+        ),
+        ("annulus, PEC end cap", &ann, vec![cap], 0),
+        ("annulus, PEC patch", &ann, vec![inner[..2].to_vec()], 1),
+        ("sphere shell, no PEC", &shell, vec![], 0),
+        ("sphere shell, all PEC", &shell, vec![shell_all], 0),
+        ("box, no PEC", &cube, vec![], 0),
+        ("box, all PEC", &cube, box_walls(&cube, [1.0; 3]), 0),
+    ];
+    for (what, mesh, walls, harmonics) in &cases {
+        for order in ORDERS {
+            let space = HcurlSpace::build(mesh, order);
+            let mask = space.pec_interior_mask(mesh, &refs(walls)).unwrap();
+            let c = GradientNullSpace::build(&space, mesh, &mask, &[]).counts();
+            let eps = vec![1.0; mesh.n_tets()];
+            let (k, m) = assemble_lossless_pencil_on_space::<B>(
+                &space,
+                mesh,
+                &PecCavityMaterials::Isotropic(&eps),
+                &mask,
+                &[],
+                &device(),
+            )
+            .unwrap();
+            let ev = dense_spectrum(&k.to_dense(), &m.to_dense());
+            let n_null = ev.iter().filter(|l| l.abs() < 1e-6).count();
+            let null_max = ev[..n_null].iter().fold(0.0_f64, |a, l| a.max(l.abs()));
+            let first = ev.get(n_null).copied().unwrap_or(f64::NAN);
+            eprintln!(
+                "golden4c {what} p={}: n_int {} dense null {n_null} (max |λ| {null_max:.1e}, \
+                 first physical {first:.4}) = gradient dim {} + {} loop harmonic(s); b1 {} \
+                 bound {} exact {}",
+                p(order),
+                ev.len(),
+                c.dim,
+                n_null as isize - c.dim as isize,
+                c.betti_1,
+                c.loop_harmonics_bound,
+                c.loop_harmonics_exact
+            );
+            assert!(first > 0.05, "{what}: first physical {first}");
+            assert!(null_max < 1e-9, "{what}: null cluster not at round-off");
+            assert_eq!(
+                n_null,
+                c.dim + harmonics,
+                "{what} p={}: null count",
+                p(order)
+            );
+            let is_annulus = what.starts_with("annulus");
+            assert_eq!(c.betti_1, usize::from(is_annulus), "{what}: b1");
+            assert!(*harmonics <= c.loop_harmonics_bound, "{what}: bound");
+            if c.loop_harmonics_exact {
+                assert_eq!(*harmonics, c.loop_harmonics_bound, "{what}: exact");
+            }
+            // Only a partly walled handle is left as a bound.
+            let partly = is_annulus && !walls.is_empty() && !what.contains("all PEC");
+            assert_eq!(c.loop_harmonics_exact, !partly, "{what}: exact flag");
+        }
+    }
+}
+
+/// Issue #882: the cavity solves attach `HarmonicFieldsPresent` on the
+/// annulus (`b₁ = 1`) and nothing on the box fixtures, lossless and lossy,
+/// at p=1 and p=2. The count is exact without walls, "up to 1" with the two
+/// conductors PEC (where golden 4c measures zero), and there is no warning
+/// with the whole boundary PEC. The warning changes no mode: the p=1 modes
+/// are bit-identical to the historical entry point, and the harmonic
+/// `λ ≈ 0` pair is filtered, never returned.
+#[test]
+fn golden4d_harmonic_fields_warning_on_the_annulus_only() {
+    let (ann, [inner, outer, _cap]) = annulus();
+    let ann_all = ann.boundary_faces();
+    let eps = vec![1.0; ann.n_tets()];
+    let harmonic = |exact: bool| PecCavityWarning::HarmonicFieldsPresent {
+        b1: 1,
+        loop_harmonics: 1,
+        exact,
+    };
+
+    // Shifts at 0.8 of the first physical λ golden 4c measures per case.
+    for (order, sigma_free, sigma_cond, sigma_pec) in [
+        (ElementOrder::P1, 4.5, 0.39, 6.3),
+        (ElementOrder::P2, 8.4, 0.40, 7.7),
+    ] {
+        // No wall: exactly one loop harmonic.
+        let s = settings(sigma_free, 2);
+        let (space, mask, sol) = solve(&ann, order, &eps, &[], &s);
+        assert_eq!(sol.warnings, vec![harmonic(true)], "p={}", p(order));
+        let c = sol.gradient_null;
+        assert_eq!(
+            (c.betti_1, c.loop_harmonics_bound, c.loop_harmonics_exact),
+            (1, 1, true)
+        );
+        let msg = sol.warnings[0].to_string();
+        eprintln!(
+            "golden4d annulus p={}: {} null filtered, modes {:?}\n  warning: {msg}",
+            p(order),
+            sol.modes.n_null_filtered,
+            sol.modes.modes.iter().map(|m| m.lambda).collect::<Vec<_>>()
+        );
+        assert!(
+            msg.contains("b1 = 1")
+                && msg.contains("has 1 loop-harmonic")
+                && msg.contains("not gradients")
+                && msg.contains("magnitude filter"),
+            "{msg}"
+        );
+        assert_eq!(sol.modes.modes.len(), 2);
+        for md in &sol.modes.modes {
+            assert!(md.lambda > 0.5 * sigma_free, "harmonic returned: {md:?}");
+        }
+        if order == ElementOrder::P1 {
+            let old = solve_pec_cavity_modes_with_materials::<B>(
+                &ann,
+                &PecCavityMaterials::Isotropic(&eps),
+                &mask,
+                &s,
+                &device(),
+            )
+            .unwrap();
+            assert_eq!(old.n_null_filtered, sol.modes.n_null_filtered);
+            assert_eq!(old.modes.len(), sol.modes.modes.len());
+            for (a, b) in old.modes.iter().zip(&sol.modes.modes) {
+                assert_eq!(a.lambda.to_bits(), b.lambda.to_bits());
+                assert_eq!(bits(&a.vector), bits(&b.vector));
+            }
+        }
+
+        // The same pencil through the lossy solve.
+        let eps_c = vec![c64::new(1.0, 0.0); ann.n_tets()];
+        let lossy = solve_lossy_cavity_modes_on_space::<B>(
+            &space,
+            &ann,
+            &LossyCavityMaterials::Isotropic(&eps_c),
+            &mask,
+            FrozenWalls::NONE,
+            &LossyCavitySettings::new(sigma_free, 2),
+            &device(),
+        )
+        .expect("lossy annulus");
+        assert_eq!(
+            lossy.warnings,
+            vec![LossyCavityWarning::HarmonicFieldsPresent {
+                b1: 1,
+                loop_harmonics: 1,
+                exact: true,
+            }]
+        );
+        assert_eq!(lossy.warnings[0].to_string(), msg);
+        for md in &lossy.modes.modes {
+            assert!(md.lambda.re > 0.5 * sigma_free, "harmonic returned: {md:?}");
+        }
+
+        // PEC conductors, open ends: only the bound is known.
+        let cond = [inner.as_slice(), outer.as_slice()];
+        let (_, _, sol) = solve(&ann, order, &eps, &cond, &settings(sigma_cond, 1));
+        assert_eq!(sol.warnings, vec![harmonic(false)], "p={}", p(order));
+        let msg = sol.warnings[0].to_string();
+        assert!(msg.contains("has up to 1 loop-harmonic"), "{msg}");
+        eprintln!("golden4d annulus, PEC conductors p={}: {msg}", p(order));
+
+        // Whole boundary PEC: b₁ is still 1, and nothing is flagged.
+        let (_, _, sol) = solve(&ann, order, &eps, &[&ann_all], &settings(sigma_pec, 1));
+        assert!(sol.warnings.is_empty(), "{:?}", sol.warnings);
+        assert_eq!(sol.gradient_null.betti_1, 1);
+        assert_eq!(sol.gradient_null.loop_harmonics_bound, 0);
+    }
+
+    // Boxes: b₁ = 0, no warning, lossless and lossy.
+    let mesh = jittered_box(1, 5);
+    let walls = box_walls(&mesh, BOX);
+    let eps = vec![1.0; mesh.n_tets()];
+    let eps_c = vec![c64::new(1.0, -0.01); mesh.n_tets()];
+    let sigma = 0.8 * box_exact()[0];
+    for order in ORDERS {
+        let (space, mask, sol) = solve(&mesh, order, &eps, &refs(&walls), &settings(sigma, 3));
+        assert!(sol.warnings.is_empty(), "{:?}", sol.warnings);
+        let c = sol.gradient_null;
+        assert_eq!(
+            (c.betti_1, c.loop_harmonics_bound, c.loop_harmonics_exact),
+            (0, 0, true),
+            "box p={}",
+            p(order)
+        );
+        let lossy = solve_lossy_cavity_modes_on_space::<B>(
+            &space,
+            &mesh,
+            &LossyCavityMaterials::Isotropic(&eps_c),
+            &mask,
+            FrozenWalls::NONE,
+            &LossyCavitySettings::new(sigma, 3),
+            &device(),
+        )
+        .expect("lossy box");
+        assert!(lossy.warnings.is_empty(), "{:?}", lossy.warnings);
+        assert_eq!(lossy.gradient_null.betti_1, 0);
     }
 }
 
