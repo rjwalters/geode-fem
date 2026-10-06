@@ -313,6 +313,7 @@ jobs:
               --test transmon_mesh \
               --test transmon_quantum \
               --test vtu_roundtrip \
+              --test wave_port_p2 \
               --test waveguide_gauge_higher_order
 
       # Saved here, before any test step, so a cancelled or failed test
@@ -382,6 +383,7 @@ jobs:
               --test transmon_mesh \
               --test transmon_quantum \
               --test vtu_roundtrip \
+              --test wave_port_p2 \
               --test waveguide_gauge_higher_order
 
   core-dense-eigen:
@@ -530,7 +532,8 @@ jobs:
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
               --test transmon_mesh \
-              --test transmon_quantum
+              --test transmon_quantum \
+              --test wave_port_p2
 
       # Saved before the test steps, so a cancelled test step still leaves a
       # warm cache (issue #880). Skipped on an exact key hit.
@@ -555,6 +558,10 @@ jobs:
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
       # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
       # sphere_matched_upml_eigenmode 8 s (two tests), the rest 0-5 s.
+      # wave_port_p2 (issue #884, the p=2 TM-guard measurement table):
+      # about 90 s locally for its 177 structured / one-element-across /
+      # stepped rows; its 34 Gmsh rows run only where gmsh is on PATH (not on
+      # this runner).
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
@@ -572,7 +579,8 @@ jobs:
               --test transient_sparams \
               --test transmon_diffopt \
               --test transmon_mesh \
-              --test transmon_quantum -- --ignored
+              --test transmon_quantum \
+              --test wave_port_p2 -- --ignored
 
       # The real 133k / 157k-DOF transmon eigensolves. Measured release
       # times, one test at a time: 23-61 s each (about 4.2 min for these

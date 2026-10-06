@@ -926,10 +926,13 @@ fn p2_ams_preconditioner_is_unsupported() {
     );
 }
 
+/// Wave ports in the adaptive PROM run at p=2 since issue #884 (Epic #836
+/// Phase 3a; the golden is `tests/wave_port_p2.rs`): the order guard no
+/// longer fires, so an empty port set reaches the port validation.
 #[test]
-fn p2_wave_port_prom_is_unsupported() {
+fn p2_wave_port_prom_reaches_port_validation() {
     let (mesh, _s, op) = p2_cavity(None);
-    let pec = vec![true; mesh.edges().len()];
+    let pec = vec![true; op.n_dofs()];
     let r = DrivenRom::build_with_wave_ports(
         &op,
         &mesh,
@@ -942,9 +945,9 @@ fn p2_wave_port_prom_is_unsupported() {
         &mut |_| {},
     );
     match r {
-        Err(RomError::Driven(e)) => expect_unsupported::<()>(Err(e), "wave ports"),
-        Err(other) => panic!("expected UnsupportedAtOrder, got {other:?}"),
-        Ok(_) => panic!("expected UnsupportedAtOrder, got a PROM"),
+        Err(RomError::InvalidParameter(msg)) => assert!(msg.contains("at least one"), "{msg}"),
+        Err(other) => panic!("expected the empty-port InvalidParameter, got {other:?}"),
+        Ok(_) => panic!("expected the empty-port InvalidParameter, got a PROM"),
     }
 }
 

@@ -566,16 +566,6 @@ impl<'a> DrivenRom<'a> {
         on_snapshot: &mut dyn FnMut(f64),
     ) -> Result<Self, RomError> {
         validate_request(omegas, settings)?;
-        // Issue #838: wave-port modal channels are built on the p=1 edge
-        // layout; reject a higher-order operator instead of projecting
-        // mismatched fluxes.
-        if op.order() != crate::elements::ElementOrder::P1 {
-            return Err(DrivenError::UnsupportedAtOrder {
-                order: op.order(),
-                feature: "wave ports in the adaptive PROM (Epic #836 Phase 3)",
-            }
-            .into());
-        }
         let n_lumped = op.n_ports();
         if n_lumped == 0 && wave.is_empty() {
             return Err(RomError::InvalidParameter(
@@ -593,8 +583,32 @@ impl<'a> DrivenRom<'a> {
                 .into());
             }
         }
-        let edges = mesh.edges();
-        let channels = modal_channels(mesh, n_lumped, &wave, &edges)?;
+        // Issue #884 (Epic #836 Phase 3a): the modal channels live on the
+        // operator's own space — the p=1 edge table (the historical path,
+        // verbatim) or the p=2 trace kernel on the space rebuilt from the mesh
+        // (deterministic and connectivity-derived, so it is the space the
+        // operator was assembled on whenever the DOF counts agree).
+        let channels = match op.order() {
+            crate::elements::ElementOrder::P1 => {
+                let edges = mesh.edges();
+                modal_channels(mesh, n_lumped, &wave, &edges)?
+            }
+            order => {
+                let space = crate::assembly::hcurl_space::HcurlSpace::build(mesh, order);
+                if space.n_dofs() != op.n_dofs() {
+                    return Err(DrivenError::SpaceMeshMismatch {
+                        space_nodes: space.n_nodes(),
+                        space_tets: space.n_tets(),
+                        mesh_nodes: mesh.n_nodes(),
+                        mesh_tets: mesh.n_tets(),
+                    }
+                    .into());
+                }
+                crate::driven::ports::wave_p2::modal_channels_on_space(
+                    &space, mesh, n_lumped, &wave,
+                )?
+            }
+        };
         let fluxes_int = interior_fluxes(&channels, bcs.pec_interior_mask);
         let drives: Vec<Drive> = (0..n_lumped)
             .map(Drive::Lumped)

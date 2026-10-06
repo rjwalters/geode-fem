@@ -3384,7 +3384,7 @@ fn modal_spurious_threshold(width: f64) -> f64 {
 /// non-spurious eigenvalue within the iteration budget — that
 /// indicates the spurious cluster dominates the spectrum probe and the
 /// caller should fall back to an explicit shift.
-fn estimate_modal_shift(
+pub(crate) fn estimate_modal_shift(
     k_sparse: SparseColMatRef<'_, usize, f64>,
     m_sparse: SparseColMatRef<'_, usize, f64>,
     n_modes: usize,
@@ -4140,15 +4140,15 @@ const MODAL_RESIDUAL_TOL: f64 = 1e-8;
 const MODAL_LANCZOS_CAP_FACTOR: usize = 6;
 
 /// Converged physical modes of one metallic modal Lanczos pass (issue #798).
-struct MetallicModalPass {
+pub(crate) struct MetallicModalPass {
     /// Converged pairs with `λ > threshold`, `λ` ascending, at most
     /// `n_modes`.
-    physical: Vec<EigenPair>,
+    pub(crate) physical: Vec<EigenPair>,
     /// A withheld (unconverged) Ritz pair sits above the threshold but below
     /// the last returned mode, so a mode could be missing from the list.
-    unresolved_below: bool,
+    pub(crate) unresolved_below: bool,
     /// Unconverged Ritz pairs above the threshold that were withheld.
-    withheld: usize,
+    pub(crate) withheld: usize,
 }
 
 /// One residual-checked shift-invert Lanczos pass of the metallic pencil
@@ -4157,7 +4157,7 @@ struct MetallicModalPass {
 /// [`MODAL_LANCZOS_CAP_FACTOR`] times the historical budget
 /// `n_request + 8` (see
 /// [`SparseShiftInvertLanczos::smallest_eigenpairs_checked`]).
-fn metallic_checked_modes(
+pub(crate) fn metallic_checked_modes(
     k: SparseColMatRef<'_, usize, f64>,
     m: SparseColMatRef<'_, usize, f64>,
     sigma: f64,
