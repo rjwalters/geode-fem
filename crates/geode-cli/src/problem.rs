@@ -38,7 +38,7 @@ use crate::error::CliError;
 use crate::spec::{
     Analysis, DEFAULT_N_TERMINATION_EVANESCENT, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit,
     ImpedanceDefinition, ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind,
-    SolverSpec, WavePortSpec,
+    ShapeMotion, SolverSpec, WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -479,8 +479,12 @@ pub struct SensitivityParameter {
     /// [`SensitivityTarget::region_of_tet`]).
     pub region: usize,
     /// The parameter's value at which the gradient is taken (`Re ε_r`,
-    /// `ν_r = 1/μ_r` or `μ_r` of the region).
+    /// `ε″ = −Im ε_r`, `tan δ`, `ν_r = 1/μ_r` or `μ_r` of the region; a
+    /// shape parameter's value in metres).
     pub value: f64,
+    /// Shape parameters (issue #883): the motion (`region` is then
+    /// `usize::MAX` and `physical_group` the moving groups, comma-joined).
+    pub shape: Option<ShapeParameterDef>,
 }
 
 /// The resolved `sensitivity` section (issue #707).
@@ -501,6 +505,50 @@ pub struct SensitivityTarget {
     pub min_rel_gap: f64,
     /// `(relative_step, tolerance)` of the FD self-check, if requested.
     pub fd_check: Option<(f64, f64)>,
+    /// Driven specs: the N-port S-matrix path (issue #883) rather than the
+    /// legacy one-lumped-port `|S11|²` one.
+    pub n_port: bool,
+    /// N-port path: the differentiated observables, in spec order.
+    pub observables: Vec<ObservableDef>,
+    /// Driven specs: indices into [`Problem::frequencies`] to differentiate
+    /// (ascending; every frequency by default).
+    pub frequency_indices: Vec<usize>,
+}
+
+/// A resolved shape parameter (issue #883).
+#[derive(Debug, Clone)]
+pub struct ShapeParameterDef {
+    /// Report name.
+    pub name: String,
+    /// The library motion (unit axis).
+    pub motion: geode_core::driven::s_sensitivity::GroupMotion,
+    /// The spec motion.
+    pub shape_motion: ShapeMotion,
+    /// Pinned groups.
+    pub pinned: Vec<String>,
+    /// Length scale of the FD step (mesh units): the stretch extent, else
+    /// the moving nodes' bounding-box size.
+    pub fd_length: f64,
+}
+
+/// One resolved driven observable (issue #883).
+#[derive(Debug, Clone)]
+pub struct ObservableDef {
+    /// What is differentiated.
+    pub quantity: crate::spec::ObservableQuantity,
+    /// The S entries (`[i, j]`): one for `s`, the summed ones for
+    /// `s_sum_sq`; empty for a port-mode quantity.
+    pub entries: Vec<[usize; 2]>,
+    /// The real form of the complex value (`mag_sq` for `s_sum_sq`).
+    pub form: crate::spec::ObservableForm,
+    /// Port-mode quantities: the wave-port index.
+    pub wave_port: Option<usize>,
+    /// Port-mode quantities: the port's reported channel.
+    pub mode: usize,
+    /// Report label.
+    pub label: String,
+    /// Unit of the value.
+    pub unit: &'static str,
 }
 
 /// A fully resolved problem, ready for `check` reporting or a solve.
@@ -738,6 +786,45 @@ impl Problem {
             None => (self.mu_r[t], self.mu_r[t]),
         };
         PortMedium { eps_t, mu_t, mu_n }
+    }
+
+    /// Rebuild every hybrid wave port's face from the current mesh nodes and
+    /// [`Problem::eps`] (issue #883): the finite-difference self-check of a
+    /// sensitivity moves nodes / changes a region's `ε_r` and re-runs the
+    /// shipped forward, whose hybrid faces must follow — exactly as
+    /// [`load`] builds them (lossy when a face tet is lossy or dispersive).
+    ///
+    /// # Errors
+    ///
+    /// `invalid_spec` if a face no longer builds (a degenerate morph).
+    pub fn rebuild_hybrid_faces(&mut self) -> Result<(), CliError> {
+        let mesh = &self.tagged.mesh;
+        for w in &mut self.wave_ports {
+            let Some(h) = &mut w.hybrid else { continue };
+            let faces = &w.surface.triangles;
+            let lossy = h.dispersive
+                || h.face
+                    .tet_of_tri
+                    .iter()
+                    .flatten()
+                    .any(|&t| self.eps[t].im != 0.0);
+            let face = if lossy {
+                HybridPortFace::from_volume_lossy(mesh, faces, &self.eps)
+            } else {
+                let re: Vec<f64> = self.eps.iter().map(|e| e.re).collect();
+                HybridPortFace::from_volume(mesh, faces, &re)
+            }
+            .and_then(|f| f.with_interior_pec(&self.edges, &self.pec_mask))
+            .map_err(|e| {
+                invalid(format!(
+                    "wave port `{}`: hybrid port face (rebuilt for the sensitivity check): {e}",
+                    w.surface.name
+                ))
+            })?;
+            h.face = face;
+            h.lossy = lossy;
+        }
+        Ok(())
     }
 
     /// Each dispersive region's `(name, ε_r(hz))`, in spec order.
@@ -1119,8 +1206,35 @@ pub fn load_parsed(
         .sensitivity
         .iter()
         .flat_map(|sens| &sens.parameters)
-        .map(|prm| resolve(3, &prm.physical_group, "sensitivity parameter"))
+        .map(|prm| match (prm.kind.is_material(), &prm.physical_group) {
+            (true, Some(g)) => resolve(3, g, "sensitivity parameter"),
+            _ => None,
+        })
         .collect();
+    // Shape parameters (issue #883) bind 2-D or 3-D groups by name.
+    for prm in spec
+        .sensitivity
+        .iter()
+        .flat_map(|sens| &sens.parameters)
+        .filter(|p| !p.kind.is_material())
+    {
+        for (g, role) in shape_groups(prm)
+            .iter()
+            .map(|g| (g, "sensitivity shape group"))
+            .chain(
+                prm.pinned
+                    .iter()
+                    .flatten()
+                    .map(|g| (g, "sensitivity pinned group")),
+            )
+        {
+            if tagged.physical_group_tag(2, g).is_none()
+                && tagged.physical_group_tag(3, g).is_none()
+            {
+                missing.push(format!("`{g}` (dim 2 or 3, {role})"));
+            }
+        }
+    }
     if !missing.is_empty() {
         let available = tagged
             .mesh
@@ -1446,8 +1560,15 @@ pub fn load_parsed(
             sens,
             &sensitivity_tags,
             &regions,
-            &tagged.tet_physical_tags,
+            &tagged,
             spec.analysis(),
+            &SensitivityContext {
+                n_port: is_n_port_sensitivity(&spec),
+                n_lumped: ports.len(),
+                wave_ports: &wave_ports,
+                frequencies: &frequencies,
+                length_unit_m: spec.mesh.length_unit_m,
+            },
         )?),
         None => None,
     };
@@ -1836,7 +1957,8 @@ fn validate_dispersion(
         return Err(invalid(format!(
             "{at} cannot be combined with a `sensitivity` section: the adjoint differentiates \
              a frequency-independent permittivity, so its forward solve would not be the \
-             dispersive problem (drop `sensitivity`, or use a constant `eps_r`)"
+             dispersive problem, and a dispersion model's parameters have no gradient chain \
+             yet (Epic #841 Phase 2a; drop `sensitivity`, or use a constant `eps_r`)"
         )));
     }
     if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
@@ -2109,49 +2231,43 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
             ));
         }
         Analysis::Driven => {
-            // The library's port-loaded material adjoint
-            // (driven_material_adjoint_gradient_ports, issue #739)
-            // differentiates |S11|² of ONE lumped port on the scalar-ε
-            // pencil. Leontovich and Silver-Müller walls are admitted: their
-            // term (iω/Z_s(ω))·S_Γ depends on σ / η₀, ω and the geometry
-            // only — never on the volume ε — so the adjoint composes them
-            // into the forward operator unchanged (as it does the port
-            // admittance and drive).
-            let lib = "the library's port-loaded material adjoint \
-                       (driven_material_adjoint_gradient_ports) differentiates |S11|² of one \
-                       lumped port on the direct-LU, scalar-ε operator";
-            if !spec.wave_ports.is_empty() {
-                return Err(invalid(format!(
-                    "`sensitivity` on a driven spec does not support `wave_ports`: {lib}; there \
-                     is no modal-port (wave-port S-matrix) gradient"
-                )));
-            }
-            if spec.ports.len() != 1 {
-                return Err(invalid(format!(
-                    "`sensitivity` on a driven spec needs exactly one lumped port (got {}): \
-                     {lib}; there is no N-port S-matrix gradient",
-                    spec.ports.len()
-                )));
-            }
+            // Two paths (issue #883). The legacy one — one lumped port, every
+            // parameter `eps_r`, no `observables` / `frequencies` — keeps the
+            // port-loaded |S11|² adjoint (driven_material_adjoint_gradient_ports,
+            // issue #739) and its report. Everything else runs the N-port
+            // S-matrix adjoint (driven::s_sensitivity, Epic #841 Phase 1 / 3b),
+            // which composes lumped, wave (geometric, filled), mixed, walled and
+            // hybrid ports. Leontovich and Silver-Müller walls are admitted on
+            // both: their term (iω/Z_s(ω))·S_Γ never depends on the volume ε.
+            let lib = if is_n_port_sensitivity(spec) {
+                "the N-port S-matrix adjoint (driven::s_sensitivity) differentiates the \
+                 direct-LU, fixed scalar-ε operator"
+            } else {
+                "the library's port-loaded material adjoint \
+                 (driven_material_adjoint_gradient_ports) differentiates |S11|² of one lumped \
+                 port on the direct-LU, scalar-ε operator"
+            };
             if !spec.absorbing_regions.is_empty() {
                 return Err(invalid(format!(
                     "`sensitivity` on a driven spec does not support `absorbing_regions`: {lib}, \
                      while the matched UPML replaces each shell's ε by a frequency-dependent \
-                     stretched tensor the adjoint does not differentiate (use Silver-Müller \
-                     walls for an open boundary)"
+                     stretched tensor the adjoint does not differentiate (Epic #841 Phase 2a; use \
+                     Silver-Müller walls for an open boundary)"
                 )));
             }
             if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
                 return Err(invalid(format!(
                     "`sensitivity` on a driven spec does not support `sweep.adaptive`: {lib} at \
-                     every frequency, while the adaptive rows are reduced-order interpolations — \
-                     remove `sweep.adaptive` to run the dense sweep"
+                     every frequency, while the adaptive rows are reduced-order interpolations \
+                     with no gradient (Epic #841 Phase 4) — remove `sweep.adaptive` to run the \
+                     dense sweep"
                 )));
             }
             if !matches!(spec.solver, SolverSpec::Direct {}) {
                 return Err(invalid(format!(
                     "`sensitivity` on a driven spec needs `solver.mode = \"direct\"`: {lib} (one \
-                     sparse LU serves the forward and the adjoint solve)"
+                     sparse LU serves the forward and the adjoint; adjoints stay direct-LU, an \
+                     Epic #841 non-goal)"
                 )));
             }
         }
@@ -2187,30 +2303,55 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         ));
     }
     for (i, prm) in sens.parameters.iter().enumerate() {
+        use SensitivityParameterKind as K;
         let allowed: &[SensitivityParameterKind] = match analysis {
-            Analysis::Inductance => &[SensitivityParameterKind::NuR, SensitivityParameterKind::MuR],
-            _ => &[SensitivityParameterKind::EpsR],
+            Analysis::Inductance => &[K::NuR, K::MuR],
+            Analysis::Driven => &[K::EpsR, K::EpsRImag, K::TanDelta, K::Shape],
+            _ => &[K::EpsR],
         };
+        let label = parameter_label(prm);
         if !allowed.contains(&prm.kind) {
             let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
+            let why = if analysis != Analysis::Driven
+                && matches!(prm.kind, K::EpsRImag | K::TanDelta | K::Shape)
+            {
+                " (`eps_r_imag`, `tan_delta` and `shape` are driven-spec parameters of the N-port \
+                 S-matrix adjoint, Epic #841 Phase 5a; this analysis's adjoint has no loss or \
+                 shape gradient in the CLI yet)"
+            } else {
+                ""
+            };
             return Err(invalid(format!(
-                "sensitivity.parameters[{i}] (`{}`): kind `{}` is not a parameter of the {} \
-                 observable; supported kinds: `{}`",
-                prm.physical_group,
+                "sensitivity.parameters[{i}] ({label}): kind `{}` is not a parameter of the {} \
+                 observable; supported kinds: `{}`{why}",
                 prm.kind.name(),
                 analysis.name(),
                 names.join("`, `")
             )));
         }
-        if sens.parameters[..i].iter().any(|q| {
-            q.physical_group == prm.physical_group
-                && (q.kind == prm.kind || analysis == Analysis::Inductance)
-        }) {
+        validate_parameter_fields(i, prm)?;
+        let dup = sens.parameters[..i].iter().any(|q| {
+            if prm.kind == K::Shape || q.kind == K::Shape {
+                prm.kind == q.kind && parameter_label(q) == label
+            } else {
+                q.physical_group == prm.physical_group
+                    && (q.kind == prm.kind || analysis == Analysis::Inductance)
+            }
+        });
+        if dup {
             return Err(invalid(format!(
-                "sensitivity.parameters lists `{}` more than once",
-                prm.physical_group
+                "sensitivity.parameters lists {label} more than once"
             )));
         }
+    }
+    if analysis == Analysis::Driven {
+        validate_observables(sens)?;
+    } else if sens.observables.is_some() || sens.frequencies.is_some() {
+        return Err(invalid(format!(
+            "sensitivity.observables / sensitivity.frequencies apply to driven specs only (this \
+             is a {} spec, whose observable is fixed)",
+            analysis.name()
+        )));
     }
     if analysis == Analysis::Eigen {
         let n_modes = spec.eigen.as_ref().map_or(0, |e| e.n_modes);
@@ -2268,14 +2409,227 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
     Ok(())
 }
 
+/// Whether a driven spec's `sensitivity` runs the N-port S-matrix adjoint
+/// (issue #883) rather than the legacy one-lumped-port `|S11|²` path: any
+/// `observables` / `frequencies`, a parameter other than `eps_r`, or a port
+/// set other than exactly one lumped port.
+pub fn is_n_port_sensitivity(spec: &ProblemSpec) -> bool {
+    let Some(sens) = &spec.sensitivity else {
+        return false;
+    };
+    sens.observables.is_some()
+        || sens.frequencies.is_some()
+        || sens
+            .parameters
+            .iter()
+            .any(|p| p.kind != SensitivityParameterKind::EpsR)
+        || spec.ports.len() != 1
+        || !spec.wave_ports.is_empty()
+}
+
+/// The report / message label of a sensitivity parameter: its volume group
+/// (material kinds), or its name (shape; default `motion(groups)`).
+pub fn parameter_label(prm: &crate::spec::SensitivityParameterSpec) -> String {
+    if prm.kind.is_material() {
+        return format!("`{}`", prm.physical_group.as_deref().unwrap_or("?"));
+    }
+    format!("`{}`", shape_name(prm))
+}
+
+/// The name of a shape parameter (its `name`, else `motion(groups)`).
+pub fn shape_name(prm: &crate::spec::SensitivityParameterSpec) -> String {
+    prm.name.clone().unwrap_or_else(|| {
+        format!(
+            "{}({})",
+            prm.motion.map_or("shape", |m| m.name()),
+            shape_groups(prm).join(",")
+        )
+    })
+}
+
+/// The moving groups of a shape parameter (`physical_group` then
+/// `physical_groups`).
+pub fn shape_groups(prm: &crate::spec::SensitivityParameterSpec) -> Vec<String> {
+    prm.physical_group
+        .iter()
+        .chain(prm.physical_groups.iter().flatten())
+        .cloned()
+        .collect()
+}
+
+/// Field rules of one sensitivity parameter: a material kind names one
+/// volume group and nothing else; a shape parameter names its groups, a
+/// motion and a non-zero axis.
+fn validate_parameter_fields(
+    i: usize,
+    prm: &crate::spec::SensitivityParameterSpec,
+) -> Result<(), CliError> {
+    let shape_fields = [
+        ("physical_groups", prm.physical_groups.is_some()),
+        ("name", prm.name.is_some()),
+        ("motion", prm.motion.is_some()),
+        ("axis", prm.axis.is_some()),
+        ("pinned", prm.pinned.is_some()),
+    ];
+    if prm.kind.is_material() {
+        if prm.physical_group.is_none() {
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}]: kind `{}` needs `physical_group` (a volume group)",
+                prm.kind.name()
+            )));
+        }
+        if let Some((f, _)) = shape_fields.iter().find(|(_, set)| *set) {
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}]: `{f}` applies to `kind = \"shape\"` parameters only \
+                 (this one is `{}`)",
+                prm.kind.name()
+            )));
+        }
+        return Ok(());
+    }
+    let groups = shape_groups(prm);
+    if groups.is_empty() {
+        return Err(invalid(format!(
+            "sensitivity.parameters[{i}] (shape): name the moving groups in `physical_group` or \
+             `physical_groups`"
+        )));
+    }
+    if prm.motion.is_none() {
+        return Err(invalid(format!(
+            "sensitivity.parameters[{i}] (shape `{}`): `motion` is required (`translate` or \
+             `stretch`)",
+            shape_name(prm)
+        )));
+    }
+    match prm.axis {
+        None => {
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}] (shape `{}`): `axis` is required (the motion's \
+                 direction, e.g. [1, 0, 0])",
+                shape_name(prm)
+            )));
+        }
+        Some(a) if !(a.iter().all(|c| c.is_finite()) && a.iter().any(|&c| c != 0.0)) => {
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}] (shape `{}`): `axis` must be finite and non-zero \
+                 (got {a:?})",
+                shape_name(prm)
+            )));
+        }
+        Some(_) => {}
+    }
+    if let Some(g) = prm.pinned.iter().flatten().find(|g| groups.contains(g)) {
+        return Err(invalid(format!(
+            "sensitivity.parameters[{i}] (shape `{}`): group `{g}` both moves and is pinned",
+            shape_name(prm)
+        )));
+    }
+    Ok(())
+}
+
+/// Field rules of the driven `observables` (scalar; indices are checked
+/// once the ports are resolved).
+fn validate_observables(sens: &crate::spec::SensitivitySpec) -> Result<(), CliError> {
+    use crate::spec::{ObservableForm as F, ObservableQuantity as Q};
+    let Some(obs) = &sens.observables else {
+        return Ok(());
+    };
+    if obs.is_empty() {
+        return Err(invalid(
+            "sensitivity.observables must list at least one observable (or be omitted)",
+        ));
+    }
+    for (i, o) in obs.iter().enumerate() {
+        let at = format!("sensitivity.observables[{i}] (`{}`)", o.quantity.name());
+        let only = |field: &str, set: bool| -> Result<(), CliError> {
+            if set {
+                return Err(invalid(format!(
+                    "{at}: `{field}` does not apply to this quantity"
+                )));
+            }
+            Ok(())
+        };
+        match o.quantity {
+            Q::S => {
+                if o.entry.is_none() {
+                    return Err(invalid(format!("{at}: `entry` ([i, j]) is required")));
+                }
+                only("entries", o.entries.is_some())?;
+                only("wave_port", o.wave_port.is_some())?;
+                only("mode", o.mode.is_some())?;
+            }
+            Q::SSumSq => {
+                match &o.entries {
+                    None => return Err(invalid(format!("{at}: `entries` is required"))),
+                    Some(e) if e.is_empty() => {
+                        return Err(invalid(format!("{at}: `entries` must not be empty")));
+                    }
+                    Some(e) => {
+                        if let Some((k, x)) =
+                            e.iter().enumerate().find(|(k, x)| e[..*k].contains(x))
+                        {
+                            return Err(invalid(format!(
+                                "{at}: entries[{k}] = {x:?} is listed more than once"
+                            )));
+                        }
+                    }
+                }
+                only("entry", o.entry.is_some())?;
+                only("wave_port", o.wave_port.is_some())?;
+                only("mode", o.mode.is_some())?;
+                if o.form.is_some() {
+                    return Err(invalid(format!(
+                        "{at}: `form` does not apply (the sum of |S_ij|² is real)"
+                    )));
+                }
+            }
+            Q::Z0 | Q::EpsEff => {
+                if o.wave_port.is_none() {
+                    return Err(invalid(format!(
+                        "{at}: `wave_port` (a hybrid wave port's physical_group) is required"
+                    )));
+                }
+                only("entry", o.entry.is_some())?;
+                only("entries", o.entries.is_some())?;
+                if let Some(f) = o.form
+                    && !matches!(f, F::Real | F::Imag | F::Mag)
+                {
+                    return Err(invalid(format!(
+                        "{at}: form `{}` is not supported for a port-mode quantity (use `real`, \
+                         `imag` or `mag`)",
+                        f.name()
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What [`resolve_sensitivity`] needs of the rest of the resolved spec.
+struct SensitivityContext<'a> {
+    /// The N-port path ([`is_n_port_sensitivity`]).
+    n_port: bool,
+    /// Lumped-port count (the first S channels).
+    n_lumped: usize,
+    /// The resolved wave ports.
+    wave_ports: &'a [WavePortDef],
+    /// The swept frequencies.
+    frequencies: &'a [Frequency],
+    /// Metres per mesh unit.
+    length_unit_m: f64,
+}
+
 /// Bind each sensitivity parameter to its volume region (the regions are
-/// sorted by tag, and every region is a design region).
+/// sorted by tag, and every region is a design region), resolve shape
+/// parameters' motions, and (driven) the observables and frequencies.
 fn resolve_sensitivity(
     sens: &crate::spec::SensitivitySpec,
     tags: &[Option<i32>],
     regions: &[Region],
-    tet_tags: &[i32],
+    tagged: &TaggedTetMesh,
     analysis: Analysis,
+    ctx: &SensitivityContext<'_>,
 ) -> Result<SensitivityTarget, CliError> {
     let index_of: BTreeMap<i32, usize> = regions
         .iter()
@@ -2287,28 +2641,47 @@ fn resolve_sensitivity(
         .iter()
         .zip(tags)
         .map(|(prm, tag)| {
+            if !prm.kind.is_material() {
+                return resolve_shape_parameter(prm, tagged, ctx.length_unit_m);
+            }
+            let group = prm.physical_group.clone().expect("validated");
             let tag = tag.expect("resolved above");
             let region = *index_of.get(&tag).ok_or_else(|| {
                 invalid(format!(
-                    "sensitivity parameter `{}` names a volume group with no tets",
-                    prm.physical_group
+                    "sensitivity parameter `{group}` names a volume group with no tets"
                 ))
             })?;
             let r = &regions[region];
             let value = match prm.kind {
                 SensitivityParameterKind::EpsR => r.eps_r.re,
+                SensitivityParameterKind::EpsRImag => -r.eps_r.im,
+                SensitivityParameterKind::TanDelta => -r.eps_r.im / r.eps_r.re,
                 SensitivityParameterKind::NuR => 1.0 / r.mu_r,
                 SensitivityParameterKind::MuR => r.mu_r,
+                SensitivityParameterKind::Shape => unreachable!("handled above"),
             };
             Ok(SensitivityParameter {
-                physical_group: prm.physical_group.clone(),
+                physical_group: group,
                 kind: prm.kind,
                 region,
                 value,
+                shape: None,
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
-    let region_of_tet = tet_tags.iter().map(|t| index_of[t]).collect();
+    let region_of_tet = tagged
+        .tet_physical_tags
+        .iter()
+        .map(|t| index_of[t])
+        .collect();
+    let (observables, frequency_indices) = if analysis == Analysis::Driven && ctx.n_port {
+        (
+            resolve_observables(sens, ctx)?,
+            resolve_sensitivity_frequencies(sens, ctx)?,
+        )
+    } else {
+        (Vec::new(), (0..ctx.frequencies.len()).collect())
+    };
     Ok(SensitivityTarget {
         parameters,
         region_of_tet,
@@ -2323,7 +2696,242 @@ fn resolve_sensitivity(
             .fd_check
             .as_ref()
             .map(|fd| (fd.relative_step, fd.tolerance)),
+        n_port: analysis == Analysis::Driven && ctx.n_port,
+        observables,
+        frequency_indices,
     })
+}
+
+/// A shape parameter's motion, value and FD length (issue #883).
+fn resolve_shape_parameter(
+    prm: &crate::spec::SensitivityParameterSpec,
+    tagged: &TaggedTetMesh,
+    length_unit_m: f64,
+) -> Result<SensitivityParameter, CliError> {
+    use geode_core::driven::s_sensitivity::{GroupMotion, GroupMotionKind};
+    let name = shape_name(prm);
+    let groups = shape_groups(prm);
+    let raw = prm.axis.expect("validated");
+    let n = (raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]).sqrt();
+    let axis = [raw[0] / n, raw[1] / n, raw[2] / n];
+    let motion = prm.motion.expect("validated");
+    let gm = GroupMotion {
+        name: name.clone(),
+        groups: groups.clone(),
+        kind: match motion {
+            ShapeMotion::Translate => GroupMotionKind::Translate { dir: axis },
+            ShapeMotion::Stretch => GroupMotionKind::Stretch { axis },
+        },
+    };
+    let bad = |e: geode_core::driven::s_sensitivity::SSensitivityError| {
+        invalid(format!("sensitivity shape parameter `{name}`: {e}"))
+    };
+    let value_mesh = gm.value(tagged).map_err(bad)?;
+    // FD length: the moving nodes' bounding-box size (the stretch extent
+    // for a stretch).
+    let nodes = gm.nodes(tagged).map_err(bad)?;
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for &v in &nodes {
+        let x = tagged.mesh.nodes[v as usize];
+        for k in 0..3 {
+            lo[k] = lo[k].min(x[k]);
+            hi[k] = hi[k].max(x[k]);
+        }
+    }
+    let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0, f64::max);
+    let fd_length = if value_mesh > 0.0 { value_mesh } else { size };
+    if fd_length.is_nan() || fd_length <= 0.0 {
+        return Err(invalid(format!(
+            "sensitivity shape parameter `{name}`: its groups are a single point (no length \
+             scale for the motion)"
+        )));
+    }
+    Ok(SensitivityParameter {
+        physical_group: groups.join(","),
+        kind: SensitivityParameterKind::Shape,
+        region: usize::MAX,
+        value: value_mesh * length_unit_m,
+        shape: Some(ShapeParameterDef {
+            name,
+            motion: gm,
+            shape_motion: motion,
+            pinned: prm.pinned.clone().unwrap_or_default(),
+            fd_length,
+        }),
+    })
+}
+
+/// The driven `observables` (issue #883), defaulting to every `|S_ij|²`.
+fn resolve_observables(
+    sens: &crate::spec::SensitivitySpec,
+    ctx: &SensitivityContext<'_>,
+) -> Result<Vec<ObservableDef>, CliError> {
+    use crate::spec::{ObservableForm as F, ObservableQuantity as Q};
+    let n = ctx.n_lumped + ctx.wave_ports.iter().map(|w| w.a_inc.len()).sum::<usize>();
+    let Some(obs) = &sens.observables else {
+        return Ok((0..n * n)
+            .map(|k| ObservableDef {
+                quantity: Q::S,
+                entries: vec![[k / n, k % n]],
+                form: F::MagSq,
+                wave_port: None,
+                mode: 0,
+                label: format!("|S[{},{}]|^2", k / n, k % n),
+                unit: "1",
+            })
+            .collect());
+    };
+    let check = |at: &str, e: [usize; 2]| -> Result<(), CliError> {
+        if e[0] >= n || e[1] >= n {
+            return Err(invalid(format!(
+                "{at}: entry {e:?} is out of range for the {n}-channel S matrix (lumped ports \
+                 first, then the wave channels port-major, mode-minor)"
+            )));
+        }
+        Ok(())
+    };
+    obs.iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let at = format!("sensitivity.observables[{i}] (`{}`)", o.quantity.name());
+            Ok(match o.quantity {
+                Q::S => {
+                    let e = o.entry.expect("validated");
+                    check(&at, e)?;
+                    let form = o.form.unwrap_or(F::MagSq);
+                    ObservableDef {
+                        quantity: o.quantity,
+                        entries: vec![e],
+                        form,
+                        wave_port: None,
+                        mode: 0,
+                        label: format!("{}(S[{},{}])", form.name(), e[0], e[1]),
+                        unit: form_unit(form, "1"),
+                    }
+                }
+                Q::SSumSq => {
+                    let entries = o.entries.clone().expect("validated");
+                    for &e in &entries {
+                        check(&at, e)?;
+                    }
+                    let list: Vec<String> = entries
+                        .iter()
+                        .map(|e| format!("{},{}", e[0], e[1]))
+                        .collect();
+                    ObservableDef {
+                        quantity: o.quantity,
+                        entries,
+                        form: F::MagSq,
+                        wave_port: None,
+                        mode: 0,
+                        label: format!("sum |S[{}]|^2", list.join("; ")),
+                        unit: "1",
+                    }
+                }
+                Q::Z0 | Q::EpsEff => {
+                    let name = o.wave_port.as_deref().expect("validated");
+                    let k = ctx
+                        .wave_ports
+                        .iter()
+                        .position(|w| w.surface.name == name)
+                        .ok_or_else(|| {
+                            invalid(format!(
+                                "{at}: `{name}` is not one of the spec's wave ports"
+                            ))
+                        })?;
+                    let w = &ctx.wave_ports[k];
+                    let Some(h) = &w.hybrid else {
+                        return Err(invalid(format!(
+                            "{at}: wave port `{name}` is a geometric (homogeneous TE) port: its \
+                             β and wave impedance are closed-form in the fill, and only a hybrid \
+                             port (an inhomogeneous face or a floating conductor) has a 2-D \
+                             port-mode `{}` gradient",
+                            o.quantity.name()
+                        )));
+                    };
+                    if o.quantity == Q::Z0 && h.impedance_definition.is_none() {
+                        return Err(invalid(format!(
+                            "{at}: hybrid wave port `{name}` carries no floating conductor, so \
+                             no line impedance exists — differentiate `eps_eff` or an S entry"
+                        )));
+                    }
+                    let mode = o.mode.unwrap_or(0);
+                    if mode >= w.a_inc.len() {
+                        return Err(invalid(format!(
+                            "{at}: mode {mode} is out of range for wave port `{name}`'s {} \
+                             reported channel(s)",
+                            w.a_inc.len()
+                        )));
+                    }
+                    let form = o.form.unwrap_or(F::Real);
+                    let base = if o.quantity == Q::Z0 { "ohm" } else { "1" };
+                    ObservableDef {
+                        quantity: o.quantity,
+                        entries: Vec::new(),
+                        form,
+                        wave_port: Some(k),
+                        mode,
+                        label: format!(
+                            "{}({}[{name}, mode {mode}])",
+                            form.name(),
+                            o.quantity.name()
+                        ),
+                        unit: form_unit(form, base),
+                    }
+                }
+            })
+        })
+        .collect()
+}
+
+/// Unit of a form applied to a quantity of unit `base`.
+fn form_unit(form: crate::spec::ObservableForm, base: &'static str) -> &'static str {
+    use crate::spec::ObservableForm as F;
+    match (form, base) {
+        (F::Db, _) => "dB",
+        (F::PhaseDeg, _) => "deg",
+        (F::MagSq, "ohm") => "ohm^2",
+        (_, b) => b,
+    }
+}
+
+/// Indices into the swept frequencies of `sensitivity.frequencies` (all by
+/// default), ascending.
+fn resolve_sensitivity_frequencies(
+    sens: &crate::spec::SensitivitySpec,
+    ctx: &SensitivityContext<'_>,
+) -> Result<Vec<usize>, CliError> {
+    let Some(fs) = &sens.frequencies else {
+        return Ok((0..ctx.frequencies.len()).collect());
+    };
+    let values = fs
+        .expand()
+        .map_err(|e| invalid(format!("sensitivity.frequencies: {e}")))?;
+    let mut out = Vec::with_capacity(values.len());
+    for v in values {
+        let f = to_frequency(v, fs.unit, ctx.length_unit_m);
+        let i = ctx
+            .frequencies
+            .iter()
+            .position(|g| (g.hz - f.hz).abs() <= 1e-9 * f.hz)
+            .ok_or_else(|| {
+                invalid(format!(
+                    "sensitivity.frequencies: {v} ({:e} Hz) is not one of the swept \
+                     `frequencies` (the gradients are taken on the sweep's own solves)",
+                    f.hz
+                ))
+            })?;
+        if out.contains(&i) {
+            return Err(invalid(format!(
+                "sensitivity.frequencies lists {v} ({:e} Hz) more than once",
+                f.hz
+            )));
+        }
+        out.push(i);
+    }
+    out.sort_unstable();
+    Ok(out)
 }
 
 /// Capacitance-spec rules (scalar, before the mesh is read). The

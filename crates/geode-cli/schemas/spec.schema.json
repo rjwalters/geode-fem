@@ -732,6 +732,66 @@
       ],
       "type": "object"
     },
+    "ObservableForm": {
+      "description": "How a complex observable `z` becomes a real one.",
+      "oneOf": [
+        {
+          "const": "mag",
+          "description": "`|z|`.",
+          "type": "string"
+        },
+        {
+          "const": "mag_sq",
+          "description": "`|z|²`.",
+          "type": "string"
+        },
+        {
+          "const": "db",
+          "description": "`20·log₁₀|z|` (dB).",
+          "type": "string"
+        },
+        {
+          "const": "phase_deg",
+          "description": "`arg z` in degrees (`(−180, 180]`).",
+          "type": "string"
+        },
+        {
+          "const": "real",
+          "description": "`Re z`.",
+          "type": "string"
+        },
+        {
+          "const": "imag",
+          "description": "`Im z`.",
+          "type": "string"
+        }
+      ]
+    },
+    "ObservableQuantity": {
+      "description": "The quantity of a [`SensitivityObservableSpec`].",
+      "oneOf": [
+        {
+          "const": "s",
+          "description": "One power-wave S-matrix entry `S_ij` (dimensionless).",
+          "type": "string"
+        },
+        {
+          "const": "s_sum_sq",
+          "description": "`Σ |S_ij|²` over `entries` (dimensionless).",
+          "type": "string"
+        },
+        {
+          "const": "z0",
+          "description": "The line impedance of a hybrid port's channel (Ω), under the port's\n`impedance_definition` (`power_current` by default) — the 2-D face\nquantity of Epic #841 Phase 3a, which a design reaches only through\nparameters that touch the port face.",
+          "type": "string"
+        },
+        {
+          "const": "eps_eff",
+          "description": "The effective permittivity `ε_eff = β²/k₀²` of a hybrid port's\nchannel (dimensionless).",
+          "type": "string"
+        }
+      ]
+    },
     "PreconditionerSpec": {
       "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",
       "oneOf": [
@@ -809,12 +869,94 @@
         }
       ]
     },
+    "SensitivityObservableSpec": {
+      "additionalProperties": false,
+      "description": "One differentiated observable of a driven [`SensitivitySpec`] (issue\n#883). Channel indices follow the report's flat S-matrix order: lumped\nports first (spec order), then the wave channels (port-major,\nmode-minor) — the `channel` numbers of `results[].wave_channels`.",
+      "properties": {
+        "entries": {
+          "description": "`quantity = \"s_sum_sq\"`: the entries `[i, j]` whose `|S_ij|²` are\nsummed (`≥ 1`, distinct; e.g. the power leaving every channel for\nexcitation `j`).",
+          "items": {
+            "items": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "entry": {
+          "description": "`quantity = \"s\"`: `[i, j]`, the entry `S_ij` (row `i` = the\noutgoing channel, column `j` = the excited one; `[0, 0]` is `S11`).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservableForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How a complex observable becomes the real number differentiated.\nDefaults: `mag_sq` for `s`, `real` for `z0` / `eps_eff`; not allowed\nfor `s_sum_sq`."
+        },
+        "mode": {
+          "description": "`quantity = \"z0\"` / `\"eps_eff\"`: the port's reported channel\n(default `0`, `< n_modes`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "quantity": {
+          "$ref": "#/$defs/ObservableQuantity",
+          "description": "What is differentiated."
+        },
+        "wave_port": {
+          "description": "`quantity = \"z0\"` / `\"eps_eff\"`: the hybrid wave port (its\n`physical_group`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "quantity"
+      ],
+      "type": "object"
+    },
     "SensitivityParameterKind": {
-      "description": "Material property differentiated by a sensitivity parameter.",
+      "description": "Property differentiated by a sensitivity parameter.",
       "oneOf": [
         {
           "const": "eps_r",
-          "description": "Real relative permittivity `Re ε_r` (capacitance, eigen, driven).",
+          "description": "Real relative permittivity `ε′ = Re ε_r`, `Im ε_r` held\n(capacitance, eigen, driven).",
+          "type": "string"
+        },
+        {
+          "const": "eps_r_imag",
+          "description": "Loss part `ε″ = −Im ε_r` (`ε_r = ε′ − jε″`), `ε′` held (driven,\nissue #883). At a lossless point (`ε″ = 0`) the gradient is the\npassive-side (`ε″ → 0⁺`) one.",
+          "type": "string"
+        },
+        {
+          "const": "tan_delta",
+          "description": "Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):\n`∂/∂tan δ = ε′·∂/∂ε″`.",
           "type": "string"
         },
         {
@@ -826,31 +968,89 @@
           "const": "mu_r",
           "description": "Relative permeability `μ_r` (inductance): `∂L/∂μ_r =\n−ν_r² ∂L/∂ν_r`.",
           "type": "string"
+        },
+        {
+          "const": "shape",
+          "description": "A geometry parameter (driven, issue #883): see\n[`SensitivityParameterSpec`].",
+          "type": "string"
         }
       ]
     },
     "SensitivityParameterSpec": {
       "additionalProperties": false,
-      "description": "One design parameter of a [`SensitivitySpec`].",
+      "description": "One design parameter of a [`SensitivitySpec`]: a material property of\none volume group (`physical_group`), or (`kind = \"shape\"`, driven only,\nissue #883) a motion of named geometry groups.\n\nA shape parameter binds to **group names**, never node ids, so it\nsurvives re-meshing: the groups' nodes move as `motion` prescribes, the\nnodes of the `pinned` groups stay fixed (pinned wins on a shared node),\nand the motion is extended into the volume harmonically (one P1-Laplace\nsolve). Every other boundary node is free to slide with the extension,\nso pin what must not move (an outer shield, a lumped / geometric\nwave-port face, an impedance wall); the report lists the named surfaces\na shape parameter moves (`moved_groups`). A hybrid (microstrip /\nstripline) port face may move in its plane: the port modes follow it.",
       "properties": {
+        "axis": {
+          "description": "Shape only (required): the motion's direction (normalized; any\nnon-zero vector). `translate`: the parameter is the displacement\nalong it (m). `stretch`: the parameter is the groups' extent along\nit (m; a strip width), changed symmetrically about its centre.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "kind": {
           "$ref": "#/$defs/SensitivityParameterKind",
-          "description": "Which material property."
+          "description": "Which property."
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShapeMotion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Shape only (required): how the groups move."
+        },
+        "name": {
+          "description": "Shape only: the parameter's name in the report (default: the motion\nand the groups, e.g. `stretch(strip)`).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "physical_group": {
-          "description": "Name of a dimension-3 physical group (need not be listed in\n`materials`: an unlisted group is differentiated at its vacuum\ndefault).",
-          "type": "string"
+          "description": "Material kinds: name of a dimension-3 physical group (need not be\nlisted in `materials`: an unlisted group is differentiated at its\nvacuum default). Shape: one moving group (2-D or 3-D), the same as a\none-element `physical_groups`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "physical_groups": {
+          "description": "Shape only: the moving 2-D and / or 3-D physical groups.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pinned": {
+          "description": "Shape only: 2-D / 3-D physical groups whose nodes stay fixed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
-        "kind",
-        "physical_group"
+        "kind"
       ],
       "type": "object"
     },
     "SensitivitySpec": {
       "additionalProperties": false,
-      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n| `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |\n\nNot supported in v1 (rejected with `invalid_spec`): extract specs\n(`Z`, `L₀`, `Q`), multi-port / wave-port / UPML / adaptive / iterative\ndriven specs, N-terminal capacitance matrices, lossy / open eigen specs\n(`Q`), loss-tangent (`Im ε_r`) and shape / geometry parameters.",
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n| `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |\n| `driven` with `observables` or the N-port parameter kinds (issue #883) | any `S_ij` (`mag`, `mag_sq`, `db`, `phase_deg`, `real`, `imag`), sums of `\\|S_ij\\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (reciprocity, zero extra solves) |\n\nThe N-port driven path (Epic #841 Phase 5a) covers lumped, wave\n(geometric, filled), mixed, walled and hybrid (microstrip / stripline)\nspecs, with shape parameters bound to named groups. A driven spec\nwithout `observables` whose parameters are all `eps_r` and that has\nexactly one lumped port keeps the original `s11_mag_sq` report.\n\nNot supported in v1 (rejected with `invalid_spec`, naming what would\nlift it): extract specs (`Z`, `L₀`, `Q`), UPML / adaptive / iterative /\ndispersive / anisotropic driven specs, N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), and the new parameter kinds or\n`observables` on any analysis other than `driven`.",
       "properties": {
         "fd_check": {
           "anyOf": [
@@ -861,7 +1061,18 @@
               "type": "null"
             }
           ],
-          "description": "Optional central finite-difference self-check: every parameter is\nre-solved at `p·(1 ± relative_step)` and each gradient entry is\ncompared to the FD estimate. A disagreement above `tolerance`\nfails the run with `solve_failed`. Costs two extra forward solves\nper parameter."
+          "description": "Optional central finite-difference self-check: every parameter is\nre-solved at `p·(1 ± relative_step)` and each gradient entry is\ncompared to the FD estimate. A disagreement above `tolerance`\nfails the run with `solve_failed`. Costs two extra forward solves\nper parameter. `geode driven --check-gradient` turns it on with the\ndefaults when the section omits it."
+        },
+        "frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Driven specs only (additive in v1, issue #883): the frequencies to\ndifferentiate, each one of the spec's swept `frequencies` (matched\nto 1e-9 relative). Omitted: every swept frequency."
         },
         "min_rel_gap": {
           "description": "Eigen specs only: minimum relative gap `|λ − λ_j| / λ` to every\nother returned mode for a differentiated mode to count as simple\n(default `1e-2`, the library's FD-validated value). A (near-)\ndegenerate mode fails the run with `solve_failed`: Hellmann–Feynman\ndoes not apply to it.",
@@ -883,6 +1094,16 @@
             "null"
           ]
         },
+        "observables": {
+          "description": "Driven specs only (additive in v1, issue #883): the differentiated\nobservables. Omitted: every `|S_ij|²` (`mag_sq` of each entry), or,\nfor a one-lumped-port spec whose parameters are all `eps_r`, the\noriginal `s11_mag_sq` report.",
+          "items": {
+            "$ref": "#/$defs/SensitivityObservableSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "parameters": {
           "description": "Design parameters, one per (volume physical group, kind) pair\n(`≥ 1`, distinct). The gradient is taken at the spec's material\nvalues; every tet of the group shares the parameter.",
           "items": {
@@ -895,6 +1116,21 @@
         "parameters"
       ],
       "type": "object"
+    },
+    "ShapeMotion": {
+      "description": "The motion of a shape [`SensitivityParameterSpec`].",
+      "oneOf": [
+        {
+          "const": "translate",
+          "description": "Rigid translation along `axis`; the parameter is the displacement\n(value `0` at the meshed geometry).",
+          "type": "string"
+        },
+        {
+          "const": "stretch",
+          "description": "Symmetric stretch along `axis` about the centre of the groups'\nextent; the parameter is the extent itself (a strip width, a slab\nthickness).",
+          "type": "string"
+        }
+      ]
     },
     "SolverSpec": {
       "description": "Linear-solver selection.",
@@ -1190,7 +1426,7 @@
           "type": "null"
         }
       ],
-      "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issues #707 / #739). Not an analysis section: it\nrides on a `capacitance` (two-terminal), `inductance`, lossless\n`eigen` or one-lumped-port `driven` spec and adds a `sensitivities`\nblock to that report. Extract specs reject it in v1."
+      "description": "Design sensitivities of the analysis's observable (additive in v1,\nissues #707 / #739 / #883). Not an analysis section: it rides on a\n`capacitance` (two-terminal), `inductance`, lossless `eigen` or\n`driven` spec (lumped, wave, mixed or hybrid ports; N-port S\nobservables and shape parameters, issue #883) and adds a\n`sensitivities` block to that report. Extract specs reject it in v1."
     },
     "solver": {
       "$ref": "#/$defs/SolverSpec",

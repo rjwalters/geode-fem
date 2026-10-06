@@ -42,6 +42,7 @@ mod mesh_cmd;
 mod problem;
 mod progress;
 mod report;
+mod s_sensitivity;
 mod schema;
 mod sensitivity;
 mod spec;
@@ -84,7 +85,7 @@ enum Command {
     /// Frequency sweep with lumped ports → Z / Y / S, L / R / Q per port, or
     /// with wave ports → channel S-matrix. Open boundaries: `absorbing_regions`
     /// (matched box UPML) and Silver-Müller walls.
-    Driven(SweepArgs),
+    Driven(DrivenArgs),
     /// PEC-cavity eigenmodes near `eigen.shift` → resonant f, plus Q for a
     /// lossy (complex eps_r) or open (`absorbing_regions`) cavity (Q is null
     /// when lossless). Needs a spec with an `eigen` section and no ports.
@@ -250,6 +251,26 @@ struct SweepArgs {
     progress: bool,
 }
 
+/// `geode driven` arguments: the sweep arguments plus `--check-gradient`
+/// (issue #883; clap rejects it on `geode extract`, whose specs carry no
+/// `sensitivity`).
+#[derive(Args)]
+struct DrivenArgs {
+    #[command(flatten)]
+    sweep: SweepArgs,
+    /// Verify the spec's `sensitivity` gradients on this model: re-run the
+    /// shipped forward at each parameter ± a central finite-difference
+    /// step (shape parameters: the mesh nodes moved, never re-meshed) and
+    /// report the agreement per entry (`fd_gradient`, `fd_rel_error`) and
+    /// in `sensitivities.fd_check`. Uses the spec's `sensitivity.fd_check`
+    /// settings when present, else the defaults (relative step 1e-4,
+    /// tolerance 1e-4); a disagreement above the tolerance fails the run
+    /// (`solve_failed`). Costs two forward sweeps per parameter. Needs a
+    /// `sensitivity` section.
+    #[arg(long)]
+    check_gradient: bool,
+}
+
 impl SweepArgs {
     /// The sweep options, with `--jobs` capped at `--threads`.
     fn options(&self) -> progress::SweepOptions {
@@ -337,7 +358,10 @@ impl App for Cli {
                 let result = check::run(&a.spec, prov.clone());
                 finish("check", prov, a.output.as_deref(), result)
             }
-            Command::Driven(sa) => {
+            Command::Driven(DrivenArgs {
+                sweep: sa,
+                check_gradient,
+            }) => {
                 let opts = sa.options();
                 let a = sa.base;
                 let threads = a.threads.map(NonZeroUsize::get);
@@ -345,7 +369,7 @@ impl App for Cli {
                 let _par = threads.map(apply_thread_cap);
                 let result = backend::confirm(a.backend).and_then(|()| {
                     let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
-                    driven::run(&a.spec, prov.clone(), out, ts, opts)
+                    driven::run(&a.spec, prov.clone(), out, ts, opts, check_gradient)
                 });
                 finish("driven", prov, a.output.as_deref(), result)
             }

@@ -24,10 +24,16 @@ geode mesh layout.json --analysis capacitance --spec-out c.json && geode capacit
 geode schema spec                                   # JSON Schema (draft 2020-12) of the spec; also `report`, `layout`
 ```
 
-Capacitance (one terminal), inductance, lossless eigen and one-lumped-port
-driven specs may add a `sensitivity` section for exact material gradients
-of their observable (issues #707 / #739; see [Material
-sensitivities](#material-sensitivities-sensitivity-issue-707)).
+Capacitance (one terminal), inductance, lossless eigen and driven specs
+may add a `sensitivity` section for exact gradients of their observable
+(issues #707 / #739; see [Material
+sensitivities](#material-sensitivities-sensitivity-issue-707)). On a
+driven spec that covers any S entry, `|S_ij|²` sums and a hybrid port's
+`Z₀` / `ε_eff` of lumped, wave, mixed and microstrip specs, with respect to
+`ε′`, `ε″`, `tan δ` and shape parameters bound to named groups — and
+`geode driven --check-gradient` verifies the gradients on your own model
+(issue #883; see [N-port driven
+sensitivities](#n-port-driven-sensitivities-issue-883)).
 
 New to `geode`? Start with the runnable [examples cookbook](examples/README.md):
 one worked example per analysis, with the output to expect.
@@ -1138,6 +1144,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1194,17 +1201,15 @@ consumed by that subcommand.
   the eigen forward is smooth in `ε` (issue #740; eigen FD now agrees to
   `~1e-9`). Cost: two forward solves per parameter.
 - **Not in v1** (rejected with `invalid_spec`, naming the gap): extract
-  specs (no `Z` / `L₀` / SRF / `Q` gradient); driven specs with more than
-  one lumped port (no N-port S-matrix gradient), `wave_ports`,
+  specs (no `Z` / `L₀` / SRF / `Q` gradient); driven specs with
   `absorbing_regions` (the UPML stretched tensors are not
-  differentiated), `sweep.adaptive` (its rows are reduced-order
-  interpolations) or `solver.mode = "iterative"` (the adjoint is a sparse
-  LU); N-terminal
-  capacitance matrices (the library adjoint is two-terminal); lossy /
-  open eigen specs (no complex-eigenvalue `Q` / frequency gradient); the
-  loss tangent `Im ε_r`; shape / geometry parameters (the library has
-  node-displacement shape gradients, but the spec has no geometry
-  parametrization yet).
+  differentiated, Epic #841 Phase 2a), dispersive or anisotropic
+  materials (Phase 2a), `sweep.adaptive` (its rows are reduced-order
+  interpolations, Phase 4) or `solver.mode = "iterative"` (the adjoint is
+  a sparse LU, an Epic #841 non-goal); N-terminal capacitance matrices
+  (the library adjoint is two-terminal); lossy / open eigen specs (no
+  complex-eigenvalue `Q` / frequency gradient); the loss and shape kinds
+  on any analysis but `driven`.
 
 The report block (`kind = "capacitance" | "inductance" | "eigen" |
 "driven"`):
@@ -1235,6 +1240,157 @@ for `s11_mag_sq`. An optimizer or agent loop
 edits `materials[]`, runs the subcommand, and reads
 `sensitivities.entries[].gradient` — JSON in, gradient out; see
 [`examples/sensitivity/`](examples/sensitivity/README.md).
+
+### N-port driven sensitivities (issue #883)
+
+A driven spec's `sensitivity` section with `observables`, `frequencies`,
+a non-`eps_r` parameter kind, or any port set other than exactly one
+lumped port runs the **N-port S-matrix adjoint** (Epic #841 Phase 5a):
+the library's `s_matrix_sensitivity_sweep` (Phase 1 / 3b) on the very
+operator `geode driven` solves — lumped ports, geometric and filled wave
+ports, mixed lumped + wave, Leontovich / rough / Silver-Müller walls, and
+hybrid (microstrip / stripline / coax) ports, including designs that move
+or alter a hybrid port face. By reciprocity the adjoint of every readout is
+a forward excitation the sweep already solved, so all `N²` entries' gradients
+cost **zero** extra solves per frequency (one LU, as the forward). A one-
+lumped-port spec whose parameters are all `eps_r` and that has no
+`observables` keeps the original `s11_mag_sq` report above.
+
+```jsonc
+"sensitivity": {
+  "parameters": [
+    { "kind": "eps_r", "physical_group": "substrate" },        // ε′ (ε″ held)
+    { "kind": "eps_r_imag", "physical_group": "substrate" },   // ε″ = −Im ε_r (ε′ held)
+    { "kind": "tan_delta", "physical_group": "substrate" },    // tan δ (ε′ held)
+    { "kind": "shape", "name": "strip_width", "physical_group": "strip",
+      "motion": "stretch", "axis": [1, 0, 0], "pinned": ["shield"] },
+    { "kind": "shape", "name": "iris_x", "physical_groups": ["iris_l", "iris_r"],
+      "motion": "translate", "axis": [1, 0, 0], "pinned": ["walls", "port_in", "port_out"] }
+  ],
+  "observables": [                                   // default: every |S_ij|²
+    { "quantity": "s", "entry": [0, 0], "form": "db" },          // S11 in dB
+    { "quantity": "s", "entry": [1, 0], "form": "phase_deg" },   // ∠S21
+    { "quantity": "s_sum_sq", "entries": [[0, 0], [1, 0]] },     // |S11|² + |S21|²
+    { "quantity": "z0", "wave_port": "port_in" },                // hybrid port Z₀ (real part)
+    { "quantity": "eps_eff", "wave_port": "port_in", "mode": 0 }
+  ],
+  "frequencies": { "unit": "ghz", "values": [2.0] },  // default: every swept frequency
+  "fd_check": {}                                      // or: geode driven --check-gradient
+}
+```
+
+- **Material parameters** bind to one volume group. `eps_r` is `ε′` with
+  `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
+  lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
+  `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  A geometric wave port filled by a differentiated region follows it
+  (its `β`, drive and power weights, #777); a hybrid port's face modes
+  follow the face triangles' tets.
+- **Shape parameters** (`kind = "shape"`) bind to **group names**, never
+  node ids, so a design survives re-meshing: the nodes of
+  `physical_group` / `physical_groups` (2-D or 3-D groups) move as `motion`
+  says, the nodes of `pinned` stay fixed (pinned wins on a shared node),
+  and the motion is extended into the volume harmonically (one P1-Laplace
+  solve per parameter; `ShapeDesign::from_group_motions`). `translate`:
+  the parameter is the displacement along the (normalized) `axis` — value
+  `0` m at the meshed geometry. `stretch`: the parameter is the groups'
+  **extent** along `axis` (a strip width, a slab thickness; its value in
+  metres), changed symmetrically about the centre. Gradients are per metre.
+  Every other boundary node slides with the extension, so **pin what must
+  not move** — an outer shield, a lumped or geometric wave-port face, an
+  impedance wall; `parameters[].moved_groups` lists every named surface a
+  shape parameter moves. A hybrid port face may move in its plane (strip
+  width, substrate height): its modes are re-solved on the moved face.
+  A forgotten `pin` is warned about, never silently zero: a
+  `sensitivities.warnings[]` entry of kind `sensitivity_shape_rigid` when
+  every node moves with one velocity (nothing pinned — the harmonic
+  extension is a constant, the whole model translates rigidly and every
+  gradient is zero by construction), and `sensitivity_shape_moves_boundary`
+  (naming the group) when a `pec` / `leontovich` / `silver_muller` group
+  the parameter does not own has a node moving along its face normal, or
+  a node on its free perimeter moving across that edge in the wall's
+  plane (a finite plate resized — a forgotten `ground` on a patch
+  antenna). In-plane motion of a wall whose perimeter is held — a wall
+  sliding with the slab it bounds, its edges on pinned port faces — and
+  hybrid port faces are not flagged. Both are also printed on
+  stderr; the run still succeeds.
+- **Observables.** `entry` / `entries` index the report's flat S-matrix
+  order (lumped ports first, then the wave channels port-major,
+  mode-minor — `results[].wave_channels[].channel`; `[0, 0]` is `S11`).
+  For complex `z` with holomorphic derivative `∂z` along a real parameter:
+  `real` → `Re ∂z`, `imag` → `Im ∂z`, `mag_sq` → `2 Re(z̄∂z)` (the
+  default for `s`), `mag` → `Re(z̄∂z)/|z|`, `db` (`20 log₁₀|z|`) →
+  `(20/ln 10)·Re(z̄∂z)/|z|²`, `phase_deg` → `(180/π)·Im(z̄∂z)/|z|²`.
+  `z0` is the line impedance of the port's `impedance_definition`
+  (`power_current` by default) and `eps_eff = β²/k₀²`, both of a hybrid
+  port's reported channel `mode` (default `0`; `real` by default, `imag`
+  and `mag` too): face quantities of Epic #841 Phase 3a's 2-D derivative,
+  which only parameters that touch the port face move.
+- **Limitations of the values.** `db` (and `mag`) of an entry at the
+  mesh's reflection floor — `S11` of a matched line, −68 dB in the
+  microstrip cookbook — is discretization residue: its gradient is exact
+  for the fixed-topology morph (the FD check passes) but is not a
+  physical sensitivity, and a re-meshed difference can disagree in sign.
+  Between two **geometric** wave ports the `phase_deg` / `real` / `imag`
+  *values* of a cross-port entry (`S21`) may be 180° off until #888 fixes
+  the face-mode sign gauge; their *derivatives* are invariant to that
+  constant sign and unaffected, but do not target an absolute `S21` phase
+  across re-meshes yet.
+- **Forward parity.** The sensitivity solves its own forward on the same
+  operator and must reproduce the report's `results[].s` to `1e-8`
+  (relative; `sensitivities.forward_parity`, typically `≤ 1e-15`) and the
+  report's `ε_eff` / `z_line_ohm` to `1e-6`, so a gradient always belongs
+  to the reported forward. A hybrid spec differentiates over the whole
+  sweep internally (its mode tracking is a sweep-wide assignment) and
+  reports the selected `frequencies`.
+- **`--check-gradient` / `fd_check`.** Each parameter is re-run through
+  the **shipped** `geode driven` forward at `p ± h` — a material
+  parameter with its region's `ε_r` changed; a shape parameter with every
+  mesh node moved by `±h` times its motion (never re-meshed, which would
+  swamp the check), hybrid port faces rebuilt on the moved mesh — and
+  each entry is compared to the central difference. `h = relative_step ×`
+  the parameter's natural scale: `|ε′|` (`eps_r`), `|ε_r|` (`eps_r_imag`),
+  `1` (`tan_delta`), the motion's length (`shape`: the stretch extent,
+  else the moving groups' bounding-box size). A loss parameter within one
+  step of `0` uses the one-sided second-order difference
+  `(−3f(0) + 4f(h) − f(2h))/(2h)` (`ε″ < 0` is gain). `fd_rel_error =
+  |g − g_FD| / max(|g|, |g_FD|, floor)`, the floor the larger of 1 % of
+  the entry's largest `|gradient|` over the differentiated frequencies and
+  the central difference's round-off `1e-10·M/h` (`M = max(|value|, 1)`,
+  `20/ln 10` for dB, `180/π` for degrees) — so a structurally zero entry
+  (`|S21|` of a uniform guide under a rigid slab shift) is not judged
+  against round-off. Cost: two forward sweeps per parameter.
+- **Typed rejections.** Besides the section rules above, the library's
+  fences surface as `invalid_spec` naming what would lift them: a shape
+  parameter moving a geometric wave-port face (its modes are fixed
+  profiles), a lumped-port face (N-port moving feeds) or an impedance wall
+  (Phase 2b); a hybrid face bent out of its plane; an exactly degenerate
+  face-mode cluster (e.g. the even / odd TEM pair of a symmetric coupled
+  line) whose face a parameter touches — a per-channel gradient is
+  basis-dependent there; a mesh-induced complex-pair channel. The CLI has
+  no element-order field yet, so every gradient is p=1 (the library's p=2
+  gradients are Epic #836 Phase 4).
+
+The report block (`observable = "driven_observables"`, `method =
+"adjoint_s_matrix"`) adds `observables[]` (`quantity`, `form`, `label`,
+`unit`, `entries` or `wave_port` / `mode` / `impedance_definition`),
+`forward_parity` and `warnings[]` (a near-degenerate face mode of a hybrid
+port the design touches; a rigid or wall-moving shape parameter), and each entry gains `observable` (index into
+`observables[]`) and `frequency_hz`; `index = [i]` into `results[]`.
+Parameters gain `unit` (`"1"` / `"m"`) and, for shape, `name`, `motion`,
+`axis`, `pinned` and `moved_groups`. Entries are ordered parameter-major,
+then observable, then frequency. From the microstrip cookbook
+([`examples/sensitivity/microstrip_strip_width.json`](examples/sensitivity/README.md)):
+
+```json
+{"parameter": 0, "observable": 0, "index": [0], "frequency_hz": 2.0e9,
+ "value": 49.273, "gradient": -15296.98, "fd_gradient": -15296.98,
+ "fd_rel_error": 1.7e-8}
+```
+
+— `∂Z₀/∂w = −15.3 Ω/mm` of the 50 Ω line, against `−15.7 Ω/mm` from the
+differentiated Hammerstad–Jensen formula of the open line (the shield
+box and the mesh account for the 2.8 %).
 
 ## Field / far-field export (`--outdir`, issue #684)
 
@@ -2661,7 +2817,12 @@ the P1 discretization error), `observable_unit` (`"F"` \| `"H"` \| `"Hz"`
 (`parameter`, `index`, `value`, `gradient`, and with `fd_check`
 `fd_gradient`, `fd_rel_error`), `fd_check` (`relative_step`,
 `tolerance`, `max_rel_error`, `n_forward_solves`; only with
-`fd_check`) and `wall_time_s`. See [Material
+`fd_check`) and `wall_time_s`. The N-port driven path (issue #883:
+`observable = "driven_observables"`, `observable_unit =
+"per_observable"`, `method = "adjoint_s_matrix"`) adds `observables[]`,
+`forward_parity` and `warnings[]`, `entries[].observable` /
+`frequency_hz`, and `parameters[].unit` / `name` / `motion` / `axis` /
+`pinned` / `moved_groups` (all omitted on the other paths). See [Material
 sensitivities](#material-sensitivities-sensitivity-issue-707).
 
 **`kind = "driven"`** adds:
@@ -2674,8 +2835,9 @@ sensitivities](#material-sensitivities-sensitivity-issue-707).
   sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)).
 - `touchstone_file` (additive in v1; `--touchstone` only):
   `{path, sha256}` of the `.sNp` written (see "Touchstone output").
-- `sensitivities` (additive in v1, issue #739; only with a `sensitivity`
-  section): `∂|S11|²/∂ε_r` per frequency — see [Material
+- `sensitivities` (additive in v1, issues #739 / #883; only with a
+  `sensitivity` section): `∂|S11|²/∂ε_r` per frequency, or the N-port
+  observables' gradients — see [Material
   sensitivities](#material-sensitivities-sensitivity-issue-707).
 - `results[]`, one per frequency in spec order:
 
@@ -2948,6 +3110,18 @@ accuracy warnings) and a Djordjevic–Sarkar substrate through the
 dispersive sweep. `tests/wave_port_driven.rs` turns the former
 inhomogeneous-face rejection into a success (β within 0.12 % of the
 oracle on its 8 × 4 face).
+
+`tests/sensitivity_nport.rs` (issue #883) runs the N-port driven path:
+on a slab-loaded wave-port guide every CLI gradient (material `ε′` / `ε″` /
+`tan δ`, the filled ports' `ε′` and lossless `ε″`, a slab `stretch` and
+`translate`) equals an in-process `s_matrix_sensitivity_sweep` on the same
+network **bit for bit**; `--check-gradient` agrees with the shipped
+forward's central / one-sided FD within `1e-4` on lumped, wave and mixed
+specs; the legacy `s11_mag_sq` report and the N-port `mag_sq(S[0,0])`
+agree to `3e-11`; every rejection is typed; and (release tier) the
+microstrip cookbook's `∂Z₀`, `∂ε_eff`, `∂S/∂(strip width)` and `∂/∂ε_r`
+pass `--check-gradient` and land within 5 % of the differentiated
+Hammerstad–Jensen formula.
 
 `tests/sensitivity_golden.rs` (issue #707) runs the `sensitivity`
 section through the real binary with `fd_check` on (library bar:

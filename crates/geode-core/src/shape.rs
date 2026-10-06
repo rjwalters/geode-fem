@@ -705,6 +705,104 @@ pub fn harmonic_extension_velocity(
     Ok(vel)
 }
 
+/// **Harmonic extension of a prescribed node velocity**, one P1-Laplace
+/// factorization and three right-hand sides (one per Cartesian component):
+///
+/// ```text
+///   ∇²D = 0 on the free nodes,   D_n = v_n on `prescribed`,   D_n = 0 on `fixed_zero`,
+/// ```
+///
+/// with every other node free (natural / Neumann). It is the single-solve
+/// counterpart of summing [`FreeformBoundaryMorph::harmonic_boundary`] over
+/// one column per prescribed node and axis — the same field by linearity —
+/// whose cost (`3 × prescribed nodes` right-hand sides) grows with the
+/// group size (issue #883; Epic #841 Phase 5a binds CLI shape parameters
+/// through it). A node listed in both `prescribed` and `fixed_zero` stays
+/// fixed (pinned wins). The field is exactly linear in the parameter, so
+/// `X(θ) = X⁰ + θ·D` ([`apply_node_motion`]) is both the finite-difference
+/// perturbation and the analytic `∂X/∂θ`.
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] for an out-of-range node,
+/// [`ElectrostaticError::Assembly`] / [`ElectrostaticError::Factorization`]
+/// from the Laplace assembly and solve.
+pub fn harmonic_dirichlet_velocity(
+    mesh: &TetMesh,
+    prescribed: &[(u32, [f64; 3])],
+    fixed_zero: &[u32],
+) -> Result<Vec<[f64; 3]>, ElectrostaticError> {
+    let n = mesh.n_nodes();
+    if let Some(&(g, _)) = prescribed.iter().find(|(g, _)| *g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "prescribed node {g} out of range (n_nodes {n})"
+        )));
+    }
+    if let Some(&g) = fixed_zero.iter().find(|g| **g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "fixed_zero node {g} out of range (n_nodes {n})"
+        )));
+    }
+    let mut pinned = vec![false; n];
+    let mut dval = vec![[0.0_f64; 3]; n];
+    for &(g, v) in prescribed {
+        pinned[g as usize] = true;
+        dval[g as usize] = v;
+    }
+    for &g in fixed_zero {
+        pinned[g as usize] = true;
+        dval[g as usize] = [0.0; 3];
+    }
+    let mut free_of = vec![None; n];
+    let mut n_free = 0usize;
+    for (g, &p) in pinned.iter().enumerate() {
+        if !p {
+            free_of[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+    let l_full = assemble_p1_laplace(mesh)?;
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    let mut b: Mat<f64> = Mat::zeros(n_free, 3);
+    {
+        let l_ref = l_full.as_ref();
+        let cp = l_ref.col_ptr();
+        let row_idx = l_ref.row_idx();
+        let vals = l_ref.val();
+        for j in 0..n {
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                let v = vals[k];
+                match (free_of[i], free_of[j]) {
+                    (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                    (Some(fi), None) => {
+                        for c in 0..3 {
+                            b[(fi, c)] -= v * dval[j][c];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut vel = dval;
+    if n_free > 0 {
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+            .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+        let lu = k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        lu.solve_in_place(b.as_mut());
+        for (g, slot) in free_of.iter().enumerate() {
+            if let Some(fi) = slot {
+                vel[g] = [b[(*fi, 0)], b[(*fi, 1)], b[(*fi, 2)]];
+            }
+        }
+    }
+    Ok(vel)
+}
+
 /// Signed 6-volume (`det[e₁ e₂ e₃]`) of tet `t` of `mesh`.
 fn tet_signed_6vol(mesh: &TetMesh, t: usize) -> f64 {
     let tet = mesh.tets[t];

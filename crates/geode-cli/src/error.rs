@@ -176,6 +176,12 @@ pub enum CliError {
         /// The gate.
         tolerance: f64,
     },
+    /// The N-port S-matrix sensitivity failed in a way that is not the
+    /// spec's fault (issue #883): an internal consistency check, a 2-D
+    /// port-mode derivative that could not be computed, or the sensitivity
+    /// forward drifting from the report's own S matrix.
+    #[error("sensitivity failed: {0}")]
+    SensitivitySolve(String),
     /// `--touchstone` was given for a subcommand or spec that has no
     /// lumped-port network to write (`geode eigen`, a wave-port spec, …).
     #[error("--touchstone: {reason}")]
@@ -299,6 +305,7 @@ impl CliError {
             | CliError::NonPhysicalInductance(_)
             | CliError::L0NotConverged { .. }
             | CliError::EigenSensitivity(_)
+            | CliError::SensitivitySolve(_)
             | CliError::FdCheckFailed { .. } => "solve_failed",
             CliError::NonFinite { .. } => "non_finite",
             CliError::LayoutParse { .. } => "spec_parse",

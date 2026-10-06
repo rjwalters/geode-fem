@@ -42,6 +42,10 @@
 //! names. Gradients are scaled to SI exactly like the observable
 //! (`× mesh.length_unit_m` for `C` and `L`; `|S11|²` is dimensionless).
 //!
+//! Driven specs beyond one lumped port with `eps_r` parameters (N-port S
+//! observables, loss and shape parameters, issue #883) run
+//! [`crate::s_sensitivity`] instead.
+//!
 //! The optional `fd_check` re-solves the **shipped forward pipeline** (not
 //! the adjoint routine) at `p·(1 ± relative_step)` per parameter and
 //! fails the run (`solve_failed`) when any entry disagrees beyond the
@@ -100,7 +104,12 @@ struct Gradients {
 
 /// Per-tet values with every tet of design region `region` set to
 /// `value`.
-fn with_region_value(base: &[f64], region_of_tet: &[usize], region: usize, value: f64) -> Vec<f64> {
+pub(crate) fn with_region_value(
+    base: &[f64],
+    region_of_tet: &[usize],
+    region: usize,
+    value: f64,
+) -> Vec<f64> {
     base.iter()
         .zip(region_of_tet)
         .map(|(&b, &r)| if r == region { value } else { b })
@@ -138,6 +147,8 @@ fn finish(
                 index: index.clone(),
                 value: *value,
                 gradient,
+                observable: None,
+                frequency_hz: None,
                 fd_gradient: None,
                 fd_rel_error: None,
             });
@@ -201,11 +212,20 @@ fn finish(
                 physical_group: p.physical_group.clone(),
                 kind: p.kind.name(),
                 value: p.value,
+                name: None,
+                motion: None,
+                axis: None,
+                pinned: Vec::new(),
+                moved_groups: None,
+                unit: None,
             })
             .collect(),
         entries,
         fd_check,
         wall_time_s: t0.elapsed().as_secs_f64(),
+        observables: Vec::new(),
+        forward_parity: None,
+        warnings: Vec::new(),
     })
 }
 

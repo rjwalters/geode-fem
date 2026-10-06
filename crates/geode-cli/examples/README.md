@@ -18,7 +18,7 @@ the example models, and the output to expect.
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |
 | `capacitance` (anisotropic) | [the coax filled with c-axis sapphire, `eps_r_diag`](capacitance/README.md#anisotropic-sapphire-coax-eps_r_diag-issue-760) | `capacitance/coax_sapphire.json` | < 1 s |
 | `inductance` | [coax and triax Maxwell inductance matrices](inductance/README.md) | `inductance/coax.json`, `inductance/triax.toml` | ~1 s |
-| `sensitivity` | [material gradients `∂C/∂ε_r`, `∂L/∂ν_r`, `∂\|S11\|²/∂ε_r` with an FD self-check](sensitivity/README.md) | `sensitivity/capacitance_coax.json`, `sensitivity/inductance_triax.toml`, `sensitivity/driven_spiral.json` | ~8 s each (driven: ~1.5 min) (debug) |
+| `sensitivity` | [material gradients `∂C/∂ε_r`, `∂L/∂ν_r`, `∂\|S11\|²/∂ε_r` with an FD self-check; N-port `∂S`, `∂Z₀`, `∂ε_eff` w.r.t. a strip width](sensitivity/README.md) | `sensitivity/capacitance_coax.json`, `sensitivity/inductance_triax.toml`, `sensitivity/driven_spiral.json`, `sensitivity/microstrip_strip_width.json` | ~8 s each (driven: ~1.5 min) (debug); microstrip ~1 min (release) |
 | `mesh` → solve | [layout → Gmsh mesh → driven / capacitance / inductance](mesh/README.md) | `mesh/*.layout.json` | a few s (needs Gmsh) |
 
 Commands are written from the repository root, but they work from

@@ -583,22 +583,8 @@ fn unsupported_driven_extract_and_lossy_eigen_sensitivity_are_rejected() {
         "{}",
         String::from_utf8_lossy(&ok.stdout)
     );
-    // Two lumped ports: no N-port S-matrix gradient.
-    let msg = check_err(&edited(drv, "two-port", |v| {
-        let p = v["ports"][0].clone();
-        v["ports"].as_array_mut().unwrap().push(p);
-    }));
-    assert!(msg.contains("exactly one lumped port (got 2)"), "{msg}");
-    assert!(msg.contains("N-port"), "{msg}");
-    assert!(
-        msg.contains("driven_material_adjoint_gradient_ports"),
-        "{msg}"
-    );
-    // Wave ports.
-    let msg = check_err(&edited(drv, "wave", |v| {
-        v["wave_ports"] = json!([{"physical_group": "outer_boundary", "n_modes": 1}]);
-    }));
-    assert!(msg.contains("does not support `wave_ports`"), "{msg}");
+    // N lumped ports / wave ports now run the N-port S-matrix adjoint
+    // (issue #883): `tests/sensitivity_nport.rs` covers them.
     // Matched UPML.
     let msg = check_err(&edited(drv, "upml", |v| {
         v["absorbing_regions"] =

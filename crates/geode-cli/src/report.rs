@@ -620,7 +620,13 @@ pub struct WarningResult {
     /// `"impedance_accuracy_unavailable"`,
     /// `"multiplicity_uncertified"`, `"cluster_split"`,
     /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
-    /// measured `σ_max(S) > 1`), or `"termination_clamped"`.
+    /// measured `σ_max(S) > 1`), `"termination_clamped"`, or (driven
+    /// `sensitivities.warnings`, issue #883) `"sensitivity_port_mode"`,
+    /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
+    /// model: gradients zero by construction) and
+    /// `"sensitivity_shape_moves_boundary"` (a shape parameter moving a
+    /// wall it does not own off its plane, or resizing a finite plate's
+    /// free perimeter in its plane: pin it if it is fixed).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -1616,24 +1622,97 @@ pub struct SensitivityReport {
     /// one per swept frequency per parameter.
     pub entries: Vec<SensitivityEntry>,
     /// The finite-difference self-check (present only with
-    /// `sensitivity.fd_check`). A run whose check fails is a
-    /// `solve_failed` error, so a present block always passed.
+    /// `sensitivity.fd_check` or `--check-gradient`). A run whose check
+    /// fails is a `solve_failed` error, so a present block always passed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fd_check: Option<FdCheckSummary>,
     /// Wall time of the gradient (and FD check) computation, seconds.
     pub wall_time_s: f64,
+    /// N-port driven path (issue #883; `observable = "driven_observables"`):
+    /// the differentiated observables (`entries[*].observable` indexes this
+    /// list). Absent on every other path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observables: Vec<SensitivityObservableSummary>,
+    /// N-port driven path: the largest relative difference between the S
+    /// matrix the sensitivity solved and the report's own `results[].s`
+    /// (and, for port-mode observables, the forward's `ε_eff` / line
+    /// impedance) over the differentiated frequencies — the two are separate
+    /// forwards of one operator, and a run above `1e-8` is a `solve_failed`
+    /// error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forward_parity: Option<f64>,
+    /// N-port driven path: non-fatal conditions of the gradient (a
+    /// near-degenerate face mode of a hybrid port the design touches, an
+    /// ill-conditioned bordered solve, a shape parameter that translates
+    /// the whole model rigidly or moves an unpinned wall), each with its
+    /// remedy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<WarningResult>,
+}
+
+/// One differentiated observable of the N-port driven path (issue #883).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SensitivityObservableSummary {
+    /// `"s"`, `"s_sum_sq"`, `"z0"` or `"eps_eff"`.
+    pub quantity: &'static str,
+    /// The real form of the complex value: `"mag"`, `"mag_sq"`, `"db"`,
+    /// `"phase_deg"`, `"real"` or `"imag"` (`"mag_sq"` for `s_sum_sq`).
+    pub form: &'static str,
+    /// Human-readable label, e.g. `db(S[0,1])`.
+    pub label: String,
+    /// Unit of `value`: `"1"`, `"dB"`, `"deg"`, `"ohm"` or `"ohm^2"`.
+    pub unit: &'static str,
+    /// The S entries `[i, j]` (report channel order); empty for a
+    /// port-mode quantity.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<[usize; 2]>,
+    /// Port-mode quantities: the wave port (its physical group).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wave_port: Option<String>,
+    /// Port-mode quantities: the port's reported channel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<usize>,
+    /// `z0`: the line-impedance definition differentiated
+    /// (`"power_current"`, `"power_voltage"` or `"voltage_current"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impedance_definition: Option<&'static str>,
 }
 
 /// One design parameter of a [`SensitivityReport`].
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SensitivityParameterSummary {
-    /// Volume physical-group name.
+    /// Volume physical-group name (a shape parameter: its moving groups,
+    /// comma-joined).
     pub physical_group: String,
-    /// `"eps_r"` (real relative permittivity), `"nu_r"` (relative
-    /// reluctivity `1/μ_r`) or `"mu_r"` (relative permeability).
+    /// `"eps_r"` (real relative permittivity), `"eps_r_imag"` (loss
+    /// `ε″ = −Im ε_r`), `"tan_delta"`, `"nu_r"` (relative reluctivity
+    /// `1/μ_r`), `"mu_r"` (relative permeability) or `"shape"`.
     pub kind: &'static str,
-    /// Parameter value at which the gradient was taken (dimensionless).
+    /// Parameter value at which the gradient was taken (dimensionless; a
+    /// shape parameter in metres: the stretch extent, or `0` for a
+    /// translation).
     pub value: f64,
+    /// Shape parameters (issue #883): the parameter name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Shape parameters: `"translate"` or `"stretch"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<&'static str>,
+    /// Shape parameters: the unit motion axis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<[f64; 3]>,
+    /// Shape parameters: the pinned groups.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned: Vec<String>,
+    /// Shape parameters: every named 2-D physical group the motion moves
+    /// (some node moves by more than 1e-9 of the largest motion) — check
+    /// that no surface you meant to keep fixed is listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_groups: Option<Vec<String>>,
+    /// Unit of the parameter (`"1"` material, `"m"` shape); present on the
+    /// N-port path. Gradients are in observable unit per parameter unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<&'static str>,
 }
 
 /// One gradient component of a [`SensitivityReport`].
@@ -1650,8 +1729,16 @@ pub struct SensitivityEntry {
     pub value: f64,
     /// `∂value/∂parameter` (`observable_unit` per unit parameter).
     pub gradient: f64,
+    /// N-port driven path (issue #883): index into the report's
+    /// `observables` (`index` is then `[frequency index]` into `results`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observable: Option<usize>,
+    /// N-port driven path: the frequency (Hz) of this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_hz: Option<f64>,
     /// Central finite-difference estimate (present only with
-    /// `fd_check`).
+    /// `fd_check`; a one-sided second-order difference for a loss
+    /// parameter at its lossless bound).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fd_gradient: Option<f64>,
     /// `|gradient − fd_gradient| / max(|gradient|, |fd_gradient|, 0.01 ·
@@ -1673,7 +1760,8 @@ pub struct FdCheckSummary {
     pub tolerance: f64,
     /// Largest `fd_rel_error` over the entries (`≤ tolerance`).
     pub max_rel_error: f64,
-    /// Extra forward solves the check ran (`2` per parameter).
+    /// Extra forward solves the check ran (`2` per parameter; on the
+    /// N-port path, `2` full forward sweeps per parameter).
     pub n_forward_solves: usize,
 }
 

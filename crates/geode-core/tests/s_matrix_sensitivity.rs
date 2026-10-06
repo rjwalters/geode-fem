@@ -1662,6 +1662,118 @@ fn named_group_binding_matches_explicit_regions() {
     assert!(MaterialDesign::from_named_groups(&tagged, &["block", "block"]).is_err());
 }
 
+/// `ShapeDesign::from_group_motions` (issue #883, the CLI's shape
+/// parameters): a `Translate` column is the single-Dirichlet-solve twin of
+/// `from_group_translations` (the same harmonic field by linearity, to
+/// round-off), and a `Stretch` column moves the group's two extreme sides
+/// by `∓½` per unit extent, with its value the extent.
+#[test]
+fn group_motions_match_group_translations_and_stretch_by_extent() {
+    use geode_core::driven::s_sensitivity::{GroupMotion, GroupMotionKind, GroupTranslation};
+    use geode_core::mesh::TaggedTetMesh;
+    let m = mixed_fixture();
+    let mesh = &m.g.mesh;
+    let on_xa = |f: &[u32; 3]| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][0] - A).abs() < 1e-9)
+    };
+    let xa: Vec<[u32; 3]> = m.g.sidewall_faces.iter().copied().filter(on_xa).collect();
+    let mut tris = Vec::new();
+    let mut tags = Vec::new();
+    for (faces, tag) in [(&m.g.port1_faces, 11), (&m.g.port2_faces, 12), (&xa, 13)] {
+        tris.extend_from_slice(faces);
+        tags.extend(std::iter::repeat_n(tag, faces.len()));
+    }
+    let mut tagged = TaggedTetMesh {
+        mesh: mesh.clone(),
+        tet_physical_tags: vec![1; mesh.n_tets()],
+        boundary_triangles: tris,
+        triangle_physical_tags: tags,
+    };
+    for (tag, name) in [(11, "port1"), (12, "port2"), (13, "wall_xa")] {
+        tagged
+            .mesh
+            .physical_groups
+            .insert((2, tag), name.to_string());
+    }
+    tagged
+        .mesh
+        .physical_groups
+        .insert((3, 1), "guide".to_string());
+    let pinned = ["port1", "port2"];
+    let old = ShapeDesign::from_group_translations(
+        &tagged,
+        &[GroupTranslation {
+            name: "w".into(),
+            group: "wall_xa".into(),
+            dir: [1.0, 0.0, 0.0],
+        }],
+        &pinned,
+    )
+    .unwrap();
+    let translate = GroupMotion {
+        name: "w".into(),
+        groups: vec!["wall_xa".into()],
+        kind: GroupMotionKind::Translate {
+            dir: [1.0, 0.0, 0.0],
+        },
+    };
+    let new = ShapeDesign::from_group_motions(&tagged, std::slice::from_ref(&translate), &pinned)
+        .unwrap();
+    let worst = old
+        .column(0)
+        .iter()
+        .zip(new.column(0))
+        .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+        .fold(0.0, f64::max);
+    eprintln!("GROUP MOTION | translate vs per-node columns | max |Δv| = {worst:.2e}");
+    assert!(worst < 1e-12, "{worst}");
+    assert_eq!(translate.value(&tagged).unwrap(), 0.0);
+    // Stretch of the whole guide volume (a 3-D group) along z, ports pinned:
+    // value = the guide length, the free nodes at the two ends would move by
+    // ∓½; interior nodes linearly in between (prescribed, so exact).
+    let stretch = GroupMotion {
+        name: "len".into(),
+        groups: vec!["guide".into()],
+        kind: GroupMotionKind::Stretch {
+            axis: [0.0, 0.0, 2.0],
+        },
+    };
+    let len = stretch.value(&tagged).unwrap();
+    assert!((len - LEN).abs() < 1e-12, "extent {len}");
+    let col =
+        ShapeDesign::from_group_motions(&tagged, std::slice::from_ref(&stretch), &pinned).unwrap();
+    let col = col.column(0);
+    let mut pinned_nodes = std::collections::HashSet::new();
+    for f in m.g.port1_faces.iter().chain(&m.g.port2_faces) {
+        pinned_nodes.extend(f.iter().copied());
+    }
+    for (v, x) in mesh.nodes.iter().enumerate() {
+        let want = if pinned_nodes.contains(&(v as u32)) {
+            0.0
+        } else {
+            (x[2] - LEN / 2.0) / LEN
+        };
+        assert!(
+            (col[v][2] - want).abs() < 1e-14 && col[v][0] == 0.0 && col[v][1] == 0.0,
+            "node {v}: {:?} vs {want}",
+            col[v]
+        );
+    }
+    // Errors: unknown / ambiguous groups, an all-pinned group.
+    let bad = |groups: Vec<String>| GroupMotion {
+        name: "bad".into(),
+        groups,
+        kind: GroupMotionKind::Translate {
+            dir: [1.0, 0.0, 0.0],
+        },
+    };
+    assert!(ShapeDesign::from_group_motions(&tagged, &[bad(vec!["nope".into()])], &[]).is_err());
+    assert!(
+        ShapeDesign::from_group_motions(&tagged, &[bad(vec!["port1".into()])], &["port1"]).is_err()
+    );
+}
+
 /// A shape parameter bound to **named** groups: the `x = a` wall (a 2-D
 /// physical group) translates along `+x` with both port groups pinned,
 /// extended harmonically into the volume. On the mixed fixture the gradient
