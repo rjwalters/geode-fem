@@ -4072,7 +4072,7 @@
               "type": "null"
             }
           ],
-          "description": "Material design sensitivities of the analysis's observable\n(additive in v1, issues #707 / #739). Not an analysis section: it\nrides on a `capacitance` (two-terminal), `inductance`, lossless\n`eigen` or one-lumped-port `driven` spec and adds a `sensitivities`\nblock to that report. Extract specs reject it in v1."
+          "description": "Design sensitivities of the analysis's observable (additive in v1,\nissues #707 / #739 / #883). Not an analysis section: it rides on a\n`capacitance` (two-terminal), `inductance`, lossless `eigen` or\n`driven` spec (lumped, wave, mixed or hybrid ports; N-port S\nobservables and shape parameters, issue #883) and adds a\n`sensitivities` block to that report. Extract specs reject it in v1."
         },
         "solver": {
           "$ref": "#/$defs/SolverSpec",

@@ -75,7 +75,7 @@ round-off (`tests/sensitivity_golden.rs`, which also covers the eigen
 
 ```sh
 geode driven crates/geode-cli/examples/sensitivity/microstrip_strip_width.json \
-    --check-gradient -o ms.json      # ~2.5 min release (the graded face)
+    --check-gradient -o ms.json      # ~1 min release (the graded face)
 jq '.sensitivities.entries[] | {parameter, observable, gradient, fd_rel_error}' ms.json
 ```
 

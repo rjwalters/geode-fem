@@ -392,7 +392,7 @@ jobs:
       #
       # Issue #883 adds the microstrip cookbook's strip-width sensitivity
       # under --check-gradient (dZ0/dw, deps_eff/dw, dS vs the shipped
-      # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~2.5 min
+      # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~1 min
       # in release on an M-series laptop).
       - name: geode extraction / eigen benchmark tiers (release, --ignored)
         run: |
