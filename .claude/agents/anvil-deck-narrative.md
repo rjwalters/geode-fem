@@ -1,6 +1,6 @@
 ---
 name: anvil-deck-narrative
-description: Anvil Deck Narrative-arc Critic - Specialist subagent that executes the `anvil:deck-narrative` critic command. Owns rubric dimensions 1, 7 of the /40 deck rubric. Use when running parallel specialist critics on a deck version directory.
+description: Anvil Deck Narrative-arc Critic - Specialist subagent that executes the `anvil:deck-narrative` critic command. Owns rubric dimensions 1, 7 of the /49 deck rubric. Use when running parallel specialist critics on a deck version directory.
 tools: Read, Glob, Grep, Bash, Write
 staging_pattern: ".{thread}.{N}.narrative.tmp/"
 expected_outputs:
