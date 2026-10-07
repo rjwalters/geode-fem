@@ -1,58 +1,31 @@
-//! Debug-profile regression guard for faer 0.24's `gevd::qz_real`
-//! subtract-with-overflow panic (issues #244 / #354).
+//! Debug-profile regression guard for the faer 0.24 `gevd::qz_real`
+//! subtract-with-overflow panic (issues #244 / #354, fixed in the `faier`
+//! fork by issue #908).
 //!
 //! # Why this test exists
 //!
-//! faer 0.24's dense generalized eigensolver routes through
-//! `linalg::gevd::qz_real`, which performs subtractions that legitimately
-//! wrap during the QZ iteration. Under the default `cargo test` (debug
-//! profile, `overflow-checks` / `debug-assertions` on) those wraps panic
-//! with `attempt to subtract with overflow`, even though the release-build
-//! math is correct.
+//! Upstream faer 0.24's real QZ (`linalg::gevd::qz_real`) computed the
+//! number of deflated eigenvalues in its aggressive early deflation as
+//! `ihi - kwbot`, with `kwbot = kwtop - 1` wrapping to `usize::MAX` when the
+//! deflation window starts at row 0. Release builds got the right value from
+//! the wrapping arithmetic, but with overflow checks on (the default `dev` /
+//! `test` profiles) it panicked with `attempt to subtract with overflow`.
 //!
-//! Every heavy dense-eigensolve test in the crate is `#[ignore]`d and run
-//! with `--release` to dodge this — **except**
-//! `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is meant to
-//! run under the default profile. For that to be safe, the workspace must
-//! disable `overflow-checks` for every crate in the graph (including
-//! `faer`). The mechanism is a *profile-level* `overflow-checks = false`
-//! on the dev and test profiles in the workspace `Cargo.toml`:
-//!
-//! ```toml
-//! [profile.dev]
-//! overflow-checks = false
-//!
-//! [profile.test]
-//! overflow-checks = false
-//! ```
-//!
-//! A profile-level override is required because cargo 1.96 cannot disable
-//! the overflow check for `faer` via a per-package override: neither the
-//! `[profile.test.package."*"]` glob nor a *named* `[profile.test.package.faer]`
-//! override takes effect (the package override never emits
-//! `-C debug-assertions=off`, and a live `debug-assertions` re-enables the
-//! arithmetic overflow check regardless of a package-level
-//! `overflow-checks=false`). Only a top-level `overflow-checks = false`
-//! emits an explicit `-C overflow-checks=off` for every crate and wins —
-//! see the comment block in `Cargo.toml` for the full rationale.
+//! Until #908 the workspace worked around this with a profile-level
+//! `overflow-checks = false` on the dev and test profiles (a per-package
+//! override cannot turn the check off for a dependency). The `faier` fork now
+//! uses a wrapping subtraction there (rjwalters/faier#1, with its own test
+//! `tests/fork_qz_real_aed_index_overflow.rs`), and the suppression is gone:
+//! overflow checks are on again in debug and test builds of every crate.
 //!
 //! # What this test asserts
 //!
-//! This test exercises faer's `generalized_eigen` → `qz_real` path on a
-//! deliberately tiny pencil chosen so the QZ iteration runs (and
-//! historically overflow-panics) in milliseconds rather than the
-//! many-minute dense O(n³) sphere solve. Since issue #800,
-//! `FaerDenseEigensolver` no longer goes through `qz_real` (it uses dense
-//! shift-invert with faer's standard real Schur QR), so the test calls
-//! `generalized_eigen` directly, as the remaining direct callers (for example
-//! `geode-validation`'s `cube_cavity_numpy_reference`) do, and also runs
-//! `FaerDenseEigensolver` on the same pencil under the debug profile.
-//!
-//! It is **NOT `#[ignore]`d**: it runs under the default debug profile and
-//! will panic with `attempt to subtract with overflow` if the profile-level
-//! `overflow-checks = false` is ever removed or stops taking effect. That
-//! makes it a fast, always-on guard against silently regressing the profile
-//! wiring.
+//! It runs faer's `generalized_eigen` → `qz_real` path on a small pencil
+//! that historically hit the panic in milliseconds, under the default debug
+//! profile, and also runs `FaerDenseEigensolver` (dense shift-invert with
+//! faer's standard real Schur QR since issue #800) on the same pencil. It is
+//! **not** `#[ignore]`d: if the `faier` pin ever loses the fix, it fails
+//! fast with the original overflow panic.
 
 use faer::Mat;
 use geode_core::eigen::dense::{EigenSolver, FaerDenseEigensolver};
@@ -83,15 +56,14 @@ fn laplacian_pencil(n: usize) -> (Mat<f64>, Mat<f64>) {
 
 #[test]
 fn faer_qz_does_not_overflow_under_debug() {
-    // If the top-level `overflow-checks = false` on the `[profile.dev]` /
-    // `[profile.test]` profiles in Cargo.toml is missing or ineffective,
-    // the `generalized_eigen` call below panics under the default debug
-    // profile with `attempt to subtract with overflow` from
-    // `faer::linalg::gevd::qz_real`. With the suppression in place it
-    // returns the eigenvalues cleanly.
+    // With upstream faer 0.24 (no fix, overflow checks on) the
+    // `generalized_eigen` call below panics under the default debug profile
+    // with `attempt to subtract with overflow` from
+    // `faer::linalg::gevd::qz_real`. With the faier fix (#908) it returns
+    // the eigenvalues cleanly.
     let (k, m) = laplacian_pencil(120);
-    // faer's real QZ itself (`gevd_real` → `qz_real`), the path the
-    // profile-level suppression exists for.
+    // faer's real QZ itself (`gevd_real` → `qz_real`), the path that used
+    // to overflow.
     let evd = k
         .generalized_eigen(&m)
         .expect("faer generalized eigensolve must not error");

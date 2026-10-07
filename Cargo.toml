@@ -43,8 +43,10 @@ criterion = "0.5"
 # `use faer::…` path and every `faer/<feature>` feature reference unchanged.
 #
 # `faier` is not on crates.io yet, so this is a git dependency pinned to a
-# commit on the fork's `main` branch. Once `faier` is published, replace
-# `git` + `rev` with `version = "0.24.4"` (or later).
+# commit. Issue #908 pins the fork's `main` after rjwalters/faier#1 (the #867
+# QZ / divide-and-conquer fixes) and rjwalters/faier#7 (nightly clippy lint
+# allows) merged. Once `faier` is published, replace `git` + `rev` with a
+# `version`.
 #
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
@@ -56,7 +58,7 @@ criterion = "0.5"
 # guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
 # the latency-bound single-RHS triangular-solve loop, so enabling the feature
 # does not by itself parallelize any hot loop that regresses under rayon.
-faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "407f28ba2d9137528057e404220e0b4a9b24fc41", default-features = false, features = ["std", "linalg", "rayon"] }
+faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "b61bc35d0a166a48c3021dce60294bd92b680013", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 # In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
 # refinement for arbitrary wave-port cross-sections (issue #582). Optional,
@@ -109,53 +111,12 @@ codegen-units = 1
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
 #
-# ── faer / faier 0.24 QZ overflow-panic suppression (issues #244 / #354) ──
-#
-# A handful of tests legitimately exercise faer 0.24's dense QZ
-# generalized eigensolver (`linalg::gevd::qz_real`; the `faier` fork
-# carries upstream's `linalg::gevd` unchanged), most notably
-# `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is
-# intended to run under the *default* (debug) `cargo test` profile.
-# `qz_real::aggressive_early_deflation` (`faer/src/linalg/gevd/qz_real/
-# mod.rs`; byte-identical in faer 0.24.0 and 0.24.4, so also in faier 0.24.4)
-# performs `usize` subtractions that wrap during the QZ iteration; with
-# overflow checks enabled those wraps panic with `attempt to subtract
-# with overflow` even though the release math is correct. PR #249 moved
-# the *rectangular-waveguide* modal pencil off the QZ path onto the
-# sparse Lanczos solver, but the sphere PEC eigenmode test (and the
-# `--ignored`/`--release` dense eigensolver tests) still go through it.
-#
-# Why the suppression lives at the PROFILE (not package) level:
-# cargo 1.96 cannot disable overflow checks for faer via a per-package
-# override (the package is `faier` since #907; it was `faer` when this was
-# measured). `[profile.*.package."*"]` globs do not propagate to
-# dependencies (PR #246's finding); and even a *named* override such as
-# `[profile.test.package.faer] overflow-checks = false` does NOT take
-# effect — the panic at `qz_real/mod.rs` survives it. The reason is that
-# cargo will emit `-C debug-assertions=on` for a package override but
-# *never* emits `-C debug-assertions=off`, and a live `debug-assertions`
-# re-enables the arithmetic overflow check regardless of a package-level
-# `overflow-checks=false`. (Verified empirically against cargo 1.96:
-# `cargo test --no-run -v` shows the faer rustc line with
-# `overflow-checks=off` yet the panic persists.)
-#
-# A *profile-level* `overflow-checks = false` IS emitted as an explicit
-# `-C overflow-checks=off` for every crate in the graph, and an explicit
-# `overflow-checks=off` DOES win over `debug-assertions=on`. So the
-# working mechanism is a top-level `overflow-checks = false` on the dev
-# and test profiles. The blast radius (our own crates also skip integer
-# overflow checks in debug/test) is acceptable: no test in the workspace
-# relies on an arithmetic-overflow panic (every `#[should_panic]` targets
-# an explicit `assert!`/`panic!` message), and release/CI builds are
-# unaffected. `tests/faer_qz_debug_overflow_guard.rs` is an always-on
-# (non-`#[ignore]`d) regression guard that fails fast with the original
-# overflow panic if this suppression is ever removed or stops working.
-[profile.dev]
-overflow-checks = false
-
-[profile.test]
-overflow-checks = false
-
+# There is no workspace-wide `overflow-checks = false` any more: it existed
+# only because upstream faer 0.24's real QZ wrapped a `usize` subtraction in
+# its aggressive early deflation and panicked under overflow checks (issues
+# #244 / #354). The `faier` fork fixes that subtraction (rjwalters/faier#1,
+# issue #908); `crates/geode-core/tests/faer_qz_debug_overflow_guard.rs`
+# keeps the debug-profile QZ path covered.
 [profile.dev.package."*"]
 opt-level = 3
 debug = false

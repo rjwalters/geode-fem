@@ -340,6 +340,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Dense and sparse linear algebra now comes from `faier`, our fork of faer** (#907, part of #867). The workspace `faer` dependency is now `faier` ([rjwalters/faier](https://github.com/rjwalters/faier)), pinned by git rev to `407f28b`, instead of crates.io `faer` 0.24.0. `faier` 0.24.4 is upstream `faer-v0.24.4` with only the crates renamed (`faier`, `faier-traits`). The library name is still `faer`, so no `use` paths or feature names change. The dependency moves to `version = "0.24.4"` once `faier` is on crates.io. Between upstream 0.24.0 and 0.24.4 the generalized eigensolver (`linalg::gevd`) and the tridiagonal EVD source are byte-identical, so all three #867 defects are still present at 0.24.4 and every geode workaround stays. The upstream changes are in the complex Givens-rotation convention (`jacobi.rs`, used by the standard complex Schur, the SVD and the tridiagonal EVD), the sparse LU, Cholesky and QR, and matmul.
+- **The #867 faer defects are fixed in `faier`. The workarounds they needed are retired, except dense shift-invert, which stays for speed** (#908, part of #867). `faier` is pinned to faier `main` at `b61bc35` (after [rjwalters/faier#1](https://github.com/rjwalters/faier/pull/1) and #7 merged). The pinned fork also includes the `qz_real` fix that stops a NaN `alphai` being read as a conjugate-pair start (an out-of-bounds panic on NaN/Inf input). The dependency moves to a crates.io `version` once `faier` is published. The fork fixes:
+  - the complex QZ hang (`make_givens` overflow on subnormal inputs, and no NaN check in the QZ loops);
+  - the real QZ inaccuracy (a bulge-chase rotation bug: 9e-3 relative error became 6e-14 on a 729-row definite pencil);
+  - the deflation-window spin in both QZs;
+  - the absolute divide-and-conquer deflation tolerance;
+  - the `qz_real` `usize` overflow under debug assertions;
+  - eigenvalues-only `gevd_*` returning mostly `alpha = beta = 0` above 32 rows.
+
+  Each fix has a fail-before / pass-after test in the fork.
+  - **Retired:** the workspace-wide `overflow-checks = false` on the `dev` and `test` profiles (#244 / #354). Overflow checks are back on in debug and test builds of every crate. `faer_qz_debug_overflow_guard` passes without the suppression.
+  - **Retired:** the power-of-two pre-scale in `lanczos::tridiag_eigenpairs` (#852). `tridiag_eigenpairs_is_scale_invariant` passes unchanged without it.
+  - **Kept (by choice, not by necessity):** dense shift-invert with faer's standard Schur QR in `FaerDenseEigensolver` (#800) and `FaerComplexEigensolver` (#796). The fixed QZ terminates and is accurate. On the same host it is still about 2.5× slower than shift-invert: 1.0 s vs 0.4 s on a 729-row real pencil with eigenvectors, and 1.6 s vs 0.6 s on a 600-row complex one. The doc comments now record this.
 - `adapt::estimator::VALIDATED_EFFECTIVITY` is now `[3.5, 8.0]` (was `[3.5, 7.0]`). The #879 impedance-cube golden measured θ up to 7.48. The error brackets of `ErrorEstimate` and `AdaptReport` widen accordingly (#879).
 - `adapt_eigen` stops with `StopReason::ModeLost` on the first level where a tracked mode's overlap drops below 0.5, instead of only warning after the loop. `adapt_with` / `adapt_driven` report a target reached on an INCOMPLETE estimate as `StopReason::TargetMetIncomplete` instead of `TargetMet` (#879).
 - `cube_pec_interior_p2_dofs` is now a wrapper over the face-exact `HcurlSpace` mask. It gives the same mask as before on boxes (#838).

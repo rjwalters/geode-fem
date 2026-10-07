@@ -240,6 +240,14 @@ pub(crate) const SHIFT_PROXIMITY_LIMIT: f64 = 1e6;
 /// `tests/dense_complex_eigensolver_bounded.rs` for the regression test and
 /// the PR for #796 for the full timing and cross-validation tables.
 ///
+/// The `faier` fork has since fixed both defects (issue #908,
+/// rjwalters/faier#1). `make_givens` now has a scaling guard, the QZ loops
+/// stop at the first non-finite iterate (`gevd_*` then returns
+/// `NoConvergence`), and the deflation-window spin is gone. The fixed QZ
+/// finishes the 600-row null-cluster pencil accurately in 1.6 s. Shift-invert
+/// stays because it is still about 2.5× faster: 0.6 s on the same pencil,
+/// measured back to back.
+///
 /// # Bounded failure
 ///
 /// faer offers no way to interrupt a dense eigensolve. So the bound comes

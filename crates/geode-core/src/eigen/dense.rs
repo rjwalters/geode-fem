@@ -263,6 +263,14 @@ pub const MAX_DENSE_REAL_DIM: usize = 8000;
 /// 2000 (QZ 28.9 s), 8.1 s at 3300 (QZ 46 s). The two agree to round-off;
 /// see `tests/dense_real_eigensolver_bounded.rs` and the PR for #800.
 ///
+/// The `faier` fork has since fixed the real QZ (issue #908,
+/// rjwalters/faier#1). The spin is fixed, and so is the inaccuracy behind
+/// #813: a bulge-chase rotation bug that perturbed `B` and caused 1e-2
+/// errors and spurious complex pairs. It is kept out of this path anyway
+/// because shift-invert with the standard Schur QR is still about 2.5×
+/// faster on the same pencils: 0.4 s vs 1.0 s for a 729-row real pencil
+/// with eigenvectors, measured back to back.
+///
 /// # Bounded failure
 ///
 /// * pencils larger than [`MAX_DENSE_REAL_DIM`] are refused with
