@@ -35,7 +35,10 @@
 //!    p=2 agreement of its cluster decision, and the coax guide whose two
 //!    ports used to decide its TE₁₁ cluster differently (#896), and the
 //!    same guide's TE₃₁ pair at `n_modes = 6`, decided by face listing
-//!    while the confirming solve stopped at the kept modes (#892).
+//!    while the confirming solve stopped at the kept modes (#892);
+//! 10. the degeneracy notes (issue #896): an ambiguous p=1 / p=2 gap ratio
+//!     and a near-degenerate distinct pair are reported, clear decisions
+//!     are not, and the records match the gauge's decision.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_gauge -- --nocapture
@@ -764,4 +767,183 @@ fn coax_te31_pair_is_independent_of_port_listing_at_six_modes() {
         assert!(e.abs() < 10.0, "coax mode {m}: arg(S21/e^-jβL) = {e:+.2}°");
     }
     assert!(x < 0.02 && y < 0.02, "coax TE31 cross terms {x:e}, {y:e}");
+}
+
+// ---------------------------------------------------------------------------
+// 10. Degeneracy notes (issue #896)
+// ---------------------------------------------------------------------------
+
+/// The candidate pairs of the first `n` modes of a face at `order`, as
+/// `(index, ratio, degenerate, ambiguous, unresolved, note)`.
+fn candidates(
+    pf: &geode_core::driven::ports::PortFaceProjection,
+    n: usize,
+    order: ElementOrder,
+) -> Vec<(usize, f64, bool, bool, bool, Option<String>)> {
+    pf.degenerate_candidates(n, order)
+        .expect("candidates")
+        .iter()
+        .map(|c| {
+            let k = c.confirmation.expect("confirming solve");
+            (
+                c.index,
+                k.ratio(),
+                c.degenerate,
+                k.ambiguous(),
+                k.unresolved(),
+                c.warning(),
+            )
+        })
+        .collect()
+}
+
+/// A candidate pair whose p=1 / p=2 gap ratio lies in the ambiguous band
+/// `[0.3, 0.8]` gets a note, whichever way it was decided. Measured: the
+/// TE₂₁ / TE₃₀ pair (0.69 % apart) of the Gmsh `2 × 0.9` guide reads
+/// 0.47 / 0.48 on the two ports at `lc = 0.30` (decided one cluster) and
+/// 0.56 / 0.66 at `lc = 0.22` (distinct): the transition of a pair the
+/// face does not yet resolve. Clear decisions get no ambiguity note: the
+/// coax TE₁₁ ratios 0.16 / 0.11 (the #896 probe, now on the p=1 / p=2
+/// test) and every other coax pair (≤ 0.11), the 6 × 6 structured square's
+/// TE₁₀ / TE₀₁ (0.005), and the same `2 × 0.9` pair resolved (1.22 on a
+/// structured 20 × 10 face).
+#[test]
+fn ambiguous_cluster_decisions_get_a_note() {
+    for (fixture, degenerate) in [
+        ("guide_box_lc030.msh", true),
+        ("guide_box_lc022.msh", false),
+    ] {
+        let g = gmsh_guide(fixture, 1.0, 2);
+        for (pn, faces) in [("port 1", &g.port1), ("port 2", &g.port2)] {
+            let pf = project_port_face(&g.mesh, faces).expect("box face");
+            for order in [ElementOrder::P1, ElementOrder::P2] {
+                let c = candidates(&pf, 6, order);
+                eprintln!("{fixture} {pn} {order:?}: {c:?}");
+                assert_eq!(c.len(), 1, "{fixture} {pn}: one candidate pair");
+                let (i, ratio, deg, ambiguous, _, note) = &c[0];
+                assert_eq!((*i, *deg), (4, degenerate), "{fixture} {pn}");
+                assert!(*ambiguous, "{fixture} {pn}: ratio {ratio} in the band");
+                let note = note.as_deref().expect("ambiguity note");
+                assert!(
+                    note.contains("ambiguous band") && note.contains("Refine the port faces"),
+                    "{fixture} {pn}: {note}"
+                );
+            }
+        }
+    }
+
+    let coax = gmsh_guide("guide_coax_lc018_015.msh", 1.0, 2);
+    for (pn, faces) in [("port 1", &coax.port1), ("port 2", &coax.port2)] {
+        let pf = project_port_face(&coax.mesh, faces).expect("coax face");
+        let c = candidates(&pf, 8, ElementOrder::P1);
+        eprintln!("coax {pn}: {c:?}");
+        assert!(c.len() >= 3 && c.iter().all(|x| x.2 && x.1 < 0.17));
+        let notes = pf.degeneracy_notes(8, ElementOrder::P1).expect("notes");
+        assert!(notes.is_empty(), "coax {pn}: {notes:?}");
+    }
+
+    let square = structured(6, 6, 1, 1.0, 1.0, 0.5);
+    let pf = project_port_face(&square.mesh, &square.port1).expect("square face");
+    let c = candidates(&pf, 2, ElementOrder::P1);
+    eprintln!("6 × 6 square: {c:?}");
+    assert!(c.len() == 1 && c[0].2 && c[0].1 < 0.01 && c[0].5.is_none());
+
+    let rect = structured(20, 10, 1, 2.0, 0.9, 0.5);
+    let pf = project_port_face(&rect.mesh, &rect.port1).expect("rect face");
+    let c = candidates(&pf, 6, ElementOrder::P1);
+    eprintln!("2 × 0.9, 20 × 10: {c:?}");
+    assert!(c.len() == 1 && !c[0].2 && c[0].1 > 1.0 && !c[0].3);
+}
+
+/// A reported mode of a candidate pair decided **distinct** whose p=2 gap
+/// is under 10× the face's estimated discretization error gets the "not
+/// mesh-stable" note. The TE₂₁ / TE₃₀ pair (0.69 % apart) of the Gmsh
+/// `2 × 0.9` guide at `lc = 0.18` (ratio 1.21 / 1.33, distinct on both
+/// ports) carries p=1 / p=2 cutoff errors of 0.10 % / 0.19 %, and its two
+/// ports' discrete pairs are different mixtures: the cross-mode `|S21|` of
+/// the pair is 0.20 at `ω = 5.2`, with no warning before #896. A pair the
+/// face resolves (TE₂₁ / TE₃₀ of a `2 × 0.86` face, 4.3 % apart, error
+/// fraction 0.063 on a structured 30 × 13 face) and well-separated modes
+/// (no candidate pair) get none.
+#[test]
+fn near_degenerate_distinct_pairs_get_a_mesh_stability_note() {
+    let g = gmsh_guide("guide_box_lc018.msh", 1.0, 2);
+    for (pn, faces) in [("port 1", &g.port1), ("port 2", &g.port2)] {
+        let pf = project_port_face(&g.mesh, faces).expect("box face");
+        for order in [ElementOrder::P1, ElementOrder::P2] {
+            let c = candidates(&pf, 6, order);
+            eprintln!("lc 0.18 {pn} {order:?}: {c:?}");
+            assert_eq!(c.len(), 1);
+            let (i, _, deg, ambiguous, unresolved, note) = &c[0];
+            assert!(*i == 4 && !deg && !ambiguous && *unresolved, "{pn}");
+            let note = note.as_deref().expect("mesh-stability note");
+            assert!(
+                note.contains("modes 4 / 5 are not mesh-stable")
+                    && note.contains("Refine the port face"),
+                "{pn}: {note}"
+            );
+        }
+    }
+    // The cross-mode coupling the note warns of.
+    let k = 6;
+    let (s, _) = sweep(&g, &g.port1, &g.port2, k, 1.0, 5.2);
+    let n = 2 * k;
+    let (x, y) = (s[(k + 4) * n + 5].norm(), s[(k + 5) * n + 4].norm());
+    eprintln!("lc 0.18 TE21 / TE30 cross-mode |S21| {x:.3}, {y:.3}");
+    assert!(x > 0.1 && y > 0.1, "cross-mode |S21| {x}, {y}");
+
+    let resolved = structured(30, 13, 1, 2.0, 0.86, 0.5);
+    let pf = project_port_face(&resolved.mesh, &resolved.port1).expect("rect face");
+    for order in [ElementOrder::P1, ElementOrder::P2] {
+        let c = candidates(&pf, 6, order);
+        eprintln!("2 × 0.86, 30 × 13 {order:?}: {c:?}");
+        assert!(c.len() == 1 && !c[0].2 && !c[0].4 && c[0].5.is_none());
+    }
+
+    let separated = structured(20, 10, 1, 2.0, 0.9, 0.5);
+    let pf = project_port_face(&separated.mesh, &separated.port1).expect("rect face");
+    assert!(
+        pf.degenerate_candidates(4, ElementOrder::P1)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(pf.degeneracy_notes(4, ElementOrder::P1).unwrap().is_empty());
+}
+
+/// The candidate records report the decision the gauge made: a pair is
+/// recorded degenerate exactly when the gauged modes share their cutoff
+/// (the members of a cluster carry its mean), at both orders.
+#[test]
+fn degenerate_candidates_report_the_gauge_decision() {
+    for fixture in [
+        "guide_box_lc030.msh",
+        "guide_box_lc022.msh",
+        "guide_box_lc018.msh",
+        "guide_coax_lc018_015.msh",
+    ] {
+        let g = gmsh_guide(fixture, 1.0, 2);
+        let pf = project_port_face(&g.mesh, &g.port2).expect("face");
+        let l1: Vec<f64> = pf
+            .solve_modes(6)
+            .unwrap()
+            .iter()
+            .map(|m| m.lambda)
+            .collect();
+        let l2: Vec<f64> = pf
+            .solve_modes_p2(6)
+            .unwrap()
+            .iter()
+            .map(|m| m.lambda)
+            .collect();
+        for (order, l) in [(ElementOrder::P1, &l1), (ElementOrder::P2, &l2)] {
+            for c in pf.degenerate_candidates(6, order).unwrap() {
+                assert_eq!(
+                    c.degenerate,
+                    l[c.index] == l[c.index + 1],
+                    "{fixture} {order:?} pair {}",
+                    c.index
+                );
+            }
+        }
+    }
 }
