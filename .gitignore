@@ -18,6 +18,8 @@ Cargo.lock.bak
 !benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log
 # Committed Palace run evidence log (tracked before *.log rule; negated for consistency)
 !reference/fixtures/transmon_palace/results_p1/palace_run_v22.log
+# #519 Palace-GPU head-to-head run evidence (raw per-run logs + provenance)
+!benchmarks/transmon_bench_gpu/runs/**/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json

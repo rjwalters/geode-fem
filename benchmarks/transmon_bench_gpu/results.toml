@@ -1,0 +1,163 @@
+# Transmon eigenmode GPU head-to-head (issue #519, Epic #476): Palace built
+# with CUDA + libCEED, run on GPU, vs the SAME Palace image on CPU, vs geode
+# CPU f64, on the identical sha-pinned transmon fixture, all on ONE rented host
+# in ONE session (2026-10-07). Performance companion to
+# benchmarks/transmon_bench_cpu/results.toml; correctness gate = Palace-GPU
+# eigenvalues vs the committed CPU Palace run.
+#
+# ---------------------------------------------------------------------------
+# HARDWARE CAVEAT — READ FIRST
+#   #519 was written for an AWS g6e (NVIDIA L40S, sm_89). AWS had no g6e
+#   capacity (see the #519 comments), so this ran on Lambda Cloud on an NVIDIA
+#   A100-SXM4-40GB (sm_80). What that changes:
+#   * FP64: the A100 has ~9.7 TFLOP/s of FP64 (19.5 with FP64 tensor cores);
+#     the L40S has ~1.4 TFLOP/s (1/64 rate). Palace's GPU path is FP64, so this
+#     A100 is a MUCH friendlier Palace-GPU host than the L40S the issue
+#     planned. Read the Palace-GPU numbers below as optimistic relative to an
+#     L40S, not as an L40S measurement.
+#   * Memory: 40 GB HBM2 (1.6 TB/s) vs the L40S's 48 GB GDDR6 (0.86 TB/s).
+#   * Host CPU: AMD EPYC 7J13, 30 vCPU (VM) here, vs the m6i.4xlarge (Intel,
+#     8 physical cores) of the committed CPU table and the 4-vCPU g6e.xlarge
+#     of benchmarks/gpu_driven_scaling. CPU cells below are comparable ONLY to
+#     each other, not to those files.
+# ---------------------------------------------------------------------------
+#
+# Provenance contract: every number below is measured (raw logs in
+# runs/2026-10-07_lambda_a100/raw/, generated with summarize.py). Timing =
+# /usr/bin/time -v wall clock over the full solver invocation (mesh load +
+# assembly + solve + output). For Palace that wraps `palace -np N` INSIDE the
+# container (container start-up excluded; host-side wall incl. `docker run`
+# is in raw/runs.csv). Peak RSS = max single-process RSS (/usr/bin/time over
+# mpirun = per-rank max, NOT aggregate) — same as transmon_bench_cpu. GPU
+# memory = peak nvidia-smi memory.used (100 ms poll) minus idle (0 MiB).
+
+[meta]
+issue = 519
+measured_date = "2026-10-07"
+statistic = "n = 3 runs per cell, same host, same session; mean ± sample stddev"
+fixture_mesh = "crates/geode-core/tests/fixtures/transmon_smoke.msh"
+fixture_mesh_sha256 = "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
+palace_mesh = "MSH 2.2 conversion (gmsh -0 -save -format msh2), sha256 130ddde18cedd298c4a066e8daca8bb2f7c26e5834f51af6695696d2257c4a2c (MFEM rejects the MSH 4.1 file; node-preserving, physics-neutral — same procedure as the CPU baseline)"
+problem = "6 eigenmodes, target 4.5 GHz, Order 1, Tol 1e-8 (reference/fixtures/transmon_palace/palace_config.json); GPU config differs ONLY in Solver.Device = \"GPU\" and the Output dir (palace_config_gpu.json)"
+n_interior_dofs = 133108
+
+[hardware]
+provider = "Lambda Cloud (on-demand)"
+instance_type = "gpu_1x_a100_sxm4"
+region = "us-east-1"
+gpu = "NVIDIA A100-SXM4-40GB, 40960 MiB, compute capability 8.0"
+gpu_driver = "570.148.08"
+cpu = "AMD EPYC 7J13, 30 vCPU (VM; 1 thread/core as reported)"
+ram_gib = 216
+os = "Ubuntu 22.04.5 LTS, kernel 6.8.0-60-generic (Lambda Stack image)"
+planned_hardware_not_used = "AWS g6e (NVIDIA L40S) — no capacity in any AZ of us-east-1/us-west-2 on 2026-10-07"
+
+[software]
+palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"   # same changeset as the committed CPU baseline (log prints v0.17.0-99-gfba6a5b9d)
+palace_image = "reference/palace/docker/Dockerfile.cuda, built on the box with --build-arg CUDA_ARCH=80; image sha256:f72375a94628ab3131a11f5e05b8ec24b01e824872f5b6e3af8450bb8ff8cea9 (14.6 GB), docker build wall 856 s on 30 vCPU"
+palace_cuda = "CUDA 12.6 (nvcc V12.6.85), base nvidia/cuda:12.6.3-devel-rockylinux9; MPICH 4.1.1"
+palace_build_flags = "runs/2026-10-07_lambda_a100/provenance/palace-image-provenance.txt (cmake -LA cache: PALACE_WITH_CUDA=ON, PALACE_WITH_MAGMA=ON, PALACE_WITH_OPENMP=ON, PALACE_WITH_LIBXSMM=OFF, PALACE_WITH_SUPERLU/STRUMPACK/MUMPS/SLEPC/ARPACK/GSLIB=ON, PALACE_WITH_64BIT_INT=OFF, CMAKE_BUILD_TYPE=Release, CMAKE_CUDA_ARCHITECTURES=80, C/C++/Fortran flags -O3 -ffp-contract=fast -funroll-loops)"
+libceed_backend_gpu = "/gpu/cuda/magma"          # printed by Palace; Device configuration: cuda,omp,cpu; Memory configuration: host-umpire,cuda-umpire
+libceed_backend_cpu = "/cpu/self/opt/blocked"    # same image, Device = CPU; Device configuration: omp,cpu; Memory configuration: host-umpire
+geode_commit = "861603cb (geode solver code identical to main d51b4b6e; that commit only adds bench scripts)"
+geode_binary = "cargo build --release -p geode-core --example transmon_bench (rustc 1.99.0); GEODE_INNER=direct GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=6"
+build_fixes = [
+  "Rocky 9 mpich-devel 4.1.1 compiler wrappers inject -flto=auto -ffat-lto-objects; with CUDA the LTO link of SUNDIALS nveccuda fails ('symbol fatbinData is already defined'). Dockerfile.cuda strips ONLY those two flags from the wrappers. Consequence: the CUDA image is not LTO-built, the CPU-baseline image is.",
+  "Palace's superbuild does not forward CMAKE_CUDA_HOST_COMPILER to the inner palace project and BLT (via umpire/camp) aborts; Dockerfile.cuda sets CUDAHOSTCXX=/usr/bin/g++.",
+  "docker build has no GPU driver, so Palace's configure-time libCEED link test cannot resolve libcuda.so.1; the build step links against the CUDA toolkit stub (stub dir NOT on the runtime library path).",
+  "the CUDA base image lacks `which`, which Palace's `palace` launcher script needs.",
+  "the CUDA build's binary links libcuda.so.1 even for Device = CPU, so the CPU control cells also run under `docker run --gpus all` (the first attempt without it exited 127 before main; kept in raw/failed_cpu_libcuda/).",
+]
+
+# ---------------------------------------------------------------------------
+# CORRECTNESS GATE: Palace-GPU eigenvalues vs the committed CPU Palace run.
+# ---------------------------------------------------------------------------
+[eigen_agreement]
+baseline = "reference/fixtures/transmon_palace/results_p1/eig.csv (CPU Palace fba6a5b, 8 ranks, /cpu/self/xsmm/blocked, m6i)"
+baseline_re_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]
+palace_gpu_re_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # identical in all 6 GPU runs
+max_rel_diff_palace_gpu = 1.294e-12      # worst mode, worst of 6 GPU runs (Save 0 and Save 6)
+max_rel_diff_palace_cpu_same_image = 6.468e-13
+verdict = "PASS — GPU Palace reproduces the CPU Palace eigenfrequencies to ~1e-12 relative (eig.csv prints 13 significant digits)"
+
+# ---------------------------------------------------------------------------
+# HEAD-TO-HEAD (n = 3 each, same host, same session)
+#
+# "solver" rows (Eigenmode.Save = 0) are the like-for-like comparison: geode
+# writes no field files, and Palace's ParaView writer is pathologically slow in
+# this CUDA image (see [notes.paraview]). "fixture" rows are the identical
+# fixture config (Save = 6, as in the committed CPU baseline) and are dominated
+# by that writer.
+#
+# | cell                                   | wall s (mean ± sd) | peak RSS            | GPU mem  |
+# |----------------------------------------|--------------------|---------------------|----------|
+# | geode CPU f64 direct, 8 threads        |  30.14 ± 0.55      | 3.13 GB             | –        |
+# | geode CPU f64 direct, 1 thread         |  36.07 ± 0.07      | 3.09 GB             | –        |
+# | Palace CPU, 8 ranks (same image), Save 0 |  51.03 ± 0.25    | 0.94 GB / rank      | –        |
+# | Palace GPU, 1 rank, 1x A100, Save 0    |  72.15 ± 0.20      | 2.24 GB (host)      | 5835 MiB |
+# | Palace CPU, 8 ranks, Save 6 (fixture)  | 135.83 ± 1.13      | 0.94 GB / rank      | –        |
+# | Palace GPU, 1 rank, Save 6 (fixture)   | 690.49 ± 5.64      | 2.23 GB (host)      | 5835 MiB |
+# | geode-CUDA (any precision)             | not measurable — geode has no GPU eigensolve (see [notes.geode_cuda]) |
+#
+# HONEST READ: on this 133k-DOF problem, Palace-on-GPU (one A100, one rank)
+# is SLOWER than the same Palace build on 8 CPU ranks of the same host
+# (72.2 s vs 51.0 s), and geode CPU f64 (direct shift-invert) is the fastest
+# cell (30.1 s at 8 threads). The GPU does not pay off at this size: Palace's
+# own phase timers put 28 s of the GPU run in serial (1-rank) mesh
+# preprocessing and 23.6 s in preconditioner setup/apply vs 9.9 s on 8 CPU
+# ranks; the eigen-solve proper is sub-second on both devices.
+# ---------------------------------------------------------------------------
+
+[cells.geode_cpu_t8]
+mode = "faer sparse-LU shift-invert Lanczos (direct), f64, GEODE_NUM_THREADS=8"
+wall_s = [29.60, 30.70, 30.12]
+wall_s_mean = 30.14
+wall_s_stddev = 0.55
+peak_rss_kb = [3125540, 3123636, 3134252]
+
+[cells.geode_cpu_t1]
+mode = "faer sparse-LU shift-invert Lanczos (direct), f64, GEODE_NUM_THREADS=1"
+wall_s = [36.14, 36.05, 36.01]
+wall_s_mean = 36.07
+wall_s_stddev = 0.07
+peak_rss_kb = [3085056, 3084520, 3085052]
+
+[cells.palace_cpu_np8_nosave]
+mode = "Palace CUDA image, Device = CPU, 8 MPI ranks x 1 OMP thread, libCEED /cpu/self/opt/blocked, Eigenmode.Save = 0"
+wall_s = [50.74, 51.18, 51.16]
+wall_s_mean = 51.03
+wall_s_stddev = 0.25
+peak_rss_kb_per_rank_max = [940708, 941908, 924636]
+phase_s = { initialization = 24.07, mesh_preprocessing = 21.39, operator_construction = 0.93, linear_solve = 1.65, setup = 0.30, preconditioner = 9.91, eigenvalue_solve = 0.64, div_free_projection = 3.54, estimation = 0.13, postprocessing = 0.45, disk_io = 1.08, total = 50.58 }   # Palace Elapsed Time Report (Max over ranks), mean of 3
+
+[cells.palace_gpu_np1_nosave]
+mode = "Palace CUDA image, Device = GPU, 1 MPI rank x 1 OMP thread, 1x A100, libCEED /gpu/cuda/magma, Eigenmode.Save = 0"
+wall_s = [72.22, 72.30, 71.93]
+wall_s_mean = 72.15
+wall_s_stddev = 0.20
+peak_rss_kb = [2231992, 2235136, 2209360]
+gpu_mem_peak_mib = [5835, 5835, 5835]
+phase_s = { initialization = 7.48, mesh_preprocessing = 28.18, operator_construction = 5.42, linear_solve = 0.05, setup = 1.78, preconditioner = 23.66, eigenvalue_solve = 0.04, div_free_projection = 1.97, estimation = 0.59, postprocessing = 0.40, disk_io = 1.07, total = 71.58 }
+
+[cells.palace_cpu_np8]
+mode = "as palace_cpu_np8_nosave, identical fixture config (Eigenmode.Save = 6)"
+wall_s = [134.65, 135.94, 136.90]
+wall_s_mean = 135.83
+wall_s_stddev = 1.13
+peak_rss_kb_per_rank_max = [941812, 940696, 938888]
+phase_paraview_s = [84.39, 85.46, 86.68]
+
+[cells.palace_gpu_np1]
+mode = "as palace_gpu_np1_nosave, identical fixture config (Eigenmode.Save = 6)"
+wall_s = [688.56, 696.85, 686.07]
+wall_s_mean = 690.49
+wall_s_stddev = 5.64
+peak_rss_kb = [2228048, 2232412, 2231992]
+gpu_mem_peak_mib = [5835, 5835, 5835]
+phase_paraview_s = [616.59, 624.92, 613.87]
+
+[notes]
+geode_cuda = "Acceptance criterion 4 asks for a head-to-head vs geode-CUDA at the same mesh. geode has no GPU eigensolve path (deferred by design: docs/research/gpu-eigensolve-path-design.md, #606), so no geode-CUDA eigenmode cell can exist; the same-box geode CPU f64 cell is the geode comparator. geode-CUDA would also be f32-only (burn-cuda 0.21 / cubecl disables f64), which this eigenproblem (Tol 1e-8) could not use as-is. The only geode-CUDA vs Palace-GPU head-to-head that exists is the DRIVEN solve — issue #520."
+paraview = "Palace's ParaView field writer dominates the fixture (Save = 6) cells in this CUDA image: 614-625 s of a ~690 s single-rank GPU run, and 84-87 s of a ~136 s 8-rank CPU run of the SAME image. The committed m6i CPU baseline (LTO'd, LIBXSMM image) spent 6.7 s in ParaView. The slowdown is therefore a property of this CUDA build's host-side output path (it also appears with Device = CPU), amplified on 1 rank; it is not solver time. Not investigated further here."
+same_build_vs_baseline = "The CPU control here is the SAME image as the GPU cells (isolating the device). It is NOT the image of the committed CPU baseline (that one is LTO-built with LIBXSMM: /cpu/self/xsmm/blocked, 31.25 s total on m6i), so do not compare palace_cpu_np8 here with transmon_bench_cpu across hosts/images."
+single_rank_gpu = "Palace-GPU ran 1 MPI rank on the single GPU (the standard 1 rank : 1 GPU mapping). Its serial phases (mesh preprocessing 28 s) are not parallelised, whereas the CPU control's are split over 8 ranks; that is inherent to a 1-GPU box, not a tuning choice."

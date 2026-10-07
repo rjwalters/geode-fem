@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# On-box setup for the #519 Palace-GPU transmon head-to-head (g6e / 1x L40S).
+# On-box setup for the #519 Palace-GPU transmon head-to-head (1 NVIDIA GPU).
 #
-# Run ONCE on a fresh "Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu
-# 22.04)" box (ships NVIDIA driver + docker + nvidia-container-toolkit).
+# Run ONCE on a fresh GPU box with the NVIDIA driver, docker and
+# nvidia-container-toolkit (AWS "Deep Learning Base OSS Nvidia Driver GPU AMI
+# (Ubuntu 22.04)", or a Lambda Cloud Ubuntu 22.04 image — on Lambda, first run
+# `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl
+# restart docker` so `docker run --gpus` works). Set CUDA_ARCH to the GPU's
+# sm (default 89 = L40S; #519 ran with CUDA_ARCH=80 on an A100).
 # Expects $WORK to contain (scp'd from the repo checkout):
 #   Dockerfile.cuda            reference/palace/docker/Dockerfile.cuda
 #   transmon_smoke.msh         crates/geode-core/tests/fixtures/transmon_smoke.msh
@@ -10,7 +14,7 @@
 #   palace_config_gpu.json     reference/fixtures/transmon_palace/palace_config_gpu.json
 #
 # Does, in parallel:
-#   (a) docker build of palace:cuda (Palace pinned to PALACE_REF, CUDA sm_89)
+#   (a) docker build of palace:cuda (Palace pinned to PALACE_REF, CUDA sm_$CUDA_ARCH)
 #   (b) rustup + release build of geode's transmon_bench example at GEODE_REF
 #       (niced, so the Palace build keeps priority)
 # then converts the mesh to MSH 2.2 (MFEM rejects the MSH 4.1 fixture) and
@@ -46,7 +50,7 @@ nvidia-smi --query-gpu=name,driver_version,memory.total,compute_cap --format=csv
 (
   t0=$(date +%s); rc=0
   mkdir -p "$WORK/docker-ctx" && cp "$WORK/Dockerfile.cuda" "$WORK/docker-ctx/"
-  $DOCKER build -t palace:cuda -f "$WORK/docker-ctx/Dockerfile.cuda" "$WORK/docker-ctx" > "$PROV/palace-docker-build.log" 2>&1 || rc=$?
+  $DOCKER build --build-arg CUDA_ARCH="${CUDA_ARCH:-89}" -t palace:cuda -f "$WORK/docker-ctx/Dockerfile.cuda" "$WORK/docker-ctx" > "$PROV/palace-docker-build.log" 2>&1 || rc=$?
   echo "palace docker build: rc=$rc wall_s=$(( $(date +%s) - t0 ))" > "$PROV/palace-build-time.txt"
   exit "$rc"
 ) &
@@ -83,7 +87,7 @@ wait "$PALACE_PID" || echo "palace build FAILED (see palace-docker-build.log)" >
 
 # ---- Palace build provenance from inside the image ------------------------
 $DOCKER run --rm --entrypoint bash palace:cuda -c \
-  'cd /opt/palace-src && git log -1 --format="%H %cI %s"; echo; cat /opt/palace-build-flags.txt; echo; nvcc --version | tail -2; mpichversion 2>/dev/null | head -3 || mpirun --version | head -3' \
+  'cd /opt/palace-src && git log -1 --format="%H %cI %s"; echo; cat /opt/palace-build-flags.txt; echo; echo "mpicxx -show (LTO stripped):"; cat /opt/mpicxx-show.txt; echo; nvcc --version | tail -2; mpichversion 2>/dev/null | head -3 || mpirun --version | head -3' \
   > "$PROV/palace-image-provenance.txt" 2>&1 || true
 $DOCKER image inspect palace:cuda --format '{{.Id}} {{.Created}} size={{.Size}}' > "$PROV/palace-image-id.txt" 2>&1 || true
 echo SETUP_DONE > "$PROV/SETUP_DONE"

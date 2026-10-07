@@ -1,0 +1,18 @@
+Info    : Running 'gmsh transmon_smoke.msh -0 -save -format msh2 -o transmon_smoke_v22.msh' [Gmsh 4.8.4, 1 node, max. 1 thread]
+Info    : Started on Wed Oct  7 19:35:07 2026
+Info    : Reading 'transmon_smoke.msh'...
+Info    : 428 entities
+Warning : Entity 877 not found in the Brep of entity 120
+Warning : Entity 881 not found in the Brep of entity 120
+Warning : Entity 889 not found in the Brep of entity 120
+Warning : Entity 885 not found in the Brep of entity 120
+Warning : Entity 869 not found in the Brep of entity 120
+Warning : Entity 873 not found in the Brep of entity 120
+Warning : Entity 897 not found in the Brep of entity 120
+Warning : Entity 893 not found in the Brep of entity 120
+Info    : 22684 nodes
+Info    : 148142 elements
+Info    : Done reading 'transmon_smoke.msh'
+Info    : Writing 'transmon_smoke_v22.msh'...
+Info    : Done writing 'transmon_smoke_v22.msh'
+Info    : Stopped on Wed Oct  7 19:35:07 2026 (From start: Wall 0.29843s, CPU 0.300042s)

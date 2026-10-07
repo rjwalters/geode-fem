@@ -3,11 +3,16 @@
 #
 # Same host, same session, identical sha-pinned transmon fixture
 # (6 modes @ 4.5 GHz, Order 1). Cells:
-#   palace_gpu_np1   Palace (CUDA build) "Device": "GPU", 1 MPI rank, 1x L40S
+#   palace_gpu_np1   Palace (CUDA build) "Device": "GPU", 1 MPI rank, 1 GPU
 #   palace_cpu_npN   the SAME Palace image with "Device": "CPU", N ranks
-#                    (same-box CPU control; N = physical cores)
+#                    (same-box CPU control; N = CPU_RANKS, default 8 = the
+#                    committed CPU baseline's rank count)
+#   *_nosave         the same cells with Eigenmode.Save = 0 (no ParaView
+#                    output) — CELLS="palace_gpu_nosave palace_cpu_nosave"
 #   geode_cpu_tT     geode transmon_bench (faer direct LU shift-invert, f64)
-#                    at GEODE_NUM_THREADS = T
+#                    at GEODE_NUM_THREADS = 1 and = CPU_RANKS
+# #519 ran: CELLS="palace_gpu_nosave palace_cpu_nosave geode palace_cpu
+# palace_gpu" RUNS=3 CPU_RANKS=8 (then summarize.py raw/ <baseline eig.csv>).
 # geode-CUDA has NO eigensolve path (docs/research/gpu-eigensolve-path-design.md),
 # so there is no geode GPU cell for this problem.
 #
@@ -21,36 +26,49 @@
 set -euo pipefail
 WORK="${WORK:-$HOME/palace-run}"
 RUNS="${RUNS:-3}"
-CPU_RANKS="${CPU_RANKS:-4}"
+CPU_RANKS="${CPU_RANKS:-8}"   # 8 = the committed CPU baseline's rank count
 RAW="$WORK/raw"
 mkdir -p "$RAW"
 cd "$WORK"
 DOCKER=docker
 docker info >/dev/null 2>&1 || DOCKER="sudo docker"
 
-mkcfg() {  # mkcfg <src.json> <out.json> <output-dir>
-  python3 -I - "$1" "$2" "$3" <<'EOF'
+mkcfg() {  # mkcfg <src.json> <out.json> <output-dir> <save:keep|0>
+  python3 -I - "$1" "$2" "$3" "$4" <<'EOF'
 import json, sys
-src, out, outdir = sys.argv[1:4]
+src, out, outdir, save = sys.argv[1:5]
 c = json.load(open(src))
 c["Model"]["Mesh"] = "/work/transmon_smoke_v22.msh"
 c["Problem"]["Output"] = outdir
+# save=0: identical solve, but no ParaView field output (Eigenmode.Save = 0).
+# The fixture's Save = 6 is kept for the headline cells; the Save = 0 variant
+# isolates the solver from Palace's ParaView writer, which is pathologically
+# slow on the CUDA build (623 s of a 695 s single-rank GPU run in the #519
+# smoke).
+if save == "0":
+    c["Solver"]["Eigenmode"]["Save"] = 0
 json.dump(c, open(out, "w"), indent=2)
 EOF
 }
 
 gpu_idle_mib=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)
 echo "gpu_idle_mib=$gpu_idle_mib" > "$RAW/gpu_idle.txt"
-echo "cell,run,host_wall_s,time_wall,max_rss_kb,exit,gpu_peak_mib,gpu_idle_mib" > "$RAW/runs.csv"
+# Append across invocations (e.g. CELLS=... re-runs of a subset).
+[ -f "$RAW/runs.csv" ] || echo "cell,run,host_wall_s,time_wall,max_rss_kb,exit,gpu_peak_mib,gpu_idle_mib" > "$RAW/runs.csv"
 
-palace_cell() {  # palace_cell <cell> <src-config> <np> <gpu:0|1>
-  local cell=$1 src=$2 np=$3 gpu=$4 i
+palace_cell() {  # palace_cell <cell> <src-config> <np> <gpu:0|1> [save:keep|0]
+  # shellcheck disable=SC2034  # gpu labels the cell only (all cells use --gpus all)
+  local cell=$1 src=$2 np=$3 gpu=$4 save=${5:-keep} i
   for i in $(seq 1 "$RUNS"); do
     local tag="${cell}_run${i}" out="postpro/${cell}_run${i}"
     rm -rf "$out"
-    mkcfg "$src" "cfg_${tag}.json" "/work/$out"
-    local gflag=() poll=""
-    [ "$gpu" = 1 ] && gflag=(--gpus all)
+    mkcfg "$src" "cfg_${tag}.json" "/work/$out" "$save"
+    # --gpus all for EVERY Palace cell, including the CPU control: the CUDA
+    # build's palace-x86_64.bin links libcuda.so.1, which only exists in the
+    # container when nvidia-container-toolkit injects the driver (without it
+    # the binary exits 127 before main). The CPU control still runs with
+    # "Device": "CPU" (palace_config.json); `gpu` only labels the cell.
+    local gflag=(--gpus all) poll=""
     nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -lms 100 > "$RAW/${tag}.gpumem" 2>/dev/null &
     poll=$!
     local t0 t1 rc=0
@@ -92,6 +110,8 @@ for c in $CELLS; do
   case $c in
     palace_gpu) palace_cell palace_gpu_np1 palace_config_gpu.json 1 1 ;;
     palace_cpu) palace_cell "palace_cpu_np${CPU_RANKS}" palace_config.json "$CPU_RANKS" 0 ;;
+    palace_gpu_nosave) palace_cell palace_gpu_np1_nosave palace_config_gpu.json 1 1 0 ;;
+    palace_cpu_nosave) palace_cell "palace_cpu_np${CPU_RANKS}_nosave" palace_config.json "$CPU_RANKS" 0 0 ;;
     geode) geode_cell 1; geode_cell "$CPU_RANKS" ;;
   esac
 done

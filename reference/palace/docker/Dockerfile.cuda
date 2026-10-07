@@ -4,7 +4,8 @@
 # epic #476). Differs from the CPU recipe in four load-bearing ways:
 #   1. nvidia/cuda *-devel-rockylinux9 base image (brings nvcc + CUDA libs).
 #   2. -DPALACE_WITH_CUDA=ON
-#   3. -DCMAKE_CUDA_ARCHITECTURES=89   (L40S / Ada Lovelace = sm_89; the g6e GPU)
+#   3. -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}  (default 89 = L40S / Ada, the
+#      g6e GPU; #519 actually ran with --build-arg CUDA_ARCH=80 on an A100)
 #   4. -DPALACE_WITH_MAGMA=ON          (Palace's GPU dense-LA path)
 # libCEED's /gpu/cuda/* backends are built automatically once CUDA is ON; the
 # backend is selected at RUN time via the Palace config ("Device": "GPU") and/or
@@ -16,10 +17,14 @@
 # runtime stage silently dropping a needed .so. Reproducibility > image size for
 # a one-off oracle build.
 #
-# Build (on the g6e box):
-#   docker build -t palace:cuda -f Dockerfile.cuda .
-# Run (GPU exposed via nvidia-container-toolkit):
-#   docker run --rm --gpus all -v $(pwd):/work palace:cuda /work/config.json
+# Build (on the GPU box; set CUDA_ARCH to the GPU's sm, e.g. 80 = A100,
+# 89 = L40S, 90 = H100):
+#   docker build --build-arg CUDA_ARCH=80 -t palace:cuda -f Dockerfile.cuda .
+# Verified 2026-10-07 (#519): builds clean in 856 s on a 30-vCPU host after
+# the three build fixes below (mpich LTO flags, CUDAHOSTCXX, libcuda stub).
+# Run (GPU exposed via nvidia-container-toolkit). `--gpus all` is required
+# even for "Device": "CPU" runs — the binary links libcuda.so.1:
+#   docker run --rm --gpus all -v $(pwd):/work palace:cuda -np 1 /work/config.json
 #
 # CUDA_TAG can be overridden if 12.6.3 is unavailable for rockylinux9:
 #   docker build --build-arg CUDA_TAG=12.4.1-devel-rockylinux9 ...
@@ -48,9 +53,26 @@ RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb && \
         python3 \
         time \
         wget \
+        which \
         zlib \
         mpich-devel && \
     dnf clean all
+
+# Rocky 9's mpich-devel (4.1.1) bakes the distro RPM optflags into its
+# compiler wrappers: `mpicxx -show` emits `-O2 -flto=auto -ffat-lto-objects
+# ...`. CMake's FindMPI propagates those to every superbuild target, so the
+# whole build is LTO'd — harmless on the CPU image, but with CUDA the LTO link
+# of nvcc-produced objects fails (SUNDIALS libsundials_nveccuda.so:
+# "Error: symbol `fatbinData' is already defined", lto-wrapper failed;
+# observed on the #519 build, 2026-10-07). Strip ONLY the two LTO flags from
+# the wrappers (and the pkg-config file); every other wrapper flag is kept.
+RUN for f in /usr/lib64/mpich/bin/mpicc /usr/lib64/mpich/bin/mpicxx \
+             /usr/lib64/mpich/bin/mpif77 /usr/lib64/mpich/bin/mpif90 \
+             /usr/lib64/mpich/bin/mpifort $(find /usr/lib64 -name 'mpich*.pc'); do \
+      [ -f "$f" ] && sed -i -e 's/-flto=auto//g' -e 's/-ffat-lto-objects//g' "$f"; \
+    done; \
+    /usr/lib64/mpich/bin/mpicxx -show | tee /opt/mpicxx-show.txt; \
+    ! grep -q -- '-flto' /opt/mpicxx-show.txt
 
 ARG CMAKE_VERSION=3.31.0
 RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).sh && \
@@ -59,6 +81,14 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 
 ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib:/usr/local/cuda/lib64"
 ENV PATH="/usr/lib64/mpich/bin:/usr/local/cuda/bin:${PATH}"
+# Palace's superbuild forwards CMAKE_CUDA_COMPILER/FLAGS to the inner `palace`
+# project (cmake/ExternalPalace.cmake) but NOT CMAKE_CUDA_HOST_COMPILER, and
+# BLT (pulled in via umpire -> camp) aborts the inner configure with "CUDA
+# language enabled prior to setting CMAKE_CUDA_HOST_COMPILER" (observed on
+# the #519 build at fba6a5b, 2026-10-07). CMake seeds CMAKE_CUDA_HOST_COMPILER
+# from CUDAHOSTCXX at CUDA enablement, so set it to the same g++ every other
+# sub-build already uses.
+ENV CUDAHOSTCXX=/usr/bin/g++
 
 # PALACE_REF pins the Palace source. Default = fba6a5b, the SAME changeset as
 # the committed CPU baseline (reference/fixtures/transmon_palace/results_p1/
@@ -70,7 +100,18 @@ RUN git clone https://github.com/awslabs/palace.git palace-src && \
     cd palace-src && git checkout --detach ${PALACE_REF} && git log -1 --format='%H %cI %s'
 
 WORKDIR /opt/palace-build
-RUN cmake /opt/palace-src \
+# `docker build` has no GPU driver, so libcuda.so.1 (which libCEED's CUDA
+# backends link) is absent and Palace's configure-time libCEED test program
+# fails to link ("libCEED could not be found, be sure to set LIBCEED_DIR";
+# observed on the #519 build — the identical superbuild succeeds under
+# `docker run --gpus all`, where the driver injects libcuda.so.1). Resolve it
+# against the CUDA toolkit's link stub for THIS build step only; the stub dir
+# is NOT on the runtime LD_LIBRARY_PATH, so the real driver library injected
+# by nvidia-container-toolkit is what runs.
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1 && \
+    export LD_LIBRARY_PATH="/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH}" && \
+    export LIBRARY_PATH="/usr/local/cuda/lib64/stubs:${LIBRARY_PATH}" && \
+    cmake /opt/palace-src \
     -DCMAKE_INSTALL_PREFIX=/opt/palace \
     -DCMAKE_CXX_COMPILER=g++ \
     -DCMAKE_CXX_FLAGS="${OPT_FLAGS}" \
