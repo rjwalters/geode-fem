@@ -582,8 +582,34 @@ const STILL_TOL: f64 = 1e-9;
 ///   wall's own plane whose perimeter is held (a wall sliding with a slab
 ///   it bounds, its edges on pinned port faces) and hybrid wave-port faces
 ///   (which move in-plane with the cross-section by design) are not
-///   flagged.
-fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> Vec<WarningResult> {
+///   flagged;
+/// * `sensitivity_shape_tangential` (issue #893) — the mesh moves, the
+///   geometry does not: no face of any surface of the model (the mesh
+///   boundary, every named surface group — walls, port faces, the
+///   parameter's own groups —, every material interface and UPML shell
+///   face, see [`model_faces`]) has a node moving along its normal, and no
+///   named surface group has a free-perimeter node moving across its edge
+///   ([`moves_perimeter`]). Every surface only slides within itself, so
+///   the morph is a reparametrisation: the continuum gradient is zero and
+///   the reported one is discretisation sensitivity. Deliberately
+///   conservative — one normal-moving node anywhere silences it (so a
+///   slide along a curved, faceted surface is not flagged);
+/// * `sensitivity_shape_moves_interface` (issue #893) — a material
+///   interface (a face between two volume groups of different material)
+///   has a node, not one of the parameter's own, moving along the face
+///   normal: the harmonic extension drags the interface with the motion.
+///   One warning per pair of volume groups, named in the message; raised
+///   whatever is pinned, because an interface is rarely a named surface
+///   group and then cannot be pinned. Faces on a `pec` / `leontovich` /
+///   `silver_muller` wall are left to `sensitivity_shape_moves_boundary`.
+///
+/// A rigid motion raises neither of the last two (it is its own warning).
+fn shape_warnings(
+    p: &Problem,
+    prm: &SensitivityParameter,
+    col: &[[f64; 3]],
+    faces: &ModelFaces,
+) -> Vec<WarningResult> {
     let Some(sh) = prm.shape.as_ref() else {
         return Vec::new();
     };
@@ -629,25 +655,10 @@ fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> 
         if sh.motion.groups.contains(&surf.name) || flagged.iter().any(|(_, n)| *n == surf.name) {
             continue;
         }
-        let moves_normal = surf.triangles.iter().any(|t| {
-            let x = |i: usize| p.tagged.mesh.nodes[t[i] as usize];
-            let (a, b, c) = (x(0), x(1), x(2));
-            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-            let n = [
-                u[1] * v[2] - u[2] * v[1],
-                u[2] * v[0] - u[0] * v[2],
-                u[0] * v[1] - u[1] * v[0],
-            ];
-            let nn = norm(&n);
-            if nn == 0.0 {
-                return false;
-            }
-            t.iter().filter(|k| !own.contains(k)).any(|&k| {
-                let m = col[k as usize];
-                (m[0] * n[0] + m[1] * n[1] + m[2] * n[2]).abs() / nn > STILL_TOL * max
-            })
-        });
+        let moves_normal = surf
+            .triangles
+            .iter()
+            .any(|t| normal_motion(&p.tagged.mesh.nodes, t, &own, col) > STILL_TOL * max);
         if moves_normal || moves_perimeter(&p.tagged.mesh.nodes, &surf.triangles, &own, col, max) {
             flagged.push((bc, &surf.name));
         }
@@ -667,6 +678,220 @@ fn shape_warnings(p: &Problem, prm: &SensitivityParameter, col: &[[f64; 3]]) -> 
         eprintln!("warning: {}", w.message);
         out.push(w);
     }
+    if rigid {
+        return out;
+    }
+    let nodes = &p.tagged.mesh.nodes;
+    let none = std::collections::HashSet::new();
+
+    // Purely tangential motion: no surface moves along its normal, no named
+    // surface's free perimeter moves across itself.
+    let tangential = faces
+        .interfaces
+        .iter()
+        .map(|f| &f.0)
+        .chain(&faces.other)
+        .chain(&p.tagged.boundary_triangles)
+        .all(|t| normal_motion(nodes, t, &none, col) <= STILL_TOL * max)
+        && {
+            let mut tags: Vec<i32> = p.tagged.triangle_physical_tags.clone();
+            tags.sort_unstable();
+            tags.dedup();
+            tags.into_iter().filter(|&t| t > 0).all(|tag| {
+                !moves_perimeter(nodes, &p.tagged.triangles_with_tag(tag), &none, col, max)
+            })
+        };
+    if tangential {
+        let w = WarningResult {
+            kind: "sensitivity_shape_tangential",
+            wave_port: None,
+            physical_group: None,
+            message: format!(
+                "shape parameter `{}` moves the mesh but not the geometry: no wall, port face, \
+                 material interface or group of its own moves along its normal, and no named \
+                 surface's free edge moves across itself — every surface only slides within \
+                 itself, so the morph is a reparametrisation, the continuum gradient of `{}` is \
+                 zero and the reported gradients are discretisation sensitivity (they vanish \
+                 under mesh refinement), not a design sensitivity",
+                sh.name, sh.name
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        out.push(w);
+        return out;
+    }
+
+    // Material interfaces dragged along their normal by the extension.
+    let key = |t: &[u32; 3]| {
+        let mut k = *t;
+        k.sort_unstable();
+        k
+    };
+    let on_wall: std::collections::HashSet<[u32; 3]> = p
+        .pec
+        .iter()
+        .chain(p.leontovich.iter().map(|l| &l.surface))
+        .chain(&p.silver_muller)
+        .flat_map(|s| s.triangles.iter().map(key))
+        .collect();
+    // Per region pair: (faces moving, faces, largest normal motion, the
+    // moving faces).
+    type Drift = (usize, usize, f64, Vec<[u32; 3]>);
+    let mut pairs: std::collections::BTreeMap<(usize, usize), Drift> =
+        std::collections::BTreeMap::new();
+    for (t, ra, rb) in &faces.interfaces {
+        if on_wall.contains(&key(t)) {
+            continue;
+        }
+        let e = pairs.entry((*ra, *rb)).or_default();
+        e.1 += 1;
+        let m = normal_motion(nodes, t, &own, col);
+        if m > STILL_TOL * max {
+            e.0 += 1;
+            e.2 = e.2.max(m);
+            e.3.push(key(t));
+        }
+    }
+    let tag_of: std::collections::HashMap<[u32; 3], i32> = if pairs.values().any(|d| d.0 > 0) {
+        p.tagged
+            .boundary_triangles
+            .iter()
+            .map(key)
+            .zip(p.tagged.triangle_physical_tags.iter().copied())
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+    for ((ra, rb), (moving, total, most, tris)) in pairs {
+        if moving == 0 {
+            continue;
+        }
+        let (a, b) = (&p.regions[ra].name, &p.regions[rb].name);
+        let mut named: Vec<&str> = tris
+            .iter()
+            .filter_map(|t| tag_of.get(t))
+            .filter_map(|tag| p.tagged.mesh.physical_groups.get(&(2, *tag)))
+            .map(String::as_str)
+            .collect();
+        named.sort_unstable();
+        named.dedup();
+        let remedy = if named.is_empty() {
+            "these faces are not in a named surface group, so they cannot be listed in \
+             `pinned`: tag the interface as a surface group in the mesh and pin it if it is \
+             fixed"
+                .to_string()
+        } else {
+            format!(
+                "add the surface group(s) `{}` to `pinned` if the interface is fixed",
+                named.join("`, `")
+            )
+        };
+        let w = WarningResult {
+            kind: "sensitivity_shape_moves_interface",
+            wave_port: None,
+            physical_group: None,
+            message: format!(
+                "shape parameter `{}` moves the material interface between the volume groups \
+                 `{a}` and `{b}` along its normal ({moving} of {total} faces, by up to {:.2} of \
+                 the parameter's largest node motion) on nodes that are not its own: the \
+                 harmonic extension drags that interface, so the gradient is of a morph that \
+                 also reshapes both regions — {remedy}",
+                sh.name,
+                most / max
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        out.push(w);
+    }
+    out
+}
+
+/// The largest motion along the face normal of triangle `t` over its nodes
+/// that are not in `skip` (`0` for a degenerate triangle).
+fn normal_motion(
+    nodes: &[[f64; 3]],
+    t: &[u32; 3],
+    skip: &std::collections::HashSet<u32>,
+    col: &[[f64; 3]],
+) -> f64 {
+    let x = |i: usize| nodes[t[i] as usize];
+    let (a, b, c) = (x(0), x(1), x(2));
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let nn = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if nn == 0.0 {
+        return 0.0;
+    }
+    t.iter()
+        .filter(|k| !skip.contains(k))
+        .map(|&k| {
+            let m = col[k as usize];
+            (m[0] * n[0] + m[1] * n[1] + m[2] * n[2]).abs() / nn
+        })
+        .fold(0.0, f64::max)
+}
+
+/// The untagged surfaces of the model, from the tet adjacency (issue #893).
+struct ModelFaces {
+    /// Material interfaces: a face shared by two tets of different volume
+    /// groups whose materials differ, with the two groups' indices into
+    /// [`Problem::regions`] (ascending).
+    interfaces: Vec<([u32; 3], usize, usize)>,
+    /// The mesh boundary (a face of one tet) and the faces of a UPML shell
+    /// (two tets of different [`Problem::upml_of_tet`]).
+    other: Vec<[u32; 3]>,
+}
+
+/// The [`ModelFaces`] of `p`. Two volume groups have different materials
+/// when their per-tet `ε_r`, `μ_r` or diagonal tensors differ, or either is
+/// dispersive (two groups given one material are one medium: the face
+/// between them is not an interface).
+fn model_faces(p: &Problem, region_of_tet: &[usize]) -> ModelFaces {
+    const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
+    let dispersive = |r: usize| p.dispersion.iter().any(|d| d.tag == p.regions[r].tag);
+    let diag = |a: usize, b: usize| {
+        p.eps_diag.get(a).copied().flatten() != p.eps_diag.get(b).copied().flatten()
+            || p.mu_diag.get(a).copied().flatten() != p.mu_diag.get(b).copied().flatten()
+    };
+    let upml = |t: usize| p.upml_of_tet.get(t).copied().flatten();
+    let mut first: std::collections::HashMap<[u32; 3], usize> = std::collections::HashMap::new();
+    let mut out = ModelFaces {
+        interfaces: Vec::new(),
+        other: Vec::new(),
+    };
+    for (b, tet) in p.tagged.mesh.tets.iter().enumerate() {
+        for f in FACES {
+            let tri = [tet[f[0]], tet[f[1]], tet[f[2]]];
+            let mut k = tri;
+            k.sort_unstable();
+            let Some(a) = first.remove(&k) else {
+                first.insert(k, b);
+                continue;
+            };
+            let (ra, rb) = (region_of_tet[a], region_of_tet[b]);
+            if ra != rb
+                && (p.eps[a] != p.eps[b]
+                    || p.mu_r[a] != p.mu_r[b]
+                    || diag(a, b)
+                    || dispersive(ra)
+                    || dispersive(rb))
+            {
+                out.interfaces.push((tri, ra.min(rb), ra.max(rb)));
+            } else if upml(a) != upml(b) {
+                out.other.push(tri);
+            }
+        }
+    }
+    // What is left has one tet: the mesh boundary (sorted: the map's order
+    // is not deterministic).
+    let mut boundary: Vec<[u32; 3]> = first.into_keys().collect();
+    boundary.sort_unstable();
+    out.other.extend(boundary);
     out
 }
 
@@ -859,11 +1084,16 @@ pub fn driven(
 
     // Forward parity against the report's own rows.
     let mut parity = 0.0_f64;
+    let faces = d
+        .columns
+        .iter()
+        .any(Option::is_some)
+        .then(|| model_faces(p, &sens.region_of_tet));
     let mut warnings: Vec<WarningResult> = sens
         .parameters
         .iter()
         .zip(&d.columns)
-        .filter_map(|(prm, col)| col.as_ref().map(|c| shape_warnings(p, prm, c)))
+        .filter_map(|(prm, col)| Some(shape_warnings(p, prm, col.as_ref()?, faces.as_ref()?)))
         .flatten()
         .collect();
     for &fi in &sens.frequency_indices {
