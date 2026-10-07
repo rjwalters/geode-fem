@@ -122,6 +122,45 @@ pub enum EigenError {
         /// The dense limit it exceeded.
         max: usize,
     },
+    /// A dielectric bound-mode classifier found a **hole** in the set it was
+    /// about to return (issue #850): a withheld Ritz pair that is
+    /// *localized* (`ρ · max(|λ|, |σ|) ≤ |λ − σ|`, so it locates a genuine
+    /// eigenvalue), lies in the guided `β²` window, is bound-like
+    /// (`|Im β²| ≤ 10⁻⁸ · Re β²`), and sits **above** the lowest bound mode
+    /// returned, but was still unconverged when the checked Lanczos solve
+    /// stopped, both at the classifier's request and at the automatic retry
+    /// with a doubled request. Returning the set would silently skip that
+    /// mode, and it could be the true fundamental. Raised by
+    /// [`crate::analytic::waveguide::solve_dielectric_modes`],
+    /// [`crate::analytic::waveguide::solve_dielectric_modes2`],
+    /// [`crate::analytic::waveguide::solve_dielectric_modes2_pml`] and
+    /// [`crate::analytic::waveguide::solve_dielectric_modes2_pml_profile_selected`].
+    #[error(
+        "{solver}: hole in the returned bound-mode set: Ritz pair β² = \
+         {beta_sq_re:.6e}{beta_sq_im:+.3e}i (relative residual {residual:.3e} > \
+         {residual_tol:.0e}) locates a bound-like eigenvalue in the guided window above the \
+         lowest returned bound mode β² = {lowest_returned:.6e}, but was still withheld \
+         (unconverged) after {lanczos_steps} Lanczos steps, even after an automatic retry \
+         with a doubled Lanczos request; refusing to return a set that skips it. Remedy: \
+         request more modes where the classifier takes `n_modes` (the Lanczos budget and its \
+         extension cap scale with the request) or refine / perturb the mesh (issue #850)"
+    )]
+    SelectionHole {
+        /// The classifier that refused to return.
+        solver: &'static str,
+        /// `Re β²` of the withheld localized pair.
+        beta_sq_re: f64,
+        /// `Im β²` of the withheld localized pair (`0` on the real path).
+        beta_sq_im: f64,
+        /// Its relative true residual.
+        residual: f64,
+        /// The residual tolerance it missed.
+        residual_tol: f64,
+        /// `Re β²` of the lowest bound mode the classifier would return.
+        lowest_returned: f64,
+        /// Lanczos steps run by the retry (first pass plus any extension).
+        lanczos_steps: usize,
+    },
 }
 
 /// Interface for "compute the lowest `n` eigenvalues of `K x = λ M x`".
