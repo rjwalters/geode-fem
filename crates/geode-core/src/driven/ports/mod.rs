@@ -77,7 +77,8 @@ pub use lumped::{
 };
 pub use mixed::{MixedPortSweepPoint, solve_mixed_port_sweep_with_mode};
 pub use mode_gauge::{
-    DEGENERATE_CANDIDATE_REL_TOL, DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL,
+    DEGENERATE_AMBIGUOUS_RATIO_HIGH, DEGENERATE_AMBIGUOUS_RATIO_LOW, DEGENERATE_CANDIDATE_REL_TOL,
+    DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL, DEGENERATE_UNRESOLVED_ERROR_FRACTION,
     GAUGE_FLOOR, GAUGE_LEAD_RATIO, N_REFERENCE_FIELDS, REF_MAX_INDEX, reference_field,
     relative_gap,
 };
@@ -90,11 +91,12 @@ pub use wave::{
     waveguide_mode_reduce,
 };
 pub use wave_face::{
-    GuideAxialMesh, GuideScan, PLANARITY_REL_TOL, PortFaceError, PortFaceProjection,
-    TM_GUARD_AXIAL_COEFF, TM_GUARD_AXIAL_COEFF_P2, TM_GUARD_MARGIN, TM_GUARD_MARGIN_P2_COARSE_FACE,
-    TM_GUARD_MEASURED_KH, TM_GUARD_MEASURED_KH_P2, TM_GUARD_MIN_ELEMENTS_ACROSS_P2,
-    TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, project_port_face, tm_evanescent_leak,
-    tm_guard_axial_reach, tm_guard_margin, tm_guard_margin_at_order, wave_port_from_faces,
+    CandidateConfirmation, DegenerateCandidate, GuideAxialMesh, GuideScan, PLANARITY_REL_TOL,
+    PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_AXIAL_COEFF_P2,
+    TM_GUARD_MARGIN, TM_GUARD_MARGIN_P2_COARSE_FACE, TM_GUARD_MEASURED_KH, TM_GUARD_MEASURED_KH_P2,
+    TM_GUARD_MIN_ELEMENTS_ACROSS_P2, TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate,
+    project_port_face, tm_evanescent_leak, tm_guard_axial_reach, tm_guard_margin,
+    tm_guard_margin_at_order, wave_port_from_faces,
 };
 pub use wave_p2::{
     PortFaceModeP2, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_sweep_on_space,

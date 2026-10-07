@@ -117,6 +117,60 @@ pub const DEGENERATE_CANDIDATE_REL_TOL: f64 = 5e-2;
 /// (ratio 0.23 on 10 × 5): its members share the mean cutoff.
 pub const DEGENERATE_CONVERGENCE_RATIO: f64 = 0.5;
 
+/// Lower end of the ambiguous band of the p=1 / p=2 gap ratio
+/// ([`DEGENERATE_CONVERGENCE_RATIO`]; issue #896): a candidate pair whose
+/// ratio lies in `[LOW, HIGH]` gets a note
+/// (`DegenerateCandidate::warning`). The decision is unchanged.
+///
+/// Measured ratios (both ports, p=1 and p=2 alike), issue #896:
+///
+/// - continuously degenerate pairs: at most **0.21** (0.0015 to 0.044 on
+///   the Gmsh square face `lc = 0.20`; 0.003 to 0.044 on the 338-triangle
+///   and 0.027 to 0.21 on the 41-triangle face of the circular guide; 0.006
+///   to 0.16 on both coax faces; 0.0012 to 0.027 on structured squares and
+///   `2 × 1` faces);
+/// - the physically distinct TE₂₁ / TE₃₀ pair of a `2 × 0.9` guide
+///   (0.69 % apart), resolved: **1.21 to 1.51** (Gmsh `lc = 0.18`; structured
+///   20 × 10 to 40 × 20);
+/// - the same pair while the face is too coarse to resolve it: 0.23
+///   (structured 10 × 5, one cluster: its p=1 split is mostly
+///   discretization error), **0.47 / 0.48** (Gmsh `lc = 0.30`, the two
+///   ports, cluster), **0.51** (structured 14 × 7, distinct), **0.56 /
+///   0.66** (Gmsh `lc = 0.22`, distinct);
+/// - a distinct pair 3.1 % apart (TE₂₁ / TE₃₀ of a `2 × 0.87` face):
+///   0.78 (structured 20 × 9), 0.88 (30 × 13), 0.93 (40 × 17), approaching
+///   1 from below as the p=1 discretization split fades.
+///
+/// The band holds the transition of an under-resolved distinct pair, where
+/// the decision follows the mesh, and leaves a margin of 0.09 above every
+/// measured degenerate pair; a distinct pair leaves it once the face
+/// resolves the split (ratio above 0.8).
+pub const DEGENERATE_AMBIGUOUS_RATIO_LOW: f64 = 0.3;
+
+/// Upper end of the ambiguous band of the p=1 / p=2 gap ratio
+/// ([`DEGENERATE_AMBIGUOUS_RATIO_LOW`], which records the measured ratios).
+pub const DEGENERATE_AMBIGUOUS_RATIO_HIGH: f64 = 0.8;
+
+/// A candidate pair decided **distinct** is near-degenerate when the face's
+/// estimated discretization error at the pair (the larger relative p=1 /
+/// p=2 cutoff difference of its members) is at least this fraction of the
+/// pair's p=2 gap (issue #896, `CandidateConfirmation::unresolved`). Its
+/// discrete modes are then mesh-dependent mixtures of the two physical
+/// modes, and its cross-mode S-parameters are not mesh-stable.
+///
+/// The mixing is set by the discretization's coupling of the two modes,
+/// which the cutoff errors do not bound (a cutoff is a Rayleigh quotient,
+/// second order in the mode error), so the fraction is set from measured
+/// mixing, well under 1. The TE₂₁ / TE₃₀ pair of the Gmsh `2 × 0.9` guide
+/// at `lc = 0.18` (gap 0.69 %, errors 0.10 % / 0.19 % on its two ports,
+/// fractions 0.15 / 0.28) gives a cross-mode `|S21|` of 0.20 at `ω = 5.2`;
+/// 0.1 flags it with a margin of 1.5. Pairs further apart sit below it once
+/// the face resolves them: 0.063 for TE₂₁ / TE₃₀ of a `2 × 0.86` face (4.3 %
+/// apart, structured 30 × 13), 0.054 for a `2 × 0.87` face (3.1 % apart,
+/// 40 × 17); the same `2 × 0.87` pair at 30 × 13 reads 0.092. A pair more
+/// than [`DEGENERATE_CANDIDATE_REL_TOL`] apart is never a candidate.
+pub const DEGENERATE_UNRESOLVED_ERROR_FRACTION: f64 = 0.1;
+
 /// Relative gap `|b − a| / max(|a|, |b|)` of two cutoffs `k_c²`.
 pub fn relative_gap(a: f64, b: f64) -> f64 {
     let m = a.abs().max(b.abs());
