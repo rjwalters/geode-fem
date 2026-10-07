@@ -20,6 +20,9 @@
 //!    incidence: matched z-UPML backed by PEC, scattered-field source, an
 //!    independent truncation.
 //! 6. **Rejection** of propagating higher orders (P3b) and of bad specs.
+//! 7. **Accuracy indicator** (issue #885): the estimated p=1 specular floor
+//!    `C (k h)² k/k_z` against the measured reflection of an empty cell, and
+//!    the resolution warning it raises.
 
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
@@ -31,7 +34,7 @@ use faer::c64;
 
 use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetError, FloquetIncidence, FloquetPolarization,
-    FloquetPortSpec, FloquetSettings, FloquetSolution,
+    FloquetPortSpec, FloquetSettings, FloquetSolution, SPECULAR_FLOOR_COEFF, SPECULAR_FLOOR_WARN,
 };
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
@@ -268,6 +271,218 @@ fn empty_cell_transmits_with_bloch_phase_at_every_angle_and_polarization() {
     let rate11 = (s11 / s11f).log2();
     eprintln!("|S11| observed order {rate11:.2}");
     assert!(rate11 > 1.7, "S11 convergence order {rate11}");
+}
+
+// --- Golden 7: the specular-resolution accuracy indicator (#885) -------------
+
+/// Lateral period of the wide cell of golden 7: `|b| = 2π/0.6` is small
+/// enough that the under-resolved-evanescent warning stays silent on the
+/// coarse mesh, so that mesh used to solve with no warning at all.
+const A_WIDE: f64 = 0.6;
+
+/// The resolution warning of a solution, if it was raised.
+fn resolution_warning(warnings: &[String]) -> Option<&String> {
+    warnings.iter().find(|w| w.contains("discretization floor"))
+}
+
+/// Per angle of an empty wide cell with `n` hexes per `0.1`: the measured
+/// worst specular leak (`|S₁₁|` and the cross-polarized `S₁₁`, `S₂₁`, all
+/// exactly zero), the estimated floor, and whether the solve warned.
+fn wide_cell_floor(per_tenth: usize, angles: &[(f64, f64)]) -> Vec<(f64, f64, bool)> {
+    let (nxy, nz) = (6 * per_tenth, 10 * per_tenth);
+    let c = cell([nxy, nxy, nz], [A_WIDE, A_WIDE, L_CELL], 7);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let fc = floquet(&c, &eps, FloquetSettings::default());
+    // The port-face edge the code measures is the diagonal of the split.
+    let kh = K0 * (0.1 / per_tenth as f64) * 2.0_f64.sqrt();
+    eprintln!("wide empty cell, grid h = 0.1/{per_tenth}, port-face k·h = {kh:.4}");
+    eprintln!(" θ°   φ°   measured    estimated   est/meas  warned");
+    let mut out = Vec::new();
+    for &(theta, phi) in angles {
+        let inc = FloquetIncidence::degrees(theta, phi, 0);
+        let sol = fc.solve_incidence(K0, &inc).unwrap();
+        let mut measured = 0.0_f64;
+        for pol in [Te, Tm] {
+            let other = if pol == Te { Tm } else { Te };
+            measured = measured
+                .max(s_spec(&sol, 0, pol, pol).norm())
+                .max(s_spec(&sol, 0, other, pol).norm())
+                .max(s_spec(&sol, 1, other, pol).norm());
+        }
+        let est = fc.specular_floor_estimate(K0, fc.k_t_of(K0, &inc).unwrap());
+        let want = SPECULAR_FLOOR_COEFF * kh * kh / f64::to_radians(theta).cos();
+        assert!(
+            (est - want).abs() < 1e-12,
+            "the estimate is C (k h)² k/k_z with h the longest port-face edge: {est} vs {want}"
+        );
+        assert!(
+            !sol.warnings.iter().any(|w| w.contains("under-resolved")),
+            "the wide cell must not trip the evanescent warning: {:?}",
+            sol.warnings
+        );
+        let warning = resolution_warning(&sol.warnings);
+        if let Some(w) = warning {
+            eprintln!("  {w}");
+            // It names k·h, the estimated floor and the h to refine to.
+            let h_refine =
+                (0.1 / per_tenth as f64) * 2.0_f64.sqrt() * (SPECULAR_FLOOR_WARN / est).sqrt();
+            for needle in [
+                format!("k·h = {kh:.3}"),
+                format!("specular S is {est:.1e}"),
+                format!("to h ≤ {h_refine:.4e}"),
+            ] {
+                assert!(w.contains(&needle), "warning lacks `{needle}`: {w}");
+            }
+        }
+        eprintln!(
+            "{theta:>3} {phi:>4}   {measured:.3e}   {est:.3e}   {:>6.2}    {}",
+            est / measured,
+            warning.is_some()
+        );
+        out.push((measured, est, warning.is_some()));
+    }
+    out
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn specular_floor_estimate_tracks_the_empty_cell_and_warns_only_when_coarse() {
+    let all: Vec<(f64, f64)> = [0.0, 30.0, 60.0, 75.0]
+        .iter()
+        .flat_map(|&t| [(t, 0.0), (t, 37.0)])
+        .collect();
+    // λ/25 grid (port-face k·h = 0.354): the mesh the issue found silent.
+    let coarse = wide_cell_floor(1, &all);
+    for (&(theta, phi), &(measured, est, warned)) in all.iter().zip(&coarse) {
+        // The warning is exactly `estimate > threshold` ...
+        assert_eq!(warned, est > SPECULAR_FLOOR_WARN, "θ = {theta}, φ = {phi}");
+        // ... it fires at the oblique angles and not at the shallow ones ...
+        assert_eq!(warned, theta >= 60.0, "θ = {theta}, φ = {phi}");
+        // ... no result above the threshold goes unwarned ...
+        assert!(
+            warned || measured < SPECULAR_FLOOR_WARN,
+            "θ = {theta}, φ = {phi}: measured {measured} above the threshold, no warning"
+        );
+        // ... and the estimate is not optimistic (measured ≤ 1.25 × it).
+        assert!(
+            measured < 1.25 * est,
+            "θ = {theta}, φ = {phi}: measured {measured}, estimated {est}"
+        );
+    }
+    // λ/50 grid (k·h = 0.177): silent at every angle up to 75°.
+    let worst_angles = [(0.0, 0.0), (60.0, 37.0), (75.0, 37.0)];
+    let fine = wide_cell_floor(2, &worst_angles);
+    for (&(theta, phi), &(measured, est, warned)) in worst_angles.iter().zip(&fine) {
+        assert!(!warned, "θ = {theta}, φ = {phi}: λ/50 must not warn");
+        assert!(measured < SPECULAR_FLOOR_WARN && measured < 1.25 * est);
+    }
+    // The worst estimate is within a factor 2 of the worst measured leak, on
+    // both meshes (the measured floor is O(h²), like the estimate).
+    let worst = |v: &[(f64, f64, bool)]| {
+        v.iter().fold((0.0_f64, 0.0_f64), |(m, e), &(a, b, _)| {
+            (m.max(a), e.max(b))
+        })
+    };
+    let (mc, ec) = worst(&coarse);
+    let (mf, ef) = worst(&fine);
+    eprintln!(
+        "worst measured / estimated: λ/25 {mc:.3e} / {ec:.3e} ({:.2}), λ/50 {mf:.3e} / {ef:.3e} \
+         ({:.2}); measured order {:.2}",
+        ec / mc,
+        ef / mf,
+        (mc / mf).log2()
+    );
+    for (m, e) in [(mc, ec), (mf, ef)] {
+        assert!(
+            (0.5..2.0).contains(&(e / m)),
+            "estimate {e} vs measured {m}"
+        );
+    }
+    assert!((mc / mf).log2() > 1.7, "the measured floor is O(h²)");
+
+    // λ/100 grid: no solve needed, the channel set carries the warnings.
+    let c = cell([12, 12, 4], [0.3, 0.3, 0.1], 7);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let fc = floquet(&c, &eps, FloquetSettings::default());
+    for &(theta, phi) in &all {
+        let inc = FloquetIncidence::degrees(theta, phi, 0);
+        let k_t = fc.k_t_of(K0, &inc).unwrap();
+        let (_, warnings) = fc.channels_at(K0, k_t, inc.phi).unwrap();
+        assert!(
+            resolution_warning(&warnings).is_none(),
+            "λ/100 must not warn at θ = {theta}: {warnings:?}"
+        );
+        assert!(fc.specular_floor_estimate(K0, k_t) < SPECULAR_FLOOR_WARN / 6.0);
+    }
+    // A warning and never an error: near grazing even the λ/100 mesh warns
+    // (k/k_z = 57 at 89°) and still solves.
+    let grazing = fc
+        .solve_incidence(K0, &FloquetIncidence::degrees(89.0, 0.0, 0))
+        .unwrap();
+    assert!(grazing.residual_rel < 1e-10);
+    assert!(
+        resolution_warning(&grazing.warnings).is_some(),
+        "{:?}",
+        grazing.warnings
+    );
+}
+
+/// The estimate uses the port medium's `k` and `k_z`, takes the worse port,
+/// and skips a port whose specular order does not propagate.
+#[test]
+fn specular_floor_estimate_uses_the_port_medium_and_skips_a_cut_off_port() {
+    let c = cell([2, 2, 4], [0.1, 0.1, 0.2], 5);
+    let glass = 2.25;
+    let eps: Vec<c64> = (0..c.mesh.n_tets())
+        .map(|t| {
+            c64::new(
+                if centroid(&c.mesh, t)[2] < 0.1 {
+                    glass
+                } else {
+                    1.0
+                },
+                0.0,
+            )
+        })
+        .collect();
+    let spec = FloquetCellSpec {
+        eps_r: &eps,
+        sigma: None,
+        pec_interior_mask: None,
+        ports: [
+            FloquetPortSpec {
+                triangles: &c.bottom,
+                eps_r: glass,
+            },
+            FloquetPortSpec {
+                triangles: &c.top,
+                eps_r: 1.0,
+            },
+        ],
+        settings: FloquetSettings::default(),
+    };
+    let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+    let h = 0.05 * 2.0_f64.sqrt();
+    let floor =
+        |k: f64, kt: f64| SPECULAR_FLOOR_COEFF * (k * h).powi(2) * k / (k * k - kt * kt).sqrt();
+    let k_glass = K0 * glass.sqrt();
+    // Normal incidence: the glass port (larger k) is the worse one.
+    let est = fc.specular_floor_estimate(K0, [0.0; 3]);
+    assert!((est - floor(k_glass, 0.0)).abs() < 1e-14, "{est}");
+    // k_t between the two light lines: the vacuum port is past the critical
+    // angle (no S there), so only the glass port counts.
+    let kt = 0.5 * (K0 + k_glass);
+    let est = fc.specular_floor_estimate(K0, [kt, 0.0, 0.0]);
+    assert!((est - floor(k_glass, kt)).abs() < 1e-14, "{est}");
+    // Just inside the vacuum light line the vacuum port is near grazing and
+    // dominates.
+    let kt = 0.999 * K0;
+    let est = fc.specular_floor_estimate(K0, [kt, 0.0, 0.0]);
+    assert!((est - floor(K0, kt)).abs() < 1e-12 * est, "{est}");
+    assert!(floor(K0, kt) > floor(k_glass, kt));
 }
 
 // --- Golden 2: slab vs Fresnel/Airy -----------------------------------------
