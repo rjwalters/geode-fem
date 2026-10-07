@@ -49,6 +49,36 @@
 //! fields at Γ are genuine `ω = 0` modes, and they are returned flagged
 //! [`BlochMode::is_static`].
 //!
+//! # Near (not at) Γ (issue #869)
+//!
+//! "In the reciprocal lattice" is decided **structurally**:
+//! [`BlochCell::is_gamma_equivalent`] holds iff `P(k) = P(0)` exactly,
+//! i.e. every `k·Σd` is within round-off (`~1e-14` rad, the snap of
+//! [`PeriodicConstraint::with_bloch_phase`]) of `2πℤ`. Every decision
+//! that depends on Γ reads that one flag:
+//! - [`BlochMode::is_static`] is `Γ-equivalent && λ ≤ static_tol_rel ·
+//!   (2π/L)²`. Off the lattice no mode is static, however small its `λ`,
+//!   so clustering and group velocities (here and in [`path`]) treat the
+//!   light-line bands as ordinary bands;
+//! - with no node eliminated, the constant node field is pinned at a
+//!   Γ-equivalent `k` (it is in `ker G_r` exactly). Off the lattice node
+//!   0 is still pinned, and the one missing gradient direction is restored
+//!   as a rank-one term `w = Π_p G_r·1`. Near Γ, `L = G_rᴴ M_r G_r` has
+//!   condition number `~ 1/|k − G|²`; the pinned `L` does not, so the
+//!   projector stays accurate however close `k` is to the lattice.
+//!
+//! The remaining limit is resolution, not conditioning. A computed `λ`
+//! has an absolute round-off floor ([`BlochCell::lambda_roundoff_floor`],
+//! `ε_mach · λ_max`), so a band `ω ≈ |k − G|` carries a relative error of
+//! about `floor / 2λ`. A `k` that is not Γ-equivalent but closer to the
+//! lattice than [`BlochCell::near_gamma_min_phase`] (where that error
+//! would exceed [`NEAR_GAMMA_MAX_REL_ERR`]) is refused with a typed
+//! [`BlochError::InvalidInput`] that names the threshold. Solve at the
+//! lattice vector itself for the Γ limit. Above the threshold, modes whose
+//! estimated error exceeds [`NEAR_GAMMA_WARN_REL_ERR`] are reported in
+//! [`BlochModes::warnings`]. On the `n = 6` unit 3-torus the threshold is
+//! about `3e-6` rad.
+//!
 //! # Group velocity
 //!
 //! The group velocity comes from Hellmann–Feynman through `∂P/∂k = −j Σd P`
@@ -92,18 +122,30 @@ use faer::{Mat, Side};
 pub use hermitian::realify_hermitian;
 pub use path::{BandStructure, KPath, KPoint, TrackedBand};
 
-use crate::assembly::periodic::{PeriodicConstraint, PeriodicError};
+use crate::assembly::periodic::{DofAlias, PeriodicConstraint, PeriodicError};
 use crate::eigen::pec_cavity::{
     PecCavityError, PecCavityMaterials, assemble_lossless_pencil_with_materials,
 };
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 use hermitian::{
-    GradientProjector, HermitianSettings, Selection, dotc, solve_hermitian, spmv_c, spmv_rc,
+    ConstantNodeMode, GradientProjector, HermitianSettings, Selection, dotc, solve_hermitian,
+    spmv_c, spmv_rc,
 };
 
 /// The Hermitian reduced pencil `(K_r, M_r)` at one Bloch `k`.
 pub type HermitianPencil = (SparseColMat<usize, c64>, SparseColMat<usize, c64>);
+
+/// The largest relative round-off error that [`BlochCell::solve`] accepts
+/// on the bands with `ω → 0` near a Γ-equivalent point (issue #869). It
+/// sets [`BlochCell::near_gamma_min_phase`]: closer than that, the solve
+/// refuses with a typed [`BlochError::InvalidInput`].
+pub const NEAR_GAMMA_MAX_REL_ERR: f64 = 1e-2;
+
+/// A returned non-static mode whose estimated relative round-off error
+/// ([`BlochCell::lambda_roundoff_floor`]` / 2λ`) exceeds this gets a
+/// warning in [`BlochModes::warnings`] (issue #869).
+pub const NEAR_GAMMA_WARN_REL_ERR: f64 = 1e-4;
 
 /// Prefix of the warning for a degenerate cluster cut by the top of the
 /// returned window.
@@ -172,8 +214,10 @@ pub struct BlochSettings {
     /// degenerate cluster. The default is `5e-3`, so pairs split by mesh
     /// anisotropy (measured 0.1–0.2 % on the 6-tet split) still group.
     pub degeneracy_tol_rel: f64,
-    /// Modes with `λ ≤ static_tol_rel · (2π/L)²` are flagged
-    /// [`BlochMode::is_static`]. These are the harmonic fields at Γ.
+    /// At a Γ-equivalent `k` ([`BlochCell::is_gamma_equivalent`]), modes
+    /// with `λ ≤ static_tol_rel · (2π/L)²` are flagged
+    /// [`BlochMode::is_static`]. These are the harmonic fields. At any
+    /// other `k` no mode is static, whatever its `λ` (issue #869).
     pub static_tol_rel: f64,
     /// Seed of the random start block (results are deterministic).
     pub seed: u64,
@@ -235,7 +279,9 @@ pub struct BlochMode {
     /// those.
     pub group_velocity: Option<[f64; 3]>,
     /// A harmonic (`ω = 0`) field. These exist only at `k` in the
-    /// reciprocal lattice.
+    /// reciprocal lattice, so the flag is set only at a Γ-equivalent `k`
+    /// ([`BlochCell::is_gamma_equivalent`]) and only for
+    /// `λ ≤ static_tol_rel · (2π/L)²` (issue #869).
     pub is_static: bool,
     /// Index into [`BlochModes::clusters`].
     pub cluster: usize,
@@ -280,6 +326,13 @@ pub struct BlochCell {
     shifts: Vec<[f64; 3]>,
     /// Longest lattice vector.
     lattice_len: f64,
+    /// The distinct nonzero lattice shifts `Σd` of the cell (nodes and
+    /// DOFs), for [`BlochCell::gamma_phase_distance`].
+    lattice_shifts: Vec<[f64; 3]>,
+    /// [`BlochCell::lambda_roundoff_floor`].
+    lambda_floor: f64,
+    /// [`BlochCell::near_gamma_min_phase`].
+    near_gamma_min_phase: f64,
 }
 
 impl BlochCell {
@@ -333,6 +386,16 @@ impl BlochCell {
                     .into(),
             ));
         }
+        let mut lattice_shifts: Vec<[f64; 3]> = Vec::new();
+        for d in shifts
+            .iter()
+            .copied()
+            .chain((0..base.nodes().n_full()).map(|v| base.nodes().lattice_shift(v)))
+        {
+            if d != [0.0; 3] && !lattice_shifts.contains(&d) {
+                lattice_shifts.push(d);
+            }
+        }
         let all = vec![true; n];
         let (k_full, m_full) =
             assemble_lossless_pencil_with_materials::<B>(mesh, materials, &all, device)?;
@@ -362,6 +425,28 @@ impl BlochCell {
                 ]
             })
             .collect();
+        // λ round-off floor ≈ ε_mach · λ_max, with λ_max estimated by the
+        // largest diagonal Rayleigh quotient K_ii / M_ii (issue #869;
+        // measured within 2× of the spread of the harmonic λ at Γ).
+        let diag = |a: &SparseColMat<usize, f64>, j: usize| -> f64 {
+            a.row_idx_of_col(j)
+                .zip(a.val_of_col(j))
+                .filter(|(i, _)| *i == j)
+                .map(|(_, v)| *v)
+                .sum()
+        };
+        let lambda_max = (0..n)
+            .filter_map(|j| {
+                let (kd, md) = (diag(&k_full, j), diag(&m_full, j));
+                (md > 0.0).then(|| kd / md)
+            })
+            .fold(0.0, f64::max);
+        let lambda_floor = f64::EPSILON * lambda_max;
+        let a_min = lattice_shifts
+            .iter()
+            .map(|d| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
+            .fold(f64::INFINITY, f64::min);
+        let near_gamma_min_phase = a_min * (lambda_floor / (2.0 * NEAR_GAMMA_MAX_REL_ERR)).sqrt();
         Ok(Self {
             k_full,
             m_full,
@@ -370,6 +455,9 @@ impl BlochCell {
             midpoints,
             shifts,
             lattice_len,
+            lattice_shifts,
+            lambda_floor,
+            near_gamma_min_phase,
         })
     }
 
@@ -412,11 +500,74 @@ impl BlochCell {
         (2.0 * PI / self.lattice_len).powi(2)
     }
 
+    /// Whether `k` is **Γ-equivalent** (in the reciprocal lattice of the
+    /// cell): the Bloch phase factor of every lattice shift of the cell is
+    /// exactly 1, i.e. `P(k) = P(0)`.
+    ///
+    /// [`PeriodicConstraint::with_bloch_phase`] snaps phase-factor
+    /// components within `1e-14` of zero, so this holds iff every
+    /// `k·Σd` is within round-off (`~1e-14` rad) of `2πℤ`. It is the
+    /// structural test behind [`BlochMode::is_static`] and the pinning of
+    /// the constant node field (issue #869).
+    pub fn is_gamma_equivalent(&self, k: [f64; 3]) -> bool {
+        self.phased_is_gamma_equivalent(&self.base.with_bloch_phase(k))
+    }
+
+    /// [`Self::is_gamma_equivalent`] on an already phased constraint.
+    fn phased_is_gamma_equivalent(&self, c: &PeriodicConstraint) -> bool {
+        let same = |a: &crate::assembly::periodic::DofAliasMap,
+                    b: &crate::assembly::periodic::DofAliasMap| {
+            (0..a.n_full()).all(|i| a.alias(i) == b.alias(i))
+        };
+        same(c.nodes(), self.base.nodes()) && same(c.dofs(), self.base.dofs())
+    }
+
+    /// The distance of `k` from the nearest Γ-equivalent point, as the
+    /// largest Bloch phase across the cell: `max_d |k·d mod 2π|` over the
+    /// cell's lattice shifts `d`, wrapped to `[0, π]` (rad). For a cubic
+    /// cell of side `L` and `k` along an axis it is `|k − G|·L`, with `G`
+    /// the nearest reciprocal lattice vector.
+    ///
+    /// [`Self::solve`] refuses a `k` that is not Γ-equivalent but has a
+    /// distance below [`Self::near_gamma_min_phase`] (issue #869).
+    pub fn gamma_phase_distance(&self, k: [f64; 3]) -> f64 {
+        self.lattice_shifts
+            .iter()
+            .map(|d| {
+                let th = k[0] * d[0] + k[1] * d[1] + k[2] * d[2];
+                (th - 2.0 * PI * (th / (2.0 * PI)).round()).abs()
+            })
+            .fold(0.0, f64::max)
+    }
+
+    /// The absolute round-off floor of a computed `λ` (`(rad / length)²`):
+    /// `ε_mach · λ_max`, with `λ_max` estimated as `max_i K_ii / M_ii`.
+    /// A band with `λ` near it is not resolved; in particular a band
+    /// `ω ≈ |k − G|` carries a relative error of about `floor / 2λ`
+    /// (issue #869).
+    pub fn lambda_roundoff_floor(&self) -> f64 {
+        self.lambda_floor
+    }
+
+    /// The smallest nonzero [`Self::gamma_phase_distance`] (rad) that
+    /// [`Self::solve`] accepts: `a_min · √(floor / 2ε)`, with `a_min` the
+    /// shortest lattice shift, `floor` = [`Self::lambda_roundoff_floor`]
+    /// and `ε` = [`NEAR_GAMMA_MAX_REL_ERR`]. Below it (but above
+    /// round-off, where `k` is Γ-equivalent) the bands `ω ≈ |k − G|` would
+    /// carry a relative error above about `ε`, and the solve refuses with
+    /// [`BlochError::InvalidInput`] (issue #869). About `3e-6` rad on the
+    /// `n = 6` unit 3-torus.
+    pub fn near_gamma_min_phase(&self) -> f64 {
+        self.near_gamma_min_phase
+    }
+
     /// Solve for the Bloch modes at `k` (rad per mesh length unit).
     ///
     /// # Errors
     ///
-    /// [`BlochError::InvalidInput`] for bad settings or a non-finite `k`;
+    /// [`BlochError::InvalidInput`] for bad settings, a non-finite `k`, or
+    /// a `k` that is not Γ-equivalent but closer to a Γ-equivalent point
+    /// than [`Self::near_gamma_min_phase`] (issue #869);
     /// [`BlochError::NotConverged`] if the basis cap is hit;
     /// [`BlochError::Solve`] / [`BlochError::Periodic`] on numerical
     /// failures.
@@ -426,18 +577,44 @@ impl BlochCell {
             return Err(BlochError::InvalidInput(format!("non-finite k {k:?}")));
         }
         let c = self.base.with_bloch_phase(k);
+        let gamma = self.phased_is_gamma_equivalent(&c);
+        if !gamma {
+            let rho = self.gamma_phase_distance(k);
+            let min = self.near_gamma_min_phase;
+            if rho < min {
+                return Err(BlochError::InvalidInput(format!(
+                    "k = {k:?} is a Bloch phase of {rho:.3e} rad from a reciprocal lattice vector \
+                     (a Γ-equivalent point) without being one. Below near_gamma_min_phase = \
+                     {min:.3e} rad the bands with ω ≈ |k − G| → 0 carry a relative round-off \
+                     error above {NEAR_GAMMA_MAX_REL_ERR:e} (λ round-off floor {:.3e}) and \
+                     cannot be told apart from the harmonic fields. Solve at the lattice vector \
+                     itself (e.g. k = 0 for Γ, which returns the harmonic fields as static \
+                     modes), or move k so that max |k·d mod 2π| ≥ {min:.3e} rad",
+                    self.lambda_floor
+                )));
+            }
+        }
         let kr = c.dofs().reduce_real_matrix(self.k_full.as_ref())?;
         let mr = c.dofs().reduce_real_matrix(self.m_full.as_ref())?;
         let gr = c.reduced_gradient_complex();
         let lr = c.nodes().reduce_real_matrix(self.l_nodes.as_ref())?;
-        // Constants are in ker G_r iff every node alias phase is 1 and no
-        // node is eliminated: then G_r·1 = 0. Pin one node so L is
-        // invertible (image(G_r) is unchanged).
-        let ones = vec![c64::new(1.0, 0.0); gr.ncols()];
-        let g1 = spmv_c(gr.as_ref(), &ones);
-        let pin = gr.ncols() > 0 && g1.iter().all(|z| z.norm() < 1e-8);
-        let n_gradient = gr.ncols() - usize::from(pin);
-        let proj = GradientProjector::new(gr, lr, pin)?;
+        // The constant node field (issue #869). With no node eliminated it
+        // is in ker G_r exactly at a Γ-equivalent k (pin node 0), and
+        // nearly in it close to one (pin node 0 and restore the missing
+        // gradient direction as a rank-one term). The decision is
+        // structural, never a tolerance on ‖G_r·1‖.
+        let all_nodes_kept =
+            (0..c.nodes().n_full()).all(|v| matches!(c.nodes().alias(v), DofAlias::Reduced { .. }));
+        let constant = if !all_nodes_kept || gr.ncols() == 0 {
+            ConstantNodeMode::Absent
+        } else if gamma {
+            ConstantNodeMode::InKernel
+        } else {
+            let ones = vec![c64::new(1.0, 0.0); gr.ncols()];
+            ConstantNodeMode::NearKernel(spmv_c(gr.as_ref(), &ones))
+        };
+        let proj = GradientProjector::new(gr, lr, mr.as_ref(), constant)?;
+        let n_gradient = proj.as_ref().map_or(0, GradientProjector::rank);
         let sigma = settings
             .sigma
             .unwrap_or(-0.5 * (PI / self.lattice_len).powi(2));
@@ -469,7 +646,10 @@ impl BlochCell {
                     residual_rel: p.residual_rel,
                     vector: e,
                     group_velocity: None,
-                    is_static: p.lambda <= settings.static_tol_rel * scale,
+                    // Harmonic fields exist only at a Γ-equivalent k
+                    // (issue #869): off it, no mode is static however
+                    // small its λ.
+                    is_static: gamma && p.lambda <= settings.static_tol_rel * scale,
                     cluster: 0,
                     ke,
                     me,
@@ -496,6 +676,26 @@ impl BlochCell {
             }
         }
         let mut warnings = Vec::new();
+        // Near a Γ-equivalent point the bands ω ≈ |k − G| approach the λ
+        // round-off floor: surface their accuracy (issue #869).
+        let near: Vec<usize> = (0..modes.len())
+            .filter(|&i| {
+                !modes[i].is_static
+                    && self.lambda_floor > NEAR_GAMMA_WARN_REL_ERR * 2.0 * modes[i].lambda
+            })
+            .collect();
+        if let (Some(&first), Some(&last)) = (near.first(), near.last()) {
+            let worst = self.lambda_floor / (2.0 * modes[first].lambda.max(f64::MIN_POSITIVE));
+            warnings.push(format!(
+                "{} mode(s) ({first}..={last}, ω down to {:.3e}) are near the λ round-off floor \
+                 {:.3e}: estimated relative ω error up to {worst:.1e} (k is {:.3e} rad from a \
+                 Γ-equivalent point; move k away from it for accurate low bands)",
+                near.len(),
+                modes[first].omega,
+                self.lambda_floor,
+                self.gamma_phase_distance(k)
+            ));
+        }
         for (ci, cl) in clusters.iter().enumerate() {
             for &i in cl {
                 modes[i].cluster = ci;

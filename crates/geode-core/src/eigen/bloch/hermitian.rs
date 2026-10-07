@@ -50,6 +50,13 @@
 //! preserving projection of [`crate::eigen::projection`], issue #509,
 //! with Bloch phases). With the kernel gone a **negative** shift is safe,
 //! and the lowest bands, including `ω → 0` near Γ, are targeted directly.
+//!
+//! Near (not at) a reciprocal lattice vector `L` is nearly singular (its
+//! smallest eigenvalue is `~ |k − G|²`, from the constant node field), so
+//! `Π` is assembled from the pinned gradient plus a rank-one completion
+//! (`GradientProjector`, issue #869). After Gram–Schmidt each new basis
+//! vector is deflated and orthogonalized once more, so the round-off
+//! kernel content of the basis cannot be amplified by renormalization.
 
 use faer::c64;
 use faer::linalg::solvers::Solve;
@@ -144,47 +151,125 @@ pub fn realify_hermitian(a: SparseColMatRef<'_, usize, c64>) -> SparseColMat<usi
     SparseColMat::try_new_from_triplets(2 * nr, 2 * nc, &tr).expect("realified triplets in range")
 }
 
+/// How the reduced node space treats the (Bloch-phased) constant node
+/// field `1` (issue #869).
+#[derive(Debug, Clone)]
+pub(crate) enum ConstantNodeMode {
+    /// A node is PEC-eliminated: `G_r·1 ≠ 0` stays far from the kernel of
+    /// `G_r` and `L = G_rᴴ M_r G_r` is well conditioned at every `k`. The
+    /// full `G_r` is used.
+    Absent,
+    /// `k` is Γ-equivalent and no node is eliminated: `G_r·1 = 0` exactly.
+    /// Reduced node 0 is pinned (`image(G_r)` is unchanged and the pinned
+    /// `L` is non-singular).
+    InKernel,
+    /// No node is eliminated and `k` is not Γ-equivalent: `G_r` is
+    /// injective, but near a reciprocal lattice vector `‖G_r·1‖ ~ |k̃|` and
+    /// the full `L` has condition number `~ 1/|k̃|²`. Node 0 is pinned (the
+    /// pinned `L` stays well conditioned as `k̃ → 0`) and the missing
+    /// direction of `image(G_r)` is restored as a rank-one term built from
+    /// the carried `G_r·1`.
+    NearKernel(Vec<c64>),
+}
+
 /// The `M_r`-orthogonal projector onto the complement of the
 /// Bloch-phased gradients, `Π = I − G L⁻¹ Gᴴ M`.
+///
+/// It is assembled as `Π = Π_p − w (wᴴ M ·) / (wᴴ M w)`: `Π_p` from the
+/// (possibly pinned) gradient `G_p` and `L_p = G_pᴴ M G_p`, and an optional
+/// rank-one completion `w = Π_p G_r·1`, which is `M`-orthogonal to
+/// `image(G_p)`, so `image(G_p) ⊕ span(w) = image(G_r)` (issue #869). The
+/// split keeps every solve well conditioned however close `k` is to a
+/// reciprocal lattice vector.
 pub(crate) struct GradientProjector {
-    g: SparseColMat<usize, c64>,
-    lu: Lu<usize, c64>,
+    /// The pinned (or full) gradient and the LU of its node matrix; `None`
+    /// when pinning leaves no column.
+    part: Option<(SparseColMat<usize, c64>, Lu<usize, c64>)>,
+    /// The rank-one completion `w` and `1 / (wᴴ M w)`.
+    completion: Option<(Vec<c64>, f64)>,
 }
 
 impl GradientProjector {
-    /// Build from the reduced gradient `g` and the reduced node matrix
-    /// `l = gᴴ M g`. If `pin` is set, reduced node 0 is dropped from both
-    /// (the constant-in-kernel case: `image(g)` is unchanged and `l`
-    /// becomes non-singular).
+    /// Build from the reduced gradient `g`, the reduced node matrix
+    /// `l = gᴴ M g`, the reduced edge mass `m`, and the treatment of the
+    /// constant node field (see [`ConstantNodeMode`]).
     pub(crate) fn new(
         g: SparseColMat<usize, c64>,
         l: SparseColMat<usize, c64>,
-        pin: bool,
+        m: SparseColMatRef<'_, usize, c64>,
+        constant: ConstantNodeMode,
     ) -> Result<Option<Self>, BlochError> {
-        let (g, l) = if pin {
+        let pin = !matches!(constant, ConstantNodeMode::Absent);
+        let (g, l) = if pin && g.ncols() > 0 {
             (drop_col(g.as_ref(), 0), drop_row_col(l.as_ref(), 0))
         } else {
             (g, l)
         };
-        if g.ncols() == 0 {
+        let part = if g.ncols() == 0 {
+            None
+        } else {
+            let lu = l
+                .as_ref()
+                .sp_lu()
+                .map_err(|e| BlochError::Solve(format!("gradient-projector LU: {e:?}")))?;
+            Some((g, lu))
+        };
+        let mut proj = Self {
+            part,
+            completion: None,
+        };
+        if let ConstantNodeMode::NearKernel(g1) = constant {
+            // w = Π_p (G_r·1), projected twice so that it is M-orthogonal
+            // to image(G_p) to round-off.
+            let mut w = g1;
+            for _ in 0..2 {
+                let mw = spmv_c(m, &w);
+                proj.apply_part(&mut w, &mw);
+            }
+            let ww = dotc(&w, &spmv_c(m, &w)).re;
+            if !(ww > 0.0 && ww.is_finite()) {
+                return Err(BlochError::Solve(format!(
+                    "gradient-projector completion has wᴴ M w = {ww:e}: G_r·1 lies in the pinned \
+                     gradient image, so k is Γ-equivalent but was not detected as such"
+                )));
+            }
+            proj.completion = Some((w, 1.0 / ww));
+        }
+        if proj.part.is_none() && proj.completion.is_none() {
             return Ok(None);
         }
-        let lu = l
-            .as_ref()
-            .sp_lu()
-            .map_err(|e| BlochError::Solve(format!("gradient-projector LU: {e:?}")))?;
-        Ok(Some(Self { g, lu }))
+        Ok(Some(proj))
     }
 
-    /// `v ← Π v` given `mv = M v`.
-    pub(crate) fn apply(&self, v: &mut [c64], mv: &[c64]) {
-        let t = spmv_c_adjoint(self.g.as_ref(), mv);
+    /// The dimension of the deflated gradient space (`rank G_r`).
+    pub(crate) fn rank(&self) -> usize {
+        self.part.as_ref().map_or(0, |(g, _)| g.ncols()) + usize::from(self.completion.is_some())
+    }
+
+    /// `v ← Π_p v` given `mv = M v`.
+    fn apply_part(&self, v: &mut [c64], mv: &[c64]) {
+        let Some((g, lu)) = &self.part else {
+            return;
+        };
+        let t = spmv_c_adjoint(g.as_ref(), mv);
         let mut y = Mat::from_fn(t.len(), 1, |i, _| t[i]);
-        self.lu.solve_in_place(y.as_mut());
+        lu.solve_in_place(y.as_mut());
         let yv: Vec<c64> = (0..t.len()).map(|i| y[(i, 0)]).collect();
-        let gy = spmv_c(self.g.as_ref(), &yv);
+        let gy = spmv_c(g.as_ref(), &yv);
         for (a, b) in v.iter_mut().zip(gy) {
             *a -= b;
+        }
+    }
+
+    /// `v ← Π v` given `mv = M v`. Since `w ⊥_M image(G_p)`,
+    /// `wᴴ M Π_p v = wᴴ M v`, so both terms use the incoming `mv`.
+    pub(crate) fn apply(&self, v: &mut [c64], mv: &[c64]) {
+        self.apply_part(v, mv);
+        if let Some((w, inv)) = &self.completion {
+            let alpha = dotc(w, mv) * *inv;
+            for (a, b) in v.iter_mut().zip(w) {
+                *a -= alpha * b;
+            }
         }
     }
 }
@@ -299,13 +384,15 @@ impl Basis {
         if n0 == 0.0 || !n0.is_finite() {
             return false;
         }
-        for _ in 0..2 {
-            for (qi, mqi) in self.q.iter().zip(&self.mq) {
-                let c = dotc(mqi, &w);
-                for (a, b) in w.iter_mut().zip(qi) {
-                    *a -= c * b;
-                }
-            }
+        self.orthogonalize(&mut w, 2);
+        if let Some(p) = deflate {
+            // Gram–Schmidt against Q re-introduces Q's round-off kernel
+            // content, and a nearly dependent w is then renormalized by a
+            // large factor. Re-deflate and re-orthogonalize, so the kernel
+            // cannot accumulate in the basis (issue #869).
+            mw = spmv_c(m, &w);
+            p.apply(&mut w, &mw);
+            self.orthogonalize(&mut w, 1);
         }
         mw = spmv_c(m, &w);
         let nrm = dotc(&w, &mw).re.max(0.0).sqrt();
@@ -333,6 +420,19 @@ impl Basis {
         self.mq.push(mw);
         self.kq.push(kw);
         true
+    }
+
+    /// `passes` classical Gram–Schmidt passes of `w` against `Q` in the
+    /// `M` inner product.
+    fn orthogonalize(&self, w: &mut [c64], passes: usize) {
+        for _ in 0..passes {
+            for (qi, mqi) in self.q.iter().zip(&self.mq) {
+                let c = dotc(mqi, w);
+                for (a, b) in w.iter_mut().zip(qi) {
+                    *a -= c * b;
+                }
+            }
+        }
     }
 
     fn len(&self) -> usize {
