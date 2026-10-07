@@ -34,6 +34,18 @@ burn = { version = "0.21", default-features = false, features = ["std"] }
 bunsen = { version = "0.28.0", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
+# Dense / sparse linear algebra comes from `faier`, our maintained fork of
+# faer (https://github.com/rjwalters/faier, issues #867 / #907). Upstream faer
+# does not accept AI-assisted contributions, so fixes we need land in the
+# fork. `faier` 0.24.4 is upstream `faer-v0.24.4` with the crates renamed
+# `faer` → `faier` and `faer-traits` → `faier-traits`; its library name is
+# still `faer`, so the `package = "faier"` rename below keeps every
+# `use faer::…` path and every `faer/<feature>` feature reference unchanged.
+#
+# `faier` is not on crates.io yet, so this is a git dependency pinned to a
+# commit on the fork's `main` branch. Once `faier` is published, replace
+# `git` + `rev` with `version = "0.24.4"` (or later).
+#
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
 #
@@ -44,7 +56,7 @@ criterion = "0.5"
 # guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
 # the latency-bound single-RHS triangular-solve loop, so enabling the feature
 # does not by itself parallelize any hot loop that regresses under rayon.
-faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
+faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "407f28ba2d9137528057e404220e0b4a9b24fc41", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 # In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
 # refinement for arbitrary wave-port cross-sections (issue #582). Optional,
@@ -97,13 +109,15 @@ codegen-units = 1
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
 #
-# ── faer 0.24 QZ overflow-panic suppression (issues #244 / #354) ──────
+# ── faer / faier 0.24 QZ overflow-panic suppression (issues #244 / #354) ──
 #
 # A handful of tests legitimately exercise faer 0.24's dense QZ
-# generalized eigensolver (`linalg::gevd::qz_real`), most notably
+# generalized eigensolver (`linalg::gevd::qz_real`; the `faier` fork
+# carries upstream's `linalg::gevd` unchanged), most notably
 # `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is
 # intended to run under the *default* (debug) `cargo test` profile.
-# `qz_real::aggressive_early_deflation` (faer-0.24.0 .../qz_real/mod.rs)
+# `qz_real::aggressive_early_deflation` (`faer/src/linalg/gevd/qz_real/
+# mod.rs`; byte-identical in faer 0.24.0 and 0.24.4, so also in faier 0.24.4)
 # performs `usize` subtractions that wrap during the QZ iteration; with
 # overflow checks enabled those wraps panic with `attempt to subtract
 # with overflow` even though the release math is correct. PR #249 moved
@@ -112,8 +126,9 @@ codegen-units = 1
 # `--ignored`/`--release` dense eigensolver tests) still go through it.
 #
 # Why the suppression lives at the PROFILE (not package) level:
-# cargo 1.96 cannot disable overflow checks for `faer` via a per-package
-# override. `[profile.*.package."*"]` globs do not propagate to
+# cargo 1.96 cannot disable overflow checks for faer via a per-package
+# override (the package is `faier` since #907; it was `faer` when this was
+# measured). `[profile.*.package."*"]` globs do not propagate to
 # dependencies (PR #246's finding); and even a *named* override such as
 # `[profile.test.package.faer] overflow-checks = false` does NOT take
 # effect — the panic at `qz_real/mod.rs` survives it. The reason is that

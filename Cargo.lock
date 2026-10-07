@@ -2758,15 +2758,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "faer"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02d2ecfb80b6f8b0c569e36988a052e64b14d8def9d372390b014e8bf79f299a"
+name = "faier"
+version = "0.24.4"
+source = "git+https://github.com/rjwalters/faier?rev=407f28ba2d9137528057e404220e0b4a9b24fc41#407f28ba2d9137528057e404220e0b4a9b24fc41"
 dependencies = [
  "bytemuck",
  "dyn-stack",
  "equator 0.6.0",
- "faer-traits",
+ "faier-traits",
  "gemm",
  "generativity",
  "libm",
@@ -2781,10 +2780,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "faer-traits"
+name = "faier-traits"
 version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b87d23ed7ab1f26c0cba0e5b9e061a796fbb7dc170fa8bee6970055a1308bb0f"
+source = "git+https://github.com/rjwalters/faier?rev=407f28ba2d9137528057e404220e0b4a9b24fc41#407f28ba2d9137528057e404220e0b4a9b24fc41"
 dependencies = [
  "bytemuck",
  "dyn-stack",
@@ -3259,7 +3257,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
@@ -3280,7 +3278,7 @@ dependencies = [
  "bunsen",
  "burn",
  "criterion",
- "faer",
+ "faier",
  "geode-core",
  "geode-util",
  "mshio",
@@ -3310,7 +3308,7 @@ name = "geode-util"
 version = "0.8.0"
 dependencies = [
  "burn",
- "faer",
+ "faier",
  "geode-core",
  "num-complex 0.4.6",
  "serde",
@@ -3325,7 +3323,7 @@ name = "geode-validation"
 version = "0.8.0"
 dependencies = [
  "burn",
- "faer",
+ "faier",
  "geode-core",
  "geode-util",
  "num-complex 0.4.6",
@@ -4552,7 +4550,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
@@ -4564,7 +4562,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
@@ -5301,7 +5299,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
@@ -6706,7 +6704,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
@@ -6803,7 +6801,7 @@ version = "0.8.0"
 dependencies = [
  "burn",
  "clap",
- "faer",
+ "faier",
  "geode-app",
  "geode-core",
  "geode-util",
