@@ -1942,6 +1942,24 @@ impl CheckedEigenpairs {
         self.requested.saturating_sub(self.pairs.len())
     }
 
+    /// The withheld pairs of [`Self::rejected`] that are **localized**
+    /// (`ρ · max(|λ|, |σ|) ≤ |λ − σ|`, the test the checked solve uses to
+    /// decide that a Ritz value locates a genuine eigenvalue), as `(λ, ρ)`.
+    /// `sigma` must be the shift of the solve that produced `self`.
+    ///
+    /// A localized withheld pair is a genuine eigenvalue that was still
+    /// unconverged when the extension hit its cap; a non-localized one
+    /// (residual too large to locate anything) is not. Callers that select
+    /// from [`Self::pairs`] use this list to detect a hole in their
+    /// selection (issue #850).
+    pub fn localized_rejected(&self, sigma: f64) -> Vec<(f64, f64)> {
+        self.rejected
+            .iter()
+            .copied()
+            .filter(|&(l, r)| ritz_is_localized(l, r, sigma))
+            .collect()
+    }
+
     /// Partition `pairs` into converged (kept) and rejected by `tol`.
     fn split(&mut self, pairs: Vec<EigenPair>, residuals: Vec<f64>, tol: f64) {
         for (pair, res) in pairs.into_iter().zip(residuals) {
