@@ -1,0 +1,8 @@
+fixture:        spiral_layout_smoke.json
+sha256:         f03b936946df78a50056df0f4fae668a93fad01c91dc65a5b76a5bc4578bcd91
+generator:      reference/gmsh/generate_spiral_layout.py
+command:        python3 reference/gmsh/generate_spiral_layout.py crates/geode-cli/tests/fixtures
+geometry:       reference/gmsh/spiral_inductor.geo, re-expressed as a geode layout v1
+parameters:     hard-coded in the generator; geometry of reference/gmsh/spiral_3p5_smoke.yaml
+issue:          #704
+note:           the generator writes spiral_layout_smoke.json and spiral_layout_benchmark.json together; it is stdlib-only Python (no gmsh needed) and reproduces both files byte for byte
