@@ -623,10 +623,17 @@ pub struct WarningResult {
     /// measured `σ_max(S) > 1`), `"termination_clamped"`, or (driven
     /// `sensitivities.warnings`, issue #883) `"sensitivity_port_mode"`,
     /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
-    /// model: gradients zero by construction) and
+    /// model: gradients zero by construction),
     /// `"sensitivity_shape_moves_boundary"` (a shape parameter moving a
     /// wall it does not own off its plane, or resizing a finite plate's
-    /// free perimeter in its plane: pin it if it is fixed).
+    /// free perimeter in its plane: pin it if it is fixed),
+    /// `"sensitivity_shape_tangential"` (issue #893: every surface of the
+    /// model only slides within itself — the mesh moves, the geometry does
+    /// not, so the gradients are discretisation sensitivity) and
+    /// `"sensitivity_shape_moves_interface"` (issue #893: the motion's
+    /// extension drags a material interface the parameter does not own
+    /// along its normal; `physical_group` is `null`, the message names the
+    /// two volume groups).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
