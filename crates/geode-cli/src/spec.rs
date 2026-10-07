@@ -660,7 +660,9 @@ pub struct FdCheckSpec {
     /// Largest accepted relative disagreement `|g − g_FD| / max(|g|,
     /// |g_FD|, 0.01·|value/p|)` per gradient entry (default `1e-4`; `>
     /// 0`). The floor (1 % of the entry's natural log-derivative scale)
-    /// only matters for structurally ~zero components.
+    /// only matters for structurally ~zero components. Driven N-port
+    /// observables use a floor that also covers the FD estimate's own
+    /// round-off (issue #890; `examples/sensitivity/README.md`).
     #[serde(default = "default_fd_tolerance")]
     pub tolerance: f64,
 }

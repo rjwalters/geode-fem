@@ -725,6 +725,83 @@ fn microstrip_cookbook_strip_width_check_gradient_agrees() {
     }
 }
 
+/// Issue #890: `--check-gradient` on entries whose gradient is zero by
+/// symmetry. The microstrip cookbook with its strip-width parameter
+/// replaced by a lateral strip `translate` (x) — with the shield pinned
+/// (a symmetric box: every gradient is mesh-asymmetry noise, `∂ε_eff ≈
+/// −3.3e-2 /m` against the width's `147 /m`) and without (a rigid motion of
+/// the whole model: every gradient zero, every FD difference round-off).
+/// Both used to fail with `fd_check_failed` (the floor was 1 % of the
+/// entry's own near-zero gradient, or a `1e-10` round-off under the FD's
+/// actual noise); both pass now, the rigid one still warned (#904). Release
+/// tier: the graded hybrid face takes minutes in debug.
+#[test]
+#[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
+fn microstrip_cookbook_symmetry_zero_shape_entries_pass_check_gradient() {
+    let cookbook = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/sensitivity/microstrip_strip_width.json");
+    let mesh = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/microstrip_line_smoke.msh");
+    for (name, pinned, warned) in [
+        ("lateral-pinned", Some(json!(["shield"])), vec![]),
+        (
+            "lateral-rigid",
+            None,
+            vec![
+                "sensitivity_shape_rigid".to_string(),
+                "sensitivity_shape_moves_boundary".to_string(),
+            ],
+        ),
+    ] {
+        let mut v: Value =
+            serde_json::from_str(&std::fs::read_to_string(&cookbook).unwrap()).unwrap();
+        v["mesh"]["path"] = json!(mesh.display().to_string());
+        let mut shift = json!({"kind": "shape", "name": "strip_shift", "physical_group": "strip",
+                               "motion": "translate", "axis": [1, 0, 0]});
+        if let Some(pinned) = pinned {
+            shift["pinned"] = pinned;
+        }
+        v["sensitivity"]["parameters"][0] = shift;
+        let dir = Scratch::new("geode-cli-nport-890-", name);
+        let spec =
+            ScratchFile::write_in(dir, "spec.json", serde_json::to_string_pretty(&v).unwrap());
+        let r = ok(
+            &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+            name,
+        );
+        let s = r["sensitivities"].clone();
+        assert_eq!(f(&s["fd_check"]["tolerance"]), FD_REL_TOL, "{name}");
+        let kinds: Vec<String> = shape_warnings(&s).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kinds, warned, "{name}");
+        let mut worst = 0.0_f64;
+        for e in s["entries"].as_array().unwrap() {
+            let rel = f(&e["fd_rel_error"]);
+            worst = worst.max(rel);
+            assert!(rel <= FD_REL_TOL, "{name}: {e}");
+            eprintln!(
+                "  {name} param {} obs {}: gradient {:.6e} FD {:.6e} rel {rel:.2e}",
+                e["parameter"],
+                e["observable"],
+                f(&e["gradient"]),
+                f(&e["fd_gradient"])
+            );
+        }
+        eprintln!("FD | {name} | worst rel {worst:.2e}");
+        // The rigid motion's gradients vanish (the adjoint is exact there:
+        // `|∂ dB(S11)| ≈ 1.1e-4 dB/m` is the largest).
+        let shift_max = s["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["parameter"] == 0)
+            .map(|e| f(&e["gradient"]).abs())
+            .fold(0.0, f64::max);
+        if name == "lateral-rigid" {
+            assert!(shift_max < 1e-3, "rigid motion: {shift_max}");
+        }
+    }
+}
+
 /// A forgotten `pinned` is warned about, never silently zero (issue #883
 /// review): on a coarse shielded microstrip section (hybrid ports, the
 /// smallest fixture with a shield) the strip-width stretch with the shield
