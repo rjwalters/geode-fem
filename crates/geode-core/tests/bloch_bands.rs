@@ -47,7 +47,9 @@ use faer::linalg::solvers::Solve;
 use geode_core::analytic::fiber::bessel_j1;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::periodic::PeriodicConstraint;
-use geode_core::eigen::bloch::{BlochCell, BlochModes, BlochSettings, KPath};
+use geode_core::eigen::bloch::{
+    BlochCell, BlochError, BlochModes, BlochSettings, KPath, NEAR_GAMMA_MAX_REL_ERR,
+};
 use geode_core::eigen::pec_cavity::PecCavityMaterials;
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
@@ -643,4 +645,162 @@ fn overlap_tracking_follows_bands_through_a_crossing() {
         s2[1] > s2[0] && s2[last] < s2[last - 1],
         "sorted band 2: {s2:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Near (not at) Γ (issue #869).
+// ---------------------------------------------------------------------------
+
+/// The empty 3-torus (`n = 6`, `L = 1`, default settings) for
+/// `|k|·L ∈ {1e-3 … 1e-9}` along x̂ and near the nonzero reciprocal vector
+/// `G = (2π, 0, 0)`. Each solve either returns exactly two non-static
+/// light-line modes `ω ≈ |k̃|` followed by the Γ bands (no extra near-zero
+/// mode, no band-index shift, no `NotConverged`), or is refused with a
+/// typed `InvalidInput` exactly when the Bloch phase distance is below
+/// `near_gamma_min_phase`. Γ-equivalent points (Γ, `G`, round-off away
+/// from Γ) keep the three static harmonic fields.
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn near_gamma_solves_or_refuses_loudly_never_mislabels() {
+    let cell = empty_cell(6);
+    let n_bands = 5;
+    let settings = BlochSettings::new(n_bands);
+    let min_phase = cell.near_gamma_min_phase();
+    eprintln!(
+        "λ round-off floor {:.3e}, near_gamma_min_phase {min_phase:.3e} rad",
+        cell.lambda_roundoff_floor()
+    );
+    // Γ golden: 3 static harmonic fields, then the first folded light lines.
+    let gamma = cell
+        .solve([0.0; 3], &BlochSettings::new(n_bands + 1))
+        .unwrap();
+    assert!(cell.is_gamma_equivalent([0.0; 3]));
+    let n_static = gamma.modes.iter().filter(|m| m.is_static).count();
+    assert_eq!(n_static, 3, "Γ: three harmonic fields");
+    assert!(
+        (gamma.modes[3].omega - 6.1152).abs() < 1e-4,
+        "Γ band 3: {}",
+        gamma.modes[3].omega
+    );
+    let n_nodes = cell.phased_constraint([0.0; 3]).nodes().n_reduced();
+    assert_eq!(gamma.n_gradient, n_nodes - 1, "Γ: node 0 pinned");
+    // Γ-equivalent points: G itself and round-off away from Γ.
+    for k in [[2.0 * PI, 0.0, 0.0], [1e-15, 0.0, 0.0]] {
+        assert!(cell.is_gamma_equivalent(k), "{k:?} is Γ-equivalent");
+        let m = cell.solve(k, &settings).unwrap();
+        assert_eq!(
+            m.modes.iter().filter(|m| m.is_static).count(),
+            3,
+            "{k:?}: three harmonic fields"
+        );
+        assert!((m.modes[3].omega - gamma.modes[3].omega).abs() < 1e-9);
+    }
+
+    eprintln!("| k̃·L | G | result | ω₀, ω₁ | rel err | ω₂ vs Γ ω₃ |");
+    let mut solved = Vec::new();
+    for g in [0.0, 2.0 * PI] {
+        for kl in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9] {
+            let k = [g + kl, 0.0, 0.0];
+            assert!(!cell.is_gamma_equivalent(k), "{k:?}");
+            let rho = cell.gamma_phase_distance(k);
+            assert!(
+                (rho - kl).abs() < 1e-6 * kl.max(1e-9) + 1e-15,
+                "ρ {rho} vs {kl}"
+            );
+            match cell.solve(k, &settings) {
+                Ok(m) => {
+                    assert!(
+                        rho >= min_phase,
+                        "{k:?}: solved below the documented threshold"
+                    );
+                    assert_eq!(m.modes.len(), n_bands);
+                    assert_eq!(m.n_gradient, n_nodes, "{k:?}: rank G_r = n_nodes_red");
+                    assert!(
+                        m.modes.iter().all(|x| !x.is_static),
+                        "{k:?}: no static mode off the reciprocal lattice"
+                    );
+                    let low = m.modes.iter().filter(|x| x.omega < 1.0).count();
+                    assert_eq!(low, 2, "{k:?}: exactly two light-line modes (kernel leak?)");
+                    let err = m.modes[..2]
+                        .iter()
+                        .map(|x| (x.omega - kl).abs() / kl)
+                        .fold(0.0, f64::max);
+                    let shift = (2..n_bands)
+                        .map(|b| (m.modes[b].omega - gamma.modes[b + 1].omega).abs())
+                        .fold(0.0, f64::max);
+                    eprintln!(
+                        "| {kl:.0e} | {g:.4} | ok | {:.6e}, {:.6e} | {err:.1e} | {shift:.1e} |",
+                        m.modes[0].omega, m.modes[1].omega
+                    );
+                    assert!(err < NEAR_GAMMA_MAX_REL_ERR, "{k:?}: ω vs |k̃|: {err}");
+                    assert!(shift < 1e-3, "{k:?}: bands 2.. vs Γ bands 3..: {shift}");
+                    solved.push(kl);
+                }
+                Err(BlochError::InvalidInput(msg)) => {
+                    eprintln!("| {kl:.0e} | {g:.4} | refused | | | |");
+                    assert!(rho < min_phase, "{k:?}: refused above the threshold: {msg}");
+                    assert!(msg.contains("near_gamma_min_phase"), "{msg}");
+                }
+                Err(e) => panic!("{k:?}: want Ok or a typed InvalidInput, got {e}"),
+            }
+        }
+    }
+    // The robust path covers the measured-good range, not only 1e-3.
+    for kl in [1e-3, 1e-4, 1e-5] {
+        assert_eq!(
+            solved.iter().filter(|&&x| x == kl).count(),
+            2,
+            "|k|L = {kl:e} must be solved at Γ and at G"
+        );
+    }
+
+    // |k|·L = 1e-4: the light-line pair is non-static, and its aligned
+    // slopes are the light line (c along k̂, 0 across).
+    let mut m = cell.solve([1e-4, 0.0, 0.0], &settings).unwrap();
+    let along = cell.align_clusters_along(&mut m, [1.0, 0.0, 0.0]).unwrap();
+    let across = cell.align_clusters_along(&mut m, [0.0, 1.0, 0.0]).unwrap();
+    eprintln!(
+        "|k|L = 1e-4: along {:?}, across {:?}",
+        &along[..2],
+        &across[..2]
+    );
+    for i in 0..2 {
+        let a = along[i].expect("non-static: aligned slope exists");
+        assert!((a - 1.0).abs() < 1e-2, "along x̂: {a}");
+        assert!(across[i].unwrap().abs() < 1e-2, "across: {:?}", across[i]);
+    }
+}
+
+/// Between PEC lids the lowest band near Γ is the single TEM line
+/// `ω = |k|` (`E = ẑ`): non-static with its own group velocity off Γ, the
+/// static harmonic `E = ẑ` at Γ (issue #869).
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn near_gamma_between_pec_lids_is_the_tem_line() {
+    let cell = bloch_cell(
+        box_tet_mesh([6, 6, 3], [1.0, 1.0, 0.5]),
+        &[0, 1],
+        true,
+        |m| vec![1.0; m.n_tets()],
+    );
+    let s = BlochSettings::new(3);
+    let g = cell.solve([0.0; 3], &s).unwrap();
+    assert!(g.modes[0].is_static && !g.modes[1].is_static);
+    let m = cell.solve([1e-4, 0.0, 0.0], &s).unwrap();
+    let tem = &m.modes[0];
+    assert!(!tem.is_static);
+    assert!(
+        (tem.omega - 1e-4).abs() < 1e-3 * 1e-4,
+        "TEM ω {}",
+        tem.omega
+    );
+    let vg = tem.group_velocity.expect("singleton TEM mode has v_g");
+    eprintln!("lids |k| = 1e-4: ω = {:.6e}, v_g = {vg:.4?}", tem.omega);
+    assert!((vg[0] - 1.0).abs() < 1e-2 && vg[1].abs() < 1e-2 && vg[2].abs() < 1e-2);
 }
