@@ -874,45 +874,23 @@ fn tridiag_eigenvalues(alpha: &[f64], beta: &[f64]) -> Result<Vec<f64>, EigenErr
         .map_err(|e| EigenError::FaerGevd(format!("tridiag evd: {e:?}")))
 }
 
-/// Power-of-two factor `2^{-e}` that brings the largest entry of the
-/// tridiagonal `(alpha, beta)` to magnitude ≈ 1 (`1` for an all-zero or
-/// non-finite `T`). Multiplying by a power of two is exact, so the scaled
-/// `T` has the same eigenvectors and eigenvalues scaled by exactly this
-/// factor (issue #852).
-fn tridiag_unit_scale(alpha: &[f64], beta: &[f64]) -> f64 {
-    let max = alpha
-        .iter()
-        .chain(beta)
-        .fold(0.0_f64, |a, &b| a.max(b.abs()));
-    if !(max.is_finite() && max > 0.0) {
-        return 1.0;
-    }
-    let e = max.log2().round() as i32;
-    // Stay clear of the exponent range ends (an un-normalizable `T` is left
-    // unscaled; it is far outside any pencil this solver sees).
-    if e.abs() > 1000 {
-        return 1.0;
-    }
-    2.0_f64.powi(-e)
-}
-
 /// Solve the symmetric tridiagonal eigenproblem returning **eigenpairs**
 /// `(μ, s)` in ascending μ order. `s` is a unit-norm eigenvector in
 /// k-dimensional tridiagonal space; combine it with the Lanczos basis
 /// `V_k` to recover the corresponding Ritz vector `x = V_k s`.
 ///
-/// `T` is scaled by a power of two to unit magnitude before the dense EVD
-/// and the eigenvalues are scaled back (issue #852). faer 0.24's
+/// The shift-inverted `T` scales as `L²` in the mesh length unit
+/// (`max|T| ~ 10⁻¹³` for a µm cavity). Upstream faer 0.24's
 /// divide-and-conquer tridiagonal solver (used for `k ≥ 128` when
-/// eigenvectors are requested) deflates with the tolerance
-/// `8ε · max(max|d|, max|z|)`, where `z` is a unit vector, so for
-/// `max|d| ≪ 1` the tolerance is the **absolute** `8ε` and merges distinct
-/// eigenvalues. The shift-inverted `T` scales as `L²` in the mesh length
-/// unit (`max|T| ~ 10⁻¹³` for a µm cavity), so without the scaling a large
+/// eigenvectors are requested) deflated with the effectively **absolute**
+/// tolerance `8ε` on such a `T` and merged distinct eigenvalues: a large
 /// Krylov basis returned Ritz values off by up to ~10⁻² relative, and the
 /// gradient-null cluster leaked through the null filter as a "physical"
-/// mode with residual ≈ 1. (The eigenvalues-only path runs faer's QR
-/// algorithm, which normalizes internally.)
+/// mode with residual ≈ 1 (issue #852). This function used to work around
+/// that with its own power-of-two pre-scale. The `faier` fork now scales `T`
+/// to unit norm inside the solver, as LAPACK's `dstedc` does
+/// (rjwalters/faier#1, issue #908), so `T` is passed through unscaled;
+/// `tridiag_eigenpairs_is_scale_invariant` guards the behaviour.
 pub(crate) fn tridiag_eigenpairs(
     alpha: &[f64],
     beta: &[f64],
@@ -922,14 +900,13 @@ pub(crate) fn tridiag_eigenpairs(
     if k == 0 {
         return Ok((Vec::new(), Mat::<f64>::zeros(0, 0)));
     }
-    let scale = tridiag_unit_scale(alpha, beta);
     let t = Mat::<f64>::from_fn(k, k, |i, j| {
         if i == j {
-            scale * alpha[i]
+            alpha[i]
         } else if i + 1 == j {
-            scale * beta[i]
+            beta[i]
         } else if j + 1 == i {
-            scale * beta[j]
+            beta[j]
         } else {
             0.0
         }
@@ -940,7 +917,7 @@ pub(crate) fn tridiag_eigenpairs(
         .map_err(|e| EigenError::FaerGevd(format!("tridiag evd (pairs): {e:?}")))?;
     let s_vec = evd.S().column_vector();
     let u = evd.U();
-    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i] / scale).collect();
+    let mut mus: Vec<f64> = (0..k).map(|i| s_vec[i]).collect();
     // self_adjoint_eigen returns eigenvalues in ascending order already,
     // but be explicit (and defensively sort the matching columns).
     let mut order: Vec<usize> = (0..k).collect();
@@ -3392,9 +3369,10 @@ mod tests {
     /// Issue #852: the eigenpair tridiagonal solve is homogeneous. A
     /// `k = 160` tridiagonal (above faer's divide-and-conquer threshold) with
     /// a tight eigenvalue cluster, scaled by `c ∈ {1e-13, 1e-19, 1e8}`, gives
-    /// `c ×` the unscaled eigenvalues to round-off. Without the power-of-two
-    /// pre-scaling faer's absolute `8ε` deflation tolerance merges the
-    /// cluster when `c ≪ 1`.
+    /// `c ×` the unscaled eigenvalues to round-off. Upstream faer 0.24's
+    /// absolute `8ε` deflation tolerance merged the cluster when `c ≪ 1`
+    /// (8.6e-4 drift at `c = 1e-13`); the `faier` fork's unit-norm pre-scale
+    /// (issue #908) keeps it apart without any scaling here.
     #[test]
     fn tridiag_eigenpairs_is_scale_invariant() {
         let k = 160;
