@@ -43,10 +43,10 @@ criterion = "0.5"
 # `use faer::…` path and every `faer/<feature>` feature reference unchanged.
 #
 # `faier` is not on crates.io yet, so this is a git dependency pinned to a
-# commit. Issue #908 pins the head of the fork's `fix/issue-908` branch
-# (rjwalters/faier#1: the #867 QZ / divide-and-conquer fixes); repoint `rev`
-# at the fork's `main` once that PR merges. Once `faier` is published,
-# replace `git` + `rev` with a `version`.
+# commit. Issue #908 pins the fork's `main` after rjwalters/faier#1 (the #867
+# QZ / divide-and-conquer fixes) and rjwalters/faier#7 (nightly clippy lint
+# allows) merged. Once `faier` is published, replace `git` + `rev` with a
+# `version`.
 #
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
@@ -58,7 +58,7 @@ criterion = "0.5"
 # guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
 # the latency-bound single-RHS triangular-solve loop, so enabling the feature
 # does not by itself parallelize any hot loop that regresses under rayon.
-faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "c4b2a446bf0a7b3577cc98cf2b8e6030cb46e18e", default-features = false, features = ["std", "linalg", "rayon"] }
+faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "b61bc35d0a166a48c3021dce60294bd92b680013", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 # In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
 # refinement for arbitrary wave-port cross-sections (issue #582). Optional,

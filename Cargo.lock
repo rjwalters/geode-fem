@@ -2760,7 +2760,7 @@ dependencies = [
 [[package]]
 name = "faier"
 version = "0.24.4"
-source = "git+https://github.com/rjwalters/faier?rev=c4b2a446bf0a7b3577cc98cf2b8e6030cb46e18e#c4b2a446bf0a7b3577cc98cf2b8e6030cb46e18e"
+source = "git+https://github.com/rjwalters/faier?rev=b61bc35d0a166a48c3021dce60294bd92b680013#b61bc35d0a166a48c3021dce60294bd92b680013"
 dependencies = [
  "bytemuck",
  "dyn-stack",
@@ -2782,7 +2782,7 @@ dependencies = [
 [[package]]
 name = "faier-traits"
 version = "0.24.0"
-source = "git+https://github.com/rjwalters/faier?rev=c4b2a446bf0a7b3577cc98cf2b8e6030cb46e18e#c4b2a446bf0a7b3577cc98cf2b8e6030cb46e18e"
+source = "git+https://github.com/rjwalters/faier?rev=b61bc35d0a166a48c3021dce60294bd92b680013#b61bc35d0a166a48c3021dce60294bd92b680013"
 dependencies = [
  "bytemuck",
  "dyn-stack",
