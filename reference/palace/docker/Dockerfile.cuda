@@ -46,6 +46,7 @@ RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb && \
         openblas-devel \
         pkg-config \
         python3 \
+        time \
         wget \
         zlib \
         mpich-devel && \
@@ -59,8 +60,14 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib:/usr/local/cuda/lib64"
 ENV PATH="/usr/lib64/mpich/bin:/usr/local/cuda/bin:${PATH}"
 
+# PALACE_REF pins the Palace source. Default = fba6a5b, the SAME changeset as
+# the committed CPU baseline (reference/fixtures/transmon_palace/results_p1/
+# palace_run_v22.log: "Git changeset ID: fba6a5b"), so a CPU-vs-GPU eigenvalue
+# comparison isolates the device, not a Palace version drift (#519).
+ARG PALACE_REF=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0
 WORKDIR /opt
-RUN git clone --depth 1 https://github.com/awslabs/palace.git palace-src
+RUN git clone https://github.com/awslabs/palace.git palace-src && \
+    cd palace-src && git checkout --detach ${PALACE_REF} && git log -1 --format='%H %cI %s'
 
 WORKDIR /opt/palace-build
 RUN cmake /opt/palace-src \
@@ -86,6 +93,9 @@ RUN cmake /opt/palace-src \
     -DPALACE_WITH_ARPACK=ON \
     -DPALACE_WITH_LIBXSMM=OFF \
     -DPALACE_WITH_GSLIB=ON && \
+    cmake -LA -N /opt/palace-build \
+      | grep -E '^(PALACE_|CMAKE_CUDA|CMAKE_(C|CXX|Fortran)_(COMPILER|FLAGS)|CMAKE_BUILD_TYPE|BUILD_SHARED_LIBS)' \
+      > /opt/palace-build-flags.txt && \
     make -j$(nproc)
 
 ENV LD_LIBRARY_PATH="/opt/palace/lib:/opt/palace/lib64:/usr/lib64/mpich/lib:/usr/local/cuda/lib64"
