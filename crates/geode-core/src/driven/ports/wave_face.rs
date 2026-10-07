@@ -1426,7 +1426,7 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 /// | structured, `2 × 2` faces of a `1 × 1` guide | 3.33 … 5.33 | 1.44 % | 1.8·10⁻⁵ |
 /// | structured, stepped layers (fine at the port, coarse behind) | 2.11 … 3.51 | 0.32 % | 2.1·10⁻⁵ |
 /// | Gmsh, uniform (`lc` 0.25 … 0.9) and graded (0.08 → 0.5, 0.12 → 0.6, 0.6 → 0.12), incl. `lc` 0.9 at the TE₁₀₂ / TE₁₀₃ degeneracies (`d` = 2, 3, 3.1) | 1.12 … 3.51 | 1.85 % (`2 × 1 × 3.1`, `lc` 0.9) | 2.9·10⁻⁴ (`2 × 1 × 3`, `lc` 0.9, `k_c·h` 2.71) |
-/// | Gmsh faces 1.28 … 1.33 longest edges across (`1.5 × 1` at `lc` 0.92, `2.3 × 1` and `3 × 1` at `lc` 0.9; issue #895), `d` = 1 … 3.1 | 2.48 … 3.78 | 3.95 % (`1.5 × 1 × 3.1`) | 4.1·10⁻⁴ (`1.5 × 1 × 3`, `k_c·h` 2.83) |
+/// | Gmsh faces 1.28 … 1.33 longest edges across (`1.5 × 1` at `lc` 0.92, `2.3 × 1` and `3 × 1` at `lc` 0.9; issue #895), `d` = 1 … 3.1 (`d` ≈ 3.2 not covered, see issue #905) | 2.48 … 3.78 | 3.95 % (`1.5 × 1 × 3.1`) | 4.1·10⁻⁴ (`1.5 × 1 × 3`, `k_c·h` 2.83) |
 ///
 /// Those are the faces at or above
 /// [`TM_GUARD_MIN_ELEMENTS_ACROSS_P2`] longest edges across
@@ -1444,6 +1444,13 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 /// degeneracy), the tightest under the face floor by 2.18 points (the
 /// `24 × 1` face of a `3 × 1` guide over one layer of 1.01).
 ///
+/// Those rows are point samples in `d`. A finer `d`-scan of the same
+/// unflagged `1.5 × 1` faces (`lc` 0.92 and 0.8, `d` ≈ 3.2, just past the
+/// tightest row) measured 5.44 … 5.65 % undershoot, which puts the guard
+/// above the 3-D p=2 TM-like cutoff by up to 0.69 points. Those depths are
+/// not in the table; they are tracked in issue #905, and the guard is
+/// unchanged here.
+///
 /// **Why `h` includes the face.** On a coarse port face the 3-D p=2 model's
 /// TM cutoff undershoots by more than the axial spacing alone predicts: 4.1
 /// % on the `2 × 1`-cell face of a `2 × 1` guide over one layer of 1.5
@@ -1460,8 +1467,10 @@ pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
 /// `δ₀` = 5 % governs, and the ratio is not the bound: near a box
 /// degeneracy (TE₁₀ₚ meeting TM₁₁₀ at `d = p·b`) the ratio reaches
 /// 4.1·10⁻⁴ there, above `C₄`, but the undershoot stays at 3.95 % or less
-/// against 5 % on the rows measured. So `C₄ = 2·10⁻⁴` is a bound over the measured range, not a
-/// model: it holds for the rows above (`k_c·h` up to
+/// against 5 % on the rows measured. That does not hold between the
+/// measured depths: on the `1.5 × 1`, `lc` 0.92 / 0.8 faces at `d` ≈ 3.2 the
+/// undershoot reaches 5.65 % (issue #905, not in the table). So
+/// `C₄ = 2·10⁻⁴` is a bound over the measured range, not a model: it holds for the rows above (`k_c·h` up to
 /// [`TM_GUARD_MEASURED_KH_P2`]), on rectangular guides, with the face
 /// estimate taken at P2. Beyond that range it is extrapolated
 /// ([`TmCutoffEstimate::p2_resolution_warning`] says so).
