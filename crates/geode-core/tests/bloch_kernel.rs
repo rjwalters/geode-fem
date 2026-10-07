@@ -429,3 +429,67 @@ fn bloch_refusals_are_typed_and_loud() {
         Err(BlochError::InvalidInput(_))
     ));
 }
+
+/// The constant-node pin and the static flag are structural (issue #869):
+/// node 0 is pinned (`rank G_r = n_nodes_red − 1`) exactly when `k` is
+/// Γ-equivalent (`P(k) = P(0)`) and no node is eliminated. Close to (not
+/// at) a Γ-equivalent point the full rank is deflated through the rank-one
+/// completion, with no `‖G_r·1‖` tolerance, and no mode is static. Between
+/// PEC lids there is never a pin. Inside `near_gamma_min_phase` the solve
+/// is a typed refusal naming the threshold.
+#[test]
+fn bloch_pin_and_static_flag_are_structural() {
+    let c = cell(
+        renumber(&box_tet_mesh([3, 3, 3], [1.0, 1.0, 1.0]), 869),
+        &[0, 1, 2],
+        false,
+    );
+    let nn = c.constraint.nodes().n_reduced();
+    let s = BlochSettings::new(4);
+    let min = c.cell.near_gamma_min_phase();
+    assert!(min > 0.0 && min < 1e-4, "near_gamma_min_phase {min}");
+    for (k, gamma) in [
+        ([0.0; 3], true),
+        ([2.0 * PI, -2.0 * PI, 0.0], true),
+        ([1e-16, 0.0, 0.0], true),
+        ([1e-3, 0.0, 0.0], false),
+        ([2.0 * PI + 1e-3, 0.0, 0.0], false),
+        ([0.0, 0.0, 1e-4], false),
+        (K_GENERIC, false),
+    ] {
+        assert_eq!(c.cell.is_gamma_equivalent(k), gamma, "{k:?}");
+        let m = c.cell.solve(k, &s).unwrap();
+        let n_static = m.modes.iter().filter(|x| x.is_static).count();
+        eprintln!(
+            "k = {k:?}: Γ-equivalent {gamma}, rank G_r {} / {nn}, static {n_static}, ω₀ {:.3e}",
+            m.n_gradient, m.modes[0].omega
+        );
+        if gamma {
+            assert_eq!(m.n_gradient, nn - 1, "{k:?}: pinned");
+            assert_eq!(n_static, 3, "{k:?}: three harmonic fields");
+        } else {
+            assert_eq!(m.n_gradient, nn, "{k:?}: G_r injective, fully deflated");
+            assert_eq!(n_static, 0, "{k:?}: no harmonic field off the lattice");
+        }
+    }
+    // Inside the threshold (above round-off): typed, loud, names it.
+    let k = [0.1 * min, 0.0, 0.0];
+    assert!(!c.cell.is_gamma_equivalent(k));
+    match c.cell.solve(k, &s) {
+        Err(BlochError::InvalidInput(msg)) => {
+            assert!(msg.contains("near_gamma_min_phase"), "{msg}")
+        }
+        other => panic!("want InvalidInput, got {:?}", other.map(|m| m.modes.len())),
+    }
+
+    // PEC lids: nodes are eliminated, so no pin at any k; E = ẑ is static
+    // only at Γ.
+    let lids = cell(box_tet_mesh([3, 3, 2], [1.0, 1.0, 0.5]), &[0, 1], true);
+    let nl = lids.constraint.nodes().n_reduced();
+    let g = lids.cell.solve([0.0; 3], &s).unwrap();
+    assert_eq!(g.n_gradient, nl);
+    assert_eq!(g.modes.iter().filter(|x| x.is_static).count(), 1);
+    let near = lids.cell.solve([1e-3, 0.0, 0.0], &s).unwrap();
+    assert_eq!(near.n_gradient, nl);
+    assert!(near.modes.iter().all(|x| !x.is_static));
+}
