@@ -109,13 +109,15 @@ codegen-units = 1
 # unusably slow without optimization. Keep them optimized even in debug
 # builds; only our own crates compile with no-opt for fast iteration.
 #
-# ── faer 0.24 QZ overflow-panic suppression (issues #244 / #354) ──────
+# ── faer / faier 0.24 QZ overflow-panic suppression (issues #244 / #354) ──
 #
 # A handful of tests legitimately exercise faer 0.24's dense QZ
-# generalized eigensolver (`linalg::gevd::qz_real`), most notably
+# generalized eigensolver (`linalg::gevd::qz_real`; the `faier` fork
+# carries upstream's `linalg::gevd` unchanged), most notably
 # `sphere_pec_eigenmode::sphere_pec_eigenmode_spectrum`, which is
 # intended to run under the *default* (debug) `cargo test` profile.
-# `qz_real::aggressive_early_deflation` (faer-0.24.0 .../qz_real/mod.rs)
+# `qz_real::aggressive_early_deflation` (`faer/src/linalg/gevd/qz_real/
+# mod.rs`; byte-identical in faer 0.24.0 and 0.24.4, so also in faier 0.24.4)
 # performs `usize` subtractions that wrap during the QZ iteration; with
 # overflow checks enabled those wraps panic with `attempt to subtract
 # with overflow` even though the release math is correct. PR #249 moved
@@ -124,8 +126,9 @@ codegen-units = 1
 # `--ignored`/`--release` dense eigensolver tests) still go through it.
 #
 # Why the suppression lives at the PROFILE (not package) level:
-# cargo 1.96 cannot disable overflow checks for `faer` via a per-package
-# override. `[profile.*.package."*"]` globs do not propagate to
+# cargo 1.96 cannot disable overflow checks for faer via a per-package
+# override (the package is `faier` since #907; it was `faer` when this was
+# measured). `[profile.*.package."*"]` globs do not propagate to
 # dependencies (PR #246's finding); and even a *named* override such as
 # `[profile.test.package.faer] overflow-checks = false` does NOT take
 # effect — the panic at `qz_real/mod.rs` survives it. The reason is that
