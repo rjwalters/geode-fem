@@ -1,0 +1,7 @@
+cell,run,host_wall_s,time_wall,max_rss_kb,exit,gpu_peak_mib,gpu_idle_mib
+palace_cpu_np8_nosave,1,0.325,0:00.02,3360,127,0,0
+palace_cpu_np8_nosave,2,0.320,0:00.03,3360,127,0,0
+palace_cpu_np8_nosave,3,0.309,0:00.02,3360,127,0,0
+palace_cpu_np8,1,0.330,0:00.03,3360,127,0,0
+palace_cpu_np8,2,0.326,0:00.03,3360,127,0,0
+palace_cpu_np8,3,0.328,0:00.03,3360,127,0,0

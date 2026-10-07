@@ -311,6 +311,13 @@ const MANIFEST: &[Entry] = &[
         "hand-transcribed EC2 timing of cargo run -p geode-core --example transmon_bench --release \
          vs Palace; record meta.measured_date",
     ),
+    e(
+        "benchmarks/transmon_bench_gpu/results.toml",
+        &["meta.measured_date", "software.palace_commit"],
+        "hand-transcribed from summarize.py over runs/2026-10-07_lambda_a100/raw \
+         (Palace-GPU vs Palace-CPU vs geode CPU f64, Lambda A100); \
+         record meta.measured_date and software.palace_commit",
+    ),
 ];
 
 fn repo_root() -> PathBuf {
