@@ -46,17 +46,14 @@
 //! # Running
 //!
 //! This test runs under the **default (debug) `cargo test` profile**
-//! without `#[ignore]`. faer 0.24's `gevd::qz_real` performs `usize`
-//! subtractions that wrap during the QZ iteration and would panic with
-//! `attempt to subtract with overflow` if integer overflow checks were
-//! enabled (release math is correct). The workspace `Cargo.toml`
-//! suppresses those checks via a top-level `overflow-checks = false` on
-//! the `[profile.dev]` and `[profile.test]` profiles — a profile-level
-//! override is required because cargo 1.96 cannot disable the check for
-//! `faer` via a per-package override (see the comment block in
-//! `Cargo.toml` for the full rationale, and
-//! `tests/faer_qz_debug_overflow_guard.rs` for the always-on regression
-//! guard). With that suppression in place this test is debug-safe:
+//! without `#[ignore]`. Upstream faer 0.24's `gevd::qz_real` wrapped a
+//! `usize` subtraction in its aggressive early deflation and panicked with
+//! `attempt to subtract with overflow` under integer overflow checks
+//! (issues #244 / #354), which the workspace once suppressed with a
+//! profile-level `overflow-checks = false`. The `faier` fork fixes the
+//! subtraction (issue #908), so overflow checks are back on and this test
+//! is debug-safe without any suppression
+//! (`tests/faer_qz_debug_overflow_guard.rs` is the always-on guard):
 //!
 //! ```sh
 //! cargo test -p geode-core --test sphere_pec_eigenmode
