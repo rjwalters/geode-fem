@@ -110,6 +110,39 @@ the stretch also widens the PEC shield box; turn the stretch into a
 the whole model translates rigidly — every gradient then zero by
 construction.
 
+**The N-port FD floor** (issue #890). A driven entry's `fd_rel_error` is
+`|g − g_FD| / max(|g|, |g_FD|, floor)`, with `floor` the largest of
+
+* `0.01 · gmax`, where `gmax` is the largest `|gradient|` of the same
+  parameter and observable over the frequencies;
+* `0.01 · M / L`: 1 % of the observable's natural gradient scale. `M` is
+  `max(|value|, 1)`, or `20/ln 10` for dB and `180/π` for degrees. `L` is
+  the parameter's natural scale: `|ε′|`, or the motion length for a shape
+  parameter;
+* `ρ / (h · tol)`: the FD estimate's own round-off `ρ/h`, divided by the
+  tolerance. Here `ρ` is the forward's round-off of the value: `2e-12`
+  absolute on an S entry and `1e-11` relative on `z0` / `ε_eff`, mapped
+  through the form (dB and phase divide it by `|z|`). The one-sided loss
+  difference uses `4ρ/h`.
+
+The second and third terms do not shrink with an entry that is zero by
+symmetry. Without them, shifting the strip laterally (`translate` x,
+`shield` pinned) or rigidly moving the whole model fails `--check-gradient`
+on mesh-asymmetry or round-off noise. With them, both now pass.
+`ρ` is about 10× the round-off measured on this cookbook: with a rigid
+translation, every FD difference is pure round-off, and at relative steps
+`1e-3` to `1e-5` that round-off was ≤ 1.6e-13 on `S11` and `S21`,
+≤ 1.2e-12 on `ε_eff` and ≤ 5.8e-13 on `z0`.
+
+The floor is not loose enough to hide a real adjoint error. A 1 % error is
+caught on any entry above `1e-4 · M/L` at the default
+`tol = step = 1e-4`. For example, the lateral shift's `∂z0` is
+−15.08 Ω/m, 6e-4 of its natural scale, and a 1 % error on it gives
+`rel = 6.2e-4`. A scratch mutation that scaled parameter 0's gradients by 1.01 made five
+`--check-gradient` tests in `tests/sensitivity_nport.rs` fail with
+`fd_check_failed`. On the lateral shift's `∂ dB(S11)` the failure was at
+rel 4.5e-3.
+
 ## Using it in an optimizer / agent loop
 
 Edit the spec's `materials[].eps_r` (or `mu_r`), run, read
