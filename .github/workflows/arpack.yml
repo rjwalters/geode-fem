@@ -212,42 +212,37 @@ jobs:
           cargo test --features arpack -p geode-core --release \
               --test wave_port \
               --test wave_port_step_mode_matching -- --include-ignored
-          # Issue #808: the port-face TM-cutoff oracle and the #777
-          # vacuum bit-identity golden are unit tests (`--lib`), < 1 s.
-          cargo test --features arpack -p geode-core --release --lib -- \
-              driven::ports::
-          # Issue #798: residual-checked Lanczos (`eigen::lanczos::`) and the
-          # port/dielectric mode solvers that use it (`analytic::waveguide::`),
-          # incl. the #794 p=1 curl-floor tests. ~93 tests, ~7 s in release.
-          # Issues #828/#831/#834: the residual-checked complex Lanczos
-          # (`eigen::complex::`, incl. the seeded spurious-Ritz regression),
-          # its lossy-cavity caller (`eigen::lossy_cavity::`), the projected
-          # Lanczos (`eigen::projection::`), the hybrid-port Arnoldi solvers
-          # (`analytic::mixed_pencil::`, `analytic::lossy_port_modes::`) and
-          # the mesh-unit-invariance regressions in all of them (`pair_hint`'s
-          # runs with `driven::ports::` above). ~140 tests, ~8 s in release.
-          cargo test --features arpack -p geode-core --release --lib -- \
-              eigen::lanczos:: analytic::waveguide:: eigen::complex:: \
-              eigen::lossy_cavity:: eigen::projection:: \
-              analytic::mixed_pencil:: analytic::lossy_port_modes::
-          # Issue #828: geode-util's validation helpers (the degenerate-cluster
-          # floor of `dense_lowest_eigenpairs`, and the #826/#830 `q_factor` /
-          # `k_from_lambda` tests), which no job ran. < 1 s.
-          cargo test --features geode-core/arpack -p geode-util --release --lib
 
-      # Issue #760: diagonal anisotropic materials — the lossless
-      # tensor cavity pencil and diagonal-nu magnetostatics unit tests
-      # (no blanket geode-core job, so named here; < 1 s) and the
-      # uniaxial-cube closed-form golden (n = 8 / 16, ~15 s in release).
-      - name: Anisotropic materials (core units + uniaxial-cavity golden)
+      # Issue #786: every unit test (`--lib`) of geode-core, geode-util and
+      # geode-app. Before this step, only hand-picked geode-core modules ran
+      # (`driven::ports::` #808, `eigen::lanczos::` / `analytic::waveguide::`
+      # #798, `eigen::complex::` / `eigen::lossy_cavity::` /
+      # `eigen::projection::` / `analytic::mixed_pencil::` /
+      # `analytic::lossy_port_modes::` #828/#831/#834, `eigen::pec_cavity` /
+      # `assembly::magnetostatic3d` #760, `mesh::periodic` #839), so a unit
+      # test in any other module ran in no job. This step runs all of them:
+      # geode-core 644 tests in 8.5 s in release on a loaded local host (4
+      # more are #[ignore]d heavy-fixture benchmarks -- the two
+      # `driven::solve` patch benchmarks and the two 133k-tet transmon
+      # partition runs -- and stay out). It is the same `--lib` test binary
+      # the per-module runs it replaces already compiled, so the job's
+      # compile time does not grow; the run grows by a few seconds.
+      # geode-util: the validation helpers (#828: the degenerate-cluster floor
+      # of `dense_lowest_eigenpairs`, the #826/#830 `q_factor` /
+      # `k_from_lambda` tests); < 1 s. geode-app: the `args` and app-trait
+      # units (7 tests), which no job ran; < 1 s.
+      - name: Unit tests (geode-core, geode-util, geode-app; all modules)
         run: |
-          cargo test --features arpack -p geode-core --release --lib -- \
-              eigen::pec_cavity assembly::magnetostatic3d
-          # Issue #839: the periodic-map unit tests (paired_face,
-          # alias_node_motion) ride along with the pec_cavity units the
-          # periodic eigen path shares; < 1 s.
-          cargo test --features arpack -p geode-core --release --lib -- \
-              mesh::periodic
+          cargo test --features arpack -p geode-core --release --lib
+          cargo test --features geode-core/arpack -p geode-util --release --lib
+          cargo test -p geode-app --release --lib
+
+      # Issue #760: diagonal anisotropic materials — the uniaxial-cube
+      # closed-form golden (n = 8 / 16, ~15 s in release). The lossless
+      # tensor cavity pencil and diagonal-nu magnetostatics unit tests (and
+      # the #839 periodic-map units) run in the unit-test step above.
+      - name: Anisotropic materials (uniaxial-cavity golden)
+        run: |
           cargo test --features arpack -p geode-core --release \
               --test uniaxial_cavity -- --include-ignored
 
