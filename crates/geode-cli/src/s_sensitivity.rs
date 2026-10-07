@@ -49,8 +49,9 @@
 //! port's outgoing branch flips there (the library's passive-side
 //! derivative). The step is `relative_step` times the parameter's natural
 //! scale (`|ε′|`, `|ε_r|` for `ε″`, `1` for `tan δ`, the motion length for
-//! shape), and the disagreement is floored at the central difference's
-//! round-off (see the README).
+//! shape), and the disagreement is floored at 1 % of the observable's
+//! natural gradient scale and at the FD estimate's own round-off over the
+//! tolerance (`fd_floor`, issue #890; see the README).
 
 use std::time::Instant;
 
@@ -85,13 +86,21 @@ pub const FORWARD_PARITY_TOL: f64 = 1e-8;
 /// (the shipped readout): the two agree on eigenmodes to the eigen-solve
 /// residual.
 pub const PORT_MODE_PARITY_TOL: f64 = 1e-6;
-/// Relative round-off of one forward solve's observable, the noise floor of
-/// a central difference: an entry whose gradient and FD estimate both sit
-/// below `FD_ROUNDOFF · M / h` (`M` the observable's magnitude scale, `h`
-/// the step) is structurally zero — e.g. `|S21|` of a uniform guide under
-/// a rigid shift of a slab — and is not judged against the difference of
-/// two round-off-level numbers.
-const FD_ROUNDOFF: f64 = 1e-10;
+/// Round-off `η_S` of one forward solve's S entry, absolute (S is
+/// normalised, `|S_ij| ≤ 1`). The FD estimate of an entry is only good to
+/// its forward's round-off over `h` ([`fd_roundoff`], `h` the step), so a
+/// disagreement below that is no evidence of an adjoint error (see
+/// [`fd_floor`]).
+///
+/// Measured on the hybrid-face microstrip cookbook (issue #890: a rigid
+/// translation of the whole model, whose every FD difference `f(p+h) −
+/// f(p−h)` is pure round-off, at relative steps `1e-3`, `1e-4`, `1e-5`):
+/// `≤ 1.6e-13` on `S11` (−68 dB) and `≤ 1e-13` on `S21`; ~10× margin.
+const FD_ROUNDOFF_S: f64 = 2e-12;
+/// Relative round-off `η_mode` of a forward's port-mode value (`z0`,
+/// `ε_eff`: the 2-D face eigen solve), measured as [`FD_ROUNDOFF_S`]:
+/// `≤ 1.2e-12` on `ε_eff`, `≤ 5.8e-13` on `z0`; ~10× margin.
+const FD_ROUNDOFF_PORT_MODE: f64 = 1e-11;
 
 type B = CompiledBackend;
 
@@ -340,6 +349,82 @@ fn magnitude_scale(form: ObservableForm, value: f64) -> f64 {
         ObservableForm::PhaseDeg => 180.0 / std::f64::consts::PI,
         _ => value.abs().max(1.0),
     }
+}
+
+/// The round-off of observable `o`'s value in one forward, read at the
+/// design-point report row: an S entry carries absolute noise
+/// `η_S` ([`FD_ROUNDOFF_S`]), a port-mode value `η_mode·|z|`
+/// ([`FD_ROUNDOFF_PORT_MODE`]);
+/// the form maps a change `δz` to `|δz|` (`real`, `imag`, `mag`), `2|z||δz|`
+/// (`mag_sq`), `(20/ln 10)|δz|/|z|` (dB) or `(180/π)|δz|/|z|` (degrees). A
+/// deep null's dB or phase is noise-dominated accordingly — and so is its
+/// gradient, which carries the same `1/|z|`.
+fn fd_roundoff(p: &Problem, o: &ObservableDef, row: &FrequencyResult) -> f64 {
+    let (z, noise) = match o.quantity {
+        ObservableQuantity::S => {
+            let [i, j] = o.entries[0];
+            (row_s(row, i, j).norm(), FD_ROUNDOFF_S)
+        }
+        ObservableQuantity::SSumSq => {
+            return FD_ROUNDOFF_S
+                * 2.0
+                * o.entries
+                    .iter()
+                    .map(|&[i, j]| row_s(row, i, j).norm())
+                    .sum::<f64>()
+                    .max(1.0);
+        }
+        ObservableQuantity::Z0 | ObservableQuantity::EpsEff => {
+            let z = row_port_mode(p, o, row).map_or(1.0, |z| z.norm());
+            (z, FD_ROUNDOFF_PORT_MODE * z)
+        }
+    };
+    let z = z.max(f64::MIN_POSITIVE);
+    noise
+        * match o.form {
+            ObservableForm::Real | ObservableForm::Imag | ObservableForm::Mag => 1.0,
+            ObservableForm::MagSq => 2.0 * z,
+            ObservableForm::Db => 20.0 / std::f64::consts::LN_10 / z,
+            ObservableForm::PhaseDeg => 180.0 / std::f64::consts::PI / z,
+        }
+}
+
+/// The FD-check denominator floor of one driven entry (issue #890): the
+/// largest of
+///
+/// * `FD_SCALE_FLOOR · gmax` — 1 % of the largest |gradient| of the same
+///   (parameter, observable) over the frequencies;
+/// * `FD_SCALE_FLOOR · M / L` — 1 % of the observable's natural gradient
+///   scale, its magnitude scale `M` ([`magnitude_scale`]) per the
+///   parameter's natural scale `L` ([`parameter_scale`]). Unlike `gmax`
+///   it does not vanish with an entry that is zero by symmetry (a lateral
+///   strip shift in a symmetric box, a rigid motion);
+/// * `ρ / (h · tol)` — the FD estimate's own round-off `ρ / h` (`ρ` the
+///   forward's round-off of the value, [`fd_roundoff`]; ×4 for the
+///   one-sided difference, whose weights sum to 8 over `2h`) over the
+///   tolerance: a disagreement within the FD's round-off passes, any
+///   larger one is judged.
+///
+/// What still fails: an adjoint error `δ = r·|g|` (`r` = 1 %, say) is
+/// caught whenever `r·|g| > tol · floor`, i.e. on every entry with `|g|`
+/// above `max(0.01·M/L·tol/r, ρ/(h·r))` — for `r = 1 %` and the default
+/// `tol = step = 1e-4`, entries above `1e-4·M/L` and above `100·ρ/(1e-4·L)`
+/// (for an S entry, a gradient whose underlying `|∂S/∂p|·L` exceeds
+/// `2e-6`): far below any live gradient (the cookbook's strip-width
+/// `∂ε_eff/∂w` is `147 /m` against `M/L = 1.7e3 /m`).
+fn fd_floor(
+    gmax: f64,
+    magnitude: f64,
+    roundoff: f64,
+    scale: f64,
+    h: f64,
+    tol: f64,
+    one_sided: bool,
+) -> f64 {
+    let fd_noise = roundoff / h * if one_sided { 4.0 } else { 1.0 };
+    (FD_SCALE_FLOOR * gmax)
+        .max(FD_SCALE_FLOOR * magnitude / scale)
+        .max(fd_noise / tol)
 }
 
 /// The value of a real form of `z` (the FD forward's readout).
@@ -1257,8 +1342,15 @@ pub fn driven(
                             wrap(va - vb) / (2.0 * h)
                         };
                         let e = &mut entries[(k * n_obs + oi) * n_f + si];
-                        let floor = (FD_SCALE_FLOOR * gmax)
-                            .max(FD_ROUNDOFF * magnitude_scale(o.form, e.value) / h);
+                        let floor = fd_floor(
+                            gmax,
+                            magnitude_scale(o.form, e.value),
+                            fd_roundoff(p, o, base_rows[si]),
+                            scale,
+                            h,
+                            tol,
+                            one_sided,
+                        );
                         let rel = rel_error(e.gradient, fd, floor);
                         let key = if rel.is_nan() { f64::INFINITY } else { rel };
                         if worst.is_none() || key > max_rel {
@@ -1371,6 +1463,73 @@ mod tests {
                 "{form:?}: {g} vs {fd}"
             );
         }
+    }
+
+    /// Issue #890: the FD floor passes the symmetry-zero entries measured on
+    /// the hybrid microstrip cookbook (release `geode driven`, default step
+    /// and tolerance `1e-4`) and still fails a 1 % adjoint error on every
+    /// live entry — including one ~6e-4 of its natural scale.
+    #[test]
+    fn fd_floor_passes_symmetry_zeros_and_fails_one_percent_errors() {
+        let tol = 1e-4;
+        let step = 1e-4;
+        let db = 20.0 / std::f64::consts::LN_10;
+        let s11 = 3.79e-4; // |S11| at the design point (−68.4 dB)
+        // Strip width (stretch, L = w) and lateral strip shift (translate,
+        // L = the strip's bounding-box size).
+        let (l_width, l_shift) = (1.91e-3, 2.02e-3);
+        let check = |g: f64, fd: f64, gmax: f64, m: f64, rho: f64, l: f64| {
+            let floor = fd_floor(gmax, m, rho, l, step * l, tol, false);
+            rel_error(g, fd, floor)
+        };
+        // The forward's round-off of each value (`fd_roundoff`).
+        let (s_db, s_deg) = (FD_ROUNDOFF_S * db / s11, FD_ROUNDOFF_S * 57.296);
+        let mode = |z: f64| FD_ROUNDOFF_PORT_MODE * z;
+        // (gradient, FD, M, ρ, L): the entries of the two reproductions.
+        let zeros = [
+            // Case 1, lateral shift with the shield pinned: ∂ε_eff, mesh
+            // asymmetry noise (rel 3.9e-4 under the old floor).
+            (-3.2946e-2, -3.2959e-2, 3.3282, mode(3.3282), l_shift),
+            // Case 2, rigid translation: ∂ dB(S11) (old floor: rel 0.98),
+            // ∂z0, ∂ε_eff, ∂∠S21.
+            (1.1209e-4, 6.9107e-3, db, s_db, l_shift),
+            (1.3584e-12, 1.5188e-5, 49.273, mode(49.273), l_shift),
+            (-1.1296e-14, -2.0750e-6, 3.3282, mode(3.3282), l_shift),
+            (-2.7965e-7, 1.6342e-6, 57.296, s_deg, l_shift),
+        ];
+        for (g, fd, m, rho, l) in zeros {
+            let rel = check(g, fd, g.abs(), m, rho, l);
+            assert!(rel <= tol / 10.0, "symmetry zero {g} vs {fd}: rel {rel:e}");
+        }
+        // Live entries: (gradient, FD, M, ρ, L). The strip-width ∂z0,
+        // ∂ε_eff, ∂ dB(S11), ∂∠S21, and the lateral shift's ∂z0 (−15.08 Ω/m
+        // against a natural scale M/L = 2.4e4 Ω/m).
+        let live = [
+            (
+                -1.5297e4,
+                -1.5297e4 + 2.552e-4,
+                49.273,
+                mode(49.273),
+                l_width,
+            ),
+            (147.33, 147.33 - 4.666e-5, 3.3282, mode(3.3282), l_width),
+            (2973.4, 2973.4 - 1.071e-2, db, s_db, l_width),
+            (-181.68, -181.68 + 1.045e-5, 57.296, s_deg, l_width),
+            (-15.082, -15.082 + 8.955e-5, 49.273, mode(49.273), l_shift),
+        ];
+        for (g, fd, m, rho, l) in live {
+            assert!(check(g, fd, g.abs(), m, rho, l) <= tol, "{g} vs {fd}");
+            for r in [1.01, 0.99] {
+                let bad = g * r;
+                let rel = check(bad, fd, bad.abs(), m, rho, l);
+                // The sub-natural z0 entry fails at rel 6.2e-4; the rest at ≥ 2e-3.
+                assert!(rel > 5.0 * tol, "a 1 % error on {g} passes: rel {rel:e}");
+            }
+        }
+        // The one-sided difference's round-off is 4× the central one's.
+        let c = fd_floor(0.0, 0.0, 1.0, 1.0, 1e-4, tol, false);
+        let o = fd_floor(0.0, 0.0, 1.0, 1.0, 1e-4, tol, true);
+        assert!((o / c - 4.0).abs() < 1e-12, "{o} vs {c}");
     }
 
     #[test]

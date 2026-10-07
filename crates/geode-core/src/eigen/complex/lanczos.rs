@@ -1013,6 +1013,19 @@ impl CheckedComplexEigenpairs {
             .min_by(|a, b| dist(a.0).total_cmp(&dist(b.0)))
     }
 
+    /// Every **localized** withheld pair of [`Self::rejected`], as `(λ, ρ)`
+    /// (same localization test as [`Self::localized_hole`], no distance or
+    /// window filter). `sigma` must be the shift of the solve that produced
+    /// `self`. Callers whose selection is not "nearest `σ`" (the dielectric
+    /// bound-mode classifiers, issue #850) apply their own hole rule to it.
+    pub fn localized_rejected(&self, sigma: f64) -> Vec<(c64, f64)> {
+        self.rejected
+            .iter()
+            .copied()
+            .filter(|&(l, r)| complex_ritz_is_localized(l, r, sigma))
+            .collect()
+    }
+
     /// Partition `pairs` into converged (kept) and rejected by `tol`.
     fn split(&mut self, pairs: Vec<ComplexEigenPair>, residuals: Vec<f64>, tol: f64) {
         for (pair, res) in pairs.into_iter().zip(residuals) {

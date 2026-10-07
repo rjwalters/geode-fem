@@ -4439,7 +4439,9 @@ pub struct DielectricMode {
 /// The eigensolve returns only Ritz pairs whose true residual
 /// `‖A x − β² M₁ x‖₂ / (β² ‖M₁ x‖₂)` is at most `1e-8`, extending the
 /// Lanczos run (bounded) until the requested window converges. Pairs still
-/// unconverged at the cap are withheld, and the count is logged. In-window
+/// unconverged at the cap are withheld, and the count is logged; a localized
+/// withheld pair that would rank inside the returned set is a selection
+/// hole (issue #850, see Errors). In-window
 /// pairs that break the exact Rayleigh identity are rejected as a second
 /// line (`rayleigh_consistent`).
 ///
@@ -4471,6 +4473,9 @@ pub struct DielectricMode {
 ///
 /// Returns [`EigenError`] if the sparse eigensolve fails. Returns an
 /// empty `Vec` (not an error) if no bound modes exist in the window.
+/// Returns [`EigenError::SelectionHole`] if a localized, bound-like withheld
+/// Ritz pair still sits above the lowest returned mode after one automatic
+/// retry with a doubled Lanczos request (issue #850; see `selection_hole`).
 pub fn solve_dielectric_modes(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -4478,6 +4483,25 @@ pub fn solve_dielectric_modes(
     k0: f64,
     n_modes: usize,
 ) -> Result<Vec<DielectricMode>, EigenError> {
+    // Request a generous batch so the physical band and the
+    // gradient-nullspace band are both sampled and the gap can be detected.
+    let n_request = (n_modes + 8).max(16);
+    retry_on_selection_hole("solve_dielectric_modes", n_request, |n_request| {
+        solve_dielectric_modes_attempt(mesh, eps_r, interior_edge_mask, k0, n_modes, n_request)
+    })
+}
+
+/// One [`solve_dielectric_modes`] solve + classification at a given Lanczos
+/// request, returning the bound modes and the outcome of the selection-level
+/// hole check (issue #850).
+fn solve_dielectric_modes_attempt(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    interior_edge_mask: &[bool],
+    k0: f64,
+    n_modes: usize,
+    n_request: usize,
+) -> Result<ClassifiedAttempt<DielectricMode>, EigenError> {
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
     let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
@@ -4504,9 +4528,6 @@ pub fn solve_dielectric_modes(
     // the fundamental is only reachable by requesting tens of modes
     // (multi-minute solves). For slab-like geometry (no 2-D ceiling) we
     // keep the original n_core-targeted shift, preserving 1-D behaviour.
-    // Request a generous batch so the physical band and the
-    // gradient-nullspace band are both sampled and the gap can be detected.
-    let n_request = (n_modes + 8).max(16);
     let raw = dielectric_raw_candidates_with_target(
         mesh,
         eps_r,
@@ -4602,7 +4623,15 @@ pub fn solve_dielectric_modes(
          in the guided window (requested {n_modes})",
         raw.withheld, raw.lanczos_steps, raw.withheld_in_window
     );
-    Ok(bound)
+    // Selection-level hole check (issue #850): a localized withheld pair
+    // above the lowest returned mode would have ranked inside this set.
+    let hole = check_selection_hole_real(
+        "solve_dielectric_modes",
+        &raw,
+        (beta_sq_floor, beta_sq_ceiling),
+        bound.last().map(|m| m.beta_sq),
+    );
+    Ok((bound, hole))
 }
 
 /// A raw recovered eigenpair of the dielectric pencil `A x = β² M₁ x`
@@ -4646,6 +4675,14 @@ pub(crate) struct RawDielectricSolve {
     /// only ones that could have become modes. This is the shortfall that
     /// matters to the caller.
     pub withheld_in_window: usize,
+    /// The **localized** withheld pairs `(β², ρ)` (see
+    /// [`CheckedEigenpairs::localized_rejected`]): genuine eigenvalues still
+    /// unconverged at the cap. The classifier tests them for a hole in its
+    /// selection ([`selection_hole`], issue #850).
+    pub localized_withheld: Vec<(f64, f64)>,
+    /// Shift `σ` of the solve (sets each withheld pair's uncertainty
+    /// `ρ · max(|λ|, |σ|)` in [`selection_hole`]).
+    pub sigma: f64,
     /// Lanczos steps run (first pass plus any extension).
     pub lanczos_steps: usize,
 }
@@ -4692,8 +4729,11 @@ const DIELECTRIC_LANCZOS_CAP_FACTOR: usize = 6;
 ///
 /// As for `pml_checked_eigenpairs`, the contract is the classifier's
 /// selection from the converged set, not "the modes nearest `σ`", so no
-/// solver-level hole check applies (PR #847); the withheld in-window count
-/// is reported ([`RawDielectricSolve::withheld_in_window`]).
+/// solver-level hole check applies (PR #847). The hole rule runs at the
+/// selection instead: the localized withheld pairs travel with the
+/// candidates ([`RawDielectricSolve::localized_withheld`]) and each
+/// classifier checks them against the bound modes it returns
+/// ([`selection_hole`], issue #850).
 fn dielectric_checked_eigenpairs(
     a: SparseColMatRef<'_, usize, f64>,
     m1: SparseColMatRef<'_, usize, f64>,
@@ -4727,11 +4767,13 @@ fn dielectric_checked_eigenpairs(
 /// ratio and field-weighted permittivity, sorted by decreasing `β²`.
 fn raw_dielectric_solve(
     checked: CheckedEigenpairs,
+    sigma: f64,
     guided_window: (f64, f64),
     curl_ratio: impl Fn(&[f64]) -> f64,
     eps_weighted: impl Fn(&[f64]) -> f64,
 ) -> RawDielectricSolve {
     let withheld = checked.rejected.len();
+    let localized_withheld = checked.localized_rejected(sigma);
     let withheld_in_window = checked
         .rejected
         .iter()
@@ -4759,6 +4801,8 @@ fn raw_dielectric_solve(
         cands,
         withheld,
         withheld_in_window,
+        localized_withheld,
+        sigma,
         lanczos_steps,
     }
 }
@@ -4819,6 +4863,8 @@ pub(crate) fn dielectric_raw_candidates_with_target(
             cands: Vec::new(),
             withheld: 0,
             withheld_in_window: 0,
+            localized_withheld: Vec::new(),
+            sigma: 0.0,
             lanczos_steps: 0,
         });
     }
@@ -4873,6 +4919,7 @@ pub(crate) fn dielectric_raw_candidates_with_target(
     )?;
     Ok(raw_dielectric_solve(
         checked,
+        sigma,
         guided_window,
         curl_ratio,
         eps_weighted,
@@ -5102,6 +5149,9 @@ const GUIDED_CURL_FLOOR_FRACTION: f64 = 1e-2;
 ///
 /// Returns [`EigenError`] if the sparse eigensolve fails. Returns an empty
 /// `Vec` (not an error) if no bound modes exist in the window.
+/// Returns [`EigenError::SelectionHole`] if a localized, bound-like withheld
+/// Ritz pair still sits above the lowest returned mode after one automatic
+/// retry with a doubled Lanczos request (issue #850; see `selection_hole`).
 pub fn solve_dielectric_modes2(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -5109,6 +5159,22 @@ pub fn solve_dielectric_modes2(
     k0: f64,
     n_modes: usize,
 ) -> Result<Vec<DielectricMode>, EigenError> {
+    let n_request = (n_modes + 8).max(16);
+    retry_on_selection_hole("solve_dielectric_modes2", n_request, |n_request| {
+        solve_dielectric_modes2_attempt(mesh, eps_r, interior_dof_mask, k0, n_modes, n_request)
+    })
+}
+
+/// One [`solve_dielectric_modes2`] solve + classification at a given
+/// Lanczos request (see [`solve_dielectric_modes_attempt`]).
+fn solve_dielectric_modes2_attempt(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    interior_dof_mask: &[bool],
+    k0: f64,
+    n_modes: usize,
+    n_request: usize,
+) -> Result<ClassifiedAttempt<DielectricMode>, EigenError> {
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
     let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
@@ -5119,7 +5185,6 @@ pub fn solve_dielectric_modes2(
     let beta_sq_ceiling = n_eff_ceiling * n_eff_ceiling * k0 * k0;
     let beta_sq_floor = n_clad * n_clad * k0 * k0;
 
-    let n_request = (n_modes + 8).max(16);
     let raw =
         dielectric_raw_candidates_p2(mesh, eps_r, interior_dof_mask, k0, n_request, index_ceiling)?;
     let cands = &raw.cands;
@@ -5192,7 +5257,14 @@ pub fn solve_dielectric_modes2(
          in the guided window (requested {n_modes})",
         raw.withheld, raw.lanczos_steps, raw.withheld_in_window
     );
-    Ok(bound)
+    // Selection-level hole check (issue #850), as in `solve_dielectric_modes`.
+    let hole = check_selection_hole_real(
+        "solve_dielectric_modes2",
+        &raw,
+        (beta_sq_floor, beta_sq_ceiling),
+        bound.last().map(|m| m.beta_sq),
+    );
+    Ok((bound, hole))
 }
 
 /// Relative tolerance of the Rayleigh-identity check, as a fraction of
@@ -5407,7 +5479,7 @@ fn dielectric_raw_candidates_p2_pml(
     k0: f64,
     n_request: usize,
     n_eff_target: Option<f64>,
-) -> Result<Vec<RawDielectricCandidateComplex>, EigenError> {
+) -> Result<RawDielectricSolvePml, EigenError> {
     assert!(k0 > 0.0, "k0 must be positive; got {k0}");
 
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
@@ -5427,7 +5499,12 @@ fn dielectric_raw_candidates_p2_pml(
     )?;
     let dim = ops.dim;
     if dim == 0 {
-        return Ok(Vec::new());
+        return Ok(RawDielectricSolvePml {
+            cands: Vec::new(),
+            localized_withheld: Vec::new(),
+            sigma: 0.0,
+            lanczos_steps: 0,
+        });
     }
     let k_int = ops.k;
     let m_eps_int = ops.m_eps;
@@ -5464,6 +5541,8 @@ fn dielectric_raw_candidates_p2_pml(
         guided_window,
     )?;
     log_pml_withheld("dielectric_raw_candidates_p2_pml", &checked, guided_window);
+    let localized_withheld = checked.localized_rejected(sigma);
+    let lanczos_steps = checked.lanczos_steps;
     let pairs = checked.pairs;
 
     let mut cands: Vec<RawDielectricCandidateComplex> = pairs
@@ -5481,7 +5560,200 @@ fn dielectric_raw_candidates_p2_pml(
             .partial_cmp(&a.beta_sq.re)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    Ok(cands)
+    Ok(RawDielectricSolvePml {
+        cands,
+        localized_withheld,
+        sigma,
+        lanczos_steps,
+    })
+}
+
+/// The converged candidates of one PML / complex dielectric pencil solve
+/// ([`dielectric_raw_candidates_p2_pml`]) plus the localized withheld pairs
+/// the classifiers test for a hole in their selection (issue #850).
+struct RawDielectricSolvePml {
+    /// Converged candidates, sorted by decreasing `Re β²`.
+    cands: Vec<RawDielectricCandidateComplex>,
+    /// Localized withheld pairs `(β², ρ)`
+    /// ([`CheckedComplexEigenpairs::localized_rejected`]).
+    localized_withheld: Vec<(c64, f64)>,
+    /// Shift `σ` of the solve.
+    sigma: f64,
+    /// Lanczos steps run (first pass plus any extension).
+    lanczos_steps: usize,
+}
+
+/// Relative leakage `|Im β²| / Re β²` at or below which a guided-window
+/// pair counts as **bound** (the PML classifiers' bound/leaky cut; see
+/// [`solve_dielectric_modes2_pml`]). Relative in every mesh length unit
+/// (issue #828).
+const DIELECTRIC_BOUND_REL_IM: f64 = 1e-8;
+
+/// Selection-level **hole** rule of the dielectric bound-mode classifiers
+/// (issue #850, the follow-up to PR #847).
+///
+/// Returns the withheld pair `(β², ρ)` with the largest `Re β²` that
+///
+/// 1. is **localized** (already filtered: `localized_withheld` comes from
+///    [`CheckedEigenpairs::localized_rejected`] /
+///    [`CheckedComplexEigenpairs::localized_rejected`], the solver's own
+///    `ρ · max(|λ|, |σ|) ≤ |λ − σ|` test, so it locates a genuine
+///    eigenvalue that was still unconverged at the Lanczos cap),
+/// 2. lies inside the classifier's guided window **with certainty**,
+///    `guided_window.0 + w < Re β² < guided_window.1 − w`,
+/// 3. is **bound-like**, `|Im β²| ≤ DIELECTRIC_BOUND_REL_IM · Re β²`
+///    (trivially true on the real path), and
+/// 4. has `Re β²` **certainly above** `lowest_returned_bound`, the lowest
+///    `Re β²` among the bound modes the classifier is about to return:
+///    `Re β² − w > lowest_returned_bound`.
+///
+/// `w = ρ · max(|β²|, |σ|)` is the pair's first-order eigenvalue
+/// uncertainty, the same bound the localization test uses. Without it the
+/// curl-free gradient cluster that sits at `β² = ε_core k₀²` (the PML
+/// window ceiling) to rounding would count as in-window: on the coarse
+/// `(3, 32)` high-contrast PML mesh a withheld copy at `36.35397`
+/// (`ρ = 5.9×10⁻⁸`) falls below the ceiling by `~10⁻¹⁴`. Requiring a
+/// certain margin also keeps a ghost copy of the lowest returned mode
+/// from counting as a pair above it.
+///
+/// Such a pair would have ranked inside the returned bound set (the
+/// classifiers order bound modes by descending `Re β²`), so returning
+/// without it leaves a hole, and it could be the true fundamental. With no
+/// returned bound mode (`None`) there is no set to have a hole in.
+///
+/// # Why not "nearer `σ` than a returned mode"
+///
+/// That is the PR #847 rule of [`crate::eigen::lossy_cavity`]. The guided
+/// window here is crowded with leaky / PML-continuum pairs that
+/// legitimately stay unconverged at the cap, so a withheld localized pair
+/// nearer `σ` than some returned continuum mode is normal. The
+/// high-contrast fiber fixture withholds one at `β² = 34.94`, *below* its
+/// `35.8` fundamental; under this rule it is not a hole.
+fn selection_hole(
+    localized_withheld: &[(c64, f64)],
+    sigma: f64,
+    guided_window: (f64, f64),
+    lowest_returned_bound: Option<f64>,
+) -> Option<(c64, f64)> {
+    let lowest = lowest_returned_bound?;
+    localized_withheld
+        .iter()
+        .copied()
+        .filter(|&(l, r)| {
+            let w = r * l.norm().max(sigma.abs());
+            guided_window.0 + w < l.re
+                && l.re < guided_window.1 - w
+                && l.im.abs() <= DIELECTRIC_BOUND_REL_IM * l.re.abs()
+                && l.re - w > lowest
+        })
+        .max_by(|a, b| a.0.re.total_cmp(&b.0.re))
+}
+
+/// Apply [`selection_hole`] and turn a hit into
+/// [`EigenError::SelectionHole`] (issue #850).
+fn check_selection_hole(
+    solver: &'static str,
+    localized_withheld: &[(c64, f64)],
+    sigma: f64,
+    guided_window: (f64, f64),
+    lowest_returned_bound: Option<f64>,
+    lanczos_steps: usize,
+) -> Result<(), EigenError> {
+    let hole = selection_hole(
+        localized_withheld,
+        sigma,
+        guided_window,
+        lowest_returned_bound,
+    );
+    if !localized_withheld.is_empty() {
+        let listed: Vec<String> = localized_withheld
+            .iter()
+            .map(|(l, r)| format!("{:.6e}{:+.2e}i (ρ={r:.2e})", l.re, l.im))
+            .collect();
+        eprintln!(
+            "{solver}: hole check (issue #850): {} localized withheld pair(s) [{}]; reference \
+             (lowest returned / selected) bound β² = {}; {}",
+            localized_withheld.len(),
+            listed.join(", "),
+            lowest_returned_bound.map_or("none".to_string(), |b| format!("{b:.6e}")),
+            if hole.is_some() { "HOLE" } else { "no hole" },
+        );
+    }
+    match hole {
+        Some((lambda, residual)) => Err(EigenError::SelectionHole {
+            solver,
+            beta_sq_re: lambda.re,
+            beta_sq_im: lambda.im,
+            residual,
+            residual_tol: DIELECTRIC_RESIDUAL_TOL,
+            lowest_returned: lowest_returned_bound.unwrap_or(f64::NAN),
+            lanczos_steps,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Real-path form of [`check_selection_hole`]: the localized withheld pairs
+/// of a [`RawDielectricSolve`] are real, so trivially bound-like.
+fn check_selection_hole_real(
+    solver: &'static str,
+    raw: &RawDielectricSolve,
+    guided_window: (f64, f64),
+    lowest_returned_bound: Option<f64>,
+) -> Result<(), EigenError> {
+    let withheld: Vec<(c64, f64)> = raw
+        .localized_withheld
+        .iter()
+        .map(|&(l, r)| (c64::new(l, 0.0), r))
+        .collect();
+    check_selection_hole(
+        solver,
+        &withheld,
+        raw.sigma,
+        guided_window,
+        lowest_returned_bound,
+        raw.lanczos_steps,
+    )
+}
+
+/// What one classifier attempt produces: the selection it would return and
+/// the outcome of its selection-level hole check (issue #850).
+type ClassifiedAttempt<T> = (Vec<T>, Result<(), EigenError>);
+
+/// Run a classifier attempt and, if its selection has a hole, retry **once**
+/// with a doubled Lanczos request (issue #850).
+///
+/// # Why retry, and why an error after that
+///
+/// A hole means a genuine eigenvalue that ranks inside the returned bound
+/// set was still unconverged when the extension stopped. Measured on the
+/// `formulation_audit_graddiv` ~3 %-step PEC fiber, the usual cause is a
+/// **degenerate polarization twin**: one partner of the `β² = 35.385` pair
+/// converged, the other was withheld (`ρ = 4.4×10⁻⁵`), and the 4-mode set
+/// silently returned the next mode down in its place. Doubling the request
+/// (which also doubles the extension cap) converges both partners. That is
+/// a robust path, so a reasonable solve is not blocked: the hole is logged
+/// and the retry's selection is returned. If the retry still has a hole
+/// there is no further robust path inside the classifier, and the solve
+/// fails with [`EigenError::SelectionHole`] rather than return a set with a
+/// missing mode, which could be the true fundamental.
+fn retry_on_selection_hole<T>(
+    solver: &str,
+    n_request: usize,
+    mut attempt: impl FnMut(usize) -> Result<ClassifiedAttempt<T>, EigenError>,
+) -> Result<Vec<T>, EigenError> {
+    let (out, hole) = attempt(n_request)?;
+    let Err(first) = hole else {
+        return Ok(out);
+    };
+    let retry_request = 2 * n_request;
+    eprintln!(
+        "{solver}: WARNING selection hole at Lanczos request {n_request} ({first}); retrying          once with request {retry_request}"
+    );
+    let (out, hole) = attempt(retry_request)?;
+    hole?;
+    eprintln!("{solver}: retry at request {retry_request} closed the selection hole");
+    Ok(out)
 }
 
 /// Complex (PML / DtN) counterpart of [`dielectric_checked_eigenpairs`]
@@ -5500,7 +5772,7 @@ fn dielectric_raw_candidates_p2_pml(
 /// first pass converges, the result is bit-identical to the old unchecked
 /// solve minus the withheld pairs.
 ///
-/// # No hole check here (PR #847)
+/// # The hole check is at the selection (PR #847, issue #850)
 ///
 /// Unlike [`crate::eigen::lossy_cavity`], this solve's contract is not "the
 /// modes nearest `σ`": the guided window is densely populated with leaky
@@ -5508,11 +5780,13 @@ fn dielectric_raw_candidates_p2_pml(
 /// the cap, and the callers *select* from the converged set (bound before
 /// leaky, then largest `Re β²`). A withheld localized pair nearer `σ` than
 /// some returned continuum mode is therefore normal (the high-contrast
-/// fiber withholds one at `β² = 34.94`, below its `35.8` fundamental). The
-/// hole rule belongs at the selection: the analytic-cladding loop applies
-/// it to its fundamental ([`solve_dielectric_modes2_analytic_cladding_bc`]);
-/// the classifier family reports the withheld count through
-/// `log_pml_withheld`.
+/// fiber withholds one at `β² = 34.94`, below its `35.8` fundamental), so
+/// no solver-level hole check applies here. Each caller applies a hole rule
+/// to its own selection: the analytic-cladding loop to its fundamental
+/// ([`solve_dielectric_modes2_analytic_cladding_bc`]), and the classifiers
+/// ([`solve_dielectric_modes2_pml`],
+/// [`solve_dielectric_modes2_pml_profile_selected`]) to the bound modes
+/// they return, via [`selection_hole`].
 fn pml_checked_eigenpairs(
     a: SparseColMatRef<'_, usize, c64>,
     m1: SparseColMatRef<'_, usize, c64>,
@@ -5633,6 +5907,10 @@ fn physical_curl_floor_pml() -> f64 {
 ///
 /// Returns [`EigenError`] if the complex eigensolve fails. Returns an empty
 /// `Vec` (not an error) if no guided mode exists in the window.
+/// Returns [`EigenError::SelectionHole`] if a localized, bound-like withheld
+/// Ritz pair still sits above the lowest returned *bound* mode after one
+/// automatic retry with a doubled Lanczos request (issue #850; see
+/// `selection_hole`).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_pml(
     mesh: &TriMesh,
@@ -5652,6 +5930,43 @@ pub fn solve_dielectric_modes2_pml(
         region_tags.len(),
         mesh.n_tris()
     );
+    // Request a generous batch: the in-window band is densely populated
+    // (gradient nullspace + bound + leaky), and the genuine bound cluster
+    // sits a little below the ceiling, so a small request can miss the
+    // fundamental. 40 comfortably samples the whole guided window for the
+    // SMF-28-scale meshes this targets.
+    let n_request = (n_modes + 36).max(40);
+    retry_on_selection_hole("solve_dielectric_modes2_pml", n_request, |n_request| {
+        solve_dielectric_modes2_pml_attempt(
+            mesh,
+            eps_r,
+            region_tags,
+            interior_dof_mask,
+            r_pml_inner,
+            r_outer,
+            sigma_0,
+            k0,
+            n_modes,
+            n_request,
+        )
+    })
+}
+
+/// One [`solve_dielectric_modes2_pml`] solve + classification at a given
+/// Lanczos request (see [`solve_dielectric_modes_attempt`]).
+#[allow(clippy::too_many_arguments)]
+fn solve_dielectric_modes2_pml_attempt(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    region_tags: &[i32],
+    interior_dof_mask: &[bool],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+    k0: f64,
+    n_modes: usize,
+    n_request: usize,
+) -> Result<ClassifiedAttempt<DielectricModePml>, EigenError> {
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
     let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
@@ -5672,13 +5987,7 @@ pub fn solve_dielectric_modes2_pml(
     let beta_sq_ceiling = n_eff_ceiling * n_eff_ceiling * k0 * k0;
     let beta_sq_floor = n_clad * n_clad * k0 * k0;
 
-    // Request a generous batch: the in-window band is densely populated
-    // (gradient nullspace + bound + leaky), and the genuine bound cluster
-    // sits a little below the ceiling, so a small request can miss the
-    // fundamental. 40 comfortably samples the whole guided window for the
-    // SMF-28-scale meshes this targets.
-    let n_request = (n_modes + 36).max(40);
-    let cands = dielectric_raw_candidates_p2_pml(
+    let raw = dielectric_raw_candidates_p2_pml(
         mesh,
         eps_r,
         region_tags,
@@ -5690,8 +5999,9 @@ pub fn solve_dielectric_modes2_pml(
         n_request,
         None,
     )?;
+    let cands = &raw.cands;
     if cands.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Ok(())));
     }
     let n_dof = n_dof_2d_nedelec2(mesh);
     let curl_floor = physical_curl_floor_pml();
@@ -5707,7 +6017,7 @@ pub fn solve_dielectric_modes2_pml(
     // |Im(β²)| (genuinely bound / lowest leakage) — the clean PML selection.
     let mut guided: Vec<DielectricModePml> = Vec::new();
     let mut n_dropped = 0usize;
-    for c in &cands {
+    for c in cands {
         let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
         let has_curl = c.curl_ratio > curl_floor;
         if !(in_window && has_curl) {
@@ -5753,9 +6063,9 @@ pub fn solve_dielectric_modes2_pml(
     // `max(|Re β²|, 1)` floor made it absolute for `β² < 1`, e.g. a guide
     // meshed in metres or nm). Every candidate here is in the guided
     // window, so `Re β² > 0`.
-    const BOUND_REL_IM: f64 = 1e-8;
-    let is_bound =
-        |m: &DielectricModePml| -> bool { m.beta_sq.im.abs() <= BOUND_REL_IM * m.beta_sq.re.abs() };
+    let is_bound = |m: &DielectricModePml| -> bool {
+        m.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * m.beta_sq.re.abs()
+    };
     guided.sort_by(|a, b| {
         let (ba, bb) = (is_bound(a), is_bound(b));
         // Bound modes first.
@@ -5788,7 +6098,23 @@ pub fn solve_dielectric_modes2_pml(
          curl-energy floor={curl_floor:.4e}; recovered {have} guided mode(s), \
          dropped {n_dropped} radiation/spurious eigenpair(s) (requested {n_modes})"
     );
-    Ok(guided)
+    // Selection-level hole check (issue #850): a localized, bound-like
+    // withheld pair above the lowest returned *bound* mode would have
+    // ranked inside the bound part of this set.
+    let lowest_bound = guided
+        .iter()
+        .filter(|m| is_bound(m))
+        .map(|m| m.beta_sq.re)
+        .reduce(f64::min);
+    let hole = check_selection_hole(
+        "solve_dielectric_modes2_pml",
+        &raw.localized_withheld,
+        raw.sigma,
+        (beta_sq_floor, beta_sq_ceiling),
+        lowest_bound,
+        raw.lanczos_steps,
+    );
+    Ok((guided, hole))
 }
 
 /// Core-energy-fraction field-shape diagnostic of a [`DielectricModePml`]
@@ -6368,7 +6694,11 @@ pub struct ScoredDielectricModePml {
 /// # Errors
 ///
 /// Returns [`EigenError`] if the complex eigensolve fails. Returns an empty
-/// `Vec` if no in-window bound candidate exists.
+/// `Vec` if no in-window bound candidate exists. Returns
+/// [`EigenError::SelectionHole`] if a localized, bound-like withheld Ritz
+/// pair more confined (higher `Re β²`) than the selected mode survives one
+/// automatic retry with a doubled Lanczos request (issue #850). The check
+/// is anchored at the pick, not at the bottom of the returned ladder.
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_pml_profile_selected(
     mesh: &TriMesh,
@@ -6391,6 +6721,47 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
         region_tags.len(),
         mesh.n_tris()
     );
+    // Same generous batch the base solver requests.
+    let n_request = 40usize;
+    retry_on_selection_hole(
+        "solve_dielectric_modes2_pml_profile_selected",
+        n_request,
+        |n_request| {
+            solve_dielectric_modes2_pml_profile_selected_attempt(
+                mesh,
+                eps_r,
+                region_tags,
+                interior_dof_mask,
+                r_pml_inner,
+                r_outer,
+                sigma_0,
+                k0,
+                template,
+                (n_radial_bins, profile_r_max, az_var_max),
+                n_request,
+            )
+        },
+    )
+}
+
+/// One [`solve_dielectric_modes2_pml_profile_selected`] solve + scoring at
+/// a given Lanczos request (see [`solve_dielectric_modes_attempt`]).
+/// `profile` is `(n_radial_bins, profile_r_max, az_var_max)`.
+#[allow(clippy::too_many_arguments)]
+fn solve_dielectric_modes2_pml_profile_selected_attempt(
+    mesh: &TriMesh,
+    eps_r: &[f64],
+    region_tags: &[i32],
+    interior_dof_mask: &[bool],
+    r_pml_inner: f64,
+    r_outer: f64,
+    sigma_0: f64,
+    k0: f64,
+    template: &Lp01RadialTemplate,
+    profile: (usize, f64, f64),
+    n_request: usize,
+) -> Result<ClassifiedAttempt<ScoredDielectricModePml>, EigenError> {
+    let (n_radial_bins, profile_r_max, az_var_max) = profile;
     let eps_max = eps_r.iter().cloned().fold(f64::MIN, f64::max);
     let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
     let n_core = eps_max.sqrt();
@@ -6398,9 +6769,7 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
     let beta_sq_ceiling = n_core * n_core * k0 * k0;
     let beta_sq_floor = n_clad * n_clad * k0 * k0;
 
-    // Same generous batch the base solver requests.
-    let n_request = 40usize;
-    let cands = dielectric_raw_candidates_p2_pml(
+    let raw = dielectric_raw_candidates_p2_pml(
         mesh,
         eps_r,
         region_tags,
@@ -6412,8 +6781,9 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
         n_request,
         None,
     )?;
+    let cands = &raw.cands;
     if cands.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Ok(())));
     }
     let n_dof = n_dof_2d_nedelec2(mesh);
     let curl_floor = physical_curl_floor_pml();
@@ -6425,15 +6795,13 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
         }
     }
 
-    const BOUND_REL_IM: f64 = 1e-8;
-
     let mut scored: Vec<ScoredDielectricModePml> = Vec::new();
-    for c in &cands {
+    for c in cands {
         let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
         let has_curl = c.curl_ratio > curl_floor;
         // The bound-mode gate of `solve_dielectric_modes2_pml`, relative in
         // every mesh length unit (issue #828; `Re β² > 0` in the window).
-        let is_bound = c.beta_sq.im.abs() <= BOUND_REL_IM * c.beta_sq.re.abs();
+        let is_bound = c.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * c.beta_sq.re.abs();
         if !(in_window && has_curl && is_bound) {
             continue;
         }
@@ -6471,7 +6839,7 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
         });
     }
     if scored.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Ok(())));
     }
 
     // Rank: LP₀₁-structured (m = 0 AND zero radial nodes) candidates first,
@@ -6511,7 +6879,30 @@ pub fn solve_dielectric_modes2_pml_profile_selected(
             / (n_core * n_core - n_clad * n_clad),
     );
 
-    Ok(scored)
+    // Selection-level hole check (issue #850), anchored at the **pick**.
+    // This family returns the whole scored bound population (ranked by
+    // profile, not truncated to `n_modes`) so callers can inspect the
+    // ladder; its contract is the selected mode `scored[0]`. Anchoring at
+    // the lowest scored `Re β²` instead would put the reference at the
+    // bottom of the near-cladding bound ladder, which never converges to
+    // completeness: on the SMF-28 fixture 22 localized bound-like pairs
+    // stay withheld above it even at a doubled request, so that rule could
+    // never pass on the fixture this selector exists for. A localized,
+    // bound-like withheld pair *more confined* (higher `Re β²`) than the
+    // pick is the direct competitor the ranking never saw (the LP₀₁-
+    // structured pick is the core-confined top of the ladder), so it is the
+    // hole that matters here.
+    let lowest_bound = scored.first().map(|s| s.mode.beta_sq.re);
+    let hole = check_selection_hole(
+        "solve_dielectric_modes2_pml_profile_selected",
+        &raw.localized_withheld,
+        raw.sigma,
+        (beta_sq_floor, beta_sq_ceiling),
+        lowest_bound,
+        raw.lanczos_steps,
+    );
+
+    Ok((scored, hole))
 }
 
 /// Field-shape diagnostics of a single recovered [`DielectricMode`],
@@ -6731,6 +7122,8 @@ fn dielectric_raw_candidates_p2(
             cands: Vec::new(),
             withheld: 0,
             withheld_in_window: 0,
+            localized_withheld: Vec::new(),
+            sigma: 0.0,
             lanczos_steps: 0,
         });
     }
@@ -6774,6 +7167,7 @@ fn dielectric_raw_candidates_p2(
     )?;
     Ok(raw_dielectric_solve(
         checked,
+        sigma,
         guided_window,
         curl_ratio,
         eps_weighted,
@@ -11378,5 +11772,260 @@ mod tests {
             ASPECT_RATIO_SLIVER_BOUND,
         );
         assert!(pml_ok.is_ok());
+    }
+
+    // ----- Selection-level hole check (issue #850) ----------------------
+
+    /// The localized withheld pairs measured on the default-tier
+    /// high-contrast PML fixture (`high_contrast_fiber_benchmark`, mesh
+    /// `(4, 48)`, `n_modes = 4`): `(Re β², Im β², ρ)`.
+    const HC_PML_WITHHELD_850: [(f64, f64, f64); 7] = [
+        (34.93929, 5.98e-16, 1.37e-7),
+        (34.88800, -2.00e-8, 4.15e-4),
+        (34.75005, -4.65e-13, 4.03e-8),
+        (34.72720, -1.18e-12, 1.80e-6),
+        (34.70756, -7.99e-11, 4.60e-5),
+        (34.69061, 1.57e-8, 6.78e-4),
+        (34.67594, 1.34e-6, 4.91e-3),
+    ];
+
+    fn hc_pml_withheld_850() -> Vec<(c64, f64)> {
+        HC_PML_WITHHELD_850
+            .iter()
+            .map(|&(re, im, r)| (c64::new(re, im), r))
+            .collect()
+    }
+
+    /// Negative control (issue #850): the `β² = 34.94` pair the high-contrast
+    /// fixture withholds is localized and bound-like, but it lies *below*
+    /// the lowest returned bound mode (`35.4753`), so it is not a hole. The
+    /// same pair *is* a hole when the returned set reaches below it.
+    #[test]
+    fn selection_hole_negative_control_34_94_is_not_a_hole() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let window = (1.4447_f64.powi(2) * k0 * k0, 1.4874_f64.powi(2) * k0 * k0);
+        let sigma = window.1 * (1.0 - 1e-3);
+        let withheld = hc_pml_withheld_850();
+        assert_eq!(
+            selection_hole(&withheld, sigma, window, Some(35.475_30)),
+            None,
+            "the 34.94 pair below the lowest returned bound mode must not trip"
+        );
+        // A returned set reaching down to 34.5 would skip it: hole, and the
+        // highest qualifying pair (34.939) is the one reported. 34.888 has
+        // |Im| / Re = 5.7e-10 (bound-like) but sits below 34.939.
+        let (hole, rho) = selection_hole(&withheld, sigma, window, Some(34.5))
+            .expect("a localized bound-like pair above the reference is a hole");
+        assert_eq!(hole.re, 34.93929);
+        assert_eq!(rho, 1.37e-7);
+        // No returned bound mode: nothing to have a hole in.
+        assert_eq!(selection_hole(&withheld, sigma, window, None), None);
+    }
+
+    /// Each condition of the hole rule is necessary (issue #850).
+    #[test]
+    fn selection_hole_requires_window_bound_like_and_certain_margin() {
+        let window = (34.0, 36.0);
+        let sigma = 35.96;
+        let lowest = Some(35.0);
+        let hole = |l: c64, r: f64| selection_hole(&[(l, r)], sigma, window, lowest);
+        // Baseline: in window, bound-like, certainly above 35.0.
+        assert!(hole(c64::new(35.5, 0.0), 1e-6).is_some());
+        // Leaky (|Im| / Re = 1e-6 > 1e-8): not bound-like.
+        assert!(hole(c64::new(35.5, 35.5e-6), 1e-6).is_none());
+        // Outside the window.
+        assert!(hole(c64::new(36.2, 0.0), 1e-9).is_none());
+        // At the ceiling to rounding (the gradient cluster at ε_core k₀²):
+        // its uncertainty straddles the ceiling.
+        assert!(hole(c64::new(36.0 - 1e-14, 0.0), 6e-8).is_none());
+        // Above the reference by less than its own uncertainty
+        // (w = 1e-3 · 35.96 ≈ 0.036 > 0.01): possibly the same eigenvalue.
+        assert!(hole(c64::new(35.01, 0.0), 1e-3).is_none());
+        // Same pair with a tight residual is certainly above: hole.
+        assert!(hole(c64::new(35.01, 0.0), 1e-6).is_some());
+    }
+
+    /// The hole is surfaced as the typed [`EigenError::SelectionHole`] naming
+    /// the withheld `β²`, its residual and the reference mode (issue #850).
+    #[test]
+    fn check_selection_hole_reports_typed_error() {
+        let err = check_selection_hole(
+            "solve_dielectric_modes2_pml",
+            &[(c64::new(35.5, 1e-12), 3e-6)],
+            35.96,
+            (34.0, 36.0),
+            Some(35.0),
+            144,
+        )
+        .expect_err("hole must be an error");
+        match &err {
+            EigenError::SelectionHole {
+                solver,
+                beta_sq_re,
+                residual,
+                lowest_returned,
+                lanczos_steps,
+                ..
+            } => {
+                assert_eq!(*solver, "solve_dielectric_modes2_pml");
+                assert_eq!(*beta_sq_re, 35.5);
+                assert_eq!(*residual, 3e-6);
+                assert_eq!(*lowest_returned, 35.0);
+                assert_eq!(*lanczos_steps, 144);
+            }
+            other => panic!("expected SelectionHole, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(
+            msg.contains("3.550000e1") && msg.contains("Remedy"),
+            "{msg}"
+        );
+    }
+
+    fn selection_hole_err_850() -> EigenError {
+        EigenError::SelectionHole {
+            solver: "test",
+            beta_sq_re: 35.5,
+            beta_sq_im: 0.0,
+            residual: 1e-6,
+            residual_tol: DIELECTRIC_RESIDUAL_TOL,
+            lowest_returned: 35.0,
+            lanczos_steps: 40,
+        }
+    }
+
+    /// Retry policy (issue #850): a hole retries once at a doubled request
+    /// and returns the retry's selection when that closes it; a hole that
+    /// survives the retry is a loud [`EigenError::SelectionHole`]; a clean
+    /// first attempt never retries.
+    #[test]
+    fn retry_on_selection_hole_policy() {
+        let mut seen = Vec::new();
+        let out = retry_on_selection_hole("t", 16, |n| {
+            seen.push(n);
+            Ok((vec![n], Ok(())))
+        })
+        .unwrap();
+        assert_eq!((out, seen), (vec![16], vec![16]));
+
+        let mut seen = Vec::new();
+        let out = retry_on_selection_hole("t", 16, |n| {
+            seen.push(n);
+            let hole = if n == 16 {
+                Err(selection_hole_err_850())
+            } else {
+                Ok(())
+            };
+            Ok((vec![n], hole))
+        })
+        .unwrap();
+        assert_eq!((out, seen), (vec![32], vec![16, 32]));
+
+        let mut seen = Vec::new();
+        let err = retry_on_selection_hole("t", 40, |n| {
+            seen.push(n);
+            Ok((vec![n], Err(selection_hole_err_850())))
+        })
+        .unwrap_err();
+        assert!(matches!(err, EigenError::SelectionHole { .. }), "{err:?}");
+        assert_eq!(seen, vec![40, 80]);
+    }
+
+    /// Real p=2 family on a real pencil (issue #850): the ~3 %-step PEC fiber
+    /// of `formulation_audit_graddiv` at the classifier's own request (16)
+    /// converges one partner of the degenerate `β² = 35.385` pair and
+    /// withholds the other, so the 4-mode set would return `35.298` in its
+    /// place. The attempt flags the hole; with the budget held low on the
+    /// retry too it fails loudly; the public solve's doubled-request retry
+    /// closes it and returns both partners.
+    #[test]
+    fn real_p2_classifier_flags_degenerate_twin_hole() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (n_core, n_clad, a_um) = (1.4874_f64, 1.4447_f64, 1.40_f64);
+        let outer_r = 6.0 * a_um;
+        let (mesh, tags) = disk_tri_mesh(a_um, outer_r, 5, 48);
+        let eps = epsilon_r_from_region_tags(&tags, |t| {
+            if t == REGION_CORE {
+                n_core * n_core
+            } else {
+                n_clad * n_clad
+            }
+        });
+        let interior = disk_pec_interior_dofs2(&mesh, outer_r);
+
+        let (modes, hole) =
+            solve_dielectric_modes2_attempt(&mesh, &eps, &interior, k0, 4, 16).unwrap();
+        assert_eq!(modes.len(), 4);
+        match hole {
+            Err(EigenError::SelectionHole {
+                beta_sq_re,
+                lowest_returned,
+                ..
+            }) => {
+                assert!((beta_sq_re - 35.385).abs() < 1e-2, "withheld {beta_sq_re}");
+                assert!((lowest_returned - 35.298).abs() < 1e-2, "{lowest_returned}");
+            }
+            other => panic!("expected a selection hole at request 16, got {other:?}"),
+        }
+
+        // Budget forced low on both attempts: loud failure.
+        let err = retry_on_selection_hole("solve_dielectric_modes2", 16, |_| {
+            solve_dielectric_modes2_attempt(&mesh, &eps, &interior, k0, 4, 16)
+        })
+        .unwrap_err();
+        assert!(matches!(err, EigenError::SelectionHole { .. }), "{err:?}");
+
+        // Public solve: the retry closes the hole; both partners returned.
+        let modes = solve_dielectric_modes2(&mesh, &eps, &interior, k0, 4).unwrap();
+        let b: Vec<f64> = modes.iter().map(|m| m.beta_sq).collect();
+        assert_eq!(b.len(), 4, "{b:?}");
+        assert!(
+            b.iter().filter(|x| (*x - 35.385).abs() < 1e-2).count() == 2,
+            "both 35.385 partners after the retry: {b:?}"
+        );
+    }
+
+    /// PML family on a real pencil (issue #850): the coarse `(3, 32)`
+    /// high-contrast PML fiber with `n_modes = 4` and the Lanczos request
+    /// forced down to 16 withholds the bound `β² ≈ 35.42` pair above the
+    /// lowest returned bound mode (`≈ 35.21`). The attempt flags it and,
+    /// with the budget held low on the retry, the solve fails loudly.
+    #[test]
+    fn pml_classifier_flags_hole_at_forced_low_request() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (n_core, n_clad, a_um) = (1.4874_f64, 1.4447_f64, 1.40_f64);
+        let clad_r = 8.0 * a_um;
+        let outer_r = 11.0 * a_um;
+        let (mesh, tags) = disk_tri_mesh_pml(a_um, clad_r, outer_r, 3, 32);
+        let eps = epsilon_r_from_region_tags(&tags, |t| {
+            if t == REGION_CORE {
+                n_core * n_core
+            } else {
+                n_clad * n_clad
+            }
+        });
+        let interior = disk_pec_interior_dofs2(&mesh, outer_r);
+        let attempt = |n_request: usize| {
+            solve_dielectric_modes2_pml_attempt(
+                &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4, n_request,
+            )
+        };
+        let (_, hole) = attempt(16).unwrap();
+        match hole {
+            Err(EigenError::SelectionHole {
+                beta_sq_re,
+                beta_sq_im,
+                lowest_returned,
+                ..
+            }) => {
+                assert!((beta_sq_re - 35.42).abs() < 1e-2, "withheld {beta_sq_re}");
+                assert!(beta_sq_im.abs() <= DIELECTRIC_BOUND_REL_IM * beta_sq_re);
+                assert!(lowest_returned < beta_sq_re, "{lowest_returned}");
+            }
+            other => panic!("expected a selection hole at request 16, got {other:?}"),
+        }
+        let err = retry_on_selection_hole("solve_dielectric_modes2_pml", 16, |_| attempt(16))
+            .unwrap_err();
+        assert!(matches!(err, EigenError::SelectionHole { .. }), "{err:?}");
     }
 }

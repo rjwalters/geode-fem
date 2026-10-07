@@ -78,7 +78,8 @@ use std::collections::HashMap;
 use faer::c64;
 
 use super::mode_gauge::{
-    DEGENERATE_CANDIDATE_REL_TOL, DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL,
+    DEGENERATE_AMBIGUOUS_RATIO_HIGH, DEGENERATE_AMBIGUOUS_RATIO_LOW, DEGENERATE_CANDIDATE_REL_TOL,
+    DEGENERATE_CONVERGENCE_RATIO, DEGENERATE_EXACT_REL_TOL, DEGENERATE_UNRESOLVED_ERROR_FRACTION,
     clusters_from_links, gauge_whitney_modes, relative_gap,
 };
 use super::wave::{PortMedium, PortMode, WavePort, map_mode_profile_to_full_mesh};
@@ -432,6 +433,21 @@ impl PortFaceProjection {
         n_keep: usize,
         order: ElementOrder,
     ) -> Vec<(usize, usize)> {
+        let (upto, links, _) = self.cluster_decision(lam, n_keep, order);
+        clusters_from_links(upto, &links)
+    }
+
+    /// The decision behind [`Self::degenerate_clusters`]: the modes it
+    /// covers (`upto`), the links (`links[i]`: modes `i` and `i + 1` are one
+    /// cluster), and the numbers of every candidate pair (issue #896, for
+    /// [`Self::degenerate_candidates`]). The links are the cluster
+    /// decision; the candidate records only report it.
+    fn cluster_decision(
+        &self,
+        lam: &[f64],
+        n_keep: usize,
+        order: ElementOrder,
+    ) -> (usize, Vec<bool>, Vec<DegenerateCandidate>) {
         let gap = |l: &[f64], i: usize| relative_gap(l[i], l[i + 1]);
         // Modes needed: through the end of the candidate chain holding
         // mode n_keep − 1.
@@ -446,18 +462,129 @@ impl PortFaceProjection {
         let candidates: Vec<usize> = (0..links.len())
             .filter(|&i| !links[i] && gap(lam, i) <= DEGENERATE_CANDIDATE_REL_TOL)
             .collect();
-        if !candidates.is_empty()
-            && let Some(other) = self.confirmation_cutoffs(upto, order, 0.5 * lam[0])
-        {
-            for i in candidates {
-                let (p1, p2) = match order {
-                    ElementOrder::P1 => (gap(lam, i), gap(&other, i)),
-                    ElementOrder::P2 => (gap(&other, i), gap(lam, i)),
-                };
-                links[i] = p2 <= DEGENERATE_CONVERGENCE_RATIO * p1;
+        let mut records = Vec::with_capacity(candidates.len());
+        if candidates.is_empty() {
+            return (upto, links, records);
+        }
+        match self.confirmation_cutoffs(upto, order, 0.5 * lam[0]) {
+            Some(other) => {
+                for i in candidates {
+                    let (l1, l2) = match order {
+                        ElementOrder::P1 => (lam, &other[..]),
+                        ElementOrder::P2 => (&other[..], lam),
+                    };
+                    let (p1, p2) = (gap(l1, i), gap(l2, i));
+                    links[i] = p2 <= DEGENERATE_CONVERGENCE_RATIO * p1;
+                    let discretization_error = [i, i + 1]
+                        .into_iter()
+                        .map(|j| relative_gap(l2[j], l1[j]))
+                        .fold(0.0, f64::max);
+                    records.push(DegenerateCandidate {
+                        index: i,
+                        order,
+                        gap: gap(lam, i),
+                        confirmation: Some(CandidateConfirmation {
+                            gap_p1: p1,
+                            gap_p2: p2,
+                            discretization_error,
+                        }),
+                        degenerate: links[i],
+                    });
+                }
+            }
+            None => {
+                for i in candidates {
+                    records.push(DegenerateCandidate {
+                        index: i,
+                        order,
+                        gap: gap(lam, i),
+                        confirmation: None,
+                        degenerate: false,
+                    });
+                }
             }
         }
-        clusters_from_links(upto, &links)
+        (upto, links, records)
+    }
+
+    /// Every **candidate** degenerate pair (relative gap in
+    /// `(DEGENERATE_EXACT_REL_TOL, DEGENERATE_CANDIDATE_REL_TOL]`) among the
+    /// `n_modes` lowest modes of this face solved at `order`, with the
+    /// numbers the canonical gauge decided it on and that decision
+    /// (issue #896). This repeats the raw mode solve and the confirming
+    /// solve of [`Self::solve_modes`] / [`Self::solve_modes_p2`] and makes
+    /// the same decision, bit for bit.
+    ///
+    /// [`DegenerateCandidate::warning`] is the per-pair note (an ambiguous
+    /// decision, a near-degenerate distinct pair, a failed confirmation);
+    /// [`Self::degeneracy_notes`] collects them. A pair whose lower member
+    /// is past mode `n_modes − 1` (the chain the gauge extends through) is
+    /// left out.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::solve_modes`] (`order` p=1) or [`Self::solve_modes_p2`]
+    /// (p=2), except the gauge's.
+    pub fn degenerate_candidates(
+        &self,
+        n_modes: usize,
+        order: ElementOrder,
+    ) -> Result<Vec<DegenerateCandidate>, PortFaceError> {
+        let lam: Vec<f64> = match order {
+            ElementOrder::P1 => {
+                let available = self.available_modes_p1();
+                if n_modes > available {
+                    return Err(PortFaceError::TooFewModes {
+                        requested: n_modes,
+                        found: available,
+                    });
+                }
+                let (modes, beyond) = solve_waveguide_modes_ungauged(
+                    &self.tri_mesh,
+                    &self.edges,
+                    &self.interior_edge_mask,
+                    n_modes,
+                    None,
+                )?;
+                if modes.len() < n_modes {
+                    return Err(PortFaceError::TooFewModes {
+                        requested: n_modes,
+                        found: modes.len(),
+                    });
+                }
+                modes.iter().chain(&beyond).map(|m| m.lambda).collect()
+            }
+            ElementOrder::P2 => self
+                .solve_modes_p2_raw(n_modes, None)?
+                .iter()
+                .map(|m| m.lambda)
+                .collect(),
+        };
+        let (_, _, mut records) = self.cluster_decision(&lam, n_modes, order);
+        records.retain(|c| c.index < n_modes);
+        Ok(records)
+    }
+
+    /// The degeneracy notes of this face's `n_modes` lowest modes at
+    /// `order` ([`Self::degenerate_candidates`], each
+    /// [`DegenerateCandidate::warning`]); empty when every decision is clear
+    /// and no reported mode belongs to a near-degenerate distinct pair.
+    /// Notes only: the modes and the S-parameters are unchanged, and no
+    /// mesh is rejected.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::degenerate_candidates`].
+    pub fn degeneracy_notes(
+        &self,
+        n_modes: usize,
+        order: ElementOrder,
+    ) -> Result<Vec<String>, PortFaceError> {
+        Ok(self
+            .degenerate_candidates(n_modes, order)?
+            .iter()
+            .filter_map(DegenerateCandidate::warning)
+            .collect())
     }
 
     /// The face's p=1 physical-mode count (de Rham: interior edges minus
@@ -864,6 +991,150 @@ impl PortFaceProjection {
 /// shifted Lanczos pass is its least resolved, so no candidate pair may be
 /// the last of the confirming solve.
 const CONFIRMATION_MARGIN: usize = 2;
+
+/// The p=1 and p=2 numbers a candidate degenerate pair was decided on
+/// ([`DegenerateCandidate::confirmation`], issue #896).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CandidateConfirmation {
+    /// Relative `k_c²` gap of the pair in the face's p=1 solve.
+    pub gap_p1: f64,
+    /// Relative `k_c²` gap of the pair in the face's p=2 solve.
+    pub gap_p2: f64,
+    /// The face's estimated discretization error at the pair: the larger
+    /// over its two members of the relative p=1 / p=2 cutoff difference
+    /// `|k_c²(p1) − k_c²(p2)| / max(k_c²(p1), k_c²(p2))`. p=2 converges at
+    /// `O(h⁴)` against p=1's `O(h²)`, so this is the error of the p=1 cutoffs
+    /// (an upper bound on the p=2 ones). It comes from the confirming solve
+    /// at no extra cost.
+    pub discretization_error: f64,
+}
+
+impl CandidateConfirmation {
+    /// The p=1 / p=2 gap ratio `gap_p2 / gap_p1` the decision compares
+    /// with [`DEGENERATE_CONVERGENCE_RATIO`] (`∞` when the p=1 gap is zero).
+    pub fn ratio(&self) -> f64 {
+        if self.gap_p1 > 0.0 {
+            self.gap_p2 / self.gap_p1
+        } else {
+            f64::INFINITY
+        }
+    }
+
+    /// The ratio lies in the ambiguous band
+    /// `[DEGENERATE_AMBIGUOUS_RATIO_LOW, DEGENERATE_AMBIGUOUS_RATIO_HIGH]`
+    /// around the threshold, where a modest change of the face mesh can move
+    /// the decision (issue #896).
+    pub fn ambiguous(&self) -> bool {
+        (DEGENERATE_AMBIGUOUS_RATIO_LOW..=DEGENERATE_AMBIGUOUS_RATIO_HIGH).contains(&self.ratio())
+    }
+
+    /// The face's estimated discretization error
+    /// ([`Self::discretization_error`]) is at least
+    /// [`DEGENERATE_UNRESOLVED_ERROR_FRACTION`] of the pair's p=2 gap: the
+    /// face does not resolve the split well enough to fix the two modes, so
+    /// the discrete modes are mesh-dependent mixtures of the two continuum
+    /// modes.
+    pub fn unresolved(&self) -> bool {
+        self.discretization_error >= DEGENERATE_UNRESOLVED_ERROR_FRACTION * self.gap_p2
+    }
+}
+
+/// A **candidate** degenerate pair of a port face's modes (issue #896): its
+/// gap, how the canonical gauge decided it, and the numbers that decision
+/// compared. From [`PortFaceProjection::degenerate_candidates`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DegenerateCandidate {
+    /// The pair is modes `index` and `index + 1` (`k_c²` ascending).
+    pub index: usize,
+    /// Element order of the face solve the modes come from.
+    pub order: ElementOrder,
+    /// Relative `k_c²` gap of the pair at [`Self::order`].
+    pub gap: f64,
+    /// The confirming numbers; `None` when the other-order solve failed
+    /// (the pair is then kept distinct).
+    pub confirmation: Option<CandidateConfirmation>,
+    /// The decision: one degenerate cluster (`true`) or two distinct modes.
+    pub degenerate: bool,
+}
+
+impl DegenerateCandidate {
+    /// The pair's note, or `None` when its decision is clear and it is not
+    /// a near-degenerate distinct pair. Notes, joined by `"; "`:
+    ///
+    /// - the p=1 / p=2 gap ratio is in the ambiguous band
+    ///   ([`CandidateConfirmation::ambiguous`]): the decision may differ on
+    ///   another mesh of the same cross-section, e.g. between the two ports
+    ///   of one guide, which turns a mode of the pair by up to 180° in the
+    ///   cross-port S-parameters;
+    /// - the pair was kept **distinct** but the face's discretization error
+    ///   is a sizeable fraction of its p=2 gap
+    ///   ([`CandidateConfirmation::unresolved`]): the
+    ///   discrete modes are mesh-dependent mixtures of the two physical
+    ///   modes, so the cross-mode S of the pair is not mesh-stable;
+    /// - the confirming solve failed, so the pair was kept distinct
+    ///   unconfirmed.
+    ///
+    /// Each note names the pair, its numbers, and asks for a finer port face.
+    pub fn warning(&self) -> Option<String> {
+        let (a, b) = (self.index, self.index + 1);
+        let pair = format!(
+            "port-face modes {a} / {b} (relative k_c² gap {:.3} % at p={})",
+            100.0 * self.gap,
+            order_digit(self.order)
+        );
+        let Some(c) = self.confirmation else {
+            return Some(format!(
+                "{pair} are a candidate degenerate pair, but the confirming solve at the other \
+                 element order failed, so they were kept distinct unconfirmed: if they are one \
+                 physical cluster, the two ports of a guide can carry different bases for it \
+                 (a mode turned by up to 180° in the cross-port S-parameters). Refine the port \
+                 face"
+            ));
+        };
+        let decision = if self.degenerate {
+            "one degenerate cluster"
+        } else {
+            "two distinct modes"
+        };
+        let mut notes = Vec::new();
+        if c.ambiguous() {
+            notes.push(format!(
+                "{pair}: the p=1 / p=2 gap ratio {:.2} is in the ambiguous band [{}, {}] around \
+                 the threshold {DEGENERATE_CONVERGENCE_RATIO} (decided: {decision}), so another \
+                 mesh of this cross-section, such as the other port of the guide, may decide the \
+                 pair the other way, which turns a mode of the pair by up to 180° and mixes the \
+                 two in the cross-port S-parameters. Refine the port faces (a finer face moves \
+                 a degenerate pair's ratio towards 0 and a distinct pair's above 1)",
+                c.ratio(),
+                DEGENERATE_AMBIGUOUS_RATIO_LOW,
+                DEGENERATE_AMBIGUOUS_RATIO_HIGH
+            ));
+        }
+        if !self.degenerate && c.unresolved() {
+            notes.push(format!(
+                "{pair}: a near-degenerate distinct pair, whose p=2 gap {:.3} % is under {:.0}× \
+                 the face's estimated discretization error {:.3} % (p=1 / p=2 cutoff \
+                 difference), so the discrete modes are mesh-dependent mixtures of the two \
+                 physical modes: the cross-mode S-parameters of modes {a} / {b} are not \
+                 mesh-stable. Refine the port face until its discretization error is under \
+                 {:.0} % of the gap",
+                100.0 * c.gap_p2,
+                1.0 / DEGENERATE_UNRESOLVED_ERROR_FRACTION,
+                100.0 * c.discretization_error,
+                100.0 * DEGENERATE_UNRESOLVED_ERROR_FRACTION
+            ));
+        }
+        (!notes.is_empty()).then(|| notes.join("; "))
+    }
+}
+
+/// `1` or `2` for a note.
+fn order_digit(order: ElementOrder) -> u8 {
+    match order {
+        ElementOrder::P1 => 1,
+        ElementOrder::P2 => 2,
+    }
+}
 
 /// Relative tolerance under which two components of a unit normal count as
 /// equal in magnitude for the canonical frame ([`canonical_normal`],
@@ -2302,6 +2573,72 @@ mod tests {
             (l1[4], l2[4]),
             (l1[5], l2[5]),
             "unresolved at p=1: one cluster"
+        );
+    }
+
+    /// Issue #896: the per-pair note reads only the recorded numbers. An
+    /// ambiguous ratio is noted whichever way the pair was decided; a
+    /// distinct pair whose gap is under 10× the error gets the mesh-stability
+    /// note; a degenerate one does not; a failed confirmation is noted.
+    #[test]
+    fn degenerate_candidate_notes_follow_the_band_and_the_error() {
+        let pair = |gap_p1: f64, gap_p2: f64, err: f64, degenerate: bool| DegenerateCandidate {
+            index: 2,
+            order: ElementOrder::P1,
+            gap: gap_p1,
+            confirmation: Some(CandidateConfirmation {
+                gap_p1,
+                gap_p2,
+                discretization_error: err,
+            }),
+            degenerate,
+        };
+        // Clear: degenerate at ratio 0.1, distinct at 1.2 with error 0.05·gap.
+        assert!(pair(1e-2, 1e-3, 5e-3, true).warning().is_none());
+        assert!(pair(1e-2, 1.2e-2, 6e-4, false).warning().is_none());
+        // Ambiguous, both decisions, across the band.
+        for (p2, deg) in [
+            (4.5e-3, true),
+            (6e-3, false),
+            (3.1e-3, true),
+            (7.9e-3, false),
+        ] {
+            let c = pair(1e-2, p2, 1e-5, deg);
+            assert!(c.confirmation.unwrap().ambiguous(), "ratio {}", p2 / 1e-2);
+            let note = c.warning().expect("ambiguity note");
+            assert!(note.contains("modes 2 / 3") && note.contains("ambiguous band"));
+        }
+        assert!(
+            !pair(1e-2, 2.9e-3, 1e-5, true)
+                .confirmation
+                .unwrap()
+                .ambiguous()
+        );
+        assert!(
+            !pair(1e-2, 8.1e-3, 1e-5, false)
+                .confirmation
+                .unwrap()
+                .ambiguous()
+        );
+        // Near-degenerate distinct: error 0.15 of the gap.
+        let note = pair(1e-2, 1.2e-2, 1.8e-3, false).warning().expect("note");
+        assert!(note.contains("not mesh-stable") && !note.contains("ambiguous"));
+        // The same error on a pair decided degenerate is not noted.
+        assert!(pair(1e-2, 1e-3, 1.8e-3, true).warning().is_none());
+        // Both notes at once.
+        let note = pair(1e-2, 6e-3, 1e-3, false).warning().expect("notes");
+        assert!(note.contains("ambiguous band") && note.contains("not mesh-stable"));
+        // A failed confirmation.
+        let failed = DegenerateCandidate {
+            confirmation: None,
+            degenerate: false,
+            ..pair(1e-2, 1e-2, 0.0, false)
+        };
+        assert!(failed.warning().expect("note").contains("failed"));
+        // A zero p=1 gap has no finite ratio.
+        assert_eq!(
+            pair(0.0, 1e-3, 0.0, false).confirmation.unwrap().ratio(),
+            f64::INFINITY
         );
     }
 
