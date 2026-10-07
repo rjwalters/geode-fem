@@ -10,8 +10,6 @@ Cargo.lock.bak
 *.swp
 *~
 
-# Loom local config (created if/when Loom is installed)
-
 # Build artifacts
 *.log
 # Committed benchmark evidence log (recovered at-scale run; see issue #556)
@@ -50,7 +48,6 @@ artifacts/
 *.egg-info/
 build/
 dist/
-# Claude Code agent-isolation worktrees (local session state, never committed)
 # >>> loom-managed (do not edit) >>>
 # Loom runtime state (don't commit these)
 .loom-in-use
@@ -132,6 +129,7 @@ dist/
 .env.*
 !.env.example
 *.local.md
+.claude/settings.local.json
 /.voice/
 
 # Repo Skills machine-local install metadata (absolute source path + timestamp)

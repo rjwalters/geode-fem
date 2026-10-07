@@ -364,10 +364,10 @@ arXiv papers dated 3 months–5 years back).
    qualified (Nov-2025 papers, inside the 3mo-5yr window);
    (c) the Palace/DeviceLayout authors — OPERATOR DECISION 2026-07-15: the
    endorsement ask goes to them bundled with the draft share (never cold).
-   Public contact (from their repos' commit metadata):
-     Hugh Carson <hughcars@amazon.com>   (Palace lead committer)
-     Greg Peairs <gpeairs@amazon.com>    (DeviceLayout.jl lead, blog author)
-     Simon Lapointe <simlap@amazon.com>  (Palace #2, backup)
+   Public contact (Palace maintainers, via GitHub; no emails recorded here):
+     Hugh Carson   (GitHub: @hughcars)     (Palace lead committer)
+     Greg Peairs   (GitHub: @gpeairs)      (DeviceLayout.jl lead, blog author)
+     Simon Lapointe (GitHub: @simlapointe) (Palace #2, backup)
    CAVEAT: verify they are arXiv-qualified endorsers at request time (needs
    their own comp-ph-domain arXiv papers within 3mo-5yr; Carson has no
    Palace paper; Peairs's record may predate the window) — the endorsement
