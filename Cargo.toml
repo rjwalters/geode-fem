@@ -34,6 +34,18 @@ burn = { version = "0.21", default-features = false, features = ["std"] }
 bunsen = { version = "0.28.0", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
+# Dense / sparse linear algebra comes from `faier`, our maintained fork of
+# faer (https://github.com/rjwalters/faier, issues #867 / #907). Upstream faer
+# does not accept AI-assisted contributions, so fixes we need land in the
+# fork. `faier` 0.24.4 is upstream `faer-v0.24.4` with the crates renamed
+# `faer` → `faier` and `faer-traits` → `faier-traits`; its library name is
+# still `faer`, so the `package = "faier"` rename below keeps every
+# `use faer::…` path and every `faer/<feature>` feature reference unchanged.
+#
+# `faier` is not on crates.io yet, so this is a git dependency pinned to a
+# commit on the fork's `main` branch. Once `faier` is published, replace
+# `git` + `rev` with `version = "0.24.4"` (or later).
+#
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
 #
@@ -44,7 +56,7 @@ criterion = "0.5"
 # guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
 # the latency-bound single-RHS triangular-solve loop, so enabling the feature
 # does not by itself parallelize any hot loop that regresses under rayon.
-faer = { version = "0.24", default-features = false, features = ["std", "linalg", "rayon"] }
+faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "407f28ba2d9137528057e404220e0b4a9b24fc41", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 # In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
 # refinement for arbitrary wave-port cross-sections (issue #582). Optional,
