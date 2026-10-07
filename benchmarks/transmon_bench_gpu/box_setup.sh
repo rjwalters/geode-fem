@@ -35,7 +35,7 @@ echo "$EXPECTED_MESH_SHA  transmon_smoke.msh" | sha256sum -c - | tee "$PROV/mesh
 # ---- host + GPU provenance ------------------------------------------------
 {
   date -u +%FT%TZ
-  uname -a
+  uname -srvmo   # no -n: cloud hostnames encode the public IPv4 (see #925 review)
   cat /etc/os-release | head -4
   lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Core|Socket'
   free -g

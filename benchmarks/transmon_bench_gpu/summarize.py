@@ -40,6 +40,11 @@ def read_eig(path):
     return out
 
 
+# Palace's Elapsed Time Report rows, in print order. Indented rows are
+# sub-timers; Palace's BlockTimer is EXCLUSIVE (a parent row does not include
+# its indented children), so for any one rank the rows sum to Total. The two
+# indented rows under "Estimation" are printed as bare "Construction" / "Solve"
+# and are keyed here as "Estimation Construction" / "Estimation Solve".
 PHASES = [
     "Initialization",
     "Mesh Preprocessing",
@@ -50,6 +55,8 @@ PHASES = [
     "Eigenvalue Solve",
     "Div.-Free Projection",
     "Estimation",
+    "Estimation Construction",
+    "Estimation Solve",
     "Postprocessing",
     "Paraview",
     "Disk IO",
@@ -58,16 +65,58 @@ PHASES = [
 
 
 def palace_phases(log):
+    """{phase: (max_over_ranks, avg_over_ranks)} from Palace's Elapsed Time Report."""
     txt = log.read_text(errors="replace")
     if "Elapsed Time Report" not in txt:
         return {}
     sec = txt.split("Elapsed Time Report")[1].split("Peak Memory")[0]
     out = {}
+    parent = None
     for line in sec.splitlines():
-        m = re.match(r"\s*([A-Za-z.\- ]+?)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$", line)
-        if m and m.group(1).strip() in PHASES:
-            out[m.group(1).strip()] = float(m.group(3))  # Max over ranks
+        m = re.match(r"(\s*)([A-Za-z.\- ]+?)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$", line)
+        if not m:
+            continue
+        name = m.group(2).strip()
+        if not m.group(1):
+            parent = name
+        elif parent == "Estimation" and name in ("Construction", "Solve"):
+            name = f"Estimation {name}"
+        if name in PHASES:
+            out[name] = (float(m.group(4)), float(m.group(5)))  # (Max, Avg) over ranks
     return out
+
+
+def time_v(path):
+    """CPU accounting from a `/usr/bin/time -v` file: (percent, user_s, sys_s)."""
+    if not path.exists():
+        return None
+    txt = path.read_text(errors="replace")
+    pct = re.search(r"Percent of CPU this job got:\s*([0-9]+)%", txt)
+    usr = re.search(r"User time \(seconds\):\s*([0-9.]+)", txt)
+    sys_ = re.search(r"System time \(seconds\):\s*([0-9.]+)", txt)
+    if not (pct and usr and sys_):
+        return None
+    return int(pct.group(1)), float(usr.group(1)), float(sys_.group(1))
+
+
+GEODE_MODE = re.compile(
+    r"mode\[(\d+)\]: .*?f = ([0-9.eE+-]+) GHz, participation p = ([0-9.]+)"
+)
+
+
+def geode_modes(log):
+    """Returned (f_GHz, participation) pairs from a transmon_bench log."""
+    if not log.exists():
+        return []
+    return [(float(m.group(2)), float(m.group(3))) for m in GEODE_MODE.finditer(log.read_text(errors="replace"))]
+
+
+# Phase groups used to attribute the Palace GPU-vs-CPU gap (sums of the
+# per-phase "Max over ranks" columns of Palace's Elapsed Time Report).
+PHASE_GROUPS = {
+    "init_plus_mesh": ["Initialization", "Mesh Preprocessing"],
+    "opconstr_setup_precond": ["Operator Construction", "Setup", "Preconditioner"],
+}
 
 
 def fmt(x):
@@ -91,6 +140,7 @@ for cell, rs in cells.items():
         if r["gpu_peak_mib"] not in ("", "NA") and r["gpu_idle_mib"] not in ("", "NA")
     ]
     exits = [int(r["exit"]) for r in rs]
+    cpu = [time_v(raw / f"{cell}_run{i}.time") for i in range(1, len(rs) + 1)]
     print(f"\n[cells.{cell}]")
     print(f"n = {len(rs)}")
     print(f"exit_codes = {exits}")
@@ -101,6 +151,10 @@ for cell, rs in cells.items():
         print(f"wall_s_stddev = {fmt(sd)}")
     print(f"host_wall_s = [{', '.join(fmt(h) for h in host)}]  # incl. docker start-up for Palace")
     print(f"peak_rss_kb = {rss}")
+    if all(c is not None for c in cpu):
+        print(f"cpu_percent = {[c[0] for c in cpu]}  # /usr/bin/time -v 'Percent of CPU this job got'")
+        print(f"user_s = [{', '.join(fmt(c[1]) for c in cpu)}]")
+        print(f"sys_s = [{', '.join(fmt(c[2]) for c in cpu)}]")
     if rss:
         print(f"peak_rss_gb_max = {max(rss) / 1e6:.2f}")
     if gpu:
@@ -110,10 +164,38 @@ for cell, rs in cells.items():
         for i, _ in enumerate(rs, start=1):
             per_run.append(palace_phases(raw / f"{cell}_run{i}.log"))
         for ph in PHASES:
-            vals = [p.get(ph) for p in per_run]
+            vals = [p.get(ph, (None, None))[0] for p in per_run]
+            avgs = [p.get(ph, (None, None))[1] for p in per_run]
             if any(v is not None for v in vals):
-                key = "phase_" + re.sub(r"[^a-z0-9]+", "_", ph.lower()).strip("_") + "_s"
-                print(f"{key} = [{', '.join(fmt(v) for v in vals)}]")
+                key = "phase_" + re.sub(r"[^a-z0-9]+", "_", ph.lower()).strip("_")
+                for suffix, xs in (("_s", vals), ("_avg_s", avgs)):
+                    line = f"{key}{suffix} = [{', '.join(fmt(v) for v in xs)}]"
+                    if all(v is not None for v in xs):
+                        line += f"  # mean {fmt(statistics.mean(xs))}"
+                    print(line)
+        # Group sums use the Avg-over-ranks column: per rank the exclusive rows
+        # sum to Total, so Avg rows do too. Max-over-ranks rows do NOT (different
+        # ranks hold the max in different rows: on 8 ranks one rank spends ~21 s
+        # in Mesh Preprocessing while the others wait ~21 s in Initialization).
+        for grp, members in PHASE_GROUPS.items():
+            sums = [sum(p.get(ph, (0.0, 0.0))[1] for ph in members) for p in per_run]
+            print(
+                f"phase_group_{grp}_avg_s = [{', '.join(fmt(v) for v in sums)}]"
+                f"  # mean {fmt(statistics.mean(sums))}; {' + '.join(members)}"
+            )
+        rest = [
+            sum(v[1] for ph, v in p.items() if ph != "Total")
+            - sum(p.get(ph, (0.0, 0.0))[1] for g in PHASE_GROUPS.values() for ph in g)
+            for p in per_run
+        ]
+        print(f"phase_group_other_avg_s = [{', '.join(fmt(v) for v in rest)}]  # mean {fmt(statistics.mean(rest))}; all remaining rows")
+        chk = [sum(v[1] for ph, v in p.items() if ph != "Total") for p in per_run]
+        print(f"phase_avg_rows_sum_s = [{', '.join(fmt(v) for v in chk)}]  # should match phase_total_avg_s")
+    if cell.startswith("geode"):
+        for i in range(1, len(rs) + 1):
+            modes = geode_modes(raw / f"{cell}_run{i}.log")
+            print(f"run{i}_modes_f_ghz = [{', '.join(f'{f:.6f}' for f, _ in modes)}]")
+            print(f"run{i}_modes_participation = [{', '.join(f'{p:.4f}' for _, p in modes)}]")
 
 print("\n[eigen_agreement]")
 print('baseline = "reference/fixtures/transmon_palace/results_p1/eig.csv (CPU Palace fba6a5b, 8 ranks, m6i)"')

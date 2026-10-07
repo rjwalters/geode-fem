@@ -22,8 +22,15 @@
 #     each other, not to those files.
 # ---------------------------------------------------------------------------
 #
-# Provenance contract: every number below is measured (raw logs in
-# runs/2026-10-07_lambda_a100/raw/, generated with summarize.py). Timing =
+# Provenance contract: every number below is measured. Raw logs are in
+# runs/2026-10-07_lambda_a100/raw/. The numeric fields of every [cells.*] and
+# [eigen_agreement] table are hand-transcribed (rounded) from the output of
+#   python3 -I benchmarks/transmon_bench_gpu/summarize.py \
+#     benchmarks/transmon_bench_gpu/runs/2026-10-07_lambda_a100/raw \
+#     reference/fixtures/transmon_palace/results_p1/eig.csv
+# run from the repo root (stdout = TOML fragments; this file adds the
+# metadata, caveats and notes by hand). CPU% / user / sys come from the
+# `/usr/bin/time -v` files (raw/<cell>_run<i>.time). Timing =
 # /usr/bin/time -v wall clock over the full solver invocation (mesh load +
 # assembly + solve + output). For Palace that wraps `palace -np N` INSIDE the
 # container (container start-up excluded; host-side wall incl. `docker run`
@@ -89,23 +96,50 @@ verdict = "PASS — GPU Palace reproduces the CPU Palace eigenfrequencies to ~1e
 # fixture config (Save = 6, as in the committed CPU baseline) and are dominated
 # by that writer.
 #
-# | cell                                   | wall s (mean ± sd) | peak RSS            | GPU mem  |
-# |----------------------------------------|--------------------|---------------------|----------|
-# | geode CPU f64 direct, 8 threads        |  30.14 ± 0.55      | 3.13 GB             | –        |
-# | geode CPU f64 direct, 1 thread         |  36.07 ± 0.07      | 3.09 GB             | –        |
-# | Palace CPU, 8 ranks (same image), Save 0 |  51.03 ± 0.25    | 0.94 GB / rank      | –        |
-# | Palace GPU, 1 rank, 1x A100, Save 0    |  72.15 ± 0.20      | 2.24 GB (host)      | 5835 MiB |
-# | Palace CPU, 8 ranks, Save 6 (fixture)  | 135.83 ± 1.13      | 0.94 GB / rank      | –        |
-# | Palace GPU, 1 rank, Save 6 (fixture)   | 690.49 ± 5.64      | 2.23 GB (host)      | 5835 MiB |
-# | geode-CUDA (any precision)             | not measurable — geode has no GPU eigensolve (see [notes.geode_cuda]) |
+# | cell                                          | wall s (mean ± sd) | CPU% (time -v) | peak RSS        | GPU mem  | modes returned            |
+# |-----------------------------------------------|--------------------|----------------|-----------------|----------|---------------------------|
+# | geode CPU f64 direct, GEODE_NUM_THREADS=8      |  30.14 ± 0.55      | 961-984%       | 3.13 GB         | –        | 1 of Palace's 6 (see †)   |
+# | geode CPU f64 direct, GEODE_NUM_THREADS=1      |  36.07 ± 0.07      | 683-690%       | 3.09 GB         | –        | 1 of Palace's 6 (see †)   |
+# |   (cap NOT enforced: caps faer LU only; ~6.9 cores used)                                                                       |
+# | Palace CPU, 8 ranks (same image), Save 0      |  51.03 ± 0.25      | 795%           | 0.94 GB / rank  | –        | 6 physical, div-free      |
+# | Palace GPU, 1 rank, 1x A100, Save 0           |  72.15 ± 0.20      | 100%           | 2.24 GB (host)  | 5835 MiB | 6 physical, div-free      |
+# | Palace CPU, 8 ranks, Save 6 (fixture)         | 135.83 ± 1.13      | 798%           | 0.94 GB / rank  | –        | 6 physical, div-free      |
+# | Palace GPU, 1 rank, Save 6 (fixture)          | 690.49 ± 5.64      | 100%           | 2.23 GB (host)  | 5835 MiB | 6 physical, div-free      |
+# | geode-CUDA (any precision)                    | not measurable — geode has no GPU eigensolve (see [notes.geode_cuda]) |
+#
+# † NOT LIKE-FOR-LIKE OUTPUT. In all 6 geode runs the 6 returned pairs are 4
+#   gradient near-kernel modes (f = 0.000478-0.000760 GHz, participation 0),
+#   the known spurious 3.4528 GHz mode (p = 0.994; see
+#   benchmarks/transmon_eigen/results.toml [spurious_mode], #514) and
+#   5.152825 GHz. So geode recovers 1 of Palace's 6 physical modes (Palace
+#   5.151336 GHz; 0.029% apart) while Palace returns all 6 (5.15-26.08 GHz),
+#   div-free projected, at Tol 1e-8. This run did NOT gate geode eigenvalues
+#   against Palace. The geode wall time is plausibly LU-dominated (the solve
+#   phase is ~25 s of ~29 s), so it is a fair measure of geode's
+#   factor-and-iterate cost, but "geode is faster" here is a statement about
+#   wall clock for different outputs, not for an equivalent answer.
 #
 # HONEST READ: on this 133k-DOF problem, Palace-on-GPU (one A100, one rank)
 # is SLOWER than the same Palace build on 8 CPU ranks of the same host
-# (72.2 s vs 51.0 s), and geode CPU f64 (direct shift-invert) is the fastest
-# cell (30.1 s at 8 threads). The GPU does not pay off at this size: Palace's
-# own phase timers put 28 s of the GPU run in serial (1-rank) mesh
-# preprocessing and 23.6 s in preconditioner setup/apply vs 9.9 s on 8 CPU
-# ranks; the eigen-solve proper is sub-second on both devices.
+# (72.2 s vs 51.0 s; Palace's own Total 71.6 vs 50.6, a 21.0 s gap). geode
+# CPU f64 (direct shift-invert) has the lowest wall clock (30.1 s), subject
+# to the † caveat above and to its CPU% (961-984%, i.e. more cores than
+# Palace's 8 ranks).
+#
+# Where the 21.0 s goes, from Palace's Elapsed Time Report (Save 0, mean of
+# 3; Avg-over-ranks column, whose exclusive rows sum to Total — see
+# [notes].phase_accounting for why Max-over-ranks must not be summed):
+#   Operator Construction + Setup + Preconditioner : GPU 30.85 vs CPU 11.12 = +19.7 s
+#   Initialization + Mesh Preprocessing            : GPU 35.66 vs CPU 26.28 =  +9.4 s
+#   all other rows (div-free projection, error
+#     estimation, linear solve, eigen-solve, I/O)  : GPU  5.02 vs CPU 13.12 =  -8.1 s
+# So the GPU deficit is dominated by operator construction plus
+# preconditioner setup/apply (19.7 s of 21.0 s net). Mesh preprocessing is
+# effectively serial in BOTH runs — on 8 ranks one rank spends 21.4 s in it
+# while the others wait in Initialization — so the 8-rank control does not
+# parallelise it either; the GPU run is 9.4 s slower there, partly offset by
+# 8.1 s it gains in the post-solve rows. The eigen-solve proper is
+# sub-second on both devices.
 # ---------------------------------------------------------------------------
 
 [cells.geode_cpu_t8]
@@ -114,13 +148,25 @@ wall_s = [29.60, 30.70, 30.12]
 wall_s_mean = 30.14
 wall_s_stddev = 0.55
 peak_rss_kb = [3125540, 3123636, 3134252]
+cpu_percent = [984, 961, 974]
+user_s = [236.04, 234.83, 234.26]
+sys_s = [55.54, 60.28, 59.44]
+modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]   # identical in all 3 runs
+modes_participation = [0.0000, 0.0000, 0.0000, 0.0000, 0.9942, 0.0005]
+physical_modes_matching_palace = 1   # 5.152825 vs Palace 5.151336 GHz; the other 5 are near-kernel / known spurious (#514). NOT gated in this run.
 
 [cells.geode_cpu_t1]
-mode = "faer sparse-LU shift-invert Lanczos (direct), f64, GEODE_NUM_THREADS=1"
+mode = "faer sparse-LU shift-invert Lanczos (direct), f64, GEODE_NUM_THREADS=1 — cap NOT enforced: it caps faer's LU (eigen/parallel.rs) only; measured ~6.9 cores. NOT a single-threaded measurement."
 wall_s = [36.14, 36.05, 36.01]
 wall_s_mean = 36.07
 wall_s_stddev = 0.07
 peak_rss_kb = [3085056, 3084520, 3085052]
+cpu_percent = [683, 690, 684]
+user_s = [198.03, 202.13, 198.79]
+sys_s = [49.18, 46.88, 47.61]
+modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]   # identical in all 3 runs, and to geode_cpu_t8
+modes_participation = [0.0000, 0.0000, 0.0000, 0.0000, 0.9942, 0.0005]
+physical_modes_matching_palace = 1
 
 [cells.palace_cpu_np8_nosave]
 mode = "Palace CUDA image, Device = CPU, 8 MPI ranks x 1 OMP thread, libCEED /cpu/self/opt/blocked, Eigenmode.Save = 0"
@@ -128,7 +174,12 @@ wall_s = [50.74, 51.18, 51.16]
 wall_s_mean = 51.03
 wall_s_stddev = 0.25
 peak_rss_kb_per_rank_max = [940708, 941908, 924636]
-phase_s = { initialization = 24.07, mesh_preprocessing = 21.39, operator_construction = 0.93, linear_solve = 1.65, setup = 0.30, preconditioner = 9.91, eigenvalue_solve = 0.64, div_free_projection = 3.54, estimation = 0.13, postprocessing = 0.45, disk_io = 1.08, total = 50.58 }   # Palace Elapsed Time Report (Max over ranks), mean of 3
+cpu_percent = [795, 795, 795]   # whole mpirun process tree
+user_s = [372.80, 376.21, 375.81]
+sys_s = [30.96, 31.09, 31.32]
+phase_avg_s = { initialization = 21.67, mesh_preprocessing = 4.62, operator_construction = 0.92, linear_solve = 1.64, setup = 0.30, preconditioner = 9.90, eigenvalue_solve = 0.63, div_free_projection = 3.54, estimation = 0.13, estimation_construction = 1.20, estimation_solve = 4.45, postprocessing = 0.45, disk_io = 1.08, total = 50.58 }   # Avg over ranks, mean of 3; exclusive rows sum to total
+phase_group_avg_s = { init_plus_mesh = 26.28, opconstr_setup_precond = 11.12, other = 13.12 }
+phase_s = { initialization = 24.07, mesh_preprocessing = 21.39, operator_construction = 0.93, linear_solve = 1.65, setup = 0.30, preconditioner = 9.91, eigenvalue_solve = 0.64, div_free_projection = 3.54, estimation = 0.13, postprocessing = 0.45, disk_io = 1.08, total = 50.58 }   # Max over ranks, mean of 3. Do NOT sum: different ranks hold the max in different rows
 
 [cells.palace_gpu_np1_nosave]
 mode = "Palace CUDA image, Device = GPU, 1 MPI rank x 1 OMP thread, 1x A100, libCEED /gpu/cuda/magma, Eigenmode.Save = 0"
@@ -136,8 +187,12 @@ wall_s = [72.22, 72.30, 71.93]
 wall_s_mean = 72.15
 wall_s_stddev = 0.20
 peak_rss_kb = [2231992, 2235136, 2209360]
+cpu_percent = [100, 100, 100]
+user_s = [69.91, 69.99, 69.71]
+sys_s = [2.33, 2.33, 2.25]
 gpu_mem_peak_mib = [5835, 5835, 5835]
-phase_s = { initialization = 7.48, mesh_preprocessing = 28.18, operator_construction = 5.42, linear_solve = 0.05, setup = 1.78, preconditioner = 23.66, eigenvalue_solve = 0.04, div_free_projection = 1.97, estimation = 0.59, postprocessing = 0.40, disk_io = 1.07, total = 71.58 }
+phase_s = { initialization = 7.48, mesh_preprocessing = 28.18, operator_construction = 5.42, linear_solve = 0.05, setup = 1.78, preconditioner = 23.66, eigenvalue_solve = 0.04, div_free_projection = 1.97, estimation = 0.59, estimation_construction = 0.57, estimation_solve = 0.35, postprocessing = 0.40, disk_io = 1.07, total = 71.58 }   # 1 rank: Max = Avg
+phase_group_avg_s = { init_plus_mesh = 35.66, opconstr_setup_precond = 30.85, other = 5.02 }
 
 [cells.palace_cpu_np8]
 mode = "as palace_cpu_np8_nosave, identical fixture config (Eigenmode.Save = 6)"
@@ -145,6 +200,9 @@ wall_s = [134.65, 135.94, 136.90]
 wall_s_mean = 135.83
 wall_s_stddev = 1.13
 peak_rss_kb_per_rank_max = [941812, 940696, 938888]
+cpu_percent = [798, 798, 798]
+user_s = [1040.02, 1050.66, 1056.51]
+sys_s = [34.95, 34.65, 36.43]
 phase_paraview_s = [84.39, 85.46, 86.68]
 
 [cells.palace_gpu_np1]
@@ -153,6 +211,9 @@ wall_s = [688.56, 696.85, 686.07]
 wall_s_mean = 690.49
 wall_s_stddev = 5.64
 peak_rss_kb = [2228048, 2232412, 2231992]
+cpu_percent = [100, 100, 100]
+user_s = [685.92, 694.28, 683.46]
+sys_s = [2.82, 2.72, 2.76]
 gpu_mem_peak_mib = [5835, 5835, 5835]
 phase_paraview_s = [616.59, 624.92, 613.87]
 
@@ -160,4 +221,7 @@ phase_paraview_s = [616.59, 624.92, 613.87]
 geode_cuda = "Acceptance criterion 4 asks for a head-to-head vs geode-CUDA at the same mesh. geode has no GPU eigensolve path (deferred by design: docs/research/gpu-eigensolve-path-design.md, #606), so no geode-CUDA eigenmode cell can exist; the same-box geode CPU f64 cell is the geode comparator. geode-CUDA would also be f32-only (burn-cuda 0.21 / cubecl disables f64), which this eigenproblem (Tol 1e-8) could not use as-is. The only geode-CUDA vs Palace-GPU head-to-head that exists is the DRIVEN solve — issue #520."
 paraview = "Palace's ParaView field writer dominates the fixture (Save = 6) cells in this CUDA image: 614-625 s of a ~690 s single-rank GPU run, and 84-87 s of a ~136 s 8-rank CPU run of the SAME image. The committed m6i CPU baseline (LTO'd, LIBXSMM image) spent 6.7 s in ParaView. The slowdown is therefore a property of this CUDA build's host-side output path (it also appears with Device = CPU), amplified on 1 rank; it is not solver time. Not investigated further here."
 same_build_vs_baseline = "The CPU control here is the SAME image as the GPU cells (isolating the device). It is NOT the image of the committed CPU baseline (that one is LTO-built with LIBXSMM: /cpu/self/xsmm/blocked, 31.25 s total on m6i), so do not compare palace_cpu_np8 here with transmon_bench_cpu across hosts/images."
-single_rank_gpu = "Palace-GPU ran 1 MPI rank on the single GPU (the standard 1 rank : 1 GPU mapping). Its serial phases (mesh preprocessing 28 s) are not parallelised, whereas the CPU control's are split over 8 ranks; that is inherent to a 1-GPU box, not a tuning choice."
+single_rank_gpu = "Palace-GPU ran 1 MPI rank on the single GPU (the standard 1 rank : 1 GPU mapping); a 1-GPU box offers no other mapping. This is a general caveat, NOT the explanation of the gap: Palace's timers attribute 19.7 s of the 21.0 s GPU deficit to Operator Construction + Setup + Preconditioner (30.85 s vs 11.12 s). Mesh preprocessing is effectively serial in the 8-rank CPU control too (one rank 21.4 s while the others wait in Initialization); per-rank Initialization + Mesh Preprocessing is 35.66 s on GPU vs 26.28 s on CPU (+9.4 s), offset by -8.1 s in the remaining rows (div-free projection, error estimation, linear solve)."
+phase_accounting = "Palace's Elapsed Time Report rows are exclusive (an indented sub-timer is not included in its parent), so on any one rank the rows sum to Total. The Max-over-ranks column cannot be summed across rows: on 8 ranks, Initialization Max = 24.07 s and Mesh Preprocessing Max = 21.39 s come from DIFFERENT ranks (min/max pairs 4.88+21.37 and 24.03+2.22 both give 26.25 s). Summing the Max column gives a phantom 45.5 s for Init + Mesh on CPU (and 64.1 s for all rows vs a 50.6 s Total). Group sums above therefore use the Avg column, which does sum to Total (summarize.py prints the check, phase_avg_rows_sum_s)."
+geode_threads = "GEODE_NUM_THREADS caps faer's sparse LU thread pool (crates/geode-core/src/eigen/parallel.rs) but not the rest of the pipeline: the =1 cells used 683-690% CPU (198 s user + 48 s sys over 36 s wall) and the =8 cells 961-984%. Neither geode cell is a thread-count-matched comparison with Palace (795% on 8 ranks; 100% for the 1-rank GPU run, whose work is on the device)."
+geode_modes = "Every geode run returned the same 6 pairs: 4 gradient near-kernel modes (0.000478, 0.000562, 0.000602, 0.000760 GHz; participation 0), the known spurious 3.452751 GHz mode (p = 0.9942; benchmarks/transmon_eigen/results.toml [spurious_mode], #514) and 5.152825 GHz (matches Palace's 5.151336 GHz to 0.029%). Palace returns 6 physical, div-free-projected modes (5.15-26.08 GHz). The wall-clock comparison is therefore not like-for-like in output, and this run applies no geode eigen-agreement gate."
