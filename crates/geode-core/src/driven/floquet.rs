@@ -111,7 +111,100 @@
 //! - a termination order the port-face mesh under-resolves
 //!   (`|κ| h > π`);
 //! - a first **excluded** evanescent ring that has not decayed below `1e-3`
-//!   at the nearest inhomogeneity (raise `n_evanescent` or move the port).
+//!   at the nearest inhomogeneity (raise `n_evanescent` or move the port);
+//! - a specular order whose estimated p=1 discretization floor exceeds
+//!   [`SPECULAR_FLOOR_WARN`] (see [Accuracy](#accuracy)).
+//!
+//! # Accuracy
+//!
+//! The Floquet modes are analytic, so there is no port-mode error. The
+//! limit a designer sees is the **p=1 discretization floor**: the discrete
+//! wave in the mesh has a slightly different `k_z` and admittance from the
+//! analytic mode the port terminates it with, so each port reflects a
+//! little. (A wave port avoids this mismatch by solving its modes on the
+//! same mesh.) An empty cell, whose exact S is `S₁₁ = 0`,
+//! `S₂₁ = e^{−j k_z L}`, shows it directly.
+//!
+//! **The floor is `O((k h)²)` and grows towards grazing as `k/k_z`.** With
+//! `h` the longest port-face triangle edge, `k = k₀√ε_r` and `k_z` the
+//! specular normal wavenumber in the port medium, the worst specular
+//! reflection / cross-polarization leak of an empty cell follows
+//!
+//! ```text
+//! |S|_floor ≈ C (k h)² · k / k_z,        C = 0.05   (SPECULAR_FLOOR_COEFF)
+//! ```
+//!
+//! `C` is fitted to measurements (issue #885), not derived. They are
+//! empty-cell runs on 6-tet box meshes: the envelope of `|S₁₁|` and of the
+//! cross-polarized `S₁₁`, `S₂₁` over TE and TM, four azimuths and six cell
+//! lengths `L = 0.8 … 1.3` (the reflections of the two ports interfere, so
+//! one length alone under- or over-reads the floor by up to 2×). The
+//! columns are `|S| cos θ / (k h)²`, which the model says is `C`:
+//!
+//! | θ | h = 0.1, k₀ = 2.5 | h = 0.05, k₀ = 2.5 | h = 0.05, k₀ = 5 | h_xy = 0.1, h_z = 0.05 | h_xy = 0.1, h_z = 0.0125 |
+//! |---|---|---|---|---|---|
+//! | 0° | 0.036 | 0.036 | 0.039 | 0.020 | 0.017 |
+//! | 15° | 0.026 | 0.026 | 0.028 | 0.015 | 0.016 |
+//! | 30° | 0.011 | 0.011 | 0.015 | 0.012 | 0.014 |
+//! | 45° | 0.038 | 0.038 | 0.038 | 0.038 | 0.038 |
+//! | 60° | 0.054 | 0.054 | 0.049 | 0.054 | 0.053 |
+//! | 70° | 0.047 | 0.047 | 0.053 | 0.053 | 0.053 |
+//! | 75° | 0.037 | 0.037 | 0.050 | 0.047 | 0.049 |
+//! | 80° | 0.027 | 0.027 | 0.045 | 0.040 | 0.044 |
+//! | 85° | 0.032 | 0.032 | 0.062 | 0.035 | 0.039 |
+//!
+//! Here `h` is the nominal grid spacing and the port-face edge the code
+//! measures is `h√2` (the diagonal of the split). The first two columns
+//! agree to three digits, which is the clean `O(h²)`; the third has the
+//! same `k h` at twice the frequency. Without the `k/k_z` factor the same
+//! data spread over 40× (`|S|/(k h)²` runs from 0.012 at 30° to 0.71 at
+//! 85°). In absolute terms, at `k₀ = 2.5` (`λ ≈ 2.51`) and `θ ≤ 75°`:
+//!
+//! | mesh | port-face `k h` | worst `\|S₁₁\|` (envelope over `L`) | worst `∠S₂₁` error at `L = 1` |
+//! |---|---|---|---|
+//! | grid h = 0.1 (λ/25) | 0.354 | 1.8e-2 | 0.92° |
+//! | grid h = 0.05 (λ/50) | 0.177 | 4.5e-3 | 0.23° |
+//! | grid h = 0.025 (λ/100) | 0.088 | 8.6e-4 (`L = 1` only) | 0.058° |
+//!
+//! At normal incidence the λ/25 mesh reflects 4.5e-3, the same as the λ/50
+//! mesh at 75°: the angle matters as much as the mesh.
+//!
+//! **What the solver reports.**
+//! [`FloquetCell::specular_floor_estimate`] evaluates the fit at any
+//! `(ω, k_t)`. When it exceeds [`SPECULAR_FLOOR_WARN`] (`1e-2`, −40 dB),
+//! [`FloquetSolution::warnings`] gets a note with `k·h`, the estimate and
+//! the `h` to refine to. It is a warning and never an error: the mesh still
+//! solves and the result is still returned.
+//!
+//! **What the estimate does not cover.**
+//!
+//! - **Transmission phase.** The `∠S₂₁` error is numerical dispersion that
+//!   accumulates along the cell, so it scales with the electrical length
+//!   and not only with the port mesh. The 0.92° above is for `L = 0.4 λ`;
+//!   the same `k h` over `L = 0.8 λ` measured 1.85°.
+//! - **Aspect ratio and lateral `h`.** The floor follows the **lateral**
+//!   (port-face) `h`. Refining only along the normal does not lower it: in
+//!   the last two columns `h_z` shrinks 4× and the floor does not move. An
+//!   anisotropic 6-tet split also costs phase in a loaded cell. PR #875
+//!   measured 0.53° of slab phase error at aspect ≈ 8 (`h_xy = 0.1` against
+//!   `h_z = 0.0125`) on a laterally uniform design. Keep the lateral `h` at
+//!   the resolution the estimate asks for, also where the design itself
+//!   has no lateral structure.
+//! - **Cross-polarization under total internal reflection.** An asymmetric
+//!   split couples TE and TM at about 1.7e-3 on a glass/vacuum interface
+//!   past the critical angle (PR #875), where the exact answer is zero.
+//! - **Fields inside the cell.** The estimate is calibrated on an empty
+//!   cell. A resonant or high-`ε_r` interior needs its own resolution in
+//!   the interior wavelength.
+//!
+//! **Evanescent terminations.** `n_evanescent = 1` is usually converged.
+//! The under-resolved-order warning (`|κ| h > π`) is conservative: it fires
+//! on any narrow cell, where `|b|` is large, also when the terminated
+//! orders have long decayed and carry nothing.
+//!
+//! A p=2 periodic cell (Epic #836) would lower the floor, and the
+//! residual estimator of Epic #835 could replace this a-priori fit by an
+//! a-posteriori one. Neither is wired to Floquet ports yet.
 //!
 //! # Scope
 //!
@@ -147,6 +240,31 @@ pub const DEFAULT_N_EVANESCENT: usize = 1;
 
 /// Default [`FloquetSettings::rayleigh_warn`].
 pub const DEFAULT_RAYLEIGH_WARN: f64 = 1e-3;
+
+/// Fitted coefficient `C` of the p=1 specular discretization floor
+/// `|S|_floor ≈ C (k h)² k/k_z`, with `h` the longest port-face triangle
+/// edge (issue #885; see the [module docs](self#accuracy) for the data).
+///
+/// It is fitted to the measured `|S| cos θ / (k h)²` of an empty cell,
+/// taken as the envelope over five 6-tet mesh families (isotropic at two
+/// resolutions and two frequencies, aspect 2 and aspect 8), both
+/// polarizations, four azimuths and six cell lengths. That envelope is
+/// 0.039 at 0°, 0.028 at 15°, 0.015 at 30°, 0.038 at 45°, 0.054 at 60°,
+/// 0.053 at 70°, 0.050 at 75°, 0.045 at 80° and 0.062 at 85°. So
+/// `C = 0.05` is within a factor 2 of the measured worst case at every
+/// angle but 30° (3.3× high there), and at most 20% low (at 85°).
+pub const SPECULAR_FLOOR_COEFF: f64 = 0.05;
+
+/// The estimated specular floor above which a solve warns
+/// ([`FloquetSolution::warnings`]): `1e-2`, i.e. a spurious −40 dB
+/// reflection.
+///
+/// Measured consequence on a 6-tet box mesh (issue #885): a λ/25 grid
+/// (port-face `k h = 0.354`) warns from θ ≈ 51° on, where the measured
+/// reflection passes `1e-2` (1.4e-2 at 60°, 1.8e-2 at 75°). It is silent
+/// at normal incidence, where the measured reflection is 4.5e-3. A λ/50
+/// grid is silent up to θ ≈ 81° (measured 4.5e-3 at 75°, 1.1e-2 at 85°).
+pub const SPECULAR_FLOOR_WARN: f64 = 1e-2;
 
 /// `|k² − |κ|²| ≤ CUTOFF_TOL · k²` counts as **at cutoff** (`k_z = 0` to
 /// round-off): a typed error, never a channel with an infinite TM
@@ -486,7 +604,9 @@ pub struct FloquetSolution {
     /// Largest relative residual `‖A_r x − b‖/‖b‖` over the columns.
     pub residual_rel: f64,
     /// Human-readable warnings (near-cutoff orders, under-resolved or
-    /// insufficient evanescent terminations).
+    /// insufficient evanescent terminations, and a specular discretization
+    /// floor above [`SPECULAR_FLOOR_WARN`]; see the
+    /// [module docs](self#accuracy)).
     pub warnings: Vec<String>,
 }
 
@@ -706,6 +826,26 @@ impl FloquetCell {
             .k_t_from_angles(omega, self.ports[inc.from_port].eps_r, inc.theta, inc.phi))
     }
 
+    /// The estimated p=1 discretization floor of the specular S at
+    /// `(omega, k_t)`: `C (k h)² k/k_z` with `C =` [`SPECULAR_FLOOR_COEFF`],
+    /// `h` the longest port-face triangle edge and `k`, `k_z` in the port
+    /// medium; the larger of the two ports. It estimates the spurious
+    /// reflection and cross-polarization leak of an otherwise exact cell
+    /// (see the [module docs](self#accuracy) for the fit and for what it
+    /// does not cover). A port whose specular order does not propagate
+    /// (total internal reflection) reports no S and is skipped; the result
+    /// is `0` if neither propagates.
+    ///
+    /// It needs no solve. [`Self::channels_at`] warns when it exceeds
+    /// [`SPECULAR_FLOOR_WARN`].
+    pub fn specular_floor_estimate(&self, omega: f64, k_t: [f64; 3]) -> f64 {
+        let kt_abs = norm(k_t);
+        self.ports
+            .iter()
+            .filter_map(|port| specular_floor(port, omega, kt_abs))
+            .fold(0.0, f64::max)
+    }
+
     /// The channel set at `(omega, k_t)`, with the polarization reference
     /// azimuth `phi` for a vanishing `κ` (only the specular order at normal
     /// incidence), plus warnings.
@@ -865,6 +1005,26 @@ impl FloquetCell {
                         worst_order.m, worst_order.n, port.clearance, self.settings.n_evanescent
                     ));
                 }
+            }
+            // Specular resolution (issue #885): the p=1 discretization floor.
+            // A warning, never an error: the mesh still solves.
+            if let Some(floor) = specular_floor(port, omega, kt_abs)
+                && floor > SPECULAR_FLOOR_WARN
+            {
+                let kh = k * port.h_max;
+                warnings.push(format!(
+                    "the port-face mesh at port {p} resolves the specular wave only to k·h = \
+                     {kh:.3} (longest port-face edge h = {:.4e}, λ/h = {:.1}): the estimated p=1 \
+                     discretization floor of the specular S is {floor:.1e} (spurious reflection \
+                     / cross-polarization, ≈ {SPECULAR_FLOOR_COEFF}·(k·h)²·k/k_z), above \
+                     {SPECULAR_FLOOR_WARN:.0e}. For a floor below {SPECULAR_FLOOR_WARN:.0e} at \
+                     this angle, refine the port face and the mesh behind it to h ≤ {:.4e}. \
+                     The transmission phase error also grows with the electrical length of \
+                     the cell",
+                    port.h_max,
+                    2.0 * PI / kh,
+                    port.h_max * (SPECULAR_FLOOR_WARN / floor).sqrt()
+                ));
             }
         }
         Ok((channels, warnings))
@@ -1139,6 +1299,15 @@ impl FactoredFloquetCell<'_> {
             warnings: self.warnings.clone(),
         })
     }
+}
+
+/// `C (k h)² k/k_z` of the specular order at one port (issue #885), or
+/// `None` if it does not propagate there.
+fn specular_floor(port: &PortFace, omega: f64, kt_abs: f64) -> Option<f64> {
+    let k = omega * port.eps_r.sqrt();
+    let arg = (k - kt_abs) * (k + kt_abs);
+    let kh = k * port.h_max;
+    (arg > 0.0).then(|| SPECULAR_FLOOR_COEFF * kh * kh * k / arg.sqrt())
 }
 
 /// Reduced DOFs reached by the face's full DOFs (sorted, unique).
