@@ -1654,7 +1654,7 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// `tm_guard_p2_measurement_table` (`tests/wave_port_p2.rs`) is the
 /// validation at p=2. It takes the 3-D p=2 box's lowest TM-like resonance
 /// as the cutoff, on structured, stepped and Gmsh guides and on scans of
-/// the box depth (797 rows), and requires the guard below it on every row.
+/// the box depth (815 rows), and requires the guard below it on every row.
 /// The tightest row has 4.45 points to spare (at the base margin), and the
 /// worst `undershoot ÷ (k_c·h_n)²` is 0.0160, 64 % of the constant. The
 /// rows reach `k_c·h_n` = 7.06, past the 6.32 where the margin is at its

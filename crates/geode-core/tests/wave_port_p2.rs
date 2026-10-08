@@ -1456,23 +1456,23 @@ fn gmsh_guide_box(
 /// asserts that the p=2 guard is below the 3-D p=2 TM-like cutoff; no row
 /// is skipped.
 ///
-/// Rows: structured one- to four-layer guides up to `k_c·h_n` = 5.33;
-/// coarse and one-element-across faces around the TE₁₀₁ / TM₁₁₀ box
-/// degeneracy at `d = b`, over one layer and over two and four (where the
-/// margin is at or near its base); stepped layers; and, when `gmsh` is on
-/// `PATH`, the Gmsh guides of `reference/gmsh/guide_box.geo`: the point
-/// samples of #884 / #895, a scan of the box depth `d` = 0.9 … 4.4 in steps
-/// of 0.05 on six coarse guides (issue #905), and a scan in steps of 0.01
-/// across the depths where that issue found the withdrawn p=2 law above
-/// the cutoff (`1.5 × 1` at `d` ≈ 3.2, `3 × 1` at `d` ≈ 4.05): 489 scan
-/// rows.
+/// Rows: structured one- to four-layer guides; coarse and
+/// one-element-across faces around the TE₁₀₁ / TM₁₁₀ box degeneracy at
+/// `d = b`, over one layer (up to `k_c·h_n` = 7.06) and over two, four and
+/// eight (where the margin is at or near its base); stepped layers; and,
+/// when `gmsh` is on `PATH`, the Gmsh guides of
+/// `reference/gmsh/guide_box.geo`: the point samples of #884 / #895, a scan
+/// of the box depth `d` = 0.9 … 4.4 in steps of 0.05 on six coarse guides
+/// (issue #905), and a scan in steps of 0.01 across the depths where that
+/// issue found the withdrawn p=2 law above the cutoff (`1.5 × 1` at
+/// `d` ≈ 3.2, `3 × 1` at `d` ≈ 4.05): 489 scan rows.
 ///
 /// Where the axial term sets the margin, the worst `undershoot ÷ (k_c·h_n)²`
 /// must be below `C_h`; at the base margin the worst undershoot must be
 /// below `δ₀`. The summary line reports both, the tightest row, and how
 /// many rows undershoot by the 5 % the withdrawn law allowed or more.
 #[test]
-#[ignore = "heavy: 270 p=2 box eigensolves, 797 with gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
+#[ignore = "heavy: 288 p=2 box eigensolves, 815 with gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
 fn tm_guard_p2_measurement_table() {
     use geode_core::driven::ports::TM_GUARD_AXIAL_COEFF;
     let mut table = GuardTable {
@@ -1631,6 +1631,32 @@ fn tm_guard_p2_measurement_table() {
             }
         }
     }
+    // And over eight layers of a deep box, at the depths of the TE₁₀₂ /
+    // TM₁₁₀ degeneracy and of issue #905's `d` = 3.2.
+    for d in [2.0, 3.2] {
+        for (nx, ny, a) in [
+            (2usize, 1usize, 2.0),
+            (16, 1, 2.0),
+            (4, 2, 2.0),
+            (1, 4, 2.0),
+            (6, 1, 3.0),
+            (3, 1, 3.0),
+            (3, 2, 1.5),
+            (8, 1, 1.5),
+            (1, 1, 1.0),
+        ] {
+            let r = structured(
+                format!("coarse face over 8 layers, {a}×1, face {nx}×{ny}, over {d}"),
+                nx,
+                ny,
+                8,
+                a,
+                1.0,
+                d,
+            );
+            worst_fine_axis = worst_fine_axis.max(r.under);
+        }
+    }
     for (nx, ny, a, zs) in [
         (16usize, 8usize, 2.0, [0.0, 0.15, 0.75]),
         (24, 8, 3.0, [0.0, 0.2, 0.9]),
@@ -1758,7 +1784,7 @@ fn tm_guard_p2_measurement_table() {
          undershoot {:.3} %; where the axial term sets the margin ({} rows): worst \
          ÷(k_c·h_n)² {:.4} at k_c·h_n {:.2} (C_h = {TM_GUARD_AXIAL_COEFF}); at the base margin \
          ({} rows): worst undershoot {:.3} %, tightest {:.2} pt; coarse faces over four \
-         layers: worst undershoot {:.3} %; largest k_c·h_n {:.2}; {} rows undershoot by the \
+         and eight layers: worst undershoot {:.3} %; largest k_c·h_n {:.2}; {} rows undershoot by the \
          {:.0} % the withdrawn p=2 law allowed or more",
         table.rows,
         if ran_gmsh { "run" } else { "skipped" },
