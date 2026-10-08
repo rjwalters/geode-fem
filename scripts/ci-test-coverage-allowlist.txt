@@ -24,18 +24,3 @@
 # asserted by driven_matrix_free_equivalence and iterative_sweep in
 # arpack.yml.
 geode-core/gpu_driven_scaling
-# The two Silver-Müller self-consistent targets: default tier empty (all
-# tests #[ignore]d: faer gevd debug-assertion panic). Their release --ignored
-# tiers timed out at 80 min on ubuntu-latest (#786) because faer's complex
-# QZ hung (#796). With the #796 dense shift-invert they finish, but each test
-# runs about 21 dense solves of the full 4512-DOF pencil, which is still too
-# slow for the 45-min job bound. Measured locally (6 threads, loaded host):
-# silvermuller_self_consistent passes in 19 min; the vector-tracking tier
-# needs eigenvectors on every solve and had passed 1 of its 3 tests at a
-# 20-min cap. Re-measured 2026-10-06 (release, loaded host): the single
-# test self_consistent_converges_for_target_mode alone had not finished at
-# a 580-s cap. Each solve is a full dense complex Schur decomposition, which
-# is why it is slow. #917 tracks moving the loop to the sparse complex
-# Lanczos so a CI tier fits.
-geode-core/silvermuller_self_consistent
-geode-core/silvermuller_self_consistent_vector_tracking
