@@ -1,0 +1,13 @@
+# tree=fix git=e07237e5b3ca791675bd2fc04f9efbfce516949d dirty=0
+# test=spiral_ams_with_anisotropic_materials_matches_direct binary=anisotropic_golden-896e38b941754534 --ignored
+# start=2026-10-08T14:45:37Z loadavg=16.88 12.29 9.62
+
+running 1 test
+test spiral_ams_with_anisotropic_materials_matches_direct ... # ams_smoother edge_dim=13997 theta_max=3.429697 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.772667 weight=0.397597 source=estimate estimate_ms=6.813 theta_ref=3.429697 ref_steps=600
+# ams_smoother edge_dim=13997 theta_max=3.226668 lanczos_steps=30 gershgorin=6.043983 rho_hat=3.549334 weight=0.600000 source=default estimate_ms=6.279 theta_ref=3.226668 ref_steps=600
+row 0: iterations [118], |ΔZ|/|Z| vs direct 1.31e-12
+row 1: iterations [148], |ΔZ|/|Z| vs direct 1.24e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 3.52s
+

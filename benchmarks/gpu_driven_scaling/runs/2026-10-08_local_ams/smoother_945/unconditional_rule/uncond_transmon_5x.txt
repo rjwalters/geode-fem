@@ -1,0 +1,20 @@
+# tree=uncond git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 patch=unconditional_rule.patch
+# test=synthetic_ams_beats_jacobi_inner_iterations binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:55:36Z loadavg=14.89 9.25 8.81
+
+running 1 test
+test synthetic_ams_beats_jacobi_inner_iterations ... # ams_smoother edge_dim=1302 theta_max=3.327235 lanczos_steps=30 gershgorin=3.997230 rho_hat=3.659959 weight=0.409841 source=estimate estimate_ms=0.831
+inner-CG iterations: Jacobi = 33481, AMS-lite = 6771, reduction = 4.94×
+
+thread 'synthetic_ams_beats_jacobi_inner_iterations' (368243417) panicked at crates/geode-core/tests/transmon_eigenmode.rs:828:5:
+AMS-lite did not reduce inner-CG iterations ≥5×: Jacobi = 33481, AMS = 6771 (ratio 4.94×)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    synthetic_ams_beats_jacobi_inner_iterations
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 1.66s
+

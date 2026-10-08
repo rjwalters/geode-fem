@@ -1,0 +1,11 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0
+# test=synthetic_ams_minres_matches_direct_interior_shift binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:17Z loadavg=12.99 12.55 12.00
+
+running 1 test
+test synthetic_ams_minres_matches_direct_interior_shift ... # ams_smoother edge_dim=138 theta_max=2.910115 lanczos_steps=30 gershgorin=3.937500 rho_hat=3.201126 weight=0.600000 source=default estimate_ms=0.074 theta_ref=2.910115 ref_steps=138
+AMS-MINRES vs Direct @ σ=3: 4 modes, worst rel-diff = 1.07e-10, inner-MINRES iters = 11052
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.11s
+

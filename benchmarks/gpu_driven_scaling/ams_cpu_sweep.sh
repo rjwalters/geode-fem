@@ -34,13 +34,21 @@
 #      shared host: the V-cycle's small sparse triangular solves fanned out to
 #      the rayon pool and spent most of the leg in system time. The AMS Krylov
 #      solve now runs those solves sequentially at any setting; the Direct
-#      legs still use every thread for the LU factorization).
+#      legs still use every thread for the LU factorization),
+#      GEODE_SCALING_OMEGA (drive frequency, default 0.10) and
+#      GEODE_AMS_SMOOTH_WEIGHT (override of the AMS edge-smoother weight;
+#      0.6 reproduces the fixed weight used before issue #945). Both are
+#      inherited by every leg and recorded in <leg>.meta.
+#      GEODE_AMS_SMOOTH_REPORT is set to 1 unless already set, so each AMS
+#      leg's .err carries one "# ams_smoother ..." line per preconditioner
+#      build: the Lanczos Ritz value, the Gershgorin bound, the weight chosen.
 # Then: summarize_ams_local.py <out-dir>
 set -euo pipefail
 OUT=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)
 GEODE_DIR="${GEODE_DIR:-$(cd "$here/../.." && pwd)}"
 LEG_TIMEOUT_S="${LEG_TIMEOUT_S:-5400}"
+export GEODE_AMS_SMOOTH_REPORT="${GEODE_AMS_SMOOTH_REPORT:-1}"
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 cd "$GEODE_DIR"
@@ -82,6 +90,8 @@ run_leg() {
     echo "start=$(date -u +%FT%TZ)"
     echo "loadavg_start=$(loadavg)"
     echo "rayon_num_threads=${RAYON_NUM_THREADS:-unset}"
+    echo "scaling_omega=${GEODE_SCALING_OMEGA:-default}"
+    echo "ams_smooth_weight=${GEODE_AMS_SMOOTH_WEIGHT:-auto}"
     echo "git=$(git rev-parse HEAD) dirty=$(git status --porcelain --untracked-files=no | wc -l | xargs)"
     echo "env: GEODE_SCALING_SIZES=$n GEODE_SCALING_CONFIGS=$cfgs GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1"
   } > "$OUT/$leg.meta"

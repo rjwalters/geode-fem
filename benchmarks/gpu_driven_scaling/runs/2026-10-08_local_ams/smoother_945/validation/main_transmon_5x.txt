@@ -1,0 +1,10 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=synthetic_ams_beats_jacobi_inner_iterations binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:11Z loadavg=13.82 12.69 12.04
+
+running 1 test
+test synthetic_ams_beats_jacobi_inner_iterations ... inner-CG iterations: Jacobi = 33481, AMS-lite = 6264, reduction = 5.34×
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 1.52s
+

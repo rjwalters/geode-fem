@@ -1,0 +1,10 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0
+# test=synthetic_ams_matches_direct binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:16Z loadavg=13.51 12.65 12.03
+
+running 1 test
+test synthetic_ams_matches_direct ... # ams_smoother edge_dim=356 theta_max=3.211409 lanczos_steps=30 gershgorin=3.993789 rho_hat=3.532550 weight=0.600000 source=default estimate_ms=0.223 theta_ref=3.211409 ref_steps=356
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.14s
+

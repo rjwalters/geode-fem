@@ -1,0 +1,13 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=rough_ams_matches_direct binary=roughness_golden-69611029bd788ddb --ignored
+# start=2026-10-08T13:14:00Z loadavg=12.73 12.43 11.95
+
+running 1 test
+test rough_ams_matches_direct ... AMS   1.0 GHz: iters [107], |ΔZ|/|Z| vs direct 1.6e-12
+AMS   5.0 GHz: iters [117], |ΔZ|/|Z| vs direct 2.2e-12
+AMS  10.0 GHz: iters [128], |ΔZ|/|Z| vs direct 1.9e-12
+AMS  20.0 GHz: iters [135], |ΔZ|/|Z| vs direct 1.7e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 4.74s
+

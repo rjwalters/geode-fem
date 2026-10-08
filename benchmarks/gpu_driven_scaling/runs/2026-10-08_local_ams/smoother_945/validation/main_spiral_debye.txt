@@ -1,0 +1,36 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=spiral_debye_ams_matches_direct binary=dispersive_golden-746a9e69e42b8b65 --ignored
+# start=2026-10-08T13:13:36Z loadavg=13.49 12.50 11.95
+
+running 1 test
+test spiral_debye_ams_matches_direct ... 
+thread 'spiral_debye_ams_matches_direct' (367993520) panicked at crates/geode-cli/tests/dispersive_golden.rs:103:5:
+geode ["driven"] failed (exit status: 1):
+stderr: error: driven solve failed: sparse solve failed: iterative back-solve: Krylov solve did not converge — the recursive residual met the tolerance after 148 iterations but the explicitly recomputed residual ‖Ax − b‖/‖b‖ = 1.018e-10 did not (recursive-residual drift; loosen solver.tol to a level the explicit residual can reach, use a stronger preconditioner, or use solver.mode = "direct")
+
+stdout: {
+  "schema_version": 1,
+  "geode_version": "0.8.0",
+  "git_sha": "61e8571ee738",
+  "backend": "ndarray",
+  "threads": null,
+  "spec_path": "<tmp>/geode-cli-dispersive-ams-debye-24663/ams.json",
+  "kind": "error",
+  "status": "error",
+  "command": "driven",
+  "error": {
+    "code": "solve_failed",
+    "message": "driven solve failed: sparse solve failed: iterative back-solve: Krylov solve did not converge — the recursive residual met the tolerance after 148 iterations but the explicitly recomputed residual ‖Ax − b‖/‖b‖ = 1.018e-10 did not (recursive-residual drift; loosen solver.tol to a level the explicit residual can reach, use a stronger preconditioner, or use solver.mode = \"direct\")"
+  }
+}
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    spiral_debye_ams_matches_direct
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 4.11s
+

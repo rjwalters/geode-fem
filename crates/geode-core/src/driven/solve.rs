@@ -4608,6 +4608,175 @@ mod tests {
         assert_eq!(AmsCoarseSolve::Amg.resolve(), AmsCoarseSolve::Amg);
     }
 
+    /// Issue #945: on the structured Kuhn-tet cube of the #520 scaling
+    /// fixture (σ-lossy, PEC on the two y-planes, one lumped port) the old
+    /// fixed AMS smoother weight 0.6 is above the damped-Jacobi stability
+    /// bound `2/λ_max(D⁻¹P)`. The weight chosen at build time must be below
+    /// that bound, and the COCG iteration count must be the low one (26 at
+    /// this size; 70 with the weight at 0.6, growing with the mesh).
+    ///
+    /// `λ_max` is checked two ways that do not use the build's own short
+    /// Lanczos run: a 3000-step power iteration (a converged lower bound)
+    /// and the Gershgorin row-sum bound (a rigorous upper bound).
+    #[test]
+    fn ams_smoother_weight_is_below_stability_bound_on_structured_cube() {
+        let n = 6;
+        let mesh = cube_tet_mesh(n, 1.0);
+        let edges = mesh.edges();
+        let on_plane = |node: u32, axis: usize, value: f64| {
+            (mesh.nodes[node as usize][axis] - value).abs() < 1e-12
+        };
+        let port_faces: Vec<[u32; 3]> = mesh
+            .faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&v| on_plane(v, 2, 0.0)))
+            .collect();
+        let mask: Vec<bool> = edges
+            .iter()
+            .map(|e| {
+                ![0.0, 1.0]
+                    .iter()
+                    .any(|&y| on_plane(e[0], 1, y) && on_plane(e[1], 1, y))
+            })
+            .collect();
+        let eps = vacuum(&mesh);
+        let sigma_tet = vec![2.0_f64; mesh.n_tets()];
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.0),
+        };
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            std::slice::from_ref(&port),
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.10;
+
+        // λ_max(D⁻¹P) of the proxy the V-cycle smooths, by power iteration.
+        let p = ams::proxy(&op, omega).expect("proxy");
+        let pr = p.as_ref();
+        let dim = pr.nrows();
+        let (cp, ri, va) = (pr.col_ptr(), pr.row_idx(), pr.val());
+        let mut diag = vec![0.0_f64; dim];
+        let mut gershgorin = vec![0.0_f64; dim];
+        for j in 0..dim {
+            for k in cp[j]..cp[j + 1] {
+                gershgorin[j] += va[k].abs();
+                if ri[k] == j {
+                    diag[j] += va[k];
+                }
+            }
+        }
+        assert!(diag.iter().all(|&d| d > 0.0));
+        let gershgorin = gershgorin
+            .iter()
+            .zip(&diag)
+            .map(|(s, d)| s / d)
+            .fold(0.0_f64, f64::max);
+        let mut x: Vec<f64> = (0..dim).map(|i| ((i as f64) * 1.7).sin() + 0.1).collect();
+        let mut y = vec![0.0_f64; dim];
+        let mut lambda_power = 0.0;
+        for _ in 0..3000 {
+            y.iter_mut().for_each(|v| *v = 0.0);
+            for j in 0..dim {
+                for k in cp[j]..cp[j + 1] {
+                    y[ri[k]] += va[k] * x[j];
+                }
+            }
+            let xpx: f64 = x.iter().zip(&y).map(|(a, b)| a * b).sum();
+            let xdx: f64 = x.iter().zip(&diag).map(|(a, d)| a * a * d).sum();
+            lambda_power = xpx / xdx;
+            let mut norm = 0.0_f64;
+            for i in 0..dim {
+                x[i] = y[i] / diag[i];
+                norm += x[i] * x[i];
+            }
+            let norm = norm.sqrt();
+            x.iter_mut().for_each(|v| *v /= norm);
+        }
+        assert!(
+            lambda_power <= gershgorin,
+            "power-iteration lower bound {lambda_power} above Gershgorin {gershgorin}"
+        );
+        assert!(
+            0.6 > 2.0 / lambda_power,
+            "fixture must make 0.6 unstable: λ_max ≥ {lambda_power}, bound {}",
+            2.0 / lambda_power
+        );
+
+        let built = ams::build(&op, omega, AmsCoarseSolve::Auto).expect("AMS build");
+        let sw = built.smoother();
+        eprintln!(
+            "[issue #945] cube n={n}: λ_max(D⁻¹P) ≥ {lambda_power:.6} (power), ≤ {gershgorin:.6} \
+             (Gershgorin); build: θ = {:.6}, ρ̂ = {:.6}, weight = {:.6} ({})",
+            sw.theta_max(),
+            sw.rho_hat(),
+            sw.weight(),
+            sw.source().name()
+        );
+        assert_eq!(sw.source(), crate::eigen::ams::SmoothWeightSource::Estimate);
+        assert!(sw.warning().is_none());
+        // The build's 30-step Ritz value is a lower bound within 1 % of the
+        // converged power-iteration value, and reports the same Gershgorin bound.
+        assert!(sw.theta_max() <= lambda_power * (1.0 + 1e-9));
+        assert!(sw.theta_max() > 0.99 * lambda_power);
+        assert!((sw.gershgorin() - gershgorin).abs() < 1e-9 * gershgorin);
+        // Rigorous: the weight is below 2 / Gershgorin ≤ 2 / λ_max.
+        assert!(
+            sw.weight() < 2.0 / gershgorin,
+            "weight {} is not below the rigorous bound 2/Gershgorin = {}",
+            sw.weight(),
+            2.0 / gershgorin
+        );
+        assert!(sw.weight() < 2.0 / lambda_power);
+
+        let settings =
+            IterativeSettings::new(1e-8, 2000).with_preconditioner(IterativePreconditioner::AMS);
+        let (sol, report) = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("AMS setup")
+            .solve()
+            .expect("AMS converges");
+        eprintln!(
+            "[issue #945] cube n={n}: COCG+AMS iterations = {}",
+            report.iters
+        );
+        assert!(report.converged && report.residual_rel <= 1e-8);
+        assert!(
+            report.iters <= 40,
+            "COCG+AMS took {} iterations (26 with a stable smoother, 70 at weight 0.6)",
+            report.iters
+        );
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        assert!((num / den).sqrt() < 1e-5, "AMS vs direct LU");
+    }
+
     /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
     /// **public** [`SolverMode::Iterative`] path (`prepare_at`) — the same
     /// path exercised for ILU(0) above — and converges to an answer that

@@ -27,6 +27,20 @@ Optional subtrees of <run-dir>, each summarized when present:
                   <build>_<threading>[_rep<K>] with build = main (before the
                   fix) or fix, and threading = default or rayon1
                   (RAYON_NUM_THREADS=1). Written as [threading_fix].
+  smoother_945/   the before / after measurement of the issue #945 fix (the AMS
+                  edge-smoother weight is chosen per operator from a
+                  spectral-radius estimate instead of being fixed at 0.6). One
+                  ams_cpu_sweep.sh tree per build and drive frequency, named
+                  <build>_w<omega>[_rayon1]: build = main (origin/main before
+                  the fix), fix (the branch) or w060 (the branch with
+                  GEODE_AMS_SMOOTH_WEIGHT=0.6, i.e. the old weight; main has no
+                  GEODE_SCALING_OMEGA knob), omega written as 0p10. Plus
+                  ritz_gap/w<omega>.err (a 1000-step reference Lanczos next to
+                  the shipped 30-step estimate), validation/ (the AMS tests
+                  outside this fixture, on main and on the branch) and
+                  unconditional_rule/ (some of those tests on a throwaway build
+                  that lowers the weight without the proof condition). Written
+                  as [smoother_weight].
 
 The Jacobi iteration counts are also compared with the committed #520 Lambda
 record (runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout) at the sizes
@@ -170,6 +184,16 @@ for p in sorted(tf_dir.glob("*_*")) if tf_dir.is_dir() else []:
         tf_trees.append((p.name, m.group(1), m.group(2), int(m.group(3) or 1), load_cells(p, CONFIGS)))
 tf_trees.sort(key=lambda t: (t[1] != "main", t[2] != "default", t[3]))
 
+# Issue #945 before / after trees ([] if absent): (tree name, build, omega, threading, cells).
+sm_dir = d / "smoother_945"
+sm_trees = []
+for p in sorted(sm_dir.glob("*_w*")) if sm_dir.is_dir() else []:
+    m = re.fullmatch(r"(main|fix|w060)_w(\d+)p(\d+)(_rayon1)?", p.name)
+    if m and p.is_dir():
+        sm_trees.append(
+            (p.name, m.group(1), float(f"{m.group(2)}.{m.group(3)}"), "rayon1" if m.group(4) else "default", load_cells(p, CONFIGS, xcheck_dir=p))
+        )
+
 metas = [c["meta"] for c in cells.values()]
 commits = sorted({m["git"] for m in metas})
 loads = [float(m[k].split()[0]) for m in metas for k in ("loadavg_start", "loadavg_end") if k in m]
@@ -202,6 +226,13 @@ print("#   * THE [[cell]] AND [[single_thread_cell]] TABLES MEASURE THE SHIPPED 
 print("#     (edge-smoother weight 0.6). [diagnostics] shows that weight is above the")
 print("#     damped-Jacobi stability bound on this fixture and that the iteration")
 print("#     growth goes away below it. Read [finding].scope before quoting a result.")
+if sm_trees:
+    print("#   * THAT WEIGHT IS NO LONGER FIXED (issue #945). The AMS now lowers it where")
+    print("#     a spectral-radius estimate proves 0.6 unstable, which it does on this")
+    print("#     fixture. [[cell]], [[single_thread_cell]], [finding], [threading_fix] and")
+    print("#     [diagnostics] all predate that and are kept as the record of the old")
+    print("#     weight. [smoother_weight] has the before / after measurement, two more")
+    print("#     frequencies, and the tests outside this fixture.")
 print("#   * No Palace run and no size above the largest one listed here. See")
 print("#     [deferred].")
 print("# ---------------------------------------------------------------------------")
@@ -265,7 +296,8 @@ print("# RECOMMENDED FOLLOW-UPS, in this order. None is done here and none is fi
 print("# this record; [diagnostics] and [finding].thread_contention are the evidence.")
 print("recommended_follow_ups = [")
 for item in (
-    "(i) library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, "
+    ("(i) DONE in issue #945, see [smoother_weight]: " if sm_trees else "(i) ")
+    + "library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, "
     "DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of "
     "D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS "
     "tests and this fixture before changing the constant",
@@ -613,6 +645,11 @@ if len(rows) >= 2:
             "size listed. No AMS setting was varied in the [[cell]] and [[single_thread_cell]] "
             "tables (AmsCoarseSolve::Auto throughout). Palace's ~5 iterations use a different "
             "Krylov method (GMRES) and a different AMS (hypre) and were not rerun here."
+            + (
+                " Items (1) to (3) were measured afterwards, in issue #945: see [smoother_weight]."
+                if sm_trees
+                else ""
+            )
         )
     )
 
@@ -1038,3 +1075,422 @@ if diag.is_dir():
             print(f"power_iterations = {[k for k, _ in tr]}")
             print(f"power_rayleigh_lower = {fl((v for _, v in tr), 5)}")
             print(f"stability_bound_weight = {2 / tr[-1][1]:.4f}  # 2 / the converged Rayleigh quotient")
+
+# ---- issue #945: smoother weight, before / after (optional) -------------------
+if sm_trees:
+    BUILD = {
+        "main": "origin/main before the fix (weight fixed at 0.6)",
+        "fix": "the fix (weight chosen per operator)",
+        "w060": "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)",
+    }
+    THREADS = {"default": "default", "rayon1": "RAYON_NUM_THREADS=1"}
+    cpu_s = lambda c: c["time"]["user_s"] + c["time"]["sys_s"]
+    printed = lambda c: (c["iterations"], sci(c["residual_rel"]), f"{c['port_v'][0]:.9e}", f"{c['port_v'][1]:.9e}")
+
+    def smoother(path):
+        """key -> string for the one '# ams_smoother' line of a leg's stderr ({} if none)."""
+        m = re.search(r"^# ams_smoother (.*)$", path.read_text() if path.exists() else "", re.M)
+        return dict(t.split("=", 1) for t in m.group(1).split()) if m else {}
+
+    for name, _, _, _, cs in sm_trees:
+        for (n, label), c in cs.items():
+            c["smoother"] = smoother(sm_dir / name / f"{c['leg']}.err") if label == "ams" else {}
+
+    # Reference Ritz values: ritz_gap/w<omega>.err, one '# ams_smoother' line per size.
+    ritz_ref = {}  # (omega, n_interior) -> dict
+    for p in sorted((sm_dir / "ritz_gap").glob("w*.err")) if (sm_dir / "ritz_gap").is_dir() else []:
+        m = re.fullmatch(r"w(\d+)p(\d+)", p.stem)
+        for line in re.findall(r"^# ams_smoother (.*)$", p.read_text(), re.M):
+            kv = dict(t.split("=", 1) for t in line.split())
+            ritz_ref[(float(f"{m.group(1)}.{m.group(2)}"), int(kv["edge_dim"]))] = kv
+
+    def tree(build, omega, threading="default"):
+        return next((cs for _, b, w, t, cs in sm_trees if (b, w, t) == (build, omega, threading)), {})
+
+    sm_metas = [c["meta"] for *_, cs in sm_trees for c in cs.values()]
+    sm_loads = [float(m[k].split()[0]) for m in sm_metas for k in ("loadavg_start", "loadavg_end") if k in m]
+    sm_dates = sorted(m["start"] for m in sm_metas)
+    sm_commit = lambda build: sorted({c["meta"]["git"] for _, b, _, _, cs in sm_trees if b == build for c in cs.values()})
+    omegas = sorted({w for _, _, w, _, _ in sm_trees})
+
+    print()
+    print("[smoother_weight]")
+    print("issue = 945")
+    print(
+        "note = "
+        + q(
+            "Before / after measurement of the issue #945 fix, on the fixture of this file. Before: the "
+            "AMS V-cycle's damped-Jacobi edge smoother used the fixed weight 0.6. After: each "
+            "preconditioner build takes 30 steps of plain Lanczos on D^-1/2 P D^-1/2 (P the real "
+            "proxy the V-cycle smooths, D its diagonal) and a Gershgorin row-sum bound g, and uses "
+            "0.6 if 0.6 * theta < 2, else 1.5 / min(1.1 * theta, g), theta being the largest Ritz "
+            "value. Nothing else differs between the builds. One ams_cpu_sweep.sh tree per build "
+            "and frequency, one process per leg."
+        )
+    )
+    print(
+        "guaranteed = "
+        + q(
+            "theta is a lower bound on lambda_max(D^-1 P) and g an upper bound. So 0.6 * theta >= 2 "
+            "proves that 0.6 is at or above the stability bound 2 / lambda_max: the weight is "
+            "lowered only where the old one is proven unstable, and is exactly 0.6 everywhere "
+            "else. A lowered weight is below 2 / lambda_max when g is the smaller term of the "
+            "minimum, and in any case when 1.5 / rho_hat < 2 / g, which the cells below let you check."
+        )
+    )
+    print(
+        "heuristic = "
+        + q(
+            "1.1 is an allowance for what 30 Lanczos steps have not resolved, not a bound. Where "
+            "1.1 * theta is the smaller term, the lowered weight is below 2 / lambda_max only if "
+            "lambda_max < 1.47 * theta. And a weight kept at 0.6 is not thereby shown stable: the "
+            "Ritz value only failed to prove it unstable (it is proven stable only if g < 10/3). "
+            "ritz_gap_rel in [[smoother_weight_comparison]] is the measured shortfall of the "
+            "30-step theta against a 1000-step Lanczos run, itself a lower bound."
+        )
+    )
+    print(
+        "how_to_read = "
+        + q(
+            "Developer machine, single samples. Iteration counts are the result. process_user_s + "
+            "process_sys_s is the CPU cost of the whole process (mesh, assembly, setup, solve); "
+            "wall-clock times (setup_s, krylov_s) depend on the load at that moment and are not "
+            "compared between legs. main has no GEODE_SCALING_OMEGA knob, so away from omega = 0.10 "
+            "the 'before' is the fix build with the weight forced back to 0.6; at omega = 0.10 both "
+            "were run and main_equals_forced_0p6 says whether they agree."
+        )
+    )
+    print(f"run_dir = {q(sm_dir.as_posix())}")
+    print(f"trees = {[name for name, *_ in sm_trees]}")
+    print(f"main_commit = {q(', '.join(sm_commit('main')))}")
+    print(f"fix_commit = {q(', '.join(sorted(set(sm_commit('fix') + sm_commit('w060')))))}")
+    print(f"omegas = {omegas}")
+    print(f"started_between = [{q(sm_dates[0])}, {q(sm_dates[-1])}]")
+    print(f"loadavg_1min_range = [{min(sm_loads):.2f}, {max(sm_loads):.2f}]  # {ncpu} logical CPUs")
+
+    for name, build, omega, threading, cs in sm_trees:
+        direct_of = {n: c for (n, label), c in cs.items() if label == "direct" and c["finished"]}
+        for (n, label), c in sorted(cs.items(), key=lambda kv: (kv[0][0], [l for l, _ in CONFIGS].index(kv[0][1]))):
+            print()
+            print("[[smoother_weight_cell]]")
+            print(f"tree = {q(name)}")
+            print(f"build = {q(BUILD[build])}")
+            print(f"omega = {omega:.2f}")
+            print(f"threading = {q(THREADS[threading])}")
+            print(f"leg = {q(c['leg'])}")
+            print(f"size_n = {n}")
+            if not c["finished"]:
+                print("finished = false")
+                continue
+            print(f"n_edges = {c['n_edges']}")
+            print(f"n_interior = {c['n_interior']}")
+            print(f"config = {q(c['config'])}")
+            print(f"explicit_converged = {str(c['converged']).lower()}")
+            print(f"iterations = {c['iterations']}")
+            print(f"residual_rel = {sci(c['residual_rel'])}")
+            sm = c["smoother"]
+            if sm:
+                print(f"ritz_theta_max = {sm['theta_max']}  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)")
+                print(f"gershgorin_upper = {sm['gershgorin']}")
+                print(f"rho_hat = {sm['rho_hat']}  # min(1.1 * theta, gershgorin)")
+                print(f"smooth_weight = {sm['weight']}")
+                print(f"smooth_weight_source = {q(sm['source'])}")
+                print(f"estimate_ms = {sm['estimate_ms']}  # wall clock of the Gershgorin pass + Lanczos run, sequential")
+            print(f"setup_s = {c['warmup_setup_s']:.3f}  # wall clock")
+            print(f"krylov_s = {c['warmup_krylov_s']:.3f}  # wall clock")
+            if c["time"]:
+                print_process(c["time"])
+            print(f"loadavg_1min_start = {c['meta']['loadavg_start'].split()[0]}")
+            print(f"port_v = [{c['port_v'][0]:.9e}, {c['port_v'][1]:.9e}]")
+            if label != "direct" and n in direct_of:
+                print(f"port_v_rel_diff_vs_direct = {sci(rel_diff(c['port_v'], direct_of[n]['port_v']))}  # from the 10 printed digits")
+            x = c["xcheck"]
+            if x and label != "direct":
+                print(f"field_rel_l2_vs_direct = {sci(x.get('accuracy_rel_l2_vs_direct', float('nan')))}  # full edge field, from the n{n}_xcheck leg")
+
+    sm_rows = {}  # omega -> [(n, jacobi, before, after)]
+    for omega in omegas:
+        fx, forced, mn, r1 = tree("fix", omega), tree("w060", omega), tree("main", omega), tree("fix", omega, "rayon1")
+        for n in sorted({n for n, _ in fx}):
+            j, a = fx.get((n, "jacobi")), fx.get((n, "ams"))
+            b = mn.get((n, "ams")) or forced.get((n, "ams"))  # main where it can run this frequency
+            if not (j and a and b and j["finished"] and a["finished"] and b["finished"]):
+                continue
+            sm_rows.setdefault(omega, []).append((n, j, b, a))
+            sm, ref = a["smoother"], ritz_ref.get((omega, a["n_interior"]), {})
+            print()
+            print("[[smoother_weight_comparison]]")
+            print(f"omega = {omega:.2f}")
+            print(f"size_n = {n}")
+            print(f"n_edges = {a['n_edges']}")
+            print(f"jacobi_iterations = {j['iterations']}")
+            print(f"ams_iterations_before = {b['iterations']}  # weight 0.6")
+            print(f"before_build = {q('main' if (n, 'ams') in mn else 'fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6')}")
+            print(f"ams_iterations_after = {a['iterations']}")
+            print(f"ams_explicit_converged_before = {str(b['converged']).lower()}")
+            print(f"ams_explicit_converged_after = {str(a['converged']).lower()}")
+            mb, fb = mn.get((n, "ams")), forced.get((n, "ams"))
+            if mb and fb and mb["finished"] and fb["finished"]:
+                print(f"ams_iterations_before_main = {mb['iterations']}")
+                print(
+                    f"main_equals_forced_0p6 = {str(printed(mb) == printed(fb)).lower()}"
+                    "  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6"
+                )
+            if sm:
+                theta, g, w = float(sm["theta_max"]), float(sm["gershgorin"]), float(sm["weight"])
+                print(f"smooth_weight_after = {sm['weight']}")
+                print(f"smooth_weight_source = {q(sm['source'])}")
+                print(f"ritz_theta_max = {sm['theta_max']}")
+                print(f"gershgorin_upper = {sm['gershgorin']}")
+                print(f"rho_hat = {sm['rho_hat']}")
+                print(f"default_proven_unstable = {str(0.6 * theta >= 2).lower()}  # 0.6 * theta >= 2")
+                print(f"weight_below_rigorous_bound = {str(w < 2 / g).lower()}  # weight < 2 / gershgorin <= 2 / lambda_max")
+                if ref.get("theta_ref"):
+                    tref = float(ref["theta_ref"])
+                    print(f"ritz_theta_reference = {ref['theta_ref']}  # {ref['ref_steps']}-step Lanczos, same start vector; still a lower bound")
+                    print(f"ritz_gap_rel = {sci((tref - theta) / tref)}  # (reference - theta) / reference")
+                    print(f"stability_bound_weight = [{2 / g:.4f}, {2 / tref:.4f}]  # 2 / gershgorin (rigorous), 2 / reference (estimate)")
+                    print(f"weight_times_reference = {w * tref:.3f}  # below 2: inside the bound by the reference value")
+                print(f"estimate_ms = {sm['estimate_ms']}")
+                print(f"ams_setup_s_after = {a['warmup_setup_s']:.3f}  # wall clock, same process as estimate_ms")
+                print(f"estimate_share_of_setup = {float(sm['estimate_ms']) / 1e3 / a['warmup_setup_s']:.3f}")
+            if j["time"] and a["time"] and b["time"]:
+                print("# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.")
+                print(f"jacobi_process_cpu_s = {cpu_s(j):.2f}")
+                print(f"ams_process_cpu_s_before = {cpu_s(b):.2f}")
+                print(f"ams_process_cpu_s_after = {cpu_s(a):.2f}")
+            ra, rj = r1.get((n, "ams")), r1.get((n, "jacobi"))
+            if ra and rj and ra["finished"] and rj["finished"]:
+                print(f"jacobi_process_cpu_s_rayon1 = {cpu_s(rj):.2f}  # RAYON_NUM_THREADS=1")
+                print(f"ams_process_cpu_s_after_rayon1 = {cpu_s(ra):.2f}")
+                print(f"cpu_ratio_jacobi_over_ams_rayon1 = {cpu_s(rj) / cpu_s(ra):.2f}  # above 1: the AMS process used less CPU")
+                same = printed(ra) == printed(a) and ra["smoother"].get("theta_max") == sm.get("theta_max") and ra["smoother"].get("weight") == sm.get("weight")
+                print(
+                    f"after_identical_across_threading = {str(same).lower()}"
+                    "  # iterations, residual_rel, port_v, theta and weight as printed"
+                )
+            x = a["xcheck"]
+            if x:
+                print(f"ams_field_rel_l2_vs_direct_after = {sci(x.get('accuracy_rel_l2_vs_direct', float('nan')))}")
+
+    for omega in omegas:
+        rows945 = sm_rows.get(omega, [])
+        if len(rows945) < 2:
+            continue
+        ed = [a["n_edges"] for _, _, _, a in rows945]
+        jac = [j["iterations"] for _, j, _, _ in rows945]
+        bef = [b["iterations"] for _, _, b, _ in rows945]
+        aft = [a["iterations"] for _, _, _, a in rows945]
+        wts = [float(a["smoother"]["weight"]) for _, _, _, a in rows945 if a["smoother"]]
+        print()
+        print("[[smoother_weight_finding]]")
+        print(f"omega = {omega:.2f}")
+        print(f"sizes_edges = {ed}")
+        print(f"jacobi_iterations = {jac}")
+        print(f"ams_iterations_before = {bef}  # weight 0.6")
+        print(f"ams_iterations_after = {aft}")
+        if wts:
+            print(f"smooth_weight_after_range = [{min(wts):.4f}, {max(wts):.4f}]")
+        print(f"ams_all_explicit_converged_after = {str(all(a['converged'] for *_, a in rows945)).lower()}")
+        print(f"ams_iterations_max_over_min_before = {max(bef) / min(bef):.2f}")
+        print(f"ams_iterations_max_over_min_after = {max(aft) / min(aft):.2f}")
+        print(
+            f"flat_threshold_max_over_min = {FLAT_MAX_OVER_MIN:.2f}"
+            "  # the band of the #742 / #744 spiral measurement, as in [finding]"
+        )
+        print(f"ams_iteration_count_flat_after = {str(max(aft) / min(aft) <= FLAT_MAX_OVER_MIN).lower()}")
+        print(f"ams_growth_exponent_least_squares_before = {lsq_exponent(ed, bef):.3f}  # iterations ~ edges^p")
+        print(f"ams_growth_exponent_least_squares_after = {lsq_exponent(ed, aft):.3f}")
+        print(f"jacobi_growth_exponent_least_squares = {lsq_exponent(ed, jac):.3f}")
+        print(f"iteration_ratio_jacobi_over_ams_after = {fl((j / a for j, a in zip(jac, aft)), 1)}")
+        if all(j["time"] and a["time"] and b["time"] for _, j, b, a in rows945):
+            print(f"jacobi_process_cpu_s = {fl((cpu_s(j) for _, j, _, _ in rows945), 2)}  # user + sys, whole process")
+            print(f"ams_process_cpu_s_before = {fl((cpu_s(b) for _, _, b, _ in rows945), 2)}")
+            print(f"ams_process_cpu_s_after = {fl((cpu_s(a) for *_, a in rows945), 2)}")
+        print(
+            "verdict = "
+            + q(
+                f"At omega = {omega:.2f} the AMS iteration count went from {bef[0]} to {bef[-1]} "
+                f"(weight 0.6, edges^{lsq_exponent(ed, bef):.2f}) to {aft[0]} to {aft[-1]} "
+                f"(edges^{lsq_exponent(ed, aft):.2f}) over {ed[0]} to {ed[-1]} edges; Jacobi takes "
+                f"{jac[0]} to {jac[-1]} (edges^{lsq_exponent(ed, jac):.2f}). The count after the fix "
+                + (
+                    "stays inside"
+                    if max(aft) / min(aft) <= FLAT_MAX_OVER_MIN
+                    else f"still rises by {max(aft) / min(aft):.2f}x, outside"
+                )
+                + f" the {FLAT_MAX_OVER_MIN:.2f} band this file calls flat."
+            )
+        )
+
+    # One table of the statements the README makes about all cells at once.
+    all945 = [(w, n, j, b, a) for w in omegas for n, j, b, a in sm_rows.get(w, [])]
+    if all945:
+        gaps945, share945, eq_main, eq_thr, acc945 = [], [], [], [], []
+        for w, n, j, b, a in all945:
+            sm, ref = a["smoother"], ritz_ref.get((w, a["n_interior"]), {})
+            if sm and ref.get("theta_ref"):
+                gaps945.append((float(ref["theta_ref"]) - float(sm["theta_max"])) / float(ref["theta_ref"]))
+            if sm:
+                share945.append(float(sm["estimate_ms"]) / 1e3 / a["warmup_setup_s"])
+            mb, fb = tree("main", w).get((n, "ams")), tree("w060", w).get((n, "ams"))
+            if mb and fb and mb["finished"] and fb["finished"]:
+                eq_main.append(printed(mb) == printed(fb))
+            ra = tree("fix", w, "rayon1").get((n, "ams"))
+            if ra and ra["finished"]:
+                eq_thr.append(
+                    printed(ra) == printed(a)
+                    and ra["smoother"].get("theta_max") == sm.get("theta_max")
+                    and ra["smoother"].get("weight") == sm.get("weight")
+                )
+            if a["xcheck"]:
+                acc945.append(a["xcheck"].get("accuracy_rel_l2_vs_direct", float("nan")))
+        sms = [a["smoother"] for *_, a in all945 if a["smoother"]]
+        print()
+        print("[smoother_weight.summary]")
+        print(f"cells = {len(all945)}  # frequencies x sizes with a before and an after")
+        print(f"ams_iterations_after_range = [{min(a['iterations'] for *_, a in all945)}, {max(a['iterations'] for *_, a in all945)}]")
+        print(f"ams_iterations_before_range = [{min(b['iterations'] for *_, b, _ in all945)}, {max(b['iterations'] for *_, b, _ in all945)}]")
+        print(f"all_explicit_converged_after = {str(all(a['converged'] for *_, a in all945)).lower()}")
+        print(f"smooth_weight_range = [{min(float(x['weight']) for x in sms):.4f}, {max(float(x['weight']) for x in sms):.4f}]")
+        print(f"smooth_weight_sources = [{', '.join(q(x) for x in sorted({x['source'] for x in sms}))}]")
+        print(f"ritz_theta_max_range = [{min(float(x['theta_max']) for x in sms):.4f}, {max(float(x['theta_max']) for x in sms):.4f}]")
+        print(f"gershgorin_upper_range = [{min(float(x['gershgorin']) for x in sms):.4f}, {max(float(x['gershgorin']) for x in sms):.4f}]")
+        print(
+            f"every_weight_below_rigorous_bound = {str(all(float(x['weight']) < 2 / float(x['gershgorin']) for x in sms)).lower()}"
+            "  # weight < 2 / gershgorin in every cell"
+        )
+        if gaps945:
+            print(f"ritz_gap_rel_range = [{sci(min(gaps945))}, {sci(max(gaps945))}]  # 30-step theta below the 1000-step reference")
+        if share945:
+            print(f"estimate_share_of_setup_range = [{min(share945):.3f}, {max(share945):.3f}]  # wall clock, same process")
+        if eq_main:
+            print(
+                f"main_equals_forced_0p6_at_every_size = {str(all(eq_main)).lower()}"
+                f"  # {len(eq_main)} sizes at the one frequency main can run"
+            )
+        if eq_thr:
+            print(f"after_identical_across_threading_at_every_size = {str(all(eq_thr)).lower()}  # {len(eq_thr)} sizes")
+        if acc945:
+            print(f"ams_field_rel_l2_vs_direct_after_range = [{sci(min(acc945))}, {sci(max(acc945))}]")
+
+# ---- issue #945: the AMS tests outside this fixture (optional) ----------------
+val_dir = sm_dir / "validation"
+if sm_trees and val_dir.is_dir():
+    # File stem -> what the test exercises. Order is the output order.
+    VALIDATION = {
+        "spiral_smoke": "driven COCG + AMS V-cycle, 14k-edge spiral, 4 frequencies (#744)",
+        "spiral_benchmark": "driven COCG + AMS V-cycle, 53k-edge spiral, 1 GHz (#744)",
+        "spiral_ds": "driven COCG + AMS V-cycle, Djordjevic-Sarkar dielectric spiral",
+        "spiral_debye": "driven COCG + AMS V-cycle, Debye dielectric spiral; a known knife edge on macOS (#943)",
+        "spiral_drude": "driven COCG + AMS V-cycle, Drude conductor spiral",
+        "rough": "driven COCG + AMS V-cycle, rough-conductor spiral (#758)",
+        "spiral_aniso": "driven COCG + AMS V-cycle, smoke spiral with a uniaxial substrate and an anisotropic mu, 1 and 10 GHz",
+        "driven_public": "driven COCG + AMS V-cycle on the public iterative path, PEC cube n = 4",
+        "transmon_5x": "eigen inner CG + AMS V-cycle, gradient-only; asserts Jacobi >= 5x AMS iterations",
+        "transmon_3space": "eigen inner CG + AMS V-cycle, gradient-only vs three-space",
+        "transmon_direct": "eigen inner CG + AMS V-cycle vs the direct eigensolve",
+        "transmon_real": "eigen inner CG + AMS V-cycle, 133k-DOF transmon; asserts Jacobi >= 5x AMS iterations",
+        "transmon_real_ams_only": "the AMS leg of transmon_real alone, by a throwaway test added to the fix build (validation/diag945_real_transmon_ams_only.patch)",
+        "transmon_minres": "eigen MINRES + ADDITIVE AMS (weight fixed at 1; does not read the smoother weight)",
+        "amg_minres": "eigen MINRES + ADDITIVE AMS with the AMG coarse solve (does not read the smoother weight)",
+        "coarse_report": "unit: PCG + AMS V-cycle on a 1-D Laplacian, direct vs SGS coarse solve",
+        "ams_spd": "unit: the V-cycle is symmetric positive definite (gradient-only)",
+        "ams_spd_3space": "unit: the V-cycle is symmetric positive definite (three-space)",
+        "ams_spd_amg": "unit: the V-cycle is symmetric positive definite (AMG coarse solve)",
+    }
+
+    def val_run(tree_name, stem, where=val_dir):
+        path = where / f"{tree_name}_{stem}.txt"
+        if not path.exists():
+            return None
+        txt = path.read_text()
+        head = dict(t.split("=", 1) for line in txt.splitlines()[:3] for t in line[2:].split() if "=" in t)
+        body = []
+        for line in txt.splitlines()[3:]:
+            line = re.sub(r"^test \S+ \.\.\. ", "", line)  # the first printed line shares the test's line
+            line = re.sub(r"^stderr: ", "", line)  # a failing CLI test prints the child's stderr
+            line = re.sub(r"# ams_smoother .*$", "", line)
+            line = re.sub(r"\(\d+\) panicked", "(tid) panicked", line)
+            line = re.sub(r"<tmp>/[^/\"]*", "<tmp>/dir", line)
+            if not line.strip() or "finished in" in line or "µs" in line or '"git_sha"' in line:
+                continue
+            body.append(line)
+        done = re.search(r"^test result: (\w+)\.", txt, re.M)
+        drift = re.search(r"after (\d+) iterations but the explicitly recomputed residual .*? = (\S+) did not", txt)
+        panic = re.search(r"panicked at [^\n]*\n([^\n]*)", txt)
+        return {
+            "commit": head.get("git", "unknown")
+            + (f" dirty={head['dirty']}" if "dirty" in head else "")
+            + (f" + {head['patch']}" if "patch" in head else ""),
+            "finished": bool(done),
+            "passed": bool(done) and done.group(1) == "ok",
+            "iterations": [int(x) for x in re.findall(r"(?:GHz: iters|: iterations) \[(\d+)\]", txt)],
+            "report": [l.strip() for l in body if re.search(r"inner-CG|inner-MINRES|outer PCG|^diag945 ", l)],
+            "drift": drift.groups() if drift else None,
+            "panic": panic.group(1).strip() if panic else None,
+            "smoother": [dict(t.split("=", 1) for t in m.split()) for m in re.findall(r"# ams_smoother (.*)$", txt, re.M)],
+            "body": body,
+        }
+
+    for stem, what in VALIDATION.items():
+        mn, fx = val_run("main", stem), val_run("fix", stem)
+        un = val_run("uncond", stem, sm_dir / "unconditional_rule")
+        if not (mn or fx):
+            continue
+        print()
+        print("[[smoother_weight_validation]]")
+        print(f"name = {q(stem)}")
+        print(f"exercises = {q(what)}")
+        for tname, r in (("main", mn), ("fix", fx), ("unconditional_rule", un)):
+            if r is None:
+                continue
+            if tname == "unconditional_rule":
+                print("# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.")
+            print(f"{tname}_commit = {q(r['commit'])}")
+            if not r["finished"]:
+                print(f"{tname}_finished = false")
+                continue
+            print(f"{tname}_passed = {str(r['passed']).lower()}")
+            if r["iterations"]:
+                print(f"{tname}_iterations = {r['iterations']}  # COCG iterations per frequency, as the test prints them")
+            if r["report"]:
+                print(f"{tname}_report = [{', '.join(q(line) for line in r['report'])}]")
+            if r["drift"]:
+                print(
+                    f"{tname}_failure = "
+                    + q(
+                        f"recursive residual met the tolerance after {r['drift'][0]} iterations, explicit "
+                        f"residual {r['drift'][1]} did not (tol 1e-10)"
+                    )
+                )
+            elif not r["passed"] and r["panic"]:
+                print(f"{tname}_failure = {q(r['panic'])}")
+            if tname == "unconditional_rule" and r["smoother"]:
+                print(f"{tname}_smooth_weight = [{', '.join(s_['weight'] for s_ in r['smoother'])}]")
+        if mn and fx and mn["finished"] and fx["finished"]:
+            print(
+                f"output_identical = {str(mn['body'] == fx['body']).lower()}"
+                "  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report"
+            )
+        sm = fx["smoother"] if fx else []
+        if sm:
+            print("# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).")
+            print(f"fix_smooth_weight = [{', '.join(s_['weight'] for s_ in sm)}]")
+            print(f"fix_smooth_weight_source = [{', '.join(q(s_['source']) for s_ in sm)}]")
+            print(f"fix_ritz_theta_max = [{', '.join(s_['theta_max'] for s_ in sm)}]")
+            print(f"fix_gershgorin_upper = [{', '.join(s_['gershgorin'] for s_ in sm)}]")
+            print(f"fix_ritz_theta_reference = [{', '.join(s_['theta_ref'] for s_ in sm)}]  # up to 600 Lanczos steps")
+            gaps = [(float(s_["theta_ref"]) - float(s_["theta_max"])) / float(s_["theta_ref"]) for s_ in sm]
+            print(f"fix_ritz_gap_rel_max = {sci(max(gaps))}")
+            print(
+                f"fix_default_weight_times_reference_max = {max(0.6 * float(s_['theta_ref']) for s_ in sm):.4f}"
+                "  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value"
+            )
+            lowered = [s_ for s_ in sm if s_["source"] == "estimate"]
+            if lowered:
+                print(
+                    f"fix_lowered_weight_below_rigorous_bound = "
+                    f"{str(all(float(s_['weight']) < 2 / float(s_['gershgorin']) for s_ in lowered)).lower()}"
+                    "  # lowered weight < 2 / gershgorin; false means its stability rests on the Ritz value"
+                )
