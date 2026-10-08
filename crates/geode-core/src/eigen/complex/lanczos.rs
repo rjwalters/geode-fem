@@ -741,6 +741,7 @@ impl SparseComplexShiftInvertLanczos {
             pairs: Vec::new(),
             residuals: Vec::new(),
             rejected: Vec::new(),
+            localized_withheld: Vec::new(),
             screened: Vec::new(),
             requested,
             lanczos_steps: 0,
@@ -802,14 +803,16 @@ impl SparseComplexShiftInvertLanczos {
         let targets: Vec<ComplexRitzTarget> = pairs
             .iter()
             .zip(&residuals)
-            .filter(|(p, r)| {
+            .enumerate()
+            .filter(|(_, (p, r))| {
                 **r <= tol
                     || (in_window(p.lambda) && complex_ritz_is_localized(p.lambda, **r, sigma))
             })
-            .map(|(p, &residual)| ComplexRitzTarget {
+            .map(|(index, (p, &residual))| ComplexRitzTarget {
                 lambda: p.lambda,
                 width: residual.max(TARGET_MATCH_REL_FLOOR) * p.lambda.norm().max(sigma.abs()),
                 residual,
+                index,
             })
             .collect();
         let n_converged = residuals.iter().filter(|&&r| r <= tol).count();
@@ -819,7 +822,7 @@ impl SparseComplexShiftInvertLanczos {
             || first >= cap
         {
             out.lanczos_steps = run.alpha.len();
-            out.split(pairs, residuals, tol);
+            out.split(pairs, residuals, tol, sigma);
             return Ok(out);
         }
 
@@ -914,28 +917,26 @@ impl SparseComplexShiftInvertLanczos {
             nearest.retain(|v| dist(v.0) <= reach);
             let unaccounted = run.ritz_vectors(m, &s_mat, &nearest);
             let unaccounted_res = residuals_of(&unaccounted);
-            let unconverged: Vec<(c64, f64)> = unaccounted
-                .iter()
+            let unconverged: Vec<(ComplexEigenPair, f64)> = unaccounted
+                .into_iter()
                 .zip(unaccounted_res)
                 .filter(|(_, r)| *r > tol)
-                .map(|(p, r)| (p.lambda, r))
                 .collect();
             for (pair, res, _) in kept {
                 out.pairs.push(pair);
                 out.residuals.push(res);
             }
-            out.rejected.extend(
-                targets
+            // Unconfirmed targets carry their first-pass Ritz vector.
+            for (t, _) in targets.iter().zip(&confirmed).filter(|(t, c)| {
+                !**c && !unconverged
                     .iter()
-                    .zip(&confirmed)
-                    .filter(|(t, c)| {
-                        !**c && !unconverged
-                            .iter()
-                            .any(|&(l, _)| (l - t.lambda).norm() <= t.width)
-                    })
-                    .map(|(t, _)| (t.lambda, t.residual)),
-            );
-            out.rejected.extend(unconverged);
+                    .any(|(p, _)| (p.lambda - t.lambda).norm() <= t.width)
+            }) {
+                out.withhold(pairs[t.index].clone(), t.residual, sigma);
+            }
+            for (pair, res) in unconverged {
+                out.withhold(pair, res, sigma);
+            }
             return Ok(out);
         }
     }
@@ -961,6 +962,12 @@ pub struct CheckedComplexEigenpairs {
     /// pairs. After one they are the final run's unconverged pairs in that
     /// range plus first-pass targets never confirmed before the cap.
     pub rejected: Vec<(c64, f64)>,
+    /// The **localized** entries of [`Self::rejected`] (with respect to the
+    /// solve's own shift `σ`, so exactly [`Self::localized_rejected`]`(σ)`,
+    /// in the same order), each with its Ritz vector and residual (issue
+    /// #916). The complex counterpart of
+    /// [`crate::eigen::lanczos::CheckedEigenpairs::localized_withheld`].
+    pub localized_withheld: Vec<ComplexWithheldEigenpair>,
     /// First-pass Ritz values dropped by the `eligible` filter of
     /// [`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked_filtered`]
     /// (empty for the unfiltered solve).
@@ -1027,16 +1034,39 @@ impl CheckedComplexEigenpairs {
     }
 
     /// Partition `pairs` into converged (kept) and rejected by `tol`.
-    fn split(&mut self, pairs: Vec<ComplexEigenPair>, residuals: Vec<f64>, tol: f64) {
+    fn split(&mut self, pairs: Vec<ComplexEigenPair>, residuals: Vec<f64>, tol: f64, sigma: f64) {
         for (pair, res) in pairs.into_iter().zip(residuals) {
             if res <= tol {
                 self.pairs.push(pair);
                 self.residuals.push(res);
             } else {
-                self.rejected.push((pair.lambda, res));
+                self.withhold(pair, res, sigma);
             }
         }
     }
+
+    /// Record a withheld pair in [`Self::rejected`] and, when it is
+    /// localized for the solve's shift `sigma`, in
+    /// [`Self::localized_withheld`] with its vector.
+    fn withhold(&mut self, pair: ComplexEigenPair, residual: f64, sigma: f64) {
+        self.rejected.push((pair.lambda, residual));
+        if complex_ritz_is_localized(pair.lambda, residual, sigma) {
+            self.localized_withheld
+                .push(ComplexWithheldEigenpair { pair, residual });
+        }
+    }
+}
+
+/// A **localized** withheld Ritz pair of a complex checked solve, with its
+/// Ritz vector (issue #916; see
+/// [`CheckedComplexEigenpairs::localized_withheld`]).
+#[derive(Debug, Clone)]
+pub struct ComplexWithheldEigenpair {
+    /// The Ritz pair `(λ, x)`, normalized like the returned pairs but
+    /// **not** an eigenpair to the solver's tolerance.
+    pub pair: ComplexEigenPair,
+    /// Relative true residual of the pair (above the solve's tolerance).
+    pub residual: f64,
 }
 
 /// A first-pass Ritz pair the complex checked solve's extension must
@@ -1047,6 +1077,8 @@ struct ComplexRitzTarget {
     /// `max(ρ, TARGET_MATCH_REL_FLOOR) · max(|λ|, |σ|)`.
     width: f64,
     residual: f64,
+    /// Index of the target in the first-pass pairs.
+    index: usize,
 }
 
 /// Whether a complex Ritz value is **localized**: `ρ · max(|λ|, |σ|) ≤ |λ − σ|`
@@ -1376,6 +1408,40 @@ impl ComplexLanczosRun {
 pub(crate) mod tests {
     use super::*;
     use faer::sparse::{SparseColMat, Triplet};
+
+    /// Issue #916: [`CheckedComplexEigenpairs::localized_withheld`] lists
+    /// exactly `localized_rejected(σ)`, in order, and each entry's vector is
+    /// the Ritz vector of that pair (its recomputed residual matches).
+    fn assert_localized_withheld_matches(
+        checked: &CheckedComplexEigenpairs,
+        k: SparseColMatRef<'_, usize, c64>,
+        m: SparseColMatRef<'_, usize, c64>,
+        sigma: f64,
+    ) {
+        let listed = checked.localized_rejected(sigma);
+        assert_eq!(listed.len(), checked.localized_withheld.len());
+        let n = k.nrows();
+        let mut kx = vec![c64::new(0.0, 0.0); n];
+        let mut mx = vec![c64::new(0.0, 0.0); n];
+        for (&(lambda, rho), w) in listed.iter().zip(&checked.localized_withheld) {
+            assert_eq!(w.pair.lambda, lambda);
+            assert_eq!(w.residual, rho);
+            assert_eq!(w.pair.vector.len(), n);
+            let again = complex_pair_relative_residual(
+                k,
+                m,
+                lambda,
+                &w.pair.vector,
+                sigma,
+                &mut kx,
+                &mut mx,
+            );
+            assert!(
+                (again - rho).abs() <= 1e-6 * rho.max(1e-12),
+                "vector residual {again:.3e} != recorded {rho:.3e}"
+            );
+        }
+    }
 
     /// Build a small complex-symmetric diagonal pencil with known
     /// eigenvalues. K and M are both diagonal so the eigenvalues are
@@ -1951,6 +2017,7 @@ pub(crate) mod tests {
         );
         assert!(checked.extended);
         assert_eq!(checked.shortfall(), 0);
+        assert_localized_withheld_matches(&checked, k.as_ref(), m.as_ref(), sigma);
         let mut exact = lam.clone();
         exact.sort_by(|a, b| dist(*a).total_cmp(&dist(*b)));
         let nearest_gap = |l: c64| {
@@ -2102,6 +2169,16 @@ pub(crate) mod tests {
             .expect("the capped nearest mode is a hole");
         assert!((lambda - slow).norm() < 1e-6, "hole at λ = {lambda}");
         assert!(residual > 1e-9 && residual < 1e-6, "ρ = {residual:.3e}");
+        // Issue #916: the localized withheld pairs keep their Ritz vectors,
+        // in the order and with the values of `localized_rejected(σ)`.
+        assert_localized_withheld_matches(&checked, k.as_ref(), m.as_ref(), sigma);
+        assert!(
+            checked
+                .localized_withheld
+                .iter()
+                .any(|w| (w.pair.lambda - slow).norm() < 1e-6),
+            "the capped slow mode must carry its Ritz vector"
+        );
         // Nothing nearer than λ* itself counts as a hole.
         assert!(
             checked
@@ -2125,6 +2202,7 @@ pub(crate) mod tests {
             pairs: vec![pair(c64::new(0.83, -0.08)), pair(c64::new(1.65, -0.16))],
             residuals: vec![1e-12, 1e-12],
             rejected: vec![(c64::new(0.4756, -0.0767), 11.0)],
+            localized_withheld: Vec::new(),
             screened: Vec::new(),
             requested: 2,
             lanczos_steps: 0,

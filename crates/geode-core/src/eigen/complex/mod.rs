@@ -15,7 +15,7 @@ mod lanczos;
 
 pub use dense::{ComplexEigenSolver, FaerComplexEigensolver, MAX_DENSE_COMPLEX_DIM};
 pub use lanczos::{
-    CheckedComplexEigenpairs, ComplexEigenPair, SparseComplexEigenSolver,
+    CheckedComplexEigenpairs, ComplexEigenPair, ComplexWithheldEigenpair, SparseComplexEigenSolver,
     SparseComplexShiftInvertLanczos,
 };
 // Cross-module complex sparse-linear-algebra helpers consumed by
