@@ -1715,7 +1715,7 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// that mesh needs:
 ///
 /// - `2 × 1` guide: the guard clears the whole single-mode band (TE₁₀ to
-///   TE₂₀) only for `k_c·h_n ≤ 2.06`, that is `h_n ≤ 0.585·b`. At
+///   TE₂₀) only for `k_c·h_n ≤ 2.05`, that is `h_n ≤ 0.585·b`. At
 ///   `h_n = b` (margin 30.8 %, guard 2.43) it would exclude the top 45 %
 ///   of that band, where the measured undershoot is under 2 % and the
 ///   measured 3-D cutoff (3.47) is above the band: the measured need is
