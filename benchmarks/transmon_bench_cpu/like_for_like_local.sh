@@ -25,9 +25,8 @@
 #
 # Every run is SINGLE-THREADED by default (GEODE_NUM_THREADS=1 caps faer's LU
 # pool, RAYON_NUM_THREADS=1 caps the rest). On a shared, oversubscribed host
-# the multi-threaded runs spend most of their time in the kernel and their wall
-# clock varies by tens of percent between identical runs; one thread gives a
-# repeatable number. It also means these are one-core times.
+# multi-threaded runs contend for cores; one thread makes a run's CPU seconds
+# (user + sys) a repeatable cost. It also means these are one-core times.
 #
 # Runs are sequential, never two at once. Each run writes into <out-dir>/raw:
 #   <cell>_run<i>.log   transmon_bench stdout (config banner, modes, phase times)
