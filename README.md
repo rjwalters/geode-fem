@@ -163,38 +163,44 @@ The early internal milestones (v0–v2: Nédélec elements, UPML, driven solves,
 Requires Rust stable (1.96+, set in `rust-toolchain.toml`).
 
 ```sh
-cargo build              # builds workspace with default `wgpu` backend
+cargo build              # builds workspace with the ndarray f64 CPU backend
 cargo test               # runs the test suite (includes backend smoke tests)
 ```
 
 ### Backend selection
 
-`geode-core` selects one Burn backend at compile time via mutually-exclusive
-features:
+The Burn backend is chosen at compile time by the opt-in `wgpu` / `cuda` /
+`metal` features of `geode-core` (and the matching features of `geode-cli`).
+None of them is on by default: `geode-core`'s only default feature is
+`faer-parallel`, so a plain build runs on the `ndarray` f64 CPU backend.
 
 ```sh
-# default — wgpu (Metal on macOS, Vulkan on Linux, DX12 on Windows)
+# default — ndarray f64 CPU backend
 cargo build
 
+# wgpu (Metal on macOS, Vulkan on Linux, DX12 on Windows)
+cargo build -p geode-core --features wgpu
+
 # CUDA (requires a CUDA toolkit and an NVIDIA GPU)
-cargo build -p geode-core --no-default-features --features cuda
+cargo build -p geode-core --features cuda
 
 # Metal (Apple platforms only; local-only — no Apple CI runner)
-cargo build -p geode-core --no-default-features --features metal
+cargo build -p geode-core --features metal
 ```
 
-Enabling more than one of `wgpu` / `cuda` / `metal`, or none of the four
-backends, is a hard compile error — see the `compile_error!` guards in
-`crates/geode-core/src/lib.rs`.
+Enabling more than one backend feature is not an error: a `cfg_select!`
+picks the first enabled one in the order `cuda`, `metal`, `wgpu`, falling
+back to `ndarray` (see `crates/geode-core/src/testing/mod.rs` and
+`crates/geode-cli/src/backend.rs`).
 
-Note the macOS nuance: the default `wgpu` backend **already runs on Metal at
+Note the macOS nuance: the opt-in `wgpu` backend **already runs on Metal at
 runtime** on macOS (wgpu selects the Metal graphics API there). The opt-in
 `metal` feature is different — it pins the Metal graphics API and the MSL
 (`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal`
 = `Wgpu<f32, i32, u8>`), rather than going through wgpu's runtime adapter
 selection. It is Apple-only and not exercised on CI (all runners are headless
 Linux, which use the `ndarray` CPU backend); verify it locally on Apple hardware
-with `cargo test -p geode-core --no-default-features --features metal`.
+with `cargo test -p geode-core --features metal`.
 
 ## System dependencies
 
@@ -330,7 +336,7 @@ A `criterion`-based bench harness lives under
 [`crates/geode-core/benches/`](crates/geode-core/benches). It establishes
 a wall-clock baseline for the FEM pipeline so future performance
 work has something to push against. The current numbers (Apple Silicon,
-default `wgpu` backend) are committed to
+`wgpu` backend, then the default) are committed to
 [`benchmarks/perf/baseline.toml`](benchmarks/perf/baseline.toml).
 
 **Reproduce the measurements:**

@@ -1,0 +1,2 @@
+palace docker build: rc=1 wall_s=656
+palace build FAILED (see palace-docker-build.log)

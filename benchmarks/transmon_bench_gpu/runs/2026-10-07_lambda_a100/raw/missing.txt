@@ -1,0 +1,6 @@
+no eig.csv for palace_cpu_np8_nosave_run1
+no eig.csv for palace_cpu_np8_nosave_run2
+no eig.csv for palace_cpu_np8_nosave_run3
+no eig.csv for palace_cpu_np8_run1
+no eig.csv for palace_cpu_np8_run2
+no eig.csv for palace_cpu_np8_run3

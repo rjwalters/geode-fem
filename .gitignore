@@ -10,14 +10,14 @@ Cargo.lock.bak
 *.swp
 *~
 
-# Loom local config (created if/when Loom is installed)
-
 # Build artifacts
 *.log
 # Committed benchmark evidence log (recovered at-scale run; see issue #556)
 !benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log
 # Committed Palace run evidence log (tracked before *.log rule; negated for consistency)
 !reference/fixtures/transmon_palace/results_p1/palace_run_v22.log
+# #519 Palace-GPU head-to-head run evidence (raw per-run logs + provenance)
+!benchmarks/transmon_bench_gpu/runs/**/*.log
 # #520 GPU driven-scaling sweep run evidence (per-leg logs, Palace logs, TF32 evidence)
 !benchmarks/gpu_driven_scaling/runs/**/*.log
 .loom/daemon-state.json
@@ -52,7 +52,6 @@ artifacts/
 *.egg-info/
 build/
 dist/
-# Claude Code agent-isolation worktrees (local session state, never committed)
 # >>> loom-managed (do not edit) >>>
 # Loom runtime state (don't commit these)
 .loom-in-use
@@ -134,6 +133,7 @@ dist/
 .env.*
 !.env.example
 *.local.md
+.claude/settings.local.json
 /.voice/
 
 # Repo Skills machine-local install metadata (absolute source path + timestamp)
