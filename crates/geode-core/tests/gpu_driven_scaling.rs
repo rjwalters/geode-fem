@@ -79,6 +79,30 @@
 //! Both print a TOML fragment to stdout; the committed
 //! `benchmarks/gpu_driven_scaling/results.toml` is assembled from the two runs
 //! on the same host.
+//!
+//! ## Larger meshes (issue #520)
+//!
+//! The run shape is env-configurable (see [`Knobs`]), so a billed GPU-box run
+//! can reach 100k–500k edges within budget, e.g. the GPU leg alone at
+//! n ∈ {24, 30} with one timed rep and no end-to-end / sweep loops:
+//! ```text
+//! GEODE_SCALING_SIZES=24,30 GEODE_SCALING_REPS=1 GEODE_SCALING_CONFIGS=matrix_free \
+//!   GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 \
+//!   cargo test -p geode-core --release --features cuda --test gpu_driven_scaling \
+//!   -- --ignored --nocapture
+//! ```
+//! `GEODE_SCALING_EXPORT_DIR` also writes each size's mesh as Gmsh MSH 2.2
+//! with physical tags (volume 1, PEC 2, port 3) for the Palace driven
+//! head-to-head (`benchmarks/gpu_driven_scaling/palace_driven_cfg.py`). On
+//! hosts whose CUDA headers are not under `/usr/local/cuda/include` (e.g.
+//! Lambda Stack, which ships them in `/usr/include`), set `CUDA_PATH` so the
+//! cubecl NVRTC compile finds `cuda_runtime.h`.
+//!
+//! Since issue #744 the driven solver rejects a Krylov solve whose recursion
+//! met `tol` but whose explicitly recomputed residual did not. That is the
+//! normal f32 outcome at `tol = 1e-6`, so the harness records it as a timed
+//! "drift" cell (`converged = false, recursion_converged = true`) rather than
+//! a failure — see [`Attempt`].
 
 use std::time::Instant;
 
@@ -97,23 +121,16 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-/// Mesh sizes swept. `cube_tet_mesh(n)` yields (edges): n=6 → 1854,
-/// n=9 → 5859, n=12 → 13428, n=15 → 25695. These are the issue's specified
-/// `{6, 9, 12, 15}` set. (The issue header estimated ~15k–200k edges; the
-/// actual `cube_tet_mesh` edge counts are lower — n=15 is ~25.7k edges — so
-/// no size was shrunk. The top size is comfortably within both the L40S 46 GB
-/// and a 16 GB CPU RSS budget: the direct LU on ~25k complex DOFs is seconds,
-/// not minutes.)
-const SIZES: &[usize] = &[6, 9, 12, 15];
+/// Default mesh sizes swept. `cube_tet_mesh(n)` yields (edges): n=6 → 1854,
+/// n=9 → 5859, n=12 → 13428, n=15 → 25695 (≈ 7.6·n³ edges in general, so
+/// n=24 → ~105k, n=30 → ~205k, n=40 → ~490k). These are issue #501's
+/// `{6, 9, 12, 15}` set; issue #520's larger-mesh sweep overrides them with
+/// `GEODE_SCALING_SIZES` (see [`Knobs`]).
+const DEFAULT_SIZES: &[usize] = &[6, 9, 12, 15];
 
-/// Headline sizes get the median of 3 timed runs; other sizes run once
-/// (plus a warm-up) to keep total wall-clock bounded. All sizes here are cheap
-/// enough that we can afford 3 everywhere, so `MEDIAN_SIZES` covers them all —
-/// but the machinery honors a subset if a future larger top size is added.
-const MEDIAN_SIZES: &[usize] = &[6, 9, 12, 15];
-
-/// Timed repetitions for a headline size (median reported).
-const N_REPS_MEDIAN: usize = 3;
+/// Default timed repetitions per timing loop (median reported). Overridable
+/// with `GEODE_SCALING_REPS` (`0` = report only the warm-up solve).
+const DEFAULT_REPS: usize = 3;
 
 /// Drive frequency for the single-ω cell. Low ω keeps the σ-lossy pencil
 /// well-conditioned (the equivalence tests use this same regime).
@@ -133,8 +150,88 @@ const ITER_TOL_F64: f64 = 1e-8;
 /// it floors well above the requested tolerance (~1e-4..1e-3 here).
 const ITER_TOL_F32: f64 = 1e-6;
 
-/// Maximum COCG iterations per RHS.
-const ITER_MAX: usize = 20_000;
+/// Default maximum COCG iterations per RHS (`GEODE_SCALING_ITER_MAX`).
+const DEFAULT_ITER_MAX: usize = 20_000;
+
+// ---------------------------------------------------------------------------
+// Environment knobs (issue #520)
+// ---------------------------------------------------------------------------
+
+/// Run-shape knobs read from the environment, so a billed GPU-box run can
+/// sweep 100k–500k edges within budget without editing the test. Every knob
+/// defaults to the #501 behaviour, so an unset environment reproduces the
+/// committed `results.toml` run shape exactly.
+///
+/// | Variable | Default | Meaning |
+/// |---|---|---|
+/// | `GEODE_SCALING_SIZES` | `6,9,12,15` | comma-separated `cube_tet_mesh(n)` sizes |
+/// | `GEODE_SCALING_REPS` | `3` | timed reps per loop; `0` = warm-up solve only |
+/// | `GEODE_SCALING_CONFIGS` | `direct,iterative,matrix_free` | config subset |
+/// | `GEODE_SCALING_SKIP_E2E` | unset | `1` skips the end-to-end (re-assemble) reps |
+/// | `GEODE_SCALING_SKIP_SWEEP` | unset | `1` skips the 5-point ω sweep |
+/// | `GEODE_SCALING_ITER_MAX` | `20000` | COCG iteration cap (bounds DNF cost) |
+/// | `GEODE_SCALING_EXPORT_DIR` | unset | write each size's mesh as Gmsh MSH 2.2 (for Palace) |
+///
+/// When `direct` is not in the config subset, the accuracy column of the
+/// iterative cells is `nan` (there is no Direct-f64 reference at that size)
+/// and the config-2 accuracy rail is not enforced; its residual rail still is.
+struct Knobs {
+    sizes: Vec<usize>,
+    reps: usize,
+    direct: bool,
+    iterative: bool,
+    matrix_free: bool,
+    skip_e2e: bool,
+    skip_sweep: bool,
+    iter_max: usize,
+    export_dir: Option<std::path::PathBuf>,
+}
+
+impl Knobs {
+    fn from_env() -> Self {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        let flag = |k: &str| var(k).is_some_and(|v| v.trim() != "0");
+        let usize_of = |k: &str, d: usize| {
+            var(k).map_or(d, |v| {
+                v.trim()
+                    .parse()
+                    .unwrap_or_else(|_| panic!("{k}={v:?} is not a non-negative integer"))
+            })
+        };
+        let sizes = var("GEODE_SCALING_SIZES").map_or_else(
+            || DEFAULT_SIZES.to_vec(),
+            |v| {
+                v.split(',')
+                    .map(|t| {
+                        t.trim().parse().unwrap_or_else(|_| {
+                            panic!("GEODE_SCALING_SIZES entry {t:?} is not an integer")
+                        })
+                    })
+                    .collect()
+            },
+        );
+        let configs = var("GEODE_SCALING_CONFIGS")
+            .unwrap_or_else(|| "direct,iterative,matrix_free".to_string());
+        let configs: Vec<&str> = configs.split(',').map(str::trim).collect();
+        for c in &configs {
+            assert!(
+                matches!(*c, "direct" | "iterative" | "matrix_free"),
+                "GEODE_SCALING_CONFIGS entry {c:?} must be one of direct, iterative, matrix_free"
+            );
+        }
+        Self {
+            sizes,
+            reps: usize_of("GEODE_SCALING_REPS", DEFAULT_REPS),
+            direct: configs.contains(&"direct"),
+            iterative: configs.contains(&"iterative"),
+            matrix_free: configs.contains(&"matrix_free"),
+            skip_e2e: flag("GEODE_SCALING_SKIP_E2E"),
+            skip_sweep: flag("GEODE_SCALING_SKIP_SWEEP"),
+            iter_max: usize_of("GEODE_SCALING_ITER_MAX", DEFAULT_ITER_MAX),
+            export_dir: var("GEODE_SCALING_EXPORT_DIR").map(std::path::PathBuf::from),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Fixture construction (σ-lossy parallel-plate cube, single lumped port)
@@ -178,6 +275,12 @@ struct Fixture {
 /// matrix-free ingredient available (the matrix-free path takes real ε only;
 /// σ is folded into the damping term `iωC(σ)`).
 fn build_fixture(n: usize) -> Fixture {
+    build_fixture_with_export(n, None)
+}
+
+/// [`build_fixture`], optionally also writing the mesh as Gmsh MSH 2.2 to
+/// `export_dir/cube_n{n}.msh` (see [`write_msh22`]).
+fn build_fixture_with_export(n: usize, export_dir: Option<&std::path::Path>) -> Fixture {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
     let n_edges = edges.len();
@@ -185,6 +288,15 @@ fn build_fixture(n: usize) -> Fixture {
     let port_faces = plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let n_interior = mask.iter().filter(|&&k| k).count();
+    if let Some(dir) = export_dir {
+        let pec_faces: Vec<[u32; 3]> = plane_faces(&mesh, 1, 0.0)
+            .into_iter()
+            .chain(plane_faces(&mesh, 1, 1.0))
+            .collect();
+        let path = dir.join(format!("cube_n{n}.msh"));
+        write_msh22(&path, &mesh, &pec_faces, &port_faces).expect("write MSH 2.2 export");
+        eprintln!("[size n={n}] exported mesh -> {}", path.display());
+    }
 
     let eps: Vec<c64> = vec![c64::new(1.0, 0.0); n_tets];
     let sigma_tet = vec![2.0_f64; n_tets];
@@ -220,6 +332,60 @@ fn build_fixture(n: usize) -> Fixture {
         n_interior,
         n_tets,
     }
+}
+
+/// Write the cube fixture as an ASCII Gmsh MSH 2.2 file that Palace (MFEM)
+/// reads directly, for the geode-vs-Palace driven head-to-head (#520).
+///
+/// Physical tags: volume = 1 (all tets; ε_r = 1, σ = 2 in natural units),
+/// boundary 2 = the PEC planes y = 0 and y = 1, boundary 3 = the lumped-port
+/// plane z = 0. Every other boundary face is left untagged, i.e. the natural
+/// (PMC) condition — the same as geode, which imposes nothing there. Node and
+/// tet numbering is geode's (1-based), so the Palace mesh is the identical
+/// discretization, not a re-mesh.
+fn write_msh22(
+    path: &std::path::Path,
+    mesh: &TetMesh,
+    pec_faces: &[[u32; 3]],
+    port_faces: &[[u32; 3]],
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut w = std::io::BufWriter::new(std::fs::File::create(path)?);
+    writeln!(w, "$MeshFormat\n2.2 0 8\n$EndMeshFormat")?;
+    writeln!(w, "$Nodes\n{}", mesh.nodes.len())?;
+    for (i, p) in mesh.nodes.iter().enumerate() {
+        writeln!(w, "{} {:.17e} {:.17e} {:.17e}", i + 1, p[0], p[1], p[2])?;
+    }
+    writeln!(w, "$EndNodes")?;
+    let n_el = pec_faces.len() + port_faces.len() + mesh.tets.len();
+    writeln!(w, "$Elements\n{n_el}")?;
+    let mut id = 0usize;
+    // MSH 2.2 element line: id type ntags phys geom nodes... (type 2 = tri, 4 = tet).
+    for (tag, faces) in [(2u32, pec_faces), (3u32, port_faces)] {
+        for f in faces {
+            id += 1;
+            writeln!(
+                w,
+                "{id} 2 2 {tag} {tag} {} {} {}",
+                f[0] + 1,
+                f[1] + 1,
+                f[2] + 1
+            )?;
+        }
+    }
+    for t in &mesh.tets {
+        id += 1;
+        writeln!(
+            w,
+            "{id} 4 2 1 1 {} {} {} {}",
+            t[0] + 1,
+            t[1] + 1,
+            t[2] + 1,
+            t[3] + 1
+        )?;
+    }
+    writeln!(w, "$EndElements")?;
+    w.flush()
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +427,66 @@ fn residual_from_error(msg: &str) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
+/// Result of one driven solve attempt, with the issue #744 "drift" case
+/// (the COCG recursion met `tol` but the explicitly recomputed residual did
+/// not, which [`geode_core::driven::solve`] turns into a hard error) split out
+/// from genuine failures. The drift case is what an f32 GPU solve produces
+/// at `tol = 1e-6`: the recursion converges, the explicit residual floors at
+/// ~1e-4..1e-2. Before #744 the same solve was returned as `Ok` (that is how
+/// the #501 L40S cells were recorded as converged with a recomputed residual
+/// of 6e-4..5e-3), so the harness times it as a completed solve and reports
+/// it honestly as `converged = false, recursion_converged = true` instead of
+/// discarding the timing.
+enum Attempt {
+    /// Explicit residual met `tol`: solution available.
+    Ok(Box<geode_core::driven::solve::DrivenSolution>, usize, f64),
+    /// Recursion converged after `iters`; explicit residual `residual` > tol.
+    Drift { iters: usize, residual: f64 },
+    /// Any other failure (max-iteration exhaustion, breakdown, ...).
+    Fail(String),
+}
+
+fn attempt(fix: &Fixture, omega: f64, mode: SolverMode) -> Attempt {
+    let solver = fix
+        .op
+        .prepare_at::<B>(omega, mode, &device())
+        .expect("prepare_at");
+    match solver.solve() {
+        Ok((sol, report)) => Attempt::Ok(Box::new(sol), report.iters, report.residual_rel),
+        Err(e) => {
+            let msg = format!("{e}");
+            match parse_drift(&msg) {
+                Some((iters, residual)) => Attempt::Drift { iters, residual },
+                None => Attempt::Fail(msg),
+            }
+        }
+    }
+}
+
+/// Parse the issue #744 drift message ("... the recursive residual met the
+/// tolerance after N iterations but the explicitly recomputed residual
+/// ‖Ax − b‖/‖b‖ = X did not ...") into `(N, X)`.
+fn parse_drift(msg: &str) -> Option<(usize, f64)> {
+    if !msg.contains("explicitly recomputed residual") {
+        return None;
+    }
+    let iters = msg
+        .split("tolerance after ")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    let residual = msg
+        .split("‖Ax − b‖/‖b‖ = ")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    Some((iters, residual))
+}
+
 /// One measured cell: solve-only + end-to-end timings, iteration count,
 /// residual, and the full-field solution for the accuracy column.
 struct Cell {
@@ -276,13 +502,24 @@ struct Cell {
     e2e_reps_ok: usize,
     /// Requested repetitions per timing loop.
     reps: usize,
+    /// Wall clock of the warm-up solve (prepare_at + solve; includes any
+    /// one-time GPU kernel compilation / autotune). Always measured, and the
+    /// only timing when `reps = 0`.
+    warmup_s: f64,
+    /// Port-1 voltage `V` read off the warm-up solution (for the Palace
+    /// cross-check: `S11 = V / V_inc − 1` under geode's Thevenin convention).
+    v_port: c64,
     /// COCG iterations (0 for the direct path), from the warm-up solve.
     iters: usize,
     /// Post-solve relative residual `‖Ax − b‖ / ‖b‖` (recomputed, not the
     /// recurrence estimate), from the warm-up solve.
     residual_rel: f64,
     /// Full-field solution (for the accuracy column), from the warm-up solve.
+    /// Empty for a drift cell (no solution is returned).
     e_edges: Vec<c64>,
+    /// `true` when the warm-up solve met `tol` on the explicit residual;
+    /// `false` for an issue #744 drift cell (recursion-only convergence).
+    explicit_converged: bool,
 }
 
 /// Outcome of one (size × config) measurement: either a converged [`Cell`],
@@ -310,55 +547,66 @@ enum Outcome {
 /// are fallible too (GPU-f32 convergence is nondeterministic near the f32
 /// floor — see module docs): medians are taken over the successful reps and
 /// per-loop success counts are reported.
-fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize) -> Outcome {
+fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e: bool) -> Outcome {
     // Warm-up (excluded from stats): also captures the returned solution +
     // report used for the accuracy / iteration / residual columns, and
     // detects hard non-convergence before committing to timed reps.
     let t_warm = Instant::now();
-    let solver = fix
-        .op
-        .prepare_at::<B>(OMEGA_SINGLE, mode, &device())
-        .expect("prepare_at");
-    let (sol, report) = match solver.solve() {
-        Ok(ok) => ok,
-        Err(e) => {
-            let message = format!("{e}");
+    let warm = attempt(fix, OMEGA_SINGLE, mode);
+    let warmup_s = t_warm.elapsed().as_secs_f64();
+    let (e_edges, v_port, iters, residual_rel, explicit_converged) = match warm {
+        Attempt::Ok(sol, iters, res) => {
+            let v = fix.op.port_voltage(0, &sol.e_edges);
+            (sol.e_edges, v, iters, res, true)
+        }
+        Attempt::Drift { iters, residual } => {
+            eprintln!(
+                "  [n={n}] warm-up: recursion converged in {iters} iters, explicit residual \
+                 {residual:.3e} > tol (issue #744 drift; timed as a completed solve)"
+            );
+            (
+                Vec::new(),
+                c64::new(f64::NAN, f64::NAN),
+                iters,
+                residual,
+                false,
+            )
+        }
+        Attempt::Fail(message) => {
             return Outcome::Dnf {
-                attempt_s: t_warm.elapsed().as_secs_f64(),
+                attempt_s: warmup_s,
                 stagnated_residual: residual_from_error(&message),
                 message,
             };
         }
     };
-    let e_edges = sol.e_edges.clone();
-    let iters = report.iters;
-    let residual_rel = report.residual_rel;
+    let timed_ok = |a: &Attempt| matches!(a, Attempt::Ok(..) | Attempt::Drift { .. });
 
     // Timed solve-only reps (fallible; failures logged and skipped).
     let mut solve_times = Vec::with_capacity(reps);
     for k in 0..reps {
         let t0 = Instant::now();
-        let solver = fix
-            .op
-            .prepare_at::<B>(OMEGA_SINGLE, mode, &device())
-            .expect("prepare_at (timed)");
-        match solver.solve() {
-            Ok(_) => solve_times.push(t0.elapsed().as_secs_f64()),
-            Err(e) => eprintln!("  [n={n}] solve-only rep {k} did not converge: {e}"),
+        let a = attempt(fix, OMEGA_SINGLE, mode);
+        let dt = t0.elapsed().as_secs_f64();
+        match a {
+            Attempt::Fail(e) => eprintln!("  [n={n}] solve-only rep {k} did not converge: {e}"),
+            ref ok if timed_ok(ok) => solve_times.push(dt),
+            _ => unreachable!(),
         }
     }
 
     // Timed end-to-end reps (assemble + prepare_at + solve; fallible).
-    let mut e2e_times = Vec::with_capacity(reps);
-    for k in 0..reps {
+    let e2e_reps = if skip_e2e { 0 } else { reps };
+    let mut e2e_times = Vec::with_capacity(e2e_reps);
+    for k in 0..e2e_reps {
         let t0 = Instant::now();
         let f = build_fixture(n);
-        let solver =
-            f.op.prepare_at::<B>(OMEGA_SINGLE, mode, &device())
-                .expect("prepare_at (e2e)");
-        match solver.solve() {
-            Ok(_) => e2e_times.push(t0.elapsed().as_secs_f64()),
-            Err(e) => eprintln!("  [n={n}] end-to-end rep {k} did not converge: {e}"),
+        let a = attempt(&f, OMEGA_SINGLE, mode);
+        let dt = t0.elapsed().as_secs_f64();
+        match a {
+            Attempt::Fail(e) => eprintln!("  [n={n}] end-to-end rep {k} did not converge: {e}"),
+            ref ok if timed_ok(ok) => e2e_times.push(dt),
+            _ => unreachable!(),
         }
     }
 
@@ -376,9 +624,12 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize) -> Outcom
         },
         e2e_reps_ok: e2e_times.len(),
         reps,
+        warmup_s,
+        v_port,
         iters,
         residual_rel,
         e_edges,
+        explicit_converged,
     })
 }
 
@@ -387,23 +638,18 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize) -> Outcom
 /// `Some((sum_solve_s, total_iters))`, or `None` if any frequency failed to
 /// converge in either pass (the sweep cell is then reported as DNF).
 fn time_sweep(fix: &Fixture, mode: SolverMode) -> Option<(f64, usize)> {
-    // Warm-up.
+    // Warm-up. Issue #744 drift counts as a completed solve (see [`Attempt`]).
     for &w in OMEGAS_SWEEP {
-        let solver = fix.op.prepare_at::<B>(w, mode, &device()).expect("prepare");
-        if solver.solve().is_err() {
+        if let Attempt::Fail(_) = attempt(fix, w, mode) {
             return None;
         }
     }
     let t0 = Instant::now();
     let mut total_iters = 0usize;
     for &w in OMEGAS_SWEEP {
-        let solver = fix
-            .op
-            .prepare_at::<B>(w, mode, &device())
-            .expect("prepare (sweep)");
-        match solver.solve() {
-            Ok((_, report)) => total_iters += report.iters,
-            Err(_) => return None,
+        match attempt(fix, w, mode) {
+            Attempt::Ok(_, iters, _) | Attempt::Drift { iters, .. } => total_iters += iters,
+            Attempt::Fail(_) => return None,
         }
     }
     Some((t0.elapsed().as_secs_f64(), total_iters))
@@ -437,14 +683,20 @@ fn matrix_free_label() -> (&'static str, &'static str) {
 #[test]
 #[ignore = "wall-clock benchmark; run explicitly with --ignored --nocapture"]
 fn gpu_driven_scaling_benchmark() {
+    let knobs = Knobs::from_env();
     let (mf_backend, mf_dtype) = matrix_free_label();
     let mf_tol = if mf_dtype == "f32" {
         ITER_TOL_F32
     } else {
         ITER_TOL_F64
     };
+    let iter_max = knobs.iter_max;
+    let reps = knobs.reps;
+    if let Some(dir) = &knobs.export_dir {
+        std::fs::create_dir_all(dir).expect("create GEODE_SCALING_EXPORT_DIR");
+    }
 
-    println!("# ---- gpu_driven_scaling TOML fragment (issue #501) ----");
+    println!("# ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----");
     println!("# matrix-free backend/dtype for this run: {mf_backend} / {mf_dtype}");
     println!(
         "# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  \
@@ -453,146 +705,204 @@ fn gpu_driven_scaling_benchmark() {
     println!("# single-ω = {OMEGA_SINGLE}; sweep ω = {OMEGAS_SWEEP:?}");
     println!(
         "# iter tol: f64 configs = {ITER_TOL_F64:e}, matrix-free ({mf_dtype}) = {mf_tol:e}; \
-         iter max = {ITER_MAX}"
+         iter max = {iter_max}"
+    );
+    println!(
+        "# knobs: sizes = {:?}, reps = {reps}, configs = [direct={}, iterative={}, \
+         matrix_free={}], skip_e2e = {}, skip_sweep = {}",
+        knobs.sizes,
+        knobs.direct,
+        knobs.iterative,
+        knobs.matrix_free,
+        knobs.skip_e2e,
+        knobs.skip_sweep
     );
     println!();
 
-    for &n in SIZES {
-        let reps = if MEDIAN_SIZES.contains(&n) {
-            N_REPS_MEDIAN
-        } else {
-            1
-        };
-        let fix = build_fixture(n);
+    for &n in &knobs.sizes {
+        let t_build = Instant::now();
+        let fix = build_fixture_with_export(n, knobs.export_dir.as_deref());
         eprintln!(
-            "[size n={n}] edges={} interior={} tets={} reps={reps}",
-            fix.n_edges, fix.n_interior, fix.n_tets
-        );
-
-        let iset_f64 = IterativeSettings::new(ITER_TOL_F64, ITER_MAX);
-        let iset_mf = IterativeSettings::new(mf_tol, ITER_MAX);
-
-        // Config 1: Direct (faer sparse LU), CPU f64. This is the accuracy
-        // reference for every other config at this size.
-        let c_direct = match time_config(n, &fix, SolverMode::Direct, reps) {
-            Outcome::Converged(c) => c,
-            Outcome::Dnf { message, .. } => panic!("direct LU failed at n={n}: {message}"),
-        };
-        let sw_direct = time_sweep(&fix, SolverMode::Direct).expect("direct sweep");
-        let acc_direct = 0.0; // reference vs itself
-        emit_cell(
-            n,
+            "[size n={n}] edges={} interior={} tets={} reps={reps} (fixture {:.2} s)",
             fix.n_edges,
             fix.n_interior,
-            "1_direct",
-            "faer_lu",
-            "cpu",
-            "f64",
-            f64::NAN, // no iterative tolerance on the direct path
-            &c_direct,
-            acc_direct,
-            Some(sw_direct),
+            fix.n_tets,
+            t_build.elapsed().as_secs_f64()
         );
-
-        // Config 2: assembled iterative COCG + Jacobi, CPU f64.
-        let c_iter = match time_config(n, &fix, SolverMode::Iterative(iset_f64), reps) {
-            Outcome::Converged(c) => c,
-            Outcome::Dnf { message, .. } => {
-                panic!("assembled COCG (f64) failed at n={n}: {message}")
+        let sweep = |mode: SolverMode| {
+            if knobs.skip_sweep {
+                None
+            } else {
+                time_sweep(&fix, mode)
             }
         };
-        let sw_iter =
-            time_sweep(&fix, SolverMode::Iterative(iset_f64)).expect("assembled COCG sweep");
-        let acc_iter = rel_l2(&c_direct.e_edges, &c_iter.e_edges);
-        emit_cell(
-            n,
-            fix.n_edges,
-            fix.n_interior,
-            "2_iterative_csr",
-            "cocg_jacobi",
-            "cpu",
-            "f64",
-            ITER_TOL_F64,
-            &c_iter,
-            acc_iter,
-            Some(sw_iter),
-        );
+
+        let iset_f64 = IterativeSettings::new(ITER_TOL_F64, iter_max);
+        let iset_mf = IterativeSettings::new(mf_tol, iter_max);
+
+        // Config 1: Direct (faer sparse LU), CPU f64. This is the accuracy
+        // reference for every other config at this size (when selected).
+        let c_direct = if knobs.direct {
+            let c = match time_config(n, &fix, SolverMode::Direct, reps, knobs.skip_e2e) {
+                Outcome::Converged(c) => c,
+                Outcome::Dnf { message, .. } => panic!("direct LU failed at n={n}: {message}"),
+            };
+            let sw = sweep(SolverMode::Direct);
+            assert!(
+                knobs.skip_sweep || sw.is_some(),
+                "direct sweep failed at n={n}"
+            );
+            emit_cell(
+                n,
+                fix.n_edges,
+                fix.n_interior,
+                "1_direct",
+                "faer_lu",
+                "cpu",
+                "f64",
+                f64::NAN, // no iterative tolerance on the direct path
+                &c,
+                0.0, // reference vs itself
+                sw,
+                knobs.skip_sweep,
+            );
+            Some(c)
+        } else {
+            None
+        };
+        // NaN when there is no Direct reference at this size, or no solution
+        // (an issue #744 drift cell returns none).
+        let acc_vs_direct = |sol: &[c64]| match &c_direct {
+            Some(d) if !sol.is_empty() => rel_l2(&d.e_edges, sol),
+            _ => f64::NAN,
+        };
+
+        // Config 2: assembled iterative COCG + Jacobi, CPU f64.
+        if knobs.iterative {
+            let c_iter = match time_config(
+                n,
+                &fix,
+                SolverMode::Iterative(iset_f64),
+                reps,
+                knobs.skip_e2e,
+            ) {
+                Outcome::Converged(c) => c,
+                Outcome::Dnf { message, .. } => {
+                    panic!("assembled COCG (f64) failed at n={n}: {message}")
+                }
+            };
+            let sw_iter = sweep(SolverMode::Iterative(iset_f64));
+            assert!(
+                knobs.skip_sweep || sw_iter.is_some(),
+                "assembled COCG sweep failed at n={n}"
+            );
+            let acc_iter = acc_vs_direct(&c_iter.e_edges);
+            emit_cell(
+                n,
+                fix.n_edges,
+                fix.n_interior,
+                "2_iterative_csr",
+                "cocg_jacobi",
+                "cpu",
+                "f64",
+                ITER_TOL_F64,
+                &c_iter,
+                acc_iter,
+                sw_iter,
+                knobs.skip_sweep,
+            );
+            // Sanity rails for the CPU f64 config (always enforced; the
+            // accuracy rail only when a Direct reference exists).
+            assert!(
+                c_iter.explicit_converged && c_iter.residual_rel < 1e-5,
+                "config 2 (iterative) did not converge at n={n}: residual={}",
+                c_iter.residual_rel
+            );
+            assert!(
+                acc_iter.is_nan() || acc_iter < 1e-5,
+                "config 2 (iterative) rel-L2 vs Direct = {acc_iter} exceeds 1e-5 at n={n}"
+            );
+        }
 
         // Config 3/4: matrix-free (ndarray-f64 on CI, Cuda-f32 on the box).
         // f32 non-convergence at large sizes is an expected, *reported*
         // outcome (DNF cell / partial reps), not a benchmark crash.
-        let o_mf = time_config(n, &fix, SolverMode::IterativeMatrixFree(iset_mf), reps);
-        // Skip the matrix-free sweep entirely when the single-ω cell already
-        // DNF'd (it would burn max_iters × 5 frequencies × 2 passes).
-        let sw_mf = match &o_mf {
-            Outcome::Converged(_) => time_sweep(&fix, SolverMode::IterativeMatrixFree(iset_mf)),
-            Outcome::Dnf { .. } => None,
-        };
-        let mf_device = if mf_backend == "Cuda" { "gpu" } else { "cpu" };
-        match &o_mf {
-            Outcome::Converged(c_mf) => {
-                let acc_mf = rel_l2(&c_direct.e_edges, &c_mf.e_edges);
-                emit_cell(
-                    n,
-                    fix.n_edges,
-                    fix.n_interior,
-                    "3_matrix_free",
-                    "burn_cocg",
-                    mf_device,
-                    mf_dtype,
-                    mf_tol,
-                    c_mf,
-                    acc_mf,
-                    sw_mf,
-                );
-                // Accuracy envelope: f64 matrix-free tracks the assembled
-                // path (~1e-8); f32 floors at the f32 residual ceiling
-                // (observed ~1e-4-class on this fixture; 5e-2 is the
-                // fail-loudly rail, not the expectation).
-                let mf_acc_tol = if mf_dtype == "f32" { 5e-2 } else { 1e-5 };
-                assert!(
-                    acc_mf < mf_acc_tol,
-                    "config 3 (matrix-free {mf_backend} {mf_dtype}) rel-L2 vs Direct = \
-                     {acc_mf} exceeds {mf_acc_tol} at n={n}"
-                );
-            }
-            Outcome::Dnf {
-                attempt_s,
-                stagnated_residual,
-                message,
-            } => {
-                // The f64 (CI) leg must never DNF — that would be a real
-                // convergence regression, not an f32 precision ceiling.
-                assert!(
-                    mf_dtype == "f32",
-                    "matrix-free {mf_backend} {mf_dtype} DNF at n={n}: {message}"
-                );
-                emit_dnf_cell(
-                    n,
-                    fix.n_edges,
-                    fix.n_interior,
-                    "3_matrix_free",
-                    "burn_cocg",
-                    mf_device,
-                    mf_dtype,
-                    mf_tol,
-                    *attempt_s,
-                    *stagnated_residual,
+        if knobs.matrix_free {
+            let mode = SolverMode::IterativeMatrixFree(iset_mf);
+            let o_mf = time_config(n, &fix, mode, reps, knobs.skip_e2e);
+            // Skip the matrix-free sweep entirely when the single-ω cell
+            // already DNF'd (it would burn max_iters × 5 frequencies × 2
+            // passes).
+            let sw_mf = match &o_mf {
+                Outcome::Converged(_) => sweep(mode),
+                Outcome::Dnf { .. } => None,
+            };
+            let mf_device = if mf_backend == "Cuda" { "gpu" } else { "cpu" };
+            match &o_mf {
+                Outcome::Converged(c_mf) => {
+                    let acc_mf = acc_vs_direct(&c_mf.e_edges);
+                    emit_cell(
+                        n,
+                        fix.n_edges,
+                        fix.n_interior,
+                        "3_matrix_free",
+                        "burn_cocg",
+                        mf_device,
+                        mf_dtype,
+                        mf_tol,
+                        c_mf,
+                        acc_mf,
+                        sw_mf,
+                        knobs.skip_sweep,
+                    );
+                    // Accuracy envelope: f64 matrix-free tracks the assembled
+                    // path (~1e-8); f32 floors at the f32 residual ceiling
+                    // (observed ~1e-4-class on this fixture; 5e-2 is the
+                    // fail-loudly rail, not the expectation).
+                    let mf_acc_tol = if mf_dtype == "f32" { 5e-2 } else { 1e-5 };
+                    // Drift (recursion-only convergence) is an f32 outcome;
+                    // on the f64 leg it would be a real regression.
+                    assert!(
+                        mf_dtype == "f32" || c_mf.explicit_converged,
+                        "matrix-free {mf_backend} {mf_dtype} explicit residual {} missed tol \
+                         at n={n}",
+                        c_mf.residual_rel
+                    );
+                    assert!(
+                        acc_mf.is_nan() || acc_mf < mf_acc_tol,
+                        "config 3 (matrix-free {mf_backend} {mf_dtype}) rel-L2 vs Direct = \
+                         {acc_mf} exceeds {mf_acc_tol} at n={n}"
+                    );
+                }
+                Outcome::Dnf {
+                    attempt_s,
+                    stagnated_residual,
                     message,
-                );
+                } => {
+                    // The f64 leg must never DNF at the default iteration cap
+                    // — that would be a real convergence regression, not an
+                    // f32 precision ceiling. A user-lowered cap may DNF it.
+                    assert!(
+                        mf_dtype == "f32" || iter_max < DEFAULT_ITER_MAX,
+                        "matrix-free {mf_backend} {mf_dtype} DNF at n={n}: {message}"
+                    );
+                    emit_dnf_cell(
+                        n,
+                        fix.n_edges,
+                        fix.n_interior,
+                        "3_matrix_free",
+                        "burn_cocg",
+                        mf_device,
+                        mf_dtype,
+                        mf_tol,
+                        iter_max,
+                        *attempt_s,
+                        *stagnated_residual,
+                        message,
+                    );
+                }
             }
         }
-
-        // Sanity rails for the CPU f64 configs (always enforced).
-        assert!(
-            c_iter.residual_rel < 1e-5,
-            "config 2 (iterative) did not converge at n={n}: residual={}",
-            c_iter.residual_rel
-        );
-        assert!(
-            acc_iter < 1e-5,
-            "config 2 (iterative) rel-L2 vs Direct = {acc_iter} exceeds 1e-5 at n={n}"
-        );
     }
 
     println!("# ---- end fragment ----");
@@ -613,8 +923,10 @@ fn emit_cell(
     cell: &Cell,
     accuracy_rel_l2_vs_direct: f64,
     sweep: Option<(f64, usize)>,
+    sweep_skipped: bool,
 ) {
-    let flaky = cell.solve_reps_ok < cell.reps || cell.e2e_reps_ok < cell.reps;
+    let flaky =
+        cell.solve_reps_ok < cell.reps || (cell.e2e_reps_ok > 0 && cell.e2e_reps_ok < cell.reps);
     println!("[[cell]]");
     println!("size_n = {n}");
     println!("n_edges = {n_edges}");
@@ -624,24 +936,46 @@ fn emit_cell(
     println!("device = \"{device_kind}\"");
     println!("dtype = \"{dtype}\"");
     println!("tol = {}", toml_f64(tol));
-    println!("converged = true");
+    println!("converged = {}", cell.explicit_converged);
+    if !cell.explicit_converged {
+        println!(
+            "recursion_converged = true  # issue #744 drift: COCG recursion met tol, the \
+             explicit residual (residual_rel) did not; timed as a completed solve"
+        );
+    }
     println!("flaky = {flaky}");
     println!("reps = {}", cell.reps);
     println!("solve_reps_ok = {}", cell.solve_reps_ok);
     println!("e2e_reps_ok = {}", cell.e2e_reps_ok);
+    println!("warmup_solve_s = {:.6}", cell.warmup_s);
     println!("solve_only_s = {}", toml_f64_fixed(cell.solve_s));
     println!("end_to_end_s = {}", toml_f64_fixed(cell.end_to_end_s));
     println!("iterations = {}", cell.iters);
     println!("residual_rel = {:.3e}", cell.residual_rel);
     println!(
-        "accuracy_rel_l2_vs_direct = {:.3e}",
-        accuracy_rel_l2_vs_direct
+        "accuracy_rel_l2_vs_direct = {}",
+        toml_f64_sci(accuracy_rel_l2_vs_direct)
+    );
+    let fmt9 = |x: f64| {
+        if x.is_nan() {
+            "nan".to_string()
+        } else {
+            format!("{x:.9e}")
+        }
+    };
+    println!(
+        "port_v = [{}, {}]  # Re, Im of port-1 voltage (v_inc = 1)",
+        fmt9(cell.v_port.re),
+        fmt9(cell.v_port.im)
     );
     match sweep {
         Some((s, it)) => {
             println!("sweep5_converged = true");
             println!("sweep5_solve_only_s = {s:.6}");
             println!("sweep5_total_iters = {it}");
+        }
+        None if sweep_skipped => {
+            println!("sweep5_skipped = true");
         }
         None => {
             println!("sweep5_converged = false");
@@ -662,6 +996,7 @@ fn emit_dnf_cell(
     device_kind: &str,
     dtype: &str,
     tol: f64,
+    iter_max: usize,
     attempt_s: f64,
     stagnated_residual: f64,
     message: &str,
@@ -678,7 +1013,7 @@ fn emit_dnf_cell(
     println!("converged = false");
     println!("reps = 1");
     println!("dnf_attempt_s = {attempt_s:.6}");
-    println!("iterations = {ITER_MAX}");
+    println!("iterations = {iter_max}");
     println!("residual_rel = {}", toml_f64_sci(stagnated_residual));
     println!("accuracy_rel_l2_vs_direct = nan");
     println!("sweep5_converged = false");

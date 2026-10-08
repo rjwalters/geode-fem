@@ -1,0 +1,245 @@
+# Larger-mesh GPU-vs-CPU driven-solve sweep + geode-vs-Palace driven
+# head-to-head (issue #520, Epic #476). Same physical fixture and solver
+# configs as benchmarks/gpu_driven_scaling/results.toml (#501), extended from
+# 25.7k to 463k edges, all legs on ONE rented host in ONE session
+# (2026-10-07/08). Hand-transcribed from summarize_520.py output over
+# runs/2026-10-07_lambda_a100/ (raw per-leg stdout, /usr/bin/time -v,
+# nvidia-smi polls, Palace logs); every number below is measured unless
+# labelled "projected".
+#
+# ---------------------------------------------------------------------------
+# HARDWARE CAVEAT — READ FIRST
+#   #520 was written for the L40S (AWS g6e) of results.toml. This ran on
+#   Lambda Cloud on an NVIDIA A100-SXM4-40GB (sm_80), host AMD EPYC 7J13
+#   30 vCPU. It is NOT comparable cell-for-cell with results.toml (L40S,
+#   4-vCPU EPYC 7R13 host): different GPU (A100 has ~1.8x the memory
+#   bandwidth and ~7x the FP64 of the L40S, but the geode GPU leg is f32,
+#   where the L40S is nominally faster), different host CPU, and a different
+#   matrix-free local apply (see [code]). The n=15 overlap point shows the
+#   size of the difference: GPU f32 35.7 ms/iter here vs 28.0 ms/iter on the
+#   L40S; CPU matrix-free f64 29.8 ms/iter here vs 27.6 ms/iter there.
+# ---------------------------------------------------------------------------
+
+[meta]
+issue = 520
+measured_date = "2026-10-07"
+fixture = "sigma-lossy parallel-plate cube, single LumpedPort (e_hat = y, R = 1), eps_r = 1, sigma = 2.0, PEC on y-planes (crates/geode-core/tests/gpu_driven_scaling.rs) — identical to results.toml"
+omega = 0.10
+iter_tol_f64 = 1e-8
+iter_tol_f32 = 1e-6
+geode_commit = "main d51b4b6e + this PR's diff (harness knobs, drift classification, TF32-free matvec); the box checkout's diff stat is in runs/2026-10-07_lambda_a100/geode_checkout.txt"
+statistic = "single timed solve per cell (GEODE_SCALING_REPS=0: the warm-up solve is the measurement) unless noted; Palace cells n=3 at 59.7k and 463k edges"
+reps_note = "REPS=0 because one CPU matrix-free solve at 102k edges takes 13.5 min. The warm-up includes one-time GPU kernel JIT/autotune: at 25.7k edges it was 109.3 s warm-up vs 106.8 s for a timed repeat (2.3%), so warm-up times are at most a few % pessimistic for the GPU."
+
+[hardware]
+provider = "Lambda Cloud (on-demand), instance gpu_1x_a100_sxm4, us-east-1"
+gpu = "NVIDIA A100-SXM4-40GB, 40960 MiB, compute capability 8.0, driver 570.148.08"
+cpu = "AMD EPYC 7J13, 30 vCPU (VM)"
+ram_gib = 216
+os = "Ubuntu 22.04.5 LTS (Lambda Stack), kernel 6.8.0-60-generic"
+rustc = "1.99.0"
+cuda_note = "Lambda Stack keeps the CUDA headers in /usr/include, so the cubecl NVRTC compile needs CUDA_PATH=/usr (box_sweep.sh sets it)"
+
+[code]
+matvec = "The matrix-free local apply was changed in this PR from a Burn matmul to broadcast-multiply + sum_dim (crates/geode-core/src/assembly/nedelec_matvec.rs). On this A100 the stock autotuned f32 matmul ran as TF32 (cubek-matmul stages f32 CMMA operands as tf32) and the f32 COCG stagnated at relative residual 0.163 after 20000 iterations already at n=6 (1854 edges); with the change, the same solve's recursion converges in 782 iterations (L40S stock: 770). Evidence: runs/.../tf32_evidence/. Issue #926 tracks the remaining f32 matmul sites."
+matvec_cpu_effect = "ndarray f64, 13.4k edges, same host: stock matmul 42.48 s/solve (2185 iters) vs new form 31.50 s (2142 iters) — no CPU regression (runs/.../ab/ and ab_new_matvec_n12.*)."
+drift = "Since issue #744 the driven solver rejects a Krylov solve whose recursion met tol but whose explicitly recomputed residual did not. Every f32 GPU solve here ends that way (explicit residual 5e-3..2e-2 > 1e-6). The harness times it as a completed solve and records converged = false, recursion_converged = true; residual_rel is the EXPLICIT residual. The #501 L40S cells predate #744 and were the same kind of solve reported as converged."
+
+# ---------------------------------------------------------------------------
+# 1. CROSSOVER: GPU f32 vs CPU f64, SAME matrix-free algorithm (BurnCocg +
+#    Jacobi), same host. s/iter for full solves = solve_s / iterations; for
+#    the 300-iteration capped cells it is NET of per-omega setup:
+#    (t_cap300 - t_cap1) / 299, with t_cap1 measured separately
+#    (S1_/S2_ legs). The CPU matrix-free leg (Burn ndarray backend) runs on
+#    ONE core (/usr/bin/time: 100% CPU); the GPU leg's host process 109%.
+#
+# | edges   | GPU f32 A100: s/iter | iters  | expl. resid | solve s | CPU f64 1-core: s/iter | iters | solve s | GPU/CPU per-iter |
+# |---------|----------------------|--------|-------------|---------|------------------------|-------|---------|------------------|
+# |  25 695 | 0.0357 (timed rep)   |  2 989 | 5.5e-3      |  106.8  | 0.0298                 | 2 907 |   86.5  | 1.20 (GPU slower)|
+# |  59 660 | 0.0792               |  4 503 | 1.4e-2      |  356.8  | 0.0844                 | 4 235 |  357.5  | 0.94             |
+# | 102 024 | 0.1619               | 20 000 DNF | 2.1e-2 (recursion stagnated) | 3237.4 (DNF) | 0.1548          | 5 249 |  812.7  | 1.05             |
+# | 197 190 | 0.3214 (net, cap300) |   –    |   –         |   –     | 0.4782 (net, cap300)   |   –   |   –     | 0.67             |
+# | 462 520 | 0.7578 (net, cap300) |   –    |   –         |   –     | 1.4586 (net, cap300)   |   –   |   –     | 0.52             |
+#
+# MEASURED CROSSOVER (per-iteration cost): GPU f32 and 1-core CPU f64 are at
+# parity (within +-6%) from ~60k to ~100k edges; above that the GPU is
+# cheaper per iteration, 1.5x at 197k and 1.9x at 463k edges.
+#
+# NO CROSSOVER IN TIME-TO-SOLUTION: the f32 GPU solve never meets the
+# explicit-residual tolerance (5e-3..1.4e-2 vs the f64 legs' ~9e-9), and at
+# 102k edges and above its recursion no longer converges at all (DNF at
+# 20000 iterations, stagnated at 2.1e-2). Wall-clock is at parity at 60k
+# edges (356.8 s vs 357.5 s) only because the GPU needs 6% more iterations to
+# reach a 6-orders-looser answer. So the per-iteration crossover exists but
+# is unusable: in the range where the GPU is cheaper per iteration, f32 COCG
+# does not converge. This confirms and sharpens the #501 / July note: the
+# limiter is f32 convergence, not GPU throughput.
+#
+# Also measured: the GPU path is far from saturating the A100. Peak device
+# memory was 1447 MiB at 463k edges (of 40 GB, so the memory ceiling is not
+# the limit), and at 102k edges nvidia-smi showed 95% "utilization" at
+# 72 W of a 400 W TDP — the cost is latency-bound gather/scatter kernels,
+# not arithmetic.
+# ---------------------------------------------------------------------------
+
+[crossover]
+per_iteration = "parity (within +-6%) at ~60k-100k edges; GPU cheaper above: 1.5x at 197k, 1.9x at 463k edges"
+time_to_solution = "none measured: f32 never meets the explicit-residual tol, and the f32 recursion does not converge at >= 102k edges"
+memory_ceiling = "not reached: GPU peak 1447 MiB at 463k edges (40 GB card); host RSS of the GPU test process 2.3 GB"
+escalation = "A larger GPU would not change this outcome — the blocker is f32 COCG convergence (and a latency-bound Burn gather/scatter apply), not capacity. The levers are f64 (or mixed-precision / iterative-refinement) on device, and a better preconditioner (see section 3)."
+
+[[gpu_f32_matrix_free]]
+n_edges = 25695
+size_n = 15
+solve_s = 106.753     # timed rep; warm-up 109.346
+iterations = 2989
+s_per_iter = 0.03572
+explicit_residual = 5.477e-3
+recursion_converged = true
+gpu_peak_mib = 647
+
+[[gpu_f32_matrix_free]]
+n_edges = 59660
+size_n = 20
+solve_s = 356.796
+iterations = 4503
+s_per_iter = 0.07924
+explicit_residual = 1.364e-2
+recursion_converged = true
+
+[[gpu_f32_matrix_free]]
+n_edges = 102024
+size_n = 24
+dnf_attempt_s = 3237.431
+iterations = 20000
+s_per_iter = 0.16187
+stagnated_recursion_residual = 2.149e-2
+recursion_converged = false
+gpu_peak_mib = 1287    # peak over the n=20 + n=24 leg
+
+[[gpu_f32_matrix_free]]
+n_edges = 197190
+size_n = 30
+cap300_attempt_s = 98.762
+cap1_attempt_s = 2.670
+s_per_iter_net = 0.32137
+
+[[gpu_f32_matrix_free]]
+n_edges = 462520
+size_n = 40
+cap300_attempt_s = 230.081
+cap1_attempt_s = 3.496
+s_per_iter_net = 0.75781
+gpu_peak_mib = 1447    # peak over the n=30 + n=40 leg
+host_max_rss_gb = 2.30
+
+[[cpu_f64_matrix_free]]
+n_edges = 25695
+solve_s = 86.537
+iterations = 2907
+s_per_iter = 0.02977
+explicit_residual = 9.200e-9
+
+[[cpu_f64_matrix_free]]
+n_edges = 59660
+solve_s = 357.493
+iterations = 4235
+s_per_iter = 0.08441
+explicit_residual = 9.501e-9
+
+[[cpu_f64_matrix_free]]
+n_edges = 102024
+solve_s = 812.731
+iterations = 5249
+s_per_iter = 0.15484
+explicit_residual = 8.799e-9
+max_rss_gb = 0.48      # whole n=15..24 leg
+
+[[cpu_f64_matrix_free]]
+n_edges = 197190
+cap300_attempt_s = 150.903
+cap1_attempt_s = 7.928
+s_per_iter_net = 0.47818
+
+[[cpu_f64_matrix_free]]
+n_edges = 462520
+cap300_attempt_s = 457.213
+cap1_attempt_s = 21.090
+s_per_iter_net = 1.45861
+
+# ---------------------------------------------------------------------------
+# 2. CPU f64 references at every size (same host): Direct faer LU (multi-
+#    threaded, 835% CPU) and assembled-CSR COCG + Jacobi (single core, 101%
+#    CPU). Both explicitly converged; port voltage V (v_inc = 1) for the
+#    Palace cross-check. The assembled COCG is 22-54x cheaper per iteration
+#    than the CPU matrix-free leg and 24-29x cheaper than the GPU f32 one, and
+#    is the fastest geode iterative option at every size.
+#
+# | edges   | Direct LU s | COCG-CSR s | iters  | s/iter  | port V (Direct; COCG at 338k/463k) |
+# |---------|-------------|------------|--------|---------|------------------------------------|
+# |  25 695 |   3.11      |   4.04     |  2 969 | 0.00136 | 0.6659975395 + 0.0074613806i       |
+# |  59 660 |  11.08      |  14.00     |  4 303 | 0.00325 | 0.6659966841 + 0.0074707498i       |
+# | 102 024 |  27.47      |  30.00     |  5 259 | 0.00571 | 0.6659963478 + 0.0074744338i       |
+# | 197 190 |  95.11      |  80.56     |  7 153 | 0.01126 | 0.6659960725 + 0.0074774494i       |
+# | 338 364 |   (not run) | 176.22     |  8 983 | 0.01962 | 0.6659959229 + 0.0074790880i       |
+# | 462 520 |   (not run) | 274.46     | 10 154 | 0.02703 | 0.6659958583 + 0.0074797957i       |
+#
+# Direct LU peak RSS reached 31.5 GB at 197k edges (whole leg); it was not
+# run above that to stay in budget. COCG-CSR peak RSS 1.29 GB at 463k edges.
+# ---------------------------------------------------------------------------
+
+[cpu_f64_reference]
+direct_lu_s = { "25695" = 3.113, "59660" = 11.082, "102024" = 27.474, "197190" = 95.105 }
+cocg_csr_s = { "25695" = 4.043, "59660" = 14.004, "102024" = 30.003, "197190" = 80.558, "338364" = 176.219, "462520" = 274.457 }
+cocg_csr_iterations = { "25695" = 2969, "59660" = 4303, "102024" = 5259, "197190" = 7153, "338364" = 8983, "462520" = 10154 }
+direct_lu_leg_max_rss_gb = 31.5
+cocg_csr_large_leg_max_rss_gb = 1.29
+
+# ---------------------------------------------------------------------------
+# 3. geode vs Palace DRIVEN head-to-head (Palace fba6a5b, the CUDA image of
+#    #519, same host). The geode harness exports the IDENTICAL mesh as Gmsh
+#    MSH 2.2 (GEODE_SCALING_EXPORT_DIR); palace_driven_cfg.py maps geode's
+#    natural units to SI (L0 = 1 m: f = 4.7713 MHz, sigma = 2/Z0 S/m,
+#    R = Z0). Palace: Order 1, Linear Type Default (GMRES + AMS), Tol 1e-8.
+#
+# CORRECTNESS: Palace's port voltage V/V_inc agrees with geode's f64 solve
+# to 2.2e-9 .. 2.8e-9 relative at every size (25.7k .. 463k edges), on both
+# Palace devices — same discretization, same answer. (Validated first at
+# 1854 edges: Palace S11 = -9.5232 dB / 178.739 deg vs geode V/V_inc - 1.)
+#
+# | edges   | geode-CUDA f32 MF        | geode CPU f64 best (COCG-CSR, 1 core) | Palace GPU (1 rank, A100) | Palace CPU (8 ranks) |
+# |---------|--------------------------|---------------------------------------|---------------------------|----------------------|
+# |  25 695 | 106.8 s (resid 5.5e-3)   |   4.0 s                               | 10.14 s                   |  3.19 s              |
+# |  59 660 | 356.8 s (resid 1.4e-2)   |  14.0 s                               | 17.29 +- 0.11 s (n=3)     |  6.80 +- 0.04 s (n=3)|
+# | 102 024 | DNF (3237 s, 20k iters)  |  30.0 s                               | 28.03 s                   | 11.31 s              |
+# | 197 190 | (cap only)               |  80.6 s                               | 55.71 s                   | 22.65 s              |
+# | 462 520 | projected ~7 700 s, would not converge (0.758 s/iter x ~10 154 iters) | 274.5 s | 165.36 +- 0.49 s (n=3) | 60.12 +- 0.10 s (n=3) |
+#
+# HEAD-TO-HEAD VERDICT: at the largest size where geode-CUDA completes a
+# (recursion-converged) solve, 59.7k edges, Palace-GPU is 20.6x faster
+# (17.3 s vs 356.8 s) AND reaches f64 tol 1e-8 (geode-CUDA's explicit
+# residual is 1.4e-2). At 463k edges geode-CUDA cannot finish; Palace-GPU
+# takes 165 s. The decisive difference is the preconditioner, not the
+# device: Palace's GMRES + AMS converges in 5 iterations at 463k edges,
+# geode's Jacobi-COCG needs ~10 000. Palace on 8 CPU ranks beats Palace on
+# the GPU at every size here too (2.5-3.2x).
+# ---------------------------------------------------------------------------
+
+[palace_driven]
+palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"
+image = "palace:cuda from reference/palace/docker/Dockerfile.cuda (#519 build, CUDA_ARCH=80)"
+backend_gpu = "/gpu/cuda/magma"
+backend_cpu = "/cpu/self/opt/blocked"
+gmres_iterations_463k = 5
+port_v_rel_diff_vs_geode_f64 = { "25695" = 2.18e-9, "59660" = 2.33e-9, "102024" = 2.43e-9, "197190" = 2.60e-9, "462520" = 2.78e-9 }
+gpu_wall_s = { "25695" = [10.14], "59660" = [17.41, 17.25, 17.21], "102024" = [28.03], "197190" = [55.71], "462520" = [165.04, 165.12, 165.92] }
+cpu_np8_wall_s = { "25695" = [3.19], "59660" = [6.76, 6.81, 6.83], "102024" = [11.31], "197190" = [22.65], "462520" = [60.13, 60.21, 60.02] }
+gpu_peak_mib = { "25695" = 5227, "59660" = 5371, "102024" = 5463, "197190" = 5761, "462520" = 6523 }
+gpu_max_rss_gb_463k = 9.55
+cpu_np8_max_rss_gb_per_rank_463k = 2.16
+timing = "/usr/bin/time -v around `palace -np N` inside the container (container start-up excluded), full pipeline incl. mesh load"
+
+[notes]
+single_core_cpu = "Both the CPU matrix-free leg and the assembled-COCG leg run single-threaded (Burn ndarray / faer CSR SpMV as used here). The per-iteration crossover above is therefore GPU vs ONE CPU core of the 30 available; against a parallel CPU SpMV the GPU crossover would move further out."
+not_comparable = "Do not merge these cells into results.toml: different GPU, host, and matvec code. results.toml remains the #501 L40S record."
+palace_driven_reps = "Palace timings at 25.7k/102k/197k edges are single runs (they back the agreement column); n=3 at 59.7k and 463k."

@@ -20,8 +20,11 @@
 //! 1. **Gather** `G`: pull each tet's six edge DOFs from `x` into a batched
 //!    `[n_elem, 6, 1]` stack, using the same `tet_edge_idx` global-edge
 //!    indices the assembler scatters through.
-//! 2. **Local apply** `D`: a batched `[n_elem, 6, 6] · [n_elem, 6, 1]` matmul
-//!    against the **signed** local matrix `\tilde{A}^e_{ij} = s^e_i s^e_j
+//! 2. **Local apply** `D`: a batched `[n_elem, 6, 6] · [n_elem, 6, 1]`
+//!    product — evaluated as a broadcast multiply against the transposed
+//!    `[n_elem, 1, 6]` gather plus a `sum_dim(2)` reduction, **not** a Burn
+//!    `matmul` (see "Why not `matmul`" below) — against the **signed** local
+//!    matrix `\tilde{A}^e_{ij} = s^e_i s^e_j
 //!    A^e_{ij}` — the exact orientation-sign outer product
 //!    ([`sign_outer`](crate::assembly::nedelec)) the assembled path folds in
 //!    before scatter, so the two agree.
@@ -33,6 +36,19 @@
 //! local matrices through the *same* edge-DOF numbering, `matrix_free(x)`
 //! equals `assembled_A · x` to round-off — validated to ~1e-12 on the
 //! ndarray-f64 backend in `tests/nedelec_matrix_free_equivalence.rs`.
+//!
+//! # Why not `matmul`
+//!
+//! On the CUDA backend, an autotuned f32 `matmul` may be dispatched to a
+//! tensor-core (CMMA) kernel, and `cubek-matmul` stages f32 operands of an
+//! accelerated kernel as **TF32** (10-bit mantissa, ε ≈ 1e-3) whenever the
+//! device supports it. On an A100 (sm_80) that silently degraded this apply
+//! enough that the matrix-free COCG stagnated at a ~0.16 relative residual
+//! on the smallest `gpu_driven_scaling` fixture (issue #520); the
+//! multiply-and-reduce form below has no tensor-core path, so f32 stays f32
+//! (the same recursion then converges in 782 iterations, matching the L40S).
+//! The 6×6-per-element product is far too small to benefit from tensor cores
+//! anyway.
 //!
 //! # Dirichlet / interior-DOF convention
 //!
@@ -335,8 +351,12 @@ impl<B: Backend> MatrixFreeNedelecOperator<B> {
             &[("edges_per_tet", EDGES_PER_TET), ("one", 1)],
         );
 
-        // 2. Local apply `D`: batched `[n_elem, 6, 6] · [n_elem, 6, 1]`.
-        let y_elem = local.clone().matmul(x_elem); // [n_elem, 6, 1]
+        // 2. Local apply `D`: batched `[n_elem, 6, 6] · [n_elem, 6, 1]`, as
+        //    `Σ_j local[e, i, j] · x[e, j]` = broadcast-multiply against the
+        //    `[n_elem, 1, 6]` transpose, then reduce over `j`. Deliberately
+        //    NOT `matmul`: on CUDA an autotuned f32 matmul can run as TF32 on
+        //    tensor cores (see the module docs, "Why not `matmul`").
+        let y_elem = local.clone().mul(x_elem.swap_dims(1, 2)).sum_dim(2); // [n_elem, 6, 1]
         assert_shape_contract!(
             MATVEC_ELEM_COLUMN_CONTRACT,
             &y_elem,
