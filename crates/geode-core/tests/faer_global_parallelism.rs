@@ -1,30 +1,43 @@
-//! faer's process-global parallelism around an AMS-preconditioned driven
-//! solve (issue #946).
+//! faer's process-global parallelism: the guard, the scope and the two solve
+//! loops that hold a scope (issues #518 and #946).
 //!
-//! The AMS V-cycle runs a cached sparse LU through faer's
-//! `Lu::solve_in_place` twice per COCG iteration. That call takes its thread
-//! count from a process-global setting, and with the default (every core)
-//! each of those small solves went out to the rayon pool. The driven
-//! back-solve now holds a
-//! [`geode_core::eigen::parallel::SequentialSolveScope`] for the Krylov solve.
+//! faer takes the thread count of a sparse factorization or triangular solve
+//! from one process-global setting. geode changes it in two ways:
+//!
+//! - [`geode_core::eigen::parallel::ParallelismGuard`] caps it around a
+//!   factorization;
+//! - [`geode_core::eigen::parallel::SequentialSolveScope`] makes it
+//!   `Par::Seq` around a loop of small triangular solves. Two loops hold one:
+//!   the driven back-solve's AMS-preconditioned COCG, whose V-cycle runs a
+//!   cached sparse LU twice per iteration, and the direct shift-invert Lanczos
+//!   loop, which runs one per step. With the default setting (every core)
+//!   each of those solves went out to the rayon pool and the threads spent
+//!   their time contending.
 //!
 //! This target holds **one** `#[test]` on purpose. The assertions read a
 //! process-global value, and in the library's unit-test binary other tests
-//! change it concurrently (every direct eigensolve caps it around its
-//! factorization). Here nothing else runs in the process, so each assertion
-//! is exact. Do not add a second test to this file.
+//! change it concurrently (every direct eigensolve changes it twice). Here
+//! nothing else runs in the process, so each assertion is exact. Do not add a
+//! second test to this file.
 //!
-//! That the scope is held *while* the Krylov solve runs is asserted by the
-//! unit test `ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not`
-//! in `driven/solve.rs`, which can see inside the back-solve.
+//! That the scope is held *while* each loop runs is asserted by unit tests
+//! that can see inside the solvers:
+//! `ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not` in
+//! `driven/solve.rs` and
+//! `direct_backends_come_with_a_sequential_scope_and_matrix_free_does_not` in
+//! `eigen/lanczos.rs`.
 
 use burn::tensor::backend::BackendTypes;
 use faer::{Par, c64, get_global_parallelism};
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
+use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
+use geode_core::assembly::sparse::global_system_to_sparse;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
     IterativePreconditioner, IterativeSettings, SolverMode,
 };
+use geode_core::eigen::dense::cube_interior_mask;
+use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::eigen::parallel::{ParallelismGuard, SequentialSolveScope};
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::TestBackend;
@@ -41,7 +54,40 @@ fn failing_solve() -> Result<(), String> {
 }
 
 #[test]
-fn sequential_scope_and_ams_solve_restore_the_callers_parallelism() {
+fn guards_scopes_and_solves_restore_the_callers_parallelism() {
+    // ---- ParallelismGuard (issue #518) --------------------------------------
+    let ambient = get_global_parallelism();
+    // Restored on a normal scope exit.
+    {
+        let _g = ParallelismGuard::rayon(4);
+    }
+    assert_eq!(get_global_parallelism(), ambient, "rayon(4) not restored");
+    // Restored when the scope panics (Drop runs during unwind).
+    let panicked = std::panic::catch_unwind(|| {
+        let _g = ParallelismGuard::rayon(4);
+        panic!("boom inside the factorization scope");
+    });
+    assert!(panicked.is_err());
+    assert_eq!(
+        get_global_parallelism(),
+        ambient,
+        "rayon(4) not restored after a panicking scope"
+    );
+    // `rayon(1)` is not a serial request: it leaves the global alone.
+    {
+        let _g = ParallelismGuard::rayon(1);
+        assert_eq!(get_global_parallelism(), ambient);
+    }
+    assert_eq!(get_global_parallelism(), ambient);
+    // `cap(1)` is one (with faer's rayon feature), and restores.
+    {
+        let _g = ParallelismGuard::cap(1);
+        if cfg!(feature = "faer-parallel") {
+            assert_eq!(get_global_parallelism(), Par::Seq);
+        }
+    }
+    assert_eq!(get_global_parallelism(), ambient, "cap(1) not restored");
+
     // The caller's setting: neither faer's default nor `Par::Seq`, so
     // "restored" cannot be mistaken for "left sequential" or "reset to the
     // default". Without the `faer-parallel` feature the cap is a no-op and
@@ -52,7 +98,7 @@ fn sequential_scope_and_ams_solve_restore_the_callers_parallelism() {
         assert_eq!(caller, Par::rayon(3));
     }
 
-    // ---- the scope itself -------------------------------------------------
+    // ---- SequentialSolveScope (issue #946) ----------------------------------
     // Normal exit.
     {
         let _seq = SequentialSolveScope::enter();
@@ -102,7 +148,7 @@ fn sequential_scope_and_ams_solve_restore_the_callers_parallelism() {
         "not restored after the last of two overlapping scopes"
     );
 
-    // ---- the driven solve ---------------------------------------------------
+    // ---- the AMS-preconditioned driven solve --------------------------------
     let device = <B as BackendTypes>::Device::default();
     let mesh = cube_tet_mesh(4, 1.0);
     let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
@@ -169,6 +215,27 @@ fn sequential_scope_and_ams_solve_restore_the_callers_parallelism() {
         "not restored after an AMS solve that returned an error"
     );
 
+    // ---- the direct eigensolve ----------------------------------------------
+    // Its factorization is capped by a guard and its Lanczos loop runs under
+    // a scope. Both must be gone when it returns.
+    let pencil = {
+        let mesh = cube_tet_mesh(5, 1.0);
+        let (nodes, tets) = upload_mesh::<B>(&mesh, &device);
+        let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
+        let mask = cube_interior_mask(&mesh.nodes, 1.0);
+        global_system_to_sparse(sys, Some(&mask)).expect("sparse projection")
+    };
+    let lambdas = SparseShiftInvertLanczos::default()
+        .smallest_eigenvalues(pencil.k.as_ref(), pencil.m.as_ref(), 3)
+        .expect("direct eigensolve");
+    assert_eq!(lambdas.len(), 3);
+    assert_eq!(
+        get_global_parallelism(),
+        caller,
+        "not restored after a direct eigensolve"
+    );
+
+    // ---- the answer -----------------------------------------------------------
     // The answer does not depend on the caller's setting: the same solve
     // from a sequential caller gives the same field, bit for bit. (The
     // coarse factorization runs at the caller's thread count in both; on

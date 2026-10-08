@@ -27,7 +27,9 @@
 //!    work is latency-bound). Scoping the guard tightly around the
 //!    factorization (not the whole Lanczos loop) restores the prior global
 //!    afterward. Note that the prior global is whatever the process had set;
-//!    faer 0.24's own default is `Par::rayon(0)` (every core), not serial.
+//!    faer 0.24's own default is `Par::rayon(0)` (every core), not serial. So
+//!    the guard alone leaves the solve loop on the rayon pool, and the loop
+//!    holds a [`SequentialSolveScope`] as well (next section).
 //!
 //! # RAII, panic-safety, and the correctness gate
 //!
@@ -56,13 +58,15 @@
 //! # Sequential scopes for repeated small solves
 //!
 //! faer's sparse `Lu::solve_in_place` reads the same global and hands it to
-//! the triangular solves on the supernodes. A preconditioner that calls it
-//! once or twice per Krylov iteration (the AMS V-cycle's coarse solves) must
-//! not run those solves on the rayon pool: each one is a few hundred
-//! microseconds of work, and waking the pool for it costs more than the solve
-//! (issue #946). [`SequentialSolveScope`] sets `Par::Seq` for a whole Krylov
-//! solve. Unlike [`ParallelismGuard`] it is reference-counted, so scopes held
-//! by concurrent solves on different threads can end in any order.
+//! the triangular solves on the supernodes. A loop that calls it once or
+//! twice per step must not run those solves on the rayon pool: each one is
+//! small, and sharing it out costs far more than it saves (issue #946; the
+//! measurements are on [`SequentialSolveScope`]'s two users). The two loops
+//! that do this are the driven solve's AMS-preconditioned COCG (the V-cycle's
+//! coarse solves) and the direct shift-invert Lanczos loop. Each holds a
+//! [`SequentialSolveScope`], which sets `Par::Seq` for the whole loop. Unlike
+//! [`ParallelismGuard`] it is reference-counted, so scopes held by concurrent
+//! solves on different threads can end in any order.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -91,15 +95,16 @@ pub const NUM_THREADS_ENV: &str = "GEODE_NUM_THREADS";
 /// asserts "the global equals X" can therefore race another test that
 /// concurrently sets it to Y. Any test in the crate that observes or mutates
 /// the global parallelism must hold this lock for the duration of the
-/// observation so those tests run one at a time. That includes a test that
-/// runs an AMS-preconditioned driven solve, which holds a
-/// [`SequentialSolveScope`] (issue #946).
+/// observation so those tests run one at a time.
 ///
-/// The eigensolver tests do not take it, although each direct eigensolve caps
-/// the global around its factorization. So a lib test must not assert on the
-/// value of faer's global across more than a few instructions: the
-/// [`SequentialSolveScope`] assertions that need a quiet process live in the
-/// single-test integration target `tests/driven_ams_sequential_scope.rs`.
+/// The lock only serializes the tests that take it. Most eigensolver tests do
+/// not, and every direct eigensolve changes the global twice: a
+/// [`ParallelismGuard`] around its factorization and a
+/// [`SequentialSolveScope`] around its Lanczos loop (issue #946). So no test
+/// in this binary may assert on the *value* of faer's global. Those
+/// assertions live in the integration target
+/// `tests/faer_global_parallelism.rs`, which holds a single test and so has
+/// the process to itself.
 #[cfg(test)]
 pub(crate) static PARALLELISM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -365,8 +370,8 @@ fn sequential_scopes() -> MutexGuard<'static, SequentialScopes> {
 /// RAII scope that makes faer's process-global parallelism `Par::Seq` while
 /// it is alive (issue #946).
 ///
-/// Hold one around a Krylov solve whose preconditioner calls a faer sparse
-/// `solve_in_place` on every application:
+/// Hold one around a loop that calls a faer sparse `solve_in_place` on every
+/// step, such as a Krylov solve whose preconditioner does:
 ///
 /// ```ignore
 /// let _seq = SequentialSolveScope::enter();
@@ -390,13 +395,21 @@ fn sequential_scopes() -> MutexGuard<'static, SequentialScopes> {
 ///
 /// # What it does not do
 ///
-/// It does not isolate a thread. A faer factorization started on another
-/// thread while a scope is live also runs sequentially, unless that thread
-/// sets its own [`ParallelismGuard`]. A `ParallelismGuard` that is built
-/// inside a live scope on another thread and outlives it will restore
-/// `Par::Seq` when it drops, exactly as two overlapping `ParallelismGuard`s
-/// already could. Results are unaffected in both cases: the setting changes
-/// how many threads faer uses, never what it computes beyond roundoff.
+/// It does not isolate a thread, and it does not coordinate with
+/// [`ParallelismGuard`]:
+///
+/// - A faer factorization started on another thread while a scope is live
+///   also runs sequentially, unless that thread sets its own
+///   `ParallelismGuard`.
+/// - A scope and a `ParallelismGuard` on two threads that overlap without
+///   nesting each restore what they saw, as two overlapping
+///   `ParallelismGuard`s already do. The one that ends last wins: the global
+///   can be left at `Par::Seq`, or at the guard's thread count.
+///
+/// Neither changes a result beyond roundoff: the setting is how many threads
+/// faer uses, not what it computes. In this crate the second case leaves the
+/// value unchanged whenever every guard caps at the same count, which is how
+/// the eigensolvers and the CLI's `--jobs` use them.
 #[derive(Debug)]
 #[must_use = "the scope ends on drop; binding it to `_` drops it immediately"]
 pub struct SequentialSolveScope {
@@ -447,73 +460,6 @@ fn set_rayon_parallelism(_n: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// RAII behavior of [`ParallelismGuard`]: restore-on-normal-drop,
-    /// restore-on-panic, and single-thread-is-a-no-op.
-    ///
-    /// These three assertions all observe/mutate faer's process-global
-    /// parallelism, so they are combined into one `#[test]` that holds
-    /// [`PARALLELISM_TEST_LOCK`] for its whole body — otherwise a concurrent
-    /// parallelism-touching test could change the global between the set and
-    /// the assert. (`cargo test` runs test functions on multiple threads.)
-    #[test]
-    fn guard_raii_restores_global_parallelism() {
-        let _lock = PARALLELISM_TEST_LOCK.lock().unwrap();
-
-        // 1. Restore on normal scope exit.
-        let before = get_global_parallelism();
-        {
-            let _g = ParallelismGuard::rayon(4);
-            // (the global may or may not have changed, depending on faer's
-            // rayon feature — but it must be back to `before` after the scope)
-        }
-        assert_eq!(
-            get_global_parallelism(),
-            before,
-            "global parallelism not restored after guard drop"
-        );
-
-        // 2. Restore even when the scope panics (Drop runs during unwind).
-        let result = std::panic::catch_unwind(|| {
-            let _g = ParallelismGuard::rayon(4);
-            panic!("boom inside the factorization scope");
-        });
-        assert!(result.is_err(), "expected the inner closure to panic");
-        assert_eq!(
-            get_global_parallelism(),
-            before,
-            "global parallelism not restored after a panicking scope"
-        );
-
-        // 3. `rayon(1)` must not change the global at all (it is not a
-        //    serial request; use `cap(1)` for that).
-        {
-            let _g = ParallelismGuard::rayon(1);
-            assert_eq!(
-                get_global_parallelism(),
-                before,
-                "requesting 1 thread should leave global parallelism unchanged"
-            );
-        }
-        assert_eq!(get_global_parallelism(), before);
-
-        // 4. `cap(1)` forces serial (with faer's rayon feature) and restores.
-        {
-            let _g = ParallelismGuard::cap(1);
-            if cfg!(feature = "faer-parallel") {
-                assert_eq!(get_global_parallelism(), Par::Seq);
-            }
-        }
-        assert_eq!(
-            get_global_parallelism(),
-            before,
-            "global parallelism not restored after a cap(1) guard"
-        );
-        {
-            let _g = ParallelismGuard::cap(3);
-        }
-        assert_eq!(get_global_parallelism(), before);
-    }
 
     /// The save / restore rule of [`SequentialScopes`], on plain values: only
     /// the first live scope asks for `Par::Seq` and records the prior value,

@@ -45,7 +45,11 @@
 //! exactly the `sp_lu` call via [`crate::eigen::parallel::ParallelismGuard`],
 //! a panic-safe RAII guard (`ParallelismGuard::cap`) that sets `Par::Seq`
 //! for one thread or `Par::rayon(n)` otherwise, and restores the prior
-//! global parallelism on drop (including on panic). The thread count comes
+//! global parallelism on drop (including on panic). That prior value is by
+//! default every core, so the guard alone does **not** keep rayon out of the
+//! solve loop: the direct backends also hold a
+//! [`crate::eigen::parallel::SequentialSolveScope`] from the end of the
+//! factorization to the end of the eigensolve (issue #946). The thread count comes
 //! from `GEODE_NUM_THREADS` (falling back to the physical core count), so
 //! `GEODE_NUM_THREADS=1` is a genuinely serial factorization. The
 //! factorization is deterministic for a fixed thread count; across thread
@@ -73,7 +77,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef};
 use faer::{Mat, MatMut};
 
 use crate::eigen::dense::{EigenError, EigenPair};
-use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
+use crate::eigen::parallel::{ParallelismGuard, SequentialSolveScope, resolve_num_threads};
 
 /// Backend for the shift-invert inner solve `(K − σM) y = b`.
 ///
@@ -966,6 +970,27 @@ enum InnerBackend<'a> {
 }
 
 impl InnerBackend<'_> {
+    /// The faer sequential scope the Lanczos loop must hold for this backend,
+    /// if any (issue #946). [`SparseShiftInvertLanczos::prepare_inner`] takes
+    /// it as soon as the backend is built, so the factorization keeps its
+    /// thread count and every triangular solve of the loop runs with
+    /// `Par::Seq`.
+    ///
+    /// `Some` for the two direct backends, which call faer's sparse
+    /// `solve_in_place` once per Lanczos step. That call takes its thread
+    /// count from faer's process-global parallelism, and the
+    /// [`ParallelismGuard`] around the factorization puts that back to its
+    /// prior value, by default every core, when it drops. Each solve is too
+    /// small to share out: on a 24k-DOF pencil (20 modes, a 28-CPU machine)
+    /// the solve spent 11 to 16 s in the kernel with the loop on the rayon
+    /// pool and about 4 s with it sequential, the remainder being the
+    /// parallel factorization. The matrix-free backends are not covered: their
+    /// default preconditioners make no faer solve.
+    fn sequential_solve_scope(&self) -> Option<SequentialSolveScope> {
+        matches!(self, InnerBackend::Lu(_) | InnerBackend::CustomLu(_))
+            .then(SequentialSolveScope::enter)
+    }
+
     /// `out = A⁻¹ · rhs`. For the matrix-free path `out` doubles as the CG
     /// warm-start guess, so callers should retain it across iterations.
     ///
@@ -1001,6 +1026,23 @@ impl SparseShiftInvertLanczos {
     /// Lanczos convergence target).
     fn inner_tol(&self) -> f64 {
         (self.tol * INNER_TOL_FACTOR).max(f64::EPSILON)
+    }
+
+    /// [`Self::build_inner`], plus the faer sequential scope the backend's
+    /// Lanczos loop runs under (issue #946, see
+    /// [`InnerBackend::sequential_solve_scope`]). Keep the second value bound
+    /// for as long as the backend is used: the scope ends when it drops.
+    fn prepare_inner<'a>(
+        &self,
+        k: SparseColMatRef<'a, usize, f64>,
+        m: SparseColMatRef<'a, usize, f64>,
+        n_threads: usize,
+        gradient: Option<&crate::eigen::projection::InteriorGradient>,
+        dof_coords: Option<&[[f64; 3]]>,
+    ) -> Result<(InnerBackend<'a>, Option<SequentialSolveScope>), EigenError> {
+        let inner = self.build_inner(k, m, n_threads, gradient, dof_coords)?;
+        let scope = inner.sequential_solve_scope();
+        Ok((inner, scope))
     }
 
     /// Build the inner-solve backend for the configured
@@ -1295,7 +1337,7 @@ impl SparseShiftInvertLanczos {
         //    factors the edge pencil. Eigenvalues are independent of the
         //    thread count and the preconditioner — the
         //    `eigenpairs_agree_across_thread_counts` test is the gate.
-        let inner = self.build_inner(k, m, n_threads, gradient, dof_coords)?;
+        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient, dof_coords)?;
 
         // 2. Run Lanczos to convergence, retaining the full M-orthonormal
         //    basis V_k. Unlike the eigenvalue-only path we always run to
@@ -1422,7 +1464,7 @@ impl SparseShiftInvertLanczos {
         if requested == 0 {
             return Ok(out);
         }
-        let inner = self.build_inner(k, m, resolve_num_threads(), None, None)?;
+        let (inner, _seq) = self.prepare_inner(k, m, resolve_num_threads(), None, None)?;
         let sigma = self.sigma;
         let mut kx = vec![0.0_f64; n];
         let mut mx = vec![0.0_f64; n];
@@ -1683,7 +1725,7 @@ impl SparseShiftInvertLanczos {
         //    factorization only in the direct path (rayon regresses the
         //    single-RHS triangular solves that follow; issue #518). See the
         //    `smallest_eigenpairs` sibling above.
-        let inner = self.build_inner(k, m, n_threads, gradient, dof_coords)?;
+        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient, dof_coords)?;
 
         // 2. Lanczos in the M-inner product.
         //
@@ -2918,6 +2960,28 @@ mod tests {
             }
         }
         assert!(ref_res.iter().all(|&r| r < 1e-9));
+    }
+
+    /// Issue #946: the two direct backends come with a faer sequential scope
+    /// for their Lanczos loop, and the matrix-free backend comes without one.
+    /// What a live scope does to faer's global parallelism is asserted in
+    /// `tests/faer_global_parallelism.rs`.
+    #[test]
+    fn direct_backends_come_with_a_sequential_scope_and_matrix_free_does_not() {
+        let (k, m) = laplacian_pencil(40);
+        let scoped = |inner: InnerSolver| {
+            let solver = SparseShiftInvertLanczos {
+                inner,
+                ..SparseShiftInvertLanczos::default()
+            };
+            let (_backend, scope) = solver
+                .prepare_inner(k.as_ref(), m.as_ref(), 1, None, None)
+                .expect("inner backend");
+            scope.is_some()
+        };
+        assert!(scoped(InnerSolver::Direct));
+        assert!(scoped(InnerSolver::DirectCustomOrder));
+        assert!(!scoped(InnerSolver::MatrixFree));
     }
 
     /// ISSUE #543 ACCEPTANCE BAR: the custom fill-reducing ordering must change

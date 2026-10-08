@@ -21,6 +21,12 @@ Optional subtrees of <run-dir>, each summarized when present:
                   V-cycle's small triangular solves fan out to the rayon pool
                   and, on an oversubscribed host, the leg is mostly system time.
   diagnostics/    one-off runs of throwaway patched builds (NOTE.txt there).
+  threading_946/  the before / after measurement of the issue #946 fix (the AMS
+                  Krylov solve now runs with faer's parallelism sequential).
+                  One ams_cpu_sweep.sh tree per build and threading mode, named
+                  <build>_<threading>[_rep<K>] with build = main (before the
+                  fix) or fix, and threading = default or rayon1
+                  (RAYON_NUM_THREADS=1). Written as [threading_fix].
 
 The Jacobi iteration counts are also compared with the committed #520 Lambda
 record (runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout) at the sizes
@@ -154,6 +160,16 @@ host = keyvals(d / "host.txt")
 cells = load_cells(d, CONFIGS, xcheck_dir=d)  # (n, label) -> dict, default threading
 st_cells = load_cells(d / "single_thread", CONFIGS[1:])  # RAYON_NUM_THREADS=1 rerun ({} if absent)
 
+
+# Issue #946 before / after trees ([] if absent): (tree name, build, threading, rep, cells).
+tf_dir = d / "threading_946"
+tf_trees = []
+for p in sorted(tf_dir.glob("*_*")) if tf_dir.is_dir() else []:
+    m = re.fullmatch(r"(main|fix)_(default|rayon1)(?:_rep(\d+))?", p.name)
+    if m and p.is_dir():
+        tf_trees.append((p.name, m.group(1), m.group(2), int(m.group(3) or 1), load_cells(p, CONFIGS)))
+tf_trees.sort(key=lambda t: (t[1] != "main", t[2] != "default", t[3]))
+
 metas = [c["meta"] for c in cells.values()]
 commits = sorted({m["git"] for m in metas})
 loads = [float(m[k].split()[0]) for m in metas for k in ("loadavg_start", "loadavg_end") if k in m]
@@ -178,6 +194,10 @@ print("#     the larger sizes are mostly kernel time (process_sys_s): the V-cycl
 print("#     small triangular solves fan out to the rayon pool on an oversubscribed")
 print("#     host. Every time RATIO in this file comes from the RAYON_NUM_THREADS=1")
 print("#     rerun in [[single_thread_cell]] / [[single_thread_comparison]].")
+if tf_trees:
+    print("#   * THAT CONTENTION IS FIXED (issue #946). The [[cell]] tables predate the")
+    print("#     fix: they are the build named in [meta]. [threading_fix] has the")
+    print("#     before / after measurement, on the same loaded machine.")
 print("#   * THE [[cell]] AND [[single_thread_cell]] TABLES MEASURE THE SHIPPED AMS")
 print("#     (edge-smoother weight 0.6). [diagnostics] shows that weight is above the")
 print("#     damped-Jacobi stability bound on this fixture and that the iteration")
@@ -249,9 +269,15 @@ for item in (
     "DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of "
     "D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS "
     "tests and this fixture before changing the constant",
-    "(ii) the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), "
-    "which fans two small solves per iteration out to the rayon pool and causes the contention "
-    "recorded here",
+    (
+        "(ii) DONE in issue #946, see [threading_fix]: the parallel sparse triangular solve inside "
+        "the V-cycle (lu_solve in eigen/ams.rs), which fanned two small solves per iteration out "
+        "to the rayon pool and caused the contention recorded in the [[cell]] tables"
+        if tf_trees
+        else "(ii) the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), "
+        "which fans two small solves per iteration out to the rayon pool and causes the contention "
+        "recorded here"
+    ),
     "(iii) only after (i) and (ii): the at-scale cells and the same-host Palace comparison, on the "
     "fixed preconditioner",
 ):
@@ -551,6 +577,11 @@ if len(rows) >= 2:
                     f"{worst[2]['time']['sys_s']:.1f} s sys. No time ratio in this file uses the "
                     "default-threading legs. Whether the parallel solve helps on an idle host was "
                     "not measured."
+                    + (
+                        " Fixed in issue #946 after these legs were run: see [threading_fix]."
+                        if tf_trees
+                        else ""
+                    )
                 )
             )
     if sw and rho:
@@ -584,6 +615,293 @@ if len(rows) >= 2:
             "Krylov method (GMRES) and a different AMS (hypre) and were not rerun here."
         )
     )
+
+# ---- issue #946 before / after (optional) ----------------------------------
+if tf_trees:
+    THREADING = {"default": "default", "rayon1": "RAYON_NUM_THREADS=1"}
+    tf_metas = [c["meta"] for *_, cs in tf_trees for c in cs.values()]
+    tf_loads = [float(m[k].split()[0]) for m in tf_metas for k in ("loadavg_start", "loadavg_end") if k in m]
+    tf_dates = sorted(m["start"] for m in tf_metas)
+    commit_of = lambda build: sorted({c["meta"]["git"] for _, b, _, _, cs in tf_trees if b == build for c in cs.values()})
+    cpu = lambda c: c["time"]["user_s"] + c["time"]["sys_s"]
+    cpu_pct = lambda c: 100 * cpu(c) / c["time"]["wall_s"]
+
+    def legs(build, threading, n, label):
+        """The finished legs of one (build, threading) at one size, one per repeat."""
+        return [
+            cs[(n, label)]
+            for _, b, t, _, cs in tf_trees
+            if b == build and t == threading and (n, label) in cs and cs[(n, label)]["finished"]
+        ]
+
+    print()
+    print("[threading_fix]")
+    print("issue = 946")
+    print(
+        "note = "
+        + q(
+            "Before / after measurement of the issue #946 fix. Before (build = main): faer's "
+            "Lu::solve_in_place, called twice per COCG iteration by the AMS V-cycle (lu_solve in "
+            "eigen/ams.rs), took its thread count from faer's process-global parallelism, by "
+            "default every core. After (build = fix): the SolverMode::Iterative back-solve holds a "
+            "SequentialSolveScope for the whole Krylov solve when the preconditioner is AMS, so "
+            "those solves run with Par::Seq. Nothing else differs between the two builds. Each "
+            "build was run with the default threading and with RAYON_NUM_THREADS=1, by "
+            "ams_cpu_sweep.sh with SKIP_XCHECK=1, one process per leg."
+        )
+    )
+    print(
+        "how_to_read = "
+        + q(
+            "LOADED DEVELOPER MACHINE, single samples. process_user_s and process_sys_s are the "
+            "signal. Wall-clock times (krylov_s, setup_s, process_wall_s) are NOT comparable "
+            "between legs: the load average changed by a factor of several during the session, "
+            "and a leg whose process_cpu_pct is well under 100 on one thread was waiting for a "
+            "CPU, not computing. process_* covers the whole process: mesh, assembly, setup and "
+            "solve."
+        )
+    )
+    print(f"run_dir = {q(tf_dir.as_posix())}")
+    print(f"trees = {[name for name, *_ in tf_trees]}")
+    print(f"main_commit = {q(', '.join(commit_of('main')))}")
+    print(f"fix_commit = {q(', '.join(commit_of('fix')))}")
+    print(f"started_between = [{q(tf_dates[0])}, {q(tf_dates[-1])}]")
+    print(f"loadavg_1min_range = [{min(tf_loads):.2f}, {max(tf_loads):.2f}]  # {ncpu} logical CPUs")
+
+    for name, build, threading, rep, cs in tf_trees:
+        for (n, label), c in sorted(cs.items(), key=lambda kv: (kv[0][0], [l for l, _ in CONFIGS].index(kv[0][1]))):
+            print()
+            print("[[threading_fix_cell]]")
+            print(f"tree = {q(name)}")
+            print(f"build = {q(build)}")
+            print(f"threading = {q(THREADING[threading])}")
+            print(f"repeat = {rep}")
+            print(f"leg = {q(c['leg'])}")
+            print(f"size_n = {n}")
+            if not c["finished"]:
+                print("finished = false")
+                continue
+            print(f"n_edges = {c['n_edges']}")
+            print(f"config = {q(c['config'])}")
+            print(f"explicit_converged = {str(c['converged']).lower()}")
+            print(f"iterations = {c['iterations']}")
+            print(f"residual_rel = {sci(c['residual_rel'])}")
+            print(f"setup_s = {c['warmup_setup_s']:.3f}")
+            print(f"krylov_s = {c['warmup_krylov_s']:.3f}")
+            if c["time"]:
+                print_process(c["time"])
+            print(f"loadavg_1min_start = {c['meta']['loadavg_start'].split()[0]}")
+            print(f"port_v = [{c['port_v'][0]:.9e}, {c['port_v'][1]:.9e}]")
+
+    CATS = [("main", "default"), ("main", "rayon1"), ("fix", "default"), ("fix", "rayon1")]
+    key = lambda b, t: f"{b}_{t}"
+    result = lambda c: (c["iterations"], sci(c["residual_rel"]), f"{c['port_v'][0]:.9e}", f"{c['port_v'][1]:.9e}")
+    tf_rows = []
+    for n in sorted({n for *_, cs in tf_trees for n, _ in cs}):
+        a = {key(b, t): legs(b, t, n, "ams") for b, t in CATS}
+        if not all(a.values()):
+            continue
+        tf_rows.append((n, a))
+        ref = a["main_default"][0]
+        print()
+        print("[[threading_fix_comparison]]")
+        print(f"size_n = {n}")
+        print(f"n_edges = {ref['n_edges']}")
+        print("# AMS legs. One entry per repeat, in the order of [threading_fix].trees.")
+        for k, cs in a.items():
+            print(f"ams_iterations_{k} = {[c['iterations'] for c in cs]}")
+        for k, cs in a.items():
+            print(f"ams_process_sys_s_{k} = {fl((c['time']['sys_s'] for c in cs), 2)}")
+        for k, cs in a.items():
+            print(f"ams_process_user_s_{k} = {fl((c['time']['user_s'] for c in cs), 2)}")
+        for k, cs in a.items():
+            print(
+                f"ams_process_cpu_ms_per_iteration_{k} = {fl((1e3 * cpu(c) / c['iterations'] for c in cs), 2)}"
+                "  # (user + sys) / iterations"
+            )
+        for k, cs in a.items():
+            print(f"ams_krylov_s_{k} = {fl((c['warmup_krylov_s'] for c in cs), 2)}  # wall clock: see how_to_read")
+        for k, cs in a.items():
+            print(f"ams_process_cpu_pct_{k} = {[round(cpu_pct(c)) for c in cs]}")
+        fix_same = len({result(c) for k in ("fix_default", "fix_rayon1") for c in a[k]}) == 1
+        main_same = len({result(c) for k in ("main_default", "main_rayon1") for c in a[k]}) == 1
+        print(
+            f"fix_result_identical_across_threading = {str(fix_same).lower()}"
+            "  # iterations, residual_rel and port_v as printed, over every fix leg"
+        )
+        print(f"main_result_identical_across_threading = {str(main_same).lower()}")
+        fx = a["fix_default"][0]
+        for k in ("main_default", "main_rayon1"):
+            print(
+                f"fix_port_v_rel_diff_vs_{k} = {sci(rel_diff(fx['port_v'], a[k][0]['port_v']))}"
+                "  # from the 10 printed digits"
+            )
+        dm, df = legs("main", "default", n, "direct"), legs("fix", "default", n, "direct")
+        if dm and df:
+            print("# Direct legs, default threading: the path the fix must not touch.")
+            print(f"direct_process_user_s_main_default = {fl((c['time']['user_s'] for c in dm), 2)}")
+            print(f"direct_process_user_s_fix_default = {fl((c['time']['user_s'] for c in df), 2)}")
+            print(f"direct_setup_s_main_default = {fl((c['warmup_setup_s'] for c in dm), 2)}  # wall clock")
+            print(f"direct_setup_s_fix_default = {fl((c['warmup_setup_s'] for c in df), 2)}  # wall clock")
+            print(f"direct_process_cpu_pct_main_default = {[round(cpu_pct(c)) for c in dm]}")
+            print(f"direct_process_cpu_pct_fix_default = {[round(cpu_pct(c)) for c in df]}")
+            same = all(result(c) == result(dm[0]) for c in dm + df)
+            print(f"direct_result_identical_main_vs_fix = {str(same).lower()}")
+        ds = legs("main", "rayon1", n, "direct")
+        if dm and ds:
+            print(
+                f"direct_process_wall_s_main_rayon1_over_main_default = "
+                f"{ds[0]['time']['wall_s'] / dm[0]['time']['wall_s']:.1f}"
+                "  # the direct solver does use the threads: its LU factorization is parallel"
+            )
+
+    if tf_rows:
+        n, a = tf_rows[-1]
+        md, mr = a["main_default"][0], a["main_rayon1"][0]
+        fd, fr = a["fix_default"], a["fix_rayon1"]
+        rng = lambda vals, digits=1: (
+            f"{min(vals):.{digits}f}" if max(vals) - min(vals) < 10**-digits / 2 else f"{min(vals):.{digits}f} to {max(vals):.{digits}f}"
+        )
+        per_it = lambda cs: [1e3 * cpu(c) / c["iterations"] for c in cs]
+        all_fix_same = all(
+            len({result(c) for k in ("fix_default", "fix_rayon1") for c in a_[k]}) == 1 for _, a_ in tf_rows
+        )
+        print()
+        print("[threading_fix.finding]")
+        print(f"largest_size_edges = {md['n_edges']}")
+        print(
+            "contention = "
+            + q(
+                f"At {md['n_edges']} edges with the default threading, the AMS leg's kernel time went "
+                f"from {md['time']['sys_s']:.0f} s before the fix to {rng([c['time']['sys_s'] for c in fd])} s "
+                f"after it, and its user time from {md['time']['user_s']:.0f} s to "
+                f"{rng([c['time']['user_s'] for c in fd], 0)} s. With RAYON_NUM_THREADS=1 the kernel time was "
+                f"{mr['time']['sys_s']:.1f} s before and {rng([c['time']['sys_s'] for c in fr])} s after. "
+                "The scope changes nothing but faer's global parallelism during the Krylov solve, and "
+                "the only faer calls in that solve are the two lu_solve calls per iteration, so the "
+                "contention was in those calls."
+            )
+        )
+        print(
+            "cost = "
+            + q(
+                f"CPU time per AMS iteration at {md['n_edges']} edges, whole process: "
+                f"{per_it([md])[0]:.0f} ms before the fix with the default threading and "
+                f"{per_it([mr])[0]:.0f} ms with RAYON_NUM_THREADS=1; after the fix "
+                f"{rng(per_it(fd), 0)} ms with the default threading and {rng(per_it(fr), 0)} ms with "
+                "RAYON_NUM_THREADS=1. After the fix the two modes run the same sequential code, so "
+                "the spread between them and between repeats is the host, not the solver. "
+                "Wall-clock times were not comparable in this session (see how_to_read), so no "
+                "wall-clock speedup is quoted."
+            )
+        )
+        print(f"fix_result_identical_across_threading_at_every_size = {str(all_fix_same).lower()}")
+        print(
+            "results = "
+            + q(
+                "After the fix the default-threading and RAYON_NUM_THREADS=1 legs agree in "
+                "iteration count, explicit residual and port voltage to every printed digit at "
+                "every size"
+                + ("" if all_fix_same else " EXCEPT where fix_result_identical_across_threading is false")
+                + ". Before the fix they did not: the parallel and the one-thread triangular solve "
+                "differ in roundoff, and at the shipped smoother weight a slowly converging solve "
+                "amplifies that into a different iteration count. For the same reason the fix "
+                "build does not reproduce either main iteration count exactly: faer's Par::Seq "
+                "solve differs in roundoff from its Par::rayon solve even on one thread. Every "
+                "leg met the same 1e-8 explicit-residual tolerance, and the port voltages of the "
+                "two builds agree to the fix_port_v_rel_diff_* values above."
+            )
+        )
+        print(
+            "not_measured = "
+            + q(
+                "An idle host; whether a parallel triangular solve would pay at node counts far "
+                f"above the {md['n_edges']}-edge case; the AMS setup, whose coarse factorization "
+                "still runs at the caller's thread count; and concurrent solves (the CLI's --jobs)."
+            )
+        )
+
+# ---- issue #946: the eigen direct shift-invert loop (optional) ---------------
+eig_dir = tf_dir / "eigen_loop"
+if eig_dir.is_dir():
+
+    def eig_run(path):
+        txt = path.read_text()
+        m = re.search(r"diag946 n=(\d+) dofs=(\d+) nev=(\d+) seq_loop=(\w+) solve_s=([\d.]+) par_after=(\S+)", txt)
+        c = re.search(r"diag946 solve_user_s=([\d.]+) solve_sys_s=([\d.]+)", txt)
+        return {
+            "n": int(m.group(1)),
+            "dofs": int(m.group(2)),
+            "nev": int(m.group(3)),
+            "solve_s": float(m.group(5)),
+            "user_s": float(c.group(1)),
+            "sys_s": float(c.group(2)),
+            "lambdas": re.findall(r"diag946 lambda\[\d+\] = (\S+)", txt),
+        }
+
+    EIG_MODES = {
+        "default": "default threading",
+        "seqloop": "default threading, with the Lanczos loop made sequential from the test (ParallelismGuard::cap(1) around the eigensolve)",
+        "rayon1": "RAYON_NUM_THREADS=1",
+    }
+    eig = {p.stem: eig_run(p) for p in sorted(eig_dir.glob("*_*.stdout"))}
+    first = next(iter(eig.values()))
+    print()
+    print("[threading_fix.eigen_loop]")
+    print(
+        "note = "
+        + q(
+            "The same pattern in the direct shift-invert Lanczos loop (eigen/lanczos.rs): one "
+            "sparse triangular solve per step, on faer's global parallelism. Measured with a "
+            "throwaway test (eigen_loop/diag946_eigen_loop.rs, NOTE.txt), not part of the "
+            "benchmark: a scalar P1 pencil on cube_tet_mesh, SparseShiftInvertLanczos::default(). "
+            "solve_user_s and solve_sys_s are getrusage deltas around the eigensolve alone "
+            "(factorization plus Lanczos loop). One retained sample per row, same loaded machine; "
+            "NOTE.txt lists the repeats."
+        )
+    )
+    print(f"run_dir = {q(eig_dir.as_posix())}")
+    print(f"mesh_n = {first['n']}")
+    print(f"dofs = {first['dofs']}")
+    print(f"modes_requested = {first['nev']}")
+    for name, r in sorted(eig.items(), key=lambda kv: (not kv[0].startswith("main"), list(EIG_MODES).index(kv[0].split("_", 1)[1]))):
+        build, mode = name.split("_", 1)
+        print()
+        print("[[threading_fix.eigen_loop.run]]")
+        print(f"build = {q(build)}")
+        print(f"threading = {q(EIG_MODES[mode])}")
+        print(f"solve_user_s = {r['user_s']:.3f}")
+        print(f"solve_sys_s = {r['sys_s']:.3f}")
+        print(f"solve_s = {r['solve_s']:.3f}  # wall clock, loaded machine")
+    same = lambda a, b: a in eig and b in eig and eig[a]["lambdas"] == eig[b]["lambdas"]
+    print()
+    print("[threading_fix.eigen_loop.finding]")
+    if "main_default" in eig and "main_seqloop" in eig and "fix_default" in eig:
+        md, ms, fd = eig["main_default"], eig["main_seqloop"], eig["fix_default"]
+        print(
+            "contention = "
+            + q(
+                f"Yes. Before the fix the eigensolve used {md['sys_s']:.1f} s of kernel time with the "
+                f"default threading and {ms['sys_s']:.1f} s with only the Lanczos loop made "
+                f"sequential ({md['user_s']:.1f} s and {ms['user_s']:.1f} s of user time). What remains "
+                "is attributed to the factorization, the only faer call still on the rayon pool; "
+                "that part was not measured separately. The direct backends now hold the "
+                f"same SequentialSolveScope for the loop: the fix build used {fd['sys_s']:.1f} s of "
+                f"kernel time and {fd['user_s']:.1f} s of user time with the default threading."
+            )
+        )
+    print(
+        f"eigenvalues_identical_default_vs_single_thread_before = {str(same('main_default', 'main_rayon1')).lower()}"
+        "  # all printed modes, 17 significant digits"
+    )
+    print(f"eigenvalues_identical_default_vs_single_thread_after = {str(same('fix_default', 'fix_rayon1')).lower()}")
+    print(f"eigenvalues_identical_fix_default_vs_main_sequential_loop = {str(same('fix_default', 'main_seqloop')).lower()}")
+    if "main_default" in eig and "fix_default" in eig:
+        a, b = eig["main_default"]["lambdas"], eig["fix_default"]["lambdas"]
+        print(
+            f"eigenvalue_max_rel_diff_fix_vs_main_default = "
+            f"{sci(max(abs(float(x) - float(y)) / abs(float(y)) for x, y in zip(a, b)))}"
+        )
 
 # ---- diagnostics (optional) ------------------------------------------------
 # One-off runs of throwaway patched builds (diagnostics/NOTE.txt). Iteration

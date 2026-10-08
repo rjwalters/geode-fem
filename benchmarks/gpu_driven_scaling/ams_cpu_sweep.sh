@@ -29,10 +29,12 @@
 #      SKIP_XCHECK=1 (skip the combined cross-check leg),
 #      SKIP_DIRECT=1 (skip the Direct legs: sizes whose LU does not fit; the
 #      port voltage then has no Direct reference),
-#      RAYON_NUM_THREADS (inherited by every leg and recorded in <leg>.meta;
-#      set it to 1 for timings on a shared host: the V-cycle's small sparse
-#      triangular solves otherwise fan out to the rayon pool and, on an
-#      oversubscribed machine, spend most of the leg in system time).
+#      RAYON_NUM_THREADS (inherited by every leg and recorded in <leg>.meta.
+#      Before issue #946 the AMS legs needed it set to 1 for timings on a
+#      shared host: the V-cycle's small sparse triangular solves fanned out to
+#      the rayon pool and spent most of the leg in system time. The AMS Krylov
+#      solve now runs those solves sequentially at any setting; the Direct
+#      legs still use every thread for the LU factorization).
 # Then: summarize_ams_local.py <out-dir>
 set -euo pipefail
 OUT=$1; shift

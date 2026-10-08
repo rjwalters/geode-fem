@@ -1,0 +1,9 @@
+leg=n15_direct bin=/Volumes/Stripe/cargo-target-issue-946/release/deps/gpu_driven_scaling-e770a24497c61984
+start=2026-10-08T08:24:38Z
+loadavg_start=56.35 72.34 104.36
+rayon_num_threads=unset
+git=2803aa9614927864066c8c12d93eae8bd287e033 dirty=0
+env: GEODE_SCALING_SIZES=15 GEODE_SCALING_CONFIGS=direct GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1
+end=2026-10-08T08:24:42Z
+loadavg_end=62.16 73.28 104.50
+rc=0

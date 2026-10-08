@@ -4470,15 +4470,10 @@ mod tests {
     /// Krylov solve runs, both when the solve converges and when it returns an
     /// error, and a Jacobi back-solve holds none. What a live scope does to
     /// faer's global parallelism, and that the caller's value comes back, is
-    /// asserted in `tests/driven_ams_sequential_scope.rs`, which has the
-    /// process to itself.
+    /// asserted in `tests/faer_global_parallelism.rs`, which has the process
+    /// to itself.
     #[test]
     fn ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not() {
-        // AMS solves set faer's global parallelism, so this test runs under
-        // the lock of the tests that read that global.
-        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let mesh = cube_tet_mesh(4, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
         let eps = vacuum(&mesh);
@@ -4546,11 +4541,6 @@ mod tests {
     /// `A(ω)`) rejects it with a clean error.
     #[test]
     fn ams_selectable_on_public_iterative_path_matches_direct() {
-        // This test's AMS solves set faer's global parallelism (issue #946),
-        // so it runs under the lock of the tests that read that global.
-        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let mesh = cube_tet_mesh(4, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
         let eps = vacuum(&mesh);

@@ -32,7 +32,7 @@ README only explains what is in the directory.
 | `results_ams_cpu_local.toml` | The #930 local record: assembled COCG with the Jacobi preconditioner against the same COCG with geode's AMS preconditioner, with Direct as the accuracy reference. Generated, not hand-edited |
 | `ams_cpu_sweep.sh` | Runs the test once per (size, config) in its own process under `/usr/bin/time` (macOS `-l` or GNU `-v`), plus one combined cross-check process per size. Writes `<leg>.stdout`, `.err`, `.time`, `.meta` and `host.txt` |
 | `summarize_ams_local.py` | Writes `results_ams_cpu_local.toml` to stdout from an `ams_cpu_sweep.sh` run tree |
-| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these) and `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) |
+| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) and `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
 
@@ -90,6 +90,14 @@ For timings, rerun the two iterative legs single-threaded into the
 RAYON_NUM_THREADS=1 SKIP_DIRECT=1 benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh <run-dir>/single_thread 6 9 12 15 20 24
 ```
 
+A before / after comparison of two builds goes into `threading_946/`, one
+tree per build and threading mode, named `<build>_<threading>[_rep<K>]` with
+build `main` or `fix` and threading `default` or `rayon1`:
+
+```sh
+SKIP_XCHECK=1 benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh <run-dir>/threading_946/fix_default 15 20 24
+```
+
 Running the summarizer over the committed `runs/2026-10-08_local_ams/`
 reproduces the committed file byte for byte. The AMS config is opt-in
 (`GEODE_SCALING_CONFIGS=...,iterative_ams`); the default config set and its
@@ -121,7 +129,8 @@ Iteration counts. The two diagnostic columns are single runs of a throwaway
 patched build, not shipped code. The shipped column is the default-threading
 run; single-threaded, its last three counts were 532, 1 683 and 2 234 (serial
 and parallel triangular solves differ in roundoff, and a slowly converging
-solve amplifies it).
+solve amplifies it). Those counts are from before the #946 threading fix; with
+it both modes give 533, 1 693 and 2 270 (next section).
 
 What the shipped AMS does (`[[cell]]`, `[[single_thread_cell]]`, `[finding]`):
 
@@ -136,14 +145,15 @@ What the shipped AMS does (`[[cell]]`, `[[single_thread_cell]]`, `[finding]`):
   (`RAYON_NUM_THREADS=1`), one AMS iteration cost 18× to 26× a Jacobi
   iteration, and the AMS solve took 1.7× to 11.1× as long as the Jacobi solve.
   These are single samples and the factors are indicative.
-- **The default-threading AMS timings are not the cost of AMS.** The V-cycle
-  does two small sparse triangular solves per iteration, and they fan out to
-  the rayon pool. On this oversubscribed host that became kernel time: the
-  102k-edge AMS leg used 168 s of user time and 487 s of system time for a
-  274 s solve, and the same solve single-threaded took 93 s with 0.5 s of
-  system time. The file records user and system seconds per cell and takes no
-  time ratio from the default-threading legs. Whether the parallel solve helps
-  on an idle host was not measured.
+- **The default-threading AMS timings are not the cost of AMS.** In the build
+  these tables measured, the V-cycle's two small sparse triangular solves per
+  iteration fanned out to the rayon pool. On this oversubscribed host that
+  became kernel time: the 102k-edge AMS leg used 168 s of user time and 487 s
+  of system time for a 274 s solve, and the same solve single-threaded took
+  93 s with 0.5 s of system time. The file records user and system seconds per
+  cell and takes no time ratio from the default-threading legs. Whether the
+  parallel solve helps on an idle host was not measured. This is fixed in #946
+  (next section); the `[[cell]]` tables were not rerun.
 
 Why (`[diagnostics]`, from `runs/2026-10-08_local_ams/diagnostics/`):
 
@@ -190,13 +200,107 @@ Recommended follow-ups, in this order. None is done or filed here:
 1. A library issue for the AMS edge smoother: take the weight from an estimate
    of the spectral radius, or use an l1-Jacobi smoother, and validate on the
    spiral, the transmon AMS tests and this fixture.
-2. The parallel triangular solve inside the V-cycle, which causes the rayon
-   contention above.
+2. The parallel triangular solve inside the V-cycle, which caused the rayon
+   contention above. Done in #946 (next section).
 3. Only then, the sizes above 102k edges and the same-host Palace comparison,
    on the fixed preconditioner.
 
 Also not done: the decision on the default preconditioner and the matrix-free
 / GPU AMS follow-up. Issue #930 stays open.
+
+## The AMS thread contention, before and after #946
+
+`[threading_fix]` in `results_ams_cpu_local.toml`, from
+`runs/2026-10-08_local_ams/threading_946/`. Same fixture, same loaded
+developer machine, single samples.
+
+**What was wrong.** Each AMS application solves with a cached sparse LU twice,
+through faer's `Lu::solve_in_place`. That call takes its thread count from a
+process-global faer setting, which defaults to every core, so two small
+triangular solves per COCG iteration went out to the rayon pool. The threads
+spent their time contending for work.
+
+**The fix.** The `SolverMode::Iterative` back-solve now holds a
+`SequentialSolveScope` for the whole Krylov solve when the preconditioner is
+AMS. The preconditioner setup, the other preconditioners and the direct solver
+are untouched.
+
+AMS leg, whole process (mesh, assembly, setup and solve). `main` is
+`origin/main` at `2803aa96`. The two values in a `fix` cell are two repeats:
+
+| edges | build | threading | iterations | user s | sys s |
+|---|---|---|---|---|---|
+| 25 695 | main | default | 533 | 7.3 | 13.0 |
+| 25 695 | main | `RAYON_NUM_THREADS=1` | 532 | 5.3 | 0.1 |
+| 25 695 | fix | default | 533 | 5.4, 5.3 | 0.2, 0.4 |
+| 25 695 | fix | `RAYON_NUM_THREADS=1` | 533 | 6.1, 5.5 | 0.2, 0.1 |
+| 59 660 | main | default | 1 741 | 67.7 | 187.8 |
+| 59 660 | main | `RAYON_NUM_THREADS=1` | 1 683 | 41.3 | 0.4 |
+| 59 660 | fix | default | 1 693 | 44.2, 42.8 | 0.5, 0.6 |
+| 59 660 | fix | `RAYON_NUM_THREADS=1` | 1 693 | 43.4, 43.6 | 0.4, 0.4 |
+| 102 024 | main | default | 2 209 | 173.5 | 646.5 |
+| 102 024 | main | `RAYON_NUM_THREADS=1` | 2 234 | 96.8 | 0.6 |
+| 102 024 | fix | default | 2 270 | 110.1, 101.8 | 1.1, 1.2 |
+| 102 024 | fix | `RAYON_NUM_THREADS=1` | 2 270 | 99.5, 106.0 | 0.7, 0.7 |
+
+- **The kernel time is gone.** At 102k edges it went from 646 s to about 1 s
+  with the default threading. CPU time per iteration, whole process: 371 ms
+  before, 45 to 49 ms after, against 44 to 47 ms with `RAYON_NUM_THREADS=1`.
+- **Default threading now costs the same as one thread.** After the fix the
+  two modes run the same sequential code. The spread between them is no
+  larger than the spread between repeats of one mode, and at 102k edges in the
+  second pair the default-threading leg used less CPU time than the
+  single-threaded one.
+- **No wall-clock speedup is quoted.** The 1-minute load average ran from 24
+  to 197 on 28 CPUs during these runs. Several single-threaded legs got well
+  under one CPU (`process_cpu_pct` in the file), so their wall-clock times
+  measure the host. The file records them and flags this.
+- **Where the contention was.** The scope changes only faer's global
+  parallelism during the Krylov solve, and the only faer calls in that solve
+  are the two `lu_solve` calls per iteration (`eigen/ams.rs`). Making them
+  sequential removed the kernel time, so it was in those calls.
+- **The results agree to roundoff, and are not bit-identical to `main`.** After
+  the fix the default-threading and single-threaded legs agree in iteration
+  count, explicit residual and port voltage to every printed digit at all
+  three sizes. Before it they did not (2 209 against 2 234 iterations at 102k
+  edges). The fix build reproduces neither `main` count exactly, because
+  faer's `Par::Seq` solve differs in roundoff from its rayon solve even on one
+  thread, and at the shipped smoother weight a slowly converging solve
+  amplifies roundoff into a different count. Every leg met the same 1e-8
+  explicit-residual tolerance, and the port voltages of the two builds agree to
+  1.1e-11 or better (from the 10 printed digits).
+- **The direct solver is unaffected.** Its path is not touched. The Direct legs
+  give the same port voltage and residual in both builds, and the same user
+  time: 236 s on `main`, 237 s and 239 s on the fix build at 102k edges. The
+  direct solver does use the threads: on `main` the same leg took 210 s of
+  wall clock with `RAYON_NUM_THREADS=1` against 33 s (neither leg was short of
+  CPU: 96% and 886%).
+
+**The same pattern in the eigensolver** (`[threading_fix.eigen_loop]`). The
+direct shift-invert Lanczos loop runs one sparse triangular solve per step, on
+the same global setting. A throwaway test (24 389 DOFs, 20 modes; stored under
+`threading_946/eigen_loop/`) measured the eigensolve alone:
+
+| build | threading | user s | sys s |
+|---|---|---|---|
+| main | default | 5.3 | 10.7 |
+| main | default, Lanczos loop made sequential from the test | 3.6 | 4.4 |
+| main | `RAYON_NUM_THREADS=1` | 2.7 | 0.1 |
+| fix | default | 3.6 | 2.4 |
+| fix | `RAYON_NUM_THREADS=1` | 2.5 | 0.1 |
+
+One retained sample per row. The repeats in `eigen_loop/NOTE.txt` span 10.7 to
+15.7 s of system time for `main` with the default threading and 2.3 to 7.2 s
+for the fix build. The system time that remains is attributed to the
+factorization, which is still parallel and was not measured separately. The
+direct eigen backends now hold the same scope for the loop. The 20 eigenvalues
+are bit-identical between the two threading modes after the fix (they were not
+before), and differ from `main`'s by at most 4.2e-12 relative.
+
+Not measured: an idle host; sizes above 102k edges, where a parallel triangular
+solve might pay; the complex shift-invert Lanczos loop and the matrix-free
+eigen paths with an LU coarse solve, which have the same structure and are not
+changed; and concurrent solves (the CLI's `--jobs`).
 
 The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
 are identical to the Lambda record's, which is the only cross-host statement
