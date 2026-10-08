@@ -60,7 +60,10 @@
 //!   S-matrix; wave ports define no port impedance. Leontovich (incl.
 //!   rough) and Silver-Müller walls join the base operator (issue #776);
 //!   the port modes stay PEC-rim modes, so a Silver-Müller wall may not
-//!   touch a port rim (`problem::load` rejects it).
+//!   touch a port rim (`problem::load` rejects it). Each geometric port's
+//!   degeneracy notes (issue #923: an ambiguous p=1 / p=2 gap ratio, a
+//!   near-degenerate distinct pair) are report `warnings[]`, computed once
+//!   per run by [`wave_port_degeneracy_warnings`]; they change nothing else.
 //! * **Mixed lumped + wave ports** (issue #759) run
 //!   [`solve_mixed_port_sweep_with_mode`] instead: the lumped loads join
 //!   the base operator, the modal terms the same SMW update, and the
@@ -113,16 +116,17 @@ use geode_core::driven::extraction::{
     SMatrix, SParameterSweepPoint, s_parameter_operator, s_parameter_point, z_from_port_readbacks,
 };
 use geode_core::driven::ports::{
-    LumpedPort, MixedPortSweepPoint, WavePort, WavePortSweepPoint,
-    solve_mixed_port_sweep_with_mode, solve_wave_port_sweep_with_mode,
+    CandidateConfirmation, DegenerateCandidate, LumpedPort, MixedPortSweepPoint,
+    PortFaceProjection, WavePort, WavePortSweepPoint, solve_mixed_port_sweep_with_mode,
+    solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::rom::{
     DrivenRom, RomDrive, RomError, RomExcitationPoint, RomScatteringPoint, RomSettings,
 };
 use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativeSettings, SolverMode,
-    SurfaceImpedanceBc, SurfaceImpedanceModel,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, ElementOrder, IterativeSettings,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 use geode_core::postproc::ntff::{
     broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
@@ -246,7 +250,20 @@ pub fn run(
                  nothing exported"
             );
         }
-        wave_sweep(&p, opts)?
+        // The degeneracy notes of the geometric wave ports (issue #923),
+        // once per run and before the 3-D solve, so a long sweep prints
+        // them up front. Warnings only: nothing below reads them.
+        let (mut warnings, unavailable) = wave_port_degeneracy_warnings(&p);
+        let (results, solver, wave_ports, sweep_warnings) = wave_sweep(&p, opts)?;
+        // A failed diagnostic solve is reported only once the sweep itself
+        // has succeeded (the sweep's own mode solve fails with the same
+        // error, which is then the run's error).
+        for w in &unavailable {
+            eprintln!("warning: {}", w.message);
+        }
+        warnings.extend(unavailable);
+        warnings.extend(sweep_warnings);
+        (results, solver, wave_ports, warnings)
     };
     // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
     // the `sensitivity` section only for a one-lumped-port direct dense
@@ -1136,6 +1153,139 @@ pub(crate) fn passivity_warnings(results: &[FrequencyResult]) -> Vec<WarningResu
     vec![w]
 }
 
+/// Element order of the CLI's geometric wave-port face solves: `geode driven`
+/// has no element-order field yet (Epic #836 Phase 5a), so every geometric
+/// port's modes are the p=1 ones of [`PortFaceProjection::wave_port`]. The
+/// degeneracy notes (issue #923) are computed at this order, so the gap they
+/// quote is the gap of the modes the report carries (`wave_ports[].modes`).
+/// The decision itself compares the face's p=1 and p=2 solves whichever
+/// order the port runs at, so a p=2 port of the same face gets the same
+/// kinds for the same pairs (`degeneracy_kinds_do_not_depend_on_the_order`).
+pub(crate) const GEOMETRIC_PORT_ORDER: ElementOrder = ElementOrder::P1;
+
+/// Report `kind` of the ambiguous-ratio degeneracy note (issue #923).
+pub(crate) const DEGENERACY_AMBIGUOUS: &str = "wave_port_degeneracy_ambiguous";
+/// Report `kind` of the near-degenerate distinct-pair note (issue #923).
+pub(crate) const DEGENERACY_NEAR_DEGENERATE: &str = "wave_port_degeneracy_near_degenerate";
+/// Report `kind` of a candidate pair whose confirming solve failed (issue
+/// #923).
+pub(crate) const DEGENERACY_UNCONFIRMED: &str = "wave_port_degeneracy_unconfirmed";
+/// Report `kind` of a port whose degeneracy check could not run (issue
+/// #923).
+pub(crate) const DEGENERACY_UNAVAILABLE: &str = "wave_port_degeneracy_unavailable";
+
+/// The notes of one candidate pair, one `(kind, text)` per note
+/// ([`DegenerateCandidate::warning`] joins them with `"; "` into one
+/// string). Each text is the library's own: the candidate is asked again
+/// with the other note's trigger masked (a zero discretization error cannot
+/// be "unresolved" at an ambiguous ratio, whose p=2 gap is positive; a zero
+/// p=1 gap has ratio `∞`, outside the band), and neither masked number is
+/// printed by the note that remains.
+fn candidate_notes(c: &DegenerateCandidate) -> Vec<(&'static str, String)> {
+    let Some(conf) = c.confirmation else {
+        return c
+            .warning()
+            .map(|m| (DEGENERACY_UNCONFIRMED, m))
+            .into_iter()
+            .collect();
+    };
+    let mut notes = Vec::new();
+    if conf.ambiguous() {
+        let mut only = *c;
+        only.confirmation = Some(CandidateConfirmation {
+            discretization_error: 0.0,
+            ..conf
+        });
+        notes.extend(only.warning().map(|m| (DEGENERACY_AMBIGUOUS, m)));
+    }
+    if !c.degenerate && conf.unresolved() {
+        let mut only = *c;
+        only.confirmation = Some(CandidateConfirmation {
+            gap_p1: 0.0,
+            ..conf
+        });
+        notes.extend(only.warning().map(|m| (DEGENERACY_NEAR_DEGENERATE, m)));
+    }
+    notes
+}
+
+/// The degeneracy warnings of one geometric wave port (issue #923): every
+/// note of the candidate pairs among its `n_modes` lowest face modes at
+/// `order` ([`PortFaceProjection::degenerate_candidates`]), one
+/// [`WarningResult`] per note. `Err` is the single
+/// `"wave_port_degeneracy_unavailable"` warning of a face whose check
+/// could not run.
+fn port_degeneracy_warnings(
+    index: usize,
+    name: &str,
+    projection: &PortFaceProjection,
+    n_modes: usize,
+    order: ElementOrder,
+) -> Result<Vec<WarningResult>, WarningResult> {
+    let warning = |kind, message| WarningResult {
+        kind,
+        wave_port: Some(index),
+        physical_group: Some(name.to_string()),
+        message,
+    };
+    let candidates = projection
+        .degenerate_candidates(n_modes, order)
+        .map_err(|e| {
+            warning(
+                DEGENERACY_UNAVAILABLE,
+                format!(
+                    "wave port `{name}`: the degeneracy check of its {n_modes} mode(s) could not \
+                     run ({e}), so an ambiguous or near-degenerate mode pair on this face would \
+                     go unreported"
+                ),
+            )
+        })?;
+    Ok(candidates
+        .iter()
+        .flat_map(candidate_notes)
+        .map(|(kind, note)| warning(kind, format!("wave port `{name}`: {note}")))
+        .collect())
+}
+
+/// The degeneracy warnings of every **geometric** wave port of the spec
+/// (issue #923; hybrid ports have core's own cluster diagnostics), in port
+/// order: `(notes, unavailable)`. The notes are printed on stderr here; the
+/// `unavailable` ones (a face whose check failed) are left to the caller,
+/// which reports them only if the sweep itself succeeds.
+///
+/// Called once per `geode driven` run, by [`run`], which is the one place
+/// every output of the run (report, `--touchstone`, sensitivities) hangs
+/// from. Warnings only: the cluster decision is the library's
+/// ([`PortFaceProjection::wave_port`] makes it again, bit for bit), and
+/// nothing reads these to change S, the Touchstone file or the exit status.
+///
+/// Cost: one more raw face mode solve per geometric port, plus the
+/// confirming other-order solve when the face has a candidate pair.
+pub(crate) fn wave_port_degeneracy_warnings(
+    p: &Problem,
+) -> (Vec<WarningResult>, Vec<WarningResult>) {
+    let (mut notes, mut unavailable) = (Vec::new(), Vec::new());
+    for (index, w) in p.wave_ports.iter().enumerate() {
+        if w.hybrid.is_some() {
+            continue;
+        }
+        match port_degeneracy_warnings(
+            index,
+            &w.surface.name,
+            &w.projection,
+            w.a_inc.len(),
+            GEOMETRIC_PORT_ORDER,
+        ) {
+            Ok(ws) => notes.extend(ws),
+            Err(w) => unavailable.push(w),
+        }
+    }
+    for w in &notes {
+        eprintln!("warning: {}", w.message);
+    }
+    (notes, unavailable)
+}
+
 /// Emit the `point` progress event of wave / mixed report row `index`.
 pub(crate) fn emit_channel_point(
     progress: &Progress,
@@ -1627,6 +1777,178 @@ mod tests {
             residual_indicator: residual,
             excitations,
         }
+    }
+
+    /// The `z = 0` port face of a committed geode-core Gmsh guide.
+    fn fixture_face(fixture: &str) -> PortFaceProjection {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures")
+            .join(fixture);
+        let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(path).unwrap())
+            .unwrap()
+            .mesh;
+        let faces: Vec<[u32; 3]> = mesh
+            .boundary_faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-9))
+            .collect();
+        geode_core::driven::ports::project_port_face(&mesh, &faces).unwrap()
+    }
+
+    fn kinds(ws: &[WarningResult]) -> Vec<&'static str> {
+        ws.iter().map(|w| w.kind).collect()
+    }
+
+    fn candidate(gap_p1: f64, gap_p2: f64, err: f64, degenerate: bool) -> DegenerateCandidate {
+        DegenerateCandidate {
+            index: 4,
+            order: ElementOrder::P1,
+            gap: gap_p1,
+            confirmation: Some(CandidateConfirmation {
+                gap_p1,
+                gap_p2,
+                discretization_error: err,
+            }),
+            degenerate,
+        }
+    }
+
+    /// Issue #923: [`candidate_notes`] is the library's
+    /// [`DegenerateCandidate::warning`] split by kind — the texts, joined
+    /// as the library joins them, are that warning exactly — on synthetic
+    /// pairs of every kind (both notes at once included) and on every
+    /// candidate of the committed Gmsh faces.
+    #[test]
+    fn candidate_notes_are_the_library_notes_split_by_kind() {
+        let both = candidate(0.01, 0.006, 0.002, false);
+        let mut unconfirmed = both;
+        unconfirmed.confirmation = None;
+        let cases = [
+            (both, vec![DEGENERACY_AMBIGUOUS, DEGENERACY_NEAR_DEGENERATE]),
+            // Ambiguous, decided one cluster: never a "distinct pair".
+            (
+                candidate(0.01, 0.0045, 0.002, true),
+                vec![DEGENERACY_AMBIGUOUS],
+            ),
+            // Ambiguous and distinct, but resolved (error < 0.1 of the gap).
+            (
+                candidate(0.01, 0.006, 0.0005, false),
+                vec![DEGENERACY_AMBIGUOUS],
+            ),
+            // Clear ratio, distinct, unresolved.
+            (
+                candidate(0.01, 0.012, 0.002, false),
+                vec![DEGENERACY_NEAR_DEGENERATE],
+            ),
+            (unconfirmed, vec![DEGENERACY_UNCONFIRMED]),
+            // Clear decisions: a degenerate cluster, a resolved distinct pair.
+            (candidate(0.01, 0.001, 0.002, true), vec![]),
+            (candidate(0.01, 0.012, 0.0005, false), vec![]),
+        ];
+        let mut all: Vec<(DegenerateCandidate, Option<Vec<&str>>)> =
+            cases.into_iter().map(|(c, k)| (c, Some(k))).collect();
+        for fixture in [
+            "guide_box_lc030.msh",
+            "guide_box_lc022.msh",
+            "guide_box_lc018.msh",
+            "guide_coax_lc018_015.msh",
+        ] {
+            let face = fixture_face(fixture);
+            for order in [ElementOrder::P1, ElementOrder::P2] {
+                let cs = face.degenerate_candidates(6, order).unwrap();
+                assert!(!cs.is_empty(), "{fixture}: a candidate pair");
+                all.extend(cs.into_iter().map(|c| (c, None)));
+            }
+        }
+        for (c, want) in all {
+            let notes = candidate_notes(&c);
+            if let Some(want) = want {
+                assert_eq!(notes.iter().map(|n| n.0).collect::<Vec<_>>(), want, "{c:?}");
+            }
+            let joined = notes
+                .iter()
+                .map(|n| n.1.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            assert_eq!((!notes.is_empty()).then_some(joined), c.warning(), "{c:?}");
+        }
+    }
+
+    /// Issue #923, the order choice ([`GEOMETRIC_PORT_ORDER`]): the CLI's
+    /// ports are p=1, and the notes of a p=2 solve of the same face are of
+    /// the same kinds for the same pair — the decision compares the p=1 and
+    /// p=2 gaps whichever order asks. Only the quoted gap is the asking
+    /// order's. Measured kinds on the Gmsh `2 × 0.9` faces: ambiguous at
+    /// `lc` 0.30, ambiguous and near-degenerate at 0.22, near-degenerate at
+    /// 0.18.
+    #[test]
+    fn degeneracy_kinds_do_not_depend_on_the_order() {
+        assert_eq!(GEOMETRIC_PORT_ORDER, ElementOrder::P1);
+        for (fixture, want) in [
+            ("guide_box_lc030.msh", vec![DEGENERACY_AMBIGUOUS]),
+            (
+                "guide_box_lc022.msh",
+                vec![DEGENERACY_AMBIGUOUS, DEGENERACY_NEAR_DEGENERATE],
+            ),
+            ("guide_box_lc018.msh", vec![DEGENERACY_NEAR_DEGENERATE]),
+        ] {
+            let face = fixture_face(fixture);
+            for (order, digit) in [(ElementOrder::P1, 1), (ElementOrder::P2, 2)] {
+                let ws = port_degeneracy_warnings(3, "port_in", &face, 6, order).unwrap();
+                assert_eq!(kinds(&ws), want, "{fixture} {order:?}");
+                for w in &ws {
+                    assert_eq!(w.wave_port, Some(3));
+                    assert_eq!(w.physical_group.as_deref(), Some("port_in"));
+                    assert!(
+                        w.message
+                            .starts_with("wave port `port_in`: port-face modes 4 / 5 (")
+                            && w.message.contains(&format!("at p={digit})")),
+                        "{fixture} {order:?}: {}",
+                        w.message
+                    );
+                }
+            }
+        }
+    }
+
+    /// Issue #923: a truly degenerate cluster is not warned about. The
+    /// committed coax guide's geometric face has candidate pairs among its
+    /// eight lowest modes (the TE₁₁ pair first), every one decided one
+    /// cluster at a clear ratio, so it gets no warning at either order.
+    /// (Through `geode driven` a coax face is a hybrid port, which this
+    /// path skips; this is its geometric face directly.)
+    #[test]
+    fn a_truly_degenerate_cluster_gets_no_degeneracy_warning() {
+        let face = fixture_face("guide_coax_lc018_015.msh");
+        for order in [ElementOrder::P1, ElementOrder::P2] {
+            let cs = face.degenerate_candidates(8, order).unwrap();
+            assert!(
+                cs.len() >= 3 && cs.iter().all(|c| c.degenerate),
+                "{order:?}: {cs:?}"
+            );
+            assert_eq!(cs[0].index, 0, "{order:?}: the TE11 pair");
+            let ws = port_degeneracy_warnings(0, "port_in", &face, 8, order).unwrap();
+            assert!(ws.is_empty(), "{order:?}: {:?}", kinds(&ws));
+        }
+    }
+
+    /// Issue #923: a face whose check cannot run (here more modes than the
+    /// face holds) yields the one `unavailable` warning, not an error.
+    #[test]
+    fn a_failed_degeneracy_check_is_an_unavailable_warning() {
+        let face = fixture_face("guide_box_lc030.msh");
+        let w = port_degeneracy_warnings(1, "port_out", &face, 100_000, ElementOrder::P1)
+            .expect_err("more modes than the face holds");
+        assert_eq!(w.kind, DEGENERACY_UNAVAILABLE);
+        assert_eq!(w.wave_port, Some(1));
+        assert!(
+            w.message.starts_with(
+                "wave port `port_out`: the degeneracy check of its 100000 mode(s) could not run ("
+            ) && w.message.ends_with("on this face would go unreported")
+                && !w.message.contains("  "),
+            "{}",
+            w.message
+        );
     }
 
     /// Issue #747: the budget-exhaustion failure modes route to the
