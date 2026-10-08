@@ -1056,11 +1056,6 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     let est = guard_estimate_at(mesh, ElementOrder::P2);
     assert_eq!(est.element_order, ElementOrder::P2);
     assert_eq!(est.face_order, ElementOrder::P2);
-    // Issue #905: one law at every order.
-    assert_eq!(
-        est.margin().to_bits(),
-        tm_guard_margin(est.k_c(), est.axial_spacing).to_bits()
-    );
     let k3d = box_tm_like_k(mesh, ElementOrder::P2, a, b)
         .unwrap_or_else(|| panic!("{label}: no TM-like p=2 mode"));
     let kh = est.axial_kh();
@@ -1100,6 +1095,12 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     assert!(
         p1_guard < k3d,
         "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}"
+    );
+    // Issue #905: one law at every order.
+    assert_eq!(
+        est.margin().to_bits(),
+        tm_guard_margin(est.k_c(), est.axial_spacing).to_bits(),
+        "{label}: the p=2 margin is not the order-independent law"
     );
     GuardRow {
         kh,
