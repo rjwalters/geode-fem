@@ -16,7 +16,9 @@
 //!   4. Canonical sign convention — `physical_eigenvalues_complex` from
 //!      the fixture must have `Im(λ) > 0` per PR #155 NumPy tiebreaker
 //!      decision. Sanity check on the canonical-band signature.
-//!   5. Complex eigenvalue cross-check (gated `--ignored` / release-mode):
+//!   5. Lowest-physical-eigenvalue window (fixture-only, default tier; no
+//!      Burn eigensolve runs, 0.1 s in a debug build, #922). Originally
+//!      planned as a Burn cross-check:
 //!      Burn's `FaerComplexEigensolver` agrees with the TF-Java fixture
 //!      on the lowest physical mode within 1e-3 absolute on |Δ| (matches
 //!      the JAX baseline tolerance and the sphere-PML cross-IR scope per
@@ -43,13 +45,6 @@
 //! cargo test -p geode-validation --test sphere_pml_tfjava_reference
 //! ```
 //!
-//! Full eigensolve cross-check (release mode required):
-//!
-//! ```sh
-//! cargo test -p geode-validation --release \
-//!     --features geode-core/ndarray \
-//!     --test sphere_pml_tfjava_reference -- --ignored --nocapture
-//! ```
 
 use std::path::PathBuf;
 
@@ -213,8 +208,8 @@ fn tfjava_pml_complex_eigenvalues_have_pml_signature() {
     // physical_eigenvalues_complex field in the fixture has the
     // canonical PML signature (Re > 0, Im > 0) for σ₀ > 0 — Epic #88
     // PR #155 NumPy canonical convention. This is the *fixture-side*
-    // sanity check; full Burn-vs-TF-Java agreement requires the gated
-    // `--ignored` test below.
+    // sanity check; full Burn-vs-TF-Java agreement is covered
+    // transitively by `sphere_pml_numpy_reference.rs` (see the last test).
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml/tfjava_baseline.json should load");
 
@@ -318,19 +313,13 @@ fn tfjava_pml_physical_eigenvalues_agree_with_numpy_canonical() {
 }
 
 // ---------------------------------------------------------------------------
-// Full Burn-vs-TF-Java complex eigenvalue cross-check (gated)
+// Lowest physical eigenvalue window (fixture-only, default tier)
 // ---------------------------------------------------------------------------
 //
-// The Burn-side complex generalized eigensolve currently uses faer's
-// dense `gevd`, which panics under debug-assertions in faer 0.24
-// (same constraint that gates `sphere_pml_jax_reference` /
-// `sphere_pml_numpy_reference` / the Burn-side `sphere_pml_eigenmode_spectrum`
-// test). Gate on `--ignored`.
+// This test reads only the TF-Java fixture and runs no Burn eigensolve, so
+// it needs neither `--release` nor `#[ignore]` (0.1 s in debug, #922).
 
 #[test]
-#[ignore = "Burn-side complex eigensolve requires --release; run with \
-    `cargo test -p geode-validation --release --features geode-core/ndarray \
-    --test sphere_pml_tfjava_reference -- --ignored`"]
 fn tfjava_pml_lowest_physical_eigenvalue_agrees_with_burn() {
     // Loads the fixture and verifies the lowest physical eigenvalue
     // recorded by the TF-Java reference is in the canonical PR #155 band
@@ -344,10 +333,9 @@ fn tfjava_pml_lowest_physical_eigenvalue_agrees_with_burn() {
     // `tfjava_pml_physical_eigenvalues_agree_with_numpy_canonical` above).
     // Transitivity then gives Burn-vs-TF-Java agreement at the same band.
     //
-    // The `--ignored` gate is preserved here so the test surface mirrors
-    // the JAX harness shape and so future Burn-specific cross-checks
-    // (e.g., when the faer complex eigensolve gate relaxes) can be added
-    // here without further test-runner plumbing.
+    // The test surface mirrors the JAX harness shape so future
+    // Burn-specific cross-checks can be added here without further
+    // test-runner plumbing.
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml/tfjava_baseline.json should load");
     let physical_tf = fixture

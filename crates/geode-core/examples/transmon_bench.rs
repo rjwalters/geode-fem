@@ -91,6 +91,25 @@
 //!   (`geode_core::eigen::parallel::resolve_num_threads`), so no wiring is
 //!   needed here — it is echoed below for the record.
 //!
+//! - `GEODE_GAUGE` — which gradient-nullspace treatment the timed solve applies
+//!   (issue #927; default `none`, the historical behavior, unchanged):
+//!   - `none` → the ungauged pencil. With a shift inside the spectrum the
+//!     returned modes are simply the `n_modes` eigenvalues nearest `σ`, which on
+//!     the transmon fixture at `σ = 4.5 GHz` are mostly `image(d⁰)` gradient
+//!     near-kernel modes, **not** the physical modes a divergence-free solver
+//!     (Palace) returns for the same request.
+//!   - `port_aware` → the port-aware divergence-free projection of issue #514
+//!     ([`solve_transmon_eigenmodes_port_aware`]): one ungauged extract of the
+//!     junction LC mode near `GEODE_JUNCTION_SIGMA_GHZ`, then a projected
+//!     Lanczos at `σ`. It deflates the gradient cluster and keeps the junction
+//!     mode. It does **not** remove the solenoidal 3.45 GHz port-artifact mode
+//!     (#514), and one near-zero survivor remains, so more than six modes must
+//!     still be requested to return six physical ones. `direct` inner solver
+//!     only (the composite solver factorizes with faer's sparse LU).
+//! - `GEODE_JUNCTION_SIGMA_GHZ` — shift for the junction extract of
+//!   `GEODE_GAUGE=port_aware` (default: the analytic `f_LC = 1/(2π√(LC))` of the
+//!   junction values, ≈ 17.60 GHz, so no reference-solver number is needed).
+//!
 //! # Cost-characterization knobs (issue #562, opt-in, matrix-free/`minres` only)
 //!
 //! These are read **internally** by the shift-invert Lanczos (like
@@ -121,6 +140,7 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::lanczos::{InnerPreconditioner, InnerSolver};
+use geode_core::eigen::projection::solve_transmon_eigenmodes_port_aware;
 use geode_core::eigen::transmon::{
     LumpedReactiveShunt, ModeReport, ReactiveElementNatural, TransmonPencil,
     lambda_shift_for_frequency_hz, solve_transmon_eigenmodes_indefinite_inner_iters_three_space,
@@ -258,12 +278,41 @@ fn main() {
     let sigma_ghz: f64 = env_or("GEODE_SIGMA_GHZ", 4.5_f64);
     let n_modes: usize = env_or("GEODE_NMODES", 6_usize);
     let threads_env = std::env::var("GEODE_NUM_THREADS").unwrap_or_else(|_| "auto".to_string());
+    // Gradient-nullspace treatment of the timed solve (issue #927). `none` is
+    // the historical ungauged path and stays the default.
+    let gauge_name = std::env::var("GEODE_GAUGE").unwrap_or_else(|_| "none".to_string());
+    let port_aware = match gauge_name.as_str() {
+        "none" => false,
+        "port_aware" => true,
+        other => {
+            eprintln!("error: unknown GEODE_GAUGE='{other}' (expected: none | port_aware)");
+            std::process::exit(2);
+        }
+    };
+    if port_aware && inner != InnerSolver::Direct {
+        eprintln!(
+            "error: GEODE_GAUGE=port_aware needs GEODE_INNER=direct (the port-aware solver \
+             factorizes with faer's sparse LU; got '{inner_name}')"
+        );
+        std::process::exit(2);
+    }
+    // Analytic junction LC frequency: the default shift of the junction extract.
+    let f_lc_ghz = 1.0 / (2.0 * std::f64::consts::PI * (JUNCTION_L_H * JUNCTION_C_F).sqrt()) / 1e9;
+    let junction_sigma_ghz: f64 = env_or("GEODE_JUNCTION_SIGMA_GHZ", f_lc_ghz);
 
     println!("=== transmon_bench (Epic #547 scale-benchmark gate) ===");
     println!(
         "config: inner = {}, σ = {sigma_ghz} GHz, n_modes = {n_modes}, GEODE_NUM_THREADS = {threads_env}",
         inner_label(inner)
     );
+    if port_aware {
+        println!(
+            "gauge: port_aware (#514 port-aware divergence-free projection; junction extract \
+             at {junction_sigma_ghz:.4} GHz)"
+        );
+    } else {
+        println!("gauge: none (ungauged pencil)");
+    }
 
     // ---- Phase 1: load the fixture (external mesh override or embedded). ---
     let t_load = Instant::now();
@@ -339,35 +388,51 @@ fn main() {
     // the absolute-value-Jacobi baseline) and (b) print the total inner-MINRES
     // iteration count, which is the AMS-vs-abs-Jacobi measurement the acceptance
     // criteria call for. Every other backend keeps the plain entry point.
-    let (modes, inner_iters): (Vec<ModeReport>, Option<usize>) =
-        if inner == InnerSolver::MatrixFreeIndefinite {
-            let precond_name = std::env::var("GEODE_PRECOND").unwrap_or_else(|_| "ams".to_string());
-            let precond = match precond_name.as_str() {
-                "ams" => InnerPreconditioner::Ams,
-                "jacobi" => InnerPreconditioner::Jacobi,
-                other => {
-                    eprintln!("error: unknown GEODE_PRECOND='{other}' (expected: ams | jacobi)");
-                    std::process::exit(2);
-                }
-            };
-            println!(
-                "inner preconditioner: {}",
-                match precond {
-                    InnerPreconditioner::Ams => "three-space AMS (SPD proxy K + |σ|M, #559)",
-                    InnerPreconditioner::Jacobi => "absolute-value Jacobi (baseline)",
-                }
-            );
-            let (modes, iters) = solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
-                &pencil, sigma, n_modes, M_PER_UNIT, precond,
-            )
-            .expect("transmon indefinite MINRES eigensolve");
-            (modes, Some(iters))
-        } else {
-            let modes =
-                solve_transmon_eigenmodes_with_inner(&pencil, sigma, n_modes, M_PER_UNIT, inner)
-                    .expect("transmon eigensolve");
-            (modes, None)
+    let (modes, inner_iters): (Vec<ModeReport>, Option<usize>) = if port_aware {
+        // Issue #927 option 1: the composite port-aware solve (one ungauged
+        // junction extract + one projected Lanczos at σ), timed as a whole.
+        let junction_sigma = lambda_shift_for_frequency_hz(junction_sigma_ghz * 1e9, M_PER_UNIT);
+        let (modes, diag) = solve_transmon_eigenmodes_port_aware(
+            &pencil,
+            sigma,
+            junction_sigma,
+            n_modes,
+            M_PER_UNIT,
+        )
+        .expect("transmon port-aware eigensolve");
+        println!(
+            "port-aware projection: {} Lanczos iterations, {} extra re-projections",
+            diag.iterations, diag.reprojections
+        );
+        (modes, None)
+    } else if inner == InnerSolver::MatrixFreeIndefinite {
+        let precond_name = std::env::var("GEODE_PRECOND").unwrap_or_else(|_| "ams".to_string());
+        let precond = match precond_name.as_str() {
+            "ams" => InnerPreconditioner::Ams,
+            "jacobi" => InnerPreconditioner::Jacobi,
+            other => {
+                eprintln!("error: unknown GEODE_PRECOND='{other}' (expected: ams | jacobi)");
+                std::process::exit(2);
+            }
         };
+        println!(
+            "inner preconditioner: {}",
+            match precond {
+                InnerPreconditioner::Ams => "three-space AMS (SPD proxy K + |σ|M, #559)",
+                InnerPreconditioner::Jacobi => "absolute-value Jacobi (baseline)",
+            }
+        );
+        let (modes, iters) = solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+            &pencil, sigma, n_modes, M_PER_UNIT, precond,
+        )
+        .expect("transmon indefinite MINRES eigensolve");
+        (modes, Some(iters))
+    } else {
+        let modes =
+            solve_transmon_eigenmodes_with_inner(&pencil, sigma, n_modes, M_PER_UNIT, inner)
+                .expect("transmon eigensolve");
+        (modes, None)
+    };
     let solve_s = t_solve.elapsed().as_secs_f64();
 
     // ---- Results + wall-clock (the numbers an operator reads off stdout). -
