@@ -53,9 +53,9 @@
 //! ```
 //!
 //! Marked `#[ignore]` because the ~3300-DOF dense complex eigensolve is
-//! too slow for a debug build (it did not finish within a 600 s cap in a debug build (#922)), not because it
-//! panics: the old faer 0.24 `qz_real` overflow panic is fixed in the
-//! `faier` fork (#920).
+//! too slow for a debug build (it did not finish within a 600 s cap in a
+//! debug build, #922; no panic was observed within the cap). The old
+//! faer 0.24 `qz_real` overflow panic is fixed in the `faier` fork (#920).
 
 use burn::tensor::backend::BackendTypes;
 
@@ -117,7 +117,7 @@ fn silver_muller_surface_is_nonzero_on_outer_boundary() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_silvermuller_eigenmode -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_silvermuller_eigenmode -- --ignored"]
 fn sphere_silver_muller_eigenmode_spectrum() {
     // 1. Load the sphere fixture.
     let f = read_sphere_fixture().expect("fixture load");

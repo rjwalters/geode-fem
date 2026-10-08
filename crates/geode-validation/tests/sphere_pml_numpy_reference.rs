@@ -51,8 +51,8 @@
 //! These two tests run a dense complex eigensolve of the ~3300-DOF pencil.
 //! That is too slow for a debug build (each test did not finish within a
 //! 600 s cap in debug, #922), so they are `#[ignore]`d there and run in
-//! release. They do not panic: the old faer 0.24 `qz_real` overflow panic
-//! is fixed in the `faier` fork (#920). Run with:
+//! release. No panic was observed within the cap; the old faer 0.24
+//! `qz_real` overflow panic is fixed in the `faier` fork (#920). Run with:
 //!
 //! ```sh
 //! cargo test -p geode-validation --release \
@@ -313,7 +313,7 @@ fn sphere_pml_fixture_epsilon_r_input_decodes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "slow in debug: dense complex eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-validation --release --test sphere_pml_numpy_reference -- --ignored"]
+#[ignore = "slow in debug: dense complex eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-validation --release --test sphere_pml_numpy_reference -- --ignored"]
 fn sphere_pml_spectrum_agrees_with_numpy() {
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml baseline.json should load");
@@ -429,7 +429,7 @@ fn sphere_pml_spectrum_agrees_with_numpy() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense complex eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-validation --release --test sphere_pml_numpy_reference -- --ignored"]
+#[ignore = "slow in debug: dense complex eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-validation --release --test sphere_pml_numpy_reference -- --ignored"]
 fn pml_sigma_zero_reduces_to_real_pec() {
     // σ₀ = 0 regression — the H.1 analog of the Burn-side
     // `pml_isotropic_sigma_zero_is_real` test in

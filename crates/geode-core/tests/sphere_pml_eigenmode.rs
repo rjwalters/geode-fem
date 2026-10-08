@@ -52,9 +52,12 @@
 //! ```
 //!
 //! The two dense-eigensolve tests are `#[ignore]`d because the ~3300-DOF
-//! dense complex eigensolve is too slow for a debug build (each
-//! did not finish within a 600 s cap in a debug build (#922)), not because it panics: the old faer 0.24 `qz_real`
-//! overflow panic is fixed in the `faier` fork (#920).
+//! dense complex eigensolve is too slow for a debug build.
+//! `sphere_pml_eigenmode_sigma_zero_is_real` did not finish within a 600 s
+//! cap in a debug build (#922; no panic was observed within the cap).
+//! `sphere_pml_eigenmode_spectrum` was not measured individually; it builds
+//! the same ~3300-DOF pencil. The old faer 0.24 `qz_real` overflow panic is
+//! fixed in the `faier` fork (#920).
 
 use burn::tensor::backend::BackendTypes;
 
@@ -185,7 +188,7 @@ fn pml_profile_sigma_zero_is_real_everywhere() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_pml_eigenmode -- --ignored"]
+#[ignore = "slow in debug (not measured individually; builds the same ~3300-DOF dense eigensolve pencil as sphere_pml_eigenmode_sigma_zero_is_real, which did not finish in 600 s in debug, no panic observed within the cap); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_pml_eigenmode -- --ignored"]
 fn sphere_pml_eigenmode_spectrum() {
     // 1. Load the sphere fixture.
     let f = read_sphere_fixture().expect("fixture load");
@@ -426,7 +429,7 @@ fn sphere_pml_eigenmode_spectrum() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_pml_eigenmode -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_pml_eigenmode -- --ignored"]
 fn sphere_pml_eigenmode_sigma_zero_is_real() {
     // Issue #38 regression test: when σ₀ = 0 the complex-ε pipeline
     // collapses to a real-ε generalized eigenproblem (dielectric inside

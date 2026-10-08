@@ -34,8 +34,9 @@
 //!
 //! Same as the other dense-eigensolve tests: the ~3300-DOF dense
 //! complex eigensolve is too slow for a debug build (each test
-//! did not finish within a 600 s cap in a debug build (#922)). It does not panic: the faer 0.24 `qz_real` overflow
-//! is fixed in the `faier` fork (#920). Run in release with:
+//! did not finish within a 600 s cap in a debug build (#922); no panic
+//! was observed within that cap). The faer 0.24 `qz_real` overflow is
+//! fixed in the `faier` fork (#920). Run in release with:
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test mie_sphere -- --ignored
@@ -86,7 +87,7 @@ const K0_REF: f64 = 2.0;
 type B = TestBackend;
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
     let device = <B as BackendTypes>::Device::default();
 
@@ -222,7 +223,7 @@ fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_tm11_triplet_q_above_band() {
     // Q-factor band assertion (issue #40).
     //
@@ -405,7 +406,7 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 /// reflects the gap between "PML-truncated FEM" and "true Sommerfeld
 /// open space", and that gap is the v1 / #35 convergence axis.
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_ground_mode_matches_open_space_wgm() {
     let device = <B as BackendTypes>::Device::default();
 

@@ -55,9 +55,10 @@
 //! Step 2 calls `FaerDenseEigensolver::smallest_eigenvalues` (cube) or
 //! `FaerComplexEigensolver::smallest_complex_pencil_eigenvalues` (sphere
 //! PML): dense eigensolves of a ~3000-DOF pencil. They are **slow in a
-//! debug build, not broken**: both tests did not finish within a 600 s cap in a debug build (#922), and neither
-//! panics (the old faer 0.24 `qz_real` overflow panic is fixed in the
-//! `faier` fork, #920). They run in the release `--ignored` tier.
+//! debug build, not broken**: both tests did not finish within a 600 s cap
+//! in a debug build (#922), and no panic was observed within that cap (the
+//! old faer 0.24 `qz_real` overflow panic is fixed in the `faier` fork,
+//! #920). They run in the release `--ignored` tier.
 //!
 //! # Running
 //!
@@ -217,7 +218,7 @@ fn rank_via_svd_with_diagnostics(d0: &Mat<f64>) -> (usize, f64, f64, f64) {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test derham_kernel_dim -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test derham_kernel_dim -- --ignored"]
 fn cube_pec_kernel_dim_matches_d0_rank() {
     // ── 1. Build the cube fixture, including K, M, and the interior
     //    masks for both edges (rows) and nodes (cols).
@@ -357,7 +358,7 @@ fn cube_pec_kernel_dim_matches_d0_rank() {
 }
 
 #[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test derham_kernel_dim -- --ignored"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test derham_kernel_dim -- --ignored"]
 fn sphere_pml_kernel_dim_matches_d0_rank() {
     // ── 1. Load the sphere fixture and build the complex-ε PML profile,
     //    matching `sphere_pml_eigenmode.rs`. The PML lives in M (scalar

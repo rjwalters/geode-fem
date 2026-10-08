@@ -484,11 +484,11 @@ jobs:
 
       # Every test in mie_sphere and derham_kernel_dim is #[ignore]d (the
       # ~3300-DOF dense eigensolves did not finish within a 600 s cap in a
-      # debug build, #922; they no longer panic since the faier fix), so they
-      # run in release with --ignored. The three sphere_* targets run their
-      # default tier in core-tests-b; their #[ignore]d dense-complex tests run
-      # here. Measured release --ignored times, local: sphere_pml_eigenmode
-      # 18 s, sphere_pml_anisotropic_eigenmode 12 s,
+      # debug build, #922, with no panic observed within the cap; the faier
+      # fix is #920), so they run in release with --ignored. The three
+      # sphere_* targets run their default tier in core-tests-b; their
+      # #[ignore]d dense-complex tests run here. Measured release --ignored
+      # times, local: sphere_pml_eigenmode 18 s, sphere_pml_anisotropic_eigenmode 12 s,
       # sphere_silvermuller_eigenmode 25 s.
       - name: dense complex eigensolver targets (--ignored tier)
         run: |
@@ -744,7 +744,7 @@ jobs:
       # Issue #793: the release-only complex eigensolve comparisons (each
       # #[ignore]d because the complex dense eigen path is too slow in a
       # debug build; #922 measured every one of them past a 600 s cap, with
-      # no panic). They compare against the same committed fixtures, so no
+      # no panic observed within it). They compare against the same committed fixtures, so no
       # toolchain is needed. Measured release times on ubuntu-latest, one
       # test at a time: sphere_pml_numpy 13 s (two tests), sphere_mie_numpy
       # 12 s. sphere_pml_{jax,tfjava} no longer have an #[ignore]d test
