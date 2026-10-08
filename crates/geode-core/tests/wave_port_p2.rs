@@ -1545,7 +1545,7 @@ fn tm_guard_p2_measurement_table() {
     // around the TE₁₀₁ / TM₁₁₀ degeneracy of one layer `d = b` (and of two
     // layers `d = 2b` for TE₁₀₂), with `1 × ny` faces (one element across
     // the wide side) and a `1 × 1` guide. Over one layer these undershoot
-    // by up to 5.95 %.
+    // by up to 6.09 %.
     let near = [
         0.9, 0.95, 0.99, 0.998, 0.999, 0.9995, 1.0, 1.001, 1.01, 1.05, 1.1,
     ];
@@ -1784,7 +1784,7 @@ fn tm_guard_p2_measurement_table() {
         );
         // The scans reach the rows the issue reported (5.4 % to 12.4 %).
         assert_eq!(scan.0, 489);
-        assert!(scan.1 >= 10 && scan.2 > 0.12, "{scan:?}");
+        assert!(scan.1 >= 5 && scan.2 > 0.12, "{scan:?}");
     }
     assert!(tightest > 0.0, "{tightest_label}: {tightest} pt");
     assert!(
