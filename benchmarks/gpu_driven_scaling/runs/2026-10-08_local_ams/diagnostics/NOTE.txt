@@ -1,7 +1,8 @@
 One-off diagnostics for the AMS iteration growth (issue #930). NOT part of the
-benchmark and NOT committed code: each was a throwaway build of commit af01160a
-with one patch applied, run once on the same loaded dev machine, then
-discarded. Only the iteration counts are meaningful.
+benchmark and NOT committed code: each was a throwaway build (of commit af01160a unless
+stated) with one patch applied, run once on the same loaded dev machine, then
+discarded. Only the iteration counts are meaningful, except where the third
+entry says otherwise.
 
 pec.patch + pec_<variant>.stdout
   DIAG930_PEC selects which cube planes are PEC (default = y0 and y1, the
@@ -18,8 +19,40 @@ pi.patch + pi_<variant>.stdout
   Question: is the growth caused by the inexact vector-nodal solve?
   Sizes n = 6, 9, 12, 15; config iterative_ams only.
 
-Reproduce: git apply <patch> on af01160a, then
+smooth_weight.patch + sw_<label>.stdout / sw_<label>.time   (PR #944 review)
+  Throwaway build of commit 10d5d871 (crates/geode-core/src/eigen/ams.rs is
+  identical to af01160a's) in its own target directory. Two env knobs:
+  DIAG944_SW=<w> overrides the AMS edge-smoother weight (the damped point-Jacobi
+  sweep of the V-cycle; shipped DEFAULT_SMOOTH_WEIGHT = 0.6), and DIAG944_RHO=1
+  prints, per preconditioner build, a Gershgorin upper bound and a
+  power-iteration Rayleigh-quotient lower bound (after 50 to 2000 iterations)
+  on the largest eigenvalue of D^-1 P, P being the real SPD proxy the V-cycle
+  smooths and D its diagonal.
+  Question: is the iteration growth caused by the edge smoother, the suspect
+  the first two diagnostics left untested?
+  All six sizes, n = 6, 9, 12, 15, 20, 24, in ONE process per label, with
+  RAYON_NUM_THREADS=1, under /usr/bin/time -l (so the .time file covers the six
+  sizes together, mesh generation and assembly included):
+    sw_0p20 ... sw_0p65   config iterative_ams at weight 0.2, 0.3, 0.4, 0.45,
+                          0.5, 0.55, 0.58, 0.6 (= shipped), 0.65
+    sw_jacobi             config iterative (COCG + Jacobi): the time reference
+                          from the same binary and session
+    sw_rho                DIAG944_RHO=1 at the shipped weight; its setup times
+                          include the 2000 power iterations and are not used
+  Unlike the two diagnostics above, the per-size setup and Krylov times are
+  used (single-threaded, same session as sw_jacobi), as indicative values. The
+  machine load rose from about 15 to about 100 during the session: sw_0p60 and
+  sw_0p65 ran at about 60% and 58% CPU, so their wall-clock times overstate the cost.
+  Single runs. No weight here is a tuned or validated value, and the library
+  constant was not changed.
+
+Reproduce the first two: git apply <patch> on af01160a, then
   DIAG930_PEC=<v> (or DIAG930_PI=<v>) GEODE_SCALING_SIZES=6,9,12,15 \
   GEODE_SCALING_CONFIGS=<configs> GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 \
   GEODE_SCALING_SKIP_SWEEP=1 cargo test -p geode-core --release \
   --test gpu_driven_scaling -- --ignored --nocapture
+Reproduce the third: git apply smooth_weight.patch, then
+  DIAG944_SW=<w> RAYON_NUM_THREADS=1 GEODE_SCALING_SIZES=6,9,12,15,20,24 \
+  GEODE_SCALING_CONFIGS=iterative_ams GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 \
+  GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1 cargo test -p geode-core \
+  --release --test gpu_driven_scaling -- --ignored --nocapture

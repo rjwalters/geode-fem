@@ -32,7 +32,7 @@ README only explains what is in the directory.
 | `results_ams_cpu_local.toml` | The #930 local record: assembled COCG with the Jacobi preconditioner against the same COCG with geode's AMS preconditioner, with Direct as the accuracy reference. Generated, not hand-edited |
 | `ams_cpu_sweep.sh` | Runs the test once per (size, config) in its own process under `/usr/bin/time` (macOS `-l` or GNU `-v`), plus one combined cross-check process per size. Writes `<leg>.stdout`, `.err`, `.time`, `.meta` and `host.txt` |
 | `summarize_ams_local.py` | Writes `results_ams_cpu_local.toml` to stdout from an `ams_cpu_sweep.sh` run tree |
-| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` and `diagnostics/` (two one-off patched builds, described in its `NOTE.txt`) |
+| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these) and `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
 
@@ -83,6 +83,13 @@ benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh <run-dir> 6 9 12 15 20 24
 python3 -I benchmarks/gpu_driven_scaling/summarize_ams_local.py <run-dir> > <results-file>
 ```
 
+For timings, rerun the two iterative legs single-threaded into the
+`single_thread/` subdirectory, which the summarizer picks up:
+
+```sh
+RAYON_NUM_THREADS=1 SKIP_DIRECT=1 benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh <run-dir>/single_thread 6 9 12 15 20 24
+```
+
 Running the summarizer over the committed `runs/2026-10-08_local_ams/`
 reproduces the committed file byte for byte. The AMS config is opt-in
 (`GEODE_SCALING_CONFIGS=...,iterative_ams`); the default config set and its
@@ -90,37 +97,106 @@ output are unchanged.
 
 ## AMS vs Jacobi on this fixture (#930, local subset)
 
-The file is the authority. In short, on this fixture at ω = 0.10:
+The file is the authority. Everything below is from one fixture at ω = 0.10 on
+a loaded developer machine.
 
-| edges | COCG + Jacobi iterations | COCG + AMS iterations |
-|---|---|---|
-| 1 854 | 807 | 70 |
-| 5 859 | 1 463 | 139 |
-| 13 428 | 2 167 | 307 |
-| 25 695 | 2 969 | 533 |
-| 59 660 | 4 303 | 1 741 |
-| 102 024 | 5 259 | 2 209 |
+**In short: the shipped AMS loses to Jacobi here, and the reason is one
+constant.** The AMS edge smoother is a damped-Jacobi sweep with weight 0.6
+(`DEFAULT_SMOOTH_WEIGHT` in `crates/geode-core/src/eigen/ams.rs`). On this
+fixture that is above the smoother's stability bound, and the iteration count
+grows with the mesh. In a one-off diagnostic with a lower weight the count is
+nearly flat and AMS is faster than Jacobi. The library constant is not changed
+here, and no replacement value has been validated.
 
-- **AMS converges, and to the right answer.** Every AMS solve met the 1e-8
+| edges | COCG + Jacobi | COCG + AMS, shipped (weight 0.6) | AMS, diagnostic weight 0.45 | AMS, diagnostic weight 0.65 |
+|---|---|---|---|---|
+| 1 854 | 807 | 70 | 26 | 151 |
+| 5 859 | 1 463 | 139 | 28 | 454 |
+| 13 428 | 2 167 | 307 | 34 | 1 335 |
+| 25 695 | 2 969 | 533 | 39 | 2 037 |
+| 59 660 | 4 303 | 1 741 | 48 | 5 646 |
+| 102 024 | 5 259 | 2 209 | 58 | 7 764 |
+
+Iteration counts. The two diagnostic columns are single runs of a throwaway
+patched build, not shipped code. The shipped column is the default-threading
+run; single-threaded, its last three counts were 532, 1 683 and 2 234 (serial
+and parallel triangular solves differ in roundoff, and a slowly converging
+solve amplifies it).
+
+What the shipped AMS does (`[[cell]]`, `[[single_thread_cell]]`, `[finding]`):
+
+- **It converges, and to the right answer.** Every solve met the 1e-8
   tolerance on the explicitly recomputed residual, and its field agrees with
   the Direct solution to 1.3e-11 to 6.0e-11 (relative L2).
-- **Its iteration count is not flat.** It grows about as edges^0.86, faster
-  than Jacobi's edges^0.47, so the advantage in iterations shrinks from 11.5×
-  at 1.9k edges to 2.4× at 102k. This is unlike the spiral measurement that
-  motivated AMS (102 to 155 iterations from 14k to 53k edges).
-- **It was slower than Jacobi at every size here.** One AMS iteration cost 17×
-  to 78× a Jacobi iteration. These are single samples from a loaded developer
-  machine and are indicative only. At the three largest sizes the AMS solve
-  took 5× to 33× as long as the Jacobi solve, well outside the load noise; at
-  the three smallest it took 1.7× to 2.8× as long, which is not clearly
-  outside it.
-- **The cause is not established.** Two one-off diagnostics
-  (`runs/2026-10-08_local_ams/diagnostics/`) show the growth does not come from
-  the fixture's two disconnected PEC planes, and does not come only from the
-  inexact vector-nodal coarse solve.
-- **Not done:** the sizes above 102k edges, the same-host Palace comparison,
-  the decision on the default preconditioner (still Jacobi), and the
-  matrix-free / GPU AMS follow-up. Issue #930 stays open for these.
+- **Its iteration count is not flat.** It grows as edges^0.86 by the endpoint
+  fit (smallest and largest size only) and edges^0.91 by least squares over all
+  six sizes. Jacobi grows as edges^0.47 by either fit. The advantage in
+  iterations shrinks from 11.5× at 1.9k edges to 2.4× at 102k.
+- **It was slower than Jacobi at every size.** Single-threaded
+  (`RAYON_NUM_THREADS=1`), one AMS iteration cost 18× to 26× a Jacobi
+  iteration, and the AMS solve took 1.7× to 11.1× as long as the Jacobi solve.
+  These are single samples and the factors are indicative.
+- **The default-threading AMS timings are not the cost of AMS.** The V-cycle
+  does two small sparse triangular solves per iteration, and they fan out to
+  the rayon pool. On this oversubscribed host that became kernel time: the
+  102k-edge AMS leg used 168 s of user time and 487 s of system time for a
+  274 s solve, and the same solve single-threaded took 93 s with 0.5 s of
+  system time. The file records user and system seconds per cell and takes no
+  time ratio from the default-threading legs. Whether the parallel solve helps
+  on an idle host was not measured.
+
+Why (`[diagnostics]`, from `runs/2026-10-08_local_ams/diagnostics/`):
+
+- **The cause is the smoother weight.** The largest eigenvalue ρ of D⁻¹P (P is
+  the real proxy matrix the V-cycle smooths, D its diagonal) was estimated by
+  power iteration at 3.39 to 3.42 across the six sizes, with a Gershgorin
+  upper bound of 4.00. Damped Jacobi is stable for weights below 2/ρ ≈ 0.585.
+  The shipped 0.6 is above that at every size.
+- **The fix is not a narrow sweet spot.** Nine weights were run over all six
+  sizes. Every weight from 0.2 to 0.55 gave 25 to 58 iterations, growing about
+  as edges^0.10 to edges^0.21. At 0.58 the count rises (44 to 88), at 0.6 it is
+  the shipped 70 to 2 234, and at 0.65 it is 151 to 7 764, which is more
+  iterations than Jacobi at the two largest sizes.
+- **With a weight in that range AMS beat Jacobi.** Single-threaded, same
+  session, setup plus Krylov, at weight 0.45: 0.40 s against Jacobi's 1.16 s at
+  25.7k edges, 1.37 s against 4.51 s at 59.7k, and 2.97 s against 8.53 s at
+  102k, about 2.9× to 3.3× faster. Weights 0.3 to 0.55 gave the same within
+  10%.
+- **Two earlier suspects are not the cause.** The growth persists for every PEC
+  layout tried and with an exact LU on both auxiliary spaces. Both of those
+  series were run at weight 0.6.
+- **Limits.** The weight diagnostic is a throwaway patch (stored as
+  `smooth_weight.patch`, not applied), single runs, one fixture, one
+  frequency. It identifies the cause on this fixture. It does not validate
+  0.45 or any other value.
+
+What this does and does not say:
+
+- **Do not change the default driven preconditioner on this evidence.** It
+  stays Jacobi.
+- "AMS is slower than Jacobi" and "the spiral's flat band does not carry over"
+  are statements about the shipped weight on this fixture only. They are not
+  statements about AMS preconditioning.
+- The spiral measurement that motivated AMS (#742 / #744) held 102 to 155
+  iterations from 14k to 53k edges at the same weight 0.6. The mesh may be the
+  difference: this fixture is a structured Kuhn-tet cube and the spiral is an
+  unstructured mesh, and ρ depends on the mesh. This is untested. The spiral
+  was not rerun and its ρ was not measured.
+- Only ω = 0.10 was run, so nothing here says how the count depends on
+  frequency.
+
+Recommended follow-ups, in this order. None is done or filed here:
+
+1. A library issue for the AMS edge smoother: take the weight from an estimate
+   of the spectral radius, or use an l1-Jacobi smoother, and validate on the
+   spiral, the transmon AMS tests and this fixture.
+2. The parallel triangular solve inside the V-cycle, which causes the rayon
+   contention above.
+3. Only then, the sizes above 102k edges and the same-host Palace comparison,
+   on the fixed preconditioner.
+
+Also not done: the decision on the default preconditioner and the matrix-free
+/ GPU AMS follow-up. Issue #930 stays open.
 
 The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
 are identical to the Lambda record's, which is the only cross-host statement
@@ -154,9 +230,10 @@ full wording.
   the harness hard-codes COCG + Jacobi, the matrix-free / GPU path supports
   Jacobi only, and geode's assembled-path AMS preconditioner was not measured
   in that run. `results_ams_cpu_local.toml` has since measured it up to 102k
-  edges on a developer machine (section above): AMS did not hold a flat
-  iteration count on this fixture. Issue #930 tracks the at-scale measurement
-  and the matrix-free / GPU AMS question.
+  edges on a developer machine (section above): the shipped AMS did not hold a
+  flat iteration count on this fixture, and a diagnostic traced that to its
+  edge-smoother weight. Issue #930 tracks the smoother follow-up, the at-scale
+  measurement and the matrix-free / GPU AMS question.
 - **Single-core CPU legs.** Both the CPU matrix-free leg and the assembled
   COCG leg ran single-threaded, so the per-iteration crossover is GPU vs one
   CPU core of the 30 available.

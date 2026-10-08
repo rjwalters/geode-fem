@@ -11,6 +11,15 @@
 #     ONLY, single samples, and must not be placed next to the Lambda A100 /
 #     Palace cells of results_large_a100.toml: different host, different
 #     load, different core count.
+#   * THE [[cell]] TABLES USE THE DEFAULT THREADING, and their AMS timings at
+#     the larger sizes are mostly kernel time (process_sys_s): the V-cycle's
+#     small triangular solves fan out to the rayon pool on an oversubscribed
+#     host. Every time RATIO in this file comes from the RAYON_NUM_THREADS=1
+#     rerun in [[single_thread_cell]] / [[single_thread_comparison]].
+#   * THE [[cell]] AND [[single_thread_cell]] TABLES MEASURE THE SHIPPED AMS
+#     (edge-smoother weight 0.6). [diagnostics] shows that weight is above the
+#     damped-Jacobi stability bound on this fixture and that the iteration
+#     growth goes away below it. Read [finding].scope before quoting a result.
 #   * No Palace run and no size above the largest one listed here. See
 #     [deferred].
 # ---------------------------------------------------------------------------
@@ -46,6 +55,13 @@ not_done = [
   "the decision on the default driven preconditioner (unchanged here: Jacobi)",
   "the follow-up issue for AMS on the matrix-free / GPU path",
 ]
+# RECOMMENDED FOLLOW-UPS, in this order. None is done here and none is filed by
+# this record; [diagnostics] and [finding].thread_contention are the evidence.
+recommended_follow_ups = [
+  "(i) library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS tests and this fixture before changing the constant",
+  "(ii) the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), which fans two small solves per iteration out to the rayon pool and causes the contention recorded here",
+  "(iii) only after (i) and (ii): the at-scale cells and the same-host Palace comparison, on the fixed preconditioner",
+]
 
 [[cell]]
 leg = "n6_direct"
@@ -63,6 +79,8 @@ setup_s = 0.118  # prepare_at: assemble A(omega) + LU factor / build preconditio
 krylov_s = 0.002  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.120  # setup_s + krylov_s
 process_wall_s = 0.16  # whole process: mesh + assembly + solve
+process_user_s = 0.13
+process_sys_s = 0.35  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 300  # (user + sys) / wall
 process_max_rss_gb = 0.036
 loadavg_1min_start = 84.50
@@ -85,6 +103,8 @@ krylov_s = 0.021  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.021  # setup_s + krylov_s
 krylov_s_per_iter = 0.00003
 process_wall_s = 0.07  # whole process: mesh + assembly + solve
+process_user_s = 0.07
+process_sys_s = 0.02  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 129  # (user + sys) / wall
 process_max_rss_gb = 0.017
 loadavg_1min_start = 81.90
@@ -110,6 +130,8 @@ krylov_s = 0.033  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.036  # setup_s + krylov_s
 krylov_s_per_iter = 0.00048
 process_wall_s = 0.11  # whole process: mesh + assembly + solve
+process_user_s = 0.07
+process_sys_s = 0.01  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 73  # (user + sys) / wall
 process_max_rss_gb = 0.019
 loadavg_1min_start = 81.90
@@ -134,6 +156,8 @@ setup_s = 1.373  # prepare_at: assemble A(omega) + LU factor / build preconditio
 krylov_s = 0.019  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 1.392  # setup_s + krylov_s
 process_wall_s = 1.55  # whole process: mesh + assembly + solve
+process_user_s = 0.44
+process_sys_s = 0.22  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 43  # (user + sys) / wall
 process_max_rss_gb = 0.130
 loadavg_1min_start = 81.90
@@ -156,6 +180,8 @@ krylov_s = 0.263  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.264  # setup_s + krylov_s
 krylov_s_per_iter = 0.00018
 process_wall_s = 0.42  # whole process: mesh + assembly + solve
+process_user_s = 0.22
+process_sys_s = 0.02  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 57  # (user + sys) / wall
 process_max_rss_gb = 0.040
 loadavg_1min_start = 87.75
@@ -181,6 +207,8 @@ krylov_s = 0.417  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.444  # setup_s + krylov_s
 krylov_s_per_iter = 0.00300
 process_wall_s = 0.54  # whole process: mesh + assembly + solve
+process_user_s = 0.33
+process_sys_s = 0.02  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 65  # (user + sys) / wall
 process_max_rss_gb = 0.052
 loadavg_1min_start = 87.75
@@ -205,6 +233,8 @@ setup_s = 4.030  # prepare_at: assemble A(omega) + LU factor / build preconditio
 krylov_s = 0.122  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 4.152  # setup_s + krylov_s
 process_wall_s = 4.44  # whole process: mesh + assembly + solve
+process_user_s = 2.53
+process_sys_s = 0.71  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 73  # (user + sys) / wall
 process_max_rss_gb = 0.444
 loadavg_1min_start = 91.78
@@ -227,6 +257,8 @@ krylov_s = 0.865  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 0.868  # setup_s + krylov_s
 krylov_s_per_iter = 0.00040
 process_wall_s = 1.15  # whole process: mesh + assembly + solve
+process_user_s = 0.65
+process_sys_s = 0.02  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 58  # (user + sys) / wall
 process_max_rss_gb = 0.086
 loadavg_1min_start = 92.83
@@ -252,6 +284,8 @@ krylov_s = 2.278  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 2.413  # setup_s + krylov_s
 krylov_s_per_iter = 0.00742
 process_wall_s = 2.62  # whole process: mesh + assembly + solve
+process_user_s = 1.51
+process_sys_s = 0.07  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 60  # (user + sys) / wall
 process_max_rss_gb = 0.102
 loadavg_1min_start = 92.83
@@ -276,6 +310,8 @@ setup_s = 6.138  # prepare_at: assemble A(omega) + LU factor / build preconditio
 krylov_s = 0.185  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 6.323  # setup_s + krylov_s
 process_wall_s = 6.75  # whole process: mesh + assembly + solve
+process_user_s = 9.56
+process_sys_s = 5.50  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 223  # (user + sys) / wall
 process_max_rss_gb = 1.249
 loadavg_1min_start = 93.01
@@ -298,6 +334,8 @@ krylov_s = 2.274  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 2.281  # setup_s + krylov_s
 krylov_s_per_iter = 0.00077
 process_wall_s = 2.73  # whole process: mesh + assembly + solve
+process_user_s = 1.59
+process_sys_s = 0.04  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 60  # (user + sys) / wall
 process_max_rss_gb = 0.147
 loadavg_1min_start = 91.16
@@ -323,6 +361,8 @@ krylov_s = 11.477  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 11.908  # setup_s + krylov_s
 krylov_s_per_iter = 0.02153
 process_wall_s = 12.35  # whole process: mesh + assembly + solve
+process_user_s = 6.85
+process_sys_s = 5.36  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 99  # (user + sys) / wall
 process_max_rss_gb = 0.195
 loadavg_1min_start = 90.26
@@ -347,6 +387,8 @@ setup_s = 24.943  # prepare_at: assemble A(omega) + LU factor / build preconditi
 krylov_s = 0.265  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 25.211  # setup_s + krylov_s
 process_wall_s = 25.99  # whole process: mesh + assembly + solve
+process_user_s = 57.01
+process_sys_s = 13.95  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 273  # (user + sys) / wall
 process_max_rss_gb = 3.976
 loadavg_1min_start = 102.24
@@ -369,6 +411,8 @@ krylov_s = 5.366  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 5.385  # setup_s + krylov_s
 krylov_s_per_iter = 0.00125
 process_wall_s = 6.13  # whole process: mesh + assembly + solve
+process_user_s = 5.11
+process_sys_s = 0.10  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 85  # (user + sys) / wall
 process_max_rss_gb = 0.331
 loadavg_1min_start = 109.28
@@ -394,6 +438,8 @@ krylov_s = 84.904  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 86.037  # setup_s + krylov_s
 krylov_s_per_iter = 0.04877
 process_wall_s = 87.06  # whole process: mesh + assembly + solve
+process_user_s = 67.36
+process_sys_s = 298.87  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 421  # (user + sys) / wall
 process_max_rss_gb = 0.455
 loadavg_1min_start = 107.56
@@ -418,6 +464,8 @@ setup_s = 20.617  # prepare_at: assemble A(omega) + LU factor / build preconditi
 krylov_s = 0.297  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 20.957  # setup_s + krylov_s
 process_wall_s = 22.23  # whole process: mesh + assembly + solve
+process_user_s = 240.81
+process_sys_s = 95.41  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 1512  # (user + sys) / wall
 process_max_rss_gb = 8.532
 loadavg_1min_start = 33.51
@@ -440,6 +488,8 @@ krylov_s = 8.408  # solve: iteration (or triangular solves) + explicit residual
 solve_s = 8.437  # setup_s + krylov_s
 krylov_s_per_iter = 0.00160
 process_wall_s = 9.65  # whole process: mesh + assembly + solve
+process_user_s = 10.17
+process_sys_s = 0.19  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 107  # (user + sys) / wall
 process_max_rss_gb = 0.567
 loadavg_1min_start = 36.52
@@ -465,6 +515,8 @@ krylov_s = 274.429  # solve: iteration (or triangular solves) + explicit residua
 solve_s = 274.955  # setup_s + krylov_s
 krylov_s_per_iter = 0.12423
 process_wall_s = 276.17  # whole process: mesh + assembly + solve
+process_user_s = 167.91
+process_sys_s = 486.95  # kernel time; large values mean thread contention, not solver work
 process_cpu_pct = 237  # (user + sys) / wall
 process_max_rss_gb = 0.810
 loadavg_1min_start = 32.29
@@ -480,10 +532,8 @@ jacobi_iterations = 807
 ams_iterations = 70
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 11.5
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 1.74
-krylov_s_per_iter_ratio_ams_over_jacobi = 18.7
 max_rss_ratio_ams_over_jacobi = 1.08
+ams_process_sys_over_user = 0.14  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 
 [[comparison]]
 size_n = 9
@@ -492,10 +542,8 @@ jacobi_iterations = 1463
 ams_iterations = 139
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 10.5
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 1.68
-krylov_s_per_iter_ratio_ams_over_jacobi = 16.7
 max_rss_ratio_ams_over_jacobi = 1.30
+ams_process_sys_over_user = 0.06  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 
 [[comparison]]
 size_n = 12
@@ -504,10 +552,8 @@ jacobi_iterations = 2167
 ams_iterations = 307
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 7.1
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 2.78
-krylov_s_per_iter_ratio_ams_over_jacobi = 18.6
 max_rss_ratio_ams_over_jacobi = 1.19
+ams_process_sys_over_user = 0.05  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 
 [[comparison]]
 size_n = 15
@@ -516,10 +562,8 @@ jacobi_iterations = 2969
 ams_iterations = 533
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 5.6
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 5.22
-krylov_s_per_iter_ratio_ams_over_jacobi = 28.1
 max_rss_ratio_ams_over_jacobi = 1.33
+ams_process_sys_over_user = 0.78  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 lambda_520_jacobi_iterations = 2969  # runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout
 jacobi_iterations_match_lambda_520 = true
 jacobi_port_v_rel_diff_vs_lambda_520 = 0.000e+00
@@ -531,10 +575,8 @@ jacobi_iterations = 4303
 ams_iterations = 1741
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 2.5
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 15.98
-krylov_s_per_iter_ratio_ams_over_jacobi = 39.1
 max_rss_ratio_ams_over_jacobi = 1.38
+ams_process_sys_over_user = 4.44  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 lambda_520_jacobi_iterations = 4303  # runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout
 jacobi_iterations_match_lambda_520 = true
 jacobi_port_v_rel_diff_vs_lambda_520 = 0.000e+00
@@ -546,13 +588,307 @@ jacobi_iterations = 5259
 ams_iterations = 2209
 ams_explicit_converged = true
 iteration_ratio_jacobi_over_ams = 2.4
-# Same host, same binary, but different moments on a loaded machine: indicative only.
-solve_s_ratio_ams_over_jacobi = 32.59
-krylov_s_per_iter_ratio_ams_over_jacobi = 77.7
 max_rss_ratio_ams_over_jacobi = 1.43
+ams_process_sys_over_user = 2.90  # default threading; where this is large on a leg of seconds or more, its wall clock is contention, not solver cost
 lambda_520_jacobi_iterations = 5259  # runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout
 jacobi_iterations_match_lambda_520 = true
 jacobi_port_v_rel_diff_vs_lambda_520 = 0.000e+00
+
+[single_thread]
+note = "The Jacobi and AMS legs rerun with RAYON_NUM_THREADS=1 (ams_cpu_sweep.sh with SKIP_DIRECT=1), same fixture, sizes and shipped AMS. These are the timings the cost statements in [finding] use. Still a loaded developer machine and single samples."
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams/single_thread"
+geode_commit = "10d5d87157135088e5c8e538c2a5d5dbd653b61c dirty=0"
+rayon_num_threads = "1"
+started_between = ["2026-10-08T07:06:08Z", "2026-10-08T07:07:18Z"]
+loadavg_1min_range = [18.47, 35.90]
+
+[[single_thread_cell]]
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 807
+residual_rel = 9.433e-09
+setup_s = 0.000
+krylov_s = 0.020
+solve_s = 0.021
+krylov_s_per_iter = 0.00003
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.05
+process_sys_s = 0.03  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 160  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 30.78
+
+[[single_thread_cell]]
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 70
+residual_rel = 7.656e-09
+setup_s = 0.003
+krylov_s = 0.032
+solve_s = 0.035
+krylov_s_per_iter = 0.00045
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.06
+process_sys_s = 0.02  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 133  # (user + sys) / wall
+process_max_rss_gb = 0.020
+loadavg_1min_start = 30.78
+
+[[single_thread_cell]]
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1463
+residual_rel = 9.800e-09
+setup_s = 0.001
+krylov_s = 0.123
+solve_s = 0.124
+krylov_s_per_iter = 0.00008
+process_wall_s = 0.20  # whole process: mesh + assembly + solve
+process_user_s = 0.21
+process_sys_s = 0.07  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 140  # (user + sys) / wall
+process_max_rss_gb = 0.031
+loadavg_1min_start = 30.78
+
+[[single_thread_cell]]
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 139
+residual_rel = 8.754e-09
+setup_s = 0.010
+krylov_s = 0.224
+solve_s = 0.234
+krylov_s_per_iter = 0.00161
+process_wall_s = 0.31  # whole process: mesh + assembly + solve
+process_user_s = 0.33
+process_sys_s = 0.06  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 126  # (user + sys) / wall
+process_max_rss_gb = 0.049
+loadavg_1min_start = 31.52
+
+[[single_thread_cell]]
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2167
+residual_rel = 9.204e-09
+setup_s = 0.003
+krylov_s = 0.435
+solve_s = 0.438
+krylov_s_per_iter = 0.00020
+process_wall_s = 0.60  # whole process: mesh + assembly + solve
+process_user_s = 0.63
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 118  # (user + sys) / wall
+process_max_rss_gb = 0.073
+loadavg_1min_start = 31.52
+
+[[single_thread_cell]]
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 307
+residual_rel = 8.519e-09
+setup_s = 0.025
+krylov_s = 1.272
+solve_s = 1.297
+krylov_s_per_iter = 0.00414
+process_wall_s = 1.48  # whole process: mesh + assembly + solve
+process_user_s = 1.49
+process_sys_s = 0.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.090
+loadavg_1min_start = 31.52
+
+[[single_thread_cell]]
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006
+krylov_s = 1.166
+solve_s = 1.172
+krylov_s_per_iter = 0.00039
+process_wall_s = 1.49  # whole process: mesh + assembly + solve
+process_user_s = 1.56
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 115  # (user + sys) / wall
+process_max_rss_gb = 0.142
+loadavg_1min_start = 31.52
+
+[[single_thread_cell]]
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 532
+residual_rel = 9.198e-09
+setup_s = 0.066
+krylov_s = 4.614
+solve_s = 4.680
+krylov_s_per_iter = 0.00867
+process_wall_s = 4.99  # whole process: mesh + assembly + solve
+process_user_s = 5.00
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 104  # (user + sys) / wall
+process_max_rss_gb = 0.192
+loadavg_1min_start = 31.80
+
+[[single_thread_cell]]
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.021
+krylov_s = 4.042
+solve_s = 4.063
+krylov_s_per_iter = 0.00094
+process_wall_s = 4.79  # whole process: mesh + assembly + solve
+process_user_s = 4.89
+process_sys_s = 0.18  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 106  # (user + sys) / wall
+process_max_rss_gb = 0.330
+loadavg_1min_start = 35.90
+
+[[single_thread_cell]]
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1683
+residual_rel = 9.987e-09
+setup_s = 0.236
+krylov_s = 38.976
+solve_s = 39.211
+krylov_s_per_iter = 0.02316
+process_wall_s = 39.93  # whole process: mesh + assembly + solve
+process_user_s = 39.80
+process_sys_s = 0.34  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 101  # (user + sys) / wall
+process_max_rss_gb = 0.451
+loadavg_1min_start = 34.06
+
+[[single_thread_cell]]
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.034
+krylov_s = 8.369
+solve_s = 8.403
+krylov_s_per_iter = 0.00159
+process_wall_s = 9.70  # whole process: mesh + assembly + solve
+process_user_s = 9.90
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 103  # (user + sys) / wall
+process_max_rss_gb = 0.564
+loadavg_1min_start = 24.05
+
+[[single_thread_cell]]
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2234
+residual_rel = 9.926e-09
+setup_s = 0.495
+krylov_s = 93.071
+solve_s = 93.566
+krylov_s_per_iter = 0.04166
+process_wall_s = 94.80  # whole process: mesh + assembly + solve
+process_user_s = 94.40
+process_sys_s = 0.46  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 100  # (user + sys) / wall
+process_max_rss_gb = 0.849
+loadavg_1min_start = 22.11
+
+[[single_thread_comparison]]
+size_n = 6
+n_edges = 1854
+jacobi_iterations = 807
+ams_iterations = 70
+ams_iterations_default_threading = 70  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 1.68
+krylov_s_per_iter_ratio_ams_over_jacobi = 18.0
+
+[[single_thread_comparison]]
+size_n = 9
+n_edges = 5859
+jacobi_iterations = 1463
+ams_iterations = 139
+ams_iterations_default_threading = 139  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 1.89
+krylov_s_per_iter_ratio_ams_over_jacobi = 19.1
+
+[[single_thread_comparison]]
+size_n = 12
+n_edges = 13428
+jacobi_iterations = 2167
+ams_iterations = 307
+ams_iterations_default_threading = 307  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 2.96
+krylov_s_per_iter_ratio_ams_over_jacobi = 20.7
+
+[[single_thread_comparison]]
+size_n = 15
+n_edges = 25695
+jacobi_iterations = 2969
+ams_iterations = 532
+ams_iterations_default_threading = 533  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 3.99
+krylov_s_per_iter_ratio_ams_over_jacobi = 22.1
+
+[[single_thread_comparison]]
+size_n = 20
+n_edges = 59660
+jacobi_iterations = 4303
+ams_iterations = 1683
+ams_iterations_default_threading = 1741  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 9.65
+krylov_s_per_iter_ratio_ams_over_jacobi = 24.7
+
+[[single_thread_comparison]]
+size_n = 24
+n_edges = 102024
+jacobi_iterations = 5259
+ams_iterations = 2234
+ams_iterations_default_threading = 2209  # serial and parallel triangular solves differ in roundoff; a slowly converging solve amplifies it
+# Same host, same binary, both single-threaded, different moments on a loaded machine.
+solve_s_ratio_ams_over_jacobi = 11.13
+krylov_s_per_iter_ratio_ams_over_jacobi = 26.2
 
 [finding]
 sizes_edges = [1854, 5859, 13428, 25695, 59660, 102024]
@@ -562,16 +898,22 @@ ams_all_explicit_converged = true
 ams_iterations_max_over_min = 31.56
 flat_threshold_max_over_min = 1.52  # the band of the #742 / #744 spiral measurement (102 to 155 iterations)
 ams_iteration_count_flat = false
-ams_growth_exponent = 0.86  # iterations ~ edges^p between the smallest and largest size
-jacobi_growth_exponent = 0.47
-sizes_n_where_ams_solve_was_faster_than_jacobi = []  # wall clock on a loaded machine: indicative only
-verdict = "AMS converged at every size but its iteration count is NOT flat on this fixture: 70 iterations at 1854 edges, 2209 at 102024 (max/min 31.56, outside the 1.52 band of the #742 / #744 spiral measurement). It grows as edges^0.86 between the endpoints, against edges^0.47 for Jacobi (807 to 5259). AMS needs 11.5x fewer iterations than Jacobi at the smallest size and 2.4x fewer at the largest."
+ams_growth_exponent_endpoint = 0.861  # iterations ~ edges^p, from the smallest and largest size only
+ams_growth_exponent_least_squares = 0.912  # slope of log(iterations) on log(edges), all sizes
+jacobi_growth_exponent_endpoint = 0.468
+jacobi_growth_exponent_least_squares = 0.470
+sizes_n_where_ams_solve_was_faster_than_jacobi = []  # shipped AMS, single-threaded rerun, loaded machine: indicative only
+scope = "Everything in verdict, convergence and cost is a statement about the SHIPPED AMS (edge-smoother weight 0.6) on this one fixture at omega = 0.10. It is not a statement about AMS preconditioning in general: see cause."
+verdict = "The shipped AMS converged at every size but its iteration count is NOT flat on this fixture: 70 iterations at 1854 edges, 2209 at 102024 (max/min 31.56, outside the 1.52 band of the #742 / #744 spiral measurement). It grows as edges^0.86 by the endpoint fit (edges^0.91 by least squares over all 6 sizes), against edges^0.47 for Jacobi (least squares 0.47; 807 to 5259). It needs 11.5x fewer iterations than Jacobi at the smallest size and 2.4x fewer at the largest."
 convergence = "No plateau and no drift: every AMS solve met the 1e-8 tolerance on the explicit residual (worst 9.1e-09) and matches the Direct solution. The degradation is in the iteration count as the mesh is refined, not a stall of the kind recorded in benchmarks/transmon_ams_minres_133k/results.toml. Only omega = 0.10 was run, so nothing here says how the count depends on frequency."
-cost = "Each AMS iteration cost 17x to 78x a Jacobi iteration here, so the AMS solve was faster than the Jacobi solve at 0 of 6 sizes (loaded dev machine, single samples)."
-not_established = "The cause of the growth is not established (see [diagnostics] for what was ruled out). No AMS setting was varied in the cells above (AmsCoarseSolve::Auto throughout) and nothing was tuned. Palace's ~5 iterations use a different Krylov method (GMRES) and a different AMS (hypre) and were not rerun here. The trend above the largest size listed is not measured."
+cost = "Single-threaded (RAYON_NUM_THREADS=1), one shipped-AMS iteration cost 18x to 26x a Jacobi iteration, and the shipped-AMS solve (setup + Krylov) took 1.7x to 11.1x as long as the Jacobi solve; it was faster at 0 of 6 sizes. Loaded dev machine, single samples: the direction is clear at the larger sizes, the factors are indicative."
+sizes_n_with_contended_default_threading_ams_leg = [15, 20, 24]
+thread_contention = "The default-threading AMS timings in [[cell]] at these sizes are NOT the cost of AMS. The V-cycle does two small sparse triangular solves per iteration (lu_solve in eigen/ams.rs, faer solve_in_place under the global parallelism setting), which fan out to the rayon pool; on this oversubscribed host that became kernel time. The worst leg, n24_ams, used 168 s user and 487 s sys for a 274 s Krylov solve; the same solve with RAYON_NUM_THREADS=1 took 93 s with 0.5 s sys. No time ratio in this file uses the default-threading legs. Whether the parallel solve helps on an idle host was not measured."
+cause = "Identified, by a one-off diagnostic on this fixture (see [diagnostics]): the edge smoother weight. The shipped damped-Jacobi weight 0.6 is above the stability bound 2 / rho(D^-1 P) = 0.585 measured here (rho >= 3.42), so the smoother amplifies the highest edge modes. With the weight anywhere from 0.2 to 0.55 the same solve takes 25 to 58 iterations at every size. This is a throwaway patch, single runs, one fixture and one frequency; no weight was validated on any other problem and the library constant is unchanged."
+not_established = "Not established: (1) why the shipped weight holds a flat count on the #742 / #744 spiral and not here. A plausible reason is the mesh (this fixture is a structured Kuhn-tet cube, the spiral an unstructured mesh, and rho(D^-1 P) depends on the mesh), but the spiral was NOT rerun and its rho was NOT measured, so this is untested. (2) What a lower weight does on the spiral or the transmon AMS tests. (3) The dependence on frequency: only omega = 0.10 was run. (4) Anything above the largest size listed. No AMS setting was varied in the [[cell]] and [[single_thread_cell]] tables (AmsCoarseSolve::Auto throughout). Palace's ~5 iterations use a different Krylov method (GMRES) and a different AMS (hypre) and were not rerun here."
 
 [diagnostics]
-note = "Throwaway patched builds, not committed code and not part of the benchmark (diagnostics/NOTE.txt, pec.patch, pi.patch). AMS iteration counts at n = 6, 9, 12, 15 (1854 to 25695 edges)."
+note = "Throwaway patched builds, not committed code and not part of the benchmark (diagnostics/NOTE.txt, pec.patch, pi.patch, smooth_weight.patch). The pec_* and vector_nodal_* series are AMS iteration counts at n = 6, 9, 12, 15 (1854 to 25695 edges); the smooth_weight tables cover all six sizes."
 pec_planes_default_ams_iterations = [70, 139, 307, 533]
 pec_planes_none_ams_iterations = [57, 151, 275, 444]
 pec_planes_y0_ams_iterations = [59, 149, 295, 512]
@@ -582,4 +924,168 @@ vector_nodal_solve_direct_ams_iterations = [68, 124, 190, 349]
 vector_nodal_solve_sgs16_ams_iterations = [66, 119, 216, 439]
 growth_persists_for_every_pec_layout = true
 growth_persists_with_exact_vector_nodal_solve = true
-reading = "The growth is not caused by the fixture's two disconnected PEC planes (it persists with one PEC plane, three, or none), and it is not caused only by the inexact vector-nodal solve (it persists, reduced, with an exact LU on both auxiliary spaces). What remains untested: the edge smoother, the SPD proxy against this operator's large loss term, and the structured cube mesh."
+reading = "The growth is not caused by the fixture's two disconnected PEC planes (it persists with one PEC plane, three, or none), and it is not caused only by the inexact vector-nodal solve (it persists, reduced, with an exact LU on both auxiliary spaces). Both series were run at the shipped smoother weight; the smooth_weight tables below identify the edge smoother as the cause. Not tested: the SPD proxy against this operator's large loss term, and an unstructured mesh of this fixture. Neither is needed to explain the growth."
+smooth_weight_shipped = 0.6
+smooth_weights_run = [0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.58, 0.6, 0.65]
+smooth_weights_within_2x_of_best_at_every_size = [0.2, 0.3, 0.4, 0.45, 0.5, 0.55]  # converged, and at most twice the best weight's iteration count at each size
+smooth_weights_degraded = [0.58, 0.6, 0.65]
+rho_dinv_p_bounds = [3.420, 4.000]  # largest eigenvalue of D^-1 P over the six sizes: power-iteration Rayleigh quotient (lower), Gershgorin (upper)
+damped_jacobi_stability_bound_weight = [0.500, 0.585]  # 2 / rho for the upper and lower rho bound
+power_rayleigh_max_change_over_last_step = 0.00068  # between 1000 and 2000 power iterations, worst size: the lower rho bound had settled, so the true stability bound is at or just below the larger value above
+shipped_weight_exceeds_stability_bound = true
+smooth_weight_reading = "The result is robust to the weight, not a narrow sweet spot: every weight run from 0.2 to 0.55 (6 values, contiguous) gives 25 to 58 iterations across the six sizes, and the weights that degrade (0.58, 0.6, 0.65) are the ones next to and above the damped-Jacobi stability bound 2 / rho = 0.585. The estimate of rho(D^-1 P) is 3.39 to 3.42 over the six sizes, so the bound does not move with refinement, and 0.6 * 3.39 = 2.03 > 2 at every size: the shipped smoother amplifies the top edge modes, and their number grows with the mesh. That the count already rises just below the bound fits the same picture (there the symmetrized smoother is nearly singular on those modes), but this mechanism was inferred from the threshold, not verified mode by mode. The comment on DEFAULT_SMOOTH_WEIGHT in eigen/ams.rs says 0.5; the constant is 0.6. Single runs of an uncommitted patch on one fixture: this identifies the cause here and does not validate a replacement value."
+
+[diagnostics.smooth_weight_jacobi_same_session]
+# COCG + Jacobi from the same patched binary and session, RAYON_NUM_THREADS=1: the time reference.
+iterations = [807, 1463, 2167, 2969, 4303, 5259]
+solve_s = [0.021, 0.123, 0.434, 1.163, 4.512, 8.534]
+
+[[diagnostics.smooth_weight]]
+weight = 0.2
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [38, 39, 41, 43, 50, 56]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.10
+growth_exponent_least_squares = 0.10
+setup_s = [0.003, 0.010, 0.091, 0.092, 0.233, 0.556]
+krylov_s = [0.035, 0.186, 0.546, 0.518, 1.189, 2.443]
+solve_s_ratio_jacobi_over_ams = [0.55, 0.63, 0.68, 1.91, 3.17, 2.85]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [9.05, 8.18, 0.26]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.3
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [32, 32, 36, 40, 51, 56]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.14
+growth_exponent_least_squares = 0.15
+setup_s = [0.003, 0.009, 0.025, 0.061, 0.223, 0.534]
+krylov_s = [0.014, 0.052, 0.158, 0.340, 1.183, 2.446]
+solve_s_ratio_jacobi_over_ams = [1.20, 2.01, 2.37, 2.90, 3.21, 2.86]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [7.49, 8.05, 0.49]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.4
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [28, 30, 34, 39, 49, 55]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.17
+growth_exponent_least_squares = 0.18
+setup_s = [0.003, 0.009, 0.024, 0.063, 0.235, 0.521]
+krylov_s = [0.013, 0.048, 0.139, 0.338, 1.150, 2.284]
+solve_s_ratio_jacobi_over_ams = [1.33, 2.13, 2.66, 2.90, 3.26, 3.04]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [7.43, 7.84, 0.40]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.45
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [26, 28, 34, 39, 48, 58]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.20
+growth_exponent_least_squares = 0.20
+setup_s = [0.003, 0.021, 0.025, 0.063, 0.231, 0.511]
+krylov_s = [0.012, 0.045, 0.136, 0.337, 1.138, 2.454]
+solve_s_ratio_jacobi_over_ams = [1.36, 1.86, 2.71, 2.91, 3.30, 2.88]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [7.40, 7.92, 0.45]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.5
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [25, 27, 34, 37, 50, 55]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.20
+growth_exponent_least_squares = 0.21
+setup_s = [0.003, 0.009, 0.025, 0.061, 0.230, 0.508]
+krylov_s = [0.011, 0.044, 0.139, 0.315, 1.174, 2.291]
+solve_s_ratio_jacobi_over_ams = [1.46, 2.31, 2.65, 3.09, 3.21, 3.05]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [7.23, 7.79, 0.47]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.55
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [31, 37, 36, 40, 49, 56]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.15
+growth_exponent_least_squares = 0.14
+setup_s = [0.003, 0.009, 0.024, 0.060, 0.217, 0.488]
+krylov_s = [0.014, 0.059, 0.146, 0.339, 1.134, 2.281]
+solve_s_ratio_jacobi_over_ams = [1.25, 1.81, 2.57, 2.91, 3.34, 3.08]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [7.20, 7.80, 0.51]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.58
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [44, 57, 72, 76, 83, 88]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.17
+growth_exponent_least_squares = 0.17
+setup_s = [0.003, 0.009, 0.024, 0.060, 0.224, 0.534]
+krylov_s = [0.020, 0.091, 0.292, 0.647, 1.912, 3.773]
+solve_s_ratio_jacobi_over_ams = [0.92, 1.22, 1.37, 1.65, 2.11, 1.98]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [10.04, 10.62, 0.50]  # one process for all six sizes, incl. mesh + assembly
+
+[[diagnostics.smooth_weight]]
+weight = 0.6  # the shipped DEFAULT_SMOOTH_WEIGHT
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [70, 139, 307, 532, 1683, 2234]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.86
+growth_exponent_least_squares = 0.91
+setup_s = [0.003, 0.010, 0.026, 0.064, 0.236, 0.543]
+krylov_s = [0.032, 0.238, 1.263, 4.628, 40.460, 203.828]
+solve_s_ratio_jacobi_over_ams = [0.59, 0.50, 0.34, 0.25, 0.11, 0.04]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [253.88, 148.27, 3.00]  # one process for all six sizes, incl. mesh + assembly; STARVED (CPU% < 90): its wall-clock times overstate the cost
+
+[[diagnostics.smooth_weight]]
+weight = 0.65
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+ams_iterations = [151, 454, 1335, 2037, 5646, 7764]
+all_explicit_converged = true
+growth_exponent_endpoint = 0.98
+growth_exponent_least_squares = 1.01
+setup_s = [0.005, 0.010, 0.115, 0.067, 0.241, 0.559]
+krylov_s = [0.074, 2.408, 16.169, 24.156, 141.182, 717.507]
+solve_s_ratio_jacobi_over_ams = [0.26, 0.05, 0.03, 0.05, 0.03, 0.01]  # above 1: AMS at this weight was faster than Jacobi (setup + Krylov, single-threaded)
+process_wall_user_sys_s = [905.88, 515.66, 8.72]  # one process for all six sizes, incl. mesh + assembly; STARVED (CPU% < 90): its wall-clock times overstate the cost
+
+[[diagnostics.spectral_radius]]
+n_interior = 1614
+gershgorin_upper = 3.99942
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.34378, 3.35599, 3.36565, 3.38760, 3.38761]
+stability_bound_weight = 0.5904  # 2 / the converged Rayleigh quotient
+
+[[diagnostics.spectral_radius]]
+n_interior = 5337
+gershgorin_upper = 3.99974
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.35904, 3.40507, 3.40742, 3.40754, 3.40754]
+stability_bound_weight = 0.5869  # 2 / the converged Rayleigh quotient
+
+[[diagnostics.spectral_radius]]
+n_interior = 12516
+gershgorin_upper = 3.99985
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.37127, 3.40491, 3.40939, 3.41392, 3.41460]
+stability_bound_weight = 0.5857  # 2 / the converged Rayleigh quotient
+
+[[diagnostics.spectral_radius]]
+n_interior = 24285
+gershgorin_upper = 3.99991
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.37339, 3.41257, 3.41740, 3.41783, 3.41789]
+stability_bound_weight = 0.5852  # 2 / the converged Rayleigh quotient
+
+[[diagnostics.spectral_radius]]
+n_interior = 57180
+gershgorin_upper = 3.99995
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.36558, 3.40949, 3.41784, 3.41979, 3.42036]
+stability_bound_weight = 0.5847  # 2 / the converged Rayleigh quotient
+
+[[diagnostics.spectral_radius]]
+n_interior = 98472
+gershgorin_upper = 3.99996
+power_iterations = [50, 200, 500, 1000, 2000]
+power_rayleigh_lower = [3.37425, 3.40993, 3.41730, 3.41879, 3.41916]
+stability_bound_weight = 0.5849  # 2 / the converged Rayleigh quotient
