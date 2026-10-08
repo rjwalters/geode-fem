@@ -1,0 +1,23 @@
+	Command being timed: "target-cuda/release/deps/gpu_driven_scaling-519a7399fdf68d23 --ignored --nocapture --test-threads 1"
+	User time (seconds): 3864.67
+	System time (seconds): 70.92
+	Percent of CPU this job got: 109%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 59:59.16
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 761000
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 188889
+	Voluntary context switches: 34390957
+	Involuntary context switches: 8231
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 13376
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

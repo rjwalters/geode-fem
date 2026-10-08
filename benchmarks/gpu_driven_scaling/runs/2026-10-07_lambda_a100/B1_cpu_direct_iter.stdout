@@ -1,0 +1,198 @@
+
+running 1 test
+test gpu_driven_scaling_benchmark ... # ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: ndarray / f64
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(ndarray f64)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f64) = 1e-8; iter max = 20000
+# knobs: sizes = [15, 20, 24, 30], reps = 0, configs = [direct=true, iterative=true, matrix_free=false], skip_e2e = true, skip_sweep = true
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+tol = nan
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 3.113217
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 0
+residual_rel = 9.342e-13
+accuracy_rel_l2_vs_direct = 0.000e0
+port_v = [6.659975395e-1, 7.461380550e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 4.042869
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 2969
+residual_rel = 9.197e-9
+accuracy_rel_l2_vs_direct = 1.726e-8
+port_v = [6.659975395e-1, 7.461380531e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+tol = nan
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 11.081629
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 0
+residual_rel = 1.473e-12
+accuracy_rel_l2_vs_direct = 0.000e0
+port_v = [6.659966841e-1, 7.470749827e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 14.003993
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 4303
+residual_rel = 9.753e-9
+accuracy_rel_l2_vs_direct = 2.528e-8
+port_v = [6.659966840e-1, 7.470749834e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+tol = nan
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 27.473969
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 0
+residual_rel = 1.966e-12
+accuracy_rel_l2_vs_direct = 0.000e0
+port_v = [6.659963478e-1, 7.474433796e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 30.002982
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 5259
+residual_rel = 9.629e-9
+accuracy_rel_l2_vs_direct = 2.166e-8
+port_v = [6.659963478e-1, 7.474433801e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 30
+n_edges = 197190
+n_interior = 191670
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+tol = nan
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 95.105284
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 0
+residual_rel = 2.907e-12
+accuracy_rel_l2_vs_direct = 0.000e0
+port_v = [6.659960725e-1, 7.477449362e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 30
+n_edges = 197190
+n_interior = 191670
+config = "2_iterative_csr"
+method = "cocg_jacobi"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 80.558172
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 7153
+residual_rel = 9.658e-9
+accuracy_rel_l2_vs_direct = 1.858e-8
+port_v = [6.659960725e-1, 7.477449370e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# ---- end fragment ----
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 275.96s
+

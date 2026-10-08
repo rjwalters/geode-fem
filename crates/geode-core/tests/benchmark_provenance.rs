@@ -242,6 +242,18 @@ const MANIFEST: &[Entry] = &[
                     (CPU-f64 legs) + the same with --features cuda (GPU-f32 leg), then hand-merge",
         },
     },
+    e(
+        "benchmarks/gpu_driven_scaling/results_large_a100.toml",
+        &[
+            "meta.measured_date",
+            "meta.geode_commit",
+            "palace_driven.palace_commit",
+        ],
+        "hand-transcribed from summarize_520.py over runs/2026-10-07_lambda_a100 (the \
+         gpu_driven_scaling test with GEODE_SCALING_* knobs, CPU-f64 + Cuda-f32 legs, plus Palace \
+         driven runs, Lambda A100, issue #520); record meta.measured_date, meta.geode_commit and \
+         palace_driven.palace_commit",
+    ),
     // ---- Bucket D: Burn-backed, trio missing — SHRINKING allowlist ------
     d(
         // Multi-precision in *arithmetic* only; the Burn backend is always

@@ -1,0 +1,1 @@
+palace_cpu_np1_n6_run1,rc=0,wall=0:00.82,max_rss_kb=319568,gpu_peak_mib=647

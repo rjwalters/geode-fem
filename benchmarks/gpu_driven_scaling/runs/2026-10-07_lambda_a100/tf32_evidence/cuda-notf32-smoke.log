@@ -1,0 +1,362 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.228
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.4
+   Compiling version_check v0.9.5
+   Compiling crossbeam-utils v0.8.21
+   Compiling serde v1.0.228
+   Compiling libc v0.2.186
+   Compiling zerocopy v0.8.48
+   Compiling once_cell v1.21.4
+   Compiling ident_case v1.0.1
+   Compiling memchr v2.8.0
+   Compiling cfg_aliases v0.2.1
+   Compiling paste v1.0.15
+   Compiling fnv v1.0.7
+   Compiling either v1.16.0
+   Compiling strsim v0.11.1
+   Compiling unicode-segmentation v1.13.2
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.150
+   Compiling rand_core v0.10.1
+   Compiling unicode-xid v0.2.6
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.4.2
+   Compiling equivalent v1.0.2
+   Compiling parking v2.2.1
+   Compiling regex-syntax v0.8.10
+   Compiling itoa v1.0.18
+   Compiling parking_lot_core v0.9.12
+   Compiling adler2 v2.0.1
+   Compiling portable-atomic v1.13.1
+   Compiling ciborium-io v0.2.2
+   Compiling simd-adler32 v0.3.9
+   Compiling object v0.37.3
+   Compiling scopeguard v1.2.0
+   Compiling cpufeatures v0.3.0
+   Compiling futures-core v0.3.32
+   Compiling winnow v1.0.3
+   Compiling chacha20 v0.10.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fastrand v2.4.1
+   Compiling lock_api v0.4.14
+   Compiling option-ext v0.2.0
+   Compiling gimli v0.32.3
+   Compiling cubecl-common v0.10.0
+   Compiling tracing-core v0.1.36
+   Compiling foldhash v0.2.0
+   Compiling num-traits v0.2.19
+   Compiling toml_writer v1.1.1+spec-1.1.0
+   Compiling prettyplease v0.2.37
+   Compiling ahash v0.8.12
+   Compiling futures-io v0.3.32
+   Compiling convert_case v0.10.0
+   Compiling rustc-demangle v0.1.27
+   Compiling allocator-api2 v0.2.21
+   Compiling futures-lite v2.6.1
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling web-time v1.1.0
+   Compiling bytes v1.11.1
+   Compiling oneshot v0.2.1
+   Compiling embassy-futures v0.1.2
+   Compiling thiserror v2.0.18
+   Compiling log v0.4.29
+   Compiling xxhash-rust v0.8.15
+   Compiling float4 v0.2.0
+   Compiling spin v0.10.0
+   Compiling cubecl-runtime v0.10.0
+   Compiling nom v8.0.0
+   Compiling aho-corasick v1.1.4
+   Compiling concurrent-queue v2.5.0
+   Compiling syn v2.0.117
+   Compiling rand v0.10.1
+   Compiling hashbrown v0.16.1
+   Compiling cudarc v0.19.7
+   Compiling hashbrown v0.17.1
+   Compiling cubecl-macros v0.10.0
+   Compiling float-ord v0.3.2
+   Compiling event-listener v5.4.1
+   Compiling md5 v0.8.0
+   Compiling inflections v1.1.1
+   Compiling foldhash v0.1.5
+   Compiling libloading v0.9.0
+   Compiling rustc-hash v2.1.2
+   Compiling fixedbitset v0.5.7
+   Compiling stable-vec v0.4.2
+   Compiling hashbrown v0.15.5
+   Compiling itertools v0.14.0
+   Compiling type-map v0.5.1
+   Compiling cubecl v0.10.0
+   Compiling event-listener-strategy v0.5.4
+   Compiling dirs-sys v0.5.0
+   Compiling async-channel v2.5.0
+   Compiling crossbeam-epoch v0.9.18
+   Compiling rayon-core v1.13.0
+   Compiling nano-gemm-codegen v0.2.1
+   Compiling pulp v0.22.2
+   Compiling crossbeam-channel v0.5.16
+   Compiling dirs v6.0.0
+   Compiling seq-macro v0.3.6
+   Compiling pulp-wasm-simd-flag v0.1.0
+   Compiling reborrow v0.5.5
+   Compiling dyn-stack-macros v0.1.3
+   Compiling syn v1.0.109
+   Compiling crunchy v0.2.4
+   Compiling crc32fast v1.5.0
+   Compiling num_cpus v1.17.0
+   Compiling semver v1.0.28
+   Compiling tiny-keccak v2.0.2
+   Compiling matrixmultiply v0.3.10
+   Compiling crossbeam-deque v0.8.6
+   Compiling colored v3.1.1
+   Compiling unty v0.0.4
+   Compiling num-integer v0.1.46
+   Compiling rand_distr v0.6.0
+   Compiling indexmap v2.14.0
+   Compiling rmp v0.8.15
+   Compiling rustc_version v0.4.1
+   Compiling nano-gemm-core v0.2.1
+   Compiling flate2 v1.1.9
+   Compiling thread-tree v0.3.3
+   Compiling num-bigint v0.3.3
+   Compiling data-encoding v2.11.0
+   Compiling uuid v1.23.1
+   Compiling rawpointer v0.2.1
+   Compiling regex-automata v0.4.18
+   Compiling num-iter v0.1.45
+   Compiling num-bigint v0.4.8
+   Compiling macerator v0.3.3
+   Compiling nano-gemm-c64 v0.2.1
+   Compiling nano-gemm-f32 v0.2.1
+   Compiling nano-gemm-c32 v0.2.1
+   Compiling nano-gemm-f64 v0.2.1
+   Compiling crossbeam-queue v0.3.13
+   Compiling generic-array v0.14.7
+   Compiling rayon v1.12.0
+   Compiling num-rational v0.3.2
+   Compiling lexical-core v0.7.6
+   Compiling moddef v0.3.0
+   Compiling defer v0.2.1
+   Compiling burn-ndarray v0.21.0
+   Compiling atomic-wait v1.1.0
+   Compiling addr2line v0.25.1
+   Compiling crossbeam v0.8.4
+   Compiling nom v5.1.3
+   Compiling ryu v1.0.23
+   Compiling thiserror v1.0.69
+   Compiling arrayvec v0.5.2
+   Compiling heck v0.5.0
+   Compiling static_assertions v1.1.0
+   Compiling atomic_float v1.1.0
+   Compiling bitflags v1.3.2
+   Compiling typenum v1.20.0
+   Compiling getrandom v0.2.17
+   Compiling num-complex v0.3.1
+   Compiling winnow v0.7.15
+   Compiling generativity v1.2.1
+   Compiling petgraph v0.8.3
+   Compiling litrs v1.0.0
+   Compiling toml_write v0.1.2
+   Compiling crc-catalog v2.5.0
+   Compiling const-random-macro v0.1.16
+   Compiling equator-macro v0.6.0
+   Compiling geode-core v0.8.0 (/home/ubuntu/geode-520/crates/geode-core)
+   Compiling crc v3.4.0
+   Compiling rustix v1.1.4
+   Compiling plotters-backend v0.3.7
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.0
+   Compiling const-random v0.1.18
+   Compiling tynm v0.2.0
+   Compiling plotters-svg v0.3.7
+   Compiling equator v0.6.0
+   Compiling document-features v0.2.12
+   Compiling itertools v0.10.5
+   Compiling linux-raw-sys v0.12.1
+   Compiling clap_builder v4.6.0
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling plotters v0.3.7
+   Compiling is-terminal v0.4.17
+   Compiling walkdir v2.5.0
+   Compiling cpufeatures v0.2.17
+   Compiling anes v0.1.6
+   Compiling oorandom v11.1.5
+   Compiling bitflags v2.11.1
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_bytes v0.11.19
+   Compiling raw-cpuid v11.6.0
+   Compiling toml v1.1.2+spec-1.1.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling num-rational v0.4.2
+   Compiling num v0.3.1
+   Compiling backtrace v0.3.76
+   Compiling sha2 v0.10.9
+   Compiling criterion-plot v0.5.0
+   Compiling regex v1.12.3
+   Compiling interpol v0.2.1
+   Compiling num-derive v0.3.3
+   Compiling cubecl-cuda v0.10.0
+   Compiling private-gemm-x86 v0.1.20
+   Compiling sanitize-filename v0.6.0
+   Compiling clap v4.6.1
+   Compiling darling_core v0.21.3
+   Compiling darling_core v0.23.0
+   Compiling darling_core v0.20.11
+   Compiling tempfile v3.27.0
+   Compiling bytemuck_derive v1.10.2
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling derive-new v0.7.0
+   Compiling derive_more-impl v2.1.1
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v2.0.18
+   Compiling variadics_please v1.1.0
+   Compiling equator-macro v0.4.2
+   Compiling equator-macro v0.2.1
+   Compiling thiserror-impl v1.0.69
+   Compiling strum_macros v0.28.0
+   Compiling bunsen-contracts-macros v0.28.0
+   Compiling burn-derive v0.21.0
+   Compiling equator v0.2.2
+   Compiling equator v0.4.2
+   Compiling spindle v0.2.6
+   Compiling bytemuck v1.25.0
+   Compiling tracing v0.1.44
+   Compiling mshio v0.4.2
+   Compiling num-complex v0.4.6
+   Compiling dyn-stack v0.13.2
+   Compiling darling_macro v0.20.11
+   Compiling darling_macro v0.21.3
+   Compiling darling v0.20.11
+   Compiling darling_macro v0.23.0
+   Compiling macerator-macros v0.1.5
+   Compiling darling v0.21.3
+   Compiling darling v0.23.0
+   Compiling enumset_derive v0.15.0
+   Compiling num v0.4.3
+   Compiling ndarray v0.17.2
+   Compiling strum v0.28.0
+   Compiling cubecl-macros-internal v0.10.0
+   Compiling derive_more v2.1.1
+   Compiling smallvec v1.15.1
+   Compiling enumset v1.1.13
+   Compiling bincode v2.0.1
+   Compiling rmp-serde v1.3.1
+   Compiling toml_datetime v0.6.11
+   Compiling serde_spanned v0.6.9
+   Compiling tinytemplate v1.2.1
+   Compiling toml_edit v0.22.27
+   Compiling cubecl-zspace v0.10.0
+   Compiling parking_lot v0.12.5
+   Compiling gemm-common v0.19.0
+   Compiling qd v0.8.0
+   Compiling faier-traits v0.24.0 (https://github.com/rjwalters/faier?rev=b61bc35d0a166a48c3021dce60294bd92b680013#b61bc35d)
+   Compiling half v2.7.1
+   Compiling gemm-f32 v0.19.0
+   Compiling gemm-c32 v0.19.0
+   Compiling gemm-f64 v0.19.0
+   Compiling gemm-c64 v0.19.0
+   Compiling hashbrown v0.13.2
+   Compiling toml v0.8.23
+   Compiling ciborium-ll v0.2.2
+   Compiling float8 v0.7.0
+   Compiling ciborium v0.2.2
+   Compiling text_placeholder v0.5.1
+   Compiling criterion v0.5.1
+   Compiling gemm v0.19.0
+   Compiling cubecl-ir v0.10.0
+   Compiling nano-gemm v0.2.2
+   Compiling faier v0.24.4 (https://github.com/rjwalters/faier?rev=b61bc35d0a166a48c3021dce60294bd92b680013#b61bc35d)
+   Compiling cubecl-core v0.10.0
+   Compiling cubecl-opt v0.10.0
+   Compiling cubecl-std v0.10.0
+   Compiling cubecl-cpp v0.10.0
+   Compiling burn-std v0.21.0
+   Compiling cubek-std v0.2.0
+   Compiling cubek-quant v0.2.0
+   Compiling cubek-random v0.2.0
+   Compiling cubek-fft v0.2.0
+   Compiling burn-backend v0.21.0
+   Compiling burn-ir v0.21.0
+   Compiling burn-tensor v0.21.0
+   Compiling burn-autodiff v0.21.0
+   Compiling cubek-matmul v0.2.0
+   Compiling cubek-reduce v0.2.0
+   Compiling burn-core v0.21.0
+   Compiling burn-nn v0.21.0
+   Compiling burn-optim v0.21.0
+   Compiling burn-fusion v0.21.0
+   Compiling cubek-attention v0.2.0
+   Compiling cubek-convolution v0.2.0
+   Compiling cubek v0.2.0
+   Compiling burn-cubecl-fusion v0.21.0
+   Compiling burn-cubecl v0.21.0
+   Compiling burn-cuda v0.21.0
+   Compiling burn v0.21.0
+   Compiling bunsen v0.28.0
+   Compiling geode-util v0.8.0 (/home/ubuntu/geode-520/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 7m 25s
+     Running tests/gpu_driven_scaling.rs (target-cuda-notf32/release/deps/gpu_driven_scaling-519a7399fdf68d23)
+
+running 1 test
+# ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: Cuda / f32
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(Cuda f32)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f32) = 1e-6; iter max = 5000
+# knobs: sizes = [6], reps = 1, configs = [direct=true, iterative=false, matrix_free=true], skip_e2e = true, skip_sweep = true
+
+[size n=6] edges=1854 interior=1614 tets=1296 reps=1 (fixture 2.12 s)
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "1_direct"
+method = "faer_lu"
+device = "cpu"
+dtype = "f64"
+tol = nan
+converged = true
+flaky = false
+reps = 1
+solve_reps_ok = 1
+e2e_reps_ok = 0
+warmup_solve_s = 0.854955
+solve_only_s = 0.731782
+end_to_end_s = nan
+iterations = 0
+residual_rel = 1.698e-13
+accuracy_rel_l2_vs_direct = 0.000e0
+port_v = [6.662279159e-1, 7.390767653e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "3_matrix_free"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = false
+reps = 1
+dnf_attempt_s = 12.404120
+iterations = 5000
+residual_rel = nan
+accuracy_rel_l2_vs_direct = nan
+sweep5_converged = false
+# dnf: sparse solve failed: matrix-free back-solve: Krylov solve did not converge — the recursive residual met the tolerance after 782 iterations but the explicitly recomputed residual ‖Ax − b‖/‖b‖ = 5.805e-4 did not (recursive-residual drift; loosen solver.tol to a level the explicit residual can reach, use a stronger preconditioner, or use solver.mode = "direct")
+
+# ---- end fragment ----
+test gpu_driven_scaling_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.11s
+

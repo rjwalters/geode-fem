@@ -1,0 +1,50 @@
+
+running 1 test
+test gpu_driven_scaling_benchmark ... # ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: Cuda / f32
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(Cuda f32)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f32) = 1e-6; iter max = 300
+# knobs: sizes = [30, 40], reps = 0, configs = [direct=false, iterative=false, matrix_free=true], skip_e2e = true, skip_sweep = true
+
+[[cell]]
+size_n = 30
+n_edges = 197190
+n_interior = 191670
+config = "3_matrix_free"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = false
+reps = 1
+dnf_attempt_s = 98.762455
+iterations = 300
+residual_rel = 2.619e-1
+accuracy_rel_l2_vs_direct = nan
+sweep5_converged = false
+# dnf: sparse solve failed: matrix-free COCG: COCG did not converge in 300 iterations: relative residual 0.2618969148426498 > tol 0.000001
+
+[[cell]]
+size_n = 40
+n_edges = 462520
+n_interior = 452760
+config = "3_matrix_free"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = false
+reps = 1
+dnf_attempt_s = 230.080509
+iterations = 300
+residual_rel = 5.854e-1
+accuracy_rel_l2_vs_direct = nan
+sweep5_converged = false
+# dnf: sparse solve failed: matrix-free COCG: COCG did not converge in 300 iterations: relative residual 0.5854466661158335 > tol 0.000001
+
+# ---- end fragment ----
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 342.74s
+
