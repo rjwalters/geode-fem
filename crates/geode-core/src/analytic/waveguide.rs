@@ -5848,8 +5848,9 @@ struct HoleRule {
     /// PML classifiers' own floor ([`physical_curl_floor_pml`] `= 10⁻⁶`)
     /// only rejects the gradient nullspace. Their bound-like population
     /// also holds a low-curl ladder of PML-box pairs above it: measured
-    /// `17…200×` that floor on the SMF-28 and high-contrast PML fixtures,
-    /// and `6…8×` (weak, SMF-28 contrast) and `63…119×` (~3 % contrast) on
+    /// `17…127×` that floor on the SMF-28 PML fixtures and `139…1160×` on
+    /// the high-contrast ones (pairs below this threshold only), and
+    /// `6…8×` (weak, SMF-28 contrast) and `63…119×` (~3 % contrast) on
     /// two **anti-guides**, which guide nothing. Against this threshold the
     /// anti-guide ladders read `0.04…0.05×` and `0.05…0.10×`. Those ladder
     /// pairs are bound modes to the PML classifier when they converge (it
