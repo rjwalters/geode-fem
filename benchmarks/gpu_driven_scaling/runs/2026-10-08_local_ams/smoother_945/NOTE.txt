@@ -1,0 +1,120 @@
+Before / after measurement for issue #945 (the AMS V-cycle's damped-Jacobi edge
+smoother used a fixed weight 0.6, above the stability bound on this fixture).
+Summarized as [smoother_weight] of results_ams_cpu_local.toml.
+
+Developer machine, single samples. The 1-minute load average was 6 to 21 on 28
+logical CPUs during these runs, far lower than during the #930 and #946
+sessions, but other work was running. Iteration counts are the result.
+process user + sys seconds are the cost figure; wall-clock times are recorded
+and not compared between legs.
+
+Builds
+  main   origin/main 61e8571e (the merge of PR #957), clean checkout, own target
+         directory. Weight fixed at 0.6.
+  fix    branch commit 11d1d60c, clean. The weight is chosen per preconditioner
+         build: 0.6 if 0.6 * theta < 2, else 1.5 / min(1.1 * theta, gershgorin),
+         theta being the largest Ritz value of 30 Lanczos steps on
+         D^-1/2 P D^-1/2.
+  w060   the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6, i.e. the old weight.
+         main has no GEODE_SCALING_OMEGA knob (the branch adds it), so this is
+         the "before" at omega = 0.05 and 0.20. At omega = 0.10 both main and
+         w060 were run: they agree in iteration count, residual and port
+         voltage to every printed digit at all six sizes
+         (main_equals_forced_0p6 in the TOML).
+
+11d1d60c is the first commit of the branch and holds every code change. Later
+commits add this record, the summarizer section, documentation and comments;
+they do not change the solver, so the trees were not rerun.
+
+Sweep trees (ams_cpu_sweep.sh, sizes 6 9 12 15 20 24, one process per leg)
+  main_w0p10         main, omega 0.10, SKIP_DIRECT=1
+  fix_w0p10          fix, omega 0.10, all four legs (direct, jacobi, ams, xcheck)
+  w060_w0p10         w060, omega 0.10, SKIP_DIRECT=1
+  fix_w0p10_rayon1   fix, omega 0.10, RAYON_NUM_THREADS=1, SKIP_DIRECT=1
+  fix_w0p05          fix, GEODE_SCALING_OMEGA=0.05, all four legs
+  w060_w0p05         w060, GEODE_SCALING_OMEGA=0.05, SKIP_DIRECT=1
+  fix_w0p20          fix, GEODE_SCALING_OMEGA=0.20, all four legs
+  w060_w0p20         w060, GEODE_SCALING_OMEGA=0.20, SKIP_DIRECT=1
+Run in that order.
+
+Each AMS leg's .err carries one "# ams_smoother ..." line (the fix build
+prints it under GEODE_AMS_SMOOTH_REPORT, which ams_cpu_sweep.sh sets): the
+Ritz value theta_max, the Gershgorin bound, rho_hat = min(1.1 * theta,
+gershgorin), the weight, its source, and estimate_ms, the wall clock of the
+Gershgorin pass plus the 30-step Lanczos run. main prints no such line.
+
+The main tree was written by main's copy of ams_cpu_sweep.sh, so its .meta
+files lack the scaling_omega / ams_smooth_weight lines the branch's script
+adds. The script's build.log is not kept (it holds machine paths).
+
+ritz_gap/w0p05, w0p10, w0p20 (.stdout, .err)
+  How far the 30-step Ritz value is below a converged one. One process per
+  frequency, all six sizes, the fix build with GEODE_AMS_SMOOTH_REPORT=1000:
+  each build then also runs 1000 Lanczos steps from the same start vector and
+  prints theta_ref. Both are lower bounds on lambda_max; the 1000-step value
+  agrees with the 2000-step power iteration of diagnostics/sw_rho.stdout to the
+  digits printed there (3.38761 at n = 6). The setup times in these .stdout
+  files include the 1000 extra operator applies and are not used.
+    GEODE_AMS_SMOOTH_REPORT=1000 GEODE_SCALING_OMEGA=<w> \
+    GEODE_SCALING_SIZES=6,9,12,15,20,24 GEODE_SCALING_CONFIGS=iterative_ams \
+    GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 \
+    GEODE_SCALING_SPLIT_SETUP=1 cargo test -p geode-core --release \
+    --test gpu_driven_scaling -- --ignored --nocapture
+
+validation/<tree>_<name>.txt, .time
+  The AMS tests outside this fixture, each run once on main and once on the fix
+  build, one test per process:
+    <test binary> <test name> --exact [--ignored] --nocapture --test-threads 1
+  under /usr/bin/time -l, from the crate directory, with
+  GEODE_AMS_SMOOTH_REPORT=600 (so the fix build also prints a 600-step
+  reference Ritz value per build; main ignores the variable). The first three
+  lines of each .txt are a header written by the driver: tree, commit, test,
+  start time, load. Machine paths in the test output were replaced by <tmp>,
+  <repo>, <cargo-target> and <home> when the files were written; nothing else
+  was edited. The .time files are not summarized: for the CLI tests they
+  include the direct-LU reference solve, and on the fix build the 600 extra
+  operator applies per preconditioner build.
+    spiral_smoke      geode-cli spiral_golden::spiral_smoke_ams_matches_direct_lu
+    spiral_benchmark  geode-cli spiral_golden::spiral_benchmark_ams_matches_direct_lu
+    spiral_ds         geode-cli dispersive_golden::spiral_ds_ams_matches_direct
+    spiral_debye      geode-cli dispersive_golden::spiral_debye_ams_matches_direct
+    spiral_drude      geode-cli dispersive_golden::spiral_drude_ams_matches_direct
+    rough             geode-cli roughness_golden::rough_ams_matches_direct
+    driven_public     geode-core lib driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct
+    transmon_5x       geode-core transmon_eigenmode::synthetic_ams_beats_jacobi_inner_iterations
+    transmon_3space   geode-core transmon_eigenmode::synthetic_three_space_vs_gradient_only_inner_iterations
+    transmon_direct   geode-core transmon_eigenmode::synthetic_ams_matches_direct
+    transmon_minres   geode-core transmon_eigenmode::synthetic_ams_minres_matches_direct_interior_shift
+    amg_minres        geode-core lib eigen::ams::tests::amg_ams_minres_matches_direct_interior_shift
+    coarse_report     geode-core lib eigen::ams::tests::coarse_solve_iteration_report
+    ams_spd           geode-core lib eigen::ams::tests::ams_lite_apply_is_spd
+    ams_spd_3space    geode-core lib eigen::ams::tests::full_three_space_apply_is_spd
+    ams_spd_amg       geode-core lib eigen::ams::tests::amg_three_space_ams_apply_is_spd
+    transmon_real     geode-core transmon_eigenmode::real_transmon_ams_beats_jacobi
+  Only the spiral_golden tests pass the child's "# ams_smoother" lines through
+  on success, so spiral_ds, spiral_drude and rough have no smoother entries.
+  They use the spiral_smoke mesh.
+
+  spiral_debye fails on both trees in the same way (issue #943): it is not a
+  result of this change and was not altered.
+
+  transmon_real fails on both trees before its AMS leg starts: the Jacobi
+  eigensolve it runs first stops at a relative residual of 0.69 after 266 216
+  inner iterations (about 18 minutes). So that test gives no AMS number on
+  either tree. The main and fix runs overlapped in time (the fix run was
+  started by hand while the main run was still going).
+
+  fix_transmon_real_ams_only.txt, .time
+    The AMS leg alone, by a throwaway test added to the fix build
+    (diag945_real_transmon_ams_only.patch: test code only, no solver change;
+    applied, run once, reverted). It was STOPPED BY HAND after 37 minutes
+    (2 237 s of user time) without finishing, which is why the .time file
+    says "terminated abnormally" and there is no iteration count. What it
+    does record is the smoother line of the 133k-DOF build: theta = 2.9434
+    (600-step reference 2.9434), Gershgorin 4.53, weight 0.6, source
+    "default". The weight is unchanged from main on this fixture, so the AMS
+    eigensolve is the one main runs; how long that takes was not established.
+
+unconditional_rule/
+  Some of the validation tests on a throwaway build that lowers the weight
+  without the proof condition. See the NOTE.txt there.

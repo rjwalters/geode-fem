@@ -1,0 +1,10 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=synthetic_ams_minres_matches_direct_interior_shift binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:17Z loadavg=12.99 12.55 12.00
+
+running 1 test
+test synthetic_ams_minres_matches_direct_interior_shift ... AMS-MINRES vs Direct @ σ=3: 4 modes, worst rel-diff = 1.07e-10, inner-MINRES iters = 11052
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.10s
+

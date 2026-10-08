@@ -1,0 +1,13 @@
+# tree=uncond git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 patch=unconditional_rule.patch
+# test=spiral_debye_ams_matches_direct binary=dispersive_golden-746a9e69e42b8b65 --ignored
+# start=2026-10-08T13:55:17Z loadavg=12.92 8.52 8.55
+
+running 1 test
+test spiral_debye_ams_matches_direct ... ams-debye   1.0 GHz: iters [126], |ΔZ|/|Z| vs direct 2.6e-12
+ams-debye   5.0 GHz: iters [163], |ΔZ|/|Z| vs direct 1.2e-12
+ams-debye  10.0 GHz: iters [172], |ΔZ|/|Z| vs direct 3.0e-12
+ams-debye  20.0 GHz: iters [189], |ΔZ|/|Z| vs direct 1.6e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 6.11s
+

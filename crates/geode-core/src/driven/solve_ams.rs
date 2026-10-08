@@ -88,6 +88,23 @@
 //! choice, a non-converging or drifting solve is a [`DrivenError::Solve`],
 //! never a silently accepted answer.
 //!
+//! # Edge smoother weight
+//!
+//! The V-cycle's damped-Jacobi sweep on the edge space is convergent only
+//! for a weight below `2 / λ_max(D⁻¹P)`. The weight was fixed at 0.6, which
+//! is inside that bound on the spiral (`λ_max` 2.93 to 3.09, measured) and
+//! outside it on a structured Kuhn-tet cube (`λ_max` 3.39 to 3.42), where
+//! the COCG iteration count then grew with the mesh: 70 to 2 270 from 1.9k
+//! to 102k edges, against 26 to 55 with a stable weight (issue #945,
+//! `benchmarks/gpu_driven_scaling/`). Each AMS build now estimates `λ_max`
+//! with a short Lanczos run on `P` and lowers the weight only where the
+//! Ritz value proves 0.6 unstable; see the "Smoother weight" section of
+//! [`crate::eigen::ams`] for the rule and for what it does and does not
+//! guarantee. On the spiral the weight is still exactly 0.6, so every
+//! iteration count in the table above is unchanged. [`DrivenAms::smoother`]
+//! returns the estimate and the weight; `GEODE_AMS_SMOOTH_WEIGHT`
+//! overrides the weight and `GEODE_AMS_SMOOTH_REPORT=1` prints it per build.
+//!
 //! # Known limitation: floating PEC conductors
 //!
 //! With conductors modelled as PEC shells that are **not** connected to the

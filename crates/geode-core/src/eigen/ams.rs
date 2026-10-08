@@ -72,8 +72,8 @@
 //! iteration count grows with the mesh instead of staying flat.
 //! `λ_max(D⁻¹A)` depends on the mesh: measured, it is 2.93 to 3.09 on the
 //! unstructured spiral (bound 0.65 to 0.68, so the long-standing `ω = 0.6` is
-//! inside it) and 3.39 to 3.42 on a structured Kuhn-tet cube (bound 0.585,
-//! so `0.6` is outside it).
+//! inside it) and 3.39 to 3.42 on a structured Kuhn-tet cube (bound 0.585 to
+//! 0.591, so `0.6` is outside it).
 //!
 //! So each build takes 30 steps (`SMOOTH_LANCZOS_STEPS`) of plain three-term
 //! Lanczos on `D^-1/2 A D^-1/2` (matrix-free through the borrowed `K`, `M`;
@@ -168,7 +168,7 @@ use crate::eigen::projection::InteriorGradient;
 /// operator measured, so a multiplicative V-cycle built on it diverges. `0.6`
 /// is inside the range on the unstructured spiral meshes (`λ_max` 2.93 to
 /// 3.09) but not on a structured Kuhn-tet cube (`λ_max` 3.39 to 3.42, bound
-/// `≈ 0.585`; issue #945), so the weight actually used is chosen per operator
+/// 0.585 to 0.591; issue #945), so the weight actually used is chosen per operator
 /// by [`choose_smooth_weight`].
 const DEFAULT_SMOOTH_WEIGHT: f64 = 0.6;
 
@@ -262,7 +262,8 @@ impl SmoothWeightSource {
 ///   weight is then below `2 / λ_max` exactly when
 ///   `λ_max < (2 · 1.1 / 1.5) · theta_max ≈ 1.47 · theta_max`, i.e. when the
 ///   run has reached `theta_max > 0.68 · λ_max`. Measured on the fixtures in
-///   the tests and benchmarks (`theta_max ≥ 0.996 · λ_max` there); not proven
+///   the tests and benchmarks (`theta_max` within 0.6 % of a 1000-step run
+///   there, which is itself a lower bound); not proven
 ///   for an arbitrary operator.
 /// - A weight kept at `0.6` with `gershgorin ≥ 10/3` is **not** shown to be
 ///   stable: the Ritz value only failed to prove it unstable. If the short

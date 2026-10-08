@@ -23,6 +23,12 @@
 #     (edge-smoother weight 0.6). [diagnostics] shows that weight is above the
 #     damped-Jacobi stability bound on this fixture and that the iteration
 #     growth goes away below it. Read [finding].scope before quoting a result.
+#   * THAT WEIGHT IS NO LONGER FIXED (issue #945). The AMS now lowers it where
+#     a spectral-radius estimate proves 0.6 unstable, which it does on this
+#     fixture. [[cell]], [[single_thread_cell]], [finding], [threading_fix] and
+#     [diagnostics] all predate that and are kept as the record of the old
+#     weight. [smoother_weight] has the before / after measurement, two more
+#     frequencies, and the tests outside this fixture.
 #   * No Palace run and no size above the largest one listed here. See
 #     [deferred].
 # ---------------------------------------------------------------------------
@@ -61,7 +67,7 @@ not_done = [
 # RECOMMENDED FOLLOW-UPS, in this order. None is done here and none is filed by
 # this record; [diagnostics] and [finding].thread_contention are the evidence.
 recommended_follow_ups = [
-  "(i) library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS tests and this fixture before changing the constant",
+  "(i) DONE in issue #945, see [smoother_weight]: library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS tests and this fixture before changing the constant",
   "(ii) DONE in issue #946, see [threading_fix]: the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), which fanned two small solves per iteration out to the rayon pool and caused the contention recorded in the [[cell]] tables",
   "(iii) only after (i) and (ii): the at-scale cells and the same-host Palace comparison, on the fixed preconditioner",
 ]
@@ -913,7 +919,7 @@ cost = "Single-threaded (RAYON_NUM_THREADS=1), one shipped-AMS iteration cost 18
 sizes_n_with_contended_default_threading_ams_leg = [15, 20, 24]
 thread_contention = "The default-threading AMS timings in [[cell]] at these sizes are NOT the cost of AMS. The V-cycle does two small sparse triangular solves per iteration (lu_solve in eigen/ams.rs, faer solve_in_place under the global parallelism setting), which fan out to the rayon pool; on this oversubscribed host that became kernel time. The worst leg, n24_ams, used 168 s user and 487 s sys for a 274 s Krylov solve; the same solve with RAYON_NUM_THREADS=1 took 93 s with 0.5 s sys. No time ratio in this file uses the default-threading legs. Whether the parallel solve helps on an idle host was not measured. Fixed in issue #946 after these legs were run: see [threading_fix]."
 cause = "Identified, by a one-off diagnostic on this fixture (see [diagnostics]): the edge smoother weight. The shipped damped-Jacobi weight 0.6 is above the stability bound 2 / rho(D^-1 P) = 0.585 measured here (rho >= 3.42), so the smoother amplifies the highest edge modes. With the weight anywhere from 0.2 to 0.55 the same solve takes 25 to 58 iterations at every size. This is a throwaway patch, single runs, one fixture and one frequency; no weight was validated on any other problem and the library constant is unchanged."
-not_established = "Not established: (1) why the shipped weight holds a flat count on the #742 / #744 spiral and not here. A plausible reason is the mesh (this fixture is a structured Kuhn-tet cube, the spiral an unstructured mesh, and rho(D^-1 P) depends on the mesh), but the spiral was NOT rerun and its rho was NOT measured, so this is untested. (2) What a lower weight does on the spiral or the transmon AMS tests. (3) The dependence on frequency: only omega = 0.10 was run. (4) Anything above the largest size listed. No AMS setting was varied in the [[cell]] and [[single_thread_cell]] tables (AmsCoarseSolve::Auto throughout). Palace's ~5 iterations use a different Krylov method (GMRES) and a different AMS (hypre) and were not rerun here."
+not_established = "Not established: (1) why the shipped weight holds a flat count on the #742 / #744 spiral and not here. A plausible reason is the mesh (this fixture is a structured Kuhn-tet cube, the spiral an unstructured mesh, and rho(D^-1 P) depends on the mesh), but the spiral was NOT rerun and its rho was NOT measured, so this is untested. (2) What a lower weight does on the spiral or the transmon AMS tests. (3) The dependence on frequency: only omega = 0.10 was run. (4) Anything above the largest size listed. No AMS setting was varied in the [[cell]] and [[single_thread_cell]] tables (AmsCoarseSolve::Auto throughout). Palace's ~5 iterations use a different Krylov method (GMRES) and a different AMS (hypre) and were not rerun here. Items (1) to (3) were measured afterwards, in issue #945: see [smoother_weight]."
 
 [threading_fix]
 issue = 946
@@ -2342,3 +2348,3931 @@ gershgorin_upper = 3.99996
 power_iterations = [50, 200, 500, 1000, 2000]
 power_rayleigh_lower = [3.37425, 3.40993, 3.41730, 3.41879, 3.41916]
 stability_bound_weight = 0.5849  # 2 / the converged Rayleigh quotient
+
+[smoother_weight]
+issue = 945
+note = "Before / after measurement of the issue #945 fix, on the fixture of this file. Before: the AMS V-cycle's damped-Jacobi edge smoother used the fixed weight 0.6. After: each preconditioner build takes 30 steps of plain Lanczos on D^-1/2 P D^-1/2 (P the real proxy the V-cycle smooths, D its diagonal) and a Gershgorin row-sum bound g, and uses 0.6 if 0.6 * theta < 2, else 1.5 / min(1.1 * theta, g), theta being the largest Ritz value. Nothing else differs between the builds. One ams_cpu_sweep.sh tree per build and frequency, one process per leg."
+guaranteed = "theta is a lower bound on lambda_max(D^-1 P) and g an upper bound. So 0.6 * theta >= 2 proves that 0.6 is at or above the stability bound 2 / lambda_max: the weight is lowered only where the old one is proven unstable, and is exactly 0.6 everywhere else. A lowered weight is below 2 / lambda_max when g is the smaller term of the minimum, and in any case when 1.5 / rho_hat < 2 / g, which the cells below let you check."
+heuristic = "1.1 is an allowance for what 30 Lanczos steps have not resolved, not a bound. Where 1.1 * theta is the smaller term, the lowered weight is below 2 / lambda_max only if lambda_max < 1.47 * theta. And a weight kept at 0.6 is not thereby shown stable: the Ritz value only failed to prove it unstable (it is proven stable only if g < 10/3). ritz_gap_rel in [[smoother_weight_comparison]] is the measured shortfall of the 30-step theta against a 1000-step Lanczos run, itself a lower bound."
+how_to_read = "Developer machine, single samples. Iteration counts are the result. process_user_s + process_sys_s is the CPU cost of the whole process (mesh, assembly, setup, solve); wall-clock times (setup_s, krylov_s) depend on the load at that moment and are not compared between legs. main has no GEODE_SCALING_OMEGA knob, so away from omega = 0.10 the 'before' is the fix build with the weight forced back to 0.6; at omega = 0.10 both were run and main_equals_forced_0p6 says whether they agree."
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams/smoother_945"
+trees = ['fix_w0p05', 'fix_w0p10', 'fix_w0p10_rayon1', 'fix_w0p20', 'main_w0p10', 'w060_w0p05', 'w060_w0p10', 'w060_w0p20']
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+omegas = [0.05, 0.1, 0.2]
+started_between = ["2026-10-08T12:54:48Z", "2026-10-08T13:10:38Z"]
+loadavg_1min_range = [6.29, 21.15]  # 28 logical CPUs
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n6_direct"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 3.568e-13
+setup_s = 0.039  # wall clock
+krylov_s = 0.001  # wall clock
+process_wall_s = 0.07  # whole process: mesh + assembly + solve
+process_user_s = 0.24
+process_sys_s = 0.97  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1729  # (user + sys) / wall
+process_max_rss_gb = 0.034
+loadavg_1min_start = 6.29
+port_v = [6.665012152e-01, 3.646533706e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 878
+residual_rel = 9.795e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.021  # wall clock
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.21
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 600  # (user + sys) / wall
+process_max_rss_gb = 0.014
+loadavg_1min_start = 6.29
+port_v = [6.665012152e-01, 3.646533716e-03]
+port_v_rel_diff_vs_direct = 1.500e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.645e-08  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 27
+residual_rel = 3.738e-09
+ritz_theta_max = 3.378769  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999715
+rho_hat = 3.716646  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.403590
+smooth_weight_source = "estimate"
+estimate_ms = 0.580  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.012  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.14
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 550  # (user + sys) / wall
+process_max_rss_gb = 0.019
+loadavg_1min_start = 6.29
+port_v = [6.665012152e-01, 3.646533706e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.130e-11  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n9_direct"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 7.766e-13
+setup_s = 0.182  # wall clock
+krylov_s = 0.007  # wall clock
+process_wall_s = 0.26  # whole process: mesh + assembly + solve
+process_user_s = 0.68
+process_sys_s = 3.71  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1688  # (user + sys) / wall
+process_max_rss_gb = 0.128
+loadavg_1min_start = 6.91
+port_v = [6.664995348e-01, 3.683416217e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1653
+residual_rel = 9.283e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.134  # wall clock
+process_wall_s = 0.21  # whole process: mesh + assembly + solve
+process_user_s = 0.46
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 281  # (user + sys) / wall
+process_max_rss_gb = 0.028
+loadavg_1min_start = 6.91
+port_v = [6.664995348e-01, 3.683416213e-03]
+port_v_rel_diff_vs_direct = 6.001e-12  # from the 10 printed digits
+field_rel_l2_vs_direct = 8.889e-09  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 29
+residual_rel = 6.024e-09
+ritz_theta_max = 3.406743  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999873
+rho_hat = 3.747417  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400276
+smooth_weight_source = "estimate"
+estimate_ms = 1.961  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.012  # wall clock
+krylov_s = 0.045  # wall clock
+process_wall_s = 0.13  # whole process: mesh + assembly + solve
+process_user_s = 0.26
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 323  # (user + sys) / wall
+process_max_rss_gb = 0.042
+loadavg_1min_start = 6.91
+port_v = [6.664995348e-01, 3.683416217e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.013e-11  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n12_direct"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.215e-12
+setup_s = 0.620  # wall clock
+krylov_s = 0.024  # wall clock
+process_wall_s = 0.81  # whole process: mesh + assembly + solve
+process_user_s = 3.16
+process_sys_s = 11.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1765  # (user + sys) / wall
+process_max_rss_gb = 0.448
+loadavg_1min_start = 6.91
+port_v = [6.664989435e-01, 3.696393557e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2436
+residual_rel = 9.409e-09
+setup_s = 0.002  # wall clock
+krylov_s = 0.473  # wall clock
+process_wall_s = 0.63  # whole process: mesh + assembly + solve
+process_user_s = 0.86
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 160  # (user + sys) / wall
+process_max_rss_gb = 0.063
+loadavg_1min_start = 8.36
+port_v = [6.664989435e-01, 3.696393560e-03]
+port_v_rel_diff_vs_direct = 4.501e-12  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.353e-08  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 33
+residual_rel = 8.557e-09
+ritz_theta_max = 3.406313  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999929
+rho_hat = 3.746944  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400326
+smooth_weight_source = "estimate"
+estimate_ms = 4.704  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.037  # wall clock
+krylov_s = 0.131  # wall clock
+process_wall_s = 0.33  # whole process: mesh + assembly + solve
+process_user_s = 0.56
+process_sys_s = 0.43  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 300  # (user + sys) / wall
+process_max_rss_gb = 0.094
+loadavg_1min_start = 8.36
+port_v = [6.664989435e-01, 3.696393557e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 3.617e-11  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.947e-12
+setup_s = 1.634  # wall clock
+krylov_s = 0.045  # wall clock
+process_wall_s = 1.98  # whole process: mesh + assembly + solve
+process_user_s = 10.34
+process_sys_s = 24.77  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1773  # (user + sys) / wall
+process_max_rss_gb = 1.255
+loadavg_1min_start = 8.36
+port_v = [6.664986693e-01, 3.702413622e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 3268
+residual_rel = 9.466e-09
+setup_s = 0.006  # wall clock
+krylov_s = 1.247  # wall clock
+process_wall_s = 1.55  # whole process: mesh + assembly + solve
+process_user_s = 1.95
+process_sys_s = 0.19  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 138  # (user + sys) / wall
+process_max_rss_gb = 0.141
+loadavg_1min_start = 10.01
+port_v = [6.664986692e-01, 3.702413649e-03]
+port_v_rel_diff_vs_direct = 1.554e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.603e-08  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 37
+residual_rel = 8.643e-09
+ritz_theta_max = 3.416338  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999954
+rho_hat = 3.757971  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399152
+smooth_weight_source = "estimate"
+estimate_ms = 8.526  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.083  # wall clock
+krylov_s = 0.301  # wall clock
+process_wall_s = 0.68  # whole process: mesh + assembly + solve
+process_user_s = 1.14
+process_sys_s = 0.83  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 290  # (user + sys) / wall
+process_max_rss_gb = 0.182
+loadavg_1min_start = 10.01
+port_v = [6.664986693e-01, 3.702413622e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 3.771e-11  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 3.100e-12
+setup_s = 6.935  # wall clock
+krylov_s = 0.152  # wall clock
+process_wall_s = 7.80  # whole process: mesh + assembly + solve
+process_user_s = 60.60
+process_sys_s = 65.48  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1616  # (user + sys) / wall
+process_max_rss_gb = 3.978
+loadavg_1min_start = 9.85
+port_v = [6.664984557e-01, 3.707102225e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4840
+residual_rel = 9.971e-09
+setup_s = 0.015  # wall clock
+krylov_s = 4.386  # wall clock
+process_wall_s = 5.08  # whole process: mesh + assembly + solve
+process_user_s = 5.69
+process_sys_s = 0.21  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 116  # (user + sys) / wall
+process_max_rss_gb = 0.316
+loadavg_1min_start = 14.88
+port_v = [6.664984557e-01, 3.707102220e-03]
+port_v_rel_diff_vs_direct = 7.502e-12  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.656e-08  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 47
+residual_rel = 4.076e-09
+ritz_theta_max = 3.412782  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999974
+rho_hat = 3.754060  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399567
+smooth_weight_source = "estimate"
+estimate_ms = 20.447  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.264  # wall clock
+krylov_s = 0.993  # wall clock
+process_wall_s = 1.92  # whole process: mesh + assembly + solve
+process_user_s = 2.78
+process_sys_s = 3.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 308  # (user + sys) / wall
+process_max_rss_gb = 0.413
+loadavg_1min_start = 15.29
+port_v = [6.664984557e-01, 3.707102225e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 6.419e-11  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 4.191e-12
+setup_s = 18.861  # wall clock
+krylov_s = 0.293  # wall clock
+process_wall_s = 20.38  # whole process: mesh + assembly + solve
+process_user_s = 240.32
+process_sys_s = 131.70  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1825  # (user + sys) / wall
+process_max_rss_gb = 8.555
+loadavg_1min_start = 13.34
+port_v = [6.664983717e-01, 3.708945779e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 6153
+residual_rel = 9.394e-09
+setup_s = 0.026  # wall clock
+krylov_s = 9.670  # wall clock
+process_wall_s = 10.87  # whole process: mesh + assembly + solve
+process_user_s = 11.59
+process_sys_s = 0.23  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 109  # (user + sys) / wall
+process_max_rss_gb = 0.546
+loadavg_1min_start = 20.31
+port_v = [6.664983717e-01, 3.708945757e-03]
+port_v_rel_diff_vs_direct = 3.301e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.668e-08  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p05"
+build = "the fix (weight chosen per operator)"
+omega = 0.05
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 55
+residual_rel = 6.893e-09
+ritz_theta_max = 3.413349  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999982
+rho_hat = 3.754684  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399501
+smooth_weight_source = "estimate"
+estimate_ms = 36.210  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.521  # wall clock
+krylov_s = 2.219  # wall clock
+process_wall_s = 3.91  # whole process: mesh + assembly + solve
+process_user_s = 5.08
+process_sys_s = 6.24  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 290  # (user + sys) / wall
+process_max_rss_gb = 0.852
+loadavg_1min_start = 17.15
+port_v = [6.664983717e-01, 3.708945778e-03]
+port_v_rel_diff_vs_direct = 1.500e-12  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.492e-11  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n6_direct"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.880e-13
+setup_s = 0.036  # wall clock
+krylov_s = 0.002  # wall clock
+process_wall_s = 0.08  # whole process: mesh + assembly + solve
+process_user_s = 0.24
+process_sys_s = 0.83  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1337  # (user + sys) / wall
+process_max_rss_gb = 0.035
+loadavg_1min_start = 9.59
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 807
+residual_rel = 9.433e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.020  # wall clock
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.19
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 540  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 9.59
+port_v = [6.660077370e-01, 7.349708964e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.454e-08  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 26
+residual_rel = 9.636e-09
+ritz_theta_max = 3.375986  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999417
+rho_hat = 3.713585  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.403922
+smooth_weight_source = "estimate"
+estimate_ms = 0.584  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.012  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.16
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 600  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 9.59
+port_v = [6.660077370e-01, 7.349708964e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 7.859e-10  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n9_direct"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 3.855e-13
+setup_s = 0.180  # wall clock
+krylov_s = 0.007  # wall clock
+process_wall_s = 0.26  # whole process: mesh + assembly + solve
+process_user_s = 0.78
+process_sys_s = 3.74  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1738  # (user + sys) / wall
+process_max_rss_gb = 0.123
+loadavg_1min_start = 9.15
+port_v = [6.660010062e-01, 7.423417007e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1463
+residual_rel = 9.800e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.120  # wall clock
+process_wall_s = 0.19  # whole process: mesh + assembly + solve
+process_user_s = 0.35
+process_sys_s = 0.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 258  # (user + sys) / wall
+process_max_rss_gb = 0.035
+loadavg_1min_start = 9.15
+port_v = [6.660010062e-01, 7.423417016e-03]
+port_v_rel_diff_vs_direct = 1.351e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.073e-08  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 30
+residual_rel = 4.152e-09
+ritz_theta_max = 3.406518  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999741
+rho_hat = 3.747170  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400302
+smooth_weight_source = "estimate"
+estimate_ms = 1.965  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.014  # wall clock
+krylov_s = 0.046  # wall clock
+process_wall_s = 0.13  # whole process: mesh + assembly + solve
+process_user_s = 0.23
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 300  # (user + sys) / wall
+process_max_rss_gb = 0.047
+loadavg_1min_start = 9.15
+port_v = [6.660010062e-01, 7.423417007e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 3.935e-11  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n12_direct"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 6.080e-13
+setup_s = 0.626  # wall clock
+krylov_s = 0.023  # wall clock
+process_wall_s = 0.81  # whole process: mesh + assembly + solve
+process_user_s = 3.04
+process_sys_s = 10.84  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1714  # (user + sys) / wall
+process_max_rss_gb = 0.449
+loadavg_1min_start = 9.13
+port_v = [6.659986380e-01, 7.449350474e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2167
+residual_rel = 9.204e-09
+setup_s = 0.002  # wall clock
+krylov_s = 0.421  # wall clock
+process_wall_s = 0.58  # whole process: mesh + assembly + solve
+process_user_s = 0.81
+process_sys_s = 0.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 164  # (user + sys) / wall
+process_max_rss_gb = 0.073
+loadavg_1min_start = 9.13
+port_v = [6.659986381e-01, 7.449350498e-03]
+port_v_rel_diff_vs_direct = 1.544e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.450e-08  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 34
+residual_rel = 7.143e-09
+ritz_theta_max = 3.406196  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999854
+rho_hat = 3.746815  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400340
+smooth_weight_source = "estimate"
+estimate_ms = 4.636  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.037  # wall clock
+krylov_s = 0.134  # wall clock
+process_wall_s = 0.33  # whole process: mesh + assembly + solve
+process_user_s = 0.63
+process_sys_s = 0.43  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 321  # (user + sys) / wall
+process_max_rss_gb = 0.092
+loadavg_1min_start = 9.13
+port_v = [6.659986380e-01, 7.449350474e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.380e-11  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 9.733e-13
+setup_s = 1.626  # wall clock
+krylov_s = 0.046  # wall clock
+process_wall_s = 1.98  # whole process: mesh + assembly + solve
+process_user_s = 10.31
+process_sys_s = 23.86  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1726  # (user + sys) / wall
+process_max_rss_gb = 1.256
+loadavg_1min_start = 8.88
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006  # wall clock
+krylov_s = 1.129  # wall clock
+process_wall_s = 1.43  # whole process: mesh + assembly + solve
+process_user_s = 1.77
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 136  # (user + sys) / wall
+process_max_rss_gb = 0.143
+loadavg_1min_start = 8.88
+port_v = [6.659975395e-01, 7.461380531e-03]
+port_v_rel_diff_vs_direct = 2.853e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.726e-08  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 39
+residual_rel = 6.012e-09
+ritz_theta_max = 3.416262  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999907
+rho_hat = 3.757888  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399160
+smooth_weight_source = "estimate"
+estimate_ms = 9.109  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.123  # wall clock
+krylov_s = 0.314  # wall clock
+process_wall_s = 0.73  # whole process: mesh + assembly + solve
+process_user_s = 1.02
+process_sys_s = 0.85  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 256  # (user + sys) / wall
+process_max_rss_gb = 0.191
+loadavg_1min_start = 8.88
+port_v = [6.659975395e-01, 7.461380550e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 5.874e-11  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.552e-12
+setup_s = 6.339  # wall clock
+krylov_s = 0.142  # wall clock
+process_wall_s = 7.18  # whole process: mesh + assembly + solve
+process_user_s = 59.95
+process_sys_s = 63.98  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1726  # (user + sys) / wall
+process_max_rss_gb = 3.985
+loadavg_1min_start = 8.73
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.014  # wall clock
+krylov_s = 3.915  # wall clock
+process_wall_s = 4.61  # whole process: mesh + assembly + solve
+process_user_s = 5.04
+process_sys_s = 0.18  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 113  # (user + sys) / wall
+process_max_rss_gb = 0.339
+loadavg_1min_start = 8.54
+port_v = [6.659966840e-01, 7.470749834e-03]
+port_v_rel_diff_vs_direct = 1.505e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.528e-08  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 49
+residual_rel = 7.390e-09
+ritz_theta_max = 3.412746  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999948
+rho_hat = 3.754020  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399572
+smooth_weight_source = "estimate"
+estimate_ms = 21.143  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.261  # wall clock
+krylov_s = 1.070  # wall clock
+process_wall_s = 2.01  # whole process: mesh + assembly + solve
+process_user_s = 2.52
+process_sys_s = 3.05  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 277  # (user + sys) / wall
+process_max_rss_gb = 0.415
+loadavg_1min_start = 8.66
+port_v = [6.659966841e-01, 7.470749827e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.106e-11  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 2.079e-12
+setup_s = 18.852  # wall clock
+krylov_s = 0.270  # wall clock
+process_wall_s = 20.36  # whole process: mesh + assembly + solve
+process_user_s = 239.45
+process_sys_s = 117.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1751  # (user + sys) / wall
+process_max_rss_gb = 8.560
+loadavg_1min_start = 8.89
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.023  # wall clock
+krylov_s = 7.989  # wall clock
+process_wall_s = 9.18  # whole process: mesh + assembly + solve
+process_user_s = 9.63
+process_sys_s = 0.21  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.580
+loadavg_1min_start = 14.50
+port_v = [6.659963478e-01, 7.474433801e-03]
+port_v_rel_diff_vs_direct = 7.507e-12  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.166e-08  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 55
+residual_rel = 8.269e-09
+ritz_theta_max = 3.413317  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999964
+rho_hat = 3.754648  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399505
+smooth_weight_source = "estimate"
+estimate_ms = 37.163  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.509  # wall clock
+krylov_s = 2.227  # wall clock
+process_wall_s = 3.92  # whole process: mesh + assembly + solve
+process_user_s = 5.02
+process_sys_s = 5.64  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 272  # (user + sys) / wall
+process_max_rss_gb = 0.774
+loadavg_1min_start = 13.41
+port_v = [6.659963478e-01, 7.474433796e-03]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 7.409e-11  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 807
+residual_rel = 9.433e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.020  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.06
+process_sys_s = 0.05  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 275  # (user + sys) / wall
+process_max_rss_gb = 0.014
+loadavg_1min_start = 7.23
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 26
+residual_rel = 9.636e-09
+ritz_theta_max = 3.375986  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999417
+rho_hat = 3.713585  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.403922
+smooth_weight_source = "estimate"
+estimate_ms = 0.574  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.011  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.06
+process_sys_s = 0.04  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 250  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 7.05
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1463
+residual_rel = 9.800e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.119  # wall clock
+process_wall_s = 0.19  # whole process: mesh + assembly + solve
+process_user_s = 0.24
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 168  # (user + sys) / wall
+process_max_rss_gb = 0.031
+loadavg_1min_start = 7.05
+port_v = [6.660010062e-01, 7.423417016e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 30
+residual_rel = 4.152e-09
+ritz_theta_max = 3.406518  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999741
+rho_hat = 3.747170  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400302
+smooth_weight_source = "estimate"
+estimate_ms = 1.729  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.011  # wall clock
+krylov_s = 0.047  # wall clock
+process_wall_s = 0.13  # whole process: mesh + assembly + solve
+process_user_s = 0.20
+process_sys_s = 0.07  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 208  # (user + sys) / wall
+process_max_rss_gb = 0.057
+loadavg_1min_start = 7.05
+port_v = [6.660010062e-01, 7.423417007e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2167
+residual_rel = 9.204e-09
+setup_s = 0.003  # wall clock
+krylov_s = 0.423  # wall clock
+process_wall_s = 0.58  # whole process: mesh + assembly + solve
+process_user_s = 0.67
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 131  # (user + sys) / wall
+process_max_rss_gb = 0.066
+loadavg_1min_start = 7.05
+port_v = [6.659986381e-01, 7.449350498e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 34
+residual_rel = 7.143e-09
+ritz_theta_max = 3.406196  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999854
+rho_hat = 3.746815  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400340
+smooth_weight_source = "estimate"
+estimate_ms = 4.465  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.028  # wall clock
+krylov_s = 0.134  # wall clock
+process_wall_s = 0.31  # whole process: mesh + assembly + solve
+process_user_s = 0.38
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 148  # (user + sys) / wall
+process_max_rss_gb = 0.091
+loadavg_1min_start = 7.05
+port_v = [6.659986380e-01, 7.449350474e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.005  # wall clock
+krylov_s = 1.158  # wall clock
+process_wall_s = 1.45  # whole process: mesh + assembly + solve
+process_user_s = 1.55
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 113  # (user + sys) / wall
+process_max_rss_gb = 0.142
+loadavg_1min_start = 6.96
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 39
+residual_rel = 6.012e-09
+ritz_theta_max = 3.416262  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999907
+rho_hat = 3.757888  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399160
+smooth_weight_source = "estimate"
+estimate_ms = 8.742  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.066  # wall clock
+krylov_s = 0.317  # wall clock
+process_wall_s = 0.67  # whole process: mesh + assembly + solve
+process_user_s = 0.78
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 134  # (user + sys) / wall
+process_max_rss_gb = 0.203
+loadavg_1min_start = 6.96
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.014  # wall clock
+krylov_s = 3.916  # wall clock
+process_wall_s = 4.61  # whole process: mesh + assembly + solve
+process_user_s = 4.80
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.324
+loadavg_1min_start = 6.96
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 49
+residual_rel = 7.390e-09
+ritz_theta_max = 3.412746  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999948
+rho_hat = 3.754020  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399572
+smooth_weight_source = "estimate"
+estimate_ms = 21.063  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.232  # wall clock
+krylov_s = 1.058  # wall clock
+process_wall_s = 1.97  # whole process: mesh + assembly + solve
+process_user_s = 2.14
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 115  # (user + sys) / wall
+process_max_rss_gb = 0.400
+loadavg_1min_start = 6.89
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.025  # wall clock
+krylov_s = 8.289  # wall clock
+process_wall_s = 9.49  # whole process: mesh + assembly + solve
+process_user_s = 9.77
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 105  # (user + sys) / wall
+process_max_rss_gb = 0.551
+loadavg_1min_start = 6.66
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p10_rayon1"
+build = "the fix (weight chosen per operator)"
+omega = 0.10
+threading = "RAYON_NUM_THREADS=1"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 55
+residual_rel = 8.269e-09
+ritz_theta_max = 3.413317  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999964
+rho_hat = 3.754648  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399505
+smooth_weight_source = "estimate"
+estimate_ms = 37.255  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.536  # wall clock
+krylov_s = 2.201  # wall clock
+process_wall_s = 3.90  # whole process: mesh + assembly + solve
+process_user_s = 4.20
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 112  # (user + sys) / wall
+process_max_rss_gb = 0.778
+loadavg_1min_start = 6.32
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n6_direct"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 9.345e-14
+setup_s = 0.033  # wall clock
+krylov_s = 0.001  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.24
+process_sys_s = 0.64  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1467  # (user + sys) / wall
+process_max_rss_gb = 0.033
+loadavg_1min_start = 8.41
+port_v = [6.640769601e-01, 1.515016073e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 695
+residual_rel = 9.074e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.017  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.18
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 675  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 8.41
+port_v = [6.640769601e-01, 1.515016074e-02]
+port_v_rel_diff_vs_direct = 1.505e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.224e-08  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 29
+residual_rel = 2.860e-09
+ritz_theta_max = 3.367967  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.998779
+rho_hat = 3.704764  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.404884
+smooth_weight_source = "estimate"
+estimate_ms = 0.577  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.012  # wall clock
+process_wall_s = 0.04  # whole process: mesh + assembly + solve
+process_user_s = 0.15
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 600  # (user + sys) / wall
+process_max_rss_gb = 0.019
+loadavg_1min_start = 7.89
+port_v = [6.640769601e-01, 1.515016073e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 4.001e-10  # full edge field, from the n6_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n9_direct"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.899e-13
+setup_s = 0.169  # wall clock
+krylov_s = 0.007  # wall clock
+process_wall_s = 0.25  # whole process: mesh + assembly + solve
+process_user_s = 0.76
+process_sys_s = 3.11  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1548  # (user + sys) / wall
+process_max_rss_gb = 0.126
+loadavg_1min_start = 7.89
+port_v = [6.640498912e-01, 1.529713052e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1271
+residual_rel = 9.383e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.103  # wall clock
+process_wall_s = 0.17  # whole process: mesh + assembly + solve
+process_user_s = 0.39
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 306  # (user + sys) / wall
+process_max_rss_gb = 0.030
+loadavg_1min_start = 7.89
+port_v = [6.640498912e-01, 1.529713057e-02]
+port_v_rel_diff_vs_direct = 7.528e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.379e-08  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 32
+residual_rel = 3.751e-09
+ritz_theta_max = 3.406052  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999457
+rho_hat = 3.746658  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400357
+smooth_weight_source = "estimate"
+estimate_ms = 1.881  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.012  # wall clock
+krylov_s = 0.050  # wall clock
+process_wall_s = 0.14  # whole process: mesh + assembly + solve
+process_user_s = 0.33
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 357  # (user + sys) / wall
+process_max_rss_gb = 0.050
+loadavg_1min_start = 7.89
+port_v = [6.640498912e-01, 1.529713052e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.357e-11  # full edge field, from the n9_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n12_direct"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 3.098e-13
+setup_s = 0.621  # wall clock
+krylov_s = 0.021  # wall clock
+process_wall_s = 0.81  # whole process: mesh + assembly + solve
+process_user_s = 3.14
+process_sys_s = 10.24  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1652  # (user + sys) / wall
+process_max_rss_gb = 0.447
+loadavg_1min_start = 7.58
+port_v = [6.640403680e-01, 1.534883102e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1894
+residual_rel = 9.840e-09
+setup_s = 0.002  # wall clock
+krylov_s = 0.370  # wall clock
+process_wall_s = 0.53  # whole process: mesh + assembly + solve
+process_user_s = 0.71
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 158  # (user + sys) / wall
+process_max_rss_gb = 0.064
+loadavg_1min_start = 7.58
+port_v = [6.640403679e-01, 1.534883074e-02]
+port_v_rel_diff_vs_direct = 4.476e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.915e-08  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 34
+residual_rel = 4.841e-09
+ritz_theta_max = 3.405951  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999694
+rho_hat = 3.746546  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.400369
+smooth_weight_source = "estimate"
+estimate_ms = 4.175  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.035  # wall clock
+krylov_s = 0.131  # wall clock
+process_wall_s = 0.32  # whole process: mesh + assembly + solve
+process_user_s = 0.64
+process_sys_s = 0.43  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 334  # (user + sys) / wall
+process_max_rss_gb = 0.102
+loadavg_1min_start = 7.58
+port_v = [6.640403680e-01, 1.534883102e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 9.536e-11  # full edge field, from the n12_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 4.835e-13
+setup_s = 1.608  # wall clock
+krylov_s = 0.046  # wall clock
+process_wall_s = 1.95  # whole process: mesh + assembly + solve
+process_user_s = 10.31
+process_sys_s = 22.87  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1702  # (user + sys) / wall
+process_max_rss_gb = 1.250
+loadavg_1min_start = 7.53
+port_v = [6.640359509e-01, 1.537281226e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2494
+residual_rel = 9.604e-09
+setup_s = 0.005  # wall clock
+krylov_s = 0.946  # wall clock
+process_wall_s = 1.25  # whole process: mesh + assembly + solve
+process_user_s = 1.53
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 136  # (user + sys) / wall
+process_max_rss_gb = 0.136
+loadavg_1min_start = 7.53
+port_v = [6.640359509e-01, 1.537281215e-02]
+port_v_rel_diff_vs_direct = 1.656e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 3.890e-08  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 40
+residual_rel = 7.417e-09
+ritz_theta_max = 3.416103  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999804
+rho_hat = 3.757714  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399179
+smooth_weight_source = "estimate"
+estimate_ms = 8.756  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.093  # wall clock
+krylov_s = 0.311  # wall clock
+process_wall_s = 0.69  # whole process: mesh + assembly + solve
+process_user_s = 1.08
+process_sys_s = 1.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 316  # (user + sys) / wall
+process_max_rss_gb = 0.184
+loadavg_1min_start = 7.57
+port_v = [6.640359509e-01, 1.537281226e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.744e-10  # full edge field, from the n15_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 7.711e-13
+setup_s = 6.830  # wall clock
+krylov_s = 0.141  # wall clock
+process_wall_s = 7.66  # whole process: mesh + assembly + solve
+process_user_s = 59.81
+process_sys_s = 61.34  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1582  # (user + sys) / wall
+process_max_rss_gb = 3.986
+loadavg_1min_start = 7.20
+port_v = [6.640325112e-01, 1.539148857e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 3803
+residual_rel = 9.083e-09
+setup_s = 0.014  # wall clock
+krylov_s = 3.442  # wall clock
+process_wall_s = 4.13  # whole process: mesh + assembly + solve
+process_user_s = 4.61
+process_sys_s = 0.20  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 116  # (user + sys) / wall
+process_max_rss_gb = 0.326
+loadavg_1min_start = 9.35
+port_v = [6.640325112e-01, 1.539148858e-02]
+port_v_rel_diff_vs_direct = 1.506e-11  # from the 10 printed digits
+field_rel_l2_vs_direct = 8.785e-09  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 52
+residual_rel = 6.389e-09
+ritz_theta_max = 3.412668  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999890
+rho_hat = 3.753934  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399581
+smooth_weight_source = "estimate"
+estimate_ms = 21.380  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.261  # wall clock
+krylov_s = 1.113  # wall clock
+process_wall_s = 2.04  # whole process: mesh + assembly + solve
+process_user_s = 2.72
+process_sys_s = 3.21  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 291  # (user + sys) / wall
+process_max_rss_gb = 0.402
+loadavg_1min_start = 9.24
+port_v = [6.640325112e-01, 1.539148857e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.169e-10  # full edge field, from the n20_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.040e-12
+setup_s = 18.694  # wall clock
+krylov_s = 0.281  # wall clock
+process_wall_s = 20.21  # whole process: mesh + assembly + solve
+process_user_s = 240.00
+process_sys_s = 121.85  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 1790  # (user + sys) / wall
+process_max_rss_gb = 8.550
+loadavg_1min_start = 10.92
+port_v = [6.640311589e-01, 1.539883186e-02]
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4744
+residual_rel = 9.622e-09
+setup_s = 0.030  # wall clock
+krylov_s = 7.451  # wall clock
+process_wall_s = 8.67  # whole process: mesh + assembly + solve
+process_user_s = 9.40
+process_sys_s = 0.24  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 111  # (user + sys) / wall
+process_max_rss_gb = 0.530
+loadavg_1min_start = 21.15
+port_v = [6.640311590e-01, 1.539883170e-02]
+port_v_rel_diff_vs_direct = 2.841e-10  # from the 10 printed digits
+field_rel_l2_vs_direct = 1.441e-08  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "fix_w0p20"
+build = "the fix (weight chosen per operator)"
+omega = 0.20
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 57
+residual_rel = 8.125e-09
+ritz_theta_max = 3.413248  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999924
+rho_hat = 3.754572  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.399513
+smooth_weight_source = "estimate"
+estimate_ms = 36.841  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.515  # wall clock
+krylov_s = 2.282  # wall clock
+process_wall_s = 3.96  # whole process: mesh + assembly + solve
+process_user_s = 5.03
+process_sys_s = 5.87  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 275  # (user + sys) / wall
+process_max_rss_gb = 0.801
+loadavg_1min_start = 20.26
+port_v = [6.640311589e-01, 1.539883186e-02]
+port_v_rel_diff_vs_direct = 0.000e+00  # from the 10 printed digits
+field_rel_l2_vs_direct = 2.740e-10  # full edge field, from the n24_xcheck leg
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 807
+residual_rel = 9.433e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.020  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.18
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 450  # (user + sys) / wall
+process_max_rss_gb = 0.015
+loadavg_1min_start = 16.03
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 70
+residual_rel = 7.656e-09
+setup_s = 0.003  # wall clock
+krylov_s = 0.031  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.13
+process_sys_s = 0.07  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 333  # (user + sys) / wall
+process_max_rss_gb = 0.020
+loadavg_1min_start = 16.03
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1463
+residual_rel = 9.800e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.141  # wall clock
+process_wall_s = 0.22  # whole process: mesh + assembly + solve
+process_user_s = 0.34
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 209  # (user + sys) / wall
+process_max_rss_gb = 0.034
+loadavg_1min_start = 16.03
+port_v = [6.660010062e-01, 7.423417016e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 139
+residual_rel = 8.754e-09
+setup_s = 0.013  # wall clock
+krylov_s = 0.220  # wall clock
+process_wall_s = 0.31  # whole process: mesh + assembly + solve
+process_user_s = 0.53
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 223  # (user + sys) / wall
+process_max_rss_gb = 0.050
+loadavg_1min_start = 15.23
+port_v = [6.660010062e-01, 7.423417007e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2167
+residual_rel = 9.204e-09
+setup_s = 0.003  # wall clock
+krylov_s = 0.430  # wall clock
+process_wall_s = 0.60  # whole process: mesh + assembly + solve
+process_user_s = 0.83
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 158  # (user + sys) / wall
+process_max_rss_gb = 0.072
+loadavg_1min_start = 15.23
+port_v = [6.659986381e-01, 7.449350498e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 307
+residual_rel = 8.519e-09
+setup_s = 0.034  # wall clock
+krylov_s = 1.239  # wall clock
+process_wall_s = 1.44  # whole process: mesh + assembly + solve
+process_user_s = 1.65
+process_sys_s = 0.36  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 140  # (user + sys) / wall
+process_max_rss_gb = 0.107
+loadavg_1min_start = 15.23
+port_v = [6.659986380e-01, 7.449350471e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006  # wall clock
+krylov_s = 1.143  # wall clock
+process_wall_s = 1.45  # whole process: mesh + assembly + solve
+process_user_s = 1.67
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 126  # (user + sys) / wall
+process_max_rss_gb = 0.134
+loadavg_1min_start = 15.23
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+setup_s = 0.114  # wall clock
+krylov_s = 5.057  # wall clock
+process_wall_s = 5.51  # whole process: mesh + assembly + solve
+process_user_s = 5.40
+process_sys_s = 1.21  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 120  # (user + sys) / wall
+process_max_rss_gb = 0.193
+loadavg_1min_start = 15.69
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.021  # wall clock
+krylov_s = 4.368  # wall clock
+process_wall_s = 5.17  # whole process: mesh + assembly + solve
+process_user_s = 5.12
+process_sys_s = 0.34  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 106  # (user + sys) / wall
+process_max_rss_gb = 0.318
+loadavg_1min_start = 16.75
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+setup_s = 0.340  # wall clock
+krylov_s = 38.119  # wall clock
+process_wall_s = 39.20  # whole process: mesh + assembly + solve
+process_user_s = 39.46
+process_sys_s = 3.61  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 110  # (user + sys) / wall
+process_max_rss_gb = 0.429
+loadavg_1min_start = 16.85
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.034  # wall clock
+krylov_s = 8.417  # wall clock
+process_wall_s = 9.63  # whole process: mesh + assembly + solve
+process_user_s = 10.22
+process_sys_s = 0.20  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 108  # (user + sys) / wall
+process_max_rss_gb = 0.532
+loadavg_1min_start = 14.02
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[smoother_weight_cell]]
+tree = "main_w0p10"
+build = "origin/main before the fix (weight fixed at 0.6)"
+omega = 0.10
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+setup_s = 0.452  # wall clock
+krylov_s = 91.152  # wall clock
+process_wall_s = 92.79  # whole process: mesh + assembly + solve
+process_user_s = 93.76
+process_sys_s = 5.53  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.796
+loadavg_1min_start = 14.32
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 878
+residual_rel = 9.795e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.022  # wall clock
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.19
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 560  # (user + sys) / wall
+process_max_rss_gb = 0.016
+loadavg_1min_start = 19.25
+port_v = [6.665012152e-01, 3.646533716e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 68
+residual_rel = 6.431e-09
+ritz_theta_max = 3.378769  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999715
+rho_hat = 3.716646  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 0.587  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.030  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.19
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 467  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 18.35
+port_v = [6.665012152e-01, 3.646533706e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1653
+residual_rel = 9.283e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.135  # wall clock
+process_wall_s = 0.21  # whole process: mesh + assembly + solve
+process_user_s = 0.36
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 229  # (user + sys) / wall
+process_max_rss_gb = 0.035
+loadavg_1min_start = 18.35
+port_v = [6.664995348e-01, 3.683416213e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 135
+residual_rel = 4.311e-09
+ritz_theta_max = 3.406743  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999873
+rho_hat = 3.747417  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 2.026  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.012  # wall clock
+krylov_s = 0.210  # wall clock
+process_wall_s = 0.29  # whole process: mesh + assembly + solve
+process_user_s = 0.47
+process_sys_s = 0.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 210  # (user + sys) / wall
+process_max_rss_gb = 0.047
+loadavg_1min_start = 18.35
+port_v = [6.664995348e-01, 3.683416217e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2436
+residual_rel = 9.409e-09
+setup_s = 0.003  # wall clock
+krylov_s = 0.475  # wall clock
+process_wall_s = 0.64  # whole process: mesh + assembly + solve
+process_user_s = 0.86
+process_sys_s = 0.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 156  # (user + sys) / wall
+process_max_rss_gb = 0.073
+loadavg_1min_start = 18.35
+port_v = [6.664989435e-01, 3.696393560e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 299
+residual_rel = 4.519e-09
+ritz_theta_max = 3.406313  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999929
+rho_hat = 3.746944  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 4.701  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.036  # wall clock
+krylov_s = 1.166  # wall clock
+process_wall_s = 1.36  # whole process: mesh + assembly + solve
+process_user_s = 1.60
+process_sys_s = 0.37  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 145  # (user + sys) / wall
+process_max_rss_gb = 0.101
+loadavg_1min_start = 18.35
+port_v = [6.664989435e-01, 3.696393558e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 3268
+residual_rel = 9.466e-09
+setup_s = 0.006  # wall clock
+krylov_s = 1.252  # wall clock
+process_wall_s = 1.55  # whole process: mesh + assembly + solve
+process_user_s = 1.85
+process_sys_s = 0.18  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 131  # (user + sys) / wall
+process_max_rss_gb = 0.147
+loadavg_1min_start = 17.36
+port_v = [6.664986692e-01, 3.702413649e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 505
+residual_rel = 8.692e-09
+ritz_theta_max = 3.416338  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999954
+rho_hat = 3.757971  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 9.264  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.087  # wall clock
+krylov_s = 4.119  # wall clock
+process_wall_s = 4.50  # whole process: mesh + assembly + solve
+process_user_s = 4.86
+process_sys_s = 0.97  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 130  # (user + sys) / wall
+process_max_rss_gb = 0.186
+loadavg_1min_start = 17.36
+port_v = [6.664986693e-01, 3.702413622e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4840
+residual_rel = 9.971e-09
+setup_s = 0.014  # wall clock
+krylov_s = 4.382  # wall clock
+process_wall_s = 5.07  # whole process: mesh + assembly + solve
+process_user_s = 5.56
+process_sys_s = 0.18  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 113  # (user + sys) / wall
+process_max_rss_gb = 0.327
+loadavg_1min_start = 16.53
+port_v = [6.664984557e-01, 3.707102220e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1896
+residual_rel = 6.770e-09
+ritz_theta_max = 3.412782  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999974
+rho_hat = 3.754060  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 21.225  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.247  # wall clock
+krylov_s = 40.704  # wall clock
+process_wall_s = 41.62  # whole process: mesh + assembly + solve
+process_user_s = 42.05
+process_sys_s = 2.79  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 108  # (user + sys) / wall
+process_max_rss_gb = 0.415
+loadavg_1min_start = 15.61
+port_v = [6.664984557e-01, 3.707102225e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 6153
+residual_rel = 9.394e-09
+setup_s = 0.026  # wall clock
+krylov_s = 9.667  # wall clock
+process_wall_s = 10.87  # whole process: mesh + assembly + solve
+process_user_s = 11.44
+process_sys_s = 0.22  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.582
+loadavg_1min_start = 11.73
+port_v = [6.664983717e-01, 3.708945757e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p05"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.05
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2166
+residual_rel = 7.764e-09
+ritz_theta_max = 3.413349  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999982
+rho_hat = 3.754684  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 37.269  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.510  # wall clock
+krylov_s = 86.757  # wall clock
+process_wall_s = 88.43  # whole process: mesh + assembly + solve
+process_user_s = 89.20
+process_sys_s = 6.36  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 108  # (user + sys) / wall
+process_max_rss_gb = 0.824
+loadavg_1min_start = 11.41
+port_v = [6.664983717e-01, 3.708945778e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 807
+residual_rel = 9.433e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.019  # wall clock
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.18
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 540  # (user + sys) / wall
+process_max_rss_gb = 0.016
+loadavg_1min_start = 16.32
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 70
+residual_rel = 7.656e-09
+ritz_theta_max = 3.375986  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999417
+rho_hat = 3.713585  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 0.558  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.030  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.23
+process_sys_s = 0.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 550  # (user + sys) / wall
+process_max_rss_gb = 0.019
+loadavg_1min_start = 16.32
+port_v = [6.660077370e-01, 7.349708964e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1463
+residual_rel = 9.800e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.119  # wall clock
+process_wall_s = 0.19  # whole process: mesh + assembly + solve
+process_user_s = 0.39
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 268  # (user + sys) / wall
+process_max_rss_gb = 0.028
+loadavg_1min_start = 15.33
+port_v = [6.660010062e-01, 7.423417016e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 139
+residual_rel = 8.754e-09
+ritz_theta_max = 3.406518  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999741
+rho_hat = 3.747170  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 1.885  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.012  # wall clock
+krylov_s = 0.216  # wall clock
+process_wall_s = 0.30  # whole process: mesh + assembly + solve
+process_user_s = 0.43
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 200  # (user + sys) / wall
+process_max_rss_gb = 0.048
+loadavg_1min_start = 15.33
+port_v = [6.660010062e-01, 7.423417007e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2167
+residual_rel = 9.204e-09
+setup_s = 0.002  # wall clock
+krylov_s = 0.425  # wall clock
+process_wall_s = 0.58  # whole process: mesh + assembly + solve
+process_user_s = 0.76
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 157  # (user + sys) / wall
+process_max_rss_gb = 0.076
+loadavg_1min_start = 15.33
+port_v = [6.659986381e-01, 7.449350498e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 307
+residual_rel = 8.519e-09
+ritz_theta_max = 3.406196  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999854
+rho_hat = 3.746815  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 4.570  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.038  # wall clock
+krylov_s = 1.196  # wall clock
+process_wall_s = 1.40  # whole process: mesh + assembly + solve
+process_user_s = 1.78
+process_sys_s = 0.47  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 161  # (user + sys) / wall
+process_max_rss_gb = 0.097
+loadavg_1min_start = 15.33
+port_v = [6.659986380e-01, 7.449350471e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.005  # wall clock
+krylov_s = 1.126  # wall clock
+process_wall_s = 1.43  # whole process: mesh + assembly + solve
+process_user_s = 1.78
+process_sys_s = 0.19  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 138  # (user + sys) / wall
+process_max_rss_gb = 0.136
+loadavg_1min_start = 14.82
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+ritz_theta_max = 3.416262  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999907
+rho_hat = 3.757888  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 9.172  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.092  # wall clock
+krylov_s = 4.337  # wall clock
+process_wall_s = 4.73  # whole process: mesh + assembly + solve
+process_user_s = 5.11
+process_sys_s = 1.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 132  # (user + sys) / wall
+process_max_rss_gb = 0.199
+loadavg_1min_start = 14.82
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.012  # wall clock
+krylov_s = 3.896  # wall clock
+process_wall_s = 4.58  # whole process: mesh + assembly + solve
+process_user_s = 4.91
+process_sys_s = 0.22  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 112  # (user + sys) / wall
+process_max_rss_gb = 0.332
+loadavg_1min_start = 14.20
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+ritz_theta_max = 3.412746  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999948
+rho_hat = 3.754020  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 20.854  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.275  # wall clock
+krylov_s = 36.390  # wall clock
+process_wall_s = 37.34  # whole process: mesh + assembly + solve
+process_user_s = 37.68
+process_sys_s = 3.68  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 111  # (user + sys) / wall
+process_max_rss_gb = 0.433
+loadavg_1min_start = 13.46
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.029  # wall clock
+krylov_s = 8.345  # wall clock
+process_wall_s = 9.55  # whole process: mesh + assembly + solve
+process_user_s = 10.18
+process_sys_s = 0.26  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 109  # (user + sys) / wall
+process_max_rss_gb = 0.547
+loadavg_1min_start = 9.90
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p10"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.10
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+ritz_theta_max = 3.413317  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999964
+rho_hat = 3.754648  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 37.759  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.537  # wall clock
+krylov_s = 91.225  # wall clock
+process_wall_s = 92.95  # whole process: mesh + assembly + solve
+process_user_s = 93.46
+process_sys_s = 7.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 108  # (user + sys) / wall
+process_max_rss_gb = 0.826
+loadavg_1min_start = 9.22
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n6_jacobi"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 695
+residual_rel = 9.074e-09
+setup_s = 0.000  # wall clock
+krylov_s = 0.017  # wall clock
+process_wall_s = 0.05  # whole process: mesh + assembly + solve
+process_user_s = 0.18
+process_sys_s = 0.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 560  # (user + sys) / wall
+process_max_rss_gb = 0.015
+loadavg_1min_start = 20.63
+port_v = [6.640769601e-01, 1.515016074e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n6_ams"
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 77
+residual_rel = 9.553e-10
+ritz_theta_max = 3.367967  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.998779
+rho_hat = 3.704764  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 0.578  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.003  # wall clock
+krylov_s = 0.033  # wall clock
+process_wall_s = 0.06  # whole process: mesh + assembly + solve
+process_user_s = 0.19
+process_sys_s = 0.09  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 467  # (user + sys) / wall
+process_max_rss_gb = 0.017
+loadavg_1min_start = 19.86
+port_v = [6.640769601e-01, 1.515016073e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n9_jacobi"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1271
+residual_rel = 9.383e-09
+setup_s = 0.001  # wall clock
+krylov_s = 0.104  # wall clock
+process_wall_s = 0.18  # whole process: mesh + assembly + solve
+process_user_s = 0.36
+process_sys_s = 0.11  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 261  # (user + sys) / wall
+process_max_rss_gb = 0.035
+loadavg_1min_start = 19.86
+port_v = [6.640498912e-01, 1.529713057e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n9_ams"
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 143
+residual_rel = 5.546e-09
+ritz_theta_max = 3.406052  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999457
+rho_hat = 3.746658  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 1.960  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.013  # wall clock
+krylov_s = 0.224  # wall clock
+process_wall_s = 0.31  # whole process: mesh + assembly + solve
+process_user_s = 0.43
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 187  # (user + sys) / wall
+process_max_rss_gb = 0.048
+loadavg_1min_start = 19.86
+port_v = [6.640498912e-01, 1.529713052e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n12_jacobi"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 1894
+residual_rel = 9.840e-09
+setup_s = 0.002  # wall clock
+krylov_s = 0.369  # wall clock
+process_wall_s = 0.53  # whole process: mesh + assembly + solve
+process_user_s = 0.84
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 191  # (user + sys) / wall
+process_max_rss_gb = 0.070
+loadavg_1min_start = 19.86
+port_v = [6.640403679e-01, 1.534883074e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n12_ams"
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 343
+residual_rel = 7.259e-09
+ritz_theta_max = 3.405951  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999694
+rho_hat = 3.746546  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 4.658  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.037  # wall clock
+krylov_s = 1.342  # wall clock
+process_wall_s = 1.54  # whole process: mesh + assembly + solve
+process_user_s = 1.81
+process_sys_s = 0.42  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 145  # (user + sys) / wall
+process_max_rss_gb = 0.102
+loadavg_1min_start = 18.91
+port_v = [6.640403680e-01, 1.534883102e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2494
+residual_rel = 9.604e-09
+setup_s = 0.005  # wall clock
+krylov_s = 0.950  # wall clock
+process_wall_s = 1.25  # whole process: mesh + assembly + solve
+process_user_s = 1.51
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 133  # (user + sys) / wall
+process_max_rss_gb = 0.138
+loadavg_1min_start = 18.91
+port_v = [6.640359509e-01, 1.537281215e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 556
+residual_rel = 9.673e-09
+ritz_theta_max = 3.416103  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999804
+rho_hat = 3.757714  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 9.118  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.086  # wall clock
+krylov_s = 4.494  # wall clock
+process_wall_s = 4.87  # whole process: mesh + assembly + solve
+process_user_s = 5.20
+process_sys_s = 0.96  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 126  # (user + sys) / wall
+process_max_rss_gb = 0.190
+loadavg_1min_start = 18.91
+port_v = [6.640359510e-01, 1.537281242e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 3803
+residual_rel = 9.083e-09
+setup_s = 0.014  # wall clock
+krylov_s = 3.446  # wall clock
+process_wall_s = 4.14  # whole process: mesh + assembly + solve
+process_user_s = 4.68
+process_sys_s = 0.20  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 118  # (user + sys) / wall
+process_max_rss_gb = 0.320
+loadavg_1min_start = 18.44
+port_v = [6.640325112e-01, 1.539148858e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1729
+residual_rel = 7.982e-09
+ritz_theta_max = 3.412668  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999890
+rho_hat = 3.753934  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 21.625  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.254  # wall clock
+krylov_s = 36.889  # wall clock
+process_wall_s = 37.80  # whole process: mesh + assembly + solve
+process_user_s = 38.27
+process_sys_s = 2.80  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 109  # (user + sys) / wall
+process_max_rss_gb = 0.438
+loadavg_1min_start = 17.52
+port_v = [6.640325112e-01, 1.539148857e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4744
+residual_rel = 9.622e-09
+setup_s = 0.025  # wall clock
+krylov_s = 7.230  # wall clock
+process_wall_s = 8.44  # whole process: mesh + assembly + solve
+process_user_s = 9.24
+process_sys_s = 0.21  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 112  # (user + sys) / wall
+process_max_rss_gb = 0.563
+loadavg_1min_start = 12.95
+port_v = [6.640311590e-01, 1.539883170e-02]
+
+[[smoother_weight_cell]]
+tree = "w060_w0p20"
+build = "the fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6 (the old weight)"
+omega = 0.20
+threading = "default"
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2359
+residual_rel = 9.229e-09
+ritz_theta_max = 3.413248  # 30-step Lanczos, lower bound on lambda_max(D^-1 P)
+gershgorin_upper = 3.999924
+rho_hat = 3.754572  # min(1.1 * theta, gershgorin)
+smooth_weight = 0.600000
+smooth_weight_source = "override"
+estimate_ms = 36.854  # wall clock of the Gershgorin pass + Lanczos run, sequential
+setup_s = 0.536  # wall clock
+krylov_s = 94.301  # wall clock
+process_wall_s = 96.02  # whole process: mesh + assembly + solve
+process_user_s = 96.60
+process_sys_s = 5.01  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 106  # (user + sys) / wall
+process_max_rss_gb = 0.834
+loadavg_1min_start = 12.20
+port_v = [6.640311589e-01, 1.539883186e-02]
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 6
+n_edges = 1854
+jacobi_iterations = 878
+ams_iterations_before = 68  # weight 0.6
+ams_iterations_after = 27
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.403590
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.378769
+gershgorin_upper = 3.999715
+rho_hat = 3.716646
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.388103  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.755e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5903]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 0.580
+ams_setup_s_after = 0.003  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.177
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.30
+ams_process_cpu_s_before = 0.28
+ams_process_cpu_s_after = 0.22
+ams_field_rel_l2_vs_direct_after = 2.130e-11
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 9
+n_edges = 5859
+jacobi_iterations = 1653
+ams_iterations_before = 135  # weight 0.6
+ams_iterations_after = 29
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.400276
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.406743
+gershgorin_upper = 3.999873
+rho_hat = 3.747417
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.407758  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.978e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5869]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 1.961
+ams_setup_s_after = 0.012  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.159
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.59
+ams_process_cpu_s_before = 0.61
+ams_process_cpu_s_after = 0.42
+ams_field_rel_l2_vs_direct_after = 1.013e-11
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 12
+n_edges = 13428
+jacobi_iterations = 2436
+ams_iterations_before = 299  # weight 0.6
+ams_iterations_after = 33
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.400326
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.406313
+gershgorin_upper = 3.999929
+rho_hat = 3.746944
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.414725  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.463e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5857]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 4.704
+ams_setup_s_after = 0.037  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.128
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 1.01
+ams_process_cpu_s_before = 1.97
+ams_process_cpu_s_after = 0.99
+ams_field_rel_l2_vs_direct_after = 3.617e-11
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 15
+n_edges = 25695
+jacobi_iterations = 3268
+ams_iterations_before = 505  # weight 0.6
+ams_iterations_after = 37
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399152
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.416338
+gershgorin_upper = 3.999954
+rho_hat = 3.757971
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.417969  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 4.772e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5851]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 8.526
+ams_setup_s_after = 0.083  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.102
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 2.14
+ams_process_cpu_s_before = 5.83
+ams_process_cpu_s_after = 1.97
+ams_field_rel_l2_vs_direct_after = 3.771e-11
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 20
+n_edges = 59660
+jacobi_iterations = 4840
+ams_iterations_before = 1896  # weight 0.6
+ams_iterations_after = 47
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399567
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.412782
+gershgorin_upper = 3.999974
+rho_hat = 3.754060
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.420501  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.257e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5847]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 20.447
+ams_setup_s_after = 0.264  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.077
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 5.90
+ams_process_cpu_s_before = 44.84
+ams_process_cpu_s_after = 5.92
+ams_field_rel_l2_vs_direct_after = 6.419e-11
+
+[[smoother_weight_comparison]]
+omega = 0.05
+size_n = 24
+n_edges = 102024
+jacobi_iterations = 6153
+ams_iterations_before = 2166  # weight 0.6
+ams_iterations_after = 55
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399501
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.413349
+gershgorin_upper = 3.999982
+rho_hat = 3.754684
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.421499  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.382e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5845]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 36.210
+ams_setup_s_after = 0.521  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.070
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 11.82
+ams_process_cpu_s_before = 95.56
+ams_process_cpu_s_after = 11.32
+ams_field_rel_l2_vs_direct_after = 1.492e-11
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 6
+n_edges = 1854
+jacobi_iterations = 807
+ams_iterations_before = 70  # weight 0.6
+ams_iterations_after = 26
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 70
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.403922
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.375986
+gershgorin_upper = 3.999417
+rho_hat = 3.713585
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.387613  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 3.432e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5001, 0.5904]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.368  # below 2: inside the bound by the reference value
+estimate_ms = 0.584
+ams_setup_s_after = 0.003  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.172
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.27
+ams_process_cpu_s_before = 0.33
+ams_process_cpu_s_after = 0.24
+jacobi_process_cpu_s_rayon1 = 0.11  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 0.10
+cpu_ratio_jacobi_over_ams_rayon1 = 1.10  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 7.859e-10
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 9
+n_edges = 5859
+jacobi_iterations = 1463
+ams_iterations_before = 139  # weight 0.6
+ams_iterations_after = 30
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 139
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.400302
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.406518
+gershgorin_upper = 3.999741
+rho_hat = 3.747170
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.407538  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.993e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5869]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 1.965
+ams_setup_s_after = 0.014  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.143
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.49
+ams_process_cpu_s_before = 0.60
+ams_process_cpu_s_after = 0.39
+jacobi_process_cpu_s_rayon1 = 0.32  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 0.27
+cpu_ratio_jacobi_over_ams_rayon1 = 1.19  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 3.935e-11
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 12
+n_edges = 13428
+jacobi_iterations = 2167
+ams_iterations_before = 307  # weight 0.6
+ams_iterations_after = 34
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 307
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.400340
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.406196
+gershgorin_upper = 3.999854
+rho_hat = 3.746815
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.414601  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.461e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5857]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 4.636
+ams_setup_s_after = 0.037  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.124
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.95
+ams_process_cpu_s_before = 2.25
+ams_process_cpu_s_after = 1.06
+jacobi_process_cpu_s_rayon1 = 0.76  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 0.46
+cpu_ratio_jacobi_over_ams_rayon1 = 1.65  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 2.380e-11
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 15
+n_edges = 25695
+jacobi_iterations = 2969
+ams_iterations_before = 533  # weight 0.6
+ams_iterations_after = 39
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 533
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.399160
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.416262
+gershgorin_upper = 3.999907
+rho_hat = 3.757888
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.417889  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 4.760e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5852]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 9.109
+ams_setup_s_after = 0.123  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.074
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 1.94
+ams_process_cpu_s_before = 6.24
+ams_process_cpu_s_after = 1.87
+jacobi_process_cpu_s_rayon1 = 1.64  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 0.90
+cpu_ratio_jacobi_over_ams_rayon1 = 1.82  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 5.874e-11
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 20
+n_edges = 59660
+jacobi_iterations = 4303
+ams_iterations_before = 1693  # weight 0.6
+ams_iterations_after = 49
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 1693
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.399572
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.412746
+gershgorin_upper = 3.999948
+rho_hat = 3.754020
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.420457  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.254e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5847]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 21.143
+ams_setup_s_after = 0.261  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.081
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 5.22
+ams_process_cpu_s_before = 41.36
+ams_process_cpu_s_after = 5.57
+jacobi_process_cpu_s_rayon1 = 4.92  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 2.27
+cpu_ratio_jacobi_over_ams_rayon1 = 2.17  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 1.106e-11
+
+[[smoother_weight_comparison]]
+omega = 0.10
+size_n = 24
+n_edges = 102024
+jacobi_iterations = 5259
+ams_iterations_before = 2270  # weight 0.6
+ams_iterations_after = 55
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+ams_iterations_before_main = 2270
+main_equals_forced_0p6 = true  # iterations, residual_rel and port_v as printed: main vs the fix build at weight 0.6
+smooth_weight_after = 0.399505
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.413317
+gershgorin_upper = 3.999964
+rho_hat = 3.754648
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.421468  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.382e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5845]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 37.163
+ams_setup_s_after = 0.509  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.073
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 9.84
+ams_process_cpu_s_before = 100.56
+ams_process_cpu_s_after = 10.66
+jacobi_process_cpu_s_rayon1 = 9.93  # RAYON_NUM_THREADS=1
+ams_process_cpu_s_after_rayon1 = 4.36
+cpu_ratio_jacobi_over_ams_rayon1 = 2.28  # above 1: the AMS process used less CPU
+after_identical_across_threading = true  # iterations, residual_rel, port_v, theta and weight as printed
+ams_field_rel_l2_vs_direct_after = 7.409e-11
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 6
+n_edges = 1854
+jacobi_iterations = 695
+ams_iterations_before = 77  # weight 0.6
+ams_iterations_after = 29
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.404884
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.367967
+gershgorin_upper = 3.998779
+rho_hat = 3.704764
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.386594  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 5.500e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5002, 0.5906]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.371  # below 2: inside the bound by the reference value
+estimate_ms = 0.577
+ams_setup_s_after = 0.003  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.177
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.27
+ams_process_cpu_s_before = 0.28
+ams_process_cpu_s_after = 0.24
+ams_field_rel_l2_vs_direct_after = 4.001e-10
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 9
+n_edges = 5859
+jacobi_iterations = 1271
+ams_iterations_before = 143  # weight 0.6
+ams_iterations_after = 32
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.400357
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.406052
+gershgorin_upper = 3.999457
+rho_hat = 3.746658
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.407082  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 3.023e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5001, 0.5870]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 1.881
+ams_setup_s_after = 0.012  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.153
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.52
+ams_process_cpu_s_before = 0.58
+ams_process_cpu_s_after = 0.50
+ams_field_rel_l2_vs_direct_after = 2.357e-11
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 12
+n_edges = 13428
+jacobi_iterations = 1894
+ams_iterations_before = 343  # weight 0.6
+ams_iterations_after = 34
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.400369
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.405951
+gershgorin_upper = 3.999694
+rho_hat = 3.746546
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.414344  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.458e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5858]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 4.175
+ams_setup_s_after = 0.035  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.120
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 0.84
+ams_process_cpu_s_before = 2.23
+ams_process_cpu_s_after = 1.07
+ams_field_rel_l2_vs_direct_after = 9.536e-11
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 15
+n_edges = 25695
+jacobi_iterations = 2494
+ams_iterations_before = 556  # weight 0.6
+ams_iterations_after = 40
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399179
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.416103
+gershgorin_upper = 3.999804
+rho_hat = 3.757714
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.417724  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 4.743e-04  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5852]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.364  # below 2: inside the bound by the reference value
+estimate_ms = 8.756
+ams_setup_s_after = 0.093  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.094
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 1.70
+ams_process_cpu_s_before = 6.16
+ams_process_cpu_s_after = 2.18
+ams_field_rel_l2_vs_direct_after = 1.744e-10
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 20
+n_edges = 59660
+jacobi_iterations = 3803
+ams_iterations_before = 1729  # weight 0.6
+ams_iterations_after = 52
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399581
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.412668
+gershgorin_upper = 3.999890
+rho_hat = 3.753934
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.420364  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.250e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5847]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 21.380
+ams_setup_s_after = 0.261  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.082
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 4.81
+ams_process_cpu_s_before = 41.07
+ams_process_cpu_s_after = 5.93
+ams_field_rel_l2_vs_direct_after = 2.169e-10
+
+[[smoother_weight_comparison]]
+omega = 0.20
+size_n = 24
+n_edges = 102024
+jacobi_iterations = 4744
+ams_iterations_before = 2359  # weight 0.6
+ams_iterations_after = 57
+ams_explicit_converged_before = true
+ams_explicit_converged_after = true
+smooth_weight_after = 0.399513
+smooth_weight_source = "estimate"
+ritz_theta_max = 3.413248
+gershgorin_upper = 3.999924
+rho_hat = 3.754572
+default_proven_unstable = true  # 0.6 * theta >= 2
+weight_below_rigorous_bound = true  # weight < 2 / gershgorin <= 2 / lambda_max
+ritz_theta_reference = 3.421403  # 1000-step Lanczos, same start vector; still a lower bound
+ritz_gap_rel = 2.384e-03  # (reference - theta) / reference
+stability_bound_weight = [0.5000, 0.5846]  # 2 / gershgorin (rigorous), 2 / reference (estimate)
+weight_times_reference = 1.367  # below 2: inside the bound by the reference value
+estimate_ms = 36.841
+ams_setup_s_after = 0.515  # wall clock, same process as estimate_ms
+estimate_share_of_setup = 0.072
+# Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
+jacobi_process_cpu_s = 9.64
+ams_process_cpu_s_before = 101.61
+ams_process_cpu_s_after = 10.90
+ams_field_rel_l2_vs_direct_after = 2.740e-10
+
+[[smoother_weight_finding]]
+omega = 0.05
+sizes_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+jacobi_iterations = [878, 1653, 2436, 3268, 4840, 6153]
+ams_iterations_before = [68, 135, 299, 505, 1896, 2166]  # weight 0.6
+ams_iterations_after = [27, 29, 33, 37, 47, 55]
+smooth_weight_after_range = [0.3992, 0.4036]
+ams_all_explicit_converged_after = true
+ams_iterations_max_over_min_before = 31.85
+ams_iterations_max_over_min_after = 2.04
+flat_threshold_max_over_min = 1.52  # the band of the #742 / #744 spiral measurement, as in [finding]
+ams_iteration_count_flat_after = false
+ams_growth_exponent_least_squares_before = 0.925  # iterations ~ edges^p
+ams_growth_exponent_least_squares_after = 0.180
+jacobi_growth_exponent_least_squares = 0.481
+iteration_ratio_jacobi_over_ams_after = [32.5, 57.0, 73.8, 88.3, 103.0, 111.9]
+jacobi_process_cpu_s = [0.30, 0.59, 1.01, 2.14, 5.90, 11.82]  # user + sys, whole process
+ams_process_cpu_s_before = [0.28, 0.61, 1.97, 5.83, 44.84, 95.56]
+ams_process_cpu_s_after = [0.22, 0.42, 0.99, 1.97, 5.92, 11.32]
+verdict = "At omega = 0.05 the AMS iteration count went from 68 to 2166 (weight 0.6, edges^0.93) to 27 to 55 (edges^0.18) over 1854 to 102024 edges; Jacobi takes 878 to 6153 (edges^0.48). The count after the fix still rises by 2.04x, outside the 1.52 band this file calls flat."
+
+[[smoother_weight_finding]]
+omega = 0.10
+sizes_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+jacobi_iterations = [807, 1463, 2167, 2969, 4303, 5259]
+ams_iterations_before = [70, 139, 307, 533, 1693, 2270]  # weight 0.6
+ams_iterations_after = [26, 30, 34, 39, 49, 55]
+smooth_weight_after_range = [0.3992, 0.4039]
+ams_all_explicit_converged_after = true
+ams_iterations_max_over_min_before = 32.43
+ams_iterations_max_over_min_after = 2.12
+flat_threshold_max_over_min = 1.52  # the band of the #742 / #744 spiral measurement, as in [finding]
+ams_iteration_count_flat_after = false
+ams_growth_exponent_least_squares_before = 0.913  # iterations ~ edges^p
+ams_growth_exponent_least_squares_after = 0.191
+jacobi_growth_exponent_least_squares = 0.470
+iteration_ratio_jacobi_over_ams_after = [31.0, 48.8, 63.7, 76.1, 87.8, 95.6]
+jacobi_process_cpu_s = [0.27, 0.49, 0.95, 1.94, 5.22, 9.84]  # user + sys, whole process
+ams_process_cpu_s_before = [0.33, 0.60, 2.25, 6.24, 41.36, 100.56]
+ams_process_cpu_s_after = [0.24, 0.39, 1.06, 1.87, 5.57, 10.66]
+verdict = "At omega = 0.10 the AMS iteration count went from 70 to 2270 (weight 0.6, edges^0.91) to 26 to 55 (edges^0.19) over 1854 to 102024 edges; Jacobi takes 807 to 5259 (edges^0.47). The count after the fix still rises by 2.12x, outside the 1.52 band this file calls flat."
+
+[[smoother_weight_finding]]
+omega = 0.20
+sizes_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+jacobi_iterations = [695, 1271, 1894, 2494, 3803, 4744]
+ams_iterations_before = [77, 143, 343, 556, 1729, 2359]  # weight 0.6
+ams_iterations_after = [29, 32, 34, 40, 52, 57]
+smooth_weight_after_range = [0.3992, 0.4049]
+ams_all_explicit_converged_after = true
+ams_iterations_max_over_min_before = 30.64
+ams_iterations_max_over_min_after = 1.97
+flat_threshold_max_over_min = 1.52  # the band of the #742 / #744 spiral measurement, as in [finding]
+ams_iteration_count_flat_after = false
+ams_growth_exponent_least_squares_before = 0.899  # iterations ~ edges^p
+ams_growth_exponent_least_squares_after = 0.177
+jacobi_growth_exponent_least_squares = 0.478
+iteration_ratio_jacobi_over_ams_after = [24.0, 39.7, 55.7, 62.4, 73.1, 83.2]
+jacobi_process_cpu_s = [0.27, 0.52, 0.84, 1.70, 4.81, 9.64]  # user + sys, whole process
+ams_process_cpu_s_before = [0.28, 0.58, 2.23, 6.16, 41.07, 101.61]
+ams_process_cpu_s_after = [0.24, 0.50, 1.07, 2.18, 5.93, 10.90]
+verdict = "At omega = 0.20 the AMS iteration count went from 77 to 2359 (weight 0.6, edges^0.90) to 29 to 57 (edges^0.18) over 1854 to 102024 edges; Jacobi takes 695 to 4744 (edges^0.48). The count after the fix still rises by 1.97x, outside the 1.52 band this file calls flat."
+
+[smoother_weight.summary]
+cells = 18  # frequencies x sizes with a before and an after
+ams_iterations_after_range = [26, 57]
+ams_iterations_before_range = [68, 2359]
+all_explicit_converged_after = true
+smooth_weight_range = [0.3992, 0.4049]
+smooth_weight_sources = ["estimate"]
+ritz_theta_max_range = [3.3680, 3.4163]
+gershgorin_upper_range = [3.9988, 4.0000]
+every_weight_below_rigorous_bound = true  # weight < 2 / gershgorin in every cell
+ritz_gap_rel_range = [2.978e-04, 5.500e-03]  # 30-step theta below the 1000-step reference
+estimate_share_of_setup_range = [0.070, 0.177]  # wall clock, same process
+main_equals_forced_0p6_at_every_size = true  # 6 sizes at the one frequency main can run
+after_identical_across_threading_at_every_size = true  # 6 sizes
+ams_field_rel_l2_vs_direct_after_range = [1.013e-11, 7.859e-10]
+
+[[smoother_weight_validation]]
+name = "spiral_smoke"
+exercises = "driven COCG + AMS V-cycle, 14k-edge spiral, 4 frequencies (#744)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_iterations = [116, 142, 153, 170]  # COCG iterations per frequency, as the test prints them
+unconditional_rule_smooth_weight = [0.440857, 0.452705, 0.460396, 0.465589]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000, 0.600000, 0.600000, 0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.093148, 3.012197, 2.961877, 2.928841]
+fix_gershgorin_upper = [6.043984, 6.043984, 6.043983, 6.043981]
+fix_ritz_theta_reference = [3.093150, 3.012207, 2.962215, 2.928863]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 1.141e-04
+fix_default_weight_times_reference_max = 1.8559  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "spiral_benchmark"
+exercises = "driven COCG + AMS V-cycle, 53k-edge spiral, 1 GHz (#744)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [114]  # COCG iterations per frequency, as the test prints them
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_iterations = [114]  # COCG iterations per frequency, as the test prints them
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_iterations = [126]  # COCG iterations per frequency, as the test prints them
+unconditional_rule_smooth_weight = [0.444443]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.068191]
+fix_gershgorin_upper = [5.136690]
+fix_ritz_theta_reference = [3.068304]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 3.683e-05
+fix_default_weight_times_reference_max = 1.8410  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "spiral_ds"
+exercises = "driven COCG + AMS V-cycle, Djordjevic-Sarkar dielectric spiral"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = false
+unconditional_rule_failure = "recursive residual met the tolerance after 153 iterations, explicit residual 1.007e-10 did not (tol 1e-10)"
+unconditional_rule_smooth_weight = [0.440857, 0.452705, 0.460396]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+
+[[smoother_weight_validation]]
+name = "spiral_debye"
+exercises = "driven COCG + AMS V-cycle, Debye dielectric spiral; a known knife edge on macOS (#943)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = false
+main_failure = "recursive residual met the tolerance after 148 iterations, explicit residual 1.018e-10 did not (tol 1e-10)"
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = false
+fix_failure = "recursive residual met the tolerance after 148 iterations, explicit residual 1.018e-10 did not (tol 1e-10)"
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_iterations = [126, 163, 172, 189]  # COCG iterations per frequency, as the test prints them
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000, 0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.093148, 3.012197]
+fix_gershgorin_upper = [6.043984, 6.043984]
+fix_ritz_theta_reference = [3.093150, 3.012207]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 3.320e-06
+fix_default_weight_times_reference_max = 1.8559  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "spiral_drude"
+exercises = "driven COCG + AMS V-cycle, Drude conductor spiral"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [229, 202, 232, 235]  # COCG iterations per frequency, as the test prints them
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_iterations = [229, 202, 232, 235]  # COCG iterations per frequency, as the test prints them
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_iterations = [238, 222, 240, 250]  # COCG iterations per frequency, as the test prints them
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+
+[[smoother_weight_validation]]
+name = "rough"
+exercises = "driven COCG + AMS V-cycle, rough-conductor spiral (#758)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [107, 117, 128, 135]  # COCG iterations per frequency, as the test prints them
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_iterations = [107, 117, 128, 135]  # COCG iterations per frequency, as the test prints them
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_iterations = [109, 124, 130, 139]  # COCG iterations per frequency, as the test prints them
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+
+[[smoother_weight_validation]]
+name = "driven_public"
+exercises = "driven COCG + AMS V-cycle on the public iterative path, PEC cube n = 4"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000, 0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.186487, 3.186487]
+fix_gershgorin_upper = [3.999984, 3.999984]
+fix_ritz_theta_reference = [3.186487, 3.186487]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 1.9119  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "transmon_5x"
+exercises = "eigen inner CG + AMS V-cycle, gradient-only; asserts Jacobi >= 5x AMS iterations"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_report = ["inner-CG iterations: Jacobi = 33481, AMS-lite = 6264, reduction = 5.34×"]
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_report = ["inner-CG iterations: Jacobi = 33481, AMS-lite = 6264, reduction = 5.34×"]
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = false
+unconditional_rule_report = ["inner-CG iterations: Jacobi = 33481, AMS-lite = 6771, reduction = 4.94×", "AMS-lite did not reduce inner-CG iterations ≥5×: Jacobi = 33481, AMS = 6771 (ratio 4.94×)"]
+unconditional_rule_failure = "AMS-lite did not reduce inner-CG iterations ≥5×: Jacobi = 33481, AMS = 6771 (ratio 4.94×)"
+unconditional_rule_smooth_weight = [0.409841]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.327235]
+fix_gershgorin_upper = [3.997230]
+fix_ritz_theta_reference = [3.327236]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 3.005e-07
+fix_default_weight_times_reference_max = 1.9963  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "transmon_3space"
+exercises = "eigen inner CG + AMS V-cycle, gradient-only vs three-space"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_report = ["inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = 6264, three-space AMS = 3719, reduction = 1.684×"]
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_report = ["inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = 6264, three-space AMS = 3719, reduction = 1.684×"]
+# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.
+unconditional_rule_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + unconditional_rule.patch"
+unconditional_rule_passed = true
+unconditional_rule_report = ["inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = 6771, three-space AMS = 3113, reduction = 2.175×"]
+unconditional_rule_smooth_weight = [0.409841, 0.409841]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000, 0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.327235, 3.327235]
+fix_gershgorin_upper = [3.997230, 3.997230]
+fix_ritz_theta_reference = [3.327236, 3.327236]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 3.005e-07
+fix_default_weight_times_reference_max = 1.9963  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "transmon_direct"
+exercises = "eigen inner CG + AMS V-cycle vs the direct eigensolve"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [3.211409]
+fix_gershgorin_upper = [3.993789]
+fix_ritz_theta_reference = [3.211409]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 1.9268  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "transmon_real"
+exercises = "eigen inner CG + AMS V-cycle, 133k-DOF transmon; asserts Jacobi >= 5x AMS iterations"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = false
+main_failure = "real transmon matrix-free eigensolve (instrumented): FaerGevd(\"matrix-free inner CG failed to converge: ‖r‖/‖b‖ = 6.886e-1 > tol = 1.000e-10 after 266216 iters (is (K − σM) SPD? place σ below the spectrum)\")"
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = false
+fix_failure = "real transmon matrix-free eigensolve (instrumented): FaerGevd(\"matrix-free inner CG failed to converge: ‖r‖/‖b‖ = 6.886e-1 > tol = 1.000e-10 after 266216 iters (is (K − σM) SPD? place σ below the spectrum)\")"
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+
+[[smoother_weight_validation]]
+name = "transmon_real_ams_only"
+exercises = "the AMS leg of transmon_real alone, by a throwaway test added to the fix build (validation/diag945_real_transmon_ams_only.patch)"
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 + diag945_real_transmon_ams_only.patch"
+fix_finished = false
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [2.943446]
+fix_gershgorin_upper = [4.529844]
+fix_ritz_theta_reference = [2.943447]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 3.397e-07
+fix_default_weight_times_reference_max = 1.7661  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "transmon_minres"
+exercises = "eigen MINRES + ADDITIVE AMS (weight fixed at 1; does not read the smoother weight)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_report = ["AMS-MINRES vs Direct @ σ=3: 4 modes, worst rel-diff = 1.07e-10, inner-MINRES iters = 11052"]
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_report = ["AMS-MINRES vs Direct @ σ=3: 4 modes, worst rel-diff = 1.07e-10, inner-MINRES iters = 11052"]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [2.910115]
+fix_gershgorin_upper = [3.937500]
+fix_ritz_theta_reference = [2.910115]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 1.7461  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "amg_minres"
+exercises = "eigen MINRES + ADDITIVE AMS with the AMG coarse solve (does not read the smoother weight)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [1.661410]
+fix_gershgorin_upper = [1.666667]
+fix_ritz_theta_reference = [1.661410]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 0.9968  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "coarse_report"
+exercises = "unit: PCG + AMS V-cycle on a 1-D Laplacian, direct vs SGS coarse solve"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_report = ["outer PCG iterations (tol 1e-8): direct = 2, SGS = 17"]
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+fix_report = ["outer PCG iterations (tol 1e-8): direct = 2, SGS = 17"]
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000, 0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [1.798623, 1.798623]
+fix_gershgorin_upper = [1.800000, 1.800000]
+fix_ritz_theta_reference = [1.799989, 1.799989]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 7.589e-04
+fix_default_weight_times_reference_max = 1.0800  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "ams_spd"
+exercises = "unit: the V-cycle is symmetric positive definite (gradient-only)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [1.776753]
+fix_gershgorin_upper = [1.800000]
+fix_ritz_theta_reference = [1.776753]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 1.0661  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "ams_spd_3space"
+exercises = "unit: the V-cycle is symmetric positive definite (three-space)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [1.776753]
+fix_gershgorin_upper = [1.800000]
+fix_ritz_theta_reference = [1.776753]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 1.0661  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[[smoother_weight_validation]]
+name = "ams_spd_amg"
+exercises = "unit: the V-cycle is symmetric positive definite (AMG coarse solve)"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+fix_commit = "11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0"
+fix_passed = true
+output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.600000]
+fix_smooth_weight_source = ["default"]
+fix_ritz_theta_max = [1.797515]
+fix_gershgorin_upper = [1.800000]
+fix_ritz_theta_reference = [1.799730]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 1.231e-03
+fix_default_weight_times_reference_max = 1.0798  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value

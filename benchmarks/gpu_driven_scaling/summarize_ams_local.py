@@ -36,9 +36,11 @@ Optional subtrees of <run-dir>, each summarized when present:
                   GEODE_AMS_SMOOTH_WEIGHT=0.6, i.e. the old weight; main has no
                   GEODE_SCALING_OMEGA knob), omega written as 0p10. Plus
                   ritz_gap/w<omega>.err (a 1000-step reference Lanczos next to
-                  the shipped 30-step estimate) and validation/ (the AMS tests
-                  outside this fixture, on main and on the branch). Written as
-                  [smoother_weight].
+                  the shipped 30-step estimate), validation/ (the AMS tests
+                  outside this fixture, on main and on the branch) and
+                  unconditional_rule/ (some of those tests on a throwaway build
+                  that lowers the weight without the proof condition). Written
+                  as [smoother_weight].
 
 The Jacobi iteration counts are also compared with the committed #520 Lambda
 record (runs/2026-10-07_lambda_a100/B1_cpu_direct_iter.stdout) at the sizes
@@ -1319,3 +1321,167 @@ if sm_trees:
                 + f" the {FLAT_MAX_OVER_MIN:.2f} band this file calls flat."
             )
         )
+
+    # One table of the statements the README makes about all cells at once.
+    all945 = [(w, n, j, b, a) for w in omegas for n, j, b, a in sm_rows.get(w, [])]
+    if all945:
+        gaps945, share945, eq_main, eq_thr, acc945 = [], [], [], [], []
+        for w, n, j, b, a in all945:
+            sm, ref = a["smoother"], ritz_ref.get((w, a["n_interior"]), {})
+            if sm and ref.get("theta_ref"):
+                gaps945.append((float(ref["theta_ref"]) - float(sm["theta_max"])) / float(ref["theta_ref"]))
+            if sm:
+                share945.append(float(sm["estimate_ms"]) / 1e3 / a["warmup_setup_s"])
+            mb, fb = tree("main", w).get((n, "ams")), tree("w060", w).get((n, "ams"))
+            if mb and fb and mb["finished"] and fb["finished"]:
+                eq_main.append(printed(mb) == printed(fb))
+            ra = tree("fix", w, "rayon1").get((n, "ams"))
+            if ra and ra["finished"]:
+                eq_thr.append(
+                    printed(ra) == printed(a)
+                    and ra["smoother"].get("theta_max") == sm.get("theta_max")
+                    and ra["smoother"].get("weight") == sm.get("weight")
+                )
+            if a["xcheck"]:
+                acc945.append(a["xcheck"].get("accuracy_rel_l2_vs_direct", float("nan")))
+        sms = [a["smoother"] for *_, a in all945 if a["smoother"]]
+        print()
+        print("[smoother_weight.summary]")
+        print(f"cells = {len(all945)}  # frequencies x sizes with a before and an after")
+        print(f"ams_iterations_after_range = [{min(a['iterations'] for *_, a in all945)}, {max(a['iterations'] for *_, a in all945)}]")
+        print(f"ams_iterations_before_range = [{min(b['iterations'] for *_, b, _ in all945)}, {max(b['iterations'] for *_, b, _ in all945)}]")
+        print(f"all_explicit_converged_after = {str(all(a['converged'] for *_, a in all945)).lower()}")
+        print(f"smooth_weight_range = [{min(float(x['weight']) for x in sms):.4f}, {max(float(x['weight']) for x in sms):.4f}]")
+        print(f"smooth_weight_sources = [{', '.join(q(x) for x in sorted({x['source'] for x in sms}))}]")
+        print(f"ritz_theta_max_range = [{min(float(x['theta_max']) for x in sms):.4f}, {max(float(x['theta_max']) for x in sms):.4f}]")
+        print(f"gershgorin_upper_range = [{min(float(x['gershgorin']) for x in sms):.4f}, {max(float(x['gershgorin']) for x in sms):.4f}]")
+        print(
+            f"every_weight_below_rigorous_bound = {str(all(float(x['weight']) < 2 / float(x['gershgorin']) for x in sms)).lower()}"
+            "  # weight < 2 / gershgorin in every cell"
+        )
+        if gaps945:
+            print(f"ritz_gap_rel_range = [{sci(min(gaps945))}, {sci(max(gaps945))}]  # 30-step theta below the 1000-step reference")
+        if share945:
+            print(f"estimate_share_of_setup_range = [{min(share945):.3f}, {max(share945):.3f}]  # wall clock, same process")
+        if eq_main:
+            print(
+                f"main_equals_forced_0p6_at_every_size = {str(all(eq_main)).lower()}"
+                f"  # {len(eq_main)} sizes at the one frequency main can run"
+            )
+        if eq_thr:
+            print(f"after_identical_across_threading_at_every_size = {str(all(eq_thr)).lower()}  # {len(eq_thr)} sizes")
+        if acc945:
+            print(f"ams_field_rel_l2_vs_direct_after_range = [{sci(min(acc945))}, {sci(max(acc945))}]")
+
+# ---- issue #945: the AMS tests outside this fixture (optional) ----------------
+val_dir = sm_dir / "validation"
+if sm_trees and val_dir.is_dir():
+    # File stem -> what the test exercises. Order is the output order.
+    VALIDATION = {
+        "spiral_smoke": "driven COCG + AMS V-cycle, 14k-edge spiral, 4 frequencies (#744)",
+        "spiral_benchmark": "driven COCG + AMS V-cycle, 53k-edge spiral, 1 GHz (#744)",
+        "spiral_ds": "driven COCG + AMS V-cycle, Djordjevic-Sarkar dielectric spiral",
+        "spiral_debye": "driven COCG + AMS V-cycle, Debye dielectric spiral; a known knife edge on macOS (#943)",
+        "spiral_drude": "driven COCG + AMS V-cycle, Drude conductor spiral",
+        "rough": "driven COCG + AMS V-cycle, rough-conductor spiral (#758)",
+        "driven_public": "driven COCG + AMS V-cycle on the public iterative path, PEC cube n = 4",
+        "transmon_5x": "eigen inner CG + AMS V-cycle, gradient-only; asserts Jacobi >= 5x AMS iterations",
+        "transmon_3space": "eigen inner CG + AMS V-cycle, gradient-only vs three-space",
+        "transmon_direct": "eigen inner CG + AMS V-cycle vs the direct eigensolve",
+        "transmon_real": "eigen inner CG + AMS V-cycle, 133k-DOF transmon; asserts Jacobi >= 5x AMS iterations",
+        "transmon_real_ams_only": "the AMS leg of transmon_real alone, by a throwaway test added to the fix build (validation/diag945_real_transmon_ams_only.patch)",
+        "transmon_minres": "eigen MINRES + ADDITIVE AMS (weight fixed at 1; does not read the smoother weight)",
+        "amg_minres": "eigen MINRES + ADDITIVE AMS with the AMG coarse solve (does not read the smoother weight)",
+        "coarse_report": "unit: PCG + AMS V-cycle on a 1-D Laplacian, direct vs SGS coarse solve",
+        "ams_spd": "unit: the V-cycle is symmetric positive definite (gradient-only)",
+        "ams_spd_3space": "unit: the V-cycle is symmetric positive definite (three-space)",
+        "ams_spd_amg": "unit: the V-cycle is symmetric positive definite (AMG coarse solve)",
+    }
+
+    def val_run(tree_name, stem, where=val_dir):
+        path = where / f"{tree_name}_{stem}.txt"
+        if not path.exists():
+            return None
+        txt = path.read_text()
+        head = dict(t.split("=", 1) for line in txt.splitlines()[:3] for t in line[2:].split() if "=" in t)
+        body = []
+        for line in txt.splitlines()[3:]:
+            line = re.sub(r"^test \S+ \.\.\. ", "", line)  # the first printed line shares the test's line
+            line = re.sub(r"^stderr: ", "", line)  # a failing CLI test prints the child's stderr
+            line = re.sub(r"# ams_smoother .*$", "", line)
+            line = re.sub(r"\(\d+\) panicked", "(tid) panicked", line)
+            line = re.sub(r"<tmp>/[^/\"]*", "<tmp>/dir", line)
+            if not line.strip() or "finished in" in line or "µs" in line or '"git_sha"' in line:
+                continue
+            body.append(line)
+        done = re.search(r"^test result: (\w+)\.", txt, re.M)
+        drift = re.search(r"after (\d+) iterations but the explicitly recomputed residual .*? = (\S+) did not", txt)
+        panic = re.search(r"panicked at [^\n]*\n([^\n]*)", txt)
+        return {
+            "commit": head.get("git", "unknown")
+            + (f" dirty={head['dirty']}" if "dirty" in head else "")
+            + (f" + {head['patch']}" if "patch" in head else ""),
+            "finished": bool(done),
+            "passed": bool(done) and done.group(1) == "ok",
+            "iterations": [int(x) for x in re.findall(r"GHz: iters \[(\d+)\]", txt)],
+            "report": [l.strip() for l in body if re.search(r"inner-CG|inner-MINRES|outer PCG|^diag945 ", l)],
+            "drift": drift.groups() if drift else None,
+            "panic": panic.group(1).strip() if panic else None,
+            "smoother": [dict(t.split("=", 1) for t in m.split()) for m in re.findall(r"# ams_smoother (.*)$", txt, re.M)],
+            "body": body,
+        }
+
+    for stem, what in VALIDATION.items():
+        mn, fx = val_run("main", stem), val_run("fix", stem)
+        un = val_run("uncond", stem, sm_dir / "unconditional_rule")
+        if not (mn or fx):
+            continue
+        print()
+        print("[[smoother_weight_validation]]")
+        print(f"name = {q(stem)}")
+        print(f"exercises = {q(what)}")
+        for tname, r in (("main", mn), ("fix", fx), ("unconditional_rule", un)):
+            if r is None:
+                continue
+            if tname == "unconditional_rule":
+                print("# THROWAWAY build, not shipped: the weight is min(0.6, 1.5 / rho_hat) with no proof condition.")
+            print(f"{tname}_commit = {q(r['commit'])}")
+            if not r["finished"]:
+                print(f"{tname}_finished = false")
+                continue
+            print(f"{tname}_passed = {str(r['passed']).lower()}")
+            if r["iterations"]:
+                print(f"{tname}_iterations = {r['iterations']}  # COCG iterations per frequency, as the test prints them")
+            if r["report"]:
+                print(f"{tname}_report = [{', '.join(q(line) for line in r['report'])}]")
+            if r["drift"]:
+                print(
+                    f"{tname}_failure = "
+                    + q(
+                        f"recursive residual met the tolerance after {r['drift'][0]} iterations, explicit "
+                        f"residual {r['drift'][1]} did not (tol 1e-10)"
+                    )
+                )
+            elif not r["passed"] and r["panic"]:
+                print(f"{tname}_failure = {q(r['panic'])}")
+            if tname == "unconditional_rule" and r["smoother"]:
+                print(f"{tname}_smooth_weight = [{', '.join(s_['weight'] for s_ in r['smoother'])}]")
+        if mn and fx and mn["finished"] and fx["finished"]:
+            print(
+                f"output_identical = {str(mn['body'] == fx['body']).lower()}"
+                "  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report"
+            )
+        sm = fx["smoother"] if fx else []
+        if sm:
+            print("# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).")
+            print(f"fix_smooth_weight = [{', '.join(s_['weight'] for s_ in sm)}]")
+            print(f"fix_smooth_weight_source = [{', '.join(q(x) for x in sorted({s_['source'] for s_ in sm}))}]")
+            print(f"fix_ritz_theta_max = [{', '.join(s_['theta_max'] for s_ in sm)}]")
+            print(f"fix_gershgorin_upper = [{', '.join(s_['gershgorin'] for s_ in sm)}]")
+            print(f"fix_ritz_theta_reference = [{', '.join(s_['theta_ref'] for s_ in sm)}]  # up to 600 Lanczos steps")
+            gaps = [(float(s_["theta_ref"]) - float(s_["theta_max"])) / float(s_["theta_ref"]) for s_ in sm]
+            print(f"fix_ritz_gap_rel_max = {sci(max(gaps))}")
+            print(
+                f"fix_default_weight_times_reference_max = {max(0.6 * float(s_['theta_ref']) for s_ in sm):.4f}"
+                "  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value"
+            )
