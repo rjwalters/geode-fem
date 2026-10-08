@@ -30,6 +30,7 @@
 //! M_{ij} = (V / 20) (1 + δ_{ij})    (consistent mass).
 //! ```
 
+use super::bmm::bmm_small;
 use bunsen::contracts::{define_shape_contract, unpack_shape_contract};
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
@@ -153,7 +154,7 @@ pub fn batched_p1_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> P1LocalMat
     // K_ij = (g_i · g_j) / (6 |det|).
     // (G @ G^T) has shape [n_elem, 4, 4] with entries (g_i · g_j).
     let g_t = g_mat.clone().swap_dims(1, 2);
-    let gg = g_mat.matmul(g_t);
+    let gg = bmm_small(g_mat, g_t);
 
     // Per-element scale 1/(6 |det|), broadcast to [n_elem, 1, 1].
     let abs_det = det.abs();

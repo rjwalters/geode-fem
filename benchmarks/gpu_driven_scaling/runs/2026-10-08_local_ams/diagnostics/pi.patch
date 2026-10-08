@@ -1,0 +1,16 @@
+--- a/crates/geode-core/src/driven/solve_ams.rs
++++ b/crates/geode-core/src/driven/solve_ams.rs
+@@ -359,7 +359,12 @@
+         p.as_ref(),
+         0.0,
+         coarse.to_eigen(),
+-        CoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS),
++        match std::env::var("DIAG930_PI").as_deref() {
++            Ok("direct") => CoarseSolve::Direct,
++            Ok("amg") => CoarseSolve::Amg,
++            Ok("sgs16") => CoarseSolve::SymmetricGaussSeidel(16),
++            _ => CoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS),
++        },
+     )
+     .map_err(|e| {
+         DrivenError::Solve(format!(
