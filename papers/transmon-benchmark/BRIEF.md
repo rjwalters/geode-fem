@@ -130,6 +130,24 @@ matches it on serial efficiency (~4× per-core), and gains a portable GPU
 execution path essentially for free — with the cross-validation benchmark
 serving as the evidence standard the claim is held to.
 
+> **OPEN CAVEAT on the efficiency clause (issue #927, 2026-10-08; see also
+> #763 and #593).** The "matches it on serial efficiency (~4× per-core)"
+> clause, and the later "one core 28.7 s beats eight ranks 44.5 s, ~12× fewer
+> core-seconds" form of it, compare wall clocks for the same *request*
+> ("6 eigenmodes near 4.5 GHz"), not for the same *returned modes*. Palace
+> returns six physical modes. geode's ungauged shift-invert returns the six
+> eigenvalues nearest the shift: in every run of that request that has a mode
+> log (Lambda A100, `benchmarks/transmon_bench_gpu/results.toml`; a developer
+> machine, `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml`)
+> those are 4 gradient near-kernel modes, the spurious 3.45 GHz port mode and
+> **one** physical mode. The m6i runs behind the CPU table have no committed
+> mode log, so their mode content is unverified. The eigenvalue-agreement
+> result (0.032%, six modes) is unaffected: that gate uses a 20 GHz shift and
+> 12 modes. **Until geode is re-timed, on the same box as Palace, in a
+> configuration that returns the same six modes, the efficiency clause is not
+> supported and must not be carried into a new draft or a publication.** The
+> re-timing needs the paid benchmark host and is operator-run; it is not done.
+
 ### FRAMING DECISION GATE (operator direction, 2026-07-14) — resolves when
 ### benchmarks/gpu_driven_scaling/results.toml (issue #501) lands
 
@@ -263,6 +281,16 @@ on this 133k-DOF problem; at the whole-box level Palace's MPI parallelism
 wins 1.7×. geode has no intra-solve parallelism today. Palace -np 16
 (hyperthreads) refused by MPI binding — excluded, not a data point.
 
+**Not like-for-like output (issue #927).** Read the table and the "honest
+read" above as wall clocks for the same request, not for an equivalent answer:
+see the OPEN CAVEAT under the thesis. The same applies to the `[matched.*]`
+tables of `benchmarks/transmon_bench_cpu/results.toml` that later drafts cite
+(28.7 s vs 44.5 s, ~12× core-seconds, and the off-target 12-modes-at-20-GHz
+gap). What geode must be asked for to return Palace's six modes on this mesh,
+and its cost relative to the 6-mode request on one developer machine, is in
+`benchmarks/transmon_bench_cpu/results_like_for_like_local.toml` (geode only;
+not a benchmark host; its times must not be set beside the Palace cells).
+
 ### GPU cell — CORRECTNESS RESULTS FINAL; performance = future work
 g6e.xlarge (1× NVIDIA L40S 46GB, driver 595.71.05, CUDA 13.2), 2026-07-14:
 - CUDA-f32 correctness smokes PASS on physical hardware: matrix-free
@@ -321,7 +349,10 @@ path is mixed-precision-qualified.
 2. Mode-frequency agreement: geode vs Palace scatter with Δ% annotations.
 3. Junction-mode L-scaling tripwire (f vs L on log-log, 1/√2 line).
 4. CPU-cell wall-clock bar chart (geode 1-proc vs Palace 4/8 ranks) +
-   per-core-efficiency inset.
+   per-core-efficiency inset. (Blocked on the like-for-like re-timing, #927:
+   the geode cells of the current bars have no committed mode log, so
+   whether they are like-for-like is unverified; the same request on the
+   Lambda runs and on the dev machine returned 1 of 6 physical modes.)
 5. (TBD-GPU) GPU cell results.
 6. Spurious-mode illustration: participation spectrum geode vs Palace
    (the honest-physics figure — reviewers will love or demand it).

@@ -8,7 +8,10 @@ Report: per-phase seconds) and eig.csv, and each geode run's log. Emits one
 [cells.<cell>] table per cell with per-run values and mean/stddev, plus an
 [eigen_agreement] table comparing every Palace run's Re{f} against the
 committed CPU Palace baseline (reference/fixtures/transmon_palace/results_p1/
-eig.csv). Pure stdlib; no fitting, no outlier rejection.
+eig.csv). For every run of every cell it also prints the modes returned, a
+class per mode and the number of physical modes (issue #927: the two solvers
+do not return the same six modes). Pure stdlib; no fitting, no outlier
+rejection.
 """
 import csv
 import math
@@ -111,6 +114,44 @@ def geode_modes(log):
     return [(float(m.group(2)), float(m.group(3))) for m in GEODE_MODE.finditer(log.read_text(errors="replace"))]
 
 
+# Mode classification (issue #927), the rule of benchmarks/transmon_eigen and
+# of benchmarks/transmon_bench_cpu/summarize_like_for_like.py: a returned mode
+# is "physical" when it is the nearest returned mode to a mode of the committed
+# CPU Palace baseline and within PHYSICAL_TOL_PCT of it. Participation is not
+# used (the spurious 3.45 GHz mode has participation 0.994).
+PHYSICAL_TOL_PCT = 1.0  # PALACE_BAR_PCT of tests/transmon_eigenmode.rs
+NEAR_KERNEL_GHZ = 0.5  # gradient near-kernel survivor threshold of the same tests
+SPURIOUS_GHZ = 3.4528  # benchmarks/transmon_eigen/results.toml [spurious_mode], #514
+
+
+def classify_modes(freqs, oracle):
+    """One class per returned mode: physical / near_kernel / spurious_port / unclassified."""
+    classes = [None] * len(freqs)
+    for pf in oracle:
+        if not freqs:
+            break
+        i = min(range(len(freqs)), key=lambda k: abs(freqs[k] - pf))
+        if abs(freqs[i] - pf) / pf * 100.0 <= PHYSICAL_TOL_PCT:
+            classes[i] = "physical"
+    for i, f in enumerate(freqs):
+        if classes[i]:
+            continue
+        if f < NEAR_KERNEL_GHZ:
+            classes[i] = "near_kernel"
+        elif abs(f - SPURIOUS_GHZ) / SPURIOUS_GHZ * 100.0 <= PHYSICAL_TOL_PCT:
+            classes[i] = "spurious_port"
+        else:
+            classes[i] = "unclassified"
+    return classes
+
+
+def print_mode_classes(prefix, freqs, oracle):
+    classes = classify_modes(freqs, oracle)
+    quoted = ", ".join(f'"{c}"' for c in classes)
+    print(f"{prefix}_modes_class = [{quoted}]")
+    print(f"{prefix}_n_physical = {classes.count('physical')}  # of the baseline's {len(oracle)}")
+
+
 # Phase groups used to attribute the Palace GPU-vs-CPU gap (sums of the
 # per-phase "Max over ranks" columns of Palace's Elapsed Time Report).
 PHASE_GROUPS = {
@@ -196,6 +237,14 @@ for cell, rs in cells.items():
             modes = geode_modes(raw / f"{cell}_run{i}.log")
             print(f"run{i}_modes_f_ghz = [{', '.join(f'{f:.6f}' for f, _ in modes)}]")
             print(f"run{i}_modes_participation = [{', '.join(f'{p:.4f}' for _, p in modes)}]")
+            print_mode_classes(f"run{i}", [f for f, _ in modes], base)
+    if cell.startswith("palace"):
+        for i in range(1, len(rs) + 1):
+            eig = raw / f"{cell}_run{i}_eig.csv"
+            if eig.exists():
+                freqs = read_eig(eig)
+                print(f"run{i}_modes_f_ghz = [{', '.join(f'{f:.6f}' for f in freqs)}]")
+                print_mode_classes(f"run{i}", freqs, base)
 
 print("\n[eigen_agreement]")
 print('baseline = "reference/fixtures/transmon_palace/results_p1/eig.csv (CPU Palace fba6a5b, 8 ranks, m6i)"')
