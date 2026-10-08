@@ -159,6 +159,14 @@ Containerized dispatch forwards `TRACEPARENT` and `OTEL_*` by name into the
 container (`spawn-claude.sh`'s containment allowlist); before #9215 it dropped
 both silently while bare-metal dispatch on the same host worked.
 
+The same opt-in covers the daemon's **scheduled** Claude sessions, not just
+sweeps (#10743): every role-runner tick (its launch carries the tick's
+`loom.role_attempt` context as `TRACEPARENT`, applied first) and every
+epic-supervisor role dispatch (no trace context of its own, so its spans are
+roots). With the opt-in on, those sessions' `OTEL_RESOURCE_ATTRIBUTES` is
+extended (never replaced) with `loom.role=<role>` and `loom.sweep_id=<tick or
+dispatch id>`, so per-request records group by role and tick.
+
 Phase timing has two explicit forms. An explicitly launched role has an observed
 start; its checkpoint completes that attempt. A role performed inside one
 third-party CLI session has only an observed checkpoint completion, represented
@@ -261,7 +269,7 @@ Linux exposes no compression figure) is absent, never zero — the "unknown !=
 zero" contract the telemetry schema states for every measured field.
 
 Role-attempt completion attributes close the same gap on the *why*: a fixed
-`loom.admission.reason` literal — `failure`, `runtime-rejected`,
+`loom.admission.reason` literal — `failure`, `session-down` (#10455), `session-mount-stale` (#10364), `runtime-rejected`,
 `no-token-pool`, `pool-exhausted`, `model-runtime-mismatch`, `load-ceiling`,
 plus `preflight-rejected` (stamped on the runtime-preflight span itself, not a
 role-attempt finish) — plus the measured context that distinguishes them: the
