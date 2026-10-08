@@ -1,0 +1,25 @@
+One-off diagnostics for the AMS iteration growth (issue #930). NOT part of the
+benchmark and NOT committed code: each was a throwaway build of commit af01160a
+with one patch applied, run once on the same loaded dev machine, then
+discarded. Only the iteration counts are meaningful.
+
+pec.patch + pec_<variant>.stdout
+  DIAG930_PEC selects which cube planes are PEC (default = y0 and y1, the
+  benchmark fixture; y0 = one plane; none = no PEC; y0y1x0 = three planes).
+  Question: is the growth caused by the fixture's two disconnected PEC planes
+  (cf. the floating-PEC limitation in driven/solve_ams.rs)?
+  Sizes n = 6, 9, 12, 15; configs direct, iterative, iterative_ams.
+
+pi.patch + pi_<variant>.stdout
+  DIAG930_PI selects the vector-nodal (Pi^T P Pi) coarse solve of the AMS
+  (default = the shipped 4-sweep symmetric Gauss-Seidel; sgs16 = 16 sweeps;
+  amg = smoothed-aggregation AMG; direct = exact sparse LU). The gradient-space
+  solve is the exact LU in every variant.
+  Question: is the growth caused by the inexact vector-nodal solve?
+  Sizes n = 6, 9, 12, 15; config iterative_ams only.
+
+Reproduce: git apply <patch> on af01160a, then
+  DIAG930_PEC=<v> (or DIAG930_PI=<v>) GEODE_SCALING_SIZES=6,9,12,15 \
+  GEODE_SCALING_CONFIGS=<configs> GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 \
+  GEODE_SCALING_SKIP_SWEEP=1 cargo test -p geode-core --release \
+  --test gpu_driven_scaling -- --ignored --nocapture

@@ -6,13 +6,14 @@ via `cube_tet_mesh(n)`. Both files are performance records produced by the
 `--ignored` release-tier test
 [`crates/geode-core/tests/gpu_driven_scaling.rs`](../../crates/geode-core/tests/gpu_driven_scaling.rs).
 
-There are two separate measurements here, on different hardware. They are not
+There are three separate measurements here, on different hardware. They are not
 comparable cell-for-cell and must not be merged.
 
 | File | Issue | Hardware | Sizes |
 |---|---|---|---|
 | [`results.toml`](results.toml) | #501 | AWS g6e.xlarge: NVIDIA L40S, AMD EPYC 7R13 with 4 vCPU | n ∈ {6, 9, 12, 15}, 1 854 → 25 695 edges |
 | [`results_large_a100.toml`](results_large_a100.toml) | #520, PR #929 | Lambda Cloud `gpu_1x_a100_sxm4`: NVIDIA A100-SXM4-40GB, AMD EPYC 7J13 with 30 vCPU | 25 695 → 462 520 edges, plus Palace driven runs on the same meshes |
+| [`results_ams_cpu_local.toml`](results_ams_cpu_local.toml) | #930 | A developer Mac (Apple M3 Ultra) under heavy unrelated load. **Not a benchmark host**: iteration counts are the result, times are indicative only | n ∈ {6, 9, 12, 15, 20, 24}, 1 854 → 102 024 edges, CPU f64 only, no Palace |
 
 Each file is the authoritative record of its own numbers and caveats. This
 README only explains what is in the directory.
@@ -28,6 +29,10 @@ README only explains what is in the directory.
 | `palace_driven_cfg.py` | Emits the Palace driven config, mapping geode's natural units to SI. Called by `box_palace_driven.sh` |
 | `summarize_520.py` | Merges the leg outputs in a sweep directory into one table on stdout |
 | `runs/2026-10-07_lambda_a100/` | The evidence tree from the #520 session (below) |
+| `results_ams_cpu_local.toml` | The #930 local record: assembled COCG with the Jacobi preconditioner against the same COCG with geode's AMS preconditioner, with Direct as the accuracy reference. Generated, not hand-edited |
+| `ams_cpu_sweep.sh` | Runs the test once per (size, config) in its own process under `/usr/bin/time` (macOS `-l` or GNU `-v`), plus one combined cross-check process per size. Writes `<leg>.stdout`, `.err`, `.time`, `.meta` and `host.txt` |
+| `summarize_ams_local.py` | Writes `results_ams_cpu_local.toml` to stdout from an `ams_cpu_sweep.sh` run tree |
+| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` and `diagnostics/` (two one-off patched builds, described in its `NOTE.txt`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
 
@@ -71,6 +76,56 @@ output, and the setup-subtracted per-iteration costs of the capped cells,
 `(t_cap300 - t_cap1) / 299`, and the GPU/CPU ratios were computed by hand from
 it.
 
+`results_ams_cpu_local.toml` (#930) is generated end to end. On any CPU host:
+
+```sh
+benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh <run-dir> 6 9 12 15 20 24
+python3 -I benchmarks/gpu_driven_scaling/summarize_ams_local.py <run-dir> > <results-file>
+```
+
+Running the summarizer over the committed `runs/2026-10-08_local_ams/`
+reproduces the committed file byte for byte. The AMS config is opt-in
+(`GEODE_SCALING_CONFIGS=...,iterative_ams`); the default config set and its
+output are unchanged.
+
+## AMS vs Jacobi on this fixture (#930, local subset)
+
+The file is the authority. In short, on this fixture at ω = 0.10:
+
+| edges | COCG + Jacobi iterations | COCG + AMS iterations |
+|---|---|---|
+| 1 854 | 807 | 70 |
+| 5 859 | 1 463 | 139 |
+| 13 428 | 2 167 | 307 |
+| 25 695 | 2 969 | 533 |
+| 59 660 | 4 303 | 1 741 |
+| 102 024 | 5 259 | 2 209 |
+
+- **AMS converges, and to the right answer.** Every AMS solve met the 1e-8
+  tolerance on the explicitly recomputed residual, and its field agrees with
+  the Direct solution to 1.3e-11 to 6.0e-11 (relative L2).
+- **Its iteration count is not flat.** It grows about as edges^0.86, faster
+  than Jacobi's edges^0.47, so the advantage in iterations shrinks from 11.5×
+  at 1.9k edges to 2.4× at 102k. This is unlike the spiral measurement that
+  motivated AMS (102 to 155 iterations from 14k to 53k edges).
+- **It was slower than Jacobi at every size here.** One AMS iteration cost 17×
+  to 78× a Jacobi iteration. These are single samples from a loaded developer
+  machine and are indicative only. At the three largest sizes the AMS solve
+  took 5× to 33× as long as the Jacobi solve, well outside the load noise; at
+  the three smallest it took 1.7× to 2.8× as long, which is not clearly
+  outside it.
+- **The cause is not established.** Two one-off diagnostics
+  (`runs/2026-10-08_local_ams/diagnostics/`) show the growth does not come from
+  the fixture's two disconnected PEC planes, and does not come only from the
+  inexact vector-nodal coarse solve.
+- **Not done:** the sizes above 102k edges, the same-host Palace comparison,
+  the decision on the default preconditioner (still Jacobi), and the
+  matrix-free / GPU AMS follow-up. Issue #930 stays open for these.
+
+The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
+are identical to the Lambda record's, which is the only cross-host statement
+this file supports. Do not put its timings beside the A100 or Palace cells.
+
 ## Caveats to read before quoting a number
 
 These are summarized from `results_large_a100.toml`; read the file for the
@@ -97,9 +152,11 @@ full wording.
 - **Jacobi vs AMS.** The head-to-head against Palace "is geode WITH JACOBI vs
   Palace with AMS", and "is NOT a measurement of geode's best preconditioner":
   the harness hard-codes COCG + Jacobi, the matrix-free / GPU path supports
-  Jacobi only, and geode's assembled-path AMS preconditioner was not measured.
-  Issue #930 tracks the AMS-at-scale measurement and the matrix-free / GPU AMS
-  question.
+  Jacobi only, and geode's assembled-path AMS preconditioner was not measured
+  in that run. `results_ams_cpu_local.toml` has since measured it up to 102k
+  edges on a developer machine (section above): AMS did not hold a flat
+  iteration count on this fixture. Issue #930 tracks the at-scale measurement
+  and the matrix-free / GPU AMS question.
 - **Single-core CPU legs.** Both the CPU matrix-free leg and the assembled
   COCG leg ran single-threaded, so the per-iteration crossover is GPU vs one
   CPU core of the 30 available.

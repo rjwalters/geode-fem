@@ -137,9 +137,8 @@ print("# -----------------------------------------------------------------------
 print()
 print("[meta]")
 print("issue = 930")
-print(f"measured_date = {q(dates[0][:10])}  # UTC, first leg start {dates[0]}, last leg start {dates[-1]}")
+print(f"measured_date = {q(dates[0][:10])}  # UTC; the single-config legs started between {dates[0]} and {dates[-1]}")
 print(f"geode_commit = {q(', '.join(commits))}")
-dirty = sorted({m["git"].split("dirty=")[-1] for m in metas})
 print(f"scope = {q('LOCAL CPU SUBSET of the #520 sizes on a loaded developer machine; not a benchmark-host measurement')}")
 print(
     "fixture = "
@@ -337,6 +336,18 @@ if len(rows) >= 2:
             f"at the smallest size and {ratio_hi:.1f}x fewer at the largest."
         )
     print(f"verdict = {q(verdict)}")
+    if all_conv:
+        worst = max(a["residual_rel"] for _, _, a in rows)
+        print(
+            "convergence = "
+            + q(
+                f"No plateau and no drift: every AMS solve met the 1e-8 tolerance on the explicit "
+                f"residual (worst {worst:.1e}) and matches the Direct solution. The degradation "
+                "is in the iteration count as the mesh is refined, not a stall of the kind "
+                "recorded in benchmarks/transmon_ams_minres_133k/results.toml. Only omega = 0.10 "
+                "was run, so nothing here says how the count depends on frequency."
+            )
+        )
     if timed:
         per_iter = [
             (a["warmup_krylov_s"] / a["iterations"]) / (j["warmup_krylov_s"] / j["iterations"])
@@ -351,9 +362,52 @@ if len(rows) >= 2:
     print(
         "not_established = "
         + q(
-            "Why the iteration count grows here and not on the spiral was not investigated: no "
-            "AMS setting was varied (AmsCoarseSolve::Auto throughout) and nothing was tuned. "
-            "Palace's ~5 iterations use a different Krylov method and AMS (hypre) and were not "
-            "rerun here. The trend above the largest size listed is not measured."
+            "The cause of the growth is not established (see [diagnostics] for what was ruled "
+            "out). No AMS setting was varied in the cells above (AmsCoarseSolve::Auto "
+            "throughout) and nothing was tuned. Palace's ~5 iterations use a different Krylov "
+            "method (GMRES) and a different AMS (hypre) and were not rerun here. The trend above "
+            "the largest size listed is not measured."
         )
     )
+
+# ---- diagnostics (optional) ------------------------------------------------
+# One-off runs of throwaway patched builds (diagnostics/NOTE.txt). Iteration
+# counts only: they say what the growth is NOT caused by.
+diag = d / "diagnostics"
+if diag.is_dir():
+
+    def series(path, config):
+        return [c["iterations"] for c in fragment(path) if c["config"] == config and c["converged"]]
+
+    print()
+    print("[diagnostics]")
+    print(
+        "note = "
+        + q(
+            "Throwaway patched builds, not committed code and not part of the benchmark "
+            "(diagnostics/NOTE.txt, pec.patch, pi.patch). AMS iteration counts at n = 6, 9, 12, "
+            "15 (1854 to 25695 edges)."
+        )
+    )
+    pec = {p.stem[4:]: series(p, "5_iterative_ams") for p in sorted(diag.glob("pec_*.stdout"))}
+    pi = {p.stem[3:]: series(p, "5_iterative_ams") for p in sorted(diag.glob("pi_*.stdout"))}
+    for name, its in pec.items():
+        print(f"pec_planes_{name}_ams_iterations = {its}")
+    for name, its in pi.items():
+        print(f"vector_nodal_solve_{name}_ams_iterations = {its}")
+    grows = lambda its: len(its) >= 2 and its[-1] / its[0] > FLAT_MAX_OVER_MIN
+    if pec:
+        print(f"growth_persists_for_every_pec_layout = {str(all(grows(v) for v in pec.values())).lower()}")
+    if pi:
+        print(f"growth_persists_with_exact_vector_nodal_solve = {str(grows(pi.get('direct', []))).lower()}")
+    if pec and pi and all(grows(v) for v in pec.values()) and grows(pi.get("direct", [])):
+        print(
+            "reading = "
+            + q(
+                "The growth is not caused by the fixture's two disconnected PEC planes (it "
+                "persists with one PEC plane, three, or none), and it is not caused only by the "
+                "inexact vector-nodal solve (it persists, reduced, with an exact LU on both "
+                "auxiliary spaces). What remains untested: the edge smoother, the SPD proxy "
+                "against this operator's large loss term, and the structured cube mesh."
+            )
+        )

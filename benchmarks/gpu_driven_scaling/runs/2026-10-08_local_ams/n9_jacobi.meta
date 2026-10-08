@@ -1,0 +1,8 @@
+leg=n9_jacobi bin=/Volumes/Stripe/cargo-target-issue-930/release/deps/gpu_driven_scaling-e770a24497c61984
+start=2026-10-08T06:20:21Z
+loadavg_start=87.75 81.12 73.56
+git=af01160a3d10b0cb33fd8e6e79654b101444acaa dirty=0
+env: GEODE_SCALING_SIZES=9 GEODE_SCALING_CONFIGS=iterative GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1
+end=2026-10-08T06:20:23Z
+loadavg_end=87.75 81.12 73.56
+rc=0
