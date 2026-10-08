@@ -65,8 +65,11 @@
 //! Neither path touches ARPACK or the sparse Lanczos under test.
 //!
 //! Both tests are `#[ignore]`d by default: the regeneration because it is
-//! heavy and faer 0.24's dense eigen paths panic under debug-assertions
-//! (same rationale as `tests/eigensolver.rs`); the fast test to follow
+//! heavy: two full dense eigensolves of the 3300-DOF pencil, of which the
+//! shift-invert stage alone took 1385 s in a debug build (#922; the 1800 s
+//! cap hit before the QZ stage finished). It is slow, not a measured panic:
+//! the old faer 0.24 `qz_real` overflow panic is fixed in the `faier` fork
+//! (#920); the fast test to follow
 //! the `tests/sparse_eigensolver.rs` convention of un-ignoring
 //! oracle-comparison tests explicitly by name in CI.
 //!
@@ -783,7 +786,7 @@ fn null_count(lambdas: &[faer::c64]) -> usize {
 }
 
 #[test]
-#[ignore = "heavy (~2 min release): two full dense eigensolves of the 3300-DOF pencil (faer dense eigen paths panic under debug-assertions); run with --release -- --ignored --exact regenerate_dense_oracle_fixture"]
+#[ignore = "heavy (~2 min release): two full dense eigensolves of the 3300-DOF pencil; the shift-invert stage alone took 1385 s in a debug build (1800 s cap hit before the QZ stage, #922; slow, not a measured panic); run with --release -- --ignored --exact regenerate_dense_oracle_fixture"]
 fn regenerate_dense_oracle_fixture() {
     let pencil = build_mie_pencil();
     let fp = fingerprint(&pencil);
