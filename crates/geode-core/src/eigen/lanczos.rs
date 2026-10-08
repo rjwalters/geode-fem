@@ -1414,6 +1414,7 @@ impl SparseShiftInvertLanczos {
             pairs: Vec::new(),
             residuals: Vec::new(),
             rejected: Vec::new(),
+            localized_withheld: Vec::new(),
             requested,
             lanczos_steps: 0,
             extended: false,
@@ -1459,11 +1460,13 @@ impl SparseShiftInvertLanczos {
             .collect();
         let targets: Vec<RitzTarget> = first_pass
             .iter()
-            .filter(|t| t.2)
-            .map(|&(lambda, residual, _)| RitzTarget {
+            .enumerate()
+            .filter(|(_, t)| t.2)
+            .map(|(index, &(lambda, residual, _))| RitzTarget {
                 lambda,
                 width: residual.max(TARGET_MATCH_REL_FLOOR) * lambda.abs().max(sigma.abs()),
                 residual,
+                index,
             })
             .collect();
         // Done after the first pass when every target is converged and, with
@@ -1475,7 +1478,7 @@ impl SparseShiftInvertLanczos {
             || first >= cap
         {
             out.lanczos_steps = run.alpha.len();
-            out.split(pairs, residuals, tol);
+            out.split(pairs, residuals, tol, sigma);
             return Ok(out);
         }
 
@@ -1589,28 +1592,27 @@ impl SparseShiftInvertLanczos {
             nearest.retain(|&(lambda, _)| (lambda - sigma).abs() <= reach);
             let unaccounted = run.ritz_vectors(m, &s_mat, &nearest);
             let unaccounted_res = residuals_of(&unaccounted);
-            let unconverged: Vec<(f64, f64)> = unaccounted
-                .iter()
+            let unconverged: Vec<(EigenPair, f64)> = unaccounted
+                .into_iter()
                 .zip(unaccounted_res)
                 .filter(|(_, r)| *r > tol)
-                .map(|(p, r)| (p.lambda, r))
                 .collect();
             for (pair, res, _) in kept {
                 out.pairs.push(pair);
                 out.residuals.push(res);
             }
-            out.rejected.extend(
-                targets
+            // Unconfirmed targets carry their first-pass Ritz vector, the
+            // best one the run has for them.
+            for (t, _) in targets.iter().zip(&confirmed).filter(|(t, c)| {
+                !**c && !unconverged
                     .iter()
-                    .zip(&confirmed)
-                    .filter(|(t, c)| {
-                        !**c && !unconverged
-                            .iter()
-                            .any(|&(lambda, _)| (lambda - t.lambda).abs() <= t.width)
-                    })
-                    .map(|(t, _)| (t.lambda, t.residual)),
-            );
-            out.rejected.extend(unconverged);
+                    .any(|(p, _)| (p.lambda - t.lambda).abs() <= t.width)
+            }) {
+                out.withhold(pairs[t.index].clone(), t.residual, sigma);
+            }
+            for (pair, res) in unconverged {
+                out.withhold(pair, res, sigma);
+            }
             return Ok(out);
         }
     }
@@ -1899,6 +1901,15 @@ pub struct CheckedEigenpairs {
     /// matched by a converged pair before the cap. Stale first-pass tail
     /// pairs that the longer run resolved are not reported (issue #798).
     pub rejected: Vec<(f64, f64)>,
+    /// The **localized** entries of [`Self::rejected`] (with respect to the
+    /// solve's own shift `σ`, so exactly [`Self::localized_rejected`]`(σ)`,
+    /// in the same order), each with its Ritz vector and residual (issue
+    /// #916). Callers that must tell a withheld genuine eigenvalue from a
+    /// withheld gradient-nullspace pair (the dielectric selection-hole check)
+    /// evaluate the vector. After an extension, a first-pass target that no
+    /// later Ritz pair matched carries its first-pass Ritz vector. Only the
+    /// localized pairs keep a vector, so the extra memory is a few vectors.
+    pub localized_withheld: Vec<WithheldEigenpair>,
     /// Number of pairs asked for (`n_modes`, clamped to the pencil dimension).
     pub requested: usize,
     /// Lanczos steps (Krylov dimension) actually run, first pass included.
@@ -1938,16 +1949,38 @@ impl CheckedEigenpairs {
     }
 
     /// Partition `pairs` into converged (kept) and rejected by `tol`.
-    fn split(&mut self, pairs: Vec<EigenPair>, residuals: Vec<f64>, tol: f64) {
+    fn split(&mut self, pairs: Vec<EigenPair>, residuals: Vec<f64>, tol: f64, sigma: f64) {
         for (pair, res) in pairs.into_iter().zip(residuals) {
             if res <= tol {
                 self.pairs.push(pair);
                 self.residuals.push(res);
             } else {
-                self.rejected.push((pair.lambda, res));
+                self.withhold(pair, res, sigma);
             }
         }
     }
+
+    /// Record a withheld pair in [`Self::rejected`] and, when it is
+    /// localized for the solve's shift `sigma`, in
+    /// [`Self::localized_withheld`] with its vector.
+    fn withhold(&mut self, pair: EigenPair, residual: f64, sigma: f64) {
+        self.rejected.push((pair.lambda, residual));
+        if ritz_is_localized(pair.lambda, residual, sigma) {
+            self.localized_withheld
+                .push(WithheldEigenpair { pair, residual });
+        }
+    }
+}
+
+/// A **localized** withheld Ritz pair of a checked solve, with its Ritz
+/// vector (issue #916; see [`CheckedEigenpairs::localized_withheld`]).
+#[derive(Debug, Clone)]
+pub struct WithheldEigenpair {
+    /// The Ritz pair `(λ, x)`. `x` is M-normalized like the returned pairs,
+    /// but it is **not** an eigenvector to the solver's tolerance.
+    pub pair: EigenPair,
+    /// Relative true residual of the pair (above the solve's tolerance).
+    pub residual: f64,
 }
 
 /// A localized first-pass Ritz pair the checked solve's extension must
@@ -1960,6 +1993,8 @@ struct RitzTarget {
     width: f64,
     /// First-pass residual of the target.
     residual: f64,
+    /// Index of the target in the first-pass pairs.
+    index: usize,
 }
 
 /// Smallest relative target width, so a pair that was already converged on
@@ -2375,6 +2410,33 @@ mod tests {
     use super::*;
     use faer::sparse::{SparseColMat, Triplet};
 
+    /// Issue #916: [`CheckedEigenpairs::localized_withheld`] lists exactly
+    /// `localized_rejected(σ)`, in order, and each entry's vector is the Ritz
+    /// vector of that pair (its recomputed residual matches).
+    fn assert_localized_withheld_matches(
+        checked: &CheckedEigenpairs,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+    ) {
+        let listed = checked.localized_rejected(sigma);
+        assert_eq!(listed.len(), checked.localized_withheld.len());
+        let n = k.nrows();
+        let mut kx = vec![0.0; n];
+        let mut mx = vec![0.0; n];
+        for (&(lambda, rho), w) in listed.iter().zip(&checked.localized_withheld) {
+            assert_eq!(w.pair.lambda, lambda);
+            assert_eq!(w.residual, rho);
+            assert_eq!(w.pair.vector.len(), n);
+            let again =
+                pair_relative_residual(k, m, lambda, &w.pair.vector, sigma, &mut kx, &mut mx);
+            assert!(
+                (again - rho).abs() <= 1e-6 * rho.max(1e-12),
+                "vector residual {again:.3e} != recorded {rho:.3e}"
+            );
+        }
+    }
+
     /// Build a tiny SPD diagonal pencil with known eigenvalues.
     fn diagonal_pencil(
         diag_k: &[f64],
@@ -2592,6 +2654,8 @@ mod tests {
         assert!(!capped.rejected.is_empty());
         assert_eq!(capped.pairs.len() + capped.rejected.len(), n_modes);
         assert!(capped.shortfall() > 0);
+        assert!(!capped.localized_withheld.is_empty());
+        assert_localized_withheld_matches(&capped, k.as_ref(), m.as_ref(), 1.0);
         // A window that excludes every unconverged pair never extends.
         let elsewhere = check(n, Some((-2.0, -1.0)));
         assert!(!elsewhere.extended);
@@ -2610,6 +2674,7 @@ mod tests {
         );
         assert!(extended.extended);
         assert!(extended.lanczos_steps > 8);
+        assert_localized_withheld_matches(&extended, k.as_ref(), m.as_ref(), 1.0);
         assert!(extended.pairs.len() >= capped.pairs.len());
         for (p, &r) in extended.pairs.iter().zip(&extended.residuals) {
             assert!(r <= tol);
@@ -2757,6 +2822,7 @@ mod tests {
         );
         assert!(checked.extended && checked.lanczos_steps > 2 * n_modes);
         assert_eq!(checked.shortfall(), 0);
+        assert_localized_withheld_matches(&checked, k_si.as_ref(), m.as_ref(), solver.sigma);
         for p in &checked.pairs {
             assert!(nearest_gap(p.lambda, &exact) < 1e-9 * scale);
         }
