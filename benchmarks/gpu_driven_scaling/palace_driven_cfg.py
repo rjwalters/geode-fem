@@ -13,7 +13,15 @@ sigma_nat = 2.0, PEC on y = 0 and y = 1 (mesh boundary attr 2), lumped port on
 z = 0 (attr 3, e_hat = +y, R_nat = 1, 1x1 face), omega_nat = 0.10, all other
 faces natural (PMC; Palace's default for untagged exterior boundaries).
 
-usage: palace_driven_cfg.py <mesh> <out.json> <output-dir> <CPU|GPU> [tol] [maxits]
+usage: palace_driven_cfg.py <mesh> <out.json> <output-dir> <CPU|GPU> [tol] [maxits] [linear-type]
+
+linear-type is Palace's Solver.Linear.Type, default "Default". For a driven
+problem Palace resolves "Default" to a sparse direct solver when it was built
+with one (SuperLU, then STRUMPACK, then MUMPS; palace/utils/iodata.cpp), and
+to AMS only otherwise. Both images under reference/palace/docker/ build
+SuperLU, so "Default" there is GMRES preconditioned by a SuperLU
+factorization. Pass "AMS" for Palace's auxiliary-space Maxwell solver
+(issue #930).
 """
 import json
 import math
@@ -30,6 +38,7 @@ R_NAT = 1.0
 mesh, out, outdir, device = sys.argv[1:5]
 tol = float(sys.argv[5]) if len(sys.argv) > 5 else 1e-8
 maxits = int(sys.argv[6]) if len(sys.argv) > 6 else 2000
+linear_type = sys.argv[7] if len(sys.argv) > 7 else "Default"
 
 f_ghz = OMEGA_NAT * C0 / (2.0 * math.pi) / 1e9
 cfg = {
@@ -61,7 +70,7 @@ cfg = {
         "Order": 1,
         "Device": device,
         "Driven": {"Samples": [{"Type": "Point", "Freq": [f_ghz]}], "AdaptiveTol": 0.0},
-        "Linear": {"Type": "Default", "KSPType": "Default", "Tol": tol, "MaxIts": maxits},
+        "Linear": {"Type": linear_type, "KSPType": "Default", "Tol": tol, "MaxIts": maxits},
     },
 }
 json.dump(cfg, open(out, "w"), indent=2)

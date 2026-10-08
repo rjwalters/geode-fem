@@ -1,0 +1,65 @@
+t1_rep1: n15_jacobi rc=0
+t1_rep1: n15_ams rc=0
+t1_rep1: n20_jacobi rc=0
+t1_rep1: n20_ams rc=0
+t1_rep1: n24_jacobi rc=0
+t1_rep1: n24_ams rc=0
+t1_rep1: n36_jacobi rc=0
+t1_rep1: n36_ams rc=0
+t1_rep1: n40_jacobi rc=0
+t1_rep1: n40_ams rc=0
+t1_rep1: SWEEP_DONE
+t8_rep1: n15_jacobi rc=0
+t8_rep1: n15_ams rc=0
+t8_rep1: n20_jacobi rc=0
+t8_rep1: n20_ams rc=0
+t8_rep1: n24_jacobi rc=0
+t8_rep1: n24_ams rc=0
+t8_rep1: n36_jacobi rc=0
+t8_rep1: n36_ams rc=0
+t8_rep1: n40_jacobi rc=0
+t8_rep1: n40_ams rc=0
+t8_rep1: SWEEP_DONE
+PRIORITY_1_2_DONE
+t1_rep1: n15_direct rc=0
+t1_rep1: n20_direct rc=0
+t1_rep1: n24_direct rc=0
+t1_rep1: SWEEP_DONE
+t8_rep1: n15_direct rc=0
+t8_rep1: n15_xcheck rc=0
+t8_rep1: n20_direct rc=0
+t8_rep1: n20_xcheck rc=0
+t8_rep1: n24_direct rc=0
+t8_rep1: n24_xcheck rc=0
+t8_rep1: SWEEP_DONE
+t1_rep2: n15_jacobi rc=0
+t1_rep2: n15_ams rc=0
+t1_rep2: n20_jacobi rc=0
+t1_rep2: n20_ams rc=0
+t1_rep2: n24_jacobi rc=0
+t1_rep2: n24_ams rc=0
+t1_rep2: n36_jacobi rc=0
+t1_rep2: n36_ams rc=0
+t1_rep2: n40_jacobi rc=0
+t1_rep2: n40_ams rc=0
+t1_rep2: SWEEP_DONE
+t8_rep2: n15_jacobi rc=0
+t8_rep2: n15_ams rc=0
+t8_rep2: n20_jacobi rc=0
+t8_rep2: n20_ams rc=0
+t8_rep2: n24_jacobi rc=0
+t8_rep2: n24_ams rc=0
+t8_rep2: n36_jacobi rc=0
+t8_rep2: n36_ams rc=0
+t8_rep2: n40_jacobi rc=0
+t8_rep2: n40_ams rc=0
+t8_rep2: SWEEP_DONE
+t1_rep2: n15_direct rc=0
+t1_rep2: n20_direct rc=0
+t1_rep2: n24_direct rc=0
+t1_rep2: SWEEP_DONE
+t8_rep2: n15_direct rc=0
+t8_rep2: n20_direct rc=0
+t8_rep2: n24_direct rc=0
+t8_rep2: SWEEP_DONE
+CHAIN_A_DONE

@@ -14,9 +14,11 @@ comparable cell-for-cell and must not be merged.
 | [`results.toml`](results.toml) | #501 | AWS g6e.xlarge: NVIDIA L40S, AMD EPYC 7R13 with 4 vCPU | n ∈ {6, 9, 12, 15}, 1 854 → 25 695 edges |
 | [`results_large_a100.toml`](results_large_a100.toml) | #520, PR #929 | Lambda Cloud `gpu_1x_a100_sxm4`: NVIDIA A100-SXM4-40GB, AMD EPYC 7J13 with 30 vCPU | 25 695 → 462 520 edges, plus Palace driven runs on the same meshes |
 | [`results_ams_cpu_local.toml`](results_ams_cpu_local.toml) | #930, #946, #945 | A developer Mac (Apple M3 Ultra) under unrelated load. **Not a benchmark host**: iteration counts are the result, times are indicative only | n ∈ {6, 9, 12, 15, 20, 24}, 1 854 → 102 024 edges, CPU f64 only, no Palace |
+| [`results_ams_cpu_r6i.toml`](results_ams_cpu_r6i.toml) | #930 | AWS r6i.4xlarge (Intel Xeon Platinum 8375C, 8 cores / 16 threads, 128 GB), dedicated and idle, pinned with `taskset` | n ∈ {15, 20, 24, 36, 40}, 25 695 → 462 520 edges, plus one run at n = 50 (897 650 edges); CPU f64 Jacobi / AMS / Direct and Palace on the same box |
 
 Each file is the authoritative record of its own numbers and caveats. This
-README only explains what is in the directory.
+README only explains what is in the directory, except for the summary in
+[AMS vs Jacobi vs Palace at scale](#ams-vs-jacobi-vs-palace-at-scale-930-same-host).
 
 ## Layout
 
@@ -32,6 +34,10 @@ README only explains what is in the directory.
 | `results_ams_cpu_local.toml` | The #930 local record: assembled COCG with the Jacobi preconditioner against the same COCG with geode's AMS preconditioner, with Direct as the accuracy reference. Generated, not hand-edited |
 | `ams_cpu_sweep.sh` | Runs the test once per (size, config) in its own process under `/usr/bin/time` (macOS `-l` or GNU `-v`), plus one combined cross-check process per size. Writes `<leg>.stdout`, `.err`, `.time`, `.meta` and `host.txt` |
 | `summarize_ams_local.py` | Writes `results_ams_cpu_local.toml` to stdout from an `ams_cpu_sweep.sh` run tree |
+| `results_ams_cpu_r6i.toml` | The #930 at-scale record on one AWS host. Generated, not hand-edited |
+| `summarize_ams_r6i.py` | Writes `results_ams_cpu_r6i.toml` (or, with `--markdown`, the table below) from the run tree |
+| `box_palace_cpu.sh` | Runs the CPU Palace image (`reference/palace/docker/Dockerfile`) on an exported cube mesh, pinned with `--cpuset-cpus` and `mpirun -bind-to core`; `PALACE_LINEAR_TYPE` picks Palace's linear solver |
+| `runs/2026-10-08_r6i_ams_scale/` | The evidence tree behind `results_ams_cpu_r6i.toml`: `t<T>_rep<K>/` (one `ams_cpu_sweep.sh` tree per thread count and repeat), `t1_rep3_n50/`, `direct_large/`, `omega/`, `palace/` (Palace with its `Default` linear solver), `palace_ams/` (Palace with `AMS`), the `chain930*.sh` scripts that ran them with their `chain*.out` exit codes, `palace_build.sh` / `export_meshes.sh`, `mesh_sha256.txt`, `host_extra.txt`, `session.txt` and `NOTE.txt` |
 | `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) and `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
@@ -122,6 +128,182 @@ python3 -I benchmarks/gpu_driven_scaling/summarize_ams_local.py \
 
 The AMS config is opt-in (`GEODE_SCALING_CONFIGS=...,iterative_ams`); the
 default config set and its output are unchanged.
+
+`results_ams_cpu_r6i.toml` (#930, at scale) is generated the same way from
+`runs/2026-10-08_r6i_ams_scale/`. On the box, with a clean checkout of the
+measured commit in `~/geode` and this directory's scripts in `~/bench`, the
+chains ran in the order A, B, D, C, E (`NOTE.txt` there has the details):
+
+```sh
+~/bench/chain930a.sh        # geode Jacobi / AMS / Direct, 1 and 8 threads, two repeats
+~/bench/export_meshes.sh    # MSH 2.2 meshes for Palace (untimed)
+~/bench/palace_build.sh     # palace:cpu at Palace fba6a5b (untimed)
+~/bench/chain930b.sh        # Palace, Linear Type "Default"
+~/bench/chain930d.sh        # Palace, Linear Type "AMS"
+~/bench/chain930c.sh        # omega = 0.05 / 0.20, Direct at 338k edges
+~/bench/chain930e.sh        # n = 50 (897 650 edges), single runs
+python3 -I benchmarks/gpu_driven_scaling/summarize_ams_r6i.py \
+  benchmarks/gpu_driven_scaling/runs/2026-10-08_r6i_ams_scale | cmp - benchmarks/gpu_driven_scaling/results_ams_cpu_r6i.toml
+```
+
+`ams_cpu_sweep.sh` takes `TASKSET_CPUS` (pin every leg, recording
+`Cpus_allowed_list` in its `.meta`) and `LEGS` (a subset of
+`direct jacobi ams xcheck`). Neither changes a run that does not set them.
+
+## AMS vs Jacobi vs Palace at scale (#930, same host)
+
+`results_ams_cpu_r6i.toml`, from `runs/2026-10-08_r6i_ams_scale/`. One AWS
+r6i.4xlarge, nothing else running (1-minute load average at most 3.3 at the
+start of any leg), geode `64d44269` (after #945 and #946), Palace `fba6a5b`.
+Every solve met the 1e-8 tolerance on the explicitly recomputed residual.
+Drive frequency ω = 0.10 unless stated.
+
+**In short: on this fixture AMS beats Jacobi at every size, by 3.5× to 4.2×
+in single-core solve time at 25.7k to 463k edges and 3.4× at 898k, so it should become
+the driven default where it is supported. It does not close the gap to
+Palace.** On one core Palace's own AMS solves the linear system 2.1× faster
+than geode's at 463k edges and 3.4× faster at 898k; on eight cores it is 12×
+faster, because geode's Krylov solve does not use the extra cores.
+
+| edges | cores | geode COCG + Jacobi | geode COCG + AMS | Palace GMRES + AMS | Palace GMRES + SuperLU (its default) |
+|---|---|---|---|---|---|
+| 25 695 | 1 | 2 969 it · 2.4 s · 0.07 GB | 39 it · 0.7 s · 0.11 GB | 12 it · 1.0 s · 0.19 GB | 5 it · 1.4 s · 0.35 GB |
+| 25 695 | 8 | 2 969 it · 2.4 s | 39 it · 0.7 s | 12 it · 0.2 s | 5 it · 0.5 s |
+| 59 660 | 1 | 4 303 it · 8.9 s · 0.16 GB | 49 it · 2.4 s · 0.28 GB | 13 it · 2.7 s · 0.44 GB | 5 it · 4.1 s · 0.87 GB |
+| 59 660 | 8 | 4 303 it · 9.2 s | 49 it · 2.5 s | 13 it · 0.5 s | 5 it · 1.5 s |
+| 102 024 | 1 | 5 259 it · 22.2 s · 0.26 GB | 55 it · 5.3 s · 0.52 GB | 14 it · 5.0 s · 0.75 GB | 5 it · 8.9 s · 1.6 GB |
+| 102 024 | 8 | 5 259 it · 22.4 s | 55 it · 5.2 s | 12 it · 0.7 s | 5 it · 2.9 s |
+| 338 364 | 1 | 8 983 it · 142.3 s · 0.81 GB | 80 it · 38.6 s · 2.4 GB | 15 it · 18.3 s · 2.5 GB | 5 it · 52.5 s · 7.1 GB |
+| 338 364 | 8 | 8 983 it · 141.1 s | 80 it · 33.8 s | 14 it · 2.7 s | 5 it · 14.7 s |
+| 462 520 | 1 | 10 154 it · 227.3 s · 1.05 GB | 86 it · 56.4 s · 3.4 GB | 16 it · 26.4 s · 3.4 GB | 5 it · 85.9 s · 10.4 GB |
+| 462 520 | 8 | 10 154 it · 228.1 s | 86 it · 50.4 s | 16 it · 4.2 s | 5 it · 22.1 s |
+| 897 650 | 1 | 13 662 it · 624.3 s · 2.0 GB | 105 it · 181.3 s · 8.5 GB | 17 it · 53.3 s · 6.7 GB | 4 it · 235.8 s · 24.3 GB |
+| 897 650 | 8 | not run | not run | 15 it · 7.6 s | 4 it · 60.0 s |
+
+Each cell: Krylov iterations · linear-solve seconds (median) · peak memory.
+geode's seconds are `prepare_at` + `solve` (assemble `A(ω)`, build the
+preconditioner, iterate, check the residual); Palace's are the sum of the
+`Setup`, `Preconditioner` and `Linear Solve` rows of its own timing report.
+geode's memory is the process's peak RSS; Palace's is the container's
+`memory.peak`, all ranks together. Two repeats per geode cell and three per
+Palace cell up to 463k edges (each repeat is in the file; the largest
+spread, (max − min) / median, is 6.4%); one each at 898k. "cores" is geode threads (`taskset -c 0` or `0-7`) or
+Palace MPI ranks (`--cpuset-cpus`, `-bind-to core`). The full table, with
+setup and Krylov split, whole-process wall clock, core-seconds and Direct,
+is `summarize_ams_r6i.py --markdown`.
+
+**geode, Jacobi against AMS.**
+
+- **AMS wins at every size, and wins more as the mesh grows.** Single-core
+  solve time: 3.5× at 25.7k edges, 4.2× at 102k, 4.0× at 463k and 3.4× at
+  898k. Core-seconds of the whole process (mesh, assembly, solve): 2.2× at
+  25.7k up to 3.3× at 463k. No measured size favours Jacobi; the local
+  record found the same down to 1 854 edges (1.1× to 2.3× less CPU for AMS,
+  developer machine).
+- **Its iteration count is not flat.** 39 → 55 → 80 → 86 → 105 from 25.7k to
+  898k edges, about edges^0.28 by least squares (Jacobi: edges^0.43). The
+  rise is the #963 growth continuing past 102k edges. Palace's AMS goes 12
+  → 17 over the same range.
+- **An AMS iteration costs 17× to 27× a Jacobi iteration**, rising with size
+  (0.014 s at 25.7k edges to 1.22 s at 898k, single core, Krylov time over
+  iterations).
+- **Against Palace's AMS on one core the gap is the iteration count**, 5.4×
+  at 463k edges (86 against 16) and 6.2× at 898k (105 against 17). Palace's
+  report does not separate its AMS setup from its iterations, so its cost
+  per iteration is not known. By arithmetic on geode's own measured costs,
+  16 iterations at 0.50 s plus the 13.4 s setup would take about 21 s at
+  463k edges, less than Palace's 26.4 s.
+- **The AMS setup grows faster than the mesh**: 0.14 s at 25.7k edges,
+  13.4 s at 463k, 53.5 s at 898k (single core), about edges^1.68. At 898k it
+  is 30% of the AMS solve. The driven AMS solves the nodal auxiliary space
+  with an exact sparse LU (`AmsCoarseSolve::Auto` resolves to `Direct`; the
+  approximate coarse solves were measured to drift on the spiral, #744).
+  Eight threads halve it (6.5 s at 463k), which is the only part of the
+  solve that eight threads speed up.
+- **Eight threads do not speed up the Krylov solve**, for either
+  preconditioner: the COCG SpMV is serial, and since #946 so are the AMS
+  triangular solves. geode's eight-thread cells are within noise of the
+  one-thread cells except for the AMS setup.
+- **AMS needs more memory**: 1.6× Jacobi at 25.7k edges, 3.3× at 463k and
+  4.3× at 898k (8.5 GB against 2.0 GB). It is about what Palace's AMS uses
+  (3.4 GB both at 463k; 8.5 against 6.7 GB at 898k).
+- **The answer is the same.** The AMS port voltage equals Direct's to every
+  printed digit at 25.7k to 338k edges and agrees with Jacobi's to 1.4e-11
+  at 463k and 1.5e-10 at 898k. Palace's port voltage agrees with geode's to
+  7.9e-10 to 6.5e-9 with either Palace solver.
+- **The smoother weight is the #945 estimate, 0.399 at every size** (Ritz
+  `θ` 3.413 to 3.416). The estimate took 15 ms at 25.7k edges and 0.4 s at
+  463k.
+- **Frequency.** At ω = 0.05 and 0.20 the AMS count is 55 and 57 at 102k
+  edges and 86 and 89 at 463k (Jacobi 6 153 / 4 744 and 12 003 / 8 661), so
+  the at-scale picture does not depend on the drive frequency over that
+  range.
+
+**Palace.**
+
+- **Palace's `Default` linear solver is not AMS.** For a driven problem
+  Palace resolves `Solver.Linear.Type = "Default"` to a sparse direct solver
+  when it was built with one, SuperLU first (`palace/utils/iodata.cpp` at
+  `fba6a5b`), and both images under `reference/palace/docker/` build SuperLU.
+  So the "~5 iterations" of the #520 record and of #930's problem statement
+  are GMRES preconditioned by a SuperLU factorization, not by AMS. This run
+  measured both. Palace with `AMS` takes 12 to 17 iterations, is faster than
+  Palace's default at every size (2.5× to 7.9× in linear-solve time on eight
+  ranks), and uses
+  2.1× to 4.2× less memory. The log does not print the resolved type; it is
+  read from the source and the build flags, and the two runs differ in
+  every measured column.
+- **Same host as the #520 Palace CPU numbers?** No: #520 ran on a Lambda
+  A100 host (AMD EPYC 7J13). The same `Default` configuration here, on
+  eight ranks, took 30.2 s at 463k edges against 60.1 s there. Do not mix
+  the two.
+- **geode's best against Palace's best, linear solve only:** one core, geode
+  AMS 56.4 s against Palace AMS 26.4 s at 463k edges (2.1×) and 181.3 s
+  against 53.3 s at 898k (3.4×); eight cores, 50.4 s against 4.2 s at 463k
+  (12×). geode's AMS beats Palace's *default* on one core at every size
+  (56.4 s against 85.9 s at 463k), and loses to it on eight.
+- **Whole process.** Palace's process wall clock includes reading and
+  partitioning the mesh, an error estimate and postprocessing, which
+  geode's harness does not do; at 25.7k edges on one rank that is 3.4 s of
+  Palace's 4.4 s. geode's AMS process is 1.17× Palace AMS's at 463k on one
+  core and 5.4× on eight. Core-seconds on eight ranks: geode AMS 78.9 at
+  463k against Palace AMS 97.9 and Palace default 241.1.
+
+**Direct** (for the accuracy cross-check, not a candidate default here): one
+LU took 25.8 s on eight threads at 102k edges (11 GB) and 375 s at 338k
+edges (78 GB peak RSS). It was not run at 463k edges or above: that LU would
+likely need more than the box's 128 GB. At 463k and 898k edges the iterative
+cells are checked against each other and against Palace instead.
+
+### Recommendation on the driven default (not applied here)
+
+Measured on one fixture, the evidence supports **making AMS the default
+preconditioner of the assembled iterative driven solve wherever it is
+supported, with an automatic fallback to Jacobi where it is not** (p=2, which
+rejects AMS with `UnsupportedAtOrder`, and the matrix-free path, which
+supports Jacobi only). No size threshold: no measured size, from 1 854 edges
+locally to 897 650 here, favours Jacobi, so a Jacobi → AMS switch above a
+size would have no measured basis. The default is **not** changed in this
+change; that is the operator's decision. Regressions and open points that
+decision has to accept:
+
+- **Memory**: 3× to 4× Jacobi's peak at 338k edges and above.
+- **Setup grows as about edges^1.68** because of the exact nodal LU. It is
+  30% of the AMS solve at 898k edges and was not measured above that.
+- **The iteration count still grows** (#963), and with it the gap to
+  Palace's AMS: 5.4× more iterations at 463k edges, 6.2× at 898k.
+- **One fixture.** A structured Kuhn-tet cube at three low frequencies. The
+  spiral (unstructured, #742 / #744) is where Jacobi stalls outright, which
+  argues the same way, but it was not rerun at scale. The transmon and
+  eigen paths are separate code and are not covered.
+- **p=2 and the matrix-free path stay on Jacobi**, so the default would
+  differ by element order and solver mode. That has to be reported, not
+  silent.
+- **The single-thread Krylov solve** is the reason geode loses to Palace by
+  12× on eight cores. A parallel SpMV and V-cycle is a separate piece of
+  work.
+
+The matrix-free / GPU AMS question is filed as #966, a child of #547.
 
 ## AMS vs Jacobi on this fixture (#930, local subset)
 
@@ -536,6 +718,13 @@ full wording.
   flat iteration count on this fixture, and a diagnostic traced that to its
   edge-smoother weight. Issue #930 tracks the smoother follow-up, the at-scale
   measurement and the matrix-free / GPU AMS question.
+- **The #520 Palace solver was not AMS.** `results_large_a100.toml` calls the
+  Palace runs "GMRES + AMS". They used `Solver.Linear.Type = "Default"`,
+  which Palace resolves to SuperLU for a driven problem in an image built
+  with SuperLU, as both images here are (see
+  [the at-scale section](#ams-vs-jacobi-vs-palace-at-scale-930-same-host)).
+  The #520 numbers are unchanged and still describe what ran; only the label
+  is wrong. Palace with `AMS` was first measured in #930.
 - **Single-core CPU legs.** Both the CPU matrix-free leg and the assembled
   COCG leg ran single-threaded, so the per-iteration crossover is GPU vs one
   CPU core of the 30 available.

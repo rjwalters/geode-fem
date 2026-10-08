@@ -1,0 +1,17 @@
+omega/t1_w0p05: n24_jacobi rc=0
+omega/t1_w0p05: n24_ams rc=0
+omega/t1_w0p05: n40_jacobi rc=0
+omega/t1_w0p05: n40_ams rc=0
+omega/t1_w0p05: SWEEP_DONE
+omega/t8_w0p05: n24_direct rc=0
+omega/t8_w0p05: SWEEP_DONE
+omega/t1_w0p20: n24_jacobi rc=0
+omega/t1_w0p20: n24_ams rc=0
+omega/t1_w0p20: n40_jacobi rc=0
+omega/t1_w0p20: n40_ams rc=0
+omega/t1_w0p20: SWEEP_DONE
+omega/t8_w0p20: n24_direct rc=0
+omega/t8_w0p20: SWEEP_DONE
+direct_large/t8: n36_direct rc=0
+direct_large/t8: SWEEP_DONE
+CHAIN_C_DONE

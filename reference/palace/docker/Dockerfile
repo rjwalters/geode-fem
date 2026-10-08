@@ -40,8 +40,20 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib"
 ENV PATH="/usr/lib64/mpich/bin:${PATH}"
 
+# PALACE_REF pins the Palace source (issue #930). Empty (the default) keeps
+# the historical behaviour, a shallow clone of the default branch's HEAD. The
+# #930 same-host driven comparison built with
+#   --build-arg PALACE_REF=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0
+# the changeset Dockerfile.cuda pins, so its Palace matches the #519 / #520 runs.
+ARG PALACE_REF=
 WORKDIR /opt
-RUN git clone --depth 1 https://github.com/awslabs/palace.git palace-src
+RUN if [ -z "${PALACE_REF}" ]; then \
+        git clone --depth 1 https://github.com/awslabs/palace.git palace-src; \
+    else \
+        git clone https://github.com/awslabs/palace.git palace-src && \
+        git -C palace-src checkout --detach "${PALACE_REF}"; \
+    fi && \
+    git -C palace-src log -1 --format='%H %cI %s'
 
 WORKDIR /opt/palace-build
 RUN cmake /opt/palace-src \
@@ -72,9 +84,12 @@ FROM rockylinux:9
 RUN dnf install -y epel-release && \
     dnf install -y \
         openblas \
+        openblas-serial \
         mpich \
         libgomp \
         libunwind \
+        time \
+        which \
         zlib && \
     dnf clean all && \
     rm -rf /var/cache/dnf
