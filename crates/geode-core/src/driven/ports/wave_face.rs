@@ -1663,7 +1663,7 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// not convex or not rectangular (a ridge, a coax) is outside both the
 /// assumptions and the measurement, at p=2 as at p=1. A guard computed
 /// from the 3-D model itself (an eigensolve of the guide section) would
-/// need neither; it is not implemented.
+/// need neither; it is not implemented (issue #955).
 pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
     let kh = k_c * axial_spacing;
     if !kh.is_finite() {
