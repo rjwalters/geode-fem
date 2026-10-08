@@ -196,8 +196,9 @@ back to `ndarray` (see `crates/geode-core/src/testing/mod.rs` and
 Note the macOS nuance: the opt-in `wgpu` backend **already runs on Metal at
 runtime** on macOS (wgpu selects the Metal graphics API there). The opt-in
 `metal` feature is different — it pins the Metal graphics API and the MSL
-(`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal`
-= `Wgpu<f32, i32, u8>`), rather than going through wgpu's runtime adapter
+(`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal<F, I, B>`
+is Burn's alias for `Wgpu<F, I, B>`; geode instantiates it as `Metal<f64>`), rather
+than going through wgpu's runtime adapter
 selection. It is Apple-only and not exercised on CI (all runners are headless
 Linux, which use the `ndarray` CPU backend); verify it locally on Apple hardware
 with `cargo test -p geode-core --features metal`.
