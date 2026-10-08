@@ -9,6 +9,12 @@ name: ci-test-coverage
 # (`scripts/ci-test-coverage-allowlist.txt`), or when an allowlist entry has
 # gone stale. It is a static file scan with no cargo build, and takes about a
 # second.
+#
+# Issue #921: it also tracks each crate's unit-test (`--lib`) target as
+# `<crate>/lib`, which only an unfiltered `--lib` (or no-selector) run
+# covers, so narrowing a blanket `--lib` step to module filters fails here;
+# and it checks the lib targets' `#[ignore]`d tests like the integration
+# targets' (scripts/ci-test-coverage-ignored-allowlist.txt).
 
 on:
   push:
