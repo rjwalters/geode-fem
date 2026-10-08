@@ -350,7 +350,9 @@ path is mixed-precision-qualified.
 3. Junction-mode L-scaling tripwire (f vs L on log-log, 1/√2 line).
 4. CPU-cell wall-clock bar chart (geode 1-proc vs Palace 4/8 ranks) +
    per-core-efficiency inset. (Blocked on the like-for-like re-timing, #927:
-   the current bars compare unlike outputs.)
+   the geode cells of the current bars have no committed mode log, so
+   whether they are like-for-like is unverified; the same request on the
+   Lambda runs and on the dev machine returned 1 of 6 physical modes.)
 5. (TBD-GPU) GPU cell results.
 6. Spurious-mode illustration: participation spectrum geode vs Palace
    (the honest-physics figure — reviewers will love or demand it).
