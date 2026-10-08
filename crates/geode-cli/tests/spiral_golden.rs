@@ -76,6 +76,13 @@ fn run_driven(spec: &str, extra: &[&str]) -> serde_json::Value {
         String::from_utf8_lossy(&out.stderr),
         String::from_utf8_lossy(&out.stdout)
     );
+    // With `GEODE_AMS_SMOOTH_REPORT` set, the AMS builds print their
+    // smoother-weight estimate (issue #945); pass those lines through.
+    for line in String::from_utf8_lossy(&out.stderr).lines() {
+        if line.starts_with("# ams_smoother") {
+            eprintln!("{line}");
+        }
+    }
     serde_json::from_slice(&out.stdout).expect("report is JSON")
 }
 

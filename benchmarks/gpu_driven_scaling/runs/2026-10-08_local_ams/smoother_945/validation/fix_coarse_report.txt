@@ -1,0 +1,16 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0
+# test=eigen::ams::tests::coarse_solve_iteration_report binary=geode_core-e13ad90a149508dd 
+# start=2026-10-08T13:14:17Z loadavg=12.99 12.55 12.00
+
+running 1 test
+test eigen::ams::tests::coarse_solve_iteration_report ... # ams_smoother edge_dim=600 theta_max=1.798623 lanczos_steps=30 gershgorin=1.800000 rho_hat=1.800000 weight=0.600000 source=default estimate_ms=0.136 theta_ref=1.799989 ref_steps=600
+# ams_smoother edge_dim=600 theta_max=1.798623 lanczos_steps=30 gershgorin=1.800000 rho_hat=1.800000 weight=0.600000 source=default estimate_ms=0.133 theta_ref=1.799989 ref_steps=600
+
+=== #551 coarse-solve report (laplacian n=600, σ=-0.5, sweeps=2) ===
+per-apply coarse correction: direct LU = 10.208 µs, SGS = 17.946 µs (1.76× direct)
+outer PCG iterations (tol 1e-8): direct = 2, SGS = 17
+
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.06s
+

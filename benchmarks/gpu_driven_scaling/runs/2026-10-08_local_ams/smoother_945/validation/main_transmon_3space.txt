@@ -1,0 +1,10 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=synthetic_three_space_vs_gradient_only_inner_iterations binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:14Z loadavg=13.51 12.65 12.03
+
+running 1 test
+test synthetic_three_space_vs_gradient_only_inner_iterations ... inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = 6264, three-space AMS = 3719, reduction = 1.684×
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 1.12s
+

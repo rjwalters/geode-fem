@@ -1,0 +1,7 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 patch=diag945_real_transmon_ams_only.patch (adds a test; no solver change)
+# test=diag945_real_transmon_ams_only binary=transmon_eigenmode-ac55df93e8f8ac48 --ignored
+# start=2026-10-08T13:56:53Z loadavg=9.26 8.77 8.67
+
+running 1 test
+test diag945_real_transmon_ams_only ... # ams_smoother edge_dim=133108 theta_max=2.943446 lanczos_steps=30 gershgorin=4.529844 rho_hat=3.237791 weight=0.600000 source=default estimate_ms=127.240 theta_ref=2.943447 ref_steps=600
+time: command terminated abnormally

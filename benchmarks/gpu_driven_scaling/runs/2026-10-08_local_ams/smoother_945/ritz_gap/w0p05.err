@@ -1,0 +1,12 @@
+[size n=6] edges=1854 interior=1614 tets=1296 reps=0 (fixture 0.03 s)
+# ams_smoother edge_dim=1614 theta_max=3.378769 lanczos_steps=30 gershgorin=3.999715 rho_hat=3.716646 weight=0.403590 source=estimate estimate_ms=0.585 theta_ref=3.388103 ref_steps=1000
+[size n=9] edges=5859 interior=5337 tets=4374 reps=0 (fixture 0.07 s)
+# ams_smoother edge_dim=5337 theta_max=3.406743 lanczos_steps=30 gershgorin=3.999873 rho_hat=3.747417 weight=0.400276 source=estimate estimate_ms=1.980 theta_ref=3.407758 ref_steps=1000
+[size n=12] edges=13428 interior=12516 tets=10368 reps=0 (fixture 0.15 s)
+# ams_smoother edge_dim=12516 theta_max=3.406313 lanczos_steps=30 gershgorin=3.999929 rho_hat=3.746944 weight=0.400326 source=estimate estimate_ms=4.635 theta_ref=3.414725 ref_steps=1000
+[size n=15] edges=25695 interior=24285 tets=20250 reps=0 (fixture 0.28 s)
+# ams_smoother edge_dim=24285 theta_max=3.416338 lanczos_steps=30 gershgorin=3.999954 rho_hat=3.757971 weight=0.399152 source=estimate estimate_ms=9.020 theta_ref=3.417969 ref_steps=1000
+[size n=20] edges=59660 interior=57180 tets=48000 reps=0 (fixture 0.66 s)
+# ams_smoother edge_dim=57180 theta_max=3.412782 lanczos_steps=30 gershgorin=3.999974 rho_hat=3.754060 weight=0.399567 source=estimate estimate_ms=21.291 theta_ref=3.420501 ref_steps=1000
+[size n=24] edges=102024 interior=98472 tets=82944 reps=0 (fixture 1.14 s)
+# ams_smoother edge_dim=98472 theta_max=3.413349 lanczos_steps=30 gershgorin=3.999982 rho_hat=3.754684 weight=0.399501 source=estimate estimate_ms=36.354 theta_ref=3.421499 ref_steps=1000

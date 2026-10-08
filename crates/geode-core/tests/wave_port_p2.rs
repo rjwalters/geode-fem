@@ -22,12 +22,13 @@
 //!    `Γ`, with exact reciprocity and passivity.
 //! 8. The adaptive PROM with p=2 wave ports reproduces the dense p=2 sweep.
 //! 9. p=1 bit identity of every `*_on_space` entry point, plus typed errors.
-//! 10. TM guard at p=2: the P2 face estimate and the order-aware margin
-//!     `max(δ₀, C₄·(k_c·max(h_n, h_f))⁴)` stay below the measured 3-D p=2 TM
-//!     cutoff, including on faces with no interior node and on faces one
-//!     element across, whose margin is floored at 8 % (Judge, PR #887). A
-//!     p=2 solve guarded by a P1 face estimate keeps the p=1 law. The full
-//!     measurement table is the ignored `tm_guard_p2_measurement_table`.
+//! 10. TM guard at p=2: the P2 face estimate less the order-independent
+//!     margin `max(δ₀, C_h·(k_c·h_n)²)` (issue #905) stays below the measured
+//!     3-D p=2 TM cutoff, including on faces with no interior node, on faces
+//!     one element across (Judge, PR #887) and on the three Gmsh fixtures of
+//!     issue #905, where the withdrawn fourth-order p=2 law sat above it.
+//!     The full validation table is the ignored
+//!     `tm_guard_p2_measurement_table`.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -47,8 +48,8 @@ use geode_core::driven::ports::{
     solve_mixed_port_sweep_on_space, solve_mixed_port_sweep_with_mode,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_spec_sweep_with_mode,
     solve_wave_port_sweep_on_space, solve_wave_port_sweep_with_mode, tm_guard_axial_reach,
-    tm_guard_margin, tm_guard_margin_at_order, wave_port_from_faces, wave_port_from_faces_on_space,
-    waveguide_mode_reduce, waveguide_mode_reduce_on_space,
+    tm_guard_margin, wave_port_from_faces, wave_port_from_faces_on_space, waveguide_mode_reduce,
+    waveguide_mode_reduce_on_space,
 };
 use geode_core::driven::rom::{DrivenRom, RomSettings};
 use geode_core::driven::solve::{
@@ -809,16 +810,16 @@ fn p1_on_space_entry_points_are_bit_identical() {
         assert_eq!(bits(p), bits(q));
     }
     // TM guard: the default (p=1) estimate is the historical margin.
-    for (kc, h) in [(3.5, 0.0), (3.5, 0.5), (3.5, 1.2), (1.7, 3.0)] {
-        assert_eq!(
-            tm_guard_margin_at_order(ElementOrder::P1, kc, h, 2.0).to_bits(),
-            tm_guard_margin(kc, h).to_bits()
-        );
+    for h in [0.0, 0.5, 1.2, 3.0] {
         let est = TmCutoffEstimate::from_levels([3.6, 3.53, 3.515]).with_axial_spacing(h);
         assert_eq!(est.element_order, ElementOrder::P1);
         assert_eq!(
             est.margin().to_bits(),
             tm_guard_margin(est.k_c(), h).to_bits()
+        );
+        assert_eq!(
+            est.guard_k_c().to_bits(),
+            ((1.0 - tm_guard_margin(est.k_c(), h)) * est.k_c()).to_bits()
         );
     }
 }
@@ -921,20 +922,17 @@ fn p2_wave_port_errors_are_typed() {
 
 /// `|E_z|²` share at and above which [`box_tm_like_k`] counts a box mode as
 /// TM-like.
+///
+/// Issue #905 left it unchanged. The modes behind that issue carry shares
+/// of 0.84 to 0.97 (`p2_tm_guard_covers_the_issue_905_meshes`), so the
+/// threshold is not what selects them, and the guard's law
+/// (`tm_guard_margin`) is not derived from a share.
 const TM_LIKE_EZ_SHARE: f64 = 0.4;
 
-/// Lowest TM-like resonance of the all-PEC guide box at `order`: of the
-/// modes above `(0.45·TM₁₁)²`, the lowest whose `|E_z|²` share (sampled
-/// over every tet) is at least [`TM_LIKE_EZ_SHARE`].
-///
-/// Below one half on purpose (Judge, PR #887): at a box degeneracy (one tet
-/// layer of `d = b`, where TE₁₀₁ and TM₁₁₀ meet) the discrete model mixes
-/// the pair and each branch carries about half the `E_z`. A `> ½` test then
-/// finds no mode at `d = b` and picks either branch nearby; the lower
-/// branch is the one the guard must stay below. No TE₁₀ₚ-to-`z` mode
-/// carries `E_z` in the continuum, and every TM₁₁ₚ (p ≥ 1) sits above
-/// TM₁₁₀, so the lower threshold only ever adds mixed branches.
-fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<f64> {
+/// The modes of the all-PEC guide box at `order` nearest `(0.45·TM₁₁)²`, as
+/// `(k, |E_z|² share)` in ascending `k`. The share is sampled over every
+/// tet.
+fn box_mode_shares(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Vec<(f64, f64)> {
     let space = HcurlSpace::build(mesh, order);
     let walls = mesh.boundary_faces();
     let mask = space.pec_interior_mask(mesh, &[&walls]).expect("mask");
@@ -968,11 +966,11 @@ fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<
         [0.15, 0.15, 0.55, 0.15],
         [0.15, 0.15, 0.15, 0.55],
     ];
-    modes
+    let mut shares: Vec<(f64, f64)> = modes
         .modes
         .modes
         .iter()
-        .filter(|m| {
+        .map(|m| {
             let mut x = vec![c64::new(0.0, 0.0); space.n_dofs()];
             for (i, &d) in kept.iter().enumerate() {
                 x[d] = c64::new(m.vector[i], 0.0);
@@ -985,10 +983,29 @@ fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<
                     all += e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr();
                 }
             }
-            ez >= TM_LIKE_EZ_SHARE * all
+            (m.k0, ez / all)
         })
-        .map(|m| m.k0)
-        .reduce(f64::min)
+        .collect();
+    shares.sort_by(|p, q| p.0.total_cmp(&q.0));
+    shares
+}
+
+/// Lowest TM-like resonance of the all-PEC guide box at `order`: of the
+/// modes above `(0.45·TM₁₁)²`, the lowest whose `|E_z|²` share (sampled
+/// over every tet) is at least [`TM_LIKE_EZ_SHARE`].
+///
+/// Below one half on purpose (Judge, PR #887): at a box degeneracy (one tet
+/// layer of `d = b`, where TE₁₀₁ and TM₁₁₀ meet) the discrete model mixes
+/// the pair and each branch carries about half the `E_z`. A `> ½` test then
+/// finds no mode at `d = b` and picks either branch nearby; the lower
+/// branch is the one the guard must stay below. No TE₁₀ₚ-to-`z` mode
+/// carries `E_z` in the continuum, and every TM₁₁ₚ (p ≥ 1) sits above
+/// TM₁₁₀, so the lower threshold only ever adds mixed branches.
+fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<f64> {
+    box_mode_shares(mesh, order, a, b)
+        .into_iter()
+        .find(|&(_, share)| share >= TM_LIKE_EZ_SHARE)
+        .map(|(k, _)| k)
 }
 
 /// The guard's face estimate at `order` and the axial spacing it reads over
@@ -1013,95 +1030,99 @@ fn guard_estimate(mesh: &TetMesh) -> TmCutoffEstimate {
     guard_estimate_at(mesh, ElementOrder::P1)
 }
 
+/// The base margin of the p=2 law issue #905 withdrew,
+/// `max(δ₀, 2·10⁻⁴·(k_c·h)⁴)`: what it allowed up to `k_c·h` ≈ 3.98 on a
+/// face it did not flag as one element across.
+const WITHDRAWN_P2_BASE_MARGIN: f64 = 0.05;
+
 /// One measured case of the p=2 TM guard.
 #[derive(Debug, Clone, Copy)]
 struct GuardRow {
-    /// `k_c·max(h_n, h_f)`.
+    /// `k_c·h_n`.
     kh: f64,
     /// 3-D p=2 TM-like undershoot against the P2 face estimate.
     under: f64,
-    /// The face is flagged under-resolved and carries the face floor
-    /// ([`TmCutoffEstimate::face_under_resolved`]).
-    coarse_face: bool,
-    /// The face's width in longest edges
-    /// ([`TmCutoffEstimate::face_elements_across`]).
-    across: f64,
+    /// The guard's margin.
+    margin: f64,
     /// Points between the p=2 guard and the 3-D p=2 TM-like cutoff.
     pts_left: f64,
 }
 
-/// One measured case: asserts the p=2 guard (P2 face estimate, p=2 law)
-/// and the p=1 guard sit below the 3-D p=2 TM-like cutoff. Every case is
-/// checked: a box with no TM-like p=2 mode fails the test.
+/// One measured case: asserts the p=2 guard (P2 face estimate) and the p=1
+/// guard sit below the 3-D p=2 TM-like cutoff, and that the p=2 margin is
+/// the order-independent law. Every case is checked: a box with no TM-like
+/// p=2 mode fails the test.
 fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     let est = guard_estimate_at(mesh, ElementOrder::P2);
-    assert_eq!(est.margin_law(), ElementOrder::P2);
+    assert_eq!(est.element_order, ElementOrder::P2);
+    assert_eq!(est.face_order, ElementOrder::P2);
     let k3d = box_tm_like_k(mesh, ElementOrder::P2, a, b)
         .unwrap_or_else(|| panic!("{label}: no TM-like p=2 mode"));
-    let kh = est.resolution_kh();
+    let kh = est.axial_kh();
     let under = 1.0 - k3d / est.k_c();
     let guard = est.guard_k_c();
     let p1 = guard_estimate(mesh);
     let p1_guard = p1.guard_k_c();
-    // The p=2 solve guarded by the P1 face estimate falls back to the p=1
-    // law: that pairing is the p=1 guard, bit for bit.
-    let fallback = p1.with_element_order(ElementOrder::P2);
-    assert_eq!(fallback.margin_law(), ElementOrder::P1);
-    assert_eq!(fallback.guard_k_c().to_bits(), p1_guard.to_bits());
+    // Tagging the P1 estimate for a p=2 solve does not move the guard.
+    let tagged = p1.with_element_order(ElementOrder::P2);
+    assert_eq!(tagged.guard_k_c().to_bits(), p1_guard.to_bits());
     let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
     eprintln!(
-        "{label}: k_c·h {kh:.3} (k_c·h_n {:.3}, k_c·h_f {:.3}), face P2 est {:.4} \
-         (P1 est {:.4}, TM11 {tm11:.4}), 3-D p=2 TM {k3d:.4} (undershoot {:+.3} %, \
-         ÷(kh)⁴ {:.2e}); across {:.2}; p=2 guard {guard:.4} (margin {:.2} %, \
-         {:.2} pt left), p=1 guard {p1_guard:.4}",
-        est.axial_kh(),
-        est.k_c() * est.face_spacing,
+        "{label}: k_c·h_n {kh:.3}, face P2 est {:.4} (P1 est {:.4}, TM11 {tm11:.4}), 3-D p=2 \
+         TM {k3d:.4} (undershoot {:+.3} %, ÷(k_c·h_n)² {:.4}); p=2 guard {guard:.4} (margin \
+         {:.2} %, {:.2} pt left), p=1 guard {p1_guard:.4}",
         est.k_c(),
         p1.k_c(),
         100.0 * under,
-        under / kh.powi(4),
-        est.face_elements_across,
+        under / (kh * kh),
         100.0 * est.margin(),
         100.0 * (1.0 - guard / k3d),
     );
-    if let Some(note) = est.p2_resolution_warning() {
-        eprintln!("    note: {note}");
-    }
-    // A flagged face always carries the note, with the longest-edge target
-    // that clears the threshold (issue #895).
-    if est.face_under_resolved() {
-        let note = est
-            .p2_resolution_warning()
-            .expect("one-element-across note");
-        assert!(note.contains("two or more elements across"), "{note}");
-        assert!(note.contains("longest edge is at most"), "{note}");
+    // A widened margin always carries the note, with the axial spacing that
+    // restores the base margin.
+    match est.p2_resolution_warning() {
+        Some(note) => {
+            eprintln!("    note: {note}");
+            assert!(est.margin() > TM_GUARD_MARGIN, "{label}: {note}");
+            assert!(
+                note.contains("refine the guide's axial mesh below"),
+                "{note}"
+            );
+        }
+        None => assert_eq!(est.margin(), TM_GUARD_MARGIN, "{label}"),
     }
     assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
     assert!(
         p1_guard < k3d,
         "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}"
     );
+    // Issue #905: one law at every order.
+    assert_eq!(
+        est.margin().to_bits(),
+        tm_guard_margin(est.k_c(), est.axial_spacing).to_bits(),
+        "{label}: the p=2 margin is not the order-independent law"
+    );
     GuardRow {
         kh,
         under,
-        coarse_face: est.face_under_resolved(),
-        across: est.face_elements_across,
+        margin: est.margin(),
         pts_left: 100.0 * (1.0 - guard / k3d),
     }
 }
 
-/// [`measure_p2_guard`] as `(k_c·max(h_n, h_f), undershoot)`.
+/// [`measure_p2_guard`] as `(k_c·h_n, undershoot)`.
 fn check_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> (f64, f64) {
     let r = measure_p2_guard(label, mesh, a, b);
     (r.kh, r.under)
 }
 
-/// The order-aware TM guard (issue #884): at p=2 the margin is
-/// `max(δ₀, C₄·(k_c·max(h_n, h_f))⁴)` on the P2 face estimate and stays below
-/// the measured 3-D p=2 TM cutoff.
-/// Two cases from the measurement table: the worst ratio (the 4 × 2 face
-/// of a `2 × 1` guide over one layer of 1.0) and the stepped-layer guide of
-/// PR #827 (where p=1 needs a 10 % margin). At p=2 the base 5 % covers both.
+/// The TM guard of a p=2 solve (issues #884, #905): the P2 face estimate
+/// less the order-independent margin `max(δ₀, C_h·(k_c·h_n)²)`, below the
+/// measured 3-D p=2 TM cutoff. Two cases from the measurement table: the
+/// 4 × 2 face of a `2 × 1` guide over one layer of 1.0, and the
+/// stepped-layer guide of PR #827. On both the 3-D p=2 cutoff is within
+/// 2 % of the face value, far inside the margin: the law is sized for the
+/// worst mesh, not for these.
 #[test]
 fn p2_tm_guard_stays_below_the_3d_p2_cutoff() {
     let (a, b) = (2.0, 1.0);
@@ -1109,6 +1130,8 @@ fn p2_tm_guard_stays_below_the_3d_p2_cutoff() {
     let (kh, under) = check_p2_guard("one layer of 1.0, face 4×2", &g.mesh, a, b);
     assert!((kh - 3.51).abs() < 0.01, "k_c·h_n {kh}");
     assert!(under > 0.0 && under < 0.02, "undershoot {under}");
+    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    assert!((est.margin() - 0.308).abs() < 2e-3, "{}", est.margin());
 
     let mut g = extruded_rect_waveguide_mesh(16, 8, 2, a, b, 1.0);
     let zs = [0.0, 0.15, 0.75];
@@ -1117,22 +1140,21 @@ fn p2_tm_guard_stays_below_the_3d_p2_cutoff() {
     }
     let (kh, under) = check_p2_guard("stepped 0.15 + 0.6, face 16×8", &g.mesh, a, b);
     assert!((kh - 2.107).abs() < 0.01 && under < 0.005, "{kh} {under}");
-    // The base margin alone applies there, and p=1 needs more.
-    assert_eq!(
-        guard_estimate_at(&g.mesh, ElementOrder::P2).margin(),
-        TM_GUARD_MARGIN
-    );
-    let est = guard_estimate(&g.mesh);
-    assert!(est.margin() > 0.1, "p=1 margin {}", est.margin());
+    // The coarse layer behind the port sets the margin, at p=2 as at p=1.
+    let p2 = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    let p1 = guard_estimate(&g.mesh);
+    assert!((p2.margin() - 0.111).abs() < 2e-3, "{}", p2.margin());
+    assert!((p2.margin() - p1.margin()).abs() < 1e-3, "{p2:?} vs {p1:?}");
 }
 
 /// The Judge's coarse-face counterexample (PR #887): the `2 × 1`-cell face
 /// of a `2 × 1` guide over one tet layer of 1.25. The face has no interior
 /// node, so the **P1** estimate cannot extrapolate and sits at its `h/4`
-/// value, 4.2 % above the continuum TM₁₁; under the p=2 law that guard
-/// (3.478) was above the 3-D p=2 TM cutoff (3.463). The **P2** face
-/// estimate lands on the continuum and its guard is safe. A p=2 solve
-/// guarded by the P1 estimate falls back to the p=1 law, which is safe too.
+/// value, 4.2 % above the continuum TM₁₁; under the first p=2 law that
+/// guard (3.478) was above the 3-D p=2 TM cutoff (3.463). The **P2** face
+/// estimate lands on the continuum. Under the order-independent law (issue
+/// #905) both estimates give a safe guard, and a P1 estimate under a p=2
+/// solve carries a note.
 #[test]
 fn p2_tm_guard_is_safe_on_a_face_with_no_interior_node() {
     let (a, b) = (2.0, 1.0);
@@ -1143,30 +1165,31 @@ fn p2_tm_guard_is_safe_on_a_face_with_no_interior_node() {
     assert!(p1.k_face.is_infinite() && p1.order.is_none(), "{p1:?}");
     assert!(p1.k_c() / tm11 - 1.0 > 0.04, "{p1:?}");
     // The first PR #887 law (`max(5 %, 1e-4·(k_c·h_n)⁴)` on the P1 estimate)
-    // put the guard above the 3-D p=2 TM cutoff; the fallback does not.
+    // put the guard above the 3-D p=2 TM cutoff.
     let old_margin = TM_GUARD_MARGIN.max(1e-4 * p1.axial_kh().powi(4));
     let unsafe_guard = (1.0 - old_margin) * p1.k_c();
     assert!((unsafe_guard - 3.4780).abs() < 1e-3, "{unsafe_guard}");
     let k3d = box_tm_like_k(&g.mesh, ElementOrder::P2, a, b).expect("TM-like mode");
     assert!(unsafe_guard > k3d, "{unsafe_guard} vs {k3d}");
     assert!(p1.with_element_order(ElementOrder::P2).guard_k_c() < k3d);
-    // The P2 face estimate is the continuum, and its p=2 guard is safe.
+    // The P2 face estimate is the continuum, and its guard is safe.
     let p2 = guard_estimate_at(&g.mesh, ElementOrder::P2);
     assert_eq!(p2.face_order, ElementOrder::P2);
     assert!((p2.k_c() / tm11 - 1.0).abs() < 1e-3, "{p2:?} vs {tm11}");
-    let (_, under) = check_p2_guard("face 2×1, one layer of 1.25", &g.mesh, a, b);
+    let (kh, under) = check_p2_guard("face 2×1, one layer of 1.25", &g.mesh, a, b);
     assert!(under < TM_GUARD_MARGIN, "undershoot {under}");
-    // The face (longest edge √2) is coarser than the axial layer, so it sets
-    // the p=2 margin, and the design note says to refine the face.
-    assert!((p2.face_spacing - 2f64.sqrt()).abs() < 1e-12, "{p2:?}");
-    assert!(p2.margin() > TM_GUARD_MARGIN, "{p2:?}");
-    let note = p2.p2_resolution_warning().expect("coarse-face note");
-    assert!(note.contains("port face"), "{note}");
-    // The P1-estimate fallback says why it is wide, and how to get the p=2 law.
+    // The one tet layer of 1.25 sets the margin (`k_c·h_n` = 4.39), and the
+    // design note says to refine the guide's axial mesh.
+    assert!((kh - 4.39).abs() < 0.01, "k_c·h_n {kh}");
+    assert!((p2.margin() - 0.482).abs() < 2e-3, "{p2:?}");
+    let note = p2.p2_resolution_warning().expect("coarse-guide note");
+    assert!(note.contains("the guide's axial mesh"), "{note}");
+    assert!(!note.contains("P1 face estimate"), "{note}");
+    // A P1 estimate under a p=2 solve says so, and how to get the P2 value.
     let note = p1
         .with_element_order(ElementOrder::P2)
         .p2_resolution_warning()
-        .expect("fallback note");
+        .expect("P1-estimate note");
     assert!(note.contains("tm_cutoff_estimate_at_order"), "{note}");
     // No note at p=1, nor for a fine face and guide at the base margin.
     assert!(p1.p2_resolution_warning().is_none());
@@ -1178,124 +1201,167 @@ fn p2_tm_guard_is_safe_on_a_face_with_no_interior_node() {
 
 /// The Judge's round-2 counterexample (PR #887): faces **one element
 /// across** the narrow side (`nx × 1`) of a `2 × 1` guide over one tet layer
-/// of `d ≈ b`, where the box's TE₁₀₁ and TM₁₁₀ are degenerate. The base
-/// 5 % margin put the p=2 guard above the 3-D p=2 TM-like cutoff (by up to
-/// 0.11 points) with no note. The face is now flagged as about one element
-/// across, its margin floored at `TM_GUARD_MARGIN_P2_COARSE_FACE`, the
-/// guard is safe, and the note asks for two or more elements across.
+/// of `d ≈ b`, where the box's TE₁₀₁ and TM₁₁₀ are degenerate. A 5 % margin
+/// puts the guard above the 3-D p=2 TM-like cutoff there. The
+/// order-independent law reads the layer (`k_c·h_n` = 3.51, margin 31 %)
+/// and is safe, and the note names the axial refinement.
+///
+/// The axial mesh is the right thing to read: the same face over **four**
+/// layers of the same depth undershoots by under 1 %, inside the base
+/// margin, with no note.
 #[test]
 fn p2_tm_guard_is_safe_on_a_face_one_element_across() {
-    use geode_core::driven::ports::TM_GUARD_MARGIN_P2_COARSE_FACE;
     let (a, b) = (2.0, 1.0);
     for (nx, d) in [(16usize, 0.999), (32, 0.9995), (8, 0.9995)] {
         let g = extruded_rect_waveguide_mesh(nx, 1, 1, a, b, d);
         let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
-        assert!(est.face_under_resolved(), "{nx}×1: {est:?}");
-        assert_eq!(est.margin(), TM_GUARD_MARGIN_P2_COARSE_FACE);
+        assert!((est.margin() - 0.308).abs() < 2e-3, "{nx}×1: {est:?}");
         let k3d = box_tm_like_k(&g.mesh, ElementOrder::P2, a, b).expect("TM-like mode");
-        // The base margin alone was unsafe here.
+        // The base margin alone is unsafe here.
         let base_guard = (1.0 - TM_GUARD_MARGIN) * est.k_c();
         assert!(base_guard > k3d, "{nx}×1, d {d}: {base_guard} vs {k3d}");
         let (_, under) = check_p2_guard(&format!("face {nx}×1, one layer of {d}"), &g.mesh, a, b);
         assert!(under > TM_GUARD_MARGIN, "{nx}×1: undershoot {under}");
-        let note = est
-            .p2_resolution_warning()
-            .expect("one-element-across note");
-        assert!(note.contains("two or more elements across"), "{note}");
+        let note = est.p2_resolution_warning().expect("coarse-guide note");
+        assert!(note.contains("the guide's axial mesh"), "{note}");
     }
-    // Two elements across (8 × 2) at the same degeneracy keeps the base margin.
-    let g = extruded_rect_waveguide_mesh(8, 2, 1, a, b, 0.995);
-    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
-    assert!(!est.face_under_resolved(), "{est:?}");
-    assert_eq!(est.margin(), TM_GUARD_MARGIN);
-    assert!(est.p2_resolution_warning().is_none());
-    check_p2_guard("face 8×2, one layer of 0.995", &g.mesh, a, b);
+    for nx in [16usize, 32] {
+        let g = extruded_rect_waveguide_mesh(nx, 1, 4, a, b, 0.999);
+        let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
+        assert_eq!(est.margin(), TM_GUARD_MARGIN, "{nx}×1: {est:?}");
+        assert!(est.p2_resolution_warning().is_none());
+        let (kh, under) = check_p2_guard(
+            &format!("face {nx}×1, four layers over 0.999"),
+            &g.mesh,
+            a,
+            b,
+        );
+        assert!((kh - 0.877).abs() < 0.01, "k_c·h_n {kh}");
+        assert!(under < 0.01, "{nx}×1 over four layers: undershoot {under}");
+    }
 }
 
-/// Issue #895 (Judge round 3, PR #887): a face **three elements across**
-/// with elongated cells (3 × 3 cells of a `2.3 × 1` guide, 0.767 × 0.333)
-/// reads 1.196 longest edges across, under the 1.25 threshold. It keeps the
-/// 8 % floor, which is conservative (the 3-D p=2 TM-like branch undershoots
-/// by 0.67 %), but the note no longer calls it one element across: it names
-/// the longest face edge that clears the threshold. A face refined to that
-/// target (4 × 3) is at the base margin with no note.
+/// Issue #905: three Gmsh guides on which the 3-D p=2 TM-like cutoff is
+/// 5.4 % to 12.4 % below the P2 face value, at `k_c·h_n` of 2.78 to 3.72.
+/// The withdrawn p=2 law allowed 5 % on all three (none was flagged as one
+/// element across, and `2·10⁻⁴·(k_c·h)⁴` is under 5 % there), so its guard
+/// sat **above** the cutoff by 0.46, 0.69 and 8.42 points. The
+/// order-independent law is below it on each.
+///
+/// The picked modes are TM-like outright (`E_z` shares 0.84 to 0.95), not
+/// half-and-half hybrids at the classifier threshold. On the `3 × 1` guide
+/// the box has **two** such modes near 2.9 where the continuum has none
+/// below TM₁₁₀ = 3.31, the sixth and seventh modes of the box.
+///
+/// The fixtures are `reference/gmsh/guide_box.geo` at Gmsh 4.15.2 (their
+/// `.provenance.txt`), so this runs without Gmsh.
 #[test]
-fn p2_tm_guard_note_names_the_longest_edge_on_an_anisotropic_face() {
-    use geode_core::driven::ports::TM_GUARD_MARGIN_P2_COARSE_FACE;
-    let (a, b) = (2.3, 1.0);
-    let g = extruded_rect_waveguide_mesh(3, 3, 1, a, b, 0.999);
-    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
-    assert!(
-        (est.face_elements_across - 1.196).abs() < 1e-3,
-        "{}",
-        est.face_elements_across
-    );
-    assert!(est.face_under_resolved(), "{est:?}");
-    assert_eq!(est.margin(), TM_GUARD_MARGIN_P2_COARSE_FACE);
-    let r = measure_p2_guard("face 3×3 of 2.3×1, one layer of 0.999", &g.mesh, a, b);
-    assert!(r.under > 0.0 && r.under < 0.01, "undershoot {}", r.under);
-    assert!(r.pts_left > 7.0, "{} pt left", r.pts_left);
-    let note = est.p2_resolution_warning().expect("anisotropic-face note");
-    assert!(!note.contains("about one element across"), "{note}");
-    assert!(note.contains("cells are elongated"), "{note}");
-    // 2·r/1.25 with r = b/2: the longest edge 0.836 must come down to 0.8.
-    assert!(note.contains("longest edge 0.836"), "{note}");
-    assert!(note.contains("longest edge is at most 0.800"), "{note}");
-    // Refined to that target, the face clears the threshold.
-    let g = extruded_rect_waveguide_mesh(4, 3, 1, a, b, 0.999);
-    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
-    assert!(est.face_spacing < 0.8, "{est:?}");
-    assert!(!est.face_under_resolved(), "{est:?}");
-    assert_eq!(est.margin(), TM_GUARD_MARGIN);
-    assert!(est.p2_resolution_warning().is_none(), "{est:?}");
-    check_p2_guard("face 4×3 of 2.3×1, one layer of 0.999", &g.mesh, a, b);
+fn p2_tm_guard_covers_the_issue_905_meshes() {
+    // (fixture, a, undershoot, k_c·h_n, points the withdrawn guard was above).
+    let cases: [(&[u8], f64, f64, f64, f64); 3] = [
+        (
+            include_bytes!("fixtures/guide_box_905_1p5x1x3p25_lc092.msh"),
+            1.5,
+            0.0565,
+            3.72,
+            0.69,
+        ),
+        (
+            include_bytes!("fixtures/guide_box_905_1p5x1x3p2_lc080.msh"),
+            1.5,
+            0.0544,
+            3.61,
+            0.46,
+        ),
+        (
+            include_bytes!("fixtures/guide_box_905_3x1x4p06_lc090.msh"),
+            3.0,
+            0.1238,
+            2.78,
+            8.42,
+        ),
+    ];
+    for (msh, a, under_want, kh_want, breach_want) in cases {
+        let b = 1.0;
+        let mesh = geode_core::mesh::read_tagged_tet_mesh(msh)
+            .expect("msh")
+            .mesh;
+        let label = format!("issue #905 fixture {a}×{b}, k_c·h_n {kh_want}");
+        let est = guard_estimate_at(&mesh, ElementOrder::P2);
+        let shares = box_mode_shares(&mesh, ElementOrder::P2, a, b);
+        let &(k3d, share) = shares
+            .iter()
+            .find(|m| m.1 >= TM_LIKE_EZ_SHARE)
+            .expect("TM-like mode");
+        // A TM-like mode outright, not a hybrid at the threshold.
+        assert!(share > 0.8, "{label}: E_z share {share}");
+        // The withdrawn law: 5 % (its fourth-order term is below that), and
+        // its guard was above the 3-D cutoff.
+        assert!(2e-4 * est.axial_kh().powi(4) < WITHDRAWN_P2_BASE_MARGIN);
+        let withdrawn_guard = (1.0 - WITHDRAWN_P2_BASE_MARGIN) * est.k_c();
+        let breach = 100.0 * (withdrawn_guard / k3d - 1.0);
+        assert!(
+            (breach - breach_want).abs() < 0.02,
+            "{label}: withdrawn guard {withdrawn_guard} vs {k3d} ({breach} pt)"
+        );
+        let r = measure_p2_guard(&label, &mesh, a, b);
+        assert!((r.kh - kh_want).abs() < 0.01, "{label}: k_c·h_n {}", r.kh);
+        assert!(
+            (r.under - under_want).abs() < 2e-4,
+            "{label}: undershoot {}",
+            r.under
+        );
+        assert!(r.margin > r.under + 0.06, "{label}: {r:?}");
+        assert!(r.pts_left > 7.5, "{label}: {} pt left", r.pts_left);
+    }
+    // The `3 × 1` guide: two TM-like modes near 2.9, the sixth and seventh
+    // of the box, where the continuum's lowest (TM₁₁₀) is the tenth.
+    let mesh = geode_core::mesh::read_tagged_tet_mesh(cases[2].0)
+        .expect("msh")
+        .mesh;
+    let shares = box_mode_shares(&mesh, ElementOrder::P2, 3.0, 1.0);
+    for (i, &(k, share)) in shares.iter().enumerate().take(7) {
+        if i < 5 {
+            assert!(share < 0.2, "mode {i} at {k}: {share}");
+        } else {
+            assert!(
+                share > 0.9 && (k - 2.91).abs() < 0.02,
+                "mode {i}: {k} {share}"
+            );
+        }
+    }
 }
 
-/// The p=2 margin law and its inverses are consistent.
+/// The margin of a p=2 solve is the order-independent law and its inverses
+/// are consistent (issue #905).
 #[test]
 fn p2_tm_guard_margin_law() {
-    use geode_core::driven::ports::{TM_GUARD_AXIAL_COEFF_P2, TM_GUARD_MEASURED_KH_P2};
-    let kc = 3.5;
-    for kh in [0.5_f64, 2.0, 4.0, 4.7, 5.27, 6.0, 8.0] {
-        let h = kh / kc;
-        let want = TM_GUARD_MARGIN
-            .max(TM_GUARD_AXIAL_COEFF_P2 * kh.powi(4))
-            .min(1.0);
-        assert_eq!(tm_guard_margin_at_order(ElementOrder::P2, kc, h, 0.0), want);
-        // The face resolution enters through `max(h_n, h_f)`.
-        assert_eq!(tm_guard_margin_at_order(ElementOrder::P2, kc, 0.0, h), want);
-        assert_eq!(
-            tm_guard_margin_at_order(ElementOrder::P2, kc, 0.5 * h, h),
-            want
-        );
-        // Never wider than the p=1 law on the same mesh.
-        assert!(want <= tm_guard_margin(kc, h));
-    }
+    use geode_core::driven::ports::TM_GUARD_AXIAL_COEFF;
     let levels = [3.6, 3.53, 3.515];
-    // A P1 face estimate keeps the p=1 law even for a p=2 solve.
-    let p1_face = TmCutoffEstimate::from_levels(levels).with_element_order(ElementOrder::P2);
-    assert_eq!(p1_face.face_order, ElementOrder::P1);
-    assert_eq!(p1_face.margin_law(), ElementOrder::P1);
-    for h in [0.0, 0.5, 1.2] {
-        let p1 = TmCutoffEstimate::from_levels(levels).with_axial_spacing(h);
+    let est = TmCutoffEstimate::from_levels_at_order(levels, ElementOrder::P2)
+        .with_element_order(ElementOrder::P2);
+    let kc = est.k_c();
+    for kh in [0.5_f64, 1.4, 2.0, 2.78, 4.0, 6.0, 7.0] {
+        let want = TM_GUARD_MARGIN.max(TM_GUARD_AXIAL_COEFF * kh * kh).min(1.0);
+        let at = est.with_axial_spacing(kh / kc);
+        assert!((at.margin() - want).abs() < 1e-12, "{kh}: {}", at.margin());
         assert_eq!(
-            p1_face.with_axial_spacing(h).margin().to_bits(),
-            p1.margin().to_bits()
+            at.margin().to_bits(),
+            tm_guard_margin(kc, kh / kc).to_bits()
+        );
+        // The same as a p=1 solve on the same estimate and mesh.
+        assert_eq!(
+            at.margin().to_bits(),
+            at.with_element_order(ElementOrder::P1).margin().to_bits()
         );
     }
-    // A P2 face estimate at p=2 takes the p=2 law; at p=1 it keeps p=1.
-    let p2_face = TmCutoffEstimate::from_levels_at_order(levels, ElementOrder::P2);
-    assert_eq!(p2_face.margin_law(), ElementOrder::P1);
-    let est = p2_face.with_element_order(ElementOrder::P2);
-    assert_eq!(est.margin_law(), ElementOrder::P2);
-    let kc = est.k_c();
-    // The spacing where the base margin stops applying: k_c·h ≈ 3.98.
+    // The spacing where the base margin stops applying: k_c·h_n ≈ 1.41.
     let h0 = est.base_margin_axial_spacing();
-    assert!((kc * h0 - (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25)).abs() < 1e-12);
-    assert!(kc * h0 < TM_GUARD_MEASURED_KH_P2);
+    assert!((kc * h0 - (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF).sqrt()).abs() < 1e-12);
     // `axial_spacing_admitting(k)` is the spacing where the guard reaches k.
     let k = 0.9 * kc;
     let h = est.axial_spacing_admitting(k).expect("admitted");
+    assert!((kc * h - 2.0).abs() < 1e-12, "{}", kc * h);
     let at = est.with_axial_spacing(h);
     assert!(
         (at.guard_k_c() - k).abs() < 1e-12,
@@ -1305,53 +1371,121 @@ fn p2_tm_guard_margin_law() {
     assert!(est.axial_spacing_admitting(0.97 * kc).is_none());
 }
 
-/// The full p=2 measurement behind `TM_GUARD_AXIAL_COEFF_P2` and
-/// `TM_GUARD_MARGIN_P2_COARSE_FACE`: structured one- and two-layer guides
-/// up to `k_c·h_n` = 5.27, coarse and one-element-across faces (including
-/// the TE₁₀₁ / TM₁₁₀ box degeneracy at `d = b`), stepped layers, and (when
-/// `gmsh` is on `PATH`) uniform and graded Gmsh guides from
-/// `reference/gmsh/guide_box.geo`. Every case asserts that the p=2 guard is
-/// below the 3-D p=2 TM-like cutoff; no case is skipped. The Gmsh rows of
-/// issue #895 fill the band between a crossed face (1.0 longest edges
-/// across) and the uniform `lc` 0.9 face (1.375), on both sides of the 1.25
-/// threshold. On faces two or
-/// more elements across, the worst ratio `÷(k_c·h)⁴` where the `C₄` term
-/// sets the margin (`k_c·h ≥ (δ₀/C₄)^¼` ≈ 3.98) must be below `C₄`, and the
-/// worst undershoot below it below the base margin `δ₀`. On faces about one
-/// element across the worst undershoot must be below the face floor.
-#[test]
-#[ignore = "heavy: ~210 p=2 box eigensolves; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
-fn tm_guard_p2_measurement_table() {
-    use geode_core::driven::ports::{TM_GUARD_AXIAL_COEFF_P2, TM_GUARD_MARGIN_P2_COARSE_FACE};
-    // `k_c·h` above which the C₄ term sets the p=2 margin.
-    let kh_law = (TM_GUARD_MARGIN / TM_GUARD_AXIAL_COEFF_P2).powf(0.25);
-    let mut worst_ratio = 0.0_f64;
-    let mut worst_ratio_law = 0.0_f64;
-    let mut worst_under = 0.0_f64;
-    let mut worst_under_base = 0.0_f64;
-    let mut worst_coarse_under = 0.0_f64;
-    let mut tightest = f64::INFINITY;
-    let mut tightest_fine = f64::INFINITY;
-    let mut rows = 0usize;
-    let mut coarse_rows = 0usize;
-    let mut record = |r: GuardRow| {
-        rows += 1;
-        tightest = tightest.min(r.pts_left);
-        if r.coarse_face {
-            coarse_rows += 1;
-            worst_coarse_under = worst_coarse_under.max(r.under);
-        } else {
-            tightest_fine = tightest_fine.min(r.pts_left);
-            worst_under = worst_under.max(r.under);
-            if r.under > 1e-3 {
-                worst_ratio = worst_ratio.max(r.under / r.kh.powi(4));
-            }
-            if r.kh >= kh_law {
-                worst_ratio_law = worst_ratio_law.max(r.under / r.kh.powi(4));
-            } else {
-                worst_under_base = worst_under_base.max(r.under);
-            }
+/// Records the rows of [`tm_guard_p2_measurement_table`].
+#[derive(Default)]
+struct GuardTable {
+    rows: usize,
+    /// Rows at the base margin (`k_c·h_n ≤ √(δ₀/C_h)`).
+    base_rows: usize,
+    /// Rows whose 3-D undershoot is at or above the 5 % the withdrawn p=2
+    /// law allowed below `k_c·h` ≈ 3.98.
+    over_withdrawn_base: usize,
+    worst_under: f64,
+    /// Worst undershoot at the base margin.
+    worst_under_base: f64,
+    /// Worst `undershoot ÷ (k_c·h_n)²` where the axial term sets the margin.
+    worst_ratio: f64,
+    worst_ratio_kh: f64,
+    max_kh: f64,
+    tightest: Option<(f64, String)>,
+    tightest_base: f64,
+}
+
+impl GuardTable {
+    fn record(&mut self, label: &str, r: GuardRow) {
+        self.rows += 1;
+        self.max_kh = self.max_kh.max(r.kh);
+        self.worst_under = self.worst_under.max(r.under);
+        if r.under >= WITHDRAWN_P2_BASE_MARGIN {
+            self.over_withdrawn_base += 1;
         }
+        if self.tightest.as_ref().is_none_or(|t| r.pts_left < t.0) {
+            self.tightest = Some((r.pts_left, label.to_string()));
+        }
+        if r.margin > TM_GUARD_MARGIN {
+            let ratio = r.under / (r.kh * r.kh);
+            if ratio > self.worst_ratio {
+                (self.worst_ratio, self.worst_ratio_kh) = (ratio, r.kh);
+            }
+        } else {
+            self.base_rows += 1;
+            self.worst_under_base = self.worst_under_base.max(r.under);
+            self.tightest_base = self.tightest_base.min(r.pts_left);
+        }
+    }
+}
+
+/// `reference/gmsh/guide_box.geo` meshed at `a × b × d` with size `lc` at
+/// the port and `lc1` at the far end; `None` when `gmsh` is not on `PATH`.
+fn gmsh_guide_box(
+    dir: &std::path::Path,
+    a: f64,
+    b: f64,
+    d: f64,
+    lc: f64,
+    lc1: f64,
+) -> Option<TetMesh> {
+    let geo = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../reference/gmsh/guide_box.geo"
+    );
+    let out = dir.join(format!("g_{a}x{b}_{d}_{lc}_{lc1}.msh"));
+    let status = std::process::Command::new("gmsh")
+        .arg(geo)
+        .args(["-3", "-format", "msh41", "-v", "0"])
+        .args(["-setnumber", "a", &a.to_string()])
+        .args(["-setnumber", "b", &b.to_string()])
+        .args(["-setnumber", "d", &d.to_string()])
+        .args(["-setnumber", "lc", &lc.to_string()])
+        .args(["-setnumber", "lc1", &lc1.to_string()])
+        .arg("-o")
+        .arg(&out)
+        .status()
+        .ok()?;
+    assert!(status.success(), "gmsh failed on {out:?}");
+    let tagged =
+        geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&out).unwrap()).expect("msh");
+    let _ = std::fs::remove_file(&out);
+    Some(tagged.mesh)
+}
+
+/// The p=2 **validation** of the TM guard (issues #884, #895, #905). The
+/// guard's law is not fitted to this table: it is the order-independent
+/// `max(δ₀, C_h·(k_c·h_n)²)` of `tm_guard_margin`, whose second-order form
+/// is motivated (not derived) there and whose constant was measured at p=1
+/// (issue #824); as applied at p=2 the law is empirical, and this table is
+/// its validation. Every row
+/// asserts that the p=2 guard is below the 3-D p=2 TM-like cutoff; no row
+/// is skipped.
+///
+/// Rows: structured one- to four-layer guides; coarse and
+/// one-element-across faces around the TE₁₀₁ / TM₁₁₀ box degeneracy at
+/// `d = b`, over one layer (up to `k_c·h_n` = 7.06) and over two, four and
+/// eight (where the margin is at or near its base); stepped layers; and,
+/// when `gmsh` is on `PATH`, the Gmsh guides of
+/// `reference/gmsh/guide_box.geo`: the point samples of #884 / #895, a scan
+/// of the box depth `d` = 0.9 … 4.4 in steps of 0.05 on six coarse guides
+/// (issue #905), and a scan in steps of 0.01 across the depths where that
+/// issue found the withdrawn p=2 law above the cutoff (`1.5 × 1` at
+/// `d` ≈ 3.2, `3 × 1` at `d` ≈ 4.05): 489 scan rows.
+///
+/// Where the axial term sets the margin, the worst `undershoot ÷ (k_c·h_n)²`
+/// must be below `C_h`; at the base margin the worst undershoot must be
+/// below `δ₀`. The summary line reports both, the tightest row, and how
+/// many rows undershoot by the 5 % the withdrawn law allowed or more.
+#[test]
+#[ignore = "heavy: 288 p=2 box eigensolves, 815 with gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
+fn tm_guard_p2_measurement_table() {
+    use geode_core::driven::ports::TM_GUARD_AXIAL_COEFF;
+    let mut table = GuardTable {
+        tightest_base: f64::INFINITY,
+        ..GuardTable::default()
+    };
+    let mut structured = |label: String, nx, ny, nz, a, b, length| {
+        let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
+        let r = measure_p2_guard(&label, &g.mesh, a, b);
+        table.record(&label, r);
+        r
     };
     for &(a, b, nz, length) in &[
         (2.0, 1.0, 1usize, 0.5),
@@ -1366,16 +1500,18 @@ fn tm_guard_p2_measurement_table() {
         (4.0, 2.0, 1, 3.0),
     ] {
         for n in [1usize, 2, 4, 8] {
-            let g = extruded_rect_waveguide_mesh(2 * n, n, nz, a, b, length);
-            record(measure_p2_guard(
-                &format!(
+            structured(
+                format!(
                     "structured {a}×{b}, face {}×{n}, {nz} layer(s) over {length}",
                     2 * n
                 ),
-                &g.mesh,
+                2 * n,
+                n,
+                nz,
                 a,
                 b,
-            ));
+                length,
+            );
         }
     }
     // Coarse and anisotropic faces (the Judge's probe of PR #887 and its
@@ -1398,19 +1534,21 @@ fn tm_guard_p2_measurement_table() {
         (3, 1, 3.0, 1.0, 1, 0.75),
         (3, 1, 3.0, 1.0, 1, 1.5),
     ] {
-        let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
-        record(measure_p2_guard(
-            &format!("coarse face {a}×{b}, face {nx}×{ny}, {nz} layer(s) over {length}"),
-            &g.mesh,
+        structured(
+            format!("coarse face {a}×{b}, face {nx}×{ny}, {nz} layer(s) over {length}"),
+            nx,
+            ny,
+            nz,
             a,
             b,
-        ));
+            length,
+        );
     }
     // One element across the narrow side (Judge, PR #887): `nx × 1` faces
     // around the TE₁₀₁ / TM₁₁₀ degeneracy of one layer `d = b` (and of two
     // layers `d = 2b` for TE₁₀₂), with `1 × ny` faces (one element across
-    // the wide side) and a `1 × 1` guide. These faces carry the floor
-    // `TM_GUARD_MARGIN_P2_COARSE_FACE`.
+    // the wide side) and a `1 × 1` guide. Over one layer these undershoot
+    // by up to 6.09 %.
     let near = [
         0.9, 0.95, 0.99, 0.998, 0.999, 0.9995, 1.0, 1.001, 1.01, 1.05, 1.1,
     ];
@@ -1439,33 +1577,87 @@ fn tm_guard_p2_measurement_table() {
             one_across.push((1, ny, 2.0, 1.0, 1, d));
         }
     }
+    // Two or three elements across with elongated cells (issue #895).
+    for d in [0.95, 0.999, 1.0, 1.001, 1.05] {
+        one_across.push((3, 3, 2.3, 1.0, 1, d));
+    }
     for &(nx, ny, a, b, nz, length) in &one_across {
-        let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
-        let r = measure_p2_guard(
-            &format!("one element across {a}×{b}, face {nx}×{ny}, {nz} layer(s) over {length}"),
-            &g.mesh,
+        structured(
+            format!("one element across {a}×{b}, face {nx}×{ny}, {nz} layer(s) over {length}"),
+            nx,
+            ny,
+            nz,
             a,
             b,
+            length,
         );
-        assert!(
-            r.coarse_face,
-            "{nx}×{ny} face not flagged one element across"
-        );
-        record(r);
     }
-    // Two or three elements across with elongated cells (issue #895): 3 × 3
-    // cells of a `2.3 × 1` guide read 1.196 longest edges across, so they
-    // carry the face floor too.
-    for d in [0.95, 0.999, 1.0, 1.001, 1.05] {
-        let g = extruded_rect_waveguide_mesh(3, 3, 1, 2.3, 1.0, d);
-        let r = measure_p2_guard(
-            &format!("elongated cells 2.3×1, face 3×3, 1 layer(s) over {d}"),
-            &g.mesh,
-            2.3,
-            1.0,
-        );
-        assert!(r.coarse_face && r.across > 1.0, "3×3 of 2.3×1: {r:?}");
-        record(r);
+    // The same coarse faces over two and four layers (issue #905): the
+    // margin reads the axial spacing alone, so it is at or near its base
+    // here whatever the face. These rows are what that rests on.
+    let mut worst_fine_axis = 0.0_f64;
+    for nz in [2usize, 4] {
+        let mut layered: Vec<(usize, usize, f64, f64)> = Vec::new();
+        for d in [0.95, 0.999, 1.0, 1.001, 1.05] {
+            for nx in [8usize, 16, 32] {
+                layered.push((nx, 1, 2.0, d));
+            }
+        }
+        for d in [0.999, 1.0, 1.01, 1.02] {
+            layered.push((6, 1, 3.0, d));
+            layered.push((24, 1, 3.0, d));
+        }
+        for d in [0.999, 1.0, 1.001] {
+            layered.push((1, 1, 1.0, d));
+            layered.push((4, 1, 1.0, d));
+            layered.push((8, 1, 1.5, d));
+            layered.push((1, 4, 2.0, d));
+            layered.push((1, 8, 2.0, d));
+        }
+        for d in [0.5, 1.0, 1.5] {
+            layered.push((2, 1, 2.0, d));
+            layered.push((3, 1, 2.0, d));
+        }
+        for (nx, ny, a, d) in layered {
+            let r = structured(
+                format!("coarse face over {nz} layers, {a}×1, face {nx}×{ny}, over {d}"),
+                nx,
+                ny,
+                nz,
+                a,
+                1.0,
+                d,
+            );
+            if nz == 4 {
+                worst_fine_axis = worst_fine_axis.max(r.under);
+            }
+        }
+    }
+    // And over eight layers of a deep box, at the depths of the TE₁₀₂ /
+    // TM₁₁₀ degeneracy and of issue #905's `d` = 3.2.
+    for d in [2.0, 3.2] {
+        for (nx, ny, a) in [
+            (2usize, 1usize, 2.0),
+            (16, 1, 2.0),
+            (4, 2, 2.0),
+            (1, 4, 2.0),
+            (6, 1, 3.0),
+            (3, 1, 3.0),
+            (3, 2, 1.5),
+            (8, 1, 1.5),
+            (1, 1, 1.0),
+        ] {
+            let r = structured(
+                format!("coarse face over 8 layers, {a}×1, face {nx}×{ny}, over {d}"),
+                nx,
+                ny,
+                8,
+                a,
+                1.0,
+                d,
+            );
+            worst_fine_axis = worst_fine_axis.max(r.under);
+        }
     }
     for (nx, ny, a, zs) in [
         (16usize, 8usize, 2.0, [0.0, 0.15, 0.75]),
@@ -1477,25 +1669,14 @@ fn tm_guard_p2_measurement_table() {
         for p in &mut g.mesh.nodes {
             p[2] = zs[(2.0 * p[2]).round() as usize];
         }
-        record(measure_p2_guard(
-            &format!("stepped {a}×1, face {nx}×{ny}, z = {zs:?}"),
-            &g.mesh,
-            a,
-            1.0,
-        ));
+        let label = format!("stepped {a}×1, face {nx}×{ny}, z = {zs:?}");
+        let r = measure_p2_guard(&label, &g.mesh, a, 1.0);
+        table.record(&label, r);
     }
-    let geo = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../reference/gmsh/guide_box.geo"
-    );
-    let dir = std::env::temp_dir().join(format!("geode-884-gmsh-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut ran_gmsh = false;
-    // Gmsh rows with the face between 1.0 and 1.37 longest edges across
-    // (issue #895): (flagged rows, unflagged rows, worst undershoot, fewest
-    // points left).
-    let mut band = (0usize, 0usize, 0.0_f64, f64::INFINITY);
-    for (a, b, d, lc, lc1) in [
+    let structured_rows = table.rows;
+
+    // Gmsh rows: (a, b, d, lc, lc1).
+    let mut gmsh: Vec<(f64, f64, f64, f64, f64)> = vec![
         (2.0, 1.0, 0.5, 0.25, 0.25),
         (2.0, 1.0, 0.5, 0.4, 0.4),
         (2.0, 1.0, 0.75, 0.5, 0.5),
@@ -1507,8 +1688,7 @@ fn tm_guard_p2_measurement_table() {
         (4.0, 2.0, 1.5, 1.0, 1.0),
         (4.0, 2.0, 2.0, 1.4, 1.4),
         (1.0, 1.0, 0.5, 0.3, 0.3),
-        // Coarse Gmsh faces (Judge, PR #887: ÷(k_c·h_n)⁴ = 3.2e-4 at lc 1.0
-        // under the P1 estimate).
+        // Coarse Gmsh faces (Judge, PR #887).
         (2.0, 1.0, 1.5, 1.0, 1.0),
         (2.0, 1.0, 1.5, 1.2, 1.2),
         (2.0, 1.0, 1.0, 1.2, 1.2),
@@ -1531,117 +1711,131 @@ fn tm_guard_p2_measurement_table() {
         (2.0, 1.0, 2.0, 1.1, 1.1),
         (3.0, 1.0, 0.997, 1.0, 1.0),
         (1.0, 1.0, 1.0, 1.0, 1.0),
-        // Two elements across, near the TE₁₀₂ / TE₁₀₃ degeneracies with
-        // TM₁₁₀: the largest ratios measured, at `k_c·h` < 3.98.
-        (2.0, 1.0, 2.0, 0.9, 0.9),
-        (2.0, 1.0, 3.0, 0.9, 0.9),
-        (2.0, 1.0, 3.1, 0.9, 0.9),
-        // Between a crossed face (1.0) and uniform `lc` 0.9 on `2 × 1`
-        // (1.375), which uniform `2 × 1` guides jump over (issue #895).
-        // Gmsh 4.15 reads: `2.5 × 1` 1.20 (two across, flagged), `4 × 1`
-        // 1.25 − 3·10⁻¹⁵ (flagged by roundoff), `1.5 × 1` at `lc` 0.92
-        // 1.28, `2.3 × 1` 1.30, `3 × 1` 1.33 (base margin). `d` = 1, 2, 3
-        // are the TE₁₀ₚ / TM₁₁₀ degeneracies.
+        // Faces between one and two elements across (issue #895).
         (2.5, 1.0, 0.999, 0.9, 0.9),
         (2.5, 1.0, 1.0, 0.9, 0.9),
         (2.5, 1.0, 2.0, 0.9, 0.9),
         (2.5, 1.0, 3.0, 0.9, 0.9),
         (4.0, 1.0, 1.0, 0.9, 0.9),
         (4.0, 1.0, 2.0, 0.9, 0.9),
-        (1.5, 1.0, 1.0, 0.92, 0.92),
-        (1.5, 1.0, 2.0, 0.92, 0.92),
-        (1.5, 1.0, 2.9, 0.92, 0.92),
-        (1.5, 1.0, 3.0, 0.92, 0.92),
-        (1.5, 1.0, 3.1, 0.92, 0.92),
         (2.3, 1.0, 0.999, 0.9, 0.9),
-        (2.3, 1.0, 2.0, 0.9, 0.9),
-        (2.3, 1.0, 3.0, 0.9, 0.9),
-        (2.3, 1.0, 3.1, 0.9, 0.9),
-        (3.0, 1.0, 1.0, 0.9, 0.9),
-        (3.0, 1.0, 2.0, 0.9, 0.9),
-        (3.0, 1.0, 3.0, 0.9, 0.9),
-        (3.0, 1.0, 3.1, 0.9, 0.9),
+    ];
+    let point_samples = gmsh.len();
+    // The scans below contain the other point samples of #884 / #895
+    // (`2 × 1`, `1.5 × 1`, `2.3 × 1` and `3 × 1` at `d` = 1, 2, 2.9, 3 and
+    // 3.1); a row already listed is not measured twice.
+    let mut add = |row: (f64, f64, f64, f64, f64)| {
+        if !gmsh.contains(&row) {
+            gmsh.push(row);
+        }
+    };
+    // Issue #905: scans of the box depth, not point samples. Six coarse
+    // guides over `d` = 0.9 … 4.4 in steps of 0.05, which pass through
+    // every TE₁₀ₚ / TM₁₁₀ near-degeneracy in that range.
+    for (a, lc) in [
+        (1.5, 0.92),
+        (1.5, 0.8),
+        (1.5, 0.75),
+        (2.0, 0.9),
+        (2.3, 0.9),
+        (3.0, 0.9),
     ] {
-        let out = dir.join(format!("g_{a}x{b}_{d}_{lc}_{lc1}.msh"));
-        let status = std::process::Command::new("gmsh")
-            .arg(geo)
-            .args(["-3", "-format", "msh41", "-v", "0"])
-            .args(["-setnumber", "a", &a.to_string()])
-            .args(["-setnumber", "b", &b.to_string()])
-            .args(["-setnumber", "d", &d.to_string()])
-            .args(["-setnumber", "lc", &lc.to_string()])
-            .args(["-setnumber", "lc1", &lc1.to_string()])
-            .arg("-o")
-            .arg(&out)
-            .status();
-        let Ok(status) = status else {
+        for i in 0..=70 {
+            add((a, 1.0, f64::from(90 + 5 * i) / 100.0, lc, lc));
+        }
+    }
+    // And in steps of 0.01 across the depths where the withdrawn law was
+    // above the cutoff.
+    for i in 0..=30 {
+        let d = f64::from(305 + i) / 100.0;
+        add((1.5, 1.0, d, 0.92, 0.92));
+        add((1.5, 1.0, d, 0.8, 0.8));
+    }
+    for i in 0..=20 {
+        add((3.0, 1.0, f64::from(395 + i) / 100.0, 0.9, 0.9));
+    }
+    let dir = std::env::temp_dir().join(format!("geode-905-gmsh-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut ran_gmsh = false;
+    // The #905 scans alone: (rows, rows undershooting ≥ 5 %, worst
+    // undershoot, fewest points left).
+    let mut scan = (0usize, 0usize, 0.0_f64, f64::INFINITY);
+    for (i, &(a, b, d, lc, lc1)) in gmsh.iter().enumerate() {
+        let Some(mesh) = gmsh_guide_box(&dir, a, b, d, lc, lc1) else {
             eprintln!("gmsh not on PATH: Gmsh rows skipped");
             break;
         };
-        assert!(status.success(), "gmsh failed on {out:?}");
         ran_gmsh = true;
-        let tagged =
-            geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&out).unwrap()).expect("msh");
-        let r = measure_p2_guard(
-            &format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}"),
-            &tagged.mesh,
-            a,
-            b,
-        );
-        if r.across > 1.0 + 1e-9 && r.across < 1.37 {
-            if r.coarse_face {
-                band.0 += 1;
-            } else {
-                band.1 += 1;
+        let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
+        let r = measure_p2_guard(&label, &mesh, a, b);
+        if i >= point_samples {
+            scan.0 += 1;
+            if r.under >= WITHDRAWN_P2_BASE_MARGIN {
+                scan.1 += 1;
             }
-            band.2 = band.2.max(r.under);
-            band.3 = band.3.min(r.pts_left);
+            scan.2 = scan.2.max(r.under);
+            scan.3 = scan.3.min(r.pts_left);
         }
-        record(r);
+        table.record(&label, r);
     }
     let _ = std::fs::remove_dir_all(&dir);
+    let (tightest, tightest_label) = table.tightest.clone().expect("rows");
     eprintln!(
-        "{rows} rows; faces ≥ 2 elements across: worst p=2 undershoot {:.3} % ({:.3} % at \
-         k_c·h < {kh_law:.2}), worst ÷(k_c·h)⁴ {worst_ratio:.2e} ({worst_ratio_law:.2e} at \
-         k_c·h ≥ {kh_law:.2}; C₄ = {TM_GUARD_AXIAL_COEFF_P2:.1e}); faces one element across: \
-         worst undershoot {:.3} % (floor {:.0} %); tightest row {tightest:.2} pt; Gmsh rows {}",
-        100.0 * worst_under,
-        100.0 * worst_under_base,
-        100.0 * worst_coarse_under,
-        100.0 * TM_GUARD_MARGIN_P2_COARSE_FACE,
-        if ran_gmsh { "run" } else { "skipped" }
+        "{} rows ({structured_rows} structured, Gmsh rows {}); p=2 guard below the 3-D p=2 \
+         TM-like cutoff on every row, tightest {tightest:.2} pt ({tightest_label}); worst \
+         undershoot {:.3} %; where the axial term sets the margin ({} rows): worst \
+         ÷(k_c·h_n)² {:.4} at k_c·h_n {:.2} (C_h = {TM_GUARD_AXIAL_COEFF}); at the base margin \
+         ({} rows): worst undershoot {:.3} %, tightest {:.2} pt; coarse faces over four \
+         and eight layers: worst undershoot {:.3} %; largest k_c·h_n {:.2}; {} rows undershoot by the \
+         {:.0} % the withdrawn p=2 law allowed or more",
+        table.rows,
+        if ran_gmsh { "run" } else { "skipped" },
+        100.0 * table.worst_under,
+        table.rows - table.base_rows,
+        table.worst_ratio,
+        table.worst_ratio_kh,
+        table.base_rows,
+        100.0 * table.worst_under_base,
+        table.tightest_base,
+        100.0 * worst_fine_axis,
+        table.max_kh,
+        table.over_withdrawn_base,
+        100.0 * WITHDRAWN_P2_BASE_MARGIN,
     );
-    eprintln!(
-        "{coarse_rows} rows under the face floor, {} at the mesh law (tightest \
-         {tightest_fine:.2} pt); Gmsh faces 1.0 … 1.37 longest edges across: {} flagged + {} \
-         unflagged rows, worst undershoot {:.3} %, tightest {:.2} pt",
-        rows - coarse_rows,
-        band.0,
-        band.1,
-        100.0 * band.2,
-        band.3
-    );
-    // Issue #895: the band is measured on both sides of the threshold.
     if ran_gmsh {
-        assert!(
-            band.0 >= 2 && band.1 >= 2,
-            "Gmsh rows 1.0 … 1.37 across: {} flagged, {} unflagged (a different Gmsh \
-             version may mesh these faces differently: pick new rows)",
-            band.0,
-            band.1
+        eprintln!(
+            "issue #905 depth scans: {} rows, {} undershoot by 5 % or more, worst undershoot \
+             {:.3} %, tightest {:.2} pt",
+            scan.0,
+            scan.1,
+            100.0 * scan.2,
+            scan.3
         );
+        // The scans reach the rows the issue reported (5.4 % to 12.4 %).
+        assert_eq!(scan.0, 489);
+        assert!(scan.1 >= 5 && scan.2 > 0.12, "{scan:?}");
     }
-    assert!(worst_under < 0.06, "p=2 undershoot {worst_under}");
+    assert!(tightest > 0.0, "{tightest_label}: {tightest} pt");
     assert!(
-        worst_ratio_law < TM_GUARD_AXIAL_COEFF_P2,
-        "ratio {worst_ratio_law}"
+        table.worst_ratio < TM_GUARD_AXIAL_COEFF,
+        "ratio {} at k_c·h_n {}",
+        table.worst_ratio,
+        table.worst_ratio_kh
     );
     assert!(
-        worst_under_base < TM_GUARD_MARGIN,
-        "undershoot {worst_under_base}"
+        table.worst_under_base < TM_GUARD_MARGIN,
+        "undershoot {} at the base margin",
+        table.worst_under_base
     );
+    // Reading the axial spacing alone is safe on a coarse face.
+    assert!(worst_fine_axis < 0.01, "{worst_fine_axis}");
+    // The rows reach the `k_c·h_n` at which the margin is at its cap of 1
+    // (`√(1/C_h)` ≈ 6.32), so no part of the law's range is extrapolated.
+    // Above 6.32 the guard is 0, which is below any cutoff: those rows test
+    // nothing, and the evidence is the rows below it (rectangular boxes).
     assert!(
-        worst_coarse_under < TM_GUARD_MARGIN_P2_COARSE_FACE,
-        "one-element-across undershoot {worst_coarse_under}"
+        table.max_kh > (1.0 / TM_GUARD_AXIAL_COEFF).sqrt(),
+        "largest k_c·h_n {}",
+        table.max_kh
     );
 }

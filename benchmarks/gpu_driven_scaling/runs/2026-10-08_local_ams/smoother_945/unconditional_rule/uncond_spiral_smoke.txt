@@ -1,0 +1,17 @@
+# tree=uncond git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 patch=unconditional_rule.patch
+# test=spiral_smoke_ams_matches_direct_lu binary=spiral_golden-2c03b69e5310e414 
+# start=2026-10-08T13:55:00Z loadavg=7.40 7.29 8.13
+
+running 1 test
+test spiral_smoke_ams_matches_direct_lu ... # ams_smoother edge_dim=13997 theta_max=3.093148 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.402463 weight=0.440857 source=estimate estimate_ms=6.227
+# ams_smoother edge_dim=13997 theta_max=3.012197 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.313417 weight=0.452705 source=estimate estimate_ms=5.669
+# ams_smoother edge_dim=13997 theta_max=2.961877 lanczos_steps=30 gershgorin=6.043983 rho_hat=3.258065 weight=0.460396 source=estimate estimate_ms=5.856
+# ams_smoother edge_dim=13997 theta_max=2.928841 lanczos_steps=30 gershgorin=6.043981 rho_hat=3.221725 weight=0.465589 source=estimate estimate_ms=6.198
+AMS   1.0 GHz: iters [116], residual 6.7e-11, |ΔZ|/|Z| vs direct LU 8.4e-13
+AMS   5.0 GHz: iters [142], residual 7.8e-11, |ΔZ|/|Z| vs direct LU 1.7e-12
+AMS  10.0 GHz: iters [153], residual 9.8e-11, |ΔZ|/|Z| vs direct LU 8.8e-13
+AMS  20.0 GHz: iters [170], residual 8.0e-11, |ΔZ|/|Z| vs direct LU 2.5e-13
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 5.26s
+

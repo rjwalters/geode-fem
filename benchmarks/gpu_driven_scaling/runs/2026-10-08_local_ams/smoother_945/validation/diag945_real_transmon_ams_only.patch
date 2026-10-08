@@ -1,0 +1,33 @@
+diff --git a/crates/geode-core/tests/transmon_eigenmode.rs b/crates/geode-core/tests/transmon_eigenmode.rs
+index 7135554f..1b4e309e 100644
+--- a/crates/geode-core/tests/transmon_eigenmode.rs
++++ b/crates/geode-core/tests/transmon_eigenmode.rs
+@@ -2985,6 +2985,28 @@ fn real_transmon_ams_beats_jacobi() {
+     }
+ }
+ 
++/// DIAG945 (throwaway, issue #945): the AMS leg of
++/// `real_transmon_ams_beats_jacobi` on its own, because the Jacobi leg that
++/// test runs first does not converge.
++#[test]
++#[ignore = "diag945 throwaway: one 133k-DOF matrix-free shift-invert eigensolve (AMS)"]
++fn diag945_real_transmon_ams_only() {
++    use geode_core::eigen::lanczos::InnerPreconditioner;
++
++    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
++    let (modes, iters) = solve_real_fixture_matrix_free_inner_iters(
++        &f,
++        JUNCTION_L_H,
++        4.5e9,
++        6,
++        InnerPreconditioner::Ams,
++    );
++    eprintln!("diag945 real 133k AMS-only inner-CG iterations = {iters}");
++    for (i, m) in modes.iter().enumerate() {
++        eprintln!("diag945 mode[{i}] = {:.12} GHz", m.frequency_ghz());
++    }
++}
++
+ /// Sanity: the frequency↔λ conversion places the junction natural-unit
+ /// values and the shift where the issue derivation says (a fast guard so
+ /// the release run's unit plumbing is regression-tested in CI).

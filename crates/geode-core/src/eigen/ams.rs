@@ -49,7 +49,7 @@
 //!   valid CG preconditioner), and a **damped** Jacobi smoother (`ω < 1`) is
 //!   required because an undamped point-Jacobi is not a contraction across the
 //!   wide H(curl) edge spectrum (an undamped multiplicative cycle diverges —
-//!   measured).
+//!   measured). The weight is chosen per operator; see "Smoother weight" below.
 //! - **Additive form** (`AmsLitePreconditioner::apply`): `z = D⁻¹ r + G C⁻¹ Gᵀ r`,
 //!   a sum of two SPD operators. Simpler and matvec-free, but weaker (the smoother
 //!   and coarse correction overlap on the low modes); retained as the fallback /
@@ -63,6 +63,51 @@
 //! correction that damps the gradient near-kernel Jacobi is blind to. A
 //! preconditioner changes only convergence speed, never the fixed point, so the
 //! eigenvalues are unchanged either way.
+//!
+//! # Smoother weight (#945)
+//!
+//! The damped-Jacobi sweep `z = ω D⁻¹ r` is convergent only for
+//! `ω < 2 / λ_max(D⁻¹A)`. At or above that bound the symmetric V-cycle is no
+//! longer positive definite on the highest edge modes, and the outer
+//! iteration count can grow with the mesh instead of staying flat (the
+//! anisotropic spiral is above the bound and still takes 114 iterations).
+//! `λ_max(D⁻¹A)` depends on the mesh: measured, it is 2.93 to 3.09 on the
+//! unstructured spiral (bound 0.65 to 0.68, so the long-standing `ω = 0.6` is
+//! inside it) and 3.39 to 3.42 on a structured Kuhn-tet cube (bound 0.585 to
+//! 0.591, so `0.6` is outside it).
+//!
+//! So each build takes 30 steps (`SMOOTH_LANCZOS_STEPS`) of plain three-term
+//! Lanczos on `D^-1/2 A D^-1/2` (matrix-free through the borrowed `K`, `M`;
+//! `O(edge_dim)` memory, a fixed start vector, sequential — the result does
+//! not depend on the thread count), takes the largest Ritz value `θ` and the
+//! Gershgorin row-sum bound `g`, and uses
+//!
+//! ```text
+//! ω = 0.6                         if 0.6 θ < 2
+//! ω = 1.5 / min(1.1 θ, g)         otherwise
+//! ```
+//!
+//! `θ ≤ λ_max`, so `0.6 θ ≥ 2` **proves** that `0.6` is at or above the
+//! stability bound: the weight is changed only where the old one is shown to
+//! be unstable, and everywhere else the preconditioner is bit-for-bit what it
+//! was. The second line is at most `1.5 / (10/3) = 0.45`, so `ω` never
+//! exceeds `0.6`. `g` is a rigorous upper bound on `λ_max`; `1.1` is a heuristic
+//! allowance for what 30 Lanczos steps have not resolved. The lowered weight
+//! is therefore guaranteed below `2 / λ_max` only when `g` is the smaller
+//! term, and otherwise holds as long as `θ > 0.68 λ_max`. A weight kept at
+//! `0.6` is guaranteed stable only when `g < 10/3`; otherwise the Ritz value
+//! merely did not prove it unstable, exactly the situation before this
+//! estimate existed. [`SmootherWeight`] states this in full.
+//!
+//! If the Lanczos run is unusable the weight falls back to
+//! `min(0.6, 1.5 / g)`; the build never fails on the estimate.
+//! `GEODE_AMS_SMOOTH_WEIGHT=<ω>` overrides the weight (a warning, not an
+//! error, when it is above both `2 / min(1.1 θ, g)` and the automatic
+//! weight), and `GEODE_AMS_SMOOTH_REPORT=1` prints the estimate and the chosen
+//! weight per build to stderr (an integer above the step count adds a
+//! reference Ritz value from a run of that length). The additive
+//! `AmsLitePreconditioner::apply` has a fixed `ω = 1`, is SPD by
+//! construction, and does not use any of this.
 //!
 //! # Coarse solve: multilevel-style few-sweep smoother, no global factor (#551)
 //!
@@ -115,14 +160,481 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use crate::eigen::dense::EigenError;
 use crate::eigen::projection::InteriorGradient;
 
-/// Default damped-Jacobi smoother weight `ω` for the multiplicative V-cycle.
+/// The damped-Jacobi smoother weight `ω` of the multiplicative V-cycle, used
+/// wherever it is not shown to be unstable, and the upper limit of the weight
+/// everywhere.
 ///
-/// An undamped point-Jacobi smoother is not a contraction across the wide
-/// H(curl) edge spectrum (the high-frequency edge modes have `‖I − D⁻¹A‖ > 1`),
-/// so a multiplicative V-cycle built on it diverges. `ω = 0.5` restores a
-/// contractive smoother, which is what makes the multiplicative cycle beat the
-/// additive form.
+/// The smoother `z = ω D⁻¹ r` is convergent only for `ω < 2 / λ_max(D⁻¹A)`. An
+/// undamped (`ω = 1`) sweep is outside that range on every H(curl) edge
+/// operator measured, so a multiplicative V-cycle built on it diverges. `0.6`
+/// is inside the range on the unstructured spiral meshes (`λ_max` 2.93 to
+/// 3.09) but not on a structured Kuhn-tet cube (`λ_max` 3.39 to 3.42, bound
+/// 0.585 to 0.591; issue #945), so the weight actually used is chosen per operator
+/// by [`choose_smooth_weight`].
 const DEFAULT_SMOOTH_WEIGHT: f64 = 0.6;
+
+/// Target `ω · ρ̂` of a lowered smoother weight: `ω = 1.5 / ρ̂` puts the weight
+/// at three quarters of the estimated stability bound `2 / ρ̂`.
+const SMOOTH_WEIGHT_TARGET: f64 = 1.5;
+
+/// Safety factor applied to the Lanczos Ritz value before it is used as a
+/// spectral-radius estimate. A Ritz value is a **lower** bound on `λ_max`, so
+/// this factor is a heuristic allowance for the part of the spectrum the short
+/// Lanczos run has not resolved; it is not a bound.
+const SMOOTH_RITZ_SAFETY: f64 = 1.1;
+
+/// Lanczos steps of the spectral-radius estimate (one operator apply each).
+const SMOOTH_LANCZOS_STEPS: usize = 30;
+
+/// Environment override of the V-cycle smoother weight (a positive finite
+/// number). A measurement / escape knob in the pattern of
+/// `GEODE_DRIVEN_AMS_COARSE`, not part of the spec surface.
+const SMOOTH_WEIGHT_ENV: &str = "GEODE_AMS_SMOOTH_WEIGHT";
+
+/// When set (to anything), every preconditioner build prints one
+/// `# ams_smoother …` line to stderr with the estimate and the chosen weight.
+/// Set to an integer above [`SMOOTH_LANCZOS_STEPS`], the line also carries
+/// `theta_ref`, the Ritz value of a Lanczos run of that many steps (a
+/// measurement of the short run's gap; it costs that many operator applies).
+/// `estimate_ms` on the line is the wall clock of the shipped estimate alone
+/// (the Gershgorin pass and the short Lanczos run, both sequential).
+const SMOOTH_REPORT_ENV: &str = "GEODE_AMS_SMOOTH_REPORT";
+
+/// Where a [`SmootherWeight`] came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SmoothWeightSource {
+    /// The fixed default `0.6`: the Lanczos Ritz value did not show it to be
+    /// at or above the stability bound (`0.6 · theta_max < 2`).
+    Default,
+    /// Lowered to `1.5 / rho_hat`: the Ritz value proved the default unstable.
+    Estimate,
+    /// The Lanczos estimate was unusable (non-finite or `≤ 0`, or the operator
+    /// has a non-positive diagonal entry); `min(0.6, 1.5 / gershgorin)`.
+    GershgorinFallback,
+    /// Neither the Lanczos estimate nor the Gershgorin bound was usable; the
+    /// weight is the fixed default with no stability information behind it.
+    DefaultFallback,
+    /// An explicit override (`GEODE_AMS_SMOOTH_WEIGHT`).
+    Override,
+}
+
+impl SmoothWeightSource {
+    /// Short stable name (`"default"`, `"estimate"`, `"gershgorin_fallback"`,
+    /// `"default_fallback"`, `"override"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Estimate => "estimate",
+            Self::GershgorinFallback => "gershgorin_fallback",
+            Self::DefaultFallback => "default_fallback",
+            Self::Override => "override",
+        }
+    }
+}
+
+/// The V-cycle edge-smoother weight and the spectral information it was
+/// chosen from (issue #945). Built once per preconditioner build.
+///
+/// # What is guaranteed and what is heuristic
+///
+/// `λ_max` below is the largest eigenvalue of `D⁻¹A`, `A` being the operator
+/// the V-cycle smooths and `D` its diagonal; the smoother is convergent for
+/// `weight < 2 / λ_max`.
+///
+/// Guaranteed (for a symmetric `A` with a positive diagonal, in exact
+/// arithmetic):
+///
+/// - [`Self::gershgorin`] is an upper bound on `λ_max`, and
+///   [`Self::theta_max`], a Lanczos Ritz value, is a lower bound.
+/// - The automatic weight is never above `0.6`, and it differs from `0.6`
+///   only when `0.6 · theta_max ≥ 2`, which implies `0.6 ≥ 2 / λ_max`: the
+///   weight is changed only where the default is proven to be at or above
+///   the stability bound.
+/// - A lowered weight `1.5 / rho_hat` is below `2 / λ_max` when
+///   `rho_hat == gershgorin` (the Gershgorin term is the smaller one).
+/// - A weight kept at `0.6` is below `2 / λ_max` when `gershgorin < 10/3`.
+///
+/// Heuristic:
+///
+/// - [`Self::rho_hat`] `= min(1.1 · theta_max, gershgorin)` is an estimate,
+///   not a bound, when the first term is the smaller one. `1.1` is an
+///   allowance for what the short Lanczos run has not resolved. A lowered
+///   weight is then below `2 / λ_max` exactly when
+///   `λ_max < (2 · 1.1 / 1.5) · theta_max ≈ 1.47 · theta_max`, i.e. when the
+///   run has reached `theta_max > 0.68 · λ_max`. Measured on the fixtures in
+///   the tests and benchmarks (`theta_max` within 0.6 % of a 1000-step run
+///   there, which is itself a lower bound); not proven
+///   for an arbitrary operator.
+/// - A weight kept at `0.6` with `gershgorin ≥ 10/3` is **not** shown to be
+///   stable: the Ritz value only failed to prove it unstable. If the short
+///   run underestimates a `λ_max` above `10/3` as below it, the weight stays
+///   at `0.6` and the cycle behaves as it did before this estimate existed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SmootherWeight {
+    weight: f64,
+    rho_hat: f64,
+    theta_max: f64,
+    gershgorin: f64,
+    lanczos_steps: usize,
+    source: SmoothWeightSource,
+    warning: Option<String>,
+}
+
+impl SmootherWeight {
+    /// The damped-Jacobi weight `ω` the V-cycle uses.
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    /// The spectral-radius estimate `min(1.1 · theta_max, gershgorin)` (the
+    /// Gershgorin bound alone on the fallback path; `NaN` if neither was
+    /// usable). A lowered weight is `1.5 / rho_hat`.
+    pub fn rho_hat(&self) -> f64 {
+        self.rho_hat
+    }
+
+    /// Largest Ritz value of the short Lanczos run on `D^-1/2 A D^-1/2` (a
+    /// lower bound on `λ_max(D⁻¹A)`). `NaN` if the run was not usable.
+    pub fn theta_max(&self) -> f64 {
+        self.theta_max
+    }
+
+    /// Gershgorin upper bound `max_i Σ_j |a_ij| / a_ii` on `λ_max(D⁻¹A)`.
+    pub fn gershgorin(&self) -> f64 {
+        self.gershgorin
+    }
+
+    /// Lanczos steps actually taken (fewer than requested on a breakdown).
+    pub fn lanczos_steps(&self) -> usize {
+        self.lanczos_steps
+    }
+
+    /// How the weight was chosen.
+    pub fn source(&self) -> SmoothWeightSource {
+        self.source
+    }
+
+    /// The stability bound `2 / rho_hat` implied by the estimate (`NaN` if
+    /// there is none). An estimate: see the type-level docs.
+    pub fn stability_bound_estimate(&self) -> f64 {
+        2.0 / self.rho_hat
+    }
+
+    /// Set when an explicit override is above both `2 / rho_hat` and the
+    /// automatic weight: the message that was printed to stderr at build
+    /// time. The override is still used.
+    pub fn warning(&self) -> Option<&str> {
+        self.warning.as_deref()
+    }
+
+    /// The one-line report printed under `GEODE_AMS_SMOOTH_REPORT`.
+    fn report_line(&self, edge_dim: usize) -> String {
+        format!(
+            "# ams_smoother edge_dim={edge_dim} theta_max={:.6} lanczos_steps={} \
+             gershgorin={:.6} rho_hat={:.6} weight={:.6} source={}",
+            self.theta_max,
+            self.lanczos_steps,
+            self.gershgorin,
+            self.rho_hat,
+            self.weight,
+            self.source.name()
+        )
+    }
+}
+
+/// Choose the V-cycle smoother weight from a Lanczos Ritz value `theta_max`
+/// (taken in `lanczos_steps` steps) and the Gershgorin bound `gershgorin`,
+/// both for `D⁻¹A` (issue #945).
+///
+/// - `rho_hat = min(1.1 · theta_max, gershgorin)`.
+/// - `0.6 · theta_max < 2`: the weight is exactly [`DEFAULT_SMOOTH_WEIGHT`]
+///   ([`SmoothWeightSource::Default`]). The Ritz value has not shown the
+///   default to be unstable, so the operator is smoothed exactly as before.
+/// - Otherwise the default is proven at or above the bound (`theta_max` is a
+///   lower bound on `λ_max`) and the weight is `1.5 / rho_hat`
+///   ([`SmoothWeightSource::Estimate`]), which is below `0.6`.
+/// - A non-finite or non-positive `theta_max` falls back to
+///   `min(0.6, 1.5 / gershgorin)`, and if the Gershgorin bound is unusable too
+///   the weight is the fixed default with no estimate behind it.
+/// - `override_weight` (already validated positive and finite) replaces the
+///   automatic weight. If it exceeds both `2 / rho_hat` and the automatic
+///   weight the result carries a warning and the override is **still used**:
+///   the estimate is not a bound, and a caller who sets the knob is measuring.
+///
+/// What is rigorous here and what is heuristic is stated on
+/// [`SmootherWeight`].
+fn choose_smooth_weight(
+    theta_max: f64,
+    lanczos_steps: usize,
+    gershgorin: f64,
+    override_weight: Option<f64>,
+) -> SmootherWeight {
+    let usable = |x: f64| x.is_finite() && x > 0.0;
+    let (rho_hat, auto_weight, auto_source) = match (usable(theta_max), usable(gershgorin)) {
+        (true, g_ok) => {
+            let rho_hat = if g_ok {
+                (SMOOTH_RITZ_SAFETY * theta_max).min(gershgorin)
+            } else {
+                SMOOTH_RITZ_SAFETY * theta_max
+            };
+            if DEFAULT_SMOOTH_WEIGHT * theta_max < 2.0 {
+                (rho_hat, DEFAULT_SMOOTH_WEIGHT, SmoothWeightSource::Default)
+            } else {
+                (
+                    rho_hat,
+                    DEFAULT_SMOOTH_WEIGHT.min(SMOOTH_WEIGHT_TARGET / rho_hat),
+                    SmoothWeightSource::Estimate,
+                )
+            }
+        }
+        (false, true) => (
+            gershgorin,
+            DEFAULT_SMOOTH_WEIGHT.min(SMOOTH_WEIGHT_TARGET / gershgorin),
+            SmoothWeightSource::GershgorinFallback,
+        ),
+        (false, false) => (
+            f64::NAN,
+            DEFAULT_SMOOTH_WEIGHT,
+            SmoothWeightSource::DefaultFallback,
+        ),
+    };
+    let (weight, source, warning) = match override_weight {
+        None => (auto_weight, auto_source, None),
+        Some(w) => {
+            let bound = 2.0 / rho_hat;
+            let warning = (usable(rho_hat) && w > bound && w > auto_weight).then(|| {
+                format!(
+                    "AMS edge smoother: the {SMOOTH_WEIGHT_ENV} override {w} is above the \
+                     estimated damped-Jacobi stability bound 2/rho = {bound:.4} (rho estimate \
+                     {rho_hat:.4}; Lanczos Ritz value {theta_max:.4}, Gershgorin bound \
+                     {gershgorin:.4}). The override is used as given. Above the true bound the \
+                     V-cycle is not a contraction on the highest edge modes and the outer \
+                     iteration count grows with mesh size; the automatic weight for this \
+                     operator would be {auto_weight:.4}. Unset {SMOOTH_WEIGHT_ENV} to use it."
+                )
+            });
+            (w, SmoothWeightSource::Override, warning)
+        }
+    };
+    SmootherWeight {
+        weight,
+        rho_hat,
+        theta_max,
+        gershgorin,
+        lanczos_steps,
+        source,
+        warning,
+    }
+}
+
+/// Parse a `GEODE_AMS_SMOOTH_WEIGHT` value. `Ok(None)` when unset or blank;
+/// `Err` (with the message to print) when set to something that is not a
+/// positive finite number, in which case the automatic weight is used.
+fn parse_smooth_weight_override(raw: Option<&str>) -> Result<Option<f64>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    match raw.parse::<f64>() {
+        Ok(w) if w.is_finite() && w > 0.0 => Ok(Some(w)),
+        _ => Err(format!(
+            "AMS edge smoother: ignoring {SMOOTH_WEIGHT_ENV}={raw:?} (expected a positive \
+             finite number); using the automatic weight"
+        )),
+    }
+}
+
+/// Largest eigenvalue of the symmetric tridiagonal matrix with diagonal
+/// `alpha` and off-diagonal `beta` (`beta.len() == alpha.len() - 1`), by
+/// Sturm-sequence bisection. Deterministic and allocation-free; the matrix is
+/// at most [`SMOOTH_LANCZOS_STEPS`] square.
+fn tridiag_largest_eigenvalue(alpha: &[f64], beta: &[f64]) -> f64 {
+    let m = alpha.len();
+    debug_assert!(m > 0 && beta.len() + 1 == m);
+    // Gershgorin interval of T.
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for i in 0..m {
+        let r = if i > 0 { beta[i - 1].abs() } else { 0.0 }
+            + if i + 1 < m { beta[i].abs() } else { 0.0 };
+        lo = lo.min(alpha[i] - r);
+        hi = hi.max(alpha[i] + r);
+    }
+    // Number of eigenvalues of T strictly below x (signs of the LDLᵀ pivots).
+    let below = |x: f64| {
+        let mut count = 0usize;
+        let mut q = alpha[0] - x;
+        for i in 0..m {
+            if i > 0 {
+                let d = if q.abs() < f64::MIN_POSITIVE {
+                    f64::MIN_POSITIVE
+                } else {
+                    q
+                };
+                q = alpha[i] - x - beta[i - 1] * beta[i - 1] / d;
+            }
+            if q < 0.0 {
+                count += 1;
+            }
+        }
+        count
+    };
+    // Invariant: below(lo) < m (λ_max ≥ lo) and below(hi) may equal m.
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if mid <= lo || mid >= hi {
+            break;
+        }
+        if below(mid) < m {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// Largest Ritz value of `steps` steps of plain three-term Lanczos on the
+/// symmetrically scaled operator `S = D^-1/2 A D^-1/2` (same spectrum as
+/// `D⁻¹A`), where `inv_diag` is `D⁻¹` and `apply_a(x, y)` computes `y = A x`.
+/// Returns `(theta_max, steps_taken)`.
+///
+/// No reorthogonalization: only three vectors are kept, and the ghost copies
+/// of converged Ritz values that loss of orthogonality produces do not move
+/// the largest one. The start vector is a fixed pseudo-random sequence, so the
+/// result is a deterministic function of the operator. A Ritz value is a
+/// Rayleigh quotient of `S`, hence a **lower** bound on `λ_max`.
+///
+/// Returns `None` when the estimate is unusable: an empty operator, a
+/// non-positive or non-finite entry of `inv_diag` (`D^-1/2` undefined), or a
+/// non-finite or non-positive result.
+fn lanczos_lambda_max<F>(inv_diag: &[f64], steps: usize, mut apply_a: F) -> Option<(f64, usize)>
+where
+    F: FnMut(&[f64], &mut [f64]),
+{
+    let n = inv_diag.len();
+    if n == 0 || steps == 0 || inv_diag.iter().any(|&d| !(d.is_finite() && d > 0.0)) {
+        return None;
+    }
+    let dh: Vec<f64> = inv_diag.iter().map(|d| d.sqrt()).collect();
+    let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut v: Vec<f64> = (0..n)
+        .map(|_| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
+        })
+        .collect();
+    let norm = |x: &[f64]| x.iter().map(|a| a * a).sum::<f64>().sqrt();
+    let nv = norm(&v);
+    if !(nv.is_finite() && nv > 0.0) {
+        return None;
+    }
+    v.iter_mut().for_each(|x| *x /= nv);
+    let mut v_prev = vec![0.0_f64; n];
+    let mut w = vec![0.0_f64; n];
+    let mut scaled = vec![0.0_f64; n];
+    let mut alpha: Vec<f64> = Vec::with_capacity(steps);
+    let mut beta: Vec<f64> = Vec::with_capacity(steps);
+    let mut beta_prev = 0.0_f64;
+    for _ in 0..steps.min(n) {
+        // w = S v = D^-1/2 A D^-1/2 v
+        for i in 0..n {
+            scaled[i] = dh[i] * v[i];
+        }
+        apply_a(&scaled, &mut w);
+        for i in 0..n {
+            w[i] *= dh[i];
+        }
+        let a: f64 = v.iter().zip(w.iter()).map(|(x, y)| x * y).sum();
+        if !a.is_finite() {
+            return None;
+        }
+        alpha.push(a);
+        for i in 0..n {
+            w[i] -= a * v[i] + beta_prev * v_prev[i];
+        }
+        let b = norm(&w);
+        if !b.is_finite() {
+            return None;
+        }
+        // Breakdown: the Krylov space is invariant, the Ritz values are exact.
+        if b <= 1e-14 * a.abs().max(1.0) {
+            break;
+        }
+        if alpha.len() == steps.min(n) {
+            break;
+        }
+        beta.push(b);
+        std::mem::swap(&mut v_prev, &mut v);
+        for i in 0..n {
+            v[i] = w[i] / b;
+        }
+        beta_prev = b;
+    }
+    beta.truncate(alpha.len() - 1);
+    let theta = tridiag_largest_eigenvalue(&alpha, &beta);
+    (theta.is_finite() && theta > 0.0).then_some((theta, alpha.len()))
+}
+
+/// Gershgorin upper bound on the eigenvalues of `D⁻¹(K − σM)`:
+/// `max_i D⁻¹_ii · Σ_j (|K_ij| + |σ M_ij|)`. Rigorous for a symmetric operator
+/// (column sums are then row sums); loose by the cancellation between `K` and
+/// `σM` entries when both are present, and exact row sums when `σ = 0`.
+fn gershgorin_dinv_a(
+    k: SparseColMatRef<'_, usize, f64>,
+    m: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+    inv_diag: &[f64],
+) -> f64 {
+    let n = inv_diag.len();
+    let mut abs_sum = vec![0.0_f64; n];
+    for (mat, scale) in [(k, 1.0), (m, -sigma)] {
+        if scale == 0.0 {
+            continue;
+        }
+        let (cp, val) = (mat.col_ptr(), mat.val());
+        for (j, s) in abs_sum.iter_mut().enumerate() {
+            for v in &val[cp[j]..cp[j + 1]] {
+                *s += (scale * v).abs();
+            }
+        }
+    }
+    abs_sum
+        .iter()
+        .zip(inv_diag.iter())
+        .map(|(s, d)| s * d.abs())
+        .fold(0.0_f64, f64::max)
+}
+
+/// The spectral information for the smoother weight of `A = K − σM` with
+/// Jacobi inverse-diagonal `inv_diag`: `(theta_max, lanczos_steps,
+/// gershgorin)`, with `theta_max = NaN` when the Lanczos estimate is unusable.
+/// `steps` operator applies and five length-`edge_dim` work vectors; no
+/// edge-space matrix is formed.
+fn smoother_spectrum(
+    k: SparseColMatRef<'_, usize, f64>,
+    m: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+    inv_diag: &[f64],
+    steps: usize,
+) -> (f64, usize, f64) {
+    let gershgorin = gershgorin_dinv_a(k, m, sigma, inv_diag);
+    let mut t = vec![0.0_f64; if sigma != 0.0 { inv_diag.len() } else { 0 }];
+    let lanczos = lanczos_lambda_max(inv_diag, steps, |x, y| {
+        spmv(k, x, y);
+        if sigma != 0.0 {
+            spmv(m, x, &mut t);
+            for (yi, ti) in y.iter_mut().zip(t.iter()) {
+                *yi -= sigma * ti;
+            }
+        }
+    });
+    match lanczos {
+        Some((theta, taken)) => (theta, taken, gershgorin),
+        None => (f64::NAN, 0, gershgorin),
+    }
+}
 
 /// Default number of **symmetric** (forward + backward) Gauss–Seidel sweeps for
 /// the approximate coarse solve ([`SgsCoarseSolver`], issue #551).
@@ -1034,11 +1546,10 @@ pub(crate) struct AmsLitePreconditioner {
     /// iff `pi` is `Some`.
     pi_coarse: Option<CoarseSolver>,
     /// Damped-Jacobi smoother weight `ω` for the multiplicative V-cycle
-    /// ([`Self::apply_vcycle`]). An undamped (`ω = 1`) Jacobi smoother is not a
-    /// contraction on the wide H(curl) spectrum, so the multiplicative cycle
-    /// diverges; `ω < 1` restores a contractive smoother. Unused by the
-    /// additive [`Self::apply`].
-    smooth_weight: f64,
+    /// ([`Self::apply_vcycle`]) and the spectral estimate it was chosen from
+    /// (issue #945; see [`SmootherWeight`]). Chosen once per build. Unused by
+    /// the additive [`Self::apply`], whose weight is fixed at `1`.
+    smoother: SmootherWeight,
     /// Edge DOF count (rows of `G`, length of the vectors this acts on).
     edge_dim: usize,
     /// Free interior-node count (cols of `G`, size of the `C` solve).
@@ -1179,16 +1690,73 @@ impl AmsLitePreconditioner {
             None => (None, None),
         };
 
+        // V-cycle smoother weight (issue #945): one short Lanczos run on the
+        // operator the cycle smooths, once per build.
+        let t_estimate = std::time::Instant::now();
+        let (theta_max, lanczos_steps, gershgorin) =
+            smoother_spectrum(k, m, sigma, &inv_diag, SMOOTH_LANCZOS_STEPS);
+        let estimate_s = t_estimate.elapsed().as_secs_f64();
+        let override_weight =
+            match parse_smooth_weight_override(std::env::var(SMOOTH_WEIGHT_ENV).ok().as_deref()) {
+                Ok(w) => w,
+                Err(msg) => {
+                    eprintln!("warning: {msg}");
+                    None
+                }
+            };
+        let smoother = choose_smooth_weight(theta_max, lanczos_steps, gershgorin, override_weight);
+        if let Some(msg) = smoother.warning() {
+            eprintln!("warning: {msg}");
+        }
+        if let Ok(report) = std::env::var(SMOOTH_REPORT_ENV) {
+            // An integer above the shipped step count also runs a reference
+            // Lanczos of that length, to measure how far the short run's
+            // Ritz value is below a converged one (measurement only: the
+            // weight above is already chosen).
+            let reference = match report.trim().parse::<usize>() {
+                Ok(steps) if steps > SMOOTH_LANCZOS_STEPS => {
+                    let (theta_ref, taken, _) = smoother_spectrum(k, m, sigma, &inv_diag, steps);
+                    format!(" theta_ref={theta_ref:.6} ref_steps={taken}")
+                }
+                _ => String::new(),
+            };
+            eprintln!(
+                "{} estimate_ms={:.3}{reference}",
+                smoother.report_line(edge_dim),
+                1e3 * estimate_s
+            );
+        }
+
         Ok(Self {
             gradient: gradient.clone(),
             inv_diag,
             c_coarse,
             pi,
             pi_coarse,
-            smooth_weight: DEFAULT_SMOOTH_WEIGHT,
+            smoother,
             edge_dim,
             node_dim,
         })
+    }
+
+    /// The V-cycle smoother weight and the estimate behind it (issue #945).
+    pub(crate) fn smoother(&self) -> &SmootherWeight {
+        &self.smoother
+    }
+
+    /// Replace the V-cycle smoother weight with an explicit value, exactly as
+    /// the `GEODE_AMS_SMOOTH_WEIGHT` override does (same warning rule; the
+    /// estimate is kept). In-crate tests use this instead of mutating the
+    /// process environment.
+    #[cfg(test)]
+    pub(crate) fn with_smooth_weight(mut self, weight: f64) -> Self {
+        self.smoother = choose_smooth_weight(
+            self.smoother.theta_max,
+            self.smoother.lanczos_steps,
+            self.smoother.gershgorin,
+            Some(weight),
+        );
+        self
     }
 
     /// Weighted edge Jacobi smooth `out = ω D⁻¹ r` (elementwise), where
@@ -1324,7 +1892,7 @@ impl AmsLitePreconditioner {
         let n = self.edge_dim;
 
         // Pre-smooth: z = ω D⁻¹ r.
-        self.jacobi_smooth_weighted(r, z, self.smooth_weight);
+        self.jacobi_smooth_weighted(r, z, self.smoother.weight);
 
         // Coarse correction on the post-pre-smooth residual r₁ = r − A z.
         let mut az = vec![0.0_f64; n];
@@ -1354,7 +1922,7 @@ impl AmsLitePreconditioner {
             resid[i] = r[i] - az[i];
         }
         let mut post = vec![0.0_f64; n];
-        self.jacobi_smooth_weighted(&resid, &mut post, self.smooth_weight);
+        self.jacobi_smooth_weighted(&resid, &mut post, self.smoother.weight);
         for (zi, &pi) in z.iter_mut().zip(post.iter()) {
             *zi += pi;
         }
@@ -2537,5 +3105,423 @@ mod tests {
                 "mode[{i}] direct λ={d} AMG-AMS-MINRES λ={a} rel-diff={rel:.2e} > 1e-6"
             );
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Smoother weight (issue #945)
+    // ------------------------------------------------------------------
+
+    /// An SPD "overlapping element" operator whose Jacobi-scaled spectrum
+    /// reaches well past `2 / 0.6`: `A = δI + Σ_e 1_e 1_eᵀ`, each element `e`
+    /// covering the four consecutive DOFs `e..e+4`. In the interior
+    /// `A_ij = 4 − |i − j|` for `|i − j| < 4`, so the row sum is 16 against a
+    /// diagonal of 4: `λ_max(D⁻¹A)` approaches `(16 + δ)/(4 + δ) ≈ 3.86`, and
+    /// the damped-Jacobi bound `2/λ_max ≈ 0.52` is below the old fixed 0.6.
+    /// Returns `(A, I)` so `A − σ·I` at `σ = 0` is `A` itself.
+    fn overlapping_element_operator(
+        n: usize,
+    ) -> (SparseColMat<usize, f64>, SparseColMat<usize, f64>) {
+        let delta = 0.2;
+        let mut ta: Vec<Triplet<usize, usize, f64>> = Vec::new();
+        let mut tm: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(n);
+        for i in 0..n {
+            ta.push(Triplet::new(i, i, delta));
+            tm.push(Triplet::new(i, i, 1.0));
+        }
+        for e in 0..n.saturating_sub(3) {
+            for i in e..e + 4 {
+                for j in e..e + 4 {
+                    ta.push(Triplet::new(i, j, 1.0));
+                }
+            }
+        }
+        (
+            SparseColMat::try_new_from_triplets(n, n, &ta).unwrap(),
+            SparseColMat::try_new_from_triplets(n, n, &tm).unwrap(),
+        )
+    }
+
+    /// Dense symmetric eigenvalues (ascending) of the `n × n` operator
+    /// `x ↦ apply(x)`, formed column by column and symmetrized.
+    fn dense_sym_eigenvalues(n: usize, mut apply: impl FnMut(&[f64], &mut [f64])) -> Vec<f64> {
+        use faer::Side;
+        let mut cols = vec![vec![0.0_f64; n]; n];
+        let mut e = vec![0.0_f64; n];
+        for (j, col) in cols.iter_mut().enumerate() {
+            e[j] = 1.0;
+            apply(&e, col);
+            e[j] = 0.0;
+        }
+        let dense = Mat::<f64>::from_fn(n, n, |i, j| 0.5 * (cols[j][i] + cols[i][j]));
+        dense
+            .as_ref()
+            .self_adjoint_eigenvalues(Side::Lower)
+            .expect("dense symmetric eigenvalues")
+    }
+
+    /// `λ_max(D⁻¹A)` for `A = K − σM` by a **dense** eigensolve of
+    /// `D^-1/2 A D^-1/2` — the reference the short Lanczos estimate is
+    /// checked against (a different method, converged to rounding).
+    fn dense_lambda_max_dinv_a(
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+    ) -> f64 {
+        let n = k.nrows();
+        let mut dk = vec![0.0; n];
+        let mut dm = vec![0.0; n];
+        csc_diagonal(k, &mut dk);
+        csc_diagonal(m, &mut dm);
+        let dh: Vec<f64> = dk
+            .iter()
+            .zip(&dm)
+            .map(|(a, b)| 1.0 / (a - sigma * b).sqrt())
+            .collect();
+        let ev = dense_sym_eigenvalues(n, |x, y| {
+            let xs: Vec<f64> = x.iter().zip(&dh).map(|(a, b)| a * b).collect();
+            shifted_apply(k, m, sigma, &xs, y);
+            for (yi, d) in y.iter_mut().zip(&dh) {
+                *yi *= d;
+            }
+        });
+        *ev.last().unwrap()
+    }
+
+    /// Smallest eigenvalue of the V-cycle preconditioner `B` (`z = B r`) for
+    /// `A = K − σM`. `B` is symmetric; it is positive definite exactly when the
+    /// cycle is a usable CG preconditioner.
+    fn vcycle_min_eigenvalue(
+        ams: &AmsLitePreconditioner,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+    ) -> f64 {
+        let ev = dense_sym_eigenvalues(k.nrows(), |r, z| {
+            ams.apply_vcycle(r, z, |x, y| shifted_apply(k, m, sigma, x, y));
+        });
+        ev[0]
+    }
+
+    /// On an operator where the old fixed weight is **above** the
+    /// damped-Jacobi bound (`0.6 > 2/λ_max`), the chosen weight is below the
+    /// bound computed from the exact (dense) `λ_max`, and the V-cycle built on
+    /// it is positive definite — while the same cycle forced back to 0.6 is
+    /// indefinite, which is the failure issue #945 reports.
+    #[test]
+    fn smooth_weight_is_below_true_stability_bound_where_default_is_not() {
+        let n = 64;
+        let (a, eye) = overlapping_element_operator(n);
+        let g = chain_gradient(n);
+        let lambda_max = dense_lambda_max_dinv_a(a.as_ref(), eye.as_ref(), 0.0);
+        let bound = 2.0 / lambda_max;
+        assert!(
+            DEFAULT_SMOOTH_WEIGHT > bound,
+            "fixture must make the fixed weight unstable: 2/λ_max = {bound}"
+        );
+
+        let ams = AmsLitePreconditioner::build_with_coarse(
+            &g,
+            a.as_ref(),
+            eye.as_ref(),
+            0.0,
+            CoarseSolve::Direct,
+        )
+        .unwrap();
+        let sw = ams.smoother().clone();
+        assert_eq!(sw.source(), SmoothWeightSource::Estimate);
+        assert!(sw.warning().is_none());
+        // The Ritz value is a lower bound, the Gershgorin value an upper bound.
+        assert!(
+            sw.theta_max() <= lambda_max * (1.0 + 1e-12) && lambda_max <= sw.gershgorin(),
+            "θ = {}, λ_max = {lambda_max}, Gershgorin = {}",
+            sw.theta_max(),
+            sw.gershgorin()
+        );
+        // The short run resolved λ_max well inside the 1.1 safety factor.
+        assert!(
+            sw.theta_max() > 0.95 * lambda_max,
+            "Ritz gap too large: θ = {}, λ_max = {lambda_max}",
+            sw.theta_max()
+        );
+        assert!(
+            sw.weight() < bound,
+            "chosen weight {} is not below the true bound 2/λ_max = {bound}",
+            sw.weight()
+        );
+        assert!(sw.weight() < DEFAULT_SMOOTH_WEIGHT);
+        assert_eq!(
+            sw.weight(),
+            SMOOTH_WEIGHT_TARGET / sw.rho_hat(),
+            "the weight must follow 1.5/ρ̂ when that is below the cap"
+        );
+
+        let min_chosen = vcycle_min_eigenvalue(&ams, a.as_ref(), eye.as_ref(), 0.0);
+        assert!(
+            min_chosen > 0.0,
+            "V-cycle at the chosen weight is not positive definite: λ_min = {min_chosen}"
+        );
+        let forced = ams.with_smooth_weight(DEFAULT_SMOOTH_WEIGHT);
+        let min_forced = vcycle_min_eigenvalue(&forced, a.as_ref(), eye.as_ref(), 0.0);
+        assert!(
+            min_forced < 0.0,
+            "expected the V-cycle at 0.6 to be indefinite here: λ_min = {min_forced}"
+        );
+    }
+
+    /// Where the fixed weight was already inside the margin the chosen weight
+    /// is **exactly** the old constant, so the preconditioner is unchanged.
+    #[test]
+    fn smooth_weight_is_exactly_default_on_well_conditioned_operator() {
+        let n = 48;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient(n);
+        let sigma = -0.5;
+        let lambda_max = dense_lambda_max_dinv_a(k.as_ref(), m.as_ref(), sigma);
+        assert!(2.0 / lambda_max > DEFAULT_SMOOTH_WEIGHT);
+        let ams = AmsLitePreconditioner::build(&g, k.as_ref(), m.as_ref(), sigma).unwrap();
+        let sw = ams.smoother();
+        assert_eq!(sw.source(), SmoothWeightSource::Default);
+        assert_eq!(sw.weight().to_bits(), DEFAULT_SMOOTH_WEIGHT.to_bits());
+        assert!(sw.theta_max() <= lambda_max * (1.0 + 1e-12));
+        assert!(lambda_max <= sw.gershgorin());
+        // Here the Gershgorin bound alone proves stability of 0.6.
+        assert!(sw.gershgorin() < 2.0 / DEFAULT_SMOOTH_WEIGHT);
+    }
+
+    /// The weight rule itself, including every fallback: an unusable Ritz
+    /// value (NaN, ±∞, zero, negative) must not reach the weight.
+    #[test]
+    fn smooth_weight_falls_back_to_gershgorin_on_unusable_estimate() {
+        let g = 4.0;
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -3.0] {
+            let sw = choose_smooth_weight(bad, 0, g, None);
+            assert_eq!(
+                sw.source(),
+                SmoothWeightSource::GershgorinFallback,
+                "θ = {bad}"
+            );
+            assert_eq!(sw.rho_hat(), g);
+            assert_eq!(
+                sw.weight(),
+                DEFAULT_SMOOTH_WEIGHT.min(SMOOTH_WEIGHT_TARGET / g)
+            );
+            assert!(
+                sw.weight() < 2.0 / g,
+                "fallback weight must be below 2/Gershgorin"
+            );
+            assert!(sw.weight().is_finite() && sw.weight() > 0.0);
+        }
+        // A small Gershgorin bound keeps the default.
+        let sw = choose_smooth_weight(f64::NAN, 0, 1.8, None);
+        assert_eq!(sw.weight().to_bits(), DEFAULT_SMOOTH_WEIGHT.to_bits());
+        // Nothing usable at all: the fixed default, flagged as such.
+        for bad_g in [f64::NAN, f64::INFINITY, 0.0, -1.0] {
+            let sw = choose_smooth_weight(f64::NAN, 0, bad_g, None);
+            assert_eq!(sw.source(), SmoothWeightSource::DefaultFallback);
+            assert_eq!(sw.weight().to_bits(), DEFAULT_SMOOTH_WEIGHT.to_bits());
+            assert!(sw.rho_hat().is_nan());
+        }
+    }
+
+    /// The weight rule on a usable Ritz value: the default is kept, bit for
+    /// bit, unless `0.6·θ ≥ 2` proves it unstable; then `1.5/min(1.1θ, g)`.
+    #[test]
+    fn smooth_weight_is_lowered_only_when_ritz_value_proves_default_unstable() {
+        // Proven unstable: 0.6 · 3.4 = 2.04 ≥ 2.
+        let sw = choose_smooth_weight(3.4, 30, 4.0, None);
+        assert_eq!(sw.source(), SmoothWeightSource::Estimate);
+        assert_eq!(sw.rho_hat(), SMOOTH_RITZ_SAFETY * 3.4);
+        assert_eq!(
+            sw.weight(),
+            SMOOTH_WEIGHT_TARGET / (SMOOTH_RITZ_SAFETY * 3.4)
+        );
+        assert!(sw.weight() < DEFAULT_SMOOTH_WEIGHT);
+        // The Gershgorin bound is the smaller term: the weight is then rigorous.
+        let sw = choose_smooth_weight(3.9, 30, 4.0, None);
+        assert_eq!(sw.source(), SmoothWeightSource::Estimate);
+        assert_eq!(sw.rho_hat(), 4.0, "the Gershgorin cap must bind");
+        assert_eq!(sw.weight(), SMOOTH_WEIGHT_TARGET / 4.0);
+        // Not proven unstable: exactly the default, even where 1.1·θ alone
+        // would put 2/ρ̂ below 0.6 (the spiral: θ ≈ 3.09, Gershgorin ≈ 6.04).
+        for theta in [1.0, 2.5, 3.09, 3.3333] {
+            let sw = choose_smooth_weight(theta, 30, 6.04, None);
+            assert_eq!(sw.source(), SmoothWeightSource::Default, "θ = {theta}");
+            assert_eq!(sw.weight().to_bits(), DEFAULT_SMOOTH_WEIGHT.to_bits());
+            assert_eq!(sw.rho_hat(), SMOOTH_RITZ_SAFETY * theta);
+            assert!(sw.warning().is_none());
+        }
+        // The switch is at θ = 10/3, and the lowered weight never exceeds 0.6
+        // or the 0.45 it takes at the switch.
+        for theta in [3.3334, 3.5, 4.0, 10.0, 1e6] {
+            for g in [theta, 1.05 * theta, 2.0 * theta, f64::INFINITY] {
+                let sw = choose_smooth_weight(theta, 30, g, None);
+                assert_eq!(sw.source(), SmoothWeightSource::Estimate, "θ = {theta}");
+                assert!(sw.weight() > 0.0 && sw.weight() <= 0.45 + 1e-12);
+                // Below the bound for every λ_max the bounds allow up to 1.46·θ.
+                assert!(sw.weight() < 2.0 / (1.46 * theta).min(g));
+            }
+        }
+        // An override equal to a kept default does not warn; a larger one does.
+        assert!(
+            choose_smooth_weight(3.09, 30, 6.04, Some(0.6))
+                .warning()
+                .is_none()
+        );
+        assert!(
+            choose_smooth_weight(3.09, 30, 6.04, Some(0.61))
+                .warning()
+                .is_some()
+        );
+        assert!(
+            choose_smooth_weight(1.0, 30, 1.8, Some(0.9))
+                .warning()
+                .is_none()
+        );
+    }
+
+    /// End to end: an operator with a negative diagonal entry has no
+    /// `D^-1/2`, so the Lanczos estimate is unusable. The build must still
+    /// succeed, on the Gershgorin fallback.
+    #[test]
+    fn build_survives_unusable_estimate_via_gershgorin_fallback() {
+        let n = 16;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient(n);
+        // diag(K − 3M) = 2 − 3 < 0.
+        let sigma = 3.0;
+        assert!(
+            lanczos_lambda_max(&vec![-1.0; n], SMOOTH_LANCZOS_STEPS, |_, _| {}).is_none(),
+            "a negative D⁻¹ must make the estimate unusable"
+        );
+        let ams = AmsLitePreconditioner::build(&g, k.as_ref(), m.as_ref(), sigma)
+            .expect("the build must not fail on the estimate");
+        let sw = ams.smoother();
+        assert_eq!(sw.source(), SmoothWeightSource::GershgorinFallback);
+        assert!(sw.theta_max().is_nan());
+        // Interior row of |K| + |σM|, over |d| = 1: 1 + 2 + 1 + 3.
+        assert_eq!(sw.gershgorin(), 7.0);
+        assert_eq!(sw.weight(), SMOOTH_WEIGHT_TARGET / 7.0);
+    }
+
+    /// An explicit override is used as given. Above `2/ρ̂` it carries a
+    /// warning with the numbers; it is never rejected.
+    #[test]
+    fn smooth_weight_override_is_honoured_and_warns_above_bound() {
+        let n = 64;
+        let (a, eye) = overlapping_element_operator(n);
+        let g = chain_gradient(n);
+        let build = || AmsLitePreconditioner::build(&g, a.as_ref(), eye.as_ref(), 0.0).unwrap();
+        let auto = build().smoother().clone();
+        let bound = auto.stability_bound_estimate();
+        assert!(
+            DEFAULT_SMOOTH_WEIGHT > bound,
+            "0.6 must exceed 2/ρ̂ = {bound}"
+        );
+
+        let over = build().with_smooth_weight(DEFAULT_SMOOTH_WEIGHT);
+        let sw = over.smoother();
+        assert_eq!(sw.source(), SmoothWeightSource::Override);
+        assert_eq!(sw.weight().to_bits(), DEFAULT_SMOOTH_WEIGHT.to_bits());
+        // The estimate is kept alongside the override.
+        assert_eq!(sw.rho_hat().to_bits(), auto.rho_hat().to_bits());
+        let msg = sw.warning().expect("an override above 2/ρ̂ must warn");
+        assert!(msg.contains("GEODE_AMS_SMOOTH_WEIGHT"), "{msg}");
+        assert!(msg.contains("0.6"), "{msg}");
+        assert!(msg.contains(&format!("{bound:.4}")), "{msg}");
+        assert!(msg.contains(&format!("{:.4}", auto.weight())), "{msg}");
+        // The V-cycle really uses the override: it differs from the automatic one.
+        let r: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.7).sin() + 0.3).collect();
+        let apply = |p: &AmsLitePreconditioner| {
+            let mut z = vec![0.0; n];
+            p.apply_vcycle(&r, &mut z, |x, y| {
+                shifted_apply(a.as_ref(), eye.as_ref(), 0.0, x, y)
+            });
+            z
+        };
+        assert_ne!(apply(&over), apply(&build()));
+
+        // Below the bound: used, no warning.
+        let low = build().with_smooth_weight(0.3);
+        assert_eq!(low.smoother().weight(), 0.3);
+        assert_eq!(low.smoother().source(), SmoothWeightSource::Override);
+        assert!(low.smoother().warning().is_none());
+
+        // The environment value: a positive finite number or nothing.
+        assert_eq!(parse_smooth_weight_override(None), Ok(None));
+        assert_eq!(parse_smooth_weight_override(Some("  ")), Ok(None));
+        assert_eq!(parse_smooth_weight_override(Some(" 0.45 ")), Ok(Some(0.45)));
+        for bad in ["abc", "0", "-0.2", "nan", "inf"] {
+            let err = parse_smooth_weight_override(Some(bad)).unwrap_err();
+            assert!(
+                err.contains("GEODE_AMS_SMOOTH_WEIGHT") && err.contains(bad),
+                "{err}"
+            );
+        }
+    }
+
+    /// The estimate is a deterministic function of the operator: two builds
+    /// agree to the last bit, and so do builds made on a one-thread rayon pool
+    /// and inside a faer sequential scope (the estimate uses neither).
+    #[test]
+    fn smooth_weight_estimate_is_deterministic() {
+        let n = 200;
+        let (a, eye) = overlapping_element_operator(n);
+        let g = chain_gradient(n);
+        let build = || {
+            let sw = AmsLitePreconditioner::build(&g, a.as_ref(), eye.as_ref(), 0.0)
+                .unwrap()
+                .smoother()
+                .clone();
+            (
+                sw.weight().to_bits(),
+                sw.theta_max().to_bits(),
+                sw.gershgorin().to_bits(),
+                sw.rho_hat().to_bits(),
+                sw.lanczos_steps(),
+            )
+        };
+        let first = build();
+        assert_eq!(first, build(), "two builds disagree");
+        assert_eq!(first.4, SMOOTH_LANCZOS_STEPS);
+        #[cfg(feature = "faer-parallel")]
+        {
+            let one = crate::eigen::parallel::install_on_pool(1, build);
+            assert_eq!(
+                first, one,
+                "one-thread pool disagrees with the default pool"
+            );
+        }
+        let _seq = crate::eigen::parallel::SequentialSolveScope::enter();
+        assert_eq!(first, build(), "sequential faer scope disagrees");
+    }
+
+    /// The Sturm-bisection tridiagonal eigenvalue and the Lanczos driver
+    /// against closed forms: `tridiag(-1, 2, -1)` has
+    /// `λ_max = 2 + 2 cos(π/(n+1))`.
+    #[test]
+    fn lanczos_lambda_max_matches_closed_form() {
+        let n = 12;
+        let exact = 2.0 + 2.0 * (std::f64::consts::PI / (n as f64 + 1.0)).cos();
+        let alpha = vec![2.0; n];
+        let beta = vec![-1.0; n - 1];
+        let t = tridiag_largest_eigenvalue(&alpha, &beta);
+        assert!((t - exact).abs() < 1e-13, "{t} vs {exact}");
+        assert_eq!(tridiag_largest_eigenvalue(&[3.5], &[]), 3.5);
+
+        // Full-length Lanczos (n steps) on the same operator with D = I is exact.
+        let (k, _) = laplacian(n);
+        let (theta, steps) =
+            lanczos_lambda_max(&vec![1.0; n], n, |x, y| spmv(k.as_ref(), x, y)).unwrap();
+        assert!(steps <= n);
+        assert!((theta - exact).abs() < 1e-10, "{theta} vs {exact}");
+        // A short run is a lower bound.
+        let (short, _) =
+            lanczos_lambda_max(&vec![1.0; n], 4, |x, y| spmv(k.as_ref(), x, y)).unwrap();
+        assert!(short <= exact + 1e-12 && short > 0.0);
+        // Degenerate inputs are reported as unusable, never as a number.
+        assert!(lanczos_lambda_max(&[], 30, |_, _| {}).is_none());
+        assert!(lanczos_lambda_max(&[1.0, f64::NAN], 30, |_, _| {}).is_none());
+        assert!(lanczos_lambda_max(&[1.0, 1.0], 30, |_, y| y.fill(f64::NAN)).is_none());
+        assert!(lanczos_lambda_max(&[1.0, 1.0], 30, |_, y| y.fill(0.0)).is_none());
     }
 }
