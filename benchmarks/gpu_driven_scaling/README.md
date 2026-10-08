@@ -162,8 +162,9 @@ Drive frequency ω = 0.10 unless stated.
 in single-core solve time at 25.7k to 463k edges and 3.4× at 898k, so it should become
 the driven default where it is supported. It does not close the gap to
 Palace.** On one core Palace's own AMS solves the linear system 2.1× faster
-than geode's at 463k edges and 3.4× faster at 898k; on eight cores it is 12×
-faster, because geode's Krylov solve does not use the extra cores.
+than geode's at 463k edges and 3.4× faster at 898k; on eight cores it is
+about 12× faster at 338k to 463k edges (3.3× at 25.7k, 5.3× at 59.7k, 7.1×
+at 102k), because geode's Krylov solve does not use the extra cores.
 
 | edges | cores | geode COCG + Jacobi | geode COCG + AMS | Palace GMRES + AMS | Palace GMRES + SuperLU (its default) |
 |---|---|---|---|---|---|
@@ -184,6 +185,9 @@ Each cell: Krylov iterations · linear-solve seconds (median) · peak memory.
 geode's seconds are `prepare_at` + `solve` (assemble `A(ω)`, build the
 preconditioner, iterate, check the residual); Palace's are the sum of the
 `Setup`, `Preconditioner` and `Linear Solve` rows of its own timing report.
+geode's figure includes assembling `A(ω)`, while the Palace sum leaves out
+its `Operator Construction` row; this favours Palace slightly, so the
+comparisons against Palace are conservative for geode.
 geode's memory is the process's peak RSS; Palace's is the container's
 `memory.peak`, all ranks together. Two repeats per geode cell and three per
 Palace cell up to 463k edges (each repeat is in the file; the largest
@@ -194,9 +198,9 @@ is `summarize_ams_r6i.py --markdown`.
 
 **geode, Jacobi against AMS.**
 
-- **AMS wins at every size, and wins more as the mesh grows.** Single-core
-  solve time: 3.5× at 25.7k edges, 4.2× at 102k, 4.0× at 463k and 3.4× at
-  898k. Core-seconds of the whole process (mesh, assembly, solve): 2.2× at
+- **AMS wins at every size, by 3.4× to 4.2× with no trend in size.**
+  Single-core solve time: 3.5× at 25.7k edges, 3.7× at 59.7k, 4.2× at 102k,
+  3.7× at 338k, 4.0× at 463k and 3.4× at 898k. Core-seconds of the whole process (mesh, assembly, solve): 2.2× at
   25.7k up to 3.3× at 463k. No measured size favours Jacobi; the local
   record found the same down to 1 854 edges (1.1× to 2.3× less CPU for AMS,
   developer machine).
@@ -208,7 +212,10 @@ is `summarize_ams_r6i.py --markdown`.
   (0.014 s at 25.7k edges to 1.22 s at 898k, single core, Krylov time over
   iterations).
 - **Against Palace's AMS on one core the gap is the iteration count**, 5.4×
-  at 463k edges (86 against 16) and 6.2× at 898k (105 against 17). Palace's
+  at 463k edges (86 against 16) and 6.2× at 898k (105 against 17). At small
+  sizes there is no gap: on one core geode's AMS is faster than Palace's at
+  25.7k edges (0.66× its time) and about even at 59.7k and 102k (0.92×,
+  1.07×). Palace's
   report does not separate its AMS setup from its iterations, so its cost
   per iteration is not known. By arithmetic on geode's own measured costs,
   16 iterations at 0.50 s plus the 13.4 s setup would take about 21 s at
@@ -250,7 +257,7 @@ is `summarize_ams_r6i.py --markdown`.
   measured both. Palace with `AMS` takes 12 to 17 iterations, is faster than
   Palace's default at every size (2.5× to 7.9× in linear-solve time on eight
   ranks), and uses
-  2.1× to 4.2× less memory. The log does not print the resolved type; it is
+  1.8× to 4.2× less memory. The log does not print the resolved type; it is
   read from the source and the build flags, and the two runs differ in
   every measured column.
 - **Same host as the #520 Palace CPU numbers?** No: #520 ran on a Lambda
@@ -260,7 +267,7 @@ is `summarize_ams_r6i.py --markdown`.
 - **geode's best against Palace's best, linear solve only:** one core, geode
   AMS 56.4 s against Palace AMS 26.4 s at 463k edges (2.1×) and 181.3 s
   against 53.3 s at 898k (3.4×); eight cores, 50.4 s against 4.2 s at 463k
-  (12×). geode's AMS beats Palace's *default* on one core at every size
+  (12×; 12.3× at 338k, 7.1× at 102k, 5.3× at 59.7k, 3.3× at 25.7k). geode's AMS beats Palace's *default* on one core at every size
   (56.4 s against 85.9 s at 463k), and loses to it on eight.
 - **Whole process.** Palace's process wall clock includes reading and
   partitioning the mesh, an error estimate and postprocessing, which
@@ -270,7 +277,8 @@ is `summarize_ams_r6i.py --markdown`.
   463k against Palace AMS 97.9 and Palace default 241.1.
 
 **Direct** (for the accuracy cross-check, not a candidate default here): one
-LU took 25.8 s on eight threads at 102k edges (11 GB) and 375 s at 338k
+LU took 25.7 s on eight threads at 102k edges (11 GB; median `setup_s`, 25.9 s
+for the whole solve) and 375 s at 338k
 edges (78 GB peak RSS). It was not run at 463k edges or above: that LU would
 likely need more than the box's 128 GB. At 463k and 898k edges the iterative
 cells are checked against each other and against Palace instead.
@@ -300,7 +308,8 @@ decision has to accept:
   differ by element order and solver mode. That has to be reported, not
   silent.
 - **The single-thread Krylov solve** is the reason geode loses to Palace by
-  12× on eight cores. A parallel SpMV and V-cycle is a separate piece of
+  about 12× on eight cores at 338k to 463k edges (3.3× at 25.7k, growing
+  with size). A parallel SpMV and V-cycle is a separate piece of
   work.
 
 The matrix-free / GPU AMS question is filed as #966, a child of #547.
