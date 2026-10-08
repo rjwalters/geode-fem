@@ -38,6 +38,28 @@
 //!    blowing up. Typical cause is the seed landing in the basin of a
 //!    neighbour mode and the un-frozen Newton trying to hop.
 //!
+//! # Pluggable eigensolver and target rule (issue #917)
+//!
+//! [`self_consistent_k`] and [`self_consistent_k_vector_tracked`] solve the
+//! full dense spectrum on every iteration ([`FaerComplexEigensolver`]) and
+//! take the target as an index into it. That is `O(n³)` per iteration: about
+//! 21 dense solves of the 4512-DOF sphere pencil per run.
+//!
+//! [`self_consistent_k_with`] and [`self_consistent_k_vector_tracked_with`]
+//! take the eigensolver ([`SelfConsistentEigensolver`]) and the target rule
+//! ([`ModeTarget`]) as arguments. With [`SparseSelfConsistentEigensolver`]
+//! and [`ModeTarget::Nearest`] each iteration is one sparse shift-invert
+//! Lanczos for the few eigenvalues nearest the previous target. The damped
+//! update, the convergence test and the divergence guard are shared, and
+//! the dense functions are the `(FaerComplexEigensolver, ModeTarget::Index)`
+//! case of the pluggable ones.
+//!
+//! The two target rules are not interchangeable. A frozen index re-reads
+//! "the `i`-th smallest `|Re λ|`" on every solve, so it can change mode
+//! when the sorted order shuffles. [`ModeTarget::Nearest`] follows one
+//! eigenvalue continuously. They agree while the order around the target
+//! does not change.
+//!
 //! # Scope: Silver-Müller only — not PML
 //!
 //! The PML pencil (#28) takes a damping coefficient `σ₀`, not a
@@ -63,8 +85,13 @@
 use faer::c64;
 use faer::mat::MatRef;
 
-use crate::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
+use faer::sparse::{SparseColMat, Triplet};
+
+use crate::eigen::complex::{
+    ComplexEigenPair, ComplexEigenSolver, FaerComplexEigensolver, SparseComplexShiftInvertLanczos,
+};
 use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::ConvergenceCheck;
 use crate::solver::iterate::{IterOutcome, Step, iterate_while_with_prev};
 
 /// Outcome of [`self_consistent_k`].
@@ -156,13 +183,359 @@ pub fn self_consistent_k(
     tol: f64,
     max_iter: usize,
 ) -> Result<SelfConsistentResult, EigenError> {
-    assert!(
-        n_eigs > target_idx,
-        "n_eigs ({n_eigs}) must be > target_idx ({target_idx}) so the target mode is in the slice"
-    );
-    assert!(max_iter > 0, "max_iter must be positive");
+    self_consistent_k_with(
+        &FaerComplexEigensolver,
+        k_mat,
+        s_mat,
+        m_mat,
+        initial_k0,
+        ModeTarget::Index(target_idx),
+        n_eigs,
+        tol,
+        max_iter,
+    )
+}
 
-    let solver = FaerComplexEigensolver;
+/// How a self-consistent driver picks the target mode out of each solve
+/// (issue #917).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ModeTarget {
+    /// The historical frozen index into the solver's list, sorted by
+    /// `|Re λ|` ascending. Only meaningful for a solver that returns the
+    /// whole low end of the spectrum, such as [`FaerComplexEigensolver`]:
+    /// a windowed solver like [`SparseSelfConsistentEigensolver`] returns a
+    /// different set of modes at every shift, so an index into it does not
+    /// name a mode.
+    Index(usize),
+    /// Track by proximity: the first solve picks the eigenvalue nearest
+    /// this seed `λ = k²`, and each later solve picks the eigenvalue nearest
+    /// the previous solve's target. This needs only the few eigenvalues
+    /// near the target, so it works with a windowed solver.
+    Nearest(c64),
+}
+
+impl ModeTarget {
+    /// Pick the target out of `lambdas`, given the previous target `prev`
+    /// (`None` on the first solve). Returns `None` when the list is too
+    /// short (index past the end, or empty).
+    fn pick(self, lambdas: &[c64], prev: Option<c64>) -> Option<usize> {
+        match self {
+            ModeTarget::Index(i) => (i < lambdas.len()).then_some(i),
+            ModeTarget::Nearest(seed) => {
+                let anchor = prev.unwrap_or(seed);
+                lambdas
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| (*a.1 - anchor).norm().total_cmp(&(*b.1 - anchor).norm()))
+                    .map(|(i, _)| i)
+            }
+        }
+    }
+
+    /// The shift hint passed to the eigensolver: the previous target (or
+    /// the seed) for [`ModeTarget::Nearest`], `k₀²` for
+    /// [`ModeTarget::Index`].
+    fn shift_hint(self, k0: f64, prev: Option<c64>) -> c64 {
+        match self {
+            ModeTarget::Index(_) => c64::new(k0 * k0, 0.0),
+            ModeTarget::Nearest(seed) => prev.unwrap_or(seed),
+        }
+    }
+}
+
+/// The eigensolver a self-consistent driver calls once per iteration
+/// (issue #917): the eigenpairs of the Silver-Müller pencil
+/// `(K + j k₀ S) E = λ M E` at the current `k₀`.
+///
+/// `sigma` is a hint for where the target is in the complex `λ` plane: the
+/// previous target under [`ModeTarget::Nearest`]. A full-spectrum solver
+/// ignores it. A windowed solver returns the eigenvalues nearest it.
+///
+/// Every [`ComplexEigenSolver`] implements this trait by ignoring `sigma`
+/// and returning its lowest-`n` list by `|Re λ|`, so the dense
+/// [`FaerComplexEigensolver`] (the default of [`self_consistent_k`] and
+/// [`self_consistent_k_vector_tracked`]) keeps its exact behaviour.
+/// [`SparseSelfConsistentEigensolver`] is the sparse windowed solver.
+pub trait SelfConsistentEigensolver {
+    /// Eigenvalues of `(K + j k₀ S, M)`, at most `n`.
+    #[allow(clippy::too_many_arguments)]
+    fn pencil_eigenvalues(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        sigma: c64,
+        n: usize,
+    ) -> Result<Vec<c64>, EigenError>;
+
+    /// Eigenpairs `(λ, x)` of `(K + j k₀ S, M)`, at most `n`. Vector
+    /// normalization is up to the solver; the vector-tracked driver
+    /// re-normalizes.
+    #[allow(clippy::too_many_arguments)]
+    fn pencil_eigenpairs(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        sigma: c64,
+        n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError>;
+}
+
+impl<T: ComplexEigenSolver + ?Sized> SelfConsistentEigensolver for T {
+    fn pencil_eigenvalues(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        _sigma: c64,
+        n: usize,
+    ) -> Result<Vec<c64>, EigenError> {
+        self.smallest_complex_eigenvalues(k, s, m, k0, n)
+    }
+
+    fn pencil_eigenpairs(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        _sigma: c64,
+        n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        self.smallest_complex_pairs(k, s, m, k0, n)
+    }
+}
+
+/// Sparse windowed eigensolver for the self-consistent drivers (issue
+/// #917): the residual-checked complex shift-invert Lanczos
+/// ([`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked`]) at the
+/// shift `σ` the driver passes, returning the `n` converged pairs nearest
+/// `σ`.
+///
+/// `σ` is complex, because a Silver-Müller target can sit far from the real
+/// axis (the overdamped surface modes of the sphere fixture have
+/// `λ ≈ 0.13 + 2.3j`, behind the whole gradient null cluster as seen from
+/// any real shift). The Lanczos solver takes a real shift, so the imaginary
+/// part is moved into the pencil: `(A − j·Im σ·M, M)` has the eigenvalues
+/// `λ − j·Im σ` and the same eigenvectors, and is still complex symmetric.
+/// It is solved at the real shift `Re σ` and `j·Im σ` is added back.
+///
+/// The dense inputs are converted to compressed sparse columns on every
+/// call (`O(n²)` scan, cheap next to a dense `O(n³)` solve). Use it with
+/// [`ModeTarget::Nearest`]: the returned window moves with `σ`, so a frozen
+/// index into it does not name a mode.
+///
+/// # What the window does to each driver
+///
+/// - **Proximity tracking** ([`self_consistent_k_with`] with
+///   [`ModeTarget::Nearest`]) is unaffected: `σ` is the previous target, so
+///   the eigenvalue nearest it is always in the window. On the 4512-DOF
+///   sphere pencil the run agrees with the dense solver under the same rule
+///   to `1e-12` in the final `k` (issue #917).
+/// - **Vector tracking** ([`self_consistent_k_vector_tracked_with`]) scores
+///   only the `n` candidates in the window. If one `k₀` step moves the
+///   target's eigenvalue farther than the window reaches, no candidate
+///   overlaps and the driver returns
+///   [`SelfConsistentResult::ModeLost`], where a wider window would have
+///   kept the mode. That happens for a seed far from self-consistency
+///   (sphere pencil, seed `k₀ = 25`, a mode at `λ ≈ 37.5 + 6.5j`: lost at
+///   `n = 12` and `n = 48`, tracked to convergence at `n = 160`). Raise
+///   `n_eigs` if a well-seeded run reports `ModeLost`.
+///
+/// # Holes
+///
+/// A **hole at the target** fails loudly: if the checked solve withholds a
+/// localized (genuine but unconverged) eigenvalue nearer `σ` than every
+/// pair it returns, the call returns [`EigenError::FaerGevd`]. Under
+/// [`ModeTarget::Nearest`] `σ` is the previous target, so that withheld
+/// eigenvalue is the one the driver would have picked, and returning the
+/// window would make it pick a farther mode in its place. Unconverged
+/// values farther out than the nearest returned pair are not an error: a
+/// window that reaches the gradient null cluster (`λ ≈ 0`, hundreds of
+/// modes) always has some, and the driver never picks past the nearest.
+#[derive(Debug, Clone, Copy)]
+pub struct SparseSelfConsistentEigensolver {
+    /// Krylov dimension of the first Lanczos pass
+    /// ([`SparseComplexShiftInvertLanczos::max_iters`]).
+    pub max_iters: usize,
+    /// Lanczos tolerance ([`SparseComplexShiftInvertLanczos::tol`]).
+    pub tol: f64,
+    /// Largest accepted relative true residual of a returned pair
+    /// ([`ConvergenceCheck::residual_tol`]).
+    pub residual_tol: f64,
+    /// Cap on the Krylov dimension of an extended run
+    /// ([`ConvergenceCheck::max_iters_cap`]).
+    pub max_iters_cap: usize,
+}
+
+impl Default for SparseSelfConsistentEigensolver {
+    fn default() -> Self {
+        Self {
+            max_iters: 64,
+            tol: 1e-9,
+            residual_tol: 1e-8,
+            max_iters_cap: 400,
+        }
+    }
+}
+
+impl SparseSelfConsistentEigensolver {
+    /// Converged pairs nearest `sigma`, ascending `Re λ`.
+    #[allow(clippy::too_many_arguments)]
+    fn solve(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        sigma: c64,
+        n: usize,
+    ) -> Result<Vec<ComplexEigenPair>, EigenError> {
+        // A' = K + j (k₀ S − Im σ · M): the pencil with `Im σ` shifted out.
+        let tau = c64::new(0.0, sigma.im);
+        let a = dense_to_csc(k, &[(s, c64::new(0.0, k0)), (m, -tau)])?;
+        let b = dense_to_csc(m, &[])?;
+        let sigma_re = sigma.re;
+        let lanczos = SparseComplexShiftInvertLanczos {
+            sigma: sigma_re,
+            max_iters: self.max_iters,
+            tol: self.tol,
+        };
+        let checked = lanczos.smallest_eigenpairs_checked(
+            a.as_ref(),
+            b.as_ref(),
+            n,
+            ConvergenceCheck {
+                residual_tol: self.residual_tol,
+                max_iters_cap: self.max_iters_cap,
+                window: None,
+            },
+        )?;
+        // Distance from σ to the nearest returned pair (∞ if none came back).
+        let reach = checked
+            .pairs
+            .iter()
+            .map(|p| (p.lambda.re - sigma_re).hypot(p.lambda.im))
+            .fold(f64::INFINITY, f64::min);
+        if let Some((lambda, residual)) = checked.localized_hole(sigma_re, reach, |_| true) {
+            let lambda = lambda + tau;
+            return Err(EigenError::FaerGevd(format!(
+                "self-consistent sparse solve at k0 = {k0}, sigma = {sigma}: the eigenvalue \
+                 nearest sigma, {lambda} (relative residual {residual:.3e}), did not \
+                 converge within {} Lanczos steps; refusing to return a window with a \
+                 hole at the target (issue #917)",
+                checked.lanczos_steps
+            )));
+        }
+        let mut pairs = checked.pairs;
+        for p in &mut pairs {
+            p.lambda += tau;
+        }
+        Ok(pairs)
+    }
+}
+
+impl SelfConsistentEigensolver for SparseSelfConsistentEigensolver {
+    fn pencil_eigenvalues(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        sigma: c64,
+        n: usize,
+    ) -> Result<Vec<c64>, EigenError> {
+        Ok(self
+            .solve(k, s, m, k0, sigma, n)?
+            .into_iter()
+            .map(|p| p.lambda)
+            .collect())
+    }
+
+    fn pencil_eigenpairs(
+        &self,
+        k: MatRef<f64>,
+        s: MatRef<f64>,
+        m: MatRef<f64>,
+        k0: f64,
+        sigma: c64,
+        n: usize,
+    ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+        Ok(self
+            .solve(k, s, m, k0, sigma, n)?
+            .into_iter()
+            .map(|p| (p.lambda, p.vector))
+            .collect())
+    }
+}
+
+/// `A + Σ scaleᵢ · Bᵢ` as a complex CSC matrix, keeping the entries where
+/// any of the dense inputs is nonzero.
+fn dense_to_csc(
+    a: MatRef<f64>,
+    terms: &[(MatRef<f64>, c64)],
+) -> Result<SparseColMat<usize, c64>, EigenError> {
+    let (nr, nc) = (a.nrows(), a.ncols());
+    let mut trips: Vec<Triplet<usize, usize, c64>> = Vec::new();
+    for j in 0..nc {
+        for i in 0..nr {
+            let mut v = c64::new(a[(i, j)], 0.0);
+            let mut structural = v.re != 0.0;
+            for (bm, scale) in terms {
+                let b = bm[(i, j)];
+                structural |= b != 0.0;
+                v += *scale * b;
+            }
+            if structural {
+                trips.push(Triplet::new(i, j, v));
+            }
+        }
+    }
+    SparseColMat::<usize, c64>::try_new_from_triplets(nr, nc, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("self-consistent CSC conversion: {e:?}")))
+}
+
+/// [`self_consistent_k`] with a pluggable eigensolver and target rule
+/// (issue #917).
+///
+/// `solver` is called once per iteration with the shift hint of
+/// [`ModeTarget`]; `target` picks the mode out of each solve. With
+/// `(&FaerComplexEigensolver, ModeTarget::Index(i))` this is exactly
+/// [`self_consistent_k`]. With
+/// `(&SparseSelfConsistentEigensolver::default(), ModeTarget::Nearest(λ₀))`
+/// each solve is a sparse Lanczos for the `n_eigs` eigenvalues nearest the
+/// previous target instead of a dense full-spectrum solve.
+///
+/// The damping, convergence test and divergence guard are those of
+/// [`self_consistent_k`].
+///
+/// # Panics
+///
+/// If `max_iter == 0`, or `target` is [`ModeTarget::Index`]`(i)` with
+/// `n_eigs <= i`.
+#[allow(clippy::too_many_arguments)]
+pub fn self_consistent_k_with<S: SelfConsistentEigensolver + ?Sized>(
+    solver: &S,
+    k_mat: MatRef<f64>,
+    s_mat: MatRef<f64>,
+    m_mat: MatRef<f64>,
+    initial_k0: f64,
+    target: ModeTarget,
+    n_eigs: usize,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SelfConsistentResult, EigenError> {
+    if let ModeTarget::Index(target_idx) = target {
+        assert!(
+            n_eigs > target_idx,
+            "n_eigs ({n_eigs}) must be > target_idx ({target_idx}) so the target mode is in the slice"
+        );
+    }
+    assert!(max_iter > 0, "max_iter must be positive");
 
     // The carried state is the fixed-point's loop-invariant slot
     // (contract restriction 1): the current seed `k₀`, the last stable
@@ -182,18 +555,24 @@ pub fn self_consistent_k(
         SelfConsistentState {
             k0: initial_k0,
             last_k: None,
+            last_lambda: None,
             dk_rel: None,
         },
         max_iter,
         |it, prev, state| {
-            let SelfConsistentState { k0, last_k, .. } = state;
+            let SelfConsistentState {
+                k0,
+                last_k,
+                last_lambda,
+                ..
+            } = state;
 
-            let lambdas = match solver.smallest_complex_eigenvalues(k_mat, s_mat, m_mat, k0, n_eigs)
-            {
+            let sigma = target.shift_hint(k0, last_lambda);
+            let lambdas = match solver.pencil_eigenvalues(k_mat, s_mat, m_mat, k0, sigma, n_eigs) {
                 Ok(l) => l,
                 Err(e) => return Step::Done(Err(e)),
             };
-            if lambdas.len() <= target_idx {
+            let Some(picked) = target.pick(&lambdas, last_lambda) else {
                 // Solver returned fewer eigenvalues than requested (e.g.
                 // mass-pencil singularities skipped). Treat as divergence
                 // at the last stable point.
@@ -201,9 +580,9 @@ pub fn self_consistent_k(
                     last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
                     iterations: it,
                 }));
-            }
+            };
 
-            let lambda = lambdas[target_idx];
+            let lambda = lambdas[picked];
             let k_target = principal_sqrt(lambda);
             let re_k = k_target.re;
 
@@ -240,6 +619,7 @@ pub fn self_consistent_k(
             Step::Continue(SelfConsistentState {
                 k0: k0 + alpha * dk,
                 last_k: Some(k_target),
+                last_lambda: Some(lambda),
                 dk_rel: Some(dk_rel),
             })
         },
@@ -263,6 +643,9 @@ struct SelfConsistentState {
     k0: f64,
     /// Last stable `k = sqrt(λ_target)` (`None` before the first solve).
     last_k: Option<c64>,
+    /// Last target eigenvalue `λ_target` (`None` before the first solve);
+    /// the anchor of [`ModeTarget::Nearest`] and its shift hint.
+    last_lambda: Option<c64>,
     /// This step's relative residual `|Δk₀| / k₀` (`None` on entry).
     /// Read from the combinator's `prev` by the divergence guard.
     dk_rel: Option<f64>,
@@ -387,20 +770,63 @@ pub fn self_consistent_k_vector_tracked(
     tol: f64,
     max_iter: usize,
 ) -> Result<SelfConsistentResult, EigenError> {
-    assert!(
-        n_eigs > initial_target_idx,
-        "n_eigs ({n_eigs}) must be > initial_target_idx ({initial_target_idx})"
-    );
+    self_consistent_k_vector_tracked_with(
+        &FaerComplexEigensolver,
+        k_mat,
+        s_mat,
+        m_mat,
+        initial_k0,
+        ModeTarget::Index(initial_target_idx),
+        n_eigs,
+        tol,
+        max_iter,
+    )
+}
+
+/// [`self_consistent_k_vector_tracked`] with a pluggable eigensolver and
+/// seed rule (issue #917).
+///
+/// `initial` picks the target out of the **first** solve only
+/// ([`ModeTarget::Index`] or [`ModeTarget::Nearest`]); every later solve
+/// picks the candidate of maximum M-overlap with the previous target, as
+/// in [`self_consistent_k_vector_tracked`]. The solver's shift hint is
+/// [`ModeTarget`]'s on the first solve and the previous target `λ`
+/// afterwards. With `(&FaerComplexEigensolver, ModeTarget::Index(i))` this
+/// is exactly [`self_consistent_k_vector_tracked`].
+///
+/// # Panics
+///
+/// If `max_iter == 0`, or `initial` is [`ModeTarget::Index`]`(i)` with
+/// `n_eigs <= i`.
+#[allow(clippy::too_many_arguments)]
+pub fn self_consistent_k_vector_tracked_with<S: SelfConsistentEigensolver + ?Sized>(
+    solver: &S,
+    k_mat: MatRef<f64>,
+    s_mat: MatRef<f64>,
+    m_mat: MatRef<f64>,
+    initial_k0: f64,
+    initial: ModeTarget,
+    n_eigs: usize,
+    tol: f64,
+    max_iter: usize,
+) -> Result<SelfConsistentResult, EigenError> {
+    if let ModeTarget::Index(initial_target_idx) = initial {
+        assert!(
+            n_eigs > initial_target_idx,
+            "n_eigs ({n_eigs}) must be > initial_target_idx ({initial_target_idx})"
+        );
+    }
     assert!(max_iter > 0, "max_iter must be positive");
 
-    let solver = FaerComplexEigensolver;
     let mut k0 = initial_k0;
     let mut prev_v: Option<Vec<c64>> = None;
     let mut last_k: Option<c64> = None;
+    let mut last_lambda: Option<c64> = None;
     let mut prev_dk_rel: Option<f64> = None;
 
     for it in 1..=max_iter {
-        let pairs = solver.smallest_complex_pairs(k_mat, s_mat, m_mat, k0, n_eigs)?;
+        let sigma = last_lambda.unwrap_or_else(|| initial.shift_hint(k0, None));
+        let pairs = solver.pencil_eigenpairs(k_mat, s_mat, m_mat, k0, sigma, n_eigs)?;
         if pairs.is_empty() {
             return Ok(SelfConsistentResult::Diverged {
                 last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
@@ -408,17 +834,18 @@ pub fn self_consistent_k_vector_tracked(
             });
         }
 
-        // Pick target: seed iteration uses integer index; subsequent
-        // iterations use max-overlap.
+        // Pick target: seed iteration uses `initial` (integer index or
+        // nearest eigenvalue); subsequent iterations use max-overlap.
         let (lambda, mut v_sel, best_overlap) = match &prev_v {
             None => {
-                if pairs.len() <= initial_target_idx {
+                let lambdas: Vec<c64> = pairs.iter().map(|p| p.0).collect();
+                let Some(picked) = initial.pick(&lambdas, None) else {
                     return Ok(SelfConsistentResult::Diverged {
                         last_k: last_k.unwrap_or(c64::new(k0, 0.0)),
                         iterations: it,
                     });
-                }
-                let (lam, v) = pairs[initial_target_idx].clone();
+                };
+                let (lam, v) = pairs[picked].clone();
                 (lam, v, 1.0)
             }
             Some(prev) => {
@@ -508,6 +935,7 @@ pub fn self_consistent_k_vector_tracked(
         let alpha = if it <= DAMPED_ITERATIONS { 0.5 } else { 1.0 };
         k0 += alpha * dk;
         last_k = Some(k_target);
+        last_lambda = Some(lambda);
         prev_v = Some(v_sel);
     }
 
@@ -871,6 +1299,153 @@ mod tests {
             }
             other => panic!("expected Converged from diagonal pencil, got {other:?}"),
         }
+    }
+
+    /// A 1-D "open resonator" pencil for the pluggable-solver tests (issue
+    /// #917): `K` the Dirichlet-Neumann second-difference matrix, `M = h·I`
+    /// lumped, `S` a unit impedance on the last node. Its spectrum is simple
+    /// and complex, and it moves with `k₀`.
+    fn open_chain(n: usize) -> (faer::Mat<f64>, faer::Mat<f64>, faer::Mat<f64>) {
+        let h = 1.0 / n as f64;
+        let k = faer::Mat::<f64>::from_fn(n, n, |i, j| {
+            if i == j {
+                if i == n - 1 { 1.0 / h } else { 2.0 / h }
+            } else if i.abs_diff(j) == 1 {
+                -1.0 / h
+            } else {
+                0.0
+            }
+        });
+        let s =
+            faer::Mat::<f64>::from_fn(n, n, |i, j| if i == j && i == n - 1 { 1.0 } else { 0.0 });
+        let m = faer::Mat::<f64>::from_fn(n, n, |i, j| if i == j { h } else { 0.0 });
+        (k, s, m)
+    }
+
+    fn converged(r: SelfConsistentResult) -> (c64, f64, usize) {
+        match r {
+            SelfConsistentResult::Converged { k, q, iterations } => (k, q, iterations),
+            other => panic!("expected Converged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mode_target_pick_and_shift_hint() {
+        let l = [c64::new(0.0, 0.0), c64::new(1.0, 0.1), c64::new(4.0, 0.2)];
+        assert_eq!(ModeTarget::Index(2).pick(&l, None), Some(2));
+        assert_eq!(ModeTarget::Index(3).pick(&l, None), None);
+        // The previous target is ignored by a frozen index.
+        assert_eq!(ModeTarget::Index(0).pick(&l, Some(l[2])), Some(0));
+        let near = ModeTarget::Nearest(c64::new(1.2, 0.0));
+        assert_eq!(near.pick(&l, None), Some(1));
+        // Once a previous target exists it is the anchor, not the seed.
+        assert_eq!(near.pick(&l, Some(c64::new(3.5, 0.0))), Some(2));
+        assert_eq!(near.pick(&[], None), None);
+        assert_eq!(
+            ModeTarget::Index(1).shift_hint(3.0, Some(l[2])),
+            c64::new(9.0, 0.0)
+        );
+        assert_eq!(near.shift_hint(3.0, None), c64::new(1.2, 0.0));
+        assert_eq!(near.shift_hint(3.0, Some(l[2])), l[2]);
+    }
+
+    /// Issue #917: on the same pencil, the sparse windowed solver with
+    /// proximity tracking walks the same fixed point as the dense solver
+    /// with a frozen index, for both drivers and for two different modes.
+    #[test]
+    fn sparse_nearest_matches_dense_frozen_index() {
+        let (k, s, m) = open_chain(60);
+        let n = k.nrows();
+        let sparse = SparseSelfConsistentEigensolver::default();
+        for (idx, k0) in [(1usize, 4.0_f64), (3, 10.0)] {
+            // The dense list at the seed names the target for both runs.
+            let seed_lambda = FaerComplexEigensolver
+                .smallest_complex_eigenvalues(k.as_ref(), s.as_ref(), m.as_ref(), k0, n)
+                .expect("dense seed solve")[idx];
+            let (kd, qd, itd) = converged(
+                self_consistent_k(k.as_ref(), s.as_ref(), m.as_ref(), k0, idx, n, 1e-9, 40)
+                    .expect("dense frozen-index run"),
+            );
+            let (ks, qs, its) = converged(
+                self_consistent_k_with(
+                    &sparse,
+                    k.as_ref(),
+                    s.as_ref(),
+                    m.as_ref(),
+                    k0,
+                    ModeTarget::Nearest(seed_lambda),
+                    4,
+                    1e-9,
+                    40,
+                )
+                .expect("sparse nearest run"),
+            );
+            assert!(qd.is_finite() && qd > 0.0, "mode {idx}: dense Q = {qd}");
+            assert!(
+                (ks - kd).norm() <= 1e-8 * kd.norm(),
+                "mode {idx}: sparse k = {ks}, dense k = {kd}"
+            );
+            assert!(((qs - qd) / qd).abs() < 1e-6, "mode {idx}: Q {qs} vs {qd}");
+            assert_eq!(its, itd, "mode {idx}: iteration count");
+
+            let (kvd, _, itvd) = converged(
+                self_consistent_k_vector_tracked(
+                    k.as_ref(),
+                    s.as_ref(),
+                    m.as_ref(),
+                    k0,
+                    idx,
+                    n,
+                    1e-9,
+                    40,
+                )
+                .expect("dense vector-tracked run"),
+            );
+            let (kvs, _, itvs) = converged(
+                self_consistent_k_vector_tracked_with(
+                    &sparse,
+                    k.as_ref(),
+                    s.as_ref(),
+                    m.as_ref(),
+                    k0,
+                    ModeTarget::Nearest(seed_lambda),
+                    4,
+                    1e-9,
+                    40,
+                )
+                .expect("sparse vector-tracked run"),
+            );
+            assert!(
+                (kvs - kvd).norm() <= 1e-8 * kvd.norm(),
+                "mode {idx}: sparse tracked k = {kvs}, dense tracked k = {kvd}"
+            );
+            assert_eq!(itvs, itvd, "mode {idx}: tracked iteration count");
+            // Both drivers follow the same mode here.
+            assert!((kvd - kd).norm() <= 1e-8 * kd.norm());
+        }
+    }
+
+    /// Issue #917: `self_consistent_k_with` with the dense solver and a
+    /// frozen index is `self_consistent_k`, bit for bit.
+    #[test]
+    fn with_dense_index_is_the_default_driver() {
+        let (k, s, m) = open_chain(24);
+        let n = k.nrows();
+        let a = self_consistent_k(k.as_ref(), s.as_ref(), m.as_ref(), 4.0, 1, n, 1e-9, 40).unwrap();
+        let b = self_consistent_k_with(
+            &FaerComplexEigensolver,
+            k.as_ref(),
+            s.as_ref(),
+            m.as_ref(),
+            4.0,
+            ModeTarget::Index(1),
+            n,
+            1e-9,
+            40,
+        )
+        .unwrap();
+        let ((ka, qa, ia), (kb, qb, ib)) = (converged(a), converged(b));
+        assert_eq!((ka.re, ka.im, qa, ia), (kb.re, kb.im, qb, ib));
     }
 
     #[test]

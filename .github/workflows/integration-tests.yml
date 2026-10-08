@@ -400,9 +400,9 @@ jobs:
     # Issue #796: the dense complex eigensolver (`FaerComplexEigensolver`)
     # used faer 0.24's generalized complex QZ, which did not terminate on
     # pencils above ~500 DOF. That kept mie_sphere and derham_kernel_dim
-    # (and the silvermuller_self_consistent* targets, still allowlisted as
-    # too slow) out of CI: their --ignored tiers timed out at 80 min
-    # (#786). The solver is now a dense shift-invert. Measured release
+    # (and the silvermuller_self_consistent* targets) out of CI: their
+    # --ignored tiers timed out at 80 min (#786). The solver is now a dense
+    # shift-invert. Measured release
     # --ignored tiers, local, 6 threads on a loaded host: mie_sphere 23 s,
     # derham_kernel_dim 42 s. dense_complex_eigensolver_bounded is the
     # #796 regression guard (default tier, about 2 s, with a 120-s
@@ -417,6 +417,14 @@ jobs:
     # #800 regression guard (default tier, about 1.5 s locally; it checks
     # the spectrum against a symmetric Cholesky reference and holds the
     # 600-DOF solve to a 4-s speed budget, with a 120-s watchdog).
+    #
+    # Issue #917: the two silvermuller_self_consistent* targets run their
+    # default tier here. That tier drives the self-consistent k0 loop with
+    # the sparse complex shift-invert Lanczos (a few eigenvalues near the
+    # target per solve) instead of about 21 full dense solves of the
+    # 4512-DOF pencil per test. Their #[ignore]d tests are the dense
+    # reference tier, which stays out of CI (tens of minutes; see
+    # scripts/ci-test-coverage-ignored-allowlist.txt).
     name: cargo test -p geode-core --release (dense eigensolver targets, linux)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -451,7 +459,9 @@ jobs:
               --test derham_kernel_dim \
               --test sphere_pml_eigenmode \
               --test sphere_pml_anisotropic_eigenmode \
-              --test sphere_silvermuller_eigenmode
+              --test sphere_silvermuller_eigenmode \
+              --test silvermuller_self_consistent \
+              --test silvermuller_self_consistent_vector_tracking
 
       # Saved before the test steps, so a cancelled test step still leaves a
       # warm cache (issue #880). Skipped on an exact key hit.
@@ -487,6 +497,19 @@ jobs:
               --test sphere_pml_eigenmode \
               --test sphere_pml_anisotropic_eigenmode \
               --test sphere_silvermuller_eigenmode -- --ignored
+
+      # Issue #917: the sparse tier of the self-consistent k0 drivers
+      # (default tier; ignored only under debug-assertions, so it runs here
+      # in release). About 75 sparse solves (0.5 to 2 s each) and 3 dense
+      # solves of the 4512-DOF pencil that tie the sparse seeds to the dense
+      # spectrum. Measured release, local 28-core host at load 40:
+      # silvermuller_self_consistent 76 s, the vector-tracking target 31 s.
+      # The dense tier these replace took 39 and 38 min on the same host.
+      - name: Silver-Müller self-consistent targets (sparse tier)
+        run: |
+          cargo test -p geode-core --release \
+              --test silvermuller_self_consistent \
+              --test silvermuller_self_consistent_vector_tracking
 
   core-ignored:
     # Issue #793: the #[ignore]d tests of targets whose default tier runs in
