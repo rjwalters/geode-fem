@@ -1,0 +1,66 @@
+Before / after measurement for issue #946 (the AMS V-cycle's triangular solves
+contending on the rayon pool). Dev machine under heavy unrelated load: the
+1-minute load average ran from about 24 to about 200 on 28 logical CPUs during
+the session. User and system seconds are the signal. Wall-clock times are not
+comparable between legs.
+
+Each directory is one ams_cpu_sweep.sh tree (SKIP_XCHECK=1, sizes 15 20 24),
+summarized as [threading_fix] of results_ams_cpu_local.toml:
+
+  main_default      origin/main 2803aa96, default threading
+  main_rayon1       origin/main 2803aa96, RAYON_NUM_THREADS=1
+  fix_default       branch commit 689f0cdc, default threading
+  fix_rayon1        branch commit 689f0cdc, RAYON_NUM_THREADS=1, SKIP_DIRECT=1
+  fix_rayon1_rep2   as fix_rayon1, run again
+  fix_default_rep2  as fix_default, run again, after fix_rayon1_rep2
+
+Run order: main_default, main_rayon1, fix_default, fix_rayon1,
+fix_rayon1_rep2, fix_default_rep2. The repeat pair was run in the opposite
+order to the first pair because the load was changing. The main trees were not
+repeated.
+
+689f0cdc is the first commit of the branch: the SequentialSolveScope and its
+use in the SolverMode::Iterative back-solve. Later commits on the branch do
+not change the driven solve path (they add the same scope to the eigen direct
+shift-invert loop, tests, and this record), so the fix trees were not rerun.
+
+eigen_loop/
+  The same question for the direct shift-invert Lanczos loop
+  (crates/geode-core/src/eigen/lanczos.rs), which runs one sparse triangular
+  solve per step. diag946_eigen_loop.rs is a THROWAWAY integration test, kept
+  here as a record and not built by the workspace. It was copied to
+  crates/geode-core/tests/ for the runs and removed again. It solves a scalar
+  P1 pencil on cube_tet_mesh(30) (24 389 DOFs) for 20 modes with
+  SparseShiftInvertLanczos::default(), and prints getrusage deltas around the
+  eigensolve alone (factorization plus Lanczos loop), so mesh generation and
+  assembly are excluded. Three ways to run it:
+    default   default threading
+    seqloop   DIAG946_SEQ_LOOP=1: ParallelismGuard::cap(1) around the
+              eigensolve. The solver's own guard still caps the factorization
+              at every core and then restores Par::Seq, so only the Lanczos
+              loop goes sequential. This emulates the fix on the main build.
+    rayon1    RAYON_NUM_THREADS=1
+  main_*.stdout are from the build of branch commit 689f0cdc, whose eigen path
+  is identical to origin/main's. fix_*.stdout are from the working tree that
+  became the next commit, which adds the scope to the loop.
+
+  Every run, in the order made (user s / sys s / wall s of the eigensolve).
+  Each run overwrote the previous output of the same build and mode, so only
+  the last one of each survives as a file. The others are the console lines
+  copied here.
+    main  default   5.712 / 15.730 / 5.156
+    main  seqloop   3.497 /  3.753 / 2.899
+    main  rayon1    2.668 /  0.130 / 5.249    (file kept)
+    main  default   5.304 / 10.663 / 6.892    (file kept)
+    main  seqloop   3.580 /  4.418 / 2.416    (file kept)
+    fix   default   3.526 /  7.182 / 2.026
+    fix   rayon1    2.568 /  0.120 / 3.054
+    fix   default   3.366 /  2.347 / 2.997
+    fix   rayon1    2.489 /  0.131 / 2.820    (file kept)
+    fix   default   3.601 /  2.395 / 3.144    (file kept)
+  An earlier run of the three main modes without the getrusage lines gave
+  wall-clock times of 11.927 s (default), 5.387 s (rayon1) and 2.941 s
+  (seqloop).
+
+  Larger pencils were not measured: the dense P1 assembly this test uses
+  fails above about n = 30 (it panicked at n = 36 and n = 40).

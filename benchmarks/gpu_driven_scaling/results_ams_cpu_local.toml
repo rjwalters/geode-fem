@@ -16,6 +16,9 @@
 #     small triangular solves fan out to the rayon pool on an oversubscribed
 #     host. Every time RATIO in this file comes from the RAYON_NUM_THREADS=1
 #     rerun in [[single_thread_cell]] / [[single_thread_comparison]].
+#   * THAT CONTENTION IS FIXED (issue #946). The [[cell]] tables predate the
+#     fix: they are the build named in [meta]. [threading_fix] has the
+#     before / after measurement, on the same loaded machine.
 #   * THE [[cell]] AND [[single_thread_cell]] TABLES MEASURE THE SHIPPED AMS
 #     (edge-smoother weight 0.6). [diagnostics] shows that weight is above the
 #     damped-Jacobi stability bound on this fixture and that the iteration
@@ -59,7 +62,7 @@ not_done = [
 # this record; [diagnostics] and [finding].thread_contention are the evidence.
 recommended_follow_ups = [
   "(i) library issue for the AMS edge smoother (crates/geode-core/src/eigen/ams.rs, DEFAULT_SMOOTH_WEIGHT = 0.6): take the weight from an estimate of the spectral radius of D^-1 A, or use an l1-Jacobi smoother; validate on the #742 / #744 spiral, the transmon AMS tests and this fixture before changing the constant",
-  "(ii) the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), which fans two small solves per iteration out to the rayon pool and causes the contention recorded here",
+  "(ii) DONE in issue #946, see [threading_fix]: the parallel sparse triangular solve inside the V-cycle (lu_solve in eigen/ams.rs), which fanned two small solves per iteration out to the rayon pool and caused the contention recorded in the [[cell]] tables",
   "(iii) only after (i) and (ii): the at-scale cells and the same-host Palace comparison, on the fixed preconditioner",
 ]
 
@@ -908,9 +911,1259 @@ verdict = "The shipped AMS converged at every size but its iteration count is NO
 convergence = "No plateau and no drift: every AMS solve met the 1e-8 tolerance on the explicit residual (worst 9.1e-09) and matches the Direct solution. The degradation is in the iteration count as the mesh is refined, not a stall of the kind recorded in benchmarks/transmon_ams_minres_133k/results.toml. Only omega = 0.10 was run, so nothing here says how the count depends on frequency."
 cost = "Single-threaded (RAYON_NUM_THREADS=1), one shipped-AMS iteration cost 18x to 26x a Jacobi iteration, and the shipped-AMS solve (setup + Krylov) took 1.7x to 11.1x as long as the Jacobi solve; it was faster at 0 of 6 sizes. Loaded dev machine, single samples: the direction is clear at the larger sizes, the factors are indicative."
 sizes_n_with_contended_default_threading_ams_leg = [15, 20, 24]
-thread_contention = "The default-threading AMS timings in [[cell]] at these sizes are NOT the cost of AMS. The V-cycle does two small sparse triangular solves per iteration (lu_solve in eigen/ams.rs, faer solve_in_place under the global parallelism setting), which fan out to the rayon pool; on this oversubscribed host that became kernel time. The worst leg, n24_ams, used 168 s user and 487 s sys for a 274 s Krylov solve; the same solve with RAYON_NUM_THREADS=1 took 93 s with 0.5 s sys. No time ratio in this file uses the default-threading legs. Whether the parallel solve helps on an idle host was not measured."
+thread_contention = "The default-threading AMS timings in [[cell]] at these sizes are NOT the cost of AMS. The V-cycle does two small sparse triangular solves per iteration (lu_solve in eigen/ams.rs, faer solve_in_place under the global parallelism setting), which fan out to the rayon pool; on this oversubscribed host that became kernel time. The worst leg, n24_ams, used 168 s user and 487 s sys for a 274 s Krylov solve; the same solve with RAYON_NUM_THREADS=1 took 93 s with 0.5 s sys. No time ratio in this file uses the default-threading legs. Whether the parallel solve helps on an idle host was not measured. Fixed in issue #946 after these legs were run: see [threading_fix]."
 cause = "Identified, by a one-off diagnostic on this fixture (see [diagnostics]): the edge smoother weight. The shipped damped-Jacobi weight 0.6 is above the stability bound 2 / rho(D^-1 P) = 0.585 measured here (rho >= 3.42), so the smoother amplifies the highest edge modes. With the weight anywhere from 0.2 to 0.55 the same solve takes 25 to 58 iterations at every size. This is a throwaway patch, single runs, one fixture and one frequency; no weight was validated on any other problem and the library constant is unchanged."
 not_established = "Not established: (1) why the shipped weight holds a flat count on the #742 / #744 spiral and not here. A plausible reason is the mesh (this fixture is a structured Kuhn-tet cube, the spiral an unstructured mesh, and rho(D^-1 P) depends on the mesh), but the spiral was NOT rerun and its rho was NOT measured, so this is untested. (2) What a lower weight does on the spiral or the transmon AMS tests. (3) The dependence on frequency: only omega = 0.10 was run. (4) Anything above the largest size listed. No AMS setting was varied in the [[cell]] and [[single_thread_cell]] tables (AmsCoarseSolve::Auto throughout). Palace's ~5 iterations use a different Krylov method (GMRES) and a different AMS (hypre) and were not rerun here."
+
+[threading_fix]
+issue = 946
+note = "Before / after measurement of the issue #946 fix. Before (build = main): faer's Lu::solve_in_place, called twice per COCG iteration by the AMS V-cycle (lu_solve in eigen/ams.rs), took its thread count from faer's process-global parallelism, by default every core. After (build = fix): the SolverMode::Iterative back-solve holds a SequentialSolveScope for the whole Krylov solve when the preconditioner is AMS, so those solves run with Par::Seq. Nothing else differs between the two builds. Each build was run with the default threading and with RAYON_NUM_THREADS=1, by ams_cpu_sweep.sh with SKIP_XCHECK=1, one process per leg."
+how_to_read = "LOADED DEVELOPER MACHINE, single samples. process_user_s and process_sys_s are the signal. Wall-clock times (krylov_s, setup_s, process_wall_s) are NOT comparable between legs: the load average changed by a factor of several during the session, and a leg whose process_cpu_pct is well under 100 on one thread was waiting for a CPU, not computing. process_* covers the whole process: mesh, assembly, setup and solve."
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams/threading_946"
+trees = ['main_default', 'main_rayon1', 'fix_default', 'fix_default_rep2', 'fix_rayon1', 'fix_rayon1_rep2']
+main_commit = "2803aa9614927864066c8c12d93eae8bd287e033 dirty=0"
+fix_commit = "689f0cdc00e4f9e476ba370db1559607560b61ac dirty=0"
+started_between = ["2026-10-08T08:24:38Z", "2026-10-08T09:13:39Z"]
+loadavg_1min_range = [23.94, 197.36]  # 28 logical CPUs
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 9.733e-13
+setup_s = 3.442
+krylov_s = 0.161
+process_wall_s = 3.97  # whole process: mesh + assembly + solve
+process_user_s = 10.41
+process_sys_s = 10.65  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 530  # (user + sys) / wall
+process_max_rss_gb = 1.250
+loadavg_1min_start = 56.35
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006
+krylov_s = 1.156
+process_wall_s = 1.47  # whole process: mesh + assembly + solve
+process_user_s = 1.55
+process_sys_s = 0.08  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 111  # (user + sys) / wall
+process_max_rss_gb = 0.144
+loadavg_1min_start = 62.16
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 7.250e-09
+setup_s = 0.119
+krylov_s = 7.617
+process_wall_s = 8.05  # whole process: mesh + assembly + solve
+process_user_s = 7.25
+process_sys_s = 13.01  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 252  # (user + sys) / wall
+process_max_rss_gb = 0.213
+loadavg_1min_start = 62.16
+port_v = [6.659975395e-01, 7.461380545e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.552e-12
+setup_s = 17.165
+krylov_s = 0.282
+process_wall_s = 18.25  # whole process: mesh + assembly + solve
+process_user_s = 59.70
+process_sys_s = 25.39  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 466  # (user + sys) / wall
+process_max_rss_gb = 3.973
+loadavg_1min_start = 66.46
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.016
+krylov_s = 4.052
+process_wall_s = 4.79  # whole process: mesh + assembly + solve
+process_user_s = 5.10
+process_sys_s = 0.23  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 111  # (user + sys) / wall
+process_max_rss_gb = 0.335
+loadavg_1min_start = 97.32
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1741
+residual_rel = 8.084e-09
+setup_s = 0.314
+krylov_s = 114.247
+process_wall_s = 115.31  # whole process: mesh + assembly + solve
+process_user_s = 67.67
+process_sys_s = 187.77  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 222  # (user + sys) / wall
+process_max_rss_gb = 0.462
+loadavg_1min_start = 95.05
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 2.079e-12
+setup_s = 31.545
+krylov_s = 0.555
+process_wall_s = 33.45  # whole process: mesh + assembly + solve
+process_user_s = 236.43
+process_sys_s = 60.06  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 886  # (user + sys) / wall
+process_max_rss_gb = 9.969
+loadavg_1min_start = 109.92
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.036
+krylov_s = 8.684
+process_wall_s = 9.97  # whole process: mesh + assembly + solve
+process_user_s = 10.31
+process_sys_s = 0.16  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 105  # (user + sys) / wall
+process_max_rss_gb = 0.569
+loadavg_1min_start = 90.65
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "main_default"
+build = "main"
+threading = "default"
+repeat = 1
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2209
+residual_rel = 9.056e-09
+setup_s = 0.769
+krylov_s = 223.423
+process_wall_s = 225.46  # whole process: mesh + assembly + solve
+process_user_s = 173.54
+process_sys_s = 646.45  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 364  # (user + sys) / wall
+process_max_rss_gb = 0.736
+loadavg_1min_start = 86.44
+port_v = [6.659963478e-01, 7.474433805e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.064e-12
+setup_s = 6.885
+krylov_s = 0.047
+process_wall_s = 7.26  # whole process: mesh + assembly + solve
+process_user_s = 7.18
+process_sys_s = 0.22  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 102  # (user + sys) / wall
+process_max_rss_gb = 1.230
+loadavg_1min_start = 82.33
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006
+krylov_s = 1.270
+process_wall_s = 1.58  # whole process: mesh + assembly + solve
+process_user_s = 1.57
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 107  # (user + sys) / wall
+process_max_rss_gb = 0.146
+loadavg_1min_start = 75.70
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 532
+residual_rel = 9.198e-09
+setup_s = 0.078
+krylov_s = 6.669
+process_wall_s = 7.34  # whole process: mesh + assembly + solve
+process_user_s = 5.32
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 74  # (user + sys) / wall
+process_max_rss_gb = 0.196
+loadavg_1min_start = 75.70
+port_v = [6.659975395e-01, 7.461380549e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.720e-12
+setup_s = 63.220
+krylov_s = 0.190
+process_wall_s = 64.22  # whole process: mesh + assembly + solve
+process_user_s = 50.01
+process_sys_s = 0.71  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 79  # (user + sys) / wall
+process_max_rss_gb = 3.935
+loadavg_1min_start = 72.65
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.018
+krylov_s = 4.061
+process_wall_s = 4.81  # whole process: mesh + assembly + solve
+process_user_s = 4.93
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 105  # (user + sys) / wall
+process_max_rss_gb = 0.337
+loadavg_1min_start = 84.61
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1683
+residual_rel = 9.987e-09
+setup_s = 0.241
+krylov_s = 41.109
+process_wall_s = 42.07  # whole process: mesh + assembly + solve
+process_user_s = 41.26
+process_sys_s = 0.41  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 99  # (user + sys) / wall
+process_max_rss_gb = 0.450
+loadavg_1min_start = 81.04
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 2.424e-12
+setup_s = 208.039
+krylov_s = 0.505
+process_wall_s = 209.92  # whole process: mesh + assembly + solve
+process_user_s = 200.11
+process_sys_s = 1.78  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 96  # (user + sys) / wall
+process_max_rss_gb = 8.480
+loadavg_1min_start = 65.82
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.032
+krylov_s = 8.566
+process_wall_s = 9.86  # whole process: mesh + assembly + solve
+process_user_s = 10.10
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 104  # (user + sys) / wall
+process_max_rss_gb = 0.537
+loadavg_1min_start = 49.03
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "main_rayon1"
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2234
+residual_rel = 9.926e-09
+setup_s = 0.521
+krylov_s = 95.753
+process_wall_s = 97.50  # whole process: mesh + assembly + solve
+process_user_s = 96.77
+process_sys_s = 0.61  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 100  # (user + sys) / wall
+process_max_rss_gb = 0.789
+loadavg_1min_start = 47.01
+port_v = [6.659963478e-01, 7.474433802e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 9.733e-13
+setup_s = 9.705
+krylov_s = 0.341
+process_wall_s = 10.61  # whole process: mesh + assembly + solve
+process_user_s = 9.74
+process_sys_s = 3.29  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 123  # (user + sys) / wall
+process_max_rss_gb = 1.249
+loadavg_1min_start = 108.56
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.006
+krylov_s = 1.477
+process_wall_s = 1.98  # whole process: mesh + assembly + solve
+process_user_s = 1.63
+process_sys_s = 0.04  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 84  # (user + sys) / wall
+process_max_rss_gb = 0.152
+loadavg_1min_start = 119.44
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+setup_s = 0.211
+krylov_s = 5.762
+process_wall_s = 6.50  # whole process: mesh + assembly + solve
+process_user_s = 5.36
+process_sys_s = 0.22  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 86  # (user + sys) / wall
+process_max_rss_gb = 0.200
+loadavg_1min_start = 119.44
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.552e-12
+setup_s = 49.096
+krylov_s = 0.558
+process_wall_s = 50.73  # whole process: mesh + assembly + solve
+process_user_s = 58.51
+process_sys_s = 6.74  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 129  # (user + sys) / wall
+process_max_rss_gb = 3.967
+loadavg_1min_start = 119.08
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.030
+krylov_s = 5.873
+process_wall_s = 6.79  # whole process: mesh + assembly + solve
+process_user_s = 5.25
+process_sys_s = 0.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 80  # (user + sys) / wall
+process_max_rss_gb = 0.320
+loadavg_1min_start = 147.40
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+setup_s = 2.034
+krylov_s = 65.112
+process_wall_s = 68.63  # whole process: mesh + assembly + solve
+process_user_s = 44.24
+process_sys_s = 0.48  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 65  # (user + sys) / wall
+process_max_rss_gb = 0.457
+loadavg_1min_start = 151.53
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 2.079e-12
+setup_s = 108.418
+krylov_s = 3.618
+process_wall_s = 114.05  # whole process: mesh + assembly + solve
+process_user_s = 236.91
+process_sys_s = 11.33  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 218  # (user + sys) / wall
+process_max_rss_gb = 8.540
+loadavg_1min_start = 180.70
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.100
+krylov_s = 16.532
+process_wall_s = 23.31  # whole process: mesh + assembly + solve
+process_user_s = 10.64
+process_sys_s = 0.10  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 46  # (user + sys) / wall
+process_max_rss_gb = 0.585
+loadavg_1min_start = 189.45
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default"
+build = "fix"
+threading = "default"
+repeat = 1
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+setup_s = 7.406
+krylov_s = 231.533
+process_wall_s = 249.83  # whole process: mesh + assembly + solve
+process_user_s = 110.10
+process_sys_s = 1.11  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 45  # (user + sys) / wall
+process_max_rss_gb = 0.777
+loadavg_1min_start = 197.36
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n15_direct"
+size_n = 15
+n_edges = 25695
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 9.733e-13
+setup_s = 19.940
+krylov_s = 0.187
+process_wall_s = 20.48  # whole process: mesh + assembly + solve
+process_user_s = 9.58
+process_sys_s = 1.26  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 53  # (user + sys) / wall
+process_max_rss_gb = 1.251
+loadavg_1min_start = 80.43
+port_v = [6.659975395e-01, 7.461380550e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.008
+krylov_s = 1.236
+process_wall_s = 1.77  # whole process: mesh + assembly + solve
+process_user_s = 1.59
+process_sys_s = 0.03  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 92  # (user + sys) / wall
+process_max_rss_gb = 0.149
+loadavg_1min_start = 100.67
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+setup_s = 0.118
+krylov_s = 4.854
+process_wall_s = 5.29  # whole process: mesh + assembly + solve
+process_user_s = 5.33
+process_sys_s = 0.41  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 109  # (user + sys) / wall
+process_max_rss_gb = 0.205
+loadavg_1min_start = 95.98
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n20_direct"
+size_n = 20
+n_edges = 59660
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 1.552e-12
+setup_s = 13.638
+krylov_s = 0.281
+process_wall_s = 14.80  # whole process: mesh + assembly + solve
+process_user_s = 60.26
+process_sys_s = 19.91  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 542  # (user + sys) / wall
+process_max_rss_gb = 3.972
+loadavg_1min_start = 92.69
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.021
+krylov_s = 4.840
+process_wall_s = 5.61  # whole process: mesh + assembly + solve
+process_user_s = 5.25
+process_sys_s = 0.12  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 96  # (user + sys) / wall
+process_max_rss_gb = 0.333
+loadavg_1min_start = 90.51
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+setup_s = 0.578
+krylov_s = 44.194
+process_wall_s = 45.73  # whole process: mesh + assembly + solve
+process_user_s = 42.80
+process_sys_s = 0.58  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 95  # (user + sys) / wall
+process_max_rss_gb = 0.463
+loadavg_1min_start = 89.50
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n24_direct"
+size_n = 24
+n_edges = 102024
+config = "1_direct"
+explicit_converged = true
+iterations = 0
+residual_rel = 2.079e-12
+setup_s = 49.730
+krylov_s = 0.615
+process_wall_s = 51.78  # whole process: mesh + assembly + solve
+process_user_s = 239.28
+process_sys_s = 34.31  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 528  # (user + sys) / wall
+process_max_rss_gb = 8.534
+loadavg_1min_start = 67.90
+port_v = [6.659963478e-01, 7.474433796e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.033
+krylov_s = 8.759
+process_wall_s = 10.05  # whole process: mesh + assembly + solve
+process_user_s = 10.17
+process_sys_s = 0.13  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 102  # (user + sys) / wall
+process_max_rss_gb = 0.562
+loadavg_1min_start = 77.05
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "fix_default_rep2"
+build = "fix"
+threading = "default"
+repeat = 2
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+setup_s = 1.771
+krylov_s = 136.372
+process_wall_s = 139.44  # whole process: mesh + assembly + solve
+process_user_s = 101.80
+process_sys_s = 1.17  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 74  # (user + sys) / wall
+process_max_rss_gb = 0.757
+loadavg_1min_start = 71.59
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.126
+krylov_s = 9.054
+process_wall_s = 11.91  # whole process: mesh + assembly + solve
+process_user_s = 1.78
+process_sys_s = 0.05  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 15  # (user + sys) / wall
+process_max_rss_gb = 0.146
+loadavg_1min_start = 101.27
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+setup_s = 0.603
+krylov_s = 35.188
+process_wall_s = 38.14  # whole process: mesh + assembly + solve
+process_user_s = 6.13
+process_sys_s = 0.15  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 16  # (user + sys) / wall
+process_max_rss_gb = 0.202
+loadavg_1min_start = 101.65
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.716
+krylov_s = 24.126
+process_wall_s = 31.23  # whole process: mesh + assembly + solve
+process_user_s = 6.06
+process_sys_s = 0.14  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 20  # (user + sys) / wall
+process_max_rss_gb = 0.330
+loadavg_1min_start = 99.42
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+setup_s = 1.693
+krylov_s = 72.651
+process_wall_s = 77.93  # whole process: mesh + assembly + solve
+process_user_s = 43.40
+process_sys_s = 0.41  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 56  # (user + sys) / wall
+process_max_rss_gb = 0.460
+loadavg_1min_start = 96.61
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.042
+krylov_s = 9.580
+process_wall_s = 11.01  # whole process: mesh + assembly + solve
+process_user_s = 10.46
+process_sys_s = 0.11  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 96  # (user + sys) / wall
+process_max_rss_gb = 0.575
+loadavg_1min_start = 74.80
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 1
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+setup_s = 0.896
+krylov_s = 141.360
+process_wall_s = 145.33  # whole process: mesh + assembly + solve
+process_user_s = 99.46
+process_sys_s = 0.72  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 69  # (user + sys) / wall
+process_max_rss_gb = 0.726
+loadavg_1min_start = 69.47
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n15_jacobi"
+size_n = 15
+n_edges = 25695
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 2969
+residual_rel = 9.197e-09
+setup_s = 0.107
+krylov_s = 8.355
+process_wall_s = 10.69  # whole process: mesh + assembly + solve
+process_user_s = 1.73
+process_sys_s = 0.03  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 16  # (user + sys) / wall
+process_max_rss_gb = 0.146
+loadavg_1min_start = 129.17
+port_v = [6.659975395e-01, 7.461380531e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n15_ams"
+size_n = 15
+n_edges = 25695
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 533
+residual_rel = 8.952e-09
+setup_s = 0.392
+krylov_s = 25.395
+process_wall_s = 27.81  # whole process: mesh + assembly + solve
+process_user_s = 5.51
+process_sys_s = 0.07  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 20  # (user + sys) / wall
+process_max_rss_gb = 0.203
+loadavg_1min_start = 143.60
+port_v = [6.659975395e-01, 7.461380552e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n20_jacobi"
+size_n = 20
+n_edges = 59660
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 4303
+residual_rel = 9.753e-09
+setup_s = 0.097
+krylov_s = 11.309
+process_wall_s = 13.93  # whole process: mesh + assembly + solve
+process_user_s = 5.24
+process_sys_s = 0.06  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 38  # (user + sys) / wall
+process_max_rss_gb = 0.332
+loadavg_1min_start = 155.65
+port_v = [6.659966840e-01, 7.470749834e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n20_ams"
+size_n = 20
+n_edges = 59660
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 1693
+residual_rel = 9.695e-09
+setup_s = 0.465
+krylov_s = 86.949
+process_wall_s = 89.35  # whole process: mesh + assembly + solve
+process_user_s = 43.60
+process_sys_s = 0.36  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 49  # (user + sys) / wall
+process_max_rss_gb = 0.459
+loadavg_1min_start = 156.00
+port_v = [6.659966841e-01, 7.470749827e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n24_jacobi"
+size_n = 24
+n_edges = 102024
+config = "2_iterative_csr"
+explicit_converged = true
+iterations = 5259
+residual_rel = 9.629e-09
+setup_s = 0.037
+krylov_s = 8.952
+process_wall_s = 10.84  # whole process: mesh + assembly + solve
+process_user_s = 10.12
+process_sys_s = 0.06  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 94  # (user + sys) / wall
+process_max_rss_gb = 0.566
+loadavg_1min_start = 166.61
+port_v = [6.659963478e-01, 7.474433801e-03]
+
+[[threading_fix_cell]]
+tree = "fix_rayon1_rep2"
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+repeat = 2
+leg = "n24_ams"
+size_n = 24
+n_edges = 102024
+config = "5_iterative_ams"
+explicit_converged = true
+iterations = 2270
+residual_rel = 5.074e-09
+setup_s = 0.613
+krylov_s = 117.277
+process_wall_s = 119.59  # whole process: mesh + assembly + solve
+process_user_s = 106.04
+process_sys_s = 0.71  # kernel time; large values mean thread contention, not solver work
+process_cpu_pct = 89  # (user + sys) / wall
+process_max_rss_gb = 0.735
+loadavg_1min_start = 159.10
+port_v = [6.659963478e-01, 7.474433798e-03]
+
+[[threading_fix_comparison]]
+size_n = 15
+n_edges = 25695
+# AMS legs. One entry per repeat, in the order of [threading_fix].trees.
+ams_iterations_main_default = [533]
+ams_iterations_main_rayon1 = [532]
+ams_iterations_fix_default = [533, 533]
+ams_iterations_fix_rayon1 = [533, 533]
+ams_process_sys_s_main_default = [13.01]
+ams_process_sys_s_main_rayon1 = [0.13]
+ams_process_sys_s_fix_default = [0.22, 0.41]
+ams_process_sys_s_fix_rayon1 = [0.15, 0.07]
+ams_process_user_s_main_default = [7.25]
+ams_process_user_s_main_rayon1 = [5.32]
+ams_process_user_s_fix_default = [5.36, 5.33]
+ams_process_user_s_fix_rayon1 = [6.13, 5.51]
+ams_process_cpu_ms_per_iteration_main_default = [38.01]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_main_rayon1 = [10.24]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_default = [10.47, 10.77]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_rayon1 = [11.78, 10.47]  # (user + sys) / iterations
+ams_krylov_s_main_default = [7.62]  # wall clock: see how_to_read
+ams_krylov_s_main_rayon1 = [6.67]  # wall clock: see how_to_read
+ams_krylov_s_fix_default = [5.76, 4.85]  # wall clock: see how_to_read
+ams_krylov_s_fix_rayon1 = [35.19, 25.40]  # wall clock: see how_to_read
+ams_process_cpu_pct_main_default = [252]
+ams_process_cpu_pct_main_rayon1 = [74]
+ams_process_cpu_pct_fix_default = [86, 109]
+ams_process_cpu_pct_fix_rayon1 = [16, 20]
+fix_result_identical_across_threading = true  # iterations, residual_rel and port_v as printed, over every fix leg
+main_result_identical_across_threading = false
+fix_port_v_rel_diff_vs_main_default = 1.051e-11  # from the 10 printed digits
+fix_port_v_rel_diff_vs_main_rayon1 = 4.504e-12  # from the 10 printed digits
+# Direct legs, default threading: the path the fix must not touch.
+direct_process_user_s_main_default = [10.41]
+direct_process_user_s_fix_default = [9.74, 9.58]
+direct_setup_s_main_default = [3.44]  # wall clock
+direct_setup_s_fix_default = [9.70, 19.94]  # wall clock
+direct_process_cpu_pct_main_default = [530]
+direct_process_cpu_pct_fix_default = [123, 53]
+direct_result_identical_main_vs_fix = true
+direct_process_wall_s_main_rayon1_over_main_default = 1.8  # the direct solver does use the threads: its LU factorization is parallel
+
+[[threading_fix_comparison]]
+size_n = 20
+n_edges = 59660
+# AMS legs. One entry per repeat, in the order of [threading_fix].trees.
+ams_iterations_main_default = [1741]
+ams_iterations_main_rayon1 = [1683]
+ams_iterations_fix_default = [1693, 1693]
+ams_iterations_fix_rayon1 = [1693, 1693]
+ams_process_sys_s_main_default = [187.77]
+ams_process_sys_s_main_rayon1 = [0.41]
+ams_process_sys_s_fix_default = [0.48, 0.58]
+ams_process_sys_s_fix_rayon1 = [0.41, 0.36]
+ams_process_user_s_main_default = [67.67]
+ams_process_user_s_main_rayon1 = [41.26]
+ams_process_user_s_fix_default = [44.24, 42.80]
+ams_process_user_s_fix_rayon1 = [43.40, 43.60]
+ams_process_cpu_ms_per_iteration_main_default = [146.72]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_main_rayon1 = [24.76]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_default = [26.41, 25.62]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_rayon1 = [25.88, 25.97]  # (user + sys) / iterations
+ams_krylov_s_main_default = [114.25]  # wall clock: see how_to_read
+ams_krylov_s_main_rayon1 = [41.11]  # wall clock: see how_to_read
+ams_krylov_s_fix_default = [65.11, 44.19]  # wall clock: see how_to_read
+ams_krylov_s_fix_rayon1 = [72.65, 86.95]  # wall clock: see how_to_read
+ams_process_cpu_pct_main_default = [222]
+ams_process_cpu_pct_main_rayon1 = [99]
+ams_process_cpu_pct_fix_default = [65, 95]
+ams_process_cpu_pct_fix_rayon1 = [56, 49]
+fix_result_identical_across_threading = true  # iterations, residual_rel and port_v as printed, over every fix leg
+main_result_identical_across_threading = false
+fix_port_v_rel_diff_vs_main_default = 0.000e+00  # from the 10 printed digits
+fix_port_v_rel_diff_vs_main_rayon1 = 0.000e+00  # from the 10 printed digits
+# Direct legs, default threading: the path the fix must not touch.
+direct_process_user_s_main_default = [59.70]
+direct_process_user_s_fix_default = [58.51, 60.26]
+direct_setup_s_main_default = [17.17]  # wall clock
+direct_setup_s_fix_default = [49.10, 13.64]  # wall clock
+direct_process_cpu_pct_main_default = [466]
+direct_process_cpu_pct_fix_default = [129, 542]
+direct_result_identical_main_vs_fix = true
+direct_process_wall_s_main_rayon1_over_main_default = 3.5  # the direct solver does use the threads: its LU factorization is parallel
+
+[[threading_fix_comparison]]
+size_n = 24
+n_edges = 102024
+# AMS legs. One entry per repeat, in the order of [threading_fix].trees.
+ams_iterations_main_default = [2209]
+ams_iterations_main_rayon1 = [2234]
+ams_iterations_fix_default = [2270, 2270]
+ams_iterations_fix_rayon1 = [2270, 2270]
+ams_process_sys_s_main_default = [646.45]
+ams_process_sys_s_main_rayon1 = [0.61]
+ams_process_sys_s_fix_default = [1.11, 1.17]
+ams_process_sys_s_fix_rayon1 = [0.72, 0.71]
+ams_process_user_s_main_default = [173.54]
+ams_process_user_s_main_rayon1 = [96.77]
+ams_process_user_s_fix_default = [110.10, 101.80]
+ams_process_user_s_fix_rayon1 = [99.46, 106.04]
+ams_process_cpu_ms_per_iteration_main_default = [371.20]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_main_rayon1 = [43.59]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_default = [48.99, 45.36]  # (user + sys) / iterations
+ams_process_cpu_ms_per_iteration_fix_rayon1 = [44.13, 47.03]  # (user + sys) / iterations
+ams_krylov_s_main_default = [223.42]  # wall clock: see how_to_read
+ams_krylov_s_main_rayon1 = [95.75]  # wall clock: see how_to_read
+ams_krylov_s_fix_default = [231.53, 136.37]  # wall clock: see how_to_read
+ams_krylov_s_fix_rayon1 = [141.36, 117.28]  # wall clock: see how_to_read
+ams_process_cpu_pct_main_default = [364]
+ams_process_cpu_pct_main_rayon1 = [100]
+ams_process_cpu_pct_fix_default = [45, 74]
+ams_process_cpu_pct_fix_rayon1 = [69, 89]
+fix_result_identical_across_threading = true  # iterations, residual_rel and port_v as printed, over every fix leg
+main_result_identical_across_threading = false
+fix_port_v_rel_diff_vs_main_default = 1.051e-11  # from the 10 printed digits
+fix_port_v_rel_diff_vs_main_rayon1 = 6.006e-12  # from the 10 printed digits
+# Direct legs, default threading: the path the fix must not touch.
+direct_process_user_s_main_default = [236.43]
+direct_process_user_s_fix_default = [236.91, 239.28]
+direct_setup_s_main_default = [31.54]  # wall clock
+direct_setup_s_fix_default = [108.42, 49.73]  # wall clock
+direct_process_cpu_pct_main_default = [886]
+direct_process_cpu_pct_fix_default = [218, 528]
+direct_result_identical_main_vs_fix = true
+direct_process_wall_s_main_rayon1_over_main_default = 6.3  # the direct solver does use the threads: its LU factorization is parallel
+
+[threading_fix.finding]
+largest_size_edges = 102024
+contention = "At 102024 edges with the default threading, the AMS leg's kernel time went from 646 s before the fix to 1.1 to 1.2 s after it, and its user time from 174 s to 102 to 110 s. With RAYON_NUM_THREADS=1 the kernel time was 0.6 s before and 0.7 s after. The scope changes nothing but faer's global parallelism during the Krylov solve, and the only faer calls in that solve are the two lu_solve calls per iteration, so the contention was in those calls."
+cost = "CPU time per AMS iteration at 102024 edges, whole process: 371 ms before the fix with the default threading and 44 ms with RAYON_NUM_THREADS=1; after the fix 45 to 49 ms with the default threading and 44 to 47 ms with RAYON_NUM_THREADS=1. After the fix the two modes run the same sequential code, so the spread between them and between repeats is the host, not the solver. Wall-clock times were not comparable in this session (see how_to_read), so no wall-clock speedup is quoted."
+fix_result_identical_across_threading_at_every_size = true
+results = "After the fix the default-threading and RAYON_NUM_THREADS=1 legs agree in iteration count, explicit residual and port voltage to every printed digit at every size. Before the fix they did not: the parallel and the one-thread triangular solve differ in roundoff, and at the shipped smoother weight a slowly converging solve amplifies that into a different iteration count. For the same reason the fix build does not reproduce either main iteration count exactly: faer's Par::Seq solve differs in roundoff from its Par::rayon solve even on one thread. Every leg met the same 1e-8 explicit-residual tolerance, and the port voltages of the two builds agree to the fix_port_v_rel_diff_* values above."
+not_measured = "An idle host; whether a parallel triangular solve would pay at node counts far above the 102024-edge case; the AMS setup, whose coarse factorization still runs at the caller's thread count; and concurrent solves (the CLI's --jobs)."
+
+[threading_fix.eigen_loop]
+note = "The same pattern in the direct shift-invert Lanczos loop (eigen/lanczos.rs): one sparse triangular solve per step, on faer's global parallelism. Measured with a throwaway test (eigen_loop/diag946_eigen_loop.rs, NOTE.txt), not part of the benchmark: a scalar P1 pencil on cube_tet_mesh, SparseShiftInvertLanczos::default(). solve_user_s and solve_sys_s are getrusage deltas around the eigensolve alone (factorization plus Lanczos loop). One retained sample per row, same loaded machine; NOTE.txt lists the repeats."
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams/threading_946/eigen_loop"
+mesh_n = 30
+dofs = 24389
+modes_requested = 20
+
+[[threading_fix.eigen_loop.run]]
+build = "main"
+threading = "default threading"
+solve_user_s = 5.304
+solve_sys_s = 10.663
+solve_s = 6.892  # wall clock, loaded machine
+
+[[threading_fix.eigen_loop.run]]
+build = "main"
+threading = "default threading, with the Lanczos loop made sequential from the test (ParallelismGuard::cap(1) around the eigensolve)"
+solve_user_s = 3.580
+solve_sys_s = 4.418
+solve_s = 2.416  # wall clock, loaded machine
+
+[[threading_fix.eigen_loop.run]]
+build = "main"
+threading = "RAYON_NUM_THREADS=1"
+solve_user_s = 2.668
+solve_sys_s = 0.130
+solve_s = 5.249  # wall clock, loaded machine
+
+[[threading_fix.eigen_loop.run]]
+build = "fix"
+threading = "default threading"
+solve_user_s = 3.601
+solve_sys_s = 2.395
+solve_s = 3.144  # wall clock, loaded machine
+
+[[threading_fix.eigen_loop.run]]
+build = "fix"
+threading = "RAYON_NUM_THREADS=1"
+solve_user_s = 2.489
+solve_sys_s = 0.131
+solve_s = 2.820  # wall clock, loaded machine
+
+[threading_fix.eigen_loop.finding]
+contention = "Yes. Before the fix the eigensolve used 10.7 s of kernel time with the default threading and 4.4 s with only the Lanczos loop made sequential (5.3 s and 3.6 s of user time). What remains is attributed to the factorization, the only faer call still on the rayon pool; that part was not measured separately. The direct backends now hold the same SequentialSolveScope for the loop: the fix build used 2.4 s of kernel time and 3.6 s of user time with the default threading."
+eigenvalues_identical_default_vs_single_thread_before = false  # all printed modes, 17 significant digits
+eigenvalues_identical_default_vs_single_thread_after = true
+eigenvalues_identical_fix_default_vs_main_sequential_loop = true
+eigenvalue_max_rel_diff_fix_vs_main_default = 4.174e-12
 
 [diagnostics]
 note = "Throwaway patched builds, not committed code and not part of the benchmark (diagnostics/NOTE.txt, pec.patch, pi.patch, smooth_weight.patch). The pec_* and vector_nodal_* series are AMS iteration counts at n = 6, 9, 12, 15 (1854 to 25695 edges); the smooth_weight tables cover all six sizes."

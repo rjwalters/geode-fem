@@ -1,4 +1,4 @@
-leg=n6_direct bin=/Volumes/Stripe/cargo-target-issue-930/release/deps/gpu_driven_scaling-e770a24497c61984
+leg=n6_direct bin=<cargo-target>/release/deps/gpu_driven_scaling-e770a24497c61984
 start=2026-10-08T06:20:15Z
 loadavg_start=84.50 80.34 73.20
 git=af01160a3d10b0cb33fd8e6e79654b101444acaa dirty=0
