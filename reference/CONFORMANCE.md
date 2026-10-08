@@ -373,7 +373,7 @@ not independent-solver agreement.
 - **ONNX** — host-side (sits past the out-of-graph eigensolve; not probed).
 - **Burn** — de-Rham d⁰-rank classifier
   ([PR #126](https://github.com/rjwalters/geode-fem/pull/126)) +
-  catalogue-driven classification in `crates/geode-core/examples/mie_sphere.rs`.
+  catalogue-driven classification in `examples/mie_sphere/src/main.rs`.
 - The selection *contract* itself is the headline upstream spec gap —
   friction artifacts 2, 6, and 14 (see catalogue below). All backends meet
   it operationally via cluster-closure windows pinned in the fixtures

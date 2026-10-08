@@ -390,7 +390,7 @@ at this size.
 | `SparseComplexShiftInvertLanczos` (sparse) | **4.07 s** |
 
 **31× speedup at this scale; 107× on the original 313-node fixture.**
-The sparse path is now the default in `examples/mie_sphere.rs`; pass
+The sparse path is now the default in `examples/mie_sphere/src/main.rs`; pass
 `--dense` for the correctness-oracle cross-check.
 
 **Scaling beyond the dense-scatter cap.** The numbers above are from
@@ -433,7 +433,8 @@ which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
 the open-space Mie WGM positions — which require Hankel functions and
 complex Newton iteration — are tracked under #33. The driven
 scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check is the companion
-benchmark `examples/mie_driven_scattering.rs` (issue #195), which
+benchmark `examples/mie_driven_scattering/src/main.rs` (issue #195;
+`cargo run -p mie_driven_scattering --release`), which
 writes
 [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml).
 
@@ -476,7 +477,7 @@ Cartesian basis, `ε_α = (1/s_r) r̂_α² + s_t (1 - r̂_α²)` per centroid
 radial unit vector `r̂`, absorbs along the propagation direction in
 a direction-aware way and removes the reflection floor. Available via
 [`assemble_global_nedelec_with_anisotropic_epsilon`] and
-[`build_anisotropic_pml_tensor_diag`]; default in `examples/mie_sphere.rs`
+[`build_anisotropic_pml_tensor_diag`]; default in `examples/mie_sphere/src/main.rs`
 since issue #61.
 
 **On the "full rotation" follow-up.** For the current PML profile
