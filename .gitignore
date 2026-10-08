@@ -20,6 +20,8 @@ Cargo.lock.bak
 !benchmarks/transmon_bench_gpu/runs/**/*.log
 # #520 GPU driven-scaling sweep run evidence (per-leg logs, Palace logs, TF32 evidence)
 !benchmarks/gpu_driven_scaling/runs/**/*.log
+# #927 like-for-like CPU re-timing raw mode logs (build.log stays ignored)
+!benchmarks/transmon_bench_cpu/runs/**/raw/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json

@@ -25,7 +25,7 @@ the driver, OS, Palace commit, image and build flags.
 | `results.toml` | The committed result: metadata, the eigenvalue agreement gate, one `[cells.*]` table per cell (n = 3 runs each), and `[notes]` |
 | `box_setup.sh` | Run once on a fresh GPU box: builds the `palace:cuda` image from [`reference/palace/docker/Dockerfile.cuda`](../../reference/palace/docker/Dockerfile.cuda) and geode's `transmon_bench` example, converts the mesh to MSH 2.2, and writes `provenance/` |
 | `box_bench.sh` | Runs the cells (`CELLS`, `RUNS`, `CPU_RANKS`) under `/usr/bin/time -v` with an `nvidia-smi` memory poll, and writes `raw/` |
-| `summarize.py` | Reads `raw/` and a baseline `eig.csv`, prints TOML fragments (per-cell tables and `[eigen_agreement]`) to stdout |
+| `summarize.py` | Reads `raw/` and a baseline `eig.csv`, prints TOML fragments (per-cell tables and `[eigen_agreement]`) to stdout. For every run it also prints the modes returned, a class per mode and the number of physical modes (#927) |
 | `runs/2026-10-07_lambda_a100/` | The evidence tree from the measured session (below) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
@@ -81,7 +81,17 @@ These are summarized from `results.toml`; read the file for the full wording.
   Palace's 6 physical modes while Palace returns all six. In the file's words,
   "'geode is faster' here is a statement about wall clock for different
   outputs, not for an equivalent answer", and this run applies no geode
-  eigen-agreement gate. Issue #927 tracks this.
+  eigen-agreement gate. Every cell records `modes_f_ghz`, `modes_class` and
+  `n_physical`; the geode cells carry `like_for_like = false` (#927).
+- **No cell here supports "geode is faster than Palace at the transmon
+  eigenmode".** Re-timing geode in a configuration that returns Palace's six
+  modes, beside Palace on this host, is not done (it needs the paid Lambda
+  host). A geode-only measurement on a loaded developer machine is in
+  [`../transmon_bench_cpu/results_like_for_like_local.toml`](../transmon_bench_cpu/results_like_for_like_local.toml):
+  it records which requests return the six modes and what they cost relative
+  to the 6-mode request on that same machine. Its times are a different host
+  and must not be compared with this directory's. The Palace-GPU vs Palace-CPU
+  result does not depend on this. Paper impact: #763, #593.
 - **Palace on the GPU is slower than Palace on 8 CPU ranks here** (72.2 s vs
   51.0 s with `Save = 0`). The `HONEST READ` block in `results.toml` breaks
   down where the gap goes.

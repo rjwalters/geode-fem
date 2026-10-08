@@ -1,0 +1,8 @@
+cell=ungauged_s20_n6
+run=2
+env=GEODE_INNER=direct GEODE_GAUGE=none GEODE_SIGMA_GHZ=20 GEODE_NMODES=6 GEODE_NUM_THREADS=1 RAYON_NUM_THREADS=1
+start_utc=2026-10-08T08:45:09Z
+loadavg_before=41.35 50.79 67.96
+end_utc=2026-10-08T08:45:30Z
+loadavg_after=38.57 49.51 67.09
+exit=0
