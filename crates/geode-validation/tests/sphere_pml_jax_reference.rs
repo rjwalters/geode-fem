@@ -13,11 +13,12 @@
 //!      This is the cheap c128 input-side round-trip — exercises the
 //!      `Fixture::input_c128` path end-to-end against a real
 //!      Burn-computed value.
-//!   4. Complex eigenvalue cross-check — gated on `--ignored` /
-//!      release-mode because the Burn-side faer dense complex
-//!      eigensolve panics under debug-assertions and is slow
-//!      (~minutes for 3300x3300). This is the **primary** Phase H.3
-//!      acceptance criterion.
+//!   4. Lowest-physical-eigenvalue window — the fixture's recorded
+//!      lowest physical λ sits in the documented PML band. This test
+//!      (`jax_pml_lowest_physical_eigenvalue_agrees_with_burn`) reads only
+//!      the fixture and runs no Burn eigensolve, so it is a default-tier
+//!      test (0.1 s in a debug build, #922). The full Burn eigensolve
+//!      comparison lives in `sphere_pml_numpy_reference.rs`.
 //!
 //! # Running
 //!
@@ -27,12 +28,6 @@
 //! cargo test -p geode-validation --test sphere_pml_jax_reference
 //! ```
 //!
-//! Full eigensolve cross-check (release mode required):
-//!
-//! ```sh
-//! cargo test -p geode-validation --release \
-//!     --test sphere_pml_jax_reference -- --ignored --nocapture
-//! ```
 
 use std::path::PathBuf;
 
@@ -188,8 +183,8 @@ fn jax_pml_complex_eigenvalues_have_pml_signature() {
     // physical_eigenvalues_complex field in the fixture has the
     // canonical PML signature (Re > 0, Im > 0) for σ₀ > 0 — Epic #88
     // PR #155 NumPy canonical convention. This is the *fixture-side*
-    // sanity check; full Burn-vs-JAX agreement requires the gated
-    // `--ignored` test below.
+    // sanity check; full Burn-vs-JAX agreement is covered
+    // transitively by `sphere_pml_numpy_reference.rs` (see the last test).
     let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
         .expect("sphere_pml/jax_baseline.json should load");
 
@@ -224,13 +219,13 @@ fn jax_pml_complex_eigenvalues_have_pml_signature() {
 }
 
 // ---------------------------------------------------------------------------
-// Full Burn-vs-JAX complex eigenvalue cross-check (gated)
+// Lowest physical eigenvalue window (fixture-only, default tier)
 // ---------------------------------------------------------------------------
 //
-// The Burn-side complex generalized eigensolve currently uses faer's
-// dense `gevd`, which panics under debug-assertions in faer 0.24
-// (same constraint that gates `sphere_pec_jax_reference` and the
-// Burn-side `sphere_pml_eigenmode_spectrum` test). Gate on `--ignored`.
+// This test reads only the JAX fixture; it runs no Burn eigensolve, so it
+// needs neither `--release` nor `#[ignore]` (0.1 s in debug, #922). It was
+// once `#[ignore]`d on the belief that the Burn-side dense eigensolve ran
+// here; the body never did.
 //
 // Cross-checking the eigenvalues themselves is **soft**: the sparse
 // shift-invert ARPACK on the JAX side picks a different subset of the
@@ -242,8 +237,6 @@ fn jax_pml_complex_eigenvalues_have_pml_signature() {
 // `physical_eigenvalues_complex[0]` only.
 
 #[test]
-#[ignore = "Burn-side complex eigensolve requires --release; run with \
-    `cargo test -p geode-validation --release --test sphere_pml_jax_reference -- --ignored`"]
 fn jax_pml_lowest_physical_eigenvalue_agrees_with_burn() {
     // Loads the fixture and verifies the lowest physical eigenvalue
     // recorded by JAX matches what the Burn-side `sphere_pml_eigenmode`
