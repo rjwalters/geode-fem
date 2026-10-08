@@ -659,6 +659,63 @@ The same rim rule applies to hybrid ports (their outer shield and any
 carved-out conductor), whose TM and hybrid modes are the
 [hybrid path](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807).
 
+**Degeneracy warnings** (issue #923). Two modes of a port face with
+nearly the same cutoff are either one degenerate cluster (a square
+guide's TE₁₀ / TE₀₁) or two distinct modes, and the port decides which
+by comparing the pair's gap in a p=1 and a p=2 solve of the face (a
+discretization split shrinks between the orders; a physical one does
+not). `driven` reports two cases where that decision or its result is
+not reliable on the mesh at hand, as `warnings[]` entries (and
+`warning:` lines on stderr) with `wave_port` / `physical_group` set:
+
+| `kind` | when | what it means |
+|---|---|---|
+| `wave_port_degeneracy_ambiguous` | the pair's p=1 / p=2 gap ratio is in `[0.3, 0.8]`, around the 0.5 threshold | another mesh of the same cross-section, such as the guide's other port, may decide the pair the other way; that turns a mode of the pair by up to 180° and mixes the two in the cross-port S-parameters |
+| `wave_port_degeneracy_near_degenerate` | the pair was kept distinct, but the face's estimated discretization error (its p=1 / p=2 cutoff difference) is at least 0.1 of the pair's p=2 gap | the discrete modes are mesh-dependent mixtures of the two physical modes, so the cross-mode S-parameters of the pair are not mesh-stable (measured cross-mode `\|S21\|` 0.20 on the Gmsh `2 × 0.9` guide at `lc = 0.18`) |
+
+Each message names the port, the mode pair (`port-face modes 4 / 5`,
+indices as in `wave_ports[].modes`), the measured numbers (the gap, and
+the ratio or the p=2 gap and the discretization error) and the remedy:
+refine the port face. A finer face moves a degenerate pair's ratio
+towards 0 and a distinct pair's above 1. One pair can carry both
+warnings. On the Gmsh `2 × 0.9` guide with six modes per port, whose
+TE₂₁ / TE₃₀ cutoffs are 0.69 % apart, `lc = 0.30` reports the ambiguous
+warning on both ports (ratios 0.47 / 0.48, decided one cluster),
+`lc = 0.22` both warnings (0.56 / 0.66, decided distinct) and
+`lc = 0.18` the near-degenerate one (ratios 1.21 / 1.33, errors 0.105 %
+/ 0.192 % against a 0.689 % gap).
+
+These are warnings only. The cluster decision, the S-parameters, a
+`--touchstone` file and the exit status are the same with or without
+them, and no mesh is rejected. A pair is reported when its lower mode
+is one the port reports: with four modes on that guide (modes 0 … 3)
+there is no warning, with five there is. A clear decision gets none: a
+truly degenerate cluster (ratio near 0), a resolved distinct pair, or a
+single-mode guide with no close neighbour. Two further kinds cover a
+check that could not finish: `wave_port_degeneracy_unconfirmed` (the
+confirming solve at the other order failed, so the pair was kept
+distinct) and `wave_port_degeneracy_unavailable` (the check itself
+failed on a run whose sweep succeeded).
+
+The CLI's geometric ports are p=1 (there is no element-order field
+yet), so the gap a message quotes is the p=1 gap of the modes in the
+report. The decision compares the same p=1 and p=2 face solves
+whichever order a port runs at, so a p=2 port of the same face would
+get the same warnings for the same pairs. Only `driven` computes them;
+`check` does not solve a geometric port's modes. Hybrid ports are
+skipped: they have their own cluster diagnostics
+(`multiplicity_uncertified`, `cluster_split`,
+`non_canonical_cluster_basis`).
+
+The check repeats each geometric port's face mode solve once per run
+(and the confirming p=2 solve when the face has a candidate pair). It
+does not depend on the number of sweep frequencies. Measured on those
+guides, two ports, release build: 6 ms with one mode per port and no
+candidate pair, 20 to 80 ms with six modes and a candidate pair. That
+is 3 to 4 % of the sweep time of a 21-frequency run of the same spec,
+and 25 to 55 % of that of a one-frequency run, whose whole sweep takes
+20 ms to 0.8 s.
+
 **Filled wave ports** (issue #777). The guide at a wave port may be
 filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
 a dispersive model, or a diagonal `eps_r_diag` / `mu_r_diag` that is
@@ -2784,8 +2841,14 @@ Additive in v1 (issue #683) — always present in `check`, present in
   [Hybrid wave ports](#hybrid-wave-ports-microstrip-stripline-inhomogeneous-faces-issue-807));
   a hybrid port's `medium`, `modes` and TM-guard fields are `null`.
 - **`warnings[]`** (additive, issue #807; omitted when empty): `kind`,
-  `wave_port`, `physical_group`, `message` — hybrid-port diagnostics and
-  the measured passivity of a lossy spec, also printed on stderr.
+  `wave_port`, `physical_group`, `message` — hybrid-port diagnostics,
+  the measured passivity of a lossy spec and (issue #923, `driven`) a
+  geometric wave port's degeneracy warnings
+  (`wave_port_degeneracy_ambiguous`,
+  `wave_port_degeneracy_near_degenerate`,
+  `wave_port_degeneracy_unconfirmed`,
+  `wave_port_degeneracy_unavailable`; see **Degeneracy warnings** under
+  the wave ports), also printed on stderr.
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|
