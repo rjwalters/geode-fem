@@ -620,7 +620,20 @@ pub struct WarningResult {
     /// `"impedance_accuracy_unavailable"`,
     /// `"multiplicity_uncertified"`, `"cluster_split"`,
     /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
-    /// measured `σ_max(S) > 1`), `"termination_clamped"`, or (driven
+    /// measured `σ_max(S) > 1`), `"termination_clamped"`, a **geometric**
+    /// wave port's degeneracy notes (issue #923, `driven` only; the
+    /// message names the port, the mode pair and its numbers, and how to
+    /// refine): `"wave_port_degeneracy_ambiguous"` (a candidate degenerate
+    /// pair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5
+    /// decision threshold, so another mesh of the cross-section, such as
+    /// the guide's other port, may decide it the other way),
+    /// `"wave_port_degeneracy_near_degenerate"` (a pair kept distinct whose
+    /// face discretization error is at least 0.1 of its p=2 gap: its
+    /// cross-mode S is not mesh-stable),
+    /// `"wave_port_degeneracy_unconfirmed"` (a candidate pair kept distinct
+    /// because its confirming solve failed) and
+    /// `"wave_port_degeneracy_unavailable"` (the check itself could not
+    /// run), or (driven
     /// `sensitivities.warnings`, issue #883) `"sensitivity_port_mode"`,
     /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
     /// model: gradients zero by construction),
@@ -1396,7 +1409,8 @@ pub struct DrivenReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
     /// Report-level warnings (issue #807; additive in v1; present only when
-    /// there are any): hybrid-port diagnostics and measured passivity.
+    /// there are any): hybrid-port diagnostics, measured passivity and the
+    /// geometric wave ports' degeneracy notes (issue #923).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
 }

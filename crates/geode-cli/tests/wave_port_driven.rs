@@ -2474,8 +2474,15 @@ type FaceEdit = fn(&[[u32; 3]]) -> Vec<[u32; 3]>;
 /// `port_out` / `walls` groups taken from its boundary faces, `port_out`
 /// transformed by `edit` (its order and winding).
 fn write_gmsh_guide(dir: &std::path::Path, edit: FaceEdit) -> PathBuf {
+    write_gmsh_fixture_guide(dir, "guide_box_lc030.msh", edit)
+}
+
+/// [`write_gmsh_guide`] for any committed geode-core Gmsh guide of unit
+/// length along `z` (`guide_box_lc*.msh`, `guide_coax_lc018_015.msh`).
+fn write_gmsh_fixture_guide(dir: &std::path::Path, fixture: &str, edit: FaceEdit) -> PathBuf {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../geode-core/tests/fixtures/guide_box_lc030.msh");
+        .join("../geode-core/tests/fixtures")
+        .join(fixture);
     let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
         .unwrap()
         .mesh;
@@ -2595,4 +2602,215 @@ fn gmsh_guide_s21_has_the_transmission_phase_in_the_report_and_touchstone() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// Issue #923: the #896 / #918 degeneracy notes as `geode driven` warnings
+// ---------------------------------------------------------------------
+
+const AMBIGUOUS: &str = "wave_port_degeneracy_ambiguous";
+const NEAR_DEGENERATE: &str = "wave_port_degeneracy_near_degenerate";
+
+/// `geode driven` on a committed Gmsh guide with `n_modes` modes on both
+/// ports at `k0 = 2.5` (below every `2 × 0.9` TM cutoff, so the TE-only
+/// guard admits it): the report and the run's stderr.
+fn driven_gmsh_guide(fixture: &str, n_modes: usize) -> (serde_json::Value, String) {
+    let dir = scratch("degeneracy-923");
+    let mesh = write_gmsh_fixture_guide(&dir, fixture, |f| f.to_vec());
+    let spec = serde_json::json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+        "boundary_conditions": { "pec": ["walls"] },
+        "wave_ports": [
+            { "physical_group": "port_in", "n_modes": n_modes },
+            { "physical_group": "port_out", "n_modes": n_modes }
+        ],
+        "frequencies": { "unit": "k0", "values": [2.5] }
+    });
+    let path = dir.join("spec.json");
+    std::fs::write(&path, spec.to_string()).unwrap();
+    let out = geode(&["driven", path.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    (json(&out), stderr)
+}
+
+/// The report's degeneracy warnings as `(kind, wave_port, message)`, after
+/// checking each one's shape: a `wave_port_degeneracy_*` kind, its port
+/// index and group, a message naming that group, and the same text on
+/// stderr as a `warning: …` line.
+fn degeneracy_warnings(v: &serde_json::Value, stderr: &str) -> Vec<(String, u64, String)> {
+    let Some(all) = v.get("warnings") else {
+        return Vec::new();
+    };
+    all.as_array()
+        .expect("warnings[]")
+        .iter()
+        .filter(|w| {
+            w["kind"]
+                .as_str()
+                .unwrap()
+                .starts_with("wave_port_degeneracy")
+        })
+        .map(|w| {
+            let kind = w["kind"].as_str().unwrap().to_string();
+            let port = w["wave_port"].as_u64().expect("wave_port index");
+            let group = ["port_in", "port_out"][port as usize];
+            let msg = w["message"].as_str().unwrap().to_string();
+            assert_eq!(w["physical_group"], group, "{w:#}");
+            assert!(msg.starts_with(&format!("wave port `{group}`: ")), "{msg}");
+            assert!(
+                stderr.lines().any(|l| l == format!("warning: {msg}")),
+                "not on stderr: {msg}\nstderr: {stderr}"
+            );
+            (kind, port, msg)
+        })
+        .collect()
+}
+
+/// The number that follows `prefix` in `msg`.
+fn value_after(msg: &str, prefix: &str) -> f64 {
+    let rest = msg
+        .split_once(prefix)
+        .unwrap_or_else(|| panic!("no `{prefix}` in {msg}"))
+        .1;
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(rest.len());
+    rest[..end].trim_end_matches('.').parse().unwrap()
+}
+
+/// Issue #923, ambiguous ratio: the TE₂₁ / TE₃₀ pair (modes 4 / 5) of the
+/// Gmsh `2 × 0.9` guide has a p=1 / p=2 gap ratio inside `[0.3, 0.8]` on
+/// both ports at `lc = 0.30` (library: 0.47 / 0.48, decided one cluster)
+/// and at `lc = 0.22` (0.56 / 0.66, decided distinct). `geode driven` with
+/// six modes reports one `wave_port_degeneracy_ambiguous` warning per port,
+/// naming the pair, the ratio, the decision and the refinement.
+#[test]
+fn driven_reports_an_ambiguous_degenerate_pair_on_both_ports() {
+    for (fixture, decision) in [
+        ("guide_box_lc030.msh", "one degenerate cluster"),
+        ("guide_box_lc022.msh", "two distinct modes"),
+    ] {
+        let (v, stderr) = driven_gmsh_guide(fixture, 6);
+        assert_eq!(v["status"], "ok");
+        let ws = degeneracy_warnings(&v, &stderr);
+        eprintln!("{fixture}: {ws:#?}");
+        let ambiguous: Vec<_> = ws.iter().filter(|w| w.0 == AMBIGUOUS).collect();
+        assert_eq!(
+            ambiguous.iter().map(|w| w.1).collect::<Vec<_>>(),
+            [0, 1],
+            "{fixture}: one ambiguous warning per port, in port order"
+        );
+        for (_, port, msg) in ambiguous {
+            assert!(
+                msg.contains("port-face modes 4 / 5 (relative k_c² gap")
+                    && msg.contains("at p=1)")
+                    && msg.contains("ambiguous band [0.3, 0.8]")
+                    && msg.contains(&format!("(decided: {decision})"))
+                    && msg.contains("Refine the port faces"),
+                "{fixture} port {port}: {msg}"
+            );
+            let ratio = value_after(msg, "gap ratio ");
+            assert!(
+                (0.3..=0.8).contains(&ratio),
+                "{fixture} port {port}: ratio {ratio}"
+            );
+        }
+        // A pair decided one cluster is never a "distinct pair"; the
+        // `lc = 0.22` pair, decided distinct on a face that does not
+        // resolve it, carries the near-degenerate note as well.
+        let near: Vec<u64> = ws
+            .iter()
+            .filter(|w| w.0 == NEAR_DEGENERATE)
+            .map(|w| w.1)
+            .collect();
+        if decision == "one degenerate cluster" {
+            assert!(near.is_empty(), "{fixture}: {ws:#?}");
+        } else {
+            assert_eq!(near, [0, 1], "{fixture}: {ws:#?}");
+        }
+        assert_eq!(ws.len(), 2 + near.len(), "{fixture}: {ws:#?}");
+    }
+}
+
+/// Issue #923, near-degenerate distinct pair: at `lc = 0.18` the same pair
+/// is decided distinct at a clear ratio (library: 1.21 / 1.33) but the
+/// face's p=1 / p=2 cutoff error is over 0.1 of its p=2 gap, the case whose
+/// measured cross-mode `|S21|` is 0.20 (#896). `geode driven` reports one
+/// `wave_port_degeneracy_near_degenerate` warning per port and no
+/// ambiguous one.
+#[test]
+fn driven_reports_a_near_degenerate_distinct_pair_on_both_ports() {
+    let (v, stderr) = driven_gmsh_guide("guide_box_lc018.msh", 6);
+    assert_eq!(v["status"], "ok");
+    let ws = degeneracy_warnings(&v, &stderr);
+    eprintln!("lc 0.18: {ws:#?}");
+    assert_eq!(
+        ws.iter().map(|w| (w.0.as_str(), w.1)).collect::<Vec<_>>(),
+        [(NEAR_DEGENERATE, 0), (NEAR_DEGENERATE, 1)]
+    );
+    for (_, port, msg) in &ws {
+        assert!(
+            msg.contains("port-face modes 4 / 5 (relative k_c² gap")
+                && msg.contains("a near-degenerate distinct pair")
+                && msg.contains("cross-mode S-parameters of modes 4 / 5 are not mesh-stable")
+                && msg.contains("Refine the port face until its discretization error is under")
+                && !msg.contains("ambiguous band"),
+            "port {port}: {msg}"
+        );
+        // The measured fraction: error ≥ 0.1 of the p=2 gap.
+        let gap = value_after(msg, "whose p=2 gap ");
+        let err = value_after(msg, "estimated discretization error ");
+        assert!(err >= 0.1 * gap && gap > 0.0, "port {port}: {err} vs {gap}");
+    }
+}
+
+/// Issue #923, the clean rectangular guide: a warning is about the modes
+/// the port **reports**. The `lc = 0.30` guide whose modes 4 / 5 are
+/// ambiguous (the control: five modes report mode 4, so it warns) carries
+/// no degeneracy warning as a single-mode TE₁₀ guide, nor with four modes
+/// (0 … 3, none of the pair): no `warnings` key and nothing on stderr.
+#[test]
+fn a_single_mode_rectangular_guide_reports_no_degeneracy_warning() {
+    for n_modes in [1, 4] {
+        let (v, stderr) = driven_gmsh_guide("guide_box_lc030.msh", n_modes);
+        assert_eq!(v["status"], "ok");
+        assert!(
+            v.get("warnings").is_none(),
+            "{n_modes} mode(s): {:#}",
+            v["warnings"]
+        );
+        assert!(!stderr.contains("warning:"), "{n_modes} mode(s): {stderr}");
+    }
+    let (v, stderr) = driven_gmsh_guide("guide_box_lc030.msh", 5);
+    let ws = degeneracy_warnings(&v, &stderr);
+    assert_eq!(
+        ws.iter().map(|w| (w.0.as_str(), w.1)).collect::<Vec<_>>(),
+        [(AMBIGUOUS, 0), (AMBIGUOUS, 1)],
+        "control: mode 4 reported"
+    );
+}
+
+/// Issue #923, the coax: through `geode driven` its face (a floating inner
+/// conductor) is a **hybrid** port, which the geometric degeneracy notes
+/// skip, so the run reports no `wave_port_degeneracy_*` warning for its
+/// degenerate TE₁₁ pair (channels 1 / 2 after the TEM mode). That the
+/// coax's geometric face itself gets no note, its clusters being truly
+/// degenerate, is the unit test
+/// `driven::tests::a_truly_degenerate_cluster_gets_no_degeneracy_warning`.
+#[test]
+fn a_coax_guide_reports_no_degeneracy_warning() {
+    let (v, stderr) = driven_gmsh_guide("guide_coax_lc018_015.msh", 3);
+    assert_eq!(v["status"], "ok");
+    for port in 0..2 {
+        assert_eq!(v["wave_ports"][port]["route"], "hybrid");
+        assert_eq!(v["wave_ports"][port]["n_modes"], 3);
+    }
+    assert!(
+        degeneracy_warnings(&v, &stderr).is_empty(),
+        "{:#}",
+        v["warnings"]
+    );
+    assert!(!stderr.contains("degenera"), "{stderr}");
+    eprintln!("coax warnings: {:#}", v["warnings"]);
 }
