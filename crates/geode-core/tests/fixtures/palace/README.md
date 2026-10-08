@@ -1,7 +1,7 @@
 # `tests/fixtures/palace/` — Palace ingester test fixtures
 
 These files exist to exercise the Palace **ingestion code** in
-`crates/geode-core/src/palace.rs`. They are **NOT** an authoritative
+`crates/geode-core/src/interop/palace.rs`. They are **NOT** an authoritative
 Palace oracle, and they must **not** be ingested into a real
 `benchmarks/*/results.toml` `[oracles.palace]` slot.
 

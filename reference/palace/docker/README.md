@@ -69,7 +69,8 @@ steps layered on top:
   `--depth 1` clone HEAD), and the full cmake flag line (already in the Dockerfile).
 - The libCEED backend string from the run log (`/gpu/cuda/...`).
 - Wall / peak-RSS / peak-GPU-mem (n≥3) committed to a results artifact under
-  `reference/fixtures/transmon_palace/results_p1_gpu/`.
+  [`benchmarks/transmon_bench_gpu/`](../../../benchmarks/transmon_bench_gpu/)
+  (`results.toml`, with the raw logs and build provenance under `runs/`).
 
 ## Note on the `g6e` / geode-CUDA f32 caveat
 

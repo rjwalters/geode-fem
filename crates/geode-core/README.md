@@ -39,7 +39,7 @@ and design-loop binaries that write `benchmarks/*/results.toml`) and
 | Feature | Effect |
 |---|---|
 | `faer-parallel` (default) | Multi-threaded `faer` factorization and parallel host-side assembly via rayon |
-| `wgpu`, `cuda`, `metal` | Burn GPU backends; pick at most one. With none, tests use the `ndarray` f64 CPU backend |
+| `wgpu`, `cuda`, `metal` | Burn GPU backends, all off by default. Enabling several is not an error: the first enabled of `cuda`, `metal`, `wgpu` is used. With none, tests use the `ndarray` f64 CPU backend |
 | `autodiff` | Burn autodiff wrapper backend |
 | `arpack` | ARPACK-backed sparse eigensolver; needs a system `libarpack` found by `pkg-config` |
 | `spade-mesh` | In-process 2-D constrained Delaunay meshing for wave-port cross-sections |
