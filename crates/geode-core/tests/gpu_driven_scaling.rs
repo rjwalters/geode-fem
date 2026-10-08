@@ -126,6 +126,13 @@
 //! keys to every other cell so the setup costs can be compared. An AMS solve
 //! that does not converge is recorded as a DNF or drift cell, never a panic:
 //! whether AMS converges on this operator is the measured result.
+//!
+//! The AMS edge-smoother weight is chosen per operator from a spectral-radius
+//! estimate (issue #945). `GEODE_AMS_SMOOTH_REPORT=1` makes each
+//! preconditioner build print the estimate, the Gershgorin bound and the
+//! weight to stderr (one `# ams_smoother …` line), `GEODE_AMS_SMOOTH_WEIGHT`
+//! overrides the weight (`0.6` reproduces the previous fixed value), and
+//! `GEODE_SCALING_OMEGA` moves the single-ω cells off the default frequency.
 
 use std::time::Instant;
 
@@ -159,6 +166,27 @@ const DEFAULT_REPS: usize = 3;
 /// Drive frequency for the single-ω cell. Low ω keeps the σ-lossy pencil
 /// well-conditioned (the equivalence tests use this same regime).
 const OMEGA_SINGLE: f64 = 0.10;
+
+/// The single-ω drive frequency of this run: [`OMEGA_SINGLE`], or the
+/// `GEODE_SCALING_OMEGA` override (issue #945: the AMS iteration count was
+/// first measured at one frequency only). Read once.
+fn omega_single() -> f64 {
+    static OMEGA: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *OMEGA.get_or_init(|| match std::env::var("GEODE_SCALING_OMEGA") {
+        Ok(v) if !v.trim().is_empty() => {
+            let w: f64 = v
+                .trim()
+                .parse()
+                .unwrap_or_else(|_| panic!("GEODE_SCALING_OMEGA={v:?} is not a number"));
+            assert!(
+                w.is_finite() && w > 0.0,
+                "GEODE_SCALING_OMEGA={v:?} must be positive and finite"
+            );
+            w
+        }
+        _ => OMEGA_SINGLE,
+    })
+}
 
 /// 5-point ω sweep for the sweep variant.
 const OMEGAS_SWEEP: &[f64] = &[0.05, 0.075, 0.10, 0.15, 0.20];
@@ -195,6 +223,7 @@ const DEFAULT_ITER_MAX: usize = 20_000;
 /// | `GEODE_SCALING_SKIP_E2E` | unset | `1` skips the end-to-end (re-assemble) reps |
 /// | `GEODE_SCALING_SKIP_SWEEP` | unset | `1` skips the 5-point ω sweep |
 /// | `GEODE_SCALING_ITER_MAX` | `20000` | COCG iteration cap (bounds DNF cost) |
+/// | `GEODE_SCALING_OMEGA` | `0.10` | drive frequency of the single-ω cells (issue #945) |
 /// | `GEODE_SCALING_EXPORT_DIR` | unset | write each size's mesh as Gmsh MSH 2.2 (for Palace) |
 ///
 /// When `direct` is not in the config subset, the accuracy column of the
@@ -603,7 +632,7 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e:
     // report used for the accuracy / iteration / residual columns, and
     // detects hard non-convergence before committing to timed reps.
     let t_warm = Instant::now();
-    let (warm, warmup_setup_s, warmup_krylov_s) = attempt_timed(fix, OMEGA_SINGLE, mode);
+    let (warm, warmup_setup_s, warmup_krylov_s) = attempt_timed(fix, omega_single(), mode);
     let warmup_s = t_warm.elapsed().as_secs_f64();
     let (e_edges, v_port, iters, residual_rel, explicit_converged) = match warm {
         Attempt::Ok(sol, iters, res) => {
@@ -637,7 +666,7 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e:
     let mut solve_times = Vec::with_capacity(reps);
     for k in 0..reps {
         let t0 = Instant::now();
-        let a = attempt(fix, OMEGA_SINGLE, mode);
+        let a = attempt(fix, omega_single(), mode);
         let dt = t0.elapsed().as_secs_f64();
         match a {
             Attempt::Fail(e) => eprintln!("  [n={n}] solve-only rep {k} did not converge: {e}"),
@@ -652,7 +681,7 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e:
     for k in 0..e2e_reps {
         let t0 = Instant::now();
         let f = build_fixture(n);
-        let a = attempt(&f, OMEGA_SINGLE, mode);
+        let a = attempt(&f, omega_single(), mode);
         let dt = t0.elapsed().as_secs_f64();
         match a {
             Attempt::Fail(e) => eprintln!("  [n={n}] end-to-end rep {k} did not converge: {e}"),
@@ -755,7 +784,10 @@ fn gpu_driven_scaling_benchmark() {
         "# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  \
          3=IterativeMatrixFree({mf_backend} {mf_dtype})"
     );
-    println!("# single-ω = {OMEGA_SINGLE}; sweep ω = {OMEGAS_SWEEP:?}");
+    println!(
+        "# single-ω = {}; sweep ω = {OMEGAS_SWEEP:?}",
+        omega_single()
+    );
     println!(
         "# iter tol: f64 configs = {ITER_TOL_F64:e}, matrix-free ({mf_dtype}) = {mf_tol:e}; \
          iter max = {iter_max}"

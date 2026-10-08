@@ -110,7 +110,7 @@ use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
 use super::{DrivenError, DrivenOperator};
-use crate::eigen::ams::{AmsLitePreconditioner, CoarseSolve};
+use crate::eigen::ams::{AmsLitePreconditioner, CoarseSolve, SmootherWeight};
 use crate::eigen::projection::InteriorGradient;
 
 /// Symmetric Gauss–Seidel sweeps for the vector-nodal `Πᵀ P Π` coarse
@@ -246,6 +246,7 @@ impl std::fmt::Debug for DrivenAms {
             .field("edge_dim", &self.n)
             .field("node_dim", &self.node_dim)
             .field("coarse", &self.coarse)
+            .field("smoother", self.ams.smoother())
             .field("proxy_nnz", &self.proxy.compute_nnz())
             .finish_non_exhaustive()
     }
@@ -261,6 +262,12 @@ impl DrivenAms {
     /// The concrete coarse solver in use ([`AmsCoarseSolve::Auto`] resolved).
     pub fn coarse(&self) -> AmsCoarseSolve {
         self.coarse
+    }
+
+    /// The V-cycle edge-smoother weight chosen for this ω and the
+    /// spectral-radius estimate of `D⁻¹P` behind it (issue #945).
+    pub fn smoother(&self) -> &SmootherWeight {
+        self.ams.smoother()
     }
 }
 
