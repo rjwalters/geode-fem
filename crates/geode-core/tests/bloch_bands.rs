@@ -804,3 +804,113 @@ fn near_gamma_between_pec_lids_is_the_tem_line() {
     eprintln!("lids |k| = 1e-4: ω = {:.6e}, v_g = {vg:.4?}", tem.omega);
     assert!((vg[0] - 1.0).abs() < 1e-2 && vg[1].abs() < 1e-2 && vg[2].abs() < 1e-2);
 }
+
+// ---------------------------------------------------------------------------
+// Near Γ on an elongated cell (issue #915).
+// ---------------------------------------------------------------------------
+
+/// One near-Γ probe: `k = scale · near_gamma_min_distance · dir` (`dir` a
+/// unit vector). `Ok(worst light-line ω relative error)` or `Err(())` for
+/// the typed near-Γ refusal.
+fn near_gamma_probe(cell: &BlochCell, dir: [f64; 3], scale: f64) -> Result<f64, ()> {
+    let q = scale * cell.near_gamma_min_distance();
+    let k = [q * dir[0], q * dir[1], q * dir[2]];
+    match cell.solve(k, &BlochSettings::new(4)) {
+        Ok(m) => {
+            assert!(
+                m.modes.iter().all(|x| !x.is_static),
+                "{k:?}: no static mode"
+            );
+            let low: Vec<&_> = m.modes.iter().filter(|x| x.omega < 0.5).collect();
+            assert_eq!(low.len(), 2, "{k:?}: exactly two light-line modes");
+            Ok(low
+                .iter()
+                .map(|x| (x.omega - q).abs() / q)
+                .fold(0.0, f64::max))
+        }
+        Err(BlochError::InvalidInput(msg)) => {
+            assert!(msg.contains("near_gamma_min_distance"), "{msg}");
+            Err(())
+        }
+        Err(e) => panic!("{k:?}: want Ok or a typed InvalidInput, got {e}"),
+    }
+}
+
+/// The near-Γ refusal is decided on `|k − G|` (rad / length), not on the
+/// Bloch phase, so an elongated cell is held to the same accuracy along
+/// every axis (issue #915). On the `1 × 1 × 4` cell `[4, 4, 8]` (fully
+/// periodic, default settings):
+/// - `k ∥ ẑ` (the long axis) at the **old** threshold (Bloch phase 1.05 ×
+///   `near_gamma_min_phase`, i.e. `|k|` 4× too small; measured 7.3 % ω
+///   error in the review of PR #911) is now refused;
+/// - at 1.05×, 2× and 4× the threshold the solve returns the two
+///   light-line modes; measured ω error at 1.05× / 2× / 4×: x̂ 1.4e-2 /
+///   1.6e-3 / 4.7e-4, ẑ 6.2e-3 / 3.0e-3 / 2.1e-4 (model `ε / scale²`,
+///   `ε = NEAR_GAMMA_MAX_REL_ERR`; the round-off is noisy around it);
+/// - below the threshold every axis direction is refused. Off the axes
+///   the distance is a lower bound, so the refusal is conservative (the
+///   xz diagonal is refused up to `√2 ×` the threshold).
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn near_gamma_threshold_is_isotropic_on_an_elongated_cell() {
+    let cell = bloch_cell(
+        box_tet_mesh([4, 4, 8], [1.0, 1.0, 4.0]),
+        &[0, 1, 2],
+        false,
+        |m| vec![1.0; m.n_tets()],
+    );
+    let min = cell.near_gamma_min_distance();
+    eprintln!(
+        "1×1×4: λ floor {:.3e}, near_gamma_min_distance {min:.3e} rad/length, \
+         near_gamma_min_phase {:.3e} rad",
+        cell.lambda_roundoff_floor(),
+        cell.near_gamma_min_phase()
+    );
+    // On the shortest axis the two thresholds coincide (a_min = 1).
+    assert!((cell.near_gamma_min_phase() - min).abs() < 1e-9 * min);
+    let s = 0.5f64.sqrt();
+    let dirs = [
+        ("x (short, a = 1)", [1.0, 0.0, 0.0], 1.0),
+        ("z (long, a = 4)", [0.0, 0.0, 1.0], 4.0),
+        ("xz diagonal", [s, 0.0, s], 0.0),
+    ];
+    eprintln!("| direction | |k−G| / min | |k|·L_axis | ω rel. error | result |");
+    for (name, dir, a) in dirs {
+        for scale in [0.2625, 0.9, 1.05, 2.0, 4.0] {
+            let q = scale * min;
+            let k = [q * dir[0], q * dir[1], q * dir[2]];
+            let lb = cell.gamma_distance(k);
+            let r = near_gamma_probe(&cell, dir, scale);
+            match r {
+                Ok(err) => eprintln!("| {name} | {scale} | {:.3e} | {err:.2e} | solved |", q * a),
+                Err(()) => eprintln!("| {name} | {scale} | {:.3e} | | refused |", q * a),
+            }
+            // The refusal is exactly `gamma_distance < min`.
+            assert_eq!(
+                r.is_err(),
+                lb < min,
+                "{name} at {scale}: lower bound {lb:e}"
+            );
+            if a > 0.0 {
+                // Along a lattice axis the lower bound is |k − G| itself.
+                assert!((lb - q).abs() < 1e-9 * q, "{name}: {lb:e} vs {q:e}");
+                assert_eq!(r.is_err(), scale < 1.0, "{name} at {scale}");
+            } else {
+                assert!(lb <= q * (1.0 + 1e-9), "{name}: a lower bound");
+            }
+            if let Ok(err) = r {
+                // The round-off error is noisy around the model
+                // `ε / scale²`: measured 0.2–2.5× on this cell (and up to
+                // 5× on small cubes, where the test is unchanged). The
+                // bound leaves room for platform round-off.
+                assert!(
+                    err < 5.0 * NEAR_GAMMA_MAX_REL_ERR / (scale * scale),
+                    "{name} at {scale}: ω error {err:e}"
+                );
+            }
+        }
+    }
+}
