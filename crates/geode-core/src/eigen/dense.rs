@@ -130,7 +130,18 @@ pub enum EigenError {
     /// returned, but was still unconverged when the checked Lanczos solve
     /// stopped, both at the classifier's request and at the automatic retry
     /// with a doubled request. Returning the set would silently skip that
-    /// mode, and it could be the true fundamental. Raised by
+    /// mode, and it could be the true fundamental.
+    ///
+    /// It is **not** raised when the classifier returns no bound mode at
+    /// all. That case has no reference mode; a withheld pair that meets the
+    /// stricter empty-bound-set conditions is reported by a logged warning
+    /// only, and the empty set is returned (issue #913). So
+    /// `lowest_returned` is always a finite `β²` of a returned mode. The one
+    /// measured firing of the empty-set conditions is a pair of the low-curl
+    /// ladder of issue #947, not a guided mode, which is why they do not
+    /// raise this error.
+    ///
+    /// Raised by
     /// [`crate::analytic::waveguide::solve_dielectric_modes`],
     /// [`crate::analytic::waveguide::solve_dielectric_modes2`],
     /// [`crate::analytic::waveguide::solve_dielectric_modes2_pml`] and

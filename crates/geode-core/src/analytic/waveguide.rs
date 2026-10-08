@@ -4476,6 +4476,13 @@ pub struct DielectricMode {
 /// Returns [`EigenError::SelectionHole`] if a localized, bound-like withheld
 /// Ritz pair still sits above the lowest returned mode after one automatic
 /// retry with a doubled Lanczos request (issue #850; see `selection_hole`).
+/// When the solve finds **no** bound mode,
+/// a resolved (`ρ ≤ 10⁻⁴`), localized, bound-like, in-window
+/// withheld pair whose curl ratio clears twice the contrast-scaled floor is
+/// reported by a logged **warning only**: the result is returned unchanged
+/// and no error is raised (issue #913; see `selection_hole`). Such a pair is
+/// not confirmed as a guided mode. It can be a member of the low-curl
+/// ladder of issue #947.
 pub fn solve_dielectric_modes(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -4625,13 +4632,20 @@ fn solve_dielectric_modes_attempt(
     );
     // Selection-level hole check (issue #850): a localized withheld pair
     // above the lowest returned mode would have ranked inside this set.
-    let hole = check_selection_hole_real(
-        "solve_dielectric_modes",
-        &raw,
-        (beta_sq_floor, beta_sq_ceiling),
-        bound.last().map(|m| m.beta_sq),
-        curl_floor,
-    );
+    // With no bound mode found the empty-set rule applies, which only
+    // warns (issue #913). `n_modes = 0` asks for nothing, so nothing can
+    // be missing.
+    let hole = if n_modes == 0 {
+        Ok(())
+    } else {
+        check_selection_hole_real(
+            "solve_dielectric_modes",
+            &raw,
+            (beta_sq_floor, beta_sq_ceiling),
+            bound.last().map(|m| m.beta_sq),
+            &HoleRule::new(curl_floor, eps_max, eps_min, Some(k0)),
+        )
+    };
     Ok((bound, hole))
 }
 
@@ -4784,6 +4798,7 @@ fn raw_dielectric_solve(
             beta_sq: c64::new(w.pair.lambda, 0.0),
             residual: w.residual,
             curl_ratio: curl_ratio(&w.pair.vector),
+            eps_weighted: Some(eps_weighted(&w.pair.vector)),
         })
         .collect();
     let withheld_in_window = checked
@@ -5164,6 +5179,13 @@ const GUIDED_CURL_FLOOR_FRACTION: f64 = 1e-2;
 /// Returns [`EigenError::SelectionHole`] if a localized, bound-like withheld
 /// Ritz pair still sits above the lowest returned mode after one automatic
 /// retry with a doubled Lanczos request (issue #850; see `selection_hole`).
+/// When the solve finds **no** bound mode,
+/// a resolved (`ρ ≤ 10⁻⁴`), localized, bound-like, in-window
+/// withheld pair whose curl ratio clears twice the contrast-scaled floor is
+/// reported by a logged **warning only**: the result is returned unchanged
+/// and no error is raised (issue #913; see `selection_hole`). Such a pair is
+/// not confirmed as a guided mode. It can be a member of the low-curl
+/// ladder of issue #947.
 pub fn solve_dielectric_modes2(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -5269,14 +5291,19 @@ fn solve_dielectric_modes2_attempt(
          in the guided window (requested {n_modes})",
         raw.withheld, raw.lanczos_steps, raw.withheld_in_window
     );
-    // Selection-level hole check (issue #850), as in `solve_dielectric_modes`.
-    let hole = check_selection_hole_real(
-        "solve_dielectric_modes2",
-        &raw,
-        (beta_sq_floor, beta_sq_ceiling),
-        bound.last().map(|m| m.beta_sq),
-        curl_floor,
-    );
+    // Selection-level hole check (issues #850, #913), as in
+    // `solve_dielectric_modes`.
+    let hole = if n_modes == 0 {
+        Ok(())
+    } else {
+        check_selection_hole_real(
+            "solve_dielectric_modes2",
+            &raw,
+            (beta_sq_floor, beta_sq_ceiling),
+            bound.last().map(|m| m.beta_sq),
+            &HoleRule::new(curl_floor, eps_max, eps_min, Some(k0)),
+        )
+    };
     Ok((bound, hole))
 }
 
@@ -5299,8 +5326,19 @@ const RAYLEIGH_IDENTITY_TOL_FRACTION: f64 = 1e-3;
 /// `δ·⟨ε⟩_x = |n_RQ² − n_eff²|`: the gap between the reported eigenvalue
 /// and the Rayleigh quotient of the returned vector, in units of `n_eff²`.
 fn rayleigh_identity_violation(c: &RawDielectricCandidate, k0: f64) -> f64 {
-    let eps_x = c.eps_weighted.max(f64::MIN_POSITIVE);
-    (c.curl_ratio - (1.0 - c.beta_sq / (k0 * k0 * eps_x))).abs()
+    rayleigh_identity_violation_of(c.beta_sq, c.curl_ratio, c.eps_weighted, k0)
+}
+
+/// [`rayleigh_identity_violation`] on the bare `(β², r, ⟨ε⟩_x)` triple, so
+/// the hole check can apply it to a withheld pair (issue #913).
+fn rayleigh_identity_violation_of(
+    beta_sq: f64,
+    curl_ratio: f64,
+    eps_weighted: f64,
+    k0: f64,
+) -> f64 {
+    let eps_x = eps_weighted.max(f64::MIN_POSITIVE);
+    (curl_ratio - (1.0 - beta_sq / (k0 * k0 * eps_x))).abs()
 }
 
 /// Whether an **in-window** candidate (p=1 or p=2) can be an eigenpair of
@@ -5344,15 +5382,27 @@ fn rayleigh_identity_violation(c: &RawDielectricCandidate, k0: f64) -> f64 {
 /// in the eigensolve ([`DIELECTRIC_RESIDUAL_TOL`]); this check is kept as a
 /// cheap, independent second line at both orders.
 fn rayleigh_consistent(c: &RawDielectricCandidate, k0: f64, eps_max: f64, eps_min: f64) -> bool {
+    rayleigh_consistent_of(
+        rayleigh_identity_violation(c, k0),
+        c.curl_ratio,
+        eps_max,
+        eps_min,
+    )
+}
+
+/// [`rayleigh_consistent`] on a pair's identity violation `δ` and curl
+/// ratio `r`, so the hole check can apply the classifier's own test to a
+/// withheld pair (issue #913).
+fn rayleigh_consistent_of(violation: f64, curl_ratio: f64, eps_max: f64, eps_min: f64) -> bool {
     let bound = if eps_max > 0.0 {
         ((eps_max - eps_min) / eps_max).max(0.0)
     } else {
         0.0
     };
-    if c.curl_ratio >= bound {
+    if curl_ratio >= bound {
         return false;
     }
-    rayleigh_identity_violation(c, k0) <= RAYLEIGH_IDENTITY_TOL_FRACTION * bound
+    violation <= RAYLEIGH_IDENTITY_TOL_FRACTION * bound
 }
 
 // ===========================================================================
@@ -5562,6 +5612,7 @@ fn dielectric_raw_candidates_p2_pml(
             beta_sq: w.pair.lambda,
             residual: w.residual,
             curl_ratio: curl_ratio(&w.pair.vector),
+            eps_weighted: None,
         })
         .collect();
     let lanczos_steps = checked.lanczos_steps;
@@ -5625,6 +5676,13 @@ pub(crate) struct WithheldCandidate {
     /// ([`RawDielectricCandidate::curl_ratio`]): `≈ 0` for a
     /// gradient-nullspace pair.
     pub curl_ratio: f64,
+    /// Field-weighted permittivity `⟨ε⟩_x` of the Ritz vector
+    /// ([`RawDielectricCandidate::eps_weighted`]) on the real (PEC) path,
+    /// where the classifiers apply the Rayleigh-identity test
+    /// ([`rayleigh_consistent`]) to their converged candidates. `None` on
+    /// the complex (PML) path, whose classifiers apply no such test. Used
+    /// only by the empty-bound-set rule (issue #913).
+    pub eps_weighted: Option<f64>,
 }
 
 /// Selection-level **hole** rule of the dielectric bound-mode classifiers
@@ -5653,6 +5711,10 @@ pub(crate) struct WithheldCandidate {
 ///    `Re β²` among the bound modes the classifier is about to return:
 ///    `Re β² − w > lowest_returned_bound`.
 ///
+/// When the classifier returns **no** bound mode (`lowest_returned_bound =
+/// None`) condition 5 has no reference; the **empty-bound-set** conditions
+/// replace it (issue #913, below).
+///
 /// `w = ρ · max(|β²|, |σ|)` is the pair's first-order eigenvalue
 /// uncertainty, the same bound the localization test uses. Without it the
 /// curl-free gradient cluster that sits at `β² = ε_core k₀²` (the PML
@@ -5664,8 +5726,64 @@ pub(crate) struct WithheldCandidate {
 ///
 /// Such a pair would have ranked inside the returned bound set (the
 /// classifiers order bound modes by descending `Re β²`), so returning
-/// without it leaves a hole, and it could be the true fundamental. With no
-/// returned bound mode (`None`) there is no set to have a hole in.
+/// without it leaves a hole, and it could be the true fundamental.
+///
+/// # The empty-bound-set rule (issue #913)
+///
+/// A classifier that found no bound mode used to pass unchecked, because
+/// the rule had no reference mode to compare a withheld pair against. With
+/// `lowest_returned_bound = None`, a pair meeting conditions 1–4 is now
+/// **reported** (this function returns it) when it also
+///
+/// - is **resolved**, `ρ ≤` [`EMPTY_SET_RESIDUAL_CAP`] `= 10⁻⁴`,
+/// - has a curl ratio above [`HoleRule::empty_set_curl_floor`], which is
+///   [`EMPTY_SET_CURL_MARGIN`] `= 2` times the contrast-scaled
+///   [`physical_curl_floor`] on every path, and
+/// - on the real path, passes the classifier's own Rayleigh-identity test
+///   ([`rayleigh_consistent`]).
+///
+/// These are stricter than conditions 1–4 on purpose. With a reference
+/// mode, the question is whether the classifier *would have selected* the
+/// pair, and its own floor answers that. With none, a report says that a
+/// bound mode may exist and was missed, on the evidence of one unconverged
+/// vector. The extra conditions keep the report to pairs whose diagnostics
+/// are resolved and sit clear of the low-curl ladders measured on
+/// [`EMPTY_SET_CURL_MARGIN`], [`EMPTY_SET_RESIDUAL_CAP`] and
+/// [`HoleRule::empty_set_curl_floor`]. A pair one of them excludes is
+/// labelled in the hole-check log line, not dropped silently.
+///
+/// ## Warn-only
+///
+/// A reported pair is **not** an error and triggers no retry:
+/// [`check_selection_hole`] logs [`empty_set_warning`] and the classifier
+/// returns its (empty) set, exactly as before #913. The with-reference
+/// rule above is unaffected and still goes through
+/// [`retry_on_selection_hole`].
+///
+/// The reason is the evidence. The one natural firing measured is the
+/// thin-core PML fixture of
+/// `pml_thin_core_empty_set_warning_is_a_ladder_pair_not_lp01`
+/// (`a = 0.30 µm`, `n = 1.4874 / 1.4447`, `V ≈ 0.43`), and the pair it
+/// reports is not a guided mode. The analytic LP₀₁ of that fiber has
+/// `b = 4.7×10⁻⁹`; the reported pair has `b ≈ 0.42` and, as measured in
+/// the review of PR #948, moves with radial
+/// refinement (`b = 0.417, 0.468, 0.529` on meshes `(4, 48)`, `(6, 64)`,
+/// `(16, 96)`) and with the PML box radius (`0.407, 0.417, 0.307` for a
+/// cladding radius of `4, 8, 16 µm`), and tracks its own core energy
+/// fraction (`β² ≈ k₀²⟨ε⟩`). It is a member of the low-curl ladder that
+/// the PML classifier returns as bound modes once it converges (issue
+/// #947), and it clears the curl threshold by `1.33×`. The correct result
+/// for that fiber at any resolvable precision is the empty set, which an
+/// error-after-retry policy would have replaced by the artifact or by an
+/// error. The curl ladder is continuous, so no margin separates it
+/// cleanly.
+///
+/// Error-after-retry can return for this case once a committed positive
+/// shows a reported pair whose `β²` matches an analytic guided mode within
+/// a stated tolerance, and the thin-core pair is shown not to fire.
+///
+/// A window with no interior (`ε_max = ε_min`) admits no pair, so a
+/// uniform cross-section is never a hole.
 ///
 /// # Why not "nearer `σ` than a returned mode"
 ///
@@ -5691,36 +5809,260 @@ fn selection_hole(
     sigma: f64,
     guided_window: (f64, f64),
     lowest_returned_bound: Option<f64>,
-    curl_floor: f64,
+    rule: &HoleRule,
 ) -> Option<WithheldCandidate> {
-    let lowest = lowest_returned_bound?;
     localized_withheld
         .iter()
         .copied()
         .filter(|c| {
-            let l = c.beta_sq;
-            let w = c.residual * l.norm().max(sigma.abs());
-            c.curl_ratio > curl_floor
-                && guided_window.0 + w < l.re
-                && l.re < guided_window.1 - w
-                && l.im.abs() <= DIELECTRIC_BOUND_REL_IM * l.re.abs()
-                && l.re - w > lowest
+            hole_verdict(c, sigma, guided_window, lowest_returned_bound, rule) == HoleVerdict::Hole
         })
         .max_by(|a, b| a.beta_sq.re.total_cmp(&b.beta_sq.re))
 }
 
-/// Apply [`selection_hole`] and turn a hit into
-/// [`EigenError::SelectionHole`] (issue #850).
+/// Largest relative residual `ρ` at which the **empty-bound-set** rule
+/// reports a withheld pair (issue #913; see [`selection_hole`]).
 ///
-/// `curl_floor` must be the floor the calling classifier applies to its
-/// converged candidates (issue #916; see [`selection_hole`]).
+/// With no returned bound mode the rule has nothing to compare the pair
+/// against, so it rests on the pair's own diagnostics, and those have to be
+/// resolved. The eigenvalue error of a Ritz pair is second order in its
+/// residual, so `Im β²` of a truly bound pair is only known to about
+/// `ρ² · Re β²`. The bound cut is [`DIELECTRIC_BOUND_REL_IM`] `= 10⁻⁸`
+/// relative, so the bound-like test is resolved for `ρ ≤ √10⁻⁸ = 10⁻⁴`.
+/// On the real (PEC) path `Im β² = 0` identically; there the cap keeps the
+/// Rayleigh violation (`δ ≈ ρ²`, see [`rayleigh_consistent`]) and the curl
+/// ratio of the Ritz vector near their converged values.
+///
+/// The bound is conservative. On the high-contrast PML fixture the
+/// withheld pairs of the near-cladding ladder read
+/// `|Im β²| = 2×10⁻⁸, 1.6×10⁻⁸, 1.3×10⁻⁶` at `ρ = 4.2×10⁻⁴, 6.8×10⁻⁴,
+/// 4.9×10⁻³`, about `10⁻³` of `ρ² · Re β²`, and reach the bound cut
+/// (`3.5×10⁻⁷`) between the last two. The cap also drops reports: on the
+/// thin-core fixture of
+/// `pml_thin_core_empty_set_warning_is_a_ladder_pair_not_lp01` (mesh
+/// `(6, 64)`, requests 7 and 8) the same ladder pair the rule reports at
+/// `ρ ≤ 2×10⁻⁶` is withheld at `ρ = 1.19×10⁻⁴` and only listed in the log.
+const EMPTY_SET_RESIDUAL_CAP: f64 = 1e-4;
+
+/// Margin of the empty-bound-set curl threshold over the contrast-scaled
+/// curl floor [`physical_curl_floor`] (issue #913; see [`HoleRule`]).
+///
+/// The classifier's own floor is not a wide-gap separator once the
+/// gradient nullspace is excluded. Measured on the ~3 %-step PEC fiber of
+/// `formulation_audit_graddiv` (p=2, request 16, floor `6.00×10⁻⁴`), the
+/// localized withheld pairs form a continuous low-curl ladder:
+/// `2.89×10⁻³` (the genuine `β² = 35.385` twin, `4.8×` the floor), then
+/// `6.06×10⁻⁴` (`1.01×`), `4.75×10⁻⁴`, `3.85×10⁻⁴`, `3.23×10⁻⁴`. With a
+/// reference mode the `1.01×` pair is harmless (it sits below the
+/// reference); with none it would decide the report on a 1 % margin.
+///
+/// The floor is calibrated 8–9× below the guided fundamentals of both
+/// audit fibers and 2.8× below the genuine band of the Si/SiO₂ sweep
+/// (`8.5×10⁻²` against `3×10⁻²`; see [`physical_curl_floor`] and
+/// [`physical_curl_floor_p2`]). A factor 2 clears the near-floor ladder
+/// and stays below every calibrated genuine band.
+///
+/// It does not clear the ladder everywhere: the thin-core PML pair of
+/// issue #947 sits at `1.33×` this threshold and is reported. That is one
+/// reason the rule only warns (see [`selection_hole`]).
+const EMPTY_SET_CURL_MARGIN: f64 = 2.0;
+
+/// The thresholds a classifier hands the selection-hole check
+/// ([`selection_hole`], issues #850, #916, #913).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HoleRule {
+    /// The curl floor the classifier applies to its converged candidates
+    /// (issue #916): a withheld pair at or below it is never a hole.
+    curl_floor: f64,
+    /// Curl threshold of the **empty-bound-set** rule (issue #913):
+    /// `EMPTY_SET_CURL_MARGIN ·` [`physical_curl_floor`]`(ε_max, ε_min)`,
+    /// and never below [`Self::curl_floor`].
+    ///
+    /// It is contrast-scaled on **every** path, the PML path included. The
+    /// PML classifiers' own floor ([`physical_curl_floor_pml`] `= 10⁻⁶`)
+    /// only rejects the gradient nullspace. Their bound-like population
+    /// also holds a low-curl ladder of PML-box pairs above it: measured
+    /// `17…127×` that floor on the SMF-28 PML fixtures and `139…1160×` on
+    /// the high-contrast ones (pairs below this threshold only), and
+    /// `6…8×` (weak, SMF-28 contrast) and `63…119×` (~3 % contrast) on
+    /// two **anti-guides**, which guide nothing. Against this threshold the
+    /// anti-guide ladders read `0.04…0.05×` and `0.05…0.10×`. Those ladder
+    /// pairs are bound modes to the PML classifier when they converge (it
+    /// returns them at a larger request, anti-guide included; issue #947),
+    /// so this threshold is deliberately stricter than the classifier: with
+    /// no reference mode a report needs evidence of a physical guided
+    /// mode, and the classifier's nullspace floor is not that.
+    empty_set_curl_floor: f64,
+    /// `(k₀, ε_max, ε_min)` of the classifier's Rayleigh-identity test
+    /// ([`rayleigh_consistent`]) on the real (PEC) path; `None` on the PML
+    /// path, whose classifiers apply none. The empty-bound-set rule applies
+    /// the same test to the withheld pair.
+    rayleigh: Option<(f64, f64, f64)>,
+}
+
+impl HoleRule {
+    /// Rule of a classifier with curl floor `curl_floor` on a cross-section
+    /// with permittivity range `[eps_min, eps_max]`. `rayleigh_k0` is
+    /// `Some(k₀)` for the real-path classifiers (which apply
+    /// [`rayleigh_consistent`]) and `None` for the PML ones.
+    fn new(curl_floor: f64, eps_max: f64, eps_min: f64, rayleigh_k0: Option<f64>) -> Self {
+        Self {
+            curl_floor,
+            empty_set_curl_floor: (EMPTY_SET_CURL_MARGIN * physical_curl_floor(eps_max, eps_min))
+                .max(curl_floor),
+            rayleigh: rayleigh_k0.map(|k0| (k0, eps_max, eps_min)),
+        }
+    }
+}
+
+/// How the hole rule ([`selection_hole`]) classifies one localized withheld
+/// pair. Every variant but [`Self::Hole`] and [`Self::NotCandidate`] names
+/// the single test that excluded the pair, so the hole-check log line can
+/// say why a pair was skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HoleVerdict {
+    /// The pair meets every condition. With a reference mode it is a hole
+    /// (an error after one retry). With none it is an empty-set report: a
+    /// warning only (issue #913).
+    Hole,
+    /// Outside the certain window, not bound-like, or (with a reference)
+    /// not certainly above it.
+    NotCandidate,
+    /// Curl ratio at or below the classifier's floor (issue #916).
+    BelowCurlFloor,
+    /// Empty-set rule only: `ρ >` [`EMPTY_SET_RESIDUAL_CAP`].
+    Unresolved,
+    /// Empty-set rule only: curl ratio at or below
+    /// [`HoleRule::empty_set_curl_floor`].
+    BelowEmptySetCurl,
+    /// Empty-set rule only: fails the classifier's [`rayleigh_consistent`]
+    /// test.
+    RayleighInconsistent,
+}
+
+impl HoleVerdict {
+    /// Label appended to the pair in the hole-check log line.
+    fn label(self) -> &'static str {
+        match self {
+            Self::Hole | Self::NotCandidate => "",
+            Self::BelowCurlFloor => ", at/below curl floor: skipped",
+            Self::Unresolved => ", ρ above the empty-set cap: not counted",
+            Self::BelowEmptySetCurl => ", curl at/below the empty-set threshold: not counted",
+            Self::RayleighInconsistent => ", breaks the Rayleigh identity: not counted",
+        }
+    }
+}
+
+/// Classify one localized withheld pair under the hole rule; see
+/// [`selection_hole`] for the conditions.
+fn hole_verdict(
+    c: &WithheldCandidate,
+    sigma: f64,
+    guided_window: (f64, f64),
+    lowest_returned_bound: Option<f64>,
+    rule: &HoleRule,
+) -> HoleVerdict {
+    let l = c.beta_sq;
+    let w = c.residual * l.norm().max(sigma.abs());
+    // Positive comparisons throughout, so a NaN diagnostic is never a hole.
+    let has_curl = c.curl_ratio > rule.curl_floor;
+    if !has_curl {
+        return HoleVerdict::BelowCurlFloor;
+    }
+    let candidate = guided_window.0 + w < l.re
+        && l.re < guided_window.1 - w
+        && l.im.abs() <= DIELECTRIC_BOUND_REL_IM * l.re.abs();
+    if !candidate {
+        return HoleVerdict::NotCandidate;
+    }
+    let Some(lowest) = lowest_returned_bound else {
+        // Empty-bound-set rule (issue #913).
+        let resolved = c.residual <= EMPTY_SET_RESIDUAL_CAP;
+        if !resolved {
+            return HoleVerdict::Unresolved;
+        }
+        let physical_curl = c.curl_ratio > rule.empty_set_curl_floor;
+        if !physical_curl {
+            return HoleVerdict::BelowEmptySetCurl;
+        }
+        if let (Some((k0, eps_max, eps_min)), Some(eps_x)) = (rule.rayleigh, c.eps_weighted) {
+            let violation = rayleigh_identity_violation_of(l.re, c.curl_ratio, eps_x, k0);
+            if !rayleigh_consistent_of(violation, c.curl_ratio, eps_max, eps_min) {
+                return HoleVerdict::RayleighInconsistent;
+            }
+        }
+        return HoleVerdict::Hole;
+    };
+    if l.re - w > lowest {
+        HoleVerdict::Hole
+    } else {
+        HoleVerdict::NotCandidate
+    }
+}
+
+/// Text of the empty-bound-set warning (issue #913) for the reported pair
+/// `c`: what was seen, why it may not be a guided mode, and how to decide.
+///
+/// The window fraction `(Re β² − lo)/(hi − lo)` is the pair's normalized
+/// propagation constant `b` when the window is `(ε_clad k₀², ε_core k₀²)`.
+fn empty_set_warning(
+    solver: &str,
+    c: &WithheldCandidate,
+    guided_window: (f64, f64),
+    rule: &HoleRule,
+    lanczos_steps: usize,
+) -> String {
+    let (lo, hi) = guided_window;
+    let b = (c.beta_sq.re - lo) / (hi - lo);
+    format!(
+        "{solver}: WARNING (issue #913, warn-only): no bound mode is returned, but the checked \
+         Lanczos solve withheld a localized, bound-like Ritz pair in the guided window: β² = \
+         {:.6e}{:+.3e}i (window fraction b ≈ {b:.3}), relative residual {:.3e} > \
+         {DIELECTRIC_RESIDUAL_TOL:.0e} after {lanczos_steps} Lanczos steps, curl ratio {:.3e} > \
+         empty-set threshold {:.3e}. The result is returned unchanged. This pair is NOT \
+         confirmed as a guided mode: it may be a classifier artifact, a member of the low-curl \
+         ladder of PML-box / cladding pairs (issue #947), as it is on the one fixture where \
+         this warning has been measured (a thin core at V ≈ 0.43, analytic LP01 b = 4.7e-9, \
+         reported pair b ≈ 0.42). To decide: (1) compare b with the analytic value for your V \
+         number; (2) re-solve on a radially refined mesh and with a different outer (PML or \
+         PEC box) radius: a guided mode keeps its β², a ladder pair drifts and tracks its core \
+         energy fraction; (3) request more modes (the Lanczos budget scales with `n_modes`) so \
+         the pair converges and its field can be inspected.",
+        c.beta_sq.re, c.beta_sq.im, c.residual, c.curl_ratio, rule.empty_set_curl_floor,
+    )
+}
+
+/// One evaluation of the empty-bound-set rule, recorded in test builds so
+/// a test can assert what a classifier attempt reported (the warning is
+/// otherwise only a log line): the solver and the reported pair, if any.
+#[cfg(test)]
+pub(crate) type EmptySetEvent = (&'static str, Option<WithheldCandidate>);
+
+#[cfg(test)]
+thread_local! {
+    /// Empty-set rule evaluations made on this thread, in order. A test
+    /// drains it with `take_empty_set_events`.
+    pub(crate) static EMPTY_SET_EVENTS: std::cell::RefCell<Vec<EmptySetEvent>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Apply [`selection_hole`]. With a reference mode a hit becomes
+/// [`EigenError::SelectionHole`] (issue #850). With none
+/// (`lowest_returned_bound = None`, the empty-bound-set rule, issue #913) a
+/// hit is logged as [`empty_set_warning`] and the result is `Ok`: the rule
+/// is warn-only, so `EigenError::SelectionHole::lowest_returned` is always
+/// the finite `β²` of a returned mode.
+///
+/// `rule` carries the curl floor the calling classifier applies to its
+/// converged candidates (issue #916) and the empty-bound-set thresholds;
+/// see [`selection_hole`].
 fn check_selection_hole(
     solver: &'static str,
     localized_withheld: &[WithheldCandidate],
     sigma: f64,
     guided_window: (f64, f64),
     lowest_returned_bound: Option<f64>,
-    curl_floor: f64,
+    rule: &HoleRule,
     lanczos_steps: usize,
 ) -> Result<(), EigenError> {
     let hole = selection_hole(
@@ -5728,12 +6070,13 @@ fn check_selection_hole(
         sigma,
         guided_window,
         lowest_returned_bound,
-        curl_floor,
+        rule,
     );
     if !localized_withheld.is_empty() {
-        // Every localized withheld pair is listed; one the curl floor
-        // excludes (the classifier would drop it too) is labelled, so a
-        // skipped pair is visible, not silent (issue #916).
+        // Every localized withheld pair is listed; one a single test
+        // excludes (the curl floor, or a test of the empty-set rule) is
+        // labelled, so a skipped pair is visible, not silent (issues #916,
+        // #913).
         let listed: Vec<String> = localized_withheld
             .iter()
             .map(|c| {
@@ -5743,24 +6086,47 @@ fn check_selection_hole(
                     c.beta_sq.im,
                     c.residual,
                     c.curl_ratio,
-                    if c.curl_ratio > curl_floor {
-                        ""
-                    } else {
-                        ", at/below curl floor: skipped"
-                    },
+                    hole_verdict(c, sigma, guided_window, lowest_returned_bound, rule).label(),
                 )
             })
             .collect();
+        let curl_floor = rule.curl_floor;
+        let outcome = match (hole.is_some(), lowest_returned_bound.is_some()) {
+            (true, true) => "HOLE",
+            (true, false) => "EMPTY-SET WARNING (warn-only, no error)",
+            (false, _) => "no hole",
+        };
         eprintln!(
             "{solver}: hole check (issues #850, #916): {} localized withheld pair(s) [{}]; \
              curl floor {curl_floor:.2e}; reference (lowest returned / selected) bound β² = {}; \
-             {}",
+             {outcome}",
             localized_withheld.len(),
             listed.join(", "),
-            lowest_returned_bound.map_or("none".to_string(), |b| format!("{b:.6e}")),
-            if hole.is_some() { "HOLE" } else { "no hole" },
+            lowest_returned_bound.map_or_else(
+                || format!(
+                    "none (no bound mode returned: empty-set rule, issue #913, ρ ≤ \
+                     {EMPTY_SET_RESIDUAL_CAP:.0e}, curl > {:.2e})",
+                    rule.empty_set_curl_floor
+                ),
+                |b| format!("{b:.6e}")
+            ),
         );
     }
+    let Some(lowest_returned) = lowest_returned_bound else {
+        // Empty-bound-set rule: warn, never fail (issue #913). The one
+        // measured firing is a low-curl ladder pair (issue #947), not a
+        // guided mode. Error-after-retry can return here once a committed
+        // positive matches an analytic guided mode.
+        #[cfg(test)]
+        EMPTY_SET_EVENTS.with(|e| e.borrow_mut().push((solver, hole)));
+        if let Some(c) = hole {
+            eprintln!(
+                "{}",
+                empty_set_warning(solver, &c, guided_window, rule, lanczos_steps)
+            );
+        }
+        return Ok(());
+    };
     match hole {
         Some(c) => Err(EigenError::SelectionHole {
             solver,
@@ -5768,7 +6134,7 @@ fn check_selection_hole(
             beta_sq_im: c.beta_sq.im,
             residual: c.residual,
             residual_tol: DIELECTRIC_RESIDUAL_TOL,
-            lowest_returned: lowest_returned_bound.unwrap_or(f64::NAN),
+            lowest_returned,
             lanczos_steps,
         }),
         None => Ok(()),
@@ -5782,7 +6148,7 @@ fn check_selection_hole_real(
     raw: &RawDielectricSolve,
     guided_window: (f64, f64),
     lowest_returned_bound: Option<f64>,
-    curl_floor: f64,
+    rule: &HoleRule,
 ) -> Result<(), EigenError> {
     check_selection_hole(
         solver,
@@ -5790,7 +6156,7 @@ fn check_selection_hole_real(
         raw.sigma,
         guided_window,
         lowest_returned_bound,
-        curl_floor,
+        rule,
         raw.lanczos_steps,
     )
 }
@@ -5801,6 +6167,11 @@ type ClassifiedAttempt<T> = (Vec<T>, Result<(), EigenError>);
 
 /// Run a classifier attempt and, if its selection has a hole, retry **once**
 /// with a doubled Lanczos request (issue #850).
+///
+/// Only the with-reference rule reaches this policy. An attempt that
+/// returns no bound mode never reports a hole here: its empty-bound-set
+/// rule is warn-only (issue #913; see [`selection_hole`]), so the attempt's
+/// set is returned after one solve.
 ///
 /// # Why retry, and why an error after that
 ///
@@ -5990,6 +6361,13 @@ fn physical_curl_floor_pml() -> f64 {
 /// Ritz pair still sits above the lowest returned *bound* mode after one
 /// automatic retry with a doubled Lanczos request (issue #850; see
 /// `selection_hole`).
+/// When the solve returns **no** bound mode (an empty set, or leaky modes only),
+/// a resolved (`ρ ≤ 10⁻⁴`), localized, bound-like, in-window
+/// withheld pair whose curl ratio clears twice the contrast-scaled floor is
+/// reported by a logged **warning only**: the result is returned unchanged
+/// and no error is raised (issue #913; see `selection_hole`). Such a pair is
+/// not confirmed as a guided mode. It can be a member of the low-curl
+/// ladder of issue #947.
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_pml(
     mesh: &TriMesh,
@@ -6078,12 +6456,13 @@ fn solve_dielectric_modes2_pml_attempt(
         n_request,
         None,
     )?;
+    // No early return on an empty converged set: the solve may still have
+    // withheld a bound-like pair, which the empty-set rule below must see
+    // to warn about it (issue #913).
     let cands = &raw.cands;
-    if cands.is_empty() {
-        return Ok((Vec::new(), Ok(())));
-    }
     let n_dof = n_dof_2d_nedelec2(mesh);
     let curl_floor = physical_curl_floor_pml();
+    let hole_rule = HoleRule::new(curl_floor, eps_max, eps_min, None);
 
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
     for (full_idx, &keep) in interior_dof_mask.iter().enumerate() {
@@ -6179,21 +6558,28 @@ fn solve_dielectric_modes2_pml_attempt(
     );
     // Selection-level hole check (issue #850): a localized, bound-like
     // withheld pair above the lowest returned *bound* mode would have
-    // ranked inside the bound part of this set.
+    // ranked inside the bound part of this set. With no bound mode in the
+    // set (it is empty, or holds leaky modes only) the empty-set rule
+    // applies, which only warns (issue #913). `n_modes = 0` asks for
+    // nothing.
     let lowest_bound = guided
         .iter()
         .filter(|m| is_bound(m))
         .map(|m| m.beta_sq.re)
         .reduce(f64::min);
-    let hole = check_selection_hole(
-        "solve_dielectric_modes2_pml",
-        &raw.localized_withheld,
-        raw.sigma,
-        (beta_sq_floor, beta_sq_ceiling),
-        lowest_bound,
-        curl_floor,
-        raw.lanczos_steps,
-    );
+    let hole = if n_modes == 0 {
+        Ok(())
+    } else {
+        check_selection_hole(
+            "solve_dielectric_modes2_pml",
+            &raw.localized_withheld,
+            raw.sigma,
+            (beta_sq_floor, beta_sq_ceiling),
+            lowest_bound,
+            &hole_rule,
+            raw.lanczos_steps,
+        )
+    };
     Ok((guided, hole))
 }
 
@@ -6779,6 +7165,13 @@ pub struct ScoredDielectricModePml {
 /// pair more confined (higher `Re β²`) than the selected mode survives one
 /// automatic retry with a doubled Lanczos request (issue #850). The check
 /// is anchored at the pick, not at the bottom of the returned ladder.
+/// When the solve scores **no** in-window bound candidate,
+/// a resolved (`ρ ≤ 10⁻⁴`), localized, bound-like, in-window
+/// withheld pair whose curl ratio clears twice the contrast-scaled floor is
+/// reported by a logged **warning only**: the result is returned unchanged
+/// and no error is raised (issue #913; see `selection_hole`). Such a pair is
+/// not confirmed as a guided mode. It can be a member of the low-curl
+/// ladder of issue #947.
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_pml_profile_selected(
     mesh: &TriMesh,
@@ -6861,12 +7254,13 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
         n_request,
         None,
     )?;
+    // No early return on an empty converged set: the solve may still have
+    // withheld a bound-like pair, which the empty-set rule below must see
+    // to warn about it (issue #913).
     let cands = &raw.cands;
-    if cands.is_empty() {
-        return Ok((Vec::new(), Ok(())));
-    }
     let n_dof = n_dof_2d_nedelec2(mesh);
     let curl_floor = physical_curl_floor_pml();
+    let hole_rule = HoleRule::new(curl_floor, eps_max, eps_min, None);
 
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
     for (full_idx, &keep) in interior_dof_mask.iter().enumerate() {
@@ -6919,7 +7313,18 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
         });
     }
     if scored.is_empty() {
-        return Ok((Vec::new(), Ok(())));
+        // No in-window bound candidate converged: the empty-set rule warns
+        // if a qualifying pair was withheld, and never errors (issue #913).
+        let hole = check_selection_hole(
+            "solve_dielectric_modes2_pml_profile_selected",
+            &raw.localized_withheld,
+            raw.sigma,
+            (beta_sq_floor, beta_sq_ceiling),
+            None,
+            &hole_rule,
+            raw.lanczos_steps,
+        );
+        return Ok((Vec::new(), hole));
     }
 
     // Rank: LP₀₁-structured (m = 0 AND zero radial nodes) candidates first,
@@ -6979,7 +7384,7 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
         raw.sigma,
         (beta_sq_floor, beta_sq_ceiling),
         lowest_bound,
-        curl_floor,
+        &hole_rule,
         raw.lanczos_steps,
     );
 
@@ -11876,6 +12281,19 @@ mod tests {
             beta_sq,
             residual,
             curl_ratio,
+            eps_weighted: None,
+        }
+    }
+
+    /// Hole rule of a classifier whose own curl floor is `curl_floor`, with
+    /// the empty-set threshold at its margin over that floor and no
+    /// Rayleigh test (issue #913). The #850 / #916 tests, which all pass a
+    /// reference mode, depend only on `curl_floor`.
+    fn rule_913(curl_floor: f64) -> HoleRule {
+        HoleRule {
+            curl_floor,
+            empty_set_curl_floor: EMPTY_SET_CURL_MARGIN * curl_floor,
+            rayleigh: None,
         }
     }
 
@@ -11901,21 +12319,19 @@ mod tests {
         let window = (1.4447_f64.powi(2) * k0 * k0, 1.4874_f64.powi(2) * k0 * k0);
         let sigma = window.1 * (1.0 - 1e-3);
         let withheld = hc_pml_withheld_850();
-        let floor = physical_curl_floor_pml();
+        let floor = rule_913(physical_curl_floor_pml());
         assert_eq!(
-            selection_hole(&withheld, sigma, window, Some(35.475_30), floor),
+            selection_hole(&withheld, sigma, window, Some(35.475_30), &floor),
             None,
             "the 34.94 pair below the lowest returned bound mode must not trip"
         );
         // A returned set reaching down to 34.5 would skip it: hole, and the
         // highest qualifying pair (34.939) is the one reported. 34.888 has
         // |Im| / Re = 5.7e-10 (bound-like) but sits below 34.939.
-        let hole = selection_hole(&withheld, sigma, window, Some(34.5), floor)
+        let hole = selection_hole(&withheld, sigma, window, Some(34.5), &floor)
             .expect("a localized bound-like pair above the reference is a hole");
         assert_eq!(hole.beta_sq.re, 34.93929);
         assert_eq!(hole.residual, 1.37e-7);
-        // No returned bound mode: nothing to have a hole in.
-        assert_eq!(selection_hole(&withheld, sigma, window, None, floor), None);
     }
 
     /// Each condition of the hole rule is necessary (issue #850).
@@ -11930,7 +12346,7 @@ mod tests {
                 sigma,
                 window,
                 lowest,
-                physical_curl_floor_pml(),
+                &rule_913(physical_curl_floor_pml()),
             )
         };
         // Baseline: in window, bound-like, certainly above 35.0.
@@ -11977,7 +12393,7 @@ mod tests {
                     sigma,
                     window,
                     lowest,
-                    floor,
+                    &rule_913(floor),
                 )
             };
             // Curl-free gradient pair (f64 noise) and a pair exactly at the
@@ -12005,7 +12421,7 @@ mod tests {
                 sigma,
                 window,
                 lowest,
-                graddiv_floor
+                &rule_913(graddiv_floor)
             )
             .is_some()
         );
@@ -12015,7 +12431,7 @@ mod tests {
             withheld_916(c64::new(35.8, 0.0), 1e-7, 1e-13),
             withheld_916(pair, 1e-6, 1e-2),
         ];
-        let hit = selection_hole(&both, sigma, window, lowest, graddiv_floor)
+        let hit = selection_hole(&both, sigma, window, lowest, &rule_913(graddiv_floor))
             .expect("the curl-bearing pair is a hole");
         assert_eq!(hit.beta_sq, pair);
         // A gradient pair alone above the reference: no error from the
@@ -12027,7 +12443,7 @@ mod tests {
                 sigma,
                 window,
                 lowest,
-                graddiv_floor,
+                &rule_913(graddiv_floor),
                 144,
             )
             .is_ok()
@@ -12044,7 +12460,7 @@ mod tests {
             35.96,
             (34.0, 36.0),
             Some(35.0),
-            physical_curl_floor_pml(),
+            &rule_913(physical_curl_floor_pml()),
             144,
         )
         .expect_err("hole must be an error");
@@ -12247,5 +12663,902 @@ mod tests {
         let err = retry_on_selection_hole("solve_dielectric_modes2_pml", 16, |_| attempt(16))
             .unwrap_err();
         assert!(matches!(err, EigenError::SelectionHole { .. }), "{err:?}");
+    }
+
+    // ----- Empty-bound-set hole rule (issue #913) -----------------------
+
+    /// Issue #913: with no returned bound mode, a resolved, in-window,
+    /// bound-like withheld pair with physical curl is reported (verdict
+    /// `Hole`, which the empty-set rule turns into a warning), and each of
+    /// the empty-set conditions is necessary. On `main` every one of these
+    /// returned `None` (the rule could not fire without a reference).
+    #[test]
+    fn empty_bound_set_hole_requires_each_empty_set_condition() {
+        let window = (34.0, 36.0);
+        let sigma = 35.96;
+        let k0 = 4.0;
+        let (eps_max, eps_min) = (36.0 / (k0 * k0), 34.0 / (k0 * k0));
+        // Classifier floor 1e-4, empty-set threshold 1e-3, Rayleigh test on.
+        let rule = HoleRule {
+            curl_floor: 1e-4,
+            empty_set_curl_floor: 1e-3,
+            rayleigh: Some((k0, eps_max, eps_min)),
+        };
+        // A pair obeying the Rayleigh identity r = 1 − β²/(k₀² ⟨ε⟩) exactly.
+        let beta_sq = 35.5_f64;
+        let consistent = |curl: f64| Some(beta_sq / (k0 * k0 * (1.0 - curl)));
+        let pair = |im: f64, residual: f64, curl: f64, eps_weighted: Option<f64>| {
+            [WithheldCandidate {
+                beta_sq: c64::new(beta_sq, im),
+                residual,
+                curl_ratio: curl,
+                eps_weighted,
+            }]
+        };
+        let verdict = |p: &[WithheldCandidate; 1]| hole_verdict(&p[0], sigma, window, None, &rule);
+        let hole = |p: &[WithheldCandidate; 1]| selection_hole(p, sigma, window, None, &rule);
+
+        // Baseline: every condition met.
+        let good = pair(0.0, 1e-6, 5e-3, consistent(5e-3));
+        assert_eq!(verdict(&good), HoleVerdict::Hole);
+        assert_eq!(hole(&good), Some(good[0]));
+        // Exactly at the residual cap still counts; just above does not.
+        assert_eq!(
+            verdict(&pair(0.0, EMPTY_SET_RESIDUAL_CAP, 5e-3, consistent(5e-3))),
+            HoleVerdict::Hole
+        );
+        let unresolved = pair(0.0, 1.01 * EMPTY_SET_RESIDUAL_CAP, 5e-3, consistent(5e-3));
+        assert_eq!(verdict(&unresolved), HoleVerdict::Unresolved);
+        assert_eq!(hole(&unresolved), None);
+        // Above the classifier floor but at / below the empty-set threshold.
+        for curl in [2e-4, 1e-3] {
+            let low = pair(0.0, 1e-6, curl, consistent(curl));
+            assert_eq!(verdict(&low), HoleVerdict::BelowEmptySetCurl, "{curl:e}");
+            assert_eq!(hole(&low), None);
+        }
+        // At / below the classifier floor: the #916 label, as with a reference.
+        assert_eq!(
+            verdict(&pair(0.0, 1e-6, 1e-4, consistent(1e-4))),
+            HoleVerdict::BelowCurlFloor
+        );
+        // Breaks the Rayleigh identity (⟨ε⟩ off by 1 %, δ ≈ 1e-2 against a
+        // tolerance of 1e-3 · (ε_max − ε_min)/ε_max ≈ 5.6e-5).
+        let off = pair(0.0, 1e-6, 5e-3, consistent(5e-3).map(|e| 1.01 * e));
+        assert_eq!(verdict(&off), HoleVerdict::RayleighInconsistent);
+        assert_eq!(hole(&off), None);
+        // Curl at the exact in-window bound (ε_max − ε_min)/ε_max: no
+        // in-window eigenpair reaches it.
+        let bound = (eps_max - eps_min) / eps_max;
+        assert_eq!(
+            verdict(&pair(0.0, 1e-6, bound, consistent(bound))),
+            HoleVerdict::RayleighInconsistent
+        );
+        // The PML path carries no ⟨ε⟩ and applies no Rayleigh test.
+        assert_eq!(verdict(&pair(0.0, 1e-6, 5e-3, None)), HoleVerdict::Hole);
+        // Leaky (|Im| / Re = 1e-6) or outside the certain window: never.
+        assert_eq!(
+            verdict(&pair(35.5e-6, 1e-6, 5e-3, None)),
+            HoleVerdict::NotCandidate
+        );
+        let at_ceiling = [WithheldCandidate {
+            beta_sq: c64::new(36.0 - 1e-14, 0.0),
+            residual: 6e-8,
+            curl_ratio: 5e-3,
+            eps_weighted: None,
+        }];
+        assert_eq!(verdict(&at_ceiling), HoleVerdict::NotCandidate);
+        // A NaN diagnostic is never a hole.
+        assert_eq!(hole(&pair(0.0, f64::NAN, 5e-3, None)), None);
+        assert_eq!(hole(&pair(0.0, 1e-6, f64::NAN, None)), None);
+
+        // A window with no interior (uniform ε) admits no pair at all.
+        let flat = (35.5, 35.5);
+        assert_eq!(selection_hole(&good, sigma, flat, None, &rule), None);
+
+        // The highest qualifying pair is the one reported.
+        let two = [
+            good[0],
+            WithheldCandidate {
+                beta_sq: c64::new(35.7, 0.0),
+                residual: 1e-6,
+                curl_ratio: 5e-3,
+                eps_weighted: None,
+            },
+        ];
+        assert_eq!(
+            selection_hole(&two, sigma, window, None, &rule).map(|c| c.beta_sq.re),
+            Some(35.7)
+        );
+    }
+
+    /// Issue #913: the empty-set thresholds a classifier builds. The curl
+    /// threshold is twice the contrast-scaled floor on every path, the PML
+    /// path (own floor `1e-6`) included, and never below the classifier's
+    /// own floor.
+    #[test]
+    fn hole_rule_empty_set_threshold_is_contrast_scaled_on_every_path() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        // ~3 %-step fiber: contrast floor 6.0e-4 → threshold 1.2e-3.
+        let (e_core, e_clad) = (1.4874_f64.powi(2), 1.4447_f64.powi(2));
+        let contrast_floor = physical_curl_floor(e_core, e_clad);
+        let pec = HoleRule::new(contrast_floor, e_core, e_clad, Some(k0));
+        assert_eq!(pec.curl_floor, contrast_floor);
+        assert_eq!(pec.empty_set_curl_floor, 2.0 * contrast_floor);
+        assert_eq!(pec.rayleigh, Some((k0, e_core, e_clad)));
+        let pml = HoleRule::new(physical_curl_floor_pml(), e_core, e_clad, None);
+        assert_eq!(pml.curl_floor, 1e-6);
+        assert_eq!(pml.empty_set_curl_floor, 2.0 * contrast_floor);
+        assert!((pml.empty_set_curl_floor - 1.2e-3).abs() < 1e-5);
+        assert_eq!(pml.rayleigh, None);
+        // SMF-28: 1.58e-4, 4.5× below the measured LP01 curl ratio 7.2e-4.
+        let smf = HoleRule::new(1e-6, 1.4504_f64.powi(2), e_clad, None);
+        assert!((smf.empty_set_curl_floor - 1.58e-4).abs() < 1e-6);
+        assert!(7.2e-4 > 4.0 * smf.empty_set_curl_floor);
+        // Si/SiO2: capped floor 3e-2 → 6e-2, below the genuine band 8.5e-2.
+        let si = HoleRule::new(3e-2, 3.45_f64.powi(2), 1.45_f64.powi(2), Some(k0));
+        assert_eq!(si.empty_set_curl_floor, 6e-2);
+        // Never below the classifier's own floor.
+        assert_eq!(
+            HoleRule::new(0.5, e_core, e_clad, None).empty_set_curl_floor,
+            0.5
+        );
+    }
+
+    /// Drain the empty-set rule evaluations recorded on this thread.
+    fn take_empty_set_events() -> Vec<EmptySetEvent> {
+        EMPTY_SET_EVENTS.with(|e| std::mem::take(&mut *e.borrow_mut()))
+    }
+
+    /// Issue #913: the empty-set rule is warn-only. A reported pair is
+    /// recorded and logged with actionable text, and the check returns
+    /// `Ok`. No `SelectionHole` is built, so no `NaN` reference reaches a
+    /// public error value. With a reference the same pair is still the
+    /// typed #850 error.
+    #[test]
+    fn check_selection_hole_empty_set_warns_and_returns_ok() {
+        let rule = rule_913(physical_curl_floor_pml());
+        let window = (34.0, 36.0);
+        let pair = [withheld_916(c64::new(35.5, 1e-12), 3e-6, PHYSICAL_CURL_916)];
+        take_empty_set_events();
+        let out = check_selection_hole(
+            "solve_dielectric_modes2_pml",
+            &pair,
+            35.96,
+            window,
+            None,
+            &rule,
+            144,
+        );
+        assert!(out.is_ok(), "the empty-set rule never errors: {out:?}");
+        assert_eq!(
+            take_empty_set_events(),
+            vec![("solve_dielectric_modes2_pml", Some(pair[0]))]
+        );
+
+        // The warning names the pair, says what it may be, and how to decide.
+        let msg = empty_set_warning("solve_dielectric_modes2_pml", &pair[0], window, &rule, 144);
+        for needle in [
+            "solve_dielectric_modes2_pml: WARNING (issue #913, warn-only)",
+            "no bound mode is returned",
+            "β² = 3.550000e1",
+            "window fraction b ≈ 0.750",
+            "relative residual 3.000e-6",
+            "after 144 Lanczos steps",
+            "returned unchanged",
+            "NOT confirmed as a guided mode",
+            "issue #947",
+            "radially refined mesh",
+            "outer (PML or PEC box) radius",
+            "request more modes",
+        ] {
+            assert!(msg.contains(needle), "missing {needle:?} in: {msg}");
+        }
+        assert!(!msg.contains("NaN"), "{msg}");
+
+        // With a reference the rule is unchanged: the typed error, with a
+        // finite reference, and no empty-set evaluation.
+        let err = check_selection_hole(
+            "solve_dielectric_modes2_pml",
+            &pair,
+            35.96,
+            window,
+            Some(35.0),
+            &rule,
+            144,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, EigenError::SelectionHole { lowest_returned, .. } if lowest_returned == 35.0),
+            "{err:?}"
+        );
+        let with_ref = err.to_string();
+        assert!(
+            with_ref.contains("above the lowest returned bound mode β² = 3.500000e1"),
+            "{with_ref}"
+        );
+        assert!(take_empty_set_events().is_empty());
+
+        // An unresolved pair (ρ above the cap) is evaluated and not reported.
+        let unresolved = [withheld_916(c64::new(35.5, 1e-12), 3e-4, PHYSICAL_CURL_916)];
+        assert!(check_selection_hole("t", &unresolved, 35.96, window, None, &rule, 144).is_ok());
+        assert_eq!(take_empty_set_events(), vec![("t", None)]);
+    }
+
+    /// Issue #913: an empty-set report does not enter the retry policy.
+    /// The attempt runs once and its (empty) set is returned, whether or
+    /// not a pair was reported. A with-reference hole on the same pair
+    /// still retries and then errors.
+    #[test]
+    fn empty_bound_set_warning_never_retries_or_errors() {
+        let rule = rule_913(physical_curl_floor_pml());
+        let window = (34.0, 36.0);
+        let withheld = [withheld_916(c64::new(35.5, 0.0), 3e-6, PHYSICAL_CURL_916)];
+        let check = |pairs: &[WithheldCandidate], lowest: Option<f64>| {
+            check_selection_hole("t", pairs, 35.96, window, lowest, &rule, 24)
+        };
+
+        // Nothing returned, a qualifying pair withheld: one attempt, empty
+        // set, one report.
+        take_empty_set_events();
+        let mut seen = Vec::new();
+        let out = retry_on_selection_hole("t", 16, |n| {
+            seen.push(n);
+            Ok((Vec::<f64>::new(), check(&withheld, None)))
+        })
+        .unwrap();
+        assert_eq!((out.len(), seen), (0, vec![16]));
+        assert_eq!(take_empty_set_events(), vec![("t", Some(withheld[0]))]);
+
+        // Only a gradient pair withheld: the same, with nothing reported.
+        let gradient = [withheld_916(c64::new(35.5, 0.0), 3e-6, 1e-13)];
+        let mut seen = Vec::new();
+        let out = retry_on_selection_hole("t", 16, |n| {
+            seen.push(n);
+            Ok((Vec::<f64>::new(), check(&gradient, None)))
+        })
+        .unwrap();
+        assert_eq!((out.len(), seen), (0, vec![16]));
+        assert_eq!(take_empty_set_events(), vec![("t", None)]);
+
+        // The same pair above a returned mode: retry, then the #850 error.
+        let mut seen = Vec::new();
+        let err = retry_on_selection_hole("t", 16, |n| {
+            seen.push(n);
+            Ok((vec![35.0_f64], check(&withheld, Some(35.0))))
+        })
+        .unwrap_err();
+        assert_eq!(seen, vec![16, 32]);
+        assert!(
+            matches!(err, EigenError::SelectionHole { lowest_returned, .. } if lowest_returned == 35.0),
+            "{err:?}"
+        );
+        assert!(take_empty_set_events().is_empty());
+    }
+
+    /// The ~3 %-step PEC fiber of `formulation_audit_graddiv` (mesh
+    /// `(5, 48)`), shared by the real-path #913 tests.
+    fn graddiv_fiber_913() -> (TriMesh, Vec<f64>, Vec<bool>, f64, (f64, f64)) {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (n_core, n_clad, a_um) = (1.4874_f64, 1.4447_f64, 1.40_f64);
+        let outer_r = 6.0 * a_um;
+        let (mesh, tags) = disk_tri_mesh(a_um, outer_r, 5, 48);
+        let eps = epsilon_r_from_region_tags(&tags, |t| {
+            if t == REGION_CORE {
+                n_core * n_core
+            } else {
+                n_clad * n_clad
+            }
+        });
+        let interior = disk_pec_interior_dofs2(&mesh, outer_r);
+        (mesh, eps, interior, k0, (n_core * n_core, n_clad * n_clad))
+    }
+
+    /// Issue #913 on a real pencil, real path: the localized withheld pairs
+    /// of the request-16 graddiv solve are a low-curl ladder, not a
+    /// gradient cluster. Evaluated with **no** reference mode (by hand:
+    /// this solve does return bound modes, so its classifier never applies
+    /// the empty-set rule), the rule
+    /// reports the genuine `β² = 35.385` twin (curl `4.8×` the floor) and,
+    /// once that is set aside, none of the ladder pairs: the `β² = 35.124`
+    /// pair clears the classifier's floor by 1 % (so a plain
+    /// "above the floor" empty-set rule would report it) and is excluded by
+    /// the margin; the rest are at or below the floor.
+    #[test]
+    fn real_p2_low_curl_ladder_is_not_an_empty_set_hole() {
+        let (mesh, eps, interior, k0, (e_core, e_clad)) = graddiv_fiber_913();
+        let floor = physical_curl_floor_p2(e_core, e_clad);
+        let rule = HoleRule::new(floor, e_core, e_clad, Some(k0));
+        let ceiling = physical_index_ceiling(&mesh, &eps, k0);
+        let raw = dielectric_raw_candidates_p2(&mesh, &eps, &interior, k0, 16, ceiling).unwrap();
+        let n_ceiling = ceiling.unwrap_or(e_core.sqrt());
+        let window = (e_clad * k0 * k0, n_ceiling * n_ceiling * k0 * k0);
+        for c in &raw.localized_withheld {
+            eprintln!(
+                "withheld β² = {:.5}, ρ = {:.2e}, curl = {:.3e} ({:.3}× floor): {:?}",
+                c.beta_sq.re,
+                c.residual,
+                c.curl_ratio,
+                c.curl_ratio / floor,
+                hole_verdict(c, raw.sigma, window, None, &rule)
+            );
+        }
+
+        // The twin is the pair the empty-set rule reports.
+        let hit = selection_hole(&raw.localized_withheld, raw.sigma, window, None, &rule)
+            .expect("the withheld twin is reported with no reference mode");
+        assert!((hit.beta_sq.re - 35.385).abs() < 1e-2, "{hit:?}");
+        assert!(hit.residual <= EMPTY_SET_RESIDUAL_CAP && hit.curl_ratio > 4.0 * floor);
+
+        // The ladder below it: no hole.
+        let ladder: Vec<WithheldCandidate> = raw
+            .localized_withheld
+            .iter()
+            .copied()
+            .filter(|c| (c.beta_sq.re - 35.385).abs() >= 1e-2)
+            .collect();
+        assert!(ladder.len() >= 4, "{ladder:?}");
+        assert_eq!(
+            selection_hole(&ladder, raw.sigma, window, None, &rule),
+            None
+        );
+        // The near-floor pair: resolved, in-window, above the classifier's
+        // floor by about 1 %, and excluded only by the curl margin.
+        let near = ladder
+            .iter()
+            .find(|c| (c.beta_sq.re - 35.124).abs() < 1e-2)
+            .expect("the β² = 35.124 pair is withheld at request 16");
+        assert!(
+            near.curl_ratio > floor && near.curl_ratio < 1.1 * floor,
+            "curl {:.4e} vs floor {floor:.4e}",
+            near.curl_ratio
+        );
+        assert!(near.residual <= EMPTY_SET_RESIDUAL_CAP, "{near:?}");
+        assert_eq!(
+            hole_verdict(near, raw.sigma, window, None, &rule),
+            HoleVerdict::BelowEmptySetCurl
+        );
+        // Every other ladder pair is at / below the classifier's floor.
+        for c in ladder.iter().filter(|c| c.beta_sq.re != near.beta_sq.re) {
+            assert_eq!(
+                hole_verdict(c, raw.sigma, window, None, &rule),
+                HoleVerdict::BelowCurlFloor,
+                "{c:?}"
+            );
+        }
+    }
+
+    /// Issue #913: `n_modes = 0` asks for nothing, so the empty result is
+    /// not an empty-set hole: the rule is not evaluated and nothing is
+    /// warned, even on the graddiv solve whose request-16 pass withholds
+    /// the genuine twin.
+    #[test]
+    fn zero_requested_modes_is_never_an_empty_set_hole() {
+        let (mesh, eps, interior, k0, _) = graddiv_fiber_913();
+        take_empty_set_events();
+        let (modes, hole) =
+            solve_dielectric_modes2_attempt(&mesh, &eps, &interior, k0, 0, 16).unwrap();
+        assert!(modes.is_empty());
+        assert!(hole.is_ok(), "{hole:?}");
+        assert_eq!(take_empty_set_events(), Vec::new());
+    }
+
+    /// A PML disk fixture `(mesh, tags, eps, interior, clad_r, outer_r)`
+    /// for the #913 PML tests.
+    fn pml_disk_913(
+        (n_core, n_clad): (f64, f64),
+        core_r: f64,
+        (clad_r, outer_r): (f64, f64),
+        (n_rings, n_theta): (usize, usize),
+    ) -> (TriMesh, Vec<i32>, Vec<f64>, Vec<bool>) {
+        let (mesh, tags) = disk_tri_mesh_pml(core_r, clad_r, outer_r, n_rings, n_theta);
+        let eps = epsilon_r_from_region_tags(&tags, |t| {
+            if t == REGION_CORE {
+                n_core * n_core
+            } else {
+                n_clad * n_clad
+            }
+        });
+        let interior = disk_pec_interior_dofs2(&mesh, outer_r);
+        (mesh, tags, eps, interior)
+    }
+
+    /// The thin-core fiber of the #913 PML tests: `a = 0.30 µm`,
+    /// `n = 1.4874 / 1.4447`, PML box `(8, 11) µm`. `V ≈ 0.43`.
+    const THIN_CORE_913: ((f64, f64), f64, (f64, f64)) = ((1.4874, 1.4447), 0.30, (8.0, 11.0));
+
+    /// Issue #913 end to end on a real pencil, PML path, and the reason
+    /// the empty-set rule only warns.
+    ///
+    /// On the thin-core fiber ([`THIN_CORE_913`], mesh `(4, 48)`) at a
+    /// Lanczos request of 6 the classifier returns **no** bound mode while
+    /// its solve withholds a resolved pair at `β² ≈ 35.155`
+    /// (`ρ ≈ 8×10⁻⁸`). The empty-set rule reports that pair.
+    ///
+    /// The pair is **not** a withheld guided mode. This fiber has
+    /// `V ≈ 0.43`, and its only guided mode, LP₀₁, has an analytic
+    /// `b = 4.7×10⁻⁹` (checked below against [`fiber_lp_neff`]). The
+    /// reported pair has `b ≈ 0.42`. The Judge's review of PR #948 measured
+    /// that it drifts under radial refinement (`b = 0.417, 0.468, 0.529`)
+    /// and with the PML box radius, and tracks its core energy fraction: it
+    /// is a member of the low-curl ladder of issue #947, which the PML
+    /// classifier returns as a "bound mode" once it converges (request 12
+    /// below). The empty set at request 6 is the correct result.
+    ///
+    /// So the test pins warn-only: the pair is reported, the attempt and
+    /// the retry policy return the empty set after one solve, and no error
+    /// is raised. An error-after-retry policy would have replaced that
+    /// empty set by the artifact.
+    ///
+    /// [`fiber_lp_neff`]: crate::analytic::fiber::fiber_lp_neff
+    #[test]
+    fn pml_thin_core_empty_set_warning_is_a_ladder_pair_not_lp01() {
+        use crate::analytic::fiber::{fiber_lp_neff, normalized_b, v_number};
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let ((n_core, n_clad), a, (clad_r, outer_r)) = THIN_CORE_913;
+
+        // Analytic: V ≈ 0.43, LP01 (the only guided mode) at b ≈ 4.7e-9.
+        let v = v_number(n_core, n_clad, a, k0);
+        assert!((v - 0.4303).abs() < 1e-3, "V = {v}");
+        let n_lp01 = fiber_lp_neff(n_core, n_clad, a, k0, 0, 1).expect("LP01 exists for all V");
+        let b_lp01 = normalized_b(n_lp01, n_core, n_clad);
+        assert!(
+            b_lp01 > 0.0 && b_lp01 < 1e-7,
+            "analytic LP01 b = {b_lp01:e}"
+        );
+        assert!(fiber_lp_neff(n_core, n_clad, a, k0, 0, 2).is_none());
+        assert!(fiber_lp_neff(n_core, n_clad, a, k0, 1, 1).is_none());
+
+        let (mesh, tags, eps, interior) =
+            pml_disk_913((n_core, n_clad), a, (clad_r, outer_r), (4, 48));
+        let window = (n_clad * n_clad * k0 * k0, n_core * n_core * k0 * k0);
+        let attempt = |n_request: usize| {
+            solve_dielectric_modes2_pml_attempt(
+                &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4, n_request,
+            )
+        };
+        let bound = |modes: &[DielectricModePml]| -> Vec<f64> {
+            modes
+                .iter()
+                .filter(|m| m.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * m.beta_sq.re.abs())
+                .map(|m| m.beta_sq.re)
+                .collect()
+        };
+
+        // Request 6: no bound mode, no error, and one empty-set report.
+        take_empty_set_events();
+        let (modes, hole) = attempt(6).unwrap();
+        assert!(bound(&modes).is_empty(), "request 6 returns no bound mode");
+        assert!(hole.is_ok(), "the empty-set rule is warn-only: {hole:?}");
+        let events = take_empty_set_events();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].0, "solve_dielectric_modes2_pml");
+        let pair = events[0]
+            .1
+            .expect("the request-6 solve reports a withheld pair");
+        assert!((pair.beta_sq.re - 35.155).abs() < 2e-2, "{pair:?}");
+        assert!(pair.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * pair.beta_sq.re);
+        assert!(pair.residual <= EMPTY_SET_RESIDUAL_CAP, "{pair:?}");
+
+        // The reported pair is nowhere near the analytic LP01: b ≈ 0.42
+        // against 4.7e-9. It clears the curl threshold by about 1.33×.
+        let b_pair = (pair.beta_sq.re - window.0) / (window.1 - window.0);
+        assert!((b_pair - 0.417).abs() < 2e-2, "b = {b_pair}");
+        assert!(b_pair > 1e6 * b_lp01, "b = {b_pair} vs LP01 {b_lp01:e}");
+        let rule = HoleRule::new(
+            physical_curl_floor_pml(),
+            n_core * n_core,
+            n_clad * n_clad,
+            None,
+        );
+        let over = pair.curl_ratio / rule.empty_set_curl_floor;
+        assert!(over > 1.0 && over < 1.7, "curl {over:.3}× the threshold");
+        let msg = empty_set_warning("solve_dielectric_modes2_pml", &pair, window, &rule, 0);
+        assert!(
+            msg.contains("window fraction b ≈ 0.41") && msg.contains("issue #947"),
+            "{msg}"
+        );
+
+        // The retry policy does not act on it: one solve, the empty set.
+        let mut seen = Vec::new();
+        let modes = retry_on_selection_hole("solve_dielectric_modes2_pml", 6, |n| {
+            seen.push(n);
+            attempt(n)
+        })
+        .unwrap();
+        assert_eq!(seen, vec![6]);
+        assert!(bound(&modes).is_empty());
+        take_empty_set_events();
+
+        // Issue #947, not this rule: at request 12 the same pair converges
+        // and the PML classifier returns it as its top "bound mode".
+        let (modes, hole) = attempt(12).unwrap();
+        assert!(hole.is_ok(), "{hole:?}");
+        let b = bound(&modes);
+        assert!(
+            (b[0] - pair.beta_sq.re).abs() < 1e-6,
+            "the ladder pair {} is the top returned bound mode at request 12: {b:?}",
+            pair.beta_sq.re
+        );
+        assert!(take_empty_set_events().is_empty());
+
+        // The profile selector on the request-6 solve scores no bound
+        // candidate. It reports the same pair and returns its empty ladder.
+        let template = Lp01RadialTemplate::from_oracle_b(a, 0.43, 0.5);
+        let (scored, hole) = solve_dielectric_modes2_pml_profile_selected_attempt(
+            &mesh,
+            &eps,
+            &tags,
+            &interior,
+            clad_r,
+            outer_r,
+            6.0,
+            k0,
+            &template,
+            (24, 4.0, 0.2),
+            6,
+        )
+        .unwrap();
+        assert!(scored.is_empty());
+        assert!(hole.is_ok(), "{hole:?}");
+        let events = take_empty_set_events();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].0, "solve_dielectric_modes2_pml_profile_selected");
+        let selector_pair = events[0].1.expect("the selector reports the same pair");
+        assert!((selector_pair.beta_sq.re - pair.beta_sq.re).abs() < 1e-6);
+    }
+
+    /// Issue #913 on a real pencil that guides nothing, PML path: a weak
+    /// **anti-guide** (`n_core = 1.4447 < n_clad = 1.4504`, SMF-28 contrast
+    /// reversed) on mesh `(5, 48)` at a Lanczos request of 16. The
+    /// classifier returns no bound mode and its solve withholds a ladder of
+    /// **resolved**, in-window, bound-like PML-box pairs whose curl ratio
+    /// (`≈ 6×10⁻⁶`) is several times the PML classifier's own floor. A
+    /// rule that used that floor would report them. The contrast-scaled
+    /// threshold (`1.58×10⁻⁴`) does not: the attempt evaluates the
+    /// empty-set rule and reports nothing.
+    ///
+    /// (At its production request of 40 this classifier converges those
+    /// ladder pairs and returns them as bound modes of the anti-guide. That
+    /// is the classifier's own floor at work, the same on `main`, and not
+    /// what this test pins.)
+    #[test]
+    fn pml_antiguide_low_curl_ladder_is_not_an_empty_set_hole() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (n_core, n_clad, a) = (1.4447_f64, 1.4504_f64, 4.1_f64);
+        let (clad_r, outer_r) = (8.0 * a, 11.0 * a);
+        let (mesh, tags, eps, interior) =
+            pml_disk_913((n_core, n_clad), a, (clad_r, outer_r), (5, 48));
+        let (e_max, e_min) = (n_clad * n_clad, n_core * n_core);
+        let window = (e_min * k0 * k0, e_max * k0 * k0);
+
+        // The withheld pairs of the request-16 solve.
+        let raw = dielectric_raw_candidates_p2_pml(
+            &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 16, None,
+        )
+        .unwrap();
+        let pml_floor = physical_curl_floor_pml();
+        let rule = HoleRule::new(pml_floor, e_max, e_min, None);
+        assert!((rule.empty_set_curl_floor - 1.58e-4).abs() < 1e-6);
+        // Pairs that pass every test but the empty-set curl threshold.
+        let ladder: Vec<&WithheldCandidate> = raw
+            .localized_withheld
+            .iter()
+            .filter(|c| {
+                hole_verdict(c, raw.sigma, window, None, &rule) == HoleVerdict::BelowEmptySetCurl
+            })
+            .collect();
+        assert!(
+            ladder.len() >= 3,
+            "expected a resolved low-curl bound-like ladder, got {} pair(s)",
+            ladder.len()
+        );
+        for c in &ladder {
+            assert!(c.residual <= EMPTY_SET_RESIDUAL_CAP, "{c:?}");
+            assert!(
+                c.curl_ratio > 2.0 * pml_floor && c.curl_ratio < 0.2 * rule.empty_set_curl_floor,
+                "curl {:.3e}",
+                c.curl_ratio
+            );
+        }
+        assert_eq!(
+            selection_hole(&raw.localized_withheld, raw.sigma, window, None, &rule),
+            None
+        );
+        // The same pairs under the classifier's own floor: a hole.
+        let naive = HoleRule {
+            empty_set_curl_floor: pml_floor,
+            ..rule
+        };
+        assert!(
+            selection_hole(&raw.localized_withheld, raw.sigma, window, None, &naive).is_some(),
+            "the PML floor alone would report the ladder"
+        );
+
+        // The classifier attempt at that request: no bound mode, and the
+        // empty-set rule is evaluated once and reports nothing.
+        take_empty_set_events();
+        let (modes, hole) = solve_dielectric_modes2_pml_attempt(
+            &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4, 16,
+        )
+        .unwrap();
+        assert!(
+            modes
+                .iter()
+                .all(|m| m.beta_sq.im.abs() > DIELECTRIC_BOUND_REL_IM * m.beta_sq.re.abs()),
+            "request 16 returns no bound mode"
+        );
+        assert!(hole.is_ok(), "{hole:?}");
+        assert_eq!(
+            take_empty_set_events(),
+            vec![("solve_dielectric_modes2_pml", None)]
+        );
+    }
+
+    /// Issue #913 acceptance: a cross-section with **no** guided mode still
+    /// returns an empty `Vec`, no error and no warning from every
+    /// classifier. A uniform `ε` has an empty guided window, so no withheld
+    /// pair can lie inside it (the request-16 solves below do withhold
+    /// localized pairs).
+    #[test]
+    fn mode_free_uniform_cross_section_returns_empty_without_error() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let (n, a) = (1.4447_f64, 1.40_f64);
+
+        let outer_r = 6.0 * a;
+        let (mesh, tags) = disk_tri_mesh(a, outer_r, 5, 48);
+        let eps = vec![n * n; tags.len()];
+        let (_, interior1) = disk_pec_interior_edges(&mesh, outer_r);
+        let interior2 = disk_pec_interior_dofs2(&mesh, outer_r);
+        take_empty_set_events();
+        assert!(
+            solve_dielectric_modes(&mesh, &eps, &interior1, k0, 4)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            solve_dielectric_modes2(&mesh, &eps, &interior2, k0, 4)
+                .unwrap()
+                .is_empty()
+        );
+
+        let (clad_r, outer_r) = (8.0 * a, 11.0 * a);
+        let (mesh, tags, eps, interior) = pml_disk_913((n, n), a, (clad_r, outer_r), (3, 32));
+        assert!(
+            solve_dielectric_modes2_pml(&mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4)
+                .unwrap()
+                .is_empty()
+        );
+        // Each classifier evaluated the empty-set rule once: nothing reported.
+        let events = take_empty_set_events();
+        assert_eq!(events.len(), 3, "{events:?}");
+        assert!(events.iter().all(|(_, pair)| pair.is_none()), "{events:?}");
+    }
+
+    /// One row of [`empty_set_rule_stress_sweep_913`]: classifier solves,
+    /// those that returned no bound mode (empty-set rule evaluations),
+    /// reports, and with-reference holes.
+    #[derive(Debug, Default, Clone, Copy, PartialEq)]
+    struct SweepRow913 {
+        solves: usize,
+        evaluations: usize,
+        reports: usize,
+        reference_holes: usize,
+    }
+
+    /// Issue #913: a reduced, reproducible version of the stress sweep
+    /// behind the empty-set thresholds, with the rule's reports recorded.
+    ///
+    /// Four fibers on two meshes, `n_modes = 4`:
+    ///
+    /// - two **anti-guides**, which guide nothing: SMF-28 contrast
+    ///   reversed (`1.4447 / 1.4504`, `a = 4.1 µm`) and ~3 % contrast
+    ///   reversed (`1.4447 / 1.4874`, `a = 1.4 µm`);
+    /// - a **uniform** disk (`n = 1.4447`), whose guided window is empty;
+    /// - the **thin core** [`THIN_CORE_913`], whose only guided mode sits at
+    ///   an analytic `b = 4.7×10⁻⁹`, so that the empty set is the correct
+    ///   result at any resolvable precision.
+    ///
+    /// Each runs the PEC p=1 and p=2 classifier attempts at Lanczos
+    /// requests 4, 8 and 16 (16 is their own) and the PML attempt at
+    /// requests 3 to 8, 12, 16 and 40 (40 is its own). 120 solves.
+    ///
+    /// What it asserts: the rule reports nothing on the anti-guides, the
+    /// uniform disk or any PEC solve. Every report is on the thin-core PML
+    /// solves and is the low-curl ladder pair of issue #947 (`b ≈ 0.42` on
+    /// mesh `(4, 48)`), a known artifact and not a guided mode. That is why
+    /// the rule only warns. No attempt returns an error from the empty-set
+    /// branch. The per-row counts are printed (`--nocapture`).
+    ///
+    /// Measured (release, macOS aarch64; 14.6, 49, 54 and 63 s over four
+    /// runs on a heavily loaded host): 120 solves, 87 empty-set
+    /// evaluations, 5 reports. By fiber, evaluations / reports: anti-guides
+    /// 34 / 0 (all PML; their PEC solves return box modes of the
+    /// higher-index cladding, so the rule is not evaluated), uniform
+    /// 30 / 0, thin core PEC 12 / 0, thin core PML 11 / 5. The 5 reports
+    /// are mesh `(4, 48)` requests 6 and 7 (`b = 0.417`) and mesh `(6, 64)`
+    /// requests 3, 5 and 6 (`b = 0.468`). The assertions pin the claims
+    /// above, not these counts, which can shift with Lanczos round-off.
+    ///
+    /// The same sweep sees the with-reference #850 rule fire twice on the
+    /// thin-core PML solves of mesh `(6, 64)` (the withheld ladder pair
+    /// `β² = 35.259` above a returned ladder pair). That rule is unchanged
+    /// here; the sweep counts it and it belongs to issue #947.
+    #[test]
+    #[ignore = "release-tier stress sweep: 120 classifier solves, 15 to 63 s in release over four runs (local, Apple M3 Ultra, host load average above 100), not timed in debug; run with `cargo test -p geode-core --release --lib -- --ignored --exact analytic::waveguide::tests::empty_set_rule_stress_sweep_913 --nocapture`"]
+    fn empty_set_rule_stress_sweep_913() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        const PEC_REQUESTS: [usize; 3] = [4, 8, 16];
+        const PML_REQUESTS: [usize; 9] = [3, 4, 5, 6, 7, 8, 12, 16, 40];
+        const MESHES: [(usize, usize); 2] = [(4, 48), (6, 64)];
+        // (name, (n_core, n_clad), core radius, PEC outer radius, PML box).
+        type Fiber = (&'static str, (f64, f64), f64, f64, (f64, f64));
+        let (thin_n, thin_a, thin_box) = THIN_CORE_913;
+        let fibers: [Fiber; 4] = [
+            (
+                "anti-guide SMF-28",
+                (1.4447, 1.4504),
+                4.1,
+                24.6,
+                (32.8, 45.1),
+            ),
+            ("anti-guide ~3 %", (1.4447, 1.4874), 1.4, 8.4, (11.2, 15.4)),
+            ("uniform", (1.4447, 1.4447), 1.4, 8.4, (11.2, 15.4)),
+            ("thin core", thin_n, thin_a, 8.0, thin_box),
+        ];
+
+        // Tally one attempt: its hole-check outcome and the empty-set
+        // events it recorded. Returns the reported pairs.
+        let tally = |row: &mut SweepRow913, hole: Result<(), EigenError>| {
+            row.solves += 1;
+            match hole {
+                Ok(()) => {}
+                Err(EigenError::SelectionHole {
+                    beta_sq_re,
+                    lowest_returned,
+                    ..
+                }) => {
+                    // Only the with-reference rule (#850) can error.
+                    assert!(lowest_returned.is_finite(), "NaN reference in an error");
+                    assert!(beta_sq_re > lowest_returned);
+                    eprintln!(
+                        "WITH-REFERENCE HOLE (#850 rule): withheld β² = {beta_sq_re:.5} above \
+                         returned {lowest_returned:.5}"
+                    );
+                    row.reference_holes += 1;
+                }
+                Err(other) => panic!("unexpected error: {other:?}"),
+            }
+            let events = take_empty_set_events();
+            assert!(events.len() <= 1, "{events:?}");
+            let mut reported = Vec::new();
+            for (_, pair) in events {
+                row.evaluations += 1;
+                if let Some(pair) = pair {
+                    row.reports += 1;
+                    reported.push(pair);
+                }
+            }
+            reported
+        };
+
+        take_empty_set_events();
+        let mut rows: Vec<(String, SweepRow913)> = Vec::new();
+        // (mesh, request, b) of every PML report.
+        let mut pml_reports: Vec<((usize, usize), usize, f64)> = Vec::new();
+        for (name, (n_core, n_clad), a, pec_outer, (clad_r, outer_r)) in fibers {
+            let eps_of = |tags: &[i32]| {
+                epsilon_r_from_region_tags(tags, |t| {
+                    if t == REGION_CORE {
+                        n_core * n_core
+                    } else {
+                        n_clad * n_clad
+                    }
+                })
+            };
+            let (mut p1, mut p2, mut pml) = <(SweepRow913, SweepRow913, SweepRow913)>::default();
+            for mesh_size in MESHES {
+                let (mesh, tags) = disk_tri_mesh(a, pec_outer, mesh_size.0, mesh_size.1);
+                let eps = eps_of(&tags);
+                let (_, interior1) = disk_pec_interior_edges(&mesh, pec_outer);
+                let interior2 = disk_pec_interior_dofs2(&mesh, pec_outer);
+                for request in PEC_REQUESTS {
+                    let (_, hole) =
+                        solve_dielectric_modes_attempt(&mesh, &eps, &interior1, k0, 4, request)
+                            .unwrap();
+                    tally(&mut p1, hole);
+                    let (_, hole) =
+                        solve_dielectric_modes2_attempt(&mesh, &eps, &interior2, k0, 4, request)
+                            .unwrap();
+                    tally(&mut p2, hole);
+                }
+
+                let (mesh, tags, eps, interior) =
+                    pml_disk_913((n_core, n_clad), a, (clad_r, outer_r), mesh_size);
+                let (e_max, e_min) = (
+                    (n_core * n_core).max(n_clad * n_clad),
+                    (n_core * n_core).min(n_clad * n_clad),
+                );
+                for request in PML_REQUESTS {
+                    let (_, hole) = solve_dielectric_modes2_pml_attempt(
+                        &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4, request,
+                    )
+                    .unwrap();
+                    for pair in tally(&mut pml, hole) {
+                        let b = (pair.beta_sq.re - e_min * k0 * k0) / ((e_max - e_min) * k0 * k0);
+                        eprintln!(
+                            "REPORT {name} PML mesh {mesh_size:?} request {request}: β² = {:.5}, \
+                             b = {b:.4}, ρ = {:.2e}, curl = {:.3e}",
+                            pair.beta_sq.re, pair.residual, pair.curl_ratio
+                        );
+                        assert_eq!(name, "thin core", "a report on a fiber that guides nothing");
+                        pml_reports.push((mesh_size, request, b));
+                    }
+                }
+            }
+            rows.push((format!("{name}, PEC p=1"), p1));
+            rows.push((format!("{name}, PEC p=2"), p2));
+            rows.push((format!("{name}, PML"), pml));
+        }
+
+        eprintln!(
+            "\n#913 reduced stress sweep: solves / empty-set evaluations / reports / with-reference holes"
+        );
+        let mut total = SweepRow913::default();
+        for (name, row) in &rows {
+            eprintln!(
+                "  {name:<28} {:>3} / {:>3} / {:>2} / {:>2}",
+                row.solves, row.evaluations, row.reports, row.reference_holes
+            );
+            total.solves += row.solves;
+            total.evaluations += row.evaluations;
+            total.reports += row.reports;
+            total.reference_holes += row.reference_holes;
+        }
+        eprintln!(
+            "  {:<28} {:>3} / {:>3} / {:>2} / {:>2}",
+            "total", total.solves, total.evaluations, total.reports, total.reference_holes
+        );
+        eprintln!("  thin-core PML reports (mesh, request, b): {pml_reports:?}");
+
+        let row = |name: &str| rows.iter().find(|(n, _)| n == name).unwrap().1;
+        // Fibers that guide nothing: evaluated, never reported.
+        for fiber in ["anti-guide SMF-28", "anti-guide ~3 %", "uniform"] {
+            for path in ["PEC p=1", "PEC p=2", "PML"] {
+                let r = row(&format!("{fiber}, {path}"));
+                assert_eq!(r.reports, 0, "{fiber}, {path}: {r:?}");
+            }
+            assert!(row(&format!("{fiber}, PML")).evaluations >= 12, "{fiber}");
+        }
+        // A uniform disk has no bound mode on any path: all 30 solves are
+        // empty-set evaluations.
+        for path in ["PEC p=1", "PEC p=2", "PML"] {
+            let r = row(&format!("uniform, {path}"));
+            assert_eq!(r.evaluations, r.solves, "uniform, {path}: {r:?}");
+        }
+        // Thin core, PEC: no bound mode (correct), nothing reported.
+        for path in ["PEC p=1", "PEC p=2"] {
+            let r = row(&format!("thin core, {path}"));
+            assert_eq!((r.evaluations, r.reports), (r.solves, 0), "{path}: {r:?}");
+        }
+        // Thin core, PML: the only reports of the sweep, all of them the
+        // #947 ladder pair (b ≈ 0.42 on mesh (4, 48), 0.47 on (6, 64);
+        // the analytic LP01 is at b = 4.7e-9), including the request-6 case
+        // of `pml_thin_core_empty_set_warning_is_a_ladder_pair_not_lp01`.
+        assert_eq!(total.reports, row("thin core, PML").reports);
+        assert!(
+            pml_reports
+                .iter()
+                .any(|&(mesh_size, request, _)| mesh_size == (4, 48) && request == 6),
+            "{pml_reports:?}"
+        );
+        for &(mesh_size, request, b) in &pml_reports {
+            let expected = if mesh_size == (4, 48) { 0.417 } else { 0.468 };
+            assert!(
+                (b - expected).abs() < 2e-2,
+                "mesh {mesh_size:?} request {request}: b = {b}"
+            );
+        }
+        // Never at the PML classifier's own request.
+        assert!(pml_reports.iter().all(|&(_, request, _)| request != 40));
     }
 }
