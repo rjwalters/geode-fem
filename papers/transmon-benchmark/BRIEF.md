@@ -342,7 +342,19 @@ Caveats that must travel with any of these numbers:
   returns two non-physical modes, which are dropped by matching Palace's
   frequencies (#950), and it costs about twice the others.
 - Palace's fixture config writes six ParaView fields; geode writes none. The
-  Save = 0 rows are the output-matched ones.
+  Save = 0 rows are the ones without field output. Save = 0 matches field
+  output only: by Palace's own phase timers those runs still spend 5.0 s of
+  23.6 s at 8 ranks and 40.2 s of 112.9 s at 1 rank in its error estimator,
+  which geode has no counterpart for. Whether the estimator can be switched
+  off at this Palace commit was not checked. It counts against Palace at both
+  widths, the one-wide "33 to 67 s against 113 to 187 s" included.
+- Palace is untuned (vendored recipe: no libxsmm, `-march=x86-64-v2`), so its
+  times are an upper bound for a tuned build. Any statement that has geode
+  ahead (one-wide wall clock, core-seconds) is about this Palace build.
+- Palace's times differ from the 2026-07-14 session in opposite directions
+  (1 rank: 186.8 s now, 130.9 s then; 8 ranks: 33.4 s now, 44.5 s then). The
+  cause is not established and was not investigated; the builds differ and
+  the July build flags were not recorded.
 - Palace's core-seconds are close to ranks × wall because MPICH ranks
   busy-wait.
 - Palace's `Target` is a lower bound (modes above it); geode's shift is a
@@ -356,18 +368,18 @@ them** (for the operator's revision under #593; the file is not edited):
 
 | Lines | Claim as written | Status | Replacement numbers |
 |---|---|---|---|
-| 229-231 (contributions) | "A matched CPU cell shows a per-core, small-to-medium-scale win for the direct eigensolve" | **Weakened.** A core-second advantage is measured for requests that return the six modes; a wall-clock win at 8 ranks is not | Core-s, geode 1 thread vs Palace 8 ranks: 7.7× (more modes), 8.0× (shift), 4.0× (port-aware) with Save = 6; 5.5×, 5.7×, 2.8× with Save = 0 |
+| 229-231 (contributions) | "A matched CPU cell shows a per-core, small-to-medium-scale win for the direct eigensolve" | **Weakened.** A core-second advantage is measured for requests that return the six modes (against an untuned Palace whose ranks busy-wait; caveats above); a wall-clock win at 8 ranks is not | Core-s, geode 1 thread vs Palace 8 ranks: 7.7× (more modes), 8.0× (shift), 4.0× (port-aware) with Save = 6; 5.5×, 5.7×, 2.8× with Save = 0 |
 | 1024-1025 (table caption) | geode-fem on one core "beats Palace on eight ranks in absolute wall clock" | **Refuted** | geode 1 thread 33.2 to 34.5 s (67.3 s port-aware) vs Palace 8 ranks 33.4 s (Save = 6), 23.6 s (Save = 0) |
 | 1042 (Table `tab:cpu`) | geode-fem (1): 28.7 s, 3.1 GB | **Refuted as a one-core, like-for-like time.** Not pinned, no mode log; the request returns 1 of 6 modes | Same request, pinned: 32.8 s, 3.16 GB, 1 of 6. Six-mode requests: 34.5 s / 33.2 s / 67.3 s |
 | 1043 | geode-fem (8): 29.0 s | **Replaced** | Same request: 27.1 s, 1 of 6. Six-mode requests: 29.1 s / 27.3 s / 51.1 s |
-| 1044 | Palace (1): 130.9 s, 0.5 GB/rank | **Not reproduced** (different Palace build) | 186.8 s (Save = 6), 113.0 s (Save = 0, n = 1); 2.2 GB |
-| 1045 | Palace (8): 44.5 s, 0.5 GB/rank | **Not reproduced** (different Palace build) | 33.4 s (Save = 6), 23.6 s (Save = 0); 0.54 GB/rank, 3.8 GB over all ranks |
+| 1044 | Palace (1): 130.9 s, 0.5 GB/rank | **Not reproduced**; cause not established (not investigated): the builds differ and the July build flags were not recorded | 186.8 s (Save = 6), 113.0 s (Save = 0, n = 1); 2.2 GB |
+| 1045 | Palace (8): 44.5 s, 0.5 GB/rank | **Not reproduced**, and in the opposite direction from the 1-rank row; cause not established (not investigated): the builds differ and the July build flags were not recorded | 33.4 s (Save = 6), 23.6 s (Save = 0); 0.54 GB/rank, 3.8 GB over all ranks |
 | 1048-1052 (off-target rows: 36.8 / 26.6 / 248.0 / 64.7 s) | Same workload for both solvers | **Refuted as like-for-like.** The two solvers return different mode sets: 2 modes in common | geode 33.9 s (1) / 27.8 s (8): six physical + six non-physical, 0.0003 to 26.09 GHz. Palace 285.9 s (1) / 49.0 s (8): twelve modes, 20.70 to 51.54 GHz |
 | 1087-1089 (Fig. `fig:cpu` caption) and `figures/src/fig4_cpu_wallclock.py` | "geode-fem on one core consumes 28.7 core-s against Palace's 356.0 at 8 ranks (~12×)" | **Refuted** | 32.8 vs 266.7 core-s = 8.1× for the 1-of-6 request; see row 229-231 for the six-mode requests. 356.0 was 44.5 s × 8, never a measured CPU time |
 | 1094-1098 | "serial direct factorization on one core (28.7 s) beats Palace on eight ranks (44.5 s) in absolute wall clock at ~12× fewer core-seconds (28.7 versus 356.0)" | **Refuted** (wall clock) and **weakened** (core-seconds) | As rows 1024-1025 and 1087-1089 |
 | 1098-1100 | "geode-fem's own 8-thread run gives essentially no speedup (29.0 s)" | **Weakened.** With one thread enforced there is a modest speedup | 32.8 s → 27.1 s: 17% lower wall for 1.17× the core-seconds (142% CPU). The old "no speedup" is what two multithreaded runs would show (#763) |
 | 1101-1104 | "the direct shift-invert is target-insensitive while Palace's iterative solve degrades off-target, so the gap widens at 20 GHz: 6.7× serial (248.0/36.8), 2.4× at 8-wide (64.7/26.6)" | **Refuted as a comparison.** geode's own cost is flat across shifts (confirmed: 32.8 s at 4.5 GHz, 33.9 s at 20 GHz); the Palace side timed twelve higher modes, not the same answer | Same-request ratios, different answers: 8.4× (285.9/33.9), 1.8× (49.0/27.8) |
-| 1117-1119 | "geode-fem wins small-to-medium on speed, per-core efficiency, and target robustness" | **Speed: refuted at 8 wide, confirmed at 1 wide. Per-core efficiency: confirmed in core-seconds, smaller than stated. Target robustness: not established** | As above |
+| 1117-1119 | "geode-fem wins small-to-medium on speed, per-core efficiency, and target robustness" | **Speed: refuted at 8 wide; at 1 wide geode measured ahead against an untuned Palace whose time includes its error estimator. Per-core efficiency: measured ahead in core-seconds, smaller than stated, with the busy-wait and untuned-Palace caveats above. Target robustness: not established** | As above |
 | 1247-1249 | "Derived ratios quoted in the text (core-second and speedup multipliers) are computed from the displayed table values" | **Weakened**: core-seconds were wall × ranks, not measured CPU time | Measured user + sys is in the results file for every cell |
 | 1347 | "(iv) The CPU per-core win is small-to-medium-scale only" | **Weakened** in the same way as 229-231 | As row 229-231 |
 | Table `tab:cpu` memory column (caption 1023-1024 already says per-rank), and any "~6× less memory" reading of it | Palace 0.5 GB/rank against geode 3.1 GB | **Per-rank figure confirmed; the 6× reading is weakened**, since it sets one rank against a whole process | geode 3.2 GB; Palace 3.8 GB over 8 ranks (its own estimate), 2.1 to 2.2 GB at 1 rank |

@@ -117,14 +117,25 @@ What the table shows, on this mesh and host:
 - **Wall clock at eight wide.** GEODE's two oracle-tuned requests take 27.3 s and
   29.1 s, and the port-aware one 51.1 s. Palace takes 33.4 s with its fixture config
   and 23.6 s when it writes no ParaView fields. GEODE's benchmark binary writes no
-  fields, so the `Save = 0` row is the output-matched one. Against it, Palace has the
-  lower wall clock than every GEODE cell.
+  fields, so the `Save = 0` row is the one without field output on either side.
+  Against it, Palace has the lower wall clock than every GEODE cell.
 - **Wall clock at one wide.** GEODE takes 33 to 35 s (67 s port-aware); Palace 186.8 s
-  with field output and 113.0 s without (one run).
+  with field output (`Save = 6`) and 113.0 s without (`Save = 0`, one run). This is
+  measured on this run against an untuned Palace: read it with the two caveats below.
 - **Core-seconds.** GEODE uses fewer than Palace in every cell: 33 to 41 for the
   oracle-tuned requests and 67 to 92 for port-aware, against 113 to 267 for Palace.
   Palace's MPICH ranks busy-wait, so its core-seconds are close to ranks × wall by
-  construction; this is CPU time occupied, not work done.
+  construction; this is CPU time occupied, not work done. The same two caveats apply.
+- **`Save = 0` removes field output only; it does not match the two programs' work.**
+  By Palace's own phase timers the `Save = 0` runs still spend 5.0 s of 23.6 s at
+  8 ranks and 40.2 s of 112.9 s at 1 rank in its error estimator, which GEODE's
+  benchmark has no counterpart for. Whether the estimator can be switched off at this
+  Palace commit was not checked. It counts against Palace at both widths, so the
+  one-wide "GEODE 33 to 67 s, Palace 113 to 187 s" in particular sets GEODE against a
+  Palace time that includes work GEODE does not do.
+- **Palace is not tuned.** Palace here is the vendored recipe's build (no libxsmm, `-march=x86-64-v2`), so its times are an upper bound for a tuned build.
+  Every statement above that has GEODE ahead (one-wide wall clock, core-seconds) is a
+  statement about this build of Palace.
 - **Parallel scaling.** GEODE gains 17% in wall clock from 1 to 8 threads (142% CPU),
   for 1.17× the core-seconds. Palace gains 4.8× to 5.6× from 1 to 8 ranks.
 - **Memory.** GEODE peaks at 3.2 GB in one process. Palace's largest rank peaks at
@@ -167,6 +178,13 @@ Source: [`benchmarks/transmon_bench_cpu/results.toml`](../../benchmarks/transmon
 Off-target (12 modes @ 20 GHz, `[matched.off_target]`): GEODE 36.8 s / 26.6 s vs Palace
 248.0 s (np1) / 64.7 s (np8).
 
+The Palace rows do not match the 2a-i re-timing of the same request either, and they
+miss in opposite directions: 186.8 s now against 130.9 s then at 1 rank, 33.4 s now
+against 44.5 s then at 8 ranks (both `Save = 6`). **That difference is unexplained and
+was not investigated.** The two Palace builds differ and the July build flags were not
+recorded, which is a possible cause, not an established one. Neither pair is a
+regression measurement.
+
 Two things are wrong with reading these as a comparison, and both are now measured:
 
 - **Not like-for-like output ([#927](https://github.com/rjwalters/geode-fem/issues/927)).**
@@ -184,7 +202,9 @@ So "28.7 s on one core beats 44.5 s on eight ranks, about 12× fewer core-second
 not supported. Measured, a one-core GEODE run of that request (32.8 s, one of six
 modes) ties Palace on eight ranks with field output (33.4 s) and is behind Palace
 without it (23.6 s); the core-second ratio is 8.1× and 5.8× respectively, and 4.0× to
-8.0× (2.8× to 5.7×) for the GEODE requests that do return the six modes.
+8.0× (2.8× to 5.7×) for the GEODE requests that do return the six modes. Those ratios
+are against an untuned Palace whose MPICH ranks busy-wait (core-seconds close to
+8 × wall by construction) and whose runs include its error estimator (§2a-i).
 
 ### 2b. Large scale (1 157 564 interior DOF) — Palace wins on both axes
 
@@ -236,11 +256,11 @@ path than the incumbent even attempts.
 
 **There is no corner where GEODE is *clearly preferred* on raw solve performance.**
 
-| axis | winner |
-|------|--------|
-| small–medium wall clock, 8 wide | **Palace** without field output (23.6 s) vs GEODE 27.3–51.1 s for the requests that return the same six modes; GEODE's two oracle-tuned requests are ahead of Palace only when Palace also writes ParaView fields (33.4 s) (§2a-i) |
-| small–medium wall clock, 1 wide | GEODE (33–67 s vs Palace 113–187 s) |
-| small–medium core-seconds | GEODE (33–92 vs Palace 113–267; Palace's ranks busy-wait) |
+| axis | reading |
+|------|---------|
+| small–medium wall clock, 8 wide | **Palace** without field output (23.6 s) vs GEODE 27.3–51.1 s for the requests that return the same six modes; GEODE's two oracle-tuned requests are ahead of Palace only when Palace also writes ParaView fields (33.4 s), and that Palace is untuned (§2a-i) |
+| small–medium wall clock, 1 wide | no winner picked. Measured ahead on this run, Palace untuned: GEODE 33–67 s for the six-mode requests vs Palace 113.0 s (`Save = 0`, one run) to 186.8 s (`Save = 6`). Palace's build has no libxsmm and `-march=x86-64-v2`, so its times are an upper bound for a tuned build, and they include its error estimator (40.2 s of the 112.9 s `Save = 0` run), which GEODE does not run (§2a-i) |
+| small–medium core-seconds | no winner picked. Measured ahead on this run, Palace untuned: GEODE 33–92 vs Palace 113–267. Palace's MPICH ranks busy-wait, so its core-seconds are close to ranks × wall by construction (CPU occupied, not work done); its build has no libxsmm and `-march=x86-64-v2`, so they are an upper bound for a tuned build; and they include its error estimator (§2a-i) |
 | memory at 133k DOF | about equal in total at 8 ranks (GEODE 3.2 GB; Palace 3.8 GB over all ranks, 0.54 GB per rank) |
 | memory at scale | **Palace** |
 | large-scale (≥1M DOF) wall clock **and** memory | **Palace** |
@@ -248,9 +268,13 @@ path than the incumbent even attempts.
 | distributed scale (24.5M DOF, 99% efficiency) | **Palace** |
 | target-insensitivity (off-target shifts) | not established: the off-target cells compare different mode sets (§2a-i) |
 
-GEODE's small–medium edge, measured like-for-like (§2a-i), is in core-seconds and in
-one-core wall clock. At eight wide Palace without field output is ahead. Two of GEODE's
-three six-mode requests were tuned against Palace's answer, the edge is bounded by a hard
+The two small–medium rows where GEODE measured ahead are deliberately not entered as
+GEODE wins, and the column is headed "reading" for that reason. What GEODE measured
+ahead on (§2a-i) is core-seconds and one-core wall clock, against a Palace built from
+the vendored recipe without libxsmm and with `-march=x86-64-v2` (an upper bound for a
+tuned build), whose ranks busy-wait and whose runs include an error estimator GEODE does
+not run. At eight wide Palace without field output is ahead. Two of GEODE's
+three six-mode requests were tuned against Palace's answer, the margin is bounded by a hard
 memory wall, and 8 threads buy 17% — so it does not amount
 to a corner where GEODE is the clear choice. Palace wins scale, memory, the interior
 eigensolve, and raw wall clock at the sizes that matter for production devices.
@@ -349,10 +373,13 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 - **Correctness:** GEODE independently reproduces Palace's transmon spectrum to 0.03% on
   the identical mesh. Treat this as a cross-check credential.
 - **Performance:** Palace wins where it counts — scale, memory, the interior eigensolve,
-  and raw wall clock at production sizes. GEODE has a small–medium edge in
+  and raw wall clock at production sizes. On one 133k-DOF mesh GEODE measured ahead in
   core-seconds and one-core wall clock when it is asked in a way that returns Palace's
-  six modes (§2a-i; two of the three such requests are oracle-tuned), which does not
-  hold at eight ranks without field output and does not survive scaling. **No clearly-preferred GEODE raw-perf
+  six modes (§2a-i; two of the three such requests are oracle-tuned). That was against
+  an untuned Palace (vendored recipe, no libxsmm, `-march=x86-64-v2`: an upper bound
+  for a tuned build) whose MPICH ranks busy-wait and whose time includes an error
+  estimator GEODE does not run; it does not hold at eight ranks without field output
+  and does not survive scaling. **No clearly-preferred GEODE raw-perf
   corner exists.**
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
   substrate adds **solver-derived design sensitivities** across the full

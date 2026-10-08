@@ -230,7 +230,12 @@ w("#     returned); the six are then picked out with the Palace oracle. Palace's
 w("#     fixture request returns the six and nothing else.")
 w("#   * PALACE'S FIXTURE CONFIG WRITES SIX PARAVIEW FIELDS (Save = 6) AND GEODE")
 w("#     WRITES NONE. The *_nosave Palace cells (Save = 0) remove that output; both")
-w("#     are reported, and every [route.*] gives ratios against both.")
+w("#     are reported, and every [route.*] gives ratios against both. Save = 0")
+w("#     removes the FIELD OUTPUT only: those cells still run Palace's error")
+w("#     estimator, which geode has no counterpart for ([palace_fixture].")
+w("#     estimator_note). They are 'without field output', not output-matched.")
+w("#   * PALACE'S TIMES DIFFER FROM THE 2026-07-14 SESSION IN BOTH DIRECTIONS AND")
+w("#     THE CAUSE WAS NOT INVESTIGATED ([palace_fixture].historical_note).")
 w("#   * PALACE'S TARGET IS A LOWER BOUND, GEODE'S SHIFT IS A CENTRE. For a request")
 w("#     at 20 GHz the two solvers return different mode sets ([off_target_request]).")
 w("#   * WALL CLOCK AND CORE-SECONDS ARE BOTH GIVEN. core_s = user + sys CPU time")
@@ -392,6 +397,11 @@ for c in cells:
     w("")
 
 
+def estimator_s(run):
+    """Palace's error-estimator time in one run: the three 'Estimation' timers."""
+    return sum(run["phases"].get(k, 0.0) for k in ("Estimation", "Estimation / Construction", "Estimation / Solve"))
+
+
 def med(name, key):
     return statistics.median(by[name][key])
 
@@ -444,7 +454,7 @@ for key, stem, pal_same, what, caveat in ROUTES:
 w("[palace_fixture]")
 w('what = "Palace on the fixture\'s own request (N = 6, Target = 4.5 GHz): returns the six physical modes and nothing else"')
 w('target_semantics = "Palace\'s Eigenmode.Target is a LOWER BOUND: it returns the N modes above the target. geode\'s shift returns the modes NEAREST the shift on either side. The two agree on a mode set only when the request is built for it; see [off_target_request] and [route.shift]."')
-w('save_note = "The fixture config writes six ParaView mode fields (Save = 6); the *_nosave cells set Save = 0. geode\'s transmon_bench writes no field output in any cell, so the Save = 6 cells charge Palace for output geode does not produce and the Save = 0 cells do not."')
+w('save_note = "The fixture config writes six ParaView mode fields (Save = 6); the *_nosave cells set Save = 0. geode\'s transmon_bench writes no field output in any cell, so the Save = 6 cells charge Palace for field output geode does not produce and the Save = 0 cells do not. Save = 0 removes the field output only; it does not make the two programs\' work equal (see estimator_note)."')
 for tag, name in (
     ("np1", "palace_s4p5_n6_np1"),
     ("np8", "palace_s4p5_n6_np8"),
@@ -456,6 +466,7 @@ for tag, name in (
     p = by[name]
     w(f"{tag}_n_runs = {len(p['runs'])}")
     w(f"{tag}_paraview_s = {fl([r['phases'].get('Postprocessing / Paraview', 0.0) for r in p['runs']], 2)}  # Palace's own timer for the field output")
+    w(f"{tag}_error_estimator_s = {fl([estimator_s(r) for r in p['runs']], 2)}  # Palace's own timers 'Estimation' + 'Estimation / Construction' + 'Estimation / Solve'; geode's transmon_bench has no counterpart")
     w(f"{tag}_n_physical = {p['n_physical']}")
     w(f"{tag}_wall_s_min_median_max = {fl(mmm(p['walls']), 2)}")
     w(f"{tag}_core_s_min_median_max = {fl(mmm(p['cores']), 2)}")
@@ -463,6 +474,29 @@ for tag, name in (
     w(f"{tag}_peak_rss_gb_largest_rank = {max(r['rss'] for r in p['runs']) / 1e9:.2f}")
     w(f"{tag}_palace_estimated_peak_memory_all_ranks = [" + ", ".join(q(r["mem_total"]) for r in p["runs"]) + f"]  # Palace's own figure, summed over ranks; geode's one process peaks at {geode_rss_max:.2f} GB in this run")
     w(f"{tag}_max_rel_dev_from_committed_eig_csv = {max(abs(a - b) / b for r in p['runs'] for a, b in zip(r['freqs'], oracle)):.1e}")
+if "palace_s4p5_n6_np8_nosave" in by and "palace_s4p5_n6_np1_nosave" in by:
+    e8, e1 = by["palace_s4p5_n6_np8_nosave"]["runs"], by["palace_s4p5_n6_np1_nosave"]["runs"]
+    w(
+        "estimator_note = "
+        + q(
+            "Save = 0 matches FIELD OUTPUT only. By Palace's own Elapsed Time Report the Save = 0 runs still spend "
+            f"{statistics.median(estimator_s(r) for r in e8):.1f} s of {statistics.median(r['phases']['Total'] for r in e8):.1f} s at 8 ranks (median of {len(e8)} runs) and "
+            f"{statistics.median(estimator_s(r) for r in e1):.1f} s of {statistics.median(r['phases']['Total'] for r in e1):.1f} s at 1 rank (n = {len(e1)}) "
+            "in the error estimator, which geode's transmon_bench has no counterpart for. Whether the estimator can be switched off at this Palace commit was not checked, "
+            "so no Palace cell here is free of it. It counts against Palace at both widths, the one-wide comparison included."
+        )
+    )
+p1h, p8h = by["palace_s4p5_n6_np1"], by["palace_s4p5_n6_np8"]
+w(
+    "historical_note = "
+    + q(
+        f"Against results.toml [matched.physical_target] (2026-07-14), Palace on this same request and instance type takes longer at 1 rank "
+        f"({statistics.median(p1h['walls']):.1f} s now, {HIST_PALACE_NP1_WALL_S} s then) and less time at 8 ranks "
+        f"({statistics.median(p8h['walls']):.1f} s now, {HIST_PALACE_NP8_WALL_S} s then), both with the fixture's Save = 6. "
+        "The difference is UNEXPLAINED AND WAS NOT INVESTIGATED. The two Palace builds differ and the July build flags were not recorded, "
+        "which is a possible cause and not an established one; the region and session differ too. Neither pair is a regression measurement."
+    )
+)
 w("")
 
 # ---- issue #763 ---------------------------------------------------------------
@@ -474,6 +508,7 @@ w(f"historical_geode_1thread_wall_s = {HIST_GEODE_1THREAD_WALL_S}  # geode 31740
 w(f"historical_geode_8thread_wall_s = {HIST_GEODE_8THREAD_WALL_S}")
 w(f"historical_palace_np1_wall_s = {HIST_PALACE_NP1_WALL_S}")
 w(f"historical_palace_np8_wall_s = {HIST_PALACE_NP8_WALL_S}")
+w('historical_palace_note = "The Palace times of this run differ from these two in opposite directions; the cause is not established: see [palace_fixture].historical_note."')
 for tag, c in (("pinned_1_thread", t1), ("pinned_8_threads", t8), ("knob_only_1_thread", kn)):
     w(f"{tag}_wall_s_min_median_max = {fl(mmm(c['walls']), 2)}")
     w(f"{tag}_core_s_min_median_max = {fl(mmm(c['cores']), 2)}")
@@ -548,7 +583,10 @@ w("[not_done]")
 w("items = [")
 w('  "the Palace-GPU / Palace-CPU re-time on the Lambda A100 host of ../transmon_bench_gpu",')
 w('  "the 1.16M-DOF cell: no Palace oracle for the refined mesh is committed, so its modes cannot be classified",')
-w('  "any mesh other than the 133k fixture, any Palace solver setting other than the fixture config, and Palace with Eigenmode.Save = 0",')
+w('  "any mesh other than the 133k fixture, and any Palace setting other than the fixture config apart from the Eigenmode N, Target and Save values of the cells above (no other linear-solver, eigensolver or build option was varied)",')
+w('  "Palace without its error estimator: whether it can be switched off at this commit was not checked, so every Palace cell includes it ([palace_fixture].estimator_note)",')
+w('  "a tuned Palace build (libxsmm, host -march): the Palace times here are an upper bound for one",')
+w('  "finding why Palace\'s times differ from the 2026-07-14 session ([palace_fixture].historical_note)",')
 w('  "revising papers/transmon-benchmark main.tex (operator, #593); the affected lines and replacement numbers are in papers/transmon-benchmark/BRIEF.md",')
 w("]")
 w('follow_up = "#950: a timed geode configuration that returns the six physical modes at the 4.5 GHz shift with no oracle filter"')
