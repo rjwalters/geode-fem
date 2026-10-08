@@ -130,7 +130,14 @@ pub enum EigenError {
     /// returned, but was still unconverged when the checked Lanczos solve
     /// stopped, both at the classifier's request and at the automatic retry
     /// with a doubled request. Returning the set would silently skip that
-    /// mode, and it could be the true fundamental. Raised by
+    /// mode, and it could be the true fundamental.
+    ///
+    /// It is also raised when the classifier found **no** bound mode at all
+    /// but withheld such a pair (issue #913): the pair must then be resolved
+    /// (`ρ ≤ 10⁻⁴`) and carry a curl ratio above twice the contrast-scaled
+    /// curl floor, and `lowest_returned` is `NaN`. Returning the empty set
+    /// would report "no guided mode" for a solve that withheld one.
+    /// Raised by
     /// [`crate::analytic::waveguide::solve_dielectric_modes`],
     /// [`crate::analytic::waveguide::solve_dielectric_modes2`],
     /// [`crate::analytic::waveguide::solve_dielectric_modes2_pml`] and
@@ -138,12 +145,13 @@ pub enum EigenError {
     #[error(
         "{solver}: hole in the returned bound-mode set: Ritz pair β² = \
          {beta_sq_re:.6e}{beta_sq_im:+.3e}i (relative residual {residual:.3e} > \
-         {residual_tol:.0e}) locates a bound-like eigenvalue in the guided window above the \
-         lowest returned bound mode β² = {lowest_returned:.6e}, but was still withheld \
-         (unconverged) after {lanczos_steps} Lanczos steps, even after an automatic retry \
-         with a doubled Lanczos request; refusing to return a set that skips it. Remedy: \
-         request more modes where the classifier takes `n_modes` (the Lanczos budget and its \
-         extension cap scale with the request) or refine / perturb the mesh (issue #850)"
+         {residual_tol:.0e}) locates a bound-like eigenvalue in the guided window {}, but was \
+         still withheld (unconverged) after {lanczos_steps} Lanczos steps, even after an \
+         automatic retry with a doubled Lanczos request; refusing to return a set that skips \
+         it. Remedy: request more modes where the classifier takes `n_modes` (the Lanczos \
+         budget and its extension cap scale with the request) or refine / perturb the mesh \
+         (issues #850, #913)",
+        selection_hole_reference(*.lowest_returned)
     )]
     SelectionHole {
         /// The classifier that refused to return.
@@ -156,11 +164,23 @@ pub enum EigenError {
         residual: f64,
         /// The residual tolerance it missed.
         residual_tol: f64,
-        /// `Re β²` of the lowest bound mode the classifier would return.
+        /// `Re β²` of the lowest bound mode the classifier would return, or
+        /// `NaN` when it found no bound mode at all (issue #913).
         lowest_returned: f64,
         /// Lanczos steps run by the retry (first pass plus any extension).
         lanczos_steps: usize,
     },
+}
+
+/// The reference clause of the [`EigenError::SelectionHole`] message:
+/// the lowest returned bound mode, or the statement that there was none
+/// (`lowest_returned = NaN`, issue #913).
+fn selection_hole_reference(lowest_returned: f64) -> String {
+    if lowest_returned.is_nan() {
+        "while no bound mode was returned (the empty-set rule, issue #913)".to_string()
+    } else {
+        format!("above the lowest returned bound mode β² = {lowest_returned:.6e}")
+    }
 }
 
 /// Interface for "compute the lowest `n` eigenvalues of `K x = λ M x`".
