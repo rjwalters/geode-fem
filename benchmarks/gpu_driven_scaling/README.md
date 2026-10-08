@@ -415,7 +415,9 @@ The estimate and the weight at ω = 0.10 (the other two frequencies are within
   *proves* that 0.6 is at or above the stability bound. The weight is lowered
   only in that case and is exactly 0.6 otherwise.
 - A lowered weight is provably below `2/λ_max` when it is below `2/g`. That
-  holds in all 18 cells here: 0.40 against `2/g` = 0.50.
+  holds in all 18 cells here: 0.40 against `2/g` = 0.50. It does not hold for
+  the anisotropic spiral below (0.398 against `2/g` = 0.331), where the
+  weight rests on the Ritz value.
 - `1.1` is a heuristic allowance for what 30 Lanczos steps have not resolved,
   not a bound. Where `1.1 θ < g` and the weight is not below `2/g`, it is below
   `2/λ_max` only if `λ_max < 1.47 θ`. The measured shortfall of `θ` against the
@@ -426,17 +428,28 @@ The estimate and the weight at ω = 0.10 (the other two frequencies are within
   operator whose `λ_max` is above it, the weight stays at 0.6 and the solve
   behaves as it did before #945.
 
-**Outside this fixture nothing changed** (`[[smoother_weight_validation]]`).
-Every other AMS test keeps the weight at exactly 0.6 and prints the same
-iteration counts on `main` and on the fix build:
+**Outside this fixture one solve changed** (`[[smoother_weight_validation]]`).
+Every other AMS test but one keeps the weight at exactly 0.6 and prints the
+same iteration counts on `main` and on the fix build:
 
-| test | `λ_max` reference | `0.6 λ_max` | iterations, main and fix |
-|---|---|---|---|
-| spiral smoke, 14k edges, 1 / 5 / 10 / 20 GHz | 3.093 / 3.012 / 2.962 / 2.929 | 1.86 / 1.81 / 1.78 / 1.76 | 112 / 131 / 145 / 159 |
-| spiral benchmark, 53k edges, 1 GHz | 3.068 | 1.84 | 114 |
-| dispersive spirals (DS, Drude), rough spiral | same mesh as the smoke spiral | | 112 / 131 / 145 / 159, 229 / 202 / 232 / 235, 107 / 117 / 128 / 135 |
-| PEC cube n = 4, public driven path | 3.186 | 1.91 | passes on both |
-| transmon synthetic n = 6, eigen inner CG | 3.327 | 1.996 | Jacobi 33 481, AMS 6 264 (5.34×); three-space 3 719 |
+| test | `λ_max` reference | `0.6 λ_max` | iterations, main | iterations, fix |
+|---|---|---|---|---|
+| spiral smoke, 14k edges, 1 / 5 / 10 / 20 GHz | 3.093 / 3.012 / 2.962 / 2.929 | 1.86 / 1.81 / 1.78 / 1.76 | 112 / 131 / 145 / 159 | same |
+| spiral benchmark, 53k edges, 1 GHz | 3.068 | 1.84 | 114 | same |
+| dispersive spirals (DS, Drude), rough spiral | same mesh as the smoke spiral | | 112 / 131 / 145 / 159, 229 / 202 / 232 / 235, 107 / 117 / 128 / 135 | same |
+| **anisotropic spiral, 1 / 10 GHz** | **3.430** / 3.227 | **2.06** / 1.94 | **114** / 148 | **118** / 148 |
+| PEC cube n = 4, public driven path | 3.186 | 1.91 | passes | passes |
+| transmon synthetic n = 6, eigen inner CG | 3.327 | 1.996 | Jacobi 33 481, AMS 6 264 (5.34×); three-space 3 719 | same |
+
+- **The anisotropic spiral at 1 GHz is the exception, and it costs 4
+  iterations.** With a uniaxial substrate and an anisotropic μ on the
+  dielectric, `λ_max` is 3.430 (the 30-step and 600-step values agree to seven
+  digits), so 0.6 is above the bound and the weight becomes 0.398. `main`
+  converges there in 114 iterations all the same, and the fix build takes 118.
+  On the cube the old weight made the count grow with the mesh; here it did
+  not. A likely reason is that only a few modes are above the bound on this
+  mesh, but that was not examined. The lowered weight is not below the
+  rigorous `2/g` here (`g` = 6.04).
 
 - **This answers the #930 question about the spiral.** Its `λ_max` is 2.93 to
   3.09, so its bound is 0.65 to 0.68 and 0.6 was inside it. The structured

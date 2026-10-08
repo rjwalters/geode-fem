@@ -101,9 +101,13 @@
 //! Ritz value proves 0.6 unstable; see the "Smoother weight" section of
 //! [`crate::eigen::ams`] for the rule and for what it does and does not
 //! guarantee. On the spiral the weight is still exactly 0.6, so every
-//! iteration count in the table above is unchanged. [`DrivenAms::smoother`]
-//! returns the estimate and the weight; `GEODE_AMS_SMOOTH_WEIGHT`
-//! overrides the weight and `GEODE_AMS_SMOOTH_REPORT=1` prints it per build.
+//! iteration count in the table above is unchanged. (With an anisotropic `μ`
+//! on its dielectric the same mesh reaches `λ_max = 3.43` at 1 GHz, and
+//! the weight is lowered there: 118 iterations against 114.)
+//!
+//! [`DrivenAms::smoother`] returns the estimate and the weight;
+//! `GEODE_AMS_SMOOTH_WEIGHT` overrides the weight and
+//! `GEODE_AMS_SMOOTH_REPORT=1` prints it per build.
 //!
 //! # Known limitation: floating PEC conductors
 //!

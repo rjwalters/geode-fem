@@ -80,6 +80,7 @@ validation/<tree>_<name>.txt, .time
     spiral_debye      geode-cli dispersive_golden::spiral_debye_ams_matches_direct
     spiral_drude      geode-cli dispersive_golden::spiral_drude_ams_matches_direct
     rough             geode-cli roughness_golden::rough_ams_matches_direct
+    spiral_aniso      geode-cli anisotropic_golden::spiral_ams_with_anisotropic_materials_matches_direct
     driven_public     geode-core lib driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct
     transmon_5x       geode-core transmon_eigenmode::synthetic_ams_beats_jacobi_inner_iterations
     transmon_3space   geode-core transmon_eigenmode::synthetic_three_space_vs_gradient_only_inner_iterations
@@ -91,9 +92,17 @@ validation/<tree>_<name>.txt, .time
     ams_spd_3space    geode-core lib eigen::ams::tests::full_three_space_apply_is_spd
     ams_spd_amg       geode-core lib eigen::ams::tests::amg_three_space_ams_apply_is_spd
     transmon_real     geode-core transmon_eigenmode::real_transmon_ams_beats_jacobi
-  Only the spiral_golden tests pass the child's "# ams_smoother" lines through
-  on success, so spiral_ds, spiral_drude and rough have no smoother entries.
-  They use the spiral_smoke mesh.
+  Only the spiral_golden and anisotropic_golden tests pass the child's
+  "# ams_smoother" lines through on success, so spiral_ds, spiral_drude and
+  rough have no smoother entries. They use the spiral_smoke mesh.
+
+  spiral_aniso was added after the others and run by hand with the same
+  header: main at 61e8571e, fix at e07237e5 (11d1d60c plus this record and a
+  test-only change that prints the smoother lines; no solver change). It is
+  the one test outside the cube fixture where the weight is lowered: at 1 GHz
+  theta = 3.4297, so 0.6 is proven above the bound, the weight becomes 0.398,
+  and the solve takes 118 iterations where main takes 114. At 10 GHz the
+  weight stays 0.6 and the count stays 148.
 
   spiral_debye fails on both trees in the same way (issue #943): it is not a
   result of this change and was not altered.

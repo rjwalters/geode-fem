@@ -1384,6 +1384,7 @@ if sm_trees and val_dir.is_dir():
         "spiral_debye": "driven COCG + AMS V-cycle, Debye dielectric spiral; a known knife edge on macOS (#943)",
         "spiral_drude": "driven COCG + AMS V-cycle, Drude conductor spiral",
         "rough": "driven COCG + AMS V-cycle, rough-conductor spiral (#758)",
+        "spiral_aniso": "driven COCG + AMS V-cycle, smoke spiral with a uniaxial substrate and an anisotropic mu, 1 and 10 GHz",
         "driven_public": "driven COCG + AMS V-cycle on the public iterative path, PEC cube n = 4",
         "transmon_5x": "eigen inner CG + AMS V-cycle, gradient-only; asserts Jacobi >= 5x AMS iterations",
         "transmon_3space": "eigen inner CG + AMS V-cycle, gradient-only vs three-space",
@@ -1423,7 +1424,7 @@ if sm_trees and val_dir.is_dir():
             + (f" + {head['patch']}" if "patch" in head else ""),
             "finished": bool(done),
             "passed": bool(done) and done.group(1) == "ok",
-            "iterations": [int(x) for x in re.findall(r"GHz: iters \[(\d+)\]", txt)],
+            "iterations": [int(x) for x in re.findall(r"(?:GHz: iters|: iterations) \[(\d+)\]", txt)],
             "report": [l.strip() for l in body if re.search(r"inner-CG|inner-MINRES|outer PCG|^diag945 ", l)],
             "drift": drift.groups() if drift else None,
             "panic": panic.group(1).strip() if panic else None,
@@ -1475,7 +1476,7 @@ if sm_trees and val_dir.is_dir():
         if sm:
             print("# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).")
             print(f"fix_smooth_weight = [{', '.join(s_['weight'] for s_ in sm)}]")
-            print(f"fix_smooth_weight_source = [{', '.join(q(x) for x in sorted({s_['source'] for s_ in sm}))}]")
+            print(f"fix_smooth_weight_source = [{', '.join(q(s_['source']) for s_ in sm)}]")
             print(f"fix_ritz_theta_max = [{', '.join(s_['theta_max'] for s_ in sm)}]")
             print(f"fix_gershgorin_upper = [{', '.join(s_['gershgorin'] for s_ in sm)}]")
             print(f"fix_ritz_theta_reference = [{', '.join(s_['theta_ref'] for s_ in sm)}]  # up to 600 Lanczos steps")
@@ -1485,3 +1486,10 @@ if sm_trees and val_dir.is_dir():
                 f"fix_default_weight_times_reference_max = {max(0.6 * float(s_['theta_ref']) for s_ in sm):.4f}"
                 "  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value"
             )
+            lowered = [s_ for s_ in sm if s_["source"] == "estimate"]
+            if lowered:
+                print(
+                    f"fix_lowered_weight_below_rigorous_bound = "
+                    f"{str(all(float(s_['weight']) < 2 / float(s_['gershgorin']) for s_ in lowered)).lower()}"
+                    "  # lowered weight < 2 / gershgorin; false means its stability rests on the Ritz value"
+                )

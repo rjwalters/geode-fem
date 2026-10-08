@@ -5963,7 +5963,7 @@ unconditional_rule_smooth_weight = [0.440857, 0.452705, 0.460396, 0.465589]
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 # One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
 fix_smooth_weight = [0.600000, 0.600000, 0.600000, 0.600000]
-fix_smooth_weight_source = ["default"]
+fix_smooth_weight_source = ["default", "default", "default", "default"]
 fix_ritz_theta_max = [3.093148, 3.012197, 2.961877, 2.928841]
 fix_gershgorin_upper = [6.043984, 6.043984, 6.043983, 6.043981]
 fix_ritz_theta_reference = [3.093150, 3.012207, 2.962215, 2.928863]  # up to 600 Lanczos steps
@@ -6026,7 +6026,7 @@ unconditional_rule_iterations = [126, 163, 172, 189]  # COCG iterations per freq
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 # One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
 fix_smooth_weight = [0.600000, 0.600000]
-fix_smooth_weight_source = ["default"]
+fix_smooth_weight_source = ["default", "default"]
 fix_ritz_theta_max = [3.093148, 3.012197]
 fix_gershgorin_upper = [6.043984, 6.043984]
 fix_ritz_theta_reference = [3.093150, 3.012207]  # up to 600 Lanczos steps
@@ -6064,6 +6064,26 @@ unconditional_rule_iterations = [109, 124, 130, 139]  # COCG iterations per freq
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 
 [[smoother_weight_validation]]
+name = "spiral_aniso"
+exercises = "driven COCG + AMS V-cycle, smoke spiral with a uniaxial substrate and an anisotropic mu, 1 and 10 GHz"
+main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
+main_passed = true
+main_iterations = [114, 148]  # COCG iterations per frequency, as the test prints them
+fix_commit = "e07237e5b3ca791675bd2fc04f9efbfce516949d dirty=0"
+fix_passed = true
+fix_iterations = [118, 148]  # COCG iterations per frequency, as the test prints them
+output_identical = false  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
+# One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
+fix_smooth_weight = [0.397597, 0.600000]
+fix_smooth_weight_source = ["estimate", "default"]
+fix_ritz_theta_max = [3.429697, 3.226668]
+fix_gershgorin_upper = [6.043984, 6.043983]
+fix_ritz_theta_reference = [3.429697, 3.226668]  # up to 600 Lanczos steps
+fix_ritz_gap_rel_max = 0.000e+00
+fix_default_weight_times_reference_max = 2.0578  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+fix_lowered_weight_below_rigorous_bound = false  # lowered weight < 2 / gershgorin; false means its stability rests on the Ritz value
+
+[[smoother_weight_validation]]
 name = "driven_public"
 exercises = "driven COCG + AMS V-cycle on the public iterative path, PEC cube n = 4"
 main_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
@@ -6073,7 +6093,7 @@ fix_passed = true
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 # One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
 fix_smooth_weight = [0.600000, 0.600000]
-fix_smooth_weight_source = ["default"]
+fix_smooth_weight_source = ["default", "default"]
 fix_ritz_theta_max = [3.186487, 3.186487]
 fix_gershgorin_upper = [3.999984, 3.999984]
 fix_ritz_theta_reference = [3.186487, 3.186487]  # up to 600 Lanczos steps
@@ -6122,7 +6142,7 @@ unconditional_rule_smooth_weight = [0.409841, 0.409841]
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 # One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
 fix_smooth_weight = [0.600000, 0.600000]
-fix_smooth_weight_source = ["default"]
+fix_smooth_weight_source = ["default", "default"]
 fix_ritz_theta_max = [3.327235, 3.327235]
 fix_gershgorin_upper = [3.997230, 3.997230]
 fix_ritz_theta_reference = [3.327236, 3.327236]  # up to 600 Lanczos steps
@@ -6219,7 +6239,7 @@ fix_report = ["outer PCG iterations (tol 1e-8): direct = 2, SGS = 17"]
 output_identical = true  # main vs fix: every printed line, apart from timings, thread ids, temp-dir names and the smoother report
 # One entry per preconditioner build on the fix build (GEODE_AMS_SMOOTH_REPORT=600).
 fix_smooth_weight = [0.600000, 0.600000]
-fix_smooth_weight_source = ["default"]
+fix_smooth_weight_source = ["default", "default"]
 fix_ritz_theta_max = [1.798623, 1.798623]
 fix_gershgorin_upper = [1.800000, 1.800000]
 fix_ritz_theta_reference = [1.799989, 1.799989]  # up to 600 Lanczos steps
