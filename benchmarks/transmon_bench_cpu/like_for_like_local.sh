@@ -13,6 +13,8 @@
 #   ungauged_s4p5_n6    none        4.5     6      3      the timed configuration (audit)
 #   ungauged_s4p5_n12   none        4.5     12     1      option 2, same target
 #   ungauged_s4p5_n24   none        4.5     24     1      option 2, same target
+#   ungauged_s4p5_n29   none        4.5     29     1      option 2, same target
+#   ungauged_s4p5_n30   none        4.5     30     3      option 2, same target
 #   ungauged_s4p5_n48   none        4.5     48     1      option 2, same target
 #   ungauged_s20_n6     none        20      6      3      option 2, shift moved
 #   ungauged_s20_n7     none        20      7      1      option 2, shift moved
@@ -20,6 +22,12 @@
 #   portaware_s4p5_n6   port_aware  4.5     6      1      option 1, same target
 #   portaware_s4p5_n7   port_aware  4.5     7      1      option 1, same target
 #   portaware_s4p5_n8   port_aware  4.5     8      3      option 1, same target
+#
+# Every run is SINGLE-THREADED by default (GEODE_NUM_THREADS=1 caps faer's LU
+# pool, RAYON_NUM_THREADS=1 caps the rest). On a shared, oversubscribed host
+# the multi-threaded runs spend most of their time in the kernel and their wall
+# clock varies by tens of percent between identical runs; one thread gives a
+# repeatable number. It also means these are one-core times.
 #
 # Runs are sequential, never two at once. Each run writes into <out-dir>/raw:
 #   <cell>_run<i>.log   transmon_bench stdout (config banner, modes, phase times)
@@ -31,7 +39,8 @@
 #   e.g. like_for_like_local.sh benchmarks/transmon_bench_cpu/runs/2026-10-08_local_like_for_like
 # Env: GEODE_DIR (checkout, default: the repo this script is in),
 #      CARGO_TARGET_DIR (honoured by cargo as usual),
-#      GEODE_NUM_THREADS (default 8, as in the transmon_bench_gpu t8 cell),
+#      GEODE_NUM_THREADS and RAYON_NUM_THREADS (default 1 each; recorded in
+#      host.txt and every <cell>_run<i>.meta),
 #      RUN_TIMEOUT_S (per-run wall-clock cap, default 1500).
 # Then: summarize_like_for_like.py <out-dir> reference/fixtures/transmon_palace/results_p1/eig.csv
 set -euo pipefail
@@ -39,7 +48,8 @@ OUT=$1
 here=$(cd "$(dirname "$0")" && pwd)
 GEODE_DIR="${GEODE_DIR:-$(cd "$here/../.." && pwd)}"
 RUN_TIMEOUT_S="${RUN_TIMEOUT_S:-1500}"
-THREADS="${GEODE_NUM_THREADS:-8}"
+THREADS="${GEODE_NUM_THREADS:-1}"
+RAYON="${RAYON_NUM_THREADS:-1}"
 mkdir -p "$OUT/raw"
 OUT=$(cd "$OUT" && pwd)
 cd "$GEODE_DIR"
@@ -76,6 +86,7 @@ fi
   echo "rustc=$(rustc --version)"
   echo "geode_commit=$(git rev-parse HEAD) dirty=$(git status --porcelain --untracked-files=no | wc -l | xargs)"
   echo "geode_num_threads=$THREADS"
+  echo "rayon_num_threads=$RAYON"
   echo "fixture_sha256=$(shasum -a 256 crates/geode-core/tests/fixtures/transmon_smoke.msh | cut -d' ' -f1)"
 } >> "$OUT/host.txt"
 
@@ -86,6 +97,8 @@ cat > "$OUT/cells.tsv" <<'CELLS'
 ungauged_s4p5_n6	none	4.5	6	3
 ungauged_s4p5_n12	none	4.5	12	1
 ungauged_s4p5_n24	none	4.5	24	1
+ungauged_s4p5_n29	none	4.5	29	1
+ungauged_s4p5_n30	none	4.5	30	3
 ungauged_s4p5_n48	none	4.5	48	1
 ungauged_s20_n6	none	20	6	3
 ungauged_s20_n7	none	20	7	1
@@ -101,13 +114,13 @@ while IFS=$'\t' read -r cell gauge sigma nmodes runs; do
     {
       echo "cell=$cell"
       echo "run=$i"
-      echo "env=GEODE_INNER=direct GEODE_GAUGE=$gauge GEODE_SIGMA_GHZ=$sigma GEODE_NMODES=$nmodes GEODE_NUM_THREADS=$THREADS"
+      echo "env=GEODE_INNER=direct GEODE_GAUGE=$gauge GEODE_SIGMA_GHZ=$sigma GEODE_NMODES=$nmodes GEODE_NUM_THREADS=$THREADS RAYON_NUM_THREADS=$RAYON"
       echo "start_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       echo "loadavg_before=$(loadavg)"
     } > "$stem.meta"
     rc=0
     env GEODE_INNER=direct GEODE_GAUGE="$gauge" GEODE_SIGMA_GHZ="$sigma" \
-        GEODE_NMODES="$nmodes" GEODE_NUM_THREADS="$THREADS" \
+        GEODE_NMODES="$nmodes" GEODE_NUM_THREADS="$THREADS" RAYON_NUM_THREADS="$RAYON" \
         ${tmo:+$tmo "$RUN_TIMEOUT_S"} /usr/bin/time "$tflag" "$bin" \
         > "$stem.log" 2> "$stem.time" < /dev/null || rc=$?
     {
