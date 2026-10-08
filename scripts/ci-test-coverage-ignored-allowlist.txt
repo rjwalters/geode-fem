@@ -26,7 +26,8 @@
 #   geode-core/lib::driven::solve::tests::some_benchmark  # <reason>
 # No lib entry is needed today: #921 timed the four #[ignore]d geode-core
 # unit tests in release (0.7 s to 14.7 s each, local Apple M3 Ultra) and
-# arpack.yml runs all four by name.
+# arpack.yml runs all four by name. It also runs the #913 stress sweep
+# (analytic::waveguide::tests::empty_set_rule_stress_sweep_913, 15 to 63 s).
 
 # geode-core
 
