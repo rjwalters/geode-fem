@@ -46,8 +46,13 @@
 #   Consequence: the wall-clock comparisons in [notes] are comparisons of the
 #   same request, not of an equivalent answer, and do not by themselves
 #   support "geode is faster than Palace at the transmon eigenmode".
-#   NOT DONE: a same-box re-timing in which both solvers return the same six
-#   modes (needs the paid m6i host; operator-run). Paper impact: #763, #593.
+#   RE-MEASURED 2026-10-08 (#927, #763): results_like_for_like_m6i.toml is a
+#   same-box, same-session re-timing on an m6i.4xlarge with every run's mode
+#   list committed, one-thread runs pinned by the OS, and three geode requests
+#   that return Palace's six modes set beside Palace. It does not replace the
+#   numbers below (different session, region, geode commit and Palace build);
+#   each [matched.*] cell carries a remeasured_2026_10_08 note naming the new
+#   cell. No winner is declared there. Paper impact: #763, #593.
 # ---------------------------------------------------------------------------
 
 [meta]
@@ -101,6 +106,8 @@ n = 3   # each timing below is the mean of n=3 runs on the same box/session
   n_physical = "unverified (no committed mode log)"
   like_for_like = "unverified"   # vs the Palace cells of this table; see the OUTPUT-EQUIVALENCE CAVEAT in the header (#927)
   like_for_like_note = "No mode log of this m6i run (geode 3174015) is committed. The same request (direct, 6 modes, 4.5 GHz) returned 1 of Palace's 6 physical modes in every logged run on two other hosts at later commits (../transmon_bench_gpu/results.toml; results_like_for_like_local.toml [[cell]] ungauged_s4p5_n6). That is evidence, not a record of this run."
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] geode_s4p5_n6_t1 (same instance type, us-east-1, geode 61e8571e, mode log committed): the same request returns 1 of Palace's 6 physical modes (4 near-kernel, the 3.45 GHz port mode, 5.152825 GHz), so it is NOT like-for-like; wall 32.65 / 32.82 / 33.66 s (min / median / max, n = 3), 32.8 core-seconds, 3.16 GB."
+  serial_763 = "This row's '1 thread' was a request (GEODE_NUM_THREADS=1), not an OS limit, and before #762 that knob did not make faer's LU serial. No CPU time was recorded, so whether it ran one thread cannot be read back. The 2026-10-08 re-run enforces one CPU with taskset (Cpus_allowed_list = 0, 100% CPU): 32.82 s median, against 27.10 s at 8 pinned threads. This row's 28.7 s is 13% below that one-thread time and 6% above that 8-thread time, and it equals its own 8-thread row (29.0 s) to 1%, where the pinned rows differ by 17%. That is consistent with this row having run a multithreaded LU; it is not proof (different geode commit, region and session). Do not quote 28.7 s as a one-core time: results_like_for_like_m6i.toml [issue_763]."
 
   [matched.physical_target.geode_8threads]
   cores = 8
@@ -112,6 +119,7 @@ n = 3   # each timing below is the mean of n=3 runs on the same box/session
   n_physical = "unverified (no committed mode log)"
   like_for_like = "unverified"   # vs the Palace cells of this table; see the OUTPUT-EQUIVALENCE CAVEAT in the header (#927)
   like_for_like_note = "No mode log of this m6i run (geode 3174015) is committed. The same request (direct, 6 modes, 4.5 GHz) returned 1 of Palace's 6 physical modes in every logged run on two other hosts at later commits (../transmon_bench_gpu/results.toml; results_like_for_like_local.toml [[cell]] ungauged_s4p5_n6). That is evidence, not a record of this run."
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] geode_s4p5_n6_t8 (8 threads pinned to one hardware thread on each of the 8 cores): returns 1 of Palace's 6 physical modes, NOT like-for-like; wall 26.90 / 27.10 / 27.17 s (n = 3), 38.6 core-seconds (142% CPU), 3.24 GB."
 
   [matched.physical_target.palace_np1]
   ranks = 1
@@ -120,6 +128,7 @@ n = 3   # each timing below is the mean of n=3 runs on the same box/session
   peak_rss_gb_per_rank = 0.5
   modes_returned = "unverified for this session (no committed log). The committed Palace run of the identical config returns [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899] GHz (reference/fixtures/transmon_palace/results_p1/eig.csv), reproduced to ~1e-12 by all 12 Palace runs of ../transmon_bench_gpu."
   n_physical = "unverified for this session; 6 of 6 in every committed Palace run of this config"
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] palace_s4p5_n6_np1 (Palace fba6a5b built from reference/palace/docker/Dockerfile, pinned to one CPU): 6 of 6, eig.csv committed; wall 186.65 / 186.84 / 188.00 s (n = 3) with the fixture's Save = 6, of which Palace's own timer gives 74 s to ParaView output; 113.0 s with Save = 0 (n = 1). The Palace build differs from this row's (docker recipe vs a source build whose flags were not recorded), so the two times are not a regression measurement. This row's time is lower than the re-measured one while the 8-rank row's is higher; that difference is unexplained and was not investigated, and the build difference is a possible cause, not an established one."
 
   [matched.physical_target.palace_np8]
   ranks = 8
@@ -128,6 +137,7 @@ n = 3   # each timing below is the mean of n=3 runs on the same box/session
   peak_rss_gb_per_rank = 0.5
   modes_returned = "unverified for this session (no committed log). The committed Palace run of the identical config returns [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899] GHz (reference/fixtures/transmon_palace/results_p1/eig.csv), reproduced to ~1e-12 by all 12 Palace runs of ../transmon_bench_gpu."
   n_physical = "unverified for this session; 6 of 6 in every committed Palace run of this config"
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] palace_s4p5_n6_np8 (8 ranks, one per physical core, -bind-to core): 6 of 6, eig.csv committed; wall 33.13 / 33.35 / 33.55 s (n = 3), 266.7 core-seconds, 0.54 GB largest rank (3.8 GB over all ranks by Palace's own estimate). With Save = 0 (no ParaView output, [[cell]] palace_s4p5_n6_np8_nosave): 23.58 / 23.64 / 23.83 s, 188.9 core-seconds. The Palace build differs from this row's (docker recipe vs a source build whose flags were not recorded), so the two times are not a regression measurement. This row's time is higher than the re-measured one while the 1-rank row's is lower; that difference is unexplained and was not investigated, and the build difference is a possible cause, not an established one."
 
 # ---- OFF-TARGET: 12 modes @ 20 GHz (broadband / high-freq window). ----------
 # Same solvers, target moved far off the physical operating point. Palace's
@@ -148,6 +158,7 @@ n = 3
   n_physical = "unverified (no committed mode log)"
   like_for_like = "unverified"   # see the OUTPUT-EQUIVALENCE CAVEAT in the header (#927)
   like_for_like_note = "No mode log of this m6i run is committed, and no Palace eigenvalue file for N = 12, Target = 20 GHz is committed either, so neither side's mode list can be checked. A dev-machine run of the same geode request at a later commit (results_like_for_like_local.toml [[cell]] ungauged_s20_n12) returned 5 near-kernel modes, the 3.45 GHz port mode and the six physical modes from 5.15 to 26.09 GHz, i.e. six of its twelve are non-physical. Which twelve Palace returned is not recorded. That is evidence, not a record of this run."
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] geode_s20_n12_t1 and [off_target_request]: geode returns 5 near-kernel values, the 3.45 GHz port mode and the six physical modes (5.15-26.09 GHz); Palace, asked for the same N and Target, returns the twelve modes ABOVE 20 GHz (20.70-51.54 GHz), because Palace's Target is a lower bound. Two modes are common to both lists. The request is NOT like-for-like, so this row and the Palace rows of this table do not measure target robustness of one answer. Wall 33.21 / 33.92 / 33.92 s (n = 3), one pinned thread."
 
   [matched.off_target.geode_8threads]
   cores = 8
@@ -158,6 +169,7 @@ n = 3
   n_physical = "unverified (no committed mode log)"
   like_for_like = "unverified"   # see the OUTPUT-EQUIVALENCE CAVEAT in the header (#927)
   like_for_like_note = "No mode log of this m6i run is committed, and no Palace eigenvalue file for N = 12, Target = 20 GHz is committed either, so neither side's mode list can be checked. A dev-machine run of the same geode request at a later commit (results_like_for_like_local.toml [[cell]] ungauged_s20_n12) returned 5 near-kernel modes, the 3.45 GHz port mode and the six physical modes from 5.15 to 26.09 GHz, i.e. six of its twelve are non-physical. Which twelve Palace returned is not recorded. That is evidence, not a record of this run."
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] geode_s20_n12_t8 and [off_target_request]: same mode list as the one-thread cell (six physical, six non-physical), two modes in common with Palace's twelve; NOT like-for-like. Wall 27.50 / 27.75 / 28.00 s (n = 3), 8 pinned threads."
 
   [matched.off_target.palace_np1]
   ranks = 1
@@ -165,6 +177,7 @@ n = 3
   wall_s = 248.0
   modes_returned = "unverified (no committed log or eig.csv for N = 12, Target = 20 GHz)"
   n_physical = "unverified (no committed log)"
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] palace_s20_n12_np1: twelve modes from 20.70 to 51.54 GHz, 2 of the 6 fixture modes; wall 285.87 s (n = 1), Save = 6."
 
   [matched.off_target.palace_np8]
   ranks = 8
@@ -172,6 +185,7 @@ n = 3
   wall_s = 64.7
   modes_returned = "unverified (no committed log or eig.csv for N = 12, Target = 20 GHz)"
   n_physical = "unverified (no committed log)"
+  remeasured_2026_10_08 = "results_like_for_like_m6i.toml [[cell]] palace_s20_n12_np8: twelve modes from 20.70 to 51.54 GHz, 2 of the 6 fixture modes; wall 48.96 s (n = 1), Save = 6."
 
 # ---- LARGE-SCALE CROSSOVER: ~1.16M interior DOF (uniformly refined). --------
 # gmsh -refine ×8 of the fixture (physics-neutral uniform refinement of the
@@ -411,13 +425,50 @@ memory_speed_crossover = "geode direct factorization has the lower wall clock fo
 # run is not known to have returned the six modes Palace returns; where a mode
 # log exists for this request, geode returned one of them. Do not read the
 # "~12x fewer core-seconds" as the cost of an equivalent answer.
+# #763: the 28.7 s is not established as a one-core time either, and the
+# 2026-10-08 re-measurement reproduces neither the 12x nor the wall-clock win.
+# See serial_lu_763 below.
 per_core_efficiency = "At the physical target, geode serial (1 core, 28.7 s) has a lower absolute wall clock than Palace on 8 ranks (44.5 s) for the same request, at ~12× fewer core-seconds. CAVEAT (#927): this is NOT established for an equivalent output — the geode run's modes are unverified, and in every logged run of this request geode returned 1 of the 6 physical modes Palace returns (see output_equivalence_927). It is a per-core-efficiency + direct-vs-iterative reading of one request, NOT a parallelization claim — geode 8-thread gives ~no speedup at the physical target (#518)."
 
 # --- Architecture trade-off (the honest framing, NOT a winner declaration) ---
 architecture = "geode-fem: DIRECT sparse-LU shift-invert Lanczos — high per-core throughput, target-insensitive, single-process memory that grows with factorization fill-in (3.1 GB @ 133k DOF → OOM @ ~1.16M DOF). Palace: DISTRIBUTED MPI Krylov + AMS iterative — scales across ranks with low per-rank memory (0.5 GB @ 133k → 4.1 GB/rank @ 1.16M), target-sensitive, but completes at large scale where the direct path OOMs. Neither is uniformly better: geode has the lower same-request wall clock small–medium (output equivalence unverified, #927); Palace wins at scale on memory."
 
 # --- Output equivalence (issue #927) -----------------------------------------
-output_equivalence_927 = "The [matched.*] tables match the REQUEST (mesh, mode count, target), not the RETURNED MODES. Palace applies a divergence-free projection and its committed run returns six physical modes (5.15-26.08 GHz). geode's ungauged shift-invert returns the six eigenvalues nearest the shift; in every logged run of '6 modes, 4.5 GHz' (Lambda A100: ../transmon_bench_gpu/results.toml; dev machine: results_like_for_like_local.toml) those are 4 gradient near-kernel modes, the spurious 3.45 GHz port mode and one physical mode. The m6i geode runs of this file have no committed mode log, so their cells say 'unverified (no committed mode log)'; the committed 1.16M log is audited in [mode_audit_1p16M] and is not like-for-like. What geode must be asked for to return Palace's six modes on the 133k fixture, and the cost of that relative to the 6-mode request ON THE SAME DEV MACHINE, is recorded in results_like_for_like_local.toml (geode only; its times are not comparable with any cell of this file). NOT DONE: the same-box re-timing of geode against Palace with both returning the same six modes (paid m6i host, operator-run). Until it is, no number in this file supports 'geode is faster than Palace at the transmon eigenmode'. Paper impact: #763 (efficiency claim), #593 (Zenodo publish)."
+output_equivalence_927 = "The [matched.*] tables match the REQUEST (mesh, mode count, target), not the RETURNED MODES. Palace applies a divergence-free projection and its committed run returns six physical modes (5.15-26.08 GHz). geode's ungauged shift-invert returns the six eigenvalues nearest the shift; in every logged run of '6 modes, 4.5 GHz' (Lambda A100: ../transmon_bench_gpu/results.toml; dev machine: results_like_for_like_local.toml) those are 4 gradient near-kernel modes, the spurious 3.45 GHz port mode and one physical mode. The m6i geode runs of this file have no committed mode log, so their cells say 'unverified (no committed mode log)'; the committed 1.16M log is audited in [mode_audit_1p16M] and is not like-for-like. What geode must be asked for to return Palace's six modes on the 133k fixture, and the cost of that relative to the 6-mode request ON THE SAME DEV MACHINE, is recorded in results_like_for_like_local.toml (geode only; its times are not comparable with any cell of this file). DONE 2026-10-08: the same-box re-timing with every mode list committed is results_like_for_like_m6i.toml (see remeasured_like_for_like_m6i); it confirms 1 of 6 for this request on the m6i and reports three six-mode geode requests beside Palace without declaring a winner. No number in THIS file supports 'geode is faster than Palace at the transmon eigenmode'. Paper impact: #763 (efficiency claim), #593 (Zenodo publish)."
+
+# --- Same-box re-measurement (issues #927, #763), 2026-10-08 -----------------
+# results_like_for_like_m6i.toml: one m6i.4xlarge (us-east-1), one session,
+# geode 61e8571e and Palace fba6a5b, every run's mode list committed under
+# runs/2026-10-08_m6i_like_for_like/. Medians of n = 3 unless stated.
+#
+#   request                           width   physical      wall (s)   core-s
+#   geode 6 @ 4.5 GHz (historical)    1 thr   1 of 6          32.8       32.8
+#   geode 6 @ 4.5 GHz (historical)    8 thr   1 of 6          27.1       38.6
+#   geode 30 @ 4.5 GHz (more modes)   1 thr   6 of 6 (+24)    34.5       34.4
+#   geode 30 @ 4.5 GHz (more modes)   8 thr   6 of 6 (+24)    29.1       40.7
+#   geode 6 @ 20 GHz (shift)          1 thr   6 of 6          33.2       33.2
+#   geode 6 @ 20 GHz (shift)          8 thr   6 of 6          27.3       38.9
+#   geode 8 @ 4.5 GHz, port-aware     1 thr   6 of 6 (+2)     67.3       67.2
+#   geode 8 @ 4.5 GHz, port-aware     8 thr   6 of 6 (+2)     51.1       91.7
+#   Palace 6 @ 4.5 GHz, Save = 6      1 rank  6 of 6         186.8      186.8
+#   Palace 6 @ 4.5 GHz, Save = 6      8 rank  6 of 6          33.4      266.7
+#   Palace 6 @ 4.5 GHz, Save = 0      1 rank  6 of 6         113.0      113.0   (n = 1)
+#   Palace 6 @ 4.5 GHz, Save = 0      8 rank  6 of 6          23.6      188.9
+#
+# Read with these, all recorded in that file: "30 modes" was found by trial
+# against the Palace oracle; the 20 GHz shift was chosen knowing where the
+# modes are; port-aware is the only request not tuned against the oracle and
+# it still returns two non-physical modes (#950). Palace's Save = 6 rows
+# include ParaView output that geode does not write; its Save = 0 rows still
+# include its error estimator (5.0 of 23.6 s at 8 ranks, 40.2 of 112.9 s at
+# 1 rank), which geode does not run. Palace is untuned (no libxsmm,
+# -march=x86-64-v2): its times are an upper bound for a tuned build. Its
+# times differ from the 2026-07-14 cells above in both directions and that
+# was not investigated. No winner is declared.
+remeasured_like_for_like_m6i = "Same-box re-timing of 2026-10-08 (results_like_for_like_m6i.toml; raw logs under runs/2026-10-08_m6i_like_for_like/). The historical request (6 modes, 4.5 GHz) returns 1 of Palace's 6 modes on the m6i too. Three geode requests return all six, each agreeing with Palace to 0.029%: 30 modes at 4.5 GHz (found by trial against the oracle), 6 modes at 20 GHz (shift chosen knowing the spectrum) and 8 modes at 4.5 GHz with the port-aware projection (not oracle-tuned; returns two non-physical modes, #950). Median wall, 1 thread / 8 threads: 34.5 / 29.1 s, 33.2 / 27.3 s and 67.3 / 51.1 s. Palace on its fixture request: 186.8 s at 1 rank and 33.4 s at 8 ranks with Save = 6, 113.0 s (n = 1) and 23.6 s with Save = 0. Core-seconds at 8-wide: geode 38.9 to 91.7, Palace 266.7 (Save = 6) or 188.9 (Save = 0); MPICH ranks busy-wait, so Palace's core-seconds are close to 8 x wall by construction. On this mesh Palace at 8 ranks without field output has the lower wall clock than every geode cell, and geode uses fewer core-seconds than Palace in every cell. Both statements carry these caveats. Palace was built from the vendored recipe (reference/palace/docker/Dockerfile) without libxsmm and with -march=x86-64-v2, so every Palace time here is an upper bound for a tuned build, and any reading that has geode ahead (core-seconds, one-wide wall clock) is about this Palace build. Save = 0 removes field output only: by Palace's own phase timers those runs still spend 5.0 s of 23.6 s at 8 ranks and 40.2 s of 112.9 s at 1 rank in its error estimator, which geode has no counterpart for (whether it can be switched off at this Palace commit was not checked). Palace's times also differ from this file's 2026-07-14 cells in opposite directions (1 rank 186.8 s against 130.9 s, 8 ranks 33.4 s against 44.5 s); that is unexplained and was not investigated. Neither statement extends beyond this mesh, host and these builds, and no winner is declared."
+
+# --- Serial LU (issue #763) --------------------------------------------------
+serial_lu_763 = "The historical '1 thread' rows (28.7 s here, 36.8 s off-target) set GEODE_NUM_THREADS=1 with no pinning and no recorded CPU time, at a commit where that knob did not make faer's LU serial. The 2026-10-08 re-run pins one CPU with taskset and records Cpus_allowed_list and CPU time per run: 32.82 s median at one thread, 27.10 s at eight. The historical 28.7 s sits 13% below the enforced one-thread time and 6% above the eight-thread time, and matches its own 8-thread row to 1%; that is consistent with a multithreaded LU in the historical '1 thread' row and is not proof (different commit, region, session). At the current commit GEODE_NUM_THREADS=1 alone, unpinned, measures 102% CPU and 32.69 s, so the knob is serial today. Consequences: 28.7 s must not be quoted as a one-core time; the '~12x fewer core-seconds' (28.7 vs 356.0) is not reproduced: measured, geode one thread 32.8 core-s against Palace 8 ranks 266.7 core-s is 8.1x for a geode run that returns 1 of the 6 modes, 7.7x and 8.0x for the two oracle-tuned six-mode requests, 4.0x for port-aware, and 5.8x / 5.5x / 5.7x / 2.8x against Palace with Save = 0. Those ratios carry the caveats of remeasured_like_for_like_m6i: Palace's MPICH ranks busy-wait, so its core-seconds are close to 8 x wall by construction, and Palace is untuned (no libxsmm, -march=x86-64-v2), an upper bound for a tuned build. 'One core beats eight ranks in wall clock' is not reproduced either: 32.8 s against 33.4 s (Save = 6) is a tie, and against 23.6 s (Save = 0) Palace is ahead. See results_like_for_like_m6i.toml [issue_763]."
 
 # --- Correctness pointer (NOT measured here) ---------------------------------
 eigenvalue_agreement = "Correctness is NOT measured here — see benchmarks/transmon_eigen/results.toml: every geode-fem physical mode agrees with Palace to ≤0.032% on this identical mesh (≤1% bar met with 25× margin). That gate uses a 20 GHz shift and 12 modes, not the timed request of this file (#927)."
