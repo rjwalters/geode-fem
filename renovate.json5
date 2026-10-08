@@ -1,0 +1,125 @@
+// Renovate configuration for rjwalters/geode-fem
+// Docs: https://docs.renovatebot.com/configuration-options/
+// Based on the draft in #672 by @turian, trimmed for this repo's Rust
+// workspace and Loom review flow.
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
+  // No `:dependencyDashboard`: that preset opens a bot-owned issue with no
+  // `loom:` label, which Curator's unlabeled-issue intake would pick up and
+  // try to enrich as a normal issue.
+  "extends": [
+    "config:recommended",
+    "security:openssf-scorecard"
+  ],
+
+  // Override the Mend-hosted "silent" default (applied when the app is
+  // installed on "All repositories"). "full" lets Renovate open branches and PRs.
+  "mode": "full",
+
+  // --- Supply chain security ---
+
+  // 14-day quarantine: do not propose updates until 14 days after release,
+  // so registries can catch and yank malicious packages first.
+  // Ref: https://docs.renovatebot.com/key-concepts/minimum-release-age/
+  "minimumReleaseAge": "14 days",
+
+  // Flag known vulnerabilities from the OSV database.
+  "osvVulnerabilityAlerts": true,
+
+  // --- Merge policy ---
+
+  // Never auto-merge. Every update goes through Judge review.
+  "automerge": false,
+
+  // Ready-for-review PRs routed straight into Judge's queue. A draft would
+  // signal "not ready", and an unlabeled PR would sit in the unlabeled-PR
+  // fallback queue, which can never clear it.
+  "draftPR": false,
+  "labels": ["dependencies", "loom:review-requested"],
+
+  // --- Schedule ---
+
+  // Weekly on Monday mornings (UTC). Security PRs bypass both this schedule
+  // and minimumReleaseAge (Renovate built-in behaviour).
+  "schedule": ["before 10am on monday"],
+  "timezone": "UTC",
+
+  // Refresh Cargo.lock even when no direct dependency range changes; this is
+  // how transitive dependencies stay current. Same Monday schedule.
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 10am on monday"]
+  },
+
+  // --- PR behaviour ---
+
+  // Keep the review queue manageable.
+  "prConcurrentLimit": 5,
+
+  // Release notes and changelogs in the PR body, for review.
+  "fetchReleaseNotes": true,
+
+  // --- Package grouping ---
+
+  "packageRules": [
+    // One PR for all non-major Rust updates.
+    {
+      "groupName": "rust minor/patch dependencies",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+
+    // `faer` comes from our fork `faier`, pinned to a git commit (#867 /
+    // #907). Moving it is deliberate work with its own issue, not a bot bump.
+    {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["faier", "faer"],
+      "enabled": false
+    },
+
+    // One PR for GitHub Actions digest/minor/patch updates.
+    {
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"]
+    },
+
+    // GitHub Actions major updates get individual PRs.
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"]
+    }
+  ],
+
+  // --- Ignored paths ---
+
+  // A repo-level `ignorePaths` REPLACES the list `config:recommended`
+  // contributes (`ignorePaths` is not mergeable), so that list is repeated
+  // here, plus this repo's own additions:
+  // - `reference/**` and `benchmarks/**`: pinned toolchains and Dockerfiles
+  //   behind committed benchmark evidence (e.g. Palace at a full-SHA
+  //   PALACE_REF). Bumping them would break reproducibility of published runs.
+  // - `.claude/**`, `.loom/**`, `.anvil/**`: installer-managed tool payloads.
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+    "reference/**",
+    "benchmarks/**",
+    ".claude/**",
+    ".loom/**",
+    ".anvil/**"
+  ],
+
+  // --- Vulnerability alerts ---
+
+  "vulnerabilityAlerts": {
+    "enabled": true
+  }
+}
