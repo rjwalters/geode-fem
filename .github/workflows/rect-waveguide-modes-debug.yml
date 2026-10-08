@@ -4,11 +4,14 @@ name: rect-waveguide-modes (debug profile)
 # waveguide modal eigensolver tests.
 #
 # Why this exists separately from the (release-only) `arpack.yml`:
-# faer 0.24's `gevd::qz_real` performs subtractions that legitimately
-# wrap during the QZ iteration. Under the default `cargo test` (debug
-# profile, overflow checks on) those wraps panic with
-# `attempt to subtract with overflow`, even though the release-build
-# math is correct. Originally (PR #246) the workspace shipped a
+# upstream faer 0.24's `gevd::qz_real` performed subtractions that
+# legitimately wrapped during the QZ iteration. Under the default
+# `cargo test` (debug profile, overflow checks on) those wraps panicked
+# with `attempt to subtract with overflow`, even though the release-build
+# math was correct. The `faier` fork (PR #920, faier#1) fixes the wrap, and
+# `faer_qz_debug_overflow_guard` (below) pins that fix with overflow checks
+# on; before #922 CI only ran that guard with `--release`, where overflow
+# checks are off, so nothing enforced it. Originally (PR #246) the workspace shipped a
 # `.cargo/config.toml` with `rustflags = ["-C", "overflow-checks=off"]`
 # to mask the panic; PR #249's "proper fix" moved
 # `solve_rect_waveguide_modes` and the eigenvector sibling off the
@@ -36,6 +39,7 @@ on:
       - 'crates/geode-core/src/nedelec_assembly.rs'
       - 'crates/geode-core/src/mesh/**'
       - 'crates/geode-core/tests/rect_waveguide_modes.rs'
+      - 'crates/geode-core/tests/faer_qz_debug_overflow_guard.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rect-waveguide-modes-debug.yml'
@@ -48,6 +52,7 @@ on:
       - 'crates/geode-core/src/nedelec_assembly.rs'
       - 'crates/geode-core/src/mesh/**'
       - 'crates/geode-core/tests/rect_waveguide_modes.rs'
+      - 'crates/geode-core/tests/faer_qz_debug_overflow_guard.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rect-waveguide-modes-debug.yml'
@@ -105,4 +110,17 @@ jobs:
         run: |
           cargo test \
             -p geode-core --test rect_waveguide_modes \
+            -- --nocapture
+
+      # Issue #922: the faer `qz_real` overflow guard, in the debug profile
+      # (overflow checks on). `integration-tests.yml` runs this file only
+      # with `--release`, where overflow checks are off, so that run cannot
+      # catch a regression of the faier#1 fix. This step takes milliseconds
+      # after the build. `sphere_pec_eigenmode` stays release-only: its dense
+      # 3300-DOF eigensolve did not finish within 600 s in a debug build
+      # (measured for #922 on a loaded host), far over the 2 min budget.
+      - name: cargo test -p geode-core --test faer_qz_debug_overflow_guard (debug)
+        run: |
+          cargo test \
+            -p geode-core --test faer_qz_debug_overflow_guard \
             -- --nocapture

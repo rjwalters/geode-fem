@@ -51,9 +51,9 @@
 //!     --no-default-features --features flex --release
 //! ```
 //!
-//! `--release` matters: faer 0.24's real QZ path trips a debug-assertion in
-//! debug builds (same reason the `cube_convergence` regression test is
-//! `#[ignore]`d outside release).
+//! `--release` matters for speed: the dense eigensolves are far too slow in
+//! a debug build. (The old faer 0.24 real-QZ debug-assertion panic is fixed
+//! in the `faier` fork, #920.)
 //!
 //! This file is additive scratch. It touches no production precision-threading
 //! site; it only *calls* the existing generic assembly/eigensolve entry points.

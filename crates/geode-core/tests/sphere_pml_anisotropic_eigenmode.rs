@@ -26,6 +26,13 @@
 //!
 //! # Running
 //!
+//! `anisotropic_pml_sigma_zero_matches_scalar` (check 1) is a default-tier
+//! test: it only compares assembled matrices and passes in about 25 s in
+//! a debug build. `anisotropic_pml_beats_scalar_on_tm11` is `#[ignore]`d
+//! because its dense complex eigensolve of the ~3300-DOF pencil did not
+//! finish within a 600 s cap in a debug build (#922); it does not panic.
+//! Run it in release:
+//!
 //! ```sh
 //! cargo test -p geode-core --release \
 //!     --test sphere_pml_anisotropic_eigenmode -- --ignored
@@ -116,7 +123,6 @@ fn anisotropic_pml_pml_shell_is_lossy() {
 }
 
 #[test]
-#[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
 fn anisotropic_pml_sigma_zero_matches_scalar() {
     // Bit-identical (to readback precision) reduction-to-scalar
     // check: with σ₀ = 0 and identical ε_r, both pipelines must
@@ -203,7 +209,7 @@ fn anisotropic_pml_sigma_zero_matches_scalar() {
 }
 
 #[test]
-#[ignore = "faer 0.24 gevd panics under debug-assertions; run with --release"]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-core --release --test sphere_pml_anisotropic_eigenmode -- --ignored"]
 fn anisotropic_pml_beats_scalar_on_tm11() {
     // The load-bearing acceptance test: anisotropic UPML must
     // produce a lower relative error on the lowest TM_1,1 mode than

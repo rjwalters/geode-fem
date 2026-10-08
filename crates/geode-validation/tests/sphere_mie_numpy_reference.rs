@@ -60,8 +60,9 @@
 //! `cargo test -p geode-validation` — the ~214-DOF complex GEVD is
 //! well under a second. The **full-mesh** test
 //! (`sphere_mie_spectrum_agrees_with_numpy`, 774-node fixture) is
-//! `#[ignore]`-gated: faer 0.24's complex GEVD panics under
-//! debug-assertions and is multi-minute even in release on the
+//! `#[ignore]`-gated: the dense complex eigensolve did not
+//! finish within a 600 s cap in a debug build (#922; it does not panic
+//! since the `faier` fix, #920) and is multi-minute even in release on the
 //! ~3300-DOF interior pencil (measured ~3 min on an M-series laptop;
 //! the historical 60+ min figure from the Phase H.1 docs applies to
 //! older hardware). Run with:
@@ -718,7 +719,7 @@ fn sphere_mie_full_fixture_loads_with_expected_schema() {
 }
 
 #[test]
-#[ignore = "faer 0.24 complex GEVD panics under debug-assertions and is multi-minute in release on the ~3300-DOF pencil; run with `cargo test -p geode-validation --release --test sphere_mie_numpy_reference -- --ignored`"]
+#[ignore = "slow in debug: dense complex eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build, not a panic since the faier fix, #920); runs in the release --ignored tier: cargo test -p geode-validation --release --test sphere_mie_numpy_reference -- --ignored"]
 fn sphere_mie_spectrum_agrees_with_numpy() {
     let fixture = Fixture::load_from(&full_fixture_path(), FixtureFormat::Json)
         .expect("sphere_mie baseline.json should load");
