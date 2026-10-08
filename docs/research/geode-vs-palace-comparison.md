@@ -63,47 +63,128 @@ All CPU numbers below are `/usr/bin/time` wall clock over the full pipeline (mes
 assembly + solve + output) and peak resident-set memory. GEODE uses a direct faer
 sparse-LU shift-invert Lanczos; Palace uses distributed MPI Krylov + AMS (iterative).
 
-### 2a. Small–medium (133 108 interior DOF), matched workload
+### 2a. Small–medium (133 108 interior DOF)
+
+Two measurements exist. The second one supersedes the first for anything that is
+quoted.
+
+#### 2a-i. The 2026-10-08 same-box re-timing (the numbers to use)
+
+Source: [`benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml`](../../benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml),
+generated from the raw logs under
+[`runs/2026-10-08_m6i_like_for_like/`](../../benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_like_for_like/README.md)
+(issues [#927](https://github.com/rjwalters/geode-fem/issues/927) and
+[#763](https://github.com/rjwalters/geode-fem/issues/763)). One m6i.4xlarge (8 cores /
+16 vCPU, us-east-1), otherwise idle, one session; GEODE `61e8571e`, Palace `fba6a5b`
+built from [`reference/palace/docker/Dockerfile`](../../reference/palace/docker/Dockerfile).
+Every run's mode list is committed. "1 thread" is one CPU enforced with `taskset`;
+"8" is one hardware thread on each of the eight cores. Wall is min / median / max over
+three runs unless marked; core-seconds are user + sys of the whole process tree (median).
+
+| request | solver, width | of Palace's 6 modes | other modes returned | wall (s) | core-s | peak RSS |
+|---|---|---:|---:|---:|---:|---:|
+| 6 modes @ 4.5 GHz (the historical request) | GEODE, 1 thread | **1** | 5 | 32.6 / 32.8 / 33.7 | 32.8 | 3.16 GB |
+| | GEODE, 8 threads | **1** | 5 | 26.9 / 27.1 / 27.2 | 38.6 | 3.24 GB |
+| 30 modes @ 4.5 GHz ("more modes") | GEODE, 1 thread | 6 | 24 | 34.0 / 34.5 / 35.2 | 34.4 | 3.16 GB |
+| | GEODE, 8 threads | 6 | 24 | 28.5 / 29.1 / 29.3 | 40.7 | 3.24 GB |
+| 6 modes @ 20 GHz ("shift") | GEODE, 1 thread | 6 | 0 | 32.6 / 33.2 / 33.6 | 33.2 | 3.16 GB |
+| | GEODE, 8 threads | 6 | 0 | 26.6 / 27.3 / 28.1 | 38.9 | 3.23 GB |
+| 8 modes @ 4.5 GHz, port-aware projection | GEODE, 1 thread | 6 | 2 | 66.9 / 67.3 / 67.7 | 67.2 | 3.23 GB |
+| | GEODE, 8 threads | 6 | 2 | 50.1 / 51.1 / 51.2 | 91.7 | 3.29 GB |
+| 6 modes @ 4.5 GHz, fixture config (`Save = 6`) | Palace, 1 rank | 6 | 0 | 186.7 / 186.8 / 188.0 | 186.8 | 2.20 GB |
+| | Palace, 8 ranks | 6 | 0 | 33.1 / 33.4 / 33.5 | 266.7 | 0.54 GB/rank (3.8 GB all ranks) |
+| same, no field output (`Save = 0`) | Palace, 1 rank | 6 | 0 | 113.0 (n = 1) | 113.0 | 2.24 GB |
+| | Palace, 8 ranks | 6 | 0 | 23.6 / 23.6 / 23.8 | 188.9 | 0.54 GB/rank (3.8 GB all ranks) |
+
+The three GEODE requests that return Palace's six modes agree with Palace to 0.029% on
+every mode. They are reported side by side; **none is declared the one to compare
+against Palace.** Each has a caveat:
+
+- **More modes (30 @ 4.5 GHz).** The 30 was found by trial against the Palace
+  eigenvalues. It is a property of this mesh, Krylov size and start vector, not a
+  recipe, and the caller still needs the oracle to pick the six out of the thirty.
+- **Shift (6 @ 20 GHz).** A different request from Palace's, with the shift chosen
+  knowing where the modes are. It returns exactly the six.
+- **Port-aware (8 @ 4.5 GHz).** The only request not tuned against the oracle. It keeps
+  Palace's target and still returns two non-physical modes (a near-zero survivor and
+  the 3.45 GHz port mode), so eight are requested to get six, at about twice the cost
+  ([#950](https://github.com/rjwalters/geode-fem/issues/950)).
+
+What the table shows, on this mesh and host:
+
+- **The historical request is not like-for-like on the m6i either:** it returns one
+  of the six modes, as it did on the Lambda host and the developer machine.
+- **Wall clock at eight wide.** GEODE's two oracle-tuned requests take 27.3 s and
+  29.1 s, and the port-aware one 51.1 s. Palace takes 33.4 s with its fixture config
+  and 23.6 s when it writes no ParaView fields. GEODE's benchmark binary writes no
+  fields, so the `Save = 0` row is the output-matched one. Against it, Palace has the
+  lower wall clock than every GEODE cell.
+- **Wall clock at one wide.** GEODE takes 33 to 35 s (67 s port-aware); Palace 186.8 s
+  with field output and 113.0 s without (one run).
+- **Core-seconds.** GEODE uses fewer than Palace in every cell: 33 to 41 for the
+  oracle-tuned requests and 67 to 92 for port-aware, against 113 to 267 for Palace.
+  Palace's MPICH ranks busy-wait, so its core-seconds are close to ranks × wall by
+  construction; this is CPU time occupied, not work done.
+- **Parallel scaling.** GEODE gains 17% in wall clock from 1 to 8 threads (142% CPU),
+  for 1.17× the core-seconds. Palace gains 4.8× to 5.6× from 1 to 8 ranks.
+- **Memory.** GEODE peaks at 3.2 GB in one process. Palace's largest rank peaks at
+  0.54 GB at 8 ranks, and Palace's own estimate over all ranks is 3.8 GB (2.1 GB at
+  1 rank). The earlier "about 6× less memory" compared one rank with the whole GEODE
+  process; in total the two are about equal at eight ranks on this mesh.
+
+What it does not show:
+
+- Anything about another mesh size. §2b records that the direct path loses on both
+  axes at 1.16M DOF.
+- A tuned Palace. Palace was built as the vendored recipe builds it (distribution
+  compiler-wrapper flags, `-march=x86-64-v2`, no libxsmm), and neither solver was built
+  with `-march=native`. Only Palace's fixture solver settings were run. Read the Palace
+  times as an upper bound on what a tuned Palace needs.
+- A GEODE answer a user could trust without the oracle. In two of the three routes the
+  request was tuned against Palace's answer, and in two of the three the six modes are
+  identified by matching Palace's frequencies.
+- Target robustness. Palace's `Target` is a lower bound (it returns the modes above
+  it); GEODE's shift returns the modes nearest it on either side. For "12 modes @
+  20 GHz" Palace returns twelve modes from 20.70 to 51.54 GHz and GEODE returns the six
+  physical modes from 5.15 to 26.09 GHz plus six non-physical values; two modes are
+  common to both lists (`[off_target_request]`). GEODE's own cost is nearly the same
+  at both shifts (32.8 s and 33.9 s on one thread). The Palace half of the earlier
+  "GEODE is target-insensitive, Palace degrades off-target" reading timed a different
+  set of modes, so that reading is not a like-for-like comparison.
+
+#### 2a-ii. The 2026-07-14 session (historical; do not quote)
 
 Source: [`benchmarks/transmon_bench_cpu/results.toml`](../../benchmarks/transmon_bench_cpu/results.toml)
-(`[matched.physical_target]`, m6i.4xlarge, 8 physical cores)
+(`[matched.physical_target]`, m6i.4xlarge, us-west-2, GEODE `3174015`).
 
 | solver / config | wall (s) | peak RSS |
 |-----------------|---------:|---------:|
-| GEODE, 1 thread | 28.7 | 3.1 GB |
+| GEODE, "1 thread" | 28.7 | 3.1 GB |
 | GEODE, 8 threads | 29.0 | 3.1 GB |
 | Palace, 1 rank | 130.9 | 0.5 GB/rank |
 | Palace, 8 ranks | 44.5 | 0.5 GB/rank |
 
-Off-target (12 modes @ 20 GHz, `[matched.off_target]`): GEODE 36.8 s (1 t) / 26.6 s
-(8 t) vs Palace 248.0 s (np1) / 64.7 s (np8) — GEODE's direct factorization is
-**target-insensitive** while Palace's iterative Krylov+AMS degrades far from a
-well-chosen shift.
+Off-target (12 modes @ 20 GHz, `[matched.off_target]`): GEODE 36.8 s / 26.6 s vs Palace
+248.0 s (np1) / 64.7 s (np8).
 
-> **Not like-for-like output (issue [#927](https://github.com/rjwalters/geode-fem/issues/927)).**
-> The two solvers were given the same request (mesh, mode count, target). They are not
-> known to have returned the same modes. Palace returns six physical modes
-> (5.15–26.08 GHz). GEODE's ungauged shift-invert returns the six eigenvalues nearest the
-> shift, and in every run of the "6 modes @ 4.5 GHz" request that has a mode log (Lambda
-> A100, [`transmon_bench_gpu`](../../benchmarks/transmon_bench_gpu/results.toml); a
-> developer machine,
-> [`results_like_for_like_local.toml`](../../benchmarks/transmon_bench_cpu/results_like_for_like_local.toml))
-> those are four gradient near-kernel modes, the spurious 3.45 GHz port mode and **one**
-> physical mode. The m6i runs in the table have no committed mode log, so what they
-> returned is unverified. The times below are therefore wall clocks for the same request,
-> not for an equivalent answer, and the same-box re-timing with both solvers returning
-> the same six modes has not been done.
+Two things are wrong with reading these as a comparison, and both are now measured:
 
-Read honestly, this corner is **not** a clear GEODE win:
-- **GEODE has the lower wall clock for the same request** here — 28.7 s on one core
-  against Palace's 44.5 s on eight
-  ranks (~12× fewer core-seconds, `notes.per_core_efficiency`). That is not shown for an
-  equivalent output (see the note above). It is also a
-  per-core-efficiency / direct-vs-iterative reading, **not** a parallelization claim:
-  GEODE's 8-thread run gives essentially **no speedup** over 1 thread at the physical
-  target (28.7 → 29.0 s; issue [#518](https://github.com/rjwalters/geode-fem/issues/518)).
-- **Palace wins memory** decisively — 0.5 GB/rank vs GEODE's 3.1 GB (~6×), and
-- the wall-clock advantage is **scale-bounded** and inverts before 1M DOF (§2b).
+- **Not like-for-like output ([#927](https://github.com/rjwalters/geode-fem/issues/927)).**
+  No mode log of that session was kept. The same request, re-run on the same instance
+  type with logs (2a-i), returns one of Palace's six modes.
+- **"1 thread" was not enforced ([#763](https://github.com/rjwalters/geode-fem/issues/763)).**
+  The row set `GEODE_NUM_THREADS=1` with no pinning, at a commit where that did not
+  make the LU serial, and recorded no CPU time. With one CPU enforced the same request
+  takes 32.8 s; with eight threads, 27.1 s. The old 28.7 s is 13% below the first and
+  6% above the second, and equals its own 8-thread row to 1%. That is consistent with
+  the old "1 thread" row having run a multithreaded LU. It is not proof: the commit,
+  region and session differ.
+
+So "28.7 s on one core beats 44.5 s on eight ranks, about 12× fewer core-seconds" is
+not supported. Measured, a one-core GEODE run of that request (32.8 s, one of six
+modes) ties Palace on eight ranks with field output (33.4 s) and is behind Palace
+without it (23.6 s); the core-second ratio is 8.1× and 5.8× respectively, and 4.0× to
+8.0× (2.8× to 5.7×) for the GEODE requests that do return the six modes.
 
 ### 2b. Large scale (1 157 564 interior DOF) — Palace wins on both axes
 
@@ -157,16 +238,20 @@ path than the incumbent even attempts.
 
 | axis | winner |
 |------|--------|
-| small–medium wall clock | GEODE for the same request (28.7 s vs 44.5 s) — but not shown for the same returned modes (#927), ~6× the memory, no parallel speedup |
-| memory (all scales) | **Palace** |
+| small–medium wall clock, 8 wide | **Palace** without field output (23.6 s) vs GEODE 27.3–51.1 s for the requests that return the same six modes; GEODE's two oracle-tuned requests are ahead of Palace only when Palace also writes ParaView fields (33.4 s) (§2a-i) |
+| small–medium wall clock, 1 wide | GEODE (33–67 s vs Palace 113–187 s) |
+| small–medium core-seconds | GEODE (33–92 vs Palace 113–267; Palace's ranks busy-wait) |
+| memory at 133k DOF | about equal in total at 8 ranks (GEODE 3.2 GB; Palace 3.8 GB over all ranks, 0.54 GB per rank) |
+| memory at scale | **Palace** |
 | large-scale (≥1M DOF) wall clock **and** memory | **Palace** |
 | interior eigensolve at the physical deep shift | **Palace** (direct factorization) |
 | distributed scale (24.5M DOF, 99% efficiency) | **Palace** |
-| target-insensitivity (off-target shifts) | GEODE — but bounded by the same memory wall |
+| target-insensitivity (off-target shifts) | not established: the off-target cells compare different mode sets (§2a-i) |
 
-GEODE's small–medium per-core wall-clock edge is measured for the same request only, not
-for an equivalent answer (#927), and it is bounded by a hard memory
-wall, buys no parallel scaling, and carries a ~6× memory penalty — so it does not amount
+GEODE's small–medium edge, measured like-for-like (§2a-i), is in core-seconds and in
+one-core wall clock. At eight wide Palace without field output is ahead. Two of GEODE's
+three six-mode requests were tuned against Palace's answer, the edge is bounded by a hard
+memory wall, and 8 threads buy 17% — so it does not amount
 to a corner where GEODE is the clear choice. Palace wins scale, memory, the interior
 eigensolve, and raw wall clock at the sizes that matter for production devices.
 
@@ -264,9 +349,10 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 - **Correctness:** GEODE independently reproduces Palace's transmon spectrum to 0.03% on
   the identical mesh. Treat this as a cross-check credential.
 - **Performance:** Palace wins where it counts — scale, memory, the interior eigensolve,
-  and raw wall clock at production sizes. GEODE has a narrow small–medium per-core
-  efficiency edge for the same request, which is not established for the same returned
-  modes (#927) and does not survive scaling. **No clearly-preferred GEODE raw-perf
+  and raw wall clock at production sizes. GEODE has a small–medium edge in
+  core-seconds and one-core wall clock when it is asked in a way that returns Palace's
+  six modes (§2a-i; two of the three such requests are oracle-tuned), which does not
+  hold at eight ranks without field output and does not survive scaling. **No clearly-preferred GEODE raw-perf
   corner exists.**
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
   substrate adds **solver-derived design sensitivities** across the full

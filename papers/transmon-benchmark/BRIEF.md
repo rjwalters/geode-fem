@@ -143,10 +143,20 @@ serving as the evidence standard the claim is held to.
 > **one** physical mode. The m6i runs behind the CPU table have no committed
 > mode log, so their mode content is unverified. The eigenvalue-agreement
 > result (0.032%, six modes) is unaffected: that gate uses a 20 GHz shift and
-> 12 modes. **Until geode is re-timed, on the same box as Palace, in a
-> configuration that returns the same six modes, the efficiency clause is not
-> supported and must not be carried into a new draft or a publication.** The
-> re-timing needs the paid benchmark host and is operator-run; it is not done.
+> 12 modes.
+>
+> **RE-TIMED 2026-10-08 (same box as Palace, mode logs committed, one-thread
+> runs pinned by the OS):**
+> `benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml`. The request
+> behind the clause returns one of the six modes on the m6i too. Three geode
+> requests return all six; they are reported side by side and no winner is
+> chosen. **Neither "~4× per-core" nor "one core beats eight ranks, ~12× fewer
+> core-seconds" is reproduced, and neither may be carried into a new draft or
+> a publication.** What the measurement supports, and the exact lines of
+> `transmon-benchmark.6/main.tex` it confirms, weakens or refutes, are listed
+> under "CPU cell: 2026-10-08 re-measurement and the claims it changes" below.
+> Which of the three requests the paper presents is an operator decision
+> (#927, #593); `main.tex` is not edited here.
 
 ### FRAMING DECISION GATE (operator direction, 2026-07-14) — resolves when
 ### benchmarks/gpu_driven_scaling/results.toml (issue #501) lands
@@ -291,6 +301,89 @@ and its cost relative to the 6-mode request on one developer machine, is in
 `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml` (geode only;
 not a benchmark host; its times must not be set beside the Palace cells).
 
+### CPU cell: 2026-10-08 re-measurement and the claims it changes
+
+Source: `benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml`
+(generated from `runs/2026-10-08_m6i_like_for_like/`; issues #927, #763).
+One m6i.4xlarge (8 cores / 16 vCPU, us-east-1), otherwise idle, one session.
+geode-fem @61e8571e (release, direct LU, f64); Palace @fba6a5b built from
+`reference/palace/docker/Dockerfile` (Rocky 9 MPICH wrapper flags,
+`-march=x86-64-v2`, no libxsmm; not tuned for the host, so its times are an
+upper bound for a tuned Palace), `OMP_NUM_THREADS=1`. One thread
+= one CPU enforced with `taskset`; 8 = one hardware thread on each core.
+Wall = min / median / max of n = 3 unless marked; core-s = user + sys, median.
+
+| Request | Solver (width) | Of Palace's 6 | Other modes | Wall (s) | Core-s | Peak RSS |
+|---|---|---|---|---|---|---|
+| 6 @ 4.5 GHz (historical) | geode-fem (1) | 1 | 5 | 32.6 / 32.8 / 33.7 | 32.8 | 3.16 GB |
+| | geode-fem (8) | 1 | 5 | 26.9 / 27.1 / 27.2 | 38.6 | 3.24 GB |
+| 30 @ 4.5 GHz ("more modes") | geode-fem (1) | 6 | 24 | 34.0 / 34.5 / 35.2 | 34.4 | 3.16 GB |
+| | geode-fem (8) | 6 | 24 | 28.5 / 29.1 / 29.3 | 40.7 | 3.24 GB |
+| 6 @ 20 GHz ("shift") | geode-fem (1) | 6 | 0 | 32.6 / 33.2 / 33.6 | 33.2 | 3.16 GB |
+| | geode-fem (8) | 6 | 0 | 26.6 / 27.3 / 28.1 | 38.9 | 3.23 GB |
+| 8 @ 4.5 GHz, port-aware | geode-fem (1) | 6 | 2 | 66.9 / 67.3 / 67.7 | 67.2 | 3.23 GB |
+| | geode-fem (8) | 6 | 2 | 50.1 / 51.1 / 51.2 | 91.7 | 3.29 GB |
+| 6 @ 4.5 GHz, fixture (Save = 6) | Palace (1) | 6 | 0 | 186.7 / 186.8 / 188.0 | 186.8 | 2.20 GB |
+| | Palace (8) | 6 | 0 | 33.1 / 33.4 / 33.5 | 266.7 | 0.54 GB/rank, 3.8 GB total |
+| 6 @ 4.5 GHz, Save = 0 | Palace (1) | 6 | 0 | 113.0 (n = 1) | 113.0 | 2.24 GB |
+| | Palace (8) | 6 | 0 | 23.6 / 23.6 / 23.8 | 188.9 | 0.54 GB/rank, 3.8 GB total |
+| 12 @ 20 GHz (historical off-target) | geode-fem (1) | 6 | 6 | 33.2 / 33.9 / 33.9 | 33.9 | 3.16 GB |
+| | geode-fem (8) | 6 | 6 | 27.5 / 27.8 / 28.0 | 39.4 | 3.24 GB |
+| | Palace (1) | 2 | 10 | 285.9 (n = 1) | 285.9 | 2.26 GB |
+| | Palace (8) | 2 | 10 | 49.0 (n = 1) | 391.5 | 0.54 GB/rank |
+
+Caveats that must travel with any of these numbers:
+
+- "30 modes" was found by trial against the Palace eigenvalues. It is not a
+  recipe.
+- The 20 GHz shift was chosen knowing where the modes are, and it is a
+  different request from Palace's.
+- Port-aware is the only request not tuned against the oracle. It still
+  returns two non-physical modes, which are dropped by matching Palace's
+  frequencies (#950), and it costs about twice the others.
+- Palace's fixture config writes six ParaView fields; geode writes none. The
+  Save = 0 rows are the output-matched ones.
+- Palace's core-seconds are close to ranks × wall because MPICH ranks
+  busy-wait.
+- Palace's `Target` is a lower bound (modes above it); geode's shift is a
+  centre (modes nearest it). At 20 GHz the two return different mode sets.
+- One mesh, one host, one session, Palace's fixture solver settings, neither
+  solver built with `-march=native`, Palace built without libxsmm (the Palace
+  of the committed baseline log had it).
+
+**Lines of `transmon-benchmark.6/main.tex` and what the measurement does to
+them** (for the operator's revision under #593; the file is not edited):
+
+| Lines | Claim as written | Status | Replacement numbers |
+|---|---|---|---|
+| 229-231 (contributions) | "A matched CPU cell shows a per-core, small-to-medium-scale win for the direct eigensolve" | **Weakened.** A core-second advantage is measured for requests that return the six modes; a wall-clock win at 8 ranks is not | Core-s, geode 1 thread vs Palace 8 ranks: 7.7× (more modes), 8.0× (shift), 4.0× (port-aware) with Save = 6; 5.5×, 5.7×, 2.8× with Save = 0 |
+| 1024-1025 (table caption) | geode-fem on one core "beats Palace on eight ranks in absolute wall clock" | **Refuted** | geode 1 thread 33.2 to 34.5 s (67.3 s port-aware) vs Palace 8 ranks 33.4 s (Save = 6), 23.6 s (Save = 0) |
+| 1042 (Table `tab:cpu`) | geode-fem (1): 28.7 s, 3.1 GB | **Refuted as a one-core, like-for-like time.** Not pinned, no mode log; the request returns 1 of 6 modes | Same request, pinned: 32.8 s, 3.16 GB, 1 of 6. Six-mode requests: 34.5 s / 33.2 s / 67.3 s |
+| 1043 | geode-fem (8): 29.0 s | **Replaced** | Same request: 27.1 s, 1 of 6. Six-mode requests: 29.1 s / 27.3 s / 51.1 s |
+| 1044 | Palace (1): 130.9 s, 0.5 GB/rank | **Not reproduced** (different Palace build) | 186.8 s (Save = 6), 113.0 s (Save = 0, n = 1); 2.2 GB |
+| 1045 | Palace (8): 44.5 s, 0.5 GB/rank | **Not reproduced** (different Palace build) | 33.4 s (Save = 6), 23.6 s (Save = 0); 0.54 GB/rank, 3.8 GB over all ranks |
+| 1048-1052 (off-target rows: 36.8 / 26.6 / 248.0 / 64.7 s) | Same workload for both solvers | **Refuted as like-for-like.** The two solvers return different mode sets: 2 modes in common | geode 33.9 s (1) / 27.8 s (8): six physical + six non-physical, 0.0003 to 26.09 GHz. Palace 285.9 s (1) / 49.0 s (8): twelve modes, 20.70 to 51.54 GHz |
+| 1087-1089 (Fig. `fig:cpu` caption) and `figures/src/fig4_cpu_wallclock.py` | "geode-fem on one core consumes 28.7 core-s against Palace's 356.0 at 8 ranks (~12×)" | **Refuted** | 32.8 vs 266.7 core-s = 8.1× for the 1-of-6 request; see row 229-231 for the six-mode requests. 356.0 was 44.5 s × 8, never a measured CPU time |
+| 1094-1098 | "serial direct factorization on one core (28.7 s) beats Palace on eight ranks (44.5 s) in absolute wall clock at ~12× fewer core-seconds (28.7 versus 356.0)" | **Refuted** (wall clock) and **weakened** (core-seconds) | As rows 1024-1025 and 1087-1089 |
+| 1098-1100 | "geode-fem's own 8-thread run gives essentially no speedup (29.0 s)" | **Weakened.** With one thread enforced there is a modest speedup | 32.8 s → 27.1 s: 17% lower wall for 1.17× the core-seconds (142% CPU). The old "no speedup" is what two multithreaded runs would show (#763) |
+| 1101-1104 | "the direct shift-invert is target-insensitive while Palace's iterative solve degrades off-target, so the gap widens at 20 GHz: 6.7× serial (248.0/36.8), 2.4× at 8-wide (64.7/26.6)" | **Refuted as a comparison.** geode's own cost is flat across shifts (confirmed: 32.8 s at 4.5 GHz, 33.9 s at 20 GHz); the Palace side timed twelve higher modes, not the same answer | Same-request ratios, different answers: 8.4× (285.9/33.9), 1.8× (49.0/27.8) |
+| 1117-1119 | "geode-fem wins small-to-medium on speed, per-core efficiency, and target robustness" | **Speed: refuted at 8 wide, confirmed at 1 wide. Per-core efficiency: confirmed in core-seconds, smaller than stated. Target robustness: not established** | As above |
+| 1247-1249 | "Derived ratios quoted in the text (core-second and speedup multipliers) are computed from the displayed table values" | **Weakened**: core-seconds were wall × ranks, not measured CPU time | Measured user + sys is in the results file for every cell |
+| 1347 | "(iv) The CPU per-core win is small-to-medium-scale only" | **Weakened** in the same way as 229-231 | As row 229-231 |
+| Table `tab:cpu` memory column (caption 1023-1024 already says per-rank), and any "~6× less memory" reading of it | Palace 0.5 GB/rank against geode 3.1 GB | **Per-rank figure confirmed; the 6× reading is weakened**, since it sets one rank against a whole process | geode 3.2 GB; Palace 3.8 GB over 8 ranks (its own estimate), 2.1 to 2.2 GB at 1 rank |
+
+**Confirmed and unchanged:** the eigenvalue agreement (the six modes agree to
+0.029% in every six-mode cell of this run; Palace reproduces its committed
+`eig.csv` to about 1e-12); geode's peak RSS of about 3.1 to 3.3 GB at 133k DOFs;
+the large-scale finding (not re-run).
+
+**#763 answer.** The old "1 thread" row cannot be shown to have been
+multithreaded, because it recorded no CPU time. Its 28.7 s is 13% below the
+time measured with one CPU enforced (32.8 s) and 6% above the 8-thread time
+(27.1 s), and it equals its own 8-thread row to 1%, which is what a
+multithreaded LU in both old rows would give. At the current commit
+`GEODE_NUM_THREADS=1` alone is serial (102% CPU, 32.7 s, unpinned).
+
 ### GPU cell — CORRECTNESS RESULTS FINAL; performance = future work
 g6e.xlarge (1× NVIDIA L40S 46GB, driver 595.71.05, CUDA 13.2), 2026-07-14:
 - CUDA-f32 correctness smokes PASS on physical hardware: matrix-free
@@ -349,10 +442,11 @@ path is mixed-precision-qualified.
 2. Mode-frequency agreement: geode vs Palace scatter with Δ% annotations.
 3. Junction-mode L-scaling tripwire (f vs L on log-log, 1/√2 line).
 4. CPU-cell wall-clock bar chart (geode 1-proc vs Palace 4/8 ranks) +
-   per-core-efficiency inset. (Blocked on the like-for-like re-timing, #927:
-   the geode cells of the current bars have no committed mode log, so
-   whether they are like-for-like is unverified; the same request on the
-   Lambda runs and on the dev machine returned 1 of 6 physical modes.)
+   per-core-efficiency inset. (Must be redrawn from
+   `results_like_for_like_m6i.toml`: the current bars are the 2026-07-14
+   request, which returns 1 of 6 physical modes on the m6i as well, and the
+   inset's 28.7 vs 356.0 core-s is not reproduced. Which geode request the
+   bars show is the operator's choice, #927.)
 5. (TBD-GPU) GPU cell results.
 6. Spurious-mode illustration: participation spectrum geode vs Palace
    (the honest-physics figure — reviewers will love or demand it).

@@ -1,0 +1,13 @@
+cell=geode_pa_s4p5_n8_t1
+run=2
+solver=geode
+env=GEODE_INNER=direct GEODE_GAUGE=port_aware GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=8 GEODE_NUM_THREADS=1 RAYON_NUM_THREADS=1
+pin=taskset -c 0
+start_utc=2026-10-08T16:33:28Z
+loadavg_before=0.85 1.71 2.23
+observed_processes_max=1
+observed_tasks_max=5
+observed_cpus_allowed=0
+end_utc=2026-10-08T16:34:38Z
+loadavg_after=0.99 1.57 2.14
+exit=0

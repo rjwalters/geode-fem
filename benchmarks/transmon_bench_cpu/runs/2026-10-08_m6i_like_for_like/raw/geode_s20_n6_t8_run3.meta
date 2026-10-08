@@ -1,0 +1,13 @@
+cell=geode_s20_n6_t8
+run=3
+solver=geode
+env=GEODE_INNER=direct GEODE_GAUGE=none GEODE_SIGMA_GHZ=20 GEODE_NMODES=6 GEODE_NUM_THREADS=8 RAYON_NUM_THREADS=8
+pin=taskset -c 0,1,2,3,4,5,6,7
+start_utc=2026-10-08T16:44:33Z
+loadavg_before=0.79 1.22 1.71
+observed_processes_max=1
+observed_tasks_max=12
+observed_cpus_allowed=0-7
+end_utc=2026-10-08T16:45:00Z
+loadavg_after=1.70 1.43 1.77
+exit=0
