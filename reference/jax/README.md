@@ -76,7 +76,7 @@ The functional `tr(K_int)` is differentiable w.r.t. node coordinates
 
 End-to-end, this proves that the JAX assembly path is differentiable
 through the same scatter-add semantics the Burn path uses
-(`IndexingUpdateOp::Add`, per `crates/geode-core/src/assembly.rs`).
+(`IndexingUpdateOp::Add`, per `crates/geode-core/src/assembly/p1.rs`).
 The eigensolve is deliberately not differentiated (#88 Phase C
 explicitly leaves the eigensolve as a "boundary allowed" non-XLA
 op).

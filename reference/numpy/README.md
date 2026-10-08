@@ -96,7 +96,7 @@ python3 reference/numpy/gen_sphere_mie_baseline.py
 ### Mie scattering efficiencies (`mie_efficiencies.py`, Epic #193)
 
 Issue #195's analytic oracle for the **driven** Mie scattering
-benchmark (`examples/mie_driven_scattering.rs`): `Q_ext` / `Q_sca` for
+benchmark (`examples/mie_driven_scattering/src/main.rs`): `Q_ext` / `Q_sca` for
 the `n = 1.5` sphere via the BHMIE logarithmic-derivative algorithm —
 deliberately a *different algorithm* from the Rust direct
 `ψ_l(mx)`-formula evaluation in `geode_core::mie_scattering`, so the

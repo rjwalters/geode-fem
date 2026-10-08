@@ -196,8 +196,9 @@ back to `ndarray` (see `crates/geode-core/src/testing/mod.rs` and
 Note the macOS nuance: the opt-in `wgpu` backend **already runs on Metal at
 runtime** on macOS (wgpu selects the Metal graphics API there). The opt-in
 `metal` feature is different — it pins the Metal graphics API and the MSL
-(`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal`
-= `Wgpu<f32, i32, u8>`), rather than going through wgpu's runtime adapter
+(`cubecl-msl`) shader-compilation pipeline at compile time (`burn::backend::Metal<F, I, B>`
+is Burn's alias for `Wgpu<F, I, B>`; geode instantiates it as `Metal<f64>`), rather
+than going through wgpu's runtime adapter
 selection. It is Apple-only and not exercised on CI (all runners are headless
 Linux, which use the `ndarray` CPU backend); verify it locally on Apple hardware
 with `cargo test -p geode-core --features metal`.
@@ -216,7 +217,7 @@ The opt-in `arpack` Cargo feature switches in an ARPACK-backed driver
 Lanczos. The Lanczos remains the default; ARPACK never becomes the
 default by design (issue #24 non-goal). FFI bindings to `dsaupd_c` /
 `dseupd_c` (the stable ARPACK ICB C wrappers, available since arpack-ng
-3.7) are vendored inline in `crates/geode-core/src/arpack.rs`, so no
+3.7) are vendored inline in `crates/geode-core/src/eigen/arpack.rs`, so no
 `bindgen` / `clang` / `gfortran` toolchain is required at build time —
 the only build-time work is `pkg-config`-based discovery of the system
 `libarpack`.
@@ -256,7 +257,7 @@ The Homebrew `arpack` formula does ship the ICB C headers under
 story that motivated the original opt-in framing (a quirk in
 `arpack-ng-sys` where its `system` feature can't resolve
 `<arpack/arpack.h>` because Homebrew's `arpack.pc` sets `includedir`
-one level too deep) is documented in `crates/geode-core/src/arpack.rs`.
+one level too deep) is documented in `crates/geode-core/src/eigen/arpack.rs`.
 
 ### Workspace layout
 
@@ -390,7 +391,7 @@ at this size.
 | `SparseComplexShiftInvertLanczos` (sparse) | **4.07 s** |
 
 **31× speedup at this scale; 107× on the original 313-node fixture.**
-The sparse path is now the default in `examples/mie_sphere.rs`; pass
+The sparse path is now the default in `examples/mie_sphere/src/main.rs`; pass
 `--dense` for the correctness-oracle cross-check.
 
 **Scaling beyond the dense-scatter cap.** The numbers above are from
@@ -433,7 +434,8 @@ which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
 the open-space Mie WGM positions — which require Hankel functions and
 complex Newton iteration — are tracked under #33. The driven
 scattering (`Q_ext`, `Q_sca` vs. `ka`) cross-check is the companion
-benchmark `examples/mie_driven_scattering.rs` (issue #195), which
+benchmark `examples/mie_driven_scattering/src/main.rs` (issue #195;
+`cargo run -p mie_driven_scattering --release`), which
 writes
 [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml).
 
@@ -476,7 +478,7 @@ Cartesian basis, `ε_α = (1/s_r) r̂_α² + s_t (1 - r̂_α²)` per centroid
 radial unit vector `r̂`, absorbs along the propagation direction in
 a direction-aware way and removes the reflection floor. Available via
 [`assemble_global_nedelec_with_anisotropic_epsilon`] and
-[`build_anisotropic_pml_tensor_diag`]; default in `examples/mie_sphere.rs`
+[`build_anisotropic_pml_tensor_diag`]; default in `examples/mie_sphere/src/main.rs`
 since issue #61.
 
 **On the "full rotation" follow-up.** For the current PML profile

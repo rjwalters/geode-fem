@@ -17,7 +17,7 @@ the benchmark TOMLs.
 
 The corresponding **result ingester** (parser that converts Palace's
 output artifacts into the `[oracles.palace]` TOML block the benchmark
-tests consume) is in `crates/geode-core/src/palace.rs`, where it is
+tests consume) is in `crates/geode-core/src/interop/palace.rs`, where it is
 unit-tested against synthetic fixtures under
 `crates/geode-core/tests/fixtures/palace/`.
 
@@ -120,7 +120,7 @@ let r = PalaceResults::from_palace_csv_file(
 )?;
 // Then serialize `r` into the `[oracles.palace]` block of
 // `benchmarks/patch_antenna/results.toml` (populated shape — see
-// `PalaceOracleSlot` in `crates/geode-core/src/palace.rs`).
+// `PalaceOracleSlot` in `crates/geode-core/src/interop/palace.rs`).
 ```
 
 The benchmark tests
@@ -155,7 +155,7 @@ Same reason as the other offline drivers (e.g. `reference/numpy/`):
 - The offline driver pattern keeps the **config generation** path in
   Rust (so it stays in sync with the geode-fem fixture API), while the
   **run** stays an explicit operator step.
-- The result ingester (`crates/geode-core/src/palace.rs`) is the only
+- The result ingester (`crates/geode-core/src/interop/palace.rs`) is the only
   Rust code on the hot path of CI; it's parsed and tested against a
   clearly-labeled synthetic fixture.
 
