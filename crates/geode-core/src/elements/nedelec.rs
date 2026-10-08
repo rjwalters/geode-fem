@@ -94,6 +94,7 @@
 //! against a CPU reference, (c) rigid-motion / dilation invariants,
 //! and (d) symmetry / sign-flip behavior on a two-tet shared-edge mesh.
 
+use super::bmm::bmm_small;
 use bunsen::contracts::{assert_shape_contract, define_shape_contract, unpack_shape_contract};
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
@@ -272,7 +273,7 @@ pub fn batched_nedelec_local_matrices<B: Backend>(coords: Tensor<B, 3>) -> Nedel
     //                  − (1+δ_bc) G_ad + (1+δ_bd) G_ac ]
     //   with (V/20) G_pq = (|det|/120) · (gg_pq / det²) = gg_pq / (120 |det|).
     let g_t = g_mat.clone().swap_dims(1, 2);
-    let gg = g_mat.matmul(g_t); // [n_elem, 4, 4], (g_i · g_j)
+    let gg = bmm_small(g_mat, g_t); // [n_elem, 4, 4], (g_i · g_j)
 
     // Helper closure: extract gg[:, p, q] as [n_elem] tensor.
     let gg_entry = |p: usize, q: usize| -> Tensor<B, 1> {
@@ -737,10 +738,7 @@ pub fn batched_nedelec_local_stiffness_weighted<B: Backend>(
     let scale = (inv_abs_det.clone() * inv_abs_det.clone() * inv_abs_det).mul_scalar(2.0_f64 / 3.0);
     let scale_3d = scale.unsqueeze_dim::<2>(1).unsqueeze_dim::<3>(2); // [n_elem, 1, 1]
 
-    cr.clone()
-        .matmul(weight)
-        .matmul(cr.swap_dims(1, 2))
-        .mul(scale_3d)
+    bmm_small(bmm_small(cr.clone(), weight), cr.swap_dims(1, 2)).mul(scale_3d)
 }
 
 /// Per-element Nédélec local mass matrix for a **full 3×3** per-tet
@@ -805,7 +803,7 @@ pub fn batched_nedelec_local_mass_anisotropic_full<B: Backend>(
     // Weighted gram gw_pq = g_pᵀ W g_q, shape [n_elem, 4, 4]. The
     // physical weighted gram is G^W_pq = gw_pq / det²; the /det² and
     // (V/20) = (|det|/120) collapse into 1/(120 |det|) below.
-    let gw = g_mat.clone().matmul(weight).matmul(g_mat.swap_dims(1, 2));
+    let gw = bmm_small(bmm_small(g_mat.clone(), weight), g_mat.swap_dims(1, 2));
 
     let gw_entry = |p: usize, q: usize| -> Tensor<B, 1> {
         gw.clone()
@@ -902,7 +900,7 @@ pub fn batched_nedelec_local_rhs_quad4<B: Backend>(
     let (g_mat, det) = cofactor_rows_and_det(coords);
 
     // D[q][p] = J_q · g_p, shape [n_elem, 4, 4].
-    let d = j_quad.matmul(g_mat.swap_dims(1, 2));
+    let d = bmm_small(j_quad, g_mat.swap_dims(1, 2));
     // S[p] = Σ_q D[q][p], shape [n_elem, 4] (sum over the quad axis).
     let s = d.clone().sum_dim(1).squeeze_dim::<2>(1);
 

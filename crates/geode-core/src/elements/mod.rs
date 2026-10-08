@@ -5,6 +5,9 @@
 //! (`crate::assembly::p1`, `crate::assembly::nedelec`) stamp into the system
 //! matrices. Each submodule owns one basis family:
 //!
+//! - [`bmm`] — small batched matrix product for the element kernels:
+//!   `matmul` on f64, multiply-and-reduce on f32 (avoids TF32 promotion on
+//!   GPUs, issue #926).
 //! - [`p1`] — P1 (linear Lagrange) nodal elements: closed-form local
 //!   stiffness and consistent-mass matrices for affine tets.
 //! - [`p2`] — P2 (quadratic Lagrange) nodal elements: 10-DOF (4 vertex +
@@ -28,6 +31,7 @@
 //! [`crate::assembly::hcurl_space::HcurlSpace`] and re-exported at its two
 //! historical paths, `crate::driven::solve::ElementOrder` and
 //! `crate::eigen::cavity::ElementOrder`.
+pub mod bmm;
 pub mod nedelec;
 pub mod nedelec_p2;
 pub mod p1;

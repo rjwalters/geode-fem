@@ -493,3 +493,102 @@ fn bloch_pin_and_static_flag_are_structural() {
     assert_eq!(near.n_gradient, nl);
     assert!(near.modes.iter().all(|x| !x.is_static));
 }
+
+/// The two Γ tests agree at any `|G|` (issue #915): a `k` whose wrapped
+/// Bloch phase distance is 0 is Γ-equivalent, and `solve` treats it as the
+/// reciprocal lattice vector it is. At `k = (2π·64, 0, 0)` the round-off
+/// of `sin(k·d)` is above the absolute `1e-14` phase-factor snap, which
+/// used to make `solve` refuse it as "0 rad from a lattice vector without
+/// being one". The translations here are inferred (least squares), on a
+/// non-unit cell too. A refusal names the nearest `G`.
+#[test]
+fn gamma_predicates_agree_at_large_lattice_vectors() {
+    let s = BlochSettings::new(4);
+    let unit = cell(
+        renumber(&box_tet_mesh([3, 3, 3], [1.0, 1.0, 1.0]), 915),
+        &[0, 1, 2],
+        false,
+    );
+    let nn = unit.constraint.nodes().n_reduced();
+    let g0 = unit.cell.solve([0.0; 3], &s).unwrap();
+    for k in [
+        [2.0 * PI * 16.0, 0.0, 0.0],
+        [2.0 * PI * 64.0, 0.0, 0.0],
+        [2.0 * PI * 64.0, -2.0 * PI * 1000.0, 2.0 * PI * 7.0],
+    ] {
+        // A power-of-two multiple of the f64 2π wraps to exactly 0; any
+        // other multiple to round-off (9e-13 rad at 2π·1000), inside the
+        // |θ|-scaled lattice tolerance.
+        let rho = unit.cell.gamma_phase_distance(k);
+        if k[1] == 0.0 {
+            assert_eq!(rho, 0.0, "{k:?}: wrapped phase distance");
+            assert_eq!(unit.cell.gamma_distance(k), 0.0, "{k:?}");
+        }
+        assert!(rho < 1e-11, "{k:?}: wrapped phase distance {rho:e}");
+        assert!(unit.cell.is_gamma_equivalent(k), "{k:?} is Γ-equivalent");
+        assert!(!unit.cell.phased_constraint(k).has_complex_phase(), "{k:?}");
+        let m = unit.cell.solve(k, &s).unwrap();
+        assert_eq!(m.n_gradient, nn - 1, "{k:?}: pinned");
+        assert_eq!(m.modes.iter().filter(|x| x.is_static).count(), 3, "{k:?}");
+        assert!(
+            (m.modes[3].omega - g0.modes[3].omega).abs() < 1e-9,
+            "{k:?}: band 3 {} vs Γ {}",
+            m.modes[3].omega,
+            g0.modes[3].omega
+        );
+    }
+    // Off the lattice at large |G| the predicates still agree, and the
+    // solve is an ordinary near-Γ solve.
+    let k = [2.0 * PI * 64.0 + 1e-3, 0.0, 0.0];
+    assert!(!unit.cell.is_gamma_equivalent(k));
+    assert!((unit.cell.gamma_phase_distance(k) - 1e-3).abs() < 1e-12);
+    let m = unit.cell.solve(k, &s).unwrap();
+    assert_eq!(m.n_gradient, nn, "{k:?}: fully deflated");
+    assert!(m.modes.iter().all(|x| !x.is_static));
+    // Never "not Γ-equivalent at distance 0": for every probe, either the
+    // point is Γ-equivalent or its distance is positive.
+    for e in [0.0, 1e-16, 1e-15, 1e-14, 1e-13, 1e-12, 1e-10] {
+        for g in [0.0, 2.0 * PI, 2.0 * PI * 64.0, 2.0 * PI * 4096.0] {
+            let k = [g + e, 0.0, 0.0];
+            assert!(
+                unit.cell.is_gamma_equivalent(k) || unit.cell.gamma_phase_distance(k) > 0.0,
+                "{k:?}"
+            );
+        }
+    }
+
+    // A non-unit cell with inferred translations: the nominal k = 2π·m/L
+    // per axis is Γ-equivalent.
+    let l = [0.7, 1.3, 2.9];
+    let odd = cell(
+        renumber(&box_tet_mesh([2, 3, 4], l), 916),
+        &[0, 1, 2],
+        false,
+    );
+    for m in [1.0, 3.0, 64.0] {
+        let k = [2.0 * PI * m / l[0], -2.0 * PI * m / l[1], 2.0 * PI / l[2]];
+        assert!(
+            odd.cell.is_gamma_equivalent(k),
+            "{k:?}: phase distance {:e}",
+            odd.cell.gamma_phase_distance(k)
+        );
+        let r = odd.cell.solve(k, &s).unwrap();
+        assert_eq!(r.modes.iter().filter(|x| x.is_static).count(), 3, "{k:?}");
+    }
+
+    // A refusal names the distance threshold and the nearest G.
+    let g = [2.0 * PI * 3.0 / l[0], 0.0, -2.0 * PI / l[2]];
+    let k = [g[0], g[1], g[2] + 0.1 * odd.cell.near_gamma_min_distance()];
+    assert!(!odd.cell.is_gamma_equivalent(k));
+    match odd.cell.solve(k, &s) {
+        Err(BlochError::InvalidInput(msg)) => {
+            eprintln!("{msg}");
+            assert!(msg.contains("near_gamma_min_distance"), "{msg}");
+            assert!(msg.contains("near_gamma_min_phase"), "{msg}");
+            // G ≈ [26.927937030769655, 0.0, -2.166615623…].
+            assert!(msg.contains("G ≈ [26.9279"), "{msg}");
+            assert!(msg.contains("-2.1666"), "{msg}");
+        }
+        other => panic!("want InvalidInput, got {:?}", other.map(|m| m.modes.len())),
+    }
+}

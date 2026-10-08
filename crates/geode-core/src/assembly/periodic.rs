@@ -158,6 +158,33 @@ impl PeriodicScalar for c64 {
     }
 }
 
+/// Round-off tolerance (rad, per rad of phase magnitude above 1) of
+/// [`is_lattice_phase`]: the same `1e-14` as the phase-factor snap of
+/// [`DofAliasMap::with_bloch_phase`], scaled with the magnitude
+/// `Σ_i |k_i d_i|` because the round-off of `θ = k·Σd` grows with it
+/// (issue #915).
+pub const LATTICE_PHASE_TOL: f64 = 1e-14;
+
+/// A Bloch phase `θ` (rad) wrapped to `[−π, π]` with the `f64` value of
+/// `2π`: `θ − 2π·round(θ / 2π)`. A `k` written as an integer multiple of
+/// `2π / L` therefore wraps to exactly `0`, at any multiple.
+pub fn wrap_phase(theta: f64) -> f64 {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    theta - two_pi * (theta / two_pi).round()
+}
+
+/// Whether a Bloch phase `θ = k·Σd` (rad) is in `2πℤ` up to round-off:
+/// `|wrap_phase(θ)| ≤ LATTICE_PHASE_TOL · max(1, magnitude)`, with
+/// `magnitude = Σ_i |k_i d_i|`. The magnitude, not `|θ|`, sets the
+/// round-off: the terms of `k·Σd` can cancel (measured: `θ = 5.7e-14` for
+/// `2π·64/L_x − 2π·64/L_y` on a diagonal shift). This is the
+/// reciprocal-lattice test of [`DofAliasMap::with_bloch_phase`] (its
+/// phase factor is then exactly `1`), so it agrees with a distance built
+/// from [`wrap_phase`] at any `|G|` (issue #915).
+pub fn is_lattice_phase(theta: f64, magnitude: f64) -> bool {
+    wrap_phase(theta).abs() <= LATTICE_PHASE_TOL * magnitude.max(1.0)
+}
+
 /// A sparse prolongation `P` (`n_full × n_reduced`) stored by rows, with the
 /// lattice vector of every row. Used for both the edge (or general H(curl)
 /// DOF) and the node constraint.
@@ -208,7 +235,9 @@ impl DofAliasMap {
     /// is applied to the zero-phase coefficients, so calling this on an
     /// already-phased map replaces its `k` (it does not compose). Phase
     /// factor components within `1e-14` of zero are snapped to zero, so
-    /// `k·Σd ∈ πℤ` yields an exactly real (`±1`) `P`.
+    /// `k·Σd ∈ πℤ` yields an exactly real (`±1`) `P`. A phase that
+    /// [`is_lattice_phase`] (wrapped within round-off of `2πℤ`, at any
+    /// magnitude) gives a factor of exactly `1` (issue #915).
     ///
     /// With a complex phase, `Pᴴ A P` is **Hermitian** for a real
     /// symmetric `A`, not complex-symmetric: `(Pᴴ A P)ᵀ = Pᵀ A P̄`, the
@@ -221,7 +250,14 @@ impl DofAliasMap {
             // Snap round-off so a phase in (π/2)ℤ (periodic, anti-periodic,
             // quarter-wave) is exact: e^{−jπ} is −1, not −1 − 1.2e-16 j.
             let snap = |x: f64| if x.abs() < 1e-14 { 0.0 } else { x };
-            let ph = c64::new(snap(phase.cos()), snap(phase.sin()));
+            let magnitude = (k[0] * d[0]).abs() + (k[1] * d[1]).abs() + (k[2] * d[2]).abs();
+            let ph = if is_lattice_phase(phase, magnitude) {
+                // A reciprocal lattice vector at large |G|: sin(2π·64) is
+                // ~4e-14, above the absolute snap (issue #915).
+                c64::new(1.0, 0.0)
+            } else {
+                c64::new(snap(phase.cos()), snap(phase.sin()))
+            };
             for e in self.row_ptr[i]..self.row_ptr[i + 1] {
                 out.coeffs[e] = if d == [0.0; 3] {
                     self.base[e]
@@ -259,6 +295,18 @@ impl DofAliasMap {
             .iter()
             .copied()
             .zip(self.coeffs[a..b].iter().copied())
+    }
+
+    /// Whether `self` and `other` are the same prolongation `P`: equal
+    /// shape and, row by row, equal `(reduced index, coefficient)` entries.
+    /// The Bloch wave vector they were phased with is not compared, so
+    /// `P(G)` equals `P(0)` for a reciprocal lattice vector `G`. Valid for
+    /// p=2 block rows, unlike a comparison through [`Self::alias`] (issue
+    /// #915).
+    pub fn same_prolongation(&self, other: &Self) -> bool {
+        self.n_reduced == other.n_reduced
+            && self.n_full() == other.n_full()
+            && (0..self.n_full()).all(|i| self.row(i).eq(other.row(i)))
     }
 
     /// The alias of full DOF `i`.
@@ -908,4 +956,69 @@ fn csc_rows(a: SparseColMatRef<'_, usize, f64>) -> Vec<Vec<(usize, f64)>> {
         }
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f64::consts::PI;
+
+    /// A two-row map: row 0 a p=1 master, row 1 a p=2 style **block row**
+    /// (two entries) shifted by `d = (1, 0, 0)`.
+    fn block_map() -> DofAliasMap {
+        let one = c64::new(1.0, 0.0);
+        DofAliasMap::from_rows(
+            2,
+            vec![vec![(0, one)], vec![(0, one), (1, c64::new(-0.5, 0.0))]],
+            vec![[0.0; 3], [1.0, 0.0, 0.0]],
+        )
+    }
+
+    /// Issue #915 item 3: comparing prolongations row by row never panics
+    /// on a block row (`alias` does), and sees the Bloch phase.
+    #[test]
+    fn same_prolongation_handles_block_rows() {
+        let base = block_map();
+        assert!(
+            std::panic::catch_unwind(|| base.alias(1)).is_err(),
+            "alias panics on a block row"
+        );
+        assert!(base.same_prolongation(&base.with_bloch_phase([0.0; 3])));
+        assert!(base.same_prolongation(&base.with_bloch_phase([2.0 * PI, 5.0, 0.0])));
+        assert!(!base.same_prolongation(&base.with_bloch_phase([1e-3, 0.0, 0.0])));
+        assert!(!base.same_prolongation(&base.with_bloch_phase([PI, 0.0, 0.0])));
+    }
+
+    /// Issue #915 item 2: a reciprocal lattice vector at large `|G|` gives
+    /// a phase factor of exactly `1`, consistent with [`wrap_phase`].
+    #[test]
+    fn lattice_phase_is_exact_at_large_g() {
+        for m in [1.0, 16.0, 64.0, 1024.0] {
+            let th = 2.0 * PI * m;
+            assert_eq!(wrap_phase(th), 0.0, "2π·{m}");
+            assert!(
+                is_lattice_phase(th, th) && is_lattice_phase(-th, th),
+                "2π·{m}"
+            );
+            let p = block_map().with_bloch_phase([th, 0.0, 0.0]);
+            assert!(p.is_real(), "2π·{m}: P(G) is real");
+            assert!(p.same_prolongation(&block_map()), "2π·{m}: P(G) = P(0)");
+        }
+        assert!(!is_lattice_phase(1e-12, 1e-12));
+        let th = 2.0 * PI * 64.0 + 1e-9;
+        assert!(!is_lattice_phase(th, th));
+        assert!(is_lattice_phase(1e-15, 1e-15));
+        // Cancelling terms: θ is round-off of the terms, not of itself.
+        assert!(is_lattice_phase(5.7e-14, 2.0 * 2.0 * PI * 64.0));
+        assert!(!is_lattice_phase(5.7e-14, 5.7e-14));
+        // P on a diagonal shift whose two phases cancel.
+        let one = c64::new(1.0, 0.0);
+        let diag = DofAliasMap::from_rows(
+            1,
+            vec![vec![(0, one)], vec![(0, one)]],
+            vec![[0.0; 3], [0.7, 1.3, 0.0]],
+        );
+        let k = [2.0 * PI * 64.0 / 0.7, -2.0 * PI * 64.0 / 1.3, 0.0];
+        assert!(diag.with_bloch_phase(k).same_prolongation(&diag));
+    }
 }
