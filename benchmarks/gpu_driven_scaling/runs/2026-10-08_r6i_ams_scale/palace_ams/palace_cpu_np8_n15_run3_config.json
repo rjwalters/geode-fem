@@ -1,0 +1,65 @@
+{
+  "Problem": {
+    "Type": "Driven",
+    "Verbose": 2,
+    "Output": "/work/postpro"
+  },
+  "Model": {
+    "Mesh": "/work/mesh.msh",
+    "L0": 1.0,
+    "Refinement": {
+      "UniformLevels": 0
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "Permeability": 1.0,
+        "Permittivity": 1.0,
+        "Conductivity": 0.005308837458876145
+      }
+    ]
+  },
+  "Boundaries": {
+    "PEC": {
+      "Attributes": [
+        2
+      ]
+    },
+    "LumpedPort": [
+      {
+        "Index": 1,
+        "Attributes": [
+          3
+        ],
+        "Direction": "+Y",
+        "R": 376.73031346177066,
+        "Excitation": true
+      }
+    ]
+  },
+  "Solver": {
+    "Order": 1,
+    "Device": "CPU",
+    "Driven": {
+      "Samples": [
+        {
+          "Type": "Point",
+          "Freq": [
+            0.004771345159236943
+          ]
+        }
+      ],
+      "AdaptiveTol": 0.0
+    },
+    "Linear": {
+      "Type": "AMS",
+      "KSPType": "Default",
+      "Tol": 1e-08,
+      "MaxIts": 2000
+    }
+  }
+}

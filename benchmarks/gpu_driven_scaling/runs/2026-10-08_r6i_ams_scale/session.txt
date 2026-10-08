@@ -1,0 +1,9 @@
+provider=AWS EC2 on-demand, us-east-1, identity geode-fem-bench, tagged project=geode-fem issue=930
+instance_type=r6i.4xlarge
+launch_utc=2026-10-08T16:17:33Z
+terminate_request_utc=2026-10-08T19:25:40Z
+terminated_verified_utc=2026-10-08T19:26:20Z
+billed_hours_approx=3.14
+cost_estimate_usd=3.2 (3.14 h x 1.008 USD/h on-demand list price, plus about 0.06 USD for the 120 GB gp3 volume and the public IPv4 address)
+cleanup=instance terminated (describe-instances: terminated); its key pair and security group deleted; no volume, key pair or security group tagged issue=930 left; no CloudWatch alarm was created
+dead_mans_switch=shutdown -h +390 at first login, instance-initiated shutdown behaviour terminate

@@ -1,0 +1,6 @@
+os=Ubuntu 24.04.5 LTS (x86_64)
+model=r6i.4xlarge
+cpu=Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz
+logical_cpus=16
+ram_gib=123
+rustc=rustc 1.99.0 (b940084d7 2026-09-28)

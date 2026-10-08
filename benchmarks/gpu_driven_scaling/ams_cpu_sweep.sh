@@ -42,7 +42,16 @@
 #      GEODE_AMS_SMOOTH_REPORT is set to 1 unless already set, so each AMS
 #      leg's .err carries one "# ams_smoother ..." line per preconditioner
 #      build: the Lanczos Ritz value, the Gershgorin bound, the weight chosen.
-# Then: summarize_ams_local.py <out-dir>
+#      TASKSET_CPUS (Linux only; issue #930 at-scale run): a taskset CPU
+#      list, e.g. 0 or 0-7. Every leg then runs under `taskset -c`, and its
+#      .meta records the list and the Cpus_allowed_list the kernel reports
+#      for a process started that way. Set RAYON_NUM_THREADS to the same
+#      count so the thread count is in the record too.
+#      LEGS (default "direct jacobi ams xcheck"): the legs to run, e.g.
+#      LEGS=direct for a Direct-only pass. SKIP_DIRECT and SKIP_XCHECK still
+#      apply.
+# Then: summarize_ams_local.py <out-dir>  (or summarize_ams_r6i.py for the
+# at-scale tree layout of runs/2026-10-08_r6i_ams_scale/)
 set -euo pipefail
 OUT=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)
@@ -82,6 +91,15 @@ else
 fi
 echo "rustc=$(rustc --version)" >> "$OUT/host.txt"
 
+pin=()
+cpus_allowed=unpinned
+if [ -n "${TASKSET_CPUS:-}" ]; then
+  pin=(taskset -c "$TASKSET_CPUS")
+  cpus_allowed=$("${pin[@]}" sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/self/status)
+fi
+LEGS="${LEGS:-direct jacobi ams xcheck}"
+want() { case " $LEGS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
 run_leg() {
   local leg=$1 n=$2 cfgs=$3 rc=0 pid t0
   {
@@ -92,12 +110,16 @@ run_leg() {
     echo "rayon_num_threads=${RAYON_NUM_THREADS:-unset}"
     echo "scaling_omega=${GEODE_SCALING_OMEGA:-default}"
     echo "ams_smooth_weight=${GEODE_AMS_SMOOTH_WEIGHT:-auto}"
+    if [ -n "${TASKSET_CPUS:-}" ]; then
+      echo "taskset_cpus=$TASKSET_CPUS"
+      echo "cpus_allowed_list=$cpus_allowed"
+    fi
     echo "git=$(git rev-parse HEAD) dirty=$(git status --porcelain --untracked-files=no | wc -l | xargs)"
     echo "env: GEODE_SCALING_SIZES=$n GEODE_SCALING_CONFIGS=$cfgs GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1"
   } > "$OUT/$leg.meta"
   env GEODE_SCALING_SIZES="$n" GEODE_SCALING_CONFIGS="$cfgs" GEODE_SCALING_REPS=0 \
     GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1 \
-    /usr/bin/time "$tflag" -o "$OUT/$leg.time" \
+    ${pin[@]+"${pin[@]}"} /usr/bin/time "$tflag" -o "$OUT/$leg.time" \
     "$bin" --ignored --nocapture --test-threads 1 \
     > "$OUT/$leg.stdout" 2> "$OUT/$leg.err" &
   pid=$!
@@ -122,10 +144,10 @@ run_leg() {
 }
 
 for n in "$@"; do
-  [ -n "${SKIP_DIRECT:-}" ] || run_leg "n${n}_direct" "$n" direct
-  run_leg "n${n}_jacobi" "$n" iterative
-  run_leg "n${n}_ams" "$n" iterative_ams
-  if [ -z "${SKIP_XCHECK:-}" ] && [ -z "${SKIP_DIRECT:-}" ]; then
+  if want direct && [ -z "${SKIP_DIRECT:-}" ]; then run_leg "n${n}_direct" "$n" direct; fi
+  if want jacobi; then run_leg "n${n}_jacobi" "$n" iterative; fi
+  if want ams; then run_leg "n${n}_ams" "$n" iterative_ams; fi
+  if want xcheck && [ -z "${SKIP_XCHECK:-}" ] && [ -z "${SKIP_DIRECT:-}" ]; then
     run_leg "n${n}_xcheck" "$n" direct,iterative,iterative_ams
   fi
 done

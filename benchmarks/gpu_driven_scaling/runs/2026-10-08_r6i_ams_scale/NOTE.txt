@@ -1,0 +1,63 @@
+Issue #930 at-scale run, 2026-10-08, one AWS r6i.4xlarge (session.txt).
+
+What ran, in order (UTC, from the .meta files and the chain*.out logs):
+
+  chain930a.sh   geode Jacobi and AMS at n = 15, 20, 24, 36, 40, one and eight
+                 threads, two repeats (t1_rep1, t8_rep1, t1_rep2, t8_rep2);
+                 Direct at n = 15, 20, 24, plus one cross-check process per
+                 size in t8_rep1 (n<N>_xcheck: the full-field rel-L2 of each
+                 iterative solution against Direct).
+  export_meshes.sh   the five meshes as MSH 2.2 (mesh_sha256.txt; n = 15, 20,
+                 24 and 40 have the same sha256 as the #520 export, n = 36
+                 was not exported in #520).
+  palace_build.sh    palace:cpu from reference/palace/docker/Dockerfile at
+                 Palace fba6a5b (palace/build_provenance.txt,
+                 palace/build_steps.txt). Not timed against anything.
+  chain930b.sh   Palace, Solver.Linear.Type "Default", 8 ranks then 1 rank,
+                 three runs per size (palace/).
+  chain930d.sh   Palace, Solver.Linear.Type "AMS", same shape (palace_ams/).
+  chain930c.sh   geode at omega = 0.05 and 0.20 (omega/), one thread, n = 24
+                 and 40, with Direct at n = 24 on eight threads; then Direct
+                 at n = 36 on eight threads (direct_large/t8).
+  chain930e.sh   n = 50 (897 650 edges): geode Jacobi and AMS on one thread
+                 (t1_rep3_n50), Palace AMS and Default on 8 and 1 ranks, one
+                 run each.
+
+Nothing else ran on the box during any leg (the 1-minute load average at the
+start of each geode leg is in its .meta; the maximum is in the results file).
+
+Changes made during the session, all recorded here and in the scripts:
+
+1. The first palace:cpu image could not start Palace. Its runtime stage had
+   no which(1), which the palace launcher script calls, and no
+   libopenblas.so.0, which Rocky 9 now ships in openblas-serial rather than
+   openblas. Both were added to the Dockerfile and the runtime stage was
+   rebuilt; the builder stage (the Palace compile) came from the build cache
+   unchanged. build_provenance.txt has both image ids and Dockerfile hashes.
+   palace/Dockerfile.used is the exact recipe of the image that ran
+   (sha256 00ddd295...). Issue #927 made the same fixes to
+   reference/palace/docker/Dockerfile independently on the same day, and
+   this branch takes main's version: same Palace pin (PALACE_REF, defaulting
+   there to fba6a5b), the same runtime packages, plus a build-info file
+   written by the builder stage. So the committed recipe is equivalent to,
+   not byte-identical with, the one that ran.
+
+2. Chain D (Palace with AMS) was added after chain B had started, when
+   Palace's source showed that "Default" resolves to SuperLU for a driven
+   problem in a build with SuperLU (palace/utils/iodata.cpp at fba6a5b).
+   Chain B ran box_palace_cpu.sh before its PALACE_LINEAR_TYPE option
+   existed; that version always wrote Type "Default", which is what the
+   current version writes when the option is unset (the configs in palace/
+   are byte-identical in form to the #520 ones; the *_config.json files are
+   the record).
+
+3. Chains C and E were written during the session once the priority cells
+   were done and box time was left. Chain E's size (n = 50) is outside the
+   five sizes the run was scoped for.
+
+4. Direct was not run at n = 40 or 50: one LU took 78 GB at n = 36 and the
+   box has 128 GB. Direct was not run single-threaded at n = 36.
+
+The geode checkout on the box was a clean clone of 64d44269 (git=... dirty=0
+in every .meta). ams_cpu_sweep.sh, box_palace_cpu.sh and palace_driven_cfg.py
+ran from this branch's copies; the Dockerfile from palace/Dockerfile.used.
