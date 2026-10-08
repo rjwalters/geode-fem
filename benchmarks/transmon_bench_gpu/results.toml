@@ -30,7 +30,10 @@
 #     reference/fixtures/transmon_palace/results_p1/eig.csv
 # run from the repo root (stdout = TOML fragments; this file adds the
 # metadata, caveats and notes by hand). CPU% / user / sys come from the
-# `/usr/bin/time -v` files (raw/<cell>_run<i>.time). Timing =
+# `/usr/bin/time -v` files (raw/<cell>_run<i>.time). The per-cell modes_f_ghz,
+# modes_class and n_physical fields (issue #927) are transcribed from the same
+# output (run<i>_modes_f_ghz / run<i>_modes_class / run<i>_n_physical, which are
+# identical across the runs of a cell). Timing =
 # /usr/bin/time -v wall clock over the full solver invocation (mesh load +
 # assembly + solve + output). For Palace that wraps `palace -np N` INSIDE the
 # container (container start-up excluded; host-side wall incl. `docker run`
@@ -107,7 +110,8 @@ verdict = "PASS — GPU Palace reproduces the CPU Palace eigenfrequencies to ~1e
 # | Palace GPU, 1 rank, Save 6 (fixture)          | 690.49 ± 5.64      | 100%           | 2.23 GB (host)  | 5835 MiB | 6 physical, div-free      |
 # | geode-CUDA (any precision)                    | not measurable — geode has no GPU eigensolve (see [notes.geode_cuda]) |
 #
-# † NOT LIKE-FOR-LIKE OUTPUT. In all 6 geode runs the 6 returned pairs are 4
+# † NOT LIKE-FOR-LIKE OUTPUT (issue #927; every geode cell below carries
+#   like_for_like = false). In all 6 geode runs the 6 returned pairs are 4
 #   gradient near-kernel modes (f = 0.000478-0.000760 GHz, participation 0),
 #   the known spurious 3.4528 GHz mode (p = 0.994; see
 #   benchmarks/transmon_eigen/results.toml [spurious_mode], #514) and
@@ -118,13 +122,19 @@ verdict = "PASS — GPU Palace reproduces the CPU Palace eigenfrequencies to ~1e
 #   phase is ~25 s of ~29 s), so it is a fair measure of geode's
 #   factor-and-iterate cost, but "geode is faster" here is a statement about
 #   wall clock for different outputs, not for an equivalent answer.
+#   What it costs geode to return Palace's six modes has NOT been measured on
+#   this host. A geode-only, dev-machine measurement is in
+#   ../transmon_bench_cpu/results_like_for_like_local.toml; its times must not
+#   be read against the cells of this file. See [notes].like_for_like_927.
 #
 # HONEST READ: on this 133k-DOF problem, Palace-on-GPU (one A100, one rank)
 # is SLOWER than the same Palace build on 8 CPU ranks of the same host
 # (72.2 s vs 51.0 s; Palace's own Total 71.6 vs 50.6, a 21.0 s gap). geode
-# CPU f64 (direct shift-invert) has the lowest wall clock (30.1 s), subject
-# to the † caveat above and to its CPU% (961-984%, i.e. more cores than
-# Palace's 8 ranks).
+# CPU f64 (direct shift-invert) has the lowest wall clock (30.1 s), but that
+# run returns 1 of the 6 physical modes Palace returns (†), so it is NOT a
+# measurement that geode is faster at this eigenproblem; it also used more
+# cores (CPU% 961-984%) than Palace's 8 ranks. The Palace-GPU vs Palace-CPU
+# comparison is unaffected: both return the same six modes.
 #
 # Where the 21.0 s goes, from Palace's Elapsed Time Report (Save 0, mean of
 # 3; Avg-over-ranks column, whose exclusive rows sum to Total — see
@@ -154,6 +164,9 @@ sys_s = [55.54, 60.28, 59.44]
 modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]   # identical in all 3 runs
 modes_participation = [0.0000, 0.0000, 0.0000, 0.0000, 0.9942, 0.0005]
 physical_modes_matching_palace = 1   # 5.152825 vs Palace 5.151336 GHz; the other 5 are near-kernel / known spurious (#514). NOT gated in this run.
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical"]   # summarize.py; identical in all 3 runs
+n_physical = 1   # of Palace's 6
+like_for_like = false   # vs the Palace cells: 1 of the 6 physical modes Palace returns for the same request (#927)
 
 [cells.geode_cpu_t1]
 mode = "faer sparse-LU shift-invert Lanczos (direct), f64, GEODE_NUM_THREADS=1 — cap NOT enforced: it caps faer's LU (eigen/parallel.rs) only; measured ~6.9 cores. NOT a single-threaded measurement."
@@ -167,12 +180,18 @@ sys_s = [49.18, 46.88, 47.61]
 modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]   # identical in all 3 runs, and to geode_cpu_t8
 modes_participation = [0.0000, 0.0000, 0.0000, 0.0000, 0.9942, 0.0005]
 physical_modes_matching_palace = 1
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical"]   # summarize.py; identical in all 3 runs
+n_physical = 1   # of Palace's 6
+like_for_like = false   # vs the Palace cells: 1 of the 6 physical modes Palace returns for the same request (#927)
 
 [cells.palace_cpu_np8_nosave]
 mode = "Palace CUDA image, Device = CPU, 8 MPI ranks x 1 OMP thread, libCEED /cpu/self/opt/blocked, Eigenmode.Save = 0"
 wall_s = [50.74, 51.18, 51.16]
 wall_s_mean = 51.03
 wall_s_stddev = 0.25
+modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]   # raw/<cell>_run<i>_eig.csv; identical in all 3 runs
+modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
+n_physical = 6   # the reference set: these six modes define "physical" here
 peak_rss_kb_per_rank_max = [940708, 941908, 924636]
 cpu_percent = [795, 795, 795]   # whole mpirun process tree
 user_s = [372.80, 376.21, 375.81]
@@ -186,6 +205,9 @@ mode = "Palace CUDA image, Device = GPU, 1 MPI rank x 1 OMP thread, 1x A100, lib
 wall_s = [72.22, 72.30, 71.93]
 wall_s_mean = 72.15
 wall_s_stddev = 0.20
+modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]   # raw/<cell>_run<i>_eig.csv; identical in all 3 runs
+modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
+n_physical = 6   # the reference set: these six modes define "physical" here
 peak_rss_kb = [2231992, 2235136, 2209360]
 cpu_percent = [100, 100, 100]
 user_s = [69.91, 69.99, 69.71]
@@ -199,6 +221,9 @@ mode = "as palace_cpu_np8_nosave, identical fixture config (Eigenmode.Save = 6)"
 wall_s = [134.65, 135.94, 136.90]
 wall_s_mean = 135.83
 wall_s_stddev = 1.13
+modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]   # raw/<cell>_run<i>_eig.csv; identical in all 3 runs
+modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
+n_physical = 6   # the reference set: these six modes define "physical" here
 peak_rss_kb_per_rank_max = [941812, 940696, 938888]
 cpu_percent = [798, 798, 798]
 user_s = [1040.02, 1050.66, 1056.51]
@@ -210,6 +235,9 @@ mode = "as palace_gpu_np1_nosave, identical fixture config (Eigenmode.Save = 6)"
 wall_s = [688.56, 696.85, 686.07]
 wall_s_mean = 690.49
 wall_s_stddev = 5.64
+modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]   # raw/<cell>_run<i>_eig.csv; identical in all 3 runs
+modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
+n_physical = 6   # the reference set: these six modes define "physical" here
 peak_rss_kb = [2228048, 2232412, 2231992]
 cpu_percent = [100, 100, 100]
 user_s = [685.92, 694.28, 683.46]
@@ -225,3 +253,4 @@ single_rank_gpu = "Palace-GPU ran 1 MPI rank on the single GPU (the standard 1 r
 phase_accounting = "Palace's Elapsed Time Report rows are exclusive (an indented sub-timer is not included in its parent), so on any one rank the rows sum to Total. The Max-over-ranks column cannot be summed across rows: on 8 ranks, Initialization Max = 24.07 s and Mesh Preprocessing Max = 21.39 s come from DIFFERENT ranks (min/max pairs 4.88+21.37 and 24.03+2.22 both give 26.25 s). Summing the Max column gives a phantom 45.5 s for Init + Mesh on CPU (and 64.1 s for all rows vs a 50.6 s Total). Group sums above therefore use the Avg column, which does sum to Total (summarize.py prints the check, phase_avg_rows_sum_s)."
 geode_threads = "GEODE_NUM_THREADS caps faer's sparse LU thread pool (crates/geode-core/src/eigen/parallel.rs) but not the rest of the pipeline: the =1 cells used 683-690% CPU (198 s user + 48 s sys over 36 s wall) and the =8 cells 961-984%. Neither geode cell is a thread-count-matched comparison with Palace (795% on 8 ranks; 100% for the 1-rank GPU run, whose work is on the device)."
 geode_modes = "Every geode run returned the same 6 pairs: 4 gradient near-kernel modes (0.000478, 0.000562, 0.000602, 0.000760 GHz; participation 0), the known spurious 3.452751 GHz mode (p = 0.9942; benchmarks/transmon_eigen/results.toml [spurious_mode], #514) and 5.152825 GHz (matches Palace's 5.151336 GHz to 0.029%). Palace returns 6 physical, div-free-projected modes (5.15-26.08 GHz). The wall-clock comparison is therefore not like-for-like in output, and this run applies no geode eigen-agreement gate."
+like_for_like_927 = "Issue #927. Each cell now records modes_f_ghz, modes_class and n_physical (classified by summarize.py with the frequency-match rule of benchmarks/transmon_eigen: nearest returned mode to a Palace mode, within 1%). geode cells: n_physical = 1 of 6, like_for_like = false. Palace cells: 6 of 6. NOT DONE on this host: re-timing geode in a configuration that returns Palace's six modes, and re-timing Palace beside it (needs the paid Lambda host; operator-run). Until then no cell of this file supports 'geode is faster than Palace at the transmon eigenmode'. A geode-only measurement on a loaded developer machine (which requests return the six modes, and their cost relative to the 6-mode request on that same machine) is in ../transmon_bench_cpu/results_like_for_like_local.toml; its times are a different host and must not be compared with this file's. The Palace-GPU vs Palace-CPU result and [eigen_agreement] do not depend on this. Paper impact: #763, #593."

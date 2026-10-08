@@ -80,9 +80,25 @@ Off-target (12 modes @ 20 GHz, `[matched.off_target]`): GEODE 36.8 s (1 t) / 26.
 **target-insensitive** while Palace's iterative Krylov+AMS degrades far from a
 well-chosen shift.
 
+> **Not like-for-like output (issue [#927](https://github.com/rjwalters/geode-fem/issues/927)).**
+> The two solvers were given the same request (mesh, mode count, target). They are not
+> known to have returned the same modes. Palace returns six physical modes
+> (5.15–26.08 GHz). GEODE's ungauged shift-invert returns the six eigenvalues nearest the
+> shift, and in every run of the "6 modes @ 4.5 GHz" request that has a mode log (Lambda
+> A100, [`transmon_bench_gpu`](../../benchmarks/transmon_bench_gpu/results.toml); a
+> developer machine,
+> [`results_like_for_like_local.toml`](../../benchmarks/transmon_bench_cpu/results_like_for_like_local.toml))
+> those are four gradient near-kernel modes, the spurious 3.45 GHz port mode and **one**
+> physical mode. The m6i runs in the table have no committed mode log, so what they
+> returned is unverified. The times below are therefore wall clocks for the same request,
+> not for an equivalent answer, and the same-box re-timing with both solvers returning
+> the same six modes has not been done.
+
 Read honestly, this corner is **not** a clear GEODE win:
-- **GEODE wins wall clock** here — 28.7 s on one core beats Palace's 44.5 s on eight
-  ranks (~12× fewer core-seconds, `notes.per_core_efficiency`). But this is a
+- **GEODE has the lower wall clock for the same request** here — 28.7 s on one core
+  against Palace's 44.5 s on eight
+  ranks (~12× fewer core-seconds, `notes.per_core_efficiency`). That is not shown for an
+  equivalent output (see the note above). It is also a
   per-core-efficiency / direct-vs-iterative reading, **not** a parallelization claim:
   GEODE's 8-thread run gives essentially **no speedup** over 1 thread at the physical
   target (28.7 → 29.0 s; issue [#518](https://github.com/rjwalters/geode-fem/issues/518)).
@@ -141,14 +157,15 @@ path than the incumbent even attempts.
 
 | axis | winner |
 |------|--------|
-| small–medium wall clock | GEODE (28.7 s vs 44.5 s) — but ~6× the memory, no parallel speedup |
+| small–medium wall clock | GEODE for the same request (28.7 s vs 44.5 s) — but not shown for the same returned modes (#927), ~6× the memory, no parallel speedup |
 | memory (all scales) | **Palace** |
 | large-scale (≥1M DOF) wall clock **and** memory | **Palace** |
 | interior eigensolve at the physical deep shift | **Palace** (direct factorization) |
 | distributed scale (24.5M DOF, 99% efficiency) | **Palace** |
 | target-insensitivity (off-target shifts) | GEODE — but bounded by the same memory wall |
 
-GEODE's small–medium per-core wall-clock edge is real, but it is bounded by a hard memory
+GEODE's small–medium per-core wall-clock edge is measured for the same request only, not
+for an equivalent answer (#927), and it is bounded by a hard memory
 wall, buys no parallel scaling, and carries a ~6× memory penalty — so it does not amount
 to a corner where GEODE is the clear choice. Palace wins scale, memory, the interior
 eigensolve, and raw wall clock at the sizes that matter for production devices.
@@ -248,7 +265,8 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
   the identical mesh. Treat this as a cross-check credential.
 - **Performance:** Palace wins where it counts — scale, memory, the interior eigensolve,
   and raw wall clock at production sizes. GEODE has a narrow small–medium per-core
-  efficiency edge that does not survive scaling. **No clearly-preferred GEODE raw-perf
+  efficiency edge for the same request, which is not established for the same returned
+  modes (#927) and does not survive scaling. **No clearly-preferred GEODE raw-perf
   corner exists.**
 - **Complement:** GEODE's tensor-native, single-binary, differentiable-by-construction
   substrate adds **solver-derived design sensitivities** across the full

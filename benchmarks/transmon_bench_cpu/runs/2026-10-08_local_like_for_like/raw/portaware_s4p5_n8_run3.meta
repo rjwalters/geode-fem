@@ -1,0 +1,8 @@
+cell=portaware_s4p5_n8
+run=3
+env=GEODE_INNER=direct GEODE_GAUGE=port_aware GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=8 GEODE_NUM_THREADS=1 RAYON_NUM_THREADS=1
+start_utc=2026-10-08T08:49:53Z
+loadavg_before=161.98 98.55 82.94
+end_utc=2026-10-08T08:50:59Z
+loadavg_after=185.79 117.52 91.19
+exit=0
