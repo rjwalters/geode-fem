@@ -103,6 +103,29 @@
 //! normal f32 outcome at `tol = 1e-6`, so the harness records it as a timed
 //! "drift" cell (`converged = false, recursion_converged = true`) rather than
 //! a failure — see [`Attempt`].
+//!
+//! ## AMS-preconditioned config (issue #930)
+//!
+//! Config 2 is assembled COCG with the **Jacobi** preconditioner, whose
+//! iteration count grows with the mesh (2 969 → 10 154 from 25.7k to 463k
+//! edges in the #520 run). The opt-in config `iterative_ams` (emitted as
+//! `5_iterative_ams`, method `cocg_ams`) is the same assembled COCG at the
+//! same tolerance with the Hiptmair–Xu AMS preconditioner
+//! ([`IterativePreconditioner::AMS`], issue #744) instead. It is **not** in
+//! the default config set, so default runs and their output are unchanged:
+//! ```text
+//! GEODE_SCALING_SIZES=15,20 GEODE_SCALING_REPS=0 GEODE_SCALING_SPLIT_SETUP=1 \
+//!   GEODE_SCALING_CONFIGS=direct,iterative,iterative_ams \
+//!   GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 \
+//!   cargo test -p geode-core --release --test gpu_driven_scaling -- --ignored --nocapture
+//! ```
+//! The AMS cell always reports the warm-up solve split into
+//! `warmup_setup_s` (`prepare_at`: assemble `A(ω)` and build the
+//! preconditioner) and `warmup_krylov_s` (`solve`: the Krylov iteration and
+//! the back-substitution); `GEODE_SCALING_SPLIT_SETUP=1` adds the same two
+//! keys to every other cell so the setup costs can be compared. An AMS solve
+//! that does not converge is recorded as a DNF or drift cell, never a panic:
+//! whether AMS converges on this operator is the measured result.
 
 use std::time::Instant;
 
@@ -110,7 +133,8 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativeSettings, SolverMode,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, IterativePreconditioner,
+    IterativeSettings, SolverMode,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
@@ -166,7 +190,8 @@ const DEFAULT_ITER_MAX: usize = 20_000;
 /// |---|---|---|
 /// | `GEODE_SCALING_SIZES` | `6,9,12,15` | comma-separated `cube_tet_mesh(n)` sizes |
 /// | `GEODE_SCALING_REPS` | `3` | timed reps per loop; `0` = warm-up solve only |
-/// | `GEODE_SCALING_CONFIGS` | `direct,iterative,matrix_free` | config subset |
+/// | `GEODE_SCALING_CONFIGS` | `direct,iterative,matrix_free` | config subset; `iterative_ams` (issue #930) is opt-in only |
+/// | `GEODE_SCALING_SPLIT_SETUP` | unset | `1` adds `warmup_setup_s` / `warmup_krylov_s` to every cell |
 /// | `GEODE_SCALING_SKIP_E2E` | unset | `1` skips the end-to-end (re-assemble) reps |
 /// | `GEODE_SCALING_SKIP_SWEEP` | unset | `1` skips the 5-point ω sweep |
 /// | `GEODE_SCALING_ITER_MAX` | `20000` | COCG iteration cap (bounds DNF cost) |
@@ -181,6 +206,10 @@ struct Knobs {
     direct: bool,
     iterative: bool,
     matrix_free: bool,
+    /// Assembled COCG + AMS (issue #930). Never on by default.
+    iterative_ams: bool,
+    /// Emit the setup / Krylov split of the warm-up solve on every cell.
+    split_setup: bool,
     skip_e2e: bool,
     skip_sweep: bool,
     iter_max: usize,
@@ -215,8 +244,9 @@ impl Knobs {
         let configs: Vec<&str> = configs.split(',').map(str::trim).collect();
         for c in &configs {
             assert!(
-                matches!(*c, "direct" | "iterative" | "matrix_free"),
-                "GEODE_SCALING_CONFIGS entry {c:?} must be one of direct, iterative, matrix_free"
+                matches!(*c, "direct" | "iterative" | "matrix_free" | "iterative_ams"),
+                "GEODE_SCALING_CONFIGS entry {c:?} must be one of direct, iterative, \
+                 matrix_free, iterative_ams"
             );
         }
         Self {
@@ -225,6 +255,8 @@ impl Knobs {
             direct: configs.contains(&"direct"),
             iterative: configs.contains(&"iterative"),
             matrix_free: configs.contains(&"matrix_free"),
+            iterative_ams: configs.contains(&"iterative_ams"),
+            split_setup: flag("GEODE_SCALING_SPLIT_SETUP"),
             skip_e2e: flag("GEODE_SCALING_SKIP_E2E"),
             skip_sweep: flag("GEODE_SCALING_SKIP_SWEEP"),
             iter_max: usize_of("GEODE_SCALING_ITER_MAX", DEFAULT_ITER_MAX),
@@ -447,11 +479,25 @@ enum Attempt {
 }
 
 fn attempt(fix: &Fixture, omega: f64, mode: SolverMode) -> Attempt {
+    attempt_timed(fix, omega, mode).0
+}
+
+/// [`attempt`], also returning the wall clock of its two stages:
+/// `(setup_s, krylov_s)`. `setup_s` is `prepare_at` (assemble `A(ω)`, then
+/// factor it on the direct path or build the preconditioner on the iterative
+/// ones); `krylov_s` is `solve` (the Krylov iteration, or the triangular
+/// solves on the direct path, plus the explicit-residual check).
+fn attempt_timed(fix: &Fixture, omega: f64, mode: SolverMode) -> (Attempt, f64, f64) {
+    let t0 = Instant::now();
     let solver = fix
         .op
         .prepare_at::<B>(omega, mode, &device())
         .expect("prepare_at");
-    match solver.solve() {
+    let setup_s = t0.elapsed().as_secs_f64();
+    let t1 = Instant::now();
+    let solved = solver.solve();
+    let krylov_s = t1.elapsed().as_secs_f64();
+    let a = match solved {
         Ok((sol, report)) => Attempt::Ok(Box::new(sol), report.iters, report.residual_rel),
         Err(e) => {
             let msg = format!("{e}");
@@ -460,7 +506,8 @@ fn attempt(fix: &Fixture, omega: f64, mode: SolverMode) -> Attempt {
                 None => Attempt::Fail(msg),
             }
         }
-    }
+    };
+    (a, setup_s, krylov_s)
 }
 
 /// Parse the issue #744 drift message ("... the recursive residual met the
@@ -506,6 +553,10 @@ struct Cell {
     /// one-time GPU kernel compilation / autotune). Always measured, and the
     /// only timing when `reps = 0`.
     warmup_s: f64,
+    /// The `prepare_at` part of the warm-up solve (see [`attempt_timed`]).
+    warmup_setup_s: f64,
+    /// The `solve` part of the warm-up solve (see [`attempt_timed`]).
+    warmup_krylov_s: f64,
     /// Port-1 voltage `V` read off the warm-up solution (for the Palace
     /// cross-check: `S11 = V / V_inc − 1` under geode's Thevenin convention).
     v_port: c64,
@@ -552,7 +603,7 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e:
     // report used for the accuracy / iteration / residual columns, and
     // detects hard non-convergence before committing to timed reps.
     let t_warm = Instant::now();
-    let warm = attempt(fix, OMEGA_SINGLE, mode);
+    let (warm, warmup_setup_s, warmup_krylov_s) = attempt_timed(fix, OMEGA_SINGLE, mode);
     let warmup_s = t_warm.elapsed().as_secs_f64();
     let (e_edges, v_port, iters, residual_rel, explicit_converged) = match warm {
         Attempt::Ok(sol, iters, res) => {
@@ -625,6 +676,8 @@ fn time_config(n: usize, fix: &Fixture, mode: SolverMode, reps: usize, skip_e2e:
         e2e_reps_ok: e2e_times.len(),
         reps,
         warmup_s,
+        warmup_setup_s,
+        warmup_krylov_s,
         v_port,
         iters,
         residual_rel,
@@ -717,6 +770,17 @@ fn gpu_driven_scaling_benchmark() {
         knobs.skip_e2e,
         knobs.skip_sweep
     );
+    // Extra header lines only for the opt-in knobs, so a default run's
+    // output is unchanged (issue #930).
+    if knobs.iterative_ams {
+        println!(
+            "# config 5=Iterative(assembled COCG+AMS, CPU f64, tol {ITER_TOL_F64:e}); opt-in \
+             (issue #930)"
+        );
+    }
+    if knobs.split_setup {
+        println!("# split_setup = true: every cell carries warmup_setup_s / warmup_krylov_s");
+    }
     println!();
 
     for &n in &knobs.sizes {
@@ -765,6 +829,7 @@ fn gpu_driven_scaling_benchmark() {
                 0.0, // reference vs itself
                 sw,
                 knobs.skip_sweep,
+                knobs.split_setup,
             );
             Some(c)
         } else {
@@ -810,6 +875,7 @@ fn gpu_driven_scaling_benchmark() {
                 acc_iter,
                 sw_iter,
                 knobs.skip_sweep,
+                knobs.split_setup,
             );
             // Sanity rails for the CPU f64 config (always enforced; the
             // accuracy rail only when a Direct reference exists).
@@ -854,6 +920,7 @@ fn gpu_driven_scaling_benchmark() {
                         acc_mf,
                         sw_mf,
                         knobs.skip_sweep,
+                        knobs.split_setup,
                     );
                     // Accuracy envelope: f64 matrix-free tracks the assembled
                     // path (~1e-8); f32 floors at the f32 residual ceiling
@@ -903,6 +970,68 @@ fn gpu_driven_scaling_benchmark() {
                 }
             }
         }
+
+        // Config 5: assembled COCG + Hiptmair–Xu AMS, CPU f64 (issue #930).
+        // Opt-in. Same Krylov method, tolerance and iteration cap as config
+        // 2; only the preconditioner differs. Non-convergence is a measured
+        // outcome here (a DNF or drift cell), not a benchmark failure.
+        if knobs.iterative_ams {
+            let mode =
+                SolverMode::Iterative(iset_f64.with_preconditioner(IterativePreconditioner::AMS));
+            let o_ams = time_config(n, &fix, mode, reps, knobs.skip_e2e);
+            match &o_ams {
+                Outcome::Converged(c_ams) => {
+                    let sw_ams = sweep(mode);
+                    let acc_ams = acc_vs_direct(&c_ams.e_edges);
+                    emit_cell(
+                        n,
+                        fix.n_edges,
+                        fix.n_interior,
+                        "5_iterative_ams",
+                        "cocg_ams",
+                        "cpu",
+                        "f64",
+                        ITER_TOL_F64,
+                        c_ams,
+                        acc_ams,
+                        sw_ams,
+                        knobs.skip_sweep,
+                        true, // the AMS cell always reports its setup split
+                    );
+                    // The config-2 rails, applied to a cell that converged:
+                    // a converged AMS solve must be as accurate as Jacobi's.
+                    if c_ams.explicit_converged {
+                        assert!(
+                            c_ams.residual_rel < 1e-5,
+                            "config 5 (AMS) explicit residual {} exceeds 1e-5 at n={n}",
+                            c_ams.residual_rel
+                        );
+                        assert!(
+                            acc_ams.is_nan() || acc_ams < 1e-5,
+                            "config 5 (AMS) rel-L2 vs Direct = {acc_ams} exceeds 1e-5 at n={n}"
+                        );
+                    }
+                }
+                Outcome::Dnf {
+                    attempt_s,
+                    stagnated_residual,
+                    message,
+                } => emit_dnf_cell(
+                    n,
+                    fix.n_edges,
+                    fix.n_interior,
+                    "5_iterative_ams",
+                    "cocg_ams",
+                    "cpu",
+                    "f64",
+                    ITER_TOL_F64,
+                    iter_max,
+                    *attempt_s,
+                    *stagnated_residual,
+                    message,
+                ),
+            }
+        }
     }
 
     println!("# ---- end fragment ----");
@@ -924,6 +1053,7 @@ fn emit_cell(
     accuracy_rel_l2_vs_direct: f64,
     sweep: Option<(f64, usize)>,
     sweep_skipped: bool,
+    split_setup: bool,
 ) {
     let flaky =
         cell.solve_reps_ok < cell.reps || (cell.e2e_reps_ok > 0 && cell.e2e_reps_ok < cell.reps);
@@ -948,6 +1078,10 @@ fn emit_cell(
     println!("solve_reps_ok = {}", cell.solve_reps_ok);
     println!("e2e_reps_ok = {}", cell.e2e_reps_ok);
     println!("warmup_solve_s = {:.6}", cell.warmup_s);
+    if split_setup {
+        println!("warmup_setup_s = {:.6}", cell.warmup_setup_s);
+        println!("warmup_krylov_s = {:.6}", cell.warmup_krylov_s);
+    }
     println!("solve_only_s = {}", toml_f64_fixed(cell.solve_s));
     println!("end_to_end_s = {}", toml_f64_fixed(cell.end_to_end_s));
     println!("iterations = {}", cell.iters);
