@@ -216,7 +216,7 @@ The opt-in `arpack` Cargo feature switches in an ARPACK-backed driver
 Lanczos. The Lanczos remains the default; ARPACK never becomes the
 default by design (issue #24 non-goal). FFI bindings to `dsaupd_c` /
 `dseupd_c` (the stable ARPACK ICB C wrappers, available since arpack-ng
-3.7) are vendored inline in `crates/geode-core/src/arpack.rs`, so no
+3.7) are vendored inline in `crates/geode-core/src/eigen/arpack.rs`, so no
 `bindgen` / `clang` / `gfortran` toolchain is required at build time —
 the only build-time work is `pkg-config`-based discovery of the system
 `libarpack`.
@@ -256,7 +256,7 @@ The Homebrew `arpack` formula does ship the ICB C headers under
 story that motivated the original opt-in framing (a quirk in
 `arpack-ng-sys` where its `system` feature can't resolve
 `<arpack/arpack.h>` because Homebrew's `arpack.pc` sets `includedir`
-one level too deep) is documented in `crates/geode-core/src/arpack.rs`.
+one level too deep) is documented in `crates/geode-core/src/eigen/arpack.rs`.
 
 ### Workspace layout
 

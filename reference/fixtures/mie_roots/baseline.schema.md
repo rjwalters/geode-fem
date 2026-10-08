@@ -15,7 +15,7 @@ Rust side vs `scipy.special.spherical_jn`/`spherical_yn`) and 1-D root
 finding (60-step bisection vs `scipy.optimize.brentq`).
 
 Physical setup (PEC-cavity dielectric sphere, the v0 Mie benchmark
-ground truth — see the `crates/geode-core/src/mie.rs` module docs):
+ground truth — see the `crates/geode-core/src/analytic/mie/closed.rs` module docs):
 
 - Inner dielectric sphere `0 ≤ r ≤ R_s = 1.0`, refractive index
   `n = 1.5` (`N_INSIDE` in `examples/mie_sphere.rs`).

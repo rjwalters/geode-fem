@@ -126,7 +126,7 @@ and committed baselines; none are new measurements.
   test `cube_cavity_onnx_reference.rs`
   ([PR #119](https://github.com/rjwalters/geode-fem/pull/119),
   [PR #125](https://github.com/rjwalters/geode-fem/pull/125)).
-- **Burn** — `crates/geode-core/src/p1.rs`.
+- **Burn** — `crates/geode-core/src/elements/p1.rs`.
 - Acceptance anchor (all backends): lowest 5 cube-cavity modes vs the
   analytic {3, 6, 6, 6, 9}·π² spectrum, with the cluster-closure window
   (friction artifact 2).
@@ -158,7 +158,7 @@ and committed baselines; none are new measurements.
   test `sphere_pec_onnx_reference.rs`
   ([PR #138](https://github.com/rjwalters/geode-fem/pull/138),
   [PR #142](https://github.com/rjwalters/geode-fem/pull/142)).
-- **Burn** — `crates/geode-core/src/nedelec.rs`.
+- **Burn** — `crates/geode-core/src/elements/nedelec.rs`.
 
 ### Row 4 — Scalar (isotropic) PML construction
 
@@ -195,8 +195,8 @@ and committed baselines; none are new measurements.
   [`onnx/audit/sphere_pml/probe_complex_local_scatter.py`](onnx/audit/sphere_pml/probe_complex_local_scatter.py),
   audit [`onnx/audit/sphere_pml/nedelec_pml_operator_audit.md`](onnx/audit/sphere_pml/nedelec_pml_operator_audit.md)
   ([PR #162](https://github.com/rjwalters/geode-fem/pull/162)).
-- **Burn** — complex assembly path in `crates/geode-core/src/nedelec_assembly.rs`
-  (f64-pair split kernels) + `complex_eigen.rs` / `complex_lanczos.rs`.
+- **Burn** — complex assembly path in `crates/geode-core/src/assembly/nedelec.rs`
+  (f64-pair split kernels) + `eigen/complex/dense.rs` / `eigen/complex/lanczos.rs`.
 
 ### Row 5 — Tensor-ε (anisotropic UPML) construction
 
@@ -231,9 +231,10 @@ and committed baselines; none are new measurements.
   bit-exact): [`onnx/audit/sphere_mie/probe_tensor_eps_ramp.py`](onnx/audit/sphere_mie/probe_tensor_eps_ramp.py),
   audit [`onnx/audit/sphere_mie/mie_operator_audit.md`](onnx/audit/sphere_mie/mie_operator_audit.md)
   ([PR #182](https://github.com/rjwalters/geode-fem/pull/182)).
-- **Burn** — `build_anisotropic_pml_tensor_diag` +
+- **Burn** — `build_anisotropic_pml_tensor_diag` in
+  `crates/geode-core/src/assembly/nedelec.rs` +
   `batched_nedelec_local_mass_anisotropic_diag` in
-  `crates/geode-core/src/nedelec_assembly.rs`
+  `crates/geode-core/src/elements/nedelec.rs`
   ([PR #60](https://github.com/rjwalters/geode-fem/pull/60)).
 
 ### Row 6 — Global assembly / gather-scatter
@@ -252,8 +253,8 @@ Exercised end-to-end by every slice above; per-backend lowering:
   and G.7 graphs ([`onnx/cube_cavity/assembly_graph.py`](onnx/cube_cavity/assembly_graph.py),
   [`onnx/sphere_pec/assembly_graph.py`](onnx/sphere_pec/assembly_graph.py),
   probe [`onnx/audit/probe_assembly_scatter.py`](onnx/audit/probe_assembly_scatter.py)).
-- **Burn** — `crates/geode-core/src/assembly.rs`, `nedelec_assembly.rs`, and
-  the named L4 operator surface `fe_assemble.rs`
+- **Burn** — `crates/geode-core/src/assembly/p1.rs`, `assembly/nedelec.rs`, and
+  the named L4 operator surface `assembly/fe.rs`
   ([PR #139](https://github.com/rjwalters/geode-fem/pull/139),
   [PR #143](https://github.com/rjwalters/geode-fem/pull/143)).
 
@@ -268,7 +269,7 @@ Exercised end-to-end by every slice above; per-backend lowering:
   [`onnx/audit/probe_dirichlet_mask.py`](onnx/audit/probe_dirichlet_mask.py),
   [`onnx/audit/sphere_pec/probe_pec_mask.py`](onnx/audit/sphere_pec/probe_pec_mask.py),
   executed in the F.2/G.7 graphs.
-- **Burn** — `apply_dirichlet_bc` in `crates/geode-core/src/assembly.rs`.
+- **Burn** — `apply_dirichlet_bc` in `crates/geode-core/src/eigen/dense.rs`.
 
 ### Row 8 — Discrete de Rham d⁰ / d¹ / d² (exactly at the bar)
 
@@ -292,7 +293,7 @@ Exercised end-to-end by every slice above; per-backend lowering:
   [`onnx/audit/derham/probe_d1_apply.py`](onnx/audit/derham/probe_d1_apply.py),
   [`onnx/audit/derham/probe_exactness_in_graph.py`](onnx/audit/derham/probe_exactness_in_graph.py).
 - **JAX / TF-Java** — no implementation (the row meets the bar without them).
-- **Burn** — `crates/geode-core/src/derham.rs` (Epic #57).
+- **Burn** — `crates/geode-core/src/derham/mod.rs` (Epic #57).
 
 ### Row 9 — Generalized eigensolve boundary (opaque-node contract)
 
@@ -313,8 +314,8 @@ same boundary. This row is therefore met as an opaque operator node
   on lossy complex pencils (Arpack windowed selection unreliable there —
   friction artifact 6).
 - **ONNX** — host-side; no eigensolver in the graph (every audit).
-- **Burn** — faer dense QZ (`eigen.rs`), shift-invert Lanczos (`lanczos.rs`,
-  `complex_lanczos.rs`), ARPACK FFI (`arpack.rs`,
+- **Burn** — faer dense QZ (`eigen/dense.rs`), shift-invert Lanczos (`eigen/lanczos.rs`,
+  `eigen/complex/lanczos.rs`), ARPACK FFI (`eigen/arpack.rs`,
   [PR #73](https://github.com/rjwalters/geode-fem/pull/73)).
 
 Independent solver lineages cross-checked: SciPy/LAPACK vs Arpack.jl vs
@@ -353,7 +354,7 @@ not independent-solver agreement.
   [PR #182](https://github.com/rjwalters/geode-fem/pull/182)).
 - **JAX / TF-Java** — no implementation; both consume the J.1 catalogue
   fixture for classification.
-- **Burn** — `crates/geode-core/src/mie.rs` (`mie_roots_catalog`,
+- **Burn** — `crates/geode-core/src/analytic/mie/closed.rs` (`mie_roots_catalog`,
   `merged_roots`).
 
 ### Row 11 — Mode classification / selection
