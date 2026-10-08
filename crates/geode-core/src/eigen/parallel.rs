@@ -53,6 +53,17 @@
 //! a determinism tripwire, but larger problems should be compared within
 //! tolerance.
 //!
+//! # Sequential scopes for repeated small solves
+//!
+//! faer's sparse `Lu::solve_in_place` reads the same global and hands it to
+//! the triangular solves on the supernodes. A preconditioner that calls it
+//! once or twice per Krylov iteration (the AMS V-cycle's coarse solves) must
+//! not run those solves on the rayon pool: each one is a few hundred
+//! microseconds of work, and waking the pool for it costs more than the solve
+//! (issue #946). [`SequentialSolveScope`] sets `Par::Seq` for a whole Krylov
+//! solve. Unlike [`ParallelismGuard`] it is reference-counted, so scopes held
+//! by concurrent solves on different threads can end in any order.
+//!
 //! # When faer is built without `rayon`
 //!
 //! `Par::Rayon` only exists when faer is compiled with its `rayon` feature.
@@ -62,6 +73,7 @@
 
 use std::cell::Cell;
 use std::env;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use faer::{Par, get_global_parallelism, set_global_parallelism};
 
@@ -79,7 +91,15 @@ pub const NUM_THREADS_ENV: &str = "GEODE_NUM_THREADS";
 /// asserts "the global equals X" can therefore race another test that
 /// concurrently sets it to Y. Any test in the crate that observes or mutates
 /// the global parallelism must hold this lock for the duration of the
-/// observation so those tests run one at a time.
+/// observation so those tests run one at a time. That includes a test that
+/// runs an AMS-preconditioned driven solve, which holds a
+/// [`SequentialSolveScope`] (issue #946).
+///
+/// The eigensolver tests do not take it, although each direct eigensolve caps
+/// the global around its factorization. So a lib test must not assert on the
+/// value of faer's global across more than a few instructions: the
+/// [`SequentialSolveScope`] assertions that need a quiet process live in the
+/// single-test integration target `tests/driven_ams_sequential_scope.rs`.
 #[cfg(test)]
 pub(crate) static PARALLELISM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -287,6 +307,124 @@ impl Drop for ParallelismGuard {
     }
 }
 
+/// Bookkeeping for the live [`SequentialSolveScope`]s: how many there are,
+/// and the global parallelism the first of them replaced.
+///
+/// Kept apart from faer's global so the save / restore rule can be tested
+/// without touching process state.
+#[derive(Debug)]
+struct SequentialScopes {
+    live: usize,
+    prior: Option<Par>,
+}
+
+impl SequentialScopes {
+    const fn new() -> Self {
+        Self {
+            live: 0,
+            prior: None,
+        }
+    }
+
+    /// Register one more scope. `current` is the global parallelism right
+    /// now. Returns `true` when the caller must set the global to `Par::Seq`,
+    /// which is the case for the first live scope only: that scope's
+    /// `current` is the value to restore later.
+    fn enter(&mut self, current: Par) -> bool {
+        self.live += 1;
+        if self.live == 1 {
+            self.prior = Some(current);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Unregister one scope. Returns the parallelism to restore when it was
+    /// the last live one, and `None` while any other scope is still live.
+    fn leave(&mut self) -> Option<Par> {
+        self.live = self.live.saturating_sub(1);
+        if self.live == 0 {
+            self.prior.take()
+        } else {
+            None
+        }
+    }
+}
+
+static SEQUENTIAL_SCOPES: Mutex<SequentialScopes> = Mutex::new(SequentialScopes::new());
+
+/// Lock [`SEQUENTIAL_SCOPES`]. A poisoned lock is still used: the state is
+/// two plain fields and every update leaves it consistent.
+fn sequential_scopes() -> MutexGuard<'static, SequentialScopes> {
+    SEQUENTIAL_SCOPES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// RAII scope that makes faer's process-global parallelism `Par::Seq` while
+/// it is alive (issue #946).
+///
+/// Hold one around a Krylov solve whose preconditioner calls a faer sparse
+/// `solve_in_place` on every application:
+///
+/// ```ignore
+/// let _seq = SequentialSolveScope::enter();
+/// ksp.solve(a, b, x, &precond)?; // restored here too, on the `?` return
+/// ```
+///
+/// Take **one scope per solve, not one per preconditioner application**. The
+/// global is a single atomic shared by every thread, so each change is a
+/// window in which another thread's faer call sees the wrong value.
+///
+/// # Why not [`ParallelismGuard::cap`]`(1)`
+///
+/// A `ParallelismGuard` restores the value it saw when it was built. Two of
+/// them on different threads that end in the opposite order to the one they
+/// started in leave the global wrong: the one built second saved `Par::Seq`,
+/// and if it is dropped last it restores `Par::Seq` for good. Concurrent
+/// solves do end in arbitrary order (the CLI's `--jobs`), so this scope is
+/// reference-counted instead: the first live scope saves the prior value and
+/// sets `Par::Seq`, later ones only count, and the last one to drop restores
+/// the saved value. The drop runs on early return and during panic unwinding.
+///
+/// # What it does not do
+///
+/// It does not isolate a thread. A faer factorization started on another
+/// thread while a scope is live also runs sequentially, unless that thread
+/// sets its own [`ParallelismGuard`]. A `ParallelismGuard` that is built
+/// inside a live scope on another thread and outlives it will restore
+/// `Par::Seq` when it drops, exactly as two overlapping `ParallelismGuard`s
+/// already could. Results are unaffected in both cases: the setting changes
+/// how many threads faer uses, never what it computes beyond roundoff.
+#[derive(Debug)]
+#[must_use = "the scope ends on drop; binding it to `_` drops it immediately"]
+pub struct SequentialSolveScope {
+    _private: (),
+}
+
+impl SequentialSolveScope {
+    /// Start a sequential scope. See the type docs.
+    pub fn enter() -> Self {
+        // The lock is held across the read and the write of faer's global so
+        // two scopes starting together cannot both think they are the first.
+        let mut scopes = sequential_scopes();
+        if scopes.enter(get_global_parallelism()) {
+            set_global_parallelism(Par::Seq);
+        }
+        Self { _private: () }
+    }
+}
+
+impl Drop for SequentialSolveScope {
+    fn drop(&mut self) {
+        let mut scopes = sequential_scopes();
+        if let Some(prior) = scopes.leave() {
+            set_global_parallelism(prior);
+        }
+    }
+}
+
 /// Set faer's global parallelism to `Par::rayon(n)` when faer's `rayon`
 /// feature is enabled; otherwise a no-op that reports `false`.
 ///
@@ -375,6 +513,30 @@ mod tests {
             let _g = ParallelismGuard::cap(3);
         }
         assert_eq!(get_global_parallelism(), before);
+    }
+
+    /// The save / restore rule of [`SequentialScopes`], on plain values: only
+    /// the first live scope asks for `Par::Seq` and records the prior value,
+    /// and only the last one to leave hands it back, whatever the order.
+    #[test]
+    fn sequential_scopes_restore_the_prior_only_when_the_last_one_leaves() {
+        let prior = Par::rayon(3);
+        let mut scopes = SequentialScopes::new();
+
+        assert!(scopes.enter(prior), "the first scope must set Par::Seq");
+        // A second scope starts while the global already reads Par::Seq. It
+        // must not overwrite the saved prior with that.
+        assert!(!scopes.enter(Par::Seq), "a nested scope must not set again");
+        assert!(!scopes.enter(Par::Seq));
+        assert_eq!(scopes.leave(), None, "two scopes are still live");
+        assert_eq!(scopes.leave(), None, "one scope is still live");
+        assert_eq!(scopes.leave(), Some(prior), "the last scope restores");
+
+        // Fully released: the next scope is a first scope again, with its own
+        // prior, and an unbalanced extra `leave` restores nothing.
+        assert_eq!(scopes.leave(), None);
+        assert!(scopes.enter(Par::Seq));
+        assert_eq!(scopes.leave(), Some(Par::Seq));
     }
 
     /// The `GEODE_NUM_THREADS` parse honors a positive integer and falls

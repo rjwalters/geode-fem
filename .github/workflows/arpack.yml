@@ -202,12 +202,15 @@ jobs:
       # mode gauge: S21 phase vs e^{-jβL} under face reordering / re-winding,
       # committed Gmsh guides, the degenerate square-guide pair, filled,
       # mixed lumped + wave, and hybrid ports); ~1 s in release.
+      # Issue #946: `driven_ams_sequential_scope` (faer's global parallelism
+      # around an AMS-preconditioned back-solve); one test, well under 1 s.
       - name: Wave ports + iterative sweep + matrix-free driven equivalence
         run: |
           cargo test --features arpack -p geode-core --release \
               --test wave_port_from_tags \
               --test wave_port_gauge \
               --test iterative_sweep \
+              --test driven_ams_sequential_scope \
               --test driven_matrix_free_equivalence
           cargo test --features arpack -p geode-core --release \
               --test wave_port \

@@ -536,6 +536,33 @@ pub enum DrivenPreconditioner {
     Ams(std::sync::Arc<DrivenAms>),
 }
 
+impl DrivenPreconditioner {
+    /// The faer sequential scope a Krylov solve with this preconditioner
+    /// must hold, if any (issue #946). Bind the result for the whole solve:
+    ///
+    /// ```ignore
+    /// let _seq = precond.sequential_solve_scope();
+    /// ksp.solve(a, b, x, &precond)?;
+    /// ```
+    ///
+    /// `Some` for [`Self::Ams`] only. Each AMS application runs the cached
+    /// sparse LU of its coarse operators through faer's
+    /// `Lu::solve_in_place`, twice per COCG iteration (real and imaginary
+    /// part). That call takes its thread count from faer's process-global
+    /// parallelism, which defaults to every core, and the solves are far too
+    /// small to share out: on a 28-CPU machine a 102k-edge solve spent 646 s
+    /// in the kernel against 0.6 s with one thread. Jacobi, ILU(0) and
+    /// Chebyshev never call faer, so they get `None` and the global is left
+    /// alone.
+    ///
+    /// The scope covers the Krylov solve only. The preconditioner setup
+    /// (`prepare_at`, which factors the coarse operators) and the direct
+    /// solver keep the caller's parallelism.
+    pub fn sequential_solve_scope(&self) -> Option<crate::eigen::parallel::SequentialSolveScope> {
+        matches!(self, Self::Ams(_)).then(crate::eigen::parallel::SequentialSolveScope::enter)
+    }
+}
+
 impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
     fn apply(&self, r: &[c64], z: &mut [c64]) {
         match self {
@@ -3179,6 +3206,13 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
                 for o in out.iter_mut() {
                     *o = c64::new(0.0, 0.0);
                 }
+                // One sequential scope for the whole Krylov solve, not one
+                // per preconditioner application (issue #946; see
+                // `DrivenPreconditioner::sequential_solve_scope`). It drops
+                // at the end of this arm, including on the `?` returns below.
+                let _seq = precond.sequential_solve_scope();
+                #[cfg(test)]
+                tests::KRYLOV_SOLVE_SCOPED.with(|p| p.set(Some(_seq.is_some())));
                 let report = ksp
                     .solve(self.a_int.as_ref(), b, out, precond)
                     .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
@@ -4424,6 +4458,87 @@ mod tests {
         assert!(ok.residual_rel <= 1e-10);
     }
 
+    thread_local! {
+        /// Whether the calling thread's last [`SolverMode::Iterative`]
+        /// back-solve held a `SequentialSolveScope` when it started its
+        /// Krylov solve (issue #946). Test-only probe, set by `back_solve`.
+        pub(super) static KRYLOV_SOLVE_SCOPED: std::cell::Cell<Option<bool>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    /// Issue #946: an AMS back-solve holds a faer sequential scope while its
+    /// Krylov solve runs, both when the solve converges and when it returns an
+    /// error, and a Jacobi back-solve holds none. What a live scope does to
+    /// faer's global parallelism, and that the caller's value comes back, is
+    /// asserted in `tests/driven_ams_sequential_scope.rs`, which has the
+    /// process to itself.
+    #[test]
+    fn ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not() {
+        // AMS solves set faer's global parallelism, so this test runs under
+        // the lock of the tests that read that global.
+        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.05;
+        let probe = || KRYLOV_SOLVE_SCOPED.with(|p| p.replace(None));
+        let ams = |max_iters| {
+            IterativeSettings::new(1e-10, max_iters)
+                .with_preconditioner(IterativePreconditioner::AMS)
+        };
+
+        // Setup alone runs no Krylov solve and takes no scope.
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams(500)), &device())
+            .expect("AMS setup");
+        assert_eq!(probe(), None, "prepare_at must not run a Krylov solve");
+        let (_, report) = solver.solve().expect("AMS converges");
+        assert!(report.converged && report.iters > 1);
+        assert_eq!(probe(), Some(true), "converging AMS solve had no scope");
+
+        // One iteration allowed: the solve returns an error from inside the
+        // scope.
+        let failed = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams(1)), &device())
+            .expect("AMS setup")
+            .solve();
+        assert!(
+            matches!(failed, Err(DrivenError::Solve(_))),
+            "one iteration must not reach tol = 1e-10"
+        );
+        assert_eq!(probe(), Some(true), "failing AMS solve had no scope");
+
+        // Jacobi makes no faer solve per application, so it takes no scope.
+        let jacobi = IterativeSettings::new(1e-10, 5000);
+        op.prepare_at::<B>(omega, SolverMode::Iterative(jacobi), &device())
+            .expect("Jacobi setup")
+            .solve()
+            .expect("Jacobi converges");
+        assert_eq!(probe(), Some(false), "a Jacobi solve must take no scope");
+    }
+
     /// Issue #744: [`IterativePreconditioner::Ams`] is built by
     /// `prepare_at` (from the operator's mesh geometry), converges COCG on a
     /// PEC cube with a lumped-port-free volume source, and matches direct
@@ -4431,6 +4546,11 @@ mod tests {
     /// `A(ω)`) rejects it with a clean error.
     #[test]
     fn ams_selectable_on_public_iterative_path_matches_direct() {
+        // This test's AMS solves set faer's global parallelism (issue #946),
+        // so it runs under the lock of the tests that read that global.
+        let _lock = crate::eigen::parallel::PARALLELISM_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mesh = cube_tet_mesh(4, 1.0);
         let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
         let eps = vacuum(&mesh);
