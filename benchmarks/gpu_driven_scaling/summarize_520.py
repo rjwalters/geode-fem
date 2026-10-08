@@ -7,9 +7,14 @@ usage: summarize_520.py <sweep-dir>
 and palace/ (box_palace_driven.sh outputs). Each leg's .stdout is the
 gpu_driven_scaling test stdout; the TOML fragment between the "fragment"
 marker lines is parsed with tomllib. For capped (GEODE_SCALING_ITER_MAX)
-legs the cell is a DNF whose dnf_attempt_s / iterations is the per-iteration
-cost (it includes the per-omega prepare_at setup, so it slightly OVERstates
-the per-iteration cost). Pure stdlib, no fitting.
+legs the cell is a DNF; this script prints the raw capped attempt times
+(dnf_attempt_s, iterations) for the cap300 and cap1 legs. The per-iteration
+costs recorded in results_large_a100.toml are NOT dnf_attempt_s / iterations
+(that would include the per-omega prepare_at setup and JIT/autotune). They are
+setup-subtracted net values, s_per_iter_net = (t_cap300 - t_cap1) / 299, and
+the GPU/CPU per-iteration ratios. Both were computed by hand from this
+script's output (the cap legs run the same sizes in the same order per
+process, so setup cancels in the subtraction). Pure stdlib, no fitting.
 """
 import pathlib
 import re

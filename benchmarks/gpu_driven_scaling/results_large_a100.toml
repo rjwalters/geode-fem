@@ -219,10 +219,23 @@ cocg_csr_large_leg_max_rss_gb = 1.29
 # (recursion-converged) solve, 59.7k edges, Palace-GPU is 20.6x faster
 # (17.3 s vs 356.8 s) AND reaches f64 tol 1e-8 (geode-CUDA's explicit
 # residual is 1.4e-2). At 463k edges geode-CUDA cannot finish; Palace-GPU
-# takes 165 s. The decisive difference is the preconditioner, not the
-# device: Palace's GMRES + AMS converges in 5 iterations at 463k edges,
-# geode's Jacobi-COCG needs ~10 000. Palace on 8 CPU ranks beats Palace on
-# the GPU at every size here too (2.5-3.2x).
+# takes 165 s. The measured gap is geode WITH JACOBI vs Palace with AMS:
+# geode's Jacobi-COCG takes 2 969 -> 10 154 iterations (25.7k -> 463k
+# edges), Palace's GMRES + AMS ~5 at every size. This is NOT a measurement
+# of geode's best preconditioner: geode's assembled CPU driven path already
+# ships an opt-in Hiptmair-Xu AMS preconditioner (IterativePreconditioner::Ams,
+# #744/#708, crates/geode-core/src/driven/solve.rs; its #742 spike converged
+# in 102-155 iterations, flat from 14k to 53k DOF), but this harness
+# hard-codes config 2 as COCG + Jacobi, so geode's AMS path was NOT measured
+# here. The real capability gap is that the matrix-free / GPU path supports
+# Jacobi only. The AMS-at-scale measurement and the matrix-free / GPU AMS
+# question are tracked in #930 (under #547). Palace on 8 CPU ranks beats
+# Palace on the GPU at every size here too (2.5-3.2x).
+#
+# CORE-SECONDS: geode assembled COCG + Jacobi on 1 core uses FEWER
+# core-seconds than Palace on 8 ranks — ~274 vs ~481 core-s at 463k edges
+# (274.5 s x 1 vs 60.12 s x 8), ~14.0 vs ~54 at 59.7k. This is core-seconds
+# only: Palace's wall clock is lower at every size, through parallelism.
 # ---------------------------------------------------------------------------
 
 [palace_driven]
@@ -242,4 +255,6 @@ timing = "/usr/bin/time -v around `palace -np N` inside the container (container
 [notes]
 single_core_cpu = "Both the CPU matrix-free leg and the assembled-COCG leg run single-threaded (Burn ndarray / faer CSR SpMV as used here). The per-iteration crossover above is therefore GPU vs ONE CPU core of the 30 available; against a parallel CPU SpMV the GPU crossover would move further out."
 not_comparable = "Do not merge these cells into results.toml: different GPU, host, and matvec code. results.toml remains the #501 L40S record."
-palace_driven_reps = "Palace timings at 25.7k/102k/197k edges are single runs (they back the agreement column); n=3 at 59.7k and 463k."
+preconditioner_scope = "geode ran Jacobi only in this sweep (the harness hard-codes config 2 as COCG + Jacobi; the matrix-free / GPU path supports Jacobi only). geode's assembled-path AMS (IterativePreconditioner::Ams, #744/#708) was not measured here; see #930 (under #547)."
+core_seconds = "geode COCG + Jacobi on 1 core: ~274 core-s at 463k edges vs Palace 8 ranks ~481 core-s (60.12 s x 8). Core-seconds only; Palace's wall clock is lower."
+palace_driven_reps ="Palace timings at 25.7k/102k/197k edges are single runs (they back the agreement column); n=3 at 59.7k and 463k."
