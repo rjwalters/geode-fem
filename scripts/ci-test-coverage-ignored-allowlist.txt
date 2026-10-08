@@ -20,6 +20,13 @@
 #         <crate>/<target>  # <reason>           (every ignored test of the
 #                                                 target). The reason is
 #         required, on the same line.
+#
+# Unit tests (issue #921): a crate's `--lib` target is <crate>/lib, and its
+# tests are named by module path, for example
+#   geode-core/lib::driven::solve::tests::some_benchmark  # <reason>
+# No lib entry is needed today: #921 timed the four #[ignore]d geode-core
+# unit tests in release (0.7 s to 14.7 s each, local Apple M3 Ultra) and
+# arpack.yml runs all four by name.
 
 # geode-core
 
