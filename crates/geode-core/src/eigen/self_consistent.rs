@@ -54,11 +54,57 @@
 //! the dense functions are the `(FaerComplexEigensolver, ModeTarget::Index)`
 //! case of the pluggable ones.
 //!
-//! The two target rules are not interchangeable. A frozen index re-reads
-//! "the `i`-th smallest `|Re λ|`" on every solve, so it can change mode
-//! when the sorted order shuffles. [`ModeTarget::Nearest`] follows one
-//! eigenvalue continuously. They agree while the order around the target
-//! does not change.
+//! # What each target rule follows
+//!
+//! Neither [`ModeTarget`] rule tracks an eigenvector, and the two are not
+//! interchangeable.
+//!
+//! - [`ModeTarget::Index`] re-reads "the `i`-th smallest `|Re λ|`" on every
+//!   solve. It changes mode whenever the sorted order around the target
+//!   shuffles.
+//! - [`ModeTarget::Nearest`] picks the eigenvalue **nearest the previous
+//!   pick** in the complex `λ` plane. That is the nearest eigenvalue, not
+//!   the same eigenvector. It is the continuation of the previous mode
+//!   exactly when, after the `k₀` step, that mode's eigenvalue is still
+//!   nearer its old position than every other eigenvalue is. A step that
+//!   is small against the local eigenvalue spacing guarantees that; a
+//!   larger step does not. When it fails, the rule silently picks a
+//!   different eigenvector, and it never reports a loss.
+//! - [`self_consistent_k_vector_tracked_with`] is the tool for following
+//!   one mode: it picks by eigenvector overlap and returns
+//!   [`SelfConsistentResult::ModeLost`] when no candidate continues the
+//!   previous target.
+//!
+//! Measured on the 4512-DOF sphere pencil with
+//! [`SparseSelfConsistentEigensolver`] (`tests/silvermuller_self_consistent.rs`,
+//! which asserts the overlap between successive picks on every CI run):
+//!
+//! | Seed (`k₀`, `λ`) | Spacing at seed | First step in `λ` | Overlap between successive `Nearest` picks |
+//! |---|---|---|---|
+//! | 1, `0.125 + 2.297j` | 0.092 | 0.117 | 1.0000 at every step |
+//! | 20, `1.417 + 0.078j` | 0.0009 | 0.070 | 0.879 or more at every step |
+//! | 1, `0.137 + 3.060j` | 0.014 | 0.068 | 0.0005, 0.0024, 0.0180, 0.0028 at iterations 2 to 5, then 1.0000 |
+//!
+//! None of the three steps is small against the spacing, so none of the
+//! runs is guaranteed to keep its mode. Two do, as measured by the
+//! overlap. The second does so narrowly: its target has a near-degenerate
+//! partner, and at every early step the partner is only 0.0002 to 0.0006
+//! farther from the previous pick than the continuation is. The third does
+//! not: the run changes eigenvector four times and then converges on a
+//! self-consistent mode that is not the continuation of its seed. At its
+//! iterations 4 and 5 a candidate with overlap 0.9988 and 0.9997 was in
+//! the window and was farther away. Vector tracking from that seed returns
+//! `ModeLost` at iteration 2. So a `Nearest` result identifies a
+//! self-consistent mode, and says nothing about which mode unless the
+//! overlap is checked.
+//!
+//! `Nearest` does keep a mode that a frozen index loses when the step is
+//! small against the spacing: on a 3-DOF pencil whose target and intruder
+//! swap places in the sorted order, `Index(0)` ends on the intruder and
+//! `Nearest` stays on the target with overlap 1 at every step (the
+//! eigenvalue moves 0.02 per step and the intruder is never nearer than
+//! 0.12; `synthetic_proximity_keeps_mode_where_frozen_index_hops` in the
+//! same test file).
 //!
 //! # Scope: Silver-Müller only — not PML
 //!
@@ -207,10 +253,21 @@ pub enum ModeTarget {
     /// different set of modes at every shift, so an index into it does not
     /// name a mode.
     Index(usize),
-    /// Track by proximity: the first solve picks the eigenvalue nearest
+    /// Pick by proximity: the first solve picks the eigenvalue nearest
     /// this seed `λ = k²`, and each later solve picks the eigenvalue nearest
-    /// the previous solve's target. This needs only the few eigenvalues
+    /// the previous solve's pick. This needs only the few eigenvalues
     /// near the target, so it works with a windowed solver.
+    ///
+    /// This follows the **nearest eigenvalue, not the same eigenvector**.
+    /// The pick is the continuation of the previous mode only if, after
+    /// the `k₀` step, that mode's eigenvalue is still the one nearest its
+    /// old position, which is guaranteed only for a step small against the
+    /// local eigenvalue spacing. Otherwise the rule can switch eigenvector
+    /// without any signal: on the sphere fixture one seed (spacing 0.014,
+    /// first step 0.068) changes eigenvector four times before converging
+    /// on another mode (module docs). Use
+    /// [`self_consistent_k_vector_tracked_with`] when the identity of the
+    /// mode matters; it reports [`SelfConsistentResult::ModeLost`] instead.
     Nearest(c64),
 }
 
@@ -257,7 +314,12 @@ impl ModeTarget {
 /// [`self_consistent_k_vector_tracked`]) keeps its exact behaviour.
 /// [`SparseSelfConsistentEigensolver`] is the sparse windowed solver.
 pub trait SelfConsistentEigensolver {
-    /// Eigenvalues of `(K + j k₀ S, M)`, at most `n`.
+    /// Eigenvalues of `(K + j k₀ S, M)`: about `n` of them. `n` is a
+    /// request, not a bound on the length. A solver may return fewer
+    /// (the drivers treat a list too short for the target as `Diverged`)
+    /// or more: [`SparseSelfConsistentEigensolver`] returns every pair its
+    /// Krylov run confirmed, which was 12 to 14 for `n = 12` and 48 to 75
+    /// for `n = 48` on the sphere fixture.
     #[allow(clippy::too_many_arguments)]
     fn pencil_eigenvalues(
         &self,
@@ -269,9 +331,9 @@ pub trait SelfConsistentEigensolver {
         n: usize,
     ) -> Result<Vec<c64>, EigenError>;
 
-    /// Eigenpairs `(λ, x)` of `(K + j k₀ S, M)`, at most `n`. Vector
-    /// normalization is up to the solver; the vector-tracked driver
-    /// re-normalizes.
+    /// Eigenpairs `(λ, x)` of `(K + j k₀ S, M)`: about `n` of them, as for
+    /// [`Self::pencil_eigenvalues`]. Vector normalization is up to the
+    /// solver; the vector-tracked driver re-normalizes.
     #[allow(clippy::too_many_arguments)]
     fn pencil_eigenpairs(
         &self,
@@ -313,8 +375,9 @@ impl<T: ComplexEigenSolver + ?Sized> SelfConsistentEigensolver for T {
 /// Sparse windowed eigensolver for the self-consistent drivers (issue
 /// #917): the residual-checked complex shift-invert Lanczos
 /// ([`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked`]) at the
-/// shift `σ` the driver passes, returning the `n` converged pairs nearest
-/// `σ`.
+/// shift `σ` the driver passes, returning the converged pairs nearest `σ`
+/// (at least the `n` requested unless the run falls short, and possibly a
+/// few more).
 ///
 /// `σ` is complex, because a Silver-Müller target can sit far from the real
 /// axis (the overdamped surface modes of the sphere fixture have
@@ -331,11 +394,16 @@ impl<T: ComplexEigenSolver + ?Sized> SelfConsistentEigensolver for T {
 ///
 /// # What the window does to each driver
 ///
-/// - **Proximity tracking** ([`self_consistent_k_with`] with
-///   [`ModeTarget::Nearest`]) is unaffected: `σ` is the previous target, so
-///   the eigenvalue nearest it is always in the window. On the 4512-DOF
-///   sphere pencil the run agrees with the dense solver under the same rule
-///   to `1e-12` in the final `k` (issue #917).
+/// - **Proximity targeting** ([`self_consistent_k_with`] with
+///   [`ModeTarget::Nearest`]) makes the same picks as it would on a
+///   full-spectrum solver: `σ` is the previous pick, so the eigenvalue
+///   nearest it is always in the window. On the 4512-DOF sphere pencil the
+///   run agreed with the dense solver under the same rule to `1e-12` in
+///   the final `k` (two seeds, measured once for issue #917, not in CI).
+///   The window does not make those picks one mode: `Nearest` is the
+///   nearest eigenvalue, which can be a different eigenvector from one
+///   step to the next whatever the window size (see [`ModeTarget::Nearest`]
+///   and the module docs).
 /// - **Vector tracking** ([`self_consistent_k_vector_tracked_with`]) scores
 ///   only the `n` candidates in the window. If one `k₀` step moves the
 ///   target's eigenvalue farther than the window reaches, no candidate
@@ -357,6 +425,21 @@ impl<T: ComplexEigenSolver + ?Sized> SelfConsistentEigensolver for T {
 /// values farther out than the nearest returned pair are not an error: a
 /// window that reaches the gradient null cluster (`λ ≈ 0`, hundreds of
 /// modes) always has some, and the driver never picks past the nearest.
+///
+/// This rule protects the `Nearest` pick only. The vector-tracked driver
+/// picks by overlap, not distance, so a withheld eigenvalue farther out
+/// than the nearest returned pair can be the continuation of its target;
+/// it then sees no overlapping candidate and returns
+/// [`SelfConsistentResult::ModeLost`].
+///
+/// # Shift near an eigenvalue
+///
+/// As a `Nearest` run converges, `σ` (the previous pick) approaches an
+/// eigenvalue of the next pencil and the shifted factorization approaches
+/// singular. That is the usual shift-invert regime and it held down to
+/// `|Δk₀| < 1e-6` on the sphere pencil and `1e-9` on a 60-DOF chain. A seed
+/// that is exactly an eigenvalue of the first pencil is a singular solve:
+/// seed slightly off it.
 #[derive(Debug, Clone, Copy)]
 pub struct SparseSelfConsistentEigensolver {
     /// Krylov dimension of the first Lanczos pass
@@ -1422,6 +1505,128 @@ mod tests {
             assert_eq!(itvs, itvd, "mode {idx}: tracked iteration count");
             // Both drivers follow the same mode here.
             assert!((kvd - kd).norm() <= 1e-8 * kd.norm());
+        }
+    }
+
+    /// The pencil of `slow_mode_hole_pencil` (PR #847) as the real dense
+    /// `(K, S, M)` of a Silver-Müller solve at `k₀ = 1`, with every
+    /// eigenvalue moved by `+j·shift_im`: `K = diag(Re λᵢ · sᵢ)`,
+    /// `S = diag((Im λᵢ + shift_im) · sᵢ)`, `M = diag(sᵢ)`. The eigenvalue
+    /// nearest `σ = 1 + j·shift_im` is the slow one, `λ* + j·shift_im`, at
+    /// distance 0.1005; the next are at 0.2508 and 0.3000.
+    fn hole_pencil_dense(shift_im: f64) -> (c64, faer::Mat<f64>, faer::Mat<f64>, faer::Mat<f64>) {
+        let (slow, k, m) = crate::eigen::complex::slow_mode_hole_pencil();
+        let n = k.nrows();
+        let mut kd = faer::Mat::<f64>::zeros(n, n);
+        let mut sd = faer::Mat::<f64>::zeros(n, n);
+        let mut md = faer::Mat::<f64>::zeros(n, n);
+        for i in 0..n {
+            let scale = m.get(i, i).expect("diagonal M").re;
+            let kii = *k.get(i, i).expect("diagonal K");
+            kd[(i, i)] = kii.re;
+            sd[(i, i)] = kii.im + shift_im * scale;
+            md[(i, i)] = scale;
+        }
+        (slow + c64::new(0.0, shift_im), kd, sd, md)
+    }
+
+    /// Issue #917, the hole-at-target rule of
+    /// [`SparseSelfConsistentEigensolver`]. On the hole pencil a 28-step
+    /// Krylov cap leaves the eigenvalue nearest the shift localized but
+    /// unconverged, and the checked Lanczos fills the request from the
+    /// farther converged modes. Returning that window would make
+    /// [`ModeTarget::Nearest`] pick a mode at distance 0.25 in place of the
+    /// one at 0.10, so the solver must error, and the driver must pass the
+    /// error on. Shifted next to a converged eigenvalue instead, the same
+    /// solver returns its window: the slow mode is then past the nearest
+    /// returned pair and is not a hole at the target. Run at a real shift and at a complex one
+    /// (`Im σ = 0.3`, the path that moves `Im σ` into the pencil).
+    #[test]
+    fn sparse_solver_errors_on_hole_at_target() {
+        for shift_im in [0.0, 0.3] {
+            let (slow, k, s, m) = hole_pencil_dense(shift_im);
+            let sigma = c64::new(1.0, shift_im);
+            let capped = SparseSelfConsistentEigensolver {
+                max_iters: 14,
+                tol: 1e-12,
+                residual_tol: 1e-9,
+                max_iters_cap: 28,
+            };
+
+            for vectors in [false, true] {
+                let err = if vectors {
+                    capped
+                        .pencil_eigenpairs(k.as_ref(), s.as_ref(), m.as_ref(), 1.0, sigma, 2)
+                        .map(|_| ())
+                } else {
+                    capped
+                        .pencil_eigenvalues(k.as_ref(), s.as_ref(), m.as_ref(), 1.0, sigma, 2)
+                        .map(|_| ())
+                }
+                .expect_err("a hole at the target must be an error");
+                let EigenError::FaerGevd(msg) = &err else {
+                    panic!("Im σ = {shift_im}: expected FaerGevd, got {err:?}");
+                };
+                assert!(
+                    msg.contains("hole at the target") && msg.contains("did not converge"),
+                    "Im σ = {shift_im}: {msg}"
+                );
+            }
+
+            // The driver passes the error on instead of picking a farther mode.
+            let run = self_consistent_k_with(
+                &capped,
+                k.as_ref(),
+                s.as_ref(),
+                m.as_ref(),
+                1.0,
+                ModeTarget::Nearest(sigma),
+                2,
+                1e-9,
+                5,
+            );
+            assert!(
+                matches!(&run, Err(EigenError::FaerGevd(msg)) if msg.contains("hole at the target")),
+                "Im σ = {shift_im}: driver returned {run:?}"
+            );
+            let tracked = self_consistent_k_vector_tracked_with(
+                &capped,
+                k.as_ref(),
+                s.as_ref(),
+                m.as_ref(),
+                1.0,
+                ModeTarget::Nearest(sigma),
+                2,
+                1e-9,
+                5,
+            );
+            assert!(
+                matches!(&tracked, Err(EigenError::FaerGevd(msg)) if msg.contains("hole at the target")),
+                "Im σ = {shift_im}: vector-tracked driver returned {tracked:?}"
+            );
+
+            // Control, the other half of the rule: the same capped solver
+            // on the same pencil, shifted at `0.75` next to the converged
+            // eigenvalue `0.75 − 0.02j` (distance 0.02). The slow mode is
+            // now farther out (0.35) than the nearest returned pair, so an
+            // unconverged slow mode is not a hole at the target and the
+            // call succeeds with the near eigenvalue as the nearest pick.
+            let sigma_far = c64::new(0.75, shift_im);
+            let near = c64::new(0.75, -0.02 + shift_im);
+            let lambdas = capped
+                .pencil_eigenvalues(k.as_ref(), s.as_ref(), m.as_ref(), 1.0, sigma_far, 2)
+                .expect("an unconverged mode past the nearest returned pair is not an error");
+            let nearest = lambdas[ModeTarget::Nearest(sigma_far)
+                .pick(&lambdas, None)
+                .expect("non-empty window")];
+            assert!(
+                (nearest - near).norm() < 1e-8,
+                "Im σ = {shift_im}: nearest = {nearest}, want {near}"
+            );
+            assert!(
+                lambdas.iter().all(|l| (*l - slow).norm() > 1e-3),
+                "Im σ = {shift_im}: the slow mode is not expected to converge at this cap"
+            );
         }
     }
 

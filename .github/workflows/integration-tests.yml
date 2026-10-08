@@ -504,7 +504,9 @@ jobs:
       # solves of the 4512-DOF pencil that tie the sparse seeds to the dense
       # spectrum. Measured release, local 28-core host at load 40:
       # silvermuller_self_consistent 76 s, the vector-tracking target 31 s.
-      # The dense tier these replace took 39 and 38 min on the same host.
+      # The dense tier took 39 and 38 min on the same host and stays out of
+      # CI. The sparse tier starts from its seeds but uses another target
+      # rule, so it is not the same scenarios (see the test files' docs).
       - name: Silver-Müller self-consistent targets (sparse tier)
         run: |
           cargo test -p geode-core --release \

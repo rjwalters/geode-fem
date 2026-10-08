@@ -12,9 +12,10 @@
 //! # Two tiers (issue #917)
 //!
 //! As in `silvermuller_self_consistent.rs` (see its module docs for what
-//! the target modes are). The `sparse_*` tests run the vector-tracked
-//! driver on [`SparseSelfConsistentEigensolver`] and run in CI, in the
-//! release default tier:
+//! the target modes are, and for what proximity targeting does and does not
+//! guarantee). The `sparse_*` tests run the vector-tracked driver on
+//! [`SparseSelfConsistentEigensolver`] from the dense tier's seeds and run
+//! in CI, in the release default tier:
 //!
 //! ```sh
 //! cargo test -p geode-core --release \
@@ -37,7 +38,16 @@
 //! the sphere. `synthetic_vector_tracked_beats_frozen_int_idx` checks it in
 //! CI on a 3-DOF pencil where the index does hop, and
 //! `sparse_vector_tracking_agrees_with_proximity_tracking` checks that the
-//! two sparse trackers agree on the sphere.
+//! two sparse drivers agree on the sphere from the first seed. They do not
+//! agree from every seed: from the second seed of
+//! `silvermuller_self_consistent.rs` the proximity pick changes eigenvector
+//! and vector tracking reports `ModeLost`
+//! (`sparse_proximity_second_seed_changes_eigenvector` there).
+//!
+//! The sparse tier does not reproduce every dense outcome. The
+//! vector-tracked driver can only pick a candidate its window holds, so
+//! mode death from the seed `k₀ = 25` is `ModeLost` at iteration 2 here and
+//! `MaxIterations(10)` in the dense tier, which scores 736 modes.
 
 use burn::tensor::backend::BackendTypes;
 
@@ -62,7 +72,15 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-/// Eigenvalues per sparse solve: the window nearest the target.
+/// Eigenvalues requested per sparse solve: the window nearest the target.
+///
+/// 12 is a cost choice, not a derived bound, and the outcome of a
+/// vector-tracked run depends on it: the driver can only pick a candidate
+/// the window holds. It is enough from the seed `k₀ = 1`
+/// (`sparse_vector_tracked_converges_on_lowest_mode` panics on `ModeLost`
+/// and passes). It is not enough from the seed `k₀ = 25`: windows of 12 and 48 lose the mode (`ModeLost`
+/// at iteration 2), and a window of 160 tracks it to convergence
+/// (`sparse_vector_tracked_handles_mode_death`).
 const N_WINDOW: usize = 12;
 
 /// Dense index 368 at `k₀ = 1`: the first index past the null cluster, the
@@ -390,8 +408,10 @@ fn vector_tracked_handles_mode_death() {
 }
 
 // ---------------------------------------------------------------------
-// Sparse tier (issue #917): the same scenarios on the sparse windowed
-// solver. Same assertions as the dense tests above, no tolerance loosened.
+// Sparse tier (issue #917): the dense tier's seeds on the sparse windowed
+// solver, with the dense tests' assertions and no tolerance loosened. The
+// first-seed runs end where the dense ones do; the mode-death run does not
+// (module docs).
 // ---------------------------------------------------------------------
 
 #[test]
@@ -465,10 +485,14 @@ fn sparse_vector_tracked_converges_on_lowest_mode() {
     ignore = "slow unoptimized (4512-DOF sparse LU per iteration); runs in release"
 )]
 fn sparse_vector_tracking_agrees_with_proximity_tracking() {
-    // On the sparse solver both drivers follow one mode continuously, the
-    // proximity-tracked one by eigenvalue and the vector-tracked one by
-    // eigenvector overlap. From the same seed and target they must walk
-    // the same fixed point. (The frozen integer index that
+    // From this seed the two sparse drivers walk the same fixed point: the
+    // proximity one picks the nearest eigenvalue, the vector-tracked one
+    // the largest eigenvector overlap, and here those are the same
+    // candidate at every step (overlap 1.0000, next best 0.004). That is a
+    // property of this seed, not of proximity targeting: from the second
+    // seed the nearest eigenvalue is a different eigenvector four times
+    // (`sparse_proximity_second_seed_changes_eigenvector`). (The frozen
+    // integer index that
     // `vector_tracked_beats_frozen_int_idx` compares against needs the
     // full sorted spectrum; `synthetic_vector_tracked_beats_frozen_int_idx`
     // below is the CI check of that comparison.)
@@ -617,16 +641,21 @@ fn synthetic_vector_tracked_beats_frozen_int_idx() {
     ignore = "slow unoptimized (4512-DOF sparse LU per iteration); runs in release"
 )]
 fn sparse_vector_tracked_handles_mode_death() {
-    // The sparse counterpart of `vector_tracked_handles_mode_death`: the
-    // seed `k₀ = 25` and the eigenvalue at the top of the dense window
-    // there. Any clean variant is accepted, as in the dense test.
+    // From the seed of `vector_tracked_handles_mode_death`: `k₀ = 25` and
+    // the eigenvalue at the top of the dense window there. The dense test
+    // accepts any clean variant. This one asserts the variant it gets,
+    // `ModeLost` at iteration 2, so the mode-death path stays covered.
     //
     // The variant depends on the candidate set, as expected for a seed
     // this far from self-consistency. The first damped step takes `k₀`
     // from 25 to about 15.6, which moves the target's eigenvalue out of
     // the 12-pair window, so no candidate overlaps and the result is
-    // `ModeLost` at iteration 2 (best overlap 0.17). The dense tier scores
-    // its 736 lowest-`|Re λ|` modes instead and ends on `MaxIterations`.
+    // `ModeLost` at iteration 2 (best overlap 0.173). The dense tier
+    // scores its 736 lowest-`|Re λ|` modes instead and ends on
+    // `MaxIterations(10)` at `k = 2.2580 + 2.0224j`: a different outcome,
+    // not the same scenario. A sparse window of 48 also loses the mode and
+    // one of 160 tracks it to `Converged` (`k = 7.3656 + 0.3593j`),
+    // measured for PR #941 and not run here.
     let k0 = 25.0_f64;
     let (k_full, s_full, m_full, _) = build_sphere_matrices();
 
@@ -651,30 +680,14 @@ fn sparse_vector_tracked_handles_mode_death() {
         } => {
             eprintln!(
                 "sparse ModeLost at iter {iterations}: last k = {:.4} + {:.4e}i, \
-                 best_overlap = {best_overlap:.3} — expected clean signal",
+                 best_overlap = {best_overlap:.3}",
                 last_k.re, last_k.im
             );
             assert!(best_overlap < 0.5);
-            assert!(iterations >= 1);
+            assert_eq!(iterations, 2);
         }
-        SelfConsistentResult::Diverged { last_k, iterations } => {
-            eprintln!(
-                "sparse Diverged at iter {iterations}: last k = {:.4} + {:.4e}i",
-                last_k.re, last_k.im
-            );
-        }
-        SelfConsistentResult::MaxIterations { last_k, iterations } => {
-            eprintln!(
-                "sparse MaxIterations at iter {iterations}: last k = {:.4} + {:.4e}i",
-                last_k.re, last_k.im
-            );
-        }
-        SelfConsistentResult::Converged { k, q, iterations } => {
-            eprintln!(
-                "sparse unexpectedly converged in {iterations} iters from \
-                 seed=25.0: k = {:.4} + {:.4e}i, Q = {q:.4}",
-                k.re, k.im
-            );
+        other => {
+            panic!("expected ModeLost at iteration 2 at a window of {N_WINDOW}, got {other:?}")
         }
     }
 }

@@ -53,16 +53,25 @@ geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixtur
 # 28-core host at load 65-200, three tests in parallel:
 # silvermuller_self_consistent 39 min (3 passed),
 # silvermuller_self_consistent_vector_tracking 38 min (2 passed, 1 failed).
-# CI runs the same scenarios in the targets' default tier (the sparse_*
-# tests, integration-tests.yml core-dense-eigen) on the sparse complex
-# Lanczos, in about 2 min, and that tier checks its seed eigenvalues and
-# windows against a dense solve.
+# CI runs the targets' default tier instead (the sparse_* tests,
+# integration-tests.yml core-dense-eigen): the self-consistent drivers on
+# the sparse complex Lanczos, from the dense tier's seed eigenvalues, in
+# about 2 min. That tier checks its seeds and windows against a dense
+# solve. It is NOT the same scenarios: the dense tier picks by frozen
+# index, the sparse tier by nearest eigenvalue (which is not the same
+# eigenvector) or by eigenvector overlap inside a 12-pair window. Of five
+# runs, two end where the dense run ends (seed k0 = 1, first mode, with and
+# without vector tracking) and three do not (seed k0 = 20; the second seed
+# at k0 = 1, where the nearest-eigenvalue pick changes eigenvector four
+# times; mode death at k0 = 25). Each sparse test pins its own outcome and
+# says where it differs. So the dense assertions below are not exercised
+# in CI by an equivalent test, only by related ones.
 # vector_tracked_beats_frozen_int_idx is the failing one (issue #940): from
 # its seed both drivers follow the same mode (Q ratio 1.000 < 1.25). The
 # comparison runs in CI as synthetic_vector_tracked_beats_frozen_int_idx.
-geode-core/silvermuller_self_consistent  # dense reference tier: ~39 min; the sparse_* default tier runs the same scenarios in CI (#917)
+geode-core/silvermuller_self_consistent  # dense reference tier: ~39 min; the sparse_* default tier runs the drivers from the same seeds in CI, with a different target rule (#917)
 geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_converges_on_lowest_mode  # dense reference tier: ~38 min for the target; sparse_vector_tracked_converges_on_lowest_mode runs in CI (#917)
-geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_handles_mode_death  # dense reference tier: ~38 min for the target; sparse_vector_tracked_handles_mode_death runs in CI (#917)
+geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_handles_mode_death  # dense reference tier: ~38 min for the target; sparse_vector_tracked_handles_mode_death runs in CI from the same seed and ends on ModeLost, not the dense MaxIterations (#917)
 geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_beats_frozen_int_idx  # fails on main (#940: Q ratio 1.000 < 1.25) and runs 31 dense solves; synthetic_vector_tracked_beats_frozen_int_idx runs in CI
 
 # Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at
