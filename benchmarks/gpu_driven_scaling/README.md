@@ -389,7 +389,7 @@ The estimate and the weight at ω = 0.10 (the other two frequencies are within
   stable weight from 0.2 to 0.55, so it is not the smoother weight. Its cause
   was not investigated here.
 - **CPU time.** Whole process (mesh, assembly, setup, solve), user + system
-  seconds at 102k edges and ω = 0.10: Jacobi 9.8 s, AMS before 100.6 s, AMS
+  seconds at 102k edges and ω = 0.10: Jacobi 9.8 s, AMS before 99.3 s, AMS
   after 10.7 s with the default threading and 4.4 s against Jacobi's 9.9 s with
   `RAYON_NUM_THREADS=1`. The default-threading AMS figure is half system time
   (5.0 s user, 5.6 s system). The `main` AMS leg has the same 5.5 s and the

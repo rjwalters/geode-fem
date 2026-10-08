@@ -5315,6 +5315,7 @@ size_n = 6
 n_edges = 1854
 jacobi_iterations = 878
 ams_iterations_before = 68  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 27
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5344,6 +5345,7 @@ size_n = 9
 n_edges = 5859
 jacobi_iterations = 1653
 ams_iterations_before = 135  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 29
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5373,6 +5375,7 @@ size_n = 12
 n_edges = 13428
 jacobi_iterations = 2436
 ams_iterations_before = 299  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 33
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5402,6 +5405,7 @@ size_n = 15
 n_edges = 25695
 jacobi_iterations = 3268
 ams_iterations_before = 505  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 37
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5431,6 +5435,7 @@ size_n = 20
 n_edges = 59660
 jacobi_iterations = 4840
 ams_iterations_before = 1896  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 47
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5460,6 +5465,7 @@ size_n = 24
 n_edges = 102024
 jacobi_iterations = 6153
 ams_iterations_before = 2166  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 55
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5489,6 +5495,7 @@ size_n = 6
 n_edges = 1854
 jacobi_iterations = 807
 ams_iterations_before = 70  # weight 0.6
+before_build = "main"
 ams_iterations_after = 26
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5510,7 +5517,7 @@ ams_setup_s_after = 0.003  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.172
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 0.27
-ams_process_cpu_s_before = 0.33
+ams_process_cpu_s_before = 0.20
 ams_process_cpu_s_after = 0.24
 jacobi_process_cpu_s_rayon1 = 0.11  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 0.10
@@ -5524,6 +5531,7 @@ size_n = 9
 n_edges = 5859
 jacobi_iterations = 1463
 ams_iterations_before = 139  # weight 0.6
+before_build = "main"
 ams_iterations_after = 30
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5545,7 +5553,7 @@ ams_setup_s_after = 0.014  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.143
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 0.49
-ams_process_cpu_s_before = 0.60
+ams_process_cpu_s_before = 0.69
 ams_process_cpu_s_after = 0.39
 jacobi_process_cpu_s_rayon1 = 0.32  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 0.27
@@ -5559,6 +5567,7 @@ size_n = 12
 n_edges = 13428
 jacobi_iterations = 2167
 ams_iterations_before = 307  # weight 0.6
+before_build = "main"
 ams_iterations_after = 34
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5580,7 +5589,7 @@ ams_setup_s_after = 0.037  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.124
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 0.95
-ams_process_cpu_s_before = 2.25
+ams_process_cpu_s_before = 2.01
 ams_process_cpu_s_after = 1.06
 jacobi_process_cpu_s_rayon1 = 0.76  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 0.46
@@ -5594,6 +5603,7 @@ size_n = 15
 n_edges = 25695
 jacobi_iterations = 2969
 ams_iterations_before = 533  # weight 0.6
+before_build = "main"
 ams_iterations_after = 39
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5615,7 +5625,7 @@ ams_setup_s_after = 0.123  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.074
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 1.94
-ams_process_cpu_s_before = 6.24
+ams_process_cpu_s_before = 6.61
 ams_process_cpu_s_after = 1.87
 jacobi_process_cpu_s_rayon1 = 1.64  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 0.90
@@ -5629,6 +5639,7 @@ size_n = 20
 n_edges = 59660
 jacobi_iterations = 4303
 ams_iterations_before = 1693  # weight 0.6
+before_build = "main"
 ams_iterations_after = 49
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5650,7 +5661,7 @@ ams_setup_s_after = 0.261  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.081
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 5.22
-ams_process_cpu_s_before = 41.36
+ams_process_cpu_s_before = 43.07
 ams_process_cpu_s_after = 5.57
 jacobi_process_cpu_s_rayon1 = 4.92  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 2.27
@@ -5664,6 +5675,7 @@ size_n = 24
 n_edges = 102024
 jacobi_iterations = 5259
 ams_iterations_before = 2270  # weight 0.6
+before_build = "main"
 ams_iterations_after = 55
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5685,7 +5697,7 @@ ams_setup_s_after = 0.509  # wall clock, same process as estimate_ms
 estimate_share_of_setup = 0.073
 # Whole-process CPU seconds (user + sys): mesh + assembly + setup + solve.
 jacobi_process_cpu_s = 9.84
-ams_process_cpu_s_before = 100.56
+ams_process_cpu_s_before = 99.29
 ams_process_cpu_s_after = 10.66
 jacobi_process_cpu_s_rayon1 = 9.93  # RAYON_NUM_THREADS=1
 ams_process_cpu_s_after_rayon1 = 4.36
@@ -5699,6 +5711,7 @@ size_n = 6
 n_edges = 1854
 jacobi_iterations = 695
 ams_iterations_before = 77  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 29
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5728,6 +5741,7 @@ size_n = 9
 n_edges = 5859
 jacobi_iterations = 1271
 ams_iterations_before = 143  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 32
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5757,6 +5771,7 @@ size_n = 12
 n_edges = 13428
 jacobi_iterations = 1894
 ams_iterations_before = 343  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 34
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5786,6 +5801,7 @@ size_n = 15
 n_edges = 25695
 jacobi_iterations = 2494
 ams_iterations_before = 556  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 40
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5815,6 +5831,7 @@ size_n = 20
 n_edges = 59660
 jacobi_iterations = 3803
 ams_iterations_before = 1729  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 52
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5844,6 +5861,7 @@ size_n = 24
 n_edges = 102024
 jacobi_iterations = 4744
 ams_iterations_before = 2359  # weight 0.6
+before_build = "fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6"
 ams_iterations_after = 57
 ams_explicit_converged_before = true
 ams_explicit_converged_after = true
@@ -5905,7 +5923,7 @@ ams_growth_exponent_least_squares_after = 0.191
 jacobi_growth_exponent_least_squares = 0.470
 iteration_ratio_jacobi_over_ams_after = [31.0, 48.8, 63.7, 76.1, 87.8, 95.6]
 jacobi_process_cpu_s = [0.27, 0.49, 0.95, 1.94, 5.22, 9.84]  # user + sys, whole process
-ams_process_cpu_s_before = [0.33, 0.60, 2.25, 6.24, 41.36, 100.56]
+ams_process_cpu_s_before = [0.20, 0.69, 2.01, 6.61, 43.07, 99.29]
 ams_process_cpu_s_after = [0.24, 0.39, 1.06, 1.87, 5.57, 10.66]
 verdict = "At omega = 0.10 the AMS iteration count went from 70 to 2270 (weight 0.6, edges^0.91) to 26 to 55 (edges^0.19) over 1854 to 102024 edges; Jacobi takes 807 to 5259 (edges^0.47). The count after the fix still rises by 2.12x, outside the 1.52 band this file calls flat."
 

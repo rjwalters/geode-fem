@@ -1213,7 +1213,7 @@ if sm_trees:
         fx, forced, mn, r1 = tree("fix", omega), tree("w060", omega), tree("main", omega), tree("fix", omega, "rayon1")
         for n in sorted({n for n, _ in fx}):
             j, a = fx.get((n, "jacobi")), fx.get((n, "ams"))
-            b = forced.get((n, "ams")) or mn.get((n, "ams"))
+            b = mn.get((n, "ams")) or forced.get((n, "ams"))  # main where it can run this frequency
             if not (j and a and b and j["finished"] and a["finished"] and b["finished"]):
                 continue
             sm_rows.setdefault(omega, []).append((n, j, b, a))
@@ -1225,6 +1225,7 @@ if sm_trees:
             print(f"n_edges = {a['n_edges']}")
             print(f"jacobi_iterations = {j['iterations']}")
             print(f"ams_iterations_before = {b['iterations']}  # weight 0.6")
+            print(f"before_build = {q('main' if (n, 'ams') in mn else 'fix build with GEODE_AMS_SMOOTH_WEIGHT=0.6')}")
             print(f"ams_iterations_after = {a['iterations']}")
             print(f"ams_explicit_converged_before = {str(b['converged']).lower()}")
             print(f"ams_explicit_converged_after = {str(a['converged']).lower()}")
