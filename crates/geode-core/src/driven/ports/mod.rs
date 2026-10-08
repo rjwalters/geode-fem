@@ -41,9 +41,9 @@
 //!   [`solve_wave_port_spec_sweep_on_space`],
 //!   [`solve_mixed_port_spec_sweep_on_space`]) — geometric wave ports on an
 //!   order-pluggable H(curl) space, including p=2 (Epic #836 Phase 3a, issue
-//!   #884); the order-aware TE-only TM guard [`tm_guard_margin_at_order`],
-//!   with its P2 face estimate
-//!   [`PortFaceProjection::tm_cutoff_estimate_at_order`].
+//!   #884); the TE-only TM guard takes its P2 face estimate from
+//!   [`PortFaceProjection::tm_cutoff_estimate_at_order`] and the same margin
+//!   law at every order ([`tm_guard_margin`], issue #905).
 
 mod hybrid;
 mod hybrid_lossy;
@@ -92,11 +92,9 @@ pub use wave::{
 };
 pub use wave_face::{
     CandidateConfirmation, DegenerateCandidate, GuideAxialMesh, GuideScan, PLANARITY_REL_TOL,
-    PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_AXIAL_COEFF_P2,
-    TM_GUARD_MARGIN, TM_GUARD_MARGIN_P2_COARSE_FACE, TM_GUARD_MEASURED_KH, TM_GUARD_MEASURED_KH_P2,
-    TM_GUARD_MIN_ELEMENTS_ACROSS_P2, TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate,
-    project_port_face, tm_evanescent_leak, tm_guard_axial_reach, tm_guard_margin,
-    tm_guard_margin_at_order, wave_port_from_faces,
+    PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH,
+    TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, project_port_face, tm_evanescent_leak,
+    tm_guard_axial_reach, tm_guard_margin, wave_port_from_faces,
 };
 pub use wave_p2::{
     PortFaceModeP2, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_sweep_on_space,
