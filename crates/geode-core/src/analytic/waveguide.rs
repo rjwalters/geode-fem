@@ -5682,7 +5682,10 @@ pub(crate) struct WithheldCandidate {
 /// pair: a localized gradient pair (`ρ ≪ 1`) stays near f64 noise, far
 /// below every floor, while a physical pair keeps a ratio in the physical
 /// band. A Ritz vector that mixes the two carries the physical part's curl
-/// and is still checked, so the filter errs toward reporting a hole.
+/// and is still checked. This is conservative for gradient pairs, but not
+/// strictly so for a mostly-gradient mixed vector: below roughly 20 %
+/// physical weight its curl ratio can fall under the PEC floor and the pair
+/// is filtered, the same ambiguity a converged pair has.
 fn selection_hole(
     localized_withheld: &[WithheldCandidate],
     sigma: f64,
