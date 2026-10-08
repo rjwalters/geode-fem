@@ -34,7 +34,13 @@ Changes made during the session, all recorded here and in the scripts:
    openblas. Both were added to the Dockerfile and the runtime stage was
    rebuilt; the builder stage (the Palace compile) came from the build cache
    unchanged. build_provenance.txt has both image ids and Dockerfile hashes.
-   The committed Dockerfile is the one that ran.
+   palace/Dockerfile.used is the exact recipe of the image that ran
+   (sha256 00ddd295...). Issue #927 made the same fixes to
+   reference/palace/docker/Dockerfile independently on the same day, and
+   this branch takes main's version: same Palace pin (PALACE_REF, defaulting
+   there to fba6a5b), the same runtime packages, plus a build-info file
+   written by the builder stage. So the committed recipe is equivalent to,
+   not byte-identical with, the one that ran.
 
 2. Chain D (Palace with AMS) was added after chain B had started, when
    Palace's source showed that "Default" resolves to SuperLU for a driven
@@ -54,4 +60,4 @@ Changes made during the session, all recorded here and in the scripts:
 
 The geode checkout on the box was a clean clone of 64d44269 (git=... dirty=0
 in every .meta). ams_cpu_sweep.sh, box_palace_cpu.sh and palace_driven_cfg.py
-ran from this branch's copies.
+ran from this branch's copies; the Dockerfile from palace/Dockerfile.used.

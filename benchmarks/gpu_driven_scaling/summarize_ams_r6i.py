@@ -518,7 +518,7 @@ if palace:
     p(f"palace_commit = {q(palace_build.get('palace_ref', 'unknown'))}")
     p(f"changeset_in_log = {q(any_run['changeset'])}")
     p(f"libceed_backend = {q(any_run['backend'])}")
-    p(f"image = {q('palace:cpu from reference/palace/docker/Dockerfile, --build-arg PALACE_REF=<palace_commit>')}")
+    p(f"image = {q('palace:cpu built on the box from palace/Dockerfile.used in the run tree (--build-arg PALACE_REF=<palace_commit>); reference/palace/docker/Dockerfile on main has the same pin and runtime fixes (#927)')}")
     for k in ("dockerfile_sha256", "build_wall_s", "base_image"):
         if k in palace_build:
             p(f"{k} = {q(palace_build[k])}")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # #930: build the Palace CPU image on the box (not timed as part of any cell;
 # nothing else runs meanwhile), then export the five meshes with the geode
-# harness. S holds this branch's reference/palace/docker/Dockerfile.
+# harness. S held the Dockerfile that is now palace/Dockerfile.used.
 set -u
 S="${S:-$HOME/bench}"
 R="${R:-$HOME/run930}"

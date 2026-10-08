@@ -914,7 +914,7 @@ same_host = true
 palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"
 changeset_in_log = "v0.17.0-99-gfba6a5b9d"
 libceed_backend = "/cpu/self/opt/blocked"
-image = "palace:cpu from reference/palace/docker/Dockerfile, --build-arg PALACE_REF=<palace_commit>"
+image = "palace:cpu built on the box from palace/Dockerfile.used in the run tree (--build-arg PALACE_REF=<palace_commit>); reference/palace/docker/Dockerfile on main has the same pin and runtime fixes (#927)"
 dockerfile_sha256 = "00ddd2956b4f6ecce367871d797545e3795de534ae14b46638368d06ca3771ac"
 build_wall_s = "2021"
 base_image = "rockylinux@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6"

@@ -5,7 +5,7 @@ geode-fem alone** — a prerequisite for the honest Palace head-to-head in epic 
 
 | File | Backend | Used for |
 |------|---------|----------|
-| `Dockerfile`      | CPU (`/cpu/self/xsmm/blocked`) | The committed CPU baseline in `reference/fixtures/transmon_palace/results_p1/` |
+| `Dockerfile`      | CPU (`/cpu/self/opt/blocked` as built: `PALACE_WITH_LIBXSMM=OFF`) | Rebuilding the CPU reference; the m6i like-for-like timing (#927). The committed baseline in `reference/fixtures/transmon_palace/results_p1/` came from a source build of the same Palace commit on an EC2 box |
 | `Dockerfile.cuda` | CUDA (`/gpu/cuda/*`)           | Palace-on-GPU head-to-head (issue #519) |
 
 Both compile Palace from source (MFEM + hypre + SLEPc/PETSc + libCEED + SuperLU +
@@ -20,6 +20,19 @@ docker build -t palace:cpu -f Dockerfile .
 docker run --rm -v "$PWD/../../..:/work" palace:cpu \
   /work/reference/fixtures/transmon_palace/palace_config.json
 ```
+
+The CPU recipe pins Palace with `--build-arg PALACE_REF=<commit>` (default
+`fba6a5b`, the changeset of the committed baseline and of `Dockerfile.cuda`),
+writes the commit, compiler-wrapper line and CMake flags to
+`/opt/palace/palace-build-info.txt` inside the image, and installs `time` so a
+run can be measured from inside the container
+(`--entrypoint /usr/bin/time`). It was first built and run end to end for the
+2026-10-08 m6i re-timing (issue #927), which found the runtime stage missing
+`libopenblas.so.0`; `openblas-serial` is now installed there. That build took
+34 min on 16 vCPU. The MPICH compiler wrappers of Rocky 9 add
+`-O2 -flto=auto -march=x86-64-v2` to every target, so the image is not tuned
+for the build host. Run record:
+[`benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_like_for_like/`](../../../benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_like_for_like/README.md).
 
 ## CUDA (GPU) build — issue #519
 

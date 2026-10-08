@@ -90,7 +90,11 @@ These are summarized from `results.toml`; read the file for the full wording.
   [`../transmon_bench_cpu/results_like_for_like_local.toml`](../transmon_bench_cpu/results_like_for_like_local.toml):
   it records which requests return the six modes and what they cost relative
   to the 6-mode request on that same machine. Its times are a different host
-  and must not be compared with this directory's. The Palace-GPU vs Palace-CPU
+  and must not be compared with this directory's. The CPU-only re-timing
+  against Palace on one AWS m6i.4xlarge, with three such geode requests side
+  by side and no winner declared, is
+  [`../transmon_bench_cpu/results_like_for_like_m6i.toml`](../transmon_bench_cpu/results_like_for_like_m6i.toml);
+  it is also a different host from this one. The Palace-GPU vs Palace-CPU
   result does not depend on this. Paper impact: #763, #593.
 - **Palace on the GPU is slower than Palace on 8 CPU ranks here** (72.2 s vs
   51.0 s with `Save = 0`). The `HONEST READ` block in `results.toml` breaks

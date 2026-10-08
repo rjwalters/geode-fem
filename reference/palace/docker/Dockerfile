@@ -40,20 +40,14 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib"
 ENV PATH="/usr/lib64/mpich/bin:${PATH}"
 
-# PALACE_REF pins the Palace source (issue #930). Empty (the default) keeps
-# the historical behaviour, a shallow clone of the default branch's HEAD. The
-# #930 same-host driven comparison built with
-#   --build-arg PALACE_REF=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0
-# the changeset Dockerfile.cuda pins, so its Palace matches the #519 / #520 runs.
-ARG PALACE_REF=
+# PALACE_REF pins the Palace source. Default = fba6a5b, the changeset of the
+# committed CPU baseline (reference/fixtures/transmon_palace/results_p1/
+# palace_run_v22.log: "Git changeset ID: fba6a5b") and of Dockerfile.cuda, so a
+# rebuild reproduces that solver and not whatever Palace's main is today (#927).
+ARG PALACE_REF=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0
 WORKDIR /opt
-RUN if [ -z "${PALACE_REF}" ]; then \
-        git clone --depth 1 https://github.com/awslabs/palace.git palace-src; \
-    else \
-        git clone https://github.com/awslabs/palace.git palace-src && \
-        git -C palace-src checkout --detach "${PALACE_REF}"; \
-    fi && \
-    git -C palace-src log -1 --format='%H %cI %s'
+RUN git clone https://github.com/awslabs/palace.git palace-src && \
+    cd palace-src && git checkout --detach ${PALACE_REF} && git log -1 --format='%H %cI %s'
 
 WORKDIR /opt/palace-build
 RUN cmake /opt/palace-src \
@@ -77,10 +71,18 @@ RUN cmake /opt/palace-src \
     -DPALACE_WITH_LIBXSMM=OFF \
     -DPALACE_WITH_MAGMA=OFF \
     -DPALACE_WITH_GSLIB=ON && \
-    make -j$(nproc)
+    make -j$(nproc) && \
+    { git -C /opt/palace-src log -1 --format='palace_commit=%H %cI %s'; \
+      echo "mpicxx_show=$(mpicxx -show)"; \
+      cmake -LA -N /opt/palace-build \
+        | grep -E '^(PALACE_|CMAKE_(C|CXX|Fortran)_(COMPILER|FLAGS)|CMAKE_BUILD_TYPE|BUILD_SHARED_LIBS)'; \
+    } > /opt/palace/palace-build-info.txt
 
 FROM rockylinux:9
 
+# openblas-serial: the builder links libopenblas.so.0 (the serial variant),
+# which on Rocky 9 is shipped by openblas-serial, not by `openblas` (#927: the
+# image built without it exits 127 before main).
 RUN dnf install -y epel-release && \
     dnf install -y \
         openblas \

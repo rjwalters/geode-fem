@@ -3,7 +3,6 @@
   "provenance": {
     "measured_on": "2026-07-21",
     "host": "AWS m6i.4xlarge (16 vCPU Intel Ice Lake, 61 GB RAM), Ubuntu 22.04",
-    "instance_id": "i-0b44631b46ade4044",
     "meep_version": "1.34.0 (conda-forge, single-process)",
     "container": "reference/meep/docker/ (meep-baseline:cpu)",
     "cell_mm": [64, 60, 42],
