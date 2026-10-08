@@ -300,7 +300,9 @@ before), and differ from `main`'s by at most 4.2e-12 relative.
 Not measured: an idle host; sizes above 102k edges, where a parallel triangular
 solve might pay; the complex shift-invert Lanczos loop and the matrix-free
 eigen paths with an LU coarse solve, which have the same structure and are not
-changed; and concurrent solves (the CLI's `--jobs`).
+changed (#956); and concurrent solves (the CLI's `--jobs`). The scope sets a
+process-global faer setting because faer's sparse solve takes no per-call
+thread count; rjwalters/faier#45 asks for one.
 
 The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
 are identical to the Lambda record's, which is the only cross-host statement
