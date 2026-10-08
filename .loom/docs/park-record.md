@@ -111,6 +111,35 @@ loom-daemon park-record render --blocked-by 8322 --by doctor \
 # <!-- loom:park Blocked by: #8322 by=doctor at=2026-09-19T18:04:11Z reason="needs an architecture ruling" -->
 ```
 
+### The daemon's own holds (#10161)
+
+Two `loom:blocked` writers live inside `loom-daemon`, not in a role prompt: the
+insta-crash quarantine (#3939) and the PR-less retry hold (#7972/#9239). Each
+writes a reason-only record **before** its label edit:
+
+```text
+<!-- loom:park Blocked by: (unstated) by=daemon at=2026-10-06T12:00:00Z reason="insta-crash quarantine" -->
+<!-- loom:park Blocked by: (unstated) by=daemon at=2026-10-06T12:00:00Z reason="pr-less hold" -->
+```
+
+`loom_daemon::sweep_registry::park_hold` owns the format: `DAEMON_HOLD_BY`,
+`QUARANTINE_HOLD_REASON`, `PRLESS_HOLD_REASON`, and `is_daemon_hold(&record)`.
+A reader that needs to tell a deliberate daemon hold from an undocumented park
+should key on `is_daemon_hold`, not on comment prose.
+
+These writers differ from `apply` in two documented ways:
+
+- **A refused body write still applies the label.** For the PR-less hold, the
+  label is the deliverable (#9239), and an unparked re-claim loop costs more
+  than a park without a name. The fallback is logged at `warn`. A body read or
+  write that **times out** stops the writer before its label edit, so a wedged
+  `gh` costs one timeout on the `reap_once` read path (#3973).
+- **Re-applying a hold replaces that hold's earlier record**, so `at=` dates
+  the current park. Releases (`quarantine clear`, the TTL, reconciliation, a
+  hand flip back to `loom:issue`) change only labels and leave the record in
+  the body. Readers key on `loom:blocked` first, so a leftover record on an
+  unblocked issue declares nothing.
+
 ## Who reads one
 
 - `loom-daemon check-stale-blocked` (`defaults/scripts/check-stale-blocked.sh`,
@@ -129,7 +158,12 @@ loom-daemon park-record render --blocked-by 8322 --by doctor \
   stops part-way rather than draining the bucket. `--json` adds a
   `forge_cost` object (`graphql_queries`, `graphql_points` from
   `rateLimit.cost`, `rest_requests`, `rest_not_modified`, `budget_before`,
-  `projected`, `floor`, `budget_refused`, `budget_stopped`).
+  `projected`, `floor`, `budget_refused`, `budget_stopped`). It first reads
+  the repository's `archived` flag (#10562, one REST + ETag read shared with
+  `release-stale-blocked` and the role runner): an archived repository is
+  read-only, so nothing is listed, `--json` reports `archived: true` and the
+  human report is one line. A probe that fails is NOT EVALUATED, never
+  archived and never clear (`archived: null`).
 - `guide.md`'s `check_and_unblock` / `check_and_unblock_prs` — the active
   unblock sweep. A rendered park record's `Blocked by: #N` line already
   matches `parse_dependencies`'s existing pattern, so no separate parser is
