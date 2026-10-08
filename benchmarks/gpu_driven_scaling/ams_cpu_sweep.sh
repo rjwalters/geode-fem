@@ -28,7 +28,11 @@
 #      LEG_TIMEOUT_S (per-leg wall-clock cap, default 5400),
 #      SKIP_XCHECK=1 (skip the combined cross-check leg),
 #      SKIP_DIRECT=1 (skip the Direct legs: sizes whose LU does not fit; the
-#      port voltage then has no Direct reference).
+#      port voltage then has no Direct reference),
+#      RAYON_NUM_THREADS (inherited by every leg and recorded in <leg>.meta;
+#      set it to 1 for timings on a shared host: the V-cycle's small sparse
+#      triangular solves otherwise fan out to the rayon pool and, on an
+#      oversubscribed machine, spend most of the leg in system time).
 # Then: summarize_ams_local.py <out-dir>
 set -euo pipefail
 OUT=$1; shift
@@ -74,6 +78,7 @@ run_leg() {
     echo "leg=$leg bin=$bin"
     echo "start=$(date -u +%FT%TZ)"
     echo "loadavg_start=$(loadavg)"
+    echo "rayon_num_threads=${RAYON_NUM_THREADS:-unset}"
     echo "git=$(git rev-parse HEAD) dirty=$(git status --porcelain --untracked-files=no | wc -l | xargs)"
     echo "env: GEODE_SCALING_SIZES=$n GEODE_SCALING_CONFIGS=$cfgs GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1"
   } > "$OUT/$leg.meta"
