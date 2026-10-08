@@ -147,8 +147,8 @@ pub type HermitianPencil = (SparseColMat<usize, c64>, SparseColMat<usize, c64>);
 /// that [`BlochCell::solve`] accepts on the bands with `ω → 0` near a
 /// Γ-equivalent point (issue #869). The actual error is round-off noise
 /// around that estimate: just above the threshold it was measured at
-/// 0.2–2.5× the estimate on `1 × 1 × 4` / `4 × 1 × 1` cells and up to 5×
-/// on small cubes (issue #915), and it falls as `1 / |k − G|²`. It
+/// 0.2–2.5× the estimate on `1 × 1 × 4` / `4 × 1 × 1` cells and up to about 7×
+/// on small cubes (6.8 measured, issue #915, #938), and it falls as `1 / |k − G|²`. It
 /// sets [`BlochCell::near_gamma_min_distance`]: closer than that, the
 /// solve refuses with a typed [`BlochError::InvalidInput`].
 pub const NEAR_GAMMA_MAX_REL_ERR: f64 = 1e-2;
@@ -610,7 +610,16 @@ impl BlochCell {
                 *di += u[(i, c)] * proj;
             }
         }
-        [k[0] - delta[0], k[1] - delta[1], k[2] - delta[2]]
+        // Components of G below the lattice tolerance are round-off noise
+        // from the projection (G = 0 at Γ): print them as 0.
+        let tol = 1e-14 * k.iter().fold(1.0_f64, |m, x| m.max(x.abs()));
+        let mut g = [k[0] - delta[0], k[1] - delta[1], k[2] - delta[2]];
+        for x in &mut g {
+            if x.abs() < tol {
+                *x = 0.0;
+            }
+        }
+        g
     }
 
     /// The absolute round-off floor of a computed `λ` (`(rad / length)²`):

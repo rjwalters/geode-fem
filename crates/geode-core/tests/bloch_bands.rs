@@ -849,7 +849,8 @@ fn near_gamma_probe(cell: &BlochCell, dir: [f64; 3], scale: f64) -> Result<f64, 
 ///   `ε = NEAR_GAMMA_MAX_REL_ERR`; the round-off is noisy around it);
 /// - below the threshold every axis direction is refused. Off the axes
 ///   the distance is a lower bound, so the refusal is conservative (the
-///   xz diagonal is refused up to `√2 ×` the threshold).
+///   measured excess is 1.17× along xz and 1.22× along (1,1,1) on the
+///   1×1×4 cell, and none on cubes).
 #[test]
 #[cfg_attr(
     debug_assertions,
@@ -904,7 +905,7 @@ fn near_gamma_threshold_is_isotropic_on_an_elongated_cell() {
             if let Ok(err) = r {
                 // The round-off error is noisy around the model
                 // `ε / scale²`: measured 0.2–2.5× on this cell (and up to
-                // 5× on small cubes, where the test is unchanged). The
+                // 7× (6.8 measured) on small cubes, where the test is unchanged). The
                 // bound leaves room for platform round-off.
                 assert!(
                     err < 5.0 * NEAR_GAMMA_MAX_REL_ERR / (scale * scale),
