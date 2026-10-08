@@ -1,4 +1,4 @@
-leg=n24_jacobi bin=/Volumes/Stripe/cargo-target-issue-946/release/deps/gpu_driven_scaling-e770a24497c61984
+leg=n24_jacobi bin=<cargo-target>/release/deps/gpu_driven_scaling-e770a24497c61984
 start=2026-10-08T09:08:45Z
 loadavg_start=166.61 135.05 118.32
 rayon_num_threads=1

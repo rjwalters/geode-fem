@@ -33,13 +33,18 @@
 //!
 //! # RAII, panic-safety, and the correctness gate
 //!
-//! [`ParallelismGuard`] records the prior global parallelism on construction,
-//! sets the requested parallelism ([`ParallelismGuard::cap`]: `Par::Seq` for
-//! `n <= 1`, `Par::rayon(n)` otherwise), and restores the prior value on
-//! `Drop`. Because
-//! `Drop` runs during stack unwinding, the prior value is restored **even if
-//! the factorization panics** — the process is never left in a globally
-//! parallel state by accident.
+//! [`ParallelismGuard`] caps the global for its lifetime
+//! ([`ParallelismGuard::cap`]: `Par::Seq` for `n <= 1`, `Par::rayon(n)`
+//! otherwise) and lifts the cap on `Drop`. Because `Drop` runs during stack
+//! unwinding, that happens **even if the factorization panics**, so the
+//! process is never left in a globally parallel state by accident.
+//!
+//! Guards and [`SequentialSolveScope`]s register in one mutex-protected
+//! registry instead of each saving and restoring the value it saw. The global
+//! is `Par::Seq` while any scope is live, else the cap of the live guard
+//! built last, else the ambient value from before the first of them. Any
+//! interleaving of guards and scopes on any threads therefore ends at the
+//! ambient value; the details are on [`ParallelismGuard`].
 //!
 //! The eigensolves use [`ParallelismGuard::cap`], so `GEODE_NUM_THREADS=1`
 //! really does give a serial factorization (faer's global default is every
@@ -64,9 +69,10 @@
 //! measurements are on [`SequentialSolveScope`]'s two users). The two loops
 //! that do this are the driven solve's AMS-preconditioned COCG (the V-cycle's
 //! coarse solves) and the direct shift-invert Lanczos loop. Each holds a
-//! [`SequentialSolveScope`], which sets `Par::Seq` for the whole loop. Unlike
-//! [`ParallelismGuard`] it is reference-counted, so scopes held by concurrent
-//! solves on different threads can end in any order.
+//! [`SequentialSolveScope`], which sets `Par::Seq` for the whole loop. Scopes
+//! are counted, so those held by concurrent solves on different threads can
+//! end in any order, and a `ParallelismGuard` built on another thread
+//! meanwhile cannot put the loop back on the rayon pool.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -219,8 +225,119 @@ fn parse_num_threads(raw: Option<&str>) -> Option<usize> {
     raw?.trim().parse::<usize>().ok().filter(|&n| n > 0)
 }
 
-/// Panic-safe RAII guard that sets faer's process-global parallelism to
-/// `Par::rayon(n)` for its lifetime and restores the prior value on drop.
+/// The one piece of state behind [`ParallelismGuard`] and
+/// [`SequentialSolveScope`]: what is live, and the value faer's global had
+/// before any of it was.
+///
+/// Neither type keeps a "previous value" of its own. Each registers here on
+/// construction and unregisters on drop, and after every change faer's global
+/// is set to [`GlobalParallelism::target`]:
+///
+/// 1. `Par::Seq` while any scope is live;
+/// 2. otherwise the cap of the live guard that was built last;
+/// 3. otherwise the ambient value, which is also forgotten at that point.
+///
+/// The methods take and return plain values and never touch faer's global, so
+/// the rule can be tested without touching process state.
+#[derive(Debug)]
+struct GlobalParallelism {
+    /// The global as it was when the first guard or scope became live.
+    /// `Some` exactly while at least one guard or scope is live.
+    ambient: Option<Par>,
+    /// Number of live [`SequentialSolveScope`]s.
+    seq_scopes: usize,
+    /// The live guards as `(id, cap)`, in the order they were built.
+    guards: Vec<(u64, Par)>,
+    /// Id for the next guard.
+    next_guard_id: u64,
+}
+
+impl GlobalParallelism {
+    const fn new() -> Self {
+        Self {
+            ambient: None,
+            seq_scopes: 0,
+            guards: Vec::new(),
+            next_guard_id: 0,
+        }
+    }
+
+    /// Record `current` as the ambient value if nothing is live yet.
+    fn capture_ambient(&mut self, current: Par) {
+        if self.ambient.is_none() {
+            self.ambient = Some(current);
+        }
+    }
+
+    /// The value the global must have now, or `None` when nothing is live
+    /// and the global is not ours to set.
+    fn target(&self) -> Option<Par> {
+        if self.seq_scopes > 0 {
+            Some(Par::Seq)
+        } else if let Some(&(_, cap)) = self.guards.last() {
+            Some(cap)
+        } else {
+            None
+        }
+    }
+
+    /// The value to set after something was unregistered: the target while
+    /// anything is still live, else the ambient value (handed back once).
+    fn target_after_leave(&mut self) -> Option<Par> {
+        self.target().or_else(|| self.ambient.take())
+    }
+
+    /// Register a scope. `current` is faer's global right now. Returns the
+    /// value to set.
+    fn enter_scope(&mut self, current: Par) -> Par {
+        self.capture_ambient(current);
+        self.seq_scopes += 1;
+        Par::Seq
+    }
+
+    /// Unregister a scope. Returns the value to set, or `None` when no scope
+    /// was registered.
+    fn leave_scope(&mut self) -> Option<Par> {
+        if self.seq_scopes == 0 {
+            return None;
+        }
+        self.seq_scopes -= 1;
+        self.target_after_leave()
+    }
+
+    /// Register a guard capping at `cap`. `current` is faer's global right
+    /// now. Returns the guard's id and the value to set.
+    fn enter_guard(&mut self, cap: Par, current: Par) -> (u64, Par) {
+        self.capture_ambient(current);
+        let id = self.next_guard_id;
+        self.next_guard_id = self.next_guard_id.wrapping_add(1);
+        self.guards.push((id, cap));
+        // A live scope outranks the new guard.
+        (id, self.target().unwrap_or(cap))
+    }
+
+    /// Unregister the guard `id`. Returns the value to set, or `None` when
+    /// no such guard was registered.
+    fn leave_guard(&mut self, id: u64) -> Option<Par> {
+        let at = self.guards.iter().position(|&(g, _)| g == id)?;
+        self.guards.remove(at);
+        self.target_after_leave()
+    }
+}
+
+static GLOBAL_PARALLELISM: Mutex<GlobalParallelism> = Mutex::new(GlobalParallelism::new());
+
+/// Lock [`GLOBAL_PARALLELISM`]. A poisoned lock is still used: nothing that
+/// can panic runs while it is held, and every update leaves the state
+/// consistent.
+fn global_parallelism() -> MutexGuard<'static, GlobalParallelism> {
+    GLOBAL_PARALLELISM
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Panic-safe RAII guard that caps faer's process-global parallelism for its
+/// lifetime.
 ///
 /// Construct one immediately before a faer factorization and let it drop at
 /// the end of the factorization scope:
@@ -229,7 +346,7 @@ fn parse_num_threads(raw: Option<&str>) -> Option<usize> {
 /// let lu = {
 ///     let _par = ParallelismGuard::cap(resolve_num_threads());
 ///     a.as_ref().sp_lu()?
-/// }; // prior global parallelism restored here, even on panic
+/// }; // the cap is lifted here, even on panic
 /// ```
 ///
 /// Prefer [`ParallelismGuard::cap`], which makes `n <= 1` serial. The legacy
@@ -237,18 +354,55 @@ fn parse_num_threads(raw: Option<&str>) -> Option<usize> {
 /// `n <= 1`. Both are no-ops when faer is compiled without its `rayon`
 /// feature, in which case `Par::Rayon` does not exist and the global is
 /// already serial.
+///
+/// # Several guards and scopes at once
+///
+/// Guards and [`SequentialSolveScope`]s share one registry behind one mutex.
+/// A guard does not save and restore a value of its own. While anything is
+/// live, faer's global is:
+///
+/// 1. `Par::Seq` if any `SequentialSolveScope` is live, on any thread;
+/// 2. otherwise the cap of the live guard that was **built last**, on any
+///    thread;
+/// 3. and once the last guard or scope has dropped, the *ambient* value: what
+///    the global was when the first of them was built.
+///
+/// So the drop order does not matter. Any interleaving of guards and scopes,
+/// on any threads, ends with the global at the ambient value.
+///
+/// Consequences worth knowing:
+///
+/// - **Nesting on one thread, dropped innermost first,** behaves as it always
+///   did: the inner cap applies until the inner guard drops, then the outer
+///   cap again, then the ambient value.
+/// - **Dropping out of order** (an outer guard before an inner one, or two
+///   guards on two threads) used to leave the global at whatever the last
+///   guard to drop had saved, which could be a dead guard's cap for the rest
+///   of the process. Now the remaining guard's cap stays in force until it
+///   drops, and the ambient value comes back after it.
+/// - **A guard built while a scope is live does not raise the global.** The
+///   factorization it covers runs sequentially until the scope ends. The cap
+///   takes effect at that point if the guard is still live.
+/// - **Guards on different threads with different caps** share the one
+///   global, so all of them run at the cap built last. faer has no per-call
+///   thread count for `sp_lu` to do better with.
+/// - **Something else writes faer's global while a guard or scope is live**
+///   (a direct [`faer::set_global_parallelism`] call): the written value
+///   lasts until the next guard or scope is built or dropped, which sets the
+///   global by the rule above. It is not remembered, and the ambient value is
+///   what comes back at the end. A write made while nothing is live is simply
+///   the new ambient value.
 #[derive(Debug)]
 #[must_use = "the guard restores parallelism on drop; binding it to `_` drops it immediately"]
 pub struct ParallelismGuard {
-    prior: Par,
-    /// Whether we actually changed the global parallelism. If we did not
-    /// (n <= 1, or faer built without `rayon`), `Drop` skips the restore to
-    /// avoid a spurious `set_global_parallelism` call.
-    changed: bool,
+    /// This guard's id in the registry. `None` when the guard is a no-op
+    /// (`rayon(n)` with `n <= 1`, or faer built without `rayon`): it was
+    /// never registered and `Drop` leaves the global alone.
+    id: Option<u64>,
 }
 
 impl ParallelismGuard {
-    /// Record the current global parallelism, then set `Par::rayon(n)`.
+    /// Cap the global parallelism at `Par::rayon(n)` until the guard drops.
     ///
     /// `n` is the number of threads. `n <= 1` leaves the global **untouched**,
     /// and faer 0.24's global default is `Par::rayon(0)` (every core), so with
@@ -256,12 +410,10 @@ impl ParallelismGuard {
     /// `GEODE_NUM_THREADS=1`. Use [`ParallelismGuard::cap`] when `1` must
     /// mean serial; every in-tree factorization call site does.
     pub fn rayon(n: usize) -> Self {
-        let prior = get_global_parallelism();
-        let changed = Self::try_set_rayon(n);
-        Self { prior, changed }
+        Self::register(if n <= 1 { None } else { rayon_par(n) })
     }
 
-    /// Record the current global parallelism, then cap it at `n` threads:
+    /// Cap the global parallelism at `n` threads until the guard drops:
     /// `Par::Seq` for `n <= 1`, `Par::rayon(n)` otherwise.
     ///
     /// Unlike [`ParallelismGuard::rayon`], `n == 1` really does make the
@@ -272,99 +424,41 @@ impl ParallelismGuard {
     /// cores. Without faer's `rayon` feature the global is already serial
     /// and this is a no-op.
     pub fn cap(n: usize) -> Self {
-        let prior = get_global_parallelism();
-        let changed = if n <= 1 {
-            if cfg!(feature = "faer-parallel") {
-                set_global_parallelism(Par::Seq);
-                true
-            } else {
-                false
-            }
+        Self::register(if n > 1 {
+            rayon_par(n)
+        } else if cfg!(feature = "faer-parallel") {
+            Some(Par::Seq)
         } else {
-            Self::try_set_rayon(n)
-        };
-        Self { prior, changed }
+            None
+        })
     }
 
-    /// Set the global parallelism to `Par::rayon(n)` and report whether the
-    /// global was actually changed.
-    ///
-    /// Returns `false` (leaving the global untouched) when `n <= 1` or when
-    /// faer was built without its `rayon` feature.
-    fn try_set_rayon(n: usize) -> bool {
-        if n <= 1 {
-            return false;
-        }
-        // `Par::rayon` and `Par::Rayon` only exist when faer is compiled with
-        // its `rayon` feature. This crate's `faer-parallel` feature (on by
-        // default) turns that feature on and gates the parallel arm below.
-        set_rayon_parallelism(n)
+    /// Register a guard for `cap` and set the global by the registry's rule.
+    /// `None` builds a no-op guard.
+    fn register(cap: Option<Par>) -> Self {
+        let Some(cap) = cap else {
+            return Self { id: None };
+        };
+        // The lock is held across the read and the write of faer's global,
+        // as it is in every other enter and drop, so the registry and the
+        // global cannot disagree.
+        let mut state = global_parallelism();
+        let (id, target) = state.enter_guard(cap, get_global_parallelism());
+        set_global_parallelism(target);
+        Self { id: Some(id) }
     }
 }
 
 impl Drop for ParallelismGuard {
     fn drop(&mut self) {
-        if self.changed {
-            // Runs during normal scope exit *and* during panic unwinding, so
-            // the global parallelism is always restored to its prior value.
-            set_global_parallelism(self.prior);
+        // Runs during normal scope exit *and* during panic unwinding.
+        if let Some(id) = self.id {
+            let mut state = global_parallelism();
+            if let Some(target) = state.leave_guard(id) {
+                set_global_parallelism(target);
+            }
         }
     }
-}
-
-/// Bookkeeping for the live [`SequentialSolveScope`]s: how many there are,
-/// and the global parallelism the first of them replaced.
-///
-/// Kept apart from faer's global so the save / restore rule can be tested
-/// without touching process state.
-#[derive(Debug)]
-struct SequentialScopes {
-    live: usize,
-    prior: Option<Par>,
-}
-
-impl SequentialScopes {
-    const fn new() -> Self {
-        Self {
-            live: 0,
-            prior: None,
-        }
-    }
-
-    /// Register one more scope. `current` is the global parallelism right
-    /// now. Returns `true` when the caller must set the global to `Par::Seq`,
-    /// which is the case for the first live scope only: that scope's
-    /// `current` is the value to restore later.
-    fn enter(&mut self, current: Par) -> bool {
-        self.live += 1;
-        if self.live == 1 {
-            self.prior = Some(current);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Unregister one scope. Returns the parallelism to restore when it was
-    /// the last live one, and `None` while any other scope is still live.
-    fn leave(&mut self) -> Option<Par> {
-        self.live = self.live.saturating_sub(1);
-        if self.live == 0 {
-            self.prior.take()
-        } else {
-            None
-        }
-    }
-}
-
-static SEQUENTIAL_SCOPES: Mutex<SequentialScopes> = Mutex::new(SequentialScopes::new());
-
-/// Lock [`SEQUENTIAL_SCOPES`]. A poisoned lock is still used: the state is
-/// two plain fields and every update leaves it consistent.
-fn sequential_scopes() -> MutexGuard<'static, SequentialScopes> {
-    SEQUENTIAL_SCOPES
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
 }
 
 /// RAII scope that makes faer's process-global parallelism `Par::Seq` while
@@ -375,41 +469,42 @@ fn sequential_scopes() -> MutexGuard<'static, SequentialScopes> {
 ///
 /// ```ignore
 /// let _seq = SequentialSolveScope::enter();
-/// ksp.solve(a, b, x, &precond)?; // restored here too, on the `?` return
+/// ksp.solve(a, b, x, &precond)?; // ends here too, on the `?` return
 /// ```
 ///
 /// Take **one scope per solve, not one per preconditioner application**. The
 /// global is a single atomic shared by every thread, so each change is a
 /// window in which another thread's faer call sees the wrong value.
 ///
-/// # Why not [`ParallelismGuard::cap`]`(1)`
+/// # Overlap with other scopes and with [`ParallelismGuard`]
 ///
-/// A `ParallelismGuard` restores the value it saw when it was built. Two of
-/// them on different threads that end in the opposite order to the one they
-/// started in leave the global wrong: the one built second saved `Par::Seq`,
-/// and if it is dropped last it restores `Par::Seq` for good. Concurrent
-/// solves do end in arbitrary order (the CLI's `--jobs`), so this scope is
-/// reference-counted instead: the first live scope saves the prior value and
-/// sets `Par::Seq`, later ones only count, and the last one to drop restores
-/// the saved value. The drop runs on early return and during panic unwinding.
+/// Scopes and guards share one registry behind one mutex; the rule is on
+/// [`ParallelismGuard`]. For a scope it means:
+///
+/// - The global is `Par::Seq` for as long as **any** scope is live on any
+///   thread. Scopes are counted, so concurrent solves can end in any order
+///   (the CLI's `--jobs`).
+/// - A `ParallelismGuard` built or dropped on any thread while a scope is
+///   live does not change the global. Its cap applies once the last scope
+///   has ended, if the guard is still live then.
+/// - When the last scope ends and no guard is live, the global returns to
+///   the ambient value: what it was before the first guard or scope
+///   started. That holds for every order in which overlapping scopes and
+///   guards start and end.
+///
+/// The drop runs on early return and during panic unwinding.
 ///
 /// # What it does not do
 ///
-/// It does not isolate a thread, and it does not coordinate with
-/// [`ParallelismGuard`]:
+/// It does not isolate a thread. A faer factorization that another thread
+/// starts while a scope is live runs sequentially, **with or without a
+/// `ParallelismGuard` of its own**, until the scope ends. In this crate that
+/// reaches concurrent solves only: no solver factors inside its own scope.
+/// The result changes at roundoff at most, since the setting is how many
+/// threads faer uses and not what it computes.
 ///
-/// - A faer factorization started on another thread while a scope is live
-///   also runs sequentially, unless that thread sets its own
-///   `ParallelismGuard`.
-/// - A scope and a `ParallelismGuard` on two threads that overlap without
-///   nesting each restore what they saw, as two overlapping
-///   `ParallelismGuard`s already do. The one that ends last wins: the global
-///   can be left at `Par::Seq`, or at the guard's thread count.
-///
-/// Neither changes a result beyond roundoff: the setting is how many threads
-/// faer uses, not what it computes. In this crate the second case leaves the
-/// value unchanged whenever every guard caps at the same count, which is how
-/// the eigensolvers and the CLI's `--jobs` use them.
+/// A direct [`faer::set_global_parallelism`] call made while a scope is live
+/// is not coordinated: see the last point on [`ParallelismGuard`].
 #[derive(Debug)]
 #[must_use = "the scope ends on drop; binding it to `_` drops it immediately"]
 pub struct SequentialSolveScope {
@@ -421,25 +516,23 @@ impl SequentialSolveScope {
     pub fn enter() -> Self {
         // The lock is held across the read and the write of faer's global so
         // two scopes starting together cannot both think they are the first.
-        let mut scopes = sequential_scopes();
-        if scopes.enter(get_global_parallelism()) {
-            set_global_parallelism(Par::Seq);
-        }
+        let mut state = global_parallelism();
+        let target = state.enter_scope(get_global_parallelism());
+        set_global_parallelism(target);
         Self { _private: () }
     }
 }
 
 impl Drop for SequentialSolveScope {
     fn drop(&mut self) {
-        let mut scopes = sequential_scopes();
-        if let Some(prior) = scopes.leave() {
-            set_global_parallelism(prior);
+        let mut state = global_parallelism();
+        if let Some(target) = state.leave_scope() {
+            set_global_parallelism(target);
         }
     }
 }
 
-/// Set faer's global parallelism to `Par::rayon(n)` when faer's `rayon`
-/// feature is enabled; otherwise a no-op that reports `false`.
+/// `Par::rayon(n)` when faer's `rayon` feature is enabled, else `None`.
 ///
 /// faer re-exports the `Par::Rayon` variant only under its own `rayon`
 /// feature. We cannot name `Par::rayon` unconditionally, so the two arms
@@ -447,42 +540,108 @@ impl Drop for SequentialSolveScope {
 /// faer's `rayon` feature on. `faer-parallel` is a default feature, so the
 /// parallel arm is the one that compiles in normal builds.
 #[cfg(feature = "faer-parallel")]
-fn set_rayon_parallelism(n: usize) -> bool {
-    set_global_parallelism(Par::rayon(n));
-    true
+fn rayon_par(n: usize) -> Option<Par> {
+    Some(Par::rayon(n))
 }
 
 #[cfg(not(feature = "faer-parallel"))]
-fn set_rayon_parallelism(_n: usize) -> bool {
-    false
+fn rayon_par(_n: usize) -> Option<Par> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The save / restore rule of [`SequentialScopes`], on plain values: only
-    /// the first live scope asks for `Par::Seq` and records the prior value,
-    /// and only the last one to leave hands it back, whatever the order.
+    /// Scopes alone, on plain values: the global is `Par::Seq` while any is
+    /// live and the ambient value comes back only when the last one leaves.
     #[test]
-    fn sequential_scopes_restore_the_prior_only_when_the_last_one_leaves() {
-        let prior = Par::rayon(3);
-        let mut scopes = SequentialScopes::new();
+    fn scopes_hand_back_the_ambient_value_only_when_the_last_one_leaves() {
+        let ambient = Par::rayon(3);
+        let mut state = GlobalParallelism::new();
 
-        assert!(scopes.enter(prior), "the first scope must set Par::Seq");
+        assert_eq!(state.enter_scope(ambient), Par::Seq);
         // A second scope starts while the global already reads Par::Seq. It
-        // must not overwrite the saved prior with that.
-        assert!(!scopes.enter(Par::Seq), "a nested scope must not set again");
-        assert!(!scopes.enter(Par::Seq));
-        assert_eq!(scopes.leave(), None, "two scopes are still live");
-        assert_eq!(scopes.leave(), None, "one scope is still live");
-        assert_eq!(scopes.leave(), Some(prior), "the last scope restores");
+        // must not replace the ambient value with that.
+        assert_eq!(state.enter_scope(Par::Seq), Par::Seq);
+        assert_eq!(state.enter_scope(Par::Seq), Par::Seq);
+        assert_eq!(state.leave_scope(), Some(Par::Seq), "two still live");
+        assert_eq!(state.leave_scope(), Some(Par::Seq), "one still live");
+        assert_eq!(state.leave_scope(), Some(ambient), "the last restores");
 
-        // Fully released: the next scope is a first scope again, with its own
-        // prior, and an unbalanced extra `leave` restores nothing.
-        assert_eq!(scopes.leave(), None);
-        assert!(scopes.enter(Par::Seq));
-        assert_eq!(scopes.leave(), Some(Par::Seq));
+        // Fully released: an unbalanced extra `leave` sets nothing, and the
+        // next scope is a first scope again with its own ambient value.
+        assert_eq!(state.leave_scope(), None);
+        assert_eq!(state.enter_scope(Par::Seq), Par::Seq);
+        assert_eq!(state.leave_scope(), Some(Par::Seq));
+        assert_eq!(state.ambient, None);
+    }
+
+    /// Guards alone: the cap built last applies, whatever the drop order, and
+    /// the ambient value comes back after the last one.
+    #[test]
+    fn guards_apply_the_cap_built_last_in_any_drop_order() {
+        let ambient = Par::rayon(5);
+        let (two, four) = (Par::rayon(2), Par::rayon(4));
+        let mut state = GlobalParallelism::new();
+
+        // Innermost first: outer cap again, then ambient.
+        let (outer, set) = state.enter_guard(two, ambient);
+        assert_eq!(set, two);
+        let (inner, set) = state.enter_guard(four, two);
+        assert_eq!(set, four);
+        assert_eq!(state.leave_guard(inner), Some(two));
+        assert_eq!(state.leave_guard(outer), Some(ambient));
+
+        // Outer first: the inner cap stays, then ambient. The value read
+        // from the global on the second enter is not what gets restored.
+        let (outer, _) = state.enter_guard(two, ambient);
+        let (inner, _) = state.enter_guard(four, two);
+        assert_eq!(state.leave_guard(outer), Some(four));
+        assert_eq!(state.leave_guard(outer), None, "already unregistered");
+        assert_eq!(state.leave_guard(inner), Some(ambient));
+        assert!(state.guards.is_empty() && state.ambient.is_none());
+    }
+
+    /// Every interleaving of one scope and one guard: `Par::Seq` while the
+    /// scope is live, the guard's cap when only the guard is, and the ambient
+    /// value at the end. The third order is the one that used to end at
+    /// `Par::Seq` (issue #946 review).
+    #[test]
+    fn a_scope_and_a_guard_end_at_the_ambient_value_in_every_order() {
+        let ambient = Par::rayon(5);
+        let cap = Par::rayon(3);
+
+        // guard starts, scope starts, guard ends, scope ends
+        let mut s = GlobalParallelism::new();
+        let (g, set) = s.enter_guard(cap, ambient);
+        assert_eq!(set, cap);
+        assert_eq!(s.enter_scope(cap), Par::Seq);
+        assert_eq!(s.leave_guard(g), Some(Par::Seq));
+        assert_eq!(s.leave_scope(), Some(ambient));
+
+        // guard starts, scope starts, scope ends, guard ends
+        let mut s = GlobalParallelism::new();
+        let (g, _) = s.enter_guard(cap, ambient);
+        assert_eq!(s.enter_scope(cap), Par::Seq);
+        assert_eq!(s.leave_scope(), Some(cap));
+        assert_eq!(s.leave_guard(g), Some(ambient));
+
+        // scope starts, guard starts, scope ends, guard ends
+        let mut s = GlobalParallelism::new();
+        assert_eq!(s.enter_scope(ambient), Par::Seq);
+        let (g, set) = s.enter_guard(cap, Par::Seq);
+        assert_eq!(set, Par::Seq, "a guard must not raise a live scope");
+        assert_eq!(s.leave_scope(), Some(cap));
+        assert_eq!(s.leave_guard(g), Some(ambient));
+
+        // scope starts, guard starts, guard ends, scope ends
+        let mut s = GlobalParallelism::new();
+        assert_eq!(s.enter_scope(ambient), Par::Seq);
+        let (g, _) = s.enter_guard(cap, Par::Seq);
+        assert_eq!(s.leave_guard(g), Some(Par::Seq));
+        assert_eq!(s.leave_scope(), Some(ambient));
+        assert!(s.ambient.is_none());
     }
 
     /// The `GEODE_NUM_THREADS` parse honors a positive integer and falls

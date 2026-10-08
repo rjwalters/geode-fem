@@ -1,4 +1,4 @@
-leg=n20_direct bin=/Volumes/Stripe/cargo-target-issue-946/release/deps/gpu_driven_scaling-e770a24497c61984
+leg=n20_direct bin=<cargo-target>/release/deps/gpu_driven_scaling-e770a24497c61984
 start=2026-10-08T08:48:41Z
 loadavg_start=119.08 77.64 74.88
 rayon_num_threads=unset

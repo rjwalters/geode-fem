@@ -18,7 +18,11 @@
 //! process-global value, and in the library's unit-test binary other tests
 //! change it concurrently (every direct eigensolve changes it twice). Here
 //! nothing else runs in the process, so each assertion is exact. Do not add a
-//! second test to this file.
+//! second test to this file: add a block to the one test instead.
+//!
+//! Where a block needs a second thread, that thread is stepped through
+//! channels ([`OnAnotherThread`]), so the order of events is fixed and no
+//! block depends on timing.
 //!
 //! That the scope is held *while* each loop runs is asserted by unit tests
 //! that can see inside the solvers:
@@ -28,7 +32,7 @@
 //! `eigen/lanczos.rs`.
 
 use burn::tensor::backend::BackendTypes;
-use faer::{Par, c64, get_global_parallelism};
+use faer::{Par, c64, get_global_parallelism, set_global_parallelism};
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::assembly::sparse::global_system_to_sparse;
@@ -41,8 +45,40 @@ use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::eigen::parallel::{ParallelismGuard, SequentialSolveScope};
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::TestBackend;
+use std::sync::mpsc;
+use std::thread;
 
 type B = TestBackend;
+
+/// Something built on a second thread and dropped there on request, so a
+/// test can place its construction and its drop exactly among the events on
+/// the main thread.
+struct OnAnotherThread {
+    release: mpsc::Sender<()>,
+    thread: thread::JoinHandle<()>,
+}
+
+impl OnAnotherThread {
+    /// Build `make()` on a new thread. Returns once it has been built.
+    fn build<T>(make: impl FnOnce() -> T + Send + 'static) -> Self {
+        let (built_tx, built_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        let thread = thread::spawn(move || {
+            let held = make();
+            built_tx.send(()).expect("main thread is waiting");
+            release_rx.recv().expect("main thread releases");
+            drop(held);
+        });
+        built_rx.recv().expect("the other thread built its value");
+        Self { release, thread }
+    }
+
+    /// Drop the value on its thread. Returns once it has been dropped.
+    fn drop_there(self) {
+        self.release.send(()).expect("the other thread is waiting");
+        self.thread.join().expect("the other thread");
+    }
+}
 
 /// A solve that fails inside its sequential scope, as a Krylov solve that
 /// does not converge does.
@@ -88,6 +124,149 @@ fn guards_scopes_and_solves_restore_the_callers_parallelism() {
     }
     assert_eq!(get_global_parallelism(), ambient, "cap(1) not restored");
 
+    // `cap(3)` sets three threads, and restores.
+    {
+        let _g = ParallelismGuard::cap(3);
+        if cfg!(feature = "faer-parallel") {
+            assert_eq!(get_global_parallelism(), Par::rayon(3));
+        }
+    }
+    assert_eq!(get_global_parallelism(), ambient, "cap(3) not restored");
+
+    // ---- guards and scopes that overlap (issue #946 review) -----------------
+    // Guards and scopes share one registry: `Par::Seq` while any scope is
+    // live, else the cap of the live guard built last, else the value from
+    // before the first of them. These blocks need real caps, so they run
+    // with the `faer-parallel` feature only (without it a guard is a no-op).
+    if cfg!(feature = "faer-parallel") {
+        // An ambient value that is neither faer's default, nor `Par::Seq`,
+        // nor any cap used below. Nothing is live here, so writing the
+        // global directly simply makes this the ambient value.
+        let ambient5 = Par::rayon(5);
+        set_global_parallelism(ambient5);
+
+        // (a) scope starts, guard starts on another thread, scope ends,
+        // guard ends. With save-and-restore types the guard saved the
+        // scope's `Par::Seq` and restored it last, for good. This is two
+        // concurrent direct eigensolves: one's factorization starts during
+        // the other's Lanczos loop and outlives it.
+        let scope = SequentialSolveScope::enter();
+        let guard = OnAnotherThread::build(|| ParallelismGuard::cap(3));
+        let both_live = get_global_parallelism();
+        drop(scope);
+        let guard_only = get_global_parallelism();
+        guard.drop_there();
+        let neither = get_global_parallelism();
+        let later = {
+            drop(SequentialSolveScope::enter());
+            get_global_parallelism()
+        };
+        assert_eq!(
+            neither, ambient5,
+            "(a) scope, guard, scope ends, guard ends: ambient not restored"
+        );
+        assert_eq!(later, ambient5, "(a) a later scope lost the ambient value");
+        assert_eq!(
+            both_live,
+            Par::Seq,
+            "(a) a guard on another thread put a live scope back on the pool"
+        );
+        assert_eq!(
+            guard_only,
+            Par::rayon(3),
+            "(a) the guard's cap must apply once the scope has ended"
+        );
+
+        // (b) the mirror: guard starts, scope starts on another thread,
+        // guard ends, scope ends.
+        let guard = ParallelismGuard::cap(3);
+        assert_eq!(get_global_parallelism(), Par::rayon(3));
+        let scope = OnAnotherThread::build(SequentialSolveScope::enter);
+        assert_eq!(get_global_parallelism(), Par::Seq);
+        drop(guard);
+        assert_eq!(
+            get_global_parallelism(),
+            Par::Seq,
+            "(b) a dropped guard put a live scope back on the pool"
+        );
+        scope.drop_there();
+        assert_eq!(
+            get_global_parallelism(),
+            ambient5,
+            "(b) guard, scope, guard ends, scope ends: ambient not restored"
+        );
+
+        // (c) the two nested orders, with the guard on the other thread.
+        let scope = SequentialSolveScope::enter();
+        let guard = OnAnotherThread::build(|| ParallelismGuard::cap(3));
+        guard.drop_there();
+        assert_eq!(get_global_parallelism(), Par::Seq);
+        drop(scope);
+        assert_eq!(get_global_parallelism(), ambient5, "(c) scope around guard");
+        let guard = OnAnotherThread::build(|| ParallelismGuard::cap(3));
+        let scope = SequentialSolveScope::enter();
+        assert_eq!(get_global_parallelism(), Par::Seq);
+        drop(scope);
+        assert_eq!(get_global_parallelism(), Par::rayon(3));
+        guard.drop_there();
+        assert_eq!(get_global_parallelism(), ambient5, "(c) guard around scope");
+
+        // (d) two guards with different caps on two threads, dropped in the
+        // order they were built. The cap built last applies while both are
+        // live and stays until its guard drops.
+        let two = ParallelismGuard::cap(2);
+        let four = OnAnotherThread::build(|| ParallelismGuard::cap(4));
+        assert_eq!(get_global_parallelism(), Par::rayon(4));
+        drop(two);
+        assert_eq!(
+            get_global_parallelism(),
+            Par::rayon(4),
+            "(d) dropping the older guard must leave the live guard's cap"
+        );
+        four.drop_there();
+        assert_eq!(
+            get_global_parallelism(),
+            ambient5,
+            "(d) two guards dropped out of order: ambient not restored"
+        );
+
+        // (e) the same out-of-order drop on one thread, and the nested
+        // order, which behaves as it always did.
+        let two = ParallelismGuard::cap(2);
+        let four = ParallelismGuard::cap(4);
+        drop(two);
+        assert_eq!(get_global_parallelism(), Par::rayon(4));
+        drop(four);
+        assert_eq!(get_global_parallelism(), ambient5, "(e) out of order");
+        {
+            let _two = ParallelismGuard::cap(2);
+            {
+                let _four = ParallelismGuard::cap(4);
+                assert_eq!(get_global_parallelism(), Par::rayon(4));
+            }
+            assert_eq!(get_global_parallelism(), Par::rayon(2));
+        }
+        assert_eq!(get_global_parallelism(), ambient5, "(e) nested");
+
+        // (f) a direct write while a guard is live is not remembered: the
+        // next enter or drop sets the global by the rule, and the ambient
+        // value comes back at the end.
+        let guard = ParallelismGuard::cap(3);
+        set_global_parallelism(Par::rayon(7));
+        assert_eq!(get_global_parallelism(), Par::rayon(7));
+        {
+            let _seq = SequentialSolveScope::enter();
+            assert_eq!(get_global_parallelism(), Par::Seq);
+        }
+        assert_eq!(get_global_parallelism(), Par::rayon(3));
+        set_global_parallelism(Par::rayon(7));
+        drop(guard);
+        assert_eq!(get_global_parallelism(), ambient5, "(f) direct write kept");
+
+        // Back to what the process started with, for the rest of the test.
+        set_global_parallelism(ambient);
+    }
+
     // The caller's setting: neither faer's default nor `Par::Seq`, so
     // "restored" cannot be mistaken for "left sequential" or "reset to the
     // default". Without the `faer-parallel` feature the cap is a no-op and
@@ -127,9 +306,8 @@ fn guards_scopes_and_solves_restore_the_callers_parallelism() {
     );
 
     // Two overlapping scopes that end in the order they started in (the
-    // first one first). A pair of `ParallelismGuard::cap(1)` gets this wrong:
-    // the second saved `Par::Seq` and restores it last. The second scope is
-    // started on another thread, as a concurrent solve would start it.
+    // first one first). The second scope is started on another thread, as a
+    // concurrent solve would start it.
     let first = SequentialSolveScope::enter();
     let second = std::thread::spawn(SequentialSolveScope::enter)
         .join()
