@@ -385,9 +385,11 @@ The estimate and the weight at ω = 0.10 (the other two frequencies are within
   edges^0.48. AMS now needs 24× to 112× fewer iterations than Jacobi.
 - **It is not flat by this file's own definition.** The count still rises by
   1.97× to 2.12× from 1.9k to 102k edges, outside the 1.52 band of the spiral
-  measurement. The #944 weight sweep showed the same residual rise at every
-  stable weight from 0.2 to 0.55, so it is not the smoother weight. Its cause
-  was not investigated here.
+  measurement. The #944 weight sweep shows the rise over the range varies with
+  the weight (1.47× at 0.2 up to 2.23×); what is common is the 102k-edge
+  endpoint, 55 to 58 iterations at every stable weight from 0.2 to 0.55. So it
+  is not the smoother weight. Its cause was not investigated here; it is
+  tracked in #963 (noted on #930).
 - **CPU time.** Whole process (mesh, assembly, setup, solve), user + system
   seconds at 102k edges and ω = 0.10: Jacobi 9.8 s, AMS before 99.3 s, AMS
   after 10.7 s with the default threading and 4.4 s against Jacobi's 9.9 s with

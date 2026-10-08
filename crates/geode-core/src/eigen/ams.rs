@@ -69,7 +69,8 @@
 //! The damped-Jacobi sweep `z = ω D⁻¹ r` is convergent only for
 //! `ω < 2 / λ_max(D⁻¹A)`. At or above that bound the symmetric V-cycle is no
 //! longer positive definite on the highest edge modes, and the outer
-//! iteration count grows with the mesh instead of staying flat.
+//! iteration count can grow with the mesh instead of staying flat (the
+//! anisotropic spiral is above the bound and still takes 114 iterations).
 //! `λ_max(D⁻¹A)` depends on the mesh: measured, it is 2.93 to 3.09 on the
 //! unstructured spiral (bound 0.65 to 0.68, so the long-standing `ω = 0.6` is
 //! inside it) and 3.39 to 3.42 on a structured Kuhn-tet cube (bound 0.585 to
