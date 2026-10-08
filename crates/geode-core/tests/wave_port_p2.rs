@@ -1451,8 +1451,10 @@ fn gmsh_guide_box(
 
 /// The p=2 **validation** of the TM guard (issues #884, #895, #905). The
 /// guard's law is not fitted to this table: it is the order-independent
-/// `max(δ₀, C_h·(k_c·h_n)²)` of `tm_guard_margin`, whose form is derived
-/// there and whose constant was measured at p=1 (issue #824). Every row
+/// `max(δ₀, C_h·(k_c·h_n)²)` of `tm_guard_margin`, whose second-order form
+/// is motivated (not derived) there and whose constant was measured at p=1
+/// (issue #824); as applied at p=2 the law is empirical, and this table is
+/// its validation. Every row
 /// asserts that the p=2 guard is below the 3-D p=2 TM-like cutoff; no row
 /// is skipped.
 ///
@@ -1828,7 +1830,9 @@ fn tm_guard_p2_measurement_table() {
     // Reading the axial spacing alone is safe on a coarse face.
     assert!(worst_fine_axis < 0.01, "{worst_fine_axis}");
     // The rows reach the `k_c·h_n` at which the margin is at its cap of 1
-    // (`√(1/C_h)` ≈ 6.32), so the law is validated over its whole range.
+    // (`√(1/C_h)` ≈ 6.32), so no part of the law's range is extrapolated.
+    // Above 6.32 the guard is 0, which is below any cutoff: those rows test
+    // nothing, and the evidence is the rows below it (rectangular boxes).
     assert!(
         table.max_kh > (1.0 / TM_GUARD_AXIAL_COEFF).sqrt(),
         "largest k_c·h_n {}",

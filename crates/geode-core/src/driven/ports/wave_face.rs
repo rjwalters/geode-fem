@@ -1563,16 +1563,23 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// up to `axial_spacing` = `h_n` along the port normal
 /// ([`PortFaceProjection::guide_axial_spacing`]):
 /// `δ = max(TM_GUARD_MARGIN, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`, capped at
-/// `1` (a guard of `0`: every frequency rejected; the axial mesh then
-/// spans more than `λ_c/1.0` and no margin is meaningful). `h_n = 0` gives
-/// the base margin.
+/// `1` (a guard value of `0`: a caller that enforces it admits no
+/// frequency; the axial mesh then spans more than `λ_c/1.0` and no margin
+/// is meaningful). `h_n = 0` gives the base margin.
+///
+/// This function returns a value. It rejects nothing itself: see
+/// "An interim bound, and who enforces it" below.
 ///
 /// # One law at every element order (issue #905)
 ///
 /// A p=1 and a p=2 driven solve are guarded by this same law. A p=2-only
 /// law, `max(δ₀, C₄·(k_c·h)⁴)` with a fitted `C₄` (issue #884), was
-/// withdrawn: nothing below supports a fourth-order term, and the
-/// measurement refuted it.
+/// withdrawn: no worst-case bound that can be proved supports a
+/// fourth-order term, and the measurement refuted the fitted one.
+///
+/// The four steps below are the mathematics that is known. They
+/// **motivate** a second-order form in `k·h`. They do not derive the
+/// guard: what is proved and what is empirical is set out after them.
 ///
 /// **Setting.** `Ω` is the guide section behind the port: a convex
 /// polyhedron with PEC walls (the `a × b × d` box of the measurement).
@@ -1598,27 +1605,40 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 ///    part is controlled by the curl: `‖∇φ‖ ≤ C_H·h·‖curl u‖` for every
 ///    `u ∈ X_h`, with `h` the largest element diameter and `C_H` a
 ///    constant of the mesh's shape regularity and of the order, not of `h`
-///    (the estimate behind the discrete compactness property: Hiptmair,
-///    *Acta Numerica* 11 (2002), §4; Monk, *Finite Element Methods for
-///    Maxwell's Equations* (2003), §7.3). Hence
+///    (the Hodge-map estimate between discretely and exactly
+///    divergence-free fields on a convex domain, which is behind the
+///    discrete compactness property: Hiptmair, "Finite elements in
+///    computational electromagnetism", *Acta Numerica* 11 (2002); Monk,
+///    *Finite Element Methods for Maxwell's Equations* (2003)). Hence
 ///    `R(u) ≥ 1/(1/R(w) + C_H²·h²)`. The map `u ↦ w` is injective on `X_h`
 ///    (`w = 0` gives `curl u = 0`, so `u ∈ ∇S_h ∩ X_h = {0}`), so it takes
 ///    a `j`-dimensional subspace of `X_h` to a `j`-dimensional subspace of
 ///    `X`, on which `max R ≥ λ_j`. Min-max then gives, for every `j`,
 ///    `λ_{h,j} ≥ λ_j/(1 + C_H²·h²·λ_j)`, that is
 ///    `k_{h,j} ≥ k_j/√(1 + (C_H·k_j·h)²) ≥ k_j·(1 − ½·(C_H·k_j·h)²)`.
-///    This is the law's form, `δ = C_h·(k·h)²` with `C_h = ½·C_H²`.
-/// 3. **The exponent does not rise with the order.** The bound of step 2
-///    comes from the divergence defect of step 1, which is `O(h)` at every
-///    order. It does not come from how well `V_h` approximates a smooth
-///    mode. A smooth mode on a shape-regular family does converge at
-///    `O(h^{2p})`, but with a constant that no worst-case bound supplies,
-///    and coarse unstructured meshes are not in that regime. Measured at
-///    p=2 on Gmsh `3 × 1 × 4.06` at `lc` 0.9: the TM-like branch is 12.4 %
-///    below the face value at `k_c·h_n` = 2.78, where the fourth-order law
-///    allowed 5 % (its `C₄` would have had to be ten times larger). In
-///    units of this law that row is `0.0160·(k_c·h_n)²`, against
-///    `0.0205·(k_c·h_n)²` for the worst p=1 row ([`TM_GUARD_MARGIN`]).
+///    This has the shape of the law, `δ = C_h·(k·h)²` with
+///    `C_h = ½·C_H²`, but it is a statement about the `j`-th eigenvalue
+///    and the largest element diameter, with a constant that depends on
+///    the order. It is not a statement about the guard (step 4 and the
+///    scope below).
+/// 3. **The provable exponent is second order at every order; the actual
+///    undershoot need not be.** The bound of step 2 comes from the
+///    divergence defect of step 1, whose worst case over `X_h` is `O(h)` at
+///    every order, so the worst-case lower bound that can be proved this
+///    way is second order in `k·h` at p=1 and at p=2 alike. That is a
+///    statement about the bound, not about the undershoot. A fixed smooth
+///    mode on a refined shape-regular family converges at `O(h^{2p})`, so
+///    the undershoot of a resolved mode can be far smaller at p=2 than the
+///    bound allows. The absence of a better uniform bound here is not a
+///    proof that none exists. What supports a second-order law at p=2 is
+///    measurement: it is a pre-asymptotic worst-case envelope, and the
+///    worst p=2 mesh in the tabulated range is no better than second
+///    order. On Gmsh `3 × 1 × 4.06` at `lc` 0.9 the TM-like branch is
+///    12.4 % below the face value at `k_c·h_n` = 2.78, where the withdrawn
+///    fourth-order law allowed 5 % (its `C₄` would have had to be ten
+///    times larger). In units of this law that row is
+///    `0.0160·(k_c·h_n)²`, against `0.0205·(k_c·h_n)²` for the worst p=1
+///    row ([`TM_GUARD_MARGIN`]).
 /// 4. **The bound is by index, the guard's target is by content.** Step 2
 ///    bounds the `j`-th eigenvalue. The guard has to stay below the lowest
 ///    mode that carries axial field, whatever its index (on the row of
@@ -1636,34 +1656,82 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 ///    lie within 29 % of `k_c` on any mesh. It is a statement of what is
 ///    known, not the guard.
 ///
-/// **What is derived and what is measured.** Steps 1 and 2 are theorems
+/// **What is proved and what is empirical.** Proved (steps 1 and 2),
 /// under the stated assumptions (a convex section with PEC walls, a
 /// conforming Nédélec space with its exact sequence, a shape-regular
-/// mesh). They fix the **form** of the law and show that it is the same at
-/// every order. They do not give a number: `C_H` depends on the tets in
-/// the guide and cannot be read from the port face, and no explicit value
-/// is known. So two things in the guard are measured, not derived, at p=2
-/// exactly as at p=1:
+/// mesh): a lower bound on the `j`-th discrete eigenvalue,
+/// `k_{h,j} ≥ k_j·(1 − ½·(C_H·k_j·h)²)`, with `h` the largest element
+/// diameter and `C_H` depending on the shape regularity **and on the
+/// element order**. No explicit value of `C_H` is known, and it depends on
+/// the tets in the guide, so it cannot be read from the port face.
 ///
-/// - the constant, [`TM_GUARD_AXIAL_COEFF`] = 0.025 (issue #824);
-/// - reading `h` as the axial spacing `h_n` rather than the element
-///   diameter. A coarse face over fine layers undershoots little: at p=2,
-///   faces one element across over four layers (`k_c·h_n` = 0.83) are at
-///   most 0.58 % below the face value.
+/// That theorem motivates a second-order form in `k·h`. Nothing in the
+/// guard as applied at p=2 follows from it. Each of these is empirical,
+/// validated on the committed table and not proved:
+///
+/// - **that the bound applies to the guarded mode.** The theorem is by
+///   index; the guard's target is the mode the classifier selects by its
+///   axial content. Only the content bound of step 4 relates the two, and
+///   it is first order with a `√s` loss;
+/// - **reading `h` as the axial spacing `h_n`** rather than the largest
+///   element diameter. A coarse face over fine layers undershoots little:
+///   at p=2, faces one element across over four layers (`k_c·h_n` = 0.83)
+///   are at most 0.58 % below the face value;
+/// - **the constant, shared by both orders.** [`TM_GUARD_AXIAL_COEFF`] =
+///   0.025 is the constant measured at p=1 (issue #824), reused at p=2
+///   without re-fitting. The theorem's constant depends on the order, so
+///   nothing proved says one number serves both; the 815-row p=2 table
+///   reaches 64 % of it;
+/// - **any section that is not convex or not rectangular** (a ridge, a
+///   coax). It is outside both the assumptions and the measurement, at
+///   p=2 as at p=1, and nothing detects it.
 ///
 /// `tm_guard_p2_measurement_table` (`tests/wave_port_p2.rs`) is the
 /// validation at p=2. It takes the 3-D p=2 box's lowest TM-like resonance
 /// as the cutoff, on structured, stepped and Gmsh guides and on scans of
-/// the box depth (815 rows), and requires the guard below it on every row.
-/// The tightest row has 4.45 points to spare (at the base margin), and the
-/// worst `undershoot ÷ (k_c·h_n)²` is 0.0160, 64 % of the constant. The
-/// rows reach `k_c·h_n` = 7.06, past the 6.32 where the margin is at its
-/// cap of 1, so at p=2 the law is validated over its whole range
-/// ([`TM_GUARD_MEASURED_KH`] is the p=1 range). A cross-section that is
-/// not convex or not rectangular (a ridge, a coax) is outside both the
-/// assumptions and the measurement, at p=2 as at p=1. A guard computed
-/// from the 3-D model itself (an eigensolve of the guide section) would
-/// need neither; it is not implemented (issue #955).
+/// the box depth (815 rows, rectangular boxes only), and requires the
+/// guard below it on every row. The tightest row has 4.45 points to spare
+/// (at the base margin), and the worst `undershoot ÷ (k_c·h_n)²` is
+/// 0.0160, 64 % of the constant. The rows reach `k_c·h_n` = 7.06
+/// ([`TM_GUARD_MEASURED_KH`] is the p=1 range). The margin is at its cap
+/// of 1 from `k_c·h_n` ≈ 6.32, and a guard of 0 is below any cutoff, so
+/// the rows above 6.32 test nothing; the range in which the table is
+/// evidence is `k_c·h_n` < 6.32.
+///
+/// # An interim bound, and who enforces it
+///
+/// This is a conservative interim bound, not a resolved cutoff.
+///
+/// **Nothing in this crate enforces it at p=2.** The `*_on_space` wave-port
+/// solvers do not call it, and
+/// [`PortFaceProjection::tm_cutoff_estimate_at_order`] and
+/// [`TmCutoffEstimate::p2_resolution_warning`] return values and a note.
+/// Enforcement is the caller's. The one enforcer in the workspace is the
+/// `geode driven` CLI, a hard error, and it solves at p=1 only.
+///
+/// **What enforcing it at p=2 would cost**, in single-mode band. The law
+/// is sized for the worst mesh at a given `k_c·h_n`, and the face cannot
+/// tell which mesh it has, so on most meshes the margin is far wider than
+/// that mesh needs:
+///
+/// - `2 × 1` guide: the guard clears the whole single-mode band (TE₁₀ to
+///   TE₂₀) only for `k_c·h_n ≤ 2.06`, that is `h_n ≤ 0.585·b`. At
+///   `h_n = b` (margin 30.8 %, guard 2.43) it would exclude the top 45 %
+///   of that band, where the measured undershoot is under 2 % and the
+///   measured 3-D cutoff (3.47) is above the band: the measured need is
+///   zero;
+/// - `1.5 × 1` Gmsh fixture (`lc` 0.92, margin 34.6 %, guard 2.47): the
+///   top 64 % of the TE₁₀ to TE₀₁ band, against a measured cutoff of 3.56,
+///   above the band;
+/// - `3 × 1` Gmsh fixture (margin 19.3 %, guard 2.67): nothing, TE₂₀ is at
+///   2.09.
+///
+/// A mesh with `h_n ≈ b` is coarse but usable for TE₁₀ at p=2. **This
+/// guard must not be wired into the CLI as a hard error for p=2** without
+/// either a cutoff computed from the 3-D model itself (an eigensolve of
+/// the guide section, which needs neither the assumptions nor the
+/// constant; not implemented, issue #955) or a policy that warns and does
+/// not block in the gap between this guard and the measured cutoff.
 pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
     let kh = k_c * axial_spacing;
     if !kh.is_finite() {
@@ -1837,9 +1905,14 @@ impl TmCutoffEstimate {
     ///   narrow it ([`tm_guard_margin`]), and the axial spacing that
     ///   restores the base margin.
     ///
-    /// There is no "beyond the measured range" note, unlike at p=1
-    /// ([`TM_GUARD_MEASURED_KH`]): the p=2 rows reach the `k_c·h_n` at which
-    /// the margin is at its cap ([`tm_guard_margin`]).
+    /// At the cap (`k_c·h_n` ≳ 6.32) the note also says that the guard is 0
+    /// and admits no frequency. There is no "beyond the measured range"
+    /// note, unlike at p=1 ([`TM_GUARD_MEASURED_KH`]): the p=2 rows reach
+    /// the `k_c·h_n` at which the margin is at its cap ([`tm_guard_margin`]).
+    ///
+    /// This is a note, not an enforcement: nothing in this crate rejects a
+    /// p=2 frequency on this guard ([`tm_guard_margin`], "An interim bound,
+    /// and who enforces it").
     ///
     /// Always `None` for a p=1 solve.
     pub fn p2_resolution_warning(&self) -> Option<String> {
@@ -1858,9 +1931,16 @@ impl TmCutoffEstimate {
             );
         }
         if self.margin() > TM_GUARD_MARGIN {
+            // At the cap the guard value is 0: say so, and why.
+            let capped = if self.margin() >= 1.0 {
+                ", so the guard is 0 and admits no frequency (one axial cell spans a TM-cutoff \
+                 wavelength or more)"
+            } else {
+                ""
+            };
             notes.push(format!(
-                "the TM guard margin is {:.2} % (base {:.0} %): the guide's axial mesh (h_n = \
-                 {:.3}, k_c·h_n = {kh:.2}) is coarse, and the second-order element does not \
+                "the TM guard margin is {:.2} % (base {:.0} %){capped}: the guide's axial mesh (h_n \
+                 = {:.3}, k_c·h_n = {kh:.2}) is coarse, and the second-order element does not \
                  narrow it (the 3-D p=2 TM-like cutoff was measured up to 12 % below the face \
                  value at k_c·h_n = 2.8); refine the guide's axial mesh below {:.3} for the \
                  base margin",
@@ -2465,6 +2545,16 @@ mod tests {
         assert_eq!(capped.guard_k_c(), 0.0);
         let note = capped.p2_resolution_warning().expect("capped note");
         assert!(note.contains("margin is 100.00 % (base 5 %)"), "{note}");
+        assert!(
+            note.contains("so the guard is 0 and admits no frequency"),
+            "{note}"
+        );
+        assert!(
+            !coarse
+                .p2_resolution_warning()
+                .expect("coarse-guide note")
+                .contains("guard is 0")
+        );
         // A P1 face estimate under a p=2 solve says so, at any spacing.
         let p1_face = TmCutoffEstimate::from_levels(levels).with_element_order(ElementOrder::P2);
         let note = p1_face.p2_resolution_warning().expect("P1-estimate note");
