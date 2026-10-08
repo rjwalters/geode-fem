@@ -79,7 +79,7 @@ use geode_core::mesh::{
 };
 
 /// Which bundled fixture the sweep runs on (selected by the optional
-/// `fine` CLI argument; see module docs).
+/// `--fine` CLI flag; see module docs).
 #[derive(Clone, Copy, PartialEq)]
 enum FixtureChoice {
     /// 774-node `sphere.msh` → `driven_results.toml` (the fast CI tier).

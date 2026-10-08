@@ -149,7 +149,7 @@ for the full root-cause analysis.
    cavity test uses — straightforward port but adds ~150 LOC; tracked
    as a follow-up sub-issue.
 4. **Port `mie::merged_roots` to NumPy** — NO for this PR. The Riccati-
-   Bessel root-finder is ~250 lines of Rust (`crates/geode-core/src/mie.rs`)
+   Bessel root-finder is ~250 lines of Rust (`crates/geode-core/src/analytic/mie/closed.rs`)
    and porting it adds a third independent root-finding implementation
    without buying additional cross-check value. The Mie pairing
    anchors *both* backends to physics; a NumPy port would anchor NumPy

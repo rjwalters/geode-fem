@@ -15,17 +15,17 @@ Rust side vs `scipy.special.spherical_jn`/`spherical_yn`) and 1-D root
 finding (60-step bisection vs `scipy.optimize.brentq`).
 
 Physical setup (PEC-cavity dielectric sphere, the v0 Mie benchmark
-ground truth — see the `crates/geode-core/src/mie.rs` module docs):
+ground truth — see the `crates/geode-core/src/analytic/mie/closed.rs` module docs):
 
 - Inner dielectric sphere `0 ≤ r ≤ R_s = 1.0`, refractive index
-  `n = 1.5` (`N_INSIDE` in `examples/mie_sphere.rs`).
+  `n = 1.5` (`N_INSIDE` in `examples/mie_sphere/src/main.rs`).
 - Vacuum buffer `R_s ≤ r ≤ R_b = 2.0`.
 - PEC wall at `r = R_b` (`R_SPHERE` / `R_BUFFER` in
   `crates/geode-core/src/mesh/sphere.rs`) — closed cavity, purely real
   spectrum. *Not* the open-space Mie scattering problem.
 
 Catalogue extent mirrors the heaviest Burn consumer
-(`examples/mie_sphere.rs`): `l_max = 4`, `n_max = 5` ⇒ 2 polarisations
+(`examples/mie_sphere/src/main.rs`): `l_max = 4`, `n_max = 5` ⇒ 2 polarisations
 × 4 angular orders × 5 radial orders = 40 roots, all inside the search
 window `k ∈ (0.1, 20.0]`.
 

@@ -4,6 +4,11 @@ Epic [#88](https://github.com/rjwalters/geode-fem/issues/88) Phase J.6
 deliverable. Tracking issue:
 [#175](https://github.com/rjwalters/geode-fem/issues/175).
 
+> Source paths below are as of this audit's 2026-06-09 snapshot, before the
+> `crates/geode-core/src/` module split of 2026-06-25 (#389–#395):
+> `src/nedelec.rs` is now `src/elements/nedelec.rs` and `src/mie.rs` is now
+> `src/analytic/mie/closed.rs`.
+
 ## Scope
 
 This audit covers the two operator families the Mie slice adds on top
