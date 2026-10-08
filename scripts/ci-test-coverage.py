@@ -17,6 +17,23 @@ repository root, either
     `--lib` / `--doc` / `--bins` / `--examples` / `--benches` (and their
     singular forms) on their own run no integration target.
 
+Unit tests (issue #921). Each crate whose library (`src/lib.rs`, or the
+`[lib] path`; skipped with `[lib] test = false`) has at least one `#[test]`
+in the files it loads is also a target, reported and allowlisted as
+`<crate>/lib` (internally a key that cannot collide with an integration
+target; an integration target literally named `lib` is an error). The lib
+target is selected by `--lib`, by `--tests` / `--all-targets`, or by a
+command with no target selector at all (cargo's default: lib, bins and
+integration targets); `--test X`, `--bins`, `--doc`, ... alone skip it. It
+is *covered* only by a run of its whole default tier: a command that passes
+a test-name filter (positional or after `--`, or `--skip`) or runs only
+`-- --ignored` is listed as a partial run, does not count, and is named
+in the failure message. So a later edit that narrows a blanket `--lib` run
+back to module filters (`cargo test --lib eigen::`) fails the guard. (The
+integration targets keep their older, more lenient rule; see Known limits.)
+Such a partial run still counts, test by test, in the ignored-tier check
+below.
+
 If a target file is gated with `#![cfg(feature = "X")]`, the covering
 command must also enable `X` (`--features X` or `--features crate/X`), or the
 test would compile to an empty binary. `--all-features` is not counted.
@@ -119,17 +136,21 @@ that some enforced command runs it:
   * a `#[cfg_attr(<any other predicate>, ignore)]` test runs only under
     `--include-ignored`;
   * a test-name filter counts only for the tests it provably selects: a
-    positional filter must be a substring of the test's name (with
-    `--exact`, equal to it, and the test must be at the file's top level);
-    a `--skip` value skips any test whose name contains it (equals it, with
-    `--exact`), and any test whose name is unknown or that sits in a module;
+    positional filter must be a substring of the test's libtest name
+    `mod::path::name` (with `--exact`, equal to it); a `--skip` value skips
+    any test whose libtest name contains it (equals it, with `--exact`),
+    and any test whose name is unknown. The module path comes from the
+    `mod x;` chain and the inline `mod x { }` blocks around the test; where
+    it cannot be derived, a filter matches the bare name only, `--exact`
+    only a test at the root file's top level, and `--skip` skips the test;
   * a test with `#[cfg(feature = "X")]` needs `X` enabled; any other
     `#[cfg(...)]` on the test makes it run nowhere.
 
 Ignored tests that knowingly run nowhere live in
 `scripts/ci-test-coverage-ignored-allowlist.txt`, one
 `crate/target::test  # reason` (or `crate/target  # reason` for every ignored
-test of the target) per line, with the reason required. The guard exits 1
+test of the target) per line, with the reason required. A lib target's test
+is named by its module path, `crate/lib::driven::solve::tests::name`. The guard exits 1
 when a covered target has an ignored test that runs nowhere and is not
 allowlisted, when an entry is malformed or has no reason, and when an entry
 is stale (the test now runs, or no longer exists, or its target does not run
@@ -159,8 +180,10 @@ parser's unit tests on synthetic workflows and exits. The script never runs
 cargo. It only reads files.
 
 Known limits: Cargo `[[test]]` entries with a custom `path` or
-`required-features` are not parsed (the workspace has none). A test-name
-filter is reported in the tier column but still counts as coverage, and a
+`required-features` are not parsed (the workspace has none); bin targets'
+unit tests (`src/main.rs`) are not modelled. For an integration target, a
+test-name filter is reported in the tier column but still counts as
+coverage (for a lib target it does not, see above), and a
 crate-wide `-- --ignored` counts as covering the target even though only its
 `#[ignore]`d tier runs (also visible in the tier column); the ignored-tier
 check above is per test and does not have this slack. Uses of composite
@@ -206,6 +229,13 @@ HARNESS_FLAGS = {"--ignored", "--include-ignored", "--nocapture", "--no-capture"
 HARNESS_VALUED = {"--test-threads", "--color", "--format", "-Z", "--shuffle-seed",
                   "--logfile"}
 CMD_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", ";;", "|&"}
+# Issue #921: the internal target key of a crate's unit-test (lib) target.
+# Cargo rejects `<` in a target name, so it never collides with an
+# integration target (and `--test '*'` globs never reach it: Selection.selects
+# handles it before name matching). The report and the allowlists spell it
+# LIB_NAME; an integration target literally named `lib` is an error.
+LIB = "<lib>"
+LIB_NAME = "lib"
 
 
 # --------------------------------------------------------------------------
@@ -223,33 +253,75 @@ def feature_gate(path: Path) -> str | None:
     return m.group(1) if m else None
 
 
-def discover_targets() -> dict[tuple[str, str], str | None]:
-    """Map (crate, target) -> feature gate (or None)."""
+def lib_source(crate_dir: Path) -> Path | None:
+    """The root file of a crate's library unit-test target (issue #921).
+
+    `src/lib.rs`, or the `path` of a `[lib]` section; None when the crate
+    has no library or its `[lib]` sets `test = false` (no unit-test
+    binary).
+    """
+    text = (crate_dir / "Cargo.toml").read_text()
+    sec = re.search(r"^\[lib\][ \t]*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    path = crate_dir / "src" / "lib.rs"
+    if sec:
+        if re.search(r"^\s*test\s*=\s*false\b", sec.group(1), re.M):
+            return None
+        pm = re.search(r'^\s*path\s*=\s*"([^"]+)"', sec.group(1), re.M)
+        if pm:
+            path = crate_dir / pm.group(1)
+    return path if path.is_file() else None
+
+
+def discover_targets(root: Path = ROOT) -> dict[tuple[str, str], str | None]:
+    """Map (crate, target) -> feature gate (or None).
+
+    Besides the integration targets, each crate whose library has at least
+    one `#[test]` (in `lib.rs` or a module file it loads) gets the
+    pseudo-target `(crate, LIB)` (issue #921). An integration target
+    literally named `lib` would be ambiguous with it in the allowlists and
+    the report, so it is an error.
+    """
     targets: dict[tuple[str, str], str | None] = {}
     for group in ("crates", "examples"):
-        for crate_dir in sorted((ROOT / group).glob("*")):
-            tests = crate_dir / "tests"
-            if not (crate_dir / "Cargo.toml").is_file() or not tests.is_dir():
+        for crate_dir in sorted((root / group).glob("*")):
+            if not (crate_dir / "Cargo.toml").is_file():
                 continue
             name = crate_name(crate_dir)
+            lib = lib_source(crate_dir)
+            if lib and target_ignores(lib).has_tests:
+                targets[(name, LIB)] = feature_gate(lib)
+            tests = crate_dir / "tests"
+            if not tests.is_dir():
+                continue
             for f in sorted(tests.glob("*.rs")):
                 targets[(name, f.stem)] = feature_gate(f)
             for f in sorted(tests.glob("*/main.rs")):
                 targets[(name, f.parent.name)] = feature_gate(f)
+            if (name, LIB_NAME) in targets:
+                sys.exit(f"ERROR: {name} has an integration test target named "
+                         f"`{LIB_NAME}`, which ci-test-coverage.py reserves for the "
+                         "crate's unit-test (lib) target; rename the test file.")
     return targets
 
 
 def target_source(crate: str, target: str) -> Path | None:
-    """The root source file of an integration-test target, if it exists."""
+    """The root source file of a test target (the lib root for LIB)."""
     for group in ("crates", "examples"):
         for crate_dir in sorted((ROOT / group).glob("*")):
             if not (crate_dir / "Cargo.toml").is_file() or crate_name(crate_dir) != crate:
                 continue
+            if target == LIB:
+                return lib_source(crate_dir)
             for f in (crate_dir / "tests" / f"{target}.rs",
                       crate_dir / "tests" / target / "main.rs"):
                 if f.is_file():
                     return f
     return None
+
+
+def target_label(target: str) -> str:
+    """How the report and the allowlists spell a target."""
+    return LIB_NAME if target == LIB else target
 
 
 # --------------------------------------------------------------------------
@@ -277,18 +349,35 @@ class IgnoredTest:
     track). features are `#[cfg(feature = "X")]` gates on the function;
     cfg_unmodelled is set for any other `#[cfg(...)]` on it (fail closed:
     no command counts as running it).
+
+    path is the test's module path within the target (issue #921): "" at
+    the root file's top level, `driven::solve::tests` for a test in
+    `mod tests { }` of `driven/solve.rs`. It is None when the guard cannot
+    derive it (the function sits in braces that are not all `mod` blocks,
+    or its file was reached through a `mod x;` nested in an inline module);
+    name filters then fall back to the top_level rule above.
     """
     name: str | None
     cls: str = "plain"
     top_level: bool = True
     features: frozenset = frozenset()
     cfg_unmodelled: bool = False
+    path: str | None = None
+
+    def qualified(self) -> str | None:
+        """The libtest name (`mod::path::name`), or None when not known."""
+        if self.name is None or self.path is None:
+            return None
+        return f"{self.path}::{self.name}" if self.path else self.name
 
 
 @dataclass
 class TargetIgnores:
     tests: list[IgnoredTest] = field(default_factory=list)
     unresolved: list[str] = field(default_factory=list)
+    # Whether any loaded file has a `#[test]` (issue #921: a library with
+    # no unit test is not modelled as a target).
+    has_tests: bool = False
 
     def total(self) -> int:
         return len(self.tests)
@@ -409,13 +498,31 @@ def _attr_ignore(body: str) -> str | None:
     return "debug_only" if " ".join(args[0].split()) == "debug_assertions" else "conditional"
 
 
+_INLINE_MOD = re.compile(r"\bmod\s+([A-Za-z_]\w*)\s*\{")
+
+
+def _inline_mod_path(blocks: list[tuple[int, int, str]], pos: int, depth: int,
+                     prefix: str | None) -> str | None:
+    """Module path at `pos`: `prefix` plus the inline `mod x { }` blocks
+    around it, or None when some enclosing brace is not a `mod` block."""
+    if prefix is None:
+        return None
+    names = [nm for b, e, nm in blocks if b < pos < e]
+    if len(names) != depth:
+        return None
+    return "::".join([p for p in [prefix] if p] + names)
+
+
 def parse_ignored_tests(stripped: str, raw: str | None = None,
-                        is_root: bool = True) -> list[IgnoredTest]:
+                        is_root: bool = True,
+                        mod_path: str | None = "") -> list[IgnoredTest]:
     """Every `#[ignore]`d test in comment- and string-stripped source.
 
     `raw` is the unstripped source (same offsets), read only for the
     feature names inside `#[cfg(feature = "...")]`. `is_root` is False for
     a file loaded through `mod x;`: none of its tests is top level.
+    `mod_path` is the file's module path within the target ("" for the
+    root file, None when not known); see IgnoredTest.path.
     """
     raw = stripped if raw is None else raw
     out: list[IgnoredTest] = []
@@ -425,6 +532,8 @@ def parse_ignored_tests(stripped: str, raw: str | None = None,
         depth_at[k] = d
         d += (ch == "{") - (ch == "}")
     depth_at[len(stripped)] = d
+    blocks = [(m.end() - 1, _balanced(stripped, m.end() - 1), m.group(1))
+              for m in _INLINE_MOD.finditer(stripped)]
     pos = 0
     while (m := _OUTER_ATTR.search(stripped, pos)):
         # An attribute block: consecutive `#[...]` separated by whitespace.
@@ -457,7 +566,8 @@ def parse_ignored_tests(stripped: str, raw: str | None = None,
         fn = _FN_ITEM.match(stripped, j)
         out.append(IgnoredTest(fn.group(1) if fn else None, cls,
                                is_root and depth_at[start] == 0,
-                               frozenset(feats), cfg_bad))
+                               frozenset(feats), cfg_bad,
+                               _inline_mod_path(blocks, start, depth_at[start], mod_path)))
     return out
 
 
@@ -466,7 +576,9 @@ def target_ignores(root: Path) -> TargetIgnores:
     files it pulls in (recursively, honouring `#[path = "..."]`).
 
     Only the root file's tests are top level; tests in `mod x;` files carry
-    a module prefix in their libtest path (top_level=False).
+    a module prefix in their libtest path (top_level=False). Each test also
+    records that module path (IgnoredTest.path) when it can be derived.
+    has_tests says whether any loaded file has a `#[test]`.
 
     Not seen: tests generated by a macro (an `#[ignore]` written once in a
     `macro_rules!` body counts once, nameless, however many tests it expands
@@ -479,21 +591,28 @@ def target_ignores(root: Path) -> TargetIgnores:
     total = TargetIgnores()
     seen: set[Path] = set()
     root = root.resolve()
-    todo = [(root, True)]
+    todo: list[tuple[Path, bool, str | None]] = [(root, True, "")]
     while todo:
-        path, is_dir_owner = todo.pop()
+        path, is_dir_owner, mod_path = todo.pop()
         path = path.resolve()
         if path in seen:
             continue
         seen.add(path)
         raw = path.read_text()
         text = strip_rust(raw)
-        total.tests.extend(parse_ignored_tests(text, raw, path == root))
+        total.has_tests = total.has_tests or bool(re.search(r"#\s*\[\s*test\s*\]", text))
+        total.tests.extend(parse_ignored_tests(text, raw, path == root, mod_path))
         # `mod x;` in a crate root or `mod.rs` resolves next to the file; in
         # any other file `foo.rs`, under `foo/`. `#[path]` on a top-level
         # module is relative to the file's own directory.
         child_dir = path.parent if is_dir_owner else path.parent / path.stem
         for m in _MOD_DECL.finditer(text):
+            # The child's module path; unknown when the declaration sits
+            # inside braces (an inline module), as its file lookup is then
+            # not modelled either.
+            nested = text.count("{", 0, m.start()) != text.count("}", 0, m.start())
+            child_path = None if mod_path is None or nested else (
+                f"{mod_path}::{m.group(1)}" if mod_path else m.group(1))
             item_start = max(text.rfind(ch, 0, m.start()) for ch in ";{}") + 1
             pm = _PATH_ATTR.search(text, item_start, m.start())
             if pm:
@@ -505,7 +624,7 @@ def target_ignores(root: Path) -> TargetIgnores:
                          (child_dir / name / "mod.rs", True)]
             for cand, owner in cands:
                 if cand.is_file():
-                    todo.append((cand, owner))
+                    todo.append((cand, owner, child_path))
                     break
             else:
                 total.unresolved.append(f"{path.name}: `mod {m.group(1)};`")
@@ -1339,15 +1458,34 @@ class Selection:
     # Cargo profile family: "dev" (dev / test), "release" (release / bench),
     # or None when not known (a custom `--profile`, or `--config`).
     profile: str | None = "dev"
+    # Issue #921: whether the crate's lib unit-test target is built and run
+    # (`--lib`, `--tests`, `--all-targets`, or no target selector at all).
+    covers_lib: bool = True
 
     def selects(self, crate: str, target: str) -> bool:
         if self.crates is not None and crate not in self.crates:
             return False
         if any(fnmatch.fnmatchcase(crate, e) for e in self.exclude):
             return False
+        if target == LIB:
+            return self.covers_lib
         if self.all_integration:
             return True
         return any(fnmatch.fnmatchcase(target, n) for n in self.named)
+
+    def lib_partial(self) -> str | None:
+        """Why a command that selects the lib target runs only part of it.
+
+        A lib target counts as covered only by a run of its whole default
+        tier: no test-name filter and no `--ignored` (issue #921). Such a
+        run still counts for the per-test ignored-tier check.
+        """
+        if self.name_filtered:
+            return "name-filtered: " + " ".join(
+                self.filters + [f"--skip {s}" for s in self.skips])
+        if not self.runs_default:
+            return "--ignored only"
+        return None
 
 
 class Unsupported(Exception):
@@ -1377,6 +1515,7 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     features: set[str] = set()
     non_integration = False
     all_integration_flag = False
+    lib_flag = False
     name_filtered = False
     filters: list[str] = []
     skips: list[str] = []
@@ -1419,6 +1558,7 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
             all_integration_flag = True
         elif a in NON_INTEGRATION_FILTERS:
             non_integration = True
+            lib_flag = lib_flag or a == "--lib"
         elif key in NON_INTEGRATION_FILTERS_VALUED:
             non_integration = True
             if not eq and i + 1 < n and not cargo_args[i + 1].startswith("-"):
@@ -1454,6 +1594,10 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
                     exclude=exclude, named=named, features=features,
                     profile=None if config_seen else profile)
     sel.all_integration = all_integration_flag or (not named and not non_integration)
+    # Cargo runs the lib unit tests under `--lib`, under `--tests` /
+    # `--all-targets` (every target with `test = true`), and when no target
+    # selector is given; `--test X` / `--bins` / `--doc` / ... alone skip it.
+    sel.covers_lib = lib_flag or all_integration_flag or (not named and not non_integration)
 
     j = 0
     while j < len(harness_args):
@@ -1532,6 +1676,26 @@ class Report:
     # asks for its ignored tier, but runs none of that target's #[ignore]d
     # tests (for example after the tests moved to the default tier).
     ignored_dead: list[str] = field(default_factory=list)
+    # Issue #921: per lib target, the commands that select it but run only
+    # part of it (a test-name filter, or `--ignored` only), with why. They
+    # do not count as coverage.
+    partial: dict[tuple[str, str], list[str]] = field(default_factory=dict)
+
+
+def test_ids(target: str, t: IgnoredTest) -> set[str]:
+    """The names an ignored-tier allowlist entry may use for a test.
+
+    An integration target's test: its bare name, or its module-qualified
+    libtest name. A lib test (issue #921): only the qualified name
+    (`driven::solve::tests::x`), since bare names repeat across modules;
+    its bare name only when the module path is unknown.
+    """
+    if t.name is None:
+        return set()
+    full = t.qualified()
+    if target == LIB:
+        return {full or t.name}
+    return {t.name} | ({full} if full else set())
 
 
 def _debug_assertions(sel: Selection, profile_da: dict[str, bool | None],
@@ -1576,15 +1740,19 @@ def _runs_ignored_test(sel: Selection, da: bool | None, t: IgnoredTest,
     if not tier:
         return False
 
+    full = t.qualified()
+
     def hit(f: str) -> bool:
         if t.name is None:
             return False
+        if full is not None:  # module path known (issue #921)
+            return f == full if sel.exact else f in full
         return (t.top_level and f == t.name) if sel.exact else f in t.name
 
     if sel.filters and not any(hit(f) for f in sel.filters):
         return False
     for sk in sel.skips:
-        if t.name is None or not t.top_level or hit(sk):
+        if t.name is None or (full is None and not t.top_level) or hit(sk):
             return False
     return True
 
@@ -1600,6 +1768,7 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
         profile_da = {"dev": True, "test": True, "release": False}
     coverage: dict[tuple[str, str], list[str]] = {k: [] for k in targets}
     gate_miss: dict[tuple[str, str], list[str]] = {k: [] for k in targets}
+    partial: dict[tuple[str, str], list[str]] = {k: [] for k in targets}
     ign_runs: dict[tuple[str, str], list[tuple[IgnoredTest, list[str]]]] = {
         k: [(t, []) for t in ignores.get(k, TargetIgnores()).tests] for k in targets}
     warnings: list[str] = []
@@ -1638,7 +1807,11 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
                     if gate and gate not in feats:
                         gate_miss[(crate, target)].append(f"{wf} (missing feature {gate})")
                         continue
-                    coverage[(crate, target)].append(f"{wf}: {sel.tier}")
+                    why_partial = sel.lib_partial() if target == LIB else None
+                    if why_partial:
+                        partial[(crate, target)].append(f"{wf} ({why_partial})")
+                    else:
+                        coverage[(crate, target)].append(f"{wf}: {sel.tier}")
                     ran = False
                     for t, where in ign_runs[(crate, target)]:
                         if _runs_ignored_test(sel, da, t, feats):
@@ -1658,17 +1831,17 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
     # at all is the coverage allowlist's business.
     def allowlisted(key: tuple[str, str], t: IgnoredTest) -> bool:
         return (key + (None,) in ignored_allow
-                or (t.name is not None and key + (t.name,) in ignored_allow))
+                or any(key + (n,) in ignored_allow for n in test_ids(key[1], t)))
 
     ign_gaps = [(k, t) for k in sorted(targets) if coverage[k]
                 for t, where in ign_runs[k] if not where and not allowlisted(k, t)]
     ign_stale: list[tuple[str, str]] = []
     for crate, target, name in sorted(ignored_allow, key=lambda e: (e[0], e[1], e[2] or "")):
         key = (crate, target)
-        entry = f"{crate}/{target}" + (f"::{name}" if name else "")
+        entry = f"{crate}/{target_label(target)}" + (f"::{name}" if name else "")
         tests = ign_runs.get(key, [])
         if name is not None:
-            tests = [(t, w) for t, w in tests if t.name == name]
+            tests = [(t, w) for t, w in tests if name in test_ids(target, t)]
         if key not in targets:
             why = "no such test target"
         elif not tests:
@@ -1683,7 +1856,7 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
             continue
         ign_stale.append((entry, why))
     return Report(coverage, gate_miss, warnings, new_gaps, stale, ncmd,
-                  ign_runs, ign_gaps, ign_stale, dead)
+                  ign_runs, ign_gaps, ign_stale, dead, partial)
 
 
 IGNORED_ALLOWLIST = ROOT / "scripts" / "ci-test-coverage-ignored-allowlist.txt"
@@ -1693,7 +1866,9 @@ def parse_ignored_allowlist(text: str) -> tuple[dict[IgnoredKey, str], list[str]
     """Parse `crate/target[::test]  # reason` lines: (entries, format errors).
 
     `crate/target::test` allowlists one `#[ignore]`d test; a bare
-    `crate/target` allowlists every ignored test of the target. Every entry
+    `crate/target` allowlists every ignored test of the target. The test
+    may be module-qualified (`a::b::test`); a lib test (target `lib`, issue
+    #921) must be (`geode-core/lib::driven::solve::tests::x`). Every entry
     must carry its reason inline (a non-empty `#` comment on the same
     line); a missing reason, a malformed name or a duplicate is an error.
     Lines that are only a comment are free text.
@@ -1705,15 +1880,17 @@ def parse_ignored_allowlist(text: str) -> tuple[dict[IgnoredKey, str], list[str]
         body, reason = body.strip(), reason.strip()
         if not body:
             continue
-        m = re.fullmatch(r"([\w-]+)/(\w+)(?:::(\w+))?", body)
+        m = re.fullmatch(r"([\w-]+)/(\w+)(?:::(\w+(?:::\w+)*))?", body)
         if not m:
             errors.append(f"line {n}: `{body}` is not <crate>/<target>[::<test>]")
         elif not reason:
             errors.append(f"line {n}: `{body}` has no `# reason`")
-        elif m.groups() in entries:
+        elif (m.group(1), LIB if m.group(2) == LIB_NAME else m.group(2),
+              m.group(3)) in entries:
             errors.append(f"line {n}: duplicate entry `{body}`")
         else:
-            entries[m.groups()] = reason
+            crate, target, test = m.groups()
+            entries[(crate, LIB if target == LIB_NAME else target, test)] = reason
     return entries, errors
 
 
@@ -1724,18 +1901,18 @@ def read_allowlist() -> set[tuple[str, str]]:
             line = line.split("#", 1)[0].strip()
             if line:
                 crate, _, target = line.partition("/")
-                allow.add((crate, target))
+                allow.add((crate, LIB if target == LIB_NAME else target))
     return allow
 
 
-def _test_label(t: IgnoredTest) -> str:
-    name = t.name or "<unnamed>"
+def _test_label(t: IgnoredTest, target: str = "") -> str:
+    name = (t.qualified() if target == LIB else None) or t.name or "<unnamed>"
     extra = [] if t.cls == "plain" else [IGNORE_CLASSES[t.cls]]
     if t.features:
         extra.append("needs feature " + ", ".join(sorted(t.features)))
     if t.cfg_unmodelled:
         extra.append("unmodelled #[cfg]")
-    if not t.top_level:
+    if not t.top_level and target != LIB:
         extra.append("inside a module")
     return name + (f" [{'; '.join(extra)}]" if extra else "")
 
@@ -1773,7 +1950,7 @@ def main() -> int:
         print(f"warning: {w}")
     for key, c in sorted(ignores.items()):
         for u in c.unresolved:
-            print(f"warning: {key[0]}/{key[1]}: {u} not found; its #[ignore]d tests "
+            print(f"warning: {key[0]}/{target_label(key[1])}: {u} not found; its #[ignore]d tests "
                   "count only under --include-ignored")
     for d in r.ignored_dead:
         print(f"note: {d}")
@@ -1789,14 +1966,20 @@ def main() -> int:
             ign = _ignored_label(
                 r.ignored_runs[key],
                 lambda t, k=key: (k + (None,) in ignored_allow
-                                  or k + (t.name,) in ignored_allow))
+                                  or any(k + (n,) in ignored_allow
+                                         for n in test_ids(k[1], t))))
+            if r.partial[key]:
+                label += (" — partial runs, not counted as coverage: "
+                          + "; ".join(r.partial[key]))
             if cov and ign:
                 label += " | " + ign
-            print(f"{key[0] + '/' + key[1]:60s} {label}")
+            print(f"{key[0] + '/' + target_label(key[1]):60s} {label}")
         print()
 
     uncovered = {k for k in targets if not r.coverage[k]}
-    print(f"{len(targets)} test targets, {len(targets) - len(uncovered)} covered by a "
+    n_lib = sum(1 for _, t in targets if t == LIB)
+    print(f"{len(targets)} test targets ({n_lib} lib unit-test targets), "
+          f"{len(targets) - len(uncovered)} covered by a "
           f"workflow, {len(uncovered)} not covered ({len(uncovered & allow)} allowlisted); "
           f"{r.commands} `cargo test` commands modelled, {len(r.warnings)} ignored.")
     with_ign = [k for k in targets if r.coverage[k] and r.ignored_runs[k]]
@@ -1812,14 +1995,15 @@ def main() -> int:
         print("\nERROR: test targets that no CI workflow runs (name them in a workflow "
               "step, or add them to scripts/ci-test-coverage-allowlist.txt with a reason):")
         for key in r.new_gaps:
-            extra = f"  [{'; '.join(r.gate_miss[key])}]" if r.gate_miss[key] else ""
-            print(f"  {key[0]}/{key[1]}{extra}")
+            why = r.gate_miss[key] + [f"partial: {p}" for p in r.partial[key]]
+            extra = f"  [{'; '.join(why)}]" if why else ""
+            print(f"  {key[0]}/{target_label(key[1])}{extra}")
     if r.stale:
         rc = 1
         print("\nERROR: stale allowlist entries (target now covered or removed; delete "
               "them from scripts/ci-test-coverage-allowlist.txt):")
         for crate, target in r.stale:
-            print(f"  {crate}/{target}")
+            print(f"  {crate}/{target_label(target)}")
     if allow_errors:
         rc = 1
         print("\nERROR: malformed scripts/ci-test-coverage-ignored-allowlist.txt entries:")
@@ -1832,7 +2016,7 @@ def main() -> int:
               "step, or add it to scripts/ci-test-coverage-ignored-allowlist.txt with "
               "a reason):")
         for (crate, target), t in r.ignored_new_gaps:
-            print(f"  {crate}/{target}::{_test_label(t)}")
+            print(f"  {crate}/{target_label(target)}::{_test_label(t, target)}")
     if r.ignored_stale:
         rc = 1
         print("\nERROR: stale ignored-tier allowlist entries (delete them from "
@@ -2717,8 +2901,222 @@ def self_test() -> int:
             self.assertIn("no `# reason`", errors[0])
             self.assertIn("duplicate", errors[3])
 
+    # -- issue #921: the lib unit-test target ---------------------------------
+    AL = ("a", LIB)
+    TL = {AL: None, ("a", "t1"): None, ("b", LIB): None}
+
+    def lib_eval(script: str, tests=(), allow=None, cov_allow=None, targets=None):
+        return evaluate({"w.yml": wf_run(script)}, targets or TL, cov_allow or set(),
+                        True, {AL: TargetIgnores(list(tests))}, allow or {})
+
+    def lib_cov(script: str, **kw) -> set:
+        return {k for k, v in lib_eval(script, **kw).coverage.items() if v}
+
+    HEAVY = [IgnoredTest("bench", path="driven::solve::tests"),
+             IgnoredTest("report", path="mesh::partition::tests")]
+
+    class LibTargetTests(unittest.TestCase):
+        # -- which commands cover the lib target ------------------------------
+        def test_lib_flag_covers_lib(self):
+            self.assertEqual(lib_cov("cargo test -p a --lib"), {AL})
+            self.assertEqual(lib_cov("cargo test -p a --release --features x --lib"), {AL})
+
+        def test_no_selector_covers_lib(self):
+            self.assertEqual(lib_cov("cargo test -p a"), {AL, ("a", "t1")})
+            self.assertEqual(lib_cov("cargo test"), set(TL))
+            self.assertEqual(lib_cov("cargo test --workspace --exclude a"), {("b", LIB)})
+
+        def test_tests_and_all_targets_cover_lib(self):
+            self.assertEqual(lib_cov("cargo test -p a --tests"), {AL, ("a", "t1")})
+            self.assertEqual(lib_cov("cargo test -p a --all-targets"), {AL, ("a", "t1")})
+            self.assertEqual(lib_cov("cargo test -p a --lib --test t1"), {AL, ("a", "t1")})
+            self.assertEqual(lib_cov("cargo test -p a --bins --tests"), {AL, ("a", "t1")})
+            self.assertEqual(lib_cov("cargo test -p a --bins --all-targets"), {AL, ("a", "t1")})
+
+        def test_other_selectors_do_not_cover_lib(self):
+            for sel in ("--test t1", "--test '*'", "--bins", "--bin tool", "--doc",
+                        "--examples", "--benches"):
+                self.assertNotIn(AL, lib_cov(f"cargo test -p a {sel}"), sel)
+
+        def test_name_filtered_lib_run_is_partial(self):
+            for cmd in ("cargo test -p a --lib eigen::",
+                        "cargo test -p a --lib -- eigen::",
+                        "cargo test -p a -- --skip slow",
+                        "cargo test -p a --lib -- --exact x"):
+                r = lib_eval(cmd)
+                self.assertEqual(r.coverage[AL], [], cmd)
+                self.assertIn(AL, r.new_gaps, cmd)
+                self.assertIn("name-filtered", r.partial[AL][0], cmd)
+            self.assertEqual(lib_eval("cargo test -p a --lib eigen::").partial[AL],
+                             ["w.yml (name-filtered: eigen::)"])
+            # The integration targets keep the existing (lenient) rule.
+            self.assertTrue(lib_eval("cargo test -p a eigen::").coverage[("a", "t1")])
+
+        def test_ignored_only_lib_run_is_partial(self):
+            r = lib_eval("cargo test -p a --lib -- --ignored")
+            self.assertEqual((r.coverage[AL], r.partial[AL]),
+                             ([], ["w.yml (--ignored only)"]))
+            self.assertTrue(lib_eval("cargo test -p a --lib -- --include-ignored").coverage[AL])
+
+        def test_narrowing_the_lib_run_fails_the_ratchet(self):
+            libs = {AL: None, ("b", LIB): None}
+            self.assertEqual(lib_eval("cargo test -p a --lib\ncargo test -p b --lib",
+                                      targets=libs).new_gaps, [])
+            self.assertEqual(lib_eval("cargo test -p a --lib eigen::\n"
+                                      "cargo test -p b --lib", targets=libs).new_gaps, [AL])
+            # ... unless the lib target is on the coverage allowlist.
+            r = lib_eval("cargo test -p a --lib eigen::\ncargo test -p b --lib",
+                         cov_allow={AL}, targets=libs)
+            self.assertEqual((r.new_gaps, r.stale), ([], []))
+            r = lib_eval("cargo test -p a\ncargo test -p b --lib", cov_allow={AL},
+                         targets=libs)
+            self.assertEqual(r.stale, [AL])
+
+        def test_lib_key_never_collides_with_a_target_named_lib(self):
+            tg = {AL: None, ("a", "lib"): None}
+            self.assertEqual(lib_cov("cargo test -p a --lib", targets=tg), {AL})
+            self.assertEqual(lib_cov("cargo test -p a --test lib", targets=tg), {("a", "lib")})
+            self.assertEqual((target_label(LIB), target_label("lib2")), ("lib", "lib2"))
+
+        # -- the lib target's #[ignore]d tests --------------------------------
+        def test_lib_ignored_tests_are_checked(self):
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib", HEAVY)
+            self.assertEqual({t.qualified() for _, t in r.ignored_new_gaps},
+                             {"driven::solve::tests::bench", "mesh::partition::tests::report"})
+            self.assertEqual(lib_eval("cargo test -p a --lib -- --include-ignored\n"
+                                      "cargo test -p b --lib", HEAVY).ignored_new_gaps, [])
+
+        def test_lib_ignored_tier_by_exact_path(self):
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --release --lib -- --ignored --exact "
+                         "driven::solve::tests::bench", HEAVY)
+            self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["report"])
+            # --exact with the bare name does not match a module test.
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --lib -- --ignored --exact bench", HEAVY)
+            self.assertEqual(len(r.ignored_new_gaps), 2)
+            # A substring filter matches anywhere in the libtest path.
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --lib -- --ignored driven::", HEAVY)
+            self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["report"])
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --lib -- --ignored --skip partition", HEAVY)
+            self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["report"])
+
+        def test_lib_ignored_allowlist_uses_the_module_path(self):
+            ok = "cargo test -p a --lib\ncargo test -p b --lib"
+            full = {AL + ("driven::solve::tests::bench",): "r",
+                    AL + ("mesh::partition::tests::report",): "r"}
+            r = lib_eval(ok, HEAVY, allow=full)
+            self.assertEqual((r.ignored_new_gaps, r.ignored_stale), ([], []))
+            self.assertEqual(lib_eval(ok, HEAVY, allow={AL + (None,): "r"}).ignored_new_gaps, [])
+            # A bare name is ambiguous across modules: it matches nothing.
+            r = lib_eval(ok, HEAVY, allow={AL + ("bench",): "r"})
+            self.assertEqual(len(r.ignored_new_gaps), 2)
+            self.assertEqual(r.ignored_stale[0][0], "a/lib::bench")
+
+        def test_stale_lib_ignored_allowlist(self):
+            allow = {AL + ("driven::solve::tests::bench",): "r"}
+            r = lib_eval("cargo test -p a --lib -- --include-ignored\ncargo test -p b --lib",
+                         HEAVY, allow=allow)
+            self.assertEqual(r.ignored_stale,
+                             [("a/lib::driven::solve::tests::bench",
+                               "its #[ignore]d tests now run in a workflow")])
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib", HEAVY,
+                         allow={AL + ("driven::solve::tests::gone",): "r"})
+            self.assertEqual(r.ignored_stale[0][0], "a/lib::driven::solve::tests::gone")
+
+        def test_lib_allowlist_format(self):
+            entries, errors = parse_ignored_allowlist(
+                "geode-core/lib::driven::solve::tests::x  # heavy\n"
+                "geode-core/lib  # all\n"
+                "geode-core/t1::m::y  # qualified integration test\n"
+                "geode-core/lib::a::  # r\n")
+            self.assertEqual(entries, {("geode-core", LIB, "driven::solve::tests::x"): "heavy",
+                                       ("geode-core", LIB, None): "all",
+                                       ("geode-core", "t1", "m::y"): "qualified integration test"})
+            self.assertEqual(len(errors), 1, errors)
+
+        # -- module paths ------------------------------------------------------
+        def test_inline_module_paths(self):
+            src = ('#[test]\n#[ignore]\nfn top() {}\n'
+                   'mod tests {\n    #[test]\n    #[ignore]\n    fn a() {}\n'
+                   '    pub(crate) mod inner {\n        #[test]\n        #[ignore]\n'
+                   '        fn b() {}\n    }\n    #[test]\n    #[ignore]\n    fn c() {}\n}\n'
+                   'const _: () = { #[test] #[ignore] fn hidden() {} };\n')
+            self.assertEqual([(t.name, t.path) for t in scan(src)],
+                             [("top", ""), ("a", "tests"), ("b", "tests::inner"),
+                              ("c", "tests"), ("hidden", None)])
+            self.assertEqual([t.path for t in parse_ignored_tests(
+                strip_rust(src), src, False, None)], [None] * 5)
+
+        def test_module_file_paths_and_has_tests(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                (root / "driven").mkdir()
+                (root / "lib.rs").write_text(
+                    'pub mod driven;\nmod inl { mod lost; }\n')
+                (root / "driven" / "mod.rs").write_text('pub mod solve;\n')
+                (root / "driven" / "solve.rs").write_text(
+                    'pub fn f() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n'
+                    '    #[ignore = "heavy"]\n    fn bench() {}\n}\n')
+                (root / "lost.rs").write_text('#[test]\n#[ignore]\nfn l() {}\n')
+                ti = target_ignores(root / "lib.rs")
+                self.assertTrue(ti.has_tests)
+                got = {(t.name, t.path) for t in ti.tests}
+                self.assertIn(("bench", "driven::solve::tests"), got)
+                # `mod lost;` inside an inline module: path unknown.
+                self.assertNotIn(("l", "lost"), got)
+                (root / "plain.rs").write_text('pub fn f() {}\n// #[test]\n')
+                self.assertFalse(target_ignores(root / "plain.rs").has_tests)
+
+        def test_discover_lib_targets(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+
+                def crate(name, lib=None, tests=()):
+                    c = root / "crates" / name
+                    (c / "src").mkdir(parents=True)
+                    (c / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n')
+                    if lib is not None:
+                        (c / "src" / "lib.rs").write_text(lib)
+                    if tests:
+                        (c / "tests").mkdir()
+                    for t in tests:
+                        (c / "tests" / f"{t}.rs").write_text("")
+                crate("with-tests", '#[cfg(test)]\nmod tests { #[test] fn a() {} }\n', ["t1"])
+                crate("gated", '#![cfg(feature = "g")]\n#[test]\nfn a() {}\n')
+                crate("no-tests", "pub fn f() {}\n", ["t2"])
+                crate("bin-only")
+                self.assertEqual(discover_targets(root),
+                                 {("with-tests", LIB): None, ("with-tests", "t1"): None,
+                                  ("gated", LIB): "g", ("no-tests", "t2"): None})
+                crate("clash", "#[test]\nfn a() {}\n", ["lib"])
+                with self.assertRaises(SystemExit):
+                    discover_targets(root)
+
+        def test_lib_source(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                c = Path(d)
+                (c / "src").mkdir()
+                (c / "src" / "lib.rs").write_text("")
+                (c / "Cargo.toml").write_text('[package]\nname = "x"\n')
+                self.assertEqual(lib_source(c), c / "src" / "lib.rs")
+                (c / "Cargo.toml").write_text('[package]\nname = "x"\n[lib]\ntest = false\n')
+                self.assertIsNone(lib_source(c))
+                (c / "core.rs").write_text("")
+                (c / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\n'
+                                              'path = "core.rs"\n[dependencies]\n')
+                self.assertEqual(lib_source(c), c / "core.rs")
+                (c / "src" / "lib.rs").unlink()
+                (c / "Cargo.toml").write_text('[package]\nname = "x"\n')
+                self.assertIsNone(lib_source(c))
+
     suite = unittest.TestSuite()
-    for case in (ParserTests, IgnoredTierTests):
+    for case in (ParserTests, IgnoredTierTests, LibTargetTests):
         suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1

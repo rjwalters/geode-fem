@@ -224,7 +224,7 @@ jobs:
       # geode-core 644 tests in 8.5 s in release on a loaded local host (4
       # more are #[ignore]d heavy-fixture benchmarks -- the two
       # `driven::solve` patch benchmarks and the two 133k-tet transmon
-      # partition runs -- and stay out). It is the same `--lib` test binary
+      # partition runs -- which the next step runs). It is the same `--lib` test binary
       # the per-module runs it replaces already compiled, so the job's
       # compile time does not grow; the run grows by a few seconds.
       # geode-util: the validation helpers (#828: the degenerate-cluster floor
@@ -236,6 +236,33 @@ jobs:
           cargo test --features arpack -p geode-core --release --lib
           cargo test --features geode-core/arpack -p geode-util --release --lib
           cargo test -p geode-app --release --lib
+
+      # Issue #921: the four `#[ignore]`d geode-core unit tests, which ran in
+      # no job (and which ci-test-coverage.py could not see before it
+      # modelled the `<crate>/lib` target). They are "heavy" only in debug.
+      # Release timings, one test at a time, local (Apple M3 Ultra, loaded
+      # host; not re-timed on ubuntu-latest):
+      #   driven::solve::tests::iterative_patch_benchmark          0.7 s
+      #   driven::solve::tests::ilu_patch_benchmark                0.7 s
+      #   mesh::partition::tests::transmon_133k_cut_quality_report 0.9 s
+      #   solver::distributed::tests::
+      #     transmon_distributed_spectrum_matches_single_process  14.7 s
+      #     (13.9 s of it user time, so close to single-threaded; 1.2 GB
+      #     peak RSS)
+      # About 17 s in total; with a 2x margin for the 4-vCPU runner, about
+      # 35 s. Same `--lib` test binary as the step above, so nothing new is
+      # compiled. The tests are named with --exact (not a blanket
+      # `-- --ignored`) so that a new #[ignore]d unit test is not pulled into
+      # this job unmeasured: the guard fails until it is named here or put
+      # on scripts/ci-test-coverage-ignored-allowlist.txt with a reason.
+      - name: Unit tests (geode-core, the #[ignore]d heavy-fixture tier)
+        run: |
+          cargo test --features arpack -p geode-core --release --lib -- \
+              --ignored --exact \
+              driven::solve::tests::iterative_patch_benchmark \
+              driven::solve::tests::ilu_patch_benchmark \
+              mesh::partition::tests::transmon_133k_cut_quality_report \
+              solver::distributed::tests::transmon_distributed_spectrum_matches_single_process
 
       # Issue #760: diagonal anisotropic materials — the uniaxial-cube
       # closed-form golden (n = 8 / 16, ~15 s in release). The lossless
