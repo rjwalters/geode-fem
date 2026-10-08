@@ -4,6 +4,10 @@ Epic [#88](https://github.com/rjwalters/geode-fem/issues/88) Phase I.3
 deliverable. Tracking issue:
 [#169](https://github.com/rjwalters/geode-fem/issues/169).
 
+> Source paths below are as of this audit's 2026-06-09 snapshot, before the
+> `crates/geode-core/src/` module split of 2026-06-25 (#389–#395):
+> `src/derham.rs` is now `src/derham/mod.rs`.
+
 ## Scope
 
 This audit catalogs the operators of the **discrete de Rham chain**

@@ -3,6 +3,10 @@
 Epic [#88](https://github.com/rjwalters/geode-fem/issues/88) Phase G.6
 deliverable. Tracking issue: [#135](https://github.com/rjwalters/geode-fem/issues/135).
 
+> Source paths below are as of this audit's 2026-06-05 snapshot, before the
+> `crates/geode-core/src/` module split of 2026-06-25 (#389–#395):
+> `src/nedelec_assembly.rs` is now `src/assembly/nedelec.rs`.
+
 ## Scope
 
 This audit catalogs the L4 operators on the **vector-Nédélec sphere-PEC

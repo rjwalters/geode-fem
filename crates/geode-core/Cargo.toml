@@ -82,10 +82,13 @@ cuda = ["burn/cuda"]
 # it is skipped for the default (and every other) feature selection.
 flex = ["burn/flex"]
 # Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
-# is `Wgpu<f32, i32, u8>` pinned to the Metal graphics API / MSL (`cubecl-msl`)
-# shader pipeline; it shares the f32 GPU posture of `wgpu`/`cuda`. Mutually
-# exclusive with `wgpu` and `cuda`. Not exercised on CI (no Apple runner); verify
-# locally with `cargo run --bin geode --no-default-features --features metal`.
+# is Burn's alias for its `Wgpu` backend pinned to the Metal graphics API / MSL
+# (`cubecl-msl`) shader pipeline, instantiated here as `Metal<f64>`
+# (`src/testing/mod.rs`); it shares the f32 GPU posture of `wgpu`/`cuda`.
+# Enabling it together with `wgpu` or `cuda` is not an error: a `cfg_select!`
+# picks the first enabled of `cuda`, `metal`, `wgpu`, falling back to `ndarray`.
+# Not exercised on CI (no Apple runner); verify locally with
+# `cargo test -p geode-core --features metal`.
 metal = ["burn/metal"]
 # Autodiff backend wrapper — opt-in (gradient tests / inverse design).
 autodiff = ["burn/autodiff"]
@@ -110,10 +113,10 @@ testing = ["dep:regex"]
 # Self-reference to enable the `autodiff` feature for the gradient tests
 # (tests/assembly.rs, tests/nedelec.rs, benches/assembly_p1.rs).
 # `default-features = false` is critical: without it this edge would
-# re-activate the package's default `wgpu` backend in every test/bench
-# build, defeating `--no-default-features` and pulling wgpu onto the
-# headless CI runner. The backend now comes solely from the top-level
-# feature selection (wgpu by default, or ndarray on CI).
+# re-activate the package's default features (`faer-parallel` today) in
+# every test/bench build, defeating `--no-default-features`. The backend
+# comes solely from the top-level feature selection: `ndarray` by default,
+# or the first enabled of `cuda`, `metal`, `wgpu`.
 geode-core = { path = ".", default-features = false, features = ["testing", "autodiff"] }
 geode-util = { workspace = true }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
