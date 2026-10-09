@@ -5,9 +5,13 @@
 //! stretched but μ stays 1, so the PML interface is impedance
 //! mismatched. The mismatch reflects outgoing radiation back into the
 //! cavity, which inflates the apparent quality factor of the
-//! open-structure quasi-modes — the recorded TM₁,₁ Q ≈ 27 in
-//! `benchmarks/mie_sphere/results.toml` vs. the analytic open-space
-//! Q ≈ 1.95 from `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`.
+//! open-structure quasi-modes. In `benchmarks/mie_sphere/results.toml`
+//! the ε-only triplet nearest this benchmark's primary target
+//! (`Re(k) ≈ 1.870`, next to the PEC-cavity TE₁,₁ = 1.86880) has Q ≈ 9.0,
+//! vs. the analytic open-space TE₁,₁ Q ≈ 1.95 from
+//! `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`. (The ε-only
+//! ground triplet, `Re(k) ≈ 1.229`, Q ≈ 27, is TM₁,₁, whose analytic
+//! open-space Q is ≈ 0.72.)
 //!
 //! This benchmark assembles the eigenpencil with the **matched** (full
 //! Sacks) UPML lifted into Burn assembly by PR #205 for the driven
@@ -30,12 +34,19 @@
 //!
 //! # Mode targeting
 //!
-//! - **TM₁,₁** (k = 1.8807 − 0.4818j, Q ≈ 1.95) is the primary
-//!   acceptance target — the claim to beat is the ε-only Q ≈ 27.
-//! - **TE₁,₁** (k = 1.2590 − 0.8702j, Q ≈ 0.72) is best-effort: that
-//!   broad a resonance is hard to separate from the PML continuum and
-//!   is reported with an `ambiguous` flag when the complex-distance
-//!   and nearest-`Re(k)` matches disagree.
+//! - **TE₁,₁** (k = 1.8807 − 0.4818j, Q ≈ 1.95; the Bohren & Huffman
+//!   `b₁` magnetic-dipole pole) is the primary acceptance target — the
+//!   claim to beat is the ε-only Q ≈ 9.0 of the same mode.
+//! - **TM₁,₁** (k = 1.2590 − 0.8702j, Q ≈ 0.72; the `a₁` electric-dipole
+//!   pole) is best-effort: that broad a resonance is hard to separate
+//!   from the PML continuum and is reported with an `ambiguous` flag when
+//!   the complex-distance and nearest-`Re(k)` matches disagree.
+//!
+//! Before issue #999 the open-space catalog had TE and TM swapped, so
+//! these two targets were labelled the other way round (the primary was
+//! called TM₁,₁) and the ε-only comparison quoted the Q ≈ 27 of the
+//! TM₁,₁ ground triplet. The two roots, and which one is primary, are
+//! unchanged.
 //!
 //! # Eigensolver
 //!
@@ -325,13 +336,19 @@ fn write_results(rows: &[QuasiModeRow]) {
          reported per row where present.\",\n",
     );
     s.push_str(
-        "  \"Claim to beat: ε-only UPML TM_1,1 Q ≈ 27 (results.toml) vs analytic \
-         open-space Q ≈ 1.95.\",\n",
+        "  \"Claim to beat: ε-only UPML Q ≈ 9.0 on the triplet nearest TE_1,1 \
+         (Re(k) ≈ 1.870, results.toml) vs analytic open-space TE_1,1 Q ≈ 1.95. \
+         The ε-only Q ≈ 27 ground triplet is TM_1,1 (analytic Q ≈ 0.72).\",\n",
     );
     s.push_str(
-        "  \"TE_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance \
+        "  \"TM_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance \
          competes with the PML continuum; rows flagged ambiguous when the \
          complex-distance and nearest-Re(k) matches disagree.\",\n",
+    );
+    s.push_str(
+        "  \"Labels follow the issue #999 open-space catalog (TM = a_l electric \
+         multipole, TE = b_l magnetic multipole); earlier copies of this file \
+         had TE and TM swapped on the same two roots.\",\n",
     );
     s.push_str(
         "  \"Residual gap to the analytic root is dominated by PML truncation \
@@ -404,10 +421,12 @@ impl App for Args {
         );
 
         let catalog = open_space_wgm_roots_n15();
-        // Primary acceptance target TM₁,₁ first, then best-effort TE₁,₁.
+        // Primary acceptance target TE₁,₁ (the b₁ pole, Q ≈ 1.95) first,
+        // then best-effort TM₁,₁ (the a₁ pole, Q ≈ 0.72). Before issue
+        // #999 the catalog called these TM₁,₁ and TE₁,₁ respectively.
         let targets: Vec<&MieRootComplex> = [
-            (MiePolarisation::TM, 1usize, 1usize),
-            (MiePolarisation::TE, 1, 1),
+            (MiePolarisation::TE, 1usize, 1usize),
+            (MiePolarisation::TM, 1, 1),
         ]
         .iter()
         .map(|&(pol, l, n)| {
@@ -451,9 +470,9 @@ impl App for Args {
                     if ambiguous { ", AMBIGUOUS" } else { "" }
                 );
 
-                // One Picard refresh for the primary TM target: re-freeze Λ
+                // One Picard refresh for the primary TE target: re-freeze Λ
                 // at the recovered Re(k) and re-solve.
-                let picard = if root.pol == MiePolarisation::TM {
+                let picard = if root.pol == MiePolarisation::TE {
                     let omega1 = re_k;
                     eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
                     let physical1 =

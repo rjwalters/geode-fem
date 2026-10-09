@@ -27,8 +27,9 @@
 //!
 //! The `ka` sweep {1.0, 1.5, 1.9, 2.4, 3.0} spans the two lowest
 //! open-space Mie resonances of the `n = 1.5` sphere
-//! (`geode_core::analytic::mie`: TE_1,1 at `ka ≈ 1.26`, TM_1,1 at
-//! `ka ≈ 1.88`) and stays inside the mesh-resolution band validated by
+//! (`geode_core::analytic::mie`: TM_1,1, the `a_1` electric dipole, at
+//! `ka ≈ 1.26`; TE_1,1, the `b_1` magnetic dipole, at `ka ≈ 1.88`; the
+//! labels were swapped before issue #999) and stays inside the mesh-resolution band validated by
 //! the eigenmode benchmark (`k ≲ 3` on the 774-node fixture).
 //!
 //! Writes `benchmarks/mie_sphere/driven_results.toml` (the sibling of
@@ -220,7 +221,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
     s.push_str("  \"Scattered-field formulation: J = -i*omega*(eps_r - 1)*E_inc over the sphere; the matched (full Sacks, mu and eps both stretched) UPML absorbs E_sca. The eigen benchmarks' eps-only UPML reflects too strongly for driven scattering (up to ~450% Q error on quasi-cavity resonances).\",\n");
     match choice {
         FixtureChoice::Coarse => {
-            s.push_str("  \"Residual error is dominated by the fixture's coarse-mesh dispersion (the same ~6% resonance-position error the eigenmode benchmark documents): points on resonance features (ka = 1.9 on TM_1,1; ka = 3.0 on TE_1,2) carry ~15-19% Q error, off-feature points sit at ~4-9%.\",\n");
+            s.push_str("  \"Residual error is dominated by the fixture's coarse-mesh dispersion (the same ~6% resonance-position error the eigenmode benchmark documents): points on resonance features (ka = 1.9 on TE_1,1; ka = 3.0 on TM_1,2) carry ~15-19% Q error, off-feature points sit at ~4-9%.\",\n");
         }
         FixtureChoice::Fine => {
             s.push_str("  \"The fine fixture roughly halves the characteristic length of the coarse 774-node fixture, cutting the O(h^2) resonance-position dispersion that dominated the coarse on-feature errors (~15-19% at ka = 1.9 / 3.0) — see issue #215 for the convergence argument.\",\n");
@@ -228,7 +229,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
         }
     }
     s.push_str("  \"Q_ext via volume optical theorem; Q_sca via Poynting flux through the tet-boundary surface at r_obs (recorded choice, issue #195).\",\n");
-    s.push_str("  \"ka sweep spans the open-space TE_1,1 (ka ~ 1.26) and TM_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
+    s.push_str("  \"ka sweep spans the open-space TM_1,1 (ka ~ 1.26) and TE_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
     s.push_str("  \"Analytic oracle: geode_core::analytic::mie (B&H series); independent NumPy sidecar under reference/numpy/mie_efficiencies.py.\",\n");
     s.push_str("]\n");
     s.push('\n');

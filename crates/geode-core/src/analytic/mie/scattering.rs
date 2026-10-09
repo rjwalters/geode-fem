@@ -31,7 +31,11 @@
 //! The denominators above are exactly the open-space TE/TM
 //! characteristic functions of [`super::open`] (up to the constant
 //! factor `m` on the `a_l` denominator): the scattering coefficients'
-//! complex poles **are** the open-space Mie resonances. A unit test
+//! complex poles **are** the open-space Mie resonances. `a_l` is the
+//! electric multipole, so its poles are the **TM** roots
+//! (`m · characteristic_tm_open`); `b_l` is the magnetic multipole, so
+//! its poles are the **TE** roots (`characteristic_te_open`). Issue #999
+//! corrected `super::open`, which had these two names swapped. A unit test
 //! below pins this identity on a real-axis grid so the scattering
 //! series and the resonance catalogue cannot silently drift apart.
 //!
@@ -223,10 +227,12 @@ mod tests {
     }
 
     /// The scattering-coefficient denominators are the open-space
-    /// resonance characteristic functions of `mie_open` (the `a_l`
+    /// resonance characteristic functions of `mie::open` (the `a_l`
     /// denominator carries an extra constant factor `m`). Pin the
     /// identity on a real-axis grid so the scattering series and the
-    /// WGM catalogue cannot drift apart.
+    /// WGM catalogue cannot drift apart — and so the labels cannot:
+    /// `a_l` (electric multipole) must match the **TM** function and
+    /// `b_l` (magnetic multipole) the **TE** function (issue #999).
     #[test]
     fn denominators_match_open_space_characteristics() {
         let m = 1.5_f64;
@@ -237,16 +243,16 @@ mod tests {
                 let b_den = xi_prime(l, x) * psi(l, mx) - xi(l, x) * (m * psi_prime(l, mx));
 
                 let z = c64::new(x, 0.0);
-                // mie_open's "TE" condition is ψ ξ' − (1/m) ψ' ξ = a_den / m;
-                // its "TM" condition is ψ ξ' − m ψ' ξ = b_den.
-                let te = characteristic_te_open(m, l, 1.0, z) * m;
-                let tm = characteristic_tm_open(m, l, 1.0, z);
+                // mie::open's TM condition is ψ ξ' − (1/m) ψ' ξ = a_den / m;
+                // its TE condition is ψ ξ' − m ψ' ξ = b_den.
+                let tm = characteristic_tm_open(m, l, 1.0, z) * m;
+                let te = characteristic_te_open(m, l, 1.0, z);
 
-                let ea = (a_den - te).norm() / a_den.norm().max(1e-30);
-                let eb = (b_den - tm).norm() / b_den.norm().max(1e-30);
+                let ea = (a_den - tm).norm() / a_den.norm().max(1e-30);
+                let eb = (b_den - te).norm() / b_den.norm().max(1e-30);
                 assert!(
                     ea < 1e-9 && eb < 1e-9,
-                    "x = {x}, l = {l}: a_den vs m·TE rel {ea:.3e}, b_den vs TM rel {eb:.3e}"
+                    "x = {x}, l = {l}: a_den vs m·TM rel {ea:.3e}, b_den vs TE rel {eb:.3e}"
                 );
             }
         }

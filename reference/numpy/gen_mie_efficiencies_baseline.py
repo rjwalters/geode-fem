@@ -12,7 +12,7 @@ Two grids:
 
 - ``ka_benchmark`` — the 5-point sweep of the FEM driven-scattering
   benchmark (``examples/mie_driven_scattering.rs``), spanning the
-  open-space TE_1,1 (ka ~ 1.26) and TM_1,1 (ka ~ 1.88) resonances.
+  open-space TM_1,1 (ka ~ 1.26) and TE_1,1 (ka ~ 1.88) resonances.
 - ``ka_curve`` — a dense 60-point grid on [0.1, 6.0] pinning the full
   curve shape (Rayleigh tail through the first interference maximum).
 

@@ -9,10 +9,26 @@
 //!
 //! The pre-existing ε-only UPML is impedance-mismatched (μ stays 1):
 //! the interface reflection traps radiation and inflates the apparent
-//! quality factor — recorded TM₁,₁ Q ≈ 27
-//! (`benchmarks/mie_sphere/results.toml`) vs. the analytic open-space
-//! Q ≈ 1.95. The matched UPML removes the mismatch artifact and the
-//! quasi-mode linewidth becomes physical.
+//! quality factor. On the mode this file targets, the open-space TE₁,₁
+//! root `k = 1.88074 − 0.48181i` (the Bohren & Huffman `b₁`
+//! magnetic-dipole pole, analytic Q ≈ 1.95), the ε-only spectrum in
+//! `benchmarks/mie_sphere/results.toml` has a triplet at `Re(k) ≈ 1.870`
+//! (next to the PEC-cavity TE₁,₁ = 1.86880) with Q ≈ 9.0. The matched
+//! UPML removes the mismatch artifact and the quasi-mode linewidth
+//! becomes physical.
+//!
+//! Before issue #999 the open-space catalog had TE and TM swapped, so
+//! this file called its target `TM₁,₁` and quoted the ε-only Q ≈ 27 of
+//! the ground triplet (`Re(k) ≈ 1.229`), which is a different mode
+//! (TM₁,₁, analytic Q ≈ 0.72). The target root is unchanged; its label,
+//! the ε-only baseline it is compared with, and the bands derived from
+//! that baseline changed.
+//!
+//! Caveat (issue #1022): at `σ₀ = 25` the identity of the mode this
+//! file measures is not verified. The test takes the nearest of five
+//! near-equidistant modes (an `l = 1` multiplet has three), and
+//! `benchmarks/mie_sphere/open_results.toml` flags its `σ₀ = 25` rows
+//! `ambiguous = true`.
 //!
 //! # ω-freeze linearization
 //!
@@ -33,8 +49,8 @@
 //!    fed σ₀ = 0 matched materials reproduces the established
 //!    complex-scalar-ε assembly (real K, scalar M) entrywise.
 //! 3. **Quasi-mode Q** — with σ₀ = 25 (the driven-path calibration)
-//!    and ω frozen at the TM₁,₁ analytic root, the matched-UPML
-//!    quasi-mode Q drops from the ε-only ≈ 27 toward the analytic
+//!    and ω frozen at the TE₁,₁ analytic root, the matched-UPML
+//!    quasi-mode Q drops from the ε-only ≈ 9.0 toward the analytic
 //!    ≈ 1.95. Also asserts the reduced pencil stays complex-symmetric
 //!    (`Aᵀ = A`), the invariant the Lanczos path relies on.
 //!
@@ -94,11 +110,13 @@ fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
     (idx, sign)
 }
 
-fn tm11_root() -> MieRootComplex {
+/// The open-space TE₁,₁ root, `k = 1.88074 − 0.48181i` (the `b₁` pole).
+/// Before issue #999 the catalog labelled this root `TM_1,1`.
+fn te11_root() -> MieRootComplex {
     *open_space_wgm_roots_n15()
         .iter()
-        .find(|r| r.pol == MiePolarisation::TM && r.l == 1 && r.n == 1)
-        .expect("TM_1,1 in open-space catalog")
+        .find(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
+        .expect("TE_1,1 in open-space catalog")
 }
 
 #[test]
@@ -221,16 +239,17 @@ fn matched_upml_sigma_zero_matches_complex_scalar_assembly() {
 
 #[test]
 #[ignore = "heavy: full-tensor assembly + 3,300-DOF sparse shift-invert; run with --release"]
-fn matched_upml_quasimode_q_recovers_open_space_tm11() {
+fn matched_upml_quasimode_q_recovers_open_space_te11() {
     // The headline acceptance test for issue #213: matched-UPML
     // quasi-mode Q must shed the ε-only impedance-mismatch artifact
-    // (Q ≈ 27) and land near the analytic open-space TM₁,₁ Q ≈ 1.95.
-    let tm11 = tm11_root();
+    // (Q ≈ 9.0 on this mode) and land near the analytic open-space
+    // TE₁,₁ Q ≈ 1.95.
+    let te11 = te11_root();
     eprintln!(
-        "analytic open-space TM_1,1: k = {:.5} {:+.5}j, Q = {:.4}",
-        tm11.re_k,
-        tm11.im_k,
-        tm11.q()
+        "analytic open-space TE_1,1: k = {:.5} {:+.5}j, Q = {:.4}",
+        te11.re_k,
+        te11.im_k,
+        te11.q()
     );
 
     let f = read_sphere_fixture().expect("fixture load");
@@ -238,7 +257,7 @@ fn matched_upml_quasimode_q_recovers_open_space_tm11() {
     let (tet_idx, tet_sign) = edge_tables(&f.mesh);
 
     // Freeze Λ at the analytic root frequency (ω₀ = Re(k), c = 1).
-    let omega0 = tm11.re_k;
+    let omega0 = te11.re_k;
     let (eps_tensor, nu_tensor) = build_matched_upml_materials(
         &f.mesh,
         &f.tet_physical_tags,
@@ -324,8 +343,8 @@ fn matched_upml_quasimode_q_recovers_open_space_tm11() {
     // nullspace λ ≈ 0 far from the shift, so no spurious-mode filter
     // is needed beyond the oscillatory cut below.)
     let lambda_target = c64::new(
-        tm11.re_k * tm11.re_k - tm11.im_k * tm11.im_k,
-        2.0 * tm11.re_k * tm11.im_k,
+        te11.re_k * te11.re_k - te11.im_k * te11.im_k,
+        2.0 * te11.re_k * te11.im_k,
     );
     let n_request = 12;
     let solver = SparseComplexShiftInvertLanczos {
@@ -366,11 +385,11 @@ fn matched_upml_quasimode_q_recovers_open_space_tm11() {
     // time-convention sign.
     let dist = |lam: &c64| {
         let (re_k, im_k) = k_from_lambda(*lam);
-        (re_k - tm11.re_k).hypot(im_k.abs() - tm11.im_k.abs())
+        (re_k - te11.re_k).hypot(im_k.abs() - te11.im_k.abs())
     };
     let mut by_dist = physical.clone();
     by_dist.sort_by(|a, b| dist(a).partial_cmp(&dist(b)).unwrap());
-    eprintln!("5 closest modes to the analytic TM_1,1 root:");
+    eprintln!("5 closest modes to the analytic TE_1,1 root:");
     for lam in by_dist.iter().take(5) {
         let (re_k, im_k) = k_from_lambda(*lam);
         let q = re_k / (2.0 * im_k.abs().max(1e-300));
@@ -383,38 +402,58 @@ fn matched_upml_quasimode_q_recovers_open_space_tm11() {
     let best = by_dist[0];
     let (fem_re_k, fem_im_k) = k_from_lambda(best);
     let fem_q = fem_re_k / (2.0 * fem_im_k.abs().max(1e-300));
-    let rel_err_re = (fem_re_k - tm11.re_k).abs() / tm11.re_k;
-    let q_ratio = fem_q / tm11.q();
+    let rel_err_re = (fem_re_k - te11.re_k).abs() / te11.re_k;
+    let q_ratio = fem_q / te11.q();
     eprintln!(
-        "matched-UPML TM_1,1 quasi-mode: k = {fem_re_k:.4} {fem_im_k:+.4}j, Q = {fem_q:.3} \
+        "matched-UPML TE_1,1 quasi-mode: k = {fem_re_k:.4} {fem_im_k:+.4}j, Q = {fem_q:.3} \
          (analytic Q = {:.3}); rel err Re(k) = {:.2}%, Q ratio = {q_ratio:.3}",
-        tm11.q(),
+        te11.q(),
         rel_err_re * 100.0
     );
-    eprintln!("ε-only UPML baseline (benchmarks/mie_sphere/results.toml): Q ≈ 27.2");
+    eprintln!(
+        "ε-only UPML baseline on this mode (benchmarks/mie_sphere/results.toml): \
+         Re(k) ≈ 1.870, Q ≈ 9.0"
+    );
 
     // Acceptance bands — calibrated on the bundled 774-node fixture
     // (see benchmarks/mie_sphere/open_results.toml for the achieved
     // figures and the σ₀/Picard sensitivity):
     //
-    // 1. The impedance-mismatch artifact must be gone: Q far below
-    //    the ε-only ≈ 27.
+    // 1. The impedance-mismatch artifact must be gone: Q at most half
+    //    the ε-only Q ≈ 9.0 of this mode (measured ≈ 1.31). Before issue
+    //    #999 this read `< 10` against the ε-only Q ≈ 27 of the TM₁,₁
+    //    ground triplet, a different mode; `< 10` would not even
+    //    separate the matched UPML from the ε-only path on this one.
     assert!(
-        fem_q < 10.0,
-        "matched-UPML TM_1,1 Q = {fem_q:.3} did not shed the ε-only mismatch artifact (≈ 27)"
+        fem_q < 4.5,
+        "matched-UPML TE_1,1 Q = {fem_q:.3} did not shed the ε-only mismatch artifact \
+         (ε-only Q ≈ 9.0 on this mode; band < 4.5)"
     );
-    // 2. And within a factor 3 of the analytic open-space Q ≈ 1.95.
+    // 2. And within a factor 3 of the analytic open-space Q ≈ 1.95
+    //    (measured ratio ≈ 0.67).
     assert!(
         q_ratio > 1.0 / 3.0 && q_ratio < 3.0,
-        "matched-UPML TM_1,1 Q ratio = {q_ratio:.3} outside [1/3, 3] of analytic"
+        "matched-UPML TE_1,1 Q ratio = {q_ratio:.3} outside [1/3, 3] of analytic"
     );
-    // 3. No regression on resonance position: the ε-only benchmark
-    //    sits ≈ 35% low vs the open-space root (it converges to the
-    //    PEC-cavity position instead); the matched UPML must do no
-    //    worse.
+    // 3. Resonance position: 10 % of the analytic Re(k) = 1.88074
+    //    (measured ≈ 5.5 % low). Before issue #999 this was a 35 % band
+    //    justified by the ε-only ground triplet sitting ≈ 35 % below the
+    //    root it was then (wrongly) compared with. On this mode the
+    //    ε-only triplet is closer on Re(k) (1.870, 0.6 % low, because it
+    //    tracks the nearby PEC-cavity TE₁,₁ = 1.86880), so the matched
+    //    UPML is *not* better on position here; its gain is the
+    //    linewidth (assertions 1–2). The band is an absolute
+    //    regression guard, not a no-worse-than-ε-only claim.
+    //
+    // Caveat (issue #1022): the mode identity at σ₀ = 25 is not
+    // verified. `best` is the nearest of five near-equidistant modes
+    // (dist 0.2229 – 0.2371, Q 1.28 – 1.31; an l = 1 multiplet has
+    // only three), and `open_results.toml` flags its σ₀ = 25 rows
+    // `ambiguous = true`. The σ₀ = 5 TE₁,₁ row there is unambiguous
+    // (Re(k) 1.36 % low).
     assert!(
-        rel_err_re < 0.35,
-        "matched-UPML TM_1,1 Re(k) rel err = {:.2}% (≥ 35% — worse than the ε-only path)",
+        rel_err_re < 0.10,
+        "matched-UPML TE_1,1 Re(k) rel err = {:.2}% (≥ 10%)",
         rel_err_re * 100.0
     );
 }
