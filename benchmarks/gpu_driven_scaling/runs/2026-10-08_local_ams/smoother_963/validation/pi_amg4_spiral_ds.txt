@@ -1,0 +1,13 @@
+# tree=pi_amg4 test=spiral_ds_ams_matches_direct
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=GEODE_DRIVEN_AMS_PI_COARSE=amg:4
+# start=2026-10-09T12:04:33Z loadavg_start=23.63,38.08,52.00
+
+running 1 test
+test spiral_ds_ams_matches_direct ... ams   1.0 GHz: iters [110], |ΔZ|/|Z| vs direct 2.3e-12
+ams   5.0 GHz: iters [128], |ΔZ|/|Z| vs direct 3.5e-12
+ams  10.0 GHz: iters [139], |ΔZ|/|Z| vs direct 1.3e-12
+ams  20.0 GHz: iters [155], |ΔZ|/|Z| vs direct 1.3e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 12.78s
+

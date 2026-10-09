@@ -1,0 +1,13 @@
+# tree=pi_sgs16 test=rough_ams_matches_direct
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=GEODE_DRIVEN_AMS_PI_COARSE=sgs:16
+# start=2026-10-09T12:07:06Z loadavg_start=30.58,34.24,48.00
+
+running 1 test
+test rough_ams_matches_direct ... AMS   1.0 GHz: iters [97], |ΔZ|/|Z| vs direct 2.0e-12
+AMS   5.0 GHz: iters [113], |ΔZ|/|Z| vs direct 2.4e-12
+AMS  10.0 GHz: iters [120], |ΔZ|/|Z| vs direct 1.2e-12
+AMS  20.0 GHz: iters [131], |ΔZ|/|Z| vs direct 1.7e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 12.42s
+
