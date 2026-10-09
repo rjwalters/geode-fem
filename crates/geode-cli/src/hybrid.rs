@@ -141,36 +141,47 @@ pub fn channel_result(h: &HybridPortDef, c: &HybridChannelReport) -> HybridChann
     let re = |x: f64| [x, 0.0];
     let cx = |z: c64| [z.re, z.im];
     let line = match (&c.line, &c.line_lossy) {
+        // No net conductor current (#953): Z_PI and Z_VI are ratios of
+        // round-off, so they are reported `null`, never as ~1e31 Ω.
         (Some(l), _) => Some(LineImpedanceResult {
-            z_pi_ohm: re(l.z_pi),
+            z_pi_ohm: (!l.no_net_current).then(|| re(l.z_pi)),
             z_pv_ohm: l.z_pv.map(re),
-            z_vi_ohm: l.z_vi.map(re),
+            z_vi_ohm: l.z_vi.filter(|_| !l.no_net_current).map(re),
             currents: l.currents.iter().copied().map(re).collect(),
             voltages: l.voltages.iter().map(|v| v.map(re)).collect(),
+            no_net_current: l.no_net_current,
         }),
         (None, Some(l)) => Some(LineImpedanceResult {
-            z_pi_ohm: cx(l.z_pi),
+            z_pi_ohm: (!l.no_net_current).then(|| cx(l.z_pi)),
             z_pv_ohm: l.z_pv.map(cx),
-            z_vi_ohm: l.z_vi.map(cx),
+            z_vi_ohm: l.z_vi.filter(|_| !l.no_net_current).map(cx),
             currents: l.currents.iter().copied().map(cx).collect(),
             voltages: l.voltages.iter().map(|v| v.map(cx)).collect(),
+            no_net_current: l.no_net_current,
         }),
         (None, None) => None,
     };
     // Even / odd: the two conductor currents in phase or in anti-phase
     // (Re(I₁·Ī₂), invariant under the mode's overall sign / phase).
-    let coupled_mode = line.as_ref().and_then(|l| match l.currents[..] {
-        [a, b] => {
-            let x = a[0] * b[0] + a[1] * b[1];
-            Some(if x > 0.0 { "even" } else { "odd" })
-        }
-        _ => None,
-    });
+    // Undefined without a net current (#953): the currents are round-off.
+    let coupled_mode =
+        line.as_ref()
+            .filter(|l| !l.no_net_current)
+            .and_then(|l| match l.currents[..] {
+                [a, b] => {
+                    let x = a[0] * b[0] + a[1] * b[1];
+                    Some(if x > 0.0 { "even" } else { "odd" })
+                }
+                _ => None,
+            });
+    // A channel with no net conductor current (#953) is a waveguide mode,
+    // not a line mode: no line impedance under any definition (its path
+    // `Z_PV` stays in `line` as a diagnostic only).
     let z_line_ohm = h
         .impedance_definition
-        .zip(line.as_ref())
+        .zip(line.as_ref().filter(|l| !l.no_net_current))
         .and_then(|(d, l)| match d {
-            ImpedanceDefinition::PowerCurrent => Some(l.z_pi_ohm),
+            ImpedanceDefinition::PowerCurrent => l.z_pi_ohm,
             ImpedanceDefinition::PowerVoltage => l.z_pv_ohm,
             ImpedanceDefinition::VoltageCurrent => l.z_vi_ohm,
         });
@@ -325,6 +336,7 @@ fn warning_kind(k: &PortWarningKind) -> &'static str {
             "impedance_accuracy_above_threshold"
         }
         PortWarningKind::ImpedanceAccuracyUnavailable { .. } => "impedance_accuracy_unavailable",
+        PortWarningKind::NoNetConductorCurrent { .. } => "no_net_conductor_current",
         PortWarningKind::MultiplicityUncertified { .. } => "multiplicity_uncertified",
         PortWarningKind::ClusterSplit { .. } => "cluster_split",
         PortWarningKind::NonCanonicalClusterBasis { .. } => "non_canonical_cluster_basis",

@@ -423,6 +423,11 @@ impl LossyState {
             .iter()
             .map(|m| lossy_line(&self.ctx, port, m, omega, &eps))
             .collect();
+        for (c, l) in lines.iter().enumerate() {
+            if l.as_ref().is_some_and(|l| l.no_net_current) {
+                self.z_warn.record_no_current(c, omega);
+            }
+        }
         let mut accuracy: Vec<Option<ModeAccuracy>> = vec![None; k];
         let mut z_acc: Vec<Option<ImpedanceAccuracy>> = vec![None; k];
         if let Some(acc) = port.opts.accuracy {
@@ -815,8 +820,8 @@ impl LossyState {
             lines
                 .iter()
                 .map(|l| match l {
-                    Some(_) => ZOutcome::Unavailable(why.to_string()),
-                    None => ZOutcome::NotApplicable,
+                    Some(l) if !l.no_net_current => ZOutcome::Unavailable(why.to_string()),
+                    _ => ZOutcome::NotApplicable,
                 })
                 .collect()
         };
@@ -899,7 +904,8 @@ impl LossyState {
         let beta_acc = lossy_mode_accuracy(refined, &coarse, &set_h2, self.rates.as_deref());
         let z = (0..tracked.len())
             .map(|c| {
-                let Some(l1) = &lines[c] else {
+                // No net conductor current (#953): no line impedance.
+                let Some(l1) = lines[c].as_ref().filter(|l| !l.no_net_current) else {
                     return ZOutcome::NotApplicable;
                 };
                 let Some(Some(g2)) = &self.z_h2 else {
