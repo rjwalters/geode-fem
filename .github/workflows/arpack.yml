@@ -352,6 +352,21 @@ jobs:
         run: |
           cargo test -p geode-cli
 
+      # Issue #933: the bin unit tests of the mie_sphere (3 tests) and
+      # spiral_inductor (1 test) example crates (`src/main.rs`), which ran
+      # in no job until ci-test-coverage.py modelled `<crate>/bin:<name>`.
+      # Pure-logic tests; the run itself takes < 1 s. The cost is the build:
+      # these crates enable geode-core's `testing` feature, so geode-core and
+      # some of the burn stack are rebuilt in debug with that feature set.
+      # Measured locally after `cargo test -p geode-cli` (Apple M3 Ultra,
+      # loaded host; not re-timed on ubuntu-latest): 46 s wall, 38 crates
+      # recompiled. Kept as a separate command, not merged into the
+      # geode-cli invocation, so the CLI is still tested with its own
+      # feature set.
+      - name: Example crates' bin unit tests (mie_sphere, spiral_inductor)
+        run: |
+          cargo test -p mie_sphere -p spiral_inductor --bins
+
   geode-cli-release:
     # Release-mode `--ignored` benchmark tiers for the geode CLI, split out
     # of the `geode-cli` job so the debug default tier and the release
