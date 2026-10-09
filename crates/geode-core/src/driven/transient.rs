@@ -820,9 +820,17 @@ impl TransientStepper<'_> {
             rhs[i] += m_term[i] + c_term[i] - k_term[i];
         }
 
-        // Solve A_eff u_{n+1} = rhs.
+        // Solve A_eff u_{n+1} = rhs. One right-hand side through the fixed
+        // factor, once per step: up to SEQUENTIAL_SOLVE_MAX_DIM it runs with
+        // faer's parallelism sequential (issue #956; the measurements are in
+        // benchmarks/gpu_driven_scaling/results_threading_956.toml).
         let mut mat = faer::Mat::<f64>::from_fn(n, 1, |i, _| rhs[i]);
-        self.lu.0.solve_in_place(mat.as_mut());
+        {
+            let _seq = crate::eigen::parallel::sequential_scope_for_solves(n);
+            #[cfg(test)]
+            crate::eigen::parallel::solve_probe::record("transient_step");
+            self.lu.0.solve_in_place(mat.as_mut());
+        }
         let mut u_new = vec![0.0; n];
         for i in 0..n {
             u_new[i] = mat[(i, 0)];
@@ -1206,6 +1214,45 @@ mod tests {
             rel < 2e-3,
             "forced steady amplitude {peak:.5} vs analytic {analytic:.5} (rel {rel:.3e})"
         );
+    }
+
+    /// Issue #956: each step's back-solve runs while the stepping thread
+    /// holds a `SequentialSolveScope` (the scope is taken inside
+    /// [`TransientStepper::step`], which [`TransientSolver::run`] drives), and
+    /// the scope ends with the step. Above `SEQUENTIAL_SOLVE_MAX_DIM` the step
+    /// takes none. What a live scope does to faer's global parallelism is
+    /// asserted in `tests/faer_global_parallelism.rs`.
+    #[test]
+    fn step_back_solve_runs_under_a_sequential_scope_up_to_the_size_limit() {
+        use crate::eigen::parallel::solve_probe;
+        let solver = TransientSolver::from_matrices_for_test(
+            scalar_mat(4.0),
+            scalar_mat(1.0),
+            scalar_mat(0.1),
+        );
+        let _ = solve_probe::take("transient_step");
+        let mut stepper = solver
+            .factor(0.05, TransientScheme::generalized_alpha(0.8))
+            .unwrap();
+        for step in 0..25 {
+            stepper.step(&[(step as f64).sin()], &[(step as f64 + 1.0).sin()]);
+            assert_eq!(solve_probe::scopes_held(), 0, "scope outlived step {step}");
+        }
+        assert_eq!(solve_probe::take("transient_step"), (25, 0));
+
+        // One unknown above the limit: no scope.
+        let big = crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM + 1;
+        let diag = |v: f64| {
+            let t: Vec<_> = (0..big).map(|i| Triplet::new(i, i, v)).collect();
+            SparseColMat::<usize, f64>::try_new_from_triplets(big, big, &t).unwrap()
+        };
+        let solver = TransientSolver::from_matrices_for_test(diag(4.0), diag(1.0), diag(0.1));
+        let mut stepper = solver
+            .factor(0.05, TransientScheme::generalized_alpha(0.8))
+            .unwrap();
+        let f = vec![1.0; big];
+        stepper.step(&f, &f);
+        assert_eq!(solve_probe::take("transient_step"), (0, 1));
     }
 
     /// Instability tripwire: central difference (β = 0, γ = ½) above its

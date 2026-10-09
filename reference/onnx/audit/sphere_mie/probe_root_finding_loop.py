@@ -809,7 +809,7 @@ def main() -> int:  # noqa: PLR0915
     big_a, big_b = mie_roots.chi(4, R_B * ks), mie_roots.psi(4, R_B * ks)
     buf = big_a * mie_roots.psi(4, ks) - big_b * mie_roots.chi(4, ks)
     bufp = big_a * mie_roots.psi_prime(4, ks) - big_b * mie_roots.chi_prime(4, ks)
-    term_scale = np.maximum(np.abs(psi_in * bufp) + np.abs(psip_in / N_INSIDE * buf), 1.0)
+    term_scale = np.maximum(np.abs(psi_in * bufp) + np.abs(N_INSIDE * psip_in * buf), 1.0)
     err_l4 = float(np.max(np.abs(f_onnx_l4 - f_ref_l4) / term_scale))
     a3_ok = err_l4 < 1e-9
     ok &= a3_ok

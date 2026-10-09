@@ -711,14 +711,25 @@ skipped: they have their own cluster diagnostics
 (`multiplicity_uncertified`, `cluster_split`,
 `non_canonical_cluster_basis`).
 
-The check repeats each geometric port's face mode solve once per run
-(and the confirming p=2 solve when the face has a candidate pair). It
-does not depend on the number of sweep frequencies. Measured on those
-guides, two ports, release build: 6 ms with one mode per port and no
-candidate pair, 20 to 80 ms with six modes and a candidate pair. That
-is 3 to 4 % of the sweep time of a 21-frequency run of the same spec,
-and 25 to 55 % of that of a one-frequency run, whose whole sweep takes
-20 ms to 0.8 s.
+In `driven` the check costs nothing extra (issue #952): each geometric
+port's face is solved once per run (one raw mode solve, plus the
+confirming p=2 solve when the face has a candidate pair), and the
+degeneracy notes, the `--touchstone` classification, the sensitivity's
+port specs and the sweep all read that one solve. Before #952 each of
+them solved the face again, up to four times per port on a
+`--touchstone` run with a `sensitivity`. The one face solve does not
+depend on the number of sweep frequencies; it grows with the port
+face's size and the number of modes per port, and with the confirming
+solve when the face has a candidate pair. It is made before the sweep,
+so `solver.wall_time_s` (the 3-D sweep) does not include it. A
+`--check-gradient` FD forward is a separate problem and solves its
+own port faces. Measured on those guides, two ports, release build,
+medians of 11 process runs on a loaded host (load average 47 to 68 on
+28 cores), main before #952 → after: 62 → 50 ms (`lc = 0.30`, six
+modes, one frequency), 193 → 125 ms (`lc = 0.22`, six modes, one
+frequency, `--touchstone`), 954 → 839 ms (`lc = 0.22`, six modes, 21
+frequencies, `--touchstone` and a sensitivity) and 1755 → 1604 ms
+(`lc = 0.18`, six modes, 21 frequencies, `--touchstone`).
 
 `geode check` pays the same face solves, so a spec with geometric wave
 ports is no longer a solve-free check: 2-D port-face eigen-solves only,

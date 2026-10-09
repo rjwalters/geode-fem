@@ -14,8 +14,9 @@
 //! coordinates. [`sm_characteristic`] is its characteristic function for
 //! the lowest branch, the `l = 1` electric dipole (`∇ × E` tangential;
 //! the `a₁` pole of Bohren and Huffman, the field of
-//! [`characteristic_te_open`], whose catalog
-//! [`open_space_wgm_roots_n15`] labels it `TE_1,1`). Its roots are the
+//! [`characteristic_tm_open`], whose catalog
+//! [`open_space_wgm_roots_n15`] labels it `TM_1,1`; before issue #999 the
+//! catalog had TE and TM swapped and called it `TE_1,1`). Its roots are the
 //! exact eigenvalues that the FEM pencil approximates. Four points on that
 //! one branch:
 //!
@@ -53,7 +54,7 @@
 use burn::tensor::backend::BackendTypes;
 
 #[allow(unused_imports)] // referenced by the module docs
-use geode_core::analytic::mie::{characteristic_te_open, open_space_wgm_roots_n15};
+use geode_core::analytic::mie::{characteristic_tm_open, open_space_wgm_roots_n15};
 use geode_core::analytic::mie::{psi_c, psi_prime_c, xi_c, xi_prime_c};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_n_interior_nodes,
@@ -270,20 +271,19 @@ pub fn m_bilinear(m: &[(usize, usize, f64)], u: &[faer::c64], v: &[faer::c64]) -
     acc
 }
 
-/// `|uᵀ M v| / √(|Re uᵀ M u| · |Re vᵀ M v|)`: the score
+/// `|uᵀ M v| / √(|uᵀ M u| · |vᵀ M v|)`: the score
 /// `self_consistent_k_vector_tracked` gives a candidate `v` against the
 /// previous target `u`. 0 for two different eigenvectors of one pencil (they
-/// are M-orthogonal). For the same eigenvector it is 1 only when `uᵀ M u`
-/// is real: like the driver, it divides by `|Re|`, not the modulus, so it
-/// depends on the phase the solver returned. The sparse solver's vectors
-/// score 1.000; the dense solver's scored 1.05 to 5.98 for one eigenvector
-/// in `vector_tracked_beats_frozen_int_idx` (issue #988). A change of
-/// eigenvector still scores near 0, which is what the tests detect.
+/// are M-orthogonal), 1 for the same eigenvector. Every factor is a modulus,
+/// so the score does not depend on the phase or scale either solver returns
+/// an eigenvector with (issue #988): the dense solver's arbitrary phases
+/// used to inflate it, to 1.05 to 5.98 for one eigenvector in
+/// `vector_tracked_beats_frozen_int_idx`, when it divided by `|Re|`.
 pub fn m_overlap(m: &[(usize, usize, f64)], u: &[faer::c64], v: &[faer::c64]) -> f64 {
     let uv = m_bilinear(m, u, v);
-    let uu = m_bilinear(m, u, u).re.abs();
-    let vv = m_bilinear(m, v, v).re.abs();
-    uv.re.hypot(uv.im) / (uu * vv).sqrt().max(1e-300)
+    let uu = m_bilinear(m, u, u).norm();
+    let vv = m_bilinear(m, v, v).norm();
+    uv.norm() / (uu * vv).sqrt().max(1e-300)
 }
 
 /// Score a recorded run. `pick` returns the index the driver's target rule
@@ -493,7 +493,7 @@ fn c(re: f64) -> faer::c64 {
 /// `∇ × E = g X₁ₘ`.
 ///
 /// Rows: `u` continuous and `u′/ε` continuous at `R_s` (the field of
-/// [`characteristic_te_open`]), and the outer condition written as
+/// [`characteristic_tm_open`]), and the outer condition written as
 /// `u′ = β u` at `R_b`. For `n × ∇ × E = j k₀ E_t`, `β = −j k² / k₀`. The
 /// exact outgoing condition in this sign convention (`Im k > 0` decays;
 /// the conjugate of the `exp(−iωt)` convention of the Mie catalog) is

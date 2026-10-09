@@ -947,3 +947,76 @@ fn degenerate_candidates_report_the_gauge_decision() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// 11. One face solve for the port and its degeneracy records (issue #952)
+// ---------------------------------------------------------------------------
+
+/// `wave_port_with_candidates` returns the port of `wave_port` bit for bit
+/// (every mode vector and `k_c`) and the records of
+/// `degenerate_candidates(n, P1)` exactly, from one raw face solve plus at
+/// most one confirming solve — where the two calls it replaces take one
+/// raw solve each. On every Gmsh box face (`lc` 0.30 / 0.22 / 0.18, one
+/// candidate pair at six modes) and the coax face (several candidate pairs,
+/// decided one cluster), both ports, at `n_modes` 1 through 8 where the
+/// face holds them (so the candidate chain past `n − 1` is exercised: the
+/// records keep only the pairs whose lower member is below `n`).
+#[test]
+fn wave_port_with_candidates_is_wave_port_and_degenerate_candidates_from_one_solve() {
+    use geode_core::driven::ports::face_solve_counts;
+    let bits = |p: &WavePort| -> Vec<u64> {
+        p.modes
+            .iter()
+            .flat_map(|m| {
+                m.mode.iter().map(|x| x.to_bits()).chain([
+                    m.k_c.to_bits(),
+                    m.a_inc.re.to_bits(),
+                    m.a_inc.im.to_bits(),
+                ])
+            })
+            .collect()
+    };
+    let mut with_records = 0;
+    for fixture in [
+        "guide_box_lc030.msh",
+        "guide_box_lc022.msh",
+        "guide_box_lc018.msh",
+        "guide_coax_lc018_015.msh",
+    ] {
+        let g = gmsh_guide(fixture, 1.0, 2);
+        let edges = g.mesh.edges();
+        for (pn, faces) in [("port 1", &g.port1), ("port 2", &g.port2)] {
+            let pf = project_port_face(&g.mesh, faces).expect("face");
+            for n in 1..=8 {
+                let a_inc = vec![one(); n];
+                let c0 = face_solve_counts();
+                let Ok((port, records)) = pf.wave_port_with_candidates(&edges, &a_inc) else {
+                    // Fewer physical modes than `n` (not on these faces).
+                    assert!(
+                        pf.wave_port(&edges, &a_inc).is_err(),
+                        "{fixture} {pn} n={n}"
+                    );
+                    continue;
+                };
+                let one_solve = face_solve_counts() - c0;
+                assert_eq!(one_solve.primary_p1, 1, "{fixture} {pn} n={n}");
+                assert!(one_solve.confirming <= 1, "{fixture} {pn} n={n}");
+                let c1 = face_solve_counts();
+                let want_port = pf.wave_port(&edges, &a_inc).expect("wave port");
+                let want_records = pf
+                    .degenerate_candidates(n, ElementOrder::P1)
+                    .expect("records");
+                let two_solves = face_solve_counts() - c1;
+                assert_eq!(two_solves.primary_p1, 2, "{fixture} {pn} n={n}");
+                assert_eq!(bits(&port), bits(&want_port), "{fixture} {pn} n={n}: port");
+                assert_eq!(port.faces, want_port.faces);
+                assert_eq!(records, want_records, "{fixture} {pn} n={n}: records");
+                assert!(records.iter().all(|c| c.index < n));
+                with_records += usize::from(!records.is_empty());
+            }
+        }
+    }
+    // The comparison is not vacuous: candidate pairs on the box faces at
+    // six modes and up, and on the coax face from its TE11 pair.
+    assert!(with_records >= 10, "{with_records} cases with records");
+}

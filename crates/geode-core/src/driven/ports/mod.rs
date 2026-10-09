@@ -66,11 +66,11 @@ pub use hybrid::{
     solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
     solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
 };
-pub(crate) use hybrid_z::line_complex;
 pub use hybrid_z::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, ImpedanceEstimate, LineImpedance,
     MAX_IMPEDANCE_RATE, MIN_IMPEDANCE_RATE, SINGULAR_IMPEDANCE_RATE,
 };
+pub(crate) use hybrid_z::{line_complex, line_real};
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,
@@ -91,10 +91,11 @@ pub use wave::{
     waveguide_mode_reduce,
 };
 pub use wave_face::{
-    CandidateConfirmation, DegenerateCandidate, GuideAxialMesh, GuideScan, PLANARITY_REL_TOL,
-    PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH,
-    TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, project_port_face, tm_evanescent_leak,
-    tm_guard_axial_reach, tm_guard_margin, wave_port_from_faces,
+    CandidateConfirmation, DegenerateCandidate, FaceSolveCounts, GuideAxialMesh, GuideScan,
+    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN,
+    TM_GUARD_MEASURED_KH, TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, face_solve_counts,
+    project_port_face, tm_evanescent_leak, tm_guard_axial_reach, tm_guard_margin,
+    wave_port_from_faces,
 };
 pub use wave_p2::{
     PortFaceModeP2, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_sweep_on_space,

@@ -4,7 +4,7 @@ Renders the headline driven-Mie comparison: Q_ext / Q_sca vs ka, with
 the analytic Mie series (Bohren & Huffman) as a solid line and the
 FEM samples as scatter markers. A secondary thin axis on the bottom
 shows the per-point relative error so dispersion features (the
-TM_1,1 resonance at ka ≈ 1.88) are visible at a glance.
+TE_1,1 resonance at ka ≈ 1.88) are visible at a glance.
 
 Data sources:
 

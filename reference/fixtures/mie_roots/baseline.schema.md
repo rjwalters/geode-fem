@@ -33,11 +33,11 @@ window `k ∈ (0.1, 20.0]`.
 
 Roots are stored sorted by the canonical integer key **(pol, l, n)**
 (`pol`: 0 = TE, 1 = TM), *not* by ascending `k`. The catalogue contains
-close cross-channel pairs (e.g. TM(2,1) at k ≈ 1.81333 vs TE(1,1) at
-k ≈ 1.86880, 3 % apart; before the #986 fix the catalogue showed a spurious
-0.07 % pair at 1.88943 / 1.89074) whose global `k`-order is fragile under
-perturbation; the harness joins the two catalogues on the exact integer
-tags instead.
+near-degenerate cross-channel pairs (e.g. TM(2,2) at k ≈ 3.14655 vs
+TE(1,2) at k ≈ 3.15029, 0.12 % apart; before the #986 fix the catalogue
+showed a spurious 0.07 % TE(1,1) / TM(2,1) pair at 1.88943 / 1.89074)
+whose global `k`-order is fragile under perturbation; the harness joins
+the two catalogues on the exact integer tags instead.
 
 ## Output fields (under `outputs`)
 

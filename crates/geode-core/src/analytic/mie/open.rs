@@ -20,14 +20,58 @@
 //! denominator zeros (poles of the `b_l`/`a_l` scattering coefficients):
 //!
 //! ```text
-//! TE (b_l pole):  ψ_l(n·k·R_s) · ξ_l'(k·R_s) − (1/n) · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
-//! TM (a_l pole):  ψ_l(n·k·R_s) · ξ_l'(k·R_s) −    n  · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
+//! TE (b_l pole):  ψ_l(n·k·R_s) · ξ_l'(k·R_s) −    n  · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
+//! TM (a_l pole):  ψ_l(n·k·R_s) · ξ_l'(k·R_s) − (1/n) · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
 //! ```
 //!
 //! where `ψ_l(z) = z·j_l(z)` and `ξ_l(z) = z·h_l^(1)(z)`.
 //!
-//! These are the same matching equations as in [`super::closed`] with the
-//! outer-wall PEC condition replaced by an outgoing-wave Sommerfeld BC.
+//! # Derivation and polarisation labels
+//!
+//! Write the transverse field as `F = f(r) X_lm(θ, φ)` with `X_lm` the
+//! (purely tangential) vector spherical harmonic, `μ_r = 1` everywhere,
+//! and `u(r) = r f(r)`. Then `u = c·ψ_l(n k r)` inside the sphere (regular
+//! at the origin) and `u = d·ξ_l(k r)` outside (outgoing), with
+//! `x = k R_s` and `n x` the interior argument.
+//!
+//! - **TE** (`E` transverse, `E = f X_lm`, `E_r = 0`). Tangential `E`
+//!   continuous ⇒ `u` continuous. Tangential `H ∝ ∇×E` has tangential
+//!   part `∝ u′(r)/r` with no material factor (`μ_r = 1`), so `u′` is
+//!   continuous too: `c·n k ψ_l'(n x) = d·k ξ_l'(x)`. Eliminating
+//!   `c/d`: `ψ_l(n x) ξ_l'(x) − n·ψ_l'(n x) ξ_l(x) = 0` — the interface
+//!   row carries `n`.
+//! - **TM** (`H` transverse, `H = f X_lm`, `H_r = 0`). Tangential `H`
+//!   continuous ⇒ `u` continuous. Tangential `E ∝ ∇×H / ε_r` has
+//!   tangential part `∝ u′/(ε_r r)`, so `u′/ε_r` is continuous; inside,
+//!   `ε_r = n²` and `u′ = c·n k ψ_l'(n x)`, giving
+//!   `c·(k/n) ψ_l'(n x) = d·k ξ_l'(x)`. Eliminating `c/d`:
+//!   `ψ_l(n x) ξ_l'(x) − (1/n)·ψ_l'(n x) ξ_l(x) = 0` — the interface row
+//!   carries `1/n`.
+//!
+//! These are the same interface rows as [`super::closed`]
+//! (`characteristic_te`: `n·ψ'`, `characteristic_tm`: `ψ'/n`, since issue
+//! #986), with the PEC wall moved to infinity and the buffer solution
+//! replaced by the outgoing `ξ_l`.
+//!
+//! **Bohren & Huffman cross-check** (*Absorption and Scattering of Light
+//! by Small Particles*, 1983, §4.4, eqs. 4.52–4.53 with `μ₁ = μ`, relative
+//! index `m = n`): the
+//! electric-multipole (TM) coefficient is
+//! `a_l = [m ψ_l(mx) ψ_l'(x) − ψ_l(x) ψ_l'(mx)] / [m ψ_l(mx) ξ_l'(x) − ξ_l(x) ψ_l'(mx)]`
+//! and the magnetic-multipole (TE) coefficient is
+//! `b_l = [ψ_l(mx) ψ_l'(x) − m ψ_l(x) ψ_l'(mx)] / [ψ_l(mx) ξ_l'(x) − m ξ_l(x) ψ_l'(mx)]`.
+//! The `a_l` denominator is `m ·` [`characteristic_tm_open`] and the
+//! `b_l` denominator is exactly [`characteristic_te_open`]; the
+//! `scattering` module pins both identities on a grid
+//! (`denominators_match_open_space_characteristics`). The lowest pole at
+//! `n = 1.5` is the `a_1` electric dipole, `k R_s = 1.258960 − 0.870213i`
+//! (`Q ≈ 0.72`), i.e. `TM_1,1`; the `b_1` magnetic dipole is
+//! `1.880740 − 0.481806i` (`Q ≈ 1.95`), i.e. `TE_1,1`.
+//!
+//! Before issue #999 this module had the two labels swapped (the `1/n`
+//! row was called TE and documented as the `b_l` pole). Root *values*
+//! were always right; only the `TE`/`TM` names on the functions and the
+//! catalog changed.
 //!
 //! # Sign convention
 //!
@@ -220,28 +264,40 @@ fn c_cos(z: faer::c64) -> faer::c64 {
 // Characteristic functions (open-space).
 // ---------------------------------------------------------------------
 
-/// TE-mode resonance condition (pole of Mie `b_l` coefficient):
-///
-/// ```text
-/// ψ_l(n·k·R_s) · ξ_l'(k·R_s) − (1/n) · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
-/// ```
-pub fn characteristic_te_open(n: f64, l: usize, r_s: f64, k: faer::c64) -> faer::c64 {
-    let x_in = faer::c64::new(n * r_s, 0.0) * k;
-    let x_s = faer::c64::new(r_s, 0.0) * k;
-    psi_c(l, x_in) * xi_prime_c(l, x_s)
-        - faer::c64::new(1.0 / n, 0.0) * psi_prime_c(l, x_in) * xi_c(l, x_s)
-}
-
-/// TM-mode resonance condition (pole of Mie `a_l` coefficient):
+/// TE-mode resonance condition (`E` transverse; pole of the Bohren &
+/// Huffman magnetic-multipole coefficient `b_l`, whose denominator this
+/// is exactly):
 ///
 /// ```text
 /// ψ_l(n·k·R_s) · ξ_l'(k·R_s) − n · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
 /// ```
-pub fn characteristic_tm_open(n: f64, l: usize, r_s: f64, k: faer::c64) -> faer::c64 {
+///
+/// The interface row carries `n` because `u = r E_t` and `du/dr` are both
+/// continuous (module docs). Before issue #999 this name was attached to
+/// the `1/n` (TM) row.
+pub fn characteristic_te_open(n: f64, l: usize, r_s: f64, k: faer::c64) -> faer::c64 {
     let x_in = faer::c64::new(n * r_s, 0.0) * k;
     let x_s = faer::c64::new(r_s, 0.0) * k;
     psi_c(l, x_in) * xi_prime_c(l, x_s)
         - faer::c64::new(n, 0.0) * psi_prime_c(l, x_in) * xi_c(l, x_s)
+}
+
+/// TM-mode resonance condition (`H` transverse; pole of the Bohren &
+/// Huffman electric-multipole coefficient `a_l`, whose denominator is
+/// `n ×` this function):
+///
+/// ```text
+/// ψ_l(n·k·R_s) · ξ_l'(k·R_s) − (1/n) · ψ_l'(n·k·R_s) · ξ_l(k·R_s) = 0
+/// ```
+///
+/// The interface row carries `1/n` because `u = r H_t` and
+/// `(1/ε_r) du/dr` are continuous (module docs). Before issue #999 this
+/// name was attached to the `n` (TE) row.
+pub fn characteristic_tm_open(n: f64, l: usize, r_s: f64, k: faer::c64) -> faer::c64 {
+    let x_in = faer::c64::new(n * r_s, 0.0) * k;
+    let x_s = faer::c64::new(r_s, 0.0) * k;
+    psi_c(l, x_in) * xi_prime_c(l, x_s)
+        - faer::c64::new(1.0 / n, 0.0) * psi_prime_c(l, x_in) * xi_c(l, x_s)
 }
 
 // ---------------------------------------------------------------------
@@ -267,212 +323,218 @@ pub const OPEN_SPACE_WGM_R_S: f64 = 1.0;
 /// `tests::catalog_residuals_are_small`).
 ///
 /// **Reproducer**: `python3 mesh_scripts/mie_open_space_roots.py`.
+///
+/// Labels follow the module-doc derivation (TM = `a_l` pole, TE = `b_l`
+/// pole). Issue #999 swapped every `TE`/`TM` label in this table relative
+/// to its earlier form; the `(l, n_radial, Re k, Im k)` columns are
+/// unchanged (the regenerated script output matches them to all printed
+/// digits).
 pub static OPEN_SPACE_WGM_TABLE_N15: &[(MiePolarisation, usize, usize, f64, f64)] = &[
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         1,
         1,
         1.2589599273e+00,
         -8.7021308883e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         1,
         1,
         1.8807401144e+00,
         -4.8180596191e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         2,
         1,
         2.3505102361e+00,
         -9.1640268874e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         2,
         1,
         2.6818589916e+00,
         -4.2285156689e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         1,
         2,
         2.9990897088e+00,
         -6.2353572127e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         3,
         1,
         3.3821623638e+00,
         -8.4520914661e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         3,
         1,
         3.4696117121e+00,
         -3.6676887861e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         2,
         2,
         3.8590553171e+00,
         -7.4306931339e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         1,
         2,
         4.0822559169e+00,
         -5.2427741567e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         4,
         1,
         4.2496371545e+00,
         -3.1536363923e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         4,
         1,
         4.3279225516e+00,
         -7.0620806623e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         3,
         2,
         4.7210269651e+00,
         -9.0040239056e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         2,
         2,
         4.9712778093e+00,
         -5.0840959906e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         5,
         1,
         5.0242154597e+00,
         -2.6906807636e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         1,
         3,
         5.1501372961e+00,
         -5.6338897223e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         5,
         1,
         5.1907969939e+00,
         -5.6772496274e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         4,
         2,
         5.6367932176e+00,
         -1.0752119786e+00,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         3,
         2,
         5.8288122837e+00,
         -4.9061643875e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         2,
         3,
         6.0634748163e+00,
         -6.0093412132e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         1,
         3,
         6.2123115928e+00,
         -5.3117106076e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         5,
         2,
         6.6131109918e+00,
         -1.2091484956e+00,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         4,
         2,
         6.6648430571e+00,
         -4.7152996682e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         3,
         3,
         6.9455091957e+00,
         -6.4620249433e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         2,
         3,
         7.1447443178e+00,
         -5.2362308367e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         5,
         2,
         7.4851705320e+00,
         -4.5146070540e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         4,
         3,
         7.8055751310e+00,
         -6.9935896099e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         3,
         3,
         8.0467371134e+00,
         -5.1480526643e-01,
     ),
     (
-        MiePolarisation::TE,
+        MiePolarisation::TM,
         5,
         3,
         8.6499939186e+00,
         -7.6205738453e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         4,
         3,
         8.9261115288e+00,
         -5.0512669709e-01,
     ),
     (
-        MiePolarisation::TM,
+        MiePolarisation::TE,
         5,
         3,
         9.7878811873e+00,
@@ -578,58 +640,156 @@ mod tests {
         }
     }
 
-    /// Cross-check: the **lowest** open-space TE_1,1 root for
-    /// `n = 1.5`, `R_s = 1.0` is a classic published value. Two
-    /// reasonable references:
+    /// The `TM_1,1` entry is the lowest open-space pole for `n = 1.5`,
+    /// `R_s = 1`: the Bohren & Huffman `a_1` (electric-dipole) pole at
+    /// `k R_s = 1.258960 − 0.870213i`, `Q ≈ 0.72`. That value was
+    /// confirmed independently with mpmath by the reviewers of PRs #998
+    /// and #1004; `a1_pole_is_labelled_tm` below re-derives it from the
+    /// B&H denominator without this module's characteristic functions.
     ///
-    /// - Hightower & Richardson, "Resonant Mie scattering from a layered
-    ///   sphere", Appl. Opt. 27, 4850 (1988) — Table I lists
-    ///   x = Re(k R_s) ≈ 1.26 for the lowest TE mode.
-    /// - Lai, Leung, Liu, Tong & Young, "Time-independent perturbation
-    ///   for leaking electromagnetic modes in open systems with
-    ///   application to resonances in microdroplets", PRA 41, 5187
-    ///   (1990) — gives k R_s = 1.2589 − 0.8702i for n = 1.5.
-    ///
-    /// We match to ~4 sig figs on both Re(k) and Im(k).
+    /// Before issue #999 this entry was labelled `TE_1,1`, and the test
+    /// cited Hightower & Richardson (Appl. Opt. 27, 4850, 1988) and Lai et
+    /// al. (PRA 41, 5187, 1990) for it under that label. Those citations
+    /// were not re-checked against the papers, so they are dropped here.
     #[test]
-    fn te_1_1_matches_published_value() {
-        let cat = open_space_wgm_roots_n15();
-        let te11 = cat
-            .iter()
-            .find(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
-            .expect("TE_1,1 in catalog");
-        // Published target: x = 1.2589 − 0.8702i.
-        assert!(
-            (te11.re_k - 1.2589).abs() < 1e-3,
-            "TE_1,1 Re(k) = {} (want ≈ 1.2589)",
-            te11.re_k
-        );
-        assert!(
-            (te11.im_k + 0.8702).abs() < 1e-3,
-            "TE_1,1 Im(k) = {} (want ≈ −0.8702)",
-            te11.im_k
-        );
-    }
-
-    /// Smoke test: the TM_1,1 mode (which the bundled FEM example
-    /// claims as its lowest physical multiplet) should agree with
-    /// textbook value `x ≈ 1.881 − 0.482i`.
-    #[test]
-    fn tm_1_1_matches_published_value() {
+    fn tm_1_1_is_the_a1_pole() {
         let cat = open_space_wgm_roots_n15();
         let tm11 = cat
             .iter()
             .find(|r| r.pol == MiePolarisation::TM && r.l == 1 && r.n == 1)
             .expect("TM_1,1 in catalog");
         assert!(
-            (tm11.re_k - 1.8807).abs() < 1e-3,
-            "TM_1,1 Re(k) = {} (want ≈ 1.8807)",
+            (tm11.re_k - 1.258960).abs() < 1e-6,
+            "TM_1,1 Re(k) = {} (want 1.258960)",
             tm11.re_k
         );
         assert!(
-            (tm11.im_k + 0.4818).abs() < 1e-3,
-            "TM_1,1 Im(k) = {} (want ≈ −0.4818)",
+            (tm11.im_k + 0.870213).abs() < 1e-6,
+            "TM_1,1 Im(k) = {} (want −0.870213)",
             tm11.im_k
+        );
+        assert!((tm11.q() - 0.7234).abs() < 1e-3, "TM_1,1 Q = {}", tm11.q());
+    }
+
+    /// The `TE_1,1` entry is the Bohren & Huffman `b_1` (magnetic-dipole)
+    /// pole, `k R_s = 1.880740 − 0.481806i`, `Q ≈ 1.95`. Before issue
+    /// #999 this entry was labelled `TM_1,1`.
+    #[test]
+    fn te_1_1_is_the_b1_pole() {
+        let cat = open_space_wgm_roots_n15();
+        let te11 = cat
+            .iter()
+            .find(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
+            .expect("TE_1,1 in catalog");
+        assert!(
+            (te11.re_k - 1.880740).abs() < 1e-6,
+            "TE_1,1 Re(k) = {} (want 1.880740)",
+            te11.re_k
+        );
+        assert!(
+            (te11.im_k + 0.481806).abs() < 1e-6,
+            "TE_1,1 Im(k) = {} (want −0.481806)",
+            te11.im_k
+        );
+        assert!((te11.q() - 1.9518).abs() < 1e-3, "TE_1,1 Q = {}", te11.q());
+    }
+
+    /// Independent label check (issue #999). The Bohren & Huffman `l = 1`
+    /// denominators, written out in closed form with their own complex
+    /// arithmetic (no call into this module's Bessel recurrences or
+    /// characteristic functions):
+    ///
+    /// ```text
+    /// a_1 (electric dipole, TM): m ψ₁(mx) ξ₁'(x) − ξ₁(x) ψ₁'(mx)
+    /// b_1 (magnetic dipole, TE):   ψ₁(mx) ξ₁'(x) − m ξ₁(x) ψ₁'(mx)
+    /// ψ₁(z) = sin z / z − cos z
+    /// ψ₁'(z) = cos z / z − sin z / z² + sin z
+    /// ξ₁(z) = −e^{iz} (1 + i/z)
+    /// ξ₁'(z) = e^{iz} (−i + 1/z + i/z²)
+    /// ```
+    ///
+    /// Newton on each from a nearby seed must converge to the mpmath
+    /// values `1.258960 − 0.870213i` (`a_1`) and `1.880740 − 0.481806i`
+    /// (`b_1`), and the catalog entry at each must carry the label `TM`
+    /// and `TE` respectively.
+    #[test]
+    fn a1_pole_is_labelled_tm() {
+        type C = faer::c64;
+        let cx = |re: f64, im: f64| C::new(re, im);
+        // e^{iz} = e^{−Im z}·(cos Re z + i sin Re z).
+        let exp_i = |z: C| {
+            let r = (-z.im).exp();
+            cx(r * z.re.cos(), r * z.re.sin())
+        };
+        let sin = |z: C| (exp_i(z) - exp_i(-z)) / cx(0.0, 2.0);
+        let cos = |z: C| (exp_i(z) + exp_i(-z)) / cx(2.0, 0.0);
+        let one = cx(1.0, 0.0);
+        let i = cx(0.0, 1.0);
+        let psi1 = |z: C| sin(z) / z - cos(z);
+        let dpsi1 = |z: C| cos(z) / z - sin(z) / (z * z) + sin(z);
+        let xi1 = |z: C| -(exp_i(z) * (one + i / z));
+        let dxi1 = |z: C| exp_i(z) * (-i + one / z + i / (z * z));
+        let m = cx(OPEN_SPACE_WGM_N, 0.0);
+        let a1_den = |x: C| m * psi1(m * x) * dxi1(x) - xi1(x) * dpsi1(m * x);
+        let b1_den = |x: C| psi1(m * x) * dxi1(x) - m * xi1(x) * dpsi1(m * x);
+
+        let newton = |f: &dyn Fn(C) -> C, mut x: C| {
+            let h = cx(1e-7, 0.0);
+            for _ in 0..60 {
+                let df = (f(x + h) - f(x - h)) / (h + h);
+                let dx = f(x) / df;
+                x -= dx;
+                if dx.norm() < 1e-14 {
+                    break;
+                }
+            }
+            x
+        };
+        let a1 = newton(&a1_den, cx(1.2, -0.8));
+        let b1 = newton(&b1_den, cx(1.9, -0.5));
+        assert!(
+            (a1 - cx(1.258960, -0.870213)).norm() < 1e-6,
+            "B&H a_1 pole: {a1:?} (mpmath: 1.258960 − 0.870213i)"
+        );
+        assert!(
+            (b1 - cx(1.880740, -0.481806)).norm() < 1e-6,
+            "B&H b_1 pole: {b1:?} (mpmath: 1.880740 − 0.481806i)"
+        );
+
+        let cat = open_space_wgm_roots_n15();
+        let label_at = |k: C| {
+            let r = cat
+                .iter()
+                .find(|r| (cx(r.re_k, r.im_k) - k).norm() < 1e-6)
+                .expect("pole is in the catalog");
+            (r.pol, r.l, r.n)
+        };
+        assert_eq!(
+            label_at(a1),
+            (MiePolarisation::TM, 1, 1),
+            "the a_1 (electric-dipole) pole must be labelled TM_1,1"
+        );
+        assert_eq!(
+            label_at(b1),
+            (MiePolarisation::TE, 1, 1),
+            "the b_1 (magnetic-dipole) pole must be labelled TE_1,1"
+        );
+
+        // And each pole zeroes the characteristic function of its own
+        // label (the a_1 denominator is m × characteristic_tm_open), not
+        // the other one.
+        let r_s = OPEN_SPACE_WGM_R_S;
+        let tm_at_a1 = characteristic_tm_open(OPEN_SPACE_WGM_N, 1, r_s, a1).norm();
+        let te_at_a1 = characteristic_te_open(OPEN_SPACE_WGM_N, 1, r_s, a1).norm();
+        let te_at_b1 = characteristic_te_open(OPEN_SPACE_WGM_N, 1, r_s, b1).norm();
+        let tm_at_b1 = characteristic_tm_open(OPEN_SPACE_WGM_N, 1, r_s, b1).norm();
+        assert!(
+            tm_at_a1 < 1e-9 && te_at_a1 > 1e-2,
+            "|tm(a1)| = {tm_at_a1:e}, |te(a1)| = {te_at_a1:e}"
+        );
+        assert!(
+            te_at_b1 < 1e-9 && tm_at_b1 > 1e-2,
+            "|te(b1)| = {te_at_b1:e}, |tm(b1)| = {tm_at_b1:e}"
         );
     }
 }

@@ -117,6 +117,8 @@ fn hybrid_error(p: &Problem, e: DrivenError) -> CliError {
 ///
 /// If wave port `index` is not hybrid.
 pub fn face_sweep(p: &Problem, index: usize, accuracy: bool) -> Result<HybridFaceSweep, CliError> {
+    #[cfg(test)]
+    FACE_SWEEPS.with(|n| n.set(n.get() + 1));
     let w = &p.wave_ports[index];
     let h = w.hybrid.as_ref().expect("a hybrid wave port");
     let mut port = hybrid_port(w, h);
@@ -131,6 +133,12 @@ pub fn face_sweep(p: &Problem, index: usize, accuracy: bool) -> Result<HybridFac
         (!p.dispersion.is_empty()).then_some(&eps_at);
     solve_hybrid_port_face_sweep(&p.tagged.mesh, &port, index, &omegas, dispersive)
         .map_err(|e| hybrid_error(p, e))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// [`face_sweep`] calls on this thread (issue #952's sharing tests).
+    pub(crate) static FACE_SWEEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The report diagnostics of one hybrid channel ([`HybridChannelReport`] →
@@ -397,6 +405,7 @@ pub fn warnings(p: &Problem, ports: &[usize], core: &[PortWarning]) -> Vec<Warni
 pub fn sweep(
     p: &Problem,
     opts: SweepOptions,
+    solves: &crate::port_solves::PortSolves<'_>,
 ) -> Result<
     (
         Vec<FrequencyResult>,
@@ -427,15 +436,12 @@ pub fn sweep(
     let specs: Vec<WavePortSpec> = p
         .wave_ports
         .iter()
-        .map(|w| match &w.hybrid {
+        .enumerate()
+        .map(|(k, w)| match &w.hybrid {
             Some(h) => Ok(WavePortSpec::from(hybrid_port(w, h))),
             None => {
-                let mut port = w.projection.wave_port(&p.edges, &w.a_inc).map_err(|err| {
-                    CliError::WavePort {
-                        name: w.surface.name.clone(),
-                        err,
-                    }
-                })?;
+                // The run's shared face solve (issue #952).
+                let mut port = solves.wave_port(k)?;
                 port.medium = p.port_medium_at(w, first_hz);
                 Ok(WavePortSpec::Geometric(port))
             }

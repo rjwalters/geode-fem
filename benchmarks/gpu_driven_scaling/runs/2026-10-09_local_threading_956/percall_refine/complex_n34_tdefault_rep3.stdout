@@ -1,0 +1,19 @@
+
+running 1 test
+test diag956_threading ... diag956 site=complex n=34
+diag956 loadavg_1min_process_start=24.66
+diag956 rayon_num_threads=unset
+diag956 dofs=35937
+diag956 loadavg_1min_start=22.58
+diag956 loadavg_1min_end=41.72
+diag956 pool_calls=400
+diag956 pool_median_wall_us=47138.1
+diag956 pool_cpu_per_call_us=784093.7
+diag956 seq_calls=400
+diag956 seq_median_wall_us=43229.8
+diag956 seq_cpu_per_call_us=43614.3
+diag956 seq_vs_pool_max_rel_diff=7.114e-15
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 84.54s
+

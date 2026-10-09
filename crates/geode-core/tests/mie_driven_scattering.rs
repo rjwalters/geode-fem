@@ -6,7 +6,7 @@
 //! solves on the bundled 774-node sphere fixture with the **matched**
 //! (full Sacks) UPML, `Q_ext` (volume optical theorem) and `Q_sca`
 //! (Poynting flux at `r_obs` in the vacuum gap) at five `ka` values
-//! spanning the open-space TE_1,1 (`ka ≈ 1.26`) and TM_1,1
+//! spanning the open-space TM_1,1 (`ka ≈ 1.26`) and TE_1,1
 //! (`ka ≈ 1.88`) Mie resonances, against the analytic Mie series
 //! (`geode_core::analytic::mie`).
 //!
@@ -19,9 +19,9 @@
 //! ka     Q_ext err   Q_sca err
 //! 1.0      3.8 %       3.8 %
 //! 1.5      4.3 %       4.1 %
-//! 1.9     16.9 %      17.6 %    (on the TM_1,1 resonance feature)
+//! 1.9     16.9 %      17.6 %    (on the TE_1,1 resonance feature)
 //! 2.4      6.4 %       8.7 %
-//! 3.0     14.3 %      18.7 %    (on the TE_1,2 resonance feature)
+//! 3.0     14.3 %      18.7 %    (on the TM_1,2 resonance feature)
 //! ```
 //!
 //! Off-feature points sit in the eigenmode benchmark's ~5 % regime;
@@ -73,9 +73,9 @@ const R_OBS: f64 = 0.5 * (R_SPHERE + R_PML_INNER);
 const KA_BANDS: [(f64, f64); 5] = [
     (1.0, 0.12),
     (1.5, 0.12),
-    (1.9, 0.25), // on the TM_1,1 resonance feature
+    (1.9, 0.25), // on the TE_1,1 resonance feature
     (2.4, 0.15),
-    (3.0, 0.25), // on the TE_1,2 resonance feature
+    (3.0, 0.25), // on the TM_1,2 resonance feature
 ];
 
 /// Bound on the disagreement between the two independent FEM
@@ -123,8 +123,8 @@ fn solve_and_extract(fixture: &geode_core::mesh::SphereFixture, ka: f64) -> (f64
     )
 }
 
-/// Acceptance: Q_ext and Q_sca at five `ka` spanning the TE_1,1 and
-/// TM_1,1 Mie resonances, each within its calibrated band of the
+/// Acceptance: Q_ext and Q_sca at five `ka` spanning the TM_1,1 and
+/// TE_1,1 Mie resonances, each within its calibrated band of the
 /// analytic series, with the two independent extractions mutually
 /// consistent.
 #[test]
@@ -292,7 +292,7 @@ fn matched_upml_burn_path_matches_host_oracle() {
 
     let fixture = geode_core::mesh::read_sphere_fixture().expect("bundled sphere fixture");
     let mesh = &fixture.mesh;
-    // ka = 1.9 sits on the TM_1,1 resonance feature — the operating
+    // ka = 1.9 sits on the TE_1,1 resonance feature — the operating
     // point where the matched UPML matters most.
     let omega = 1.9_f64;
 
@@ -511,7 +511,7 @@ fn fine_fixture_loads_with_recorded_stats() {
 }
 
 /// On-resonance acceptance on the fine fixture (issue #215): the
-/// TM_1,1 feature at ka = 1.9 — the coarse fixture's worst point
+/// TE_1,1 feature at ka = 1.9 — the coarse fixture's worst point
 /// (~15-19%) — must extract Q_ext and Q_sca within 5% of the analytic
 /// series. Heavy (38.6k-edge host sparse solve); see
 /// `benchmarks/mie_sphere/driven_results_fine.toml` for the full
