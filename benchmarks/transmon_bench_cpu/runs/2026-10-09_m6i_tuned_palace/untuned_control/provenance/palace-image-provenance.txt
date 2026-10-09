@@ -1,0 +1,58 @@
+palace_commit=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 2026-07-11T10:57:21-07:00 Merge pull request #770 from krono-i2/rational-impedance-bc
+mpicxx_show=g++ -O2 -flto=auto -ffat-lto-objects -fexceptions -g -grecord-gcc-switches -pipe -Wall -Werror=format-security -Wp,-D_FORTIFY_SOURCE=2 -Wp,-D_GLIBCXX_ASSERTIONS -specs=/usr/lib/rpm/redhat/redhat-hardened-cc1 -fstack-protector-strong -specs=/usr/lib/rpm/redhat/redhat-annobin-cc1 -m64 -march=x86-64-v2 -mtune=generic -fasynchronous-unwind-tables -fstack-clash-protection -fcf-protection -Wl,-z,relro -Wl,--as-needed -Wl,-z,now -specs=/usr/lib/rpm/redhat/redhat-hardened-ld -specs=/usr/lib/rpm/redhat/redhat-annobin-cc1 -I/usr/include/mpich-x86_64 -L/usr/lib64/mpich/lib -lmpicxx -Wl,-rpath -Wl,/usr/lib64/mpich/lib -Wl,--enable-new-dtags -lmpi
+CMAKE_BUILD_TYPE:STRING=Release
+CMAKE_CXX_COMPILER:STRING=/usr/bin/g++
+CMAKE_CXX_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar
+CMAKE_CXX_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib
+CMAKE_CXX_FLAGS:STRING=-O3 -ffp-contract=fast -funroll-loops
+CMAKE_CXX_FLAGS_DEBUG:STRING=-g
+CMAKE_CXX_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG
+CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
+CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
+CMAKE_C_COMPILER:STRING=/usr/bin/gcc
+CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar
+CMAKE_C_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib
+CMAKE_C_FLAGS:STRING=-O3 -ffp-contract=fast -funroll-loops
+CMAKE_C_FLAGS_DEBUG:STRING=-g
+CMAKE_C_FLAGS_MINSIZEREL:STRING=-Os -DNDEBUG
+CMAKE_C_FLAGS_RELEASE:STRING=-O3 -DNDEBUG
+CMAKE_C_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
+CMAKE_Fortran_COMPILER:STRING=/usr/bin/gfortran
+CMAKE_Fortran_COMPILER_AR:FILEPATH=/usr/bin/gcc-ar
+CMAKE_Fortran_COMPILER_RANLIB:FILEPATH=/usr/bin/gcc-ranlib
+CMAKE_Fortran_FLAGS:STRING=-O3 -ffp-contract=fast -funroll-loops
+CMAKE_Fortran_FLAGS_DEBUG:STRING=-g
+CMAKE_Fortran_FLAGS_MINSIZEREL:STRING=-Os
+CMAKE_Fortran_FLAGS_RELEASE:STRING=-O3
+CMAKE_Fortran_FLAGS_RELWITHDEBINFO:STRING=-O2 -g
+PALACE_BUILD_EXTERNAL_DEPS:BOOL=ON
+PALACE_BUILD_WITH_COVERAGE:BOOL=OFF
+PALACE_BUILD_WITH_SANITIZERS:BOOL=OFF
+PALACE_MFEM_USE_EXCEPTIONS:BOOL=NO
+PALACE_REGRESSION_NUMPROC:STRING=2
+PALACE_TESTS_NUMPROC:STRING=2
+PALACE_TESTS_OMP_THREADS:STRING=1
+PALACE_WITH_64BIT_BLAS_INT:BOOL=OFF
+PALACE_WITH_64BIT_INT:BOOL=OFF
+PALACE_WITH_ARPACK:BOOL=ON
+PALACE_WITH_CUDA:BOOL=OFF
+PALACE_WITH_GPU_AWARE_MPI:BOOL=OFF
+PALACE_WITH_GSLIB:BOOL=ON
+PALACE_WITH_HIP:BOOL=OFF
+PALACE_WITH_LIBXSMM:BOOL=OFF
+PALACE_WITH_MAGMA:BOOL=OFF
+PALACE_WITH_MUMPS:BOOL=ON
+PALACE_WITH_OPENMP:BOOL=ON
+PALACE_WITH_SLEPC:BOOL=ON
+PALACE_WITH_STRUMPACK:BOOL=ON
+PALACE_WITH_STRUMPACK_BUTTERFLYPACK:BOOL=OFF
+PALACE_WITH_STRUMPACK_ZFP:BOOL=OFF
+PALACE_WITH_SUNDIALS:BOOL=ON
+PALACE_WITH_SUPERLU:BOOL=ON
+
+MPICH Version:      4.1.1
+MPICH Release date: Mon Mar  6 14:14:15 CST 2023
+MPICH ABI:          15:0:3
+Rocky Linux release 9.3 (Blue Onyx)
+openblas-0.3.29-1.el9.x86_64
+openblas-serial-0.3.29-1.el9.x86_64

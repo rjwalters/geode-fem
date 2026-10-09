@@ -1,0 +1,20 @@
+== ldd /opt/palace/bin/palace-x86_64.bin (blas|lapack|xsmm|ceed)
+	libceed.so => /opt/palace/lib/libceed.so (0x0000738e5262d000)
+	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0 (0x0000738e51658000)
+	libscalapack.so.2.2 => /opt/palace/lib64/libscalapack.so.2.2 (0x0000738e4ef7a000)
+	libxsmm.so.1 => /opt/palace/lib/libxsmm.so.1 (0x0000738e4e98e000)
+ldd libceed.so: 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0
+ldd libdmumps.so: 	libscalapack.so.2.2 => /opt/palace/lib64/libscalapack.so.2.2 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0
+ldd libmfem.so: 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0 	libscalapack.so.2.2 => /opt/palace/lib64/libscalapack.so.2.2
+ldd libpalace.so: 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0 	libscalapack.so.2.2 => /opt/palace/lib64/libscalapack.so.2.2
+ldd libpetsc.so: 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0
+ldd libslepc.so: 	libopenblas.so.0 => /opt/openblas/lib/libopenblas.so.0
+== zmm instruction counts (objdump -d | grep -c zmm)
+palace-x86_64.bin 0
+libmfem.so.4.9.0 0
+libpetsc.so.3.24.3 0
+libceed.so 0
+== openblas config
+#define OPENBLAS_CORE_SKYLAKEX 
+#define OPENBLAS_VERSION " OpenBLAS 0.3.29 "
+#ifdef OPENBLAS_USE64BITINT

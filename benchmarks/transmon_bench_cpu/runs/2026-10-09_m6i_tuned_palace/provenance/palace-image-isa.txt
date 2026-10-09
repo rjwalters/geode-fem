@@ -1,0 +1,13 @@
+libopenblas_skylakex-r0.3.29.so ymm=22891 evex_regs=51599 opmask=2475 zmm=38934
+palace-x86_64.bin ymm=276 evex_regs=0 opmask=0 zmm=0
+libceed.so ymm=3557 evex_regs=0 opmask=710 zmm=0
+libdmumps.so.5.7.3.2 ymm=13967 evex_regs=235 opmask=3219 zmm=0
+libmfem.so.4.9.0 ymm=367442 evex_regs=365791 opmask=21061 zmm=0
+libpalace.so ymm=17119 evex_regs=15021 opmask=981 zmm=10892
+libpetsc.so.3.24.3 ymm=122871 evex_regs=279458 opmask=16607 zmm=0
+libslepc.so.3.24.1 ymm=21494 evex_regs=646 opmask=576 zmm=5
+libxsmm.so.1.17.0 ymm=96 evex_regs=0 opmask=0 zmm=0
+libHYPRE.so.3.0.0 ymm=76176 evex_regs=6634 opmask=10003 zmm=0
+libscalapack.so.2.2.2 ymm=3797 evex_regs=9078 opmask=1291 zmm=0
+libstrumpack.so.8.0.0 ymm=74048 evex_regs=66 opmask=3636 zmm=0
+libsuperlu_dist.so.9.2.1 ymm=45006 evex_regs=197 opmask=1743 zmm=0
