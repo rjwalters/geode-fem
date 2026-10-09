@@ -1010,12 +1010,35 @@ impl CheckedComplexEigenpairs {
         reach: f64,
         within: impl Fn(c64) -> bool,
     ) -> Option<(c64, f64)> {
+        self.localized_hole_by_disc(sigma, reach, |l, _| within(l))
+    }
+
+    /// [`Self::localized_hole`] with a filter on the withheld pair's whole
+    /// **uncertainty disc** rather than on its Ritz value alone (issue #968):
+    /// `within(λ, r)` receives the disc radius `r = ρ · max(|λ|, |σ|)`, the
+    /// quantity of the localization test, so the eigenvalue a localized pair
+    /// locates lies within `r` of `λ`.
+    ///
+    /// A caller that screens part of the spectrum (a null or overdamped
+    /// filter) should count a pair as a hole only when the whole disc is
+    /// eligible. A disc that reaches the screened region may be locating a
+    /// screened eigenvalue, not a missing eligible one. Example: a
+    /// contaminated gradient-null Ritz value `λ ≈ 0.01 + 0.02j` with
+    /// `ρ ≈ 0.12` at `σ ≈ 20` has `r ≈ 2.4`. That disc contains `λ = 0`.
+    pub fn localized_hole_by_disc(
+        &self,
+        sigma: f64,
+        reach: f64,
+        within: impl Fn(c64, f64) -> bool,
+    ) -> Option<(c64, f64)> {
         let dist = |l: c64| (l.re - sigma).hypot(l.im);
         self.rejected
             .iter()
             .copied()
             .filter(|&(l, r)| {
-                within(l) && dist(l) < reach && complex_ritz_is_localized(l, r, sigma)
+                within(l, r * l.norm().max(sigma.abs()))
+                    && dist(l) < reach
+                    && complex_ritz_is_localized(l, r, sigma)
             })
             .min_by(|a, b| dist(a.0).total_cmp(&dist(b.0)))
     }
