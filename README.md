@@ -427,7 +427,7 @@ cargo run -p mie_sphere --release -- --scalar-pml # legacy 16% baseline cross-ch
 
 This prints a comparison table and writes
 [`benchmarks/mie_sphere/results.toml`](benchmarks/mie_sphere/results.toml)
-with the lowest 8 FEM modes paired against the extended analytic
+with the lowest 11 FEM modes paired against the extended analytic
 catalog. The benchmark uses the **PEC-cavity dielectric resonator**
 as the analytic ground truth (a closed cavity with PEC at `r = R_buffer`,
 which is the limit the FEM hits as the PML absorption strength `σ₀ → 0`);
@@ -448,18 +448,20 @@ regenerated from `mesh_scripts/sphere.geo` via Gmsh CLI). Layered into
 polarisations, lowest 5 radial overtones each (~40 entries). Each
 root carries its `(l, n, polarisation, multiplicity = 2l+1)` label.
 
-**Mode classification**: walks the catalog in ascending `k` and for
-each analytic root claims the next `2l + 1` consecutive FEM modes
-(sorted by `Re(k)`), producing an unambiguous `(l, n, pol, m_idx)`
-label per mode. On the bundled fixture (anisotropic UPML default)
-the lowest 3 FEM modes are the TM_1,1 triplet (Q ≈ 27). Since #986
-corrected the analytic roots, the catalog puts TM_2,1 (1.81333) below
-TE_1,1 (1.86880), while the UPML pencil puts the TE_1,1-like triplet
-(Re k ≈ 1.870–1.872, Q ≈ 9) below a quintet at Re k ≈ 1.900–1.934.
-The k-ordered walk therefore labels modes 3–7 as TM_2,1 and 8–10 as
-TE_1,1, and marks the TM_2,1 rows `?` (close-pair overlap, #43). The
-table below groups modes by multiplet (3 vs 5) and Q instead; that
-assignment is an inference, not something the example asserts.
+**Mode classification** (issue #1000): sorts the FEM modes by `Re(k)`,
+splits them into contiguous multiplets, and matches each multiplet to a
+catalog root of the same size `2l + 1`, producing a `(l, n, pol, m_idx)`
+label per mode. The split is the one with the least scatter in
+`(Re k, |Im k|)` over all orderings of the catalog multiplicities, since
+the members of a degenerate multiplet share one complex `k`. Analytic `k`
+order does not decide it. This matters on the bundled fixture
+(anisotropic UPML default): since #986 corrected the analytic roots, the
+catalog puts TM_2,1 (1.81333) below TE_1,1 (1.86880), while the UPML
+pencil puts a TE_1,1-like triplet (Re k ≈ 1.870–1.872, Q ≈ 9) below the
+TM_2,1 quintet (Re k ≈ 1.900–1.934, Q ≈ 31–48). The example now labels
+modes 0–2 TM_1,1, 3–5 TE_1,1, and 6–10 TM_2,1 with no `?` flags. Before
+#1000 it claimed modes in analytic `k` order, labelled modes 3–7 TM_2,1,
+and flagged them `?`.
 
 **Current numbers** (bundled fixture, anisotropic UPML default,
 σ₀ = 5.0, k₀_ref = 2.0):
