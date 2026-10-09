@@ -530,37 +530,76 @@ fn golden2_slab_loaded_cavity_rates() {
 /// `Q = ½ cot(δ/2)` exactly, at any mesh.
 #[test]
 fn golden3a_uniform_lossy_fill_exact_q_at_p2() {
-    let mesh = jittered_box(1, 7);
+    for tan_d in [1.0 / 64.0, 0.125] {
+        uniform_lossy_fill_exact_q(7, tan_d);
+    }
+}
+
+/// Issue #968 regression: the jittered boxes on which the solve used to
+/// fail with `NotConverged` on a near-null ghost Ritz value. With
+/// `σ = 0.8 · exact[0]` the gradient nullspace (distance `≈ σ`) is nearer
+/// `σ` than the third requested mode, and on these meshes a ghost of it
+/// (`|λ| ≈ 0.02–0.25`, `ρ ≈ 0.1–0.6`) sat above the null ceiling,
+/// localized, among the eligible pairs nearest `σ`. It was withheld at the
+/// extension cap and counted as a hole, although the three physical modes
+/// had converged. Both `(seed, tan δ)` below failed that way on aarch64
+/// macOS, as did seeds 18, 36, 43, 44, 47, 54 and 56 (9 of the 120
+/// configurations of seeds 0–59); each now extends to the `2 · max_iters`
+/// cap, withholds the ghost and returns the box modes. The CI flake was
+/// seed 7 on x86-64 Linux, where round-off differs. The platform-independent pin is the lossy-cavity unit test
+/// `near_null_ghost_is_not_a_hole`.
+#[test]
+fn golden3a_near_null_ghost_is_not_a_hole_at_p2() {
+    let (lo, hi) = (1.0 / 64.0, 0.125);
+    for (seed, tan_d) in [(11, hi), (24, lo)] {
+        uniform_lossy_fill_exact_q(seed, tan_d);
+    }
+}
+
+/// The checks of [`golden3a_uniform_lossy_fill_exact_q_at_p2`] on
+/// `jittered_box(1, seed)` at one `tan δ`, with the historical settings
+/// (`σ = 0.8 · exact[0]`, three modes).
+fn uniform_lossy_fill_exact_q(seed: u64, tan_d: f64) {
+    let mesh = jittered_box(1, seed);
     let walls = box_walls(&mesh, BOX);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
     let mask = space.pec_interior_mask(&mesh, &refs(&walls)).unwrap();
     let exact = box_exact();
-    for tan_d in [1.0 / 64.0, 0.125] {
-        let eps = vec![c64::new(1.0, -tan_d); mesh.n_tets()];
-        let sol = solve_lossy_cavity_modes_on_space::<B>(
-            &space,
-            &mesh,
-            &LossyCavityMaterials::Isotropic(&eps),
-            &mask,
-            FrozenWalls::NONE,
-            &LossyCavitySettings::new(0.8 * exact[0], 3),
-            &device(),
-        )
-        .expect("lossy solve");
-        let q_exact = 0.5 / (0.5 * tan_d.atan()).tan();
-        for md in &sol.modes.modes {
-            let ratio = md.lambda.im / md.lambda.re;
-            let q = md.k0.re / (2.0 * md.k0.im);
-            assert!((ratio - tan_d).abs() < 1e-8 * tan_d, "Im/Re {ratio}");
-            assert!((q - q_exact).abs() < 1e-7 * q_exact, "Q {q} vs {q_exact}");
-        }
-        let worst = sol.max_gradient_fraction.expect("p=2 runs the classifier");
+    let eps = vec![c64::new(1.0, -tan_d); mesh.n_tets()];
+    let sol = solve_lossy_cavity_modes_on_space::<B>(
+        &space,
+        &mesh,
+        &LossyCavityMaterials::Isotropic(&eps),
+        &mask,
+        FrozenWalls::NONE,
+        &LossyCavitySettings::new(0.8 * exact[0], 3),
+        &device(),
+    )
+    .unwrap_or_else(|e| panic!("lossy solve, seed {seed}, tanδ={tan_d}: {e:?}"));
+    let q_exact = 0.5 / (0.5 * tan_d.atan()).tan();
+    assert_eq!(sol.modes.modes.len(), 3);
+    for (md, ex) in sol.modes.modes.iter().zip(exact) {
+        let ratio = md.lambda.im / md.lambda.re;
+        let q = md.k0.re / (2.0 * md.k0.im);
+        assert!((ratio - tan_d).abs() < 1e-8 * tan_d, "Im/Re {ratio}");
+        assert!((q - q_exact).abs() < 1e-7 * q_exact, "Q {q} vs {q_exact}");
+        // `|λ|·|ε_r|` is the lossless eigenvalue: the three box modes.
+        let lossless = md.lambda.norm() * 1.0_f64.hypot(tan_d);
         assert!(
-            worst < 1e-6,
-            "gradient fraction of a physical mode {worst:e}"
+            (lossless - ex).abs() < 0.05 * ex,
+            "seed {seed}: mode {lossless} is not the box mode {ex}"
         );
-        eprintln!("golden3a tanδ={tan_d}: Q exact {q_exact:.6}, max gradient fraction {worst:.2e}");
     }
+    let worst = sol.max_gradient_fraction.expect("p=2 runs the classifier");
+    assert!(
+        worst < 1e-6,
+        "gradient fraction of a physical mode {worst:e}"
+    );
+    eprintln!(
+        "golden3a seed={seed} tanδ={tan_d}: Q exact {q_exact:.6}, max gradient fraction \
+         {worst:.2e}, withheld {}, {} Lanczos steps",
+        sol.modes.n_withheld, sol.modes.lanczos_steps
+    );
 }
 
 /// Six Leontovich (good-conductor) walls, frozen at the analytic resonance,

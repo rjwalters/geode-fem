@@ -5,7 +5,7 @@
 //!
 //! geode's [`InnerSolver::Direct`](crate::eigen::lanczos::InnerSolver::Direct)
 //! path forms the shifted pencil `A = K − σM` and factors it once with faer's
-//! high-level sparse LU. That high-level entry point hardcodes a **COLAMD**
+//! high-level sparse LU. That high-level entry point uses a **COLAMD**
 //! (column approximate minimum degree) fill-reducing permutation, which is a
 //! poor fit for the structurally-symmetric H(curl) FEM pattern: COLAMD targets
 //! unsymmetric / linear-programming problems. On geode's real 102k-DOF Nédélec
@@ -14,14 +14,15 @@
 //! translates almost directly into LU-factor memory (the ~63 GB OOM at ~1M DOF,
 //! issues #524/#527).
 //!
-//! faer's high-level `sp_lu` exposes no hook for a caller-supplied ordering and
-//! its permutation fields are private, so the historical #527 Phase-1 attempt
-//! to inject a better ordering was a negative. This module reopens that wall
-//! through faer 0.24's **public deeper API** (`col_etree` / `postorder` /
-//! `column_counts_ata` / `factorize_supernodal_symbolic_lu` /
-//! `factorize_supernodal_numeric_lu`), which *does* accept a
-//! `Some(col_perm)` — replicating exactly what `factorize_symbolic_lu` does
-//! internally but with our ordering instead of COLAMD's. No faer fork/vendor.
+//! faer's high-level `sp_lu` still uses COLAMD, and upstream faer 0.24 offered
+//! no hook for a caller-supplied ordering (its `SymbolicLu` permutation fields
+//! are private), so the historical #527 Phase-1 attempt to inject a better
+//! ordering was a negative. Issue #543 first reopened that wall by copying the
+//! body of `factorize_symbolic_lu` through faer's public deeper API with
+//! `Some(col_perm)` in place of COLAMD. Since faier 0.25 (our faer fork,
+//! issue #972) the symbolic LU takes the ordering directly via
+//! `LuColOrdering::Custom`, so [`CustomOrderLu`] is now a thin wrapper over
+//! faer's own `factorize_symbolic_lu` / `factorize_numeric_lu`.
 //!
 //! # What this provides
 //!
@@ -30,9 +31,9 @@
 //!   recursively bisects the DOFs by the median coordinate along the longest
 //!   bounding-box axis, orders each half first (recursively), and orders the
 //!   coupling vertex separator last.
-//! - [`CustomOrderLu`]: a supernodal LU factorization built through faer's
-//!   public deeper API with a caller-supplied column permutation, plus an
-//!   in-place multi-RHS solve.
+//! - [`CustomOrderLu`]: a supernodal LU factorization with a caller-supplied
+//!   column ordering (`LuColOrdering::Custom`), plus an in-place multi-RHS
+//!   solve.
 //! - [`amd_ordering`]: an approximate-minimum-degree ordering (via faer's
 //!   public `amd` module) — the pattern-only fallback used when no coordinates
 //!   are available, and the measured best on the tested meshes.
@@ -43,11 +44,11 @@
 //!   issue #543 measurement).
 
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
-use faer::perm::PermRef;
-use faer::prelude::IntoConst;
-use faer::sparse::linalg::SymbolicSupernodalParams;
-use faer::sparse::linalg::lu::supernodal::{self, SupernodalLu};
-use faer::sparse::linalg::{amd, qr};
+use faer::sparse::linalg::SupernodalThreshold;
+use faer::sparse::linalg::amd;
+use faer::sparse::linalg::lu::{
+    LuColOrdering, LuRef, LuSymbolicParams, NumericLu, SymbolicLu, factorize_symbolic_lu,
+};
 use faer::sparse::{SparseColMatRef, SymbolicSparseColMatRef};
 use faer::{Conj, MatMut, Par};
 
@@ -56,6 +57,8 @@ use faer::{Conj, MatMut, Par};
 // dependencies must be too, or they warn as unused in the normal build.
 #[cfg(test)]
 use faer::Side;
+#[cfg(test)]
+use faer::perm::PermRef;
 #[cfg(test)]
 use faer::sparse::linalg::cholesky::{
     CholeskySymbolicParams, SymmetricOrdering, factorize_symbolic_cholesky,
@@ -70,12 +73,6 @@ use crate::eigen::dense::EigenError;
 /// Below this size the separator bookkeeping costs more than the fill it saves.
 const ND_LEAF_THRESHOLD: usize = 64;
 
-/// faer's default supernode amalgamation thresholds (mirrors the private
-/// `DEFAULT_RELAX` used by `factorize_symbolic_lu`). Kept identical so the
-/// custom-ordering symbolic factorization amalgamates supernodes exactly as the
-/// high-level path would — only the *column ordering* differs.
-const DEFAULT_RELAX: &[(usize, f64)] = &[(4, 1.0), (16, 0.8), (48, 0.1), (usize::MAX, 0.05)];
-
 /// Allocate a faer scratch buffer or map the failure to an [`EigenError`].
 fn scratch(req: StackReq, what: &str) -> Result<MemBuffer, EigenError> {
     MemBuffer::try_new(req).ok().ok_or_else(|| {
@@ -87,10 +84,11 @@ fn scratch(req: StackReq, what: &str) -> Result<MemBuffer, EigenError> {
 ///
 /// `order[k]` is the original DOF index placed at new position `k` (interior
 /// DOFs first, separators last). The returned `(forward, inverse)` pair matches
-/// faer's [`PermRef`] convention as produced by `amd::order` / `colamd::order`
-/// and consumed by both the sparse-LU deeper API and the Cholesky `Custom`
-/// ordering: **`forward[k]` is the original DOF placed at new position `k`** (so
-/// `forward` *is* the elimination order) and `inverse[old]` is its new position.
+/// faer's `PermRef` convention as produced by `amd::order` / `colamd::order`
+/// and consumed by both the sparse-LU `LuColOrdering::Custom` (which takes
+/// `forward` alone) and the Cholesky `Custom` ordering: **`forward[k]` is the
+/// original DOF placed at new position `k`** (so `forward` *is* the
+/// elimination order) and `inverse[old]` is its new position.
 ///
 /// The orientation matters for fill (though not for solve correctness): feeding
 /// the reversed mapping eliminates the separators *first*, which maximizes fill
@@ -113,7 +111,7 @@ fn order_to_perm(order: &[usize]) -> (Vec<usize>, Vec<usize>) {
 /// `pattern` is the (square, structurally symmetric) sparsity of `A`; `coords`
 /// gives one coordinate per DOF (for Nédélec edge DOFs, the edge midpoint).
 /// Returns `(forward, inverse)` permutation arrays suitable for
-/// [`PermRef::new_checked`] and for [`CustomOrderLu::factorize`].
+/// `PermRef::new_checked`; [`CustomOrderLu::factorize`] takes `forward`.
 ///
 /// # Algorithm
 ///
@@ -309,7 +307,7 @@ pub(crate) fn colamd_ordering(
 ///
 /// AMD is a symmetric fill-reducing ordering — the right tool for the
 /// structurally-symmetric shifted pencil `K − σM`, and the "guaranteed ~2.3×
-/// less fill than COLAMD" option 2 from issue #543. It ships in faer 0.24
+/// less fill than COLAMD" option 2 from issue #543. It ships in faer
 /// (`sparse::linalg::amd`), so it is pure Rust with zero external dependencies.
 /// Returns `(forward, inverse)`.
 pub(crate) fn amd_ordering(
@@ -337,7 +335,7 @@ pub(crate) fn amd_ordering(
 /// available and well-formed (issue #543 option 1, the headline algorithm);
 /// otherwise falls back to AMD minimum-degree (option 2), which needs only the
 /// sparsity pattern. Both beat the COLAMD ordering faer's high-level `sp_lu`
-/// hardcodes (measured on the real Nédélec pattern: coord-ND ~1.4×, AMD ~1.7×
+/// uses (measured on the real Nédélec pattern: coord-ND ~1.4×, AMD ~1.7×
 /// less symmetric fill than COLAMD, with the advantage growing at larger 3D
 /// sizes). Returns `(forward, inverse)`.
 pub(crate) fn column_ordering(
@@ -378,25 +376,34 @@ pub(crate) fn symmetric_factor_nnz(
     Ok(symbolic.len_val())
 }
 
-/// A supernodal LU factorization built through faer's public deeper API with a
-/// caller-supplied fill-reducing column permutation.
+/// A supernodal LU factorization with a caller-supplied fill-reducing column
+/// permutation.
 ///
-/// This replicates the body of faer's high-level `factorize_symbolic_lu`
-/// followed by `factorize_supernodal_numeric_lu`, but injects `Some(col_perm)`
-/// in place of the COLAMD ordering the high-level path hardcodes. The stored
-/// factors plus the row/column permutations drive [`CustomOrderLu::solve_in_place`].
+/// Built on faier 0.25's [`LuColOrdering::Custom`]: the symbolic analysis is
+/// faer's own `factorize_symbolic_lu`, with our elimination order in place of
+/// the COLAMD default, and [`SupernodalThreshold::FORCE_SUPERNODAL`] so the
+/// factorization is always supernodal (faer's `AUTO` threshold may pick the
+/// simplicial path on small/sparse problems). Before 0.25 this type hand-copied
+/// the body of `factorize_symbolic_lu` through the lower-level
+/// `col_etree`/`postorder`/`column_counts_ata`/`factorize_supernodal_*_lu`
+/// calls; issue #972 retired that copy. Supernode amalgamation uses faer's
+/// default `SymbolicSupernodalParams` (the same relaxation table the copy
+/// mirrored), so only the *column ordering* differs from the high-level
+/// `sp_lu` path.
 pub(crate) struct CustomOrderLu {
-    lu: SupernodalLu<usize, f64>,
-    row_perm_fwd: Vec<usize>,
-    row_perm_inv: Vec<usize>,
-    col_perm_fwd: Vec<usize>,
-    col_perm_inv: Vec<usize>,
-    n: usize,
+    symbolic: SymbolicLu<usize>,
+    numeric: NumericLu<usize, f64>,
 }
 
 impl CustomOrderLu {
-    /// Factor `a` (square, structurally symmetric) with the supplied column
-    /// permutation `(col_perm_fwd, col_perm_inv)`.
+    /// Factor `a` (square, structurally symmetric) with the supplied
+    /// elimination order `col_perm_fwd`.
+    ///
+    /// `col_perm_fwd` is the **forward** (new → old) permutation from
+    /// [`column_ordering`] / [`order_to_perm`]: `col_perm_fwd[k]` is the
+    /// original DOF eliminated at step `k`. This is exactly the orientation
+    /// [`LuColOrdering::Custom`] takes; passing the inverse would still solve
+    /// correctly but maximize fill.
     ///
     /// `par` selects faer's parallelism for the numeric factorization; pass
     /// [`faer::get_global_parallelism`] to match the surrounding
@@ -404,152 +411,66 @@ impl CustomOrderLu {
     ///
     /// # Panics
     ///
-    /// Panics if `a` is not square.
+    /// Panics if `a` is not square or `col_perm_fwd` is not a permutation of
+    /// `0..a.ncols()`.
     pub(crate) fn factorize(
         a: SparseColMatRef<'_, usize, f64>,
-        col_perm_fwd: Vec<usize>,
-        col_perm_inv: Vec<usize>,
+        col_perm_fwd: &[usize],
         par: Par,
     ) -> Result<Self, EigenError> {
-        let m = a.nrows();
         let n = a.ncols();
-        assert_eq!(m, n, "custom-ordering LU needs a square matrix");
+        assert_eq!(a.nrows(), n, "custom-ordering LU needs a square matrix");
         assert_eq!(col_perm_fwd.len(), n, "column permutation length mismatch");
-        assert_eq!(col_perm_inv.len(), n, "column permutation length mismatch");
-        let nnz = a.compute_nnz();
 
-        let col_perm = PermRef::new_checked(&col_perm_fwd, &col_perm_inv, n);
+        let symbolic = factorize_symbolic_lu(
+            a.symbolic(),
+            LuColOrdering::Custom(col_perm_fwd),
+            LuSymbolicParams {
+                supernodal_flop_ratio_threshold: SupernodalThreshold::FORCE_SUPERNODAL,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| EigenError::FaerGevd(format!("custom-ordering symbolic LU: {e:?}")))?;
 
-        // Numeric transpose AT (kept alive through the numeric factorization).
-        let mut at_col_ptr = vec![0usize; m + 1];
-        let mut at_row_idx = vec![0usize; nnz];
-        let mut at_val = vec![0.0f64; nnz];
-        let at = {
-            let mut mem = scratch(
-                faer::sparse::utils::transpose_scratch::<usize>(m, n),
-                "transpose",
-            )?;
-            faer::sparse::utils::transpose(
-                &mut at_val,
-                &mut at_col_ptr,
-                &mut at_row_idx,
-                a,
-                MemStack::new(&mut mem),
-            )
-            .into_const()
-        };
-
-        // Column elimination tree of A under our ordering.
-        let mut etree_buf = vec![0usize; n];
-        let etree = {
-            let mut mem = scratch(qr::col_etree_scratch::<usize>(m, n), "col_etree")?;
-            qr::col_etree(
-                a.symbolic(),
-                Some(col_perm),
-                &mut etree_buf,
-                MemStack::new(&mut mem),
-            )
-        };
-
-        let mut post = vec![0usize; n];
-        {
-            let mut mem = scratch(qr::postorder_scratch::<usize>(n), "postorder")?;
-            qr::postorder(&mut post, etree, MemStack::new(&mut mem));
-        }
-
-        let mut col_counts = vec![0usize; n];
-        let mut min_col = vec![0usize; m];
-        {
-            let mut mem = scratch(StackReq::new::<usize>(5 * n + m), "column_counts_ata")?;
-            qr::column_counts_ata(
-                &mut col_counts,
-                &mut min_col,
-                at.symbolic(),
-                Some(col_perm),
-                etree,
-                &post,
-                MemStack::new(&mut mem),
-            );
-        }
-
-        let symbolic = {
-            let mut mem = scratch(
-                supernodal::factorize_supernodal_symbolic_lu_scratch::<usize>(m, n),
-                "symbolic LU",
-            )?;
-            supernodal::factorize_supernodal_symbolic_lu(
-                a.symbolic(),
-                Some(col_perm),
-                &min_col,
-                etree,
-                &col_counts,
-                MemStack::new(&mut mem),
-                SymbolicSupernodalParams {
-                    relax: Some(DEFAULT_RELAX),
-                },
-            )
-            .map_err(|e| EigenError::FaerGevd(format!("supernodal symbolic LU: {e:?}")))?
-        };
-
-        let mut lu = SupernodalLu::<usize, f64>::new();
-        let mut row_perm_fwd = vec![0usize; m];
-        let mut row_perm_inv = vec![0usize; m];
+        let mut numeric = NumericLu::<usize, f64>::new();
         {
             let mut mem = scratch(
-                supernodal::factorize_supernodal_numeric_lu_scratch::<usize, f64>(
-                    &symbolic,
-                    Default::default(),
-                ),
+                symbolic.factorize_numeric_lu_scratch::<f64>(par, Default::default()),
                 "numeric LU",
             )?;
-            supernodal::factorize_supernodal_numeric_lu(
-                &mut row_perm_fwd,
-                &mut row_perm_inv,
-                &mut lu,
-                a,
-                at,
-                col_perm,
-                &symbolic,
-                par,
-                MemStack::new(&mut mem),
-                Default::default(),
-            )
-            .map_err(|e| EigenError::FaerGevd(format!("supernodal numeric LU: {e:?}")))?;
+            symbolic
+                .factorize_numeric_lu(
+                    &mut numeric,
+                    a,
+                    par,
+                    MemStack::new(&mut mem),
+                    Default::default(),
+                )
+                .map_err(|e| EigenError::FaerGevd(format!("custom-ordering numeric LU: {e:?}")))?;
         }
 
-        Ok(Self {
-            lu,
-            row_perm_fwd,
-            row_perm_inv,
-            col_perm_fwd,
-            col_perm_inv,
-            n,
-        })
+        Ok(Self { symbolic, numeric })
+    }
+
+    /// The factorization as a faer [`LuRef`] (symbolic + numeric parts).
+    fn lu_ref(&self) -> LuRef<'_, usize, f64> {
+        // `numeric` is the output of `self.symbolic.factorize_numeric_lu`,
+        // which is `new_unchecked`'s documented precondition.
+        LuRef::new_unchecked(&self.symbolic, &self.numeric)
     }
 
     /// Number of rows/columns of the factored matrix.
     #[cfg(test)]
     pub(crate) fn dim(&self) -> usize {
-        self.n
+        self.symbolic.ncols()
     }
 
     /// Solve `A X = RHS` in place, overwriting `rhs` with the solution.
     pub(crate) fn solve_in_place(&self, rhs: MatMut<'_, f64>, par: Par) -> Result<(), EigenError> {
         let k = rhs.ncols();
-        let row_perm = PermRef::new_checked(&self.row_perm_fwd, &self.row_perm_inv, self.n);
-        let col_perm = PermRef::new_checked(&self.col_perm_fwd, &self.col_perm_inv, self.n);
-        let mut mem = scratch(
-            supernodal::solve_in_place_scratch::<usize, f64>(self.n, k, par),
-            "solve",
-        )?;
-        self.lu.solve_in_place_with_conj(
-            row_perm,
-            col_perm,
-            Conj::No,
-            rhs,
-            par,
-            MemStack::new(&mut mem),
-        );
+        let mut mem = scratch(self.symbolic.solve_in_place_scratch::<f64>(k, par), "solve")?;
+        self.lu_ref()
+            .solve_in_place_with_conj(Conj::No, rhs, par, MemStack::new(&mut mem));
         Ok(())
     }
 }
@@ -700,8 +621,8 @@ mod tests {
         let (pattern, coords) = cube_nedelec_pattern(5);
         let n = coords.len();
         let a = spd_from_pattern(&pattern, n);
-        let (fwd, inv) = coordinate_nested_dissection(a.symbolic(), &coords);
-        let lu = CustomOrderLu::factorize(a.as_ref(), fwd, inv, Par::Seq).unwrap();
+        let (fwd, _inv) = coordinate_nested_dissection(a.symbolic(), &coords);
+        let lu = CustomOrderLu::factorize(a.as_ref(), &fwd, Par::Seq).unwrap();
         assert_eq!(lu.dim(), n);
 
         // Known solution x_true; build b = A x_true, solve, compare.
@@ -728,5 +649,187 @@ mod tests {
             max_err < 1e-8,
             "custom-ordering LU solve error too large: {max_err}"
         );
+    }
+
+    /// The pre-#972 hand copy of faer's `factorize_symbolic_lu` (supernodal
+    /// branch) through the lower-level API, ported to faier 0.25's row-major
+    /// `column_counts_ata`. Kept test-only as the oracle that collapsing
+    /// [`CustomOrderLu`] onto `LuColOrdering::Custom` changed nothing.
+    /// Returns `(lu, row_perm_fwd)`.
+    fn reference_deeper_api_lu(
+        a: SparseColMatRef<'_, usize, f64>,
+        fwd: &[usize],
+        inv: &[usize],
+    ) -> (
+        faer::sparse::linalg::lu::supernodal::SupernodalLu<usize, f64>,
+        Vec<usize>,
+    ) {
+        use faer::prelude::IntoConst;
+        use faer::sparse::linalg::lu::supernodal;
+        use faer::sparse::linalg::{SymbolicSupernodalParams, qr};
+        let n = a.ncols();
+        let m = a.nrows();
+        let nnz = a.compute_nnz();
+        let col_perm = PermRef::new_checked(fwd, inv, n);
+        let mut at_col_ptr = vec![0usize; m + 1];
+        let mut at_row_idx = vec![0usize; nnz];
+        let mut at_val = vec![0.0f64; nnz];
+        let mut mem = scratch(
+            faer::sparse::utils::transpose_scratch::<usize>(m, n),
+            "transpose",
+        )
+        .unwrap();
+        let at = faer::sparse::utils::transpose(
+            &mut at_val,
+            &mut at_col_ptr,
+            &mut at_row_idx,
+            a,
+            MemStack::new(&mut mem),
+        )
+        .into_const();
+        let mut etree_buf = vec![0usize; n];
+        let mut mem = scratch(qr::col_etree_scratch::<usize>(m, n), "etree").unwrap();
+        let etree = qr::col_etree(
+            a.symbolic(),
+            Some(col_perm),
+            &mut etree_buf,
+            MemStack::new(&mut mem),
+        );
+        let mut post = vec![0usize; n];
+        let mut mem = scratch(qr::postorder_scratch::<usize>(n), "postorder").unwrap();
+        qr::postorder(&mut post, etree, MemStack::new(&mut mem));
+        let mut col_counts = vec![0usize; n];
+        let mut min_col = vec![0usize; m];
+        let mut mem = scratch(StackReq::new::<usize>(5 * n + m), "counts").unwrap();
+        qr::column_counts_ata(
+            &mut col_counts,
+            &mut min_col,
+            at.symbolic().transpose(),
+            Some(col_perm),
+            etree,
+            &post,
+            MemStack::new(&mut mem),
+        );
+        let mut mem = scratch(
+            supernodal::factorize_supernodal_symbolic_lu_scratch::<usize>(m, n),
+            "symbolic",
+        )
+        .unwrap();
+        let symbolic = supernodal::factorize_supernodal_symbolic_lu(
+            a.symbolic(),
+            Some(col_perm),
+            &min_col,
+            etree,
+            &col_counts,
+            MemStack::new(&mut mem),
+            SymbolicSupernodalParams {
+                relax: Some(&[(4, 1.0), (16, 0.8), (48, 0.1), (usize::MAX, 0.05)]),
+            },
+        )
+        .unwrap();
+        let mut lu = supernodal::SupernodalLu::<usize, f64>::new();
+        let mut row_fwd = vec![0usize; m];
+        let mut row_inv = vec![0usize; m];
+        let mut mem = scratch(
+            supernodal::factorize_supernodal_numeric_lu_scratch::<usize, f64>(
+                &symbolic,
+                Default::default(),
+            ),
+            "numeric",
+        )
+        .unwrap();
+        supernodal::factorize_supernodal_numeric_lu(
+            &mut row_fwd,
+            &mut row_inv,
+            &mut lu,
+            a,
+            at,
+            col_perm,
+            &symbolic,
+            Par::Seq,
+            MemStack::new(&mut mem),
+            Default::default(),
+        )
+        .unwrap();
+        (lu, row_fwd)
+    }
+
+    /// Issue #972: `CustomOrderLu` on `LuColOrdering::Custom` +
+    /// `FORCE_SUPERNODAL` must be the *same* factorization the retired
+    /// deeper-API copy produced — identical supernodal structure, fill, values
+    /// and pivots — for both the coordinate-ND and AMD orderings. Also pins
+    /// the orientation: the column permutation faer stores must be our
+    /// forward (new → old) order, not its inverse (which would still solve
+    /// correctly but maximize fill).
+    #[test]
+    fn custom_order_lu_matches_deeper_api_reference() {
+        let (pattern, coords) = cube_nedelec_pattern(5);
+        let n = coords.len();
+        let a = spd_from_pattern(&pattern, n);
+        let nd = coordinate_nested_dissection(a.symbolic(), &coords);
+        let amd = amd_ordering(a.symbolic()).unwrap();
+        for (name, (fwd, inv)) in [("coord-ND", nd), ("AMD", amd)] {
+            let lu = CustomOrderLu::factorize(a.as_ref(), &fwd, Par::Seq).unwrap();
+            let (got_fwd, got_inv) = lu.lu_ref().col_perm().arrays();
+            assert_eq!(
+                got_fwd,
+                &fwd[..],
+                "{name}: column order orientation slipped"
+            );
+            assert_eq!(got_inv, &inv[..], "{name}: inverse column order mismatch");
+
+            let (ref_lu, ref_row_fwd) = reference_deeper_api_lu(a.as_ref(), &fwd, &inv);
+            assert_eq!(
+                lu.lu_ref().row_perm().arrays().0,
+                &ref_row_fwd[..],
+                "{name}: row pivots differ from the deeper-API reference"
+            );
+            // `SupernodalLu` keeps its structure/value arrays private; its
+            // derived `Debug` prints all of them (supernode pointers, L/U
+            // row indices and values, f64 in shortest round-trip form), so
+            // string equality is exact structural + bitwise value identity.
+            let got = format!("{:?}", lu.numeric);
+            let want = format!("{ref_lu:?}");
+            assert!(
+                got.contains(&want),
+                "{name}: supernodal factors differ from the deeper-API reference"
+            );
+
+            // Identical solves, bit for bit, on a multi-RHS block.
+            let rhs0: Mat<f64> = Mat::from_fn(n, 3, |i, j| 1.0 + ((i * 7 + j * 3) % 11) as f64);
+            let mut x_new = rhs0.clone();
+            lu.solve_in_place(x_new.as_mut(), Par::Seq).unwrap();
+            let mut x_ref = rhs0.clone();
+            let mut mem = scratch(
+                faer::sparse::linalg::lu::supernodal::solve_in_place_scratch::<usize, f64>(
+                    n,
+                    3,
+                    Par::Seq,
+                ),
+                "solve",
+            )
+            .unwrap();
+            let mut ref_row_inv = vec![0usize; n];
+            for (k, &r) in ref_row_fwd.iter().enumerate() {
+                ref_row_inv[r] = k;
+            }
+            ref_lu.solve_in_place_with_conj(
+                PermRef::new_checked(&ref_row_fwd, &ref_row_inv, n),
+                PermRef::new_checked(&fwd, &inv, n),
+                Conj::No,
+                x_ref.as_mut(),
+                Par::Seq,
+                MemStack::new(&mut mem),
+            );
+            for j in 0..3 {
+                for i in 0..n {
+                    assert_eq!(
+                        x_new[(i, j)].to_bits(),
+                        x_ref[(i, j)].to_bits(),
+                        "{name}: solve differs at ({i},{j})"
+                    );
+                }
+            }
+        }
     }
 }
