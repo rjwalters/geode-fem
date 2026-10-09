@@ -34,7 +34,19 @@
 //! `r = R_s` (continuity of tangential `E` and `H`) plus a single PEC
 //! condition at `r = R_b`. Eliminating the buffer coefficients gives a
 //! scalar characteristic function whose real roots `k` are the
-//! resonances. See `characteristic_te` / `characteristic_tm` below.
+//! resonances. See [`characteristic_te`] / [`characteristic_tm`] for the
+//! derivation; in short:
+//!
+//! | Polarisation | Interface row at `R_s` | PEC wall at `R_b` |
+//! |---|---|---|
+//! | TE (`E_r = 0`) | `n · ψ_l'(n k R_s)` | `u(R_b) = 0` (`ψ`, `χ`) |
+//! | TM (`H_r = 0`) | `ψ_l'(n k R_s) / n` | `u'(R_b) = 0` (`ψ'`, `χ'`) |
+//!
+//! Issue #986 corrected a crosswise pairing (each interface row had
+//! been combined with the other polarisation's wall). The two interface
+//! rows coincide at `n = 1`, so empty-cavity roots are unchanged; the
+//! `n ≠ 1` roots moved (at `n = 1.5`, `R_s = 1`, `R_b = 2`:
+//! TM_1,1 1.303434 → 1.187095, TE_1,1 1.889433 → 1.868800).
 //!
 //! Closed forms for `l = 1, 2` and the upward recurrence
 //! `j_l(x) = (2l-1)/x · j_{l-1}(x) - j_{l-2}(x)` (and the analogous
@@ -47,12 +59,16 @@ use crate::solver::iterate::{IterOutcome, Step, iterate_while};
 /// cavity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MiePolarisation {
-    /// Transverse-electric. `E` has no radial component; the matching
-    /// condition at `r = R_s` reduces to continuity of the
-    /// Riccati-Bessel `ψ` and `ψ'`.
+    /// Transverse-electric. `E` has no radial component; with
+    /// `u = r·E_t` the matching at `r = R_s` is continuity of `u` and
+    /// `du/dr` (interface row `n·ψ_l'(n k R_s)`), and the PEC wall
+    /// imposes `u(R_b) = 0`. See [`characteristic_te`].
     TE,
-    /// Transverse-magnetic. `H` has no radial component; the matching
-    /// condition at `r = R_s` mixes in the `1/n²` permittivity jump.
+    /// Transverse-magnetic. `H` has no radial component; with
+    /// `u = r·H_t` the matching at `r = R_s` is continuity of `u` and
+    /// the ε-weighted `(1/ε_r) du/dr` (interface row
+    /// `ψ_l'(n k R_s)/n`), and the PEC wall imposes `u'(R_b) = 0`.
+    /// See [`characteristic_tm`].
     TM,
 }
 
@@ -305,69 +321,121 @@ pub fn chi_prime(l: usize, x: f64) -> f64 {
     -spherical_y(l, x) - x * spherical_y_prime(l, x)
 }
 
+/// Buffer-region radial combination `u(k r) = A·ψ_l(k r) − B·χ_l(k r)`
+/// and its argument-derivative at the interface `x_s = k·R_s`, with the
+/// coefficients `(A, B)` fixed (up to overall scale) by the outer-wall
+/// condition. `wall_on_derivative = false` imposes `u(k R_b) = 0`
+/// (`A = χ(x_b)`, `B = ψ(x_b)`); `true` imposes `u'(k R_b) = 0`
+/// (`A = χ'(x_b)`, `B = ψ'(x_b)`). Writing the coefficients this way
+/// (rather than `B/A`) keeps the characteristic function free of a
+/// spurious pole when `χ(x_b)` or `χ'(x_b)` crosses zero.
+fn buffer_at_interface(l: usize, x_s: f64, x_b: f64, wall_on_derivative: bool) -> (f64, f64) {
+    let (big_a, big_b) = if wall_on_derivative {
+        (chi_prime(l, x_b), psi_prime(l, x_b))
+    } else {
+        (chi(l, x_b), psi(l, x_b))
+    };
+    let buf = big_a * psi(l, x_s) - big_b * chi(l, x_s);
+    let buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s);
+    (buf, buf_prime)
+}
+
 /// TE characteristic function for the dielectric-sphere-in-PEC-cavity
-/// resonance.
+/// resonance. A zero of this function in `k` is a TE resonance.
 ///
-/// The system in the unknowns `(A, B)` (buffer-region coefficients of
-/// `j_l` and `y_l` for the tangential electric field) is
+/// # Derivation (TE: electric field transverse, `E_r = 0`)
+///
+/// Take `E = f(r) X_lm(θ, φ)` with `X_lm` the vector spherical harmonic
+/// (purely tangential) and `μ_r = 1` everywhere. The radial function
+/// obeys the spherical Bessel equation with wavenumber `n k` in the
+/// sphere and `k` in the buffer, so `u(r) = r f(r)` is a Riccati-Bessel
+/// combination: `u = c·ψ_l(n k r)` for `r < R_s` (regular at the origin)
+/// and `u = A·ψ_l(k r) − B·χ_l(k r)` for `R_s < r < R_b`.
+///
+/// - **Tangential `E` continuous at `R_s`**: `f` continuous, hence `u`
+///   continuous: `c·ψ_l(x_in) = buf(x_s)`.
+/// - **Tangential `H` continuous at `R_s`**: `H = ∇×E / (i ω μ₀)` has
+///   tangential part `∝ (1/r) d(r f)/dr = u′(r)/r` (with `μ_r = 1` on
+///   both sides, no material factor). So the *r*-derivative of `u` is
+///   continuous: `c·n k ψ_l'(x_in) = k·buf'(x_s)`, i.e.
+///   `c·n·ψ_l'(x_in) = buf'(x_s)` in argument-derivatives.
+/// - **PEC at `R_b`**: `E_t = f(R_b) X_lm = 0`, hence `u(R_b) = 0`:
+///   `A·ψ_l(x_b) − B·χ_l(x_b) = 0`.
 ///
 /// ```text
-/// (1) ψ_l(n·k·R_s) = A · ψ_l(k·R_s) − B · χ_l(k·R_s)
-/// (2) (1/n) · ψ_l'(n·k·R_s) = A · ψ_l'(k·R_s) − B · χ_l'(k·R_s)
-/// (3) A · ψ_l(k·R_b) − B · χ_l(k·R_b) = 0   (PEC: E_θ = 0)
+/// (1)       ψ_l(x_in) · c = A · ψ_l(x_s)  − B · χ_l(x_s)
+/// (2)  n · ψ_l'(x_in) · c = A · ψ_l'(x_s) − B · χ_l'(x_s)
+/// (3)                   0 = A · ψ_l(x_b)  − B · χ_l(x_b)      (PEC: u = 0)
 /// ```
 ///
-/// Equation (3) defines `B/A`. Substituting into the determinant of
-/// the matching pair (1, 2) at `r = R_s` yields the scalar
-/// characteristic function returned here. A zero of this function in
-/// `k` is a resonance.
+/// with `x_in = n k R_s`, `x_s = k R_s`, `x_b = k R_b`. Equation (3)
+/// fixes `(A, B) ∝ (χ_l(x_b), ψ_l(x_b))`; eliminating `c` from (1)–(2)
+/// gives the characteristic function
+/// `ψ_l(x_in)·buf'(x_s) − n·ψ_l'(x_in)·buf(x_s)`.
+///
+/// The interface row (2) carries the factor `n`, and the wall uses
+/// `ψ`/`χ` themselves. Before issue #986 this function paired the
+/// TM interface row (`ψ'/n`) with this TE wall; the two rows coincide
+/// at `n = 1`, so only `n ≠ 1` roots changed.
 pub fn characteristic_te(n: f64, l: usize, r_s: f64, r_b: f64, k: f64) -> f64 {
     let x_in = n * k * r_s; // dielectric argument at the interface
     let x_s = k * r_s; // vacuum argument at the interface
     let x_b = k * r_b; // vacuum argument at the outer wall
 
-    // Buffer coefficients up to overall scale: A = χ(x_b), B = ψ(x_b),
-    // so that A·ψ(x_b) - B·χ(x_b) = 0 (PEC). This form has no spurious
-    // pole when χ(x_b) → 0.
-    let big_a = chi(l, x_b);
-    let big_b = psi(l, x_b);
+    // PEC for TE: u(R_b) = 0.
+    let (buf, buf_prime) = buffer_at_interface(l, x_s, x_b, false);
 
-    let buf = big_a * psi(l, x_s) - big_b * chi(l, x_s);
-    let buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s);
-
-    // Matching at r = R_s:
-    //   ψ(x_in)      = buf
-    //   ψ'(x_in) / n = buf_prime
-    // → resonance condition: ψ(x_in) * buf_prime - ψ'(x_in)/n * buf = 0.
-    psi(l, x_in) * buf_prime - (psi_prime(l, x_in) / n) * buf
+    // Matching at r = R_s (u and u' continuous):
+    //   ψ(x_in)     = buf
+    //   n · ψ'(x_in) = buf_prime
+    psi(l, x_in) * buf_prime - n * psi_prime(l, x_in) * buf
 }
 
 /// TM characteristic function for the dielectric-sphere-in-PEC-cavity
-/// resonance.
+/// resonance. A zero of this function in `k` is a TM resonance.
 ///
-/// The matching system differs from TE in two places: the magnetic
-/// continuity equation picks up a `1/n²` permittivity factor (from
-/// `∂E_r / ∂r` mismatch) and the PEC condition becomes
-/// `∂_r (r · E_r) = 0` ≡ `ψ_l'(k·R_b) = 0` in Riccati-Bessel form,
-/// i.e., the derivative of `ψ` (not `ψ` itself) vanishes.
+/// # Derivation (TM: magnetic field transverse, `H_r = 0`)
+///
+/// Dual of [`characteristic_te`]: take `H = g(r) X_lm(θ, φ)` and
+/// `u(r) = r g(r)`, with the same Riccati-Bessel forms
+/// `u = c·ψ_l(n k r)` inside and `u = A·ψ_l(k r) − B·χ_l(k r)` in the
+/// buffer.
+///
+/// - **Tangential `H` continuous at `R_s`**: `g` continuous, hence `u`
+///   continuous: `c·ψ_l(x_in) = buf(x_s)`.
+/// - **Tangential `E` continuous at `R_s`**: `E = ∇×H / (−i ω ε₀ ε_r)`
+///   has tangential part `∝ u′(r) / (ε_r r)`, so the *ε-weighted*
+///   r-derivative `u′/ε_r` is continuous. Inside, `ε_r = n²` and
+///   `u′ = c·n k ψ_l'(x_in)`, giving `c·(k/n) ψ_l'(x_in) = k·buf'(x_s)`,
+///   i.e. `c·ψ_l'(x_in)/n = buf'(x_s)`.
+/// - **PEC at `R_b`**: `E_t ∝ u′(R_b) = 0`:
+///   `A·ψ_l'(x_b) − B·χ_l'(x_b) = 0`.
+///
+/// ```text
+/// (1)        ψ_l(x_in) · c = A · ψ_l(x_s)  − B · χ_l(x_s)
+/// (2)  ψ_l'(x_in) / n · c = A · ψ_l'(x_s) − B · χ_l'(x_s)
+/// (3)                    0 = A · ψ_l'(x_b) − B · χ_l'(x_b)    (PEC: u' = 0)
+/// ```
+///
+/// Characteristic function:
+/// `ψ_l(x_in)·buf'(x_s) − (1/n)·ψ_l'(x_in)·buf(x_s)`.
+///
+/// The interface row carries `1/n` (the `1/ε_r = 1/n²` factor times
+/// the chain-rule `n`), and the wall uses the derivatives `ψ'`/`χ'`.
+/// Before issue #986 this function paired the TE interface row (`n·ψ'`)
+/// with this TM wall; only `n ≠ 1` roots changed.
 pub fn characteristic_tm(n: f64, l: usize, r_s: f64, r_b: f64, k: f64) -> f64 {
     let x_in = n * k * r_s;
     let x_s = k * r_s;
     let x_b = k * r_b;
 
-    // TM PEC condition: ∂_r(r E_r) = 0 ↔ ψ'(x_b) = 0, so use
-    // A = χ'(x_b), B = ψ'(x_b).
-    let big_a = chi_prime(l, x_b);
-    let big_b = psi_prime(l, x_b);
+    // PEC for TM: E_t ∝ u'(R_b) = 0.
+    let (buf, buf_prime) = buffer_at_interface(l, x_s, x_b, true);
 
-    let buf = big_a * psi(l, x_s) - big_b * chi(l, x_s);
-    let buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s);
-
-    // Matching at r = R_s for TM:
-    //   ψ(x_in)        = buf
-    //   n · ψ'(x_in)   = buf_prime         (ε ratio factor)
-    // → ψ(x_in) * buf_prime - n · ψ'(x_in) * buf = 0.
-    psi(l, x_in) * buf_prime - n * psi_prime(l, x_in) * buf
+    // Matching at r = R_s (u and u'/ε_r continuous):
+    //   ψ(x_in)       = buf
+    //   ψ'(x_in) / n  = buf_prime
+    psi(l, x_in) * buf_prime - (psi_prime(l, x_in) / n) * buf
 }
 
 /// Find real roots of `f` on `[k_min, k_max]` via dense sampling +
@@ -606,6 +674,189 @@ mod tests {
         assert!(
             (k - 4.4934).abs() < 1e-2,
             "n=1 vacuum TE_1 ground k = {k}, expected ≈ 4.4934 (first zero of j_1)"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #986: independent oracle for the closed-cavity pairing.
+    //
+    // The oracle below does not call any of `psi`/`chi`/`characteristic_*`:
+    // it writes the l = 1 Riccati-Bessel functions in closed form from
+    // sin/cos and solves the raw 3 × 3 field-matching system
+    // (unknowns c, A, B) by its determinant, with its own bisection.
+    // -----------------------------------------------------------------
+
+    /// `ψ_1(x) = sin x / x − cos x`.
+    fn psi1_closed(x: f64) -> f64 {
+        x.sin() / x - x.cos()
+    }
+    /// `ψ_1'(x) = cos x / x − sin x / x² + sin x`.
+    fn psi1p_closed(x: f64) -> f64 {
+        x.cos() / x - x.sin() / (x * x) + x.sin()
+    }
+    /// `χ_1(x) = −x·y_1(x) = cos x / x + sin x`.
+    fn chi1_closed(x: f64) -> f64 {
+        x.cos() / x + x.sin()
+    }
+    /// `χ_1'(x) = −sin x / x − cos x / x² + cos x`.
+    fn chi1p_closed(x: f64) -> f64 {
+        -x.sin() / x - x.cos() / (x * x) + x.cos()
+    }
+
+    /// Determinant of the 3 × 3 matching system for `l = 1` in the
+    /// unknowns `(c, A, B)`:
+    ///
+    /// ```text
+    /// [ ψ(x_in)        −ψ(x_s)   χ(x_s)  ]   u continuous at R_s
+    /// [ w · ψ'(x_in)   −ψ'(x_s)  χ'(x_s) ]   (weighted) u' continuous at R_s
+    /// [ 0              W_ψ(x_b)  −W_χ(x_b)]   PEC at R_b
+    /// ```
+    ///
+    /// TE (E transverse): `w = n`, wall `W = (ψ, χ)` (u = 0).
+    /// TM (H transverse): `w = 1/n`, wall `W = (ψ', χ')` (u' = 0).
+    fn matching_det_l1(pol: MiePolarisation, n: f64, r_s: f64, r_b: f64, k: f64) -> f64 {
+        let (x_in, x_s, x_b) = (n * k * r_s, k * r_s, k * r_b);
+        let (w, wall_psi, wall_chi) = match pol {
+            MiePolarisation::TE => (n, psi1_closed(x_b), chi1_closed(x_b)),
+            MiePolarisation::TM => (1.0 / n, psi1p_closed(x_b), chi1p_closed(x_b)),
+        };
+        let m = [
+            [psi1_closed(x_in), -psi1_closed(x_s), chi1_closed(x_s)],
+            [
+                w * psi1p_closed(x_in),
+                -psi1p_closed(x_s),
+                chi1p_closed(x_s),
+            ],
+            [0.0, wall_psi, -wall_chi],
+        ];
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    }
+
+    /// Lowest `count` sign-change roots of `f` on `[lo, hi]` by a coarse
+    /// scan plus plain bisection (independent of `find_roots`).
+    fn bracket_roots<F: Fn(f64) -> f64>(f: F, lo: f64, hi: f64, count: usize) -> Vec<f64> {
+        let steps = 4000;
+        let dk = (hi - lo) / steps as f64;
+        let mut out = Vec::new();
+        for i in 0..steps {
+            let (mut a, mut b) = (lo + i as f64 * dk, lo + (i + 1) as f64 * dk);
+            let (mut fa, fb) = (f(a), f(b));
+            if fa * fb > 0.0 {
+                continue;
+            }
+            for _ in 0..200 {
+                let mid = 0.5 * (a + b);
+                let fm = f(mid);
+                if fa * fm <= 0.0 {
+                    b = mid;
+                } else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+            out.push(0.5 * (a + b));
+            if out.len() == count {
+                break;
+            }
+        }
+        out
+    }
+
+    /// Issue #986 regression: at `n = 1.5`, `R_s = 1`, `R_b = 2`, `l = 1`
+    /// the closed-cavity roots must equal the roots of the independent
+    /// 3 × 3 matching determinant, and match values pinned from an
+    /// independent scipy (`spherical_jn`/`spherical_yn` + `brentq`)
+    /// determinant to 1e-6. The pre-fix crosswise pairing gave
+    /// TM_1,1 = 1.303434 and TE_1,1 = 1.889433, which this test rejects.
+    #[test]
+    fn closed_cavity_roots_match_independent_determinant_n_ne_1() {
+        let (n, r_s, r_b) = (1.5, 1.0, 2.0);
+        // scipy reference, n = 1.5, R_s = 1, R_b = 2, l = 1.
+        let pinned_te = [1.868800020173, 3.150294047800, 4.318904374353];
+        let pinned_tm = [1.187094592455, 2.554427853388, 3.694405412239];
+        for (pol, pinned) in [
+            (MiePolarisation::TE, pinned_te),
+            (MiePolarisation::TM, pinned_tm),
+        ] {
+            let oracle = bracket_roots(|k| matching_det_l1(pol, n, r_s, r_b, k), 0.1, 6.0, 3);
+            let got = resonance_roots(pol, n, 1, r_s, r_b, 3);
+            assert_eq!(oracle.len(), 3, "{pol:?}: oracle roots {oracle:?}");
+            assert_eq!(got.len(), 3, "{pol:?}: resonance_roots {got:?}");
+            for i in 0..3 {
+                assert!(
+                    (got[i].k - oracle[i]).abs() < 1e-9,
+                    "{pol:?}_1,{}: resonance_roots {} vs determinant {}",
+                    i + 1,
+                    got[i].k,
+                    oracle[i]
+                );
+                assert!(
+                    (got[i].k - pinned[i]).abs() < 1e-6,
+                    "{pol:?}_1,{}: resonance_roots {} vs scipy {}",
+                    i + 1,
+                    got[i].k,
+                    pinned[i]
+                );
+            }
+        }
+        // The pre-#986 values must no longer appear.
+        let tm11 = resonance_roots(MiePolarisation::TM, n, 1, r_s, r_b, 1)[0].k;
+        let te11 = resonance_roots(MiePolarisation::TE, n, 1, r_s, r_b, 1)[0].k;
+        assert!((tm11 - 1.303434).abs() > 0.1, "TM_1,1 = {tm11}");
+        assert!((te11 - 1.889433).abs() > 0.01, "TE_1,1 = {te11}");
+    }
+
+    /// Issue #986: at `n = 1` the two interface rows coincide, so the fix
+    /// must leave the empty-cavity spectrum untouched. Check (a) the
+    /// characteristic functions are bit-identical to the pre-#986
+    /// crosswise formulas on a dense `k` grid for `l = 1..=4`, and (b) the
+    /// `l = 1` roots equal the textbook empty-cavity values
+    /// `j_1(k R_b) = 0` (TE) and `(x j_1(x))' = 0` at `x = k R_b` (TM).
+    #[test]
+    fn closed_cavity_n_eq_1_is_unchanged() {
+        let (r_s, r_b) = (1.0, 2.0);
+        let pre_986_te = |l: usize, k: f64| {
+            let (n, x_in, x_s, x_b) = (1.0_f64, k * r_s, k * r_s, k * r_b);
+            let (a, b) = (chi(l, x_b), psi(l, x_b));
+            let buf = a * psi(l, x_s) - b * chi(l, x_s);
+            let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+            psi(l, x_in) * bufp - (psi_prime(l, x_in) / n) * buf
+        };
+        let pre_986_tm = |l: usize, k: f64| {
+            let (n, x_in, x_s, x_b) = (1.0_f64, k * r_s, k * r_s, k * r_b);
+            let (a, b) = (chi_prime(l, x_b), psi_prime(l, x_b));
+            let buf = a * psi(l, x_s) - b * chi(l, x_s);
+            let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+            psi(l, x_in) * bufp - n * psi_prime(l, x_in) * buf
+        };
+        for l in 1..=4 {
+            for i in 0..2000 {
+                let k = 0.1 + 0.005 * i as f64;
+                assert_eq!(
+                    characteristic_te(1.0, l, r_s, r_b, k).to_bits(),
+                    pre_986_te(l, k).to_bits(),
+                    "TE l={l} k={k}"
+                );
+                assert_eq!(
+                    characteristic_tm(1.0, l, r_s, r_b, k).to_bits(),
+                    pre_986_tm(l, k).to_bits(),
+                    "TM l={l} k={k}"
+                );
+            }
+        }
+        // First zero of j_1 (tan x = x) is 4.493409457909064; first zero
+        // of (x j_1(x))' is 2.743707269992269.
+        let te11 = resonance_roots(MiePolarisation::TE, 1.0, 1, r_s, r_b, 1)[0].k;
+        let tm11 = resonance_roots(MiePolarisation::TM, 1.0, 1, r_s, r_b, 1)[0].k;
+        assert!(
+            (te11 * r_b - 4.493409457909064).abs() < 1e-9,
+            "TE_1,1 = {te11}"
+        );
+        assert!(
+            (tm11 * r_b - 2.743707269992269).abs() < 1e-9,
+            "TM_1,1 = {tm11}"
         );
     }
 

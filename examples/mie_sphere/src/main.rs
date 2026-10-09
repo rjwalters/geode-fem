@@ -175,11 +175,13 @@ const NULL_TOL_REL: f64 = 0.5;
 /// derived from the cumulative multiplicities of the first
 /// `N_ANALYTIC_GROUPS` rows in `mie_roots_catalog`. With the n = 1.5,
 /// `L_MAX = 4`, `N_MAX = 5` catalog the first three groups are
-/// `TM_1,1` (multiplicity 3), `TE_1,1` (multiplicity 3), and
-/// `TM_2,1` (multiplicity 5), summing to 11 — comfortably above the
-/// v1 hand-set count of 8 and including the canonical
-/// `TE_1,1` / `TM_2,1` close-pair (0.07 % spacing on this catalog)
-/// that exercises the overlap-gated pairing path. Mesh refinement or
+/// `TM_1,1` (multiplicity 3, k ≈ 1.18710), `TM_2,1` (multiplicity 5,
+/// k ≈ 1.81333), and `TE_1,1` (multiplicity 3, k ≈ 1.86880), summing
+/// to 11 — comfortably above the v1 hand-set count of 8 and including
+/// the `TM_2,1` / `TE_1,1` close-pair (3.06 % spacing on this catalog)
+/// that exercises the overlap-gated pairing path. (Before issue #986
+/// corrected the PEC-cavity roots, the order was TM_1,1 / TE_1,1 /
+/// TM_2,1 with a 0.07 % TE_1,1 / TM_2,1 gap.) Mesh refinement or
 /// catalog widening (`L_MAX`, `N_MAX`) automatically tracks through
 /// this derivation.
 const N_ANALYTIC_GROUPS: usize = 3;
@@ -450,7 +452,7 @@ fn fem_complex_k<B: Backend>(
 ///
 /// **Overlap gating (issue #43)**: if the next analytic root is within
 /// `CLOSE_PAIR_GAP_FRAC` (~10 %) of the current one — e.g. the
-/// canonical `TE_1,1` / `TM_2,1` pair at `k ≈ 1.889 / 1.891` (0.07 %
+/// `TM_2,1` / `TE_1,1` pair at `k ≈ 1.813 / 1.869` (3.06 %
 /// spacing) on the n = 1.5 catalog — the FEM modes inside the current
 /// multiplet's `Re(k)` span may not be cleanly separable from the next
 /// multiplet's. We flag rows as `ambiguous = true` when the
@@ -951,109 +953,106 @@ mod tests {
     use super::*;
     use geode_core::analytic::mie::MiePolarisation;
 
-    /// Build a synthetic FEM-mode vector that mimics a coarse-mesh
-    /// split of an analytic root: three modes (multiplicity 2l+1 = 3)
-    /// clustered around `k` with the given `spread` in Re(k) and a
-    /// uniform damping `im`.
-    fn synth_triplet(k: f64, spread: f64, im: f64) -> Vec<faer::c64> {
-        vec![
-            faer::c64::new(k - 0.5 * spread, im),
-            faer::c64::new(k, im),
-            faer::c64::new(k + 0.5 * spread, im),
-        ]
+    /// Synthetic multiplet of `mult` FEM modes spread uniformly over
+    /// `spread` in Re(k) around `k`, with uniform damping `im`.
+    fn synth_multiplet(k: f64, mult: usize, spread: f64, im: f64) -> Vec<faer::c64> {
+        (0..mult)
+            .map(|i| {
+                let t = if mult > 1 {
+                    i as f64 / (mult - 1) as f64 - 0.5
+                } else {
+                    0.0
+                };
+                faer::c64::new(k + t * spread, im)
+            })
+            .collect()
+    }
+
+    /// Locate the canonical close pair on the bundled n = 1.5 catalog:
+    /// TM_2,1 (k ≈ 1.81333) immediately followed by TE_1,1
+    /// (k ≈ 1.86880), 3.06 % apart (issue #986 corrected these roots;
+    /// before it the catalog had TE_1,1 / TM_2,1 at 1.88943 / 1.89074).
+    fn tm21_te11_pair(analytic: &[MieRoot]) -> (usize, MieRoot, MieRoot) {
+        let i_tm21 = analytic
+            .iter()
+            .position(|r| r.pol == MiePolarisation::TM && r.l == 2 && r.n == 1)
+            .expect("TM_2,1 in catalog");
+        let tm21 = analytic[i_tm21];
+        let te11 = analytic
+            .get(i_tm21 + 1)
+            .copied()
+            .expect("TE_1,1 follows TM_2,1");
+        assert_eq!(te11.pol, MiePolarisation::TE);
+        assert_eq!(te11.l, 1);
+        assert_eq!(te11.n, 1);
+        (i_tm21, tm21, te11)
     }
 
     #[test]
-    fn close_pair_te11_tm21_flags_ambiguous_on_overlap() {
-        // Use the bundled n = 1.5 catalog: TE_1,1 (k ≈ 1.88943) and
-        // TM_2,1 (k ≈ 1.89074) are 0.07 % apart, the canonical
-        // close-pair (issue #43). Concoct a synthetic FEM spectrum
-        // where the TE_1,1 multiplet spreads enough in Re(k) to bridge
-        // half the gap to TM_2,1; the pairing must flag the affected
-        // rows as `ambiguous = true`.
+    fn close_pair_tm21_te11_flags_ambiguous_on_overlap() {
+        // Concoct a synthetic FEM spectrum where the TM_2,1 multiplet
+        // spreads enough in Re(k) to bridge half the gap to TE_1,1; the
+        // pairing must flag the affected rows as `ambiguous = true`
+        // (issue #43 overlap gate).
         let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
-        // Find the TE_1,1 / TM_2,1 pair indices in the catalog.
-        let i_te11 = analytic
-            .iter()
-            .position(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
-            .expect("TE_1,1 in catalog");
-        let te11 = analytic[i_te11];
-        let tm21 = analytic
-            .get(i_te11 + 1)
-            .copied()
-            .expect("TM_2,1 follows TE_1,1");
-        assert_eq!(tm21.pol, MiePolarisation::TM);
-        assert_eq!(tm21.l, 2);
-        assert_eq!(tm21.n, 1);
-        let gap = tm21.k - te11.k;
-        let rel_gap = gap / te11.k;
+        let (i_tm21, tm21, te11) = tm21_te11_pair(&analytic);
+        assert_eq!(i_tm21, 1, "TM_2,1 is the second catalog root");
+        let gap = te11.k - tm21.k;
+        let rel_gap = gap / tm21.k;
         assert!(
             rel_gap < CLOSE_PAIR_GAP_FRAC,
-            "TE_1,1 / TM_2,1 must be within {}% (got {:.5}%)",
+            "TM_2,1 / TE_1,1 must be within {}% (got {:.5}%)",
             CLOSE_PAIR_GAP_FRAC * 100.0,
             rel_gap * 100.0
         );
 
-        // Build a synthetic FEM spectrum: a low-k multiplet for the
-        // ground TM_1,1 (just to anchor the cursor at the start), then
-        // a TE_1,1 triplet whose spread spans MORE than half the gap
-        // to TM_2,1, then a TM_2,1 quintet.
+        // Ground TM_1,1 triplet (anchors the cursor), then a TM_2,1
+        // quintet whose spread equals the gap (> 0.5·gap), then the
+        // TE_1,1 triplet.
         let ground = analytic[0];
         let mut fem: Vec<faer::c64> = Vec::new();
-        fem.extend(synth_triplet(ground.k, 1e-3, 1e-2));
-        // TE_1,1 triplet: spread = gap so it definitely bridges > 0.5*gap.
-        fem.extend(synth_triplet(te11.k, gap, 1e-2));
-        // TM_2,1 quintet (multiplicity 5).
-        for slot in 0..5 {
-            fem.push(faer::c64::new(tm21.k + (slot as f64 - 2.0) * 1e-4, 1e-2));
-        }
+        fem.extend(synth_multiplet(ground.k, ground.multiplicity, 1e-3, 1e-2));
+        fem.extend(synth_multiplet(tm21.k, tm21.multiplicity, gap, 1e-2));
+        fem.extend(synth_multiplet(te11.k, te11.multiplicity, 1e-4, 1e-2));
 
         let rows = pair_modes(&analytic, &fem);
-        // Rows for TE_1,1 should be flagged ambiguous.
-        let te11_rows: Vec<&Row> = rows
+        let tm21_rows: Vec<&Row> = rows
             .iter()
-            .filter(|r| r.pol == "TE" && r.l == 1 && r.n == 1)
+            .filter(|r| r.pol == "TM" && r.l == 2 && r.n == 1)
             .collect();
-        assert_eq!(te11_rows.len(), 3, "TE_1,1 multiplet should be 3 rows");
+        assert_eq!(tm21_rows.len(), 5, "TM_2,1 multiplet should be 5 rows");
         assert!(
-            te11_rows.iter().all(|r| r.ambiguous),
-            "all TE_1,1 rows must be flagged ambiguous when FEM spread > 0.5 * gap to TM_2,1"
+            tm21_rows.iter().all(|r| r.ambiguous),
+            "all TM_2,1 rows must be flagged ambiguous when FEM spread > 0.5 * gap to TE_1,1"
         );
     }
 
     #[test]
     fn close_pair_not_flagged_when_fem_spread_is_tight() {
-        // Same catalog but with a TIGHT TE_1,1 multiplet: spread much
-        // less than half the gap to TM_2,1. Must NOT be flagged
+        // Same catalog but with a TIGHT TM_2,1 multiplet: spread much
+        // less than half the gap to TE_1,1. Must NOT be flagged
         // ambiguous — the close-pair gate should only fire when the
         // FEM modes actually bridge the analytic gap.
         let analytic = mie_roots_catalog(N_INSIDE, L_MAX, N_MAX);
-        let i_te11 = analytic
-            .iter()
-            .position(|r| r.pol == MiePolarisation::TE && r.l == 1 && r.n == 1)
-            .expect("TE_1,1 in catalog");
-        let te11 = analytic[i_te11];
-        let tm21 = analytic[i_te11 + 1];
-        let gap = tm21.k - te11.k;
+        let (_, tm21, te11) = tm21_te11_pair(&analytic);
+        let gap = te11.k - tm21.k;
 
         let ground = analytic[0];
         let mut fem: Vec<faer::c64> = Vec::new();
-        fem.extend(synth_triplet(ground.k, 1e-3, 1e-2));
+        fem.extend(synth_multiplet(ground.k, ground.multiplicity, 1e-3, 1e-2));
         // Spread is 0.1 * gap → well under the 0.5 * gap threshold.
-        fem.extend(synth_triplet(te11.k, 0.1 * gap, 1e-2));
-        for slot in 0..5 {
-            fem.push(faer::c64::new(tm21.k + (slot as f64 - 2.0) * 1e-4, 1e-2));
-        }
+        fem.extend(synth_multiplet(tm21.k, tm21.multiplicity, 0.1 * gap, 1e-2));
+        fem.extend(synth_multiplet(te11.k, te11.multiplicity, 1e-4, 1e-2));
 
         let rows = pair_modes(&analytic, &fem);
-        let te11_rows: Vec<&Row> = rows
+        let tm21_rows: Vec<&Row> = rows
             .iter()
-            .filter(|r| r.pol == "TE" && r.l == 1 && r.n == 1)
+            .filter(|r| r.pol == "TM" && r.l == 2 && r.n == 1)
             .collect();
-        assert_eq!(te11_rows.len(), 3);
+        assert_eq!(tm21_rows.len(), 5);
         assert!(
-            te11_rows.iter().all(|r| !r.ambiguous),
-            "TE_1,1 rows must NOT be ambiguous when FEM spread is << gap"
+            tm21_rows.iter().all(|r| !r.ambiguous),
+            "TM_2,1 rows must NOT be ambiguous when FEM spread is << gap"
         );
     }
 
@@ -1069,9 +1068,9 @@ mod tests {
             .map(|r| r.multiplicity)
             .sum();
         assert_eq!(n_modes_from_catalog(&analytic), expected);
-        // For N_ANALYTIC_GROUPS = 2 on the bundled catalog, that's
-        // TM_1,1 (mult 3) + TE_1,1 (mult 3) = 6 — the catalog tracks
-        // automatically, no hand-tuned magic 8.
+        // For N_ANALYTIC_GROUPS = 3 on the bundled catalog, that's
+        // TM_1,1 (mult 3) + TM_2,1 (mult 5) + TE_1,1 (mult 3) = 11 —
+        // the catalog tracks automatically, no hand-tuned magic 8.
         assert!(
             n_modes_from_catalog(&analytic) >= 3,
             "must cover at least the TM_1,1 ground triplet"

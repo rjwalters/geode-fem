@@ -258,8 +258,13 @@ jobs:
       #   analytic::waveguide::tests::empty_set_rule_stress_sweep_913
       #     14.6, 49, 54 and 63 s over four runs (host load average above
       #     100 for the slow three)
-      # About 17 s for the first four plus 15 to 63 s for the sweep; with a
-      # 2x margin for the 4-vCPU runner, up to about 3 min. Same `--lib` test binary as the step above, so nothing new is
+      # Issue #947 added a sixth, the PML curl-floor measurement (about 40
+      # small 2D PML solves on five fiber fixtures):
+      #   analytic::waveguide::tests::pml_curl_floor_measurement_947
+      #     100, 169 and 444 s over three runs (local, heavily loaded host)
+      # About 17 s for the first four plus 15 to 63 s for the sweep and 100
+      # to 444 s for the measurement; with a 2x margin for the 4-vCPU
+      # runner, up to about 17 min. Same `--lib` test binary as the step above, so nothing new is
       # compiled. The tests are named with --exact (not a blanket
       # `-- --ignored`) so that a new #[ignore]d unit test is not pulled into
       # this job unmeasured: the guard fails until it is named here or put
@@ -272,7 +277,8 @@ jobs:
               driven::solve::tests::ilu_patch_benchmark \
               mesh::partition::tests::transmon_133k_cut_quality_report \
               solver::distributed::tests::transmon_distributed_spectrum_matches_single_process \
-              analytic::waveguide::tests::empty_set_rule_stress_sweep_913
+              analytic::waveguide::tests::empty_set_rule_stress_sweep_913 \
+              analytic::waveguide::tests::pml_curl_floor_measurement_947
 
       # Issue #760: diagonal anisotropic materials — the uniaxial-cube
       # closed-form golden (n = 8 / 16, ~15 s in release). The lossless

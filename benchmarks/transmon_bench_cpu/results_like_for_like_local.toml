@@ -645,3 +645,241 @@ not_done = [
   "revising the efficiency claim of papers/transmon-benchmark (see #763, #593)",
 ]
 follow_up = "#950: a timed geode configuration that returns the six physical modes at the 4.5 GHz shift with no oracle filter (drop the near-zero survivor, remove or identify the 3.45 GHz port mode, cut the port-aware cost)"
+
+# ---------------------------------------------------------------------------
+# ISSUE #950 (pieces 1 and 3), APPENDED. Generated from
+# benchmarks/transmon_bench_cpu/runs/2026-10-09_local_950/ by summarize_local_950.py via summarize_like_for_like.py.
+# Same host and per-run discipline as the #927 cells above, but a separate
+# sweep on a different day: compare #950 cells only with each other and with
+# this sweep's own ungauged_s4p5_n6 cell, never with the #927 cell times above.
+# The oracle only LABELS modes here; no solver run reads it.
+# ---------------------------------------------------------------------------
+[issue_950]
+measured_date = "2026-10-09"  # UTC; runs between 2026-10-09T11:18:40Z and 2026-10-09T11:32:09Z
+head_commit = "5b1dc7e964f0c42c7ac14ad782c96a8e0d5e9a3d dirty=0"  # binary "head": this change
+main_commit = "be12e81a7"  # binary "main": origin/main before #950
+host = "Mac15,14, Apple M3 Ultra, macOS 27.0 (arm64)"
+fixture_sha256 = "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
+geode_num_threads = 1
+rayon_num_threads = 1
+loadavg_1min_range = [39.40, 94.16]  # over all run starts and ends
+generator = "benchmarks/transmon_bench_cpu/like_for_like_local_950.sh, then summarize_like_for_like.py with the run dir as third argument"
+
+[[issue_950.cell]]
+name = "ungauged_s4p5_n6"
+binary = "head"
+gauge = "none"
+sigma_ghz = 4.5
+n_modes_requested = 6
+n_runs = 3
+exit_codes = [0, 0, 0]
+n_modes_returned = 6
+modes_f_ghz = [0.000471, 0.000521, 0.000617, 0.000752, 3.452751, 5.152825]
+modes_lambda = [9.761093e-17, 1.191842e-16, 1.671263e-16, 2.483156e-16, 5.236594e-09, 1.166297e-08]  # (1/um)^2
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical"]  # labels from the oracle, for this file only
+n_physical = 1  # of Palace's 6
+n_near_kernel = 4
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = false
+physical_max_rel_err_pct = 0.0289
+modes_identical_across_runs = true
+wall_s = [21.90, 33.43, 46.20]
+solve_s = [19.05, 30.96, 36.78]
+cpu_s = [20.65, 21.00, 23.43]  # user + sys, single thread
+cpu_s_mean = 21.69
+cpu_percent = [94, 63, 51]
+peak_rss_bytes = [3029090304, 2995748864, 3015442432]
+peak_rss_gb = 3.03
+loadavg_1min_before = [43.01, 39.40, 49.64]
+cpu_ratio_vs_ungauged_s4p5_n6 = 1.00  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.00
+
+[[issue_950.cell]]
+name = "main_portaware_s4p5_n7"
+binary = "main"
+gauge = "port_aware"
+sigma_ghz = 4.5
+n_modes_requested = 7
+n_runs = 1
+exit_codes = [0]
+n_modes_returned = 7
+modes_f_ghz = [0.000000, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377]
+modes_lambda = [-3.852676e-20, 5.236594e-09, 1.166297e-08, 1.050551e-07, 1.343703e-07, 1.534838e-07, 1.882785e-07]  # (1/um)^2
+modes_class = ["near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical"]  # labels from the oracle, for this file only
+n_physical = 5  # of Palace's 6
+n_near_kernel = 1
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = false
+physical_max_rel_err_pct = 0.0289
+shifted_factorizations = "not printed by this binary (predates #950); its code factors K - sigma_j M for the junction extract and K - sigma M for the band: 2"
+modes_identical_across_runs = true
+wall_s = [155.82]
+solve_s = [150.59]
+cpu_s = [50.09]  # user + sys, single thread
+cpu_s_mean = 50.09
+cpu_percent = [32]
+peak_rss_bytes = [3449421824]
+peak_rss_gb = 3.45
+loadavg_1min_before = [56.70]
+cpu_ratio_vs_ungauged_s4p5_n6 = 2.31  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.14
+
+[[issue_950.cell]]
+name = "main_portaware_s4p5_n8"
+binary = "main"
+gauge = "port_aware"
+sigma_ghz = 4.5
+n_modes_requested = 8
+n_runs = 3
+exit_codes = [0, 0, 0]
+n_modes_returned = 8
+modes_f_ghz = [0.000000, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]
+modes_lambda = [-3.852676e-20, 5.236594e-09, 1.166297e-08, 1.050551e-07, 1.343703e-07, 1.534838e-07, 1.882785e-07, 2.989575e-07]  # (1/um)^2
+modes_class = ["near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]  # labels from the oracle, for this file only
+n_physical = 6  # of Palace's 6
+n_near_kernel = 1
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = true
+physical_max_rel_err_pct = 0.0289
+shifted_factorizations = "not printed by this binary (predates #950); its code factors K - sigma_j M for the junction extract and K - sigma M for the band: 2"
+modes_identical_across_runs = true
+wall_s = [103.70, 44.27, 133.98]
+solve_s = [94.05, 42.10, 131.55]
+cpu_s = [49.73, 41.15, 48.09]  # user + sys, single thread
+cpu_s_mean = 46.32
+cpu_percent = [48, 93, 36]
+peak_rss_bytes = [3967795200, 4223565824, 4181311488]
+peak_rss_gb = 4.22
+loadavg_1min_before = [85.63, 69.96, 47.89]
+cpu_ratio_vs_ungauged_s4p5_n6 = 2.14  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.39
+
+[[issue_950.cell]]
+name = "portaware_extract_s4p5_n7"
+binary = "head"
+gauge = "port_aware_extract"
+sigma_ghz = 4.5
+n_modes_requested = 7
+n_runs = 1
+exit_codes = [0]
+n_modes_returned = 7
+modes_f_ghz = [3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]
+modes_lambda = [5.236594e-09, 1.166297e-08, 1.050551e-07, 1.343703e-07, 1.534838e-07, 1.882785e-07, 2.989575e-07]  # (1/um)^2
+modes_class = ["spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]  # labels from the oracle, for this file only
+n_physical = 6  # of Palace's 6
+n_near_kernel = 0
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = true
+physical_max_rel_err_pct = 0.0289
+modes_residual_rel = [1.06e-08, 1.72e-09, 1.24e-09, 8.45e-10, 1.25e-09, 1.60e-09, 2.63e-10]  # ||Kx - lambda Mx|| / (|lambda| ||Mx||), printed by the solver
+shifted_factorizations = 2  # printed by the solver
+readmitted_gradient_directions = 1
+null_modes_dropped = 1
+null_ceiling_lambda = 1.188e-12  # DEGENERATE_SHIFT_REL_TOL x median(K_ii/M_ii)
+max_dropped_null_lambda = 3.853e-20
+modes_identical_across_runs = true
+wall_s = [143.59]
+solve_s = [138.72]
+cpu_s = [51.42]  # user + sys, single thread
+cpu_s_mean = 51.42
+cpu_percent = [36]
+peak_rss_bytes = [3503210496]
+peak_rss_gb = 3.50
+loadavg_1min_before = [94.16]
+cpu_ratio_vs_ungauged_s4p5_n6 = 2.37  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.16
+
+[[issue_950.cell]]
+name = "portaware_s4p5_n6"
+binary = "head"
+gauge = "port_aware"
+sigma_ghz = 4.5
+n_modes_requested = 6
+n_runs = 1
+exit_codes = [0]
+n_modes_returned = 6
+modes_f_ghz = [3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377]
+modes_lambda = [5.236594e-09, 1.166297e-08, 1.050551e-07, 1.343703e-07, 1.534838e-07, 1.882785e-07]  # (1/um)^2
+modes_class = ["spurious_port", "physical", "physical", "physical", "physical", "physical"]  # labels from the oracle, for this file only
+n_physical = 5  # of Palace's 6
+n_near_kernel = 0
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = false
+physical_max_rel_err_pct = 0.0289
+modes_residual_rel = [1.07e-08, 1.68e-09, 1.17e-09, 1.13e-09, 1.25e-09, 1.47e-09]  # ||Kx - lambda Mx|| / (|lambda| ||Mx||), printed by the solver
+shifted_factorizations = 1  # printed by the solver
+readmitted_gradient_directions = 1
+null_modes_dropped = 1
+null_ceiling_lambda = 1.188e-12  # DEGENERATE_SHIFT_REL_TOL x median(K_ii/M_ii)
+max_dropped_null_lambda = 3.853e-20
+modes_identical_across_runs = true
+wall_s = [35.12]
+solve_s = [29.75]
+cpu_s = [24.20]  # user + sys, single thread
+cpu_s_mean = 24.20
+cpu_percent = [69]
+peak_rss_bytes = [3135553536]
+peak_rss_gb = 3.14
+loadavg_1min_before = [79.75]
+cpu_ratio_vs_ungauged_s4p5_n6 = 1.12  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.04
+
+[[issue_950.cell]]
+name = "portaware_s4p5_n7"
+binary = "head"
+gauge = "port_aware"
+sigma_ghz = 4.5
+n_modes_requested = 7
+n_runs = 3
+exit_codes = [0, 0, 0]
+n_modes_returned = 7
+modes_f_ghz = [3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]
+modes_lambda = [5.236594e-09, 1.166297e-08, 1.050551e-07, 1.343703e-07, 1.534838e-07, 1.882785e-07, 2.989575e-07]  # (1/um)^2
+modes_class = ["spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]  # labels from the oracle, for this file only
+n_physical = 6  # of Palace's 6
+n_near_kernel = 0
+n_spurious_port = 1
+n_unclassified = 0
+six_physical_recovered = true
+physical_max_rel_err_pct = 0.0289
+modes_residual_rel = [1.07e-08, 1.68e-09, 1.17e-09, 1.13e-09, 1.25e-09, 1.47e-09, 2.95e-10]  # ||Kx - lambda Mx|| / (|lambda| ||Mx||), printed by the solver
+shifted_factorizations = 1  # printed by the solver
+readmitted_gradient_directions = 1
+null_modes_dropped = 1
+null_ceiling_lambda = 1.188e-12  # DEGENERATE_SHIFT_REL_TOL x median(K_ii/M_ii)
+max_dropped_null_lambda = 3.853e-20
+modes_identical_across_runs = true
+wall_s = [33.15, 28.66, 27.50]
+solve_s = [30.55, 26.36, 24.81]
+cpu_s = [23.91, 22.87, 22.98]  # user + sys, single thread
+cpu_s_mean = 23.25
+cpu_percent = [72, 80, 84]
+peak_rss_bytes = [3070935040, 3025453056, 3059367936]
+peak_rss_gb = 3.07
+loadavg_1min_before = [64.28, 57.73, 54.58]
+cpu_ratio_vs_ungauged_s4p5_n6 = 1.07  # this sweep's own baseline
+peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.01
+
+[issue_950.finding]
+before_cell = "main_portaware_s4p5_n8"
+before_min_n_modes_for_six_physical = 8  # smallest request tried that returns all six
+before_non_physical_returned_alongside = 2
+before_cpu_s_mean = 46.32
+before_cpu_ratio_vs_ungauged_s4p5_n6 = 2.14
+before_peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.39
+after_cell = "portaware_s4p5_n7"
+after_min_n_modes_for_six_physical = 7  # smallest request tried that returns all six
+after_non_physical_returned_alongside = 1
+after_cpu_s_mean = 23.25
+after_cpu_ratio_vs_ungauged_s4p5_n6 = 1.07
+after_peak_rss_ratio_vs_ungauged_s4p5_n6 = 1.01
+after_over_before_cpu = 0.50  # geode vs geode, same sweep
+after_over_before_peak_rss = 0.73
+physical_f_ghz_identical_before_after = true  # to the 6 decimals the binary prints
+remaining_non_physical = "The one non-physical mode left at N = 7 is the solenoidal 3.45 GHz port mode (#514). It is a genuine eigenpair of this port formulation, not a gradient artifact, so neither piece removes it; removing it needs a different port formulation (piece 2 of #950, out of scope here)."
+scope = "One mesh (133,108 interior DOFs), one loaded host, geode only, direct LU, one thread. Mode lists and factorization counts do not depend on load; times do. No geode-vs-Palace time is implied."
