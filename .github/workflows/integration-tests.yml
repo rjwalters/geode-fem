@@ -599,6 +599,8 @@ jobs:
       # wave_port_p2 (issues #884, #905, the p=2 TM-guard validation table):
       # its 288 structured / one-element-across / stepped rows run here; its
       # 527 Gmsh rows run only where gmsh is on PATH (not on this runner).
+      # Its tm_guard_p2_long_guide_table (issue #990) is Gmsh-only and
+      # returns at once here; locally it takes about 20 s in release.
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
@@ -620,8 +622,9 @@ jobs:
               --test wave_port_p2 -- --ignored
 
       # The real 133k / 157k-DOF transmon eigensolves. Measured release
-      # times, one test at a time: 23-61 s each (about 4.2 min for these
-      # six). Two threads bound the peak memory of the concurrent sparse
+      # times, one test at a time: 23-61 s each (about 4.2 min for the
+      # first six; real_transmon_port_subspace_returns_six_physical_at_n7,
+      # #1014, added 26 s locally on a loaded host). Two threads bound the peak memory of the concurrent sparse
       # LU factorizations. The skipped tests are allowlisted with reasons.
       # real_eigen_sensitivity_release (issue #814): five 133k-DOF direct
       # eigensolves (base + material and geometry FD), about 70 s locally.

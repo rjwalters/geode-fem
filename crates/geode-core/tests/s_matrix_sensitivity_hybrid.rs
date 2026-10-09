@@ -24,6 +24,9 @@
 //! 4. **Degenerate pair** (homogeneous two-strip stripline, the #817 even /
 //!    odd TEM pair): a design that touches the face is the typed
 //!    [`SSensitivityError::DegenerateCluster`] error.
+//! 5. **Coax TE₁₁ channels** (issue #991): with `port_mode_observables`, a
+//!    channel with no net conductor current keeps `ε_eff` and its gradient
+//!    but reports no line impedance (`line: None` plus a warning).
 //!
 //! Every gate prints an `FD |` row, every tripwire a `MUTATION |` row and
 //! every parity check a `PARITY |` row, which the PR's tables collect.
@@ -1232,4 +1235,118 @@ fn complex_pair_on_a_touched_face_is_a_typed_error() {
         matches!(&err, SSensitivityError::Unsupported { phase, .. } if phase.contains("complex pair")),
         "{err:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 6. Port-mode observables on a channel with no net conductor current
+// ---------------------------------------------------------------------------
+
+/// **Coax TE₁₁ channels** (issue #991): the square coax of the #953 tests
+/// (node `x` stretched by 1.15 to split the exactly degenerate C4v TE₁₁
+/// pair), extruded, with three hybrid channels at `k₀ = 2`. With
+/// `port_mode_observables`, on an untouched face (a material block off the
+/// faces) and on a touched one (the block fills the guide), the TEM channel
+/// keeps a finite `Z_PI` and `∂Z_PI`, while each TE₁₁-like channel still
+/// succeeds with `β`, `ε_eff` and `∂ε_eff`, but `line: None`,
+/// `d_z_* = None` and a `NoNetConductorCurrent` warning — never a `Z_PI` of
+/// order `1e30 Ω`.
+#[test]
+fn coax_te_channel_port_mode_observables_have_eps_eff_but_no_line() {
+    use geode_core::analytic::port_mode_sensitivity::ModeSensitivityWarning;
+    let mut face = geode_core::analytic::microstrip::square_coax_face(1.0, 6, 2, 1.0);
+    face.mesh.nodes.iter_mut().for_each(|p| p[0] *= 1.15);
+    let sec = strip_line_section(&face, 4, 1.0);
+    let mesh = &sec.extruded.mesh;
+    let eps_c: Vec<c64> = sec.eps_tet.iter().map(|&e| c64::new(e, 0.0)).collect();
+    let ports = sec.hybrid_ports(3, quiet()).unwrap();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &sec.pec_interior_mask,
+    };
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps_c),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &ports,
+        surfaces: &[],
+    };
+    let len = sec.length();
+    let mid: Vec<Option<usize>> = (0..mesh.n_tets())
+        .map(|t| {
+            let c = centroid(mesh, t)[2];
+            (c > 0.3 * len && c < 0.7 * len).then_some(0)
+        })
+        .collect();
+    let all: Vec<Option<usize>> = vec![Some(0); mesh.n_tets()];
+    for (label, regions, touched) in [("untouched", mid, false), ("touched", all, true)] {
+        let design = SDesign {
+            material: Some(MaterialDesign::from_regions(regions, vec!["fill".into()]).unwrap()),
+            ..SDesign::default()
+        };
+        let sw = s_matrix_sensitivity_sweep::<B>(
+            &net,
+            &[2.0],
+            &design,
+            &SSensitivityOptions {
+                port_mode_observables: true,
+                ..Default::default()
+            },
+            &device(),
+        )
+        .unwrap_or_else(|e| panic!("{label}: {e}"));
+        let pt = &sw.points[0];
+        for port in 0..2 {
+            let entry = |c: usize| {
+                pt.port_modes
+                    .iter()
+                    .find(|e| e.port == port && e.channel == c)
+                    .unwrap_or_else(|| panic!("{label}: port {port} channel {c}"))
+                    .result
+                    .as_ref()
+                    .unwrap_or_else(|e| panic!("{label}: port {port} channel {c}: {e}"))
+            };
+            let tem = entry(0);
+            let z = tem.line.expect("the TEM channel has a line impedance").z_pi;
+            println!("{label} port {port}: TEM Z_PI = {z:.4} Ω");
+            assert!(z.re > 1.0 && z.re < 1e3);
+            assert!(
+                tem.d_z_pi
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .all(|d| d.re.is_finite())
+            );
+            assert!(
+                !tem.warnings
+                    .contains(&ModeSensitivityWarning::NoNetConductorCurrent)
+            );
+            for c in [1, 2] {
+                let te = entry(c);
+                println!(
+                    "{label} port {port} channel {c}: ε_eff = {:.6}, ∂ε_eff = {:?}",
+                    te.eps_eff, te.d_eps_eff
+                );
+                assert!(te.line.is_none(), "{label} channel {c}");
+                assert!(te.d_z_pi.is_none() && te.d_z_pv.is_none() && te.d_z_vi.is_none());
+                assert!(
+                    te.warnings
+                        .contains(&ModeSensitivityWarning::NoNetConductorCurrent),
+                    "{label} channel {c}: {:?}",
+                    te.warnings
+                );
+                assert!(te.eps_eff.re > 0.0 && te.eps_eff.re < 1.0);
+                // ε_eff = β²/k₀² with β² = k₀²ε − k_c² on a uniform fill:
+                // ∂ε_eff/∂ε = 1 once the face is touched, 0 otherwise.
+                let want = if touched { 1.0 } else { 0.0 };
+                assert!(
+                    (te.d_eps_eff[0] - c64::new(want, 0.0)).norm() <= 1e-6,
+                    "{label} channel {c}: {:?}",
+                    te.d_eps_eff
+                );
+            }
+        }
+    }
 }
