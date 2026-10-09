@@ -18,6 +18,11 @@ holds the outputs of diag956_threading.rs, one process per leg:
   e2e/              sweep956.sh, <site>_n<N>_<build>_t<T>_rep<K>.stdout.
   e2e_large/        refine956.sh, the same at the largest sizes.
   e2e_gated/        gated956.sh, the same below the size limit.
+  spotcheck_faier_0_25_2/
+                    spotcheck956.sh: meta.txt (measured_date, tree_commit,
+                    faer, build, host_load), gate_off.patch and
+                    percall/<site>_n<N>_t8_rep<K>.stdout, the 8-thread
+                    per-call legs again on the faier 0.25.2 tree.
                     End-to-end legs run the whole solve on main, on the first
                     fix commit (ungated: a sequential scope at every size) and
                     on the shipped fix (fix: the scope only up to
@@ -125,7 +130,7 @@ p(f'fix_commit = "{meta["fix_commit"]}"  # shipped: scope up to SEQUENTIAL_SOLVE
 p(f'sequential_solve_max_dim = {meta["sequential_solve_max_dim"]}')
 p(f'faer = "{meta["faer"]}"')
 p(f'run_dir = "{RUN_DIR}"')
-p('generator = "sweep956.sh, refine956.sh and gated956.sh (in run_dir, in that order), then benchmarks/gpu_driven_scaling/summarize_threading_956.py"')
+p('generator = "sweep956.sh, refine956.sh, gated956.sh and spotcheck956.sh (in run_dir, in that order), then benchmarks/gpu_driven_scaling/summarize_threading_956.py"')
 p('harness = "diag956_threading.rs (in run_dir; an #[ignore] integration test, copied into crates/geode-core/tests/ to build)"')
 p(f"exclude_load_above = {EXCLUDE_LOAD:.1f}")
 p()
@@ -175,6 +180,71 @@ for site, n, t, rep, k in rows:
     if excluded(k, "loadavg_1min_start"):
         p("excluded = true  # started above exclude_load_above")
     p()
+
+# ------------------------------------------------- faier 0.25.2 spot check
+spot_dir = d / "spotcheck_faier_0_25_2"
+smeta = kv(spot_dir / "meta.txt")
+spot = []
+for f in sorted((spot_dir / "percall").glob("*.stdout")):
+    m = re.match(r"(\w+?)_n(\d+)_t(\w+?)_rep(\d+)\.stdout$", f.name)
+    k, _ = parse(f)
+    spot.append((m.group(1), int(m.group(2)), m.group(3), int(m.group(4)), k))
+spot.sort(key=lambda r: (SITES.index(r[0]), r[1], tkey(r[2]), r[3]))
+
+p("[threading_fix_956.spot_check_faier_0_25_2]")
+p('note = "PR #1010 review: every other table in this file was measured on the faier 0.24.4 git pin ([meta].faer); the tree that ships is on crates.io faier 0.25.2. These are the 8-thread per-call legs again on that tree, at sizes either side of sequential_solve_max_dim, three repeats each, same harness and same pool / seq protocol as [[threading_fix_956.per_call]]. The build is tree_commit with gate_off.patch, which sets SEQUENTIAL_SOLVE_MAX_DIM to 0 so that the pool mode of the transient leg is not itself scoped (the complex and ams legs call the LU directly and do not depend on it). The default pool, 1 thread and the end-to-end legs were NOT rerun on 0.25.2."')
+p(f'measured_date = "{smeta["measured_date"]}"')
+p(f'tree_commit = "{smeta["tree_commit"]}"')
+p(f'faer = "{smeta["faer"]}"')
+p(f'build = "{smeta["build"]}"')
+p(f'host_load = "{smeta["host_load"]}"')
+p('run_dir = "' + RUN_DIR + '/spotcheck_faier_0_25_2"')
+p('generator = "spotcheck956.sh (in the parent run_dir)"')
+p()
+for site, n, t, rep, k in spot:
+    pw, sw = float(k["pool_median_wall_us"]), float(k["seq_median_wall_us"])
+    pc, sc = float(k["pool_cpu_per_call_us"]), float(k["seq_cpu_per_call_us"])
+    p("[[threading_fix_956.spot_check_faier_0_25_2.per_call]]")
+    p(f'site = "{site}"')
+    p(f"mesh_n = {n}")
+    p(f'dofs = {k.get("dofs") or k.get("interior_edges")}')
+    p(f'threads = "{t}"')
+    p(f"repeat = {rep}")
+    p(f'calls_per_mode = {k["pool_calls"]}')
+    p(f"pool_median_wall_us = {pw:.1f}")
+    p(f"seq_median_wall_us = {sw:.1f}")
+    p(f"pool_cpu_per_call_us = {pc:.1f}")
+    p(f"seq_cpu_per_call_us = {sc:.1f}")
+    p(f"wall_ratio_pool_over_seq = {pw / sw:.2f}")
+    p(f"cpu_ratio_pool_over_seq = {pc / sc:.2f}")
+    p(f'seq_vs_pool_max_rel_diff = {float(k["seq_vs_pool_max_rel_diff"]):.3e}')
+    p(f'loadavg_1min = [{k["loadavg_1min_start"]}, {k["loadavg_1min_end"]}]  # start, end of the timed calls')
+    if excluded(k, "loadavg_1min_start"):
+        p("excluded = true  # started above exclude_load_above")
+    p()
+
+p("[threading_fix_956.spot_check_faier_0_25_2.summary]")
+p('note = "Median over the three repeats of pool / seq (> 1 means sequential is cheaper), next to the median of the 0.24.4 legs of the same site, size and thread count where one exists (-1.0 otherwise). dofs is the system dimension the size limit is compared with."')
+for site in SITES:
+    rs = [r for r in spot if r[0] == site and not excluded(r[4], "loadavg_1min_start")]
+    if not rs:
+        continue
+    sizes = sorted({r[1] for r in rs})
+    def smed(src, n, a, b):
+        v = [float(r[4][a]) / float(r[4][b]) for r in src if r[0] == site and r[1] == n and r[2] == "8" and not excluded(r[4], "loadavg_1min_start")]
+        return f"{statistics.median(v):.2f}" if v else "null"
+    dofs = [next(r[4].get("dofs") or r[4].get("interior_edges") for r in rs if r[1] == n) for n in sizes]
+    p(f"{site}_t8_mesh_n = {sizes}")
+    p(f"{site}_t8_dofs = [{', '.join(dofs)}]")
+    for what, a, b in (("wall", "pool_median_wall_us", "seq_median_wall_us"), ("cpu", "pool_cpu_per_call_us", "seq_cpu_per_call_us")):
+        new = [smed(spot, n, a, b) for n in sizes]
+        old = [smed(rows, n, a, b) for n in sizes]
+        p(f"{site}_t8_{what}_ratio = [{', '.join(new)}]")
+        if "null" not in old:
+            p(f"{site}_t8_{what}_ratio_faier_0_24_4 = [{', '.join(old)}]")
+        else:
+            p(f"{site}_t8_{what}_ratio_faier_0_24_4 = [{', '.join(x if x != 'null' else '-1.0' for x in old)}]  # -1.0: size not measured on 0.24.4")
+p()
 
 # ---------------------------------------------------------------- end to end
 e2e = {}

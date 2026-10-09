@@ -27,7 +27,7 @@ fix_commit = "f1f7faa38918ba19c53f66255bc38663b4011929"  # shipped: scope up to 
 sequential_solve_max_dim = 10000
 faer = "faier git rev b61bc35d0a166a48c3021dce60294bd92b680013 (0.24.4 fork); the crates.io 0.25.2 port (PR #995) was not merged when these ran"
 run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-09_local_threading_956"
-generator = "sweep956.sh, refine956.sh and gated956.sh (in run_dir, in that order), then benchmarks/gpu_driven_scaling/summarize_threading_956.py"
+generator = "sweep956.sh, refine956.sh, gated956.sh and spotcheck956.sh (in run_dir, in that order), then benchmarks/gpu_driven_scaling/summarize_threading_956.py"
 harness = "diag956_threading.rs (in run_dir; an #[ignore] integration test, copied into crates/geode-core/tests/ to build)"
 exclude_load_above = 100.0
 
@@ -1414,6 +1414,469 @@ wall_ratio_pool_over_seq = 2.09
 cpu_ratio_pool_over_seq = 16.88
 seq_vs_pool_max_rel_diff = 2.243e-10  # last solution (transient: displacement after the last step)
 loadavg_1min = [59.58, 61.42]  # start, end of the timed calls
+
+[threading_fix_956.spot_check_faier_0_25_2]
+note = "PR #1010 review: every other table in this file was measured on the faier 0.24.4 git pin ([meta].faer); the tree that ships is on crates.io faier 0.25.2. These are the 8-thread per-call legs again on that tree, at sizes either side of sequential_solve_max_dim, three repeats each, same harness and same pool / seq protocol as [[threading_fix_956.per_call]]. The build is tree_commit with gate_off.patch, which sets SEQUENTIAL_SOLVE_MAX_DIM to 0 so that the pool mode of the transient leg is not itself scoped (the complex and ams legs call the LU directly and do not depend on it). The default pool, 1 thread and the end-to-end legs were NOT rerun on 0.25.2."
+measured_date = "2026-10-09"
+tree_commit = "85b4a485acb1f6ad31b7a3181a5e26dec696b5fa"
+faer = "faier 0.25.2 (crates.io, Cargo.lock at tree_commit)"
+build = "tree_commit with gate_off.patch (SEQUENTIAL_SOLVE_MAX_DIM = 0), release"
+host_load = "uptime load averages 10.57 11.99 14.35 at the start and 9.73 11.27 13.73 at the end of spotcheck956.sh (other agents were building on the machine); the 8-thread per-call legs of steps 1 and 2 started at a 1-minute load of 14.6 to 66.2, median 22.8"
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-09_local_threading_956/spotcheck_faier_0_25_2"
+generator = "spotcheck956.sh (in the parent run_dir)"
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 18
+dofs = 4913
+threads = "8"
+repeat = 1
+calls_per_mode = 400
+pool_median_wall_us = 2310.7
+seq_median_wall_us = 1794.9
+pool_cpu_per_call_us = 6857.4
+seq_cpu_per_call_us = 1803.4
+wall_ratio_pool_over_seq = 1.29
+cpu_ratio_pool_over_seq = 3.80
+seq_vs_pool_max_rel_diff = 2.633e-15
+loadavg_1min = [10.57, 11.00]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 18
+dofs = 4913
+threads = "8"
+repeat = 2
+calls_per_mode = 400
+pool_median_wall_us = 2126.6
+seq_median_wall_us = 1623.1
+pool_cpu_per_call_us = 6207.0
+seq_cpu_per_call_us = 1654.5
+wall_ratio_pool_over_seq = 1.31
+cpu_ratio_pool_over_seq = 3.75
+seq_vs_pool_max_rel_diff = 2.633e-15
+loadavg_1min = [11.02, 11.02]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 18
+dofs = 4913
+threads = "8"
+repeat = 3
+calls_per_mode = 400
+pool_median_wall_us = 2277.4
+seq_median_wall_us = 1730.6
+pool_cpu_per_call_us = 6570.4
+seq_cpu_per_call_us = 1753.2
+wall_ratio_pool_over_seq = 1.32
+cpu_ratio_pool_over_seq = 3.75
+seq_vs_pool_max_rel_diff = 2.633e-15
+loadavg_1min = [9.61, 9.61]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 1
+calls_per_mode = 400
+pool_median_wall_us = 3614.4
+seq_median_wall_us = 3038.6
+pool_cpu_per_call_us = 11287.3
+seq_cpu_per_call_us = 3051.4
+wall_ratio_pool_over_seq = 1.19
+cpu_ratio_pool_over_seq = 3.70
+seq_vs_pool_max_rel_diff = 5.786e-15
+loadavg_1min = [11.00, 11.00]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 2
+calls_per_mode = 400
+pool_median_wall_us = 3400.8
+seq_median_wall_us = 2897.7
+pool_cpu_per_call_us = 9561.7
+seq_cpu_per_call_us = 2906.2
+wall_ratio_pool_over_seq = 1.17
+cpu_ratio_pool_over_seq = 3.29
+seq_vs_pool_max_rel_diff = 5.786e-15
+loadavg_1min = [10.86, 10.86]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 3
+calls_per_mode = 400
+pool_median_wall_us = 3480.9
+seq_median_wall_us = 2935.2
+pool_cpu_per_call_us = 9928.7
+seq_cpu_per_call_us = 2966.4
+wall_ratio_pool_over_seq = 1.19
+cpu_ratio_pool_over_seq = 3.35
+seq_vs_pool_max_rel_diff = 5.786e-15
+loadavg_1min = [9.61, 9.56]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 22
+dofs = 9261
+threads = "8"
+repeat = 1
+calls_per_mode = 400
+pool_median_wall_us = 5293.5
+seq_median_wall_us = 5604.5
+pool_cpu_per_call_us = 13462.6
+seq_cpu_per_call_us = 5600.8
+wall_ratio_pool_over_seq = 0.94
+cpu_ratio_pool_over_seq = 2.40
+seq_vs_pool_max_rel_diff = 3.270e-15
+loadavg_1min = [10.76, 10.70]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 22
+dofs = 9261
+threads = "8"
+repeat = 2
+calls_per_mode = 400
+pool_median_wall_us = 5112.5
+seq_median_wall_us = 5380.6
+pool_cpu_per_call_us = 13174.6
+seq_cpu_per_call_us = 5378.6
+wall_ratio_pool_over_seq = 0.95
+cpu_ratio_pool_over_seq = 2.45
+seq_vs_pool_max_rel_diff = 3.270e-15
+loadavg_1min = [10.71, 10.57]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 22
+dofs = 9261
+threads = "8"
+repeat = 3
+calls_per_mode = 400
+pool_median_wall_us = 5378.0
+seq_median_wall_us = 5659.6
+pool_cpu_per_call_us = 14288.0
+seq_cpu_per_call_us = 5688.3
+wall_ratio_pool_over_seq = 0.95
+cpu_ratio_pool_over_seq = 2.51
+seq_vs_pool_max_rel_diff = 3.270e-15
+loadavg_1min = [9.56, 9.28]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 24
+dofs = 12167
+threads = "8"
+repeat = 1
+calls_per_mode = 400
+pool_median_wall_us = 7735.8
+seq_median_wall_us = 8672.7
+pool_cpu_per_call_us = 23551.2
+seq_cpu_per_call_us = 8670.2
+wall_ratio_pool_over_seq = 0.89
+cpu_ratio_pool_over_seq = 2.72
+seq_vs_pool_max_rel_diff = 4.987e-15
+loadavg_1min = [10.81, 11.06]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 24
+dofs = 12167
+threads = "8"
+repeat = 2
+calls_per_mode = 400
+pool_median_wall_us = 7791.7
+seq_median_wall_us = 8612.7
+pool_cpu_per_call_us = 22633.2
+seq_cpu_per_call_us = 8633.3
+wall_ratio_pool_over_seq = 0.90
+cpu_ratio_pool_over_seq = 2.62
+seq_vs_pool_max_rel_diff = 4.987e-15
+loadavg_1min = [10.57, 10.58]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "complex"
+mesh_n = 24
+dofs = 12167
+threads = "8"
+repeat = 3
+calls_per_mode = 400
+pool_median_wall_us = 7570.5
+seq_median_wall_us = 8502.5
+pool_cpu_per_call_us = 22238.9
+seq_cpu_per_call_us = 8508.3
+wall_ratio_pool_over_seq = 0.89
+cpu_ratio_pool_over_seq = 2.61
+seq_vs_pool_max_rel_diff = 4.987e-15
+loadavg_1min = [9.25, 10.60]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "ams"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 1
+calls_per_mode = 400
+pool_median_wall_us = 2047.8
+seq_median_wall_us = 1233.2
+pool_cpu_per_call_us = 6986.2
+seq_cpu_per_call_us = 1242.9
+wall_ratio_pool_over_seq = 1.66
+cpu_ratio_pool_over_seq = 5.62
+seq_vs_pool_max_rel_diff = 3.506e-15
+loadavg_1min = [11.02, 11.02]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "ams"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 2
+calls_per_mode = 400
+pool_median_wall_us = 1968.9
+seq_median_wall_us = 1158.9
+pool_cpu_per_call_us = 6892.4
+seq_cpu_per_call_us = 1171.2
+wall_ratio_pool_over_seq = 1.70
+cpu_ratio_pool_over_seq = 5.88
+seq_vs_pool_max_rel_diff = 3.506e-15
+loadavg_1min = [9.93, 9.61]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "ams"
+mesh_n = 20
+dofs = 6859
+threads = "8"
+repeat = 3
+calls_per_mode = 400
+pool_median_wall_us = 1922.8
+seq_median_wall_us = 1120.3
+pool_cpu_per_call_us = 6646.2
+seq_cpu_per_call_us = 1145.2
+wall_ratio_pool_over_seq = 1.72
+cpu_ratio_pool_over_seq = 5.80
+seq_vs_pool_max_rel_diff = 3.506e-15
+loadavg_1min = [9.73, 9.73]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 10
+dofs = 6990
+threads = "8"
+repeat = 1
+calls_per_mode = 200
+pool_median_wall_us = 2602.2
+seq_median_wall_us = 1949.0
+pool_cpu_per_call_us = 7640.5
+seq_cpu_per_call_us = 1950.0
+wall_ratio_pool_over_seq = 1.34
+cpu_ratio_pool_over_seq = 3.92
+seq_vs_pool_max_rel_diff = 4.154e-11
+loadavg_1min = [11.06, 11.06]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 10
+dofs = 6990
+threads = "8"
+repeat = 2
+calls_per_mode = 200
+pool_median_wall_us = 2530.8
+seq_median_wall_us = 1899.2
+pool_cpu_per_call_us = 7459.0
+seq_cpu_per_call_us = 1957.4
+wall_ratio_pool_over_seq = 1.33
+cpu_ratio_pool_over_seq = 3.81
+seq_vs_pool_max_rel_diff = 4.154e-11
+loadavg_1min = [10.58, 10.58]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 10
+dofs = 6990
+threads = "8"
+repeat = 3
+calls_per_mode = 200
+pool_median_wall_us = 2441.3
+seq_median_wall_us = 1819.9
+pool_cpu_per_call_us = 7251.9
+seq_cpu_per_call_us = 1869.1
+wall_ratio_pool_over_seq = 1.34
+cpu_ratio_pool_over_seq = 3.88
+seq_vs_pool_max_rel_diff = 4.154e-11
+loadavg_1min = [10.60, 10.63]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 11
+dofs = 9306
+threads = "8"
+repeat = 1
+calls_per_mode = 200
+pool_median_wall_us = 4145.5
+seq_median_wall_us = 3091.1
+pool_cpu_per_call_us = 13254.1
+seq_cpu_per_call_us = 3104.2
+wall_ratio_pool_over_seq = 1.34
+cpu_ratio_pool_over_seq = 4.27
+seq_vs_pool_max_rel_diff = 4.642e-11
+loadavg_1min = [11.06, 10.90]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 11
+dofs = 9306
+threads = "8"
+repeat = 2
+calls_per_mode = 200
+pool_median_wall_us = 3930.4
+seq_median_wall_us = 2939.2
+pool_cpu_per_call_us = 12666.9
+seq_cpu_per_call_us = 2997.1
+wall_ratio_pool_over_seq = 1.34
+cpu_ratio_pool_over_seq = 4.23
+seq_vs_pool_max_rel_diff = 4.642e-11
+loadavg_1min = [10.58, 10.58]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 11
+dofs = 9306
+threads = "8"
+repeat = 3
+calls_per_mode = 200
+pool_median_wall_us = 3868.9
+seq_median_wall_us = 2907.3
+pool_cpu_per_call_us = 12588.3
+seq_cpu_per_call_us = 2947.9
+wall_ratio_pool_over_seq = 1.33
+cpu_ratio_pool_over_seq = 4.27
+seq_vs_pool_max_rel_diff = 4.642e-11
+loadavg_1min = [10.63, 10.63]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 12
+dofs = 12084
+threads = "8"
+repeat = 1
+calls_per_mode = 200
+pool_median_wall_us = 5874.6
+seq_median_wall_us = 5038.0
+pool_cpu_per_call_us = 20120.4
+seq_cpu_per_call_us = 5085.8
+wall_ratio_pool_over_seq = 1.17
+cpu_ratio_pool_over_seq = 3.96
+seq_vs_pool_max_rel_diff = 6.394e-11
+loadavg_1min = [10.90, 10.90]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 12
+dofs = 12084
+threads = "8"
+repeat = 2
+calls_per_mode = 200
+pool_median_wall_us = 5821.0
+seq_median_wall_us = 5058.2
+pool_cpu_per_call_us = 19763.4
+seq_cpu_per_call_us = 5084.8
+wall_ratio_pool_over_seq = 1.15
+cpu_ratio_pool_over_seq = 3.89
+seq_vs_pool_max_rel_diff = 6.394e-11
+loadavg_1min = [10.58, 10.37]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 12
+dofs = 12084
+threads = "8"
+repeat = 3
+calls_per_mode = 200
+pool_median_wall_us = 5584.1
+seq_median_wall_us = 4920.6
+pool_cpu_per_call_us = 19114.0
+seq_cpu_per_call_us = 4927.8
+wall_ratio_pool_over_seq = 1.13
+cpu_ratio_pool_over_seq = 3.88
+seq_vs_pool_max_rel_diff = 6.394e-11
+loadavg_1min = [10.63, 10.63]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 16
+dofs = 28656
+threads = "8"
+repeat = 1
+calls_per_mode = 200
+pool_median_wall_us = 19403.1
+seq_median_wall_us = 22587.2
+pool_cpu_per_call_us = 75221.3
+seq_cpu_per_call_us = 22652.7
+wall_ratio_pool_over_seq = 0.86
+cpu_ratio_pool_over_seq = 3.32
+seq_vs_pool_max_rel_diff = 1.063e-10
+loadavg_1min = [11.30, 11.20]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 16
+dofs = 28656
+threads = "8"
+repeat = 2
+calls_per_mode = 200
+pool_median_wall_us = 19137.3
+seq_median_wall_us = 22583.5
+pool_cpu_per_call_us = 74317.6
+seq_cpu_per_call_us = 22626.8
+wall_ratio_pool_over_seq = 0.85
+cpu_ratio_pool_over_seq = 3.28
+seq_vs_pool_max_rel_diff = 1.063e-10
+loadavg_1min = [10.37, 9.93]  # start, end of the timed calls
+
+[[threading_fix_956.spot_check_faier_0_25_2.per_call]]
+site = "transient"
+mesh_n = 16
+dofs = 28656
+threads = "8"
+repeat = 3
+calls_per_mode = 200
+pool_median_wall_us = 18362.4
+seq_median_wall_us = 22347.6
+pool_cpu_per_call_us = 72321.6
+seq_cpu_per_call_us = 22374.0
+wall_ratio_pool_over_seq = 0.82
+cpu_ratio_pool_over_seq = 3.23
+seq_vs_pool_max_rel_diff = 1.063e-10
+loadavg_1min = [10.50, 9.73]  # start, end of the timed calls
+
+[threading_fix_956.spot_check_faier_0_25_2.summary]
+note = "Median over the three repeats of pool / seq (> 1 means sequential is cheaper), next to the median of the 0.24.4 legs of the same site, size and thread count where one exists (-1.0 otherwise). dofs is the system dimension the size limit is compared with."
+complex_t8_mesh_n = [18, 20, 22, 24]
+complex_t8_dofs = [4913, 6859, 9261, 12167]
+complex_t8_wall_ratio = [1.31, 1.19, 0.95, 0.89]
+complex_t8_wall_ratio_faier_0_24_4 = [-1.0, 1.28, 0.99, 0.94]  # -1.0: size not measured on 0.24.4
+complex_t8_cpu_ratio = [3.75, 3.35, 2.45, 2.62]
+complex_t8_cpu_ratio_faier_0_24_4 = [-1.0, 4.26, 2.50, 2.75]  # -1.0: size not measured on 0.24.4
+ams_t8_mesh_n = [20]
+ams_t8_dofs = [6859]
+ams_t8_wall_ratio = [1.70]
+ams_t8_wall_ratio_faier_0_24_4 = [-1.0]  # -1.0: size not measured on 0.24.4
+ams_t8_cpu_ratio = [5.80]
+ams_t8_cpu_ratio_faier_0_24_4 = [-1.0]  # -1.0: size not measured on 0.24.4
+transient_t8_mesh_n = [10, 11, 12, 16]
+transient_t8_dofs = [6990, 9306, 12084, 28656]
+transient_t8_wall_ratio = [1.34, 1.34, 1.15, 0.85]
+transient_t8_wall_ratio_faier_0_24_4 = [1.53, 1.44, 1.25, 0.85]
+transient_t8_cpu_ratio = [3.88, 4.27, 3.89, 3.28]
+transient_t8_cpu_ratio_faier_0_24_4 = [4.33, 4.54, 4.28, 3.20]
 
 [threading_fix_956.end_to_end]
 note = "The whole solve on main, ungated (the first fix commit: sequential at every size) and fix (shipped: sequential up to sequential_solve_max_dim unknowns), one process per leg. Above the limit fix takes no scope, so it runs as main does and was not rerun there; below it fix and ungated make the same change. complex: SparseComplexShiftInvertLanczos::default().smallest_eigenpairs (20 modes) on the lossy P1 pencil; timed region = factorization + Lanczos loop. ams: matrix-free shift-invert Lanczos with the three-space AMS inner preconditioner and GEODE_COARSE=direct, on the synthetic transmon cavity of tests/transmon_eigenmode.rs (4 modes, sigma = -0.5); timed region = the eigensolve. transient: TransientSolver::run (400 steps at mesh_n 16, 200 at 24) of generalized-alpha (rho_inf = 1) on the parallel-plate lumped-port fixture; timed region = run (factorization + steps), factor_* = one factorization alone. *_user_s and *_sys_s are getrusage deltas around the timed region."

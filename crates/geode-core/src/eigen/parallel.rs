@@ -564,6 +564,17 @@ impl Drop for SequentialSolveScope {
 /// 97k-unknown transient run the sequential loop made the whole solve 20 % and
 /// 25 to 50 % slower. Above this dimension the solve is therefore left on the
 /// caller's parallelism, as before #956.
+///
+/// Those figures were taken on the faier 0.24.4 git pin. The 8-thread per-call
+/// legs were run again around this limit on faier 0.25.2, the version this
+/// tree depends on, at a lower host load (`spot_check_faier_0_25_2` in the
+/// same file). The complex LU broke even between 6.9k and 9.3k unknowns
+/// (pool / sequential wall time 1.19 and 0.95, against 1.28 and 0.99 before),
+/// so a complex solve just under the limit was about 5 % slower per call run
+/// sequentially, on 2.4 times less CPU. The transient step (1.34 at 9.3k, 1.15
+/// at 12k) and the real coarse LU (1.70 at 6.9k) were still clearly cheaper
+/// sequential. The limit is one number for all three sites and was kept. The
+/// default pool and the end-to-end runs were not repeated on 0.25.2.
 pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 10_000;
 
 /// A [`SequentialSolveScope`] for a run of single-right-hand-side solves
