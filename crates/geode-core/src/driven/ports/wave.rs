@@ -666,7 +666,8 @@ pub fn solve_wave_port_sweep<B: burn::tensor::backend::Backend>(
 /// correction in host code. The matrix-vector pieces never change —
 /// only the back-solve does.
 ///
-/// On the iterative path the Jacobi preconditioner is built once per ω
+/// On the iterative path the preconditioner (the default `Auto`: AMS
+/// where supported, Jacobi otherwise, issue #930) is built once per ω
 /// inside [`DrivenOperator::prepare_at`] and reused across every RHS at
 /// that frequency (issue #264's "preconditioner can be assembled once
 /// and reused" — the post-step composition lets that work without

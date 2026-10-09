@@ -342,8 +342,10 @@ pub enum SolverMode {
     /// COCG iterative path (issue #238 / PR #243). No factor — each RHS
     /// at a fixed ω is solved by a fresh COCG iteration against the
     /// cached sparse `A(ω)`, with the preconditioner selected by
-    /// [`IterativeSettings::preconditioner`] (Jacobi by default) built
-    /// once per ω and reused across RHS.
+    /// [`IterativeSettings::preconditioner`] (by default
+    /// [`IterativePreconditioner::Auto`]: AMS where supported, Jacobi with
+    /// a warning otherwise, issue #930) built once per ω and reused across
+    /// RHS.
     Iterative(IterativeSettings),
     /// **GPU-resident matrix-free** COCG path (issue #302 Phase 3 / PR
     /// #487's [`crate::solver::ksp_burn::BurnCocg`]). Like
@@ -380,9 +382,13 @@ pub struct IterativeSettings {
     pub max_iters: usize,
     /// Preconditioner built once per ω from the assembled `A(ω)` on the
     /// [`SolverMode::Iterative`] path (issue #708 Phase 6b). Default
-    /// [`IterativePreconditioner::Jacobi`] — the historical behavior.
-    /// The matrix-free path ([`SolverMode::IterativeMatrixFree`]) only
-    /// has an on-device Jacobi and rejects anything else with
+    /// [`IterativePreconditioner::Auto`] (issue #930): AMS wherever it is
+    /// supported, Jacobi with a warning where it is not (see
+    /// [`DrivenOperator::resolve_preconditioner`]). Set
+    /// [`IterativePreconditioner::Jacobi`] explicitly for the pre-#930
+    /// behavior. The matrix-free path ([`SolverMode::IterativeMatrixFree`])
+    /// only has an on-device Jacobi: it resolves `Auto` to Jacobi with a
+    /// warning and rejects any other explicit choice with
     /// [`DrivenError::UnsupportedMatrixFree`].
     pub preconditioner: IterativePreconditioner,
 }
@@ -394,19 +400,19 @@ impl Default for IterativeSettings {
         Self {
             tol: 1e-10,
             max_iters: 5000,
-            preconditioner: IterativePreconditioner::Jacobi,
+            preconditioner: IterativePreconditioner::Auto,
         }
     }
 }
 
 impl IterativeSettings {
     /// Convenience constructor — `tol` and `max_iters` only, with the
-    /// default [`IterativePreconditioner::Jacobi`].
+    /// default [`IterativePreconditioner::Auto`].
     pub fn new(tol: f64, max_iters: usize) -> Self {
         Self {
             tol,
             max_iters,
-            preconditioner: IterativePreconditioner::Jacobi,
+            preconditioner: IterativePreconditioner::Auto,
         }
     }
 
@@ -424,11 +430,39 @@ impl IterativeSettings {
 /// and reused across every RHS at that ω. All of them are applied with
 /// plain (non-conjugating) complex arithmetic, so they compose with the
 /// COCG bilinear form.
+///
+/// # Default (issue #930)
+///
+/// The default is [`Self::Auto`], which [`DrivenOperator::prepare_at`]
+/// resolves to [`Self::AMS`] wherever AMS is supported and to
+/// [`Self::Jacobi`], with a [`PreconditionerFallback`] warning, where it
+/// is not. The evidence for AMS over Jacobi is the at-scale run of PR #967
+/// (`benchmarks/gpu_driven_scaling/README.md`); AMS costs more memory than
+/// Jacobi (it holds an exact sparse LU of the nodal coarse operator).
+/// Every explicit variant, Jacobi included, is honoured as given, without
+/// a warning.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum IterativePreconditioner {
-    /// Diagonal scaling ([`crate::solver::ksp::JacobiPreconditioner`]):
-    /// `O(n)` setup and memory. The default.
+    /// AMS where it is supported, Jacobi otherwise (issue #930). The
+    /// default. Resolved per [`DrivenOperator::prepare_at`] call by
+    /// [`DrivenOperator::resolve_preconditioner`]:
+    ///
+    /// - [`SolverMode::Iterative`] on a p=1 operator without matched-UPML
+    ///   materials: [`Self::AMS`];
+    /// - a higher-order operator (AMS returns
+    ///   [`DrivenError::UnsupportedAtOrder`] there), matched-UPML materials
+    ///   (AMS measured not to converge the radiating UPML patch, issue
+    ///   #744), or [`SolverMode::IterativeMatrixFree`] (on-device Jacobi
+    ///   only): [`Self::Jacobi`], with a [`PreconditionerFallback`] that is
+    ///   printed once per process on stderr as `warning: …` and returned by
+    ///   [`DrivenLinearSolver::preconditioner_fallback`].
+    ///
+    /// [`Self::build`] (which sees only `A(ω)`) rejects it.
     #[default]
+    Auto,
+    /// Diagonal scaling ([`crate::solver::ksp::JacobiPreconditioner`]):
+    /// `O(n)` setup and memory. The default before issue #930, and what
+    /// [`Self::Auto`] falls back to.
     Jacobi,
     /// Incomplete LU with zero fill
     /// ([`crate::solver::ksp::IluPreconditioner`], issue #267): one
@@ -471,9 +505,11 @@ impl IterativePreconditioner {
         coarse: AmsCoarseSolve::Auto,
     };
 
-    /// Short stable name (`"jacobi"`, `"ilu0"`, `"chebyshev"`, `"ams"`).
+    /// Short stable name (`"auto"`, `"jacobi"`, `"ilu0"`, `"chebyshev"`,
+    /// `"ams"`).
     pub fn name(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
             Self::Jacobi => "jacobi",
             Self::Ilu0 => "ilu0",
             Self::Chebyshev { .. } => "chebyshev",
@@ -489,7 +525,9 @@ impl IterativePreconditioner {
     /// [`DrivenError::Solve`] wrapping the setup failure (a zero /
     /// non-finite diagonal for Jacobi / Chebyshev, a vanishing ILU(0)
     /// pivot), or for [`Self::Ams`], which needs the operator's mesh
-    /// geometry and is built by [`DrivenOperator::prepare_at`] instead.
+    /// geometry and is built by [`DrivenOperator::prepare_at`] instead, and
+    /// for [`Self::Auto`], which only [`DrivenOperator::prepare_at`] can
+    /// resolve (it depends on the operator's order and materials).
     pub fn build(
         self,
         a: faer::sparse::SparseColMatRef<'_, usize, c64>,
@@ -516,7 +554,96 @@ impl IterativePreconditioner {
                         .to_string(),
                 ));
             }
+            Self::Auto => {
+                return Err(DrivenError::Solve(
+                    "auto preconditioner setup: `auto` resolves to AMS or Jacobi from the \
+                     operator's order and materials, so it is resolved by \
+                     DrivenOperator::prepare_at, not from A(ω) alone"
+                        .to_string(),
+                ));
+            }
         })
+    }
+}
+
+/// Why [`IterativePreconditioner::Auto`] did not resolve to AMS (issue
+/// #930).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreconditionerFallbackReason {
+    /// The operator is not p=1: the AMS auxiliary space is built on the
+    /// Whitney edge layout, and AMS returns
+    /// [`DrivenError::UnsupportedAtOrder`] at this order.
+    Order(ElementOrder),
+    /// [`SolverMode::IterativeMatrixFree`]: the matrix-free path has only
+    /// an on-device Jacobi preconditioner (AMS there is issue #966).
+    MatrixFree,
+    /// Matched-UPML materials: AMS was measured not to converge the
+    /// radiating UPML patch (issue #744), where Jacobi does.
+    MatchedUpml,
+}
+
+/// The warning [`IterativePreconditioner::Auto`] raises when it falls back
+/// from AMS (issue #930): the reason and the preconditioner actually used.
+/// Its [`std::fmt::Display`] is the warning text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreconditionerFallback {
+    /// Why AMS was not used.
+    pub reason: PreconditionerFallbackReason,
+    /// The preconditioner actually used (always
+    /// [`IterativePreconditioner::Jacobi`] today).
+    pub used: IterativePreconditioner,
+}
+
+impl std::fmt::Display for PreconditionerFallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let why = match self.reason {
+            PreconditionerFallbackReason::Order(order) => format!(
+                "the AMS preconditioner is not supported at element order p={}",
+                order.degree()
+            ),
+            PreconditionerFallbackReason::MatrixFree => {
+                "the matrix-free iterative path has no AMS preconditioner (on-device Jacobi \
+                 only)"
+                    .to_string()
+            }
+            PreconditionerFallbackReason::MatchedUpml => {
+                "the AMS preconditioner does not converge with matched-UPML absorbing \
+                 regions (issue #744)"
+                    .to_string()
+            }
+        };
+        write!(
+            f,
+            "preconditioner `auto` (the default) fell back to `{}`: {why}; set the \
+             preconditioner explicitly to silence this warning",
+            self.used.name()
+        )
+    }
+}
+
+impl PreconditionerFallbackReason {
+    /// Index into the once-per-process stderr guard.
+    fn slot(self) -> usize {
+        match self {
+            Self::Order(_) => 0,
+            Self::MatrixFree => 1,
+            Self::MatchedUpml => 2,
+        }
+    }
+}
+
+/// Print `fallback` on stderr as `warning: …`, once per process per
+/// [`PreconditionerFallbackReason`] kind, so a frequency sweep (one
+/// [`DrivenOperator::prepare_at`] per ω) warns once rather than per point.
+fn warn_preconditioner_fallback(fallback: &PreconditionerFallback) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: [AtomicBool; 3] = [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ];
+    if !WARNED[fallback.reason.slot()].swap(true, Ordering::Relaxed) {
+        eprintln!("warning: {fallback}");
     }
 }
 
@@ -3058,8 +3185,10 @@ fn require_converged(
 /// - the cached complex sparse `A(ω)` (shared by both backends, so
 ///   [`DrivenLinearSolver::spmv_a`] and the residual checks are
 ///   identical),
-/// - either an LU factorization (direct) **or** the Jacobi
-///   preconditioner + COCG knobs (iterative).
+/// - either an LU factorization (direct) **or** the preconditioner +
+///   COCG knobs (iterative; [`Self::preconditioner`] names the one used
+///   and [`Self::preconditioner_fallback`] reports a fallback of the
+///   default [`IterativePreconditioner::Auto`], issue #930).
 ///
 /// Multi-RHS callers at the same ω
 /// ([`crate::driven::extraction::s_parameter_frequency_sweep`],
@@ -3072,6 +3201,11 @@ pub struct DrivenLinearSolver<'a, B: Backend> {
     omega: f64,
     a_int: SparseColMat<usize, c64>,
     backend: SolverBackend<B>,
+    /// The resolved preconditioner (`None` on the direct path).
+    preconditioner: Option<IterativePreconditioner>,
+    /// Set when the default [`IterativePreconditioner::Auto`] fell back
+    /// from AMS (issue #930).
+    fallback: Option<PreconditionerFallback>,
 }
 
 enum SolverBackend<B: Backend> {
@@ -3098,6 +3232,23 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
     /// The frequency `ω` this handle was prepared at.
     pub fn omega(&self) -> f64 {
         self.omega
+    }
+
+    /// The preconditioner this handle's iterative back-solve actually
+    /// applies — never [`IterativePreconditioner::Auto`], which
+    /// [`DrivenOperator::prepare_at`] resolved — or `None` on the direct
+    /// path.
+    pub fn preconditioner(&self) -> Option<IterativePreconditioner> {
+        self.preconditioner
+    }
+
+    /// The warning raised when the default
+    /// [`IterativePreconditioner::Auto`] fell back from AMS to Jacobi at
+    /// this ω (issue #930), or `None` (AMS was used, the preconditioner was
+    /// chosen explicitly, or the path is direct). The same text is printed
+    /// once per process on stderr.
+    pub fn preconditioner_fallback(&self) -> Option<&PreconditionerFallback> {
+        self.fallback.as_ref()
     }
 
     /// `true` if this handle uses an iterative (COCG) back-solve path —
@@ -3316,9 +3467,11 @@ impl DrivenOperator {
     ///   resulting handle's [`DrivenLinearSolver::back_solve`] is a
     ///   triangular back-substitution per RHS.
     /// - [`SolverMode::Iterative`]: build the selected
-    ///   [`IterativePreconditioner`] (Jacobi by default, ILU(0) or
-    ///   Chebyshev on request) from `A(ω)`; the handle's `back_solve` runs a fresh
-    ///   [`crate::solver::ksp::Cocg`] iteration per RHS.
+    ///   [`IterativePreconditioner`] (by default
+    ///   [`IterativePreconditioner::Auto`], resolved by
+    ///   [`Self::resolve_preconditioner`]: AMS where supported, Jacobi with
+    ///   a warning otherwise) from `A(ω)`; the handle's `back_solve` runs a
+    ///   fresh [`crate::solver::ksp::Cocg`] iteration per RHS.
     /// - [`SolverMode::IterativeMatrixFree`]: build the Burn matrix-free
     ///   volume pencil plus the on-device COO surface correction at ω
     ///   ([`crate::driven::matrix_free`]); the handle's `back_solve` runs
@@ -3345,8 +3498,8 @@ impl DrivenOperator {
     /// failures, the LU-factorization failure on the direct path,
     /// [`DrivenError::Solve`] wrapping a preconditioner setup error (a
     /// zero / non-finite diagonal, a vanishing ILU(0) pivot) on the
-    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] for a
-    /// non-Jacobi preconditioner or an unsupported material on the
+    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] for an
+    /// explicit non-Jacobi preconditioner or an unsupported material on the
     /// matrix-free path.
     pub fn prepare_at<B: Backend>(
         &self,
@@ -3367,6 +3520,8 @@ impl DrivenOperator {
                         feature: "the matrix-free iterative solver (SolverMode::IterativeMatrixFree)",
                     });
                 }
+                // Explicit AMS only: the default `Auto` falls back to Jacobi
+                // below (issue #930).
                 SolverMode::Iterative(IterativeSettings {
                     preconditioner: IterativePreconditioner::Ams { .. },
                     ..
@@ -3379,6 +3534,10 @@ impl DrivenOperator {
                 _ => {}
             }
         }
+        let (preconditioner, fallback) = match self.resolve_preconditioner(mode) {
+            Some((pc, fallback)) => (Some(pc), fallback),
+            None => (None, None),
+        };
         let a_int = self.assemble_a_at(omega)?;
         let backend = match mode {
             SolverMode::Direct => {
@@ -3389,7 +3548,8 @@ impl DrivenOperator {
                 SolverBackend::Direct { lu: Box::new(lu) }
             }
             SolverMode::Iterative(settings) => {
-                let precond = match settings.preconditioner {
+                let resolved = preconditioner.expect("iterative mode resolves a preconditioner");
+                let precond = match resolved {
                     IterativePreconditioner::Ams { coarse } => {
                         DrivenPreconditioner::Ams(ams::build(self, omega, coarse)?)
                     }
@@ -3399,7 +3559,10 @@ impl DrivenOperator {
                 SolverBackend::Iterative { precond, ksp }
             }
             SolverMode::IterativeMatrixFree(settings) => {
-                if settings.preconditioner != IterativePreconditioner::Jacobi {
+                if !matches!(
+                    settings.preconditioner,
+                    IterativePreconditioner::Jacobi | IterativePreconditioner::Auto
+                ) {
                     return Err(DrivenError::UnsupportedMatrixFree {
                         reason: format!(
                             "the matrix-free path (v1) has only an on-device Jacobi \
@@ -3441,12 +3604,62 @@ impl DrivenOperator {
                 }
             }
         };
+        // Warn only once the solver is built, so a setup error is not
+        // preceded by a fallback note about a solve that never runs.
+        if let Some(fallback) = &fallback {
+            warn_preconditioner_fallback(fallback);
+        }
         Ok(DrivenLinearSolver {
             op: self,
             omega,
             a_int,
             backend,
+            preconditioner,
+            fallback,
         })
+    }
+
+    /// The preconditioner [`Self::prepare_at`] uses in `mode`, with the
+    /// fallback warning when the default [`IterativePreconditioner::Auto`]
+    /// could not resolve to AMS (issue #930); `None` for
+    /// [`SolverMode::Direct`]. An explicit choice is returned unchanged,
+    /// without a warning (an unsupported one is rejected by `prepare_at`,
+    /// not here).
+    ///
+    /// `Auto` resolves to [`IterativePreconditioner::AMS`] on the assembled
+    /// [`SolverMode::Iterative`] path of a p=1 operator without
+    /// matched-UPML materials, and to [`IterativePreconditioner::Jacobi`]
+    /// otherwise: at a higher element order, with matched-UPML materials,
+    /// and on [`SolverMode::IterativeMatrixFree`] (the reasons are
+    /// [`PreconditionerFallbackReason`]). There is no mesh-size threshold.
+    pub fn resolve_preconditioner(
+        &self,
+        mode: SolverMode,
+    ) -> Option<(IterativePreconditioner, Option<PreconditionerFallback>)> {
+        let fallback = |reason| {
+            let used = IterativePreconditioner::Jacobi;
+            (used, Some(PreconditionerFallback { reason, used }))
+        };
+        match mode {
+            SolverMode::Direct => None,
+            SolverMode::Iterative(IterativeSettings {
+                preconditioner: IterativePreconditioner::Auto,
+                ..
+            }) => Some(if self.order != ElementOrder::P1 {
+                fallback(PreconditionerFallbackReason::Order(self.order))
+            } else if matches!(self.materials_kind, MaterialsKind::MatchedUpml) {
+                fallback(PreconditionerFallbackReason::MatchedUpml)
+            } else {
+                (IterativePreconditioner::AMS, None)
+            }),
+            SolverMode::IterativeMatrixFree(IterativeSettings {
+                preconditioner: IterativePreconditioner::Auto,
+                ..
+            }) => Some(fallback(PreconditionerFallbackReason::MatrixFree)),
+            SolverMode::Iterative(s) | SolverMode::IterativeMatrixFree(s) => {
+                Some((s.preconditioner, None))
+            }
+        }
     }
 }
 
@@ -4264,20 +4477,15 @@ mod tests {
         let omega = 0.01;
         let budget = 150;
 
-        // Default settings stay Jacobi (backwards compatible).
-        assert_eq!(
-            IterativeSettings::default().preconditioner,
-            IterativePreconditioner::Jacobi
-        );
-        assert_eq!(
-            IterativeSettings::new(1e-10, budget).preconditioner,
-            IterativePreconditioner::Jacobi
-        );
-
+        // Jacobi pinned explicitly: since issue #930 the default is
+        // `Auto`, which resolves to AMS on this p=1 operator.
         let jacobi = op
             .prepare_at::<B>(
                 omega,
-                SolverMode::Iterative(IterativeSettings::new(1e-10, budget)),
+                SolverMode::Iterative(
+                    IterativeSettings::new(1e-10, budget)
+                        .with_preconditioner(IterativePreconditioner::Jacobi),
+                ),
                 &device(),
             )
             .expect("Jacobi setup");
@@ -4358,6 +4566,157 @@ mod tests {
         );
     }
 
+    /// A vacuum PEC cube (`n` cells a side) with a volume source, for the
+    /// issue #930 default-preconditioner tests.
+    fn default_pc_cube(n: usize) -> (TetMesh, DrivenOperator) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        (mesh, op)
+    }
+
+    /// Issue #930: the default preconditioner is `Auto`, and on a p=1
+    /// assembled iterative solve it selects AMS, with no fallback warning;
+    /// the AMS solve converges and matches direct LU.
+    #[test]
+    fn default_preconditioner_selects_ams_on_p1_assembled_iterative() {
+        assert_eq!(
+            IterativePreconditioner::default(),
+            IterativePreconditioner::Auto
+        );
+        assert_eq!(
+            IterativeSettings::default().preconditioner,
+            IterativePreconditioner::Auto
+        );
+        assert_eq!(
+            IterativeSettings::new(1e-10, 500).preconditioner,
+            IterativePreconditioner::Auto
+        );
+        let (_mesh, op) = default_pc_cube(4);
+        let omega = 0.05;
+        let mode = SolverMode::Iterative(IterativeSettings::new(1e-10, 500));
+        assert_eq!(
+            op.resolve_preconditioner(mode),
+            Some((IterativePreconditioner::AMS, None))
+        );
+        let solver = op.prepare_at::<B>(omega, mode, &device()).expect("setup");
+        assert_eq!(solver.preconditioner(), Some(IterativePreconditioner::AMS));
+        assert_eq!(solver.preconditioner_fallback(), None);
+        assert!(matches!(
+            solver.backend,
+            SolverBackend::Iterative {
+                precond: DrivenPreconditioner::Ams(_),
+                ..
+            }
+        ));
+        let (sol, report) = solver.solve().expect("AMS converges");
+        assert!(report.converged);
+        let (lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol
+            .e_edges
+            .iter()
+            .zip(&lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        assert!((num / den).sqrt() < 1e-6);
+        // The direct path has no preconditioner.
+        assert_eq!(op.resolve_preconditioner(SolverMode::Direct), None);
+    }
+
+    /// Issue #930: the matrix-free path has only an on-device Jacobi, so
+    /// the default preconditioner falls back to Jacobi there, with a
+    /// warning that says why (matrix-free) and names `jacobi`.
+    #[test]
+    fn default_preconditioner_falls_back_to_jacobi_with_a_warning_on_matrix_free() {
+        let (_mesh, op) = default_pc_cube(2);
+        let mode = SolverMode::IterativeMatrixFree(IterativeSettings::new(1e-10, 5000));
+        let solver = op
+            .prepare_at::<B>(1.0, mode, &device())
+            .expect("matrix-free setup with the default preconditioner");
+        assert_eq!(
+            solver.preconditioner(),
+            Some(IterativePreconditioner::Jacobi)
+        );
+        let fallback = solver
+            .preconditioner_fallback()
+            .copied()
+            .expect("a matrix-free fallback must carry a warning");
+        assert_eq!(
+            fallback,
+            PreconditionerFallback {
+                reason: PreconditionerFallbackReason::MatrixFree,
+                used: IterativePreconditioner::Jacobi,
+            }
+        );
+        let msg = fallback.to_string();
+        assert!(
+            msg.contains("matrix-free") && msg.contains("`jacobi`"),
+            "{msg}"
+        );
+        let (_, report) = solver.solve().expect("matrix-free Jacobi converges");
+        assert!(report.converged);
+    }
+
+    /// Issue #930: an explicit Jacobi is honoured, with no fallback
+    /// warning, on both the assembled and the matrix-free path.
+    #[test]
+    fn explicit_jacobi_is_honoured_without_a_warning() {
+        let (_mesh, op) = default_pc_cube(3);
+        let jacobi = IterativeSettings::new(1e-10, 5000)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+        for mode in [
+            SolverMode::Iterative(jacobi),
+            SolverMode::IterativeMatrixFree(jacobi),
+        ] {
+            assert_eq!(
+                op.resolve_preconditioner(mode),
+                Some((IterativePreconditioner::Jacobi, None))
+            );
+            let solver = op.prepare_at::<B>(0.5, mode, &device()).expect("setup");
+            assert_eq!(
+                solver.preconditioner(),
+                Some(IterativePreconditioner::Jacobi)
+            );
+            assert_eq!(solver.preconditioner_fallback(), None, "{mode:?}");
+            if let SolverBackend::Iterative { precond, .. } = &solver.backend {
+                assert!(matches!(precond, DrivenPreconditioner::Jacobi(_)));
+            }
+            let (_, report) = solver.solve().expect("Jacobi converges");
+            assert!(report.converged);
+        }
+        // `build` cannot resolve `Auto` from A(ω) alone.
+        let a = op.assemble_a_at(0.5).expect("A(ω)");
+        assert!(matches!(
+            IterativePreconditioner::Auto.build(a.as_ref()),
+            Err(DrivenError::Solve(m)) if m.contains("prepare_at")
+        ));
+    }
+
     /// **Issue #744 regression — recursive-residual drift is a hard error.**
     ///
     /// COCG stops when its *recursively maintained* residual crosses
@@ -4426,7 +4785,10 @@ mod tests {
         };
 
         // Public per-ω handle (the path every sweep consumer funnels through).
-        let settings = IterativeSettings::new(tol, max_iters);
+        // Jacobi pinned: the drift precondition above is established with
+        // Jacobi, and the default (issue #930) would build AMS.
+        let settings = IterativeSettings::new(tol, max_iters)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
         let solver = op
             .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
             .expect("iterative setup");
@@ -4448,7 +4810,10 @@ mod tests {
         let (_, ok) = op
             .prepare_at::<B>(
                 omega,
-                SolverMode::Iterative(IterativeSettings::new(1e-10, max_iters)),
+                SolverMode::Iterative(IterativeSettings {
+                    tol: 1e-10,
+                    ..settings
+                }),
                 &device(),
             )
             .expect("iterative setup")
@@ -4526,7 +4891,8 @@ mod tests {
         assert_eq!(probe(), Some(true), "failing AMS solve had no scope");
 
         // Jacobi makes no faer solve per application, so it takes no scope.
-        let jacobi = IterativeSettings::new(1e-10, 5000);
+        let jacobi = IterativeSettings::new(1e-10, 5000)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
         op.prepare_at::<B>(omega, SolverMode::Iterative(jacobi), &device())
             .expect("Jacobi setup")
             .solve()

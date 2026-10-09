@@ -20,7 +20,8 @@ use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
     p.print_load_warnings();
-    let (wave_ports, warnings) = wave_port_previews(&p)?;
+    let (wave_ports, mut warnings) = wave_port_previews(&p)?;
+    warnings.extend(p.preconditioner_warnings());
     Ok(CheckReport {
         provenance,
         kind: "check",
@@ -524,11 +525,17 @@ pub fn solver_summary(s: SolverSpec) -> SolverSummary {
             mode: "direct",
             tol: None,
             max_iters: None,
+            preconditioner: None,
         },
-        SolverSpec::Iterative { tol, max_iters, .. } => SolverSummary {
+        SolverSpec::Iterative {
+            tol,
+            max_iters,
+            preconditioner,
+        } => SolverSummary {
             mode: "iterative",
             tol: Some(tol),
             max_iters: Some(max_iters),
+            preconditioner: Some(preconditioner.name()),
         },
     }
 }

@@ -259,8 +259,8 @@ Driven example (the spiral-inductor golden input,
 | `frequencies.start` / `stop` / `count` | floats > 0, int ≥ 1 | … an inclusive sweep |
 | `frequencies.spacing` | `"linear"` (default) \| `"log"` | sweep spacing |
 | `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a preconditioner built once per frequency |
-| `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); prefer `direct` there |
-| `solver.preconditioner` | iterative only; `"jacobi"` (default) \| `"ilu0"` | Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
+| `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); the default `auto` preconditioner uses AMS there, or use `direct` |
+| `solver.preconditioner` | iterative only; `"auto"` (default) \| `"jacobi"` \| `"ilu0"` \| `"ams"` | `auto` (issue #930) = `ams` wherever it is supported, else `jacobi` with a `"preconditioner_fallback"` warning (report `warnings[]` and stderr) that says why: a material with `Re ε_r ≤ 0` at a solved frequency, matched-UPML `absorbing_regions`, or floating PEC conductors, the three cases below where `ams` is rejected or measured not to converge. No mesh-size threshold. The evidence for the switch is the at-scale run of PR #967 ([`benchmarks/gpu_driven_scaling/README.md`](../../benchmarks/gpu_driven_scaling/README.md)); `ams` holds more memory than `jacobi` (`geode check` models it). An explicit value is always used as given, with no warning; set `"jacobi"` for the pre-#930 default. The report's `solver.preconditioner` names the preconditioner actually used. Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch, nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
 | `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions`, a dispersive material (`materials[].dispersion`) or a hybrid wave port (#807: its port operator is not affine in ω). Lumped `ports`, geometric `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
@@ -1730,7 +1730,9 @@ while `Re ε_r > 0`. A dispersive region with `Re ε_r(f) ≤ 0` at **any**
 solved frequency (a Drude model below `f₀`) is therefore `invalid_spec`
 **at load** (the frequencies are known up front, so `geode check`
 catches it too), naming the model, how many frequencies, the first one
-and `f₀`. The direct solve is unaffected, and `jacobi` / `ilu0` are not
+and `f₀`. With the default `solver.preconditioner = "auto"` (issue #930)
+the same spec is not an error: it runs with `jacobi` and a
+`"preconditioner_fallback"` warning. The direct solve is unaffected, and `jacobi` / `ilu0` are not
 guarded: they precondition `A(ω)` itself, and `Re ε < 0` turns the mass
 term `−ω² Re ε M_ii` positive, moving the diagonal away from zero.
 Debye (`Re ε ≥ ε∞`) and Djordjevic–Sarkar never trigger the guard. With
@@ -1830,7 +1832,8 @@ positive diagonal reweighting keeps `K`'s gradient nullspace and `M`'s
 definiteness — unit-tested in `geode-core`). An `eps_r_diag` component
 with `Re ≤ 0` is `invalid_spec` with AMS, as is a constant scalar
 `eps_r` with `Re ≤ 0` (the PR #769 follow-up; before, only a dispersive
-`ε_r(f)` was guarded); `μ` components are positive for every solver.
+`ε_r(f)` was guarded); `μ` components are positive for every solver. The
+default `"auto"` falls back to `jacobi` with a warning instead (#930).
 
 **Reporting.** `regions[]` gains `eps_r_diag` (`[[re, im] × 3]`) and
 `mu_r_diag` (`[μ × 3]`) for an anisotropic region; its `eps_r` / `mu_r`
@@ -2848,7 +2851,11 @@ Additive in v1 (issue #683) — always present in `check`, present in
   `wave_port_degeneracy_near_degenerate`,
   `wave_port_degeneracy_unconfirmed`,
   `wave_port_degeneracy_unavailable`; see **Degeneracy warnings** under
-  the wave ports), also printed on stderr.
+  the wave ports) and (issue #930, `check` and `driven`)
+  `preconditioner_fallback` — the default `solver.preconditioner =
+  "auto"` used `jacobi` instead of `ams`, with the reason — also printed
+  on stderr. `solver` gains `preconditioner` (additive, #930): the
+  iterative solve's resolved preconditioner, omitted for `direct`.
 
 **`kind = "check"`** adds `regions[]` (`physical_group`, `tag`, `n_tets`,
 `eps_r`, `eps_r_source` = `"spec"` \| `"default_vacuum"` \|

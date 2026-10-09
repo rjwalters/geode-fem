@@ -395,8 +395,9 @@ pub fn driven_frequency_sweep<B: Backend>(
 /// `driven_frequency_sweep` is exactly this entry point with
 /// `SolverMode::Direct`.
 ///
-/// `SolverMode::Iterative(settings)` instead builds the Jacobi
-/// preconditioner from `A(ω)` once per ω and runs a fresh
+/// `SolverMode::Iterative(settings)` instead builds the selected
+/// preconditioner (`settings.preconditioner`; by default AMS where
+/// supported, issue #930) from `A(ω)` once per ω and runs a fresh
 /// [`crate::solver::ksp::Cocg`] iteration for the single RHS — no
 /// factorization, no fill-in. The per-RHS COCG iteration count is
 /// surfaced in [`SweepPoint::iters_per_rhs`] so the regression test
@@ -522,7 +523,7 @@ pub fn s_parameter_frequency_sweep<B: Backend>(
 ///
 /// At each ω the sweep runs `n_ports` back-solves through one
 /// [`crate::driven::solve::DrivenLinearSolver`] handle (one LU factorization
-/// on the direct path, one Jacobi preconditioner on the iterative path)
+/// on the direct path, one preconditioner on the iterative path)
 /// — see [`SolverMode`] for the trade-off. Per-RHS iteration counts
 /// land in [`SParameterSweepPoint::iters_per_rhs`] for the regression
 /// channel.

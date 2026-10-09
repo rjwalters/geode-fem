@@ -285,6 +285,13 @@ cells are checked against each other and against Palace instead.
 
 ### Recommendation on the driven default (not applied here)
 
+**Update (#930):** the operator adopted this recommendation. The default
+preconditioner is now `IterativePreconditioner::Auto` (CLI
+`solver.preconditioner = "auto"`): AMS on the assembled p=1 iterative
+path, Jacobi with a warning at p=2, on the matrix-free path and where AMS
+is known not to work (matched UPML; in the CLI also `Re ε_r ≤ 0` and
+floating PEC). The text below is the recommendation as written for #967.
+
 Measured on one fixture, the evidence supports **making AMS the default
 preconditioner of the assembled iterative driven solve wherever it is
 supported, with an automatic fallback to Jacobi where it is not** (p=2, which

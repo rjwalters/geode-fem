@@ -833,7 +833,10 @@ fn gpu_driven_scaling_benchmark() {
             }
         };
 
-        let iset_f64 = IterativeSettings::new(ITER_TOL_F64, iter_max);
+        // Config 2 is the Jacobi baseline: pinned explicitly, because the
+        // default preconditioner resolves to AMS since issue #930.
+        let iset_f64 = IterativeSettings::new(ITER_TOL_F64, iter_max)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
         let iset_mf = IterativeSettings::new(mf_tol, iter_max);
 
         // Config 1: Direct (faer sparse LU), CPU f64. This is the accuracy

@@ -556,6 +556,13 @@ pub struct ObservableDef {
 pub struct Problem {
     /// Spec as parsed.
     pub spec: ProblemSpec,
+    /// The spec's solver with the default `solver.preconditioner = "auto"`
+    /// resolved to `ams` or `jacobi` (issue #930); [`Problem::solver`].
+    pub resolved_solver: SolverSpec,
+    /// The warning raised when `"auto"` resolved to `jacobi` rather than
+    /// `ams` (issue #930): why, and the preconditioner used. Reported in
+    /// `warnings[]` (kind `"preconditioner_fallback"`) and on stderr.
+    pub preconditioner_fallback: Option<String>,
     /// Absolute-or-as-given path of the mesh file actually read.
     pub mesh_path: PathBuf,
     /// Hex SHA-256 of the mesh file bytes.
@@ -627,9 +634,29 @@ impl Problem {
         self.pec_mask.iter().filter(|&&keep| keep).count()
     }
 
-    /// Solver selection from the spec.
+    /// Solver selection from the spec, with the default
+    /// `solver.preconditioner = "auto"` resolved (issue #930): never
+    /// [`crate::spec::PreconditionerSpec::Auto`].
     pub fn solver(&self) -> SolverSpec {
-        self.spec.solver
+        self.resolved_solver
+    }
+
+    /// The `"preconditioner_fallback"` report warning (issue #930), if the
+    /// default `"auto"` preconditioner resolved to `jacobi`, printed on
+    /// stderr as `warning: …` like every report warning.
+    pub fn preconditioner_warnings(&self) -> Vec<crate::report::WarningResult> {
+        self.preconditioner_fallback
+            .iter()
+            .map(|message| {
+                eprintln!("warning: {message}");
+                crate::report::WarningResult {
+                    kind: "preconditioner_fallback",
+                    wave_port: None,
+                    physical_group: None,
+                    message: message.clone(),
+                }
+            })
+            .collect()
     }
 
     /// Metres per mesh length unit.
@@ -1102,7 +1129,7 @@ pub fn load_parsed(
         }
         None => None,
     };
-    validate_ams_materials(&spec, &frequencies)?;
+    let ams_material_conflict = validate_ams_materials(&spec, &frequencies)?;
     let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
         n_modes: e.n_modes,
         shift: to_frequency(e.shift, e.unit, lu),
@@ -1553,6 +1580,10 @@ pub fn load_parsed(
     {
         check_ams_floating_pec(&tagged.mesh.nodes, &pec)?;
     }
+    let (resolved_solver, preconditioner_fallback) =
+        resolve_auto_preconditioner(spec.solver, ams_material_conflict, !upml.is_empty(), || {
+            check_ams_floating_pec(&tagged.mesh.nodes, &pec).is_err()
+        });
 
     // ---- sensitivity design parameters -------------------------------
     let sensitivity = match &spec.sensitivity {
@@ -1575,6 +1606,8 @@ pub fn load_parsed(
 
     Ok(Problem {
         spec,
+        resolved_solver,
+        preconditioner_fallback,
         mesh_path,
         mesh_sha256,
         tagged,
@@ -1988,14 +2021,106 @@ fn validate_dispersion(
 /// `Re ε_r < 0` turns the diagonal mass term `−ω² Re ε M_ii` positive,
 /// moving `diag A` *away* from zero (no new breakdown); the direct LU of
 /// the complex-symmetric `A(ω)` is indifferent to the sign.
-fn validate_ams_materials(spec: &ProblemSpec, frequencies: &[Frequency]) -> Result<(), CliError> {
-    let SolverSpec::Iterative {
-        preconditioner: crate::spec::PreconditionerSpec::Ams,
-        ..
-    } = spec.solver
-    else {
-        return Ok(());
+///
+/// With the default `solver.preconditioner = "auto"` (issue #930) the same
+/// rule is not an error: it returns `Ok(Some(reason))` and the solve falls
+/// back to `jacobi` with a warning ([`resolve_auto_preconditioner`]).
+fn validate_ams_materials(
+    spec: &ProblemSpec,
+    frequencies: &[Frequency],
+) -> Result<Option<String>, CliError> {
+    let explicit = match spec.solver {
+        SolverSpec::Iterative {
+            preconditioner: crate::spec::PreconditionerSpec::Ams,
+            ..
+        } => true,
+        SolverSpec::Iterative {
+            preconditioner: crate::spec::PreconditionerSpec::Auto,
+            ..
+        } => false,
+        _ => return Ok(None),
     };
+    match ams_material_conflict(spec, frequencies) {
+        Some((error, _)) if explicit => Err(invalid(error)),
+        Some((_, reason)) => Ok(Some(reason)),
+        None => Ok(None),
+    }
+}
+
+/// Resolve the default `solver.preconditioner = "auto"` (issue #930) to
+/// `ams` wherever AMS is supported and to `jacobi` otherwise, returning
+/// the resolved solver and, on a fallback, the warning text (why, and the
+/// preconditioner used). Any other solver is returned unchanged, with no
+/// warning: an explicit `jacobi` stays `jacobi`.
+///
+/// The fallbacks are the three cases where the CLI already knows AMS does
+/// not work, in this order: a material with `Re ε_r ≤ 0`
+/// (`material_conflict`, from [`validate_ams_materials`]); matched-UPML
+/// `absorbing_regions` (`has_upml`; AMS measured not to converge the
+/// radiating UPML patch, issue #744); and floating PEC conductors
+/// (`floating_pec`, [`check_ams_floating_pec`]). An explicit `"ams"` is an
+/// `invalid_spec` error in the first and third cases and is run as asked
+/// in the second. The CLI's driven solve is p=1 and assembled, so the
+/// library's order / matrix-free fallbacks do not arise here.
+fn resolve_auto_preconditioner(
+    solver: SolverSpec,
+    material_conflict: Option<String>,
+    has_upml: bool,
+    floating_pec: impl FnOnce() -> bool,
+) -> (SolverSpec, Option<String>) {
+    use crate::spec::PreconditionerSpec;
+    let SolverSpec::Iterative {
+        tol,
+        max_iters,
+        preconditioner: PreconditionerSpec::Auto,
+    } = solver
+    else {
+        return (solver, None);
+    };
+    let reason = material_conflict
+        .or_else(|| {
+            has_upml.then(|| {
+                "the AMS preconditioner does not converge with matched-UPML \
+                 `absorbing_regions` (issue #744)"
+                    .to_string()
+            })
+        })
+        .or_else(|| {
+            floating_pec().then(|| {
+                "the `boundary_conditions.pec` surfaces include floating conductors not \
+                 connected to the outer PEC, which the AMS preconditioner does not converge \
+                 with (issue #744)"
+                    .to_string()
+            })
+        });
+    let preconditioner = if reason.is_some() {
+        PreconditionerSpec::Jacobi
+    } else {
+        PreconditionerSpec::Ams
+    };
+    let warning = reason.map(|why| {
+        format!(
+            "solver.preconditioner `auto` (the default) fell back to `jacobi`: {why}; set \
+             `solver.preconditioner` explicitly to silence this warning"
+        )
+    });
+    (
+        SolverSpec::Iterative {
+            tol,
+            max_iters,
+            preconditioner,
+        },
+        warning,
+    )
+}
+
+/// The first material that breaks the AMS SPD-proxy rule of
+/// [`validate_ams_materials`], as `(invalid_spec message for an explicit
+/// "ams", short reason for the "auto" fallback warning)`.
+fn ams_material_conflict(
+    spec: &ProblemSpec,
+    frequencies: &[Frequency],
+) -> Option<(String, String)> {
     let remedy = "use `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner";
     for m in &spec.materials {
         let constant: Vec<(&str, f64)> = match (&m.dispersion, &m.eps_r_diag) {
@@ -2013,12 +2138,19 @@ fn validate_ams_materials(spec: &ProblemSpec, frequencies: &[Frequency]) -> Resu
             } else {
                 format!("eps_r_diag.{axis}")
             };
-            return Err(invalid(format!(
-                "materials[{}].{field} has Re = {re} <= 0: `solver.preconditioner = \"ams\"` \
-                 builds its V-cycle on the real proxy Re K + w^2 Re M(eps), which is not \
-                 positive definite with a non-positive Re eps — {remedy}",
-                m.physical_group
-            )));
+            return Some((
+                format!(
+                    "materials[{}].{field} has Re = {re} <= 0: `solver.preconditioner = \"ams\"` \
+                     builds its V-cycle on the real proxy Re K + w^2 Re M(eps), which is not \
+                     positive definite with a non-positive Re eps — {remedy}",
+                    m.physical_group
+                ),
+                format!(
+                    "materials[{}].{field} has Re = {re} <= 0, where the AMS SPD proxy is not \
+                     positive definite",
+                    m.physical_group
+                ),
+            ));
         }
         let Some(d) = &m.dispersion else { continue };
         let model = DispersionModel::from_spec(d).expect("validated above");
@@ -2037,22 +2169,30 @@ fn validate_ams_materials(spec: &ProblemSpec, frequencies: &[Frequency]) -> Resu
                 .unwrap_or_default(),
             _ => String::new(),
         };
-        return Err(invalid(format!(
-            "materials[{}].dispersion ({}) has Re eps_r(f) <= 0 at {} of the {} solved \
-             frequencies{crossover}, first {hz:.6e} Hz with eps_r = [{}, {}]: \
-             `solver.preconditioner = \"ams\"` builds its V-cycle on the real proxy \
-             Re K + w^2 Re M(eps), which is not positive definite there — use \
-             `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner, or sweep \
-             only where Re eps_r > 0",
-            m.physical_group,
-            model.name(),
-            bad.len(),
-            frequencies.len(),
-            e.re,
-            e.im
-        )));
+        return Some((
+            format!(
+                "materials[{}].dispersion ({}) has Re eps_r(f) <= 0 at {} of the {} solved \
+                 frequencies{crossover}, first {hz:.6e} Hz with eps_r = [{}, {}]: \
+                 `solver.preconditioner = \"ams\"` builds its V-cycle on the real proxy \
+                 Re K + w^2 Re M(eps), which is not positive definite there — use \
+                 `solver.mode = \"direct\"` or the `jacobi` / `ilu0` preconditioner, or sweep \
+                 only where Re eps_r > 0",
+                m.physical_group,
+                model.name(),
+                bad.len(),
+                frequencies.len(),
+                e.re,
+                e.im
+            ),
+            format!(
+                "materials[{}].dispersion ({}) has Re eps_r(f) <= 0 at {hz:.6e} Hz, where the \
+                 AMS SPD proxy is not positive definite",
+                m.physical_group,
+                model.name(),
+            ),
+        ));
     }
-    Ok(())
+    None
 }
 
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
@@ -4820,6 +4960,69 @@ fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #930: the default `"auto"` preconditioner resolves to `ams`
+    /// with no warning when nothing rules AMS out, and to `jacobi` with a
+    /// warning naming the reason and `jacobi` for each CLI fallback (a
+    /// material conflict, UPML, floating PEC — first one wins); an explicit
+    /// choice passes through unchanged and never warns.
+    #[test]
+    fn auto_preconditioner_resolves_to_ams_or_falls_back_to_jacobi_with_a_warning() {
+        use crate::spec::PreconditionerSpec as P;
+        let iterative = |preconditioner| SolverSpec::Iterative {
+            tol: 1e-9,
+            max_iters: 77,
+            preconditioner,
+        };
+        let no_floating = || false;
+        let floating = || true;
+        assert_eq!(
+            resolve_auto_preconditioner(iterative(P::Auto), None, false, no_floating),
+            (iterative(P::Ams), None)
+        );
+        let cases = [
+            (
+                Some("materials[m].eps_r has Re = -1 <= 0".to_string()),
+                false,
+                false,
+                "materials[m]",
+            ),
+            (None, true, false, "absorbing_regions"),
+            (None, false, true, "floating conductors"),
+            // The material reason wins over the later ones.
+            (
+                Some("materials[x] reason".to_string()),
+                true,
+                true,
+                "materials[x]",
+            ),
+        ];
+        for (material, upml, is_floating, needle) in cases {
+            let (solver, warning) = resolve_auto_preconditioner(
+                iterative(P::Auto),
+                material,
+                upml,
+                if is_floating { floating } else { no_floating },
+            );
+            assert_eq!(solver, iterative(P::Jacobi), "{needle}");
+            let w = warning.expect("a fallback warns");
+            assert!(w.contains(needle), "{w}");
+            assert!(w.contains("fell back to `jacobi`"), "{w}");
+        }
+        // Explicit choices: unchanged, no warning, even where `auto` would
+        // fall back.
+        for pc in [P::Jacobi, P::Ilu0, P::Ams] {
+            assert_eq!(
+                resolve_auto_preconditioner(iterative(pc), None, true, floating),
+                (iterative(pc), None),
+                "{pc:?}"
+            );
+        }
+        assert_eq!(
+            resolve_auto_preconditioner(SolverSpec::Direct {}, None, true, floating),
+            (SolverSpec::Direct {}, None)
+        );
+    }
 
     #[test]
     fn frequency_units_round_trip() {

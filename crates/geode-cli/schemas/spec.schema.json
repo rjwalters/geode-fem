@@ -796,8 +796,13 @@
       "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",
       "oneOf": [
         {
+          "const": "auto",
+          "description": "The default (issue #930): `ams` wherever it is supported, else\n`jacobi` with a `\"preconditioner_fallback\"` warning naming the\nreason — a material with `Re ε_r ≤ 0`, matched-UPML\n`absorbing_regions`, or floating PEC conductors. There is no\nmesh-size threshold. `ams` uses more memory than `jacobi` (see\n`geode check`'s resource estimate).",
+          "type": "string"
+        },
+        {
           "const": "jacobi",
-          "description": "Diagonal (Jacobi) scaling — the default.",
+          "description": "Diagonal (Jacobi) scaling, the default before issue #930.",
           "type": "string"
         },
         {
@@ -1151,7 +1156,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "COCG Krylov iteration with a preconditioner (Jacobi by default)\nbuilt once per frequency. Non-convergence within `max_iters` is a\nhard error.",
+          "description": "COCG Krylov iteration with a preconditioner (by default `auto`: AMS\nwhere supported, else Jacobi with a warning) built once per\nfrequency. Non-convergence within `max_iters` is a\nhard error.",
           "properties": {
             "max_iters": {
               "default": 5000,
@@ -1166,8 +1171,8 @@
             },
             "preconditioner": {
               "$ref": "#/$defs/PreconditionerSpec",
-              "default": "jacobi",
-              "description": "Preconditioner built once per frequency (default `jacobi`)."
+              "default": "auto",
+              "description": "Preconditioner built once per frequency (default `auto`)."
             },
             "tol": {
               "default": 1e-10,

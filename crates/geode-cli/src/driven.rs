@@ -239,7 +239,10 @@ pub fn run(
         validate_export(&p)?;
     }
     let out = OutDir::create_opt(outdir)?;
-    let (results, solver, wave_ports, warnings) = if p.wave_ports.is_empty() {
+    // The default preconditioner's fallback note (issue #930), once per
+    // run and before the sweep, like the wave ports' degeneracy notes.
+    let preconditioner_warnings = p.preconditioner_warnings();
+    let (results, solver, wave_ports, mut warnings) = if p.wave_ports.is_empty() {
         let (results, solver) = sweep(&p, out.as_ref(), "driven", opts)?;
         (results, solver, Vec::new(), Vec::new())
     } else {
@@ -265,6 +268,7 @@ pub fn run(
         warnings.extend(sweep_warnings);
         (results, solver, wave_ports, warnings)
     };
+    warnings.splice(0..0, preconditioner_warnings);
     // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
     // the `sensitivity` section only for a one-lumped-port direct dense
     // sweep without UPML.
@@ -369,6 +373,11 @@ pub(crate) fn solver_mode(p: &Problem) -> SolverMode {
             preconditioner,
         } => SolverMode::Iterative(IterativeSettings::new(tol, max_iters).with_preconditioner(
             match preconditioner {
+                // `Problem::solver` has resolved `auto` already (issue
+                // #930); the library's own `Auto` is the same rule.
+                crate::spec::PreconditionerSpec::Auto => {
+                    geode_core::driven::solve::IterativePreconditioner::Auto
+                }
                 crate::spec::PreconditionerSpec::Jacobi => {
                     geode_core::driven::solve::IterativePreconditioner::Jacobi
                 }
@@ -628,6 +637,7 @@ pub fn sweep(
             mode: summary.mode,
             tol: summary.tol,
             max_iters: summary.max_iters,
+            preconditioner: summary.preconditioner,
             iterations_max: rows
                 .iter()
                 .flat_map(|pt| pt.iters_per_rhs.iter().copied())
@@ -980,6 +990,7 @@ pub fn wave_sweep(
             mode: summary.mode,
             tol: summary.tol,
             max_iters: summary.max_iters,
+            preconditioner: summary.preconditioner,
             iterations_max: points
                 .iter()
                 .flat_map(|pt| pt.iters_per_rhs.iter().copied())

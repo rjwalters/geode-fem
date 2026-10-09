@@ -251,6 +251,65 @@ fn check_resource_estimate_for_iterative_and_eigen_specs() {
     );
 }
 
+/// The `"preconditioner_fallback"` warnings of a report.
+fn preconditioner_fallbacks(v: &serde_json::Value) -> Vec<&serde_json::Value> {
+    v["warnings"]
+        .as_array()
+        .map(|w| {
+            w.iter()
+                .filter(|w| w["kind"] == "preconditioner_fallback")
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Issue #930: with no `solver.preconditioner`, an iterative spec that
+/// AMS supports (the spiral smoke: Leontovich conductors, one PEC
+/// component, positive `Re ε`) resolves to `ams` in `check` and `driven`,
+/// with no fallback warning, and the AMS solve converges.
+#[test]
+fn default_iterative_preconditioner_resolves_to_ams_without_a_warning() {
+    let spec = edited_spec("pc-default", |v| {
+        v["frequencies"]["values"] = serde_json::json!([5.0]);
+        v["solver"] = serde_json::json!({ "mode": "iterative" });
+    });
+    for cmd in ["check", "driven"] {
+        let out = geode(&[cmd, spec.to_str().unwrap()]);
+        assert!(
+            out.status.success(),
+            "{cmd}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v = json(&out);
+        assert_eq!(v["solver"]["mode"], "iterative", "{cmd}");
+        assert_eq!(v["solver"]["preconditioner"], "ams", "{cmd}");
+        assert!(preconditioner_fallbacks(&v).is_empty(), "{cmd}: {v:#}");
+        assert!(
+            !String::from_utf8_lossy(&out.stderr).contains("fell back"),
+            "{cmd}"
+        );
+    }
+}
+
+/// Issue #930: an explicit `solver.preconditioner = "jacobi"` is honoured
+/// (reported as `jacobi`, and the resolved solver keeps it) with no
+/// fallback warning.
+#[test]
+fn explicit_jacobi_preconditioner_is_honoured_without_a_warning() {
+    let spec = edited_spec("pc-jacobi", |v| {
+        v["solver"] = serde_json::json!({ "mode": "iterative", "preconditioner": "jacobi" });
+    });
+    let out = geode(&["check", spec.to_str().unwrap()]);
+    assert!(out.status.success());
+    let v = json(&out);
+    assert_eq!(v["solver"]["preconditioner"], "jacobi");
+    assert!(preconditioner_fallbacks(&v).is_empty(), "{v:#}");
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("fell back"));
+    // A direct spec reports no preconditioner.
+    let direct = json(&geode(&["check", &smoke_spec()]));
+    assert!(direct["solver"].get("preconditioner").is_none());
+}
+
 #[test]
 fn check_resource_estimate_counts_ilu0_factor_storage() {
     // Issue #708: `solver.preconditioner = "ilu0"` parses and threads into
