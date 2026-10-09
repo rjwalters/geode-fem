@@ -44,7 +44,7 @@
 //! - **FEM side**: 774-node tet mesh (the bundled refined fixture
 //!   from issue #49, bumped from the original 313 nodes), **anisotropic
 //!   UPML** (diagonal complex permittivity tensor, issue #54) over the
-//!   vacuum buffer, σ₀ = 5.0, k₀_ref = 2.0. Expect ~6 % relative
+//!   vacuum buffer, σ₀ = 5.0, k₀_ref = 2.0. Expect ≈ 3.6 % relative
 //!   error in `Re(k)` for the lowest TM_1,1 mode. The legacy
 //!   scalar-isotropic PML (~16 % rel err) is still available via
 //!   `--scalar-pml`; see comments in `tests/mie_sphere.rs`.
@@ -144,7 +144,9 @@ const SIGMA_0: f64 = 5.0;
 /// profiles `s_r = s_t = 1 - jσ/(ω₀ ε₀)` with ω₀ = k₀_ref. Matches the
 /// `tests/sphere_pml_anisotropic_eigenmode.rs` acceptance test —
 /// k₀_ref ≈ 2.0 is near the lowest physical mode's `Re(k)` and gives
-/// the documented ~6% TM_1,1 rel err on the bundled fixture.
+/// the documented ≈ 3.6% TM_1,1 rel err on the bundled fixture
+/// (against the root corrected in issue #986; it read ~6% against the
+/// old root).
 const K0_REF: f64 = 2.0;
 
 /// Real shift `σ` for the sparse shift-and-invert Lanczos default path
@@ -265,7 +267,7 @@ fn results_path() -> PathBuf {
 /// `scalar_pml` selects the PML kernel: `true` uses the legacy
 /// scalar-isotropic complex ε (16% rel err ceiling, issue #52),
 /// `false` (default) uses the anisotropic-UPML diagonal complex
-/// tensor (~6% rel err on TM_1,1, issue #54).
+/// tensor (≈ 3.6% rel err on TM_1,1, issue #54).
 fn fem_complex_k<B: Backend>(
     device: &B::Device,
     use_dense: bool,
@@ -318,7 +320,7 @@ fn fem_complex_k<B: Backend>(
             K0_REF,
         );
         eprintln!(
-            "PML kernel: anisotropic UPML diagonal complex ε (default, issue #54; k₀_ref = {K0_REF}; expect ~6% TM_1,1 rel err)"
+            "PML kernel: anisotropic UPML diagonal complex ε (default, issue #54; k₀_ref = {K0_REF}; expect ≈ 3.6% TM_1,1 rel err)"
         );
         assemble_global_nedelec_with_anisotropic_epsilon(
             nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
@@ -852,7 +854,7 @@ fn emit_results(
         );
     } else {
         s.push_str(
-            "  \"FEM side: anisotropic UPML diagonal complex permittivity tensor (default, issue #54), bundled 774-node refined fixture (issue #49). Breaks the 16% scalar ceiling — TM_1,1 ~6% rel err.\",\n",
+            "  \"FEM side: anisotropic UPML diagonal complex permittivity tensor (default, issue #54), bundled 774-node refined fixture (issue #49). Breaks the 16% scalar ceiling (that scalar figure predates the issue #986 root correction and was not re-measured) — TM_1,1 ≈ 3.6% rel err against the corrected root.\",\n",
         );
         s.push_str(
             "  \"For s_r = s_t = 1 - jσ/ω the off-diagonal rotation terms are identically zero, so the diagonal-only tensor is mathematically exact (not an approximation) for this profile.\",\n",
@@ -1310,6 +1312,111 @@ mod tests {
             "the TM_2,1 / TE_1,1 rows must be ambiguous: {:?}",
             labels(&rows)
         );
+    }
+
+    /// Hand-built catalog root for the pairing tests below.
+    fn root(pol: MiePolarisation, l: usize, n: usize, k: f64) -> MieRoot {
+        MieRoot {
+            pol,
+            l,
+            n,
+            k,
+            multiplicity: 2 * l + 1,
+        }
+    }
+
+    #[test]
+    fn same_multiplicity_close_pair_is_ambiguous_and_tie_breaks_on_mean_re_k() {
+        // Two triplet roots 5 % apart, plus a well-separated quintet. The
+        // bundled catalog never reaches this branch, because its two
+        // triplets (TM_1,1 and TE_1,1) are 57 % apart. Both triplet
+        // orderings give the same (3, 3, 5) partition and so the same
+        // scatter. Only the mean-Re-k tie-break tells the labels apart, so
+        // both triplets must be flagged ambiguous even though the
+        // segmentation itself is decisive.
+        let catalog = [
+            root(MiePolarisation::TM, 1, 1, 1.00),
+            root(MiePolarisation::TE, 1, 1, 1.05),
+            root(MiePolarisation::TM, 2, 1, 2.00),
+        ];
+        assert!((catalog[1].k - catalog[0].k) / catalog[0].k < CLOSE_PAIR_GAP_FRAC);
+
+        // Each FEM triplet sits 1 % above its root, so the lower cluster
+        // is nearer TM_1,1 and the upper one nearer TE_1,1.
+        let mut fem: Vec<faer::c64> = Vec::new();
+        fem.extend(synth_multiplet(1.01, 3, 1e-3, 1e-2));
+        fem.extend(synth_multiplet(1.06, 3, 1e-3, 5e-2));
+        fem.extend(synth_multiplet(2.02, 5, 1e-3, 2e-2));
+
+        let rows = pair_modes(&catalog, &fem);
+        let tm11 = ("TM", 1, 1);
+        let te11 = ("TE", 1, 1);
+        let tm21 = ("TM", 2, 1);
+        let expected = [
+            tm11, tm11, tm11, te11, te11, te11, tm21, tm21, tm21, tm21, tm21,
+        ];
+        assert_eq!(labels(&rows), expected);
+        assert!(rows.iter().all(|r| !r.incomplete));
+        assert!(
+            rows[..6].iter().all(|r| r.ambiguous),
+            "both same-multiplicity triplets must be ambiguous"
+        );
+        assert!(
+            rows[6..].iter().all(|r| !r.ambiguous),
+            "the well-separated quintet must not be ambiguous"
+        );
+    }
+
+    /// Eight modes for a close quintet / triplet pair: three at `k0`, two
+    /// at `k0 + d * span`, three at `k0 + span`, all with the same damping.
+    /// Returns the modes and the runner-up scatter ratio between the
+    /// (3, 5) and (5, 3) partitions, which is `((1 - d) / d)^2` for
+    /// `d < 0.5`.
+    fn straddling_pair_spectrum(d: f64) -> (Vec<faer::c64>, f64) {
+        let (k0, span, im) = (1.80, 0.06, 2e-2);
+        let fem: Vec<faer::c64> = [0.0, 0.0, 0.0, d, d, 1.0, 1.0, 1.0]
+            .iter()
+            .map(|&x| faer::c64::new(k0 + x * span, im))
+            .collect();
+        let s53 = cluster_scatter(&fem[..5]) + cluster_scatter(&fem[5..]);
+        let s35 = cluster_scatter(&fem[..3]) + cluster_scatter(&fem[3..]);
+        (fem, s35 / s53)
+    }
+
+    #[test]
+    fn segmentation_margin_threshold_separates_ratio_1p5_from_2p25() {
+        // A quintet and a triplet 3.3 % apart, with two modes straddling
+        // the gap. Moving the straddlers sets the runner-up ratio, so the
+        // two cases below sit on either side of `SEGMENTATION_MARGIN`.
+        let catalog = [
+            root(MiePolarisation::TM, 2, 1, 1.80),
+            root(MiePolarisation::TE, 1, 1, 1.86),
+        ];
+        assert!((catalog[1].k - catalog[0].k) / catalog[0].k < CLOSE_PAIR_GAP_FRAC);
+        let tm21 = ("TM", 2, 1);
+        let te11 = ("TE", 1, 1);
+        let expected = [tm21, tm21, tm21, tm21, tm21, te11, te11, te11];
+
+        // Ratio about 1.49: the (5, 3) split still wins, but by less than
+        // the margin, so every row is ambiguous.
+        let (fem, ratio) = straddling_pair_spectrum(0.45);
+        assert!(
+            ratio > 1.0 && ratio < SEGMENTATION_MARGIN,
+            "ratio {ratio} must sit between 1 and the margin"
+        );
+        let rows = pair_modes(&catalog, &fem);
+        assert_eq!(labels(&rows), expected);
+        assert!(rows.iter().all(|r| r.ambiguous));
+
+        // Ratio 2.25: just past the margin, so no row is ambiguous.
+        let (fem, ratio) = straddling_pair_spectrum(0.40);
+        assert!(
+            ratio > SEGMENTATION_MARGIN && ratio < 2.5,
+            "ratio {ratio} must sit just above the margin"
+        );
+        let rows = pair_modes(&catalog, &fem);
+        assert_eq!(labels(&rows), expected);
+        assert!(rows.iter().all(|r| !r.ambiguous));
     }
 
     #[test]

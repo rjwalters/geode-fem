@@ -5,7 +5,7 @@
 
 [meta]
 description = "Mie sphere benchmark (issue #4 v1, issue #40, issue #54): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification."
-generated_at_commit = "0c9d2af07f01663d303a058b3be40507b84c332d"
+generated_at_commit = "e32f30461d1a2bc05285db4be8225dcf95545945"
 backend = "ndarray"
 float_dtype = "F64"
 pml_kernel = "anisotropic"
@@ -21,7 +21,7 @@ notes = [
   "Analytic side is PEC-cavity dielectric resonator, not open-space Mie WGM.",
   "Real analytic roots only; complex open-space Mie roots are a separate axis (#33).",
   "Mode classification (issue #1000): split the Re(k)-sorted FEM modes into contiguous multiplets by least (Re k, |Im k|) scatter over orderings of the catalog multiplicities, then match each cluster to a root of size 2l+1 (ascending-k claim only as a fallback).",
-  "FEM side: anisotropic UPML diagonal complex permittivity tensor (default, issue #54), bundled 774-node refined fixture (issue #49). Breaks the 16% scalar ceiling — TM_1,1 ~6% rel err.",
+  "FEM side: anisotropic UPML diagonal complex permittivity tensor (default, issue #54), bundled 774-node refined fixture (issue #49). Breaks the 16% scalar ceiling (that scalar figure predates the issue #986 root correction and was not re-measured) — TM_1,1 ≈ 3.6% rel err against the corrected root.",
   "For s_r = s_t = 1 - jσ/ω the off-diagonal rotation terms are identically zero, so the diagonal-only tensor is mathematically exact (not an approximation) for this profile.",
   "Driven scattering benchmark (Q_ext vs. ka) is v2 (separate scope).",
 ]
