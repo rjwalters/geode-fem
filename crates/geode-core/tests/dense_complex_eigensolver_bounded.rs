@@ -229,7 +229,7 @@ fn mie_pencil_dense() -> (Mat<c64>, Mat<c64>, usize) {
 /// defect.
 fn unblocked_qz_all(a: MatRef<c64>, b: MatRef<c64>) -> Vec<c64> {
     use faer::dyn_stack::{MemBuffer, MemStack};
-    use faer::linalg::gevd::{ComputeEigenvectors, GevdParams, gevd_cplx, gevd_scratch};
+    use faer::linalg::gevd::{ComputeEigenvectors, GevdError, GevdParams, gevd_cplx, gevd_scratch};
     let n = a.nrows();
     let (mut a, mut b) = (a.to_owned(), b.to_owned());
     let mut params: GevdParams = <GevdParams as faer::Auto<c64>>::auto();
@@ -245,7 +245,11 @@ fn unblocked_qz_all(a: MatRef<c64>, b: MatRef<c64>) -> Vec<c64> {
     let mut alpha = faer::diag::Diag::<c64>::zeros(n);
     let mut beta = faer::diag::Diag::<c64>::zeros(n);
     let mut u = Mat::<c64>::zeros(n, n);
-    gevd_cplx(
+    // Since faier 0.25 (rjwalters/faier#11) a QZ that exhausts `maxit` on
+    // finite data returns `GevdError::NoConvergence` instead of `Ok` with
+    // `alpha = beta = 0` slots, which the `|β|` filter below used to drop
+    // silently. A non-converged reference is a failed oracle, so say so.
+    match gevd_cplx(
         a.as_mut(),
         b.as_mut(),
         alpha.as_mut(),
@@ -255,9 +259,15 @@ fn unblocked_qz_all(a: MatRef<c64>, b: MatRef<c64>) -> Vec<c64> {
         par,
         MemStack::new(&mut buf),
         params.into(),
-    )
-    .expect("unblocked complex QZ");
+    ) {
+        Ok(()) => {}
+        Err(GevdError::NoConvergence) => panic!(
+            "unblocked complex QZ reference did not converge (GevdError::NoConvergence: \
+             maxit exhausted); it has no eigenvalues to compare against"
+        ),
+    }
     let (sa, sb) = (alpha.column_vector(), beta.column_vector());
+    // Only genuinely infinite eigenvalues (`β ≈ 0`) are dropped here.
     (0..n)
         .filter(|&i| sb[i].norm() > 1e-15)
         .map(|i| sa[i] / sb[i])

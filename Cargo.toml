@@ -37,16 +37,17 @@ criterion = "0.5"
 # Dense / sparse linear algebra comes from `faier`, our maintained fork of
 # faer (https://github.com/rjwalters/faier, issues #867 / #907). Upstream faer
 # does not accept AI-assisted contributions, so fixes we need land in the
-# fork. `faier` 0.24.4 is upstream `faer-v0.24.4` with the crates renamed
-# `faer` → `faier` and `faer-traits` → `faier-traits`; its library name is
-# still `faer`, so the `package = "faier"` rename below keeps every
-# `use faer::…` path and every `faer/<feature>` feature reference unchanged.
+# fork. `faier` is upstream faer with the crates renamed `faer` → `faier` and
+# `faer-traits` → `faier-traits`; its library name is still `faer`, so the
+# `package = "faier"` rename below keeps every `use faer::…` path and every
+# `faer/<feature>` feature reference unchanged.
 #
-# `faier` is not on crates.io yet, so this is a git dependency pinned to a
-# commit. Issue #908 pins the fork's `main` after rjwalters/faier#1 (the #867
-# QZ / divide-and-conquer fixes) and rjwalters/faier#7 (nightly clippy lint
-# allows) merged. Once `faier` is published, replace `git` + `rev` with a
-# `version`.
+# Resolved from crates.io (issue #972; previously a git `rev` pin, #908).
+# 0.25 carries the #867 QZ / divide-and-conquer fixes plus the sparse-LU
+# `LuColOrdering::Custom` hook that `InnerSolver::DirectCustomOrder`
+# (`crates/geode-core/src/eigen/ordering.rs`) is built on. Renovate is
+# configured to leave this dependency alone (`renovate.json5`): read faier's
+# CHANGELOG / FORK.md for API and numerical-behaviour changes before bumping.
 #
 # Base faer feature set shared by every consumer; geode-core additionally
 # enables `sparse-linalg` on its own reference.
@@ -58,7 +59,7 @@ criterion = "0.5"
 # guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
 # the latency-bound single-RHS triangular-solve loop, so enabling the feature
 # does not by itself parallelize any hot loop that regresses under rayon.
-faer = { package = "faier", git = "https://github.com/rjwalters/faier", rev = "b61bc35d0a166a48c3021dce60294bd92b680013", default-features = false, features = ["std", "linalg", "rayon"] }
+faer = { package = "faier", version = "0.25.2", default-features = false, features = ["std", "linalg", "rayon"] }
 mshio = "0.4"
 # In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
 # refinement for arbitrary wave-port cross-sections (issue #582). Optional,
