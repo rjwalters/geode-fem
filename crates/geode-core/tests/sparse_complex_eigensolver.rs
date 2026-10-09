@@ -642,7 +642,7 @@ fn dense_qz_capped_shifts_all(
     m: faer::MatRef<'_, faer::c64>,
 ) -> Vec<faer::c64> {
     use faer::dyn_stack::{MemBuffer, MemStack};
-    use faer::linalg::gevd::{ComputeEigenvectors, GevdParams, gevd_cplx, gevd_scratch};
+    use faer::linalg::gevd::{ComputeEigenvectors, GevdError, GevdParams, gevd_cplx, gevd_scratch};
     let n = k.nrows();
     let mut a = k.to_owned();
     let mut b = m.to_owned();
@@ -659,7 +659,10 @@ fn dense_qz_capped_shifts_all(
     let mut alpha = faer::diag::Diag::<faer::c64>::zeros(n);
     let mut beta = faer::diag::Diag::<faer::c64>::zeros(n);
     let mut u_right = faer::Mat::<faer::c64>::zeros(n, n);
-    gevd_cplx(
+    // Since faier 0.25 (rjwalters/faier#11) `maxit` exhaustion on finite data
+    // is `GevdError::NoConvergence`, not `Ok` with `alpha = beta = 0` slots
+    // that the `|β|` filter below would drop as "infinite" eigenvalues.
+    match gevd_cplx(
         a.as_mut(),
         b.as_mut(),
         alpha.as_mut(),
@@ -669,8 +672,13 @@ fn dense_qz_capped_shifts_all(
         par,
         MemStack::new(&mut buf),
         params.into(),
-    )
-    .expect("faer gevd_cplx");
+    ) {
+        Ok(()) => {}
+        Err(GevdError::NoConvergence) => panic!(
+            "faer gevd_cplx cross-check did not converge (GevdError::NoConvergence: \
+             maxit exhausted with the shift count capped at {QZ_SHIFT_CAP})"
+        ),
+    }
     let (sa, sb) = (alpha.column_vector(), beta.column_vector());
     let mut lambdas: Vec<faer::c64> = (0..n)
         .filter(|&i| sb[i].re * sb[i].re + sb[i].im * sb[i].im >= 1e-30)

@@ -49,6 +49,7 @@ use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::periodic::PeriodicConstraint;
 use geode_core::eigen::bloch::{
     BlochCell, BlochError, BlochModes, BlochSettings, KPath, NEAR_GAMMA_MAX_REL_ERR,
+    NEAR_GAMMA_NOISE_FACTOR,
 };
 use geode_core::eigen::pec_cavity::PecCavityMaterials;
 use geode_core::elements::ElementOrder;
@@ -905,13 +906,94 @@ fn near_gamma_threshold_is_isotropic_on_an_elongated_cell() {
             if let Ok(err) = r {
                 // The round-off error is noisy around the model
                 // `ε / scale²`: measured 0.2–2.5× on this cell (and up to
-                // 7× (6.8 measured) on small cubes, where the test is unchanged). The
-                // bound leaves room for platform round-off.
+                // about 5× on small cubes, where the test is unchanged;
+                // `NEAR_GAMMA_NOISE_FACTOR`, issue #938). The bound leaves
+                // room for platform round-off.
                 assert!(
                     err < 5.0 * NEAR_GAMMA_MAX_REL_ERR / (scale * scale),
                     "{name} at {scale}: ω error {err:e}"
                 );
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Near-Γ noise factor (issue #938).
+// ---------------------------------------------------------------------------
+
+/// The relative ω error bound reported by the near-Γ warning: the number
+/// after `relative ω error ≤ ` in the first warning that carries it.
+fn reported_near_gamma_bound(m: &BlochModes) -> f64 {
+    const KEY: &str = "relative ω error ≤ ";
+    let w = m
+        .warnings
+        .iter()
+        .find(|w| w.contains(KEY))
+        .unwrap_or_else(|| panic!("no near-Γ error bound in warnings: {:?}", m.warnings));
+    let rest = &w[w.find(KEY).unwrap() + KEY.len()..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | 'e' | '-' | '+')))
+        .unwrap_or(rest.len());
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|e| panic!("bound {:?} in {w:?}: {e}", &rest[..end]))
+}
+
+/// Just above the near-Γ threshold the measured light-line ω error is
+/// round-off noise around the `floor / 2λ` model and reaches up to
+/// about 5× it (issue #938). The warning's reported error bound
+/// (`NEAR_GAMMA_NOISE_FACTOR ×` the model) must cover it. The cases are
+/// the worst cells of the scan on `NEAR_GAMMA_NOISE_FACTOR`, at fixed
+/// points so the test is deterministic: cube `n = 4` along ẑ at
+/// `s = 1.05` (measured error 4.2e-2, 4.6× the model, the case that was
+/// under-reported), cube `n = 6` along x̂ at `s = 1.10` (4.0e-2, 4.8×) and
+/// cube `n = 4` along ŷ at `s = 1.40` (2.5e-2, 4.6×). With the model
+/// alone (main before #938) each would be reported below its error.
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "eigen solves are slow in debug; runs in release CI"
+)]
+fn near_gamma_warning_bound_covers_measured_error_above_threshold() {
+    let cases = [
+        ("cube n=4, ẑ", 4, [0.0, 0.0, 1.0], 1.05),
+        ("cube n=6, x̂", 6, [1.0, 0.0, 0.0], 1.10),
+        ("cube n=4, ŷ", 4, [0.0, 1.0, 0.0], 1.40),
+    ];
+    for (name, n, dir, scale) in cases {
+        let cell = empty_cell(n);
+        let q = scale * cell.near_gamma_min_distance();
+        let k = [q * dir[0], q * dir[1], q * dir[2]];
+        let m = cell.solve(k, &BlochSettings::new(4)).unwrap();
+        let low: Vec<&_> = m.modes.iter().filter(|x| x.omega < 0.5).collect();
+        assert_eq!(low.len(), 2, "{name}: exactly two light-line modes");
+        let err = low
+            .iter()
+            .map(|x| (x.omega - q).abs() / q)
+            .fold(0.0, f64::max);
+        let model = cell.lambda_roundoff_floor() / (2.0 * low[0].lambda);
+        let bound = reported_near_gamma_bound(&m);
+        eprintln!(
+            "{name} at {scale}: ω error {err:.3e}, model {model:.3e} ({:.2}×), reported \
+             bound {bound:.1e}",
+            err / model
+        );
+        assert!(
+            (bound - NEAR_GAMMA_NOISE_FACTOR * model).abs() <= 0.06 * bound,
+            "{name}: reported bound {bound:e} vs {NEAR_GAMMA_NOISE_FACTOR} × {model:e}"
+        );
+        assert!(
+            err <= bound,
+            "{name} at {scale}: measured ω error {err:e} above the reported bound {bound:e}"
+        );
+        // The warning still leads with the model figure.
+        assert!(
+            m.warnings
+                .iter()
+                .any(|w| w.contains("estimated relative ω error up to")),
+            "{:?}",
+            m.warnings
+        );
     }
 }

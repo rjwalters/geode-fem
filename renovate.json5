@@ -80,10 +80,11 @@
       "groupName": null
     },
 
-    // `faer` comes from our fork `faier`, pinned to a git rev (#867 / #907).
-    // Renovate sees it as depName "faer" (git-refs datasource, packageName is
-    // the fork URL) and would otherwise propose digest bumps. Moving it is
-    // deliberate work (#972), not a bot bump.
+    // `faer` comes from our fork `faier` on crates.io (#867 / #907; git rev
+    // pin until #972). Renovate sees it as depName "faer" (packageName
+    // "faier"). A faier release can change sparse-LU / QZ API or numerical
+    // behaviour (see faier's CHANGELOG / FORK.md), so moving it is deliberate
+    // work, not a bot bump.
     {
       "matchManagers": ["cargo"],
       "matchDepNames": ["faer"],

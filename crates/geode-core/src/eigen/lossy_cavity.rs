@@ -50,7 +50,12 @@
 //! - a localized withheld pair is a genuine eigenvalue that did not converge
 //!   by the cap. If it lies nearer `σ` than the farthest returned mode, the
 //!   solve fails with [`LossyCavityError::NotConverged`] rather than let a
-//!   farther mode fill its slot (PR #847);
+//!   farther mode fill its slot (PR #847). This applies only when the
+//!   pair's whole uncertainty disc `|μ − λ| ≤ ρ · max(|λ|, σ)` lies in the
+//!   eligible region (clear of the null disc and of `Re μ ≤ 0`). A disc
+//!   that reaches a screened region may be locating a screened eigenvalue.
+//!   An example is a ghost of the gradient nullspace with `ρ ≈ 0.1`
+//!   (issue #968). Such a pair is skipped;
 //! - fewer than `n_modes` converged physical pairs is also `NotConverged`
 //!   (or [`LossyCavityError::TooFewModes`]).
 //!
@@ -134,7 +139,7 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse,
 };
 use crate::assembly::p1::upload_mesh;
-use crate::eigen::complex::SparseComplexShiftInvertLanczos;
+use crate::eigen::complex::{CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos};
 use crate::eigen::dense::EigenError;
 use crate::eigen::hcurl_null::{
     GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics,
@@ -695,9 +700,11 @@ fn solve_lossy_pencil_modes(
     // and nearer σ than the farthest returned mode means farther converged
     // modes filled its slot. That is not "the n_modes converged modes
     // nearest σ"; fail as the unchecked solve did. A spurious Ritz value
-    // (PR #833: ρ ≈ 11) is not localized and is still skipped.
+    // (PR #833: ρ ≈ 11) is not localized and is still skipped, and so is a
+    // localized pair whose uncertainty disc reaches the null or overdamped
+    // region (issue #968): it may be locating a screened eigenvalue.
     let reach = modes.last().map_or(0.0, |m| dist(m.lambda));
-    if let Some((lambda, checked)) = solve.localized_hole(s.sigma, reach, eligible) {
+    if let Some((lambda, checked)) = eligible_hole(&solve, s.sigma, reach, null_ceiling) {
         let residual_rel = own_residual(lambda, checked);
         let mut slate: Vec<(c64, f64)> = modes
             .iter()
@@ -748,6 +755,34 @@ fn solve_lossy_pencil_modes(
         n_overdamped_filtered,
         n_withheld,
         lanczos_steps,
+    })
+}
+
+/// The hole of [`solve_lossy_pencil_modes`]: the localized withheld pair
+/// nearest `σ`, strictly nearer than `reach`, whose whole uncertainty disc
+/// `|μ − λ| ≤ r` is **eligible**, that is clear of the null disc
+/// `|μ| ≤ null_ceiling` and of the overdamped half-plane `Re μ ≤ 0`
+/// ([`CheckedComplexEigenpairs::localized_hole_by_disc`], issue #968).
+///
+/// The disc is what the localization test asserts: some eigenvalue lies
+/// in it. If the disc reaches a screened region, that eigenvalue may be a
+/// screened one. The near-null Ritz values of a p=2 pencil are the
+/// example. The large gradient nullspace contaminates them, and they come
+/// out at `|λ|` above the null ceiling with `ρ ≈ 0.1–0.6`, which at
+/// `σ ≈ 20` is a disc of radius `2–12` around a point within `0.3` of
+/// `λ = 0`. They pass the point test (`Re λ > 0`, `|λ|` above the
+/// ceiling) and the localization test (`|λ − σ| ≈ σ`), yet they locate the
+/// gradient nullspace, not a physical mode. Testing the Ritz value alone
+/// turned them into holes whenever `σ` was nearer `0` than the farthest
+/// requested mode (`golden3a_uniform_lossy_fill_exact_q_at_p2`).
+fn eligible_hole(
+    solve: &CheckedComplexEigenpairs,
+    sigma: f64,
+    reach: f64,
+    null_ceiling: f64,
+) -> Option<(c64, f64)> {
+    solve.localized_hole_by_disc(sigma, reach, |l, r| {
+        l.norm() - r > null_ceiling && l.re - r > 0.0
     })
 }
 
@@ -1346,6 +1381,7 @@ pub fn solve_tagged_lossy_cavity_modes_at_order<B: Backend>(
 mod tests {
     use super::*;
 
+    use crate::eigen::complex::ComplexEigenPair;
     use crate::eigen::pec_cavity::{PecCavitySettings, solve_pec_cavity_modes};
     use crate::mesh::cube_tet_mesh;
     use crate::testing::TestBackend;
@@ -1709,5 +1745,179 @@ mod tests {
             Err(LossyCavityError::Eigen(EigenError::DegenerateShift { .. })) => {}
             other => panic!("expected DegenerateShift, got {other:?}"),
         }
+    }
+
+    /// A seeded diagonal pencil shaped like the p=2 box of
+    /// `golden3a_uniform_lossy_fill_exact_q_at_p2` (issue #968). It has the
+    /// twelve physical modes `λ = p(1 + j tan δ)`, `tan δ = 1/8`, at the box
+    /// values `p = 25.3, 37.3, 42.8, …`, plus `n_null` near-null values with
+    /// `|λ| ≲ 10⁻⁴` (the gradient nullspace). `M` is a random positive
+    /// diagonal and `K = ΛM`. Built from `+ − × ÷` only, like
+    /// [`crate::eigen::complex::spurious_ritz_pencil`].
+    fn near_null_ghost_pencil(
+        seed: u64,
+        n_null: usize,
+    ) -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
+        let lcg = |s: u64| {
+            s.wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407)
+        };
+        let mut st = lcg(seed + 1000);
+        let mut rnd = || {
+            st = lcg(st);
+            ((st >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let tan_d = 0.125;
+        let phys = [
+            25.3, 37.3, 42.8, 52.0, 52.05, 54.2, 66.1, 70.5, 81.4, 81.5, 88.1, 98.0,
+        ];
+        let mut lam: Vec<c64> = phys.iter().map(|&p| c64::new(p, p * tan_d)).collect();
+        for _ in 0..n_null {
+            lam.push(c64::new(1e-4 * rnd(), 1e-4 * (rnd() - 0.5)));
+        }
+        let n = lam.len();
+        let mut tk = Vec::with_capacity(n);
+        let mut tm = Vec::with_capacity(n);
+        for (i, l) in lam.iter().enumerate() {
+            let w = c64::new(0.5 + rnd(), 0.0);
+            tk.push(Triplet::new(i, i, *l * w));
+            tm.push(Triplet::new(i, i, w));
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+        (lam, k, m)
+    }
+
+    /// Issue #968 regression (CI flake of
+    /// `golden3a_uniform_lossy_fill_exact_q_at_p2`). With `σ = 0.8 · 25.3`
+    /// the near-null cluster (distance `≈ σ`) is nearer `σ` than the third
+    /// requested mode (`42.8`, distance `≈ 23.1`). A short basis does not
+    /// resolve the cluster and leaves a ghost Ritz value such as
+    /// `λ ≈ 0.04 − 0.06j`, `ρ ≈ 0.1`. The ghost is above the null ceiling,
+    /// `Re λ > 0`, and *localized* (its disc of radius `ρσ ≈ 2` misses `σ`),
+    /// so it becomes a target, is never confirmed, and is withheld. The
+    /// point test called it a hole, and the solve failed with
+    /// `NotConverged` although the three physical modes had converged. Its
+    /// disc contains `λ = 0`, so the disc test of [`eligible_hole`] does not
+    /// count it, and the solve returns the three modes.
+    #[test]
+    fn near_null_ghost_is_not_a_hole() {
+        let settings = LossyCavitySettings {
+            max_iters: 12,
+            ..LossyCavitySettings::new(0.8 * 25.3, 3)
+        };
+        validate_settings(&settings).unwrap();
+        let s = &settings;
+        let null_ceiling = s.null_tol_rel * s.sigma;
+        let eligible = |l: c64| l.norm() > null_ceiling && l.re > 0.0;
+        let dist = |l: c64| (l.re - s.sigma).hypot(l.im);
+        let mut ghosts = 0;
+        for seed in 0..64 {
+            let (lam, k, m) = near_null_ghost_pencil(seed, 40);
+            // What the old point test saw on the same checked solve.
+            let solve = SparseComplexShiftInvertLanczos {
+                sigma: s.sigma,
+                max_iters: s.max_iters,
+                tol: s.tol,
+            }
+            .smallest_eigenpairs_checked_filtered(
+                k.as_ref(),
+                m.as_ref(),
+                s.n_modes,
+                ConvergenceCheck {
+                    residual_tol: s.residual_tol,
+                    max_iters_cap: 2 * s.max_iters,
+                    window: None,
+                },
+                &eligible,
+            )
+            .unwrap();
+            let mut exact: Vec<c64> = lam.iter().copied().filter(|&l| eligible(l)).collect();
+            exact.sort_by(|a, b| dist(*a).total_cmp(&dist(*b)));
+            let reach = dist(exact[2]);
+            let point = solve.localized_hole(s.sigma, reach, eligible);
+            assert!(
+                eligible_hole(&solve, s.sigma, reach, null_ceiling).is_none(),
+                "seed {seed}: no physical mode is missing"
+            );
+            if let Some((ghost, rho)) = point {
+                // The point test's hole is a ghost whose disc holds λ = 0.
+                ghosts += 1;
+                assert!(
+                    ghost.norm() <= rho * ghost.norm().max(s.sigma),
+                    "seed {seed}: the ghost {ghost} (ρ = {rho:.3e}) is not near-null"
+                );
+            }
+            let modes = solve_lossy_pencil_modes(k.as_ref(), m.as_ref(), &settings)
+                .unwrap_or_else(|e| panic!("seed {seed}: {e:?}"));
+            assert_eq!(modes.modes.len(), 3);
+            for e in &exact[..3] {
+                assert!(
+                    modes
+                        .modes
+                        .iter()
+                        .any(|md| (md.lambda - e).norm() < 1e-9 * e.norm()),
+                    "seed {seed}: eigenvalue {e} nearest σ missing"
+                );
+            }
+        }
+        eprintln!("near-null ghost pencils: {ghosts} of 64 had a point-test hole");
+        assert!(ghosts > 0, "no seed exercised the issue #968 path");
+    }
+
+    /// [`eligible_hole`] on hand-built results (issue #968). The ghost of
+    /// the local repro (seed 11, `tan δ = 1/8`) and the value of the CI
+    /// failure are localized at `σ ≈ 20.2`, but their discs reach `λ = 0`.
+    /// A genuine unconverged mode near `σ` is still a hole. So is a disc
+    /// that stays clear of both screened regions, while one that crosses
+    /// `Re λ = 0` is not.
+    #[test]
+    fn eligible_hole_requires_an_eligible_disc() {
+        let sigma = 0.8 * 25.29;
+        let null_ceiling = LossyCavitySettings::DEFAULT_NULL_TOL_REL * sigma;
+        let pair = |l: c64| ComplexEigenPair {
+            lambda: l,
+            vector: vec![c64::new(1.0, 0.0)],
+        };
+        let mut solve = CheckedComplexEigenpairs {
+            pairs: vec![
+                pair(c64::new(24.91, 3.11)),
+                pair(c64::new(36.74, 4.59)),
+                pair(c64::new(42.23, 5.28)),
+            ],
+            residuals: vec![1e-13; 3],
+            rejected: vec![
+                (c64::new(0.010071, 0.023264), 0.116),
+                (c64::new(0.099698, 0.053001), 0.611),
+            ],
+            localized_withheld: Vec::new(),
+            screened: Vec::new(),
+            requested: 3,
+            lanczos_steps: 320,
+            extended: true,
+        };
+        let reach = (42.23_f64 - sigma).hypot(5.28);
+        // Both are localized: the point test would report the nearer one.
+        assert!(solve.localized_hole(sigma, reach, |_| true).is_some());
+        assert_eq!(eligible_hole(&solve, sigma, reach, null_ceiling), None);
+        // A genuine unconverged mode is a hole.
+        let genuine = (c64::new(30.0, 3.7), 1e-3);
+        solve.rejected.push(genuine);
+        assert_eq!(
+            eligible_hole(&solve, sigma, reach, null_ceiling),
+            Some(genuine)
+        );
+        // A disc crossing Re λ = 0 (overdamped) is not; one clear of both
+        // screened regions is.
+        solve.rejected.pop();
+        let crossing = (c64::new(0.5, 3.0), 0.05);
+        solve.rejected.push(crossing);
+        assert_eq!(eligible_hole(&solve, sigma, reach, null_ceiling), None);
+        let clear = (c64::new(5.0, 3.0), 0.05);
+        solve.rejected.push(clear);
+        assert_eq!(
+            eligible_hole(&solve, sigma, reach, null_ceiling),
+            Some(clear)
+        );
     }
 }
