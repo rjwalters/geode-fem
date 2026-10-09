@@ -24,6 +24,12 @@
 //! the ε-only baseline it is compared with, and the bands derived from
 //! that baseline changed.
 //!
+//! Caveat (issue #1022): at `σ₀ = 25` the identity of the mode this
+//! file measures is not verified. The test takes the nearest of five
+//! near-equidistant modes (an `l = 1` multiplet has three), and
+//! `benchmarks/mie_sphere/open_results.toml` flags its `σ₀ = 25` rows
+//! `ambiguous = true`.
+//!
 //! # ω-freeze linearization
 //!
 //! The matched stretch `s = 1 − jσ(r)/ω` depends on ω, so the pencil
@@ -438,6 +444,13 @@ fn matched_upml_quasimode_q_recovers_open_space_te11() {
     //    UPML is *not* better on position here; its gain is the
     //    linewidth (assertions 1–2). The band is an absolute
     //    regression guard, not a no-worse-than-ε-only claim.
+    //
+    // Caveat (issue #1022): the mode identity at σ₀ = 25 is not
+    // verified. `best` is the nearest of five near-equidistant modes
+    // (dist 0.2229 – 0.2371, Q 1.28 – 1.31; an l = 1 multiplet has
+    // only three), and `open_results.toml` flags its σ₀ = 25 rows
+    // `ambiguous = true`. The σ₀ = 5 TE₁,₁ row there is unambiguous
+    // (Re(k) 1.36 % low).
     assert!(
         rel_err_re < 0.10,
         "matched-UPML TE_1,1 Re(k) rel err = {:.2}% (≥ 10%)",

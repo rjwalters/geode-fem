@@ -221,7 +221,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
     s.push_str("  \"Scattered-field formulation: J = -i*omega*(eps_r - 1)*E_inc over the sphere; the matched (full Sacks, mu and eps both stretched) UPML absorbs E_sca. The eigen benchmarks' eps-only UPML reflects too strongly for driven scattering (up to ~450% Q error on quasi-cavity resonances).\",\n");
     match choice {
         FixtureChoice::Coarse => {
-            s.push_str("  \"Residual error is dominated by the fixture's coarse-mesh dispersion (the same ~6% resonance-position error the eigenmode benchmark documents): points on resonance features (ka = 1.9 on TM_1,1; ka = 3.0 on TE_1,2) carry ~15-19% Q error, off-feature points sit at ~4-9%.\",\n");
+            s.push_str("  \"Residual error is dominated by the fixture's coarse-mesh dispersion (the same ~6% resonance-position error the eigenmode benchmark documents): points on resonance features (ka = 1.9 on TE_1,1; ka = 3.0 on TM_1,2) carry ~15-19% Q error, off-feature points sit at ~4-9%.\",\n");
         }
         FixtureChoice::Fine => {
             s.push_str("  \"The fine fixture roughly halves the characteristic length of the coarse 774-node fixture, cutting the O(h^2) resonance-position dispersion that dominated the coarse on-feature errors (~15-19% at ka = 1.9 / 3.0) — see issue #215 for the convergence argument.\",\n");
