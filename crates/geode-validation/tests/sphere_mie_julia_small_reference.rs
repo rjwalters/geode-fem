@@ -580,8 +580,8 @@ fn julia_mie_small_spectrum_agrees_with_burn() {
     eprintln!(
         "sphere_mie_small Burn vs Julia agreement: strict TM_1,1-triplet window \
          max |Δλ| = {window_max:.3e}; lowest Re(k): Burn {burn_re_k:.5} / Julia \
-         {julia_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%); \
-         Q: Burn {burn_q:.2} / Julia {julia_q:.2} (band > {Q_LOWER_BAND_TM11})",
+         {julia_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%; \
+         not asserted); Q: Burn {burn_q:.2} / Julia {julia_q:.2} (band > {Q_LOWER_BAND_TM11})",
         burn_rel_err * 100.0,
         julia_rel_err * 100.0
     );
