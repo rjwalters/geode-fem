@@ -104,6 +104,22 @@
 //! "drift" cell (`converged = false, recursion_converged = true`) rather than
 //! a failure — see [`Attempt`].
 //!
+//! Since issue #943 (PR #983) the library's COCG does not stop at that first
+//! crossing: it replaces the recursive residual with the explicit one and
+//! iterates on, up to [`IterativeSettings::max_replacements`] times (default
+//! 3). On an f32 solve whose explicit residual floors above `tol`, that
+//! multiplies the iterations spent before the drift is reported (282 → 838 on
+//! the spiral AMS spec at `tol = 1e-30`), and a restarted recursion that never
+//! re-crosses `tol` ends as max-iteration exhaustion, a plain failure, instead
+//! of a drift cell. The harness therefore pins `max_replacements = 0` on every
+//! iterative config by default (issue #987): each solve stops at the first
+//! time its recursion meets `tol`, exactly as before #943, so drift cells and
+//! their timings stay comparable with the committed `results.toml`,
+//! `results_large_a100.toml` and `results_ams_cpu_*.toml`.
+//! `GEODE_SCALING_MAX_REPLACEMENTS` (see [`Knobs`]) sets another cap to
+//! measure the replacement behaviour itself; the value in force is printed in
+//! the `# knobs:` header line.
+//!
 //! ## AMS-preconditioned config (issue #930)
 //!
 //! Config 2 is assembled COCG with the **Jacobi** preconditioner, whose
@@ -224,6 +240,7 @@ const DEFAULT_ITER_MAX: usize = 20_000;
 /// | `GEODE_SCALING_SKIP_SWEEP` | unset | `1` skips the 5-point ω sweep |
 /// | `GEODE_SCALING_ITER_MAX` | `20000` | COCG iteration cap (bounds DNF cost) |
 /// | `GEODE_SCALING_OMEGA` | `0.10` | drive frequency of the single-ω cells (issue #945) |
+/// | `GEODE_SCALING_MAX_REPLACEMENTS` | `0` | COCG residual-replacement cap of the iterative configs (issue #987); `0` = the pre-#943 first-crossing check, the library default is 3 |
 /// | `GEODE_SCALING_EXPORT_DIR` | unset | write each size's mesh as Gmsh MSH 2.2 (for Palace) |
 ///
 /// When `direct` is not in the config subset, the accuracy column of the
@@ -242,6 +259,10 @@ struct Knobs {
     skip_e2e: bool,
     skip_sweep: bool,
     iter_max: usize,
+    /// COCG residual-replacement cap of every iterative config (issue #987).
+    /// `0` by default, so a drift cell is the first crossing, as recorded
+    /// before #943.
+    max_replacements: usize,
     export_dir: Option<std::path::PathBuf>,
 }
 
@@ -289,6 +310,7 @@ impl Knobs {
             skip_e2e: flag("GEODE_SCALING_SKIP_E2E"),
             skip_sweep: flag("GEODE_SCALING_SKIP_SWEEP"),
             iter_max: usize_of("GEODE_SCALING_ITER_MAX", DEFAULT_ITER_MAX),
+            max_replacements: usize_of("GEODE_SCALING_MAX_REPLACEMENTS", 0),
             export_dir: var("GEODE_SCALING_EXPORT_DIR").map(std::path::PathBuf::from),
         }
     }
@@ -498,6 +520,15 @@ fn residual_from_error(msg: &str) -> f64 {
 /// of 6e-4..5e-3), so the harness times it as a completed solve and reports
 /// it honestly as `converged = false, recursion_converged = true` instead of
 /// discarding the timing.
+///
+/// The drift split assumes the single first-crossing check, which the
+/// harness pins with `max_replacements = 0` (issue #987; the library default
+/// since #943 is 3 residual replacements). Under that pin `iters` is the
+/// iteration at which the recursion first met `tol`, as in every committed
+/// results file. With a nonzero `GEODE_SCALING_MAX_REPLACEMENTS`, `iters`
+/// also counts the iterations after each replacement, and a solve whose
+/// restarted recursion never meets `tol` again is a [`Attempt::Fail`]
+/// (max-iteration exhaustion), not a drift cell.
 enum Attempt {
     /// Explicit residual met `tol`: solution available.
     Ok(Box<geode_core::driven::solve::DrivenSolution>, usize, f64),
@@ -794,13 +825,14 @@ fn gpu_driven_scaling_benchmark() {
     );
     println!(
         "# knobs: sizes = {:?}, reps = {reps}, configs = [direct={}, iterative={}, \
-         matrix_free={}], skip_e2e = {}, skip_sweep = {}",
+         matrix_free={}], skip_e2e = {}, skip_sweep = {}, max_replacements = {}",
         knobs.sizes,
         knobs.direct,
         knobs.iterative,
         knobs.matrix_free,
         knobs.skip_e2e,
-        knobs.skip_sweep
+        knobs.skip_sweep,
+        knobs.max_replacements
     );
     // Extra header lines only for the opt-in knobs, so a default run's
     // output is unchanged (issue #930).
@@ -834,10 +866,15 @@ fn gpu_driven_scaling_benchmark() {
         };
 
         // Config 2 is the Jacobi baseline: pinned explicitly, because the
-        // default preconditioner resolves to AMS since issue #930.
+        // default preconditioner resolves to AMS since issue #930. Every
+        // iterative config pins the residual-replacement cap (default 0:
+        // the pre-#943 first-crossing check, issue #987); config 5 derives
+        // from `iset_f64` and inherits it.
         let iset_f64 = IterativeSettings::new(ITER_TOL_F64, iter_max)
-            .with_preconditioner(IterativePreconditioner::Jacobi);
-        let iset_mf = IterativeSettings::new(mf_tol, iter_max);
+            .with_preconditioner(IterativePreconditioner::Jacobi)
+            .with_max_replacements(knobs.max_replacements);
+        let iset_mf =
+            IterativeSettings::new(mf_tol, iter_max).with_max_replacements(knobs.max_replacements);
 
         // Config 1: Direct (faer sparse LU), CPU f64. This is the accuracy
         // reference for every other config at this size (when selected).
