@@ -28,7 +28,10 @@
 //!     one element across (Judge, PR #887) and on the three Gmsh fixtures of
 //!     issue #905, where the withdrawn fourth-order p=2 law sat above it.
 //!     The full validation table is the ignored
-//!     `tm_guard_p2_measurement_table`.
+//!     `tm_guard_p2_measurement_table` (boxes shorter than the guard's
+//!     reach). The ignored `tm_guard_p2_long_guide_table` (issue #990) pins
+//!     the long coarse Gmsh guides on which the guard is **above** the box's
+//!     lowest TM-like mode.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -931,17 +934,80 @@ const TM_LIKE_EZ_SHARE: f64 = 0.4;
 
 /// The modes of the all-PEC guide box at `order` nearest `(0.45·TM₁₁)²`, as
 /// `(k, |E_z|² share)` in ascending `k`. The share is sampled over every
-/// tet.
+/// tet. A window of 24 modes: enough for the boxes of the measurement
+/// table (up to 4.4 deep), not for long guides ([`box_mode_window`]).
 fn box_mode_shares(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Vec<(f64, f64)> {
+    box_mode_window(mesh, order, a, b, 24, f64::INFINITY)
+        .modes
+        .into_iter()
+        .map(|m| (m.k, m.share))
+        .collect()
+}
+
+/// One mode of a [`BoxWindow`].
+#[derive(Debug, Clone, Copy)]
+struct BoxMode {
+    k: f64,
+    /// `|E_z|²` share, sampled over every tet.
+    share: f64,
+    /// Share of the mode's `|E_z|²` in tets whose centroid is within the
+    /// window's `reach` of the port (`z ≤ reach`).
+    ez_within_reach: f64,
+}
+
+/// The modes of an all-PEC guide box that one eigensolve returned: the
+/// `n_modes` closest to the shift `σ = (0.45·TM₁₁)²` (in `k²`), ascending.
+struct BoxWindow {
+    modes: Vec<BoxMode>,
+    sigma: f64,
+}
+
+impl BoxWindow {
+    /// The highest `k` in the window.
+    fn top(&self) -> f64 {
+        self.modes.last().map_or(0.0, |m| m.k)
+    }
+
+    /// The lowest TM-like mode (`|E_z|²` share ≥ [`TM_LIKE_EZ_SHARE`]).
+    fn tm_like(&self) -> Option<BoxMode> {
+        self.modes
+            .iter()
+            .copied()
+            .find(|m| m.share >= TM_LIKE_EZ_SHARE)
+    }
+
+    /// Whether the window holds **every** mode of the box at or below `k`.
+    /// The eigensolve returns the modes closest to `σ` in `k²`, so it holds
+    /// every mode in `[σ − r, σ + r]` with `r = top² − σ` at least: the
+    /// window covers `[0, k]` when its top is above `k` and `r ≥ σ`. When
+    /// it does not, a TM-like mode below `k` may lie outside it.
+    fn covers(&self, k: f64) -> bool {
+        let top = self.top();
+        top > k && top * top >= 2.0 * self.sigma
+    }
+}
+
+/// The all-PEC guide box at `order`: its `n_modes` modes nearest
+/// `(0.45·TM₁₁)²` (fewer if the solve finds fewer), each with its `|E_z|²`
+/// share and the share of its `|E_z|²` within `reach` of the port.
+fn box_mode_window(
+    mesh: &TetMesh,
+    order: ElementOrder,
+    a: f64,
+    b: f64,
+    n_modes: usize,
+    reach: f64,
+) -> BoxWindow {
     let space = HcurlSpace::build(mesh, order);
     let walls = mesh.boundary_faces();
     let mask = space.pec_interior_mask(mesh, &[&walls]).expect("mask");
     let eps = vec![1.0; mesh.n_tets()];
     let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
-    let mut n_modes = 24;
+    let sigma = (0.45 * tm11).powi(2);
+    let mut n_modes = n_modes;
     let modes = loop {
-        let mut settings = PecCavitySettings::new((0.45 * tm11).powi(2), n_modes);
-        settings.max_iters = 480;
+        let mut settings = PecCavitySettings::new(sigma, n_modes);
+        settings.max_iters = 480.max(6 * n_modes);
         match solve_pec_cavity_modes_on_space::<B>(
             &space,
             mesh,
@@ -966,7 +1032,7 @@ fn box_mode_shares(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Vec<(
         [0.15, 0.15, 0.55, 0.15],
         [0.15, 0.15, 0.15, 0.55],
     ];
-    let mut shares: Vec<(f64, f64)> = modes
+    let mut shares: Vec<BoxMode> = modes
         .modes
         .modes
         .iter()
@@ -975,19 +1041,34 @@ fn box_mode_shares(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Vec<(
             for (i, &d) in kept.iter().enumerate() {
                 x[d] = c64::new(m.vector[i], 0.0);
             }
-            let (mut ez, mut all) = (0.0, 0.0);
+            let (mut ez, mut all, mut inside) = (0.0, 0.0, 0.0);
             for t in 0..mesh.n_tets() {
+                let zc = mesh.tets[t]
+                    .iter()
+                    .map(|&n| mesh.nodes[n as usize][2])
+                    .sum::<f64>()
+                    / 4.0;
                 for bary in pts {
                     let e = space.field_at(mesh, t, bary, &x);
                     ez += e[2].norm_sqr();
                     all += e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr();
+                    if zc <= reach {
+                        inside += e[2].norm_sqr();
+                    }
                 }
             }
-            (m.k0, ez / all)
+            BoxMode {
+                k: m.k0,
+                share: ez / all,
+                ez_within_reach: inside / ez,
+            }
         })
         .collect();
-    shares.sort_by(|p, q| p.0.total_cmp(&q.0));
-    shares
+    shares.sort_by(|p, q| p.k.total_cmp(&q.k));
+    BoxWindow {
+        modes: shares,
+        sigma,
+    }
 }
 
 /// Lowest TM-like resonance of the all-PEC guide box at `order`: of the
@@ -1838,4 +1919,336 @@ fn tm_guard_p2_measurement_table() {
         "largest k_c·h_n {}",
         table.max_kh
     );
+}
+
+/// The rows of [`tm_guard_p2_long_guide_table`] on which the interim p=2
+/// guard is at or above the box's lowest p=2 TM-like mode, as
+/// `(a, d, lc)` of `reference/gmsh/guide_box.geo` (`b` = 1, `lc` at both
+/// ends), measured at Gmsh 4.15.2. Another Gmsh version can mesh these
+/// boxes differently and move the set; the test then fails with the diff.
+const LONG_GUIDE_KNOWN_GAPS: [(f64, f64, f64); 5] = [
+    (2.0, 9.5, 0.7),
+    (3.0, 7.75, 0.9),
+    (3.0, 8.0, 0.9),
+    (3.0, 9.75, 0.9),
+    (3.0, 11.75, 0.9),
+];
+
+/// Window sizes [`tm_guard_p2_long_guide_table`] tries in turn until the
+/// window covers the guard ([`BoxWindow::covers`]).
+const LONG_GUIDE_WINDOWS: [usize; 3] = [48, 96, 192];
+
+/// The verdict of one guard against one box.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LongGuideVerdict {
+    /// The guard is below every TM-like mode of the box (the window covers
+    /// the guard).
+    Below,
+    /// A TM-like mode of the box is at or below the guard.
+    Above,
+    /// No window up to the largest of [`LONG_GUIDE_WINDOWS`] covers the
+    /// guard, and none of its TM-like modes is at or below it. Not a pass.
+    Inconclusive,
+}
+
+/// The guard `guard` against the all-PEC box at `order`, growing the
+/// eigensolve window through [`LONG_GUIDE_WINDOWS`] until it decides. Returns
+/// the verdict, the lowest TM-like mode found (if any) and the window size
+/// and top used.
+fn long_guide_verdict(
+    mesh: &TetMesh,
+    order: ElementOrder,
+    a: f64,
+    guard: f64,
+    reach: f64,
+) -> (LongGuideVerdict, Option<BoxMode>, usize, f64) {
+    let mut last = None;
+    for n in LONG_GUIDE_WINDOWS {
+        let w = box_mode_window(mesh, order, a, 1.0, n, reach);
+        let tm = w.tm_like();
+        if let Some(m) = tm.filter(|m| m.k <= guard) {
+            return (LongGuideVerdict::Above, Some(m), n, w.top());
+        }
+        if w.covers(guard) {
+            return (LongGuideVerdict::Below, tm, n, w.top());
+        }
+        last = Some((tm, n, w.top()));
+    }
+    let (tm, n, top) = last.expect("windows");
+    (LongGuideVerdict::Inconclusive, tm, n, top)
+}
+
+/// The interim p=2 TM guard (`tm_guard_margin`, issues #905, #958) on
+/// **guides longer than its reach** (issue #990). Not a validation: this
+/// table pins where the guard fails.
+///
+/// Every box of [`tm_guard_p2_measurement_table`] is at most 4.4 deep, less
+/// than the guard's reach (`tm_guard_axial_reach`, `3·λ_c`: about 5.0 on a
+/// `1.5 × 1` guide and 5.7 on a `3 × 1`). Here the boxes are 5.5 to 12
+/// deep: the six coarse Gmsh guides of the #905 depth scans plus `2 × 1` at
+/// `lc` 0.5 and 0.7, `d` = 5.5 … 12 in steps of 0.25 (216 rows, the grid of
+/// the issue #955 exploration). The reference is the whole box's lowest
+/// TM-like mode.
+///
+/// A long box has many TE₁₀ₚ modes below TM₁₁₀, so the 24-mode window of
+/// [`box_mode_shares`] does not reach the guard. Each row's window starts at
+/// 48 modes and grows ([`LONG_GUIDE_WINDOWS`]) until it covers the guard
+/// ([`BoxWindow::covers`]); a row it never covers is **inconclusive**, is
+/// reported as such, and fails the test (it is not a pass).
+///
+/// Asserted: no p=2 row is inconclusive, and the rows where the p=2 guard
+/// is at or above the box's TM-like mode are exactly
+/// [`LONG_GUIDE_KNOWN_GAPS`] (a new failure, or a fixed one, shows up as a
+/// diff), and the documented shape of the failure: the worst row
+/// (`3×1×9.75`, `lc` 0.9) has the guard 35.4 % above a mode 43.8 % below
+/// `k_c`, `0.046·(k_c·h_n)²` against `C_h` = 0.025; the gaps are at
+/// `k_c·h_n` 2.5 to 3.2; four of the five modes are below TE₂₀, inside the
+/// single-mode band; the four `3 × 1` modes lie within the reach of the
+/// port, the `2 × 1` one beyond it. Per row it prints `k_c·h_n`, the margin,
+/// the guard, the box mode, its `E_z` share and the share of its `E_z`
+/// within reach. With Gmsh 4.15.2 every window covers its guard at 48
+/// modes; the run takes about 20 s in release on 14 threads.
+///
+/// The p=1 column is **report-only**: the p=1 guard (P1 face estimate, same
+/// law, as the `geode driven` CLI enforces it) against the box's p=1
+/// TM-like mode. It finds 20 such rows at Gmsh 4.15.2 (issue #1005).
+///
+/// These are coarse-mesh TM-like defect modes, not continuum TM modes;
+/// whether a TE₁₀ drive excites them is not measured. Skipped (passes
+/// vacuously) without `gmsh` on `PATH`.
+///
+/// When the computed guard of issue #955 lands, it is one more column here.
+#[test]
+#[ignore = "heavy: 432 box eigensolves (48+ modes) on Gmsh guides 5.5-12 deep, ~20 s release; needs gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_long_guide_table --nocapture"]
+fn tm_guard_p2_long_guide_table() {
+    let version = match std::process::Command::new("gmsh").arg("--version").output() {
+        Ok(o) => {
+            let mut v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if v.is_empty() {
+                v = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            }
+            v
+        }
+        Err(_) => {
+            eprintln!("gmsh not on PATH: tm_guard_p2_long_guide_table skipped");
+            return;
+        }
+    };
+    let mut jobs: Vec<(f64, f64, f64)> = Vec::new();
+    for (a, lc) in [
+        (1.5, 0.92),
+        (1.5, 0.8),
+        (1.5, 0.75),
+        (2.0, 0.9),
+        (2.3, 0.9),
+        (3.0, 0.9),
+        (2.0, 0.5),
+        (2.0, 0.7),
+    ] {
+        for i in 0..=26 {
+            jobs.push((a, 5.5 + 0.25 * f64::from(i), lc));
+        }
+    }
+    assert_eq!(jobs.len(), 216);
+    for gap in LONG_GUIDE_KNOWN_GAPS {
+        assert!(jobs.contains(&gap), "{gap:?} not in the grid");
+    }
+
+    /// One measured row.
+    #[derive(Debug, Clone, Copy)]
+    struct Row {
+        a: f64,
+        d: f64,
+        lc: f64,
+        kh: f64,
+        k_c: f64,
+        margin: f64,
+        reach: f64,
+        p2_guard: f64,
+        p2: (LongGuideVerdict, Option<BoxMode>, usize, f64),
+        p1_guard: f64,
+        p1: (LongGuideVerdict, Option<BoxMode>, usize, f64),
+    }
+
+    let dir = std::env::temp_dir().join(format!("geode-990-long-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let threads = std::env::var("GEODE_LONG_GUIDE_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map_or(4, |n| n.get())
+                .min(14)
+        })
+        .max(1);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let rows = std::sync::Mutex::new(Vec::<Row>::new());
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(&(a, d, lc)) = jobs.get(i) else {
+                        break;
+                    };
+                    let mesh = gmsh_guide_box(&dir, a, 1.0, d, lc, lc).expect("gmsh");
+                    let est = guard_estimate_at(&mesh, ElementOrder::P2);
+                    let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+                    let p2_guard = est.guard_k_c();
+                    let p2 = long_guide_verdict(&mesh, ElementOrder::P2, a, p2_guard, reach);
+                    let p1_est = guard_estimate(&mesh);
+                    let p1_guard = p1_est.guard_k_c();
+                    let p1 = long_guide_verdict(&mesh, ElementOrder::P1, a, p1_guard, reach);
+                    rows.lock().unwrap().push(Row {
+                        a,
+                        d,
+                        lc,
+                        kh: est.axial_kh(),
+                        k_c: est.k_c(),
+                        margin: est.margin(),
+                        reach,
+                        p2_guard,
+                        p2,
+                        p1_guard,
+                        p1,
+                    });
+                }
+            });
+        }
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut rows = rows.into_inner().unwrap();
+    rows.sort_by(|p, q| {
+        (p.a, p.lc, p.d)
+            .partial_cmp(&(q.a, q.lc, q.d))
+            .expect("finite")
+    });
+    assert_eq!(rows.len(), jobs.len());
+
+    let fmt_mode = |m: Option<BoxMode>| match m {
+        Some(m) => format!(
+            "{:.4} (E_z share {:.2}, {:.2} within reach)",
+            m.k, m.share, m.ez_within_reach
+        ),
+        None => "none in window".to_string(),
+    };
+    let mut gaps = Vec::new();
+    let mut inconclusive = Vec::new();
+    let (mut p1_gaps, mut p1_inconclusive) = (Vec::new(), Vec::new());
+    // (overshoot of the guard over the mode, label), and the worst
+    // `(1 − k_mode/k_c) ÷ (k_c·h_n)²` among the gaps.
+    let mut worst_over = (0.0_f64, String::new());
+    let mut worst_under = (0.0_f64, String::new());
+    let mut worst_ratio = 0.0_f64;
+    let mut in_band = Vec::new();
+    let mut gap_modes = Vec::new();
+    for r in &rows {
+        let label = format!("gmsh {}×1×{}, lc {}", r.a, r.d, r.lc);
+        let (v2, m2, n2, top2) = r.p2;
+        let (v1, m1, n1, top1) = r.p1;
+        eprintln!(
+            "LONG {label}: k_c·h_n {:.3}, margin {:.2} %, reach {:.2}, k_c {:.4}; p=2 guard {:.4} \
+             vs box p=2 TM-like {} [{v2:?}, window {n2} to {top2:.3}]; p=1 guard {:.4} vs box \
+             p=1 TM-like {} [{v1:?}, window {n1} to {top1:.3}]",
+            r.kh,
+            100.0 * r.margin,
+            r.reach,
+            r.k_c,
+            r.p2_guard,
+            fmt_mode(m2),
+            r.p1_guard,
+            fmt_mode(m1),
+        );
+        match v2 {
+            LongGuideVerdict::Above => {
+                let m = m2.expect("mode");
+                gaps.push((r.a, r.d, r.lc));
+                let over = r.p2_guard / m.k - 1.0;
+                if over > worst_over.0 {
+                    worst_over = (over, label.clone());
+                }
+                let under = 1.0 - m.k / r.k_c;
+                if under > worst_under.0 {
+                    worst_under = (under, label.clone());
+                }
+                worst_ratio = worst_ratio.max(under / (r.kh * r.kh));
+                // Inside the single-mode band (below TE₂₀ = 2π/a)?
+                if m.k < 2.0 * PI / r.a {
+                    in_band.push(label.clone());
+                }
+                gap_modes.push((label.clone(), r.a, m));
+            }
+            LongGuideVerdict::Inconclusive => inconclusive.push(label.clone()),
+            LongGuideVerdict::Below => {}
+        }
+        match v1 {
+            LongGuideVerdict::Above => p1_gaps.push(label.clone()),
+            LongGuideVerdict::Inconclusive => p1_inconclusive.push(label.clone()),
+            LongGuideVerdict::Below => {}
+        }
+    }
+    eprintln!(
+        "long guides ({version}): {} rows, p=2 guard at or above the box's p=2 TM-like mode on \
+         {} ({} inconclusive); worst overshoot {:.1} % ({}); worst mode below k_c {:.1} % ({}); \
+         worst (1 − k/k_c) ÷ (k_c·h_n)² {:.4} (C_h = {}); p=1 (report-only): guard at or above \
+         the box's p=1 TM-like mode on {} ({} inconclusive); gap modes below TE₂₀: {in_band:?}",
+        rows.len(),
+        gaps.len(),
+        inconclusive.len(),
+        100.0 * worst_over.0,
+        worst_over.1,
+        100.0 * worst_under.0,
+        worst_under.1,
+        worst_ratio,
+        geode_core::driven::ports::TM_GUARD_AXIAL_COEFF,
+        p1_gaps.len(),
+        p1_inconclusive.len(),
+    );
+    for l in &p1_gaps {
+        eprintln!("    p=1 gap (report-only): {l}");
+    }
+    for l in &p1_inconclusive {
+        eprintln!("    p=1 inconclusive (report-only): {l}");
+    }
+    assert!(
+        inconclusive.is_empty(),
+        "p=2 rows whose window never covers the guard: {inconclusive:?}"
+    );
+    let known: Vec<(f64, f64, f64)> = LONG_GUIDE_KNOWN_GAPS.to_vec();
+    let new: Vec<_> = gaps.iter().filter(|g| !known.contains(g)).collect();
+    let fixed: Vec<_> = known.iter().filter(|g| !gaps.contains(g)).collect();
+    assert!(
+        new.is_empty() && fixed.is_empty(),
+        "long-guide gaps moved (Gmsh {version}): new {new:?}, no longer failing {fixed:?}"
+    );
+    // What the docs of `tm_guard_margin` and `p2_resolution_warning` state:
+    // the worst row is `3×1×9.75`, the guard 35 % above a mode 44 % below
+    // `k_c`, at about `0.046·(k_c·h_n)²`, nearly twice `C_h`.
+    assert!(worst_over.1.contains("3×1×9.75"), "{worst_over:?}");
+    assert!(worst_over.0 > 0.34 && worst_over.0 < 0.37, "{worst_over:?}");
+    assert!(
+        worst_under.0 > 0.43 && worst_under.0 < 0.45,
+        "{worst_under:?}"
+    );
+    assert!(worst_ratio > 0.045 && worst_ratio < 0.047, "{worst_ratio}");
+    // The gaps are at `k_c·h_n` ≈ 2.5 to 3.2 (one element across `b`).
+    for &(a, d, lc) in &gaps {
+        let r = rows
+            .iter()
+            .find(|r| (r.a, r.d, r.lc) == (a, d, lc))
+            .expect("row");
+        assert!(r.kh > 2.5 && r.kh < 3.2, "{r:?}");
+    }
+    // Four of the five gap modes are below TE₂₀, inside the single-mode
+    // band (all but `3×1×8`, at 2.370); the four `3 × 1` modes lie within
+    // the reach, the `2×1×9.5` one beyond it.
+    assert_eq!(in_band.len(), 4, "{in_band:?}");
+    assert!(!in_band.iter().any(|l| l.contains("3×1×8,")), "{in_band:?}");
+    for (label, a, m) in &gap_modes {
+        if *a == 3.0 {
+            assert!(m.ez_within_reach > 0.9, "{label}: {m:?}");
+        } else {
+            assert!(m.ez_within_reach < 0.1, "{label}: {m:?}");
+        }
+    }
 }

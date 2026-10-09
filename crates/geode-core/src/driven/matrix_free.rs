@@ -92,6 +92,11 @@
 //! driven proxy; that is a separate step. The default stays the on-device
 //! Jacobi: `Auto` resolves to it here, with a warning.
 //!
+//! Because the build is shared, the `GEODE_DRIVEN_AMS_*` measurement knobs
+//! of the `solve_ams` module (issue #963) act on this path too, and
+//! [`crate::driven::solve::DrivenLinearSolver::ams`] returns the built AMS here
+//! as on the assembled path.
+//!
 //! `GEODE_MF_AMS_PROFILE=1` prints, per back-solve, the wall time spent in the
 //! host V-cycles and in the transfers around them (stderr, one line).
 //!
@@ -555,6 +560,12 @@ impl<B: Backend> MatrixFreeSolver<B> {
         );
         self.ams = Some(ams);
         self
+    }
+
+    /// The host-side AMS this solver applies ([`Self::with_ams`]), or `None`
+    /// for the on-device Jacobi.
+    pub fn ams(&self) -> Option<&DrivenAms> {
+        self.ams.as_deref()
     }
 
     /// Solve `A(ω) x = b` for one interior-length complex RHS, writing the

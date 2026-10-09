@@ -228,6 +228,11 @@ fn matrix_free_explicit_ams_is_honoured_and_auto_stays_jacobi() {
             assert!(solver.is_iterative());
             assert_eq!(solver.preconditioner(), Some(IterativePreconditioner::AMS));
             assert_eq!(solver.preconditioner_fallback(), None);
+            // The built AMS is exposed as on the assembled path (#963).
+            let ams = solver
+                .ams()
+                .expect("matrix-free AMS handle exposes its AMS");
+            assert_eq!(ams.coarse(), AmsCoarseSolve::Direct);
         }
         Err(e) => {
             // Acceptance 1: unsupported backends fail loudly.
