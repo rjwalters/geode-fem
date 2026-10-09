@@ -2384,6 +2384,21 @@ fn solve_real_fixture_with_l(
     sigma_f_hz: f64,
     n_modes: usize,
 ) -> Vec<ModeReport> {
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    eprintln!("shift σ = {sigma:.4e} (= k² at {} GHz)", sigma_f_hz / 1e9);
+    solve_real_fixture_with_l_lambda(f, l_henry, sigma, n_modes)
+}
+
+/// As [`solve_real_fixture_with_l`] but with the shift given directly as a
+/// `λ = k²` value in `(1/μm)²`. Unlike the frequency form this can express a
+/// **negative** shift (below the whole spectrum, gradient kernel included),
+/// which is what the SPD matrix-free CG cross-checks need (issue #960).
+fn solve_real_fixture_with_l_lambda(
+    f: &TransmonFixture,
+    l_henry: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<ModeReport> {
     let edges = f.mesh.edges();
     let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
 
@@ -2429,68 +2444,134 @@ fn solve_real_fixture_with_l(
         interior_mask: &interior_mask,
     };
 
-    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
-    eprintln!("shift σ = {sigma:.4e} (= k² at {} GHz)", sigma_f_hz / 1e9);
     geode_core::eigen::transmon::solve_transmon_eigenmodes(&pencil, sigma, n_modes, M_PER_UNIT)
         .expect("real transmon eigensolve")
 }
 
-/// As [`solve_real_fixture_with_l`] but through the matrix-free inner-solve
-/// entry point ([`InnerSolver::MatrixFree`], issue #524) — the O(N)-memory
-/// path that avoids the direct sparse-LU factorization.
-fn solve_real_fixture_matrix_free(
-    f: &TransmonFixture,
-    l_henry: f64,
-    sigma_f_hz: f64,
-    n_modes: usize,
-) -> Vec<ModeReport> {
-    let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+/// SPD shift for the real-fixture matrix-free **CG** release tests (issue #960):
+/// the mirror image `σ_λ = −λ(4.5 GHz)` of the physical operating point.
+///
+/// The matrix-free [`InnerSolver::MatrixFree`] inner solve is SPD conjugate
+/// gradients, so `(K − σM)` must be positive definite. On this **ungauged**
+/// pencil that rules out *every* positive shift, the physical `σ = 4.5 GHz`
+/// included:
+///
+/// 1. the curl-free `image(d⁰)` gradient subspace has `K v = 0`, so
+///    `vᵀ(K − σM)v = −σ vᵀMv < 0` for any `σ > 0` — a negative subspace of
+///    dimension ≈ the number of interior nodes; and
+/// 2. the ~3.45 GHz junction-participation mode sits below 4.5 GHz as well.
+///
+/// (Both facts are recorded at [`real_transmon_minres_ams_converges_at_sigma_4p5`]
+/// and in `synthetic_three_space_vs_gradient_only_inner_iterations`.) CG on that
+/// indefinite operator stagnates — on main the Jacobi leg ran the full
+/// `2·N = 266_216` inner iterations and stopped at `‖r‖/‖b‖ ≈ 0.69`.
+///
+/// With `σ_λ < 0`, `K − σM = K + |σ|M` is SPD on the whole space (gradient
+/// kernel included), so CG is valid. The magnitude is not tuned: it is the
+/// same `|σ|` as the documented 4.5 GHz operating point, i.e. exactly the SPD
+/// proxy `K + |σ|M` that the #559 AMS-MINRES preconditioner is built on at that
+/// point. It matches what the CI-fast synthetic twins already do (`σ = −0.5`).
+/// The price is that the modes nearest `σ` now include the `λ ≈ 0` gradient
+/// near-kernel, so mode comparisons treat those with an absolute floor (see
+/// [`assert_spectra_match`]).
+///
+/// SPD is necessary but not sufficient for **Jacobi**-CG at this scale. On the
+/// gradient subspace `K + |σ|M` acts as `|σ|M`, with `|σ| ≈ 8.9e-9 μm⁻²`, while
+/// the curl part reaches `~1/h²`, so the Jacobi-preconditioned condition number
+/// is enormous. Measured (issue #960, 133_108 DOFs): Jacobi-CG at this shift
+/// converges monotonically but reaches only `‖r‖/‖b‖ = 1.43e-8` after the full
+/// `2·N = 266_216` inner iterations of its first solve, short of the 1e-10
+/// inner tolerance. Damping exactly that gradient near-kernel is what AMS is
+/// for, so the real-fixture tests run their matrix-free legs AMS-preconditioned
+/// and treat the Jacobi baseline's budget exhaustion as a measured lower bound.
+/// Moving `|σ|` far above the physical eigenvalues would rescue Jacobi only by
+/// collapsing the shift-invert separation of the physical modes, so the shift
+/// is deliberately not tuned for that.
+fn real_fixture_spd_shift() -> f64 {
+    -lambda_shift_for_frequency_hz(4.5e9, M_PER_UNIT)
+}
 
-    let metal = f.metal_triangles();
-    let exterior = f.exterior_boundary_triangles();
-    let interior_mask =
-        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+/// `|λ|` at or below which a real-fixture mode is the `image(d⁰)` gradient
+/// near-kernel (numerically ~1e-16) rather than a physical mode (λ ≳ 5e-9 in
+/// `(1/μm)²` for the ~3.45 GHz junction mode and above).
+const REAL_NEAR_KERNEL_FLOOR: f64 = 1e-12;
 
-    let epsilon_tensor = f.epsilon_tensor_r();
-    let scatter = NedelecScatterMap::new(&tet_edge_idx);
-    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
-
-    let jport = f.lumped_element_port();
-    let element = ReactiveElementNatural::from_si(l_henry, JUNCTION_C_F, M_PER_UNIT);
-    let shunt = LumpedReactiveShunt {
-        faces: &jport.faces,
-        length: jport.length,
-        width: jport.width,
-        element,
-    };
-    let pencil = TransmonPencil {
-        scatter: &scatter,
-        k_vals: &k_vals,
-        m_vals: &m_vals,
-        edges: &edges,
-        mesh: &f.mesh,
-        shunt,
-        interior_mask: &interior_mask,
-    };
-
-    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
-    geode_core::eigen::transmon::solve_transmon_eigenmodes_with_inner(
-        &pencil,
-        sigma,
-        n_modes,
-        M_PER_UNIT,
-        InnerSolver::MatrixFree,
-    )
-    .expect("real transmon matrix-free eigensolve")
+/// Cross-check two real-fixture spectra mode by mode (issue #960). Every
+/// physical mode of `reference` (|λ| above [`REAL_NEAR_KERNEL_FLOOR`]) must have
+/// a counterpart in `candidate` within `rel_tol` relative λ difference; every
+/// gradient near-kernel mode of `reference` must have a counterpart that is
+/// itself near-kernel. Matching is by closest λ, so a different number of
+/// degenerate near-kernel Ritz copies does not misalign the physical modes.
+/// Returns `(worst physical rel-diff, number of physical modes compared)`.
+fn assert_spectra_match(
+    ref_name: &str,
+    reference: &[ModeReport],
+    cand_name: &str,
+    candidate: &[ModeReport],
+    rel_tol: f64,
+) -> (f64, usize) {
+    assert!(!candidate.is_empty(), "{cand_name} returned no modes");
+    let mut worst = 0.0_f64;
+    let mut n_phys = 0;
+    for (i, r) in reference.iter().enumerate() {
+        let best = candidate
+            .iter()
+            .min_by(|a, b| {
+                (a.lambda - r.lambda)
+                    .abs()
+                    .partial_cmp(&(b.lambda - r.lambda).abs())
+                    .unwrap()
+            })
+            .unwrap();
+        if r.lambda.abs() <= REAL_NEAR_KERNEL_FLOOR {
+            eprintln!(
+                "  mode[{i}]: {ref_name} λ={:.3e} ↔ {cand_name} λ={:.3e} (gradient near-kernel)",
+                r.lambda, best.lambda
+            );
+            assert!(
+                best.lambda.abs() <= REAL_NEAR_KERNEL_FLOOR,
+                "{ref_name} near-kernel mode[{i}] λ={:.3e} has no near-kernel \
+                 {cand_name} counterpart (closest λ={:.3e})",
+                r.lambda,
+                best.lambda
+            );
+            continue;
+        }
+        let rel = (r.lambda - best.lambda).abs() / r.lambda.abs();
+        eprintln!(
+            "  mode[{i}]: {ref_name} {:.6} GHz ↔ {cand_name} {:.6} GHz → {rel:.4e} rel",
+            r.frequency_ghz(),
+            best.frequency_ghz(),
+        );
+        assert!(
+            rel < rel_tol,
+            "mode[{i}] {ref_name} λ={} vs {cand_name} λ={} rel-diff {rel:.3e} > {rel_tol:e}",
+            r.lambda,
+            best.lambda
+        );
+        worst = worst.max(rel);
+        n_phys += 1;
+    }
+    (worst, n_phys)
 }
 
 /// RELEASE cross-check (issue #524): on the committed 133k-DOF real transmon
 /// fixture, the matrix-free iterative shift-invert path reproduces the
-/// DIRECT sparse-LU path's physical eigenvalues within a tight tolerance
-/// (and thus within the ≤1% Palace bar). The shift is placed at 4.5 GHz,
-/// **below** the lowest ~5.15 GHz physical resonator, so `(K − σM)` is SPD
-/// and the inner Jacobi-CG converges (Phase-1 lowest-mode case).
+/// DIRECT sparse-LU path's eigenvalues within a tight tolerance (and thus
+/// within the ≤1% Palace bar), in both directions (every physical mode of each
+/// spectrum, over the λ window both cover, has a counterpart in the other within
+/// 1e-4 relative; at least the junction and resonator modes must be compared).
+///
+/// The shift is [`real_fixture_spd_shift`] (`σ_λ = −λ(4.5 GHz)`), where
+/// `(K − σM)` is SPD so the inner CG is valid, and the matrix-free inner CG is
+/// AMS-preconditioned. Until issue #960 this test ran Jacobi-CG at
+/// `σ = +4.5 GHz` on the false premise that the operator is SPD there; it is
+/// indefinite (gradient kernel + the ~3.45 GHz junction mode), so the
+/// matrix-free leg stagnated at `‖r‖/‖b‖ ≈ 0.69` and never converged. At the SPD
+/// shift Jacobi-CG still cannot reach the inner tolerance within its `2·N`
+/// budget on this mesh (see [`real_fixture_spd_shift`]), which is why the
+/// matrix-free leg here uses AMS; the Jacobi baseline is measured in
+/// [`real_transmon_ams_beats_jacobi`].
 ///
 /// This is the release-tier companion to the CI-fast synthetic
 /// `synthetic_matrix_free_matches_direct` gate — it exercises the O(N)
@@ -2504,39 +2585,65 @@ fn solve_real_fixture_matrix_free(
 ///     -- --ignored real_transmon_matrix_free_matches_direct --nocapture
 /// ```
 #[test]
-#[ignore = "two 133k-DOF shift-invert eigensolves (direct + matrix-free) — release only"]
+#[ignore = "two 133k-DOF shift-invert eigensolves (direct + matrix-free AMS-CG) — release only"]
 fn real_transmon_matrix_free_matches_direct() {
-    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
-    // 4.5 GHz shift sits below the lowest ~5.15 GHz physical mode ⇒ SPD.
-    let sigma_f_hz = 4.5e9;
-    let n_modes = 6;
+    use geode_core::eigen::lanczos::InnerPreconditioner;
 
-    let direct = solve_real_fixture_with_l(&f, JUNCTION_L_H, sigma_f_hz, n_modes);
-    let mf = solve_real_fixture_matrix_free(&f, JUNCTION_L_H, sigma_f_hz, n_modes);
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let sigma = real_fixture_spd_shift();
+    // Below the spectrum the Ritz values nearest σ are the gradient
+    // near-kernel: the direct reference returns 23 numerical copies of λ ≈ 0
+    // (|λ| ≤ 4e-16) before the first physical mode (measured, issue #960). Six
+    // modes, the pre-#960 count, are therefore all near-kernel. Thirty reach
+    // past them to the junction (3.4528 GHz, participation 0.994), the
+    // resonator (5.1528 GHz) and five higher modes up to 26.09 GHz.
+    let n_modes = 30;
+    eprintln!("SPD shift σ_λ = {sigma:.4e} (= −k² at 4.5 GHz)");
+
+    let t0 = std::time::Instant::now();
+    let direct = solve_real_fixture_with_l_lambda(&f, JUNCTION_L_H, sigma, n_modes);
+    let t_direct = t0.elapsed();
+    let t0 = std::time::Instant::now();
+    let (mf, mf_iters) = solve_real_fixture_matrix_free_inner_iters(
+        &f,
+        JUNCTION_L_H,
+        sigma,
+        n_modes,
+        InnerPreconditioner::Ams,
+    )
+    .expect("real transmon matrix-free AMS-CG eigensolve at the SPD shift");
+    let t_mf = t0.elapsed();
+    eprintln!(
+        "direct LU: {t_direct:.1?}; matrix-free AMS-CG: {t_mf:.1?}, {mf_iters} inner-CG iters"
+    );
 
     assert_eq!(direct.len(), mf.len(), "mode-count mismatch direct vs mf");
-    let mut worst = 0.0_f64;
-    for (i, (d, m)) in direct.iter().zip(mf.iter()).enumerate() {
-        let rel = (d.lambda - m.lambda).abs() / d.lambda.abs().max(f64::MIN_POSITIVE);
-        eprintln!(
-            "  mode[{i}]: direct {:.6} GHz ↔ matrix-free {:.6} GHz → {:.4e} rel",
-            d.frequency_ghz(),
-            m.frequency_ghz(),
-            rel
-        );
-        worst = worst.max(rel);
-        assert!(
-            rel < 1e-4,
-            "mode[{i}] direct λ={} vs matrix-free λ={} rel-diff {rel:.3e} > 1e-4 \
-             (must be ≪ 1% Palace bar)",
-            d.lambda,
-            m.lambda
-        );
-    }
-    eprintln!("matrix-free vs direct worst-case rel-diff = {worst:.3e} (< 1e-4)");
+    // The two runs need not hold the same number of near-kernel Ritz copies
+    // (they come from rounding), so the top of each list can reach a different
+    // physical mode. Compare over the window both lists cover, in both
+    // directions, so a spurious matrix-free mode cannot hide either.
+    let top = |ms: &[ModeReport]| ms.iter().map(|m| m.lambda).fold(f64::MIN, f64::max);
+    let window = top(&direct).min(top(&mf)) * (1.0 + 1e-4);
+    let in_window = |ms: &[ModeReport]| -> Vec<ModeReport> {
+        ms.iter().filter(|m| m.lambda <= window).cloned().collect()
+    };
+    let (direct_w, mf_w) = (in_window(&direct), in_window(&mf));
+    let (worst, n_phys) = assert_spectra_match("direct", &direct_w, "matrix-free", &mf_w, 1e-4);
+    assert_spectra_match("matrix-free", &mf_w, "direct", &direct_w, 1e-4);
+    // At least the junction and resonator modes must be in the comparison;
+    // otherwise it would be vacuous (only near-kernel copies).
+    assert!(
+        n_phys >= 2,
+        "only {n_phys} physical mode(s) among the {n_modes} nearest σ in the common window \
+         (λ ≤ {window:.4e}) — the cross-check would be (nearly) vacuous"
+    );
+    eprintln!(
+        "matrix-free vs direct: {n_phys} physical modes, worst-case rel-diff = {worst:.3e} \
+         (< 1e-4)"
+    );
 }
 
-/// As [`solve_real_fixture_matrix_free`] but through the **indefinite**
+/// As [`solve_real_fixture_with_l`] but through the matrix-free **indefinite**
 /// inner-solve entry point ([`InnerSolver::MatrixFreeIndefinite`], MINRES —
 /// issue #535) for an interior shift where `(K − σM)` is symmetric-indefinite.
 /// Returns the raw `Result` (rather than `.expect()`-ing) so the release gate
@@ -2868,16 +2975,20 @@ fn real_transmon_minres_ams_converges_at_sigma_4p5() {
     );
 }
 
-/// As [`solve_real_fixture_matrix_free`] but through the instrumented entry
-/// point, returning the modes and the total inner-CG iteration count, with an
-/// explicit inner preconditioner (issue #526).
+/// Matrix-free shift-invert solve of the real fixture through the instrumented
+/// entry point ([`InnerSolver::MatrixFree`], issues #524/#526), returning the
+/// modes and the total inner-CG iteration count under an explicit inner
+/// preconditioner. The shift `sigma` is a `λ = k²` value in `(1/μm)²`; the inner
+/// solve is SPD CG, so it must sit below the whole spectrum (`sigma < 0` on this
+/// ungauged pencil — see [`real_fixture_spd_shift`]). Returns the raw `Result`
+/// so a caller can observe a preconditioner's inner-CG non-convergence.
 fn solve_real_fixture_matrix_free_inner_iters(
     f: &TransmonFixture,
     l_henry: f64,
-    sigma_f_hz: f64,
+    sigma: f64,
     n_modes: usize,
     precond: geode_core::eigen::lanczos::InnerPreconditioner,
-) -> (Vec<ModeReport>, usize) {
+) -> Result<(Vec<ModeReport>, usize), geode_core::eigen::dense::EigenError> {
     let edges = f.mesh.edges();
     let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
 
@@ -2908,80 +3019,207 @@ fn solve_real_fixture_matrix_free_inner_iters(
         interior_mask: &interior_mask,
     };
 
-    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
     geode_core::eigen::transmon::solve_transmon_eigenmodes_matrix_free_inner_iters(
         &pencil, sigma, n_modes, M_PER_UNIT, precond,
     )
-    .expect("real transmon matrix-free eigensolve (instrumented)")
+}
+
+/// Outer Lanczos steps in the short real-fixture preconditioner comparison
+/// (issue #960). `SparseShiftInvertLanczos` runs `max(max_iters, n_modes + 2)`
+/// outer steps, so `max_iters = 3` with `n_modes = 1` is the shortest run it
+/// allows: three inner `(K − σM)⁻¹` solves from the deterministic start vector,
+/// the first one cold (zero initial guess), the next two warm-started.
+const REAL_SHORT_LANCZOS_STEPS: usize = 3;
+
+/// Total inner-CG iterations of a [`REAL_SHORT_LANCZOS_STEPS`]-step matrix-free
+/// shift-invert Lanczos run on the real fixture's reduced pencil
+/// `(K + K_port, M + M_port)` at shift `sigma` (a `λ` in `(1/μm)²`), with the
+/// given inner preconditioner (issue #960). The pencil, reduction, discrete
+/// gradient, inner tolerance (`1e-10 = 0.01 · 1e-8`) and per-solve budget
+/// (`2·N`) are those of `solve_transmon_eigenmodes_matrix_free_inner_iters`;
+/// only the outer step count is shorter. The returned Ritz values of so short
+/// a run are not converged eigenvalues and are discarded. Returns the raw
+/// `Result` so a caller can observe inner-CG budget exhaustion.
+fn real_fixture_short_lanczos_inner_iters(
+    f: &TransmonFixture,
+    sigma: f64,
+    precond: geode_core::eigen::lanczos::InnerPreconditioner,
+) -> Result<usize, geode_core::eigen::dense::EigenError> {
+    use faer::sparse::{SparseColMat, Triplet};
+    use geode_core::eigen::lanczos::SparseShiftInvertLanczos;
+
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+
+    let jport = f.lumped_element_port();
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element: ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT),
+    };
+    let k_port = shunt.k_port_triplets(&f.mesh, &edges);
+    let m_port = shunt.m_port_triplets(&f.mesh, &edges);
+
+    // Plain PEC-interior reindex, as the ungauged matrix-free path uses.
+    let mut interior_index = vec![None; edges.len()];
+    let mut dim = 0usize;
+    for (e, &keep) in interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    let pattern = scatter.pattern();
+    let reduce = |vals: &[f64], extra: &[(usize, usize, f64)]| {
+        let mut trips = Vec::with_capacity(vals.len() + extra.len());
+        for ((&r, &c), &v) in pattern.rows.iter().zip(pattern.cols.iter()).zip(vals) {
+            if let (Some(ri), Some(ci)) = (interior_index[r as usize], interior_index[c as usize]) {
+                trips.push(Triplet::new(ri, ci, v));
+            }
+        }
+        for &(r, c, v) in extra {
+            if let (Some(ri), Some(ci)) = (interior_index[r], interior_index[c]) {
+                trips.push(Triplet::new(ri, ci, v));
+            }
+        }
+        SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, &trips)
+            .expect("reduced sparse assembly")
+    };
+    let k_red = reduce(&k_vals, &k_port);
+    let m_red = reduce(&m_vals, &m_port);
+    let gradient = geode_core::eigen::projection::InteriorGradient::build(
+        &edges,
+        &interior_mask,
+        &interior_index,
+        f.mesh.n_nodes(),
+        dim,
+    );
+
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters: REAL_SHORT_LANCZOS_STEPS,
+        tol: 1e-8,
+        inner: InnerSolver::MatrixFree,
+        precond,
+    };
+    solver
+        .smallest_eigenpairs_inner_iters(k_red.as_ref(), m_red.as_ref(), 1, Some(&gradient))
+        .map(|(_, iters)| iters)
 }
 
 /// RELEASE acceptance gate (issue #526): on the committed 133k-DOF real transmon
-/// fixture, the **AMS-lite** inner-CG preconditioner cuts the total inner-CG
-/// iteration count by **≥5×** vs the **Jacobi** baseline AND yields the same
-/// eigenvalues. This is the release-tier companion to the CI-fast synthetic
+/// fixture, the **AMS-lite** inner-CG preconditioner cuts the inner-CG
+/// iteration count by **≥5×** vs the **Jacobi** baseline. This is the
+/// release-tier companion to the CI-fast synthetic
 /// `synthetic_ams_beats_jacobi_inner_iterations` gate, at the real mesh scale
-/// where the gradient near-kernel dominates the conditioning (so the reduction
-/// is even larger than on the coarse synthetic fixture).
+/// where the gradient near-kernel dominates the conditioning.
 ///
-/// The shift is 4.5 GHz, below the lowest ~5.15 GHz physical resonator, so
-/// `(K − σM)` is SPD and both preconditioned CGs converge.
+/// # Shift
+///
+/// [`real_fixture_spd_shift`] (`σ_λ = −λ(4.5 GHz)`), where `(K − σM)` is SPD so
+/// both preconditioned CGs are valid — the same below-the-spectrum placement
+/// the synthetic twin uses (`σ = −0.5`). Until issue #960 this test ran at
+/// `σ = +4.5 GHz` on the false premise that the operator is SPD there; it is
+/// indefinite (gradient kernel + the ~3.45 GHz junction mode), so the Jacobi
+/// leg stagnated at `‖r‖/‖b‖ ≈ 0.69` after 266_216 inner iterations and the 5×
+/// gate never ran.
+///
+/// # What is counted
+///
+/// The inner-CG total of the same [`REAL_SHORT_LANCZOS_STEPS`]-step
+/// shift-invert Lanczos run under each preconditioner (identical pencil,
+/// deterministic start vector, inner tolerance and `2·N` per-solve budget).
+/// The run is short on purpose. At the SPD shift Jacobi-CG cannot finish even
+/// the first inner solve within its budget (measured: `‖r‖/‖b‖ = 1.43e-8` vs the
+/// 1e-10 tolerance after 266_216 iterations), so the only number Jacobi yields
+/// is the lower bound "more than the budget". Against a full 96-step eigensolve
+/// (AMS-lite: ~2_750 inner iterations per step, ~264k in total) that bound says
+/// nothing; against an equally short AMS run it is decisive.
+///
+/// A Jacobi failure is not hidden: the test requires it to be exactly the
+/// inner-CG budget exhaustion, and then gates `budget ≥ 5 × AMS total` — a
+/// conservative form of the same ≥5× bar (Jacobi's true total exceeds the
+/// budget, because the failing solve alone ran all of it). If Jacobi ever
+/// converges, the exact ratio is gated instead. A preconditioner does not move
+/// the eigenvalues; at 133k that is checked for AMS against direct LU in
+/// [`real_transmon_matrix_free_matches_direct`] (the Jacobi path cannot reach
+/// the inner tolerance here, so it has no spectrum to compare).
 ///
 /// ```sh
 /// cargo test -p geode-core --release --test transmon_eigenmode \
 ///     -- --ignored real_transmon_ams_beats_jacobi --nocapture
 /// ```
 #[test]
-#[ignore = "two 133k-DOF matrix-free shift-invert eigensolves (Jacobi + AMS) — release only"]
+#[ignore = "133k-DOF matrix-free shift-invert runs (AMS + Jacobi); the Jacobi leg runs its full 2·N CG budget — release only"]
 fn real_transmon_ams_beats_jacobi() {
     use geode_core::eigen::lanczos::InnerPreconditioner;
 
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
-    let sigma_f_hz = 4.5e9;
-    let n_modes = 6;
-
-    let (jacobi_modes, jacobi_iters) = solve_real_fixture_matrix_free_inner_iters(
-        &f,
-        JUNCTION_L_H,
-        sigma_f_hz,
-        n_modes,
-        InnerPreconditioner::Jacobi,
-    );
-    let (ams_modes, ams_iters) = solve_real_fixture_matrix_free_inner_iters(
-        &f,
-        JUNCTION_L_H,
-        sigma_f_hz,
-        n_modes,
-        InnerPreconditioner::Ams,
-    );
-
-    let ratio = jacobi_iters as f64 / ams_iters.max(1) as f64;
+    let sigma = real_fixture_spd_shift();
     eprintln!(
-        "real 133k inner-CG iterations: Jacobi = {jacobi_iters}, AMS-lite = {ams_iters}, \
-         reduction = {ratio:.2}×"
+        "SPD shift σ_λ = {sigma:.4e} (= −k² at 4.5 GHz), \
+         {REAL_SHORT_LANCZOS_STEPS} outer Lanczos steps per preconditioner"
     );
 
+    let t0 = std::time::Instant::now();
+    let ams_iters = real_fixture_short_lanczos_inner_iters(&f, sigma, InnerPreconditioner::Ams)
+        .expect("AMS-CG must converge at the SPD shift");
+    let t_ams = t0.elapsed();
+    eprintln!("AMS-lite: {ams_iters} inner-CG iters ({t_ams:.1?})");
     assert!(ams_iters > 0, "AMS run performed no inner CG iterations");
-    assert!(
-        jacobi_iters >= 5 * ams_iters,
-        "AMS-lite did not reduce inner-CG iterations ≥5× at 133k: Jacobi = {jacobi_iters}, \
-         AMS = {ams_iters} (ratio {ratio:.2}×)"
-    );
 
-    assert_eq!(jacobi_modes.len(), ams_modes.len());
-    for (i, (j, a)) in jacobi_modes.iter().zip(ams_modes.iter()).enumerate() {
-        let rel = (j.lambda - a.lambda).abs() / j.lambda.abs().max(f64::MIN_POSITIVE);
-        eprintln!(
-            "  mode[{i}]: Jacobi {:.6} GHz ↔ AMS {:.6} GHz → {:.4e} rel",
-            j.frequency_ghz(),
-            a.frequency_ghz(),
-            rel
-        );
-        assert!(
-            rel < 1e-4,
-            "mode[{i}] Jacobi λ={} vs AMS λ={} rel-diff {rel:.3e} > 1e-4",
-            j.lambda,
-            a.lambda
-        );
+    let t0 = std::time::Instant::now();
+    let jacobi = real_fixture_short_lanczos_inner_iters(&f, sigma, InnerPreconditioner::Jacobi);
+    let t_jacobi = t0.elapsed();
+
+    match jacobi {
+        Ok(jacobi_iters) => {
+            let ratio = jacobi_iters as f64 / ams_iters as f64;
+            eprintln!(
+                "real 133k inner-CG iterations: Jacobi = {jacobi_iters} ({t_jacobi:.1?}), \
+                 AMS-lite = {ams_iters} ({t_ams:.1?}), reduction = {ratio:.2}×"
+            );
+            assert!(
+                jacobi_iters >= 5 * ams_iters,
+                "AMS-lite did not reduce inner-CG iterations ≥5× at 133k: \
+                 Jacobi = {jacobi_iters}, AMS = {ams_iters} (ratio {ratio:.2}×)"
+            );
+        }
+        Err(e) => {
+            // Only an inner-CG budget exhaustion is acceptable here, and only
+            // because it bounds Jacobi's total from below.
+            let msg = format!("{e}");
+            assert!(
+                msg.contains("matrix-free inner CG failed to converge"),
+                "Jacobi leg failed with something other than CG non-convergence: {msg}"
+            );
+            let budget: usize = msg
+                .split("after ")
+                .nth(1)
+                .and_then(|rest| rest.split(" iters").next())
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_else(|| panic!("could not read the CG budget from: {msg}"));
+            let ratio_lb = budget as f64 / ams_iters as f64;
+            eprintln!(
+                "real 133k inner-CG iterations: Jacobi > {budget} (one inner solve exhausted \
+                 its budget after {t_jacobi:.1?}: {msg}), AMS-lite = {ams_iters} \
+                 ({t_ams:.1?}), reduction ≥ {ratio_lb:.2}×"
+            );
+            assert!(
+                budget >= 5 * ams_iters,
+                "AMS-lite did not reduce inner-CG iterations ≥5× at 133k even against the \
+                 Jacobi lower bound: Jacobi > {budget}, AMS = {ams_iters} \
+                 (ratio ≥ {ratio_lb:.2}×)"
+            );
+        }
     }
 }
 

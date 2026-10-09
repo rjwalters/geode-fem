@@ -412,6 +412,15 @@ impl<B: Backend> MatrixFreeSolver<B> {
         })
     }
 
+    /// Builder-style override of the COCG residual-replacement cap
+    /// ([`BurnCocg::max_replacements`], issue #987). [`Self::new`] uses the
+    /// default [`crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS`];
+    /// `0` restores the pre-#943 first-crossing check.
+    pub fn with_max_replacements(mut self, max_replacements: usize) -> Self {
+        self.cocg.max_replacements = max_replacements;
+        self
+    }
+
     /// Solve `A(ω) x = b` for one interior-length complex RHS, writing the
     /// interior-length solution into `out`. Returns the COCG report.
     ///
