@@ -50,7 +50,7 @@ pub fn run(
         driven::validate_export(&p)?;
     }
     if let Some(path) = touchstone {
-        touchstone::validate(&p, path)?;
+        touchstone::validate(&p, path, &crate::port_solves::PortSolves::new(&p))?;
     }
     let out = OutDir::create_opt(outdir)?;
     // The default `auto` preconditioner's fallback note (issue #930):

@@ -116,7 +116,7 @@ use geode_core::driven::extraction::{
     SMatrix, SParameterSweepPoint, s_parameter_operator, s_parameter_point, z_from_port_readbacks,
 };
 use geode_core::driven::ports::{
-    CandidateConfirmation, DegenerateCandidate, LumpedPort, MixedPortSweepPoint,
+    CandidateConfirmation, DegenerateCandidate, LumpedPort, MixedPortSweepPoint, PortFaceError,
     PortFaceProjection, WavePort, WavePortSweepPoint, solve_mixed_port_sweep_with_mode,
     solve_wave_port_sweep_with_mode,
 };
@@ -136,6 +136,7 @@ use crate::backend::CompiledBackend;
 use crate::check::{mesh_summary, port_summaries, silver_muller_summaries, upml_summaries};
 use crate::error::CliError;
 use crate::export::{OutDir, PatternFile, eps_per_node, field_file_name, pattern_file_name};
+use crate::port_solves::PortSolves;
 use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
@@ -231,14 +232,18 @@ pub fn run(
     }
     let p = p;
     p.print_load_warnings();
+    // Every port-face solve of the run, made once on first use and shared
+    // by the Touchstone classification, the `z0` precheck, the degeneracy
+    // notes, the sweep and the sensitivity (issue #952).
+    let solves = PortSolves::new(&p);
     let plan = touchstone
-        .map(|path| crate::touchstone::validate(&p, path))
+        .map(|path| crate::touchstone::validate(&p, path, &solves))
         .transpose()?;
     // A `z0` observable on a channel with no net conductor current has no
     // line impedance to differentiate (issue #953): reject it from the
     // face sweep, before the 3-D solve.
     if let Some(sens) = p.sensitivity.as_ref().filter(|s| s.n_port) {
-        crate::s_sensitivity::line_impedance_error(&p, sens)?;
+        crate::s_sensitivity::line_impedance_error(&p, sens, &solves)?;
     }
     // Wave-port specs export nothing, so there is nothing to validate.
     if outdir.is_some() && p.wave_ports.is_empty() {
@@ -261,9 +266,11 @@ pub fn run(
         }
         // The degeneracy notes of the geometric wave ports (issue #923),
         // once per run and before the 3-D solve, so a long sweep prints
-        // them up front. Warnings only: nothing below reads them.
-        let (mut warnings, unavailable) = wave_port_degeneracy_warnings(&p);
-        let (results, solver, wave_ports, sweep_warnings) = wave_sweep(&p, opts)?;
+        // them up front. Warnings only: nothing below reads them. They are
+        // read off the ports' own face solves (issue #952), which the sweep
+        // then reuses.
+        let (mut warnings, unavailable) = wave_port_degeneracy_warnings(&p, Some(&solves));
+        let (results, solver, wave_ports, sweep_warnings) = wave_sweep(&p, opts, &solves)?;
         // A failed diagnostic solve is reported only once the sweep itself
         // has succeeded (the sweep's own mode solve fails with the same
         // error, which is then the run's error).
@@ -285,7 +292,7 @@ pub fn run(
         .as_ref()
         .map(|sens| {
             if sens.n_port {
-                crate::s_sensitivity::driven(&p, sens, &results, opts.jobs)
+                crate::s_sensitivity::driven(&p, sens, &results, opts.jobs, &solves)
             } else {
                 crate::sensitivity::driven(&p, sens, opts.jobs)
             }
@@ -875,6 +882,7 @@ fn reduced_z(
 pub fn wave_sweep(
     p: &Problem,
     opts: SweepOptions,
+    solves: &PortSolves<'_>,
 ) -> Result<
     (
         Vec<FrequencyResult>,
@@ -885,7 +893,7 @@ pub fn wave_sweep(
     CliError,
 > {
     if p.wave_ports.iter().any(|w| w.hybrid.is_some()) {
-        return crate::hybrid::sweep(p, opts);
+        return crate::hybrid::sweep(p, opts, solves);
     }
     if opts.jobs > 1 {
         eprintln!("note: --jobs: wave-port sweeps run serially (one frequency at a time)");
@@ -903,18 +911,11 @@ pub fn wave_sweep(
     );
     let t0 = Instant::now();
     // The modes and k_c are geometric (ε-independent); each port's fill
-    // medium (issue #777) is set per solve call below.
-    let mut ports: Vec<WavePort> = p
-        .wave_ports
-        .iter()
-        .map(|w| {
-            w.projection
-                .wave_port(&p.edges, &w.a_inc)
-                .map_err(|err| CliError::WavePort {
-                    name: w.surface.name.clone(),
-                    err,
-                })
-        })
+    // medium (issue #777) is set per solve call below. The face solves are
+    // the run's shared ones (issue #952): made here only if no earlier
+    // consumer asked.
+    let mut ports: Vec<WavePort> = (0..p.wave_ports.len())
+        .map(|k| solves.wave_port(k))
         .collect::<Result<_, _>>()?;
 
     // k₀ → Hz for the cutoff report (k₀ is linear in f).
@@ -1239,24 +1240,38 @@ fn port_degeneracy_warnings(
     n_modes: usize,
     order: ElementOrder,
 ) -> Result<Vec<WarningResult>, WarningResult> {
+    candidate_warnings(
+        index,
+        name,
+        n_modes,
+        projection.degenerate_candidates(n_modes, order).as_deref(),
+    )
+}
+
+/// [`port_degeneracy_warnings`] from candidate records already in hand
+/// (`Err`: the solve that would have given them failed).
+fn candidate_warnings(
+    index: usize,
+    name: &str,
+    n_modes: usize,
+    candidates: Result<&[DegenerateCandidate], &PortFaceError>,
+) -> Result<Vec<WarningResult>, WarningResult> {
     let warning = |kind, message| WarningResult {
         kind,
         wave_port: Some(index),
         physical_group: Some(name.to_string()),
         message,
     };
-    let candidates = projection
-        .degenerate_candidates(n_modes, order)
-        .map_err(|e| {
-            warning(
-                DEGENERACY_UNAVAILABLE,
-                format!(
-                    "wave port `{name}`: the degeneracy check of its {n_modes} mode(s) could not \
+    let candidates = candidates.map_err(|e| {
+        warning(
+            DEGENERACY_UNAVAILABLE,
+            format!(
+                "wave port `{name}`: the degeneracy check of its {n_modes} mode(s) could not \
                      run ({e}), so an ambiguous or near-degenerate mode pair on this face would \
                      go unreported"
-                ),
-            )
-        })?;
+            ),
+        )
+    })?;
     Ok(candidates
         .iter()
         .flat_map(candidate_notes)
@@ -1273,27 +1288,45 @@ fn port_degeneracy_warnings(
 /// Called once per `geode driven` run, by [`run`], which is the one place
 /// every output of the run (report, `--touchstone`, sensitivities) hangs
 /// from, and once per `geode check` run (issue #959), which reports the same
-/// warnings without the sweep. Warnings only: the cluster decision is the library's
-/// ([`PortFaceProjection::wave_port`] makes it again, bit for bit), and
-/// nothing reads these to change S, the Touchstone file or the exit status.
+/// warnings without the sweep. Warnings only: the cluster decision is the
+/// library's, and nothing reads these to change S, the Touchstone file or
+/// the exit status.
 ///
-/// Cost: one more raw face mode solve per geometric port, plus the
-/// confirming other-order solve when the face has a candidate pair.
+/// Cost: with the run's shared `solves` (`geode driven`, issue #952), none:
+/// the records come from each port's own face solve
+/// ([`PortFaceProjection::wave_port_with_candidates`]), which the sweep
+/// reuses. Without (`geode check`, which has no sweep to share with), one
+/// raw face mode solve per geometric port
+/// ([`PortFaceProjection::degenerate_candidates`]), plus the confirming
+/// other-order solve when the face has a candidate pair. A port whose shared
+/// solve failed (its gauge, say) falls back to `degenerate_candidates`, so
+/// the warnings are the same either way.
 pub(crate) fn wave_port_degeneracy_warnings(
     p: &Problem,
+    solves: Option<&PortSolves<'_>>,
 ) -> (Vec<WarningResult>, Vec<WarningResult>) {
     let (mut notes, mut unavailable) = (Vec::new(), Vec::new());
     for (index, w) in p.wave_ports.iter().enumerate() {
         if w.hybrid.is_some() {
             continue;
         }
-        match port_degeneracy_warnings(
-            index,
-            &w.surface.name,
-            &w.projection,
-            w.a_inc.len(),
-            GEOMETRIC_PORT_ORDER,
-        ) {
+        // The shared solves are the ports' own, at p=1.
+        let shared = solves
+            .filter(|_| GEOMETRIC_PORT_ORDER == ElementOrder::P1)
+            .and_then(|s| s.candidates(index).ok());
+        let ws = match shared {
+            Some(candidates) => {
+                candidate_warnings(index, &w.surface.name, w.a_inc.len(), Ok(candidates))
+            }
+            None => port_degeneracy_warnings(
+                index,
+                &w.surface.name,
+                &w.projection,
+                w.a_inc.len(),
+                GEOMETRIC_PORT_ORDER,
+            ),
+        };
+        match ws {
             Ok(ws) => notes.extend(ws),
             Err(w) => unavailable.push(w),
         }
@@ -2069,5 +2102,259 @@ mod tests {
         );
         assert!(msg.contains("`upml`"), "{msg}");
         assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #952: one face solve per port per run, shared
+    // -----------------------------------------------------------------
+
+    /// A fresh scratch directory for one sharing test.
+    fn scratch_952(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("geode-952-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The committed geode-core Gmsh guide `fixture` (unit length along
+    /// `z`) written into `dir` with `port_in` / `port_out` / `walls`
+    /// groups from its boundary faces and one `guide` volume.
+    fn fixture_guide_952(dir: &std::path::Path, fixture: &str) -> std::path::PathBuf {
+        let src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures")
+            .join(fixture);
+        let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
+            .unwrap()
+            .mesh;
+        let bf = mesh.boundary_faces();
+        let on = |f: &[u32; 3], z: f64| {
+            f.iter()
+                .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
+        };
+        let pick = |keep: &dyn Fn(&[u32; 3]) -> bool| -> Vec<[u32; 3]> {
+            bf.iter().copied().filter(|f| keep(f)).collect()
+        };
+        let text = crate::test_msh::write_msh_volumes(
+            &mesh.nodes,
+            &[(1, "guide", &mesh.tets)],
+            &[
+                (11, "port_in", &pick(&|f| on(f, 0.0))),
+                (12, "port_out", &pick(&|f| on(f, 1.0))),
+                (13, "walls", &pick(&|f| !on(f, 0.0) && !on(f, 1.0))),
+            ],
+        );
+        let path = dir.join("guide.msh");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    /// `geode driven` on `spec` in-process (with `--touchstone` into `dir`
+    /// when `touchstone`), and this thread's port-face solves during it:
+    /// `(report, geometric face solves, hybrid face sweeps)`.
+    fn driven_952(
+        dir: &std::path::Path,
+        spec: &serde_json::Value,
+        touchstone: bool,
+    ) -> (
+        DrivenReport,
+        geode_core::driven::ports::FaceSolveCounts,
+        usize,
+    ) {
+        let path = dir.join("spec.json");
+        std::fs::write(&path, spec.to_string()).unwrap();
+        let ts = dir.join("out.s2p");
+        let provenance = crate::report::Provenance {
+            schema_version: crate::report::REPORT_SCHEMA_VERSION,
+            geode_version: env!("CARGO_PKG_VERSION"),
+            git_sha: "test",
+            backend: "test",
+            threads: None,
+            spec_path: path.display().to_string(),
+        };
+        let (c0, h0) = (
+            geode_core::driven::ports::face_solve_counts(),
+            crate::hybrid::FACE_SWEEPS.with(std::cell::Cell::get),
+        );
+        let report = run(
+            &path,
+            provenance,
+            None,
+            touchstone.then_some(ts.as_path()),
+            SweepOptions::default(),
+            false,
+        )
+        .unwrap();
+        (
+            report,
+            geode_core::driven::ports::face_solve_counts() - c0,
+            crate::hybrid::FACE_SWEEPS.with(std::cell::Cell::get) - h0,
+        )
+    }
+
+    /// Issue #952: a `geode driven` run with `--touchstone` and an N-port
+    /// sensitivity on two geometric wave ports solves each port face once
+    /// (plus its one confirming solve: six modes of the Gmsh `lc` 0.22 face
+    /// hold a candidate pair) — before #952 four times (the degeneracy
+    /// notes, the Touchstone classification, the sensitivity's port specs
+    /// and the sweep, eight raw solves) — and still reports the #923
+    /// degeneracy warnings. `geode check` on the same spec, which has no
+    /// sweep to share with, still pays one raw solve per port and reports
+    /// the same warnings.
+    #[test]
+    fn a_geometric_driven_run_solves_each_port_face_once() {
+        let dir = scratch_952("geometric");
+        let mesh = fixture_guide_952(&dir, "guide_box_lc022.msh");
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in", "n_modes": 6, "reference_ohm": 500.0 },
+                { "physical_group": "port_out", "n_modes": 6, "reference_ohm": 500.0 }
+            ],
+            "frequencies": { "unit": "k0", "values": [2.3, 2.5] },
+            "sensitivity": {
+                "parameters": [{ "kind": "eps_r", "physical_group": "guide" }],
+                "observables": [{ "quantity": "s", "entry": [6, 0], "form": "db" }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, true);
+        assert_eq!(
+            solves.primary_p1, 2,
+            "one raw face solve per port: {solves:?}"
+        );
+        assert_eq!(
+            solves.confirming, 2,
+            "one confirming solve per port: {solves:?}"
+        );
+        assert_eq!(sweeps, 0);
+        assert!(report.touchstone_file.is_some() && report.sensitivities.is_some());
+        let degeneracy: Vec<(&str, Option<usize>)> = report
+            .warnings
+            .iter()
+            .filter(|w| w.kind.starts_with("wave_port_degeneracy"))
+            .map(|w| (w.kind, w.wave_port))
+            .collect();
+        assert_eq!(
+            degeneracy,
+            [
+                (DEGENERACY_AMBIGUOUS, Some(0)),
+                (DEGENERACY_NEAR_DEGENERATE, Some(0)),
+                (DEGENERACY_AMBIGUOUS, Some(1)),
+                (DEGENERACY_NEAR_DEGENERATE, Some(1)),
+            ]
+        );
+        // `check`: the no-sweep path, one raw solve per port, the same notes.
+        let c0 = geode_core::driven::ports::face_solve_counts();
+        let checked = crate::check::run(
+            &dir.join("spec.json"),
+            crate::report::Provenance {
+                schema_version: crate::report::REPORT_SCHEMA_VERSION,
+                geode_version: env!("CARGO_PKG_VERSION"),
+                git_sha: "test",
+                backend: "test",
+                threads: None,
+                spec_path: String::new(),
+            },
+        )
+        .unwrap();
+        let solves = geode_core::driven::ports::face_solve_counts() - c0;
+        assert_eq!((solves.primary_p1, solves.confirming), (2, 2), "{solves:?}");
+        let messages = |ws: &[WarningResult]| -> Vec<String> {
+            ws.iter()
+                .filter(|w| w.kind.starts_with("wave_port_degeneracy"))
+                .map(|w| w.message.clone())
+                .collect()
+        };
+        assert_eq!(messages(&checked.warnings), messages(&report.warnings));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #952 on a spec with a **hybrid** port: the geometric `port_in`
+    /// (an all-air end) is solved once although the hybrid sweep and the
+    /// sensitivity's port specs both use it (before #952: three times, with
+    /// the degeneracy notes), and the hybrid `port_out` (a slab-loaded end)
+    /// is not face-swept outside the 3-D sweep at all (no `--touchstone`, no
+    /// `z0` observable).
+    #[test]
+    fn a_mixed_geometric_and_hybrid_run_solves_the_geometric_face_once() {
+        let dir = scratch_952("mixed");
+        let (a, b, len) = (2.0, 1.0, 1.2);
+        let g = geode_core::driven::ports::extruded_rect_waveguide_mesh(8, 4, 6, a, b, len);
+        let c = |t: &[u32; 4], k: usize| {
+            t.iter().map(|&n| g.mesh.nodes[n as usize][k]).sum::<f64>() / 4.0
+        };
+        let (end, rest): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+            g.mesh.tets.iter().copied().partition(|t| c(t, 2) < 0.4);
+        let (left, right): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+            rest.into_iter().partition(|t| c(t, 0) < a / 2.0);
+        let mesh = dir.join("slab.msh");
+        std::fs::write(
+            &mesh,
+            crate::test_msh::write_msh_volumes(
+                &g.mesh.nodes,
+                &[(1, "left", &left), (2, "right", &right), (3, "end", &end)],
+                &[
+                    (11, "port_in", &g.port1_faces),
+                    (12, "port_out", &g.port2_faces),
+                    (13, "walls", &g.sidewall_faces),
+                ],
+            ),
+        )
+        .unwrap();
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "materials": [{ "physical_group": "left", "eps_r": [2.2, 0.0] }],
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [{ "physical_group": "port_in" }, { "physical_group": "port_out" }],
+            "frequencies": { "unit": "k0", "values": [1.8, 2.0] },
+            "sensitivity": {
+                // The all-air end at the geometric port: a slab parameter
+                // would touch the hybrid face's mesh-induced complex pair,
+                // which the sensitivity does not differentiate.
+                "parameters": [{ "kind": "eps_r", "physical_group": "end" }],
+                "observables": [{ "quantity": "s", "entry": [1, 0] }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, false);
+        assert_eq!(solves.primary_p1, 1, "{solves:?}");
+        assert_eq!(sweeps, 0);
+        assert!(report.sensitivities.is_some());
+        assert!(
+            report.wave_ports[1].hybrid.is_some(),
+            "port_out routes hybrid"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #952 for the hybrid face sweep (no 3-D solve) that the
+    /// `--touchstone` classification and the `z0` line-impedance precheck
+    /// (#953) both read: on the coax guide (both ports hybrid) with a `z0`
+    /// observable on `port_in`, each port is face-swept once outside the
+    /// 3-D sweep — before #952 `port_in` was swept twice.
+    #[test]
+    fn touchstone_and_the_z0_precheck_share_the_hybrid_face_sweep() {
+        let dir = scratch_952("hybrid");
+        let mesh = fixture_guide_952(&dir, "guide_coax_lc018_015.msh");
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in", "n_modes": 1, "reference_ohm": 50.0 },
+                { "physical_group": "port_out", "n_modes": 1, "reference_ohm": 50.0 }
+            ],
+            "frequencies": { "unit": "k0", "values": [1.0] },
+            "sensitivity": {
+                "parameters": [{ "kind": "eps_r", "physical_group": "guide" }],
+                "observables": [{ "quantity": "z0", "wave_port": "port_in", "mode": 0 }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, true);
+        assert_eq!(sweeps, 2, "one face sweep per hybrid port");
+        assert_eq!(solves.primary_p1, 0, "no geometric port: {solves:?}");
+        assert!(report.touchstone_file.is_some() && report.sensitivities.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
