@@ -1,0 +1,13 @@
+palace_s4p5_n6_np1 run 1: exit 0 2:58.25
+palace_s4p5_n6_np8 run 1: exit 0 0:32.16
+palace_s4p5_n6_np1_nosave run 1: exit 0 1:46.80
+palace_s4p5_n6_np8_nosave run 1: exit 0 0:22.63
+palace_s4p5_n6_np1 run 2: exit 0 2:58.03
+palace_s4p5_n6_np8 run 2: exit 0 0:31.83
+palace_s4p5_n6_np1_nosave run 2: exit 0 1:46.63
+palace_s4p5_n6_np8_nosave run 2: exit 0 0:22.77
+palace_s4p5_n6_np1 run 3: exit 0 2:58.41
+palace_s4p5_n6_np8 run 3: exit 0 0:31.94
+palace_s4p5_n6_np1_nosave run 3: exit 0 1:46.60
+palace_s4p5_n6_np8_nosave run 3: exit 0 0:22.79
+done: <home>/tuned-palace/run-untuned

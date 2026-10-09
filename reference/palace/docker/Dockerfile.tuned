@@ -1,0 +1,150 @@
+# Palace Electromagnetic Solver — TUNED CPU Docker build (issue #927)
+#
+# Same Palace source (PALACE_REF), same Rocky 9 base, same MPICH and the same
+# solver options as ./Dockerfile, with four changes that make it a fair, tuned
+# CPU build for an Intel Ice Lake host (AWS m6i):
+#
+#   1. -march/-mtune for the host ISA (default icelake-server; ARG MARCH) in the
+#      C, C++ and Fortran flags that Palace's superbuild passes to every
+#      dependency it builds (PETSc/SLEPc, hypre, MFEM, libCEED, SuperLU_DIST,
+#      STRUMPACK, MUMPS, ScaLAPACK, ARPACK, GSLIB, METIS, SUNDIALS). ./Dockerfile
+#      sets no -march, so those parts get the compiler default (x86-64), and
+#      parts compiled through the Rocky 9 MPICH wrapper get its -march=x86-64-v2.
+#      GCC keeps the last -march on a command line; the wrapper puts its own
+#      flags first and the caller's after, so MARCH wins there too.
+#   2. PALACE_WITH_LIBXSMM=ON: libCEED's /cpu/self/xsmm/blocked backend (the
+#      committed baseline log reference/fixtures/transmon_palace/results_p1/
+#      palace_run_v22.log shows that backend; ./Dockerfile builds without it).
+#      libxsmm is pinned by Palace itself (EXTERN_LIBXSMM_GIT_TAG).
+#   3. OpenBLAS built from a pinned release tarball for the host
+#      (TARGET=SKYLAKEX, the OpenBLAS kernel family for AVX-512 Ice Lake; no
+#      DYNAMIC_ARCH), threading OFF (USE_THREAD=0, USE_OPENMP=0) so it never
+#      competes with the MPI ranks, and handed to Palace through OPENBLAS_DIR,
+#      which Palace's cmake/ExternalBLASLAPACK.cmake honours. The distribution
+#      openblas packages are NOT installed in either stage, so nothing can link
+#      the generic build by accident (the image records `ldd` to prove it).
+#   4. CMAKE_BUILD_TYPE=Release stated explicitly (./Dockerfile gets Release by
+#      Palace's default).
+#
+# ./Dockerfile is left unchanged: it is the recipe of the untuned PR #964 run.
+#
+# Build: docker build -t palace:tuned -f Dockerfile.tuned .
+# Run:   docker run --rm -v $(pwd):/work palace:tuned /work/config.json
+
+FROM rockylinux:9 AS builder
+
+# Host ISA for -march/-mtune. icelake-server = AWS m6i (Xeon Platinum 8375C).
+ARG MARCH=icelake-server
+ENV OPT_FLAGS="-O3 -march=${MARCH} -mtune=${MARCH} -ffp-contract=fast -funroll-loops"
+
+RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb && \
+    dnf install -y epel-release && \
+    dnf update -y && \
+    dnf groupinstall -y "Development Tools" && \
+    dnf install -y \
+        curl-minimal \
+        gcc-gfortran \
+        git \
+        libunwind-devel \
+        perl \
+        pkg-config \
+        python3 \
+        wget \
+        which \
+        zlib \
+        mpich-devel && \
+    dnf clean all
+
+ARG CMAKE_VERSION=3.31.0
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).sh && \
+    /bin/bash cmake-${CMAKE_VERSION}-*.sh --skip-license --prefix=/usr && \
+    rm -rf cmake-*
+
+ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib"
+ENV PATH="/usr/lib64/mpich/bin:${PATH}"
+
+# ---- OpenBLAS, single-threaded, built for the host -------------------------
+# Same upstream version as the Rocky 9 openblas-serial package ./Dockerfile
+# ships (0.3.29), so the change is the build target and not the version.
+ARG OPENBLAS_VERSION=0.3.29
+ARG OPENBLAS_SHA256=38240eee1b29e2bde47ebb5d61160207dc68668a54cac62c076bb5032013b1eb
+ARG OPENBLAS_TARGET=SKYLAKEX
+WORKDIR /opt/openblas-src
+RUN wget -q https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.tar.gz && \
+    echo "${OPENBLAS_SHA256}  OpenBLAS-${OPENBLAS_VERSION}.tar.gz" | sha256sum -c - && \
+    tar xzf OpenBLAS-${OPENBLAS_VERSION}.tar.gz && cd OpenBLAS-${OPENBLAS_VERSION} && \
+    { make -j$(nproc) TARGET=${OPENBLAS_TARGET} DYNAMIC_ARCH=0 USE_THREAD=0 USE_OPENMP=0 \
+           USE_LOCKING=1 NO_AFFINITY=1 CC=gcc FC=gfortran > /opt/openblas-build.log 2>&1 && \
+      make TARGET=${OPENBLAS_TARGET} DYNAMIC_ARCH=0 USE_THREAD=0 USE_OPENMP=0 \
+           USE_LOCKING=1 NO_AFFINITY=1 PREFIX=/opt/openblas install >> /opt/openblas-build.log 2>&1 ; } \
+      || { tail -60 /opt/openblas-build.log; exit 1; } && \
+    cd /opt && rm -rf /opt/openblas-src && tail -5 /opt/openblas-build.log
+ENV OPENBLAS_DIR=/opt/openblas
+ENV LD_LIBRARY_PATH="/opt/openblas/lib:${LD_LIBRARY_PATH}"
+
+# PALACE_REF pins the Palace source: the same full SHA as ./Dockerfile.
+ARG PALACE_REF=fba6a5b9d17ef09db2907e9c4c6f92d123d131c0
+WORKDIR /opt
+RUN git clone https://github.com/awslabs/palace.git palace-src && \
+    cd palace-src && git checkout --detach ${PALACE_REF} && git log -1 --format='%H %cI %s'
+
+WORKDIR /opt/palace-build
+RUN cmake /opt/palace-src \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/opt/palace \
+    -DCMAKE_CXX_COMPILER=g++ \
+    -DCMAKE_CXX_FLAGS="${OPT_FLAGS}" \
+    -DCMAKE_C_COMPILER=gcc \
+    -DCMAKE_C_FLAGS="${OPT_FLAGS}" \
+    -DCMAKE_Fortran_COMPILER=gfortran \
+    -DCMAKE_Fortran_FLAGS="${OPT_FLAGS}" \
+    -DBUILD_SHARED_LIBS=ON \
+    -DPALACE_WITH_64BIT_INT=OFF \
+    -DPALACE_WITH_OPENMP=ON \
+    -DPALACE_WITH_CUDA=OFF \
+    -DPALACE_WITH_HIP=OFF \
+    -DPALACE_WITH_SUPERLU=ON \
+    -DPALACE_WITH_STRUMPACK=ON \
+    -DPALACE_WITH_MUMPS=ON \
+    -DPALACE_WITH_SLEPC=ON \
+    -DPALACE_WITH_ARPACK=ON \
+    -DPALACE_WITH_LIBXSMM=ON \
+    -DPALACE_WITH_MAGMA=OFF \
+    -DPALACE_WITH_GSLIB=ON && \
+    make -j$(nproc) && \
+    { git -C /opt/palace-src log -1 --format='palace_commit=%H %cI %s'; \
+      echo "march=${MARCH}"; \
+      echo "opt_flags=${OPT_FLAGS}"; \
+      echo "openblas=${OPENBLAS_VERSION} target=${OPENBLAS_TARGET} USE_THREAD=0 USE_OPENMP=0 DYNAMIC_ARCH=0"; \
+      echo "mpicxx_show=$(mpicxx -show)"; \
+      cmake -LA -N /opt/palace-build \
+        | grep -E '^(PALACE_|CMAKE_(C|CXX|Fortran)_(COMPILER|FLAGS)|CMAKE_BUILD_TYPE|BUILD_SHARED_LIBS)'; \
+    } > /opt/palace/palace-build-info.txt
+
+FROM rockylinux:9
+
+# No distribution openblas here: the only BLAS in the image is /opt/openblas.
+# libgfortran: OpenBLAS's LAPACK and MUMPS are Fortran (in ./Dockerfile the
+# openblas packages pull it in).
+RUN dnf install -y epel-release && \
+    dnf install -y \
+        binutils \
+        libgfortran \
+        libquadmath \
+        mpich \
+        libgomp \
+        libunwind \
+        time \
+        which \
+        zlib && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+COPY --from=builder /opt/openblas /opt/openblas
+COPY --from=builder /opt/palace /opt/palace
+
+ENV LD_LIBRARY_PATH="/opt/palace/lib:/opt/openblas/lib:/usr/lib64/mpich/lib"
+ENV PATH="/opt/palace/bin:/usr/lib64/mpich/bin:${PATH}"
+
+WORKDIR /work
+ENTRYPOINT ["palace"]

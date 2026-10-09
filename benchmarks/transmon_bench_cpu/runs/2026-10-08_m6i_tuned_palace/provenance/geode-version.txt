@@ -1,0 +1,6 @@
+geode_commit=8367ee7b71bec136aa032fc04c421ff6b1600239 dirty=0
+geode_commit_date=2026-10-08T15:30:28-07:00
+rustc=rustc 1.99.0 (b940084d7 2026-09-28)
+cargo=cargo 1.99.0 (5f94df478 2026-08-27)
+geode_build=cargo build --release -p geode-core --example transmon_bench
+geode_build_wall_s=166

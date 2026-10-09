@@ -1,0 +1,12 @@
+find: '/opt/openblas/lib': No such file or directory
+palace-x86_64.bin ymm=0 evex_regs=0 opmask=0 zmm=0
+libceed.so ymm=0 evex_regs=0 opmask=0 zmm=0
+libdmumps.so.5.7.3.2 ymm=0 evex_regs=0 opmask=0 zmm=0
+libmfem.so.4.9.0 ymm=0 evex_regs=0 opmask=0 zmm=0
+libpalace.so ymm=0 evex_regs=0 opmask=0 zmm=0
+libpetsc.so.3.24.3 ymm=0 evex_regs=0 opmask=0 zmm=0
+libslepc.so.3.24.1 ymm=0 evex_regs=0 opmask=0 zmm=0
+libHYPRE.so.3.0.0 ymm=0 evex_regs=0 opmask=0 zmm=0
+libscalapack.so.2.2.2 ymm=0 evex_regs=0 opmask=0 zmm=0
+libstrumpack.so.8.0.0 ymm=0 evex_regs=0 opmask=0 zmm=0
+libsuperlu_dist.so.9.2.1 ymm=0 evex_regs=0 opmask=0 zmm=0
