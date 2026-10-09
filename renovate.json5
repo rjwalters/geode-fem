@@ -54,27 +54,37 @@
 
   // --- PR behaviour ---
 
-  // Keep the review queue manageable.
+  // Keep the review queue manageable. (Release notes in PR bodies are the
+  // default, `fetchChangeLogs: "pr"`.)
   "prConcurrentLimit": 5,
-
-  // Release notes and changelogs in the PR body, for review.
-  "fetchReleaseNotes": true,
 
   // --- Package grouping ---
 
   "packageRules": [
-    // One PR for all non-major Rust updates.
+    // One PR for non-breaking Rust updates.
     {
       "groupName": "rust minor/patch dependencies",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"]
     },
 
-    // `faer` comes from our fork `faier`, pinned to a git commit (#867 /
-    // #907). Moving it is deliberate work with its own issue, not a bot bump.
+    // Cargo treats a 0.x minor bump (burn 0.21 -> 0.22) as breaking, but
+    // Renovate calls it "minor". Give each one its own PR so one compile
+    // failure cannot hold back the safe grouped updates.
     {
       "matchManagers": ["cargo"],
-      "matchPackageNames": ["faier", "faer"],
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": ["minor"],
+      "groupName": null
+    },
+
+    // `faer` comes from our fork `faier`, pinned to a git rev (#867 / #907).
+    // Renovate sees it as depName "faer" (git-refs datasource, packageName is
+    // the fork URL) and would otherwise propose digest bumps. Moving it is
+    // deliberate work (#972), not a bot bump.
+    {
+      "matchManagers": ["cargo"],
+      "matchDepNames": ["faer"],
       "enabled": false
     },
 
