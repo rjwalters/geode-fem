@@ -27,10 +27,11 @@
 //! Off-feature points sit in the eigenmode benchmark's ~5 % regime;
 //! the two points that land *on* resonance features inherit the
 //! fixture's documented coarse-mesh resonance-position error (~6 % on
-//! `Re(k)`, `tests/mie_sphere.rs`) amplified through the local slope
-//! of the `Q(ka)` curve, giving ~15–19 %. The bands below add margin
-//! on top of the observed figures (same calibration philosophy as the
-//! 8 % band in `tests/mie_sphere.rs`). PML quality is *not* the
+//! `Re(k)` as quoted against the pre-#986 PEC-cavity root; 3.6 % against
+//! the corrected one, `tests/mie_sphere.rs`) amplified through the local
+//! slope of the `Q(ka)` curve, giving ~15–19 %. The bands below add
+//! margin on top of the observed figures (same calibration philosophy as
+//! the 5 % band in `tests/mie_sphere.rs`). PML quality is *not* the
 //! limiter: the errors at those two points are insensitive to σ₀ over
 //! `[5, 45]` and to the profile exponent.
 //!

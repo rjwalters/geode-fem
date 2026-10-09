@@ -6285,26 +6285,104 @@ fn log_pml_withheld(who: &str, checked: &CheckedComplexEigenpairs, guided_window
     );
 }
 
-/// Curl-energy floor for the **PML** dielectric path (Epic #303 PML-B,
-/// issue #332).
+/// Gradient-nullspace curl floor of the **PML** dielectric path (Epic #303
+/// PML-B, issue #332), and the lower clamp of [`physical_curl_floor`] and
+/// [`physical_curl_floor_p2`].
 ///
-/// This is deliberately much smaller than the high-contrast cap of the
-/// PEC-path [`physical_curl_floor_p2`] (`3e-2`, which that floor also
-/// scales down with the index contrast since issue #791; `1e-6` here is
-/// its lower clamp). The `3e-2` value was calibrated for a
-/// **high-contrast** strip on a PEC-walled domain, where the genuine
-/// guided band floors at `r ≈ 8.5×10⁻²`. A **weakly-guiding** fiber
-/// (SMF-28, Δ ≈ 0.4 %, V = 2.135) has an almost-TEM fundamental whose
-/// relative curl energy `r = |xᴴ K x|/(k₀²|xᴴ M_ε x|)` is intrinsically
-/// **tiny** — empirically `r ≈ 10⁻⁴…10⁻²` for the genuine guided modes,
-/// while the curl-free gradient-nullspace cluster sits at `r ≈ 10⁻¹³` (to
-/// f64 noise). The two populations are separated by ~9 orders of
-/// magnitude, so a floor placed in the gap (`10⁻⁶`) cleanly rejects the
-/// gradient nullspace while keeping every physical guided/leaky mode. The
-/// smallest-`|Im(β²)|`-in-window rule then selects the genuine LP₀₁ among
-/// the survivors (confirmed by core-energy fraction ≳0.8).
+/// `10⁻⁶` sits far above the curl-free gradient-nullspace cluster
+/// (`r ≈ 10⁻¹³` to f64 noise) and far below the curl ratio of a genuine
+/// weakly-guiding fundamental (SMF-28 `r ≈ 8×10⁻⁴` on the PML path). It is
+/// **not** a guided-mode floor. The gap above it is populated (issue #947):
+/// a ladder of bound-like PML-box pairs sits at `4×10⁻⁶ … 10⁻⁵` on an
+/// SMF-28-contrast **anti-guide**, which guides nothing, and at up to
+/// `1.6×10⁻³` on the thin-core fiber of issue #913 (see
+/// `pml_curl_floor_measurement_947`). The PML classifiers therefore no
+/// longer use it directly; they use [`pml_classifier_curl_floor`], which is
+/// never below it.
 fn physical_curl_floor_pml() -> f64 {
     1e-6
+}
+
+/// Curl floor of the PML **classifiers** ([`solve_dielectric_modes2_pml`],
+/// [`solve_dielectric_modes2_pml_profile_selected`]; issue #947): the
+/// contrast-scaled [`physical_curl_floor`]`(ε_max, ε_min)` that the
+/// real-path classifiers already use, `10⁻²·(ε_max − ε_min)/ε_min` clamped
+/// to `[`[`physical_curl_floor_pml`]`, 3×10⁻²]`.
+///
+/// Measured on the PML path (`pml_curl_floor_measurement_947`, release,
+/// request 40, σ₀ = 6; multiples of this floor):
+///
+/// | fixture | in-window bound pairs | public call, old `10⁻⁶` floor | this floor |
+/// |---|---|---|---|
+/// | anti-guide, SMF-28 contrast | ladder `0.05 … 0.12×` | 4 "bound" ladder modes | no bound mode |
+/// | anti-guide, ~3 % contrast | none above `10⁻⁶` | no bound mode | no bound mode |
+/// | thin core (#913), meshes (4,48) / (6,64) / (8,96) | top ladder pair `2.64 / 2.67 / 2.72×` | 4 ladder modes / `SelectionHole` / `SelectionHole` | 2 / 1 / 0 ladder modes, flagged |
+/// | SMF-28 PML benchmark, 5 meshes | fundamental `10.47 … 10.55×` | fundamental | same fundamental |
+/// | high-contrast PML benchmark, 5 meshes | fundamental `10.08 … 10.13×` | fundamental | same fundamental |
+///
+/// Every benchmark fundamental keeps a margin of more than `10×`, so the
+/// selected mode is unchanged. The floor does not reject every ladder pair:
+/// the thin-core pair at `≈ 2.7×` survives. A multiple of this floor large
+/// enough to reject it (`3×`) would sit within `3.4×` of the benchmark
+/// fundamentals and would reject a genuine near-cutoff mode, whose curl
+/// ratio falls with `V`. So the floor stays at `1×`, and a returned bound
+/// mode below [`PML_LOW_CURL_WARN_MARGIN`] times it is **flagged** by a
+/// logged warning instead ([`warn_low_curl_pml_mode`]): returned, never
+/// refused.
+fn pml_classifier_curl_floor(eps_max: f64, eps_min: f64) -> f64 {
+    physical_curl_floor(eps_max, eps_min)
+}
+
+/// Multiple of [`pml_classifier_curl_floor`] below which a returned bound
+/// PML mode is flagged as possibly a low-curl ladder pair (issue #947).
+///
+/// Every measured benchmark fundamental sits above `10×` the floor; the
+/// only measured returned pairs below `3×` are the thin-core ladder pair of
+/// issue #913 (`2.64 … 2.72×`) and benchmark ladder pairs ranked below the
+/// fundamental. The warning is advisory: a genuine mode near cutoff can
+/// also sit here.
+const PML_LOW_CURL_WARN_MARGIN: f64 = 3.0;
+
+/// One low-curl flag of a PML classifier (issue #947), recorded in test
+/// builds: the solver, the flagged mode's `Re β²` and its curl ratio.
+#[cfg(test)]
+pub(crate) type LowCurlEvent = (&'static str, f64, f64);
+
+#[cfg(test)]
+thread_local! {
+    /// Low-curl flags raised on this thread, in order. A test drains it
+    /// with `take_low_curl_events`.
+    pub(crate) static LOW_CURL_EVENTS: std::cell::RefCell<Vec<LowCurlEvent>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Flag a returned bound PML mode whose curl ratio is below
+/// [`PML_LOW_CURL_WARN_MARGIN`] times the classifier floor (issue #947).
+/// Warn only: the mode stays in the result. Returns whether it flagged.
+fn warn_low_curl_pml_mode(
+    solver: &'static str,
+    beta_sq: c64,
+    curl_ratio: f64,
+    curl_floor: f64,
+    guided_window: (f64, f64),
+) -> bool {
+    let over = curl_ratio / curl_floor;
+    if over >= PML_LOW_CURL_WARN_MARGIN {
+        return false;
+    }
+    #[cfg(test)]
+    LOW_CURL_EVENTS.with(|e| e.borrow_mut().push((solver, beta_sq.re, curl_ratio)));
+    let b = (beta_sq.re - guided_window.0) / (guided_window.1 - guided_window.0);
+    eprintln!(
+        "{solver}: WARNING (issue #947): returned bound mode β² = {:.6e} (window fraction \
+         b ≈ {b:.3}) has curl ratio {curl_ratio:.2e}, only {over:.2}× the curl floor \
+         {curl_floor:.2e} (measured fiber fundamentals sit above 10×). It may be a low-curl \
+         PML-box ladder pair rather than a guided mode: check its core-energy fraction \
+         (dielectric_mode_field_shape_pml) and its b against an analytic estimate, or confirm \
+         it is stable under mesh refinement and PML-box radius before relying on it.",
+        beta_sq.re
+    );
+    true
 }
 
 /// PML / complex-pencil sibling of [`solve_dielectric_modes2`] (Epic #303
@@ -6368,6 +6446,15 @@ fn physical_curl_floor_pml() -> f64 {
 /// and no error is raised (issue #913; see `selection_hole`). Such a pair is
 /// not confirmed as a guided mode. It can be a member of the low-curl
 /// ladder of issue #947.
+///
+/// # Curl floor and the low-curl warning (issue #947)
+///
+/// A candidate must carry a curl ratio above the contrast-scaled
+/// `pml_classifier_curl_floor`; the gradient-nullspace floor `10⁻⁶` alone
+/// let a ladder of PML-box pairs through as bound modes of an anti-guide.
+/// A returned bound mode below `3×` that floor is still returned, with a
+/// logged warning that it may be a ladder pair (measured fiber
+/// fundamentals sit above `10×`).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_pml(
     mesh: &TriMesh,
@@ -6461,7 +6548,7 @@ fn solve_dielectric_modes2_pml_attempt(
     // to warn about it (issue #913).
     let cands = &raw.cands;
     let n_dof = n_dof_2d_nedelec2(mesh);
-    let curl_floor = physical_curl_floor_pml();
+    let curl_floor = pml_classifier_curl_floor(eps_max, eps_min);
     let hole_rule = HoleRule::new(curl_floor, eps_max, eps_min, None);
 
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
@@ -6473,7 +6560,8 @@ fn solve_dielectric_modes2_pml_attempt(
 
     // Keep only in-window, curl-bearing candidates; select by SMALLEST
     // |Im(β²)| (genuinely bound / lowest leakage) — the clean PML selection.
-    let mut guided: Vec<DielectricModePml> = Vec::new();
+    // Each survivor with its curl ratio, for the low-curl flag (#947).
+    let mut guided: Vec<(DielectricModePml, f64)> = Vec::new();
     let mut n_dropped = 0usize;
     for c in cands {
         let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
@@ -6488,13 +6576,16 @@ fn solve_dielectric_modes2_pml_attempt(
         for (interior_idx, &full_idx) in interior_to_full.iter().enumerate() {
             e_edges[full_idx] = c.vector[interior_idx];
         }
-        guided.push(DielectricModePml {
-            n_eff,
-            beta,
-            beta_sq: c.beta_sq,
-            guided: true,
-            e_edges,
-        });
+        guided.push((
+            DielectricModePml {
+                n_eff,
+                beta,
+                beta_sq: c.beta_sq,
+                guided: true,
+                e_edges,
+            },
+            c.curl_ratio,
+        ));
     }
 
     // Clean PML selection — smallest |Im(β²)| (genuinely bound), then
@@ -6524,7 +6615,7 @@ fn solve_dielectric_modes2_pml_attempt(
     let is_bound = |m: &DielectricModePml| -> bool {
         m.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * m.beta_sq.re.abs()
     };
-    guided.sort_by(|a, b| {
+    guided.sort_by(|(a, _), (b, _)| {
         let (ba, bb) = (is_bound(a), is_bound(b));
         // Bound modes first.
         match (ba, bb) {
@@ -6548,6 +6639,19 @@ fn solve_dielectric_modes2_pml_attempt(
         }
     });
     guided.truncate(n_modes);
+    // Flag every returned bound mode with a low curl ratio (issue #947).
+    for (m, curl) in &guided {
+        if is_bound(m) {
+            warn_low_curl_pml_mode(
+                "solve_dielectric_modes2_pml",
+                m.beta_sq,
+                *curl,
+                curl_floor,
+                (beta_sq_floor, beta_sq_ceiling),
+            );
+        }
+    }
+    let guided: Vec<DielectricModePml> = guided.into_iter().map(|(m, _)| m).collect();
     let have = guided.len();
     eprintln!(
         "solve_dielectric_modes2_pml (p=2, σ₀={sigma_0:.3}): k0={k0:.4}, n_core={n_core:.4}, \
@@ -7139,7 +7243,8 @@ pub struct ScoredDielectricModePml {
 /// # Gates (all UNCHANGED from the base solver)
 ///
 /// - in-window: `n_clad² k₀² < Re(β²) < n_core² k₀²`,
-/// - curl-bearing: `curl_ratio > physical_curl_floor_pml()`,
+/// - curl-bearing: `curl_ratio > pml_classifier_curl_floor` (the
+///   contrast-scaled floor since issue #947),
 /// - genuinely bound: `|Im(β²)|/Re(β²) ≤ 1e-8`.
 ///
 /// Structural shape gates (NEW, for ranking only — they do **not** relax the
@@ -7259,7 +7364,7 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
     // to warn about it (issue #913).
     let cands = &raw.cands;
     let n_dof = n_dof_2d_nedelec2(mesh);
-    let curl_floor = physical_curl_floor_pml();
+    let curl_floor = pml_classifier_curl_floor(eps_max, eps_min);
     let hole_rule = HoleRule::new(curl_floor, eps_max, eps_min, None);
 
     let mut interior_to_full: Vec<usize> = Vec::with_capacity(n_dof);
@@ -7269,7 +7374,9 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
         }
     }
 
-    let mut scored: Vec<ScoredDielectricModePml> = Vec::new();
+    // Each scored candidate with its curl ratio, for the low-curl flag
+    // (issue #947).
+    let mut scored: Vec<(ScoredDielectricModePml, f64)> = Vec::new();
     for c in cands {
         let in_window = c.beta_sq.re > beta_sq_floor && c.beta_sq.re < beta_sq_ceiling;
         let has_curl = c.curl_ratio > curl_floor;
@@ -7301,16 +7408,19 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
             profile_r_max,
         );
         let correlation = lp01_template_correlation(&profile, template);
-        scored.push(ScoredDielectricModePml {
-            mode,
-            score: Lp01ProfileScore {
-                correlation,
-                azimuthal_variation: profile.azimuthal_variation,
-                radial_nodes: profile.radial_node_count(),
-                core_peaked: profile.is_core_peaked(template.core_radius),
-                core_energy_fraction: shape.core_energy_fraction,
+        scored.push((
+            ScoredDielectricModePml {
+                mode,
+                score: Lp01ProfileScore {
+                    correlation,
+                    azimuthal_variation: profile.azimuthal_variation,
+                    radial_nodes: profile.radial_node_count(),
+                    core_peaked: profile.is_core_peaked(template.core_radius),
+                    core_energy_fraction: shape.core_energy_fraction,
+                },
             },
-        });
+            c.curl_ratio,
+        ));
     }
     if scored.is_empty() {
         // No in-window bound candidate converged: the empty-set rule warns
@@ -7334,7 +7444,7 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
     let is_structured = |s: &ScoredDielectricModePml| -> bool {
         s.score.azimuthal_variation < az_var_max && s.score.radial_nodes == 0 && s.score.core_peaked
     };
-    scored.sort_by(|a, b| {
+    scored.sort_by(|(a, _), (b, _)| {
         let (sa, sb) = (is_structured(a), is_structured(b));
         match (sa, sb) {
             (true, false) => return std::cmp::Ordering::Less,
@@ -7346,6 +7456,15 @@ fn solve_dielectric_modes2_pml_profile_selected_attempt(
             .partial_cmp(&a.score.correlation)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // Flag the pick if its curl ratio is low (issue #947).
+    warn_low_curl_pml_mode(
+        "solve_dielectric_modes2_pml_profile_selected",
+        scored[0].0.mode.beta_sq,
+        scored[0].1,
+        curl_floor,
+        (beta_sq_floor, beta_sq_ceiling),
+    );
+    let scored: Vec<ScoredDielectricModePml> = scored.into_iter().map(|(s, _)| s).collect();
 
     eprintln!(
         "solve_dielectric_modes2_pml_profile_selected (σ₀={sigma_0:.3}): scored {} in-window \
@@ -13074,6 +13193,10 @@ mod tests {
     }
 
     /// Drain the empty-set rule evaluations recorded on this thread.
+    fn take_low_curl_events() -> Vec<LowCurlEvent> {
+        LOW_CURL_EVENTS.with(|e| std::mem::take(&mut *e.borrow_mut()))
+    }
+
     fn take_empty_set_events() -> Vec<EmptySetEvent> {
         EMPTY_SET_EVENTS.with(|e| std::mem::take(&mut *e.borrow_mut()))
     }
@@ -13439,7 +13562,10 @@ mod tests {
         take_empty_set_events();
 
         // Issue #947, not this rule: at request 12 the same pair converges
-        // and the PML classifier returns it as its top "bound mode".
+        // and the PML classifier returns it as its top "bound mode". Its
+        // curl ratio (≈ 2.6× the contrast-scaled classifier floor) clears
+        // that floor, so it is returned, but it carries the low-curl flag.
+        take_low_curl_events();
         let (modes, hole) = attempt(12).unwrap();
         assert!(hole.is_ok(), "{hole:?}");
         let b = bound(&modes);
@@ -13449,6 +13575,14 @@ mod tests {
             pair.beta_sq.re
         );
         assert!(take_empty_set_events().is_empty());
+        let flags = take_low_curl_events();
+        assert!(
+            b.iter()
+                .all(|re| flags.iter().any(|f| (f.1 - re).abs() < 1e-9)),
+            "every returned ladder mode is flagged: {b:?} vs {flags:?}"
+        );
+        let over = flags[0].2 / pml_classifier_curl_floor(n_core * n_core, n_clad * n_clad);
+        assert!(over > 1.0 && over < PML_LOW_CURL_WARN_MARGIN, "{over}");
 
         // The profile selector on the request-6 solve scores no bound
         // candidate. It reports the same pair and returns its empty ladder.
@@ -13486,10 +13620,12 @@ mod tests {
     /// threshold (`1.58×10⁻⁴`) does not: the attempt evaluates the
     /// empty-set rule and reports nothing.
     ///
-    /// (At its production request of 40 this classifier converges those
-    /// ladder pairs and returns them as bound modes of the anti-guide. That
-    /// is the classifier's own floor at work, the same on `main`, and not
-    /// what this test pins.)
+    /// At its production request of 40 the solve converges those ladder
+    /// pairs. Under the old `10⁻⁶` classifier floor the public call
+    /// returned four of them as bound modes of the anti-guide (issue #947).
+    /// The contrast-scaled classifier floor ([`pml_classifier_curl_floor`],
+    /// `7.9×10⁻⁵` here; the ladder sits at `0.05…0.12×` it) drops them: the
+    /// public call returns no bound mode and flags nothing.
     #[test]
     fn pml_antiguide_low_curl_ladder_is_not_an_empty_set_hole() {
         let k0 = 2.0 * std::f64::consts::PI / 1.55;
@@ -13561,6 +13697,26 @@ mod tests {
             take_empty_set_events(),
             vec![("solve_dielectric_modes2_pml", None)]
         );
+
+        // Issue #947: the public call at its production request converges
+        // the ladder and returns none of it as a bound mode.
+        assert!(pml_classifier_curl_floor(e_max, e_min) > 5.0 * ladder[0].curl_ratio);
+        take_low_curl_events();
+        let modes =
+            solve_dielectric_modes2_pml(&mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4)
+                .expect("the anti-guide solve returns, it does not error");
+        let bound: Vec<f64> = modes
+            .iter()
+            .filter(|m| m.beta_sq.im.abs() <= DIELECTRIC_BOUND_REL_IM * m.beta_sq.re.abs())
+            .map(|m| (m.beta_sq.re - window.0) / (window.1 - window.0))
+            .collect();
+        assert!(
+            bound.is_empty(),
+            "the anti-guide guides nothing, but the PML classifier returned bound mode(s) at \
+             window fraction b = {bound:?} (issue #947)"
+        );
+        assert_eq!(take_low_curl_events(), Vec::new());
+        take_empty_set_events();
     }
 
     /// Issue #913 acceptance: a cross-section with **no** guided mode still
@@ -13648,10 +13804,14 @@ mod tests {
     /// requests 3, 5 and 6 (`b = 0.468`). The assertions pin the claims
     /// above, not these counts, which can shift with Lanczos round-off.
     ///
-    /// The same sweep sees the with-reference #850 rule fire twice on the
-    /// thin-core PML solves of mesh `(6, 64)` (the withheld ladder pair
-    /// `β² = 35.259` above a returned ladder pair). That rule is unchanged
-    /// here; the sweep counts it and it belongs to issue #947.
+    /// Before issue #947 the same sweep saw the with-reference #850 rule
+    /// fire twice on the thin-core PML solves of mesh `(6, 64)` (the
+    /// withheld ladder pair `β² = 35.259` above a returned lower ladder
+    /// pair). With the contrast-scaled PML classifier floor of #947 those
+    /// lower ladder pairs are no longer returned, and a rerun (release,
+    /// 58 s) counts 0 with-reference holes, 90 evaluations and 6 reports,
+    /// all of them the same ladder pair (`b = 0.417` on `(4, 48)`, `0.468`
+    /// on `(6, 64)`).
     #[test]
     #[ignore = "release-tier stress sweep: 120 classifier solves, 15 to 63 s in release over four runs (local, Apple M3 Ultra, host load average above 100), not timed in debug; run with `cargo test -p geode-core --release --lib -- --ignored --exact analytic::waveguide::tests::empty_set_rule_stress_sweep_913 --nocapture`"]
     fn empty_set_rule_stress_sweep_913() {
@@ -13829,5 +13989,283 @@ mod tests {
         }
         // Never at the PML classifier's own request.
         assert!(pml_reports.iter().all(|&(_, request, _)| request != 40));
+    }
+
+    /// One PML fixture of the issue #947 measurement:
+    /// `(name, (n_core, n_clad), core radius, (clad_r, outer_r), meshes)`.
+    type Fixture947 = (
+        &'static str,
+        (f64, f64),
+        f64,
+        (f64, f64),
+        &'static [(usize, usize)],
+    );
+
+    /// The fixtures of the issue #947 curl-floor measurement: two
+    /// anti-guides and the thin core (all guide nothing resolvable), the
+    /// SMF-28 and high-contrast PML benchmarks (`step_index_fiber_benchmark`,
+    /// `high_contrast_fiber_benchmark`, both at their tier-2 meshes).
+    fn fixtures_947() -> [Fixture947; 5] {
+        const BENCH: &[(usize, usize)] = &[(4, 48), (5, 60), (6, 72), (8, 96), (10, 120)];
+        let (thin_n, thin_a, thin_box) = THIN_CORE_913;
+        [
+            (
+                "anti-guide SMF-28",
+                (1.4447, 1.4504),
+                4.1,
+                (8.0 * 4.1, 11.0 * 4.1),
+                &[(5, 48), (6, 64)],
+            ),
+            (
+                "anti-guide ~3 %",
+                (1.4447, 1.4874),
+                1.4,
+                (8.0 * 1.4, 11.0 * 1.4),
+                &[(5, 48), (6, 64)],
+            ),
+            (
+                "thin core",
+                thin_n,
+                thin_a,
+                thin_box,
+                &[(4, 48), (6, 64), (8, 96)],
+            ),
+            (
+                "SMF-28 bench",
+                (1.4504, 1.4447),
+                4.1,
+                (8.0 * 4.1, 11.0 * 4.1),
+                BENCH,
+            ),
+            (
+                "high-contrast bench",
+                (1.4874, 1.4447),
+                1.4,
+                (8.0 * 1.4, 11.0 * 1.4),
+                BENCH,
+            ),
+        ]
+    }
+
+    /// Issue #947 measurement: the curl ratio of every in-window, bound
+    /// PML pair, as a multiple of the contrast-scaled floor
+    /// [`physical_curl_floor`]`(ε_max, ε_min)`, and the public
+    /// [`solve_dielectric_modes2_pml`] outcome under the classifier floor
+    /// [`pml_classifier_curl_floor`].
+    ///
+    /// For each fixture and mesh it prints
+    ///
+    /// - every converged in-window bound pair of the request-40 solve:
+    ///   `β²`, window fraction `b`, curl ratio, `× floor` (contrast-scaled),
+    ///   core-energy fraction, and whether the old `10⁻⁶` floor and the
+    ///   contrast-scaled floor keep it;
+    /// - every localized, in-window, bound-like withheld pair of that solve
+    ///   (`ρ`, curl ratio and `× floor`);
+    /// - the public call's outcome: the returned bound set (`b`, `× floor`)
+    ///   or the error.
+    ///
+    /// The decision rule of issue #947 reads off this table. What the
+    /// assertions pin, on the public call: every benchmark returns a bound
+    /// fundamental at least 3× the contrast-scaled floor (measured
+    /// `10.08 … 10.55×`) and raises no low-curl flag; both anti-guides
+    /// return no bound mode; and the thin core either errors loudly
+    /// (`SelectionHole`) or returns only bound modes that carry the
+    /// low-curl flag of [`warn_low_curl_pml_mode`] (its ladder pair sits at
+    /// `2.64 … 2.72×` the floor, above `1×`, so it is flagged, not
+    /// dropped; see [`pml_classifier_curl_floor`]).
+    #[test]
+    #[ignore = "release-tier measurement: about 40 PML solves; run with `cargo test -p geode-core --release --lib -- --ignored --exact analytic::waveguide::tests::pml_curl_floor_measurement_947 --nocapture`"]
+    fn pml_curl_floor_measurement_947() {
+        let k0 = 2.0 * std::f64::consts::PI / 1.55;
+        let k0_sq = k0 * k0;
+        // (fixture, mesh, selected fundamental's × floor) of each benchmark.
+        let mut fundamentals: Vec<(&str, (usize, usize), f64)> = Vec::new();
+        let mut failures: Vec<String> = Vec::new();
+        for (name, (n_core, n_clad), a, (clad_r, outer_r), meshes) in fixtures_947() {
+            let (e_max, e_min) = (
+                (n_core * n_core).max(n_clad * n_clad),
+                (n_core * n_core).min(n_clad * n_clad),
+            );
+            let floor = physical_curl_floor(e_max, e_min);
+            let window = (e_min * k0_sq, e_max * k0_sq);
+            let b_of = |re: f64| (re - window.0) / (window.1 - window.0);
+            let bound_c = |l: c64| l.im.abs() <= DIELECTRIC_BOUND_REL_IM * l.re.abs();
+            let guides_nothing = !name.contains("bench");
+            eprintln!(
+                "\n#947 {name}: n = ({n_core}, {n_clad}), a = {a}, contrast-scaled floor = \
+                 {floor:.3e} ({:.0}× the PML floor)",
+                floor / physical_curl_floor_pml()
+            );
+            for &mesh_size in meshes {
+                let (mesh, tags, eps, interior) =
+                    pml_disk_913((n_core, n_clad), a, (clad_r, outer_r), mesh_size);
+                let raw = dielectric_raw_candidates_p2_pml(
+                    &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 40, None,
+                )
+                .unwrap();
+                let n_dof = n_dof_2d_nedelec2(&mesh);
+                let interior_to_full: Vec<usize> = interior
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &keep)| keep.then_some(i))
+                    .collect();
+                eprintln!("  mesh {mesh_size:?}, request 40:");
+                // (β², curl, core fraction) of each converged in-window bound pair.
+                let mut rows: Vec<(f64, f64, f64)> = Vec::new();
+                for c in &raw.cands {
+                    let in_window = window.0 < c.beta_sq.re && c.beta_sq.re < window.1;
+                    if !(in_window && bound_c(c.beta_sq)) {
+                        continue;
+                    }
+                    let mut e_edges = vec![c64::new(0.0, 0.0); n_dof];
+                    for (i, &f) in interior_to_full.iter().enumerate() {
+                        e_edges[f] = c.vector[i];
+                    }
+                    let beta = principal_sqrt_c64(c.beta_sq);
+                    let mode = DielectricModePml {
+                        n_eff: beta / c64::new(k0, 0.0),
+                        beta,
+                        beta_sq: c.beta_sq,
+                        guided: true,
+                        e_edges,
+                    };
+                    let cf =
+                        dielectric_mode_field_shape_pml(&mesh, &tags, &mode).core_energy_fraction;
+                    rows.push((c.beta_sq.re, c.curl_ratio, cf));
+                }
+                // The pairs the old floor keeps (the nullspace at `b ≈ 1` is
+                // below both floors), most confined first.
+                for &(re, curl, cf) in rows
+                    .iter()
+                    .filter(|r| r.1 > physical_curl_floor_pml())
+                    .take(8)
+                {
+                    eprintln!(
+                        "    converged  β² = {re:.5}  b = {:.4}  curl = {curl:.3e}  \
+                         × floor = {:>7.3}  core frac = {cf:.3}  kept: old {} / new {}",
+                        b_of(re),
+                        curl / floor,
+                        curl > physical_curl_floor_pml(),
+                        curl > pml_classifier_curl_floor(e_max, e_min),
+                    );
+                }
+                let (lo, hi) = rows.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), r| {
+                    (lo.min(r.1 / floor), hi.max(r.1 / floor))
+                });
+                let kept_new = rows
+                    .iter()
+                    .filter(|r| r.1 > pml_classifier_curl_floor(e_max, e_min))
+                    .count();
+                eprintln!(
+                    "    {} converged bound pair(s), × floor {lo:.3} … {hi:.3}; kept by old \
+                     floor {}, by contrast-scaled floor {kept_new}",
+                    rows.len(),
+                    rows.iter()
+                        .filter(|r| r.1 > physical_curl_floor_pml())
+                        .count(),
+                );
+                for w in &raw.localized_withheld {
+                    let in_window = window.0 < w.beta_sq.re && w.beta_sq.re < window.1;
+                    if in_window && bound_c(w.beta_sq) {
+                        eprintln!(
+                            "    withheld   β² = {:.5}  b = {:.4}  curl = {:.3e}  × floor = {:>7.3}  \
+                             ρ = {:.2e}",
+                            w.beta_sq.re,
+                            b_of(w.beta_sq.re),
+                            w.curl_ratio,
+                            w.curl_ratio / floor,
+                            w.residual
+                        );
+                    }
+                }
+
+                // The public call, retry included.
+                take_low_curl_events();
+                let public = solve_dielectric_modes2_pml(
+                    &mesh, &eps, &tags, &interior, clad_r, outer_r, 6.0, k0, 4,
+                );
+                let flags = take_low_curl_events();
+                match public {
+                    Ok(modes) => {
+                        let bound: Vec<&DielectricModePml> =
+                            modes.iter().filter(|m| bound_c(m.beta_sq)).collect();
+                        let summary: Vec<String> = bound
+                            .iter()
+                            .map(|m| format!("b = {:.4}", b_of(m.beta_sq.re)))
+                            .collect();
+                        eprintln!(
+                            "    PUBLIC: Ok, {} mode(s), {} bound {summary:?}, {} low-curl \
+                             flag(s)",
+                            modes.len(),
+                            bound.len(),
+                            flags.len()
+                        );
+                        if name.starts_with("anti-guide") {
+                            if !bound.is_empty() {
+                                failures.push(format!(
+                                    "{name} {mesh_size:?}: ladder pair(s) returned as bound \
+                                     modes: {summary:?}"
+                                ));
+                            }
+                        } else if guides_nothing {
+                            // Thin core: whatever is returned is the ladder;
+                            // every returned bound mode must be flagged.
+                            let unflagged = bound
+                                .iter()
+                                .filter(|m| {
+                                    !flags.iter().any(|f| (f.1 - m.beta_sq.re).abs() < 1e-9)
+                                })
+                                .count();
+                            if unflagged > 0 {
+                                failures.push(format!(
+                                    "{name} {mesh_size:?}: {unflagged} unflagged ladder \
+                                     mode(s): {summary:?}"
+                                ));
+                            }
+                        } else if let Some(top) = bound.first() {
+                            if !flags.is_empty() {
+                                failures.push(format!(
+                                    "{name} {mesh_size:?}: benchmark mode(s) flagged: {flags:?}"
+                                ));
+                            }
+                            // The classifier's own curl ratio for the pick.
+                            let pick = raw
+                                .cands
+                                .iter()
+                                .find(|c| (c.beta_sq.re - top.beta_sq.re).abs() < 1e-9)
+                                .map(|c| c.curl_ratio / floor);
+                            eprintln!(
+                                "    fundamental b = {:.4}, × floor = {}",
+                                b_of(top.beta_sq.re),
+                                pick.map_or("(not in the request-40 set)".into(), |r| format!(
+                                    "{r:.3}"
+                                ))
+                            );
+                            if let Some(r) = pick {
+                                fundamentals.push((name, mesh_size, r));
+                            }
+                        } else {
+                            failures.push(format!("{name} {mesh_size:?}: no bound fundamental"));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("    PUBLIC: Err({e})");
+                        if !(guides_nothing && matches!(e, EigenError::SelectionHole { .. })) {
+                            failures.push(format!("{name} {mesh_size:?}: unexpected error {e:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("\n#947 selected fundamentals (× contrast-scaled floor): {fundamentals:?}");
+        for &(name, mesh_size, r) in &fundamentals {
+            if r < 3.0 {
+                failures.push(format!(
+                    "{name} {mesh_size:?}: fundamental at {r:.3}× the floor"
+                ));
+            }
+        }
+        assert_eq!(fundamentals.len(), 10, "{fundamentals:?}; {failures:#?}");
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 }
