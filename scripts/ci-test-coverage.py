@@ -37,6 +37,24 @@ integration targets keep their older, more lenient rule; see Known limits.)
 Such a partial run still counts, test by test, in the ignored-tier check
 below.
 
+Bin unit tests (issue #933). Each bin target whose root file (or a module
+file it loads) has a `#[test]` is a target too, reported and allowlisted as
+`<crate>/bin:<name>`. The bins are found as cargo finds them, in every
+workspace member including the examples crates: each `[[bin]]` section
+(skipped with `test = false`; one `required-features` entry is treated like
+a feature gate), plus, unless `autobins = false`, `src/main.rs` (named after
+the package), `src/bin/*.rs` and `src/bin/*/main.rs`. A bin is selected by
+`--bins`, by `--bin <name>` (cargo globs honoured) for that bin only, by
+`--tests` / `--all-targets`, or by a command with no target selector at
+all; `--lib`, `--test X`, `--doc`, `--examples` alone skip it.
+(`--benches` also runs the bin unit tests in cargo, since bins have
+`bench = true` by default; the guard does not count it, the same deliberate
+under-count as for the lib; issue #985.) Package selection and the
+partial-run rule are the lib target's: a name-filtered or
+`-- --ignored`-only run does not count, and its
+`#[ignore]`d tests are named by module path
+(`geode-cli/bin:geode::spec::tests::name`).
+
 If a target file is gated with `#![cfg(feature = "X")]`, the covering
 command must also enable `X` (`--features X` or `--features crate/X`), or the
 test would compile to an empty binary. `--all-features` is not counted.
@@ -153,7 +171,8 @@ Ignored tests that knowingly run nowhere live in
 `scripts/ci-test-coverage-ignored-allowlist.txt`, one
 `crate/target::test  # reason` (or `crate/target  # reason` for every ignored
 test of the target) per line, with the reason required. A lib target's test
-is named by its module path, `crate/lib::driven::solve::tests::name`. The guard exits 1
+is named by its module path, `crate/lib::driven::solve::tests::name`, and
+a bin target's likewise, `crate/bin:<name>::tests::name`. The guard exits 1
 when a covered target has an ignored test that runs nowhere and is not
 allowlisted, when an entry is malformed or has no reason, and when an entry
 is stale (the test now runs, or no longer exists, or its target does not run
@@ -183,8 +202,9 @@ parser's unit tests on synthetic workflows and exits. The script never runs
 cargo. It only reads files.
 
 Known limits: Cargo `[[test]]` entries with a custom `path` or
-`required-features` are not parsed (the workspace has none); bin targets'
-unit tests (`src/main.rs`) are not modelled. For an integration target, a
+`required-features` are not parsed (the workspace has none); a `[[bin]]`
+with no `name` or more than one required feature is an error. For an
+integration target, a
 test-name filter is reported in the tier column but still counts as
 coverage (for a lib target it does not, see above), and a
 crate-wide `-- --ignored` counts as covering the target even though only its
@@ -239,6 +259,35 @@ CMD_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", ";;", "|&"}
 # LIB_NAME; an integration target literally named `lib` is an error.
 LIB = "<lib>"
 LIB_NAME = "lib"
+# Issue #933: a bin target's unit tests are the target `<bin:NAME>`, spelled
+# `bin:NAME` in the report and the allowlists. Cargo rejects `<` and `:` in
+# a test target name, so neither form collides with an integration target.
+BIN_LABEL = "bin:"
+
+
+def bin_key(name: str) -> str:
+    """The internal target key of the unit tests of bin `name`."""
+    return f"<bin:{name}>"
+
+
+def bin_name(target: str) -> str | None:
+    """The bin name of a `bin_key` target, or None for any other target."""
+    m = re.fullmatch(r"<bin:(.+)>", target)
+    return m.group(1) if m else None
+
+
+def is_unit(target: str) -> bool:
+    """Whether `target` is a unit-test target (the lib or a bin)."""
+    return target == LIB or bin_name(target) is not None
+
+
+def target_key(label: str) -> str:
+    """The internal key of a target as the allowlists spell it."""
+    if label == LIB_NAME:
+        return LIB
+    if label.startswith(BIN_LABEL):
+        return bin_key(label[len(BIN_LABEL):])
+    return label
 
 
 # --------------------------------------------------------------------------
@@ -275,6 +324,73 @@ def lib_source(crate_dir: Path) -> Path | None:
     return path if path.is_file() else None
 
 
+def bin_sources(crate_dir: Path) -> dict[str, tuple[Path, str | None]]:
+    """Each bin target with unit tests enabled: name -> (root file, gate).
+
+    Issue #933. Follows cargo's target rules: every `[[bin]]` section
+    (`path` defaulting to `src/main.rs` for a bin named after the package,
+    else `src/bin/<name>.rs` or `src/bin/<name>/main.rs`), plus, unless
+    `[package] autobins = false`, the inferred bins `src/main.rs` (named
+    after the package), `src/bin/*.rs` and `src/bin/*/main.rs`. An inferred
+    bin whose name or file a `[[bin]]` section already claims is dropped,
+    as cargo does. A bin with `test = false` is skipped as a target: cargo
+    leaves it out of the default and `--tests` selections, though `--bins`,
+    `--bin NAME`, `--all-targets` and `--benches` still run its unit tests,
+    so skipping it can only under-count coverage (the fail-closed
+    direction). `name` and `path` may be basic (`"..."`) or literal
+    (`'...'`) TOML strings; multi-line strings and escapes are not
+    modelled. The returned gate is the bin's one `required-features` entry
+    (cargo skips the bin when it is not enabled); more than one is not
+    modelled and is an error.
+    """
+    text = (crate_dir / "Cargo.toml").read_text()
+    pkg = crate_name(crate_dir)
+    psec = re.search(r"^\[package\][ \t]*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    autobins = not (psec and re.search(r"^\s*autobins\s*=\s*false\b", psec.group(1), re.M))
+    out: dict[str, tuple[Path, str | None]] = {}
+    claimed_names: set[str] = set()
+    claimed_paths: set[Path] = set()
+    for sec in re.finditer(r"^\[\[bin\]\][ \t]*$(.*?)(?=^\[|\Z)", text, re.M | re.S):
+        body = sec.group(1)
+        nm = re.search(r'''^\s*name\s*=\s*(?:"([^"]+)"|'([^']+)')''', body, re.M)
+        pm = re.search(r'''^\s*path\s*=\s*(?:"([^"]+)"|'([^']+)')''', body, re.M)
+        if not nm:
+            sys.exit(f"ERROR: {crate_dir}/Cargo.toml has a [[bin]] without a `name`; "
+                     "ci-test-coverage.py does not model that.")
+        name = nm.group(1) or nm.group(2)
+        if pm:
+            path = crate_dir / (pm.group(1) or pm.group(2))
+        elif name == pkg and (crate_dir / "src" / "main.rs").is_file():
+            path = crate_dir / "src" / "main.rs"
+        elif (crate_dir / "src" / "bin" / f"{name}.rs").is_file():
+            path = crate_dir / "src" / "bin" / f"{name}.rs"
+        else:
+            path = crate_dir / "src" / "bin" / name / "main.rs"
+        claimed_names.add(name)
+        claimed_paths.add(path.resolve())
+        if re.search(r"^\s*test\s*=\s*false\b", body, re.M) or not path.is_file():
+            continue
+        gate = None
+        rf = re.search(r"^\s*required-features\s*=\s*\[([^\]]*)\]", body, re.M)
+        if rf:
+            feats = re.findall(r'"([^"]+)"', rf.group(1))
+            if len(feats) > 1:
+                sys.exit(f"ERROR: bin `{name}` of {crate_dir.name} has more than one "
+                         "required feature; ci-test-coverage.py models at most one.")
+            gate = feats[0] if feats else None
+        out[name] = (path, gate)
+    if autobins:
+        inferred = [(pkg, crate_dir / "src" / "main.rs")]
+        inferred += [(f.stem, f) for f in sorted((crate_dir / "src" / "bin").glob("*.rs"))]
+        inferred += [(f.parent.name, f)
+                     for f in sorted((crate_dir / "src" / "bin").glob("*/main.rs"))]
+        for name, path in inferred:
+            if (path.is_file() and name not in claimed_names
+                    and path.resolve() not in claimed_paths):
+                out[name] = (path, None)
+    return out
+
+
 def discover_targets(root: Path = ROOT) -> dict[tuple[str, str], str | None]:
     """Map (crate, target) -> feature gate (or None).
 
@@ -282,7 +398,9 @@ def discover_targets(root: Path = ROOT) -> dict[tuple[str, str], str | None]:
     one `#[test]` (in `lib.rs` or a module file it loads) gets the
     pseudo-target `(crate, LIB)` (issue #921). An integration target
     literally named `lib` would be ambiguous with it in the allowlists and
-    the report, so it is an error.
+    the report, so it is an error. Likewise each bin whose root file (or a
+    module file it loads) has a `#[test]` gets `(crate, bin_key(NAME))`
+    (issue #933; see bin_sources).
     """
     targets: dict[tuple[str, str], str | None] = {}
     for group in ("crates", "examples"):
@@ -293,6 +411,9 @@ def discover_targets(root: Path = ROOT) -> dict[tuple[str, str], str | None]:
             lib = lib_source(crate_dir)
             if lib and target_ignores(lib).has_tests:
                 targets[(name, LIB)] = feature_gate(lib)
+            for bname, (bpath, gate) in sorted(bin_sources(crate_dir).items()):
+                if target_ignores(bpath).has_tests:
+                    targets[(name, bin_key(bname))] = gate or feature_gate(bpath)
             tests = crate_dir / "tests"
             if not tests.is_dir():
                 continue
@@ -315,6 +436,9 @@ def target_source(crate: str, target: str) -> Path | None:
                 continue
             if target == LIB:
                 return lib_source(crate_dir)
+            if (bname := bin_name(target)) is not None:
+                src = bin_sources(crate_dir).get(bname)
+                return src[0] if src else None
             for f in (crate_dir / "tests" / f"{target}.rs",
                       crate_dir / "tests" / target / "main.rs"):
                 if f.is_file():
@@ -324,6 +448,8 @@ def target_source(crate: str, target: str) -> Path | None:
 
 def target_label(target: str) -> str:
     """How the report and the allowlists spell a target."""
+    if (bname := bin_name(target)) is not None:
+        return BIN_LABEL + bname
     return LIB_NAME if target == LIB else target
 
 
@@ -1464,6 +1590,11 @@ class Selection:
     # Issue #921: whether the crate's lib unit-test target is built and run
     # (`--lib`, `--tests`, `--all-targets`, or no target selector at all).
     covers_lib: bool = True
+    # Issue #933: whether every bin's unit tests run (`--bins`, `--tests`,
+    # `--all-targets`, or no target selector at all), else the bin names
+    # (cargo globs) given with `--bin NAME`.
+    all_bins: bool = True
+    bins: set[str] = field(default_factory=set)
 
     def selects(self, crate: str, target: str) -> bool:
         if self.crates is not None and crate not in self.crates:
@@ -1472,16 +1603,19 @@ class Selection:
             return False
         if target == LIB:
             return self.covers_lib
+        if (bname := bin_name(target)) is not None:
+            return self.all_bins or any(fnmatch.fnmatchcase(bname, b) for b in self.bins)
         if self.all_integration:
             return True
         return any(fnmatch.fnmatchcase(target, n) for n in self.named)
 
     def lib_partial(self) -> str | None:
-        """Why a command that selects the lib target runs only part of it.
+        """Why a command that selects a unit-test target runs only part of it.
 
-        A lib target counts as covered only by a run of its whole default
-        tier: no test-name filter and no `--ignored` (issue #921). Such a
-        run still counts for the per-test ignored-tier check.
+        A lib target (issue #921) or a bin target (issue #933) counts as
+        covered only by a run of its whole default tier: no test-name
+        filter and no `--ignored`. Such a run still counts for the per-test
+        ignored-tier check.
         """
         if self.name_filtered:
             return "name-filtered: " + " ".join(
@@ -1519,6 +1653,8 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     non_integration = False
     all_integration_flag = False
     lib_flag = False
+    bins_flag = False
+    bins: set[str] = set()
     name_filtered = False
     filters: list[str] = []
     skips: list[str] = []
@@ -1562,10 +1698,18 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
         elif a in NON_INTEGRATION_FILTERS:
             non_integration = True
             lib_flag = lib_flag or a == "--lib"
+            bins_flag = bins_flag or a == "--bins"
         elif key in NON_INTEGRATION_FILTERS_VALUED:
             non_integration = True
-            if not eq and i + 1 < n and not cargo_args[i + 1].startswith("-"):
+            if eq:
+                v = val
+            elif i + 1 < n and not cargo_args[i + 1].startswith("-"):
                 i += 1
+                v = cargo_args[i]
+            else:
+                v = None  # bare `--bin`: cargo lists the bins and fails
+            if key == "--bin" and v:
+                bins.add(v)
         elif a in ("--release", "-r"):
             profile = "release"
         elif key == "--profile":
@@ -1604,6 +1748,15 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     # default) but is deliberately not counted here: an under-count, the
     # fail-closed direction (issue #942).
     sel.covers_lib = lib_flag or all_integration_flag or (not named and not non_integration)
+    # Issue #933: the same rule for bin unit tests. Cargo runs every bin's
+    # unit tests under `--bins`, `--tests` / `--all-targets` (bins have
+    # `test = true` by default) and with no target selector; `--bin NAME`
+    # runs the named ones; `--lib` / `--test X` / `--doc` / `--examples`
+    # alone skip them. `--benches` also selects every bin in cargo (bins
+    # have `bench = true` by default) but is deliberately not counted here:
+    # an under-count, the fail-closed direction (issue #985).
+    sel.all_bins = bins_flag or all_integration_flag or (not named and not non_integration)
+    sel.bins = bins
 
     j = 0
     while j < len(harness_args):
@@ -1699,7 +1852,7 @@ def test_ids(target: str, t: IgnoredTest) -> set[str]:
     if t.name is None:
         return set()
     full = t.qualified()
-    if target == LIB:
+    if is_unit(target):
         return {full or t.name}
     return {t.name} | ({full} if full else set())
 
@@ -1813,7 +1966,7 @@ def evaluate(workflows: dict[str, str], targets: dict[tuple[str, str], str | Non
                     if gate and gate not in feats:
                         gate_miss[(crate, target)].append(f"{wf} (missing feature {gate})")
                         continue
-                    why_partial = sel.lib_partial() if target == LIB else None
+                    why_partial = sel.lib_partial() if is_unit(target) else None
                     if why_partial:
                         partial[(crate, target)].append(f"{wf} ({why_partial})")
                     else:
@@ -1886,17 +2039,16 @@ def parse_ignored_allowlist(text: str) -> tuple[dict[IgnoredKey, str], list[str]
         body, reason = body.strip(), reason.strip()
         if not body:
             continue
-        m = re.fullmatch(r"([\w-]+)/(\w+)(?:::(\w+(?:::\w+)*))?", body)
+        m = re.fullmatch(r"([\w-]+)/(\w+|bin:[\w-]+)(?:::(\w+(?:::\w+)*))?", body)
         if not m:
             errors.append(f"line {n}: `{body}` is not <crate>/<target>[::<test>]")
         elif not reason:
             errors.append(f"line {n}: `{body}` has no `# reason`")
-        elif (m.group(1), LIB if m.group(2) == LIB_NAME else m.group(2),
-              m.group(3)) in entries:
+        elif (m.group(1), target_key(m.group(2)), m.group(3)) in entries:
             errors.append(f"line {n}: duplicate entry `{body}`")
         else:
             crate, target, test = m.groups()
-            entries[(crate, LIB if target == LIB_NAME else target, test)] = reason
+            entries[(crate, target_key(target), test)] = reason
     return entries, errors
 
 
@@ -1907,18 +2059,18 @@ def read_allowlist() -> set[tuple[str, str]]:
             line = line.split("#", 1)[0].strip()
             if line:
                 crate, _, target = line.partition("/")
-                allow.add((crate, LIB if target == LIB_NAME else target))
+                allow.add((crate, target_key(target)))
     return allow
 
 
 def _test_label(t: IgnoredTest, target: str = "") -> str:
-    name = (t.qualified() if target == LIB else None) or t.name or "<unnamed>"
+    name = (t.qualified() if is_unit(target) else None) or t.name or "<unnamed>"
     extra = [] if t.cls == "plain" else [IGNORE_CLASSES[t.cls]]
     if t.features:
         extra.append("needs feature " + ", ".join(sorted(t.features)))
     if t.cfg_unmodelled:
         extra.append("unmodelled #[cfg]")
-    if not t.top_level and target != LIB:
+    if not t.top_level and not is_unit(target):
         extra.append("inside a module")
     return name + (f" [{'; '.join(extra)}]" if extra else "")
 
@@ -1984,7 +2136,8 @@ def main() -> int:
 
     uncovered = {k for k in targets if not r.coverage[k]}
     n_lib = sum(1 for _, t in targets if t == LIB)
-    print(f"{len(targets)} test targets ({n_lib} lib unit-test targets), "
+    n_bin = sum(1 for _, t in targets if bin_name(t) is not None)
+    print(f"{len(targets)} test targets ({n_lib} lib and {n_bin} bin unit-test targets), "
           f"{len(targets) - len(uncovered)} covered by a "
           f"workflow, {len(uncovered)} not covered ({len(uncovered & allow)} allowlisted); "
           f"{r.commands} `cargo test` commands modelled, {len(r.warnings)} ignored.")
@@ -2943,8 +3096,14 @@ def self_test() -> int:
 
         def test_other_selectors_do_not_cover_lib(self):
             for sel in ("--test t1", "--test '*'", "--bins", "--bin tool", "--doc",
-                        "--examples", "--benches"):
+                        "--examples", "--bench geode"):
                 self.assertNotIn(AL, lib_cov(f"cargo test -p a {sel}"), sel)
+
+        def test_benches_is_conservatively_not_counted_for_lib(self):
+            # Cargo does run the lib unit tests under `--benches` (the lib
+            # has `bench = true` by default); the guard's policy is to not
+            # count it, a deliberate under-count (issue #942).
+            self.assertNotIn(AL, lib_cov("cargo test -p a --benches"))
 
         def test_name_filtered_lib_run_is_partial(self):
             for cmd in ("cargo test -p a --lib eigen::",
@@ -3132,8 +3291,182 @@ def self_test() -> int:
                 (c / "Cargo.toml").write_text('[package]\nname = "x"\n')
                 self.assertIsNone(lib_source(c))
 
+    # -- issue #933: bin targets' unit tests ------------------------------------
+    BG = ("a", bin_key("geode"))
+    BT = ("a", bin_key("tool"))
+    TB = {AL: None, BG: None, BT: None, ("a", "t1"): None, ("b", bin_key("b")): None}
+
+    def bin_eval(script: str, tests=(), allow=None, cov_allow=None, targets=None):
+        return evaluate({"w.yml": wf_run(script)}, targets or TB, cov_allow or set(),
+                        True, {BG: TargetIgnores(list(tests))}, allow or {})
+
+    def bin_cov(script: str, **kw) -> set:
+        return {k for k, v in bin_eval(script, **kw).coverage.items() if v}
+
+    class BinTargetTests(unittest.TestCase):
+        # -- which commands cover a bin target --------------------------------
+        def test_bins_flag_covers_every_bin(self):
+            self.assertEqual(bin_cov("cargo test -p a --bins"), {BG, BT})
+            self.assertEqual(bin_cov("cargo test -p a -p b --bins"),
+                             {BG, BT, ("b", bin_key("b"))})
+
+        def test_bin_name_covers_only_that_bin(self):
+            self.assertEqual(bin_cov("cargo test -p a --bin geode"), {BG})
+            self.assertEqual(bin_cov("cargo test -p a --bin=geode"), {BG})
+            self.assertEqual(bin_cov("cargo test -p a --bin 'g*'"), {BG})
+            self.assertEqual(bin_cov("cargo test -p a --bin geode --bin tool"), {BG, BT})
+            self.assertEqual(bin_cov("cargo test -p a --bin other"), set())
+            # A bare `--bin` (cargo lists the bins and fails) selects none.
+            self.assertEqual(bin_cov("cargo test -p a --bin"), set())
+
+        def test_no_selector_covers_lib_bins_and_tests(self):
+            self.assertEqual(bin_cov("cargo test -p a"), {AL, BG, BT, ("a", "t1")})
+            self.assertEqual(bin_cov("cargo test"), set(TB))
+            self.assertEqual(bin_cov("cargo test --workspace --exclude a"),
+                             {("b", bin_key("b"))})
+
+        def test_tests_and_all_targets_cover_bins(self):
+            for sel in ("--tests", "--all-targets", "--lib --tests"):
+                self.assertEqual(bin_cov(f"cargo test -p a {sel}"),
+                                 {AL, BG, BT, ("a", "t1")}, sel)
+
+        def test_other_selectors_do_not_cover_bins(self):
+            for sel in ("--lib", "--test t1", "--test '*'", "--doc", "--examples",
+                        "--example geode", "--bench geode"):
+                got = bin_cov(f"cargo test -p a {sel}")
+                self.assertFalse(got & {BG, BT}, sel)
+
+        def test_benches_is_conservatively_not_counted_for_bins(self):
+            # Cargo does run every bin's unit tests under `--benches` (bins
+            # have `bench = true` by default); the guard's policy is to not
+            # count it, a deliberate under-count (issue #985).
+            self.assertFalse(bin_cov("cargo test -p a --benches") & {BG, BT})
+
+        def test_package_selection_applies(self):
+            self.assertEqual(bin_cov("cargo test -p b --bins"), {("b", bin_key("b"))})
+            self.assertEqual(bin_cov("cargo test -p b --bin geode"), set())
+
+        def test_name_filtered_bin_run_is_partial(self):
+            for cmd in ("cargo test -p a --bins geode::", "cargo test -p a --bin geode -- x",
+                        "cargo test -p a -- --skip slow"):
+                r = bin_eval(cmd)
+                self.assertEqual(r.coverage[BG], [], cmd)
+                self.assertIn(BG, r.new_gaps, cmd)
+                self.assertIn("name-filtered", r.partial[BG][0], cmd)
+            r = bin_eval("cargo test -p a --bins -- --ignored")
+            self.assertEqual((r.coverage[BG], r.partial[BG]), ([], ["w.yml (--ignored only)"]))
+
+        def test_narrowing_the_bin_run_fails_the_ratchet(self):
+            tg = {BG: None, ("a", "t1"): None}
+            self.assertEqual(bin_eval("cargo test -p a", targets=tg).new_gaps, [])
+            self.assertEqual(bin_eval("cargo test -p a --test t1", targets=tg).new_gaps, [BG])
+            r = bin_eval("cargo test -p a --test t1", targets=tg, cov_allow={BG})
+            self.assertEqual((r.new_gaps, r.stale), ([], []))
+            self.assertEqual(bin_eval("cargo test -p a", targets=tg, cov_allow={BG}).stale,
+                             [BG])
+
+        def test_feature_gated_bin(self):
+            tg = {BG: "f"}
+            self.assertEqual(bin_eval("cargo test -p a --bins", targets=tg).new_gaps, [BG])
+            self.assertEqual(bin_eval("cargo test -p a --bins --features f",
+                                      targets=tg).new_gaps, [])
+
+        def test_bin_ignored_tier_by_module_path(self):
+            heavy = [IgnoredTest("bench", path="tests", top_level=False)]
+            r = bin_eval("cargo test", heavy)
+            self.assertEqual([t.qualified() for _, t in r.ignored_new_gaps], ["tests::bench"])
+            self.assertEqual(bin_eval("cargo test\ncargo test -p a --bin geode -- "
+                                      "--ignored --exact tests::bench", heavy).ignored_new_gaps, [])
+            # The bare name does not match a module test under --exact.
+            self.assertEqual(len(bin_eval("cargo test\ncargo test -p a --bin geode -- "
+                                          "--ignored --exact bench", heavy).ignored_new_gaps), 1)
+            # --ignored on another bin does not run it.
+            self.assertEqual(len(bin_eval("cargo test\ncargo test -p a --bin tool -- "
+                                          "--ignored", heavy).ignored_new_gaps), 1)
+            ok = bin_eval("cargo test", heavy, allow={BG + ("tests::bench",): "r"})
+            self.assertEqual((ok.ignored_new_gaps, ok.ignored_stale), ([], []))
+            self.assertEqual(len(bin_eval("cargo test", heavy,
+                                          allow={BG + ("bench",): "r"}).ignored_new_gaps), 1)
+
+        def test_labels_and_allowlist_spelling(self):
+            self.assertEqual(target_label(bin_key("geode")), "bin:geode")
+            self.assertEqual((target_key("bin:geode"), target_key("lib"), target_key("t1")),
+                             (bin_key("geode"), LIB, "t1"))
+            self.assertEqual((bin_name(bin_key("x-y")), bin_name(LIB), bin_name("t1")),
+                             ("x-y", None, None))
+            self.assertTrue(is_unit(BG[1]) and is_unit(LIB) and not is_unit("t1"))
+            entries, errors = parse_ignored_allowlist(
+                "geode-cli/bin:geode::tests::slow  # heavy\n"
+                "mie_sphere/bin:mie_sphere  # all\n"
+                "geode-cli/bin:  # r\n")
+            self.assertEqual(entries, {("geode-cli", bin_key("geode"), "tests::slow"): "heavy",
+                                       ("mie_sphere", bin_key("mie_sphere"), None): "all"})
+            self.assertEqual(len(errors), 1, errors)
+
+        # -- discovery ---------------------------------------------------------
+        def test_bin_sources(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                c = Path(d)
+                (c / "src" / "bin" / "multi").mkdir(parents=True)
+                for f in ("main.rs", "bin/extra.rs", "bin/multi/main.rs", "cli.rs"):
+                    (c / "src" / f).write_text("")
+                (c / "Cargo.toml").write_text('[package]\nname = "x"\n')
+                got = {k: v[0].relative_to(c).as_posix() for k, v in bin_sources(c).items()}
+                self.assertEqual(got, {"x": "src/main.rs", "extra": "src/bin/extra.rs",
+                                       "multi": "src/bin/multi/main.rs"})
+                # A [[bin]] claiming src/main.rs under another name replaces
+                # the inferred package-named bin; test = false drops a bin;
+                # a custom path is followed.
+                (c / "Cargo.toml").write_text(
+                    '[package]\nname = "x"\n\n[[bin]]\nname = "geode"\npath = "src/main.rs"\n'
+                    '\n[[bin]]\nname = "extra"\ntest = false\n'
+                    '\n[[bin]]\nname = "cli"\npath = "src/cli.rs"\n'
+                    'required-features = ["f"]\n[dependencies]\n')
+                got = {k: (v[0].relative_to(c).as_posix(), v[1])
+                       for k, v in bin_sources(c).items()}
+                self.assertEqual(got, {"geode": ("src/main.rs", None),
+                                       "multi": ("src/bin/multi/main.rs", None),
+                                       "cli": ("src/cli.rs", "f")})
+                # autobins = false keeps only the declared bins.
+                (c / "Cargo.toml").write_text(
+                    '[package]\nname = "x"\nautobins = false\n\n[[bin]]\nname = "x"\n')
+                self.assertEqual(list(bin_sources(c)), ["x"])
+                (c / "Cargo.toml").write_text(
+                    '[package]\nname = "x"\n\n[[bin]]\nname = "x"\n'
+                    'required-features = ["f", "g"]\n')
+                with self.assertRaises(SystemExit):
+                    bin_sources(c)
+                # Literal (single-quoted) TOML strings for name and path
+                # (issue #985).
+                (c / "Cargo.toml").write_text(
+                    "[package]\nname = 'x'\nautobins = false\n\n"
+                    "[[bin]]\nname = 'cli'\npath = 'src/cli.rs'\n")
+                got = {k: v[0].relative_to(c).as_posix() for k, v in bin_sources(c).items()}
+                self.assertEqual(got, {"cli": "src/cli.rs"})
+
+        def test_discover_bin_targets(self):
+            import tempfile
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+
+                def crate(group, name, main):
+                    c = root / group / name
+                    (c / "src").mkdir(parents=True)
+                    (c / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n')
+                    (c / "src" / "main.rs").write_text(main)
+                    return c
+                crate("crates", "tool", 'mod util;\nfn main() {}\n')
+                (root / "crates" / "tool" / "src" / "util.rs").write_text(
+                    '#[cfg(test)]\nmod tests { #[test] fn a() {} }\n')
+                crate("examples", "demo", 'fn main() {}\n#[test]\nfn b() {}\n')
+                crate("examples", "plain", 'fn main() {}\n// #[test]\n')
+                self.assertEqual(discover_targets(root),
+                                 {("tool", bin_key("tool")): None,
+                                  ("demo", bin_key("demo")): None})
+
     suite = unittest.TestSuite()
-    for case in (ParserTests, IgnoredTierTests, LibTargetTests):
+    for case in (ParserTests, IgnoredTierTests, LibTargetTests, BinTargetTests):
         suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1

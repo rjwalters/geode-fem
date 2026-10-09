@@ -431,6 +431,7 @@ fn conjugated_dot_stagnates_where_bilinear_converges() {
         max_iters: 400,
         breakdown_tol: 1e-300,
         inner: InnerProduct::Bilinear,
+        ..Default::default()
     };
     let (_x, rep_ok) = bilinear
         .solve(&fx.burn_op, &b_burn)
@@ -448,6 +449,7 @@ fn conjugated_dot_stagnates_where_bilinear_converges() {
         max_iters: 400,
         breakdown_tol: 1e-300,
         inner: InnerProduct::Conjugated,
+        ..Default::default()
     };
     let result = conjugated.solve(&fx.burn_op, &b_burn);
     match result {
