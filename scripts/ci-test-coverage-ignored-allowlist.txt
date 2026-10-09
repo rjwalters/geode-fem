@@ -37,6 +37,14 @@ geode-core/cocg_burn_equivalence::cocg_burn_cuda_f32_smoke  # needs a CUDA GPU (
 geode-core/driven_matrix_free_equivalence::driven_matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
 geode-core/nedelec_matrix_free_equivalence::matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
 
+# Issue #1011 regression: dense P1 assembly of cube_tet_mesh(35) (46_656
+# nodes, the smallest cube past the old i32 linear-index limit). The dense
+# f64 K and M are ~17 GB each; 39 GB peak RSS, 44 s in release (local
+# 28-core host). Does not fit a 7 GB ubuntu-latest runner. The row-blocked
+# scatter it exercises is covered in CI at small sizes by the
+# assembly::dense_scatter unit tests (geode-core/lib, arpack.yml).
+geode-core/assembly::p1_assembly_past_i32_linear_index_limit_1011  # needs ~40 GB RAM (dense 46_656^2 f64 K and M)
+
 # A fixture regenerator, not a check: heavy (~2 min), it writes a scratch
 # copy of tests/fixtures/mie_complex_pml_dense_eigenvalues.toml under
 # target/ and rewrites the committed fixture only with

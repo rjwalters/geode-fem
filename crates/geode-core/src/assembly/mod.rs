@@ -53,6 +53,7 @@
 //!   contour/triangle-location sampler they build on.
 
 pub mod current_path;
+mod dense_scatter;
 pub mod electrostatic;
 pub mod fe;
 pub mod hcurl_space;
