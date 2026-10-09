@@ -24,6 +24,17 @@
 #   geode_pa_s4p5_n8       port_aware  4.5    8      route "port-aware"
 # each at 1 thread (_t1) and 8 threads (_t8).
 #
+# Route "port-aware": GEODE_GAUGE=port_aware selects, since PR #1002 (#950),
+# the single-factorization port-subspace projection (one factorization of
+# K - sigma M, no junction extract; six physical modes from a 7-mode request,
+# plus the 3.45 GHz port mode, #1003). The #927 tuned sweep ran this driver at
+# geode 8367ee7b, before PR #1002, when port_aware selected the issue #514 route
+# (junction extract + projected band, two factorizations; 8 modes for all six
+# physical, plus two non-physical). That route is now
+# GEODE_GAUGE=port_aware_extract. The numbers in results_tuned_palace_m6i.toml
+# stay attributable through that recorded commit; a re-run of this driver at a
+# later commit times the port-subspace route.
+#
 # Thread enforcement (#763), unchanged from PR #964. "1 thread" =
 # GEODE_NUM_THREADS=1 and RAYON_NUM_THREADS=1 and `taskset -c <first cpu>`.
 # "8 threads" = both knobs at 8 and taskset to ONE hardware thread of each of

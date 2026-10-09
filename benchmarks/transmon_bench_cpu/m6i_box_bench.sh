@@ -17,6 +17,17 @@
 #       taskset, RAYON_NUM_THREADS unset. This is how the 2026-07-14 "1-thread"
 #       row was requested (#763); it shows what the knob alone enforces today.
 #
+# Route "port-aware": GEODE_GAUGE=port_aware selects, since PR #1002 (#950),
+# the single-factorization port-subspace projection (one factorization of
+# K - sigma M, no junction extract; six physical modes from a 7-mode request,
+# plus the 3.45 GHz port mode, #1003). PR #964 ran this driver at geode
+# 61e8571e, before PR #1002, when port_aware selected the issue #514 route
+# (junction extract + projected band, two factorizations; 8 modes for all six
+# physical, plus two non-physical). That route is now
+# GEODE_GAUGE=port_aware_extract. The PR #964 numbers in
+# results_like_for_like_m6i.toml stay attributable through that recorded commit;
+# a re-run of this driver at a later commit times the port-subspace route.
+#
 # Thread enforcement (#763). "1 thread" = GEODE_NUM_THREADS=1 and
 # RAYON_NUM_THREADS=1 and `taskset -c <first cpu>`, so one core is an OS
 # limit, not a request. "8 threads" = both knobs at 8 and taskset to ONE

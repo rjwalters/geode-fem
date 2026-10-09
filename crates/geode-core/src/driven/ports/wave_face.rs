@@ -277,6 +277,33 @@ impl PortFaceProjection {
     /// cross-section's physical-mode count (interior edges − interior
     /// nodes − holes) or the solve resolves fewer than `n_modes` modes.
     pub fn solve_modes(&self, n_modes: usize) -> Result<Vec<WaveguideModeProfile>, PortFaceError> {
+        Ok(self.solve_modes_with_candidates(n_modes)?.0)
+    }
+
+    /// [`Self::solve_modes`] together with the candidate records of the
+    /// same solve's cluster decision, exactly as
+    /// [`Self::degenerate_candidates`]`(n_modes, P1)` returns them (issue
+    /// #952): one raw face solve, plus the confirming p=2 solve when the
+    /// face has a candidate pair, for both.
+    fn solve_modes_with_candidates(
+        &self,
+        n_modes: usize,
+    ) -> Result<(Vec<WaveguideModeProfile>, Vec<DegenerateCandidate>), PortFaceError> {
+        let mut modes = self.raw_modes_p1(n_modes)?;
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        let (upto, links, mut records) = self.cluster_decision(&lam, n_modes, ElementOrder::P1);
+        let clusters = clusters_from_links(upto, &links);
+        records.retain(|c| c.index < n_modes);
+        modes.truncate(clusters.last().map_or(0, |c| c.1));
+        let profiles =
+            gauge_whitney_modes(&self.tri_mesh, &self.edges, &modes, &clusters, n_modes)?;
+        Ok((profiles, records))
+    }
+
+    /// The raw (ungauged) p=1 face solve behind [`Self::solve_modes`] and
+    /// [`Self::degenerate_candidates`]: the `n_modes` lowest modes, then
+    /// any further modes the same solve resolved, `λ` ascending.
+    fn raw_modes_p1(&self, n_modes: usize) -> Result<Vec<WaveguideModeProfile>, PortFaceError> {
         // de Rham count: interior edges minus interior nodes (the gradient
         // nullspace) minus one harmonic (curl-free, non-gradient) field per
         // hole is the number of k_c > 0 modes the discrete E_t-only pencil
@@ -290,6 +317,7 @@ impl PortFaceProjection {
                 found: available,
             });
         }
+        count_face_solve(|c| c.primary_p1 += 1);
         let (mut modes, beyond) = solve_waveguide_modes_ungauged(
             &self.tri_mesh,
             &self.edges,
@@ -304,16 +332,7 @@ impl PortFaceProjection {
             });
         }
         modes.extend(beyond);
-        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
-        let clusters = self.degenerate_clusters(&lam, n_modes, ElementOrder::P1);
-        modes.truncate(clusters.last().map_or(0, |c| c.1));
-        Ok(gauge_whitney_modes(
-            &self.tri_mesh,
-            &self.edges,
-            &modes,
-            &clusters,
-            n_modes,
-        )?)
+        Ok(modes)
     }
 
     /// The degenerate clusters (`[start, end)`, consecutive, from mode 0)
@@ -423,7 +442,9 @@ impl PortFaceProjection {
     /// numbers the canonical gauge decided it on and that decision
     /// (issue #896). This repeats the raw mode solve and the confirming
     /// solve of [`Self::solve_modes`] / [`Self::solve_modes_p2`] and makes
-    /// the same decision, bit for bit.
+    /// the same decision, bit for bit; a caller that also builds the p=1
+    /// port gets both from one solve with [`Self::wave_port_with_candidates`]
+    /// (issue #952).
     ///
     /// [`DegenerateCandidate::warning`] is the per-pair note (an ambiguous
     /// decision, a near-degenerate distinct pair, a failed confirmation);
@@ -441,29 +462,11 @@ impl PortFaceProjection {
         order: ElementOrder,
     ) -> Result<Vec<DegenerateCandidate>, PortFaceError> {
         let lam: Vec<f64> = match order {
-            ElementOrder::P1 => {
-                let available = self.available_modes_p1();
-                if n_modes > available {
-                    return Err(PortFaceError::TooFewModes {
-                        requested: n_modes,
-                        found: available,
-                    });
-                }
-                let (modes, beyond) = solve_waveguide_modes_ungauged(
-                    &self.tri_mesh,
-                    &self.edges,
-                    &self.interior_edge_mask,
-                    n_modes,
-                    None,
-                )?;
-                if modes.len() < n_modes {
-                    return Err(PortFaceError::TooFewModes {
-                        requested: n_modes,
-                        found: modes.len(),
-                    });
-                }
-                modes.iter().chain(&beyond).map(|m| m.lambda).collect()
-            }
+            ElementOrder::P1 => self
+                .raw_modes_p1(n_modes)?
+                .iter()
+                .map(|m| m.lambda)
+                .collect(),
             ElementOrder::P2 => self
                 .solve_modes_p2_raw(n_modes, None)?
                 .iter()
@@ -526,6 +529,7 @@ impl PortFaceProjection {
             ElementOrder::P2 => self.available_modes_p1(),
         };
         let request = (n + CONFIRMATION_MARGIN).min(available).max(n);
+        count_face_solve(|c| c.confirming += 1);
         let lam: Vec<f64> = match order {
             ElementOrder::P1 => self
                 .solve_modes_p2_raw(request, Some(sigma))
@@ -845,6 +849,26 @@ impl PortFaceProjection {
         mesh_edges: &[[u32; 2]],
         a_inc: &[c64],
     ) -> Result<WavePort, PortFaceError> {
+        Ok(self.wave_port_with_candidates(mesh_edges, a_inc)?.0)
+    }
+
+    /// [`Self::wave_port`] together with the candidate degenerate pairs of
+    /// its mode solve's cluster decision (issue #952): the port bit for
+    /// bit as [`Self::wave_port`] builds it, and the records exactly as
+    /// [`Self::degenerate_candidates`]`(a_inc.len(), ElementOrder::P1)`
+    /// returns them, from **one** raw face solve (plus the confirming p=2
+    /// solve when the face has a candidate pair) instead of one each.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::wave_port`]. On an error no records are returned; a
+    /// caller that still wants them (a port whose gauge failed, say) asks
+    /// [`Self::degenerate_candidates`], which does not gauge.
+    pub fn wave_port_with_candidates(
+        &self,
+        mesh_edges: &[[u32; 2]],
+        a_inc: &[c64],
+    ) -> Result<(WavePort, Vec<DegenerateCandidate>), PortFaceError> {
         if a_inc.is_empty() {
             return Err(PortFaceError::InvalidAmplitude(
                 "a wave port needs at least one mode (one a_inc entry per mode)".into(),
@@ -869,7 +893,7 @@ impl PortFaceProjection {
         {
             return Err(PortFaceError::EdgeNotInMesh { edge: *e });
         }
-        let profiles = self.solve_modes(a_inc.len())?;
+        let (profiles, candidates) = self.solve_modes_with_candidates(a_inc.len())?;
         let modes = profiles
             .iter()
             .zip(a_inc)
@@ -879,12 +903,61 @@ impl PortFaceProjection {
                 a_inc: a,
             })
             .collect();
-        Ok(WavePort {
-            faces: self.faces.clone(),
-            modes,
-            medium: PortMedium::VACUUM,
-        })
+        Ok((
+            WavePort {
+                faces: self.faces.clone(),
+                modes,
+                medium: PortMedium::VACUUM,
+            },
+            candidates,
+        ))
     }
+}
+
+/// How many port-face mode solves [`PortFaceProjection`] has run **on the
+/// calling thread** (issue #952): a diagnostic for tests and benchmarks
+/// that pin how often a caller solves a face. Read it before and after the
+/// work and subtract ([`face_solve_counts`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FaceSolveCounts {
+    /// Raw p=1 face mode solves ([`PortFaceProjection::solve_modes`],
+    /// [`PortFaceProjection::wave_port`] and
+    /// [`PortFaceProjection::wave_port_with_candidates`], and
+    /// [`PortFaceProjection::degenerate_candidates`] at p=1).
+    pub primary_p1: usize,
+    /// Cluster-confirming solves at the other element order (one per solve
+    /// whose modes hold a candidate degenerate pair).
+    pub confirming: usize,
+}
+
+impl std::ops::Sub for FaceSolveCounts {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            primary_p1: self.primary_p1 - rhs.primary_p1,
+            confirming: self.confirming - rhs.confirming,
+        }
+    }
+}
+
+thread_local! {
+    static FACE_SOLVES: std::cell::Cell<FaceSolveCounts> =
+        const { std::cell::Cell::new(FaceSolveCounts { primary_p1: 0, confirming: 0 }) };
+}
+
+/// Record one face solve on this thread's [`FaceSolveCounts`].
+fn count_face_solve(f: impl FnOnce(&mut FaceSolveCounts)) {
+    FACE_SOLVES.with(|c| {
+        let mut n = c.get();
+        f(&mut n);
+        c.set(n);
+    });
+}
+
+/// This thread's [`FaceSolveCounts`] so far (issue #952). Per thread, so
+/// concurrent tests do not see each other's solves.
+pub fn face_solve_counts() -> FaceSolveCounts {
+    FACE_SOLVES.with(std::cell::Cell::get)
 }
 
 /// Modes the cluster-confirming solve asks for past the block under test
