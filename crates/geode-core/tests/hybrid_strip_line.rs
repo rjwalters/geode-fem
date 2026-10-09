@@ -28,6 +28,9 @@
 //!     warned, tracked as a subspace; a split reported count is an error.
 //! 11. **Lossy microstrip**: the Phase 4 path sees the strip through the mask.
 //! 12. **Lossy degenerate pair**: complex-orthogonal subspace tracking.
+//! 13. **No net conductor current** (issue #953): the coax TE11-like
+//!     channels have no `Z_PI` (flagged, warned, no accuracy warning); the
+//!     TEM channel keeps its impedance; real and lossy faces.
 //!
 //! Run: `cargo test -p geode-core --release --test hybrid_strip_line -- --nocapture`.
 
@@ -1162,4 +1165,116 @@ fn lossy_degenerate_pair_is_tracked_as_a_subspace() {
         assert!(conv <= 2e-3);
     }
     assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+}
+
+// ---------------------------------------------------------------------------
+// 13. A channel with no net conductor current (issue #953)
+// ---------------------------------------------------------------------------
+
+/// The port warnings about channel `c` of port `port`.
+fn channel_warnings(out: &WavePortSpecSweep, port: usize, c: usize) -> Vec<&PortWarningKind> {
+    out.warnings
+        .iter()
+        .filter(|w| w.port == port)
+        .map(|w| &w.kind)
+        .filter(|k| match k {
+            PortWarningKind::NoNetConductorCurrent { channel, .. }
+            | PortWarningKind::ImpedanceAccuracyAboveThreshold { channel, .. }
+            | PortWarningKind::ImpedanceAccuracyUnavailable { channel, .. } => *channel == c,
+            _ => false,
+        })
+        .collect()
+}
+
+/// **C4v square coax** at `k₀ = 2` with the accuracy estimate **on**: the
+/// TEM channel 0 carries a conductor current and keeps a finite `Z_PI`
+/// (no `NoNetConductorCurrent`), while the TE11-like channels 1 and 2 have
+/// every conductor current at round-off: `no_net_current`, no impedance
+/// estimate, exactly one `NoNetConductorCurrent` warning each per port (at
+/// the first frequency), no impedance-accuracy warning, and a message that
+/// gives no refine guidance. Before #953 these channels got a `Z_PI` of
+/// about `1e31 Ω`.
+#[test]
+fn coax_te_channels_report_no_net_current_and_no_impedance_warning() {
+    use geode_core::analytic::microstrip::square_coax_face;
+    let face = square_coax_face(1.0, 6, 2, 1.0);
+    let sec = strip_line_section(&face, 4, 1.0);
+    let ports = sec.hybrid_ports(3, HybridWavePortOpts::default()).unwrap();
+    let out = sweep(&sec, &ports, &[2.0, 2.1]);
+    for (p, port) in out.hybrid.iter().enumerate() {
+        for pt in &port.points {
+            assert_eq!(pt.n_propagating, 3);
+            let tem = line(&pt.channels[0]);
+            println!(
+                "port {p} ω = {}: TEM Z_PI = {:.4} Ω, currents {:?}; TE currents {:?} / {:?}",
+                pt.omega,
+                tem.z_pi,
+                tem.currents,
+                line(&pt.channels[1]).currents,
+                line(&pt.channels[2]).currents
+            );
+            assert!(!tem.no_net_current);
+            assert!(tem.z_pi.is_finite() && tem.z_pi > 1.0 && tem.z_pi < 1e3);
+            assert!(pt.channels[0].impedance_accuracy.is_some());
+            for c in [1, 2] {
+                assert!(line(&pt.channels[c]).no_net_current, "channel {c}");
+                assert!(pt.channels[c].impedance_accuracy.is_none());
+            }
+        }
+        assert!(
+            channel_warnings(&out, p, 0)
+                .iter()
+                .all(|k| !matches!(k, PortWarningKind::NoNetConductorCurrent { .. }))
+        );
+        for c in [1, 2] {
+            let w = channel_warnings(&out, p, c);
+            assert_eq!(
+                w,
+                vec![&PortWarningKind::NoNetConductorCurrent {
+                    channel: c,
+                    omega: 2.0
+                }],
+                "port {p} channel {c}"
+            );
+        }
+    }
+    for w in &out.warnings {
+        println!("warning: {}", w.message);
+        if matches!(w.kind, PortWarningKind::NoNetConductorCurrent { .. }) {
+            assert!(w.message.contains("no net conductor current"));
+            assert!(!w.message.contains("refine"), "{}", w.message);
+        }
+    }
+}
+
+/// The **lossy** twin (Phase 4 path, `ε = 2.2(1 − 0.02j)` fill, `k₀ = 1.4`,
+/// accuracy off): the TEM channel keeps a finite complex `Z_PI`, the
+/// TE11-like channels are `no_net_current`, and the warning is raised with
+/// the accuracy estimate off too.
+#[test]
+fn lossy_coax_te_channels_report_no_net_current() {
+    use geode_core::analytic::microstrip::square_coax_face;
+    let face = square_coax_face(1.0, 6, 2, 2.2);
+    let sec = strip_line_section(&face, 4, 1.0);
+    let (eps_c, ports) = lossy_ports(&sec, 0.02, 3);
+    let out = lossy_sweep(&sec, &eps_c, &ports, &[1.4]);
+    for (p, port) in out.hybrid.iter().enumerate() {
+        let pt = &port.points[0];
+        assert_eq!(pt.n_propagating, 3);
+        let tem = pt.channels[0].line_lossy.as_ref().expect("a lossy line");
+        println!("lossy port {p}: TEM Z_PI = {:.4} Ω", tem.z_pi);
+        assert!(!tem.no_net_current);
+        assert!(tem.z_pi.is_finite() && tem.z_pi.re > 1.0 && tem.z_pi.re < 1e3);
+        for c in [1, 2] {
+            let l = pt.channels[c].line_lossy.as_ref().expect("a lossy line");
+            assert!(l.no_net_current, "channel {c}");
+            assert_eq!(
+                channel_warnings(&out, p, c),
+                vec![&PortWarningKind::NoNetConductorCurrent {
+                    channel: c,
+                    omega: 1.4
+                }]
+            );
+        }
+    }
 }
