@@ -71,17 +71,21 @@
 //!
 //! - the driven solve's AMS-preconditioned COCG (the V-cycle's coarse
 //!   solves), for the whole Krylov solve (#946);
-//! - the direct shift-invert Lanczos loop, real (#946) and complex-symmetric
-//!   (#956), for the whole loop;
+//! - the real direct shift-invert Lanczos loop, for the whole loop (#946);
 //! - the AMS coarse LU solve itself (`lu_solve` in `eigen/ams.rs`), per call
 //!   (#956), which covers the eigen matrix-free AMS, whose Lanczos loop holds
 //!   no scope;
 //! - the transient stepper's back-solve, per time step (#956).
 //!
-//! The three #956 holders take their scope through
+//! The two #956 holders take their scope through
 //! [`sequential_scope_for_solves`], only up to [`SEQUENTIAL_SOLVE_MAX_DIM`]
 //! unknowns: above it a rayon pool capped well below the core count made the
 //! whole solve measurably faster, and those solves keep the caller's setting.
+//!
+//! The complex-symmetric shift-invert Lanczos loop (`eigen/complex/lanczos.rs`)
+//! has the same structure and holds **no** scope. It was measured for #956,
+//! but with the scope its eigenvalue-only path returned a wrong eigenvalue on
+//! Linux x86-64 (issue #1023), so its solves stay on the caller's parallelism.
 //!
 //! Scopes are counted, so those held by concurrent solves on different
 //! threads can end in any order, a scope inside another changes nothing, and
@@ -565,6 +569,12 @@ impl Drop for SequentialSolveScope {
 /// 25 to 50 % slower. Above this dimension the solve is therefore left on the
 /// caller's parallelism, as before #956.
 ///
+/// The limit applies to the two sites that take a scope: the AMS coarse LU
+/// solve and the transient step. The complex Lanczos loop takes none at any
+/// size (issue #1023: with one, it returned a wrong eigenvalue on Linux
+/// x86-64); its figures here and below are measurements of a change that was
+/// not shipped, kept because they set this number.
+///
 /// Those figures were taken on the faier 0.24.4 git pin. The 8-thread per-call
 /// legs were run again around this limit on faier 0.25.2, the version this
 /// tree depends on, at a lower host load (`spot_check_faier_0_25_2` in the
@@ -573,7 +583,7 @@ impl Drop for SequentialSolveScope {
 /// so a complex solve just under the limit was about 5 % slower per call run
 /// sequentially, on 2.4 times less CPU. The transient step (1.34 at 9.3k, 1.15
 /// at 12k) and the real coarse LU (1.70 at 6.9k) were still clearly cheaper
-/// sequential. The limit is one number for all three sites and was kept. The
+/// sequential. The limit is one number for all the measured sites and was kept. The
 /// default pool and the end-to-end runs were not repeated on 0.25.2.
 pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 10_000;
 

@@ -24,19 +24,19 @@
 //! channels ([`OnAnotherThread`]), so the order of events is fixed and no
 //! block depends on timing.
 //!
-//! Issue #956 added three more holders, each only up to
-//! `SEQUENTIAL_SOLVE_MAX_DIM` unknowns: the complex-symmetric shift-invert
-//! Lanczos loop, the AMS coarse LU solve (per call) and the transient
-//! stepper's back-solve (per step). Each must leave the caller's setting in
-//! place when it returns.
+//! Issue #956 added two more holders, each only up to
+//! `SEQUENTIAL_SOLVE_MAX_DIM` unknowns: the AMS coarse LU solve (per call) and
+//! the transient stepper's back-solve (per step). Each must leave the caller's
+//! setting in place when it returns. The complex-symmetric shift-invert
+//! Lanczos loop holds no scope (issue #1023); its factorization guard must
+//! still restore the caller's setting, which is checked here too.
 //!
 //! That the scope is held *while* each loop runs is asserted by unit tests
 //! that can see inside the solvers:
 //! `ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not` in
 //! `driven/solve.rs`,
 //! `direct_backends_come_with_a_sequential_scope_and_matrix_free_does_not` in
-//! `eigen/lanczos.rs`, and (#956) `lanczos_solves_run_under_a_sequential_scope_up_to_the_size_limit`
-//! in `eigen/complex/lanczos.rs`,
+//! `eigen/lanczos.rs`, and (#956)
 //! `eigen_ams_coarse_lu_solves_run_under_a_sequential_scope_up_to_the_size_limit` in `eigen/ams.rs`
 //! and `step_back_solve_runs_under_a_sequential_scope_up_to_the_size_limit` in
 //! `driven/transient.rs`.
@@ -426,8 +426,9 @@ fn guards_scopes_and_solves_restore_the_callers_parallelism() {
     );
 
     // ---- the complex eigensolve and the transient stepper (issue #956) --------
-    // The complex Lanczos holds a scope for its loop, the stepper one per
-    // step. Neither may leave it behind.
+    // The complex Lanczos caps faer's parallelism for its factorization (it
+    // holds no solve scope, issue #1023), the stepper takes a scope per step.
+    // Neither may leave the caller's setting changed.
     let lift = |a: &faer::sparse::SparseColMat<usize, f64>, s: c64| {
         let r = a.as_ref();
         let t: Vec<_> = (0..r.ncols())

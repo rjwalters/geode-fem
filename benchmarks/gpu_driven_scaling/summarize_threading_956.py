@@ -111,7 +111,16 @@ p("#   complex   eigen/complex/lanczos.rs, the complex shift-invert Lanczos loop
 p("#   ams       eigen/ams.rs lu_solve, the AMS coarse LU solve (Direct coarse")
 p("#             solver, and the coarsest level of Amg)")
 p("#   transient driven/transient.rs TransientStepper::step, once per time step")
-p("# The fix runs each under a SequentialSolveScope (Par::Seq).")
+p("# The change that merged runs ams and transient under a SequentialSolveScope")
+p("# (Par::Seq), up to sequential_solve_max_dim unknowns.")
+p("#")
+p("# COMPLEX SITE: MEASURED, NOT SHIPPED. With the scope on the complex Lanczos")
+p("# loop, sparse_complex_matches_dense_fixture returned a wrong eigenvalue on")
+p("# linux x86-64 CI (issue #1023), so that loop was left as on main. The")
+p("# complex rows below are kept as the measurement of that site: build = fix")
+p("# and ungated there mean the commits in [meta], which scoped the complex")
+p("# loop, not the tree that merged. Everything in this file, including the")
+p("# agreement table, was measured on macOS aarch64 only ([hardware]).")
 p("#")
 p("# HOW TO READ: a developer machine shared with other work. Wall times move")
 p("# with the load, so the 1-minute load average is recorded for every leg and")
@@ -126,7 +135,8 @@ p("issue = 956")
 p(f'measured_date = "{meta["measured_date"]}"')
 p(f'main_commit = "{meta["main_commit"]}"')
 p(f'ungated_commit = "{meta["ungated_commit"]}"  # scope at every size; superseded')
-p(f'fix_commit = "{meta["fix_commit"]}"  # shipped: scope up to SEQUENTIAL_SOLVE_MAX_DIM')
+p(f'fix_commit = "{meta["fix_commit"]}"  # scope up to SEQUENTIAL_SOLVE_MAX_DIM at all three sites; ams and transient shipped so, complex did not')
+p('complex_site = "measured, not shipped: linux x86-64 regression, see issue #1023"')
 p(f'sequential_solve_max_dim = {meta["sequential_solve_max_dim"]}')
 p(f'faer = "{meta["faer"]}"')
 p(f'run_dir = "{RUN_DIR}"')
@@ -258,7 +268,7 @@ ekey = lambda t: (SITES.index(t[0]), t[1], tkey(t[3]), t[4], BUILDS.index(t[2]))
 tag_of = lambda site: "run" if site == "transient" else "solve"
 
 p("[threading_fix_956.end_to_end]")
-p('note = "The whole solve on main, ungated (the first fix commit: sequential at every size) and fix (shipped: sequential up to sequential_solve_max_dim unknowns), one process per leg. Above the limit fix takes no scope, so it runs as main does and was not rerun there; below it fix and ungated make the same change. complex: SparseComplexShiftInvertLanczos::default().smallest_eigenpairs (20 modes) on the lossy P1 pencil; timed region = factorization + Lanczos loop. ams: matrix-free shift-invert Lanczos with the three-space AMS inner preconditioner and GEODE_COARSE=direct, on the synthetic transmon cavity of tests/transmon_eigenmode.rs (4 modes, sigma = -0.5); timed region = the eigensolve. transient: TransientSolver::run (400 steps at mesh_n 16, 200 at 24) of generalized-alpha (rho_inf = 1) on the parallel-plate lumped-port fixture; timed region = run (factorization + steps), factor_* = one factorization alone. *_user_s and *_sys_s are getrusage deltas around the timed region."')
+p('note = "The whole solve on main, ungated (the first fix commit: sequential at every size) and fix (meta.fix_commit: sequential up to sequential_solve_max_dim unknowns; shipped for ams and transient, not for complex, see the header), one process per leg. Above the limit fix takes no scope, so it runs as main does and was not rerun there; below it fix and ungated make the same change. complex: SparseComplexShiftInvertLanczos::default().smallest_eigenpairs (20 modes) on the lossy P1 pencil; timed region = factorization + Lanczos loop. ams: matrix-free shift-invert Lanczos with the three-space AMS inner preconditioner and GEODE_COARSE=direct, on the synthetic transmon cavity of tests/transmon_eigenmode.rs (4 modes, sigma = -0.5); timed region = the eigensolve. transient: TransientSolver::run (400 steps at mesh_n 16, 200 at 24) of generalized-alpha (rho_inf = 1) on the parallel-plate lumped-port fixture; timed region = run (factorization + steps), factor_* = one factorization alone. *_user_s and *_sys_s are getrusage deltas around the timed region."')
 p()
 for key in sorted(e2e, key=ekey):
     site, n, build, t, rep = key
@@ -286,7 +296,7 @@ for key in sorted(e2e, key=ekey):
 
 # ---------------------------------------------------------------- agreement
 p("[threading_fix_956.agreement]")
-p(f'note = "max_i |x_i - main_i| / max_i |main_i| over the returned values (eigenvalues; transient: every V(t) sample of the excited port), x = ungated or fix, same size, thread count and repeat; the worst over repeats. main_thread_spread compares main at RAYON_NUM_THREADS=1 with main at 8 threads, the round-off floor already present on main. ams: the four values are the discrete gradient null cluster (|lambda| <= 3e-12, zero to round-off), so the denominator there is max(max_i |main_i|, |sigma| = 0.5); the inner iteration count is identical on every build. tolerance = {AGREEMENT_TOL:.0e} on every *_vs_main value. Load does not enter here, so excluded legs are compared too."')
+p(f'note = "max_i |x_i - main_i| / max_i |main_i| over the returned values (eigenvalues; transient: every V(t) sample of the excited port), x = ungated or fix, same size, thread count and repeat; the worst over repeats. main_thread_spread compares main at RAYON_NUM_THREADS=1 with main at 8 threads, the round-off floor already present on main. ams: the four values are the discrete gradient null cluster (|lambda| <= 3e-12, zero to round-off), so the denominator there is max(max_i |main_i|, |sigma| = 0.5); the inner iteration count is identical on every build. tolerance = {AGREEMENT_TOL:.0e} on every *_vs_main value. Load does not enter here, so excluded legs are compared too. Platform: macOS aarch64 only ([hardware]). On linux x86-64 the complex site did not agree: with the scope, sparse_complex_matches_dense_fixture returned a wrong first eigenvalue in CI (issue #1023), and the complex scope was not shipped. The complex_* rows are that unshipped change."')
 worst = 0.0
 for site, n in sorted({(k[0], k[1]) for k in e2e}, key=lambda s: (SITES.index(s[0]), s[1])):
     for t in sorted({k[3] for k in e2e if k[:2] == (site, n)}, key=tkey):
