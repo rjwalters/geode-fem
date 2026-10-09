@@ -1,0 +1,52 @@
+# TEMPORARY diagnostic workflow for issue #1023. Never merged.
+name: issue-1023-diag
+on:
+  pull_request:
+    branches: [main]
+concurrency:
+  group: issue-1023-diag-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config
+          lscpu | head -30
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-arpack-${{ hashFiles('**/Cargo.lock') }}
+      - name: build
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test issue_1023_diag --test sparse_complex_eigensolver --no-run
+      - name: diag (default threads)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test issue_1023_diag -- --ignored --nocapture
+      - name: diag (RAYON_NUM_THREADS=1)
+        if: always()
+        run: |
+          RAYON_NUM_THREADS=1 cargo test --features arpack -p geode-core --release \
+              --test issue_1023_diag -- --ignored --nocapture
+      - name: acceptance test, main behaviour, RAYON_NUM_THREADS unset / 1 / 2 / 3
+        if: always()
+        run: |
+          for t in unset 1 2 3; do
+            echo "=== RAYON_NUM_THREADS=$t ==="
+            if [ "$t" = unset ]; then unset RAYON_NUM_THREADS; else export RAYON_NUM_THREADS=$t; fi
+            cargo test --features arpack -p geode-core --release \
+                --test sparse_complex_eigensolver -- --ignored --exact sparse_complex_matches_dense_fixture --nocapture \
+                || echo "=== FAILED at RAYON_NUM_THREADS=$t ==="
+          done
