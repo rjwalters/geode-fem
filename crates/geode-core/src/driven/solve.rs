@@ -391,6 +391,21 @@ pub struct IterativeSettings {
     /// warning and rejects any other explicit choice with
     /// [`DrivenError::UnsupportedMatrixFree`].
     pub preconditioner: IterativePreconditioner,
+    /// Residual-replacement cap of the per-RHS COCG solve (issue #943),
+    /// passed to [`crate::solver::ksp::Cocg::max_replacements`] on the
+    /// [`SolverMode::Iterative`] path and to
+    /// [`crate::solver::ksp_burn::BurnCocg::max_replacements`] on the
+    /// [`SolverMode::IterativeMatrixFree`] path. Default
+    /// [`crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS`] (3).
+    ///
+    /// `0` restores the pre-#943 single check: the solve stops the first
+    /// time its recursive residual meets `tol`, and a drifted explicit
+    /// residual is reported as a [`DrivenError::Solve`] at that first
+    /// crossing. Measurement harnesses that record first-crossing drift
+    /// (issue #987) pin it to `0`; production solves should keep the
+    /// default, which repairs a drift of a hair above `tol` instead of
+    /// failing.
+    pub max_replacements: usize,
 }
 
 impl Default for IterativeSettings {
@@ -401,24 +416,35 @@ impl Default for IterativeSettings {
             tol: 1e-10,
             max_iters: 5000,
             preconditioner: IterativePreconditioner::Auto,
+            max_replacements: crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS,
         }
     }
 }
 
 impl IterativeSettings {
     /// Convenience constructor — `tol` and `max_iters` only, with the
-    /// default [`IterativePreconditioner::Auto`].
+    /// default [`IterativePreconditioner::Auto`] and the default
+    /// residual-replacement cap
+    /// ([`crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS`]).
     pub fn new(tol: f64, max_iters: usize) -> Self {
         Self {
             tol,
             max_iters,
-            preconditioner: IterativePreconditioner::Auto,
+            ..Self::default()
         }
     }
 
     /// Builder-style override of the preconditioner choice.
     pub fn with_preconditioner(mut self, preconditioner: IterativePreconditioner) -> Self {
         self.preconditioner = preconditioner;
+        self
+    }
+
+    /// Builder-style override of the residual-replacement cap
+    /// ([`Self::max_replacements`], issue #987). `0` restores the pre-#943
+    /// first-crossing check.
+    pub fn with_max_replacements(mut self, max_replacements: usize) -> Self {
+        self.max_replacements = max_replacements;
         self
     }
 }
@@ -2570,12 +2596,12 @@ impl DrivenOperator {
         let a_int = self.assemble_a_at(omega)?;
 
         // --- Factor once (same machinery as complex Lanczos) ----------------
-        // Fill-reducing ordering: faer 0.24's `sp_lu` hardcodes COLAMD with no
-        // hook for a user/METIS permutation (issue #527 Phase 1 — negative;
-        // see the full analysis at the eigensolve `sp_lu` in
-        // `crate::eigen::lanczos`). The driven direct path is affected
-        // identically; a stronger ordering needs a faer upstream change or the
-        // Phase-2 compressed-factorization follow-on.
+        // Fill-reducing ordering: `sp_lu` uses faer's default COLAMD. Since
+        // faier 0.25 (issue #972) a caller-supplied ordering can be injected
+        // via `LuColOrdering::Custom`, as the eigensolve's
+        // `InnerSolver::DirectCustomOrder` does (`crate::eigen::ordering`).
+        // The driven path has not been switched: that changes factor memory
+        // and timing and needs its own measurement first.
         let lu = a_int
             .as_ref()
             .sp_lu()
@@ -3570,7 +3596,10 @@ impl DrivenOperator {
                     }
                     other => other.build(a_int.as_ref())?,
                 };
-                let ksp = crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters);
+                let ksp = crate::solver::ksp::Cocg {
+                    max_replacements: settings.max_replacements,
+                    ..crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters)
+                };
                 SolverBackend::Iterative { precond, ksp }
             }
             SolverMode::IterativeMatrixFree(settings) => {
@@ -3613,7 +3642,8 @@ impl DrivenOperator {
                     settings.tol,
                     settings.max_iters,
                     device,
-                )?;
+                )?
+                .with_max_replacements(settings.max_replacements);
                 SolverBackend::MatrixFree {
                     solver: Box::new(solver),
                 }
@@ -4846,6 +4876,183 @@ mod tests {
             .expect("tol = 1e-10 converges");
         assert!(ok.converged);
         assert!(ok.residual_rel <= 1e-10);
+    }
+
+    /// The vacuum PEC cube of
+    /// [`iterative_recursive_residual_drift_is_a_hard_error`], reused by
+    /// the residual-replacement plumbing tests (issue #987).
+    fn drift_cube() -> DrivenOperator {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly")
+    }
+
+    /// `(iterations, replacements)` parsed from a drift
+    /// [`DrivenError::Solve`] message (see `require_converged`), or `None`
+    /// for any other outcome.
+    fn drift_counts<T>(r: &Result<T, DrivenError>) -> Option<(usize, usize)> {
+        let Err(DrivenError::Solve(msg)) = r else {
+            return None;
+        };
+        if !msg.contains("explicitly recomputed residual") {
+            return None;
+        }
+        let iters = msg
+            .split("tolerance after ")
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
+        let replacements = msg
+            .split("even after ")
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
+        Some((iters, replacements))
+    }
+
+    /// **Issue #987**: `IterativeSettings::max_replacements` defaults to
+    /// the library cap and is the only knob the builder changes.
+    #[test]
+    fn iterative_settings_max_replacements_defaults_to_the_cocg_cap() {
+        use crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS;
+        assert_eq!(DEFAULT_MAX_RESIDUAL_REPLACEMENTS, 3);
+        let d = IterativeSettings::default();
+        assert_eq!(d.max_replacements, DEFAULT_MAX_RESIDUAL_REPLACEMENTS);
+        let n = IterativeSettings::new(1e-8, 77);
+        assert_eq!(n.max_replacements, DEFAULT_MAX_RESIDUAL_REPLACEMENTS);
+        assert_eq!((n.tol, n.max_iters), (1e-8, 77));
+        assert_eq!(n.preconditioner, IterativePreconditioner::Auto);
+        let z = n.with_max_replacements(0);
+        assert_eq!(z.max_replacements, 0);
+        assert_eq!(
+            (z.tol, z.max_iters, z.preconditioner),
+            (1e-8, 77, n.preconditioner)
+        );
+    }
+
+    /// **Issue #987**: `max_replacements` reaches the assembled `Cocg` and
+    /// the matrix-free `BurnCocg`. At a `tol` below the rounding floor,
+    /// `0` reports the drift at the first crossing with zero replacements
+    /// — the pre-#943 outcome, at the same iteration as a raw single-check
+    /// `Cocg` — while the default replaces at least once before giving up.
+    #[test]
+    fn iterative_max_replacements_reaches_both_krylov_paths() {
+        use crate::solver::ksp::{Cocg, KspSolve};
+
+        let op = drift_cube();
+        let omega = 1.0;
+        let tol = 1e-30;
+        let max_iters = 5000;
+        let jacobi = IterativeSettings::new(tol, max_iters)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+
+        // Raw single-check reference on the assembled operator.
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        let b = op.assemble_b_at(omega, None);
+        let pc = crate::solver::ksp::JacobiPreconditioner::new(a.as_ref()).expect("jacobi");
+        let mut x = vec![c64::new(0.0, 0.0); b.len()];
+        let single = Cocg {
+            max_replacements: 0,
+            ..Cocg::new(tol, max_iters)
+        }
+        .solve(a.as_ref(), &b, &mut x, &pc)
+        .expect("single check returns Ok in the drift case");
+        assert!(!single.converged && single.replacements == 0, "{single:?}");
+
+        for (path, mode_of) in [
+            (
+                "assembled",
+                SolverMode::Iterative as fn(IterativeSettings) -> SolverMode,
+            ),
+            ("matrix-free", SolverMode::IterativeMatrixFree),
+        ] {
+            let run = |s: IterativeSettings| {
+                op.prepare_at::<B>(omega, mode_of(s), &device())
+                    .expect("iterative setup")
+                    .solve()
+            };
+            let first = run(jacobi.with_max_replacements(0));
+            let (iters0, reps0) = drift_counts(&first)
+                .unwrap_or_else(|| panic!("{path}: 0 must be a drift error, got {first:?}"));
+            assert_eq!(reps0, 0, "{path}");
+            if path == "assembled" {
+                assert_eq!(iters0, single.iters, "{path}: first crossing");
+            }
+            // The default cap: never the zero-replacement first crossing.
+            let default = run(jacobi);
+            assert!(default.is_err(), "{path}: tol 1e-30 is unreachable");
+            if let Some((iters, reps)) = drift_counts(&default) {
+                assert!(reps >= 1, "{path}: default must replace: {default:?}");
+                assert!(iters > iters0, "{path}: {iters} vs {iters0}");
+            }
+        }
+    }
+
+    /// **Issue #987**: on a drift case the default cap repairs, `max_replacements:
+    /// 0` reproduces the pre-#943 first-crossing failure through the driven
+    /// layer, and the default (3) still converges. Which `tol` drifts depends
+    /// on last-bit round-off, so the fixture scans a band near the rounding
+    /// floor (like the #943 `Cocg` test) and requires at least one repair.
+    #[test]
+    fn iterative_max_replacements_zero_restores_first_crossing_drift() {
+        let op = drift_cube();
+        let omega = 1.0;
+        let mut drifted = 0;
+        let mut repaired = 0;
+        for e in 0..=24 {
+            let tol = 10_f64.powf(-12.0 - 0.125 * e as f64);
+            let settings = IterativeSettings::new(tol, 5000)
+                .with_preconditioner(IterativePreconditioner::Jacobi);
+            let solve = |s: IterativeSettings| {
+                op.prepare_at::<B>(omega, SolverMode::Iterative(s), &device())
+                    .expect("iterative setup")
+                    .solve()
+            };
+            let single = solve(settings.with_max_replacements(0));
+            let Some((iters0, reps0)) = drift_counts(&single) else {
+                let (_, rep) = single.expect("a non-drift single check converges");
+                assert!(rep.converged, "{rep:?}");
+                continue;
+            };
+            drifted += 1;
+            assert_eq!(reps0, 0, "tol {tol:e}");
+            match solve(settings) {
+                Ok((_, rep)) => {
+                    assert!(rep.converged && rep.residual_rel <= tol, "{rep:?}");
+                    // Iterating past the first crossing is the replacement.
+                    assert!(rep.iters > iters0, "{rep:?} vs first crossing {iters0}");
+                    repaired += 1;
+                }
+                Err(e) => eprintln!("tol {tol:.3e}: default cap could not repair: {e}"),
+            }
+        }
+        eprintln!("first-crossing drift cases: {drifted}, repaired by the default cap: {repaired}");
+        assert!(drifted >= 1, "the scan found no first-crossing drift case");
+        assert!(repaired >= 1, "the default cap repaired no drift case");
     }
 
     thread_local! {
