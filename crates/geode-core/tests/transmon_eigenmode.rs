@@ -2125,6 +2125,104 @@ fn real_transmon_port_aware_retains_all_six_modes() {
     );
 }
 
+/// The six physical modes (GHz) the issue #950 port-subspace route returns for
+/// a 7-mode request at σ = 4.5 GHz on the committed 133k fixture, copied from
+/// `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml`, table
+/// `[[issue_950.cell]]` `name = "portaware_s4p5_n7"`, `modes_f_ghz` (entries 2
+/// to 7; the first is the port mode below). That file prints six decimals.
+const PORT_SUBSPACE_N7_PHYSICAL_GHZ: [f64; 6] = [
+    5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287,
+];
+
+/// The solenoidal port-artifact mode (#514, #1003) that the same request
+/// returns as its one non-physical mode (same TOML cell, `modes_f_ghz[0]`).
+const PORT_SUBSPACE_N7_PORT_MODE_GHZ: f64 = 3.452751;
+
+/// Relative tolerance against the committed values above (issue #1014).
+const PORT_SUBSPACE_N7_REL_TOL: f64 = 1e-4;
+
+/// REGRESSION PIN (issue #1014, release-gated): the issue #950
+/// **port-subspace** route (`solve_transmon_eigenmodes_port_subspace`, which
+/// `transmon_bench` runs for `GEODE_GAUGE=port_aware` since PR #1002) returns
+/// all six physical modes for a **7**-mode request at the Palace fixture's
+/// own target, σ = 4.5 GHz, with exactly **one** factorization of `K − σM`.
+///
+/// What it asserts:
+///
+/// 1. `diag.shifted_factorizations == 1` (no junction extract; the #514 route
+///    `port_aware_extract` reports 2).
+/// 2. Exactly 7 modes come back: the 3.45 GHz port mode (#1003, a genuine
+///    eigenpair of this port formulation, not a gradient artifact) and the six
+///    physical modes, each within 1e-4 relative of the committed
+///    `[issue_950]` values ([`PORT_SUBSPACE_N7_PHYSICAL_GHZ`]). So no
+///    near-zero gradient mode is returned either.
+///
+/// The committed values come from the `transmon_bench` example, which builds
+/// the pencil exactly as [`solve_real_fixture_port_subspace`] does.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_port_subspace_returns_six_physical_at_n7 --nocapture
+/// ```
+#[test]
+#[ignore = "133k-DOF projected shift-invert eigensolve — release benchmark only"]
+fn real_transmon_port_subspace_returns_six_physical_at_n7() {
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let t0 = std::time::Instant::now();
+    let (modes, diag) = solve_real_fixture_port_subspace(&f, 4.5e9, 7);
+    eprintln!(
+        "port-subspace solve: {:.1}s, {} Lanczos iters, {} factorizations, \
+         {} re-admitted gradient directions, {} null modes dropped",
+        t0.elapsed().as_secs_f64(),
+        diag.iterations,
+        diag.shifted_factorizations,
+        diag.readmitted_gradient_directions,
+        diag.null_modes_dropped,
+    );
+    for (i, m) in modes.iter().enumerate() {
+        let res = diag.mode_residual_rels.get(i).copied().unwrap_or(f64::NAN);
+        eprintln!(
+            "  mode[{i}]: f = {:.6} GHz (λ = {:.6e}), p = {:.4}, residual = {res:.2e}",
+            m.frequency_ghz(),
+            m.lambda,
+            m.participation
+        );
+    }
+
+    // ---- 1: one factorization. ----
+    assert_eq!(
+        diag.shifted_factorizations, 1,
+        "the port-subspace route must factor K − σM exactly once (no junction extract)"
+    );
+
+    // ---- 2: seven modes = the port mode + the six physical modes. ----
+    assert_eq!(
+        modes.len(),
+        7,
+        "7 modes requested, {} returned: {:?}",
+        modes.len(),
+        freqs(&modes)
+    );
+    let mut got: Vec<f64> = modes.iter().map(|m| m.frequency_ghz()).collect();
+    got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let rel = |a: f64, b: f64| (a - b).abs() / b;
+    assert!(
+        rel(got[0], PORT_SUBSPACE_N7_PORT_MODE_GHZ) <= PORT_SUBSPACE_N7_REL_TOL,
+        "lowest mode {:.6} GHz is not the committed {PORT_SUBSPACE_N7_PORT_MODE_GHZ} GHz \
+         port mode (#1003) within {PORT_SUBSPACE_N7_REL_TOL:e}",
+        got[0]
+    );
+    for (g, &want) in got[1..].iter().zip(PORT_SUBSPACE_N7_PHYSICAL_GHZ.iter()) {
+        let r = rel(*g, want);
+        eprintln!("  committed {want:.6} GHz ↔ geode {g:.6} GHz: rel {r:.2e}");
+        assert!(
+            r <= PORT_SUBSPACE_N7_REL_TOL,
+            "physical mode {g:.6} GHz differs from the committed {want:.6} GHz \
+             ([issue_950] portaware_s4p5_n7) by {r:.2e} > {PORT_SUBSPACE_N7_REL_TOL:e}"
+        );
+    }
+}
+
 /// CHARACTERIZATION (issue #514, release-gated): the 3.4528 GHz spurious mode
 /// is a **port/junction artifact, NOT a box/mesh mode**. Two discriminating
 /// measurements, both recorded in `benchmarks/transmon_eigen/results.toml`:
@@ -2374,6 +2472,53 @@ fn solve_real_fixture_port_aware(
         &pencil, sigma, jsigma, n_modes, M_PER_UNIT,
     )
     .expect("real transmon port-aware eigensolve")
+}
+
+/// As [`solve_real_fixture`] but through the issue #950 **port-subspace**
+/// entry point
+/// [`geode_core::eigen::projection::solve_transmon_eigenmodes_port_subspace`]:
+/// one projected Lanczos at `sigma_f_hz`, no junction extract. This is the
+/// route `transmon_bench` runs for `GEODE_GAUGE=port_aware`. Returns the modes
+/// and the projection diagnostics.
+fn solve_real_fixture_port_subspace(
+    f: &TransmonFixture,
+    sigma_f_hz: f64,
+    n_modes: usize,
+) -> (
+    Vec<ModeReport>,
+    geode_core::eigen::projection::ProjectionDiagnostics,
+) {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+    let sigma = lambda_shift_for_frequency_hz(sigma_f_hz, M_PER_UNIT);
+    geode_core::eigen::projection::solve_transmon_eigenmodes_port_subspace(
+        &pencil, sigma, n_modes, M_PER_UNIT,
+    )
+    .expect("real transmon port-subspace eigensolve")
 }
 
 /// As [`solve_real_fixture`] but with an explicit junction inductance (for

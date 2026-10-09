@@ -23,6 +23,18 @@
 #   portaware_s4p5_n7   port_aware  4.5     7      1      option 1, same target
 #   portaware_s4p5_n8   port_aware  4.5     8      3      option 1, same target
 #
+# GEODE_GAUGE=port_aware selects, since PR #1002 (#950), the single-factorization
+# port-subspace projection (solve_transmon_eigenmodes_port_subspace): one
+# factorization of K - sigma M, no junction extract. It returns the six physical
+# modes from a 7-mode request, plus one non-physical mode, the 3.45 GHz port mode
+# (#1003). Before PR #1002 the same value selected the issue #514 route (junction
+# extract + projected band, two factorizations), which is now
+# GEODE_GAUGE=port_aware_extract. The portaware_* rows of the #927 sweep in
+# results_like_for_like_local.toml ran that #514 route; they stay attributable
+# through the geode commit the sweep recorded (7563b1b6). A re-run of this script times
+# the port-subspace route instead. like_for_like_local_950.sh runs both routes
+# side by side.
+#
 # Every run is SINGLE-THREADED by default (GEODE_NUM_THREADS=1 caps faer's LU
 # pool, RAYON_NUM_THREADS=1 caps the rest). On a shared, oversubscribed host
 # multi-threaded runs contend for cores; one thread makes a run's CPU seconds

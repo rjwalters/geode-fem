@@ -1037,7 +1037,9 @@ pub struct PortModeObservables {
     /// `ε_eff = β²/k₀²`.
     pub eps_eff: c64,
     /// The line impedances (Ω; `None` for a face without a floating
-    /// conductor).
+    /// conductor, and for a channel with **no net conductor current** — a
+    /// TE / TM waveguide mode such as a coax TE₁₁, which then carries a
+    /// [`ModeSensitivityWarning::NoNetConductorCurrent`]; issue #991).
     pub line: Option<LineImpedances>,
     /// `∂β/∂θ`.
     pub d_beta: Vec<c64>,
