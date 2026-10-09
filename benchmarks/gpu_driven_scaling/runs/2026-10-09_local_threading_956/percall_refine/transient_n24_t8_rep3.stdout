@@ -1,0 +1,20 @@
+
+running 1 test
+test diag956_threading ... diag956 site=transient n=24
+diag956 loadavg_1min_process_start=19.36
+diag956 rayon_num_threads=8
+diag956 interior_edges=96744
+diag956 loadavg_1min_start=19.43
+diag956 loadavg_1min_end=20.08
+diag956 pool_calls=200
+diag956 pool_median_wall_us=87914.2
+diag956 pool_cpu_per_call_us=326261.1
+diag956 seq_calls=200
+diag956 seq_median_wall_us=114807.0
+diag956 seq_cpu_per_call_us=115026.0
+diag956 seq_vs_pool_max_rel_diff=2.233e-10
+diag956 loadavg_1min_process_end=20.08
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 58.73s
+

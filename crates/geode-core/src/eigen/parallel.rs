@@ -65,14 +65,32 @@
 //! faer's sparse `Lu::solve_in_place` reads the same global and hands it to
 //! the triangular solves on the supernodes. A loop that calls it once or
 //! twice per step must not run those solves on the rayon pool: each one is
-//! small, and sharing it out costs far more than it saves (issue #946; the
-//! measurements are on [`SequentialSolveScope`]'s two users). The two loops
-//! that do this are the driven solve's AMS-preconditioned COCG (the V-cycle's
-//! coarse solves) and the direct shift-invert Lanczos loop. Each holds a
-//! [`SequentialSolveScope`], which sets `Par::Seq` for the whole loop. Scopes
-//! are counted, so those held by concurrent solves on different threads can
-//! end in any order, and a `ParallelismGuard` built on another thread
-//! meanwhile cannot put the loop back on the rayon pool.
+//! small, and sharing it out costs far more than it saves (issues #946 and
+//! #956). The places that do this hold a [`SequentialSolveScope`], which sets
+//! `Par::Seq` while it lives:
+//!
+//! - the driven solve's AMS-preconditioned COCG (the V-cycle's coarse
+//!   solves), for the whole Krylov solve (#946);
+//! - the real direct shift-invert Lanczos loop, for the whole loop (#946);
+//! - the AMS coarse LU solve itself (`lu_solve` in `eigen/ams.rs`), per call
+//!   (#956), which covers the eigen matrix-free AMS, whose Lanczos loop holds
+//!   no scope;
+//! - the transient stepper's back-solve, per time step (#956).
+//!
+//! The two #956 holders take their scope through
+//! [`sequential_scope_for_solves`], only up to [`SEQUENTIAL_SOLVE_MAX_DIM`]
+//! unknowns: above it a rayon pool capped well below the core count made the
+//! whole solve measurably faster, and those solves keep the caller's setting.
+//!
+//! The complex-symmetric shift-invert Lanczos loop (`eigen/complex/lanczos.rs`)
+//! has the same structure and holds **no** scope. It was measured for #956,
+//! but with the scope its eigenvalue-only path returned a wrong eigenvalue on
+//! Linux x86-64 (issue #1023), so its solves stay on the caller's parallelism.
+//!
+//! Scopes are counted, so those held by concurrent solves on different
+//! threads can end in any order, a scope inside another changes nothing, and
+//! a `ParallelismGuard` built on another thread meanwhile cannot put the loop
+//! back on the rayon pool.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -519,16 +537,124 @@ impl SequentialSolveScope {
         let mut state = global_parallelism();
         let target = state.enter_scope(get_global_parallelism());
         set_global_parallelism(target);
+        #[cfg(test)]
+        solve_probe::SCOPES_ON_THIS_THREAD.with(|c| c.set(c.get() + 1));
         Self { _private: () }
     }
 }
 
 impl Drop for SequentialSolveScope {
     fn drop(&mut self) {
+        #[cfg(test)]
+        solve_probe::SCOPES_ON_THIS_THREAD.with(|c| c.set(c.get().saturating_sub(1)));
         let mut state = global_parallelism();
         if let Some(target) = state.leave_scope() {
             set_global_parallelism(target);
         }
+    }
+}
+
+/// Largest system dimension whose repeated single-right-hand-side sparse
+/// triangular solves run under a [`SequentialSolveScope`] taken by
+/// [`sequential_scope_for_solves`] (issue #956).
+///
+/// Measured on a 28-CPU machine (`results_threading_956.toml` under
+/// `benchmarks/gpu_driven_scaling`). With the rayon pool at every core (the
+/// default) a sequential solve was the faster one at every size measured, up
+/// to 97k unknowns, and used several times less CPU. With the pool capped at 8
+/// threads it was faster only on small systems: per call, the complex LU of
+/// the eigen loop broke even at about 9k unknowns and the real LU of the
+/// transient step at about 20k, and on a 36k-unknown complex eigensolve and a
+/// 97k-unknown transient run the sequential loop made the whole solve 20 % and
+/// 25 to 50 % slower. Above this dimension the solve is therefore left on the
+/// caller's parallelism, as before #956.
+///
+/// The limit applies to the two sites that take a scope: the AMS coarse LU
+/// solve and the transient step. The complex Lanczos loop takes none at any
+/// size (issue #1023: with one, it returned a wrong eigenvalue on Linux
+/// x86-64); its figures here and below are measurements of a change that was
+/// not shipped, kept because they set this number.
+///
+/// Those figures were taken on the faier 0.24.4 git pin. The 8-thread per-call
+/// legs were run again around this limit on faier 0.25.2, the version this
+/// tree depends on, at a lower host load (`spot_check_faier_0_25_2` in the
+/// same file). The complex LU broke even between 6.9k and 9.3k unknowns
+/// (pool / sequential wall time 1.19 and 0.95, against 1.28 and 0.99 before),
+/// so a complex solve just under the limit was about 5 % slower per call run
+/// sequentially, on 2.4 times less CPU. The transient step (1.34 at 9.3k, 1.15
+/// at 12k) and the real coarse LU (1.70 at 6.9k) were still clearly cheaper
+/// sequential. The limit is one number for all the measured sites and was kept. The
+/// default pool and the end-to-end runs were not repeated on 0.25.2.
+pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 10_000;
+
+/// A [`SequentialSolveScope`] for a run of single-right-hand-side solves
+/// through a fixed sparse LU of dimension `dim`, or `None` when `dim` exceeds
+/// [`SEQUENTIAL_SOLVE_MAX_DIM`] (issue #956). Bind the result for as long as
+/// the solves run.
+pub fn sequential_scope_for_solves(dim: usize) -> Option<SequentialSolveScope> {
+    (dim <= SEQUENTIAL_SOLVE_MAX_DIM).then(SequentialSolveScope::enter)
+}
+
+/// Test-only record of whether each repeated sparse triangular solve ran while
+/// the calling thread held a [`SequentialSolveScope`] (issue #956).
+///
+/// A solve site calls [`solve_probe::record`] next to its `solve_in_place`. A
+/// test runs a solver on its own thread and then reads [`solve_probe::take`].
+/// "Held a scope" is the property that matters: while any scope is live the
+/// global is `Par::Seq` (asserted in `tests/faer_global_parallelism.rs`), and
+/// a scope held by the solving thread is live for the whole solve. The value of
+/// the global itself cannot be asserted in the unit-test binary, where other
+/// tests change it concurrently (see [`PARALLELISM_TEST_LOCK`]).
+#[cfg(test)]
+pub(crate) mod solve_probe {
+    use std::cell::{Cell, RefCell};
+
+    thread_local! {
+        /// Scopes entered and not yet dropped on this thread.
+        pub(super) static SCOPES_ON_THIS_THREAD: Cell<usize> = const { Cell::new(0) };
+        /// Per site: (solves under a scope held here, solves without one).
+        static COUNTS: RefCell<Vec<(&'static str, usize, usize)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
+    /// Count one solve at `site` on the calling thread.
+    pub(crate) fn record(site: &'static str) {
+        let scoped = SCOPES_ON_THIS_THREAD.with(Cell::get) > 0;
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            let i = match c.iter().position(|e| e.0 == site) {
+                Some(i) => i,
+                None => {
+                    c.push((site, 0, 0));
+                    c.len() - 1
+                }
+            };
+            if scoped {
+                c[i].1 += 1;
+            } else {
+                c[i].2 += 1;
+            }
+        });
+    }
+
+    /// Scopes entered and not yet dropped on this thread.
+    pub(crate) fn scopes_held() -> usize {
+        SCOPES_ON_THIS_THREAD.with(Cell::get)
+    }
+
+    /// `(scoped, unscoped)` solve counts at `site` on this thread since the
+    /// last call, which resets them.
+    pub(crate) fn take(site: &'static str) -> (usize, usize) {
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            match c.iter().position(|e| e.0 == site) {
+                Some(i) => {
+                    let (_, s, u) = c.swap_remove(i);
+                    (s, u)
+                }
+                None => (0, 0),
+            }
+        })
     }
 }
 

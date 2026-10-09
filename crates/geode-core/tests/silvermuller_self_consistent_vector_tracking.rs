@@ -205,10 +205,17 @@ fn vector_tracked_converges_on_lowest_mode() {
 ///   `k* = 0.557836 + 0.427141j`. Measured: `Converged(28)` at
 ///   `k = 0.562710 + 0.430975j`, `Q = 0.6528` (0.88 % from `k*`), the same
 ///   picks as the sparse run of
-///   `sparse_vector_tracked_converges_on_sphere_resonance` to `1e-12`. The
-///   dense eigenvectors come with arbitrary phases, so their overlap scores
-///   are inflated (1.05 to 5.98 for the pick; issue #988), and the test
-///   asserts only that no step falls below 0.85.
+///   `sparse_vector_tracked_converges_on_sphere_resonance` to `1e-12`. That
+///   measurement predates issue #988: the overlap score then divided by
+///   `|Re vᵀ M v|`, and the dense eigenvectors' arbitrary phases inflated
+///   it (1.05 to 5.98 for the pick). The score now uses moduli and does
+///   not depend on the phase, so the dense picks, being the sparse run's
+///   eigenvectors up to a complex scale, should score what they score there
+///   (0.879 at iteration 5, 0.999 or more elsewhere). That is not yet
+///   re-measured on this tier. The test asserts that no step falls below
+///   0.85. It does not assert the sparse test's margin over the best
+///   unpicked candidate: the dense list holds 1104 candidates, not about
+///   14, and their scores have not been measured.
 /// - **The frozen index** changes eigenvector (a step with overlap below
 ///   0.5) and ends where the seed `k₀ = 1` run ends, on the overdamped
 ///   Silver-Müller mode (`MaxIterations(20)`, `k = 1.2262 + 1.1481j`), not
