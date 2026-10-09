@@ -363,6 +363,13 @@ pub enum SolverMode {
     /// [`DrivenMaterials::MatchedUpml`] and wave-port sweeps are rejected
     /// with a clean [`DrivenError`]; lumped ports and Leontovich surfaces
     /// are handled. The default remains [`SolverMode::Direct`].
+    ///
+    /// Preconditioners: the on-device Jacobi (what
+    /// [`IterativePreconditioner::Auto`] resolves to here, with a warning)
+    /// or, on the CPU ndarray f64 backend only, an explicit
+    /// [`IterativePreconditioner::Ams`]: the assembled path's AMS, applied on
+    /// the host between the matrix-free operator applies (issue #966; see
+    /// [`crate::driven::matrix_free`]).
     IterativeMatrixFree(IterativeSettings),
 }
 
@@ -387,9 +394,10 @@ pub struct IterativeSettings {
     /// [`DrivenOperator::resolve_preconditioner`]). Set
     /// [`IterativePreconditioner::Jacobi`] explicitly for the pre-#930
     /// behavior. The matrix-free path ([`SolverMode::IterativeMatrixFree`])
-    /// only has an on-device Jacobi: it resolves `Auto` to Jacobi with a
-    /// warning and rejects any other explicit choice with
-    /// [`DrivenError::UnsupportedMatrixFree`].
+    /// resolves `Auto` to its on-device Jacobi with a warning, accepts an
+    /// explicit [`IterativePreconditioner::Ams`] on the CPU ndarray f64
+    /// backend (a host-side AMS, issue #966), and rejects every other
+    /// explicit choice with [`DrivenError::UnsupportedMatrixFree`].
     pub preconditioner: IterativePreconditioner,
     /// Residual-replacement cap of the per-RHS COCG solve (issue #943),
     /// passed to [`crate::solver::ksp::Cocg::max_replacements`] on the
@@ -478,8 +486,9 @@ pub enum IterativePreconditioner {
     /// - a higher-order operator (AMS returns
     ///   [`DrivenError::UnsupportedAtOrder`] there), matched-UPML materials
     ///   (AMS stalls far above Jacobi on the radiating UPML patch, issue
-    ///   #744; see [`PreconditionerFallbackReason::MatchedUpml`]), or [`SolverMode::IterativeMatrixFree`] (on-device Jacobi
-    ///   only): [`Self::Jacobi`], with a [`PreconditionerFallback`] that is
+    ///   #744; see [`PreconditionerFallbackReason::MatchedUpml`]), or
+    ///   [`SolverMode::IterativeMatrixFree`] (where AMS is host-side and
+    ///   opt-in, issue #966): [`Self::Jacobi`], with a [`PreconditionerFallback`] that is
     ///   printed once per process on stderr as `warning: …` and returned by
     ///   [`DrivenLinearSolver::preconditioner_fallback`].
     ///
@@ -600,8 +609,10 @@ pub enum PreconditionerFallbackReason {
     /// Whitney edge layout, and AMS returns
     /// [`DrivenError::UnsupportedAtOrder`] at this order.
     Order(ElementOrder),
-    /// [`SolverMode::IterativeMatrixFree`]: the matrix-free path has only
-    /// an on-device Jacobi preconditioner (AMS there is issue #966).
+    /// [`SolverMode::IterativeMatrixFree`]: the matrix-free path's default
+    /// is its on-device Jacobi. Its AMS (issue #966) runs on the host, CPU
+    /// ndarray f64 only, so it is opt-in: request
+    /// [`IterativePreconditioner::Ams`] explicitly.
     MatrixFree,
     /// Matched-UPML materials: on the radiating UPML patch (issue #744)
     /// AMS stalls far above where Jacobi gets. With only the outer
@@ -634,8 +645,9 @@ impl std::fmt::Display for PreconditionerFallback {
                 order.degree()
             ),
             PreconditionerFallbackReason::MatrixFree => {
-                "the matrix-free iterative path has no AMS preconditioner (on-device Jacobi \
-                 only)"
+                "the matrix-free iterative path defaults to its on-device Jacobi (its AMS \
+                 preconditioner runs on the host, CPU ndarray f64 only, and must be requested \
+                 explicitly)"
                     .to_string()
             }
             PreconditionerFallbackReason::MatchedUpml => {
@@ -3517,7 +3529,10 @@ impl DrivenOperator {
     ///   volume pencil plus the on-device COO surface correction at ω
     ///   ([`crate::driven::matrix_free`]); the handle's `back_solve` runs
     ///   a [`crate::solver::ksp_burn::BurnCocg`] iteration per RHS with the
-    ///   Krylov vectors on-device.
+    ///   Krylov vectors on-device. With an explicit
+    ///   [`IterativePreconditioner::Ams`] the same AMS the assembled path
+    ///   builds is built here too and applied on the host between operator
+    ///   applies (issue #966, CPU ndarray f64 only).
     ///
     /// The cached sparse `A(ω)` is held by the handle in all three modes,
     /// so [`DrivenLinearSolver::spmv_a`] is identical across modes. On the
@@ -3539,9 +3554,10 @@ impl DrivenOperator {
     /// failures, the LU-factorization failure on the direct path,
     /// [`DrivenError::Solve`] wrapping a preconditioner setup error (a
     /// zero / non-finite diagonal, a vanishing ILU(0) pivot) on the
-    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] for an
-    /// explicit non-Jacobi preconditioner or an unsupported material on the
-    /// matrix-free path.
+    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] on the
+    /// matrix-free path for an explicit preconditioner other than Jacobi or
+    /// AMS, for AMS on a backend other than CPU ndarray f64, or for an
+    /// unsupported material.
     pub fn prepare_at<B: Backend>(
         &self,
         omega: f64,
@@ -3603,16 +3619,18 @@ impl DrivenOperator {
                 SolverBackend::Iterative { precond, ksp }
             }
             SolverMode::IterativeMatrixFree(settings) => {
+                // `Auto` is resolved (to Jacobi) by `resolve_preconditioner`.
+                let resolved = preconditioner.expect("iterative mode resolves a preconditioner");
                 if !matches!(
-                    settings.preconditioner,
-                    IterativePreconditioner::Jacobi | IterativePreconditioner::Auto
+                    resolved,
+                    IterativePreconditioner::Jacobi | IterativePreconditioner::Ams { .. }
                 ) {
                     return Err(DrivenError::UnsupportedMatrixFree {
                         reason: format!(
-                            "the matrix-free path (v1) has only an on-device Jacobi \
-                             preconditioner; `{}` needs the assembled-CSR \
-                             SolverMode::Iterative path",
-                            settings.preconditioner.name()
+                            "the matrix-free path has only the on-device Jacobi and the \
+                             host-side AMS (CPU ndarray f64) preconditioners; `{}` needs \
+                             the assembled-CSR SolverMode::Iterative path",
+                            resolved.name()
                         ),
                     });
                 }
@@ -3635,7 +3653,27 @@ impl DrivenOperator {
                         .to_string(),
                     }
                 })?;
-                let solver = crate::driven::matrix_free::MatrixFreeSolver::<B>::new(
+                // Host-side AMS (issue #966): CPU ndarray f64 only, checked
+                // before any setup work.
+                let mf_ams = match resolved {
+                    IterativePreconditioner::Ams { coarse } => {
+                        if !crate::driven::matrix_free::host_ams_supported::<B>(device) {
+                            return Err(DrivenError::UnsupportedMatrixFree {
+                                reason: format!(
+                                    "the matrix-free AMS preconditioner runs on the host and \
+                                     is supported on the CPU ndarray backend with f64 only \
+                                     (this backend: {}, {}-byte float); use Jacobi here, or \
+                                     SolverMode::Iterative for an assembled AMS solve",
+                                    B::name(device),
+                                    std::mem::size_of::<B::FloatElem>()
+                                ),
+                            });
+                        }
+                        Some(ams::build(self, omega, coarse)?)
+                    }
+                    _ => None,
+                };
+                let mut solver = crate::driven::matrix_free::MatrixFreeSolver::<B>::new(
                     self,
                     ing,
                     omega,
@@ -3644,6 +3682,9 @@ impl DrivenOperator {
                     device,
                 )?
                 .with_max_replacements(settings.max_replacements);
+                if let Some(a) = mf_ams {
+                    solver = solver.with_ams(a);
+                }
                 SolverBackend::MatrixFree {
                     solver: Box::new(solver),
                 }
