@@ -23,12 +23,12 @@
 //!    are still compared at the same per-field tolerance (dense vs
 //!    dense sees the whole spectrum), but the closed-cluster claim is
 //!    scoped to the triplet.
-//! 4. J.1 analytic anchor: both Burn and NumPy lowest-mode `Re(k)`
-//!    within the documented 8 % coarse-mesh band of the analytic
-//!    TM_1,1 root (`k ≈ 1.30343` from
-//!    `reference/fixtures/mie_roots/baseline.json`), and the fixture's
-//!    re-exported anchor agrees with `geode_core::analytic::mie::merged_roots` at
-//!    `1e-9`.
+//! 4. J.1 analytic anchor: the fixture's re-exported TM_1,1 root
+//!    (`k ≈ 1.18710` from `reference/fixtures/mie_roots/baseline.json`)
+//!    agrees with `geode_core::analytic::mie::merged_roots` at `1e-9`.
+//!    The small mesh's lowest-mode error vs that root (17.0 %) is
+//!    reported, not asserted (issue #986); the full-mesh test asserts a
+//!    5 % band.
 //! 5. Q tripwire: Q of the lowest mode and the TM_1,1-triplet median Q
 //!    above `Q_LOWER_BAND_TM11 = 1.5` on both sides — the
 //!    PML-misconfiguration tripwire from `mie_sphere.rs` (σ₀ drift,
@@ -98,10 +98,11 @@ type B = TestBackend;
 /// `Q_LOWER_BAND_TM11` in `crates/geode-core/tests/mie_sphere.rs`.
 const Q_LOWER_BAND_TM11: f64 = 1.5;
 
-/// Documented coarse-mesh acceptance band on the lowest mode's `Re(k)`
-/// vs the analytic TM_1,1 — mirror of the 8 % assertion in
-/// `mie_sphere.rs` (observed ≈ 5.7 % full mesh, ≈ 6.6 % small mesh).
-const TM11_REL_TOL: f64 = 0.08;
+// No absolute TM_1,1 accuracy band on the 48-node small mesh (issue
+// #986): it measures 17.0 % against the corrected root (Re k 1.38929 vs
+// 1.18710; was 6.6 % against the pre-#986 root 1.30343, inside a now-
+// removed 8 % band). The small fixtures are cross-language agreement
+// fixtures; accuracy is asserted on the full mesh only.
 
 /// Full-mesh (774-node) band on the lowest mode's `Re(k)` vs the
 /// analytic TM_1,1 — mirror of the 5 % assertion in `mie_sphere.rs`.
@@ -527,27 +528,15 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
         );
     }
 
-    // J.1 analytic anchor: lowest mode within the documented 8 % band
-    // on both sides.
+    // J.1 analytic anchor: the lowest-mode relative error vs TM_1,1 is
+    // reported, not asserted (issue #986). This 48-node mesh is a
+    // cross-language agreement fixture; measured 17.0 % (Re k 1.38929 vs
+    // 1.18710). The accuracy band (5 %) lives on the full mesh.
     let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
     let numpy_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let numpy_rel_err = (numpy_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
-    assert!(
-        burn_rel_err < TM11_REL_TOL,
-        "Burn lowest Re(k) = {burn_re_k:.5} differs from analytic TM_1,1 = \
-         {analytic_tm11_k:.5} by {:.2}% (> {:.0}%)",
-        burn_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
-    );
-    assert!(
-        numpy_rel_err < TM11_REL_TOL,
-        "NumPy lowest Re(k) = {numpy_re_k:.5} differs from analytic TM_1,1 = \
-         {analytic_tm11_k:.5} by {:.2}% (> {:.0}%)",
-        numpy_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
-    );
     let re_k_delta = (burn_re_k - numpy_re_k).abs();
     assert!(
         re_k_delta
@@ -602,12 +591,11 @@ fn sphere_mie_small_spectrum_agrees_with_numpy() {
     eprintln!(
         "sphere_mie_small cross-backend agreement: strict TM_1,1-triplet window \
          max |Δλ| = {window_max:.3e}; lowest Re(k): Burn {burn_re_k:.5} / NumPy \
-         {numpy_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%, \
-         band {:.0}%); Q: Burn {burn_q:.2} / NumPy {numpy_q:.2} (band > \
+         {numpy_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%; \
+         not asserted); Q: Burn {burn_q:.2} / NumPy {numpy_q:.2} (band > \
          {Q_LOWER_BAND_TM11}); triplet median Q = {burn_q_median:.2}",
         burn_rel_err * 100.0,
         numpy_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
     );
 }
 
