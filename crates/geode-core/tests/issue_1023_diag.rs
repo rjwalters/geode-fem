@@ -119,6 +119,7 @@ struct Run {
     beta_all: Vec<c64>,
     /// M·v_j at selected steps (right-hand sides of the solves).
     rhs_samples: Vec<(usize, Vec<c64>)>,
+    basis: Vec<Vec<c64>>,
 }
 
 /// Copy of the eigenvalue-only loop in `eigen/complex/lanczos.rs`.
@@ -207,6 +208,7 @@ fn lanczos(
         beta,
         beta_all,
         rhs_samples: samples,
+        basis,
     }
 }
 
@@ -490,4 +492,244 @@ fn issue_1023_diag() {
             phys[1]
         );
     }
+}
+
+/// Ritz values of the full run with (estimate, true relative residual
+/// `‖Kx − λMx‖₂ / (max(|λ|, |σ|) ‖Mx‖₂)` of the Ritz vector `x = V s`).
+fn ritz_with_true_residual(
+    run: &Run,
+    k: SparseColMatRef<'_, usize, c64>,
+    m: SparseColMatRef<'_, usize, c64>,
+) -> Vec<(c64, f64, f64)> {
+    let kk = run.alpha.len();
+    let n = k.nrows();
+    let t = Mat::<c64>::from_fn(kk, kk, |i, j| {
+        if i == j {
+            run.alpha[i]
+        } else if i + 1 == j {
+            run.beta[i]
+        } else if j + 1 == i {
+            run.beta[j]
+        } else {
+            c64::new(0.0, 0.0)
+        }
+    });
+    let evd = faer::linalg::solvers::Eigen::new(t.as_ref()).unwrap();
+    let s = evd.S().column_vector();
+    let u = evd.U();
+    let bk = run.beta_all[kk - 1].norm();
+    let (mut kx, mut mx) = (vec![c64::new(0.0, 0.0); n], vec![c64::new(0.0, 0.0); n]);
+    (0..kk)
+        .map(|c| {
+            let mu = s[c];
+            let nrm = (0..kk).map(|r| u[(r, c)].norm_sqr()).sum::<f64>().sqrt();
+            let est = bk * u[(kk - 1, c)].norm() / nrm / mu.norm();
+            let lam = c64::new(SIGMA, 0.0) + c64::new(1.0, 0.0) / mu;
+            let mut x = vec![c64::new(0.0, 0.0); n];
+            for r in 0..kk {
+                let src = u[(r, c)];
+                for i in 0..n {
+                    x[i] += src * run.basis[r][i];
+                }
+            }
+            spmv(k, &x, &mut kx);
+            spmv(m, &x, &mut mx);
+            let d: Vec<c64> = kx.iter().zip(&mx).map(|(a, b)| *a - lam * *b).collect();
+            let rho = norm2(&d) / (lam.norm().max(SIGMA) * norm2(&mx));
+            (lam, est, rho)
+        })
+        .collect()
+}
+
+fn scaled(a: &SparseColMat<usize, c64>, c: f64) -> SparseColMat<usize, c64> {
+    let n = a.nrows();
+    let r = a.as_ref();
+    let (cp, ri, val) = (r.col_ptr(), r.row_idx(), r.val());
+    let mut t = Vec::new();
+    for j in 0..n {
+        for p in cp[j]..cp[j + 1] {
+            t.push(Triplet::new(ri[p], j, val[p] * c));
+        }
+    }
+    SparseColMat::try_new_from_triplets(n, n, &t).unwrap()
+}
+
+fn factor(k: &SparseColMat<usize, c64>, m: &SparseColMat<usize, c64>) -> Lu<usize, c64> {
+    let n = k.nrows();
+    let mut trips = Vec::new();
+    for (a, s) in [(k.as_ref(), 1.0), (m.as_ref(), -SIGMA)] {
+        let (cp, ri, val) = (a.col_ptr(), a.row_idx(), a.val());
+        for j in 0..n {
+            for p in cp[j]..cp[j + 1] {
+                trips.push(Triplet::new(ri[p], j, val[p] * s));
+            }
+        }
+    }
+    let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+    let _g = ParallelismGuard::cap(resolve_num_threads());
+    a.as_ref().sp_lu().unwrap()
+}
+
+/// Round 2: (A) residual estimate vs true residual of every Ritz value;
+/// (B) the pencil scaled by c (same eigenvalues, different round-off), old
+/// selection vs the estimate screen.
+#[test]
+#[ignore = "temporary diagnostic for issue #1023"]
+fn issue_1023_diag_round2() {
+    eprintln!(
+        "arch={} RAYON_NUM_THREADS={:?} faer par={:?}",
+        std::env::consts::ARCH,
+        std::env::var("RAYON_NUM_THREADS").ok(),
+        faer::get_global_parallelism()
+    );
+    let (k, m, spurious) = build();
+    let n = k.nrows();
+    let n_modes = spurious + N_EXTRA;
+    let max_k = 256usize.min(n).max(n_modes + 2).min(n);
+    let good = c64::new(1.1823201482173347, 0.20713135828976237);
+    let lu = factor(&k, &m);
+
+    eprintln!("== A. estimate vs true residual (all 378 Ritz values of a run) ==");
+    let mut all: Vec<(c64, f64, f64)> = Vec::new();
+    let mut cases: Vec<(String, Option<Par>, f64, u64)> = vec![
+        ("pool".into(), None, 0.0, 0),
+        ("seq".into(), Some(Par::Seq), 0.0, 0),
+    ];
+    for seed in 1..=10u64 {
+        cases.push((format!("pool noise1e-15 seed{seed}"), None, 1e-15, seed));
+        cases.push((
+            format!("seq noise1e-15 seed{seed}"),
+            Some(Par::Seq),
+            1e-15,
+            seed,
+        ));
+    }
+    for (label, par, noise, seed) in &cases {
+        let run = lanczos(&lu, m.as_ref(), *par, max_k, *noise, *seed);
+        let r = ritz_with_true_residual(&run, k.as_ref(), m.as_ref());
+        let old = picked_physical(&r.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), n_modes);
+        let wrong = (old[0].0 - good).norm() / good.norm() > 1e-3;
+        let screened = picked_physical(
+            &r.iter()
+                .filter(|x| x.1 <= 1e-3)
+                .map(|x| (x.0, x.1))
+                .collect::<Vec<_>>(),
+            n_modes,
+        );
+        let screened_wrong = (screened[0].0 - good).norm() / good.norm() > 1e-3;
+        // Ritz values in the low physical region that are not eigenvalues.
+        let ghosts: Vec<_> = r
+            .iter()
+            .filter(|x| x.0.norm() > 0.5 && (x.0 - SIGMA).norm() < 3.0 && x.2 > 1e-6)
+            .collect();
+        let max_rho_kept = r
+            .iter()
+            .filter(|x| x.1 <= 1e-3)
+            .map(|x| x.2)
+            .fold(0.0_f64, f64::max);
+        let min_est_bad = r
+            .iter()
+            .filter(|x| x.2 > 1e-2)
+            .map(|x| x.1)
+            .fold(f64::INFINITY, f64::min);
+        let n_kept = r.iter().filter(|x| x.1 <= 1e-3).count();
+        eprintln!(
+            "  [{label}] screened(1e-3) mode[0] wrong={screened_wrong}; old mode[0] wrong={wrong} ({:.4}{:+.4}i est={:.1e}); kept(est<=1e-3)={n_kept}, max true rho among kept={max_rho_kept:.2e}; min est among rho>1e-2 = {min_est_bad:.2e}; ghosts(|l|>.5,|l-1|<3,rho>1e-6): {:?}",
+            old[0].0.re,
+            old[0].0.im,
+            old[0].1,
+            ghosts
+                .iter()
+                .map(|x| format!(
+                    "{:.4}{:+.4}i est={:.1e} rho={:.1e}",
+                    x.0.re, x.0.im, x.1, x.2
+                ))
+                .collect::<Vec<_>>()
+        );
+        all.extend(r);
+    }
+    // est-vs-rho table by decade of est.
+    let edges = [
+        0.0,
+        1e-12,
+        1e-10,
+        1e-8,
+        1e-6,
+        1e-5,
+        1e-4,
+        1e-3,
+        1e-2,
+        1e-1,
+        1.0,
+        f64::INFINITY,
+    ];
+    eprintln!(
+        "  est decade: count, min rho, median rho, max rho, max rho/est (over {} Ritz values)",
+        all.len()
+    );
+    for w in edges.windows(2) {
+        let mut v: Vec<(f64, f64)> = all
+            .iter()
+            .filter(|x| x.1 > w[0] && x.1 <= w[1] || (w[0] == 0.0 && x.1 == 0.0))
+            .map(|x| (x.2, x.2 / x.1.max(1e-300)))
+            .collect();
+        if v.is_empty() {
+            continue;
+        }
+        v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let ratio = v.iter().map(|x| x.1).fold(0.0_f64, f64::max);
+        eprintln!(
+            "    ({:.0e}, {:.0e}]: n={} rho min={:.2e} med={:.2e} max={:.2e} max(rho/est)={:.2e}",
+            w[0],
+            w[1],
+            v.len(),
+            v[0].0,
+            v[v.len() / 2].0,
+            v[v.len() - 1].0,
+            ratio
+        );
+    }
+
+    eprintln!(
+        "== B. pencil scaled by c: old selection vs estimate screen (thresholds 1e-3, 1e-1) =="
+    );
+    let scales = [1.0, 3.0, 0.7, 1.1];
+    let mut tally = [[0usize; 3]; 2];
+    for &c in &scales {
+        let (ks, ms) = (scaled(&k, c), scaled(&m, c));
+        let lus = factor(&ks, &ms);
+        for (pi, (par, pl)) in [(None, "pool"), (Some(Par::Seq), "seq")]
+            .into_iter()
+            .enumerate()
+        {
+            let run = lanczos(&lus, ms.as_ref(), par, max_k, 0.0, 0);
+            let r = ritz(&run, run.alpha.len());
+            let first = |thr: f64| {
+                let kept: Vec<(c64, f64)> = r.iter().copied().filter(|x| x.1 <= thr).collect();
+                picked_physical(&kept, n_modes)[0]
+            };
+            let res = [first(f64::INFINITY), first(1e-3), first(1e-1)];
+            let bad: Vec<bool> = res
+                .iter()
+                .map(|x| (x.0 - good).norm() / good.norm() > 1e-3)
+                .collect();
+            for i in 0..3 {
+                tally[pi][i] += bad[i] as usize;
+            }
+            eprintln!(
+                "  c={c:<5} {pl:4}: old mode[0]={:.4}{:+.4}i est={:.1e} wrong={} | screen1e-3 wrong={} | screen1e-1 wrong={}",
+                res[0].0.re, res[0].0.im, res[0].1, bad[0], bad[1], bad[2]
+            );
+        }
+    }
+    eprintln!(
+        "  wrong mode[0] over {} scalings: pool old={} screen1e-3={} screen1e-1={}; seq old={} screen1e-3={} screen1e-1={}",
+        scales.len(),
+        tally[0][0],
+        tally[0][1],
+        tally[0][2],
+        tally[1][0],
+        tally[1][1],
+        tally[1][2]
+    );
 }

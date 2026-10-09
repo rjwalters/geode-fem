@@ -31,22 +31,28 @@ jobs:
         run: |
           cargo test --features arpack -p geode-core --release \
               --test issue_1023_diag --test sparse_complex_eigensolver --no-run
-      - name: diag (default threads)
+      - name: round 1 diag with the fix in the tree (real solver lines)
         run: |
           cargo test --features arpack -p geode-core --release \
-              --test issue_1023_diag -- --ignored --nocapture
-      - name: diag (RAYON_NUM_THREADS=1)
+              --test issue_1023_diag -- --ignored --nocapture --exact issue_1023_diag 2>&1 | grep -E "arch=|cpu:|worst residual|copied-loop|real solver|test result"
+      - name: round 2 diag (estimate vs true residual, noise, scaling)
         if: always()
         run: |
-          RAYON_NUM_THREADS=1 cargo test --features arpack -p geode-core --release \
-              --test issue_1023_diag -- --ignored --nocapture
-      - name: acceptance test, main behaviour, RAYON_NUM_THREADS unset / 1 / 2 / 3
+          cargo test --features arpack -p geode-core --release \
+              --test issue_1023_diag -- --ignored --nocapture --exact issue_1023_diag_round2
+      - name: acceptance test WITH the scope and the fix, RAYON_NUM_THREADS unset / 1 / 2 / 3
         if: always()
         run: |
+          rc=0
           for t in unset 1 2 3; do
             echo "=== RAYON_NUM_THREADS=$t ==="
             if [ "$t" = unset ]; then unset RAYON_NUM_THREADS; else export RAYON_NUM_THREADS=$t; fi
             cargo test --features arpack -p geode-core --release \
                 --test sparse_complex_eigensolver -- --ignored --exact sparse_complex_matches_dense_fixture --nocapture \
-                || echo "=== FAILED at RAYON_NUM_THREADS=$t ==="
+                || { echo "=== FAILED at RAYON_NUM_THREADS=$t ==="; rc=1; }
           done
+          exit $rc
+      - name: new unit tests (release)
+        if: always()
+        run: |
+          cargo test -p geode-core --release --lib eigen::complex -- --nocapture
