@@ -186,6 +186,149 @@ const SMOOTH_RITZ_SAFETY: f64 = 1.1;
 /// Lanczos steps of the spectral-radius estimate (one operator apply each).
 const SMOOTH_LANCZOS_STEPS: usize = 30;
 
+/// Relative distance of `0.6 · theta_max` from `2` within which
+/// [`SmootherWeight::near_switch`] flags the estimate (issue #963).
+const SMOOTH_NEAR_SWITCH_REL: f64 = 0.03;
+
+/// Lower end of the Chebyshev smoother's target interval, as a fraction of
+/// its upper end `rho_hat` (issue #963). `0.3` is the hypre AMS default
+/// (`cheby_fraction`).
+const CHEBYSHEV_LOWER_FRACTION: f64 = 0.3;
+
+/// The edge-space smoother of the multiplicative V-cycle
+/// ([`AmsLitePreconditioner::apply_vcycle`]), issue #963.
+///
+/// Every variant is applied as an approximate solve `e ≈ A⁻¹ s` from a zero
+/// start, the same operator before and after the auxiliary-space
+/// corrections, and every variant is a symmetric operator, so the cycle
+/// stays symmetric. [`Self::default`] (one damped-Jacobi sweep with the
+/// #945 weight) is the shipped smoother and is applied exactly as before
+/// this type existed. The others are measurement options selected on the
+/// driven path by `GEODE_DRIVEN_AMS_SMOOTHER`; the eigen path always uses
+/// the default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EdgeSmoother {
+    /// `sweeps` damped-Jacobi sweeps with the weight of [`SmootherWeight`].
+    /// One sweep is the default.
+    Jacobi {
+        /// Number of sweeps (each after the first costs one operator apply).
+        sweeps: usize,
+    },
+    /// `sweeps` l1-Jacobi sweeps: `e ← e + D_l1⁻¹ (s − A e)` with
+    /// `D_l1 = diag(Σ_j |a_ij|)`. `λ_max(D_l1⁻¹A) ≤ 1` for a symmetric `A`, so
+    /// the sweep is convergent with weight 1 and needs no estimate and no
+    /// weight switch. The weight of [`SmootherWeight`] is not used.
+    L1Jacobi {
+        /// Number of sweeps (each after the first costs one operator apply).
+        sweeps: usize,
+    },
+    /// Chebyshev polynomial smoother of degree `degree` in `D⁻¹A`, targeting
+    /// the interval `[0.3 ρ, ρ]` with `ρ` = [`SmootherWeight::rho_hat`].
+    /// `degree − 1` operator applies per smoothing step. The weight of
+    /// [`SmootherWeight`] is not used.
+    Chebyshev {
+        /// Polynomial degree (at least 1; degree 1 is Jacobi with weight
+        /// `1 / (0.65 ρ)`).
+        degree: usize,
+    },
+    /// `sweeps` symmetric (forward then backward) Gauss–Seidel sweeps on the
+    /// assembled operator. Needs a row-wise copy of `A`; sequential.
+    SymmetricGaussSeidel {
+        /// Number of symmetric sweeps.
+        sweeps: usize,
+    },
+}
+
+impl Default for EdgeSmoother {
+    fn default() -> Self {
+        Self::Jacobi { sweeps: 1 }
+    }
+}
+
+impl EdgeSmoother {
+    /// Short stable name, e.g. `"jacobi:1"`, `"l1jacobi:2"`, `"chebyshev:3"`,
+    /// `"sgs:1"` (the syntax [`Self::parse`] accepts).
+    pub fn name(self) -> String {
+        match self {
+            Self::Jacobi { sweeps } => format!("jacobi:{sweeps}"),
+            Self::L1Jacobi { sweeps } => format!("l1jacobi:{sweeps}"),
+            Self::Chebyshev { degree } => format!("chebyshev:{degree}"),
+            Self::SymmetricGaussSeidel { sweeps } => format!("sgs:{sweeps}"),
+        }
+    }
+
+    /// Parse `kind[:count]` with `kind` one of `jacobi`, `l1jacobi`,
+    /// `chebyshev`, `sgs` and `count` a positive integer (sweeps, or the
+    /// Chebyshev degree; default 1 sweep, degree 2).
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        let (kind, count) =
+            match raw.split_once(':') {
+                Some((k, c)) => {
+                    let c: usize =
+                        c.trim().parse().ok().filter(|&c| c > 0).ok_or_else(|| {
+                            format!("{raw:?}: the count must be a positive integer")
+                        })?;
+                    (k.trim(), Some(c))
+                }
+                None => (raw, None),
+            };
+        match kind {
+            "jacobi" => Ok(Self::Jacobi {
+                sweeps: count.unwrap_or(1),
+            }),
+            "l1jacobi" => Ok(Self::L1Jacobi {
+                sweeps: count.unwrap_or(1),
+            }),
+            "chebyshev" => Ok(Self::Chebyshev {
+                degree: count.unwrap_or(2),
+            }),
+            "sgs" => Ok(Self::SymmetricGaussSeidel {
+                sweeps: count.unwrap_or(1),
+            }),
+            _ => Err(format!(
+                "{raw:?}: expected jacobi, l1jacobi, chebyshev or sgs, optionally with :<count>"
+            )),
+        }
+    }
+}
+
+/// How the two auxiliary-space corrections of the V-cycle are combined
+/// (issue #963).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AuxCycle {
+    /// Both corrections on the same residual and summed (`0 (1+2) 0` in
+    /// hypre's notation). The shipped cycle.
+    #[default]
+    Additive,
+    /// Gradient, then vector-nodal, then gradient again, each on the residual
+    /// left by the previous stage (`0 1 2 1 0`, hypre's default cycle type 1).
+    /// Two more operator applies per cycle.
+    Multiplicative,
+}
+
+impl AuxCycle {
+    /// Short stable name (`"additive"` / `"multiplicative"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Additive => "additive",
+            Self::Multiplicative => "multiplicative",
+        }
+    }
+}
+
+/// The V-cycle structure of [`AmsLitePreconditioner::apply_vcycle`]
+/// (issue #963). [`Self::default`] is the shipped cycle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VCycleOptions {
+    /// The edge smoother, before and after the auxiliary corrections.
+    pub smoother: EdgeSmoother,
+    /// How the gradient and vector-nodal corrections are combined.
+    pub cycle: AuxCycle,
+}
+
 /// Environment override of the V-cycle smoother weight (a positive finite
 /// number). A measurement / escape knob in the pattern of
 /// `GEODE_DRIVEN_AMS_COARSE`, not part of the spec surface.
@@ -326,6 +469,19 @@ impl SmootherWeight {
     /// time. The override is still used.
     pub fn warning(&self) -> Option<&str> {
         self.warning.as_deref()
+    }
+
+    /// Whether the Ritz value is within [`SMOOTH_NEAR_SWITCH_REL`] (relative)
+    /// of the point `0.6 · theta_max = 2` where the automatic rule switches
+    /// from the default weight `0.6` to `1.5 / rho_hat` (issue #963). Near the
+    /// switch a small change of the operator (mesh, frequency, material) can
+    /// move the weight discontinuously from `0.6` to about `0.40`, so the
+    /// iteration count of two nearly identical solves can differ. `false`
+    /// when the Lanczos estimate was unusable.
+    pub fn near_switch(&self) -> bool {
+        self.theta_max.is_finite()
+            && ((DEFAULT_SMOOTH_WEIGHT * self.theta_max - 2.0) / 2.0).abs()
+                <= SMOOTH_NEAR_SWITCH_REL
     }
 
     /// The one-line report printed under `GEODE_AMS_SMOOTH_REPORT`.
@@ -587,8 +743,22 @@ fn gershgorin_dinv_a(
     sigma: f64,
     inv_diag: &[f64],
 ) -> f64 {
-    let n = inv_diag.len();
-    let mut abs_sum = vec![0.0_f64; n];
+    abs_row_sums(k, m, sigma)
+        .iter()
+        .zip(inv_diag.iter())
+        .map(|(s, d)| s * d.abs())
+        .fold(0.0_f64, f64::max)
+}
+
+/// `Σ_j (|K_ij| + |σ M_ij|)` per row (column sums of the CSC storage, equal
+/// to the row sums for symmetric operators). The Gershgorin bound's and the
+/// l1-Jacobi smoother's row sums.
+fn abs_row_sums(
+    k: SparseColMatRef<'_, usize, f64>,
+    m: SparseColMatRef<'_, usize, f64>,
+    sigma: f64,
+) -> Vec<f64> {
+    let mut abs_sum = vec![0.0_f64; k.ncols()];
     for (mat, scale) in [(k, 1.0), (m, -sigma)] {
         if scale == 0.0 {
             continue;
@@ -601,10 +771,6 @@ fn gershgorin_dinv_a(
         }
     }
     abs_sum
-        .iter()
-        .zip(inv_diag.iter())
-        .map(|(s, d)| s * d.abs())
-        .fold(0.0_f64, f64::max)
 }
 
 /// The spectral information for the smoother weight of `A = K − σM` with
@@ -673,6 +839,11 @@ pub(crate) enum CoarseSolve {
     /// breaks the fixed-sweep SGS plateau while staying `O(node_dim)` per apply.
     /// Opt-in via `GEODE_COARSE=amg`.
     Amg,
+    /// [`Self::Amg`] with this many V-cycles per coarse solve instead of the
+    /// configured count (issue #963: the driven vector-nodal block's
+    /// measurement option, independent of the process-global
+    /// `GEODE_AMG_CYCLES`).
+    AmgCycles(usize),
 }
 
 impl Default for CoarseSolve {
@@ -775,6 +946,13 @@ impl CoarseSolver {
             CoarseSolve::Amg => Ok(CoarseSolver::Amg(AmgCoarseSolver::from_csc(
                 mat.as_ref(),
                 AmgConfig::from_env(),
+            )?)),
+            CoarseSolve::AmgCycles(cycles) => Ok(CoarseSolver::Amg(AmgCoarseSolver::from_csc(
+                mat.as_ref(),
+                AmgConfig {
+                    cycles: cycles.max(1),
+                    ..AmgConfig::from_env()
+                },
             )?)),
         }
     }
@@ -1550,6 +1728,16 @@ pub(crate) struct AmsLitePreconditioner {
     /// (issue #945; see [`SmootherWeight`]). Chosen once per build. Unused by
     /// the additive [`Self::apply`], whose weight is fixed at `1`.
     smoother: SmootherWeight,
+    /// The V-cycle structure (issue #963): edge smoother and auxiliary-space
+    /// cycle. [`VCycleOptions::default`] everywhere except where the driven
+    /// path's measurement knobs select something else.
+    vcycle: VCycleOptions,
+    /// `1 / Σ_j |a_ij|` per edge row, present only for
+    /// [`EdgeSmoother::L1Jacobi`].
+    l1_inv_diag: Option<Vec<f64>>,
+    /// Row-wise copy of the edge operator, present only for
+    /// [`EdgeSmoother::SymmetricGaussSeidel`].
+    edge_csr: Option<CsrOp>,
     /// Edge DOF count (rows of `G`, length of the vectors this acts on).
     edge_dim: usize,
     /// Free interior-node count (cols of `G`, size of the `C` solve).
@@ -1623,6 +1811,35 @@ impl AmsLitePreconditioner {
         sigma: f64,
         coarse_g: CoarseSolve,
         coarse_pi: CoarseSolve,
+    ) -> Result<Self, EigenError> {
+        Self::build_with_options(
+            gradient,
+            k,
+            m,
+            sigma,
+            coarse_g,
+            coarse_pi,
+            VCycleOptions::default(),
+        )
+    }
+
+    /// [`Self::build_with_split_coarse`] with an explicit V-cycle structure
+    /// (issue #963). `VCycleOptions::default()` gives exactly
+    /// [`Self::build_with_split_coarse`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::build_with_coarse`], and [`EigenError::FaerGevd`] if the
+    /// edge operator for [`EdgeSmoother::SymmetricGaussSeidel`] cannot be
+    /// assembled.
+    pub(crate) fn build_with_options(
+        gradient: &InteriorGradient,
+        k: SparseColMatRef<'_, usize, f64>,
+        m: SparseColMatRef<'_, usize, f64>,
+        sigma: f64,
+        coarse_g: CoarseSolve,
+        coarse_pi: CoarseSolve,
+        vcycle: VCycleOptions,
     ) -> Result<Self, EigenError> {
         let edge_dim = gradient.edge_dim();
         let node_dim = gradient.node_dim();
@@ -1727,6 +1944,33 @@ impl AmsLitePreconditioner {
             );
         }
 
+        // Smoother data the non-default edge smoothers need (issue #963).
+        let l1_inv_diag = matches!(vcycle.smoother, EdgeSmoother::L1Jacobi { .. }).then(|| {
+            abs_row_sums(k, m, sigma)
+                .iter()
+                .map(|&s| if s > 0.0 { 1.0 / s } else { 1.0 })
+                .collect()
+        });
+        let edge_csr = match vcycle.smoother {
+            EdgeSmoother::SymmetricGaussSeidel { .. } => Some(if sigma == 0.0 {
+                CsrOp::from_csc(k)
+            } else {
+                let mut t: Vec<Triplet<usize, usize, f64>> = Vec::new();
+                for (mat, scale) in [(k, 1.0), (m, -sigma)] {
+                    let (cp, ri, va) = (mat.col_ptr(), mat.row_idx(), mat.val());
+                    for j in 0..mat.ncols() {
+                        for p in cp[j]..cp[j + 1] {
+                            t.push(Triplet::new(ri[p], j, scale * va[p]));
+                        }
+                    }
+                }
+                let a = SparseColMat::<usize, f64>::try_new_from_triplets(edge_dim, edge_dim, &t)
+                    .map_err(|e| EigenError::FaerGevd(format!("K − σM assembly: {e:?}")))?;
+                CsrOp::from_csc(a.as_ref())
+            }),
+            _ => None,
+        };
+
         Ok(Self {
             gradient: gradient.clone(),
             inv_diag,
@@ -1734,9 +1978,110 @@ impl AmsLitePreconditioner {
             pi,
             pi_coarse,
             smoother,
+            vcycle,
+            l1_inv_diag,
+            edge_csr,
             edge_dim,
             node_dim,
         })
+    }
+
+    /// The V-cycle structure this preconditioner was built with (issue #963).
+    pub(crate) fn vcycle(&self) -> VCycleOptions {
+        self.vcycle
+    }
+
+    /// One smoothing step of the multiplicative V-cycle: `out ≈ A⁻¹ s` from a
+    /// zero start with the configured [`EdgeSmoother`] (issue #963). `out` is
+    /// overwritten. The default (one damped-Jacobi sweep) is exactly
+    /// `out = ω D⁻¹ s` and calls no operator apply.
+    fn smooth_step<F>(&self, s: &[f64], out: &mut [f64], op_apply: &mut F)
+    where
+        F: FnMut(&[f64], &mut [f64]),
+    {
+        let n = self.edge_dim;
+        // `sweeps` Richardson sweeps e ← e + B (s − A e) for a diagonal B.
+        let mut richardson = |scale: &dyn Fn(usize) -> f64, sweeps: usize, out: &mut [f64]| {
+            for i in 0..n {
+                out[i] = scale(i) * s[i];
+            }
+            if sweeps > 1 {
+                let mut ae = vec![0.0_f64; n];
+                for _ in 1..sweeps {
+                    op_apply(out, &mut ae);
+                    for i in 0..n {
+                        out[i] += scale(i) * (s[i] - ae[i]);
+                    }
+                }
+            }
+        };
+        match self.vcycle.smoother {
+            EdgeSmoother::Jacobi { sweeps: 1 } => {
+                self.jacobi_smooth_weighted(s, out, self.smoother.weight)
+            }
+            EdgeSmoother::Jacobi { sweeps } => {
+                let w = self.smoother.weight;
+                richardson(&|i| w * self.inv_diag[i], sweeps, out);
+            }
+            EdgeSmoother::L1Jacobi { sweeps } => {
+                let d = self
+                    .l1_inv_diag
+                    .as_ref()
+                    .expect("l1-Jacobi data is built with the smoother");
+                richardson(&|i| d[i], sweeps, out);
+            }
+            EdgeSmoother::Chebyshev { degree } => {
+                self.chebyshev_step(s, out, degree.max(1), op_apply)
+            }
+            EdgeSmoother::SymmetricGaussSeidel { sweeps } => {
+                out.iter_mut().for_each(|v| *v = 0.0);
+                self.edge_csr
+                    .as_ref()
+                    .expect("SGS edge operator is built with the smoother")
+                    .smooth(s, out, sweeps);
+            }
+        }
+    }
+
+    /// Chebyshev smoothing step of degree `degree` in `D⁻¹A` on the interval
+    /// `[0.3 ρ, ρ]`, `ρ` = [`SmootherWeight::rho_hat`] (the Gershgorin bound
+    /// where the Lanczos estimate was unusable): the classical three-term
+    /// Chebyshev semi-iteration from a zero start (Saad, *Iterative Methods
+    /// for Sparse Linear Systems*, Alg. 12.1, preconditioned by `D`). The
+    /// result is `q(D⁻¹A) D⁻¹ s` for a fixed polynomial `q`, a symmetric
+    /// operator.
+    fn chebyshev_step<F>(&self, s: &[f64], out: &mut [f64], degree: usize, op_apply: &mut F)
+    where
+        F: FnMut(&[f64], &mut [f64]),
+    {
+        let n = self.edge_dim;
+        let rho = if self.smoother.rho_hat.is_finite() && self.smoother.rho_hat > 0.0 {
+            self.smoother.rho_hat
+        } else {
+            self.smoother.gershgorin
+        };
+        let (lo, hi) = (CHEBYSHEV_LOWER_FRACTION * rho, rho);
+        let theta = 0.5 * (hi + lo);
+        let delta = 0.5 * (hi - lo);
+        let sigma1 = theta / delta;
+        let mut rho_k = 1.0 / sigma1;
+        // d = D⁻¹ s / θ ; x = d ; r = s
+        let mut d: Vec<f64> = (0..n).map(|i| self.inv_diag[i] * s[i] / theta).collect();
+        out.copy_from_slice(&d);
+        let mut r = s.to_vec();
+        let mut ad = vec![0.0_f64; n];
+        for _ in 1..degree {
+            op_apply(&d, &mut ad);
+            for i in 0..n {
+                r[i] -= ad[i];
+            }
+            let rho_next = 1.0 / (2.0 * sigma1 - rho_k);
+            for i in 0..n {
+                d[i] = rho_next * rho_k * d[i] + (2.0 * rho_next / delta) * self.inv_diag[i] * r[i];
+                out[i] += d[i];
+            }
+            rho_k = rho_next;
+        }
     }
 
     /// The V-cycle smoother weight and the estimate behind it (issue #945).
@@ -1891,8 +2236,8 @@ impl AmsLitePreconditioner {
         debug_assert_eq!(z.len(), self.edge_dim);
         let n = self.edge_dim;
 
-        // Pre-smooth: z = ω D⁻¹ r.
-        self.jacobi_smooth_weighted(r, z, self.smoother.weight);
+        // Pre-smooth: z = S r (the default S is ω D⁻¹).
+        self.smooth_step(r, z, &mut op_apply);
 
         // Coarse correction on the post-pre-smooth residual r₁ = r − A z.
         let mut az = vec![0.0_f64; n];
@@ -1903,16 +2248,42 @@ impl AmsLitePreconditioner {
         for (zi, &ci) in z.iter_mut().zip(coarse.iter()) {
             *zi += ci;
         }
-        // Vector-nodal coarse correction on the SAME residual r₁ (issue #550):
-        // the two auxiliary corrections are combined additively (the original
-        // Hiptmair–Xu splitting), so the middle stage is (C_G + C_Π) applied to
-        // r₁. Summing two SPD subspace corrections keeps the middle stage SPD,
-        // and the symmetric pre-/post-smooth around it keeps the whole cycle a
-        // valid (SPD) CG preconditioner.
         if self.pi.is_some() {
-            self.coarse_correction_pi(&resid, &mut coarse);
-            for (zi, &ci) in z.iter_mut().zip(coarse.iter()) {
-                *zi += ci;
+            match self.vcycle.cycle {
+                // Vector-nodal coarse correction on the SAME residual r₁
+                // (issue #550): the two auxiliary corrections are combined
+                // additively (the original Hiptmair–Xu splitting), so the
+                // middle stage is (C_G + C_Π) applied to r₁. Summing two SPD
+                // subspace corrections keeps the middle stage SPD, and the
+                // symmetric pre-/post-smooth around it keeps the whole cycle a
+                // valid (SPD) CG preconditioner.
+                AuxCycle::Additive => {
+                    self.coarse_correction_pi(&resid, &mut coarse);
+                    for (zi, &ci) in z.iter_mut().zip(coarse.iter()) {
+                        *zi += ci;
+                    }
+                }
+                // 0 1 2 1 0 (issue #963): vector-nodal on the residual the
+                // gradient correction left, then the gradient correction
+                // again, so the middle stage is itself symmetric.
+                AuxCycle::Multiplicative => {
+                    op_apply(z, &mut az);
+                    for i in 0..n {
+                        resid[i] = r[i] - az[i];
+                    }
+                    self.coarse_correction_pi(&resid, &mut coarse);
+                    for (zi, &ci) in z.iter_mut().zip(coarse.iter()) {
+                        *zi += ci;
+                    }
+                    op_apply(z, &mut az);
+                    for i in 0..n {
+                        resid[i] = r[i] - az[i];
+                    }
+                    self.coarse_correction(&resid, &mut coarse);
+                    for (zi, &ci) in z.iter_mut().zip(coarse.iter()) {
+                        *zi += ci;
+                    }
+                }
             }
         }
 
@@ -1922,7 +2293,7 @@ impl AmsLitePreconditioner {
             resid[i] = r[i] - az[i];
         }
         let mut post = vec![0.0_f64; n];
-        self.jacobi_smooth_weighted(&resid, &mut post, self.smoother.weight);
+        self.smooth_step(&resid, &mut post, &mut op_apply);
         for (zi, &pi) in z.iter_mut().zip(post.iter()) {
             *zi += pi;
         }

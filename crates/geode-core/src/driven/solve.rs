@@ -140,7 +140,10 @@ use crate::mesh::TetMesh;
 mod ams;
 #[path = "solve_p2.rs"]
 mod p2;
-pub use ams::{AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DrivenAms};
+pub use ams::{
+    AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DRIVEN_AMS_CYCLE_ENV, DRIVEN_AMS_PI_COARSE_ENV,
+    DRIVEN_AMS_SMOOTHER_ENV, DrivenAms, PiCoarseSolve,
+};
 
 /// Errors produced by the driven-solve layer.
 #[derive(Debug, thiserror::Error)]
@@ -3264,6 +3267,22 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
     /// once per process on stderr.
     pub fn preconditioner_fallback(&self) -> Option<&PreconditionerFallback> {
         self.fallback.as_ref()
+    }
+
+    /// The built AMS preconditioner, when this handle's iterative back-solve
+    /// uses one (issue #963), else `None`. Its
+    /// [`DrivenAms::smoother`] is the edge-smoother estimate of this ω
+    /// (Lanczos Ritz value, Gershgorin bound, chosen weight and its source,
+    /// and [`crate::eigen::ams::SmootherWeight::near_switch`]), and
+    /// [`DrivenAms::vcycle`] / [`DrivenAms::pi_coarse`] the cycle structure.
+    pub fn ams(&self) -> Option<&DrivenAms> {
+        match &self.backend {
+            SolverBackend::Iterative {
+                precond: DrivenPreconditioner::Ams(ams),
+                ..
+            } => Some(ams),
+            _ => None,
+        }
     }
 
     /// `true` if this handle uses an iterative (COCG) back-solve path —
