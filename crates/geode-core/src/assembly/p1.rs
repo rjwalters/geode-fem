@@ -4,7 +4,11 @@
 //! `[n_elem, 4, 4]` local tensors (from [`crate::elements::p1::batched_p1_local_matrices`])
 //! into a flat `[n_dof * n_dof]` Burn tensor using 1-D
 //! [`Tensor::scatter`](burn::tensor::Tensor::scatter) with
-//! `IndexingUpdateOp::Add`, then reshaping to `[n_dof, n_dof]`.
+//! `IndexingUpdateOp::Add`, then reshaping to `[n_dof, n_dof]`. Past
+//! `n_dof = 46_340` the flat `row * n_dof + col` index no longer fits
+//! Burn's `i32` Int tensors, so the scatter runs per row block (see
+//! `DenseScatter` in `assembly/dense_scatter.rs`, issue #1011); below that
+//! it is one scatter over the whole matrix.
 //!
 //! Dense storage is acceptable for v0 (the cube warmup is at most a few
 //! thousand DOFs). A side-output [`SparsityPattern`] records the unique
@@ -35,8 +39,9 @@ use bunsen::contracts::{
 use burn::tensor::ElementConversion;
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
-use burn::tensor::{IndexingUpdateOp, Int, TensorData};
+use burn::tensor::{Int, TensorData};
 
+use crate::assembly::dense_scatter::DenseScatter;
 use crate::elements::p1::batched_p1_local_matrices;
 use crate::mesh::TetMesh;
 
@@ -248,14 +253,15 @@ pub fn assemble_global_p1<B: Backend>(
     let coords = gather_tet_coords(nodes, tets);
     let p1 = batched_p1_local_matrices(coords);
 
-    // 3. Build flat linear indices: `tets[e, i] * n_dof + tets[e, j]` for
-    //    every (e, i, j). We assemble in a flattened [n_dof * n_dof] space
-    //    via 1D `scatter(dim=0, …, Add)` — the simplest `scatter` form,
+    // 3. Collect the global `(tets[e, i], tets[e, j])` pair of every
+    //    (e, i, j). We assemble with 1-D `scatter(dim=0, …, Add)` over the
+    //    flattened `[n_dof * n_dof]` space — the simplest `scatter` form,
     //    and the one with the best-tested duplicate-index accumulation
-    //    semantics across Burn backends. After scattering we reshape to
-    //    the 2D global matrix.
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 16);
-    let n_dof_i32 = n_dof as i32;
+    //    semantics across Burn backends — through [`DenseScatter`], which
+    //    splits the matrix into row blocks so the `i32` linear index never
+    //    overflows (issue #1011: `row * n_dof + col` wrapped for
+    //    `n_dof > 46_340`).
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 16);
     for tet in &tets_host {
         // Per-element hot loop: guard the local-matrix stack
         // `[n_elem, 4, 4]` under exponential backoff (`assert_shape_contract_
@@ -268,29 +274,17 @@ pub fn assemble_global_p1<B: Backend>(
         );
         for i in 0..4 {
             for j in 0..4 {
-                linear_idx.push(tet[i] as i32 * n_dof_i32 + tet[j] as i32);
+                pairs.push([tet[i], tet[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 16]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_dof, &device);
 
     // 4. Flatten the local-matrix values to [n_elem * 16] and scatter-add
-    //    into a flat [n_dof * n_dof] zero tensor. Autodiff flows through
-    //    the values via `IndexingUpdateOp::Add`.
-    let k_flat = p1.k_local.reshape([n_elem * 16]);
-    let m_flat = p1.m_local.reshape([n_elem * 16]);
-
-    let zeros_flat = Tensor::<B, 1>::zeros([n_dof * n_dof], &device);
-
-    let k_flat_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
-    let m_flat_assembled = zeros_flat.scatter(0, flat_indices, m_flat, IndexingUpdateOp::Add);
-
-    let k = k_flat_assembled.reshape([n_dof, n_dof]);
-    let m = m_flat_assembled.reshape([n_dof, n_dof]);
+    //    into a zero `[n_dof, n_dof]` matrix. Autodiff flows through the
+    //    values via `IndexingUpdateOp::Add`.
+    let k = scatter.scatter_add(p1.k_local.reshape([n_elem * 16]));
+    let m = scatter.scatter_add(p1.m_local.reshape([n_elem * 16]));
 
     // 5. Sparsity pattern from the same host-side connectivity.
     let sparsity = sparsity_pattern_from_tets(&tets_host);
