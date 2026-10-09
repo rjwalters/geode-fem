@@ -1190,8 +1190,9 @@ pub enum SolverSpec {
     /// struct variant so `deny_unknown_fields` rejects stray keys such as
     /// `tol` under `mode = "direct"`.
     Direct {},
-    /// COCG Krylov iteration with a preconditioner (Jacobi by default)
-    /// built once per frequency. Non-convergence within `max_iters` is a
+    /// COCG Krylov iteration with a preconditioner (by default `auto`: AMS
+    /// where supported, else Jacobi with a warning) built once per
+    /// frequency. Non-convergence within `max_iters` is a
     /// hard error.
     Iterative {
         /// Relative-residual stopping tolerance (default `1e-10`).
@@ -1200,7 +1201,7 @@ pub enum SolverSpec {
         /// Iteration budget per right-hand side (default `5000`).
         #[serde(default = "default_max_iters")]
         max_iters: usize,
-        /// Preconditioner built once per frequency (default `jacobi`).
+        /// Preconditioner built once per frequency (default `auto`).
         #[serde(default)]
         preconditioner: PreconditionerSpec,
     },
@@ -1210,8 +1211,15 @@ pub enum SolverSpec {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PreconditionerSpec {
-    /// Diagonal (Jacobi) scaling — the default.
+    /// The default (issue #930): `ams` wherever it is supported, else
+    /// `jacobi` with a `"preconditioner_fallback"` warning naming the
+    /// reason — a material with `Re ε_r ≤ 0`, matched-UPML
+    /// `absorbing_regions`, or floating PEC conductors. There is no
+    /// mesh-size threshold. `ams` uses more memory than `jacobi` (see
+    /// `geode check`'s resource estimate).
     #[default]
+    Auto,
+    /// Diagonal (Jacobi) scaling, the default before issue #930.
     Jacobi,
     /// Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.
     Ilu0,
@@ -1223,6 +1231,18 @@ pub enum PreconditionerSpec {
     /// (`geode check` reports its modelled memory); see the CLI README for
     /// measured memory.
     Ams,
+}
+
+impl PreconditionerSpec {
+    /// The spec spelling (`"auto"`, `"jacobi"`, `"ilu0"`, `"ams"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Jacobi => "jacobi",
+            Self::Ilu0 => "ilu0",
+            Self::Ams => "ams",
+        }
+    }
 }
 
 impl Default for SolverSpec {
@@ -1390,9 +1410,18 @@ mod tests {
             SolverSpec::Iterative {
                 tol: 1e-10,
                 max_iters: 5000,
-                preconditioner: PreconditionerSpec::Jacobi,
+                preconditioner: PreconditionerSpec::Auto,
             }
         );
+        let s: SolverSpec =
+            serde_json::from_str(r#"{"mode":"iterative","preconditioner":"jacobi"}"#).unwrap();
+        assert!(matches!(
+            s,
+            SolverSpec::Iterative {
+                preconditioner: PreconditionerSpec::Jacobi,
+                ..
+            }
+        ));
         let s: SolverSpec =
             serde_json::from_str(r#"{"mode":"iterative","preconditioner":"ilu0"}"#).unwrap();
         assert!(matches!(

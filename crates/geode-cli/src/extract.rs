@@ -53,6 +53,9 @@ pub fn run(
         touchstone::validate(&p, path)?;
     }
     let out = OutDir::create_opt(outdir)?;
+    // The default `auto` preconditioner's fallback note (issue #930):
+    // printed on stderr here, before the sweep, and kept for the report.
+    let warnings = p.preconditioner_warnings();
     let target = p
         .extract
         .clone()
@@ -128,5 +131,6 @@ pub fn run(
         results,
         extraction,
         touchstone_file,
+        warnings,
     })
 }

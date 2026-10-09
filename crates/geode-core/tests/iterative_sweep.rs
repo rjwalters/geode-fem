@@ -90,7 +90,8 @@ fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64
 /// Fixture: σ-filled parallel-plate resistor (same fixture as the
 /// `resistor_recovers_dc_resistance_at_low_omega` regression in
 /// `extraction.rs`) — small, port-driven, the iterative path
-/// exercises the Jacobi-preconditioned COCG iteration.
+/// exercises COCG with the default preconditioner (AMS on this p=1
+/// fixture since issue #930; Jacobi before).
 #[test]
 fn driven_frequency_sweep_iterative_matches_direct() {
     let mesh = cube_tet_mesh(4, 1.0);

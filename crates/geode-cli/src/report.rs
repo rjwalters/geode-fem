@@ -619,7 +619,9 @@ pub struct WarningResult {
     /// `"impedance_accuracy_above_threshold"`,
     /// `"impedance_accuracy_unavailable"`,
     /// `"multiplicity_uncertified"`, `"cluster_split"`,
-    /// `"non_canonical_cluster_basis"`, `"passivity"` (a lossy spec's
+    /// `"non_canonical_cluster_basis"`, `"preconditioner_fallback"` (issue
+    /// #930: the default `solver.preconditioner = "auto"` used `jacobi`
+    /// instead of `ams`; the message says why), `"passivity"` (a lossy spec's
     /// measured `σ_max(S) > 1`), `"termination_clamped"`, a **geometric**
     /// wave port's degeneracy notes (issue #923, `driven` only; the
     /// message names the port, the mode pair and its numbers, and how to
@@ -705,6 +707,12 @@ pub struct SolverSummary {
     pub tol: Option<f64>,
     /// Iterative budget (`null` for direct).
     pub max_iters: Option<usize>,
+    /// The preconditioner the iterative solve uses, with the default
+    /// `"auto"` resolved: `"ams"` or, on a fallback (see the
+    /// `"preconditioner_fallback"` warning), `"jacobi"` (additive in v1,
+    /// issue #930). Omitted for direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preconditioner: Option<&'static str>,
 }
 
 /// One frequency point as requested.
@@ -1145,6 +1153,10 @@ pub struct SolverStats {
     pub tol: Option<f64>,
     /// Iterative budget (`null` for direct).
     pub max_iters: Option<usize>,
+    /// The preconditioner the iterative solve used, with the default
+    /// `"auto"` resolved (additive in v1, issue #930). Omitted for direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preconditioner: Option<&'static str>,
     /// Largest per-RHS Krylov iteration count over the sweep (`0` direct).
     pub iterations_max: usize,
     /// Largest post-solve relative residual `‖Ax − b‖/‖b‖` over the sweep.
@@ -1477,6 +1489,11 @@ pub struct ExtractReport {
     /// v1; present only with that flag).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touchstone_file: Option<FileRef>,
+    /// Report-level warnings (issue #930; additive in v1; present only when
+    /// there are any): the `"preconditioner_fallback"` warning of the
+    /// default `solver.preconditioner = "auto"`, as for `driven`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<WarningResult>,
 }
 
 /// Eigensolver statistics.

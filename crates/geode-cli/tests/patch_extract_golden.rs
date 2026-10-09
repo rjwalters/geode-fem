@@ -342,6 +342,57 @@ fn patch_smoke_silver_muller_outer_wall_matches_library() {
     assert_library_parity(&fixture, SMOKE_PML_THICK, true, &report, 2.4e9);
 }
 
+/// Issue #930 (PR #973 review): `geode extract` on the UPML patch smoke
+/// with an iterative solver and the default preconditioner reports the
+/// `"preconditioner_fallback"` warning — in the report's `warnings[]` and
+/// on stderr — naming the matched-UPML reason and `jacobi`, as `check`
+/// and `driven` do. The tolerance is loose so the Jacobi solve converges
+/// quickly; the subject is the warning, not the solve.
+#[test]
+fn patch_smoke_extract_default_iterative_reports_upml_preconditioner_fallback_warning() {
+    let raw = std::fs::read_to_string(fixture_spec("patch_extract_smoke.json")).unwrap();
+    let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let mesh = manifest_dir()
+        .join("../geode-core/tests/fixtures/patch_2g4_smoke.msh")
+        .canonicalize()
+        .expect("smoke mesh");
+    v["mesh"]["path"] = mesh.display().to_string().into();
+    v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-3, "max_iters": 20000 });
+    let dir = TempDir::new("pcfallback");
+    let spec = dir.0.join("spec.json");
+    std::fs::write(&spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_geode"))
+        .arg("extract")
+        .arg(&spec)
+        .output()
+        .expect("spawn geode");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "geode extract failed:\n{stderr}");
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).expect("report is JSON");
+    assert_eq!(report["kind"], "extract");
+    assert_eq!(report["solver"]["preconditioner"], "jacobi");
+    let warnings: Vec<&serde_json::Value> = report["warnings"]
+        .as_array()
+        .expect("extract report carries warnings[]")
+        .iter()
+        .filter(|w| w["kind"] == "preconditioner_fallback")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{report:#}");
+    let msg = warnings[0]["message"].as_str().unwrap();
+    for needle in [
+        "fell back to `jacobi`",
+        "matched-UPML",
+        "`absorbing_regions`",
+    ] {
+        assert!(msg.contains(needle), "{needle}: {msg}");
+    }
+    assert!(
+        stderr.contains(&format!("warning: {msg}")),
+        "the warning is also on stderr:\n{stderr}"
+    );
+}
+
 /// Hex SHA-256 of a file's bytes.
 fn sha256_of(path: &std::path::Path) -> String {
     use sha2::{Digest, Sha256};

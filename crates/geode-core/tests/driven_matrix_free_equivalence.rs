@@ -31,8 +31,9 @@ use geode_core::driven::extraction::{
 };
 use geode_core::driven::ports::{LumpedPort, WavePort, solve_wave_port_sweep_with_mode};
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, IterativeSettings,
-    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
+    IterativePreconditioner, IterativeSettings, SolverMode, SurfaceImpedanceBc,
+    SurfaceImpedanceModel,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
@@ -289,7 +290,10 @@ fn iteration_counts_track_assembled_cocg() {
         v_inc: c64::new(1.0, 0.0),
     };
     let omegas = [0.05_f64, 0.10, 0.20];
-    let settings = IterativeSettings::new(1e-10, 5_000);
+    // Jacobi pinned on both paths: the parity premise is the same diagonal
+    // preconditioner, and the assembled default is AMS since issue #930.
+    let settings =
+        IterativeSettings::new(1e-10, 5_000).with_preconditioner(IterativePreconditioner::Jacobi);
 
     let assembled = driven_frequency_sweep_with_mode::<B>(
         &mesh,

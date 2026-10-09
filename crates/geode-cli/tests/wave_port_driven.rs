@@ -455,7 +455,11 @@ fn iterative_recursive_residual_drift_fails_with_solve_failed() {
     // so this is the drift path, not `max_iters` exhaustion (which has its
     // own message).
     let s = spec("drift", |v| {
-        v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-30, "max_iters": 20000 });
+        // Jacobi pinned: the drift fixture was established with Jacobi, and
+        // the default preconditioner resolves to AMS since issue #930.
+        v["solver"] = serde_json::json!({
+            "mode": "iterative", "tol": 1e-30, "max_iters": 20000, "preconditioner": "jacobi"
+        });
     });
     let msg = error_message(
         &geode(&["driven", s.to_str().unwrap()]),

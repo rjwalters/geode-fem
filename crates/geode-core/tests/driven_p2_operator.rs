@@ -926,6 +926,41 @@ fn p2_ams_preconditioner_is_unsupported() {
     );
 }
 
+/// Issue #930: the default preconditioner (`Auto`) at p=2, where an
+/// explicit AMS is `UnsupportedAtOrder` (above), falls back to Jacobi, says
+/// why (the order) and which preconditioner it used, and still solves.
+#[test]
+fn p2_default_preconditioner_falls_back_to_jacobi_with_an_order_warning() {
+    use geode_core::driven::solve::{PreconditionerFallback, PreconditionerFallbackReason};
+    let sigma = vec![0.05; 162];
+    let (_m, _s, op) = p2_cavity(Some(&sigma));
+    let w = 2.2;
+    let settings = IterativeSettings::new(1e-12, 50_000);
+    assert_eq!(settings.preconditioner, IterativePreconditioner::Auto);
+    let solver = op
+        .prepare_at::<B>(w, SolverMode::Iterative(settings), &device())
+        .expect("the default preconditioner must not be UnsupportedAtOrder at p=2");
+    assert_eq!(
+        solver.preconditioner(),
+        Some(IterativePreconditioner::Jacobi)
+    );
+    let fallback = solver
+        .preconditioner_fallback()
+        .expect("a p=2 fallback must carry a warning");
+    assert_eq!(
+        *fallback,
+        PreconditionerFallback {
+            reason: PreconditionerFallbackReason::Order(ElementOrder::P2),
+            used: IterativePreconditioner::Jacobi,
+        }
+    );
+    let msg = fallback.to_string();
+    assert!(msg.contains("p=2") && msg.contains("`jacobi`"), "{msg}");
+    let (sol, rep) = solver.solve().expect("Jacobi COCG converges at p=2");
+    assert!(rep.converged && rep.iters > 0);
+    assert_eq!(sol.order, ElementOrder::P2);
+}
+
 /// Wave ports in the adaptive PROM run at p=2 since issue #884 (Epic #836
 /// Phase 3a; the golden is `tests/wave_port_p2.rs`): the order guard no
 /// longer fires, so an empty port set reaches the port validation.

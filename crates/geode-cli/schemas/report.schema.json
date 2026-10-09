@@ -1661,6 +1661,13 @@
             }
           ],
           "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
+        },
+        "warnings": {
+          "description": "Report-level warnings (issue #930; additive in v1; present only when\nthere are any): the `\"preconditioner_fallback\"` warning of the\ndefault `solver.preconditioner = \"auto\"`, as for `driven`.",
+          "items": {
+            "$ref": "#/$defs/WarningResult"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -3941,8 +3948,13 @@
       "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",
       "oneOf": [
         {
+          "const": "auto",
+          "description": "The default (issue #930): `ams` wherever it is supported, else\n`jacobi` with a `\"preconditioner_fallback\"` warning naming the\nreason — a material with `Re ε_r ≤ 0`, matched-UPML\n`absorbing_regions`, or floating PEC conductors. There is no\nmesh-size threshold. `ams` uses more memory than `jacobi` (see\n`geode check`'s resource estimate).",
+          "type": "string"
+        },
+        {
           "const": "jacobi",
-          "description": "Diagonal (Jacobi) scaling — the default.",
+          "description": "Diagonal (Jacobi) scaling, the default before issue #930.",
           "type": "string"
         },
         {
@@ -5042,7 +5054,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "COCG Krylov iteration with a preconditioner (Jacobi by default)\nbuilt once per frequency. Non-convergence within `max_iters` is a\nhard error.",
+          "description": "COCG Krylov iteration with a preconditioner (by default `auto`: AMS\nwhere supported, else Jacobi with a warning) built once per\nfrequency. Non-convergence within `max_iters` is a\nhard error.",
           "properties": {
             "max_iters": {
               "default": 5000,
@@ -5057,8 +5069,8 @@
             },
             "preconditioner": {
               "$ref": "#/$defs/PreconditionerSpec",
-              "default": "jacobi",
-              "description": "Preconditioner built once per frequency (default `jacobi`)."
+              "default": "auto",
+              "description": "Preconditioner built once per frequency (default `auto`)."
             },
             "tol": {
               "default": 1e-10,
@@ -5119,6 +5131,13 @@
           "description": "`\"direct\"` or `\"iterative\"`.",
           "type": "string"
         },
+        "preconditioner": {
+          "description": "The preconditioner the iterative solve used, with the default\n`\"auto\"` resolved (additive in v1, issue #930). Omitted for direct.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "residual_rel_max": {
           "description": "Largest post-solve relative residual `‖Ax − b‖/‖b‖` over the sweep.",
           "format": "double",
@@ -5163,6 +5182,13 @@
         "mode": {
           "description": "`\"direct\"` or `\"iterative\"`.",
           "type": "string"
+        },
+        "preconditioner": {
+          "description": "The preconditioner the iterative solve uses, with the default\n`\"auto\"` resolved: `\"ams\"` or, on a fallback (see the\n`\"preconditioner_fallback\"` warning), `\"jacobi\"` (additive in v1,\nissue #930). Omitted for direct.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "tol": {
           "description": "Iterative tolerance (`null` for direct).",
@@ -5310,7 +5336,7 @@
       "description": "A report-level warning (issue #807; additive in v1): never an error,\nalso printed on stderr as `warning: …`.",
       "properties": {
         "kind": {
-          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven` only; the\nmessage names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups).",
+          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"preconditioner_fallback\"` (issue\n#930: the default `solver.preconditioner = \"auto\"` used `jacobi`\ninstead of `ams`; the message says why), `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven` only; the\nmessage names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups).",
           "type": "string"
         },
         "message": {

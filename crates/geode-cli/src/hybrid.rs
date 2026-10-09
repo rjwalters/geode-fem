@@ -551,6 +551,7 @@ pub fn sweep(
             mode: s.mode,
             tol: s.tol,
             max_iters: s.max_iters,
+            preconditioner: s.preconditioner,
             iterations_max: points
                 .iter()
                 .flat_map(|pt| pt.iters_per_rhs.iter().copied())

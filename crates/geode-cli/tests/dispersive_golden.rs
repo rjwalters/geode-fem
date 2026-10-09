@@ -696,6 +696,46 @@ fn drude_negative_re_eps_with_ams_is_invalid_spec() {
     assert!((d["re_eps_zero_hz"].as_f64().unwrap() - 63f64.sqrt() * 1e9).abs() < 1e-3);
 }
 
+/// Issue #930: the same below-crossover Drude spec with the **default**
+/// preconditioner is not an error: `"auto"` falls back to `jacobi`, and
+/// the report carries a `"preconditioner_fallback"` warning (also on
+/// stderr) that names the material and the preconditioner used.
+#[test]
+fn drude_negative_re_eps_with_default_preconditioner_falls_back_to_jacobi_with_a_warning() {
+    let dir = TempDir::new("amsauto");
+    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "auto.json", |v| {
+        spiral_plasma(v);
+        v["solver"] = json!({ "mode": "iterative" });
+        v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 5.0, 10.0, 20.0] });
+    });
+    let out = run(&["check"], &spec);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: Value = serde_json::from_slice(&out.stdout).expect("report is JSON");
+    assert_eq!(v["solver"]["preconditioner"], "jacobi");
+    let warnings: Vec<&Value> = v["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["kind"] == "preconditioner_fallback")
+        .collect();
+    assert_eq!(warnings.len(), 1, "{v:#}");
+    let msg = warnings[0]["message"].as_str().unwrap();
+    for needle in [
+        "fell back to `jacobi`",
+        "materials[substrate].dispersion (drude)",
+    ] {
+        assert!(msg.contains(needle), "{needle}: {msg}");
+    }
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&format!("warning: {msg}")),
+        "the warning is also on stderr"
+    );
+}
+
 /// Dispersion composes with matched UPML (`ε = ε_r(f)·Λ`): the patch
 /// smoke (driven, 2.2 / 2.6 GHz) with a DS FR-4-like substrate.
 #[test]
