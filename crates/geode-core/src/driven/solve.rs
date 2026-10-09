@@ -2596,12 +2596,12 @@ impl DrivenOperator {
         let a_int = self.assemble_a_at(omega)?;
 
         // --- Factor once (same machinery as complex Lanczos) ----------------
-        // Fill-reducing ordering: faer 0.24's `sp_lu` hardcodes COLAMD with no
-        // hook for a user/METIS permutation (issue #527 Phase 1 — negative;
-        // see the full analysis at the eigensolve `sp_lu` in
-        // `crate::eigen::lanczos`). The driven direct path is affected
-        // identically; a stronger ordering needs a faer upstream change or the
-        // Phase-2 compressed-factorization follow-on.
+        // Fill-reducing ordering: `sp_lu` uses faer's default COLAMD. Since
+        // faier 0.25 (issue #972) a caller-supplied ordering can be injected
+        // via `LuColOrdering::Custom`, as the eigensolve's
+        // `InnerSolver::DirectCustomOrder` does (`crate::eigen::ordering`).
+        // The driven path has not been switched: that changes factor memory
+        // and timing and needs its own measurement first.
         let lu = a_int
             .as_ref()
             .sp_lu()
