@@ -103,6 +103,13 @@ const Q_LOWER_BAND_TM11: f64 = 1.5;
 /// `mie_sphere.rs` (observed ≈ 5.7 % full mesh, ≈ 6.6 % small mesh).
 const TM11_REL_TOL: f64 = 0.08;
 
+/// Full-mesh (774-node) band on the lowest mode's `Re(k)` vs the
+/// analytic TM_1,1 — mirror of the 5 % assertion in `mie_sphere.rs`.
+/// Observed 3.56 % against the corrected (issue #986) TM_1,1 = 1.18710;
+/// tightened from the shared 8 % band, which was calibrated against the
+/// pre-#986 root 1.30343 (observed ≈ 5.7 %).
+const TM11_REL_TOL_FULL: f64 = 0.05;
+
 // ---------------------------------------------------------------------------
 // Fixture paths
 // ---------------------------------------------------------------------------
@@ -803,14 +810,24 @@ fn sphere_mie_spectrum_agrees_with_numpy() {
         panic!("sphere_mie full-mesh complex spectrum disagreed with NumPy baseline");
     }
 
-    // 8 % TM_1,1 band + Q tripwire, both sides.
+    // 5 % full-mesh TM_1,1 band (#986) + Q tripwire, both sides.
     let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
     let numpy_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let numpy_rel_err = (numpy_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
-    assert!(burn_rel_err < TM11_REL_TOL);
-    assert!(numpy_rel_err < TM11_REL_TOL);
+    assert!(
+        burn_rel_err < TM11_REL_TOL_FULL,
+        "Burn full-mesh TM_1,1 rel err {:.2}% (> {:.0}%)",
+        burn_rel_err * 100.0,
+        TM11_REL_TOL_FULL * 100.0
+    );
+    assert!(
+        numpy_rel_err < TM11_REL_TOL_FULL,
+        "NumPy full-mesh TM_1,1 rel err {:.2}% (> {:.0}%)",
+        numpy_rel_err * 100.0,
+        TM11_REL_TOL_FULL * 100.0
+    );
 
     let burn_q = q_factor_from_lambda(burn_physical[0]);
     let numpy_q = fixture.output_scalar("q_factor_lowest_physical");
