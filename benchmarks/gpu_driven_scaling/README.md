@@ -38,7 +38,7 @@ README only explains what is in the directory, except for the summary in
 | `summarize_ams_r6i.py` | Writes `results_ams_cpu_r6i.toml` (or, with `--markdown`, the table below) from the run tree |
 | `box_palace_cpu.sh` | Runs the CPU Palace image (`reference/palace/docker/Dockerfile`) on an exported cube mesh, pinned with `--cpuset-cpus` and `mpirun -bind-to core`; `PALACE_LINEAR_TYPE` picks Palace's linear solver |
 | `runs/2026-10-08_r6i_ams_scale/` | The evidence tree behind `results_ams_cpu_r6i.toml`: `t<T>_rep<K>/` (one `ams_cpu_sweep.sh` tree per thread count and repeat), `t1_rep3_n50/`, `direct_large/`, `omega/`, `palace/` (Palace with its `Default` linear solver), `palace_ams/` (Palace with `AMS`), the `chain930*.sh` scripts that ran them with their `chain*.out` exit codes, `palace_build.sh` / `export_meshes.sh`, `mesh_sha256.txt`, `host_extra.txt`, `session.txt` and `NOTE.txt` |
-| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) and `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`) |
+| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`), `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`), `smoother_945/` (the #945 smoother-weight fix) and `smoother_963/` (where the remaining AMS iteration growth comes from: one sweep tree per V-cycle variant and frequency, `chain963.sh`, and `validation/`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
 
@@ -117,6 +117,21 @@ SKIP_DIRECT=1 GEODE_SCALING_OMEGA=0.20 GEODE_AMS_SMOOTH_WEIGHT=0.6 \
 
 `smoother_945/NOTE.txt` in the committed run tree has the commands for its
 `ritz_gap/` and `validation/` subdirectories.
+
+The #963 investigation of the remaining AMS iteration growth goes into
+`smoother_963/`, one tree per (build, V-cycle variant, frequency), named
+`<variant>_w<omega>`. `main` is a clean `origin/main` checkout; every other
+variant is the branch, with the `GEODE_DRIVEN_AMS_*` knobs that its legs'
+`.meta` files record (`default` sets none). `smoother_963/chain963.sh` is the
+exact sequence that was run, and `smoother_963/validation/val963.sh` runs the
+AMS tests outside the cube fixture for one (build, variant):
+
+```sh
+CARGO_TARGET_DIR_MAIN=<main-target> CARGO_TARGET_DIR_BRANCH=<branch-target> \
+  <run-dir>/smoother_963/chain963.sh <main-checkout> <branch-checkout>
+CARGO_TARGET_DIR=<branch-target> <run-dir>/smoother_963/validation/val963.sh \
+  pi_amg4 <branch-checkout> GEODE_DRIVEN_AMS_PI_COARSE=amg:4
+```
 
 Running the summarizer over the committed `runs/2026-10-08_local_ams/`
 reproduces the committed file byte for byte:

@@ -1494,3 +1494,278 @@ if sm_trees and val_dir.is_dir():
                     f"{str(all(float(s_['weight']) < 2 / float(s_['gershgorin']) for s_ in lowered)).lower()}"
                     "  # lowered weight < 2 / gershgorin; false means its stability rests on the Ritz value"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Issue #963: where the residual AMS iteration growth comes from.
+# smoother_963/<variant>_w<omega>/ : one ams_cpu_sweep.sh tree per
+# (build, V-cycle variant, omega), AMS legs only, RAYON_NUM_THREADS=1.
+# Variant "main" is clean origin/main; every other variant is the branch,
+# with the GEODE_DRIVEN_AMS_* knobs its legs' .meta files record
+# ("default" sets none). validation/<variant>_<test>.txt: the AMS tests
+# outside the cube fixture. Written as [smoother_963].
+# ---------------------------------------------------------------------------
+s9_dir = d / "smoother_963"
+if s9_dir.is_dir():
+    KNOBS = ("GEODE_DRIVEN_AMS_SMOOTHER", "GEODE_DRIVEN_AMS_CYCLE", "GEODE_DRIVEN_AMS_PI_COARSE")
+    s9 = []  # (tree, variant, omega, cells)
+    for p in sorted(s9_dir.glob("*_w*")):
+        m = re.fullmatch(r"(.+)_w(\d+)p(\d+)", p.name)
+        if m and p.is_dir():
+            s9.append((p.name, m.group(1), float(f"{m.group(2)}.{m.group(3)}"), load_cells(p, CONFIGS[2:])))
+    order = lambda t: (t[2] != 0.10, t[2], t[1] != "main", t[1] != "default", t[1])
+    s9.sort(key=order)
+
+    def s9_series(cs):
+        ns = sorted(n for (n, _) in cs)
+        return [cs[(n, "ams")] for n in ns]
+
+    def growth(ser):
+        its = [c["iterations"] for c in ser]
+        return max(its) / min(its)
+
+    def cpu(c):
+        return c["time"]["user_s"] + c["time"]["sys_s"]
+
+    by = {(v, w): s9_series(cs) for _, v, w, cs in s9}
+    metas9 = [c["meta"] for _, _, _, cs in s9 for c in cs.values()]
+    loads9 = [float(m[k].split()[0]) for m in metas9 for k in ("loadavg_start", "loadavg_end") if k in m]
+    dates9 = sorted(m["start"] for m in metas9)
+    commit9 = lambda pred: sorted({c["meta"]["git"] for _, v, _, cs in s9 if pred(v) for c in cs.values()})
+    omegas9 = sorted({w for _, _, w, _ in s9})
+
+    def identical(a, b):
+        return len(a) == len(b) and all(
+            (x["iterations"], sci(x["residual_rel"]), x["port_v"]) == (y["iterations"], sci(y["residual_rel"]), y["port_v"])
+            for x, y in zip(a, b)
+        )
+
+    print()
+    print("[smoother_963]")
+    print("issue = 963")
+    print(
+        "note = "
+        + q(
+            "Where the residual growth of the AMS iteration count comes from (26 to 55 from 1.9k to 102k "
+            "edges at omega = 0.10 after #945). Each candidate is one ams_cpu_sweep.sh tree on the fixture "
+            "of this file: the edge smoother (GEODE_DRIVEN_AMS_SMOOTHER), the way the two auxiliary-space "
+            "corrections are combined (GEODE_DRIVEN_AMS_CYCLE) and the vector-nodal Pi^T P Pi coarse solve "
+            "(GEODE_DRIVEN_AMS_PI_COARSE). The gradient-space solve is the exact LU in every tree. 'main' is "
+            "clean origin/main; the others are the branch, 'default' with no knob set."
+        )
+    )
+    print(
+        "how_to_read = "
+        + q(
+            "Developer machine shared with other work, single samples, RAYON_NUM_THREADS=1, one process per "
+            "leg. Iteration counts are the result. process_cpu_s (user + sys of the whole process: mesh, "
+            "assembly, setup, solve) is the cost figure; it is inflated by an oversubscribed host, and "
+            "loadavg_1min_start is recorded per leg so it can be judged. setup_s and krylov_s are wall clock "
+            "and depend on the load at that moment; they are recorded, not compared."
+        )
+    )
+    print(f"run_dir = {q(s9_dir.as_posix())}")
+    print(f"main_commit = {q(', '.join(commit9(lambda v: v == 'main')))}")
+    print(f"branch_commit = {q(', '.join(commit9(lambda v: v != 'main')))}")
+    print(f"omegas = {omegas9}")
+    print(f"started_between = [{q(dates9[0])}, {q(dates9[-1])}]")
+    print(f"loadavg_1min_range = [{min(loads9):.2f}, {max(loads9):.2f}]  # {host.get('logical_cpus', '?')} logical CPUs")
+    for w in omegas9:
+        if ("main", w) in by and ("default", w) in by:
+            print(
+                f"default_equals_main_w{w:.2f}".replace(".", "p")
+                + f" = {str(identical(by[('main', w)], by[('default', w)])).lower()}"
+                "  # iterations, explicit residual and port voltage, every size"
+            )
+
+    for tree, variant, w, cs in s9:
+        ser = s9_series(cs)
+        if not ser:
+            continue
+        knobs = {k: ser[0]["meta"][k] for k in KNOBS if k in ser[0]["meta"]}
+        main = by.get(("main", w), [])
+        print()
+        print("[[smoother_963_series]]")
+        print(f"tree = {q(tree)}")
+        print(f"variant = {q(variant)}")
+        print(f"build = {q('origin/main' if variant == 'main' else 'branch')}")
+        print(f"omega = {w:.2f}")
+        print(f"knobs = {q(' '.join(f'{k}={v}' for k, v in knobs.items()) or 'none')}")
+        print(f"n_edges = {[c['n_edges'] for c in ser]}")
+        print(f"converged = {[c['explicit_converged'] if 'explicit_converged' in c else c['converged'] for c in ser]}".lower())
+        print(f"iterations = {[c['iterations'] for c in ser]}")
+        g = growth(ser)
+        print(f"iterations_max_over_min = {g:.3f}")
+        print(f"within_flat_band = {str(g <= FLAT_MAX_OVER_MIN).lower()}  # max / min <= {FLAT_MAX_OVER_MIN:.3f}")
+        edges = [c["n_edges"] for c in ser]
+        its = [c["iterations"] for c in ser]
+        print(f"growth_exponent_lsq = {lsq_exponent(edges, its):.3f}  # slope of log(iterations) on log(edges)")
+        print(f"residual_rel_max = {sci(max(c['residual_rel'] for c in ser))}")
+        if main and len(main) == len(ser) and variant != "main":
+            print(
+                f"port_v_rel_diff_vs_main_max = {sci(max(rel_diff(c['port_v'], b['port_v']) for c, b in zip(ser, main)))}"
+                "  # same tolerance, different preconditioner"
+            )
+        print(f"setup_s = {fl([c['warmup_setup_s'] for c in ser])}  # wall clock")
+        print(f"krylov_s = {fl([c['warmup_krylov_s'] for c in ser])}  # wall clock")
+        print(f"process_cpu_s = {fl([cpu(c) for c in ser], 2)}")
+        print(f"process_max_rss_gb = {fl([c['time']['max_rss_bytes'] / 1e9 for c in ser])}")
+        print(f"loadavg_1min_start = {fl([float(c['meta']['loadavg_start'].split()[0]) for c in ser], 2)}")
+
+    # Findings: every number below is read from the series above.
+    W = 0.10
+    get = lambda v, w=W: by.get((v, w), [])
+    last = lambda v, w=W: get(v, w)[-1] if get(v, w) else None
+    gs = lambda v, w=W: growth(get(v, w)) if get(v, w) else float("nan")
+    its = lambda v, w=W: "/".join(str(c["iterations"]) for c in get(v, w))
+    smoothers = [v for (v, w) in by if w == W and v.startswith("sm_")]
+    flat = sorted(v for (v, w) in by if w == W and v not in ("main", "default") and gs(v) <= FLAT_MAX_OVER_MIN)
+    print()
+    print("[smoother_963.finding]")
+    print(
+        "growth_source = "
+        + q(
+            f"The vector-nodal coarse solve. With the shipped 4-sweep symmetric Gauss-Seidel on Pi^T P Pi the "
+            f"count is {its('default')} (max/min {gs('default'):.2f}); with an exact LU there and nothing else "
+            f"changed it is {its('pi_direct')} ({gs('pi_direct'):.2f}), and at omega = 0.05 / 0.20 "
+            f"{gs('pi_direct', 0.05):.2f} / {gs('pi_direct', 0.20):.2f}. More SGS sweeps there narrow the growth "
+            f"in step (sgs:8 {gs('pi_sgs8'):.2f}, sgs:16 {gs('pi_sgs16'):.2f}). A fixed number of SGS sweeps "
+            "is not a mesh-independent approximate inverse of a Laplacian-like block, which is what the "
+            "Hiptmair-Xu bound assumes; the gradient block is already exact."
+        )
+    )
+    print(
+        "not_the_smoother = "
+        + q(
+            "No edge smoother tried removes the growth: "
+            + ", ".join(f"{v[3:]} {its(v)} ({gs(v):.2f})" for v in sorted(smoothers))
+            + f", against {its('default')} ({gs('default'):.2f}) for the default damped Jacobi. A stronger "
+            "smoother lowers the small-mesh count and leaves the slope."
+        )
+    )
+    print(
+        "not_proxy_or_port = "
+        + q(
+            f"With exact auxiliary solves the count is flat ({its('pi_direct')}; {its('cyc_mult_pi_direct')} with "
+            "the multiplicative 0-1-2-1-0 cycle), so the parts not changed between those trees and the "
+            "default (the real SPD proxy P(omega) for the complex operator, the port and loss terms in it) "
+            "add no mesh dependence on this fixture. They set the level, not the growth. Not separately "
+            "diagnosed: that is implied by the flat exact-solve series."
+        )
+    )
+    print(
+        "level_vs_palace = "
+        + q(
+            f"With an exact Pi solve, combining the two auxiliary corrections multiplicatively instead of "
+            f"additively lowers the count from {its('pi_direct')} to {its('cyc_mult_pi_direct')}, the closest "
+            "to Palace's AMS (12 to 17 on the r6i record) of any variant here. What remains of that gap was "
+            "not investigated (Palace runs GMRES and hypre's own AMS cycle and smoother)."
+        )
+    )
+    c0, ca, cs16, cd = last("default"), last("pi_amg4"), last("pi_sgs16"), last("pi_direct")
+    if c0 and ca and cs16 and cd:
+        print(
+            "cost_at_largest = "
+            + q(
+                f"At {c0['n_edges']} edges, process CPU seconds: default {cpu(c0):.2f} ({c0['iterations']} it, "
+                f"{c0['time']['max_rss_bytes'] / 1e9:.2f} GB), Pi amg:4 {cpu(ca):.2f} ({ca['iterations']} it, "
+                f"{ca['time']['max_rss_bytes'] / 1e9:.2f} GB), Pi sgs:16 {cpu(cs16):.2f} ({cs16['iterations']} it, "
+                f"{cs16['time']['max_rss_bytes'] / 1e9:.2f} GB), Pi direct {cpu(cd):.2f} ({cd['iterations']} it, "
+                f"{cd['time']['max_rss_bytes'] / 1e9:.2f} GB). The flat-band variants do fewer but dearer "
+                "iterations, and up to this size that does not pay for itself; single samples on a loaded "
+                "host."
+            )
+        )
+    rss_ratio = [
+        a["time"]["max_rss_bytes"] / b["time"]["max_rss_bytes"] for a, b in zip(get("pi_amg4"), get("default"))
+    ]
+    if rss_ratio:
+        print(
+            f"pi_amg4_rss_over_default = {fl(rss_ratio)}  # peak RSS of the whole process, per size"
+        )
+    direct_rss_x = (
+        cd["time"]["max_rss_bytes"] / c0["time"]["max_rss_bytes"] if c0 and cd else float("nan")
+    )
+    print(f"flat_band_variants_w0p10 = {flat}")
+    print(
+        "flat_band_at_all_omegas = "
+        + str(
+            sorted(
+                v
+                for v in flat
+                if all((v, w) in by and gs(v, w) <= FLAT_MAX_OVER_MIN for w in omegas9)
+            )
+        )
+    )
+    print(
+        "default_changed = false  # the shipped V-cycle is unchanged; every candidate is an opt-in knob"
+    )
+    print(
+        "recommendation = "
+        + q(
+            "Keep the default. The growth is the vector-nodal block, so the fix is a mesh-independent Pi "
+            "solve, and of those measured amg:4 (GEODE_DRIVEN_AMS_PI_COARSE=amg:4) is the candidate: flat "
+            "at all three frequencies, O(n) per apply, and with a peak memory close to the default's "
+            f"(pi_amg4_rss_over_default) where the exact LU needs {direct_rss_x:.1f} times it at "
+            f"{c0['n_edges'] if c0 else '?'} edges. It costs more CPU than the default up to 102k edges, so the switch rests on the at-scale "
+            "cells (the r6i ladder to 898k edges, where the default takes 105 iterations), which are "
+            "operator-run. Combine it with GEODE_DRIVEN_AMS_CYCLE=multiplicative there to also measure the "
+            "level. Smoother changes (l1-Jacobi, Chebyshev, more Jacobi or SGS sweeps) are not worth a "
+            "default change on this evidence."
+        )
+    )
+
+    # The AMS tests outside the cube fixture (the #961 set).
+    val9 = s9_dir / "validation"
+    VAL9 = {
+        "spiral_smoke": "driven COCG + AMS, 14k-edge spiral, 4 frequencies (#744)",
+        "spiral_benchmark": "driven COCG + AMS, 53k-edge spiral, 1 GHz (#744)",
+        "spiral_aniso": "driven COCG + AMS, smoke spiral with anisotropic materials, 1 and 10 GHz",
+        "spiral_ds": "driven COCG + AMS, Djordjevic-Sarkar dielectric spiral",
+        "spiral_drude": "driven COCG + AMS, Drude conductor spiral",
+        "spiral_debye": "driven COCG + AMS, Debye dielectric spiral (knife edge, #943)",
+        "rough": "driven COCG + AMS, rough-conductor spiral (#758)",
+        "driven_public": "driven COCG + AMS on the public iterative path, PEC cube n = 4",
+    }
+
+    def val9_run(tree, stem):
+        path = val9 / f"{tree}_{stem}.txt"
+        if not path.exists():
+            return None
+        txt = path.read_text()
+        head = dict(t.split("=", 1) for line in txt.splitlines()[:3] for t in line[2:].split() if "=" in t)
+        done = re.search(r"^test result: (\w+)\.", txt, re.M)
+        return {
+            "commit": head.get("git", "unknown") + (f" dirty={head['dirty']}" if "dirty" in head else ""),
+            "env": head.get("env", "none"),
+            "load": head.get("loadavg_start", "").split(",")[0],
+            "finished": bool(done),
+            "passed": bool(done) and done.group(1) == "ok",
+            "iterations": [int(x) for x in re.findall(r"(?:GHz: iters|: iterations) \[(\d+)\]", txt)],
+            "time": time_file(val9 / f"{tree}_{stem}.time"),
+        }
+
+    trees9 = sorted({p.stem.split("_", 1)[0] if not p.stem.startswith("pi_") else "_".join(p.stem.split("_")[:2]) for p in val9.glob("*.txt")}) if val9.is_dir() else []
+    trees9.sort(key=lambda t: (t != "main", t != "default", t))
+    for stem, what in VAL9.items():
+        runs = {t: val9_run(t, stem) for t in trees9}
+        runs = {t: r for t, r in runs.items() if r}
+        if not runs:
+            continue
+        print()
+        print("[[smoother_963_validation]]")
+        print(f"name = {q(stem)}")
+        print(f"exercises = {q(what)}")
+        for t, r in runs.items():
+            print(f"{t}_commit = {q(r['commit'])}")
+            print(f"{t}_env = {q(r['env'])}")
+            if not r["finished"]:
+                print(f"{t}_finished = false")
+                continue
+            print(f"{t}_passed = {str(r['passed']).lower()}")
+            if r["iterations"]:
+                print(f"{t}_iterations = {r['iterations']}  # COCG iterations per frequency, as the test prints them")
+            if r["time"]:
+                print(f"{t}_process_cpu_s = {r['time']['user_s'] + r['time']['sys_s']:.2f}  # includes the direct reference solve")
+            if r["load"]:
+                print(f"{t}_loadavg_1min_start = {r['load']}")
