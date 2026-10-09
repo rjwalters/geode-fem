@@ -150,12 +150,26 @@ pub struct KspReport {
     pub iters: usize,
     /// Final relative residual `‖A x − b‖₂ / ‖b‖₂`.
     pub residual_rel: f64,
-    /// `true` if the tolerance was met within the iteration budget,
-    /// `false` if the iteration was cut off (callers should treat the
-    /// returned `x` as an approximation in that case — the iterative
-    /// entry points return [`KspError::NotConverged`] before reaching
-    /// the caller, but this flag is preserved for diagnostics).
+    /// `true` iff the **explicitly recomputed** residual `residual_rel`
+    /// met the tolerance within the iteration budget.
+    ///
+    /// `false` means the recursively maintained residual crossed `tol`
+    /// but the explicit residual did not, even after up to
+    /// `max_replacements` residual replacements (issue #943; see
+    /// [`Cocg`]): the replacement cap was hit, or a replacement failed
+    /// to reduce the explicit residual. Callers must treat the returned
+    /// `x` as unconverged in that case
+    /// (`crate::driven::solve::require_converged` turns it into a hard
+    /// error, issue #744). Iteration-budget exhaustion is reported as
+    /// [`KspError::NotConverged`] instead.
     pub converged: bool,
+    /// Number of residual replacements performed (issue #943): each one
+    /// fired when the recursive residual crossed `tol` but the explicit
+    /// residual `‖b − A x‖` did not, and replaced the recursive residual
+    /// with the explicit one before iterating on. `0` for every solve
+    /// whose explicit residual met `tol` at the first crossing — those
+    /// take exactly the pre-#943 path, iterate for iterate.
+    pub replacements: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,8 +1192,39 @@ pub trait KspSolve {
 ///   product is considered zero (breakdown). Default `1e-300` —
 ///   essentially "underflowed to zero".
 ///
+/// - `max_replacements` — residual-replacement cap (issue #943, see
+///   below). Default [`DEFAULT_MAX_RESIDUAL_REPLACEMENTS`].
+///
 /// `KspReport::iters` is the iteration count actually executed and
 /// is the figure of merit issue #238 asks for in the regression test.
+///
+/// # Stopping rule and residual replacement (issue #943)
+///
+/// The loop tests the cheap recursively maintained residual every
+/// iteration. When it crosses `tol·‖b‖`, the explicit residual
+/// `b − A x` is computed with one SpMV:
+///
+/// - explicit `≤ tol`: converged, return. This is the common case and
+///   it is exactly the pre-#943 path (same iterates, same count).
+/// - explicit `> tol` (recursive-residual drift, typically a hair
+///   above `tol` after round-off accumulates): **residual
+///   replacement** (after van der Vorst & Ye 2000). The recursive `r`
+///   is overwritten with the explicit `b − A x`, then `z = M⁻¹r`,
+///   `ρ = rᵀz` and `p = z`: COCG restarts from the current iterate.
+///   The search direction is deliberately *not* kept: carrying `p`
+///   over would scale it by `β = ρ_new/ρ_old`, which blows up whenever
+///   the explicit residual sits far above the recursive one, and
+///   measurably stagnates the iteration (issue #943 PR). The next
+///   crossing is checked the same way.
+/// - the solve gives up with `KspReport { converged: false, .. }` when
+///   `max_replacements` replacements have already been spent, or when
+///   the explicit residual at a crossing is not smaller than at the
+///   previous replacement (no progress — e.g. the precision floor of
+///   an f32 backend sits above `tol`).
+///
+/// So `converged == true` still means "explicit residual ≤ tol"
+/// (#744); replacement only removes the false negatives where the
+/// recursion stopped one or two iterations early.
 #[derive(Debug, Clone, Copy)]
 pub struct Cocg {
     /// Convergence tolerance on the relative residual.
@@ -1189,7 +1234,17 @@ pub struct Cocg {
     /// Threshold below which `|r^T z|` or `|p^T A p|` is treated as a
     /// breakdown.
     pub breakdown_tol: f64,
+    /// Maximum number of residual replacements (issue #943) before a
+    /// drifting solve is reported as `converged: false`. `0` restores
+    /// the pre-#943 single-check behaviour.
+    pub max_replacements: usize,
 }
+
+/// Default residual-replacement cap for [`Cocg`] and
+/// [`crate::solver::ksp_burn::BurnCocg`] (issue #943). A drift case
+/// needs one replacement in practice; three leaves headroom while
+/// bounding the extra work on a solve that genuinely cannot reach `tol`.
+pub const DEFAULT_MAX_RESIDUAL_REPLACEMENTS: usize = 3;
 
 impl Default for Cocg {
     fn default() -> Self {
@@ -1197,6 +1252,7 @@ impl Default for Cocg {
             tol: 1e-10,
             max_iters: 2000,
             breakdown_tol: 1e-300,
+            max_replacements: DEFAULT_MAX_RESIDUAL_REPLACEMENTS,
         }
     }
 }
@@ -1295,6 +1351,7 @@ impl KspSolve for Cocg {
                 iters: 0,
                 residual_rel: r_norm / b_norm,
                 converged: true,
+                replacements: 0,
             });
         }
 
@@ -1320,6 +1377,9 @@ impl KspSolve for Cocg {
         bd_check(rho, 0, "r^T z", self.breakdown_tol)?;
 
         let mut q = vec![c64::new(0.0, 0.0); n];
+        // Residual-replacement state (issue #943).
+        let mut replacements = 0_usize;
+        let mut last_replaced_rel = f64::INFINITY;
 
         for k in 0..self.max_iters {
             // q = A p
@@ -1351,11 +1411,40 @@ impl KspSolve for Cocg {
                     true_r += d.re * d.re + d.im * d.im;
                 }
                 let residual_rel = true_r.sqrt() / b_norm;
-                return Ok(KspReport {
-                    iters: k + 1,
-                    residual_rel,
-                    converged: residual_rel <= self.tol,
-                });
+                if residual_rel <= self.tol {
+                    return Ok(KspReport {
+                        iters: k + 1,
+                        residual_rel,
+                        converged: true,
+                        replacements,
+                    });
+                }
+                // Drift: the recursion says converged, the explicit
+                // residual does not. Give up honestly if the cap is
+                // spent or the last replacement bought no progress.
+                if replacements >= self.max_replacements || residual_rel >= last_replaced_rel {
+                    return Ok(KspReport {
+                        iters: k + 1,
+                        residual_rel,
+                        converged: false,
+                        replacements,
+                    });
+                }
+                // Residual replacement: r ← b − A x, z = M⁻¹ r,
+                // ρ = rᵀz, p = z — a restart from the current iterate.
+                // Keeping the old `p` would scale it by β = ρ_new/ρ_old,
+                // which is huge whenever the explicit residual sits far
+                // above the recursive one, and stagnates the iteration.
+                for i in 0..n {
+                    r[i] = b[i] - ax[i];
+                }
+                replacements += 1;
+                last_replaced_rel = residual_rel;
+                precond.apply(&r, &mut z);
+                rho = bilinear_dot(&r, &z);
+                bd_check(rho, k + 1, "r^T z", self.breakdown_tol)?;
+                p.copy_from_slice(&z);
+                continue;
             }
 
             // z = M^{-1} r, ρ_new = r^T z, β = ρ_new / ρ
@@ -1544,6 +1633,171 @@ mod tests {
         let cocg = Cocg::new(1e-15, 1); // tight tol + 1-iter budget
         let err = cocg.solve(a.as_ref(), &b, &mut x, &pc).unwrap_err();
         assert!(matches!(err, KspError::NotConverged { .. }));
+    }
+
+    // -----------------------------------------------------------------
+    // Residual replacement (issue #943)
+    // -----------------------------------------------------------------
+
+    /// Ill-conditioned real-SPD diagonal system `diag(κ^{i/(n-1)})` with
+    /// a deterministic pseudo-random RHS. Unpreconditioned, CG on it
+    /// needs hundreds of iterations and the recursive residual drifts
+    /// away from `b − A x` at the `~1e-13` level — the #943 drift case
+    /// in miniature.
+    fn diag_drift_system(n: usize, kappa: f64) -> (SparseColMat<usize, c64>, Vec<c64>) {
+        let trips: Vec<_> = (0..n)
+            .map(|i| {
+                let lam = kappa.powf(i as f64 / (n - 1) as f64);
+                Triplet::new(i, i, c64::new(lam, 0.0))
+            })
+            .collect();
+        let a = SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &trips).unwrap();
+        let mut s = 12345_u64;
+        let b = (0..n)
+            .map(|_| {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                c64::new(((s >> 11) as f64 / (1_u64 << 53) as f64) - 0.5, 0.0)
+            })
+            .collect();
+        (a, b)
+    }
+
+    /// Explicit `‖b − A x‖ / ‖b‖`, independent of the solver's report.
+    fn explicit_rel(a: SparseColMatRef<'_, usize, c64>, b: &[c64], x: &[c64]) -> f64 {
+        let mut ax = vec![c64::new(0.0, 0.0); b.len()];
+        spmv(a, x, &mut ax);
+        let r: Vec<c64> = b.iter().zip(&ax).map(|(bi, ai)| bi - ai).collect();
+        euclid_norm(&r) / euclid_norm(b)
+    }
+
+    /// **Issue #943**: the recursive residual crosses `tol` before the
+    /// explicit residual does. The pre-#943 single check
+    /// (`max_replacements = 0`) stops there and reports `converged:
+    /// false` with the explicit residual just above `tol` (the
+    /// `spiral_debye_ams_matches_direct` failure mode); residual
+    /// replacement carries on and converges to an explicit residual
+    /// `≤ tol`.
+    ///
+    /// Which exact `tol` drifts depends on last-bit round-off (`powf`,
+    /// platform), so the fixture scans a band of tolerances near the
+    /// rounding floor, requires at least one drift case, and asserts the
+    /// repair on the first one. Every drift case must end honestly:
+    /// converged with explicit `≤ tol`, or `converged: false`.
+    #[test]
+    fn residual_replacement_repairs_recursive_residual_drift() {
+        let n = 60;
+        let (a, b) = diag_drift_system(n, 1e6);
+        let pc = IdentityPreconditioner::new(n);
+        let mut repaired = 0;
+        for e in 0..=16 {
+            let tol = 10_f64.powf(-12.0 - 0.125 * e as f64);
+            let mut x0 = vec![c64::new(0.0, 0.0); n];
+            let single = Cocg {
+                max_replacements: 0,
+                ..Cocg::new(tol, 10_000)
+            }
+            .solve(a.as_ref(), &b, &mut x0, &pc)
+            .expect("drift is Ok(converged: false), not an Err");
+            if single.converged {
+                continue;
+            }
+            // The drift case: recursion crossed, explicit did not.
+            assert_eq!(single.replacements, 0);
+            assert!(single.residual_rel > tol, "{single:?}");
+
+            let mut x1 = vec![c64::new(0.0, 0.0); n];
+            let rep = Cocg::new(tol, 10_000)
+                .solve(a.as_ref(), &b, &mut x1, &pc)
+                .expect("replacement never exhausts the budget here");
+            assert!(rep.replacements >= 1, "tol {tol:e}: {rep:?}");
+            assert!(rep.iters > single.iters, "{rep:?} vs {single:?}");
+            // The reported residual is the explicit one.
+            let check = explicit_rel(a.as_ref(), &b, &x1);
+            assert_eq!(check, rep.residual_rel);
+            assert_eq!(rep.converged, check <= tol, "tol {tol:e}: {rep:?}");
+            if repaired == 0 {
+                assert!(rep.converged, "first drift case must repair: {rep:?}");
+            }
+            if rep.converged {
+                repaired += 1;
+            }
+            eprintln!("tol {tol:.3e}: single-check {single:?} -> replacement {rep:?}");
+        }
+        assert!(repaired >= 1, "the scan found no drift case to repair");
+    }
+
+    /// **Issue #943**: a solve whose explicit residual meets `tol` at the
+    /// first crossing takes exactly the pre-#943 path — same iterate,
+    /// same iteration count, same reported residual, zero replacements —
+    /// whatever the replacement cap.
+    #[test]
+    fn residual_replacement_leaves_clean_solves_bit_identical() {
+        let (a, b) = diag_drift_system(60, 1e6);
+        let pc = IdentityPreconditioner::new(60);
+        for tol in [1e-6, 1e-8, 1e-10, 1e-12] {
+            let mut x0 = vec![c64::new(0.0, 0.0); 60];
+            let r0 = Cocg {
+                max_replacements: 0,
+                ..Cocg::new(tol, 10_000)
+            }
+            .solve(a.as_ref(), &b, &mut x0, &pc)
+            .unwrap();
+            let mut x1 = vec![c64::new(0.0, 0.0); 60];
+            let r1 = Cocg::new(tol, 10_000)
+                .solve(a.as_ref(), &b, &mut x1, &pc)
+                .unwrap();
+            assert!(r0.converged && r1.converged, "{r0:?} {r1:?}");
+            assert_eq!(r1.replacements, 0);
+            assert_eq!(r0.iters, r1.iters);
+            assert_eq!(r0.residual_rel.to_bits(), r1.residual_rel.to_bits());
+            for (u, v) in x0.iter().zip(&x1) {
+                assert_eq!(u.re.to_bits(), v.re.to_bits());
+                assert_eq!(u.im.to_bits(), v.im.to_bits());
+            }
+        }
+    }
+
+    /// **Issue #943**: a `tol` below the f64 rounding floor cannot be
+    /// reached by any number of replacements. The solver must stop at
+    /// the replacement cap (or on a no-progress replacement) and return
+    /// an explicit `converged: false`, well inside the iteration budget
+    /// — never a false success, never a silent spin to `max_iters`.
+    #[test]
+    fn residual_replacement_cap_fails_explicitly() {
+        let (a, b) = diag_drift_system(60, 1e2);
+        let pc = IdentityPreconditioner::new(60);
+        let tol = 1e-30;
+        let max_iters = 100_000;
+
+        // Cap of one: the first crossing replaces, the second must give
+        // up — exactly one replacement, deterministically.
+        let mut x = vec![c64::new(0.0, 0.0); 60];
+        let capped = Cocg {
+            max_replacements: 1,
+            ..Cocg::new(tol, max_iters)
+        }
+        .solve(a.as_ref(), &b, &mut x, &pc)
+        .expect("cap exhaustion is Ok(converged: false), not budget exhaustion");
+        assert!(!capped.converged, "{capped:?}");
+        assert_eq!(capped.replacements, 1, "{capped:?}");
+        assert!(capped.residual_rel > tol, "{capped:?}");
+        assert!(capped.iters < max_iters, "{capped:?}");
+
+        // Default cap: still an honest failure, never more replacements
+        // than the cap allows.
+        let mut x = vec![c64::new(0.0, 0.0); 60];
+        let dflt = Cocg::new(tol, max_iters)
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("Ok(converged: false)");
+        assert!(!dflt.converged, "{dflt:?}");
+        assert!(
+            (1..=DEFAULT_MAX_RESIDUAL_REPLACEMENTS).contains(&dflt.replacements),
+            "{dflt:?}"
+        );
+        assert!(dflt.residual_rel > tol, "{dflt:?}");
+        assert!(dflt.iters < max_iters, "{dflt:?}");
     }
 
     // -----------------------------------------------------------------

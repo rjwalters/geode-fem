@@ -789,6 +789,9 @@ impl DistributedCocg {
                         iters: k + 1,
                         residual_rel,
                         converged: residual_rel <= self.tol,
+                        // No residual replacement here (issue #943 scoped
+                        // it to the driven-path `Cocg` / `BurnCocg`).
+                        replacements: 0,
                     },
                 ));
             }

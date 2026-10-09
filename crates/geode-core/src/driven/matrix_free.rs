@@ -439,6 +439,7 @@ impl<B: Backend> MatrixFreeSolver<B> {
                 iters: 0,
                 residual_rel: 0.0,
                 converged: true,
+                replacements: 0,
             });
         }
 
