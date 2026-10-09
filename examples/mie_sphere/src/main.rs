@@ -37,10 +37,13 @@
 //!   Mie WGM positions (complex `k`, outgoing-wave BC) are also
 //!   tabulated in `geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15` (issue #33)
 //!   and printed as a side-by-side cross-check at the bottom of the
-//!   run — they are the physically correct ground truth, but the
-//!   PML-truncated FEM does not yet reach them tightly (~30–40 % rel
-//!   err on `Re(k)` at the bundled fixture). Tightening that gap is
-//!   the target of #35.
+//!   run, paired by nearest `Re(k)` — they are the physically correct
+//!   ground truth. The ground triplet sits ≈ 2.3 % below the open-space
+//!   TM_1,1 at the bundled fixture; the ε-only UPML's `Q` is far too
+//!   high (ratio ≈ 38). (Before issue #999 the open catalog had TE and
+//!   TM swapped and the cross-check paired by complex distance, which
+//!   put the ground triplet against TE_1,1 at ≈ 35 % and read as
+//!   "~30–40 % rel err".) Tightening the gap is the target of #35.
 //! - **FEM side**: 774-node tet mesh (the bundled refined fixture
 //!   from issue #49, bumped from the original 313 nodes), **anisotropic
 //!   UPML** (diagonal complex permittivity tensor, issue #54) over the
@@ -1098,19 +1101,25 @@ impl App for Args {
             );
         }
         eprintln!();
-        eprintln!("Closest open-space WGM for each FEM mode (by |Δk|):");
+        eprintln!("Closest open-space WGM for each FEM mode (by |Δ Re(k)|):");
         eprintln!(
             "{:>3}  {:>12}  {:>11}  {:>11}  {:>12}  {:>12}",
             "i", "mode", "FEM Re(k)", "WGM Re(k)", "rel err Re(k)", "Q ratio"
         );
         eprintln!("{}", "-".repeat(70));
         for (i, fk) in fem_k.iter().enumerate() {
-            // Closest in (Re(k), |Im(k)|) Euclidean metric.
+            // Closest in Re(k) only. The ε-only UPML's Im(k) is not
+            // physical (it traps radiation: FEM Q ≈ 27 on the ground
+            // triplet vs. the open-space TM_1,1 Q ≈ 0.72), so a complex
+            // (Re(k), |Im(k)|) metric lets that artifact pick the
+            // partner: it paired the ground triplet (Re(k) ≈ 1.229) with
+            // TE_1,1 = 1.88074 − 0.48181i, 35 % away, instead of
+            // TM_1,1 = 1.25896 − 0.87021i, 2.4 % away (issue #999).
             let best = open_space
                 .iter()
                 .min_by(|a, b| {
-                    let da = (a.re_k - fk.re).hypot(a.im_k.abs() - fk.im.abs());
-                    let db = (b.re_k - fk.re).hypot(b.im_k.abs() - fk.im.abs());
+                    let da = (a.re_k - fk.re).abs();
+                    let db = (b.re_k - fk.re).abs();
                     da.partial_cmp(&db).unwrap()
                 })
                 .expect("non-empty open-space catalog");
@@ -1134,9 +1143,13 @@ impl App for Args {
             );
         }
         eprintln!();
-        eprintln!("Note: 30–40 % rel err Re(k) and large Q ratios are expected on the");
-        eprintln!("bundled fixture — the PML-truncated FEM sits between PEC cavity and");
-        eprintln!("true open space. Tightening the gap is the target of #35.");
+        eprintln!("Note: on the bundled fixture the ground triplet sits ≈ 2.3 % below");
+        eprintln!("TM_1,1 and the next triplet ≈ 0.5 % below TE_1,1 — the PML-truncated");
+        eprintln!("FEM sits between PEC cavity and true open space. The large Q ratios");
+        eprintln!("are the ε-only UPML trapping radiation (see mie_open_quasimode for");
+        eprintln!("the matched UPML). Re(k)-only pairing carries no polarisation, so");
+        eprintln!("higher modes can land on a neighbour's root; take their identity");
+        eprintln!("from the PEC-cavity table above.");
         eprintln!();
 
         eprintln!("=== Done ===");

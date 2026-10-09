@@ -643,8 +643,11 @@ fn analytic_sm_resonance_branch() {
         (k, t, steps) = (next, t_next, steps + 1);
     }
     eprintln!("homotopy: {steps} steps to k = {k}");
+    // The branch is the a₁ electric dipole (`u′/ε` row), so the catalog
+    // must call it TM_1,1 (issue #999 corrected the catalog, which had
+    // TE and TM swapped and called this root TE_1,1).
     let mie = open_space_wgm_roots_n15()[0];
-    assert_eq!((mie.pol, mie.l, mie.n), (MiePolarisation::TE, 1, 1));
+    assert_eq!((mie.pol, mie.l, mie.n), (MiePolarisation::TM, 1, 1));
     close(k, (mie.re_k, -mie.im_k), 1e-8, "open space");
 }
 

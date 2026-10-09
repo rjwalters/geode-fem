@@ -386,34 +386,38 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 /// open-space sphere (radiation BC at infinity, complex `k`) are the
 /// physical reference target. This test pairs the FEM ground-state
 /// triplet against the open-space TM_1,1 root in
-/// [`geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`] and asserts agreement on
-/// both `Re(k)` and `|Im(k)|`.
+/// [`geode_core::analytic::mie::OPEN_SPACE_WGM_TABLE_N15`] — the Bohren &
+/// Huffman `a_1` electric-dipole pole `k = 1.25896 − 0.87021i`
+/// (`Q ≈ 0.72`) — and asserts agreement on `Re(k)` plus a sanity band
+/// on `Q`.
 ///
-/// **Tolerances — initial targets per the issue spec**:
+/// The FEM ground triplet is the transverse-H (TM) `l = 1` mode: it pairs
+/// with the corrected PEC-cavity TM_1,1 = 1.18710 above (3.6 %). Until
+/// issue #999 the open catalog had TE and TM swapped, so this test
+/// compared against the `b_1` magnetic-dipole root `1.88074 − 0.48181i`
+/// (physically TE_1,1), measured 34.6 % off inside a 40 % band.
 ///
-/// - `Re(k)`: 30 % of the analytic open-space `Re(k) = 1.881`. The FEM
-///   ground mode sits near `Re(k) ≈ 1.227` on the bundled fixture
-///   (~35 % low), which is *outside* a strict 30 % band — the FEM
-///   under-resolves the open-space pole because the PML truncation is
-///   physically intermediate between PEC cavity and full Sommerfeld
-///   radiation. We assert at 40 % to catch obvious regressions while
-///   acknowledging the current PML's reflection ceiling. Tightening
-///   to ~10 % is the convergence target tracked in #35 (Silver-Müller
-///   exact quadrature) and a future mesh-refinement axis.
-/// - `Q`: factor of 5 against analytic `Q ≈ 1.95`. The FEM Q for the
-///   TM_1,1 triplet sits at ≈ 27 (deliberately over-damped by the
-///   anisotropic UPML — the inner-shell impedance match is far better
-///   than free space). The band is intentionally loose; sharpening
-///   requires a more physical PML profile.
+/// **Tolerances**:
+///
+/// - `Re(k)`: 5 % of the analytic `Re(k) = 1.25896` (was 40 % against the
+///   wrong root). Measured on the bundled fixture: FEM `Re(k) = 1.22930`,
+///   2.36 % low. The ε-only PML-truncated FEM sits between the PEC cavity
+///   (1.18710) and open space (1.25896), so the residual is mostly the
+///   PEC-like truncation, not discretization.
+/// - `Q`: unchanged band `[0.2, 50]` for the FEM/analytic ratio. The FEM
+///   Q of the triplet is ≈ 27 (the ε-only UPML is impedance-mismatched and
+///   traps radiation, see `tests/sphere_matched_upml_eigenmode.rs`), vs.
+///   the analytic `Q ≈ 0.72`, so the measured ratio is ≈ 37.7 (it was
+///   ≈ 14 against the wrong root's `Q ≈ 1.95`). The band is a
+///   PML-misconfiguration tripwire, not an accuracy claim; it is not
+///   widened here.
 ///
 /// **What this asserts vs. the existing `_within_5_percent_` test**:
 /// The 5 % test compares against the *PEC-cavity* root (the FEM hits
 /// this tightly because the buffer is closed by the PEC at `R_b`).
-/// This new test compares against the *open-space* root, which is the
+/// This test compares against the *open-space* root, which is the
 /// physically correct ground truth and what `strata-fdtd` would
-/// extract from a time-domain impulse response. The looser tolerance
-/// reflects the gap between "PML-truncated FEM" and "true Sommerfeld
-/// open space", and that gap is the v1 / #35 convergence axis.
+/// extract from a time-domain impulse response.
 #[test]
 #[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_ground_mode_matches_open_space_wgm() {
@@ -422,10 +426,9 @@ fn mie_sphere_ground_mode_matches_open_space_wgm() {
     let n_inside = 1.5;
     let sigma_0 = 5.0;
 
-    // 1. Open-space analytic ground truth: TM_1,1 (the lowest mode in
-    //    the catalog above TE_1,1, and the one the FEM example's
-    //    multiplicity-claim pairing assigns to the lowest physical
-    //    multiplet).
+    // 1. Open-space analytic ground truth: TM_1,1, the a_1 electric-dipole
+    //    pole and the lowest root in the catalog — the same polarisation
+    //    as the PEC-cavity TM_1,1 the FEM ground triplet pairs with above.
     let analytic = open_space_wgm_roots_n15();
     let tm11 = analytic
         .iter()
@@ -528,14 +531,13 @@ fn mie_sphere_ground_mode_matches_open_space_wgm() {
         q_ratio
     );
 
-    // Tolerance bands per the issue spec: 40 % on Re(k) (the
-    // PML-truncated FEM under-resolves the open-space pole; observed
-    // ≈ 35 % low on the bundled fixture), and a factor of 5 on Q in
-    // either direction (the anisotropic UPML deliberately suppresses
-    // radiative loss compared to free space).
+    // Tolerance bands (doc comment): 5 % on Re(k) (measured 2.36 % low;
+    // was 40 % against the mislabelled b_1 root before issue #999), and
+    // the unchanged [0.2, 50] tripwire on the Q ratio (measured ≈ 37.7:
+    // the ε-only UPML traps radiation, FEM Q ≈ 27 vs analytic ≈ 0.72).
     assert!(
-        rel_err_re < 0.40,
-        "FEM Re(k) = {fem_re_k} differs from open-space TM_1,1 = {} by {:.1}% (> 40%)",
+        rel_err_re < 0.05,
+        "FEM Re(k) = {fem_re_k} differs from open-space TM_1,1 = {} by {:.2}% (> 5%)",
         tm11.re_k,
         rel_err_re * 100.0
     );
