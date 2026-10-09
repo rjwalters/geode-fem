@@ -6314,3 +6314,779 @@ fix_gershgorin_upper = [1.800000]
 fix_ritz_theta_reference = [1.799730]  # up to 600 Lanczos steps
 fix_ritz_gap_rel_max = 1.231e-03
 fix_default_weight_times_reference_max = 1.0798  # 0.6 * reference: below 2 means 0.6 is inside the bound by the reference value
+
+[smoother_963]
+issue = 963
+note = "Where the residual growth of the AMS iteration count comes from (26 to 55 from 1.9k to 102k edges at omega = 0.10 after #945). Each candidate is one ams_cpu_sweep.sh tree on the fixture of this file: the edge smoother (GEODE_DRIVEN_AMS_SMOOTHER), the way the two auxiliary-space corrections are combined (GEODE_DRIVEN_AMS_CYCLE) and the vector-nodal Pi^T P Pi coarse solve (GEODE_DRIVEN_AMS_PI_COARSE). The gradient-space solve is the exact LU in every tree. 'main' is clean origin/main; the others are the branch, 'default' with no knob set."
+how_to_read = "Developer machine shared with other work, single samples, RAYON_NUM_THREADS=1, one process per leg. Iteration counts are the result. process_cpu_s (user + sys of the whole process: mesh, assembly, setup, solve) is the cost figure; it is inflated by an oversubscribed host, and loadavg_1min_start is recorded per leg so it can be judged. setup_s and krylov_s are wall clock and depend on the load at that moment; they are recorded, not compared."
+run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams/smoother_963"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+branch_commit = "b57ecb710fb0daa5c476bda2bc1e61cc36c8315c dirty=625..649"  # dirty = tracked files under this run tree being rewritten by the run itself; see NOTE.txt
+omegas = [0.05, 0.1, 0.2]
+started_between = ["2026-10-09T11:24:52Z", "2026-10-09T11:39:14Z"]
+loadavg_1min_range = [46.91, 100.24]  # 28 logical CPUs
+default_equals_main_w0p05 = true  # iterations, explicit residual and port voltage, every size
+default_equals_main_w0p10 = true  # iterations, explicit residual and port voltage, every size
+default_equals_main_w0p20 = true  # iterations, explicit residual and port voltage, every size
+
+[[smoother_963_series]]
+tree = "main_w0p10"
+variant = "main"
+build = "origin/main"
+omega = 0.10
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [26, 30, 34, 39, 49, 55]
+iterations_max_over_min = 2.115
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.191  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.636e-09
+setup_s = [0.004, 0.013, 0.030, 0.076, 0.268, 0.605]  # wall clock
+krylov_s = [0.016, 0.049, 0.138, 0.340, 1.167, 2.561]  # wall clock
+process_cpu_s = [0.06, 0.17, 0.44, 0.88, 2.39, 4.72]
+process_max_rss_gb = [0.019, 0.051, 0.105, 0.200, 0.415, 0.802]
+loadavg_1min_start = [63.30, 61.75, 61.75, 61.75, 61.75, 59.37]
+
+[[smoother_963_series]]
+tree = "default_w0p10"
+variant = "default"
+build = "branch"
+omega = 0.10
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [26, 30, 34, 39, 49, 55]
+iterations_max_over_min = 2.115
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.191  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.636e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.007, 0.036, 0.116, 0.220, 0.589, 1.622]  # wall clock
+krylov_s = [0.025, 0.132, 0.348, 0.783, 2.839, 3.226]  # wall clock
+process_cpu_s = [0.06, 0.19, 0.48, 0.98, 2.76, 5.24]
+process_max_rss_gb = [0.020, 0.051, 0.102, 0.192, 0.446, 0.761]
+loadavg_1min_start = [80.08, 80.08, 79.75, 79.75, 79.75, 78.28]
+
+[[smoother_963_series]]
+tree = "cyc_mult_w0p10"
+variant = "cyc_mult"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_CYCLE=multiplicative"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [24, 26, 30, 37, 45, 53]
+iterations_max_over_min = 2.208
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.205  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.606e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.038, 0.154, 0.126, 0.256, 0.636]  # wall clock
+krylov_s = [0.013, 0.392, 0.520, 0.565, 1.440, 3.339]  # wall clock
+process_cpu_s = [0.05, 0.16, 0.42, 0.94, 2.63, 5.56]
+process_max_rss_gb = [0.019, 0.052, 0.108, 0.205, 0.455, 0.743]
+loadavg_1min_start = [69.18, 69.18, 75.09, 75.09, 75.09, 72.68]
+
+[[smoother_963_series]]
+tree = "cyc_mult_pi_amg4_w0p10"
+variant = "cyc_mult_pi_amg4"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_CYCLE=multiplicative GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [22, 24, 24, 25, 29, 31]
+iterations_max_over_min = 1.409
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.082  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.152e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.015, 0.091, 0.505, 0.696, 2.205]  # wall clock
+krylov_s = [0.025, 0.178, 1.805, 2.094, 6.054, 10.169]  # wall clock
+process_cpu_s = [0.07, 0.21, 0.55, 1.15, 3.12, 5.44]
+process_max_rss_gb = [0.022, 0.056, 0.128, 0.214, 0.480, 0.738]
+loadavg_1min_start = [57.34, 57.34, 57.34, 61.32, 61.77, 66.42]
+
+[[smoother_963_series]]
+tree = "cyc_mult_pi_direct_w0p10"
+variant = "cyc_mult_pi_direct"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_CYCLE=multiplicative GEODE_DRIVEN_AMS_PI_COARSE=direct"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [19, 19, 19, 19, 18, 18]
+iterations_max_over_min = 1.056
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = -0.015  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.662e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.006, 0.026, 0.119, 0.353, 2.377, 7.027]  # wall clock
+krylov_s = [0.008, 0.024, 0.093, 0.259, 1.107, 2.621]  # wall clock
+process_cpu_s = [0.05, 0.15, 0.41, 1.01, 4.35, 9.76]
+process_max_rss_gb = [0.019, 0.061, 0.150, 0.353, 0.974, 2.057]
+loadavg_1min_start = [66.81, 66.81, 66.81, 66.81, 66.81, 64.35]
+
+[[smoother_963_series]]
+tree = "pi_amg2_w0p10"
+variant = "pi_amg2"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=amg:2"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [28, 28, 32, 33, 39, 46]
+iterations_max_over_min = 1.643
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.122  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.402e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.016, 0.042, 0.095, 0.400, 0.896]  # wall clock
+krylov_s = [0.018, 0.060, 0.171, 0.368, 1.341, 3.664]  # wall clock
+process_cpu_s = [0.05, 0.18, 0.43, 0.86, 2.43, 4.84]
+process_max_rss_gb = [0.018, 0.051, 0.104, 0.198, 0.462, 0.768]
+loadavg_1min_start = [55.90, 55.90, 55.90, 55.90, 53.34, 53.34]
+
+[[smoother_963_series]]
+tree = "pi_amg4_w0p10"
+variant = "pi_amg4"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [28, 27, 29, 30, 33, 35]
+iterations_max_over_min = 1.296
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.061  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.099e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.016, 0.041, 0.151, 0.308, 1.101]  # wall clock
+krylov_s = [0.029, 0.123, 0.301, 0.761, 1.649, 3.159]  # wall clock
+process_cpu_s = [0.07, 0.24, 0.55, 1.19, 2.89, 5.51]
+process_max_rss_gb = [0.022, 0.058, 0.108, 0.217, 0.467, 0.746]
+loadavg_1min_start = [57.73, 57.73, 56.87, 56.87, 56.87, 55.60]
+
+[[smoother_963_series]]
+tree = "pi_amg6_w0p10"
+variant = "pi_amg6"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=amg:6"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [26, 29, 29, 29, 30, 32]
+iterations_max_over_min = 1.231
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.042  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.551e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.005, 0.021, 0.045, 0.114, 0.306, 0.635]  # wall clock
+krylov_s = [0.039, 0.264, 0.638, 0.953, 2.110, 6.569]  # wall clock
+process_cpu_s = [0.07, 0.28, 0.70, 1.45, 3.34, 6.24]
+process_max_rss_gb = [0.019, 0.052, 0.106, 0.205, 0.472, 0.738]
+loadavg_1min_start = [54.42, 54.42, 54.42, 53.10, 53.10, 50.61]
+
+[[smoother_963_series]]
+tree = "pi_direct_w0p10"
+variant = "pi_direct"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=direct"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [28, 33, 32, 33, 30, 31]
+iterations_max_over_min = 1.179
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.012  # slope of log(iterations) on log(edges)
+residual_rel_max = 7.858e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.006, 0.029, 0.105, 0.371, 2.356, 10.762]  # wall clock
+krylov_s = [0.006, 0.039, 0.146, 0.448, 1.498, 3.569]  # wall clock
+process_cpu_s = [0.06, 0.16, 0.48, 1.21, 4.70, 11.49]
+process_max_rss_gb = [0.021, 0.059, 0.146, 0.366, 1.038, 2.051]
+loadavg_1min_start = [77.70, 73.48, 73.48, 73.48, 69.03, 65.35]
+
+[[smoother_963_series]]
+tree = "pi_sgs16_w0p10"
+variant = "pi_sgs16"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [28, 29, 27, 28, 31, 33]
+iterations_max_over_min = 1.222
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.036  # slope of log(iterations) on log(edges)
+residual_rel_max = 7.631e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.011, 0.030, 0.101, 0.383, 0.704]  # wall clock
+krylov_s = [0.044, 0.161, 0.406, 1.042, 3.028, 5.102]  # wall clock
+process_cpu_s = [0.08, 0.29, 0.60, 1.27, 3.30, 5.96]
+process_max_rss_gb = [0.021, 0.058, 0.112, 0.194, 0.454, 0.748]
+loadavg_1min_start = [59.17, 59.17, 59.17, 58.12, 58.12, 57.71]
+
+[[smoother_963_series]]
+tree = "pi_sgs8_w0p10"
+variant = "pi_sgs8"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:8"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [27, 28, 29, 31, 36, 41]
+iterations_max_over_min = 1.519
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.101  # slope of log(iterations) on log(edges)
+residual_rel_max = 5.474e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.012, 0.029, 0.388, 0.290, 1.118]  # wall clock
+krylov_s = [0.021, 0.077, 0.267, 0.623, 2.185, 4.009]  # wall clock
+process_cpu_s = [0.06, 0.19, 0.46, 0.99, 2.61, 5.12]
+process_max_rss_gb = [0.021, 0.052, 0.112, 0.195, 0.451, 0.743]
+loadavg_1min_start = [54.43, 54.43, 51.75, 51.75, 51.75, 52.89]
+
+[[smoother_963_series]]
+tree = "sm_chebyshev2_w0p10"
+variant = "sm_chebyshev2"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_SMOOTHER=chebyshev:2"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [21, 25, 31, 34, 46, 54]
+iterations_max_over_min = 2.571
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.237  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.532e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.012, 0.035, 0.076, 0.255, 0.600]  # wall clock
+krylov_s = [0.011, 0.051, 0.149, 0.348, 1.471, 2.856]  # wall clock
+process_cpu_s = [0.05, 0.16, 0.41, 0.83, 2.44, 4.74]
+process_max_rss_gb = [0.019, 0.058, 0.108, 0.207, 0.457, 0.787]
+loadavg_1min_start = [47.94, 47.94, 46.91, 46.91, 46.91, 47.07]
+
+[[smoother_963_series]]
+tree = "sm_chebyshev3_w0p10"
+variant = "sm_chebyshev3"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_SMOOTHER=chebyshev:3"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [20, 25, 30, 35, 44, 50]
+iterations_max_over_min = 2.500
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.231  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.883e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.007, 0.012, 0.029, 0.494, 1.022, 0.740]  # wall clock
+krylov_s = [0.012, 0.069, 0.232, 1.913, 4.530, 3.200]  # wall clock
+process_cpu_s = [0.04, 0.17, 0.41, 0.88, 2.62, 4.77]
+process_max_rss_gb = [0.020, 0.051, 0.103, 0.197, 0.456, 0.751]
+loadavg_1min_start = [47.79, 47.79, 47.79, 49.57, 58.25, 63.27]
+
+[[smoother_963_series]]
+tree = "sm_jacobi2_w0p10"
+variant = "sm_jacobi2"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_SMOOTHER=jacobi:2"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [22, 26, 30, 38, 46, 54]
+iterations_max_over_min = 2.455
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.229  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.754e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.012, 0.038, 0.078, 0.250, 0.578]  # wall clock
+krylov_s = [0.011, 0.048, 0.192, 0.438, 1.201, 2.562]  # wall clock
+process_cpu_s = [0.06, 0.18, 0.38, 0.86, 2.39, 4.75]
+process_max_rss_gb = [0.020, 0.051, 0.091, 0.206, 0.466, 0.763]
+loadavg_1min_start = [55.04, 55.04, 55.04, 55.04, 53.52, 53.52]
+
+[[smoother_963_series]]
+tree = "sm_l1jacobi_w0p10"
+variant = "sm_l1jacobi"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_SMOOTHER=l1jacobi:1"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [32, 32, 35, 40, 51, 58]
+iterations_max_over_min = 1.812
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.157  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.015e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.011, 0.031, 0.076, 0.266, 0.604]  # wall clock
+krylov_s = [0.016, 0.051, 0.140, 0.361, 1.228, 2.606]  # wall clock
+process_cpu_s = [0.07, 0.17, 0.41, 0.85, 2.40, 4.85]
+process_max_rss_gb = [0.020, 0.042, 0.114, 0.200, 0.448, 0.737]
+loadavg_1min_start = [54.04, 51.39, 51.39, 51.39, 51.39, 49.68]
+
+[[smoother_963_series]]
+tree = "sm_sgs1_w0p10"
+variant = "sm_sgs1"
+build = "branch"
+omega = 0.10
+knobs = "GEODE_DRIVEN_AMS_SMOOTHER=sgs:1"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [20, 25, 30, 35, 43, 51]
+iterations_max_over_min = 2.550
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.232  # slope of log(iterations) on log(edges)
+residual_rel_max = 7.315e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.015, 0.032, 0.107, 0.302, 0.596]  # wall clock
+krylov_s = [0.012, 0.059, 0.179, 0.492, 1.652, 2.721]  # wall clock
+process_cpu_s = [0.05, 0.17, 0.40, 0.94, 2.64, 4.90]
+process_max_rss_gb = [0.021, 0.050, 0.112, 0.207, 0.448, 0.742]
+loadavg_1min_start = [70.72, 70.72, 70.18, 70.18, 70.18, 70.33]
+
+[[smoother_963_series]]
+tree = "main_w0p05"
+variant = "main"
+build = "origin/main"
+omega = 0.05
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [27, 29, 33, 37, 47, 55]
+iterations_max_over_min = 2.037
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.180  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.643e-09
+setup_s = [0.009, 0.017, 0.337, 0.302, 0.759, 1.368]  # wall clock
+krylov_s = [0.047, 0.325, 0.502, 1.824, 2.576, 5.027]  # wall clock
+process_cpu_s = [0.05, 0.15, 0.39, 0.86, 2.45, 4.91]
+process_max_rss_gb = [0.020, 0.042, 0.095, 0.198, 0.437, 0.727]
+loadavg_1min_start = [88.48, 88.48, 88.48, 94.69, 100.24, 98.14]
+
+[[smoother_963_series]]
+tree = "default_w0p05"
+variant = "default"
+build = "branch"
+omega = 0.05
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [27, 29, 33, 37, 47, 55]
+iterations_max_over_min = 2.037
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.180  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.643e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.007, 0.011, 0.042, 0.107, 0.336, 1.251]  # wall clock
+krylov_s = [0.016, 0.059, 0.150, 0.446, 1.354, 3.160]  # wall clock
+process_cpu_s = [0.05, 0.15, 0.40, 0.82, 2.42, 4.97]
+process_max_rss_gb = [0.019, 0.043, 0.110, 0.194, 0.449, 0.741]
+loadavg_1min_start = [92.14, 87.81, 87.81, 87.81, 87.81, 83.98]
+
+[[smoother_963_series]]
+tree = "pi_amg4_w0p05"
+variant = "pi_amg4"
+build = "branch"
+omega = 0.05
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [26, 27, 27, 28, 30, 33]
+iterations_max_over_min = 1.269
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.054  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.664e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.008, 0.015, 0.039, 0.246, 0.439, 0.938]  # wall clock
+krylov_s = [0.028, 0.133, 0.283, 0.981, 2.097, 3.748]  # wall clock
+process_cpu_s = [0.07, 0.20, 0.53, 1.12, 2.78, 5.22]
+process_max_rss_gb = [0.021, 0.046, 0.115, 0.215, 0.476, 0.733]
+loadavg_1min_start = [63.14, 63.14, 60.88, 60.88, 60.88, 59.69]
+
+[[smoother_963_series]]
+tree = "pi_direct_w0p05"
+variant = "pi_direct"
+build = "branch"
+omega = 0.05
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=direct"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [25, 29, 28, 29, 30, 30]
+iterations_max_over_min = 1.200
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.040  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.888e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.013, 0.030, 0.119, 1.166, 2.649, 11.016]  # wall clock
+krylov_s = [0.006, 0.039, 0.116, 0.458, 1.551, 4.803]  # wall clock
+process_cpu_s = [0.04, 0.16, 0.45, 1.24, 4.84, 10.86]
+process_max_rss_gb = [0.020, 0.063, 0.153, 0.363, 1.174, 2.050]
+loadavg_1min_start = [82.22, 82.22, 81.16, 81.16, 77.94, 74.42]
+
+[[smoother_963_series]]
+tree = "pi_sgs16_w0p05"
+variant = "pi_sgs16"
+build = "branch"
+omega = 0.05
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [27, 26, 27, 27, 29, 32]
+iterations_max_over_min = 1.231
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.039  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.642e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.007, 0.012, 0.031, 0.071, 0.302, 0.664]  # wall clock
+krylov_s = [0.042, 0.129, 0.371, 0.824, 2.055, 4.486]  # wall clock
+process_cpu_s = [0.07, 0.24, 0.59, 1.18, 3.20, 6.09]
+process_max_rss_gb = [0.021, 0.052, 0.106, 0.191, 0.442, 0.749]
+loadavg_1min_start = [71.84, 71.84, 71.84, 71.84, 68.57, 65.24]
+
+[[smoother_963_series]]
+tree = "main_w0p20"
+variant = "main"
+build = "origin/main"
+omega = 0.20
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [29, 32, 34, 40, 52, 57]
+iterations_max_over_min = 1.966
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.177  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.125e-09
+setup_s = [0.004, 0.017, 0.030, 0.084, 0.300, 0.570]  # wall clock
+krylov_s = [0.013, 0.061, 0.145, 0.394, 1.393, 2.599]  # wall clock
+process_cpu_s = [0.05, 0.17, 0.39, 0.89, 2.55, 4.67]
+process_max_rss_gb = [0.018, 0.051, 0.100, 0.199, 0.468, 0.758]
+loadavg_1min_start = [60.08, 60.08, 60.08, 60.08, 58.40, 58.40]
+
+[[smoother_963_series]]
+tree = "default_w0p20"
+variant = "default"
+build = "branch"
+omega = 0.20
+knobs = "none"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [29, 32, 34, 40, 52, 57]
+iterations_max_over_min = 1.966
+within_flat_band = false  # max / min <= 1.520
+growth_exponent_lsq = 0.177  # slope of log(iterations) on log(edges)
+residual_rel_max = 8.125e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.003, 0.012, 0.168, 0.301, 0.888, 1.887]  # wall clock
+krylov_s = [0.033, 0.194, 0.648, 1.501, 3.994, 5.818]  # wall clock
+process_cpu_s = [0.05, 0.17, 0.41, 0.86, 2.66, 5.11]
+process_max_rss_gb = [0.020, 0.042, 0.098, 0.193, 0.452, 0.767]
+loadavg_1min_start = [59.50, 59.50, 59.50, 60.82, 60.82, 65.06]
+
+[[smoother_963_series]]
+tree = "pi_amg4_w0p20"
+variant = "pi_amg4"
+build = "branch"
+omega = 0.20
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [30, 31, 31, 33, 35, 38]
+iterations_max_over_min = 1.267
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.056  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.960e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.015, 0.066, 0.382, 0.394, 4.965]  # wall clock
+krylov_s = [0.032, 0.229, 0.769, 1.275, 12.312, 23.429]  # wall clock
+process_cpu_s = [0.07, 0.23, 0.58, 1.25, 3.01, 5.87]
+process_max_rss_gb = [0.023, 0.050, 0.103, 0.213, 0.484, 0.762]
+loadavg_1min_start = [84.21, 84.21, 84.03, 84.03, 81.07, 81.99]
+
+[[smoother_963_series]]
+tree = "pi_direct_w0p20"
+variant = "pi_direct"
+build = "branch"
+omega = 0.20
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=direct"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [30, 34, 34, 33, 33, 33]
+iterations_max_over_min = 1.133
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.016  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.255e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.006, 0.038, 0.237, 0.608, 4.349, 14.488]  # wall clock
+krylov_s = [0.009, 0.032, 0.283, 0.663, 3.012, 5.921]  # wall clock
+process_cpu_s = [0.04, 0.16, 0.49, 1.25, 4.97, 12.23]
+process_max_rss_gb = [0.019, 0.060, 0.142, 0.353, 0.963, 2.033]
+loadavg_1min_start = [69.17, 69.17, 69.17, 69.17, 66.99, 66.33]
+
+[[smoother_963_series]]
+tree = "pi_sgs16_w0p20"
+variant = "pi_sgs16"
+build = "branch"
+omega = 0.20
+knobs = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+n_edges = [1854, 5859, 13428, 25695, 59660, 102024]
+converged = [true, true, true, true, true, true]
+iterations = [30, 30, 31, 30, 32, 32]
+iterations_max_over_min = 1.067
+within_flat_band = true  # max / min <= 1.520
+growth_exponent_lsq = 0.017  # slope of log(iterations) on log(edges)
+residual_rel_max = 9.705e-09
+port_v_rel_diff_vs_main_max = 0.000e+00  # same tolerance, different preconditioner
+setup_s = [0.004, 0.012, 0.119, 0.301, 0.529, 1.540]  # wall clock
+krylov_s = [0.046, 0.895, 2.314, 2.312, 9.827, 6.919]  # wall clock
+process_cpu_s = [0.07, 0.27, 0.67, 1.33, 3.50, 5.83]
+process_max_rss_gb = [0.017, 0.045, 0.105, 0.197, 0.451, 0.749]
+loadavg_1min_start = [65.47, 64.95, 64.95, 67.19, 67.18, 74.69]
+
+[smoother_963.finding]
+growth_source = "The vector-nodal coarse solve. With the shipped 4-sweep symmetric Gauss-Seidel on Pi^T P Pi the count is 26/30/34/39/49/55 (max/min 2.12); with an exact LU there and nothing else changed it is 28/33/32/33/30/31 (1.18), and at omega = 0.05 / 0.20 1.20 / 1.13. More SGS sweeps there narrow the growth in step (sgs:8 1.52, sgs:16 1.22). A fixed number of SGS sweeps is not a mesh-independent approximate inverse of a Laplacian-like block, which is what the Hiptmair-Xu bound assumes; the gradient block is already exact."
+not_the_smoother = "No edge smoother tried removes the growth: chebyshev2 21/25/31/34/46/54 (2.57), chebyshev3 20/25/30/35/44/50 (2.50), jacobi2 22/26/30/38/46/54 (2.45), l1jacobi 32/32/35/40/51/58 (1.81), sgs1 20/25/30/35/43/51 (2.55), against 26/30/34/39/49/55 (2.12) for the default damped Jacobi. A stronger smoother lowers the small-mesh count and leaves the slope."
+not_proxy_or_port = "With exact auxiliary solves the count is flat (28/33/32/33/30/31; 19/19/19/19/18/18 with the multiplicative 0-1-2-1-0 cycle), so the parts not changed between those trees and the default (the real SPD proxy P(omega) for the complex operator, the port and loss terms in it) add no mesh dependence on this fixture. They set the level, not the growth. Not separately diagnosed: that is implied by the flat exact-solve series."
+level_vs_palace = "With an exact Pi solve, combining the two auxiliary corrections multiplicatively instead of additively lowers the count from 28/33/32/33/30/31 to 19/19/19/19/18/18, the closest to Palace's AMS (12 to 17 on the r6i record) of any variant here. What remains of that gap was not investigated (Palace runs GMRES and hypre's own AMS cycle and smoother)."
+cost_at_largest = "At 102024 edges, process CPU seconds: default 5.24 (55 it, 0.76 GB), Pi amg:4 5.51 (35 it, 0.75 GB), Pi sgs:16 5.96 (33 it, 0.75 GB), Pi direct 11.49 (31 it, 2.05 GB). The flat-band variants do fewer but dearer iterations, and up to this size that does not pay for itself; single samples on a loaded host."
+pi_amg4_rss_over_default = [1.112, 1.135, 1.057, 1.132, 1.048, 0.980]  # peak RSS of the whole process, per size
+pi_amg4_cpu_over_baseline_w0p05 = [1.40, 1.33, 1.34, 1.33, 1.14, 1.06]  # process CPU / mean of main and default, per size
+pi_sgs16_cpu_over_baseline_w0p05 = [1.40, 1.60, 1.49, 1.40, 1.31, 1.23]  # process CPU / mean of main and default, per size
+pi_amg4_cpu_over_baseline_w0p10 = [1.17, 1.33, 1.20, 1.28, 1.12, 1.11]  # process CPU / mean of main and default, per size
+pi_sgs16_cpu_over_baseline_w0p10 = [1.33, 1.61, 1.30, 1.37, 1.28, 1.20]  # process CPU / mean of main and default, per size
+pi_amg4_cpu_over_baseline_w0p20 = [1.40, 1.35, 1.45, 1.43, 1.16, 1.20]  # process CPU / mean of main and default, per size
+pi_sgs16_cpu_over_baseline_w0p20 = [1.40, 1.59, 1.68, 1.52, 1.34, 1.19]  # process CPU / mean of main and default, per size
+baseline_cpu_spread_max = 0.144  # |main - default| / mean, identical code: the noise floor
+flat_band_variants_w0p10 = ['cyc_mult_pi_amg4', 'cyc_mult_pi_direct', 'pi_amg4', 'pi_amg6', 'pi_direct', 'pi_sgs16', 'pi_sgs8']
+flat_band_at_all_omegas = ['pi_amg4', 'pi_direct', 'pi_sgs16']
+default_changed = false  # the shipped V-cycle is unchanged; every candidate is an opt-in knob
+recommendation = "Keep the default. The growth is the vector-nodal block, so the fix is a mesh-independent Pi solve, and of those measured amg:4 (GEODE_DRIVEN_AMS_PI_COARSE=amg:4) is the candidate: flat at all three frequencies, O(n) per apply, and with a peak memory close to the default's (pi_amg4_rss_over_default) where the exact LU needs 2.7 times it at 102024 edges. It costs more process CPU than the default at every size and frequency measured, by a ratio that falls with size (pi_amg4_cpu_over_baseline_*) to about the noise floor (baseline_cpu_spread_max) at the largest, so the switch rests on the at-scale cells (the r6i ladder to 898k edges, where the default takes 105 iterations), which are operator-run. Combine it with GEODE_DRIVEN_AMS_CYCLE=multiplicative there to also measure the level. Smoother changes (l1-Jacobi, Chebyshev, more Jacobi or SGS sweeps) are not worth a default change on this evidence."
+
+[[smoother_963_validation]]
+name = "spiral_smoke"
+exercises = "driven COCG + AMS, 14k-edge spiral, 4 frequencies (#744)"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 6.13  # includes the direct reference solve
+main_loadavg_1min_start = 44.62
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 6.16  # includes the direct reference solve
+default_loadavg_1min_start = 30.62
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [110, 128, 139, 155]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 11.42  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 26.54
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [104, 129, 139, 158]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 12.12  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 20.69
+
+[[smoother_963_validation]]
+name = "spiral_benchmark"
+exercises = "driven COCG + AMS, 53k-edge spiral, 1 GHz (#744)"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [114]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 17.71  # includes the direct reference solve
+main_loadavg_1min_start = 40.75
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [114]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 17.78  # includes the direct reference solve
+default_loadavg_1min_start = 29.21
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [101]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 20.61  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 25.30
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [101]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 22.17  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 25.33
+
+[[smoother_963_validation]]
+name = "spiral_aniso"
+exercises = "driven COCG + AMS, smoke spiral with anisotropic materials, 1 and 10 GHz"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [118, 148]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 3.28  # includes the direct reference solve
+main_loadavg_1min_start = 36.36
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [118, 148]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 3.49  # includes the direct reference solve
+default_loadavg_1min_start = 25.28
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [116, 149]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 5.94  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 24.03
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [116, 149]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 6.40  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 25.37
+
+[[smoother_963_validation]]
+name = "spiral_ds"
+exercises = "driven COCG + AMS, Djordjevic-Sarkar dielectric spiral"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 7.31  # includes the direct reference solve
+main_loadavg_1min_start = 34.81
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [112, 131, 145, 159]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 8.41  # includes the direct reference solve
+default_loadavg_1min_start = 26.60
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [110, 128, 139, 155]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 13.16  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 23.63
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [104, 129, 139, 158]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 12.83  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 29.12
+
+[[smoother_963_validation]]
+name = "spiral_drude"
+exercises = "driven COCG + AMS, Drude conductor spiral"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [229, 202, 232, 235]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 9.10  # includes the direct reference solve
+main_loadavg_1min_start = 33.70
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [229, 202, 232, 235]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 9.21  # includes the direct reference solve
+default_loadavg_1min_start = 30.13
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [215, 201, 226, 229]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 18.09  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 22.84
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [216, 206, 221, 239]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 18.79  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 28.19
+
+[[smoother_963_validation]]
+name = "spiral_debye"
+exercises = "driven COCG + AMS, Debye dielectric spiral (knife edge, #943)"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [120, 153, 163, 186]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 7.73  # includes the direct reference solve
+main_loadavg_1min_start = 31.66
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [120, 153, 163, 186]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 7.79  # includes the direct reference solve
+default_loadavg_1min_start = 29.02
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [114, 151, 164, 176]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 13.97  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 21.59
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [114, 150, 167, 177]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 14.46  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 32.08
+
+[[smoother_963_validation]]
+name = "rough"
+exercises = "driven COCG + AMS, rough-conductor spiral (#758)"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_iterations = [107, 117, 128, 135]  # COCG iterations per frequency, as the test prints them
+main_process_cpu_s = 6.29  # includes the direct reference solve
+main_loadavg_1min_start = 30.31
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_iterations = [107, 117, 128, 135]  # COCG iterations per frequency, as the test prints them
+default_process_cpu_s = 5.89  # includes the direct reference solve
+default_loadavg_1min_start = 27.55
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_iterations = [96, 113, 120, 130]  # COCG iterations per frequency, as the test prints them
+pi_amg4_process_cpu_s = 9.95  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 21.19
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_iterations = [97, 113, 120, 131]  # COCG iterations per frequency, as the test prints them
+pi_sgs16_process_cpu_s = 11.23  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 30.58
+
+[[smoother_963_validation]]
+name = "driven_public"
+exercises = "driven COCG + AMS on the public iterative path, PEC cube n = 4"
+main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0"
+main_env = "none"
+main_passed = true
+main_process_cpu_s = 0.02  # includes the direct reference solve
+main_loadavg_1min_start = 34.90
+default_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+default_env = "none"
+default_passed = true
+default_process_cpu_s = 0.04  # includes the direct reference solve
+default_loadavg_1min_start = 26.54
+pi_amg4_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_amg4_env = "GEODE_DRIVEN_AMS_PI_COARSE=amg:4"
+pi_amg4_passed = true
+pi_amg4_process_cpu_s = 0.04  # includes the direct reference solve
+pi_amg4_loadavg_1min_start = 20.92
+pi_sgs16_commit = "0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0"
+pi_sgs16_env = "GEODE_DRIVEN_AMS_PI_COARSE=sgs:16"
+pi_sgs16_passed = true
+pi_sgs16_process_cpu_s = 0.02  # includes the direct reference solve
+pi_sgs16_loadavg_1min_start = 33.92
+
+[smoother_963_validation_summary]
+all_passed = true  # 32 runs
+pi_amg4_vs_default = "21 solves fewer iterations, 0 equal, 2 more: spiral_aniso[1] 149 vs 148; spiral_debye[2] 164 vs 163"
+pi_sgs16_vs_default = "19 solves fewer iterations, 0 equal, 4 more: spiral_aniso[1] 149 vs 148; spiral_drude[1] 206 vs 202; spiral_drude[3] 239 vs 235; spiral_debye[2] 167 vs 163"
+default_iterations_equal_main = true  # every test that prints its counts

@@ -277,6 +277,33 @@ impl PortFaceProjection {
     /// cross-section's physical-mode count (interior edges − interior
     /// nodes − holes) or the solve resolves fewer than `n_modes` modes.
     pub fn solve_modes(&self, n_modes: usize) -> Result<Vec<WaveguideModeProfile>, PortFaceError> {
+        Ok(self.solve_modes_with_candidates(n_modes)?.0)
+    }
+
+    /// [`Self::solve_modes`] together with the candidate records of the
+    /// same solve's cluster decision, exactly as
+    /// [`Self::degenerate_candidates`]`(n_modes, P1)` returns them (issue
+    /// #952): one raw face solve, plus the confirming p=2 solve when the
+    /// face has a candidate pair, for both.
+    fn solve_modes_with_candidates(
+        &self,
+        n_modes: usize,
+    ) -> Result<(Vec<WaveguideModeProfile>, Vec<DegenerateCandidate>), PortFaceError> {
+        let mut modes = self.raw_modes_p1(n_modes)?;
+        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
+        let (upto, links, mut records) = self.cluster_decision(&lam, n_modes, ElementOrder::P1);
+        let clusters = clusters_from_links(upto, &links);
+        records.retain(|c| c.index < n_modes);
+        modes.truncate(clusters.last().map_or(0, |c| c.1));
+        let profiles =
+            gauge_whitney_modes(&self.tri_mesh, &self.edges, &modes, &clusters, n_modes)?;
+        Ok((profiles, records))
+    }
+
+    /// The raw (ungauged) p=1 face solve behind [`Self::solve_modes`] and
+    /// [`Self::degenerate_candidates`]: the `n_modes` lowest modes, then
+    /// any further modes the same solve resolved, `λ` ascending.
+    fn raw_modes_p1(&self, n_modes: usize) -> Result<Vec<WaveguideModeProfile>, PortFaceError> {
         // de Rham count: interior edges minus interior nodes (the gradient
         // nullspace) minus one harmonic (curl-free, non-gradient) field per
         // hole is the number of k_c > 0 modes the discrete E_t-only pencil
@@ -290,6 +317,7 @@ impl PortFaceProjection {
                 found: available,
             });
         }
+        count_face_solve(|c| c.primary_p1 += 1);
         let (mut modes, beyond) = solve_waveguide_modes_ungauged(
             &self.tri_mesh,
             &self.edges,
@@ -304,16 +332,7 @@ impl PortFaceProjection {
             });
         }
         modes.extend(beyond);
-        let lam: Vec<f64> = modes.iter().map(|m| m.lambda).collect();
-        let clusters = self.degenerate_clusters(&lam, n_modes, ElementOrder::P1);
-        modes.truncate(clusters.last().map_or(0, |c| c.1));
-        Ok(gauge_whitney_modes(
-            &self.tri_mesh,
-            &self.edges,
-            &modes,
-            &clusters,
-            n_modes,
-        )?)
+        Ok(modes)
     }
 
     /// The degenerate clusters (`[start, end)`, consecutive, from mode 0)
@@ -423,7 +442,9 @@ impl PortFaceProjection {
     /// numbers the canonical gauge decided it on and that decision
     /// (issue #896). This repeats the raw mode solve and the confirming
     /// solve of [`Self::solve_modes`] / [`Self::solve_modes_p2`] and makes
-    /// the same decision, bit for bit.
+    /// the same decision, bit for bit; a caller that also builds the p=1
+    /// port gets both from one solve with [`Self::wave_port_with_candidates`]
+    /// (issue #952).
     ///
     /// [`DegenerateCandidate::warning`] is the per-pair note (an ambiguous
     /// decision, a near-degenerate distinct pair, a failed confirmation);
@@ -441,29 +462,11 @@ impl PortFaceProjection {
         order: ElementOrder,
     ) -> Result<Vec<DegenerateCandidate>, PortFaceError> {
         let lam: Vec<f64> = match order {
-            ElementOrder::P1 => {
-                let available = self.available_modes_p1();
-                if n_modes > available {
-                    return Err(PortFaceError::TooFewModes {
-                        requested: n_modes,
-                        found: available,
-                    });
-                }
-                let (modes, beyond) = solve_waveguide_modes_ungauged(
-                    &self.tri_mesh,
-                    &self.edges,
-                    &self.interior_edge_mask,
-                    n_modes,
-                    None,
-                )?;
-                if modes.len() < n_modes {
-                    return Err(PortFaceError::TooFewModes {
-                        requested: n_modes,
-                        found: modes.len(),
-                    });
-                }
-                modes.iter().chain(&beyond).map(|m| m.lambda).collect()
-            }
+            ElementOrder::P1 => self
+                .raw_modes_p1(n_modes)?
+                .iter()
+                .map(|m| m.lambda)
+                .collect(),
             ElementOrder::P2 => self
                 .solve_modes_p2_raw(n_modes, None)?
                 .iter()
@@ -526,6 +529,7 @@ impl PortFaceProjection {
             ElementOrder::P2 => self.available_modes_p1(),
         };
         let request = (n + CONFIRMATION_MARGIN).min(available).max(n);
+        count_face_solve(|c| c.confirming += 1);
         let lam: Vec<f64> = match order {
             ElementOrder::P1 => self
                 .solve_modes_p2_raw(request, Some(sigma))
@@ -845,6 +849,26 @@ impl PortFaceProjection {
         mesh_edges: &[[u32; 2]],
         a_inc: &[c64],
     ) -> Result<WavePort, PortFaceError> {
+        Ok(self.wave_port_with_candidates(mesh_edges, a_inc)?.0)
+    }
+
+    /// [`Self::wave_port`] together with the candidate degenerate pairs of
+    /// its mode solve's cluster decision (issue #952): the port bit for
+    /// bit as [`Self::wave_port`] builds it, and the records exactly as
+    /// [`Self::degenerate_candidates`]`(a_inc.len(), ElementOrder::P1)`
+    /// returns them, from **one** raw face solve (plus the confirming p=2
+    /// solve when the face has a candidate pair) instead of one each.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::wave_port`]. On an error no records are returned; a
+    /// caller that still wants them (a port whose gauge failed, say) asks
+    /// [`Self::degenerate_candidates`], which does not gauge.
+    pub fn wave_port_with_candidates(
+        &self,
+        mesh_edges: &[[u32; 2]],
+        a_inc: &[c64],
+    ) -> Result<(WavePort, Vec<DegenerateCandidate>), PortFaceError> {
         if a_inc.is_empty() {
             return Err(PortFaceError::InvalidAmplitude(
                 "a wave port needs at least one mode (one a_inc entry per mode)".into(),
@@ -869,7 +893,7 @@ impl PortFaceProjection {
         {
             return Err(PortFaceError::EdgeNotInMesh { edge: *e });
         }
-        let profiles = self.solve_modes(a_inc.len())?;
+        let (profiles, candidates) = self.solve_modes_with_candidates(a_inc.len())?;
         let modes = profiles
             .iter()
             .zip(a_inc)
@@ -879,12 +903,61 @@ impl PortFaceProjection {
                 a_inc: a,
             })
             .collect();
-        Ok(WavePort {
-            faces: self.faces.clone(),
-            modes,
-            medium: PortMedium::VACUUM,
-        })
+        Ok((
+            WavePort {
+                faces: self.faces.clone(),
+                modes,
+                medium: PortMedium::VACUUM,
+            },
+            candidates,
+        ))
     }
+}
+
+/// How many port-face mode solves [`PortFaceProjection`] has run **on the
+/// calling thread** (issue #952): a diagnostic for tests and benchmarks
+/// that pin how often a caller solves a face. Read it before and after the
+/// work and subtract ([`face_solve_counts`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FaceSolveCounts {
+    /// Raw p=1 face mode solves ([`PortFaceProjection::solve_modes`],
+    /// [`PortFaceProjection::wave_port`] and
+    /// [`PortFaceProjection::wave_port_with_candidates`], and
+    /// [`PortFaceProjection::degenerate_candidates`] at p=1).
+    pub primary_p1: usize,
+    /// Cluster-confirming solves at the other element order (one per solve
+    /// whose modes hold a candidate degenerate pair).
+    pub confirming: usize,
+}
+
+impl std::ops::Sub for FaceSolveCounts {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            primary_p1: self.primary_p1 - rhs.primary_p1,
+            confirming: self.confirming - rhs.confirming,
+        }
+    }
+}
+
+thread_local! {
+    static FACE_SOLVES: std::cell::Cell<FaceSolveCounts> =
+        const { std::cell::Cell::new(FaceSolveCounts { primary_p1: 0, confirming: 0 }) };
+}
+
+/// Record one face solve on this thread's [`FaceSolveCounts`].
+fn count_face_solve(f: impl FnOnce(&mut FaceSolveCounts)) {
+    FACE_SOLVES.with(|c| {
+        let mut n = c.get();
+        f(&mut n);
+        c.set(n);
+    });
+}
+
+/// This thread's [`FaceSolveCounts`] so far (issue #952). Per thread, so
+/// concurrent tests do not see each other's solves.
+pub fn face_solve_counts() -> FaceSolveCounts {
+    FACE_SOLVES.with(std::cell::Cell::get)
 }
 
 /// Modes the cluster-confirming solve asks for past the block under test
@@ -1506,7 +1579,12 @@ pub fn wave_port_from_faces(
 ///
 /// (and up to `k_c·h_n` = 3.42 on a `4 × 2` cross-section: −18.0 %, 0.0154).
 /// On these structured meshes, uniform along the guide, the undershoot is
-/// `≈ 0.0205·(k_c·h_n)²` and never above it.
+/// `≈ 0.0205·(k_c·h_n)²` and never above it. That holds on the meshes
+/// measured, all on boxes shorter than the guard's reach. It does not hold
+/// on every mesh: on coarse Gmsh guides longer than the reach the 3-D p=2
+/// box has TM-like modes up to 44 % below the face value, at
+/// `0.046·(k_c·h_n)²` ([`tm_guard_margin`], "Long guides: where the guard
+/// fails").
 ///
 /// `h_n` is read over the guide, not at the face. It is
 /// [`PortFaceProjection::guide_axial_spacing`] over
@@ -1548,7 +1626,11 @@ pub const TM_GUARD_MARGIN: f64 = 0.05;
 /// every mesh measured, with `h_n` read over the guide window
 /// ([`PortFaceProjection::guide_axial_spacing`]; uniform, graded and
 /// stepped-layer guides, structured and Gmsh; see [`TM_GUARD_MARGIN`]).
-/// 0.025 bounds it with headroom.
+/// 0.025 bounds it with headroom **on those meshes**, all on boxes shorter
+/// than the guard's reach. It is not a bound on every mesh: on coarse Gmsh
+/// guides longer than the reach the 3-D p=2 box has TM-like modes at up to
+/// `0.046·(k_c·h_n)²` below the face value, and the guard is above them
+/// ([`tm_guard_margin`], "Long guides: where the guard fails").
 pub const TM_GUARD_AXIAL_COEFF: f64 = 0.025;
 
 /// Largest `k_c^TM·h_n` the axial term of [`tm_guard_margin`] was measured
@@ -1684,12 +1766,17 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 ///   reaches 64 % of it;
 /// - **any section that is not convex or not rectangular** (a ridge, a
 ///   coax). It is outside both the assumptions and the measurement, at
-///   p=2 as at p=1, and nothing detects it.
+///   p=2 as at p=1, and nothing detects it;
+/// - **any guide longer than the reach** ([`tm_guard_axial_reach`],
+///   `3·λ_c`). The validation boxes are all shorter than the reach, and on
+///   longer coarse guides the guard **fails** (below).
 ///
 /// `tm_guard_p2_measurement_table` (`tests/wave_port_p2.rs`) is the
 /// validation at p=2. It takes the 3-D p=2 box's lowest TM-like resonance
 /// as the cutoff, on structured, stepped and Gmsh guides and on scans of
-/// the box depth (815 rows, rectangular boxes only), and requires the
+/// the box depth (815 rows, rectangular boxes only, at most 4.4 deep:
+/// **boxes shorter than the reach only**, which is about 5.0 to 5.7 on
+/// these guides), and requires the
 /// guard below it on every row. The tightest row has 4.45 points to spare
 /// (at the base margin), and the worst `undershoot ÷ (k_c·h_n)²` is
 /// 0.0160, 64 % of the constant. The rows reach `k_c·h_n` = 7.06
@@ -1697,6 +1784,35 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// of 1 from `k_c·h_n` ≈ 6.32, and a guard of 0 is below any cutoff, so
 /// the rows above 6.32 test nothing; the range in which the table is
 /// evidence is `k_c·h_n` < 6.32.
+///
+/// # Long guides: where the guard fails (issue #990)
+///
+/// **This guard is not a bound on guides longer than its reach.**
+/// `tm_guard_p2_long_guide_table` (`tests/wave_port_p2.rs`) measures it on
+/// 216 Gmsh guides 5.5 to 12 deep (the six coarse guides of the #905 depth
+/// scans, plus `2 × 1` at `lc` 0.5 and 0.7), against the whole box's lowest
+/// p=2 TM-like mode. On 5 rows the p=2 guard is **above** that mode, by 4.7
+/// to 35.4 %: `3 × 1` at `lc` 0.9 and `d` = 7.75, 8, 9.75, 11.75, and
+/// `2 × 1 × 9.5` at `lc` 0.7 (Gmsh 4.15.2). The failure region measured:
+/// coarse Gmsh guides about one element across `b`, `k_c·h_n` ≈ 2.5 to
+/// 3.2 (margins 16 to 25 %), with TM-like modes (`E_z` shares 0.50 to
+/// 0.73) down to **44 % below** `k_c` (`3×1×9.75`: 1.86 against
+/// `k_c` = 3.31), that is `0.046·(k_c·h_n)²`, nearly twice
+/// [`TM_GUARD_AXIAL_COEFF`]. Four of the five modes are below TE₂₀, inside
+/// the single-mode band. The four `3 × 1` modes lie within the reach of the
+/// port (over 0.9 of their `E_z` energy); the `2 × 1` one lies beyond it.
+/// These are coarse-mesh
+/// TM-like defect modes, not continuum TM modes, and whether a TE₁₀ drive
+/// excites them is not measured.
+///
+/// The constants are **not** changed to cover these rows. Covering them
+/// needs `C_h` ≥ 0.046, and the same law and constants are the p=1 hard
+/// error of the `geode driven` CLI, which would then reject meshes that
+/// solve today. A p=2-only change is a policy question (issues #955,
+/// #891). At p=1 the same table reports (does not assert) the p=1 guard
+/// against the box's p=1 TM-like mode: it is at or above it on 20 of the
+/// 216 rows, some of those modes below the TE₁₀ cutoff (issue #1005, open
+/// for an operator decision).
 ///
 /// # An interim bound, and who enforces it
 ///
@@ -1910,6 +2026,11 @@ impl TmCutoffEstimate {
     /// note, unlike at p=1 ([`TM_GUARD_MEASURED_KH`]): the p=2 rows reach
     /// the `k_c·h_n` at which the margin is at its cap ([`tm_guard_margin`]).
     ///
+    /// The note does not claim the widened margin is safe: on coarse guides
+    /// longer than the guard's reach the 3-D p=2 TM-like cutoff was
+    /// measured up to 44 % below the face value, with the guard above it
+    /// ([`tm_guard_margin`], "Long guides: where the guard fails").
+    ///
     /// This is a note, not an enforcement: nothing in this crate rejects a
     /// p=2 frequency on this guard ([`tm_guard_margin`], "An interim bound,
     /// and who enforces it").
@@ -1942,8 +2063,9 @@ impl TmCutoffEstimate {
                 "the TM guard margin is {:.2} % (base {:.0} %){capped}: the guide's axial mesh (h_n \
                  = {:.3}, k_c·h_n = {kh:.2}) is coarse, and the second-order element does not \
                  narrow it (the 3-D p=2 TM-like cutoff was measured up to 12 % below the face \
-                 value at k_c·h_n = 2.8); refine the guide's axial mesh below {:.3} for the \
-                 base margin",
+                 value on guides shorter than the guard's reach, and up to 44 % below it on \
+                 coarse guides longer than the reach, where this guard is not a bound); refine \
+                 the guide's axial mesh below {:.3} for the base margin",
                 100.0 * self.margin(),
                 100.0 * TM_GUARD_MARGIN,
                 self.axial_spacing,
@@ -2527,6 +2649,14 @@ mod tests {
         assert!(note.contains("k_c·h_n = 2.50"), "{note}");
         assert!(
             note.contains("second-order element does not narrow it"),
+            "{note}"
+        );
+        // It states the long-guide failure (issue #990), not a 12 % bound.
+        assert!(
+            note.contains(
+                "up to 44 % below it on coarse guides longer than the reach, where this guard \
+                 is not a bound"
+            ),
             "{note}"
         );
         let target = format!(
