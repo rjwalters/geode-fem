@@ -27,8 +27,9 @@
 //!
 //! The `ka` sweep {1.0, 1.5, 1.9, 2.4, 3.0} spans the two lowest
 //! open-space Mie resonances of the `n = 1.5` sphere
-//! (`geode_core::analytic::mie`: TE_1,1 at `ka ≈ 1.26`, TM_1,1 at
-//! `ka ≈ 1.88`) and stays inside the mesh-resolution band validated by
+//! (`geode_core::analytic::mie`: TM_1,1, the `a_1` electric dipole, at
+//! `ka ≈ 1.26`; TE_1,1, the `b_1` magnetic dipole, at `ka ≈ 1.88`; the
+//! labels were swapped before issue #999) and stays inside the mesh-resolution band validated by
 //! the eigenmode benchmark (`k ≲ 3` on the 774-node fixture).
 //!
 //! Writes `benchmarks/mie_sphere/driven_results.toml` (the sibling of
@@ -228,7 +229,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
         }
     }
     s.push_str("  \"Q_ext via volume optical theorem; Q_sca via Poynting flux through the tet-boundary surface at r_obs (recorded choice, issue #195).\",\n");
-    s.push_str("  \"ka sweep spans the open-space TE_1,1 (ka ~ 1.26) and TM_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
+    s.push_str("  \"ka sweep spans the open-space TM_1,1 (ka ~ 1.26) and TE_1,1 (ka ~ 1.88) Mie resonances of the n = 1.5 sphere.\",\n");
     s.push_str("  \"Analytic oracle: geode_core::analytic::mie (B&H series); independent NumPy sidecar under reference/numpy/mie_efficiencies.py.\",\n");
     s.push_str("]\n");
     s.push('\n');
