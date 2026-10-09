@@ -1,0 +1,18 @@
+=== transmon_bench (Epic #547 scale-benchmark gate) ===
+config: inner = direct (faer COLAMD sparse LU), σ = 4.5 GHz, n_modes = 6, GEODE_NUM_THREADS = 1
+gauge: none (ungauged pencil)
+mesh: embedded transmon smoke fixture (no CLI arg given)
+fixture: 22684 nodes, 133314 tets (loaded in 0.083 s)
+setup/assembly: 156863 edges → 133108 interior DOFs, pencil nnz = 2561711 (2.754 s)
+eigenvalues / frequencies (sorted by λ):
+  mode[0]: λ = 9.761093e-17, f = 0.000471 GHz, participation p = 0.0000
+  mode[1]: λ = 1.191842e-16, f = 0.000521 GHz, participation p = 0.0000
+  mode[2]: λ = 1.671263e-16, f = 0.000617 GHz, participation p = 0.0000
+  mode[3]: λ = 2.483156e-16, f = 0.000752 GHz, participation p = 0.0000
+  mode[4]: λ = 5.236594e-9, f = 3.452751 GHz, participation p = 0.9942
+  mode[5]: λ = 1.166297e-8, f = 5.152825 GHz, participation p = 0.0005
+--- wall-clock ---
+  fixture-load : 0.083 s
+  setup+assembly : 2.754 s
+  solve (direct (faer COLAMD sparse LU)) : 19.048 s
+  TOTAL : 21.886 s (133108 interior DOFs, 6 modes)

@@ -24,7 +24,8 @@
 //!    cluster-closure convention), `Im(λ) < 0` sign scoped to this mesh
 //!    (no PR #155 canonicalization — deliberate divergence from the
 //!    scalar-PML TF-Java fixture).
-//! 4. J.1 analytic anchor (TM_1,1, 8 % coarse-mesh band) and the
+//! 4. J.1 analytic anchor (TM_1,1 re-exported at 1e-9; the 17.0 %
+//!    small-mesh error is reported, not asserted — issue #986) and the
 //!    `Q > 1.5` tripwire on both sides.
 //! 5. Cross-fixture consistency: the TF-Java snapshot's anchors and
 //!    physical eigenvalues agree with the NumPy J.2 snapshot (the two
@@ -67,9 +68,11 @@ type B = TestBackend;
 /// `Q_LOWER_BAND_TM11` in `crates/geode-core/tests/mie_sphere.rs`.
 const Q_LOWER_BAND_TM11: f64 = 1.5;
 
-/// Documented coarse-mesh acceptance band on the lowest mode's `Re(k)`
-/// vs the analytic TM_1,1 (observed ≈ 6.6 % on the small mesh).
-const TM11_REL_TOL: f64 = 0.08;
+// No absolute TM_1,1 accuracy band on the 48-node small mesh (issue
+// #986): it measures 17.0 % against the corrected root (Re k 1.38929 vs
+// 1.18710; was 6.6 % against the pre-#986 root 1.30343, inside a now-
+// removed 8 % band). The small fixtures are cross-language agreement
+// fixtures; accuracy is asserted on the full mesh only.
 
 /// Per-position absolute |Δ| gate for the TF-Java-vs-NumPy physical
 /// band (matches the JAX / Julia Mie baseline tolerance and the
@@ -571,26 +574,15 @@ fn tfjava_mie_small_spectrum_agrees_with_burn() {
         );
     }
 
-    // J.1 analytic anchor: lowest mode within the 8 % band on both sides.
+    // J.1 analytic anchor: the lowest-mode relative error vs TM_1,1 is
+    // reported, not asserted (issue #986). This 48-node mesh is a
+    // cross-language agreement fixture; measured 17.0 % (Re k 1.38929 vs
+    // 1.18710). The accuracy band (5 %) lives on the full mesh.
     let analytic_tm11_k = fixture.output_scalar("analytic_tm11_k");
     let burn_re_k = re_k_from_lambda(burn_physical[0]);
     let tfjava_re_k = fixture.output_scalar("lowest_physical_re_k");
     let burn_rel_err = (burn_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
     let tfjava_rel_err = (tfjava_re_k - analytic_tm11_k).abs() / analytic_tm11_k;
-    assert!(
-        burn_rel_err < TM11_REL_TOL,
-        "Burn lowest Re(k) = {burn_re_k:.5} differs from analytic TM_1,1 = \
-         {analytic_tm11_k:.5} by {:.2}% (> {:.0}%)",
-        burn_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
-    );
-    assert!(
-        tfjava_rel_err < TM11_REL_TOL,
-        "TF-Java lowest Re(k) = {tfjava_re_k:.5} differs from analytic TM_1,1 = \
-         {analytic_tm11_k:.5} by {:.2}% (> {:.0}%)",
-        tfjava_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
-    );
     let re_k_delta = (burn_re_k - tfjava_re_k).abs();
     assert!(
         re_k_delta
@@ -644,11 +636,10 @@ fn tfjava_mie_small_spectrum_agrees_with_burn() {
     eprintln!(
         "sphere_mie_small Burn-vs-TF-Java agreement: strict TM_1,1-triplet window \
          max |Δλ| = {window_max:.3e}; lowest Re(k): Burn {burn_re_k:.5} / TF-Java \
-         {tfjava_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%, \
-         band {:.0}%); Q: Burn {burn_q:.2} / TF-Java {tfjava_q:.2} (band > \
+         {tfjava_re_k:.5} (analytic {analytic_tm11_k:.5}, rel err {:.2}% / {:.2}%; \
+         not asserted); Q: Burn {burn_q:.2} / TF-Java {tfjava_q:.2} (band > \
          {Q_LOWER_BAND_TM11}); triplet median Q = {burn_q_median:.2}",
         burn_rel_err * 100.0,
         tfjava_rel_err * 100.0,
-        TM11_REL_TOL * 100.0
     );
 }

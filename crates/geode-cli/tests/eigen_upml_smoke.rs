@@ -3,7 +3,7 @@
 //!
 //! There is no analytic oracle for this fixture, and this test does not
 //! pretend to have one. `examples/mie_sphere`'s validated open-resonator
-//! numbers (TM₁,₁ ≈ 5.7 %, Q ≈ 27) come from a **spherical-shell** PML
+//! numbers (TM₁,₁ ≈ 3.6 % vs the #986-corrected root, Q ≈ 27) come from a **spherical-shell** PML
 //! (`build_anisotropic_pml_tensor_diag`, radial stretch), while the CLI's
 //! `absorbing_regions` is a **Cartesian box** UPML (`box_upml_tensors`,
 //! per-axis stretch from the mesh bounding box) — a different tensor field

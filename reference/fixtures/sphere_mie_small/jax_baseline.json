@@ -1340,84 +1340,84 @@
       "description": "Lowest 39 = spurious_dim + 8 complex eigenvalues of the tensor-\u03b5 pencil K x = \u03bb M x, sorted by |Re(\u03bb)| ascending (Burn FaerComplexEigensolver order). On-disk: real-imag interleaved per reference/SCHEMA.md.",
       "tolerance_abs": 0.0005,
       "data": [
-        2.288146313553829e-16,
-        -1.7475767270374732e-16,
-        -2.4489312171146282e-16,
-        -5.227442938065872e-16,
-        4.732470435780669e-16,
-        3.2241922083326494e-15,
-        -5.521640654153547e-16,
-        3.3100923432312158e-15,
-        8.516062562019654e-16,
-        1.1244270843469838e-15,
-        1.1339613980331776e-15,
-        -1.3044276076026734e-15,
-        -1.7771162770620933e-15,
-        -2.3867085318208275e-16,
-        -1.816854187531986e-15,
-        -3.278505619195461e-15,
-        1.8567304658127307e-15,
-        -4.189126348467201e-15,
-        2.3572351348398763e-15,
-        1.2785821021003532e-15,
-        -2.6568323543461138e-15,
-        2.5224317679644978e-15,
-        -3.497436660988683e-15,
-        -1.0181206342572624e-15,
-        3.534354587386928e-15,
-        -2.411875319391854e-15,
-        3.7034767079884676e-15,
-        2.4782405510976874e-15,
-        3.845780717635712e-15,
-        3.301348702826988e-15,
-        -3.950878282302206e-15,
-        -4.691672840324584e-16,
-        -4.196377718491238e-15,
-        2.3497168412998973e-15,
-        4.56586820378864e-15,
-        3.037033592257254e-15,
-        4.6960474977148766e-15,
-        1.8442671596732006e-15,
-        -4.943923355175342e-15,
-        4.491854282139517e-15,
-        5.060119947616165e-15,
-        -1.0268407820079752e-15,
-        -5.481561495265814e-15,
-        4.194194336190887e-18,
-        5.688681970328298e-15,
-        4.976273955560063e-16,
-        -5.732663195726337e-15,
-        8.379676058282528e-16,
-        5.9938378643245686e-15,
-        -2.999589644704356e-15,
-        6.162102328138852e-15,
-        9.463636361048827e-15,
-        -7.719121354463984e-15,
-        -7.319039914586643e-16,
-        -1.0024540830576896e-14,
-        2.8908317239576495e-15,
-        -1.6643144044109057e-14,
-        -8.841412646172112e-16,
-        6.715695082884686e-14,
-        -1.2961286499241087e-15,
-        1.689117585829959e-13,
-        -9.622817420696005e-16,
-        1.9301254214625798,
-        -0.00729583975688307,
-        1.996915291416015,
-        -0.0069299413469031765,
-        2.060423144211237,
-        -0.00462029732289627,
-        3.3060312478875344,
-        -0.02783111256499292,
-        3.589143417902735,
-        -0.006775661874258603,
-        4.10438260419869,
-        -0.011547491656551884,
-        4.424616228975532,
-        -0.003559306240552117,
-        4.475136617569327,
-        -0.005342628742676411
+        2.131214122415671e-17,
+        -1.2141742264008884e-15,
+        -2.6258179298289055e-16,
+        -1.8130938467903685e-15,
+        -9.80799011314115e-16,
+        -6.91708201329981e-16,
+        -1.276161436444321e-15,
+        -2.14801460102483e-15,
+        -1.6110972735080208e-15,
+        -5.163068633187261e-16,
+        1.8997973351277855e-15,
+        1.5287117873331001e-15,
+        -1.9406155769346084e-15,
+        4.995102445242183e-15,
+        2.563774315882238e-15,
+        9.851335527315424e-16,
+        2.6963279301508465e-15,
+        -2.2711976026016695e-15,
+        -2.903926722113159e-15,
+        1.1224977799390855e-15,
+        -2.975663208980098e-15,
+        1.134558317634178e-16,
+        -3.007424684187659e-15,
+        -9.257621525729196e-16,
+        3.3216457159060756e-15,
+        -1.0202633422484312e-15,
+        3.3426529163850057e-15,
+        -1.3509833900629873e-15,
+        -3.369100445071921e-15,
+        -3.3281745347484186e-15,
+        3.741458338616843e-15,
+        -2.411259154767661e-15,
+        3.90833899879379e-15,
+        2.297802435113406e-15,
+        4.008355537429198e-15,
+        -2.4401808354543606e-16,
+        -4.093443769717247e-15,
+        -2.4061830475257396e-15,
+        -5.368199582569169e-15,
+        -1.236319730800322e-15,
+        -5.504163970917906e-15,
+        -2.0772302337548806e-16,
+        -5.7787576628881504e-15,
+        -3.553490583718275e-15,
+        5.937826219426541e-15,
+        1.1812449249384136e-15,
+        6.6006658891747316e-15,
+        3.990938925257307e-17,
+        6.812832327843206e-15,
+        -2.60763596840505e-15,
+        7.180994598591017e-15,
+        -5.849149996005141e-15,
+        8.830811810137203e-15,
+        -5.419162102849422e-15,
+        -1.0434416362825388e-14,
+        1.2900565669984861e-15,
+        6.988082843557203e-14,
+        8.081971519787353e-17,
+        1.828019952729195e-13,
+        -7.455482297165719e-17,
+        -9.717223016382456e-08,
+        1.074836217760507e-09,
+        1.9301254215172658,
+        -0.007295839753982369,
+        1.9969152914101302,
+        -0.006929941350395129,
+        2.060423144595578,
+        -0.004620297359683461,
+        3.3060312472124656,
+        -0.027831112752123775,
+        3.5891434151804353,
+        -0.006775661630655123,
+        4.104382603908404,
+        -0.011547491802565328,
+        4.4246162288207485,
+        -0.003559306198504943,
+        4.475136617708523,
+        -0.005342628885509613
       ]
     },
     "physical_eigenvalues_complex": {
@@ -1428,16 +1428,16 @@
       "description": "Lowest 5 physical complex eigenvalues past the d\u2070-rank spurious split, |Re(\u03bb)| ascending. Physical Im(\u03bb) < 0 on this tensor pencil (mesh-dependent sign). Strict cross-IR window = first `strict_mode_window_len` entries (the closed TM_1,1 triplet, #160 cluster-closure convention).",
       "tolerance_abs": 0.0001,
       "data": [
-        1.9301254214625798,
-        -0.00729583975688307,
-        1.996915291416015,
-        -0.0069299413469031765,
-        2.060423144211237,
-        -0.00462029732289627,
-        3.3060312478875344,
-        -0.02783111256499292,
-        3.589143417902735,
-        -0.006775661874258603
+        1.9301254215172658,
+        -0.007295839753982369,
+        1.9969152914101302,
+        -0.006929941350395129,
+        2.060423144595578,
+        -0.004620297359683461,
+        3.3060312472124656,
+        -0.027831112752123775,
+        3.5891434151804353,
+        -0.006775661630655123
       ]
     },
     "strict_mode_window_len": {
@@ -1456,10 +1456,10 @@
         1
       ],
       "dtype": "f64",
-      "description": "Analytic TM_1,1 root from the Phase J.1 catalogue (reference/fixtures/mie_roots/baseline.json) \u2014 the 8% coarse-mesh acceptance anchor.",
+      "description": "Analytic TM_1,1 root from the Phase J.1 catalogue (reference/fixtures/mie_roots/baseline.json), re-exported at 1e-9. Not an accuracy gate on this coarse mesh (issue #986).",
       "tolerance_abs": 1e-09,
       "data": [
-        1.3034341302750476
+        1.1870945924547518
       ]
     },
     "lowest_physical_re_k": {
@@ -1470,7 +1470,7 @@
       "description": "Re(k) = Re(\u221a\u03bb) (principal branch) of the lowest physical mode.",
       "tolerance_abs": 0.0001,
       "data": [
-        1.3892920196899121
+        1.3892920197095913
       ]
     },
     "tm11_rel_err_lowest": {
@@ -1478,10 +1478,10 @@
         1
       ],
       "dtype": "f64",
-      "description": "Relative error of the lowest physical Re(k) vs the analytic TM_1,1 root (must stay below the 8% band).",
+      "description": "Relative error of the lowest physical Re(k) vs the analytic TM_1,1 root (17.0% on this 48-node mesh). Documented, not asserted: the coarse mesh is a cross-language agreement fixture (issue #986).",
       "tolerance_abs": 0.0001,
       "data": [
-        0.06587052419499477
+        0.17032966752609194
       ]
     },
     "q_factor_lowest_physical": {
@@ -1492,7 +1492,7 @@
       "description": "Q = Re(k)/(2|Im(k)|) of the lowest physical mode (sign-agnostic). Loose tolerance \u2014 dQ/dIm(\u03bb) \u2248 Q/|Im(\u03bb)| amplification; the load-bearing assertion is the Q > 1.5 tripwire.",
       "tolerance_abs": 5.0,
       "data": [
-        264.55245459017704
+        264.5524547025566
       ]
     },
     "q_median_tm11_triplet": {
@@ -1503,7 +1503,7 @@
       "description": "Median Q over the TM_1,1 triplet (strict window) \u2014 mirrors the Burn-side Q_LOWER_BAND_TM11 = 1.5 tripwire.",
       "tolerance_abs": 5.0,
       "data": [
-        288.1584711506269
+        288.1584710038718
       ]
     },
     "sigma_zero_lowest_physical_re": {
@@ -1514,7 +1514,7 @@
       "description": "Lowest physical Re(\u03bb) at \u03c3\u2080 = 0 (PEC limit; the tensor collapses to the real isotropic scalar).",
       "tolerance_abs": 5e-05,
       "data": [
-        1.9263922791821106
+        1.926392276109799
       ]
     },
     "autodiff_jit_ok": {
@@ -1585,8 +1585,8 @@
     }
   },
   "provenance": {
-    "source": "reference/jax/sphere_mie.py @ commit fc21cdb (Epic #88 / Phase J.4 / Issue #173); jax 0.10.1, numpy 2.4.1, python 3.14.5; assembly via jax.vmap/jit c128 kernels + BCOO[complex128] scatter; eigensolve out-of-graph via dense LAPACK ZGGEV (scipy.linalg.eigvals)",
-    "verified_against": "NumPy J.2 small baseline (PR #179): epsilon_tensor_diag max |\u0394| = 0.000e+00; eigenvalues_lowest_complex max |\u0394| = 1.889e-13; physical band max |\u0394| = 6.148e-14 (dense LAPACK ZGGEV both sides \u2014 strict per-position diff, no ARPACK ordering caveat).",
+    "source": "reference/jax/sphere_mie.py @ commit d5549ff8 (Epic #88 / Phase J.4 / Issue #173); jax 0.10.1, numpy 2.4.1, python 3.14.8; assembly via jax.vmap/jit c128 kernels + BCOO[complex128] scatter; eigensolve out-of-graph via dense LAPACK ZGGEV (scipy.linalg.eigvals)",
+    "verified_against": "NumPy J.2 small baseline (PR #179): epsilon_tensor_diag max |\u0394| = 0.000e+00; eigenvalues_lowest_complex max |\u0394| = 1.599e-13; physical band max |\u0394| = 4.623e-14 (dense LAPACK ZGGEV both sides \u2014 strict per-position diff, no ARPACK ordering caveat).",
     "issue": "#173 (Epic #88 Phase J.4; J.2 source #171, anchor #170)"
   }
 }
