@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize a like_for_like_local.sh run tree into a results TOML (stdout).
 
-usage: summarize_like_for_like.py <run-dir> <palace-eig.csv>
+usage: summarize_like_for_like.py <run-dir> <palace-eig.csv> [<950-run-dir>]
   e.g. python3 -I benchmarks/transmon_bench_cpu/summarize_like_for_like.py \
          benchmarks/transmon_bench_cpu/runs/2026-10-08_local_like_for_like \
          reference/fixtures/transmon_palace/results_p1/eig.csv \
@@ -12,6 +12,9 @@ the committed Palace eigenvalues. For every cell it lists the modes geode
 returned, classifies each one, counts the physical ones, and reports wall
 clock, CPU time and peak RSS per run. Pure stdlib; no fitting, no outlier
 rejection, every run of every cell is reported.
+
+With a third argument, the issue #950 before/after sweep in that directory
+(like_for_like_local_950.sh) is appended by summarize_local_950.py.
 
 Classification (issue #927; the rule of benchmarks/transmon_eigen):
   physical      nearest geode mode to a Palace mode, within PHYSICAL_TOL_PCT
@@ -382,4 +385,14 @@ if __name__ == "__main__":
     w('  "revising the efficiency claim of papers/transmon-benchmark (see #763, #593)",')
     w("]")
     w('follow_up = "#950: a timed geode configuration that returns the six physical modes at the 4.5 GHz shift with no oracle filter (drop the near-zero survivor, remove or identify the 3.45 GHz port mode, cut the port-aware cost)"')
+    if len(sys.argv) > 3:
+        import importlib.util
+
+        _spec = importlib.util.spec_from_file_location(
+            "summarize_local_950", pathlib.Path(__file__).resolve().parent / "summarize_local_950.py"
+        )
+        _s950 = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_s950)
+        w("")
+        out.extend(_s950.section(sys.argv[3], oracle, sys.modules[__name__]))
     print("\n".join(out))
