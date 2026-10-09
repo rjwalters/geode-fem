@@ -90,7 +90,9 @@ ANALYTIC_K_TOL_ABS = 1.0e-9
 N_INDEX = 1.5
 SIGMA_0 = SIGMA_0_DEFAULT  # 5.0
 
-TM11_REL_TOL = 0.08
+# Full-mesh band, mirror of mie_sphere.rs (5 %; observed 3.56 % against the
+# corrected issue-#986 TM_1,1 root 1.18710; was 8 % against 1.30343).
+TM11_REL_TOL = 0.05
 Q_LOWER_BAND_TM11 = 1.5
 STRICT_MODE_WINDOW_LEN = 3
 
@@ -205,7 +207,7 @@ def main() -> None:
             "UPML tensor (geode_core::build_anisotropic_pml_tensor_diag, "
             "σ₀ = 5.0, k₀_ref = 2.0) — the exact mie_sphere.rs "
             "acceptance configuration. Anchored to the Phase J.1 "
-            "analytic catalogue (TM_1,1 k ≈ 1.30343). Strict cross-IR "
+            "analytic catalogue (TM_1,1 k ≈ 1.18710, issue #986). Strict cross-IR "
             "window = first 3 physical modes (closed TM_1,1 triplet, "
             "#160 cluster-closure convention). Sign note: physical "
             "Im(λ) > 0 on this refined mesh's tensor pencil — the sign "
@@ -400,8 +402,8 @@ def main() -> None:
                 "dtype": "f64",
                 "description": (
                     "Relative error of the lowest physical Re(k) vs the "
-                    "analytic TM_1,1. Must stay below the documented 8% "
-                    "band (mie_sphere.rs; observed ≈ 5.7% Burn-side)."
+                    "analytic TM_1,1. Must stay below the documented 5% "
+                    "band (mie_sphere.rs; observed ≈ 3.56% Burn-side)."
                 ),
                 "tolerance_abs": RE_K_TOL_ABS,
                 "data": [rel_err_tm11],

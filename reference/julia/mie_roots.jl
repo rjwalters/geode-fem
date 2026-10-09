@@ -132,27 +132,46 @@ chi_prime(l::Int, x::Float64) = l * sph_yl(l, x) - x * sph_yl(l - 1, x)
 # ---------------------------------------------------------------------------
 
 """
+    buffer_at_interface(l, x_s, x_b, wall_on_derivative) -> (buf, buf_prime)
+
+Buffer combination `u = A ψ(kr) − B χ(kr)` and its derivative at `x_s`,
+with `(A, B)` fixed by the outer wall: `u(x_b) = 0` (`A = χ(x_b)`,
+`B = ψ(x_b)`) or `u'(x_b) = 0` (`A = χ'(x_b)`, `B = ψ'(x_b)`). Mirror of
+`closed.rs::buffer_at_interface`.
+"""
+function buffer_at_interface(l::Int, x_s::Float64, x_b::Float64, wall_on_derivative::Bool)
+    if wall_on_derivative
+        big_a = chi_prime(l, x_b)
+        big_b = psi_prime(l, x_b)
+    else
+        big_a = chi(l, x_b)
+        big_b = psi(l, x_b)
+    end
+    buf       = big_a * psi(l, x_s)       - big_b * chi(l, x_s)
+    buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s)
+    return buf, buf_prime
+end
+
+"""
     characteristic_te(n, l, r_s, r_b, k) -> Float64
 
 TE characteristic function; zeros in `k` are TE resonances.
 
-Buffer coefficients up to overall scale: `A = χ(x_b)`, `B = ψ(x_b)` so
-that `A ψ(x_b) − B χ(x_b) = 0` (PEC, E_θ = 0 at the wall) with no
-spurious pole when `χ(x_b) → 0`. Matching at `r = R_s`:
-`ψ(x_in) buf' − ψ'(x_in)/n · buf = 0`.
+TE = electric field transverse (`E = f(r) X_lm`), `u = r f`. Tangential
+E continuous → `u` continuous; tangential H continuous (`μ_r = 1`) →
+`du/dr` continuous, i.e. interface row `n ψ'(x_in)`. PEC `E_t = 0` →
+`u(R_b) = 0`, so `A = χ(x_b)`, `B = ψ(x_b)`. Characteristic:
+`ψ(x_in) buf' − n ψ'(x_in) buf = 0`. (Issue #986 fixed a crosswise
+pairing with the TM interface row; unchanged at `n = 1`.)
 """
 function characteristic_te(n::Float64, l::Int, r_s::Float64, r_b::Float64, k::Float64)
     x_in = n * k * r_s
     x_s  = k * r_s
     x_b  = k * r_b
 
-    big_a = chi(l, x_b)
-    big_b = psi(l, x_b)
+    buf, buf_prime = buffer_at_interface(l, x_s, x_b, false)
 
-    buf       = big_a * psi(l, x_s)       - big_b * chi(l, x_s)
-    buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s)
-
-    return psi(l, x_in) * buf_prime - (psi_prime(l, x_in) / n) * buf
+    return psi(l, x_in) * buf_prime - n * psi_prime(l, x_in) * buf
 end
 
 """
@@ -160,22 +179,21 @@ end
 
 TM characteristic function; zeros in `k` are TM resonances.
 
-TM PEC condition is `ψ'(x_b) = 0`, so `A = χ'(x_b)`, `B = ψ'(x_b)`;
-the magnetic matching picks up the permittivity factor:
-`ψ(x_in) buf' − n ψ'(x_in) buf = 0`.
+TM = magnetic field transverse (`H = g(r) X_lm`), `u = r g`. Tangential
+H continuous → `u` continuous; tangential E continuous → `(1/ε_r) du/dr`
+continuous, i.e. interface row `ψ'(x_in) / n`. PEC `E_t ∝ u' = 0` at
+`R_b`, so `A = χ'(x_b)`, `B = ψ'(x_b)`. Characteristic:
+`ψ(x_in) buf' − ψ'(x_in)/n · buf = 0`. (Issue #986 fixed a crosswise
+pairing with the TE interface row; unchanged at `n = 1`.)
 """
 function characteristic_tm(n::Float64, l::Int, r_s::Float64, r_b::Float64, k::Float64)
     x_in = n * k * r_s
     x_s  = k * r_s
     x_b  = k * r_b
 
-    big_a = chi_prime(l, x_b)
-    big_b = psi_prime(l, x_b)
+    buf, buf_prime = buffer_at_interface(l, x_s, x_b, true)
 
-    buf       = big_a * psi(l, x_s)       - big_b * chi(l, x_s)
-    buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s)
-
-    return psi(l, x_in) * buf_prime - n * psi_prime(l, x_in) * buf
+    return psi(l, x_in) * buf_prime - (psi_prime(l, x_in) / n) * buf
 end
 
 

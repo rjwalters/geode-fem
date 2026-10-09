@@ -5,7 +5,7 @@
 
 [meta]
 description = "Mie sphere benchmark (issue #4 v1, issue #40, issue #54): FEM eigenmodes vs. extended analytic PEC-cavity catalog (l ∈ [1,4], TE+TM, n ∈ [1,5]) with multiplicity-claim mode classification."
-generated_at_commit = "54cae885a252bcdd21ee3f4bcffcd6a6aee050c9"
+generated_at_commit = "be12e81ad34613070422a0d23572849540deb046"
 backend = "ndarray"
 float_dtype = "F64"
 pml_kernel = "anisotropic"
@@ -33,11 +33,11 @@ n = 1
 m_idx = 0
 incomplete = false
 ambiguous = false
-analytic_k = 1.3034341302749919
-fem_re_k = 1.2292958592598415
-fem_im_k = 0.022509717229750727
-rel_err_re_k = 0.05687918498766719
-q = 27.305892977524863
+analytic_k = 1.1870945924548602
+fem_re_k = 1.2292958593564434
+fem_im_k = 0.022509717187390272
+rel_err_re_k = 0.03555004560699145
+q = 27.305893031056897
 
 [mode_1]
 polarisation = "TM"
@@ -46,11 +46,11 @@ n = 1
 m_idx = 1
 incomplete = false
 ambiguous = false
-analytic_k = 1.3034341302749919
-fem_re_k = 1.2296258642351612
-fem_im_k = 0.02253129177014821
-rel_err_re_k = 0.05662600381981636
-q = 27.28706984000573
+analytic_k = 1.1870945924548602
+fem_re_k = 1.2296258642908768
+fem_im_k = 0.022531291740495837
+rel_err_re_k = 0.035828039405068686
+q = 27.287069877153368
 
 [mode_2]
 polarisation = "TM"
@@ -59,113 +59,113 @@ n = 1
 m_idx = 2
 incomplete = false
 ambiguous = false
-analytic_k = 1.3034341302749919
-fem_re_k = 1.2298099305883496
-fem_im_k = 0.022780785559549533
-rel_err_re_k = 0.05648478736022463
-q = 26.9922634444189
+analytic_k = 1.1870945924548602
+fem_re_k = 1.2298099305982382
+fem_im_k = 0.022780785602638597
+rel_err_re_k = 0.03598309554678752
+q = 26.99226339358101
 
 [mode_3]
-polarisation = "TE"
-l = 1
+polarisation = "TM"
+l = 2
 n = 1
 m_idx = 0
 incomplete = false
 ambiguous = true
-analytic_k = 1.889433359545106
-fem_re_k = 1.869996159475132
-fem_im_k = 0.104301463917369
-rel_err_re_k = 0.010287317079366963
-q = 8.964381175688022
+analytic_k = 1.813334129893839
+fem_re_k = 1.869996159595324
+fem_im_k = 0.10430146398782289
+rel_err_re_k = 0.031247429123722664
+q = 8.964381170208908
 
 [mode_4]
-polarisation = "TE"
-l = 1
+polarisation = "TM"
+l = 2
 n = 1
 m_idx = 1
 incomplete = false
 ambiguous = true
-analytic_k = 1.889433359545106
-fem_re_k = 1.8715858639566072
-fem_im_k = 0.10404803275176774
-rel_err_re_k = 0.009445951347443
-q = 8.993855118922513
+analytic_k = 1.813334129893839
+fem_re_k = 1.871585864076684
+fem_im_k = 0.1040480325066081
+rel_err_re_k = 0.03212410400407306
+q = 8.993855140691004
 
 [mode_5]
-polarisation = "TE"
-l = 1
+polarisation = "TM"
+l = 2
 n = 1
 m_idx = 2
 incomplete = false
 ambiguous = true
-analytic_k = 1.889433359545106
-fem_re_k = 1.8723054765643357
-fem_im_k = 0.1049546697270237
-rel_err_re_k = 0.009065089749920605
-q = 8.919591102682755
+analytic_k = 1.813334129893839
+fem_re_k = 1.8723054768064273
+fem_im_k = 0.10495466984526487
+rel_err_re_k = 0.032520949085120224
+q = 8.919591093787325
 
 [mode_6]
 polarisation = "TM"
 l = 2
 n = 1
-m_idx = 0
+m_idx = 3
 incomplete = false
-ambiguous = false
-analytic_k = 1.890736585383276
-fem_re_k = 1.8997827634707185
-fem_im_k = 0.01960814635903645
-rel_err_re_k = 0.004784472970680199
-q = 48.44371131989231
+ambiguous = true
+analytic_k = 1.813334129893839
+fem_re_k = 1.8997827635357853
+fem_im_k = 0.019608146372213784
+rel_err_re_k = 0.04767385790450403
+q = 48.44371128899569
 
 [mode_7]
 polarisation = "TM"
 l = 2
 n = 1
+m_idx = 4
+incomplete = false
+ambiguous = true
+analytic_k = 1.813334129893839
+fem_re_k = 1.9013881741024847
+fem_im_k = 0.019679550777177722
+rel_err_re_k = 0.048559194225170625
+q = 48.30872908713737
+
+[mode_8]
+polarisation = "TE"
+l = 1
+n = 1
+m_idx = 0
+incomplete = false
+ambiguous = false
+analytic_k = 1.8688000201728223
+fem_re_k = 1.902372705279823
+fem_im_k = 0.020431853945243782
+rel_err_re_k = 0.017964835586793227
+q = 46.554089275943205
+
+[mode_9]
+polarisation = "TE"
+l = 1
+n = 1
 m_idx = 1
 incomplete = false
 ambiguous = false
-analytic_k = 1.890736585383276
-fem_re_k = 1.901388174132578
-fem_im_k = 0.01967955074138372
-rel_err_re_k = 0.005633565686328925
-q = 48.30872917576793
+analytic_k = 1.8688000201728223
+fem_re_k = 1.9329648533985508
+fem_im_k = -0.030588754682209115
+rel_err_re_k = 0.03433477768252309
+q = 31.59600437285524
 
-[mode_8]
-polarisation = "TM"
-l = 2
+[mode_10]
+polarisation = "TE"
+l = 1
 n = 1
 m_idx = 2
 incomplete = false
 ambiguous = false
-analytic_k = 1.890736585383276
-fem_re_k = 1.9023727052645587
-fem_im_k = 0.020431853912759916
-rel_err_re_k = 0.006154278692885117
-q = 46.55408934958433
-
-[mode_9]
-polarisation = "TM"
-l = 2
-n = 1
-m_idx = 3
-incomplete = false
-ambiguous = false
-analytic_k = 1.890736585383276
-fem_re_k = 1.9329648532458905
-fem_im_k = -0.030588754786606505
-rel_err_re_k = 0.02233429457549438
-q = 31.596004262524808
-
-[mode_10]
-polarisation = "TM"
-l = 2
-n = 1
-m_idx = 4
-incomplete = false
-ambiguous = false
-analytic_k = 1.890736585383276
-fem_re_k = 1.934061945357652
-fem_im_k = -0.031179426035818025
-rel_err_re_k = 0.022914540454398266
-q = 31.01503445149788
+analytic_k = 1.8688000201728223
+fem_re_k = 1.9340619452982504
+fem_im_k = -0.03117942620765935
+rel_err_re_k = 0.03492183455744654
+q = 31.01503427961
 
