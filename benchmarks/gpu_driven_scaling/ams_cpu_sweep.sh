@@ -10,6 +10,15 @@
 #   n<N>_ams      assembled COCG + AMS     (config 5, issue #930)
 #   n<N>_xcheck   all three in one process - only for the in-harness
 #                 full-field rel-L2 of each iterative solution vs Direct
+#   n<N>_mfjacobi matrix-free COCG + on-device Jacobi (config 3; opt-in
+#                 leg, issue #966)
+#   n<N>_mfams    matrix-free COCG + host-side AMS  (config 6; opt-in leg,
+#                 issue #966; its .err carries one "# mf_ams_profile ..."
+#                 line per solve, the V-cycle / transfer split, because
+#                 GEODE_MF_AMS_PROFILE is set to 1 unless already set)
+#   n<N>_mfxcheck Direct + both AMS configs in one process (opt-in leg,
+#                 issue #966): the in-harness rel-L2 of the matrix-free AMS
+#                 solution vs Direct
 #
 # Legs run sequentially, never two at once. Each leg writes into <out-dir>:
 #   <leg>.stdout  the test's stdout (the TOML fragment; named .stdout so the
@@ -52,7 +61,8 @@
 #      count so the thread count is in the record too.
 #      LEGS (default "direct jacobi ams xcheck"): the legs to run, e.g.
 #      LEGS=direct for a Direct-only pass. SKIP_DIRECT and SKIP_XCHECK still
-#      apply.
+#      apply. The matrix-free legs (issue #966) run only when named:
+#      LEGS="jacobi ams mfjacobi mfams mfxcheck".
 # Then: summarize_ams_local.py <out-dir>  (or summarize_ams_r6i.py for the
 # at-scale tree layout of runs/2026-10-08_r6i_ams_scale/)
 set -euo pipefail
@@ -61,6 +71,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 GEODE_DIR="${GEODE_DIR:-$(cd "$here/../.." && pwd)}"
 LEG_TIMEOUT_S="${LEG_TIMEOUT_S:-5400}"
 export GEODE_AMS_SMOOTH_REPORT="${GEODE_AMS_SMOOTH_REPORT:-1}"
+export GEODE_MF_AMS_PROFILE="${GEODE_MF_AMS_PROFILE:-1}"
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 cd "$GEODE_DIR"
@@ -157,6 +168,11 @@ for n in "$@"; do
   if want ams; then run_leg "n${n}_ams" "$n" iterative_ams; fi
   if want xcheck && [ -z "${SKIP_XCHECK:-}" ] && [ -z "${SKIP_DIRECT:-}" ]; then
     run_leg "n${n}_xcheck" "$n" direct,iterative,iterative_ams
+  fi
+  if want mfjacobi; then run_leg "n${n}_mfjacobi" "$n" matrix_free; fi
+  if want mfams; then run_leg "n${n}_mfams" "$n" matrix_free_ams; fi
+  if want mfxcheck && [ -z "${SKIP_DIRECT:-}" ]; then
+    run_leg "n${n}_mfxcheck" "$n" direct,iterative_ams,matrix_free_ams
   fi
 done
 echo SWEEP_DONE
