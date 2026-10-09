@@ -451,8 +451,8 @@ pub enum IterativePreconditioner {
     ///   materials: [`Self::AMS`];
     /// - a higher-order operator (AMS returns
     ///   [`DrivenError::UnsupportedAtOrder`] there), matched-UPML materials
-    ///   (AMS measured not to converge the radiating UPML patch, issue
-    ///   #744), or [`SolverMode::IterativeMatrixFree`] (on-device Jacobi
+    ///   (AMS stalls far above Jacobi on the radiating UPML patch, issue
+    ///   #744; see [`PreconditionerFallbackReason::MatchedUpml`]), or [`SolverMode::IterativeMatrixFree`] (on-device Jacobi
     ///   only): [`Self::Jacobi`], with a [`PreconditionerFallback`] that is
     ///   printed once per process on stderr as `warning: …` and returned by
     ///   [`DrivenLinearSolver::preconditioner_fallback`].
@@ -577,8 +577,14 @@ pub enum PreconditionerFallbackReason {
     /// [`SolverMode::IterativeMatrixFree`]: the matrix-free path has only
     /// an on-device Jacobi preconditioner (AMS there is issue #966).
     MatrixFree,
-    /// Matched-UPML materials: AMS was measured not to converge the
-    /// radiating UPML patch (issue #744), where Jacobi does.
+    /// Matched-UPML materials: on the radiating UPML patch (issue #744)
+    /// AMS stalls far above where Jacobi gets. With only the outer
+    /// boundary PEC, after 5 000 iterations at tol 1e-8 AMS is at a
+    /// residual of 4.3e-2 and Jacobi at 1.6e-6 (PR #973 review). Neither
+    /// converges that fixture at the default budget (Jacobi reaches
+    /// ~1.9e-4 at tol 1e-10, PR #752); [`SolverMode::Direct`] is the
+    /// robust choice there. Jacobi is the fallback only because it is the
+    /// lesser failure.
     MatchedUpml,
 }
 
@@ -607,8 +613,9 @@ impl std::fmt::Display for PreconditionerFallback {
                     .to_string()
             }
             PreconditionerFallbackReason::MatchedUpml => {
-                "the AMS preconditioner does not converge with matched-UPML absorbing \
-                 regions (issue #744)"
+                "the AMS preconditioner stalls far above Jacobi with matched-UPML \
+                 absorbing regions (issue #744); Jacobi may not converge there either, \
+                 and the direct solver is the robust choice"
                     .to_string()
             }
         };
@@ -3632,6 +3639,13 @@ impl DrivenOperator {
     /// otherwise: at a higher element order, with matched-UPML materials,
     /// and on [`SolverMode::IterativeMatrixFree`] (the reasons are
     /// [`PreconditionerFallbackReason`]). There is no mesh-size threshold.
+    ///
+    /// Unlike the `geode` CLI, the library does not fall back for a scalar
+    /// `Re ε ≤ 0` operator or for floating PEC conductors: `Auto` resolves
+    /// to AMS there, as an explicit AMS would. AMS may then fail to
+    /// converge, which surfaces as a loud [`DrivenError::Solve`], never a
+    /// wrong answer. The CLI, which sees the spec's materials and PEC
+    /// topology, resolves `auto` to Jacobi with a warning in those cases.
     pub fn resolve_preconditioner(
         &self,
         mode: SolverMode,

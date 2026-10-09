@@ -2056,8 +2056,9 @@ fn validate_ams_materials(
 /// The fallbacks are the three cases where the CLI already knows AMS does
 /// not work, in this order: a material with `Re ε_r ≤ 0`
 /// (`material_conflict`, from [`validate_ams_materials`]); matched-UPML
-/// `absorbing_regions` (`has_upml`; AMS measured not to converge the
-/// radiating UPML patch, issue #744); and floating PEC conductors
+/// `absorbing_regions` (`has_upml`; on the radiating UPML patch AMS
+/// stalls far above where Jacobi gets, issue #744 — neither converges it
+/// at the default budget, and `direct` is the robust choice); and floating PEC conductors
 /// (`floating_pec`, [`check_ams_floating_pec`]). An explicit `"ams"` is an
 /// `invalid_spec` error in the first and third cases and is run as asked
 /// in the second. The CLI's driven solve is p=1 and assembled, so the
@@ -2080,8 +2081,9 @@ fn resolve_auto_preconditioner(
     let reason = material_conflict
         .or_else(|| {
             has_upml.then(|| {
-                "the AMS preconditioner does not converge with matched-UPML \
-                 `absorbing_regions` (issue #744)"
+                "the AMS preconditioner stalls far above Jacobi with matched-UPML \
+                 `absorbing_regions` (issue #744); Jacobi may not converge there either, \
+                 and `solver.mode = \"direct\"` is the robust choice"
                     .to_string()
             })
         })

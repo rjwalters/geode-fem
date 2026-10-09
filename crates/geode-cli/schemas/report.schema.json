@@ -1661,6 +1661,13 @@
             }
           ],
           "description": "The Touchstone 2.0 `.sNp` written by `--touchstone` (additive in\nv1; present only with that flag)."
+        },
+        "warnings": {
+          "description": "Report-level warnings (issue #930; additive in v1; present only when\nthere are any): the `\"preconditioner_fallback\"` warning of the\ndefault `solver.preconditioner = \"auto\"`, as for `driven`.",
+          "items": {
+            "$ref": "#/$defs/WarningResult"
+          },
+          "type": "array"
         }
       },
       "required": [

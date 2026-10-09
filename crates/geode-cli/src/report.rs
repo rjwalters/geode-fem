@@ -1489,6 +1489,11 @@ pub struct ExtractReport {
     /// v1; present only with that flag).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touchstone_file: Option<FileRef>,
+    /// Report-level warnings (issue #930; additive in v1; present only when
+    /// there are any): the `"preconditioner_fallback"` warning of the
+    /// default `solver.preconditioner = "auto"`, as for `driven`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<WarningResult>,
 }
 
 /// Eigensolver statistics.
