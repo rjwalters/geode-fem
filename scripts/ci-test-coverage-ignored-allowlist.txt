@@ -67,13 +67,16 @@ geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixtur
 # times; mode death at k0 = 25). Each sparse test pins its own outcome and
 # says where it differs. So the dense assertions below are not exercised
 # in CI by an equivalent test, only by related ones.
-# vector_tracked_beats_frozen_int_idx is the failing one (issue #940): from
-# its seed both drivers follow the same mode (Q ratio 1.000 < 1.25). The
-# comparison runs in CI as synthetic_vector_tracked_beats_frozen_int_idx.
+# vector_tracked_beats_frozen_int_idx was re-seeded at k0 = 20 by issue #940
+# (it failed from k0 = 1, where both drivers follow the same Silver-Müller
+# mode). It now passes, measured at 126 min (49 dense solves with 1104
+# eigenvectors each, load 110-130). The resonance it converges on runs in CI
+# as sparse_vector_tracked_converges_on_sphere_resonance, and the
+# comparison as synthetic_vector_tracked_beats_frozen_int_idx.
 geode-core/silvermuller_self_consistent  # dense reference tier: ~39 min; the sparse_* default tier runs the drivers from the same seeds in CI, with a different target rule (#917)
 geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_converges_on_lowest_mode  # dense reference tier: ~38 min for the target; sparse_vector_tracked_converges_on_lowest_mode runs in CI (#917)
 geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_handles_mode_death  # dense reference tier: ~38 min for the target; sparse_vector_tracked_handles_mode_death runs in CI from the same seed and ends on ModeLost, not the dense MaxIterations (#917)
-geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_beats_frozen_int_idx  # fails on main (#940: Q ratio 1.000 < 1.25) and runs 31 dense solves; synthetic_vector_tracked_beats_frozen_int_idx runs in CI
+geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_beats_frozen_int_idx  # dense reference tier: 126 min (#940); sparse_vector_tracked_converges_on_sphere_resonance and synthetic_vector_tracked_beats_frozen_int_idx run in CI
 
 # Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at
 # sigma = 4.5 GHz and the test panics if run (issue #531 Phase 1c,
