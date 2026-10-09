@@ -528,7 +528,7 @@ pub(super) fn currents_real(
 
 /// [`HybridLineReport`] of a propagating real mode (`None` without
 /// conductors or for `β² ≤ 0`).
-pub(super) fn line_real(
+pub(crate) fn line_real(
     blocks: &HybridBlocks,
     d: &SparseColMat<usize, f64>,
     conductors: &[Vec<bool>],

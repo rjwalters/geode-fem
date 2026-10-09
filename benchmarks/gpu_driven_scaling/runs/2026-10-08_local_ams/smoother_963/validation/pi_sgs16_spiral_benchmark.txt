@@ -1,0 +1,11 @@
+# tree=pi_sgs16 test=spiral_benchmark_ams_matches_direct_lu
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=GEODE_DRIVEN_AMS_PI_COARSE=sgs:16
+# start=2026-10-09T12:05:44Z loadavg_start=25.33,34.92,49.59
+
+running 1 test
+test spiral_benchmark_ams_matches_direct_lu ... # ams_smoother edge_dim=53189 theta_max=3.068191 lanczos_steps=30 gershgorin=5.136690 rho_hat=3.375010 weight=0.600000 source=default estimate_ms=25.889
+AMS   1.0 GHz: iters [101], residual 8.3e-11, |ΔZ|/|Z| vs direct LU 8.9e-13
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 23.23s
+

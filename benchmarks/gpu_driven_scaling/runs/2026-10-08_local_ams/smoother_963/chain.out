@@ -1,0 +1,27 @@
+main_w0p10 rc=0
+default_w0p10 rc=0
+pi_direct_w0p10 rc=0
+pi_sgs16_w0p10 rc=0
+pi_amg4_w0p10 rc=0
+pi_sgs8_w0p10 rc=0
+pi_amg2_w0p10 rc=0
+pi_amg6_w0p10 rc=0
+sm_jacobi2_w0p10 rc=0
+sm_l1jacobi_w0p10 rc=0
+sm_chebyshev2_w0p10 rc=0
+sm_chebyshev3_w0p10 rc=0
+sm_sgs1_w0p10 rc=0
+cyc_mult_w0p10 rc=0
+cyc_mult_pi_direct_w0p10 rc=0
+cyc_mult_pi_amg4_w0p10 rc=0
+main_w0p05 rc=0
+default_w0p05 rc=0
+pi_direct_w0p05 rc=0
+pi_sgs16_w0p05 rc=0
+pi_amg4_w0p05 rc=0
+main_w0p20 rc=0
+default_w0p20 rc=0
+pi_direct_w0p20 rc=0
+pi_sgs16_w0p20 rc=0
+pi_amg4_w0p20 rc=0
+CHAIN_DONE
