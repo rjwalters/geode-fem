@@ -8287,6 +8287,82 @@ impl AnalyticCladdingBcMode {
     }
 }
 
+/// Outcome of the analytic-cladding hole check ([`analytic_cladding_hole`],
+/// issue #934).
+#[derive(Debug, Clone, PartialEq)]
+struct AnalyticCladdingHole {
+    /// The curl-bearing withheld pair nearest `σ` that lies in the window
+    /// strictly nearer `σ` than the pick: the solve must fail on it.
+    hole: Option<WithheldCandidate>,
+    /// Withheld pairs that pass the window and distance tests but whose
+    /// curl ratio is at or below the floor, in input order. They are logged,
+    /// not counted.
+    skipped_low_curl: Vec<WithheldCandidate>,
+}
+
+/// Hole check of [`solve_dielectric_modes2_analytic_cladding_bc`] (PR #847,
+/// issue #934), as a pure function of the localized withheld pairs.
+///
+/// `checked` is the solve's result and `sigma` its own shift. Each entry of
+/// [`CheckedComplexEigenpairs::localized_withheld`] is scored with
+/// `curl_ratio` (the closure the selection applies to converged pairs) on
+/// its Ritz vector. A withheld pair is a **hole** when it
+///
+/// 1. is **localized** (already filtered: `localized_withheld` holds the
+///    localized withheld pairs for the solve's own `σ`),
+/// 2. lies in the open guided window `guided_window.0 < Re β² <
+///    guided_window.1`,
+/// 3. is strictly nearer `σ` than `reach`, `|β² − σ| < reach`, where
+///    `reach` is the distance of the selected fundamental, and
+/// 4. carries **curl energy**, `curl_ratio > curl_floor`, with `curl_floor`
+///    the floor the solve applies to its converged pairs.
+///
+/// Conditions 1–3 are exactly those of
+/// [`CheckedComplexEigenpairs::localized_hole`], which this replaces at the
+/// analytic-cladding call site; the nearest such pair to `σ` is returned.
+/// Condition 4 is the #916 curl test of [`selection_hole`]: the gradient
+/// cluster of this pencil is spread across the guided band, and a
+/// curl-free pair could never have been selected, so withholding it leaves
+/// no hole. Pairs that meet 1–3 but fail 4 are returned in
+/// [`AnalyticCladdingHole::skipped_low_curl`] so the caller can log them.
+fn analytic_cladding_hole(
+    checked: &CheckedComplexEigenpairs,
+    sigma: f64,
+    reach: f64,
+    guided_window: (f64, f64),
+    curl_floor: f64,
+    curl_ratio: impl Fn(&[c64]) -> f64,
+) -> AnalyticCladdingHole {
+    let dist = |l: c64| (l.re - sigma).hypot(l.im);
+    let mut hole: Option<WithheldCandidate> = None;
+    let mut skipped_low_curl = Vec::new();
+    for cw in &checked.localized_withheld {
+        let l = cw.pair.lambda;
+        let in_window = l.re > guided_window.0 && l.re < guided_window.1;
+        if !(in_window && dist(l) < reach) {
+            continue;
+        }
+        let w = WithheldCandidate {
+            beta_sq: l,
+            residual: cw.residual,
+            curl_ratio: curl_ratio(&cw.pair.vector),
+            eps_weighted: None,
+        };
+        if w.curl_ratio <= curl_floor {
+            skipped_low_curl.push(w);
+            continue;
+        }
+        match &hole {
+            Some(h) if dist(h.beta_sq) <= dist(l) => {}
+            _ => hole = Some(w),
+        }
+    }
+    AnalyticCladdingHole {
+        hole,
+        skipped_low_curl,
+    }
+}
+
 /// Solve the weakly-guiding dielectric fundamental with an **analytic-cladding
 /// DtN / Robin boundary condition** instead of a discretized+PML exterior
 /// (Epic #339, #446) — the mode-matching / continuum-removal approach.
@@ -8330,8 +8406,10 @@ impl AnalyticCladdingBcMode {
 /// propagate from the eigensolve, and an iteration fails with
 /// [`EigenError::FaerGevd`] when a *localized* withheld Ritz pair (a genuine
 /// eigenvalue still unconverged at the Lanczos cap) lies in the window
-/// nearer `σ` than the selected fundamental: it could be the true
-/// fundamental (PR #847).
+/// nearer `σ` than the selected fundamental and carries curl energy above
+/// the selection's own floor: it could be the true fundamental (PR #847).
+/// A withheld pair at or below that floor (gradient nullspace) is logged
+/// and skipped (issue #934).
 #[allow(clippy::too_many_arguments)]
 pub fn solve_dielectric_modes2_analytic_cladding_bc(
     mesh: &TriMesh,
@@ -8455,10 +8533,36 @@ pub fn solve_dielectric_modes2_analytic_cladding_bc(
         // withheld pair (a genuine eigenvalue, unconverged at the cap)
         // nearer σ than the pick could be the true fundamental; fail rather
         // than iterate on the next mode down.
+        //
+        // Issue #934: only a withheld pair the selection above could have
+        // picked counts, so a pair at or below the same curl floor (a
+        // gradient-nullspace pair) is skipped and logged, not a hole.
         if let Some((pick, _)) = best {
             let reach = (pick.re - sigma).hypot(pick.im);
-            let in_window = |l: c64| l.re > beta_sq_floor && l.re < beta_sq_ceiling;
-            if let Some((lambda, residual)) = checked.localized_hole(sigma, reach, in_window) {
+            let verdict = analytic_cladding_hole(
+                &checked,
+                sigma,
+                reach,
+                (beta_sq_floor, beta_sq_ceiling),
+                curl_floor,
+                curl_ratio,
+            );
+            for w in &verdict.skipped_low_curl {
+                eprintln!(
+                    "solve_dielectric_modes2_analytic_cladding_bc (iteration {it}): hole check \
+                     (issue #934) skipped withheld Ritz pair β² = {:.6e} (relative residual \
+                     {:.3e}) nearer σ = {sigma:.6e} than the selected fundamental β² = \
+                     {pick:.6e}: curl ratio {:.3e} ≤ floor {curl_floor:.0e} (gradient \
+                     nullspace, never selectable)",
+                    w.beta_sq, w.residual, w.curl_ratio,
+                );
+            }
+            if let Some(WithheldCandidate {
+                beta_sq: lambda,
+                residual,
+                ..
+            }) = verdict.hole
+            {
                 return Err(EigenError::FaerGevd(format!(
                     "analytic-cladding modal solve (iteration {it}): Ritz pair β² = \
                      {lambda:.6e} (relative residual {residual:.3e} > \
@@ -12567,6 +12671,171 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    /// A hand-built analytic-cladding checked result (issue #934): no
+    /// converged pairs, and each `(λ, ρ, curl)` of `withheld` recorded as a
+    /// localized withheld pair whose one-entry Ritz vector carries `curl`
+    /// (read back by [`curl_from_vector_934`]). `spurious` adds non-localized
+    /// entries to `rejected` only, as the solver records them.
+    fn checked_934(
+        withheld: &[(c64, f64, f64)],
+        spurious: &[(c64, f64)],
+    ) -> CheckedComplexEigenpairs {
+        use crate::eigen::complex::{ComplexEigenPair, ComplexWithheldEigenpair};
+        let mut rejected: Vec<(c64, f64)> = withheld.iter().map(|&(l, r, _)| (l, r)).collect();
+        rejected.extend_from_slice(spurious);
+        CheckedComplexEigenpairs {
+            pairs: Vec::new(),
+            residuals: Vec::new(),
+            rejected,
+            localized_withheld: withheld
+                .iter()
+                .map(|&(lambda, residual, curl)| ComplexWithheldEigenpair {
+                    pair: ComplexEigenPair {
+                        lambda,
+                        vector: vec![c64::new(curl, 0.0)],
+                    },
+                    residual,
+                })
+                .collect(),
+            screened: Vec::new(),
+            requested: 4,
+            lanczos_steps: 40,
+            extended: true,
+        }
+    }
+
+    /// Curl ratio "computed" from a [`checked_934`] Ritz vector.
+    fn curl_from_vector_934(x: &[c64]) -> f64 {
+        x[0].re
+    }
+
+    /// The analytic-cladding geometry of the #934 tests: guided window
+    /// `(34, 36)`, `σ` just under the ceiling as the solve sets it, and a
+    /// selected fundamental at `β² = 35.5`.
+    fn geometry_934() -> ((f64, f64), f64, f64) {
+        let window = (34.0, 36.0);
+        let sigma = window.1 * (1.0 - 1e-3);
+        let pick = 35.5_f64;
+        (window, sigma, (pick - sigma).abs())
+    }
+
+    /// Issue #934: a localized withheld **gradient** pair (curl ratio at
+    /// f64 noise, or exactly at the floor) nearer `σ` than the selected
+    /// fundamental is not a hole of the analytic-cladding solve; it is
+    /// returned as skipped so the solve logs it. Before #934 the check was
+    /// curl-blind and failed the solve on it.
+    #[test]
+    fn analytic_cladding_hole_skips_gradient_pair_nearer_sigma() {
+        let (window, sigma, reach) = geometry_934();
+        let floor = physical_curl_floor_pml();
+        for curl in [1e-13, floor] {
+            let gradient = (c64::new(35.9, 0.0), 1e-7, curl);
+            let checked = checked_934(&[gradient], &[]);
+            // Precondition: the pair is a hole to the curl-blind rule.
+            assert!(
+                checked
+                    .localized_hole(sigma, reach, |l| l.re > window.0 && l.re < window.1)
+                    .is_some(),
+                "fixture must be a curl-blind hole (curl {curl:.1e})"
+            );
+            let verdict =
+                analytic_cladding_hole(&checked, sigma, reach, window, floor, curl_from_vector_934);
+            assert_eq!(
+                verdict.hole, None,
+                "gradient pair (curl {curl:.1e}) tripped"
+            );
+            assert_eq!(verdict.skipped_low_curl.len(), 1);
+            assert_eq!(verdict.skipped_low_curl[0].beta_sq, gradient.0);
+            assert_eq!(verdict.skipped_low_curl[0].curl_ratio, curl);
+        }
+    }
+
+    /// Issue #934: a curl-bearing withheld pair nearer `σ` than the pick is
+    /// still a hole, including when a gradient pair sits even nearer `σ`
+    /// (which is skipped, not reported, and does not mask it).
+    #[test]
+    fn analytic_cladding_hole_reports_physical_pair_nearer_sigma() {
+        let (window, sigma, reach) = geometry_934();
+        let floor = physical_curl_floor_pml();
+        // SMF-28-like physical curl (1e-4) and one just above the floor.
+        for curl in [1e-4, floor * 1.01] {
+            let physical = (c64::new(35.8, 0.0), 2e-6, curl);
+            let verdict = analytic_cladding_hole(
+                &checked_934(&[physical], &[]),
+                sigma,
+                reach,
+                window,
+                floor,
+                curl_from_vector_934,
+            );
+            let hole = verdict.hole.expect("curl-bearing pair nearer σ is a hole");
+            assert_eq!(hole.beta_sq, physical.0);
+            assert_eq!(hole.residual, physical.1);
+            assert!(verdict.skipped_low_curl.is_empty());
+        }
+        let gradient = (c64::new(35.95, 0.0), 1e-7, 1e-13);
+        let physical = (c64::new(35.8, 0.0), 2e-6, 1e-4);
+        let verdict = analytic_cladding_hole(
+            &checked_934(&[gradient, physical], &[]),
+            sigma,
+            reach,
+            window,
+            floor,
+            curl_from_vector_934,
+        );
+        assert_eq!(verdict.hole.map(|h| h.beta_sq), Some(physical.0));
+        assert_eq!(verdict.skipped_low_curl.len(), 1);
+        assert_eq!(verdict.skipped_low_curl[0].beta_sq, gradient.0);
+    }
+
+    /// Issue #934: a curl-bearing withheld pair farther from `σ` than the
+    /// pick, or outside the guided window, is not a hole and is not listed
+    /// as skipped either.
+    #[test]
+    fn analytic_cladding_hole_ignores_pairs_farther_than_pick_or_out_of_window() {
+        let (window, sigma, reach) = geometry_934();
+        let floor = physical_curl_floor_pml();
+        let farther = (c64::new(35.0, 0.0), 2e-6, 1e-4);
+        let above_ceiling = (c64::new(36.01, 0.0), 1e-7, 1e-4);
+        let verdict = analytic_cladding_hole(
+            &checked_934(&[farther, above_ceiling], &[]),
+            sigma,
+            reach,
+            window,
+            floor,
+            curl_from_vector_934,
+        );
+        assert_eq!(verdict.hole, None);
+        assert!(verdict.skipped_low_curl.is_empty());
+    }
+
+    /// Issue #934: for curl-bearing pairs the new check reports exactly the
+    /// pair [`CheckedComplexEigenpairs::localized_hole`] reports (same
+    /// window, distance and nearest-`σ` rules), and a non-localized
+    /// spurious value in `rejected` never counts for either.
+    #[test]
+    fn analytic_cladding_hole_matches_localized_hole_for_curl_bearing_pairs() {
+        let (window, sigma, _) = geometry_934();
+        let floor = physical_curl_floor_pml();
+        let checked = checked_934(
+            &[
+                (c64::new(35.70, -1e-9), 3e-6, 1e-3),
+                (c64::new(35.85, 2e-9), 1e-5, 2e-4),
+                (c64::new(35.20, 0.0), 1e-6, 5e-3),
+            ],
+            &[(c64::new(35.94, 0.0), 11.0)],
+        );
+        let in_window = |l: c64| l.re > window.0 && l.re < window.1;
+        for reach in [0.01, 0.12, 0.2, 0.3, 0.5, 1.0] {
+            let expected = checked.localized_hole(sigma, reach, in_window);
+            let got =
+                analytic_cladding_hole(&checked, sigma, reach, window, floor, curl_from_vector_934)
+                    .hole
+                    .map(|h| (h.beta_sq, h.residual));
+            assert_eq!(got, expected, "reach {reach}");
+        }
     }
 
     /// The hole is surfaced as the typed [`EigenError::SelectionHole`] naming

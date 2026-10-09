@@ -1056,6 +1056,18 @@ pub struct HybridLineReport {
     pub z_pv: Option<f64>,
     /// Voltage–current impedance (ohms); `None` if a voltage is missing.
     pub z_vi: Option<f64>,
+    /// `true` when every conductor's net current cancels to floating-point
+    /// round-off (issue #953): a TE / TM waveguide mode of the face (such
+    /// as a coax TE₁₁), not a line mode. Then `Z_PI` and `Z_VI` are
+    /// **undefined** — `z_pi` and `z_vi` hold ratios of round-off (about
+    /// `1e31 Ω` on the coax) and must not be used — no line-impedance
+    /// accuracy is estimated, and a
+    /// [`PortWarningKind::NoNetConductorCurrent`] says so. The test is per
+    /// conductor against the a-priori round-off bound of its discrete-Ampère
+    /// sum (no tuned constant), so an odd coupled mode (opposite, non-zero
+    /// currents) and a mode near cutoff (small but real current) keep their
+    /// impedance.
+    pub no_net_current: bool,
 }
 
 /// Line quantities of one propagating channel of a **lossy** hybrid port
@@ -1092,6 +1104,9 @@ pub struct HybridComplexLineReport {
     /// Voltage–current impedance (ohms, complex); `None` if a voltage is
     /// missing.
     pub z_vi: Option<c64>,
+    /// No net conductor current (issue #953): `z_pi` and `z_vi` are
+    /// undefined. As [`HybridLineReport::no_net_current`].
+    pub no_net_current: bool,
 }
 
 /// A hybrid port at one frequency.
@@ -1250,6 +1265,20 @@ pub enum PortWarningKind {
         omega: f64,
         /// Why.
         reason: String,
+    },
+    /// A propagating channel on a face with floating conductors carries **no
+    /// net conductor current**: every conductor's current cancels to
+    /// floating-point round-off ([`HybridLineReport::no_net_current`], issue
+    /// #953). It is a TE / TM waveguide mode of the face (such as a coax
+    /// TE₁₁), not a line mode, so `Z_PI = 2P/Σ|I|²` and `Z_VI` are undefined
+    /// and no line-impedance accuracy is estimated for it. Not a mesh
+    /// problem: refining does not give it a current. Raised once per channel
+    /// (the first frequency) whether or not the accuracy estimate is on.
+    NoNetConductorCurrent {
+        /// Channel index within the port.
+        channel: usize,
+        /// First frequency it was seen at.
+        omega: f64,
     },
     /// The refined counterpart of a channel could not be matched, or the
     /// refined (`h/2`) solve failed; the sweep continued without the estimate.
@@ -3344,6 +3373,11 @@ impl HybridState {
         // --- Line quantities and the accuracy estimate.
         let lines: Vec<Option<HybridLineReport>> =
             tracked.iter().map(|m| self.ctx.line(m, omega)).collect();
+        for (c, l) in lines.iter().enumerate() {
+            if l.as_ref().is_some_and(|l| l.no_net_current) {
+                self.z_warn.record_no_current(c, omega);
+            }
+        }
         let mut accuracy: Vec<Option<ModeAccuracy>> = vec![None; k];
         let mut z_acc: Vec<Option<ImpedanceAccuracy>> = vec![None; k];
         if let Some(acc) = port.opts.accuracy {
@@ -3727,8 +3761,8 @@ impl HybridState {
             lines
                 .iter()
                 .map(|l| match l {
-                    Some(_) => ZOutcome::Unavailable(why.to_string()),
-                    None => ZOutcome::NotApplicable,
+                    Some(l) if !l.no_net_current => ZOutcome::Unavailable(why.to_string()),
+                    _ => ZOutcome::NotApplicable,
                 })
                 .collect()
         };
@@ -3833,7 +3867,8 @@ impl HybridState {
             mode_accuracy_from_matches(&coarse, &set_h2, &matched_h2, self.rates.as_deref());
         let z = (0..tracked.len())
             .map(|c| {
-                let Some(l1) = &lines[c] else {
+                // No net conductor current (#953): no line impedance.
+                let Some(l1) = lines[c].as_ref().filter(|l| !l.no_net_current) else {
                     return ZOutcome::NotApplicable;
                 };
                 let Some(Some(g2)) = &self.z_h2 else {
