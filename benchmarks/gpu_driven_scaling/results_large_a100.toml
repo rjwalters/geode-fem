@@ -51,7 +51,8 @@ drift = "Since issue #744 the driven solver rejects a Krylov solve whose recursi
 #    the 300-iteration capped cells it is NET of per-omega setup:
 #    (t_cap300 - t_cap1) / 299, with t_cap1 measured separately
 #    (S1_/S2_ legs). The CPU matrix-free leg (Burn ndarray backend) runs on
-#    ONE core (/usr/bin/time: 100% CPU); the GPU leg's host process 109%.
+#    ONE thread, not OS-pinned (/usr/bin/time: 100% CPU); the GPU leg's host
+#    process 109%.
 #
 # | edges   | GPU f32 A100: s/iter | iters  | expl. resid | solve s | CPU f64 1-core: s/iter | iters | solve s | GPU/CPU per-iter |
 # |---------|----------------------|--------|-------------|---------|------------------------|-------|---------|------------------|
@@ -169,8 +170,8 @@ s_per_iter_net = 1.45861
 
 # ---------------------------------------------------------------------------
 # 2. CPU f64 references at every size (same host): Direct faer LU (multi-
-#    threaded, 835% CPU) and assembled-CSR COCG + Jacobi (single core, 101%
-#    CPU). Both explicitly converged; port voltage V (v_inc = 1) for the
+#    threaded, 835% CPU) and assembled-CSR COCG + Jacobi (single-threaded,
+#    not OS-pinned; 101% CPU). Both explicitly converged; port voltage V (v_inc = 1) for the
 #    Palace cross-check. The assembled COCG is 22-54x cheaper per iteration
 #    than the CPU matrix-free leg and 24-29x cheaper than the GPU f32 one, and
 #    is the fastest geode iterative option at every size.
@@ -200,15 +201,20 @@ cocg_csr_large_leg_max_rss_gb = 1.29
 #    #519, same host). The geode harness exports the IDENTICAL mesh as Gmsh
 #    MSH 2.2 (GEODE_SCALING_EXPORT_DIR); palace_driven_cfg.py maps geode's
 #    natural units to SI (L0 = 1 m: f = 4.7713 MHz, sigma = 2/Z0 S/m,
-#    R = Z0). Palace: Order 1, Linear Type Default (GMRES + AMS), Tol 1e-8.
+#    R = Z0). Palace: Order 1, Linear Type Default, Tol 1e-8. Default resolves
+#    to SuperLU (sparse direct LU) under GMRES: the resolved config of the
+#    validation run records Solver.Linear.Type = "SuperLU", KSPType =
+#    "GMRES". Earlier versions of this file said "GMRES + AMS"; relabelled
+#    in #965 / #977, numbers unchanged (see README, "The #520 Palace solver
+#    was not AMS").
 #
 # CORRECTNESS: Palace's port voltage V/V_inc agrees with geode's f64 solve
 # to 2.2e-9 .. 2.8e-9 relative at every size (25.7k .. 463k edges), on both
 # Palace devices — same discretization, same answer. (Validated first at
 # 1854 edges: Palace S11 = -9.5232 dB / 178.739 deg vs geode V/V_inc - 1.)
 #
-# | edges   | geode-CUDA f32 MF        | geode CPU f64 best (COCG-CSR, 1 core) | Palace GPU (1 rank, A100) | Palace CPU (8 ranks) |
-# |---------|--------------------------|---------------------------------------|---------------------------|----------------------|
+# | edges   | geode-CUDA f32 MF        | geode CPU f64 best (COCG-CSR, 1 thread, not OS-pinned) | Palace GPU (1 rank, A100) | Palace CPU (8 ranks) |
+# |---------|--------------------------|--------------------------------------------------------|---------------------------|----------------------|
 # |  25 695 | 106.8 s (resid 5.5e-3)   |   4.0 s                               | 10.14 s                   |  3.19 s              |
 # |  59 660 | 356.8 s (resid 1.4e-2)   |  14.0 s                               | 17.29 +- 0.11 s (n=3)     |  6.80 +- 0.04 s (n=3)|
 # | 102 024 | DNF (3237 s, 20k iters)  |  30.0 s                               | 28.03 s                   | 11.31 s              |
@@ -219,9 +225,10 @@ cocg_csr_large_leg_max_rss_gb = 1.29
 # (recursion-converged) solve, 59.7k edges, Palace-GPU is 20.6x faster
 # (17.3 s vs 356.8 s) AND reaches f64 tol 1e-8 (geode-CUDA's explicit
 # residual is 1.4e-2). At 463k edges geode-CUDA cannot finish; Palace-GPU
-# takes 165 s. The measured gap is geode WITH JACOBI vs Palace with AMS:
-# geode's Jacobi-COCG takes 2 969 -> 10 154 iterations (25.7k -> 463k
-# edges), Palace's GMRES + AMS ~5 at every size. This is NOT a measurement
+# takes 165 s. The measured gap is geode WITH JACOBI vs Palace with a
+# sparse direct LU (SuperLU) as its GMRES preconditioner: geode's
+# Jacobi-COCG takes 2 969 -> 10 154 iterations (25.7k -> 463k edges),
+# Palace's SuperLU-preconditioned GMRES ~5 at every size. This is NOT a measurement
 # of geode's best preconditioner: geode's assembled CPU driven path already
 # ships an opt-in Hiptmair-Xu AMS preconditioner (IterativePreconditioner::Ams,
 # #744/#708, crates/geode-core/src/driven/solve.rs; its #742 spike converged
@@ -232,10 +239,21 @@ cocg_csr_large_leg_max_rss_gb = 1.29
 # question are tracked in #930 (under #547). Palace on 8 CPU ranks beats
 # Palace on the GPU at every size here too (2.5-3.2x).
 #
-# CORE-SECONDS: geode assembled COCG + Jacobi on 1 core uses FEWER
-# core-seconds than Palace on 8 ranks — ~274 vs ~481 core-s at 463k edges
-# (274.5 s x 1 vs 60.12 s x 8), ~14.0 vs ~54 at 59.7k. This is core-seconds
-# only: Palace's wall clock is lower at every size, through parallelism.
+# CORE-SECONDS: geode assembled COCG + Jacobi (single-threaded code path)
+# uses FEWER core-seconds than Palace on 8 ranks at 463k edges, ~277 vs
+# 479.3. Palace figures are MEASURED: user + sys from /usr/bin/time -v,
+# median of n=3 (463k: 479.31 / 479.42 / 477.85; 59.7k: 52.59 / 52.36 /
+# 52.38 -> 52.4), at 766-797% CPU. geode at 463k is an ESTIMATE: no per-cell
+# CPU time exists; the B2 process (338k + 463k solves, 176.2 s + 274.5 s,
+# plus mesh and assembly) measured 484.8 core-s over 480.0 s wall (101%
+# CPU), so 274.5 s x 1.01 ~ 277 core-s. geode at 59.7k, 14.0 core-s, is wall
+# x 1, an ESTIMATE: that solve ran in the B1 process alongside the parallel
+# direct-LU legs (835% CPU overall), so its CPU time cannot be isolated.
+# Against Palace's measured 52.4 at 59.7k the direction is therefore
+# unmeasured. Single-threading is a property of the code path, not
+# OS-enforced (no taskset / Cpus_allowed_list recorded). This is
+# core-seconds only: Palace's wall clock is lower at every size, through
+# parallelism.
 # ---------------------------------------------------------------------------
 
 [palace_driven]
@@ -251,10 +269,11 @@ gpu_peak_mib = { "25695" = 5227, "59660" = 5371, "102024" = 5463, "197190" = 576
 gpu_max_rss_gb_463k = 9.55
 cpu_np8_max_rss_gb_per_rank_463k = 2.16
 timing = "/usr/bin/time -v around `palace -np N` inside the container (container start-up excluded), full pipeline incl. mesh load"
+cpu_np8_core_s = { "59660" = [52.59, 52.36, 52.38], "462520" = [479.31, 479.42, 477.85] }  # user + sys from the same /usr/bin/time -v (rank children counted: 766-797% CPU)
 
 [notes]
-single_core_cpu = "Both the CPU matrix-free leg and the assembled-COCG leg run single-threaded (Burn ndarray / faer CSR SpMV as used here). The per-iteration crossover above is therefore GPU vs ONE CPU core of the 30 available; against a parallel CPU SpMV the GPU crossover would move further out."
+single_core_cpu = "Both the CPU matrix-free leg and the assembled-COCG leg run single-threaded (Burn ndarray / faer CSR SpMV as used here). The per-iteration crossover above is therefore GPU vs ONE CPU core of the 30 available; against a parallel CPU SpMV the GPU crossover would move further out. Single-threading is a property of the code path, not OS-enforced (no taskset / Cpus_allowed_list recorded); the processes measured 100% (C1, C2 matrix-free) and 101% (B2 assembled COCG) CPU. A thread cap alone is not proof: under GEODE_NUM_THREADS=1 the transmon direct solve measured ~6.9 cores (#763, benchmarks/transmon_bench_gpu/results.toml)."
 not_comparable = "Do not merge these cells into results.toml: different GPU, host, and matvec code. results.toml remains the #501 L40S record."
 preconditioner_scope = "geode ran Jacobi only in this sweep (the harness hard-codes config 2 as COCG + Jacobi; the matrix-free / GPU path supports Jacobi only). geode's assembled-path AMS (IterativePreconditioner::Ams, #744/#708) was not measured here; see #930 (under #547)."
-core_seconds = "geode COCG + Jacobi on 1 core: ~274 core-s at 463k edges vs Palace 8 ranks ~481 core-s (60.12 s x 8). Core-seconds only; Palace's wall clock is lower."
+core_seconds = "Palace 8 ranks, MEASURED user + sys median of n=3: 479.3 core-s at 463k edges, 52.4 at 59.7k. geode COCG + Jacobi, ESTIMATED: ~277 core-s at 463k (274.5 s x 1.01; the B2 process covering the 338k + 463k solves measured 484.8 core-s at 101% CPU, not separable per cell); 14.0 core-s at 59.7k is wall x 1 (that solve shared the B1 process with the parallel direct-LU legs). Core-seconds only; Palace's wall clock is lower."
 palace_driven_reps ="Palace timings at 25.7k/102k/197k edges are single runs (they back the agreement column); n=3 at 59.7k and 463k."

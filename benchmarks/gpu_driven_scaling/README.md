@@ -734,8 +734,8 @@ full wording.
   flat iteration count on this fixture, and a diagnostic traced that to its
   edge-smoother weight. Issue #930 tracks the smoother follow-up, the at-scale
   measurement and the matrix-free / GPU AMS question.
-- **The #520 Palace solver was not AMS.** `results_large_a100.toml` calls the
-  Palace runs "GMRES + AMS". They used `Solver.Linear.Type = "Default"`,
+- **The #520 Palace solver was not AMS.** `results_large_a100.toml` called the
+  Palace runs "GMRES + AMS" (relabelled to SuperLU under GMRES in #965). They used `Solver.Linear.Type = "Default"`,
   which Palace resolves to SuperLU for a driven problem in an image built
   with SuperLU, as both images here are (see
   [the at-scale section](#ams-vs-jacobi-vs-palace-at-scale-930-same-host)).
@@ -743,7 +743,16 @@ full wording.
   is wrong. Palace with `AMS` was first measured in #930.
 - **Single-core CPU legs.** Both the CPU matrix-free leg and the assembled
   COCG leg ran single-threaded, so the per-iteration crossover is GPU vs one
-  CPU core of the 30 available.
+  CPU core of the 30 available. Single-threading is a property of the code
+  path, not OS-enforced: no `taskset` or `Cpus_allowed_list` was recorded.
+  `/usr/bin/time` measured 100% CPU for the matrix-free processes and 101%
+  for the assembled-COCG process.
+- **Core-seconds.** Palace's 8-rank core-seconds in `results_large_a100.toml`
+  are measured (user + sys, median of n = 3): 479.3 at 463k edges and 52.4 at
+  59.7k. geode's are estimates. At 463k it is about 277 core-s, from the 101%
+  CPU of the process that ran both the 338k and 463k solves. At 59.7k it is
+  wall × 1 (14.0), because that solve shared a process with the parallel
+  direct-LU legs.
 - **Single timed solves.** Most cells are one solve where the warm-up is the
   measurement (`GEODE_SCALING_REPS=0`); Palace timings are n = 3 only at
   59.7k and 463k edges.
