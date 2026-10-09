@@ -3,7 +3,7 @@
 
 usage: summarize_tuned_palace_m6i.py <tuned-run-dir> <palace-eig.csv> <untuned-run-dir>
   e.g. python3 -I benchmarks/transmon_bench_cpu/summarize_tuned_palace_m6i.py \
-         benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_tuned_palace \
+         benchmarks/transmon_bench_cpu/runs/2026-10-09_m6i_tuned_palace \
          reference/fixtures/transmon_palace/results_p1/eig.csv \
          benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_like_for_like \
          > benchmarks/transmon_bench_cpu/results_tuned_palace_m6i.toml
@@ -284,7 +284,7 @@ w("issues = [927]")
 w(f'measured_date = "{stamps[0][:10]}"  # UTC date the timed runs started; they ran between {stamps[0]} and {stamps[-1]}')
 w(f'tuned_sweep_utc = "{t_sweep[0]} to {t_sweep[-1]}"  # geode and tuned Palace, interleaved round-robin')
 w(f'untuned_control_sweep_utc = "{c_sweep[0]} to {c_sweep[-1]}"  # after the untuned image was built on the same box')
-w(f'geode_commit = "{gver.get("geode_commit", "unknown")}"  # main HEAD when the run started')
+w(f'geode_commit = "{gver.get("geode_commit", "unknown").split()[0]}"  # main HEAD when the run started')
 w(f'pr964_reference = "{untuned_dir.as_posix()} (geode {u_gver.get("geode_commit", "unknown")[:8]}, Palace from reference/palace/docker/Dockerfile, a different m6i.4xlarge instance)"')
 w('scope = "one AWS m6i.4xlarge with no other workload, one session; tuned Palace, untuned Palace (same-box control) and geode (direct LU) on the committed 133k transmon fixture"')
 w('fixture = "crates/geode-core/tests/fixtures/transmon_smoke.msh"')

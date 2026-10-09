@@ -1,4 +1,4 @@
-# 2026-10-08 m6i.4xlarge tuned-Palace run tree
+# 2026-10-09 m6i.4xlarge tuned-Palace run tree
 
 Raw evidence for
 [`../../results_tuned_palace_m6i.toml`](../../results_tuned_palace_m6i.toml)
@@ -50,10 +50,10 @@ Read the results file for the numbers and caveats.
    a zmm count alone would read as no AVX-512.
 3. `m6i_tuned_box_bench.sh` ran the sweep once (`bench.out`), round-robin, with
    no runs before it and no re-runs.
-4. Tuned Palace came out 5 to 11% faster than the untuned PR #964 numbers. In
-   the same comparison geode, which did not change build, came out 6 to 9%
-   faster than in PR #964. So the instance difference alone could explain the
-   Palace difference. To separate the two, the untuned recipe was built on the
+4. Tuned Palace came out 5 to 11% faster than the untuned PR #964 numbers.
+   geode was built the same way in both sessions, at a later commit here, and
+   it came out 6 to 9% faster than in PR #964. So the instance difference alone
+   could explain the Palace difference. To separate the two, the untuned recipe was built on the
    same box (`untuned_control_build.sh`, 32 min) and its four fixture-request
    cells were timed with the same driver and pinning (`untuned_control_chain.sh`
    -> `untuned_control/bench.out`). This step was not in the plan; it was added
