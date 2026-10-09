@@ -595,7 +595,9 @@ jobs:
       # mixed_pencil_fiber_benchmark 20 s,
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
       # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
-      # sphere_matched_upml_eigenmode 8 s (two tests), the rest 0-5 s.
+      # sphere_matched_upml_eigenmode 8 s or less (three tests since #1022;
+      # measured locally 7.7 s against 12.9 s for the two before it),
+      # the rest 0-5 s.
       # wave_port_p2 (issues #884, #905, the p=2 TM-guard validation table):
       # its 288 structured / one-element-across / stepped rows run here; its
       # 527 Gmsh rows run only where gmsh is on PATH (not on this runner).
