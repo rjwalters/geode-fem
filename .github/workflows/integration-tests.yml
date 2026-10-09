@@ -501,10 +501,12 @@ jobs:
 
       # Issue #917: the sparse tier of the self-consistent k0 drivers
       # (default tier; ignored only under debug-assertions, so it runs here
-      # in release). About 75 sparse solves (0.5 to 2 s each) and 3 dense
+      # in release). About 105 sparse solves (0.5 to 2 s each) and 3 dense
       # solves of the 4512-DOF pencil that tie the sparse seeds to the dense
       # spectrum. Measured release, local 28-core host at load 40:
-      # silvermuller_self_consistent 76 s, the vector-tracking target 31 s.
+      # silvermuller_self_consistent 76 s, the vector-tracking target 31 s;
+      # issue #940 added the converged sphere resonance (28 sparse solves)
+      # and two millisecond tests, re-measured at load 65: 111 s and 48 s.
       # The dense tier took 39 and 38 min on the same host and stays out of
       # CI. The sparse tier starts from its seeds but uses another target
       # rule, so it is not the same scenarios (see the test files' docs).

@@ -1,0 +1,13 @@
+os=macOS 27.0 (arm64)
+model=Mac15,14
+cpu=Apple M3 Ultra
+logical_cpus=28
+ram_gib=96
+rustc=rustc 1.98.1 (48a229cea 2026-09-01)
+geode_commit=5b1dc7e964f0c42c7ac14ad782c96a8e0d5e9a3d dirty=0
+main_commit=be12e81a7
+main_bin_sha256=b6604390089238890b1e1eb130d9ee66d8eaa72bd9a6c05f0e93fdc446f5d834
+head_bin_sha256=2a71cfa4823c5b42334d52156cb71873a45879d3415bd1e62e7a6ca22f3d893a
+geode_num_threads=1
+rayon_num_threads=1
+fixture_sha256=5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd

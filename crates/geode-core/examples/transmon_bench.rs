@@ -98,17 +98,25 @@
 //!     the transmon fixture at `σ = 4.5 GHz` are mostly `image(d⁰)` gradient
 //!     near-kernel modes, **not** the physical modes a divergence-free solver
 //!     (Palace) returns for the same request.
-//!   - `port_aware` → the port-aware divergence-free projection of issue #514
+//!   - `port_aware` → the port-subspace divergence-free projection of issue
+//!     #950 ([`solve_transmon_eigenmodes_port_subspace`]): the bulk gradient
+//!     projector plus the gradient directions read off the junction port's
+//!     nodes, then one projected Lanczos at `σ`, dropping exact null modes of
+//!     `K` before the `n_modes` cut. One factorization of `K − σM`, no junction
+//!     extract and no reference number. It deflates the gradient cluster and
+//!     keeps the junction mode. It does **not** remove the solenoidal 3.45 GHz
+//!     port-artifact mode (#514), which is a genuine eigenpair of this pencil.
+//!     `direct` inner solver only.
+//!   - `port_aware_extract` → the issue #514 route
 //!     ([`solve_transmon_eigenmodes_port_aware`]): one ungauged extract of the
-//!     junction LC mode near `GEODE_JUNCTION_SIGMA_GHZ`, then a projected
-//!     Lanczos at `σ`. It deflates the gradient cluster and keeps the junction
-//!     mode. It does **not** remove the solenoidal 3.45 GHz port-artifact mode
-//!     (#514), and one near-zero survivor remains, so more than six modes must
-//!     still be requested to return six physical ones. `direct` inner solver
-//!     only (the composite solver factorizes with faer's sparse LU).
+//!     junction LC mode near `GEODE_JUNCTION_SIGMA_GHZ` (a second factorization),
+//!     then a projected Lanczos at `σ` re-admitting that one direction. Since
+//!     issue #950 it drops exact null modes too. This was `port_aware` before
+//!     #950; it is kept for before/after measurement. `direct` only.
 //! - `GEODE_JUNCTION_SIGMA_GHZ` — shift for the junction extract of
-//!   `GEODE_GAUGE=port_aware` (default: the analytic `f_LC = 1/(2π√(LC))` of the
-//!   junction values, ≈ 17.60 GHz, so no reference-solver number is needed).
+//!   `GEODE_GAUGE=port_aware_extract` (default: the analytic
+//!   `f_LC = 1/(2π√(LC))` of the junction values, ≈ 17.60 GHz, so no
+//!   reference-solver number is needed).
 //!
 //! # Cost-characterization knobs (issue #562, opt-in, matrix-free/`minres` only)
 //!
@@ -140,7 +148,10 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::lanczos::{InnerPreconditioner, InnerSolver};
-use geode_core::eigen::projection::solve_transmon_eigenmodes_port_aware;
+use geode_core::eigen::projection::{
+    ProjectionDiagnostics, solve_transmon_eigenmodes_port_aware,
+    solve_transmon_eigenmodes_port_subspace,
+};
 use geode_core::eigen::transmon::{
     LumpedReactiveShunt, ModeReport, ReactiveElementNatural, TransmonPencil,
     lambda_shift_for_frequency_hz, solve_transmon_eigenmodes_indefinite_inner_iters_three_space,
@@ -257,6 +268,17 @@ fn inner_label(inner: InnerSolver) -> &'static str {
     }
 }
 
+/// The gradient-nullspace treatment selected by `GEODE_GAUGE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Gauge {
+    /// Ungauged pencil.
+    None,
+    /// Issue #950 port-subspace projection (`port_aware`).
+    PortSubspace,
+    /// Issue #514 junction-extract projection (`port_aware_extract`).
+    PortAwareExtract,
+}
+
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
     std::env::var(key)
         .ok()
@@ -281,18 +303,22 @@ fn main() {
     // Gradient-nullspace treatment of the timed solve (issue #927). `none` is
     // the historical ungauged path and stays the default.
     let gauge_name = std::env::var("GEODE_GAUGE").unwrap_or_else(|_| "none".to_string());
-    let port_aware = match gauge_name.as_str() {
-        "none" => false,
-        "port_aware" => true,
+    let gauge = match gauge_name.as_str() {
+        "none" => Gauge::None,
+        "port_aware" => Gauge::PortSubspace,
+        "port_aware_extract" => Gauge::PortAwareExtract,
         other => {
-            eprintln!("error: unknown GEODE_GAUGE='{other}' (expected: none | port_aware)");
+            eprintln!(
+                "error: unknown GEODE_GAUGE='{other}' \
+                 (expected: none | port_aware | port_aware_extract)"
+            );
             std::process::exit(2);
         }
     };
-    if port_aware && inner != InnerSolver::Direct {
+    if gauge != Gauge::None && inner != InnerSolver::Direct {
         eprintln!(
-            "error: GEODE_GAUGE=port_aware needs GEODE_INNER=direct (the port-aware solver \
-             factorizes with faer's sparse LU; got '{inner_name}')"
+            "error: GEODE_GAUGE={gauge_name} needs GEODE_INNER=direct (the projected solvers \
+             factorize with faer's sparse LU; got '{inner_name}')"
         );
         std::process::exit(2);
     }
@@ -305,13 +331,16 @@ fn main() {
         "config: inner = {}, σ = {sigma_ghz} GHz, n_modes = {n_modes}, GEODE_NUM_THREADS = {threads_env}",
         inner_label(inner)
     );
-    if port_aware {
-        println!(
-            "gauge: port_aware (#514 port-aware divergence-free projection; junction extract \
-             at {junction_sigma_ghz:.4} GHz)"
-        );
-    } else {
-        println!("gauge: none (ungauged pencil)");
+    match gauge {
+        Gauge::None => println!("gauge: none (ungauged pencil)"),
+        Gauge::PortSubspace => println!(
+            "gauge: port_aware (#950 port-subspace divergence-free projection; \
+             one factorization, no junction extract)"
+        ),
+        Gauge::PortAwareExtract => println!(
+            "gauge: port_aware_extract (#514 port-aware divergence-free projection; junction \
+             extract at {junction_sigma_ghz:.4} GHz)"
+        ),
     }
 
     // ---- Phase 1: load the fixture (external mesh override or embedded). ---
@@ -388,22 +417,45 @@ fn main() {
     // the absolute-value-Jacobi baseline) and (b) print the total inner-MINRES
     // iteration count, which is the AMS-vs-abs-Jacobi measurement the acceptance
     // criteria call for. Every other backend keeps the plain entry point.
-    let (modes, inner_iters): (Vec<ModeReport>, Option<usize>) = if port_aware {
-        // Issue #927 option 1: the composite port-aware solve (one ungauged
-        // junction extract + one projected Lanczos at σ), timed as a whole.
-        let junction_sigma = lambda_shift_for_frequency_hz(junction_sigma_ghz * 1e9, M_PER_UNIT);
-        let (modes, diag) = solve_transmon_eigenmodes_port_aware(
-            &pencil,
-            sigma,
-            junction_sigma,
-            n_modes,
-            M_PER_UNIT,
-        )
-        .expect("transmon port-aware eigensolve");
+    let mut proj_diag: Option<ProjectionDiagnostics> = None;
+    let (modes, inner_iters): (Vec<ModeReport>, Option<usize>) = if gauge != Gauge::None {
+        let (modes, diag) = if gauge == Gauge::PortSubspace {
+            // Issue #950: one projected Lanczos at σ, no junction extract.
+            solve_transmon_eigenmodes_port_subspace(&pencil, sigma, n_modes, M_PER_UNIT)
+                .expect("transmon port-subspace eigensolve")
+        } else {
+            // Issue #514 route: ungauged junction extract + projected band.
+            let junction_sigma =
+                lambda_shift_for_frequency_hz(junction_sigma_ghz * 1e9, M_PER_UNIT);
+            solve_transmon_eigenmodes_port_aware(
+                &pencil,
+                sigma,
+                junction_sigma,
+                n_modes,
+                M_PER_UNIT,
+            )
+            .expect("transmon port-aware eigensolve")
+        };
         println!(
             "port-aware projection: {} Lanczos iterations, {} extra re-projections",
             diag.iterations, diag.reprojections
         );
+        println!(
+            "factorizations of K − σM: {}; re-admitted gradient directions: {}",
+            diag.shifted_factorizations, diag.readmitted_gradient_directions
+        );
+        println!(
+            "null-mode filter: dropped {} (|λ| ≤ {:.3e}; largest dropped |λ| = {:.3e})",
+            diag.null_modes_dropped, diag.null_ceiling, diag.max_dropped_null_lambda
+        );
+        if modes.len() < n_modes {
+            println!(
+                "warning: {} of {n_modes} requested modes returned (the Krylov basis held \
+                 no more non-null Ritz pairs)",
+                modes.len()
+            );
+        }
+        proj_diag = Some(diag);
         (modes, None)
     } else if inner == InnerSolver::MatrixFreeIndefinite {
         let precond_name = std::env::var("GEODE_PRECOND").unwrap_or_else(|_| "ams".to_string());
@@ -438,8 +490,14 @@ fn main() {
     // ---- Results + wall-clock (the numbers an operator reads off stdout). -
     println!("eigenvalues / frequencies (sorted by λ):");
     for (i, m) in modes.iter().enumerate() {
+        // Per-mode accuracy where the solver reports it (issue #950).
+        let extra = proj_diag
+            .as_ref()
+            .and_then(|d| d.mode_residual_rels.get(i))
+            .map(|r| format!(", residual = {r:.2e}"))
+            .unwrap_or_default();
         println!(
-            "  mode[{i}]: λ = {:.6e}, f = {:.6} GHz, participation p = {:.4}",
+            "  mode[{i}]: λ = {:.6e}, f = {:.6} GHz, participation p = {:.4}{extra}",
             m.lambda,
             m.frequency_ghz(),
             m.participation
