@@ -39,6 +39,9 @@
 #      GEODE_AMS_SMOOTH_WEIGHT (override of the AMS edge-smoother weight;
 #      0.6 reproduces the fixed weight used before issue #945). Both are
 #      inherited by every leg and recorded in <leg>.meta.
+#      GEODE_DRIVEN_AMS_SMOOTHER, GEODE_DRIVEN_AMS_CYCLE and
+#      GEODE_DRIVEN_AMS_PI_COARSE (issue #963 measurement knobs of the
+#      driven AMS V-cycle) are inherited and, when set, recorded in <leg>.meta.
 #      GEODE_AMS_SMOOTH_REPORT is set to 1 unless already set, so each AMS
 #      leg's .err carries one "# ams_smoother ..." line per preconditioner
 #      build: the Lanczos Ritz value, the Gershgorin bound, the weight chosen.
@@ -110,6 +113,11 @@ run_leg() {
     echo "rayon_num_threads=${RAYON_NUM_THREADS:-unset}"
     echo "scaling_omega=${GEODE_SCALING_OMEGA:-default}"
     echo "ams_smooth_weight=${GEODE_AMS_SMOOTH_WEIGHT:-auto}"
+    # Issue #963 driven V-cycle knobs; a line only when set, so trees
+    # written before #963 and runs that do not set them are unchanged.
+    for v in GEODE_DRIVEN_AMS_SMOOTHER GEODE_DRIVEN_AMS_CYCLE GEODE_DRIVEN_AMS_PI_COARSE; do
+      if [ -n "${!v:-}" ]; then echo "$v=${!v}"; fi
+    done
     if [ -n "${TASKSET_CPUS:-}" ]; then
       echo "taskset_cpus=$TASKSET_CPUS"
       echo "cpus_allowed_list=$cpus_allowed"

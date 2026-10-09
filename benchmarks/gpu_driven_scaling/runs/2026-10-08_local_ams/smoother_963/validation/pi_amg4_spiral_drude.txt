@@ -1,0 +1,13 @@
+# tree=pi_amg4 test=spiral_drude_ams_matches_direct
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=GEODE_DRIVEN_AMS_PI_COARSE=amg:4
+# start=2026-10-09T12:04:46Z loadavg_start=22.84,37.19,51.44
+
+running 1 test
+test spiral_drude_ams_matches_direct ... ams-drude   1.0 GHz: iters [215], |ΔZ|/|Z| vs direct 2.8e-12
+ams-drude   5.0 GHz: iters [201], |ΔZ|/|Z| vs direct 1.8e-12
+ams-drude  10.0 GHz: iters [226], |ΔZ|/|Z| vs direct 1.4e-12
+ams-drude  20.0 GHz: iters [229], |ΔZ|/|Z| vs direct 2.8e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 17.25s
+
