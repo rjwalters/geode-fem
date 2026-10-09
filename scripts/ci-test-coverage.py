@@ -49,8 +49,9 @@ the package), `src/bin/*.rs` and `src/bin/*/main.rs`. A bin is selected by
 all; `--lib`, `--test X`, `--doc`, `--examples` alone skip it.
 (`--benches` also runs the bin unit tests in cargo, since bins have
 `bench = true` by default; the guard does not count it, the same deliberate
-under-count as for the lib; issue #985.) Package selection and the partial-run rule are the lib target's: a
-name-filtered or `-- --ignored`-only run does not count, and its
+under-count as for the lib; issue #985.) Package selection and the
+partial-run rule are the lib target's: a name-filtered or
+`-- --ignored`-only run does not count, and its
 `#[ignore]`d tests are named by module path
 (`geode-cli/bin:geode::spec::tests::name`).
 
@@ -333,13 +334,14 @@ def bin_sources(crate_dir: Path) -> dict[str, tuple[Path, str | None]]:
     after the package), `src/bin/*.rs` and `src/bin/*/main.rs`. An inferred
     bin whose name or file a `[[bin]]` section already claims is dropped,
     as cargo does. A bin with `test = false` is skipped as a target: cargo
-    leaves it out of the default / `--tests` / `--all-targets` selections,
-    though `--bins` and `--bin NAME` still run its unit tests, so skipping it
-    can only under-count coverage (the fail-closed direction). `name` and
-    `path` may be basic (`"..."`) or literal (`'...'`) TOML strings;
-    multi-line strings and escapes are not modelled. gate is the bin's one `required-features` entry (cargo skips
-    the bin when it is not enabled); more than one is not modelled and is
-    an error.
+    leaves it out of the default and `--tests` selections, though `--bins`,
+    `--bin NAME`, `--all-targets` and `--benches` still run its unit tests,
+    so skipping it can only under-count coverage (the fail-closed
+    direction). `name` and `path` may be basic (`"..."`) or literal
+    (`'...'`) TOML strings; multi-line strings and escapes are not
+    modelled. The returned gate is the bin's one `required-features` entry
+    (cargo skips the bin when it is not enabled); more than one is not
+    modelled and is an error.
     """
     text = (crate_dir / "Cargo.toml").read_text()
     pkg = crate_name(crate_dir)
