@@ -620,8 +620,9 @@ jobs:
               --test wave_port_p2 -- --ignored
 
       # The real 133k / 157k-DOF transmon eigensolves. Measured release
-      # times, one test at a time: 23-61 s each (about 4.2 min for these
-      # six). Two threads bound the peak memory of the concurrent sparse
+      # times, one test at a time: 23-61 s each (about 4.2 min for the
+      # first six; real_transmon_port_subspace_returns_six_physical_at_n7,
+      # #1014, added 26 s locally on a loaded host). Two threads bound the peak memory of the concurrent sparse
       # LU factorizations. The skipped tests are allowlisted with reasons.
       # real_eigen_sensitivity_release (issue #814): five 133k-DOF direct
       # eigensolves (base + material and geometry FD), about 70 s locally.
