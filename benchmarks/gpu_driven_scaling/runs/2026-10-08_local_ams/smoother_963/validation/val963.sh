@@ -25,7 +25,7 @@ echo "$TESTS" | while IFS='|' read -r stem pkg target name ign; do
   [ -n "$stem" ] || continue
   if [ "$target" = --lib ]; then sel=(--lib); else sel=(--test "$target"); fi
   bin=$(cargo test --release -p "$pkg" "${sel[@]}" --no-run --message-format=json 2>/dev/null \
-    | grep '"test":true' | sed -nE 's/.*"executable":"([^"]+)".*/\1/p' | tail -1)
+    | grep '"test":true' | sed -nE 's/.*"executable":"([^"]+\/deps\/[^"]+)".*/\1/p' | tail -1)
   out="$here/${tree}_${stem}.txt"
   extra=(); [ -n "$ign" ] && extra=(--ignored)
   {
