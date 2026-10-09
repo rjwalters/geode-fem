@@ -1,0 +1,6 @@
+ungauged_s4p5_n6	none	4.5	6	3	head
+main_portaware_s4p5_n7	port_aware	4.5	7	1	main
+main_portaware_s4p5_n8	port_aware	4.5	8	3	main
+portaware_extract_s4p5_n7	port_aware_extract	4.5	7	1	head
+portaware_s4p5_n6	port_aware	4.5	6	1	head
+portaware_s4p5_n7	port_aware	4.5	7	3	head

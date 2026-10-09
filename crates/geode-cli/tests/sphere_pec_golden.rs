@@ -9,7 +9,9 @@
 //! default, PEC on the `outer_boundary` surface (`r = R_BUFFER = 2`), no
 //! ports. The benchmark's existing acceptance is kept unchanged: each of
 //! the lowest 5 physical modes pairs to an analytic PEC-cavity Mie root
-//! ([`geode_core::analytic::mie::merged_roots`]) within **15 %** on `k`.
+//! ([`geode_core::analytic::mie::merged_roots`]) within **2 %** on `k`
+//! (tightened from 15 % in issue #986: the corrected PEC-cavity roots put
+//! the lowest 5 modes at 0.16–0.41 %).
 //!
 //! This deliberately is **not** the `examples/mie_sphere` UPML benchmark:
 //! that example's open-cavity quasi-modes use a *spherical-shell* PML,
@@ -20,7 +22,7 @@
 //! Two tiers, mirroring `tests/spiral_golden.rs`:
 //!
 //! 1. **Golden** (default `cargo test`, ~15 s debug): the CLI report held
-//!    to the 15 % Mie-root bound, plus report-contract checks (ascending
+//!    to the 2 % Mie-root bound, plus report-contract checks (ascending
 //!    modes, `q = null`, `f = k₀ c / (2π L)`, tiny residuals). Run with
 //!    `--outdir` (issue #684): one real-only `E_mode_<i>.vtu` per mode,
 //!    referenced by `{path, sha256}`, node count = mesh, finite, non-zero.
@@ -46,8 +48,10 @@ use geode_core::analytic::mie::merged_roots;
 use geode_core::constants::C_M_PER_S;
 use geode_core::mesh::{R_BUFFER, R_SPHERE};
 
-/// The benchmark's existing tolerance (`sphere_pec_eigenmode.rs`).
-const REL_TOL: f64 = 0.15;
+/// The benchmark's tolerance (`sphere_pec_eigenmode.rs`): 2 %, against
+/// a measured worst case of 0.41 % (ground TM_1,1 triplet, k ≈ 1.1919 vs
+/// 1.18710). Was 15 % before issue #986 corrected the analytic roots.
+const REL_TOL: f64 = 0.02;
 /// Refractive index of the sphere (`ε_r = 2.25`).
 const N_INDEX: f64 = 1.5;
 

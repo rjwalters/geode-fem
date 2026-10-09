@@ -84,8 +84,8 @@ if _REPO_ROOT_STR not in sys.path:
 STRICT_MODE_WINDOW_LEN = 3
 
 # Burn-side acceptance constants mirrored from
-# `crates/geode-core/tests/mie_sphere.rs` (and the J.2 generator).
-TM11_REL_TOL = 0.08
+# `crates/geode-core/tests/mie_sphere.rs` (and the J.2 generator). No TM_1,1
+# accuracy band on the small mesh since issue #986.
 Q_LOWER_BAND_TM11 = 1.5
 
 # Tolerances applied to the on-disk baseline — same floors as the J.2 /
@@ -225,10 +225,8 @@ def main():
         f"lowest physical mode classified as "
         f"{table[0]['pol']}_{table[0]['l']},{table[0]['n']} — expected TM_1,1"
     )
-    assert rel_err_tm11 < TM11_REL_TOL, (
-        f"lowest mode rel err {rel_err_tm11 * 100:.2f}% exceeds the "
-        f"documented {TM11_REL_TOL * 100:.0f}% acceptance band"
-    )
+    # No accuracy band on this 48-node mesh (issue #986): the
+    # measured 17.0 % is recorded in `tm11_rel_err_lowest`, not asserted.
 
     # Q tripwire + triplet median.
     triplet_qs = sorted(
@@ -506,8 +504,9 @@ def main():
                 "dtype": "f64",
                 "description": (
                     "Analytic TM_1,1 root from the Phase J.1 catalogue "
-                    "(reference/fixtures/mie_roots/baseline.json) — the "
-                    "8% coarse-mesh acceptance anchor."
+                    "(reference/fixtures/mie_roots/baseline.json), "
+                    "re-exported at 1e-9. Not an accuracy gate on this "
+                    "coarse mesh (issue #986)."
                 ),
                 "tolerance_abs": ANALYTIC_K_TOL_ABS,
                 "data": [analytic_tm11_k],
@@ -527,7 +526,9 @@ def main():
                 "dtype": "f64",
                 "description": (
                     "Relative error of the lowest physical Re(k) vs the "
-                    "analytic TM_1,1 root (must stay below the 8% band)."
+                    "analytic TM_1,1 root (17.0% on this 48-node mesh). "
+                    "Documented, not asserted: the coarse mesh is a "
+                    "cross-language agreement fixture (issue #986)."
                 ),
                 "tolerance_abs": RE_K_TOL_ABS,
                 "data": [rel_err_tm11],

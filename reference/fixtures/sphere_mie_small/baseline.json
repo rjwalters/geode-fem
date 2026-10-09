@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "fixture_id": "sphere_mie_small/n48_aniso_upml_mie",
-  "description": "Small-mesh anisotropic-UPML dielectric-sphere Mie eigenmode (issue #171, Epic #88 Phase J.2). Reuses the 197-tet mesh from reference/fixtures/sphere_pml_small/sphere.msh (#158) with the diagonal UPML tensor (geode_core::build_anisotropic_pml_tensor_diag, \u03c3\u2080 = 5.0, k\u2080_ref = 2.0 \u2014 the mie_sphere.rs acceptance parameters). Anchored to the Phase J.1 analytic Mie-root catalogue (reference/fixtures/mie_roots/baseline.json): the lowest physical mode is the mesh-split TM_1,1 triplet's leading member at ~6.6% of the analytic k \u2248 1.30343. Strict cross-IR window = first 3 physical modes (the closed TM_1,1 triplet, #160 cluster-closure convention). Sign note: physical Im(\u03bb) < 0 on this small mesh's tensor pencil (unlike the scalar-PML Im(\u03bb) > 0 of PR #155); the sign is mesh-dependent \u2014 the refined full-mesh sibling (sphere_mie/) shows Im(\u03bb) > 0 \u2014 and stems from the mixed-sign 1/s_r vs s_t tensor entries. It is a property of the pencil, agreed on by both LAPACK ZGGEV and faer QZ.",
+  "description": "Small-mesh anisotropic-UPML dielectric-sphere Mie eigenmode (issue #171, Epic #88 Phase J.2). Reuses the 197-tet mesh from reference/fixtures/sphere_pml_small/sphere.msh (#158) with the diagonal UPML tensor (geode_core::build_anisotropic_pml_tensor_diag, \u03c3\u2080 = 5.0, k\u2080_ref = 2.0 \u2014 the mie_sphere.rs acceptance parameters). Anchored to the Phase J.1 analytic Mie-root catalogue (reference/fixtures/mie_roots/baseline.json): the lowest physical mode is the mesh-split TM_1,1 triplet's leading member at 17.0% of the analytic k \u2248 1.18710 (recorded, not asserted: this is a cross-language agreement fixture; the accuracy band lives on the full mesh). Strict cross-IR window = first 3 physical modes (the closed TM_1,1 triplet, #160 cluster-closure convention). Sign note: physical Im(\u03bb) < 0 on this small mesh's tensor pencil (unlike the scalar-PML Im(\u03bb) > 0 of PR #155); the sign is mesh-dependent \u2014 the refined full-mesh sibling (sphere_mie/) shows Im(\u03bb) > 0 \u2014 and stems from the mixed-sign 1/s_r vs s_t tensor entries. It is a property of the pencil, agreed on by both LAPACK ZGGEV and faer QZ.",
   "units": "\u03bb = k\u00b2 (inverse-length squared) under exp(+j\u03c9t); dimensionless mesh coordinates",
   "inputs": {
     "mesh_path": {
@@ -1340,84 +1340,84 @@
       "description": "Lowest 39 = spurious_dim + 8 complex eigenvalues of the tensor-\u03b5 pencil K x = \u03bb M x (K real, M complex-symmetric), sorted by |Re(\u03bb)| ascending (Burn FaerComplexEigensolver order). On-disk: real-imag interleaved per reference/SCHEMA.md.",
       "tolerance_abs": 0.0005,
       "data": [
-        4.552840268331122e-16,
-        7.127857521604279e-17,
-        5.1373229996787625e-16,
-        2.766665374341697e-15,
-        -1.1233943446461567e-15,
-        -1.3502141287280532e-15,
-        -1.2351661990370787e-15,
-        -1.495328331243434e-15,
-        -1.6518725119948094e-15,
-        -1.645394222676228e-15,
-        -1.6979762794228754e-15,
-        2.3036522426518307e-15,
-        -1.8118650945784194e-15,
-        8.383650694151863e-16,
-        -2.0079541453348153e-15,
-        3.058417194595958e-15,
-        2.3446389131134068e-15,
-        5.558511598575091e-16,
-        -2.65932808030042e-15,
-        -5.871324570445682e-15,
-        -2.6855334362566064e-15,
-        -3.4575127104461517e-15,
-        -2.7225936441046627e-15,
-        2.6075893388669937e-15,
-        2.929312643396155e-15,
-        4.7420631334222204e-15,
-        3.122487166756548e-15,
-        -8.157579491211603e-16,
-        -3.3944157296516256e-15,
-        -6.171638505939463e-16,
-        -4.240734829670627e-15,
-        -1.3607159591117691e-15,
-        4.3082802875801635e-15,
-        1.6436143546568525e-15,
-        4.3490591406098264e-15,
-        -3.560051074480215e-16,
-        -4.412168404027361e-15,
-        1.0989328621273515e-15,
-        4.806409285659055e-15,
-        -2.7650224150795713e-15,
-        -5.159747517674557e-15,
-        -8.44351117180153e-16,
-        -5.160710209079653e-15,
-        5.243559250726821e-15,
-        -5.185273301246313e-15,
-        -1.9741014941837143e-15,
-        -5.3246094891664995e-15,
-        3.8536568544608555e-15,
-        6.587243922985902e-15,
-        -1.751702811497931e-17,
-        7.40903087918459e-15,
-        2.423923175021683e-15,
-        8.1358217688818e-15,
-        3.656679148128298e-15,
-        -1.0294157687200346e-14,
-        7.145982170308984e-16,
-        1.0482049139760197e-14,
-        2.19136891057594e-15,
-        1.2857347926622053e-14,
-        -3.1893524078337097e-17,
-        -1.994199482429668e-14,
-        -7.485615380366429e-16,
-        1.9301254214625418,
-        -0.007295839756884422,
-        1.9969152914160064,
-        -0.006929941346897293,
-        2.0604231442111764,
-        -0.004620297322884762,
-        3.306031247887525,
-        -0.027831112564983433,
-        3.589143417902678,
-        -0.006775661874261579,
-        4.1043826041986975,
-        -0.011547491656554203,
-        4.424616228975512,
-        -0.0035593062405558313,
-        4.475136617569261,
-        -0.005342628742662309
+        -3.529855340501967e-16,
+        -5.429466062808536e-15,
+        -9.39377798803572e-16,
+        3.3614571155732275e-15,
+        1.0717074092473398e-15,
+        -3.8638731620253495e-15,
+        1.1676048623634361e-15,
+        -3.5630032937473734e-16,
+        -1.2314968363768316e-15,
+        1.8216249684592656e-15,
+        -1.253072689349396e-15,
+        -2.772739953366642e-15,
+        1.3497802687969013e-15,
+        4.240971517874734e-15,
+        -1.3669380642903112e-15,
+        3.4868536837706675e-15,
+        -1.7833991201643425e-15,
+        -2.8183133649998387e-15,
+        2.0300965731091487e-15,
+        4.75188165911932e-15,
+        -2.1653830105073827e-15,
+        2.586826601861428e-15,
+        -2.2692658771708614e-15,
+        2.990704530337125e-15,
+        2.604007007278216e-15,
+        1.5040716029079627e-16,
+        2.7810492933139753e-15,
+        4.1587406919664654e-15,
+        3.3326339427774546e-15,
+        1.5938856995711832e-15,
+        -3.3953923561818983e-15,
+        1.9603677991935088e-15,
+        -3.5194483843138893e-15,
+        1.8870958860206836e-15,
+        4.000268507443119e-15,
+        -6.671392010797998e-16,
+        -4.056548815097783e-15,
+        2.203445741249217e-15,
+        -4.141220544783925e-15,
+        1.919830715532395e-15,
+        4.327837795501958e-15,
+        9.349661149012898e-16,
+        -5.113809860747507e-15,
+        3.6736658951781646e-15,
+        5.8455366889276806e-15,
+        1.7279228038006926e-15,
+        7.047487734895531e-15,
+        -3.4710930886966296e-16,
+        -7.10882741727001e-15,
+        -1.7308227384916038e-15,
+        7.361615544736134e-15,
+        1.2661215149261063e-15,
+        7.382046412439975e-15,
+        1.786648162767064e-15,
+        1.047270908612167e-14,
+        3.578765839474274e-15,
+        -1.1910688017508281e-14,
+        2.493210808073102e-15,
+        2.3014207111513808e-14,
+        4.6782555550465085e-15,
+        -9.71722058923663e-08,
+        1.0748357385389288e-09,
+        1.9301254215172456,
+        -0.007295839753995756,
+        1.996915291410124,
+        -0.006929941350383539,
+        2.0604231445955317,
+        -0.0046202973596813236,
+        3.306031247212454,
+        -0.027831112752116628,
+        3.5891434151803936,
+        -0.006775661630646361,
+        4.104382603908384,
+        -0.011547491802551412,
+        4.42461622882072,
+        -0.0035593061985137687,
+        4.475136617708455,
+        -0.005342628885482258
       ]
     },
     "physical_eigenvalues_complex": {
@@ -1428,16 +1428,16 @@
       "description": "Lowest 5 physical complex eigenvalues past the d\u2070-rank spurious split, |Re(\u03bb)| ascending. Physical Im(\u03bb) < 0 on this tensor pencil (see fixture description). The strict cross-IR window is the first `strict_mode_window_len` entries (the closed TM_1,1 triplet); positions [3, 4] belong to the next band and are compared at the same tolerance but excluded from the cluster-closure claim.",
       "tolerance_abs": 0.0001,
       "data": [
-        1.9301254214625418,
-        -0.007295839756884422,
-        1.9969152914160064,
-        -0.006929941346897293,
-        2.0604231442111764,
-        -0.004620297322884762,
-        3.306031247887525,
-        -0.027831112564983433,
-        3.589143417902678,
-        -0.006775661874261579
+        1.9301254215172456,
+        -0.007295839753995756,
+        1.996915291410124,
+        -0.006929941350383539,
+        2.0604231445955317,
+        -0.0046202973596813236,
+        3.306031247212454,
+        -0.027831112752116628,
+        3.5891434151803936,
+        -0.006775661630646361
       ]
     },
     "strict_mode_window_len": {
@@ -1456,10 +1456,10 @@
         1
       ],
       "dtype": "f64",
-      "description": "Analytic TM_1,1 PEC-cavity root from the Phase J.1 catalogue (reference/fixtures/mie_roots/baseline.json, pol=TM, l=1, n=1). The 8% coarse-mesh acceptance anchor.",
+      "description": "Analytic TM_1,1 PEC-cavity root from the Phase J.1 catalogue (reference/fixtures/mie_roots/baseline.json, pol=TM, l=1, n=1), re-exported at 1e-9. Not an accuracy gate on this coarse mesh (issue #986).",
       "tolerance_abs": 1e-09,
       "data": [
-        1.3034341302750476
+        1.1870945924547518
       ]
     },
     "lowest_physical_re_k": {
@@ -1470,7 +1470,7 @@
       "description": "Re(k) = Re(\u221a\u03bb) (principal branch) of the lowest physical mode.",
       "tolerance_abs": 0.0001,
       "data": [
-        1.3892920196898983
+        1.389292019709584
       ]
     },
     "tm11_rel_err_lowest": {
@@ -1478,10 +1478,10 @@
         1
       ],
       "dtype": "f64",
-      "description": "Relative error of the lowest physical Re(k) vs the analytic TM_1,1 root. Must stay below the documented 8% coarse-mesh band (mie_sphere.rs).",
+      "description": "Relative error of the lowest physical Re(k) vs the analytic TM_1,1 root (17.0% on this 48-node mesh). Documented, not asserted: the coarse mesh is a cross-language agreement fixture (issue #986).",
       "tolerance_abs": 0.0001,
       "data": [
-        0.06587052419498421
+        0.17032966752608575
       ]
     },
     "q_factor_lowest_physical": {
@@ -1492,7 +1492,7 @@
       "description": "Q = Re(k)/(2|Im(k)|) of the lowest physical mode (sign-agnostic). Tolerance is loose (5.0 absolute on Q \u2248 265) because dQ/dIm(\u03bb) \u2248 Q/|Im(\u03bb)| \u2248 3.6e4 amplifies eigenvalue residuals; the load-bearing assertion is the Q > 1.5 tripwire (Q_LOWER_BAND_TM11), not this regression floor.",
       "tolerance_abs": 5.0,
       "data": [
-        264.5524545901744
+        264.5524547025552
       ]
     },
     "q_median_tm11_triplet": {
@@ -1503,7 +1503,7 @@
       "description": "Median Q over the TM_1,1 triplet (strict window) \u2014 mirrors the mie_sphere_tm11_triplet_q_above_band Burn-side tripwire (Q_LOWER_BAND_TM11 = 1.5).",
       "tolerance_abs": 5.0,
       "data": [
-        288.15847115062627
+        288.15847100387134
       ]
     },
     "sigma_zero_lowest_physical_re": {
@@ -1514,12 +1514,12 @@
       "description": "Lowest physical Re(\u03bb) at \u03c3\u2080 = 0 (PEC limit; the tensor collapses to real isotropic scalar \u03b5). In-fixture anchor for the \u03c3\u2080 = 0 collapse test; numerically identical to the sphere_pml_small anchor.",
       "tolerance_abs": 5e-05,
       "data": [
-        1.9263922791820804
+        1.9263922761097627
       ]
     }
   },
   "provenance": {
-    "source": "reference/numpy/sphere_mie.py @ commit 223ae5a ; scipy 1.17.0, numpy 2.4.1, python 3.14.5 ; dense LAPACK ZGGEV (scipy.linalg.eigvals) on the small-mesh interior pencil",
+    "source": "reference/numpy/sphere_mie.py @ commit d5549ff8 ; scipy 1.17.0, numpy 2.4.1, python 3.14.8 ; dense LAPACK ZGGEV (scipy.linalg.eigvals) on the small-mesh interior pencil",
     "verified_against": "crates/geode-validation/tests/sphere_mie_numpy_reference.rs (Burn ndarray backend, default `cargo test` \u2014 no release flag)",
     "issue": "#171 (Epic #88 Phase J.2; mesh from #158, anchor from #170)"
   }

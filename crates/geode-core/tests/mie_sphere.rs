@@ -4,7 +4,7 @@
 //! the PML eigenproblem on the bundled sphere fixture, extracts the
 //! lowest few physical complex eigenfrequencies, and asserts that the
 //! lowest mode's `Re(k)` agrees with the analytic PEC-cavity
-//! dielectric-sphere ground-mode (TM_1,1 at `k ≈ 1.303` for `n = 1.5`,
+//! dielectric-sphere ground-mode (TM_1,1 at `k ≈ 1.18710` for `n = 1.5`,
 //! `R_s = 1.0`, `R_b = 2.0`) to within a documented coarse-mesh
 //! tolerance.
 //!
@@ -14,19 +14,26 @@
 //! issue #49 — bumped from the original 313/1226 to enable
 //! quantitative Mie convergence study) and with the **anisotropic
 //! UPML** at σ₀ = 5.0, k₀_ref = 2.0 (issue #54), the observed
-//! relative error on the lowest physical mode's `Re(k)` is ≈ 5.7 %.
-//! The assertion uses an 8 % tolerance, leaving margin for the
-//! mesh-asymmetry-driven splitting of the 2ℓ+1 = 3-fold degenerate
-//! TM_1,1 triplet (see curator note on PR #19 / issue #14) and for
+//! relative error on the lowest physical mode's `Re(k)` is 3.56 %
+//! (FEM `Re k = 1.22930` vs analytic TM_1,1 = 1.18710). The assertion
+//! uses a 5 % tolerance, leaving margin for the mesh-asymmetry-driven
+//! splitting of the 2ℓ+1 = 3-fold degenerate TM_1,1 triplet (spread
+//! 0.0005 in `Re k`; see curator note on PR #19 / issue #14) and for
 //! minor numerical noise across release rebuilds.
+//!
+//! Before issue #986 the analytic PEC-cavity roots paired the TE/TM
+//! interface and wall conditions crosswise; the reference was then
+//! 1.30343, the quoted error ≈ 5.7 %, and the tolerance 8 %. The FEM
+//! eigenvalues did not change.
 //!
 //! **Finding from issue #49**: mesh refinement alone does NOT
 //! produce the O(h²) error reduction one might naively expect for
 //! the P1 Nédélec basis under the scalar-isotropic PML; the
 //! dominant error source there is the scalar-PML reflection
 //! imprint on the discrete spectrum (~16 % h-independent ceiling).
-//! Issue #54's anisotropic UPML breaks that ceiling — TM_1,1
-//! drops to ~5.7 % and TE_1,1 to ~1 %. Further tightening lives
+//! Issue #54's anisotropic UPML breaks that ceiling — against the
+//! corrected (#986) roots TM_1,1 sits at 3.56 % and TE_1,1 at 0.06 %
+//! (FEM 1.87000 vs 1.86880). Further tightening lives
 //! in follow-ups #33 (Mie root accuracy) and #35 (Silver-Müller
 //! exact quadrature).
 //!
@@ -88,7 +95,7 @@ type B = TestBackend;
 
 #[test]
 #[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
-fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
+fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
     let device = <B as BackendTypes>::Device::default();
 
     let n_inside = 1.5;
@@ -106,8 +113,8 @@ fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
     assert_eq!(ground.l, 1);
     assert_eq!(ground.n, 1);
     assert!(
-        (ground.k - 1.30343).abs() < 1e-3,
-        "analytic TM_1,1 ground k = {} (expected ≈ 1.30343)",
+        (ground.k - 1.18710).abs() < 1e-4,
+        "analytic TM_1,1 ground k = {} (expected ≈ 1.18710, issue #986)",
         ground.k
     );
     eprintln!(
@@ -202,14 +209,16 @@ fn mie_sphere_ground_mode_within_8_percent_of_analytic() {
 
     // Acceptance: tolerance calibrated to the anisotropic-UPML
     // default (issue #54) on the refined fixture (issue #49).
-    // Observed ≈ 5.7 %; 8 % gives margin for release-rebuild drift
-    // and mesh-asymmetry-driven splitting within the TM_1,1 triplet.
+    // Observed 3.56 % against the corrected (#986) TM_1,1 = 1.18710;
+    // 5 % gives margin for release-rebuild drift and mesh-asymmetry-
+    // driven splitting within the TM_1,1 triplet. (Was 8 % against the
+    // pre-#986 root 1.30343, observed ≈ 5.7 %.)
     // The scalar-PML 16 % ceiling is now retained as the legacy
     // `--scalar-pml` cross-check path in the example, not in this
     // test. Tighter agreement is the goal of #33 and #35.
     assert!(
-        rel_err < 0.08,
-        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 8%)",
+        rel_err < 0.05,
+        "lowest FEM mode Re(k) = {re_k} differs from analytic TM_1,1 = {} by {:.1}% (> 5%)",
         ground.k,
         rel_err * 100.0
     );
@@ -397,8 +406,8 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 ///   than free space). The band is intentionally loose; sharpening
 ///   requires a more physical PML profile.
 ///
-/// **What this asserts vs. the existing `_within_8_percent_` test**:
-/// The 8 % test compares against the *PEC-cavity* root (the FEM hits
+/// **What this asserts vs. the existing `_within_5_percent_` test**:
+/// The 5 % test compares against the *PEC-cavity* root (the FEM hits
 /// this tightly because the buffer is closed by the PEC at `R_b`).
 /// This new test compares against the *open-space* root, which is the
 /// physically correct ground truth and what `strata-fdtd` would
