@@ -39,6 +39,7 @@ mod extract;
 mod hybrid;
 mod inductance;
 mod mesh_cmd;
+mod port_solves;
 mod problem;
 mod progress;
 mod report;
@@ -48,6 +49,11 @@ mod sensitivity;
 mod spec;
 mod spice;
 mod touchstone;
+
+/// The integration tests' Gmsh writer, for the in-process tests (#952).
+#[cfg(test)]
+#[path = "../tests/support/msh.rs"]
+mod test_msh;
 
 use std::error::Error;
 use std::io::Write;

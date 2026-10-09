@@ -93,6 +93,7 @@ use geode_core::driven::ports::PortMedium;
 
 use crate::error::CliError;
 use crate::export::file_ref_at;
+use crate::port_solves::PortSolves;
 use crate::problem::Problem;
 use crate::report::{Complex, FileRef, FrequencyResult, Provenance};
 
@@ -168,7 +169,7 @@ pub struct Plan {
 /// cutoff inside the sweep, a wave port without `reference_ohm`, or a
 /// spec left with no port to write is `invalid_spec`. Excluded
 /// (always-evanescent) channels are noted on stderr.
-pub fn validate(p: &Problem, path: &Path) -> Result<Plan, CliError> {
+pub fn validate(p: &Problem, path: &Path, solves: &PortSolves<'_>) -> Result<Plan, CliError> {
     let plan = if p.wave_ports.is_empty() {
         if p.ports.is_empty() {
             return Err(unsupported(
@@ -177,7 +178,7 @@ pub fn validate(p: &Problem, path: &Path) -> Result<Plan, CliError> {
         }
         Plan::default()
     } else {
-        classify(p)?
+        classify(p, solves)?
     };
     let mut hz: Vec<f64> = p.frequencies.iter().map(|f| f.hz).collect();
     hz.sort_by(f64::total_cmp);
@@ -227,7 +228,8 @@ fn channel_label(p: &Problem, c: &WaveChannelPlan) -> String {
 }
 
 /// Classify every wave channel over the sweep and require the references.
-fn classify(p: &Problem) -> Result<Plan, CliError> {
+/// The ports' face solves are the run's shared ones (issue #952).
+fn classify(p: &Problem, solves: &PortSolves<'_>) -> Result<Plan, CliError> {
     let hz_per_k0 =
         crate::problem::to_frequency(1.0, crate::spec::FrequencyUnit::K0, p.length_unit_m()).hz;
     let mut plan = Plan::default();
@@ -237,16 +239,10 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
     let mut channel = p.ports.len();
     for (port, w) in p.wave_ports.iter().enumerate() {
         if let Some(h) = &w.hybrid {
-            channel = classify_hybrid(p, port, h, channel, &mut plan, &mut z_ranges[port])?;
+            channel = classify_hybrid(p, port, h, solves, channel, &mut plan, &mut z_ranges[port])?;
             continue;
         }
-        let wp = w
-            .projection
-            .wave_port(&p.edges, &w.a_inc)
-            .map_err(|err| CliError::WavePort {
-                name: w.surface.name.clone(),
-                err,
-            })?;
+        let wp = solves.wave_port(port)?;
         for (mode, m) in wp.modes.iter().enumerate() {
             let c = WaveChannelPlan {
                 port,
@@ -337,7 +333,8 @@ fn classify(p: &Problem) -> Result<Plan, CliError> {
     Ok(plan)
 }
 /// Classify hybrid port `port`'s channels (issue #807) from its face sweep
-/// over the spec's frequencies (no 3-D solve; [`crate::hybrid::face_sweep`]),
+/// over the spec's frequencies (no 3-D solve; [`crate::hybrid::face_sweep`],
+/// the run's shared one, [`PortSolves::hybrid_face_sweep`]),
 /// with the geometric rule: kept when propagating at every frequency,
 /// excluded when evanescent at every one, `invalid` when it crosses. A
 /// hybrid port needs a line impedance (a floating conductor). Returns the
@@ -346,6 +343,7 @@ fn classify_hybrid(
     p: &Problem,
     port: usize,
     h: &crate::problem::HybridPortDef,
+    solves: &PortSolves<'_>,
     mut channel: usize,
     plan: &mut Plan,
     z_range: &mut Vec<(usize, f64, f64)>,
@@ -360,7 +358,7 @@ fn classify_hybrid(
             w.surface.name
         )));
     };
-    let sweep = crate::hybrid::face_sweep(p, port, false)?;
+    let sweep = solves.hybrid_face_sweep(port)?;
     for mode in 0..w.a_inc.len() {
         let c = WaveChannelPlan {
             port,
