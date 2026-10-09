@@ -4944,6 +4944,107 @@ mod tests {
         assert_eq!(probe(), Some(false), "a Jacobi solve must take no scope");
     }
 
+    /// Issue #963: the AMS smoother estimate is reported through the solve
+    /// handle. `DrivenLinearSolver::ams` is `Some` exactly when the iterative
+    /// back-solve uses AMS, and carries the Lanczos Ritz value, the
+    /// Gershgorin bound and the weight of this ω, consistent with each other,
+    /// plus the default V-cycle structure; it is `None` for Jacobi and Direct.
+    #[test]
+    fn solve_handle_reports_ams_smoother_estimate() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.05;
+        let ams_settings =
+            IterativeSettings::new(1e-10, 500).with_preconditioner(IterativePreconditioner::AMS);
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams_settings), &device())
+            .expect("AMS setup");
+        let ams = solver.ams().expect("AMS handle reports its preconditioner");
+        let sm = ams.smoother();
+        assert!(sm.theta_max().is_finite() && sm.theta_max() > 0.0);
+        assert!(
+            sm.gershgorin() >= sm.theta_max(),
+            "Ritz value above the Gershgorin bound"
+        );
+        assert!(sm.weight() > 0.0 && sm.weight() <= 0.6);
+        assert!(sm.lanczos_steps() > 0);
+        assert_eq!(
+            sm.near_switch(),
+            ((0.6 * sm.theta_max() - 2.0) / 2.0).abs() <= 0.03
+        );
+        // No GEODE_DRIVEN_AMS_* knob is set in the test environment.
+        if std::env::var_os(DRIVEN_AMS_SMOOTHER_ENV).is_none()
+            && std::env::var_os(DRIVEN_AMS_CYCLE_ENV).is_none()
+            && std::env::var_os(DRIVEN_AMS_PI_COARSE_ENV).is_none()
+        {
+            assert_eq!(ams.vcycle(), crate::eigen::ams::VCycleOptions::default());
+            assert_eq!(
+                ams.pi_coarse(),
+                PiCoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS)
+            );
+        }
+
+        let jacobi =
+            IterativeSettings::new(1e-10, 500).with_preconditioner(IterativePreconditioner::Jacobi);
+        assert!(
+            op.prepare_at::<B>(omega, SolverMode::Iterative(jacobi), &device())
+                .expect("Jacobi setup")
+                .ams()
+                .is_none()
+        );
+        assert!(
+            op.prepare_at::<B>(omega, SolverMode::Direct, &device())
+                .expect("LU")
+                .ams()
+                .is_none()
+        );
+    }
+
+    /// Issue #963: the `GEODE_DRIVEN_AMS_PI_COARSE` syntax round-trips and
+    /// rejects malformed values; the default is the shipped 4-sweep SGS.
+    #[test]
+    fn pi_coarse_parse_round_trips_and_rejects_bad_values() {
+        for p in [
+            PiCoarseSolve::SymmetricGaussSeidel(4),
+            PiCoarseSolve::SymmetricGaussSeidel(16),
+            PiCoarseSolve::Direct,
+            PiCoarseSolve::Amg(2),
+            PiCoarseSolve::Amg(4),
+        ] {
+            assert_eq!(PiCoarseSolve::parse(&p.name()), Ok(p));
+        }
+        assert_eq!(PiCoarseSolve::parse("sgs"), Ok(PiCoarseSolve::default()));
+        assert_eq!(PiCoarseSolve::parse("amg"), Ok(PiCoarseSolve::Amg(2)));
+        assert_eq!(
+            PiCoarseSolve::default(),
+            PiCoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS)
+        );
+        for bad in ["lu", "sgs:0", "amg:x", "direct:2", ""] {
+            assert!(PiCoarseSolve::parse(bad).is_err(), "{bad:?} accepted");
+        }
+    }
+
     /// Issue #744: [`IterativePreconditioner::Ams`] is built by
     /// `prepare_at` (from the operator's mesh geometry), converges COCG on a
     /// PEC cube with a lumped-port-free volume source, and matches direct

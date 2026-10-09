@@ -2919,6 +2919,262 @@ mod tests {
     /// Adding the vector-nodal `Π (ΠᵀAΠ)⁻¹ Πᵀ` correction (a symmetric PSD
     /// subspace solve) to the existing SPD cycle must keep the preconditioner
     /// SPD, or it is not a valid CG preconditioner.
+    /// Issue #963: every V-cycle option the driven knobs can select (edge
+    /// smoother × auxiliary cycle × vector-nodal coarse solve) keeps the
+    /// multiplicative V-cycle symmetric and positive definite, so it stays a
+    /// valid COCG / CG preconditioner.
+    #[test]
+    fn every_vcycle_option_is_symmetric_positive_definite() {
+        let n = 12;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let sigma = -0.5;
+        let a_apply = |x: &[f64], y: &mut [f64]| {
+            let mut kx = vec![0.0; n];
+            let mut mx = vec![0.0; n];
+            spmv(k.as_ref(), x, &mut kx);
+            spmv(m.as_ref(), x, &mut mx);
+            for i in 0..n {
+                y[i] = kx[i] - sigma * mx[i];
+            }
+        };
+        let smoothers = [
+            EdgeSmoother::Jacobi { sweeps: 1 },
+            EdgeSmoother::Jacobi { sweeps: 3 },
+            EdgeSmoother::L1Jacobi { sweeps: 1 },
+            EdgeSmoother::L1Jacobi { sweeps: 2 },
+            EdgeSmoother::Chebyshev { degree: 2 },
+            EdgeSmoother::Chebyshev { degree: 3 },
+            EdgeSmoother::SymmetricGaussSeidel { sweeps: 1 },
+        ];
+        let pis = [
+            CoarseSolve::SymmetricGaussSeidel(4),
+            CoarseSolve::Direct,
+            CoarseSolve::AmgCycles(3),
+        ];
+        let u: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.9).cos()).collect();
+        let v: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.4 + 1.0).sin()).collect();
+        for smoother in smoothers {
+            for cycle in [AuxCycle::Additive, AuxCycle::Multiplicative] {
+                for pi in pis {
+                    let opts = VCycleOptions { smoother, cycle };
+                    let ams = AmsLitePreconditioner::build_with_options(
+                        &g,
+                        k.as_ref(),
+                        m.as_ref(),
+                        sigma,
+                        CoarseSolve::Direct,
+                        pi,
+                        opts,
+                    )
+                    .unwrap();
+                    assert_eq!(ams.vcycle(), opts);
+                    let label = format!("{} / {} / {pi:?}", smoother.name(), cycle.name());
+                    let mut mu = vec![0.0; n];
+                    let mut mv = vec![0.0; n];
+                    ams.apply_vcycle(&u, &mut mu, a_apply);
+                    ams.apply_vcycle(&v, &mut mv, a_apply);
+                    let umv: f64 = u.iter().zip(mv.iter()).map(|(a, b)| a * b).sum();
+                    let vmu: f64 = v.iter().zip(mu.iter()).map(|(a, b)| a * b).sum();
+                    assert!(
+                        (umv - vmu).abs() < 1e-10 * (umv.abs() + 1.0),
+                        "{label}: not symmetric, uᵀBv = {umv}, vᵀBu = {vmu}"
+                    );
+                    for seed in 0..6 {
+                        let r: Vec<f64> = (0..n)
+                            .map(|i| (((i + seed) as f64) * 0.7).sin() + 0.3)
+                            .collect();
+                        let mut z = vec![0.0; n];
+                        ams.apply_vcycle(&r, &mut z, a_apply);
+                        let rz: f64 = r.iter().zip(z.iter()).map(|(a, b)| a * b).sum();
+                        assert!(rz > 0.0, "{label}: not positive definite, rᵀz = {rz}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Issue #963: `build_with_options` with the default options is the
+    /// shipped preconditioner bit for bit (the knobs add nothing to the
+    /// default path), and a non-default option really changes the apply.
+    #[test]
+    fn default_vcycle_options_reproduce_the_shipped_cycle_bitwise() {
+        let n = 12;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let sigma = -0.5;
+        let a_apply = |x: &[f64], y: &mut [f64]| {
+            let mut kx = vec![0.0; n];
+            let mut mx = vec![0.0; n];
+            spmv(k.as_ref(), x, &mut kx);
+            spmv(m.as_ref(), x, &mut mx);
+            for i in 0..n {
+                y[i] = kx[i] - sigma * mx[i];
+            }
+        };
+        let pi = CoarseSolve::SymmetricGaussSeidel(4);
+        let shipped = AmsLitePreconditioner::build_with_split_coarse(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+            pi,
+        )
+        .unwrap();
+        let with_default = AmsLitePreconditioner::build_with_options(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+            pi,
+            VCycleOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            VCycleOptions::default().smoother,
+            EdgeSmoother::Jacobi { sweeps: 1 }
+        );
+        assert_eq!(VCycleOptions::default().cycle, AuxCycle::Additive);
+        let r: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.7).sin() + 0.3).collect();
+        let (mut z0, mut z1) = (vec![0.0; n], vec![0.0; n]);
+        shipped.apply_vcycle(&r, &mut z0, a_apply);
+        with_default.apply_vcycle(&r, &mut z1, a_apply);
+        assert!(
+            z0.iter()
+                .zip(z1.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits()),
+            "default options changed the V-cycle"
+        );
+        let other = AmsLitePreconditioner::build_with_options(
+            &g,
+            k.as_ref(),
+            m.as_ref(),
+            sigma,
+            CoarseSolve::Direct,
+            pi,
+            VCycleOptions {
+                smoother: EdgeSmoother::Chebyshev { degree: 2 },
+                cycle: AuxCycle::Multiplicative,
+            },
+        )
+        .unwrap();
+        let mut z2 = vec![0.0; n];
+        other.apply_vcycle(&r, &mut z2, a_apply);
+        assert!(z0.iter().zip(z2.iter()).any(|(a, b)| (a - b).abs() > 1e-12));
+    }
+
+    /// Issue #963: the l1-Jacobi sweep is convergent with weight 1 (its
+    /// error-propagation `I − D_l1⁻¹A` has spectral radius below 1), and so is
+    /// the Chebyshev step on its target interval: repeated application as a
+    /// stationary iteration drives the residual of `A x = b` down.
+    #[test]
+    fn l1_jacobi_and_chebyshev_steps_are_convergent_smoothers() {
+        let n = 12;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let sigma = -0.5;
+        let a_apply = |x: &[f64], y: &mut [f64]| {
+            let mut kx = vec![0.0; n];
+            let mut mx = vec![0.0; n];
+            spmv(k.as_ref(), x, &mut kx);
+            spmv(m.as_ref(), x, &mut mx);
+            for i in 0..n {
+                y[i] = kx[i] - sigma * mx[i];
+            }
+        };
+        let b: Vec<f64> = (0..n).map(|i| ((i as f64) * 1.3).sin() + 0.2).collect();
+        let norm = |x: &[f64]| x.iter().map(|v| v * v).sum::<f64>().sqrt();
+        for smoother in [
+            EdgeSmoother::L1Jacobi { sweeps: 1 },
+            EdgeSmoother::Chebyshev { degree: 3 },
+        ] {
+            let ams = AmsLitePreconditioner::build_with_options(
+                &g,
+                k.as_ref(),
+                m.as_ref(),
+                sigma,
+                CoarseSolve::Direct,
+                CoarseSolve::Direct,
+                VCycleOptions {
+                    smoother,
+                    cycle: AuxCycle::Additive,
+                },
+            )
+            .unwrap();
+            let mut x = vec![0.0; n];
+            let mut r = b.clone();
+            let mut ax = vec![0.0; n];
+            let mut e = vec![0.0; n];
+            let mut op = a_apply;
+            for _ in 0..200 {
+                ams.smooth_step(&r, &mut e, &mut op);
+                for i in 0..n {
+                    x[i] += e[i];
+                }
+                a_apply(&x, &mut ax);
+                for i in 0..n {
+                    r[i] = b[i] - ax[i];
+                }
+            }
+            assert!(
+                norm(&r) < 1e-6 * norm(&b),
+                "{}: stationary iteration did not converge, ‖r‖/‖b‖ = {}",
+                smoother.name(),
+                norm(&r) / norm(&b)
+            );
+        }
+    }
+
+    /// Issue #963: `near_switch` flags a Ritz value within 3 % of the
+    /// `0.6 · θ = 2` switch of the weight rule, on both sides, and nothing
+    /// further away or unusable.
+    #[test]
+    fn near_switch_flags_only_estimates_close_to_the_weight_switch() {
+        let at = 2.0 / DEFAULT_SMOOTH_WEIGHT;
+        for (theta, expected) in [
+            (at, true),
+            (at * 1.02, true),
+            (at * 0.98, true),
+            (at * 1.05, false),
+            (at * 0.95, false),
+            (2.9, false),
+            (f64::NAN, false),
+        ] {
+            let w = choose_smooth_weight(theta, SMOOTH_LANCZOS_STEPS, 4.5, None);
+            assert_eq!(w.near_switch(), expected, "theta = {theta}");
+        }
+    }
+
+    /// Issue #963: the edge-smoother syntax of `GEODE_DRIVEN_AMS_SMOOTHER`
+    /// round-trips through `name`, has the documented defaults and rejects
+    /// unknown kinds and zero counts.
+    #[test]
+    fn edge_smoother_parse_round_trips_and_rejects_bad_values() {
+        for s in [
+            EdgeSmoother::Jacobi { sweeps: 1 },
+            EdgeSmoother::Jacobi { sweeps: 2 },
+            EdgeSmoother::L1Jacobi { sweeps: 3 },
+            EdgeSmoother::Chebyshev { degree: 3 },
+            EdgeSmoother::SymmetricGaussSeidel { sweeps: 1 },
+        ] {
+            assert_eq!(EdgeSmoother::parse(&s.name()), Ok(s));
+        }
+        assert_eq!(
+            EdgeSmoother::parse(" jacobi "),
+            Ok(EdgeSmoother::Jacobi { sweeps: 1 })
+        );
+        assert_eq!(
+            EdgeSmoother::parse("chebyshev"),
+            Ok(EdgeSmoother::Chebyshev { degree: 2 })
+        );
+        assert_eq!(EdgeSmoother::default(), EdgeSmoother::Jacobi { sweeps: 1 });
+        for bad in ["gauss", "jacobi:0", "jacobi:x", "l1jacobi:-1", ""] {
+            assert!(EdgeSmoother::parse(bad).is_err(), "{bad:?} accepted");
+        }
+    }
+
     #[test]
     fn full_three_space_apply_is_spd() {
         let n = 12;
