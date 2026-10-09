@@ -93,6 +93,13 @@ geode-core/transmon_eigenmode::real_transmon_minres_ams_converges_at_sigma_4p5  
 # (#793 measurement runs 37079249918 and 37081282414), so each is over the
 # per-test budget; the direct-LU transmon tests in the same target run in
 # integration-tests.yml (core-ignored).
-geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+#
+# The two CG tests below never converged before issue #960: they ran SPD-only
+# CG at sigma = +4.5 GHz, where the ungauged pencil is indefinite (gradient
+# kernel and the 3.45 GHz junction mode below the shift), and failed at
+# |r|/|b| = 0.69 after 266216 iterations. #960 moved them to the SPD shift
+# sigma = -lambda(4.5 GHz); both pass there. Times are release, one test at a
+# time, on a local Apple M3 Ultra (shared host, load 20-197).
+geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # release-only, passes (#960): direct LU + a 96-step matrix-free AMS-CG eigensolve (~2750 inner CG iterations per step), 69-116 min locally (load-dependent), over the 20-min cap
 geode-core/transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
-geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # release-only, passes (#960): the Jacobi leg runs its full 266216-iteration CG budget before the lower-bound gate, 22.7 min locally, over the 20-min cap
