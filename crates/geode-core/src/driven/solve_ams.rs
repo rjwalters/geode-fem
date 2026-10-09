@@ -109,6 +109,33 @@
 //! `GEODE_AMS_SMOOTH_WEIGHT` overrides the weight and
 //! `GEODE_AMS_SMOOTH_REPORT=1` prints it per build.
 //!
+//! # Iteration growth and the vector-nodal block (issue #963)
+//!
+//! With the weight fix the count on the #520 cube still roughly doubles
+//! from 1.9k to 102k edges (26 → 55 at ω = 0.10). The cause is the
+//! vector-nodal solve: with an exact LU of `Πᵀ P Π` and nothing else
+//! changed the count is 28–33 over the same range, while no edge smoother
+//! (l1-Jacobi, Chebyshev, more Jacobi or Gauss–Seidel sweeps) removes the
+//! growth. A fixed number of Gauss–Seidel sweeps is not a mesh-independent
+//! approximate inverse of that Laplacian-like block. The default is
+//! unchanged, because none of the mesh-independent alternatives is cheaper
+//! than it up to 102k edges. The alternatives are measurement knobs,
+//! read per build and warned about once per process when they override the
+//! default:
+//!
+//! - `GEODE_DRIVEN_AMS_PI_COARSE` = `sgs[:n]` / `direct` / `amg[:cycles]`
+//!   ([`PiCoarseSolve`]); `amg:4` keeps the count flat at about the
+//!   default's memory;
+//! - `GEODE_DRIVEN_AMS_SMOOTHER` = `jacobi[:n]` / `l1jacobi[:n]` /
+//!   `chebyshev[:degree]` / `sgs[:n]` ([`EdgeSmoother`]);
+//! - `GEODE_DRIVEN_AMS_CYCLE` = `additive` / `multiplicative` ([`AuxCycle`];
+//!   `multiplicative` is hypre's `0 1 2 1 0`).
+//!
+//! The record is `[smoother_963]` in
+//! `benchmarks/gpu_driven_scaling/results_ams_cpu_local.toml`.
+//! [`super::DrivenLinearSolver::ams`] exposes the built preconditioner, and
+//! with it the smoother estimate of each ω.
+//!
 //! # Known limitation: floating PEC conductors
 //!
 //! With conductors modelled as PEC shells that are **not** connected to the

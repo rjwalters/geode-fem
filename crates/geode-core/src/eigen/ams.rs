@@ -196,7 +196,7 @@ const SMOOTH_NEAR_SWITCH_REL: f64 = 0.03;
 const CHEBYSHEV_LOWER_FRACTION: f64 = 0.3;
 
 /// The edge-space smoother of the multiplicative V-cycle
-/// ([`AmsLitePreconditioner::apply_vcycle`]), issue #963.
+/// (`AmsLitePreconditioner::apply_vcycle`), issue #963.
 ///
 /// Every variant is applied as an approximate solve `e ≈ A⁻¹ s` from a zero
 /// start, the same operator before and after the auxiliary-space
@@ -319,7 +319,7 @@ impl AuxCycle {
     }
 }
 
-/// The V-cycle structure of [`AmsLitePreconditioner::apply_vcycle`]
+/// The V-cycle structure of `AmsLitePreconditioner::apply_vcycle`
 /// (issue #963). [`Self::default`] is the shipped cycle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VCycleOptions {
@@ -471,7 +471,7 @@ impl SmootherWeight {
         self.warning.as_deref()
     }
 
-    /// Whether the Ritz value is within [`SMOOTH_NEAR_SWITCH_REL`] (relative)
+    /// Whether the Ritz value is within 3 % (relative)
     /// of the point `0.6 · theta_max = 2` where the automatic rule switches
     /// from the default weight `0.6` to `1.5 / rho_hat` (issue #963). Near the
     /// switch a small change of the operator (mesh, frequency, material) can
