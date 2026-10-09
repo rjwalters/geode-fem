@@ -791,10 +791,20 @@ impl CoarseSolver {
 }
 
 /// Solve `A · out = b` in place from a cached sparse LU (`out` overwritten).
+///
+/// The solve runs under its own [`crate::eigen::parallel::SequentialSolveScope`]
+/// (issue #956): it is one right-hand side through a fixed factor, called once
+/// or twice per V-cycle, and too small to share out over the rayon pool. The
+/// driven back-solve already holds a scope around its whole Krylov solve
+/// (issue #946); this one also covers the eigen matrix-free AMS, whose Lanczos
+/// loop holds none. Scopes nest, so the inner one changes nothing there.
 fn lu_solve(lu: &Lu<usize, f64>, b: &[f64], out: &mut [f64]) {
     use faer::linalg::solvers::Solve;
     let n = b.len();
     let mut mat: Mat<f64> = Mat::from_fn(n, 1, |row, _| b[row]);
+    let _seq = crate::eigen::parallel::SequentialSolveScope::enter();
+    #[cfg(test)]
+    crate::eigen::parallel::solve_probe::record("ams_lu_solve");
     lu.solve_in_place(mat.as_mut());
     for (row, o) in out.iter_mut().enumerate() {
         *o = mat[(row, 0)];
@@ -3041,6 +3051,41 @@ mod tests {
             (umv - vmu).abs() < 1e-9 * (umv.abs() + 1.0),
             "AMG three-space additive apply not symmetric: {umv} vs {vmu}"
         );
+    }
+
+    /// Issue #956: in the eigen matrix-free AMS, which holds no scope of its
+    /// own, every coarse LU solve runs under a `SequentialSolveScope` held by
+    /// the solving thread, for both coarse solvers that make one (`Direct`, and
+    /// the coarsest level of `Amg`), and no scope outlives the eigensolve. What
+    /// a live scope does to faer's global parallelism is asserted in
+    /// `tests/faer_global_parallelism.rs`.
+    #[test]
+    fn eigen_ams_coarse_lu_solves_run_under_a_sequential_scope() {
+        use crate::eigen::lanczos::{InnerPreconditioner, InnerSolver, SparseShiftInvertLanczos};
+        use crate::eigen::parallel::solve_probe;
+
+        let n = 120;
+        let (k, m) = laplacian(n);
+        let g = chain_gradient_geom(n);
+        let solver = SparseShiftInvertLanczos {
+            sigma: -0.5,
+            max_iters: 40,
+            tol: 1e-9,
+            inner: InnerSolver::MatrixFree,
+            precond: InnerPreconditioner::Ams,
+        };
+        let _ = solve_probe::take("ams_lu_solve");
+        for coarse in [CoarseSolve::Direct, CoarseSolve::Amg] {
+            let _guard = coarse_override::Guard::set(coarse);
+            let modes = solver
+                .smallest_eigenpairs_with_gradient(k.as_ref(), m.as_ref(), 3, &g)
+                .unwrap();
+            assert_eq!(modes.len(), 3);
+            let (scoped, unscoped) = solve_probe::take("ams_lu_solve");
+            assert!(scoped > 0, "{coarse:?}: no coarse LU solve was probed");
+            assert_eq!(unscoped, 0, "{coarse:?}: coarse LU solve outside a scope");
+            assert_eq!(solve_probe::scopes_held(), 0, "{coarse:?}: scope leaked");
+        }
     }
 
     /// CORRECTNESS GATE (issue #565, mirrors #561): the AMG-coarse three-space

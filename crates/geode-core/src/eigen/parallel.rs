@@ -65,14 +65,23 @@
 //! faer's sparse `Lu::solve_in_place` reads the same global and hands it to
 //! the triangular solves on the supernodes. A loop that calls it once or
 //! twice per step must not run those solves on the rayon pool: each one is
-//! small, and sharing it out costs far more than it saves (issue #946; the
-//! measurements are on [`SequentialSolveScope`]'s two users). The two loops
-//! that do this are the driven solve's AMS-preconditioned COCG (the V-cycle's
-//! coarse solves) and the direct shift-invert Lanczos loop. Each holds a
-//! [`SequentialSolveScope`], which sets `Par::Seq` for the whole loop. Scopes
-//! are counted, so those held by concurrent solves on different threads can
-//! end in any order, and a `ParallelismGuard` built on another thread
-//! meanwhile cannot put the loop back on the rayon pool.
+//! small, and sharing it out costs far more than it saves (issues #946 and
+//! #956). The places that do this hold a [`SequentialSolveScope`], which sets
+//! `Par::Seq` while it lives:
+//!
+//! - the driven solve's AMS-preconditioned COCG (the V-cycle's coarse
+//!   solves), for the whole Krylov solve (#946);
+//! - the direct shift-invert Lanczos loop, real (#946) and complex-symmetric
+//!   (#956), for the whole loop;
+//! - the AMS coarse LU solve itself (`lu_solve` in `eigen/ams.rs`), per call
+//!   (#956), which covers the eigen matrix-free AMS, whose Lanczos loop holds
+//!   no scope;
+//! - the transient stepper's back-solve, per time step (#956).
+//!
+//! Scopes are counted, so those held by concurrent solves on different
+//! threads can end in any order, a scope inside another changes nothing, and
+//! a `ParallelismGuard` built on another thread meanwhile cannot put the loop
+//! back on the rayon pool.
 //!
 //! # When faer is built without `rayon`
 //!
@@ -519,16 +528,83 @@ impl SequentialSolveScope {
         let mut state = global_parallelism();
         let target = state.enter_scope(get_global_parallelism());
         set_global_parallelism(target);
+        #[cfg(test)]
+        solve_probe::SCOPES_ON_THIS_THREAD.with(|c| c.set(c.get() + 1));
         Self { _private: () }
     }
 }
 
 impl Drop for SequentialSolveScope {
     fn drop(&mut self) {
+        #[cfg(test)]
+        solve_probe::SCOPES_ON_THIS_THREAD.with(|c| c.set(c.get().saturating_sub(1)));
         let mut state = global_parallelism();
         if let Some(target) = state.leave_scope() {
             set_global_parallelism(target);
         }
+    }
+}
+
+/// Test-only record of whether each repeated sparse triangular solve ran while
+/// the calling thread held a [`SequentialSolveScope`] (issue #956).
+///
+/// A solve site calls [`solve_probe::record`] next to its `solve_in_place`. A
+/// test runs a solver on its own thread and then reads [`solve_probe::take`].
+/// "Held a scope" is the property that matters: while any scope is live the
+/// global is `Par::Seq` (asserted in `tests/faer_global_parallelism.rs`), and
+/// a scope held by the solving thread is live for the whole solve. The value of
+/// the global itself cannot be asserted in the unit-test binary, where other
+/// tests change it concurrently (see [`PARALLELISM_TEST_LOCK`]).
+#[cfg(test)]
+pub(crate) mod solve_probe {
+    use std::cell::{Cell, RefCell};
+
+    thread_local! {
+        /// Scopes entered and not yet dropped on this thread.
+        pub(super) static SCOPES_ON_THIS_THREAD: Cell<usize> = const { Cell::new(0) };
+        /// Per site: (solves under a scope held here, solves without one).
+        static COUNTS: RefCell<Vec<(&'static str, usize, usize)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
+    /// Count one solve at `site` on the calling thread.
+    pub(crate) fn record(site: &'static str) {
+        let scoped = SCOPES_ON_THIS_THREAD.with(Cell::get) > 0;
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            let i = match c.iter().position(|e| e.0 == site) {
+                Some(i) => i,
+                None => {
+                    c.push((site, 0, 0));
+                    c.len() - 1
+                }
+            };
+            if scoped {
+                c[i].1 += 1;
+            } else {
+                c[i].2 += 1;
+            }
+        });
+    }
+
+    /// Scopes entered and not yet dropped on this thread.
+    pub(crate) fn scopes_held() -> usize {
+        SCOPES_ON_THIS_THREAD.with(Cell::get)
+    }
+
+    /// `(scoped, unscoped)` solve counts at `site` on this thread since the
+    /// last call, which resets them.
+    pub(crate) fn take(site: &'static str) -> (usize, usize) {
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            match c.iter().position(|e| e.0 == site) {
+                Some(i) => {
+                    let (_, s, u) = c.swap_remove(i);
+                    (s, u)
+                }
+                None => (0, 0),
+            }
+        })
     }
 }
 

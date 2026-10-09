@@ -24,12 +24,21 @@
 //! channels ([`OnAnotherThread`]), so the order of events is fixed and no
 //! block depends on timing.
 //!
+//! Issue #956 added three more holders: the complex-symmetric shift-invert
+//! Lanczos loop, the AMS coarse LU solve (per call) and the transient
+//! stepper's back-solve (per step). Each must leave the caller's setting in
+//! place when it returns.
+//!
 //! That the scope is held *while* each loop runs is asserted by unit tests
 //! that can see inside the solvers:
 //! `ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not` in
-//! `driven/solve.rs` and
+//! `driven/solve.rs`,
 //! `direct_backends_come_with_a_sequential_scope_and_matrix_free_does_not` in
-//! `eigen/lanczos.rs`.
+//! `eigen/lanczos.rs`, and (#956) `lanczos_solves_run_under_a_sequential_scope`
+//! in `eigen/complex/lanczos.rs`,
+//! `eigen_ams_coarse_lu_solves_run_under_a_sequential_scope` in `eigen/ams.rs`
+//! and `step_back_solve_runs_under_a_sequential_scope` in
+//! `driven/transient.rs`.
 
 use burn::tensor::backend::BackendTypes;
 use faer::{Par, c64, get_global_parallelism, set_global_parallelism};
@@ -40,6 +49,8 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
     IterativePreconditioner, IterativeSettings, SolverMode,
 };
+use geode_core::driven::transient::{TransientScheme, TransientSolver};
+use geode_core::eigen::complex::SparseComplexShiftInvertLanczos;
 use geode_core::eigen::dense::cube_interior_mask;
 use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::eigen::parallel::{ParallelismGuard, SequentialSolveScope};
@@ -411,6 +422,44 @@ fn guards_scopes_and_solves_restore_the_callers_parallelism() {
         get_global_parallelism(),
         caller,
         "not restored after a direct eigensolve"
+    );
+
+    // ---- the complex eigensolve and the transient stepper (issue #956) --------
+    // The complex Lanczos holds a scope for its loop, the stepper one per
+    // step. Neither may leave it behind.
+    let lift = |a: &faer::sparse::SparseColMat<usize, f64>, s: c64| {
+        let r = a.as_ref();
+        let t: Vec<_> = (0..r.ncols())
+            .flat_map(|j| {
+                (r.col_ptr()[j]..r.col_ptr()[j + 1])
+                    .map(move |p| faer::sparse::Triplet::new(r.row_idx()[p], j, s * r.val()[p]))
+            })
+            .collect();
+        faer::sparse::SparseColMat::try_new_from_triplets(r.nrows(), r.ncols(), &t).unwrap()
+    };
+    let complex = SparseComplexShiftInvertLanczos::default()
+        .smallest_eigenpairs(
+            lift(&pencil.k, c64::new(1.0, 0.02)).as_ref(),
+            lift(&pencil.m, c64::new(1.0, 0.0)).as_ref(),
+            3,
+        )
+        .expect("complex eigensolve");
+    assert_eq!(complex.len(), 3);
+    assert_eq!(
+        get_global_parallelism(),
+        caller,
+        "not restored after a complex eigensolve"
+    );
+    let transient = TransientSolver::new(&op).expect("transient solver");
+    let mut stepper = transient
+        .factor(0.1, TransientScheme::generalized_alpha(0.8))
+        .expect("transient factor");
+    let force = vec![1.0; transient.n_interior()];
+    stepper.step(&force, &force);
+    assert_eq!(
+        get_global_parallelism(),
+        caller,
+        "not restored after a transient step"
     );
 
     // ---- the answer -----------------------------------------------------------

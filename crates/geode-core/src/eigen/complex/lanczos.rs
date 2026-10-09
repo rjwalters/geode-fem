@@ -72,7 +72,7 @@ use crate::eigen::lanczos::{
     ConvergenceCheck, EXTENSION_BREAKDOWN_REL, ExtendMode, HISTORICAL_BREAKDOWN_REL, LanczosStop,
     TARGET_MATCH_REL_FLOOR, krylov_breakdown, negligible,
 };
-use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
+use crate::eigen::parallel::{ParallelismGuard, SequentialSolveScope, resolve_num_threads};
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
@@ -235,6 +235,10 @@ fn shifted_pencil_complex(
         .map_err(|e| EigenError::FaerGevd(format!("complex shifted pencil assembly: {e:?}")))
 }
 
+/// [`crate::eigen::parallel::solve_probe`] key for the Lanczos loops' solves.
+#[cfg(test)]
+const LANCZOS_SOLVE_SITE: &str = "complex_lanczos";
+
 /// Solve `A y = b` in-place via a precomputed complex sparse LU.
 pub(crate) fn solve_with_lu(
     lu: &Lu<usize, c64>,
@@ -370,8 +374,9 @@ impl SparseComplexShiftInvertLanczos {
         //    speeds up the complex sparse LU but regresses the latency-bound
         //    single-RHS triangular solves in the Lanczos loop, and the guard
         //    restores the prior global parallelism on drop. `cap` makes
-        //    `n_threads == 1` a serial factorization.
-        let lu = self.factor(k, m, n_threads)?;
+        //    `n_threads == 1` a serial factorization. `_seq` keeps the loop's
+        //    triangular solves sequential until it drops (issue #956).
+        let (lu, _seq) = self.factor(k, m, n_threads)?;
 
         // 2. Lanczos in the bilinear M-inner product. The tridiagonal
         //    `T_k` is complex symmetric (not Hermitian) and its
@@ -422,6 +427,8 @@ impl SparseComplexShiftInvertLanczos {
             // M v
             spmv(m, &v, &mut mv);
             // w = A^{-1} (M v)
+            #[cfg(test)]
+            crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
             solve_with_lu(&lu, &mv, &mut w)?;
 
             // α_j = v^T M w = (M v)^T w  (using M^T = M, bilinear form)
@@ -594,8 +601,9 @@ impl SparseComplexShiftInvertLanczos {
         }
 
         // 1. Build A = K − σM and factor it once (parallelism scoped to the
-        //    factorization only, issue #518).
-        let lu = self.factor(k, m, resolve_num_threads())?;
+        //    factorization only, issue #518; the loop's solves sequential
+        //    while `_seq` lives, issue #956).
+        let (lu, _seq) = self.factor(k, m, resolve_num_threads())?;
 
         // 2. Lanczos in the bilinear M-inner product, retaining the full
         //    basis V_k for Ritz-vector recovery.
@@ -620,17 +628,30 @@ impl SparseComplexShiftInvertLanczos {
 
     /// Build `A = K − σM` and factor it once, scoping faer's global
     /// parallelism to the factorization (issue #518).
+    ///
+    /// Also returns the [`SequentialSolveScope`] the Lanczos loop runs under
+    /// (issue #956), taken once the factorization's guard has dropped, so the
+    /// factorization keeps `n_threads` and every triangular solve of the loop
+    /// runs with `Par::Seq`. Keep it bound for as long as the factor is used.
+    /// This is what the real solver does
+    /// ([`crate::eigen::lanczos::SparseShiftInvertLanczos`], issue #946): each
+    /// solve is one right-hand side through a fixed factor, too small to share
+    /// out over the rayon pool (the measurements are in
+    /// `benchmarks/gpu_driven_scaling/results_threading_956.toml`).
     fn factor(
         &self,
         k: SparseColMatRef<'_, usize, c64>,
         m: SparseColMatRef<'_, usize, c64>,
         n_threads: usize,
-    ) -> Result<Lu<usize, c64>, EigenError> {
+    ) -> Result<(Lu<usize, c64>, SequentialSolveScope), EigenError> {
         let a = shifted_pencil_complex(k, m, self.sigma)?;
-        let _par = ParallelismGuard::cap(n_threads);
-        a.as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))
+        let lu = {
+            let _par = ParallelismGuard::cap(n_threads);
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
+        };
+        Ok((lu, SequentialSolveScope::enter()))
     }
 
     /// [`Self::smallest_eigenpairs`] with a **per-pair convergence check**
@@ -751,7 +772,7 @@ impl SparseComplexShiftInvertLanczos {
             return Ok(out);
         }
         let first_modes = first_modes.max(n_modes);
-        let lu = self.factor(k, m, resolve_num_threads())?;
+        let (lu, _seq) = self.factor(k, m, resolve_num_threads())?;
         let sigma = self.sigma;
         let mut kx = vec![c64::new(0.0, 0.0); n];
         let mut mx = vec![c64::new(0.0, 0.0); n];
@@ -1257,6 +1278,8 @@ impl ComplexLanczosRun {
         while self.stop.is_none() && self.alpha.len() < target {
             let j = self.alpha.len();
             spmv(m, &self.v, &mut self.mv);
+            #[cfg(test)]
+            crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
             solve_with_lu(lu, &self.mv, &mut self.w)?;
 
             let w = &mut self.w;
@@ -1714,6 +1737,74 @@ pub(crate) mod tests {
                 "eigenvalue[{i}] Im differs across thread counts: {s} vs {p}"
             );
         }
+    }
+
+    /// Issue #956: every triangular solve of the Lanczos loop runs while the
+    /// solving thread holds a `SequentialSolveScope`, on all three entry
+    /// points (eigenvalues only, eigenpairs, checked eigenpairs including an
+    /// extension pass), and the scope is gone when the solve returns. What a
+    /// live scope does to faer's global parallelism is asserted in
+    /// `tests/faer_global_parallelism.rs`.
+    #[test]
+    fn lanczos_solves_run_under_a_sequential_scope() {
+        use crate::eigen::parallel::solve_probe;
+        let n = 60usize;
+        let mut tk = Vec::new();
+        let mut tm = Vec::new();
+        for i in 0..n {
+            tk.push(Triplet::new(i, i, c64::new(2.0, 0.1)));
+            if i + 1 < n {
+                tk.push(Triplet::new(i, i + 1, c64::new(-1.0, 0.0)));
+                tk.push(Triplet::new(i + 1, i, c64::new(-1.0, 0.0)));
+            }
+            tm.push(Triplet::new(i, i, c64::new(1.0, 0.0)));
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+        // A short first pass so the checked solve has to extend.
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 8,
+            tol: 1e-11,
+        };
+        let site = LANCZOS_SOLVE_SITE;
+        let _ = solve_probe::take(site);
+        assert_eq!(solve_probe::scopes_held(), 0);
+
+        let values = solver
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        assert!(!values.is_empty());
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 0, "eigenvalue path made no probed solve");
+        assert_eq!(unscoped, 0, "eigenvalue path solved outside a scope");
+
+        let pairs = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        assert!(!pairs.is_empty());
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 0, "eigenpair path made no probed solve");
+        assert_eq!(unscoped, 0, "eigenpair path solved outside a scope");
+
+        let checked = solver
+            .smallest_eigenpairs_checked(
+                k.as_ref(),
+                m.as_ref(),
+                4,
+                ConvergenceCheck {
+                    residual_tol: 1e-10,
+                    max_iters_cap: n,
+                    window: None,
+                },
+            )
+            .unwrap();
+        assert!(checked.extended, "the checked solve must extend here");
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 8, "checked path made no extension solves");
+        assert_eq!(unscoped, 0, "checked path solved outside a scope");
+
+        assert_eq!(solve_probe::scopes_held(), 0, "a scope outlived its solve");
     }
 
     /// The unit-cube PEC cavity curl-curl pencil (`n = 3`), lifted to

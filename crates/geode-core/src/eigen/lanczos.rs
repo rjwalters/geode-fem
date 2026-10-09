@@ -984,8 +984,9 @@ impl InnerBackend<'_> {
     /// small to share out: on a 24k-DOF pencil (20 modes, a 28-CPU machine)
     /// the solve spent 11 to 16 s in the kernel with the loop on the rayon
     /// pool and about 4 s with it sequential, the remainder being the
-    /// parallel factorization. The matrix-free backends are not covered: their
-    /// default preconditioners make no faer solve.
+    /// parallel factorization. The matrix-free backends hold no loop scope:
+    /// their default preconditioners make no faer solve, and the AMS coarse
+    /// LU solve takes its own scope per call (issue #956).
     fn sequential_solve_scope(&self) -> Option<SequentialSolveScope> {
         matches!(self, InnerBackend::Lu(_) | InnerBackend::CustomLu(_))
             .then(SequentialSolveScope::enter)
