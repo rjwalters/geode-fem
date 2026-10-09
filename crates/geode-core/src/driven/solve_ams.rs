@@ -109,6 +109,33 @@
 //! `GEODE_AMS_SMOOTH_WEIGHT` overrides the weight and
 //! `GEODE_AMS_SMOOTH_REPORT=1` prints it per build.
 //!
+//! # Iteration growth and the vector-nodal block (issue #963)
+//!
+//! With the weight fix the count on the #520 cube still roughly doubles
+//! from 1.9k to 102k edges (26 → 55 at ω = 0.10). The cause is the
+//! vector-nodal solve: with an exact LU of `Πᵀ P Π` and nothing else
+//! changed the count is 28–33 over the same range, while no edge smoother
+//! (l1-Jacobi, Chebyshev, more Jacobi or Gauss–Seidel sweeps) removes the
+//! growth. A fixed number of Gauss–Seidel sweeps is not a mesh-independent
+//! approximate inverse of that Laplacian-like block. The default is
+//! unchanged, because none of the mesh-independent alternatives is cheaper
+//! than it up to 102k edges. The alternatives are measurement knobs,
+//! read per build and warned about once per process when they override the
+//! default:
+//!
+//! - `GEODE_DRIVEN_AMS_PI_COARSE` = `sgs[:n]` / `direct` / `amg[:cycles]`
+//!   ([`PiCoarseSolve`]); `amg:4` keeps the count flat at about the
+//!   default's memory;
+//! - `GEODE_DRIVEN_AMS_SMOOTHER` = `jacobi[:n]` / `l1jacobi[:n]` /
+//!   `chebyshev[:degree]` / `sgs[:n]` ([`EdgeSmoother`]);
+//! - `GEODE_DRIVEN_AMS_CYCLE` = `additive` / `multiplicative` ([`AuxCycle`];
+//!   `multiplicative` is hypre's `0 1 2 1 0`).
+//!
+//! The record is `[smoother_963]` in
+//! `benchmarks/gpu_driven_scaling/results_ams_cpu_local.toml`.
+//! [`super::DrivenLinearSolver::ams`] exposes the built preconditioner, and
+//! with it the smoother estimate of each ω.
+//!
 //! # Known limitation: floating PEC conductors
 //!
 //! With conductors modelled as PEC shells that are **not** connected to the
@@ -131,7 +158,9 @@ use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
 use super::{DrivenError, DrivenOperator};
-use crate::eigen::ams::{AmsLitePreconditioner, CoarseSolve, SmootherWeight};
+use crate::eigen::ams::{
+    AmsLitePreconditioner, AuxCycle, CoarseSolve, EdgeSmoother, SmootherWeight, VCycleOptions,
+};
 use crate::eigen::projection::InteriorGradient;
 
 /// Symmetric Gauss–Seidel sweeps for the vector-nodal `Πᵀ P Π` coarse
@@ -202,6 +231,150 @@ impl AmsCoarseSolve {
     }
 }
 
+/// Vector-nodal (`Πᵀ P Π`) coarse solver inside the AMS V-cycle (issue
+/// #963). The default is [`AMS_PI_COARSE_SWEEPS`] symmetric Gauss–Seidel
+/// sweeps; the others are measurement options selected by
+/// `GEODE_DRIVEN_AMS_PI_COARSE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PiCoarseSolve {
+    /// This many symmetric Gauss–Seidel sweeps from a zero start.
+    SymmetricGaussSeidel(usize),
+    /// Exact sparse LU of `Πᵀ P Π` (`3·node_dim` square, ~150 nnz/row).
+    Direct,
+    /// The smoothed-aggregation AMG of the eigen path (issue #565), with
+    /// this many V-cycles per coarse solve (`amg` alone: 2, the AMG default).
+    Amg(usize),
+}
+
+impl Default for PiCoarseSolve {
+    fn default() -> Self {
+        Self::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS)
+    }
+}
+
+impl PiCoarseSolve {
+    /// Short stable name (`"sgs:4"`, `"direct"`, `"amg:2"`), the syntax
+    /// [`Self::parse`] accepts.
+    pub fn name(self) -> String {
+        match self {
+            Self::SymmetricGaussSeidel(s) => format!("sgs:{s}"),
+            Self::Direct => "direct".to_string(),
+            Self::Amg(c) => format!("amg:{c}"),
+        }
+    }
+
+    /// Parse `sgs[:<sweeps>]`, `direct` or `amg[:<cycles>]`.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        let count = |c: &str| {
+            c.trim()
+                .parse::<usize>()
+                .ok()
+                .filter(|&c| c > 0)
+                .ok_or_else(|| format!("{raw:?}: the count must be a positive integer"))
+        };
+        match raw.split_once(':') {
+            Some(("sgs", c)) => count(c).map(Self::SymmetricGaussSeidel),
+            Some(("amg", c)) => count(c).map(Self::Amg),
+            None if raw == "sgs" => Ok(Self::default()),
+            None if raw == "direct" => Ok(Self::Direct),
+            None if raw == "amg" => Ok(Self::Amg(PI_AMG_DEFAULT_CYCLES)),
+            _ => Err(format!(
+                "{raw:?}: expected sgs[:<sweeps>], direct or amg[:<cycles>]"
+            )),
+        }
+    }
+
+    fn to_eigen(self) -> CoarseSolve {
+        match self {
+            Self::SymmetricGaussSeidel(s) => CoarseSolve::SymmetricGaussSeidel(s),
+            Self::Direct => CoarseSolve::Direct,
+            Self::Amg(c) => CoarseSolve::AmgCycles(c),
+        }
+    }
+}
+
+/// V-cycles per coarse solve of [`PiCoarseSolve::Amg`] when none is given
+/// (the AMG default of the eigen path).
+const PI_AMG_DEFAULT_CYCLES: usize = 2;
+
+/// Environment knob: the AMS edge smoother of the driven V-cycle
+/// (`jacobi[:n]`, `l1jacobi[:n]`, `chebyshev[:degree]`, `sgs[:n]`; see
+/// [`EdgeSmoother::parse`]). A measurement knob in the pattern of
+/// `GEODE_DRIVEN_AMS_COARSE`, not part of the spec surface (issue #963).
+pub const DRIVEN_AMS_SMOOTHER_ENV: &str = "GEODE_DRIVEN_AMS_SMOOTHER";
+
+/// Environment knob: how the driven V-cycle combines its two auxiliary
+/// corrections (`additive`, the default, or `multiplicative`; issue #963).
+pub const DRIVEN_AMS_CYCLE_ENV: &str = "GEODE_DRIVEN_AMS_CYCLE";
+
+/// Environment knob: the vector-nodal coarse solve of the driven V-cycle
+/// (`sgs[:n]`, `direct`, `amg`; see [`PiCoarseSolve::parse`]; issue #963).
+pub const DRIVEN_AMS_PI_COARSE_ENV: &str = "GEODE_DRIVEN_AMS_PI_COARSE";
+
+/// Print `msg` to stderr once per process per `slot`.
+fn warn_once(slot: &'static OnceLock<()>, msg: impl FnOnce() -> String) {
+    if slot.set(()).is_ok() {
+        eprintln!("warning: {}", msg());
+    }
+}
+
+/// Read one of the issue #963 V-cycle knobs. Unset or blank ⇒ `None`. A value
+/// that does not parse is ignored with a warning; a value that parses and is
+/// not the default is used, with a warning that the default AMS was
+/// overridden. Each warning is printed once per process.
+fn env_override<T: PartialEq + Default>(
+    name: &'static str,
+    parse: impl FnOnce(&str) -> Result<T, String>,
+    slot: &'static OnceLock<()>,
+) -> Option<T> {
+    let raw = std::env::var(name).ok()?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    match parse(&raw) {
+        Ok(v) => {
+            if v != T::default() {
+                warn_once(slot, || {
+                    format!(
+                        "{name}={} overrides the default driven AMS preconditioner \
+                         (a measurement knob, issue #963); unset it to use the default",
+                        raw.trim()
+                    )
+                });
+            }
+            Some(v)
+        }
+        Err(e) => {
+            warn_once(slot, || format!("ignoring {name}: {e}; using the default"));
+            None
+        }
+    }
+}
+
+/// The V-cycle structure and vector-nodal coarse solve selected by the
+/// issue #963 environment knobs (the defaults when none is set).
+fn vcycle_from_env() -> (VCycleOptions, PiCoarseSolve) {
+    static SMOOTHER: OnceLock<()> = OnceLock::new();
+    static CYCLE: OnceLock<()> = OnceLock::new();
+    static PI: OnceLock<()> = OnceLock::new();
+    let smoother =
+        env_override(DRIVEN_AMS_SMOOTHER_ENV, EdgeSmoother::parse, &SMOOTHER).unwrap_or_default();
+    let cycle = env_override(
+        DRIVEN_AMS_CYCLE_ENV,
+        |raw| match raw.trim() {
+            "additive" => Ok(AuxCycle::Additive),
+            "multiplicative" => Ok(AuxCycle::Multiplicative),
+            other => Err(format!("{other:?}: expected additive or multiplicative")),
+        },
+        &CYCLE,
+    )
+    .unwrap_or_default();
+    let pi = env_override(DRIVEN_AMS_PI_COARSE_ENV, PiCoarseSolve::parse, &PI).unwrap_or_default();
+    (VCycleOptions { smoother, cycle }, pi)
+}
+
 /// The mesh geometry the AMS needs (edge → node incidence and node
 /// coordinates), retained by [`DrivenOperator`] at assembly, plus the
 /// lazily-built interior discrete gradient (ω-independent, so built once
@@ -259,6 +432,7 @@ pub struct DrivenAms {
     n: usize,
     node_dim: usize,
     coarse: AmsCoarseSolve,
+    pi_coarse: PiCoarseSolve,
 }
 
 impl std::fmt::Debug for DrivenAms {
@@ -268,6 +442,8 @@ impl std::fmt::Debug for DrivenAms {
             .field("node_dim", &self.node_dim)
             .field("coarse", &self.coarse)
             .field("smoother", self.ams.smoother())
+            .field("vcycle", &self.ams.vcycle())
+            .field("pi_coarse", &self.pi_coarse)
             .field("proxy_nnz", &self.proxy.compute_nnz())
             .finish_non_exhaustive()
     }
@@ -289,6 +465,20 @@ impl DrivenAms {
     /// spectral-radius estimate of `D⁻¹P` behind it (issue #945).
     pub fn smoother(&self) -> &SmootherWeight {
         self.ams.smoother()
+    }
+
+    /// The V-cycle structure in use: the edge smoother and how the two
+    /// auxiliary corrections are combined (issue #963). The default unless
+    /// `GEODE_DRIVEN_AMS_SMOOTHER` / `GEODE_DRIVEN_AMS_CYCLE` selected
+    /// something else.
+    pub fn vcycle(&self) -> VCycleOptions {
+        self.ams.vcycle()
+    }
+
+    /// The vector-nodal (`Πᵀ P Π`) coarse solve in use (issue #963). The
+    /// default unless `GEODE_DRIVEN_AMS_PI_COARSE` selected something else.
+    pub fn pi_coarse(&self) -> PiCoarseSolve {
+        self.pi_coarse
     }
 }
 
@@ -381,13 +571,15 @@ pub(super) fn build(
     }
     .resolve();
     let p = proxy(op, omega)?;
-    let ams = AmsLitePreconditioner::build_with_split_coarse(
+    let (vcycle, pi_coarse) = vcycle_from_env();
+    let ams = AmsLitePreconditioner::build_with_options(
         gradient,
         p.as_ref(),
         p.as_ref(),
         0.0,
         coarse.to_eigen(),
-        CoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS),
+        pi_coarse.to_eigen(),
+        vcycle,
     )
     .map_err(|e| {
         DrivenError::Solve(format!(
@@ -401,5 +593,6 @@ pub(super) fn build(
         n: op.n_interior,
         node_dim,
         coarse,
+        pi_coarse,
     }))
 }

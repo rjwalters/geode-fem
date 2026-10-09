@@ -66,11 +66,11 @@ pub use hybrid::{
     solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
     solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
 };
-pub(crate) use hybrid_z::line_complex;
 pub use hybrid_z::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, ImpedanceEstimate, LineImpedance,
     MAX_IMPEDANCE_RATE, MIN_IMPEDANCE_RATE, SINGULAR_IMPEDANCE_RATE,
 };
+pub(crate) use hybrid_z::{line_complex, line_real};
 pub use lumped::{
     LumpedPort, assemble_port_flux, assemble_port_surface_mass, port_current, port_input_impedance,
     port_voltage,

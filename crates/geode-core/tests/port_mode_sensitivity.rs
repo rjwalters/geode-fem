@@ -20,6 +20,10 @@
 //! 4. Hammerstad–Jensen sanity of `∂Z₀/∂w`, `∂ε_eff/∂w` (sign + loose band).
 //! 5. Degenerate cluster (homogeneous two-strip line): typed error per mode,
 //!    FD-validated cluster-invariant derivative; near-degenerate warning.
+//! 6. No net conductor current (issue #991, stretched square coax, real and
+//!    lossy): the TE₁₁-like modes have no line impedance (typed error from
+//!    the line calls; `line: None` plus a warning from `observables`, with an
+//!    FD-checked `∂ε_eff`); the TEM mode is unchanged.
 
 #![allow(clippy::needless_range_loop)]
 
@@ -856,4 +860,212 @@ fn scope_fences_are_typed_errors() {
     )
     .expect_err("complex ε with a real set");
     assert!(matches!(err, PortModeSensitivityError::InvalidInput(_)));
+}
+
+// ---------------------------------------------------------------------------
+// 6. A mode with no net conductor current (issue #991)
+// ---------------------------------------------------------------------------
+
+/// The `square_coax_face(1, 6, 2, ε_r)` coax of the #953 tests with node `x`
+/// scaled by 1.15: on the C4v square the two TE₁₁-like modes are an
+/// **exactly** degenerate pair (`HybridModeDerivative::new` would return
+/// `DegenerateCluster` before any line code runs), and the stretch splits
+/// them while keeping the `x → −x`, `y → −y` mirrors that cancel their
+/// conductor currents. The masks, conductors and paths are unchanged.
+fn stretched_coax(eps_r: f64) -> StripFaceMesh {
+    let mut f = geode_core::analytic::microstrip::square_coax_face(1.0, 6, 2, eps_r);
+    f.mesh.nodes.iter_mut().for_each(|p| p[0] *= 1.15);
+    f
+}
+
+/// One material parameter (`ε′` of the whole fill) and one shape parameter
+/// (a uniform `x` stretch) on a coax face.
+fn coax_design(f: &StripFaceMesh) -> FaceDesign {
+    let mut groups = FaceGroups::default();
+    groups
+        .tris
+        .insert("fill".to_string(), (0..f.mesh.n_tris() as u32).collect());
+    let mut d = FaceDesign::new(&f.mesh)
+        .with_tri_groups(&groups, &["fill"])
+        .unwrap();
+    d.push_eps_prime("fill").unwrap();
+    d.push_shape_column("sx", f.mesh.nodes.iter().map(|p| [p[0], 0.0]).collect())
+        .unwrap();
+    d
+}
+
+/// Real (lossless) coax at `k₀ = 2`: the TEM mode 0 keeps its line
+/// impedance and sensitivity; the TE₁₁-like modes 1 and 2 are classified
+/// `no_net_current` (the shipped readout's flag), `observables` returns
+/// `line: None` plus a `NoNetConductorCurrent` warning with an FD-checked
+/// `∂ε_eff`, and the direct line calls return the typed
+/// `NoNetCurrent` error instead of a `Z_PI` of order `1e30 Ω`.
+#[test]
+fn coax_te_mode_has_no_line_impedance_but_keeps_eps_eff_sensitivity() {
+    let k0 = 2.0;
+    let f = stretched_coax(1.0);
+    let face = PortFace::from_strip(&f, k0);
+    let eps = real_eps(&f.eps_r);
+    let line = LineSpec::from_strip(&f);
+    let design = coax_design(&f);
+    let set = solve_real(&f, &f.mesh, &f.eps_r, k0);
+    assert_eq!(set.n_propagating, 3);
+    println!(
+        "β² = {:.6e}, {:.6e}, {:.6e}",
+        set.modes[0].beta_sq, set.modes[1].beta_sq, set.modes[2].beta_sq
+    );
+    let deriv = |m: usize| {
+        HybridModeDerivative::new(
+            face,
+            &eps,
+            FaceModes::Real(&set),
+            m,
+            ModeSensitivityOpts::default(),
+        )
+        .unwrap_or_else(|e| panic!("mode {m}: the stretch must split the TE pair: {e}"))
+    };
+
+    // TEM: not flagged, a finite Z_PI and its sensitivity.
+    let tem = deriv(0);
+    assert!(!tem.no_net_current(&line).unwrap());
+    let s0 = tem.observables(&design, Some(&line)).unwrap();
+    assert!(
+        !s0.warnings
+            .contains(&ModeSensitivityWarning::NoNetConductorCurrent)
+    );
+    let l0 = s0.line.as_ref().expect("the TEM mode has a line impedance");
+    println!(
+        "TEM Z_PI = {:.6} Ω (bits {:016x}), ∂Z_PI = {:?} (bits {:x?})",
+        l0.value.z_pi.re,
+        l0.value.z_pi.re.to_bits(),
+        l0.d_z_pi,
+        l0.d_z_pi.iter().map(|d| d.re.to_bits()).collect::<Vec<_>>()
+    );
+    assert!(l0.value.z_pi.re > 1.0 && l0.value.z_pi.re < 1e3);
+    assert!(l0.d_z_pi.iter().all(|d| d.re.is_finite()));
+    assert_eq!(tem.line_impedances(&line).unwrap(), l0.value);
+
+    for m in [1, 2] {
+        let te = deriv(m);
+        assert!(te.no_net_current(&line).unwrap(), "mode {m}");
+        // Direct line calls: the typed error.
+        let err = te.line_impedances(&line).expect_err("no line impedance");
+        assert!(
+            matches!(err, PortModeSensitivityError::NoNetCurrent { mode } if mode == m),
+            "{err}"
+        );
+        assert!(err.to_string().contains("no net conductor current"));
+        let err = te
+            .line_sensitivity(&design, &line)
+            .expect_err("no line sensitivity");
+        assert!(
+            matches!(err, PortModeSensitivityError::NoNetCurrent { .. }),
+            "{err}"
+        );
+        // observables: line None + the warning; β / ε_eff unaffected.
+        let s = te.observables(&design, Some(&line)).unwrap();
+        assert!(s.line.is_none());
+        assert!(
+            s.warnings
+                .contains(&ModeSensitivityWarning::NoNetConductorCurrent)
+        );
+        let bare = te.observables(&design, None).unwrap();
+        assert!(
+            !bare
+                .warnings
+                .contains(&ModeSensitivityWarning::NoNetConductorCurrent)
+        );
+        for i in 0..2 {
+            assert_eq!(s.d_beta[i], bare.d_beta[i]);
+            assert_eq!(s.d_eps_eff[i], bare.d_eps_eff[i]);
+        }
+        // ∂ε_eff against central FD through the shipped solve.
+        for (i, h) in [(0, 1e-4), (1, 1e-4)] {
+            let side = |t: f64| {
+                let (mm, e) = design.perturbed(&f.mesh, &eps, i, t);
+                let er: Vec<f64> = e.iter().map(|x| x.re).collect();
+                solve_real(&f, &mm, &er, k0).modes[m].beta_sq / (k0 * k0)
+            };
+            let fd = (side(h) - side(-h)) / (2.0 * h);
+            let e = rel(s.d_eps_eff[i], c64::new(fd, 0.0));
+            println!(
+                "TE mode {m}: ∂ε_eff/∂{} adjoint {:+.8e}, FD {fd:+.8e}, rel {e:.2e}",
+                s.names[i], s.d_eps_eff[i].re
+            );
+            assert!(e <= 1e-5, "mode {m} ∂ε_eff/∂{}: {e:e}", s.names[i]);
+        }
+    }
+}
+
+/// The **lossy** twin (`ε = 2.2(1 − 0.02j)`, `k₀ = 1.4`, classified
+/// through the shipped `line_complex`): TEM keeps a finite complex `Z_PI`,
+/// the TE₁₁-like modes are flagged with `line: None` + the warning from
+/// `observables` and the typed error from the direct line calls.
+#[test]
+fn lossy_coax_te_mode_has_no_line_impedance() {
+    let k0 = 1.4;
+    let f = stretched_coax(2.2);
+    let eps: Vec<c64> = f.eps_r.iter().map(|&e| c64::new(e, -0.02 * e)).collect();
+    let face = PortFace::from_strip(&f, k0);
+    let line = LineSpec::from_strip(&f);
+    let design = coax_design(&f);
+    let set = solve_lossy_hybrid_port_modes(
+        &f.mesh,
+        &eps,
+        &f.masks.interior_edge_mask,
+        &f.masks.free_node_mask,
+        k0,
+        &hopts(),
+    )
+    .unwrap();
+    // The stretched face also propagates a fourth (TE₂₀-like) mode here.
+    assert!(set.n_propagating >= 3);
+    println!(
+        "lossy β² = {:?}",
+        set.modes.iter().map(|m| m.beta_sq).collect::<Vec<_>>()
+    );
+    let deriv = |m: usize| {
+        HybridModeDerivative::new(
+            face,
+            &eps,
+            FaceModes::Lossy(&set),
+            m,
+            ModeSensitivityOpts::default(),
+        )
+        .unwrap_or_else(|e| panic!("mode {m}: the stretch must split the TE pair: {e}"))
+    };
+    let tem = deriv(0);
+    assert!(!tem.no_net_current(&line).unwrap());
+    let z = tem.line_impedances(&line).unwrap();
+    let shipped = shipped_lossy_line_impedances(&f.mesh, &eps, &set.modes[0], k0, &line)
+        .unwrap()
+        .unwrap();
+    println!("lossy TEM Z_PI = {:.6} Ω", z.z_pi);
+    assert!(z.z_pi.re > 1.0 && z.z_pi.re < 1e3);
+    assert!(rel(z.z_pi, shipped.z_pi) <= 1e-9);
+    assert!(
+        tem.observables(&design, Some(&line))
+            .unwrap()
+            .line
+            .is_some()
+    );
+    for m in [1, 2] {
+        let te = deriv(m);
+        assert!(te.no_net_current(&line).unwrap(), "mode {m}");
+        assert!(matches!(
+            te.line_impedances(&line),
+            Err(PortModeSensitivityError::NoNetCurrent { .. })
+        ));
+        assert!(matches!(
+            te.line_sensitivity(&design, &line),
+            Err(PortModeSensitivityError::NoNetCurrent { .. })
+        ));
+        let s = te.observables(&design, Some(&line)).unwrap();
+        assert!(s.line.is_none());
+        assert!(
+            s.warnings
+                .contains(&ModeSensitivityWarning::NoNetConductorCurrent)
+        );
+        assert!(s.d_eps_eff.iter().all(|d| d.re.is_finite()));
+    }
 }
