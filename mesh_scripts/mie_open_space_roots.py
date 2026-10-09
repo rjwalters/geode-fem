@@ -19,12 +19,20 @@ have poles at the resonance positions `k`. With Riccati-Bessel
 `psi_l(x) = x j_l(x)` (regular) and `xi_l(x) = x h_l^(1)(x)`
 (outgoing), and size parameter `x = k R_s`:
 
-  TE pole (b_l):  psi_l(nx)   * xi_l'(x) - (1/n) psi_l'(nx) * xi_l(x)  = 0
-  TM pole (a_l):  psi_l(nx)   * xi_l'(x) -    n  psi_l'(nx) * xi_l(x)  = 0
+  TE pole (b_l):  psi_l(nx)   * xi_l'(x) -    n  psi_l'(nx) * xi_l(x)  = 0
+  TM pole (a_l):  psi_l(nx)   * xi_l'(x) - (1/n) psi_l'(nx) * xi_l(x)  = 0
 
-These exactly match the PEC-cavity equations in `mie.rs` after the
-replacement `chi_l(k R_b) <-> 0`, `psi_l(k R_b) -> outgoing
-h_l^(1)(k R_s)` (i.e., move the outer wall to infinity).
+TE (E transverse, magnetic multipole, Bohren & Huffman b_l): u = r E_t
+and du/dr are continuous, so the interface row is n psi_l'. TM (H
+transverse, electric multipole, Bohren & Huffman a_l): u = r H_t and
+(1/eps_r) du/dr are continuous, so the interface row is psi_l'/n. The
+B&H denominators are b_l: psi(mx) xi'(x) - m psi'(mx) xi(x) (= char_te)
+and a_l: m psi(mx) xi'(x) - psi'(mx) xi(x) (= m * char_tm). Issue #999
+swapped these two labels; before it the (1/n) row was called TE.
+
+These are the PEC-cavity conditions of `analytic::mie::closed` (post
+issue #986 pairing) with the PEC wall moved to infinity and the buffer
+solution replaced by the outgoing `xi_l`.
 
 The roots are complex with Re(k) > 0 (oscillation) and Im(k) > 0 in our
 sign convention `exp(-i omega t)` (radiative decay). The PEC roots are
@@ -142,17 +150,7 @@ def xi_prime(l: int, z: complex) -> complex:
 
 
 def char_te(n: float, l: int, r_s: float, k: complex) -> complex:
-    """TE resonance condition (pole of Mie b_l coefficient).
-
-    psi_l(nx) * xi_l'(x) - (1/n) psi_l'(nx) * xi_l(x) = 0,  x = k R_s.
-    """
-    x_in = n * k * r_s
-    x_s = k * r_s
-    return psi(l, x_in) * xi_prime(l, x_s) - (1.0 / n) * psi_prime(l, x_in) * xi(l, x_s)
-
-
-def char_tm(n: float, l: int, r_s: float, k: complex) -> complex:
-    """TM resonance condition (pole of Mie a_l coefficient).
+    """TE resonance condition (pole of Mie b_l, the magnetic multipole).
 
     psi_l(nx) * xi_l'(x) - n psi_l'(nx) * xi_l(x) = 0,  x = k R_s.
     """
@@ -161,8 +159,20 @@ def char_tm(n: float, l: int, r_s: float, k: complex) -> complex:
     return psi(l, x_in) * xi_prime(l, x_s) - n * psi_prime(l, x_in) * xi(l, x_s)
 
 
+def char_tm(n: float, l: int, r_s: float, k: complex) -> complex:
+    """TM resonance condition (pole of Mie a_l, the electric multipole).
+
+    psi_l(nx) * xi_l'(x) - (1/n) psi_l'(nx) * xi_l(x) = 0,  x = k R_s.
+    """
+    x_in = n * k * r_s
+    x_s = k * r_s
+    return psi(l, x_in) * xi_prime(l, x_s) - (1.0 / n) * psi_prime(l, x_in) * xi(l, x_s)
+
+
 # -----------------------------------------------------------------------------
-# PEC-cavity real roots (for Newton seeds), mirrored from Rust mie.rs.
+# PEC-cavity real roots (for Newton seeds), mirrored from Rust
+# `analytic::mie::closed` (post issue #986 pairing: TE = n row with the
+# u(R_b) = 0 wall, TM = 1/n row with the u'(R_b) = 0 wall).
 # -----------------------------------------------------------------------------
 
 
@@ -190,7 +200,7 @@ def pec_char_te(n: float, l: int, r_s: float, r_b: float, k: float) -> float:
     big_b = psi_real(l, x_b)
     buf = big_a * psi_real(l, x_s) - big_b * chi_real(l, x_s)
     buf_p = big_a * psi_prime_real(l, x_s) - big_b * chi_prime_real(l, x_s)
-    return psi_real(l, x_in) * buf_p - (psi_prime_real(l, x_in) / n) * buf
+    return psi_real(l, x_in) * buf_p - n * psi_prime_real(l, x_in) * buf
 
 
 def pec_char_tm(n: float, l: int, r_s: float, r_b: float, k: float) -> float:
@@ -201,7 +211,7 @@ def pec_char_tm(n: float, l: int, r_s: float, r_b: float, k: float) -> float:
     big_b = psi_prime_real(l, x_b)
     buf = big_a * psi_real(l, x_s) - big_b * chi_real(l, x_s)
     buf_p = big_a * psi_prime_real(l, x_s) - big_b * chi_prime_real(l, x_s)
-    return psi_real(l, x_in) * buf_p - n * psi_prime_real(l, x_in) * buf
+    return psi_real(l, x_in) * buf_p - (psi_prime_real(l, x_in) / n) * buf
 
 
 def pec_roots_real(
