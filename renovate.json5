@@ -5,13 +5,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
 
-  // No `:dependencyDashboard`: that preset opens a bot-owned issue with no
-  // `loom:` label, which Curator's unlabeled-issue intake would pick up and
-  // try to enrich as a normal issue.
   "extends": [
     "config:recommended",
     "security:openssf-scorecard"
   ],
+
+  // No Dependency Dashboard. `config:recommended` turns it on, and it opens a
+  // bot-owned issue with no `loom:` label, which Curator's unlabeled-issue
+  // intake would pick up and try to enrich as a normal issue (it did: #974).
+  "dependencyDashboard": false,
 
   // Override the Mend-hosted "silent" default (applied when the app is
   // installed on "All repositories"). "full" lets Renovate open branches and PRs.

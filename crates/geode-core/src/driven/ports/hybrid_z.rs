@@ -413,12 +413,15 @@ fn gamma(n: usize) -> f64 {
 /// `q_c` is a sum of `N_c` products (`N_c` = the stored entries of the
 /// conductor's `G` columns and `S`, `T_ε` rows); `A_c` is the sum of the
 /// products' moduli. However the sum is ordered, every product passes
-/// through at most `N_c − 1` additions and three multiplications (the
-/// matrix entry, `k₀·k₀`, and `k₀²` times the `T_ε` row), so the classic
-/// a-priori bound (Higham, *Accuracy and Stability of Numerical
-/// Algorithms*, Thm 3.1 / eq. 3.5) is `|fl(q_c) − q_c| ≤ γ_{N_c+3} · A_c`.
-/// A complex product adds at most a factor `√2` (Higham Lemma 3.5), which
-/// the bound always carries, so the same bound serves the lossy path.
+/// through at most `N_c − 1` additions and `rounds` multiplicative
+/// roundings, so the classic a-priori bound (Higham, *Accuracy and
+/// Stability of Numerical Algorithms*, Thm 3.1 / eq. 3.5) is
+/// `|fl(q_c) − q_c| ≤ γ_{N_c+rounds} · A_c`. On the real path `rounds = 3`
+/// (the matrix entry, `k₀·k₀`, and `k₀²` times the `T_ε` row). On the lossy
+/// path the `T_ε` term `ẽ_z·(ε·T_loc)` is a complex × complex product,
+/// which costs `√2·γ₂` (Higham Lemma 3.5) instead of `γ₁`, so `rounds = 4`.
+/// The bound always carries the `√2`; a real × complex product and a
+/// complex addition round componentwise and need no more.
 ///
 /// So a computed `|q_c|` at or below this bound is **indistinguishable from
 /// zero** in floating point: the conductor carries no net current. It is
@@ -441,6 +444,7 @@ fn ampere_roundoff_bound(
     e_t_abs: &[f64],
     e_z_abs: &[f64],
     k0: f64,
+    rounds: usize,
 ) -> Vec<f64> {
     // Per node: Σ|products| and the number of products.
     let (mut a, mut cnt) = abs_matvec(blocks.s.as_ref(), e_z_abs);
@@ -459,7 +463,7 @@ fn ampere_roundoff_bound(
             let (sum, terms) = (0..c.len())
                 .filter(|&k| c[k])
                 .fold((0.0, 0usize), |(s, t), k| (s + a[k], t + cnt[k]));
-            std::f64::consts::SQRT_2 * gamma(terms + 3) * sum
+            std::f64::consts::SQRT_2 * gamma(terms + rounds) * sum
         })
         .collect()
 }
@@ -554,7 +558,7 @@ pub(super) fn line_real(
     let e_t_abs: Vec<f64> = m.e_t.iter().map(|x| x.abs()).collect();
     let e_z_abs: Vec<f64> = m.e_z.iter().map(|x| x.abs()).collect();
     let (t_a, t_n) = abs_matvec(blocks.t_eps.as_ref(), &e_z_abs);
-    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0);
+    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0, 3);
     let q_abs: Vec<f64> = currents.iter().map(|i| i.abs() * (k0 * eta)).collect();
     let no_net_current = no_net_current(&q_abs, &bound);
     let i2: f64 = currents.iter().map(|i| i * i).sum();
@@ -644,7 +648,7 @@ pub(crate) fn line_complex(
         .collect();
     let e_t_abs: Vec<f64> = m.e_t.iter().map(|x| x.norm()).collect();
     let e_z_abs: Vec<f64> = m.e_z.iter().map(|x| x.norm()).collect();
-    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0);
+    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0, 4);
     let q_abs: Vec<f64> = currents.iter().map(|i| i.norm() * (k0 * eta)).collect();
     let no_net_current = no_net_current(&q_abs, &bound);
     let i2: c64 = currents.iter().map(|i| i * i).sum();

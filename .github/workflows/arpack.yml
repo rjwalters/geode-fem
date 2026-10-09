@@ -264,7 +264,7 @@ jobs:
       # `-- --ignored`) so that a new #[ignore]d unit test is not pulled into
       # this job unmeasured: the guard fails until it is named here or put
       # on scripts/ci-test-coverage-ignored-allowlist.txt with a reason.
-      - name: Unit tests (geode-core, the #[ignore]d heavy-fixture tier)
+      - name: "Unit tests (geode-core, the #[ignore]d heavy-fixture tier)"
         run: |
           cargo test --features arpack -p geode-core --release --lib -- \
               --ignored --exact \
@@ -333,7 +333,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Gmsh (geode mesh, issue #704)
+      - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh
@@ -351,6 +351,21 @@ jobs:
       - name: Run geode-cli tests (default tier, CPU backend)
         run: |
           cargo test -p geode-cli
+
+      # Issue #933: the bin unit tests of the mie_sphere (3 tests) and
+      # spiral_inductor (1 test) example crates (`src/main.rs`), which ran
+      # in no job until ci-test-coverage.py modelled `<crate>/bin:<name>`.
+      # Pure-logic tests; the run itself takes < 1 s. The cost is the build:
+      # these crates enable geode-core's `testing` feature, so geode-core and
+      # some of the burn stack are rebuilt in debug with that feature set.
+      # Measured locally after `cargo test -p geode-cli` (Apple M3 Ultra,
+      # loaded host; not re-timed on ubuntu-latest): 46 s wall, 38 crates
+      # recompiled. Kept as a separate command, not merged into the
+      # geode-cli invocation, so the CLI is still tested with its own
+      # feature set.
+      - name: Example crates' bin unit tests (mie_sphere, spiral_inductor)
+        run: |
+          cargo test -p mie_sphere -p spiral_inductor --bins
 
   geode-cli-release:
     # Release-mode `--ignored` benchmark tiers for the geode CLI, split out
@@ -370,7 +385,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Gmsh (geode mesh, issue #704)
+      - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh

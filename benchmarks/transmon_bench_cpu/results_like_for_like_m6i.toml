@@ -31,7 +31,9 @@
 #   * '1 thread' is enforced by the OS (taskset to one CPU), not only requested:
 #     see observed_cpus_allowed / observed_tasks_max per cell and [pinning].
 #   * ONE MESH (133,108 interior DOFs, first order), ONE HOST, ONE SESSION, and
-#     geode's direct LU against Palace's default iterative solver. Nothing here
+#     geode's direct LU against Palace's default linear solver, which at fba6a5b
+#     resolves to SuperLU: a sparse direct LU applied as the GMRES preconditioner
+#     (see results_tuned_palace_m6i.toml [palace_linear_solver]). Nothing here
 #     extrapolates to another mesh size; results.toml records that geode's direct
 #     path runs out of memory near 1.16M DOFs on this instance type.
 # ---------------------------------------------------------------------------
@@ -40,7 +42,7 @@
 issues = [927, 763]
 measured_date = "2026-10-08"  # UTC; timed runs between 2026-10-08T16:08:50Z and 2026-10-08T16:56:15Z
 geode_commit = "61e8571ee7383885d1896cf64169e93994fa9609 dirty=0"
-scope = "one AWS m6i.4xlarge with no other workload, one session; geode (direct LU) and Palace (iterative) on the committed 133k transmon fixture; not a scaling study"
+scope = "one AWS m6i.4xlarge with no other workload, one session; geode (direct LU) and Palace (Linear.Type = Default, which resolves to SuperLU: sparse direct LU under GMRES) on the committed 133k transmon fixture; not a scaling study"
 fixture = "crates/geode-core/tests/fixtures/transmon_smoke.msh"
 fixture_sha256 = "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
 n_interior_dofs = 133108

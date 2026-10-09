@@ -690,7 +690,8 @@ pub enum InnerProduct {
 
 /// **Conjugate Orthogonal Conjugate Gradient** on Burn tensors, over the
 /// matrix-free complex pencil. Algorithmically identical to
-/// [`crate::solver::ksp::Cocg`]; see the module docs.
+/// [`crate::solver::ksp::Cocg`], including its residual-replacement
+/// stopping rule (issue #943); see the module docs.
 #[derive(Debug, Clone, Copy)]
 pub struct BurnCocg {
     /// Relative-residual stopping criterion `‖r‖₂ ≤ tol·‖b‖₂`.
@@ -701,6 +702,9 @@ pub struct BurnCocg {
     pub breakdown_tol: f64,
     /// Inner product (bilinear COCG vs the conjugated-CG tripwire).
     pub inner: InnerProduct,
+    /// Residual-replacement cap (issue #943); same semantics as
+    /// [`crate::solver::ksp::Cocg::max_replacements`].
+    pub max_replacements: usize,
 }
 
 impl Default for BurnCocg {
@@ -710,6 +714,7 @@ impl Default for BurnCocg {
             max_iters: 2000,
             breakdown_tol: 1e-300,
             inner: InnerProduct::Bilinear,
+            max_replacements: crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS,
         }
     }
 }
@@ -790,6 +795,7 @@ impl BurnCocg {
                     iters: 0,
                     residual_rel: 1.0,
                     converged: true,
+                    replacements: 0,
                 },
             ));
         }
@@ -799,6 +805,9 @@ impl BurnCocg {
         let mut p = z.clone();
         let mut rho = self.dot(&r, &z);
         bd_check(rho, 0, "r^T z", self.breakdown_tol)?;
+        // Residual-replacement state (issue #943).
+        let mut replacements = 0_usize;
+        let mut last_replaced_rel = f64::INFINITY;
 
         for k in 0..self.max_iters {
             // q = A p.
@@ -818,15 +827,47 @@ impl BurnCocg {
             let r_norm = r.euclid_norm();
             if r_norm <= target {
                 // True-residual recompute stays on-device (one extra matvec).
-                let residual_rel = true_residual_rel(op, &x, b, b_norm);
-                return Ok((
-                    x,
-                    KspReport {
-                        iters: k + 1,
-                        residual_rel,
-                        converged: residual_rel <= self.tol,
-                    },
-                ));
+                let ax = op.apply(&x);
+                let residual_rel = explicit_residual_rel(&ax, b, b_norm);
+                if residual_rel <= self.tol {
+                    return Ok((
+                        x,
+                        KspReport {
+                            iters: k + 1,
+                            residual_rel,
+                            converged: true,
+                            replacements,
+                        },
+                    ));
+                }
+                // Drift (issue #943): give up honestly once the cap is
+                // spent or a replacement bought no progress (e.g. the f32
+                // precision floor sits above `tol`).
+                if replacements >= self.max_replacements || residual_rel >= last_replaced_rel {
+                    return Ok((
+                        x,
+                        KspReport {
+                            iters: k + 1,
+                            residual_rel,
+                            converged: false,
+                            replacements,
+                        },
+                    ));
+                }
+                // Residual replacement: r ← b − A x, z = M⁻¹ r, ρ = rᵀz,
+                // p = z — a restart from the current iterate (see the CPU
+                // `Cocg` for why the old `p` is not kept).
+                r = SplitComplex {
+                    re: b.re.clone().sub(ax.re),
+                    im: b.im.clone().sub(ax.im),
+                };
+                replacements += 1;
+                last_replaced_rel = residual_rel;
+                z = op.jacobi_apply(&r);
+                rho = self.dot(&r, &z);
+                bd_check(rho, k + 1, "r^T z", self.breakdown_tol)?;
+                p = z.clone();
+                continue;
             }
 
             // z = M⁻¹ r; ρ_new = rᵀz; β = ρ_new/ρ.
@@ -859,10 +900,21 @@ fn true_residual_rel<B: Backend, Op: MatrixFreeComplexOperator<B>>(
     b: &SplitComplex<B>,
     b_norm: f64,
 ) -> f64 {
-    let ax = op.apply(x);
-    let mut resid = ax;
-    resid.re = resid.re.sub(b.re.clone());
-    resid.im = resid.im.sub(b.im.clone());
+    explicit_residual_rel(&op.apply(x), b, b_norm)
+}
+
+/// `‖A x − b‖₂ / ‖b‖₂` from an already-computed `A x` (kept as `ax − b`,
+/// the exact arithmetic of the pre-#943 check, so converged solves report
+/// bit-identical residuals).
+fn explicit_residual_rel<B: Backend>(
+    ax: &SplitComplex<B>,
+    b: &SplitComplex<B>,
+    b_norm: f64,
+) -> f64 {
+    let resid = SplitComplex {
+        re: ax.re.clone().sub(b.re.clone()),
+        im: ax.im.clone().sub(b.im.clone()),
+    };
     resid.euclid_norm() / b_norm
 }
 
@@ -987,5 +1039,147 @@ mod tests {
         for z in x.download() {
             assert!(z.re.is_finite() && z.im.is_finite());
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Residual replacement (issue #943)
+    // -----------------------------------------------------------------
+
+    /// Ill-conditioned diagonal operator `diag(κ^{i/(n-1)})` with an
+    /// identity "Jacobi" apply — the burn twin of the CPU
+    /// `diag_drift_system` fixture in `ksp.rs`.
+    struct DiagOp {
+        diag: SplitComplex<Bk>,
+        device: <Bk as BackendTypes>::Device,
+    }
+
+    impl DiagOp {
+        fn new(n: usize, kappa: f64) -> Self {
+            let device = dev();
+            let host: Vec<c64> = (0..n)
+                .map(|i| c64::new(kappa.powf(i as f64 / (n - 1) as f64), 0.0))
+                .collect();
+            Self {
+                diag: SplitComplex::upload(&host, &device),
+                device,
+            }
+        }
+    }
+
+    impl MatrixFreeComplexOperator<Bk> for DiagOp {
+        fn n_edges(&self) -> usize {
+            self.diag.len()
+        }
+        fn device(&self) -> &<Bk as BackendTypes>::Device {
+            &self.device
+        }
+        fn project_interior(&self, v: &SplitComplex<Bk>) -> SplitComplex<Bk> {
+            v.clone()
+        }
+        fn apply(&self, x: &SplitComplex<Bk>) -> SplitComplex<Bk> {
+            // Real diagonal: (d)(x_re + i x_im).
+            SplitComplex {
+                re: self.diag.re.clone().mul(x.re.clone()),
+                im: self.diag.re.clone().mul(x.im.clone()),
+            }
+        }
+        fn jacobi_apply(&self, r: &SplitComplex<Bk>) -> SplitComplex<Bk> {
+            r.clone()
+        }
+    }
+
+    fn drift_rhs(n: usize) -> Vec<c64> {
+        let mut s = 12345_u64;
+        (0..n)
+            .map(|_| {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                c64::new(((s >> 11) as f64 / (1_u64 << 53) as f64) - 0.5, 0.0)
+            })
+            .collect()
+    }
+
+    /// **Issue #943, matrix-free twin**: `BurnCocg` repairs a
+    /// recursive-residual drift by residual replacement exactly as the CPU
+    /// `Cocg` does. Self-calibrating like the CPU test (the drifting `tol`
+    /// depends on backend reduction order): scan a band of tolerances,
+    /// require a drift case, assert the first is repaired, and every drift
+    /// case ends honestly.
+    #[test]
+    fn residual_replacement_repairs_recursive_residual_drift() {
+        let n = 60;
+        let op = DiagOp::new(n, 1e12);
+        let b = SplitComplex::<Bk>::upload(&drift_rhs(n), &op.device);
+        let mut repaired = 0;
+        for e in 0..=8 {
+            let tol = 10_f64.powf(-11.0 - 0.125 * e as f64);
+            let (_, single) = BurnCocg {
+                max_replacements: 0,
+                ..BurnCocg::new(tol, 20_000)
+            }
+            .solve(&op, &b)
+            .expect("drift is Ok(converged: false), not an Err");
+            if single.converged {
+                continue;
+            }
+            assert_eq!(single.replacements, 0);
+            assert!(single.residual_rel > tol, "{single:?}");
+            let (x, rep) = BurnCocg::new(tol, 20_000)
+                .solve(&op, &b)
+                .expect("replacement never exhausts the budget here");
+            assert!(rep.replacements >= 1, "tol {tol:e}: {rep:?}");
+            assert!(rep.iters > single.iters, "{rep:?} vs {single:?}");
+            let check = true_residual_rel(&op, &x, &b, b.euclid_norm());
+            assert_eq!(check, rep.residual_rel);
+            assert_eq!(rep.converged, check <= tol, "tol {tol:e}: {rep:?}");
+            if repaired == 0 {
+                assert!(rep.converged, "first drift case must repair: {rep:?}");
+            }
+            if rep.converged {
+                repaired += 1;
+            }
+            eprintln!("tol {tol:.3e}: single-check {single:?} -> replacement {rep:?}");
+        }
+        assert!(repaired >= 1, "the scan found no drift case to repair");
+    }
+
+    /// **Issue #943, matrix-free twin**: a `tol` below the f64 rounding
+    /// floor still fails explicitly after the replacement cap (the analogue
+    /// of the f32 GPU solves in `results_large_a100.toml`, whose precision
+    /// floor sits orders of magnitude above `tol`).
+    #[test]
+    fn residual_replacement_cap_fails_explicitly() {
+        let n = 60;
+        let op = DiagOp::new(n, 1e2);
+        let b = SplitComplex::<Bk>::upload(&drift_rhs(n), &op.device);
+        let tol = 1e-30;
+        let max_iters = 100_000;
+        let (_, capped) = BurnCocg {
+            max_replacements: 1,
+            ..BurnCocg::new(tol, max_iters)
+        }
+        .solve(&op, &b)
+        .expect("cap exhaustion is Ok(converged: false)");
+        assert!(!capped.converged, "{capped:?}");
+        assert_eq!(capped.replacements, 1, "{capped:?}");
+        assert!(
+            capped.residual_rel > tol && capped.iters < max_iters,
+            "{capped:?}"
+        );
+
+        let (_, dflt) = BurnCocg::new(tol, max_iters)
+            .solve(&op, &b)
+            .expect("Ok(converged: false)");
+        assert!(!dflt.converged, "{dflt:?}");
+        assert!(
+            (1..=crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS)
+                .contains(&dflt.replacements),
+            "{dflt:?}"
+        );
+        assert!(
+            dflt.residual_rel > tol && dflt.iters < max_iters,
+            "{dflt:?}"
+        );
     }
 }

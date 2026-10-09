@@ -99,7 +99,7 @@ untuned_isa = { "libHYPRE.so.3.0.0" = { ymm = 0, evex_regs = 0, opmask = 0, zmm 
 
 [palace_linear_solver]
 fixture_value = "Default"
-resolution = "At Palace fba6a5b, palace/utils/iodata.cpp resolves Linear.Type = Default for an eigenmode problem to SuperLU when Palace is built with SuperLU (MFEM_USE_SUPERLU: \"Prefer sparse direct solver for frequency domain problems if available\"), else STRUMPACK, MUMPS, AMS. Both recipes build SuperLU, so PR #964 ran SuperLU too: a sparse direct LU (SuperLU_DIST) applied as the preconditioner of GMRES, which therefore converges in one or two iterations per solve. PR #964's generated TOML calls this Palace's \"default iterative solver\"; the Krylov wrapper is iterative but the work is a sparse direct factorization, as geode's is."
+resolution = "At Palace fba6a5b, palace/utils/iodata.cpp resolves Linear.Type = Default for an eigenmode problem to SuperLU when Palace is built with SuperLU (MFEM_USE_SUPERLU: \"Prefer sparse direct solver for frequency domain problems if available\"), else STRUMPACK, MUMPS, AMS. Both recipes build SuperLU, so PR #964 ran SuperLU too: a sparse direct LU (SuperLU_DIST) applied as the preconditioner of GMRES, which therefore converges in one or two iterations per solve. PR #964's generated TOML called this Palace's \"default iterative solver\" (corrected in #977); the Krylov wrapper is iterative but the work is a sparse direct factorization, as geode's is."
 this_run_linear_type = ["Default", "SuperLU"]  # read from each run's generated config; Default only in the control cell below
 pr964_linear_type = ["Default"]
 default_check_cell = "palace_s4p5_n6_np8_nosave_lindefault"  # tuned image, Save = 0, 8 ranks, Linear.Type = Default, n = 1

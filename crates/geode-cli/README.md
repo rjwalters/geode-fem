@@ -260,7 +260,7 @@ Driven example (the spiral-inductor golden input,
 | `frequencies.spacing` | `"linear"` (default) \| `"log"` | sweep spacing |
 | `solver.mode` | `"direct"` (default) \| `"iterative"` | sparse LU per frequency, or COCG with a preconditioner built once per frequency |
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); the default `auto` preconditioner uses AMS there, or use `direct` |
-| `solver.preconditioner` | iterative only; `"auto"` (default) \| `"jacobi"` \| `"ilu0"` \| `"ams"` | `auto` (issue #930) = `ams` wherever it is supported, else `jacobi` with a `"preconditioner_fallback"` warning (report `warnings[]` and stderr) that says why: a material with `Re ε_r ≤ 0` at a solved frequency, matched-UPML `absorbing_regions`, or floating PEC conductors, the three cases below where `ams` is rejected or measured to fail. The warning is printed by `check`, `driven` and `extract`, and is in the `warnings[]` of all three reports. With matched UPML the fallback is the lesser failure, not a fix: on the radiating UPML patch AMS stalls far above where Jacobi gets (with only the outer boundary PEC, after 5 000 iterations at tol 1e-8, residual 4.3e-2 vs Jacobi's 1.6e-6), but Jacobi does not converge that fixture at the default budget either (≈ 1.9e-4 at tol 1e-10, PR #752); use `direct` there. No mesh-size threshold. The evidence for the switch is the at-scale run of PR #967 ([`benchmarks/gpu_driven_scaling/README.md`](../../benchmarks/gpu_driven_scaling/README.md)); `ams` holds more memory than `jacobi` (`geode check` models it). An explicit value is always used as given, with no warning; set `"jacobi"` for the pre-#930 default. The report's `solver.preconditioner` names the preconditioner actually used. Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls where Jacobi converges. Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch (and stalls far above Jacobi there), nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
+| `solver.preconditioner` | iterative only; `"auto"` (default) \| `"jacobi"` \| `"ilu0"` \| `"ams"` | `auto` (issue #930) = `ams` wherever it is supported, else `jacobi` with a `"preconditioner_fallback"` warning (report `warnings[]` and stderr) that says why: a material with `Re ε_r ≤ 0` at a solved frequency, matched-UPML `absorbing_regions`, or floating PEC conductors, the three cases below where `ams` is rejected or measured to fail. The warning is printed by `check`, `driven` and `extract`, and is in the `warnings[]` of all three reports. With matched UPML the fallback is the lesser failure, not a fix: on the radiating UPML patch AMS stalls far above where Jacobi gets (with only the outer boundary PEC, after 5 000 iterations at tol 1e-8, residual 4.3e-2 vs Jacobi's 1.6e-6), but Jacobi does not converge that fixture at the default budget either (≈ 1.9e-4 at tol 1e-10, PR #752); use `direct` there. No mesh-size threshold. The evidence for the switch is the at-scale run of PR #967 ([`benchmarks/gpu_driven_scaling/README.md`](../../benchmarks/gpu_driven_scaling/README.md)); `ams` holds more memory than `jacobi` (`geode check` models it). An explicit value is always used as given, with no warning; set `"jacobi"` for the pre-#930 default. The report's `solver.preconditioner` names the preconditioner actually used. Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls far above where Jacobi gets, and neither converges (PR #973 review, 5 000 iterations at tol 1e-8: `ilu0` residual 0.20 vs Jacobi 1.6e-6 with only the outer boundary PEC; with full PEC `ilu0` reaches 0.64, against Jacobi's 1.9e-4 recorded by PR #752 at tol 1e-10). Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch (and stalls far above Jacobi there), nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
 | `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions`, a dispersive material (`materials[].dispersion`) or a hybrid wave port (#807: its port operator is not affine in ω). Lumped `ports`, geometric `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
@@ -701,8 +701,12 @@ The CLI's geometric ports are p=1 (there is no element-order field
 yet), so the gap a message quotes is the p=1 gap of the modes in the
 report. The decision compares the same p=1 and p=2 face solves
 whichever order a port runs at, so a p=2 port of the same face would
-get the same warnings for the same pairs. Only `driven` computes them;
-`check` does not solve a geometric port's modes. Hybrid ports are
+get the same warnings for the same pairs. `geode check` reports the
+same warnings (issue #959): the same kinds, ports and messages, in the
+same place in `warnings[]` (after `preconditioner_fallback`, before the
+hybrid ports' warnings) and on stderr, without the sweep. A
+`wave_port_degeneracy_unavailable` warning is still a warning there, not
+an error, so `check` accepts every spec it accepted before. Hybrid ports are
 skipped: they have their own cluster diagnostics
 (`multiplicity_uncertified`, `cluster_split`,
 `non_canonical_cluster_basis`).
@@ -715,6 +719,15 @@ candidate pair, 20 to 80 ms with six modes and a candidate pair. That
 is 3 to 4 % of the sweep time of a 21-frequency run of the same spec,
 and 25 to 55 % of that of a one-frequency run, whose whole sweep takes
 20 ms to 0.8 s.
+
+`geode check` pays the same face solves, so a spec with geometric wave
+ports is no longer a solve-free check: 2-D port-face eigen-solves only,
+never the 3-D system. Measured in-process on the release build, two
+ports, medians of 11 runs: 3.5 ms (`lc = 0.30`, one mode per port),
+9.6 ms (`lc = 0.30`, six modes), 32 ms (`lc = 0.22`, six modes) and
+52 ms (`lc = 0.18`, six modes), against a whole `check` process of 62 to
+131 ms. The cost grows with the port face's size, so a very fine port
+face makes `check` noticeably slower.
 
 **Filled wave ports** (issue #777). The guide at a wave port may be
 filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
@@ -823,6 +836,9 @@ work):
   strip-edge cell size that would meet it — grade the mesh toward the
   conductor edges. A missing estimate (refined solve failed, no refined
   match, a degenerate cluster) raises `impedance_accuracy_unavailable`.
+  A channel with **no net conductor current** (`line.no_net_current`,
+  below) has no line impedance, so it gets no estimate and none of these
+  warnings, only `no_net_conductor_current`.
   **The shield is part of the design**: a shielded line's `Z₀` depends on
   its box (a `w/h = 1.9`, `ε_r = 4.4` microstrip sits about −3.3 % below
   the open-line Hammerstad–Jensen value in an `8h × 5h` box, −1 % in
@@ -831,8 +847,12 @@ work):
 - every warning is in the report's `warnings[]` (`kind`, `wave_port`,
   `physical_group`, `message`) and on stderr (`warning: wave port
   `<group>`: …`): complex pairs, accuracy, uncertified multiplicity of a
-  repeated eigenvalue, non-canonical cluster bases, cluster splits, and
-  the measured passivity of a lossy spec.
+  repeated eigenvalue, non-canonical cluster bases, cluster splits,
+  `no_net_conductor_current` (issue #953: a channel whose conductor
+  currents cancel to round-off — a TE / TM waveguide mode of the face,
+  such as a coax TE₁₁ — so `Z_PI` / `Z_VI` are undefined; raised once, at
+  the first frequency, and not a mesh problem: refining does not change
+  it), and the measured passivity of a lossy spec.
 
 **Line impedance** (`wave_ports[].impedance_definition`). A face with a
 floating conductor reports, per channel per row,
@@ -856,6 +876,26 @@ impedances are complex (unconjugated `Z_PI = 2P/Σ I_c²`: for a TEM line
 `√((R + jωL)/(G + jωC))`). The TE wave impedance `Z_TE` is never offered
 for a hybrid port: for microstrip it is about `η₀/√ε_eff`, not ~50 Ω, and
 predicts step reflections 14–19× too small.
+
+**No net conductor current** (issue #953). A face with a floating
+conductor can also carry waveguide (TE / TM) modes whose conductor
+currents cancel: a coax above its TE₁₁ cutoff (`k₀ = 2.5` on
+`guide_coax_lc018_015.msh`) reports the TEM line mode and two TE₁₁
+channels per port. `line.no_net_current` is `true` when **every**
+conductor's discrete-Ampère sum is at or below its a-priori
+floating-point round-off bound (no tuned constant; tested per conductor,
+so the odd mode of a coupled pair, with opposite non-zero currents, keeps
+its impedance). Such a channel is not a line mode: `line.z_pi_ohm`,
+`line.z_vi_ohm`, `z_line_ohm`, `z_line_accuracy` and `coupled_mode` are
+`null` (before #953 `Z_PI` was a round-off ratio of about `1e31 Ω` with a
+"refine 100000×" warning), and `line.z_pv_ohm` stays, as a
+path-dependent diagnostic of the waveguide mode only, not a line
+impedance. The channel's `β`, `eps_eff` and modal S are unaffected. It
+raises one `no_net_conductor_current` warning. `--touchstone` rejects
+such a propagating channel ([Hybrid wave
+ports](#hybrid-wave-ports-issue-807)), and a `z0` sensitivity observable
+on it is an `invalid_spec` error ([N-port driven
+sensitivities](#n-port-driven-sensitivities-issue-883)).
 
 **Per-channel report** (`results[].wave_channels[]`, every wave port;
 additive): `eps_eff = (Re β/k₀)²` for a propagating channel;
@@ -885,7 +925,9 @@ port-face half of the sweep at every frequency without the 3-D solve:
 `wave_ports[].hybrid.frequencies[]` lists `n_propagating`, the
 termination and multiplicity counts, and per channel `β`, `eps_eff`,
 `normalization` and the `hybrid` diagnostics above (the same numbers
-`driven` reports), and `warnings[]` carries the same warnings.
+`driven` reports), and `warnings[]` carries the same warnings. For a
+geometric port `check` reports `modes: null` but solves the face for
+its degeneracy warnings (issue #959; see **Degeneracy warnings** above).
 
 Example (a 50 Ω microstrip, `examples/driven/microstrip_line.json`):
 
@@ -1402,7 +1444,14 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   (`power_current` by default) and `eps_eff = β²/k₀²`, both of a hybrid
   port's reported channel `mode` (default `0`; `real` by default, `imag`
   and `mag` too): face quantities of Epic #841 Phase 3a's 2-D derivative,
-  which only parameters that touch the port face move.
+  which only parameters that touch the port face move. A `z0` on a
+  channel with **no net conductor current** (`line.no_net_current`, a
+  TE / TM waveguide mode such as a coax TE₁₁; issue #953) is an
+  `invalid_spec` error naming the port and mode: the channel has no line
+  impedance (its report `z_line_ohm` is `null`), so differentiate its
+  `eps_eff` or an S entry instead, or observe `z0` on the line (TEM /
+  quasi-TEM) channel. It is raised from a face-only solve of the port,
+  before the 3-D sweep.
 - **Limitations of the values.** `db` (and `mag`) of an entry at the
   mesh's reflection floor — `S11` of a matched line, −68 dB in the
   microstrip cookbook — is discretization residue: its gradient is exact
@@ -2234,7 +2283,13 @@ microstrip mode it is about `η₀/√ε_eff` (≈ 207 Ω for a 50 Ω line on
 predicted from it are 14–19× too small. A hybrid port **without** a
 floating conductor (a partially filled waveguide) has no line impedance,
 so `--touchstone` rejects it with `invalid_spec`; its modal S is in the
-JSON report. A file with hybrid channels states the convention in its
+JSON report. Likewise a **propagating** channel with no net conductor
+current (`line.no_net_current`, a TE / TM waveguide mode such as a coax
+TE₁₁ above its cutoff; issue #953) has no line impedance to renormalize
+to, and it cannot be excluded (a propagating mode must be a channel), so
+`--touchstone` rejects it with `invalid_spec` from the face-only
+classification, before the 3-D sweep: keep the sweep below its cutoff
+for a Touchstone file, or use the JSON report's modal `results[].s`. A file with hybrid channels states the convention in its
 header (`! Hybrid wave channels (…): Z_c = the channel's line impedance
 under wave_ports[].impedance_definition …`, plus the `Z_TE` line when it
 also writes geometric channels).
@@ -2845,7 +2900,8 @@ Additive in v1 (issue #683) — always present in `check`, present in
   a hybrid port's `medium`, `modes` and TM-guard fields are `null`.
 - **`warnings[]`** (additive, issue #807; omitted when empty): `kind`,
   `wave_port`, `physical_group`, `message` — hybrid-port diagnostics,
-  the measured passivity of a lossy spec and (issue #923, `driven`) a
+  the measured passivity of a lossy spec and (issue #923, `driven`;
+  issue #959, also `check`) a
   geometric wave port's degeneracy warnings
   (`wave_port_degeneracy_ambiguous`,
   `wave_port_degeneracy_near_degenerate`,
