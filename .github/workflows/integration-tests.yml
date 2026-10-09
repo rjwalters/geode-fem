@@ -599,6 +599,8 @@ jobs:
       # wave_port_p2 (issues #884, #905, the p=2 TM-guard validation table):
       # its 288 structured / one-element-across / stepped rows run here; its
       # 527 Gmsh rows run only where gmsh is on PATH (not on this runner).
+      # Its tm_guard_p2_long_guide_table (issue #990) is Gmsh-only and
+      # returns at once here; locally it takes about 20 s in release.
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \

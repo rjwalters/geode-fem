@@ -42,7 +42,7 @@ README only explains what is in the directory, except for the summary in
 | `results_threading_956.toml` | The #956 record: per call and end to end, the complex Lanczos, AMS coarse and transient-step triangular solves on the rayon pool vs sequential, and why the fix stops at 10 000 unknowns. Generated, not hand-edited |
 | `summarize_threading_956.py` | Writes `results_threading_956.toml` to stdout from its run tree |
 | `runs/2026-10-09_local_threading_956/` | The evidence tree behind `results_threading_956.toml`: the harness `diag956_threading.rs`, the scripts that ran it (`sweep956.sh`, `refine956.sh`, `gated956.sh`, in that order), `meta.txt`, `host.txt` and one `.stdout` per leg in `percall/`, `percall_refine/`, `e2e/`, `e2e_large/` and `e2e_gated/` |
-| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`) and `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`) |
+| `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`), `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`), `smoother_945/` (the #945 smoother-weight fix) and `smoother_963/` (where the remaining AMS iteration growth comes from: one sweep tree per V-cycle variant and frequency, `chain963.sh`, and `validation/`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
 
@@ -121,6 +121,21 @@ SKIP_DIRECT=1 GEODE_SCALING_OMEGA=0.20 GEODE_AMS_SMOOTH_WEIGHT=0.6 \
 
 `smoother_945/NOTE.txt` in the committed run tree has the commands for its
 `ritz_gap/` and `validation/` subdirectories.
+
+The #963 investigation of the remaining AMS iteration growth goes into
+`smoother_963/`, one tree per (build, V-cycle variant, frequency), named
+`<variant>_w<omega>`. `main` is a clean `origin/main` checkout; every other
+variant is the branch, with the `GEODE_DRIVEN_AMS_*` knobs that its legs'
+`.meta` files record (`default` sets none). `smoother_963/chain963.sh` is the
+exact sequence that was run, and `smoother_963/validation/val963.sh` runs the
+AMS tests outside the cube fixture for one (build, variant):
+
+```sh
+CARGO_TARGET_DIR_MAIN=<main-target> CARGO_TARGET_DIR_BRANCH=<branch-target> \
+  <run-dir>/smoother_963/chain963.sh <main-checkout> <branch-checkout>
+CARGO_TARGET_DIR=<branch-target> <run-dir>/smoother_963/validation/val963.sh \
+  pi_amg4 <branch-checkout> GEODE_DRIVEN_AMS_PI_COARSE=amg:4
+```
 
 Running the summarizer over the committed `runs/2026-10-08_local_ams/`
 reproduces the committed file byte for byte:
@@ -712,6 +727,68 @@ error, when it is above both `2/ρ̂` and the automatic weight), and
 The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
 are identical to the Lambda record's, which is the only cross-host statement
 this file supports. Do not put its timings beside the A100 or Palace cells.
+
+## Where the remaining AMS growth comes from (#963)
+
+`[smoother_963]` of `results_ams_cpu_local.toml`, from
+`runs/2026-10-08_local_ams/smoother_963/` (`NOTE.txt` there). Same fixture,
+sizes and machine as above, AMS legs only, `RAYON_NUM_THREADS=1`, single
+samples. `main` is clean `origin/main` (`c6f18764`); every other row is the
+branch with the `GEODE_DRIVEN_AMS_*` knobs shown. Load averages 47 to 100 on
+28 logical CPUs. Iteration counts are the result; the CPU column is the whole
+process's user + sys seconds at 102 024 edges and only indicative (two runs of
+identical code, `main` and `default`, differ by up to 14 %).
+
+| variant (ω = 0.10) | knobs | iterations, 1 854 → 102 024 edges | max / min | CPU s | RSS GB |
+|---|---|---|---|---|---|
+| main | none | 26 30 34 39 49 55 | 2.12 | 4.72 | 0.80 |
+| default (branch) | none | 26 30 34 39 49 55 | 2.12 | 5.24 | 0.76 |
+| Π exact LU | `PI_COARSE=direct` | 28 33 32 33 30 31 | 1.18 | 11.49 | 2.05 |
+| Π 8 SGS sweeps | `PI_COARSE=sgs:8` | 27 28 29 31 36 41 | 1.52 | 5.12 | 0.74 |
+| Π 16 SGS sweeps | `PI_COARSE=sgs:16` | 28 29 27 28 31 33 | 1.22 | 5.96 | 0.75 |
+| Π AMG, 2 cycles | `PI_COARSE=amg:2` | 28 28 32 33 39 46 | 1.64 | 4.84 | 0.77 |
+| Π AMG, 4 cycles | `PI_COARSE=amg:4` | 28 27 29 30 33 35 | 1.30 | 5.51 | 0.75 |
+| Π AMG, 6 cycles | `PI_COARSE=amg:6` | 26 29 29 29 30 32 | 1.23 | 6.24 | 0.74 |
+| 2 Jacobi sweeps | `SMOOTHER=jacobi:2` | 22 26 30 38 46 54 | 2.46 | 4.75 | 0.76 |
+| l1-Jacobi | `SMOOTHER=l1jacobi:1` | 32 32 35 40 51 58 | 1.81 | 4.85 | 0.74 |
+| Chebyshev(2) | `SMOOTHER=chebyshev:2` | 21 25 31 34 46 54 | 2.57 | 4.74 | 0.79 |
+| Chebyshev(3) | `SMOOTHER=chebyshev:3` | 20 25 30 35 44 50 | 2.50 | 4.77 | 0.75 |
+| symmetric GS | `SMOOTHER=sgs:1` | 20 25 30 35 43 51 | 2.55 | 4.90 | 0.74 |
+| multiplicative cycle | `CYCLE=multiplicative` | 24 26 30 37 45 53 | 2.21 | 5.56 | 0.74 |
+| multiplicative + Π AMG(4) | both | 22 24 24 25 29 31 | 1.41 | 5.44 | 0.74 |
+| multiplicative + Π exact | both | 19 19 19 19 18 18 | 1.06 | 9.76 | 2.06 |
+
+(`PI_COARSE`, `SMOOTHER`, `CYCLE` abbreviate `GEODE_DRIVEN_AMS_PI_COARSE`,
+`GEODE_DRIVEN_AMS_SMOOTHER`, `GEODE_DRIVEN_AMS_CYCLE`.) At ω = 0.05 and 0.20
+the default grows 2.04× and 1.97×; `direct`, `sgs:16` and `amg:4` stay at
+1.07× to 1.27×. The branch default equals `main` in iterations, residual and
+port voltage at every size and all three frequencies.
+
+**The growth is the vector-nodal coarse solve.** An exact LU of `ΠᵀPΠ`, and
+nothing else, flattens the count; more SGS sweeps there narrow the growth in
+step. No edge smoother does: each lowers the small-mesh count and keeps the
+slope. Because the exact-solve series is flat, the parts the exact-solve trees
+share with the default (the SPD proxy `P(ω)`, the port and loss terms) add no
+mesh dependence here. They were not diagnosed separately. The
+multiplicative cycle with an exact Π solve, at 18 to 19 iterations, is the
+closest of any variant to Palace's AMS (12 to 17 on the r6i record).
+
+**Cost.** No flat-band variant is cheaper than the default up to 102k edges.
+`amg:4` takes 1.17× to 1.45× the default's process CPU at the small sizes and
+1.06× to 1.20× at 102k (`pi_amg4_cpu_over_baseline_*`), with about the same
+peak memory. The exact LU needs 2.7× the memory.
+
+**Outside this fixture** (`[[smoother_963_validation]]`, the #961 set: spiral
+smoke and benchmark, anisotropic, Djordjevic–Sarkar, Drude, Debye, rough, and
+the public-path cube): all 32 runs pass on `main`, `default`, `amg:4` and
+`sgs:16`. `default` equals `main` in every count. Of the 23 per-frequency
+solves `amg:4` takes fewer iterations in 21 and one more in two (the 53k
+spiral benchmark: 101 against 114).
+
+**Default unchanged.** Recommendation: re-measure `amg:4` (with and without
+`CYCLE=multiplicative`) at scale on the r6i ladder, where the default takes
+105 iterations at 898k edges, before making it the default. That run is
+operator-run.
 
 ## Caveats to read before quoting a number
 
