@@ -120,6 +120,18 @@
 //!   normalized: [`PortModeSensitivityError::DegeneratePairing`].
 //! * Line impedances of a non-propagating mode (`Re β² ≤ 0`):
 //!   [`PortModeSensitivityError::NotPropagating`].
+//! * **No net conductor current** (issue #991). A TE / TM waveguide mode of
+//!   the face (a coax TE₁₁) has every conductor's discrete-Ampère current at
+//!   floating-point round-off, so a current-based `Z_PI` is a ratio of
+//!   round-off (order `1e30 Ω`) and undefined. The channel is classified by
+//!   the **shipped** hybrid line readout (`driven::ports` `line_real` /
+//!   `line_complex`, the `no_net_current` flag of PR #984), so this module
+//!   and the wave-port report agree by construction. On such a channel
+//!   [`HybridModeDerivative::line_impedances`] and
+//!   [`HybridModeDerivative::line_sensitivity`] return
+//!   [`PortModeSensitivityError::NoNetCurrent`], while
+//!   [`HybridModeDerivative::observables`] still returns `∂β`, `∂ε_eff` with
+//!   `line: None` and a [`ModeSensitivityWarning::NoNetConductorCurrent`].
 //! * **Branch kink.** `β` is the outgoing root. At a lossless face
 //!   (`ε″ = 0`) a negative `ε″` (gain) flips the branch, so `∂β`, `∂Z` with
 //!   respect to `ε″` / `tan δ` are the **passive-side** (`ε″ → 0⁺`)
@@ -144,6 +156,7 @@
 
 use std::collections::BTreeMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::sync::OnceLock;
 
 use faer::Mat;
 use faer::c64;
@@ -156,7 +169,8 @@ use super::lossy_port_modes::{
 };
 use super::microstrip::{ShieldedStripFace, StripFaceMesh};
 use super::port_modes::{
-    DEGENERATE_REL_TOL, HybridPortModeSet, assemble_hybrid_blocks, discrete_gradient,
+    DEGENERATE_REL_TOL, HybridBlocks, HybridPortMode, HybridPortModeSet, assemble_hybrid_blocks,
+    discrete_gradient,
 };
 use super::waveguide::{TRI_LOCAL_EDGES, TriMesh, tri_nedelec_local, tri_p1_local};
 use crate::constants::ETA_0_OHM;
@@ -216,6 +230,19 @@ pub enum PortModeSensitivityError {
         mode: usize,
         /// Its `β²`.
         beta_sq: c64,
+    },
+    /// Line impedances requested for a mode that carries **no net conductor
+    /// current** (every conductor's discrete-Ampère current at round-off, as
+    /// classified by the shipped hybrid line readout; issue #991): a TE / TM
+    /// waveguide mode of the face, such as a coax TE₁₁, has no current-based
+    /// line impedance, and its `Z_PI` would be a ratio of round-off.
+    #[error(
+        "mode {mode} has no net conductor current (a TE/TM waveguide mode of the port face): \
+         it has no line impedance; differentiate its eps_eff / beta instead"
+    )]
+    NoNetCurrent {
+        /// The requested mode.
+        mode: usize,
     },
 }
 
@@ -290,6 +317,12 @@ pub enum ModeSensitivityWarning {
         /// The relative residual after one refinement step.
         residual: f64,
     },
+    /// A [`LineSpec`] was given to [`HybridModeDerivative::observables`] but
+    /// the mode carries no net conductor current (issue #991; see
+    /// [`PortModeSensitivityError::NoNetCurrent`]): the line impedances and
+    /// their sensitivities are omitted (`line: None`); `∂β`, `∂ε_eff` are
+    /// unaffected.
+    NoNetConductorCurrent,
 }
 
 // ---------------------------------------------------------------------------
@@ -1421,6 +1454,20 @@ pub struct HybridModeDerivative<'a> {
     nearest: Option<NearestMode>,
     warnings: Vec<ModeSensitivityWarning>,
     opts: ModeSensitivityOpts,
+    /// The mode as the solver returned it, for the shipped line readout's
+    /// no-net-current classification (issue #991).
+    shipped: ShippedMode,
+    /// The face blocks and discrete gradient of that readout, assembled on
+    /// the first line call.
+    line_blocks: OnceLock<(HybridBlocks, SparseColMat<usize, f64>)>,
+}
+
+/// The differentiated mode as the solver returned it (owned), fed to the
+/// shipped hybrid line readout.
+#[derive(Clone)]
+enum ShippedMode {
+    Real(HybridPortMode),
+    Lossy(LossyHybridMode),
 }
 
 impl std::fmt::Debug for HybridModeDerivative<'_> {
@@ -1552,6 +1599,10 @@ impl<'a> HybridModeDerivative<'a> {
                 list.len()
             )));
         }
+        let shipped = match modes {
+            FaceModes::Real(set) => ShippedMode::Real(set.modes[mode].clone()),
+            FaceModes::Lossy(set) => ShippedMode::Lossy(set.modes[mode].clone()),
+        };
         if list[mode].z.t.len() != ctx.n_t || list[mode].z.z.len() != ctx.n_z {
             return Err(PortModeSensitivityError::InvalidInput(
                 "the mode set does not belong to this face (DOF layout mismatch)".to_string(),
@@ -1647,6 +1698,8 @@ impl<'a> HybridModeDerivative<'a> {
             nearest,
             warnings,
             opts,
+            shipped,
+            line_blocks: OnceLock::new(),
         })
     }
 
@@ -1910,7 +1963,9 @@ impl<'a> HybridModeDerivative<'a> {
     ///
     /// # Errors
     ///
-    /// [`PortModeSensitivityError::NotPropagating`]; invalid line spec.
+    /// [`PortModeSensitivityError::NotPropagating`];
+    /// [`PortModeSensitivityError::NoNetCurrent`] for a mode with no net
+    /// conductor current ([`Self::no_net_current`]); invalid line spec.
     pub fn line_impedances(
         &self,
         line: &LineSpec<'_>,
@@ -1932,15 +1987,9 @@ impl<'a> HybridModeDerivative<'a> {
             });
         }
         let n_z = self.ctx.n_z;
-        if line.conductor_nodes.is_empty() {
-            return Err(PortModeSensitivityError::InvalidInput(
-                "a line spec needs at least one conductor".to_string(),
-            ));
-        }
-        if line.conductor_nodes.iter().any(|c| c.len() != n_z) {
-            return Err(PortModeSensitivityError::InvalidInput(
-                "conductor node masks must have one entry per face node".to_string(),
-            ));
+        self.check_conductors(line)?;
+        if self.shipped_no_net_current(line)? {
+            return Err(PortModeSensitivityError::NoNetCurrent { mode: self.mode });
         }
         let z = &self.data.z;
         let bfull = self.ctx.apply_b_full(z);
@@ -1996,12 +2045,91 @@ impl<'a> HybridModeDerivative<'a> {
         })
     }
 
+    /// Validate the conductor masks of a line spec.
+    fn check_conductors(&self, line: &LineSpec<'_>) -> Result<(), PortModeSensitivityError> {
+        if line.conductor_nodes.is_empty() {
+            return Err(PortModeSensitivityError::InvalidInput(
+                "a line spec needs at least one conductor".to_string(),
+            ));
+        }
+        if line.conductor_nodes.iter().any(|c| c.len() != self.ctx.n_z) {
+            return Err(PortModeSensitivityError::InvalidInput(
+                "conductor node masks must have one entry per face node".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether the mode carries **no net conductor current** on `line`'s
+    /// conductors (issue #991): every conductor's discrete-Ampère current is
+    /// at floating-point round-off, so the mode (a TE / TM waveguide mode of
+    /// the face, such as a coax TE₁₁) has no current-based line impedance.
+    ///
+    /// The classification is the `no_net_current` flag of the **shipped**
+    /// hybrid line readout (`driven::ports` `line_real` for a real mode set,
+    /// `line_complex` for a lossy one; PR #984), evaluated on the mode as the
+    /// solver returned it, so it equals the hybrid wave port's report by
+    /// construction. `false` for a non-propagating mode (the readout reports
+    /// no line then). The voltage paths do not enter it.
+    ///
+    /// # Errors
+    ///
+    /// [`PortModeSensitivityError::InvalidInput`] on invalid conductor masks;
+    /// [`PortModeSensitivityError::Eigen`] if the face blocks do not
+    /// assemble.
+    pub fn no_net_current(&self, line: &LineSpec<'_>) -> Result<bool, PortModeSensitivityError> {
+        self.check_conductors(line)?;
+        self.shipped_no_net_current(line)
+    }
+
+    /// [`Self::no_net_current`] on already-validated conductor masks.
+    fn shipped_no_net_current(
+        &self,
+        line: &LineSpec<'_>,
+    ) -> Result<bool, PortModeSensitivityError> {
+        let mesh = self.ctx.face.mesh;
+        let (blocks, d) = match self.line_blocks.get() {
+            Some(b) => b,
+            None => {
+                let re: Vec<f64> = self.ctx.eps.iter().map(|e| e.re).collect();
+                let blocks = assemble_hybrid_blocks(mesh, &re)?;
+                // A concurrent first call may have won the race; both
+                // assembled the same blocks.
+                let _ = self.line_blocks.set((blocks, discrete_gradient(mesh)));
+                self.line_blocks
+                    .get()
+                    .expect("the line blocks were just initialized")
+            }
+        };
+        let k0 = self.ctx.face.k0;
+        let conductors = line.conductor_nodes;
+        Ok(match &self.shipped {
+            ShippedMode::Real(m) => {
+                crate::driven::ports::line_real(blocks, d, conductors, &[], m, k0)
+                    .is_some_and(|r| r.no_net_current)
+            }
+            ShippedMode::Lossy(m) => crate::driven::ports::line_complex(
+                blocks,
+                d,
+                mesh,
+                conductors,
+                &[],
+                m,
+                k0,
+                &self.ctx.eps,
+            )
+            .is_some_and(|r| r.no_net_current),
+        })
+    }
+
     /// `∂Z_PI`, `∂Z_PV`, `∂Z_VI` for every parameter (one bordered
     /// back-solve per impedance).
     ///
     /// # Errors
     ///
-    /// [`PortModeSensitivityError::NotPropagating`]; an invalid line spec or
+    /// [`PortModeSensitivityError::NotPropagating`];
+    /// [`PortModeSensitivityError::NoNetCurrent`] for a mode with no net
+    /// conductor current ([`Self::no_net_current`]); an invalid line spec or
     /// a design for another mesh.
     pub fn line_sensitivity(
         &self,
@@ -2107,9 +2235,15 @@ impl<'a> HybridModeDerivative<'a> {
     /// Every observable sensitivity of the mode: `∂β²`, `∂β`, `∂ε_eff` and,
     /// with a `line`, `∂Z_PI` / `∂Z_PV` / `∂Z_VI`, with the gap report.
     ///
+    /// On a mode with **no net conductor current** ([`Self::no_net_current`],
+    /// a TE / TM waveguide mode of the face) a given `line` yields
+    /// `line: None` and a [`ModeSensitivityWarning::NoNetConductorCurrent`]
+    /// instead of an error, so `∂β` and `∂ε_eff` stay available there.
+    ///
     /// # Errors
     ///
-    /// As [`Self::d_beta_sq`] and [`Self::line_sensitivity`].
+    /// As [`Self::d_beta_sq`] and [`Self::line_sensitivity`], except
+    /// [`PortModeSensitivityError::NoNetCurrent`].
     pub fn observables(
         &self,
         design: &FaceDesign,
@@ -2120,11 +2254,17 @@ impl<'a> HybridModeDerivative<'a> {
         let k0sq = self.ctx.face.k0 * self.ctx.face.k0;
         let mut warnings = self.warnings.clone();
         let line = match line {
-            Some(l) => {
-                let (ls, w) = self.line_sensitivity(design, l)?;
-                warnings.extend(w);
-                Some(ls)
-            }
+            Some(l) => match self.line_sensitivity(design, l) {
+                Ok((ls, w)) => {
+                    warnings.extend(w);
+                    Some(ls)
+                }
+                Err(PortModeSensitivityError::NoNetCurrent { .. }) => {
+                    warnings.push(ModeSensitivityWarning::NoNetConductorCurrent);
+                    None
+                }
+                Err(e) => return Err(e),
+            },
             None => None,
         };
         Ok(PortModeSensitivity {
@@ -2664,6 +2804,97 @@ mod tests {
         for k in 0..n_z {
             let want = gtvt[k] + svz[k] - 1.3 * 1.3 * tvz[k];
             assert!((out.z[k].re - want).abs() <= 1e-12 * want.abs().max(1.0));
+        }
+    }
+
+    /// The no-net-current classification (issue #991) equals the shipped
+    /// hybrid line readout's flag (`line_real` on a real set, `line_complex`
+    /// on a lossy one) mode by mode, on the stretched coax of the #953
+    /// fixture (TEM unflagged, the split TE₁₁-like pair flagged).
+    #[test]
+    fn no_net_current_matches_the_shipped_line_readout() {
+        let mut f = crate::analytic::microstrip::square_coax_face(1.0, 6, 2, 2.2);
+        f.mesh.nodes.iter_mut().for_each(|p| p[0] *= 1.15);
+        let opts = HybridPortOpts {
+            n_evanescent: 1,
+            residual_tol: 1e-10,
+            ..Default::default()
+        };
+        let line = LineSpec::from_strip(&f);
+        let blocks = assemble_hybrid_blocks(&f.mesh, &f.eps_r).unwrap();
+        let d = discrete_gradient(&f.mesh);
+        let k0 = 1.4;
+        let real = crate::analytic::port_modes::solve_hybrid_port_modes(
+            &f.mesh,
+            &f.eps_r,
+            &f.masks.interior_edge_mask,
+            &f.masks.free_node_mask,
+            k0,
+            &opts,
+        )
+        .unwrap();
+        let eps = real_eps(&f.eps_r);
+        let mut flags = Vec::new();
+        for m in 0..3 {
+            let der = HybridModeDerivative::new(
+                PortFace::from_strip(&f, k0),
+                &eps,
+                FaceModes::Real(&real),
+                m,
+                ModeSensitivityOpts::default(),
+            )
+            .unwrap();
+            let shipped = crate::driven::ports::line_real(
+                &blocks,
+                &d,
+                &f.conductor_nodes,
+                &[],
+                &real.modes[m],
+                k0,
+            )
+            .unwrap()
+            .no_net_current;
+            assert_eq!(der.no_net_current(&line).unwrap(), shipped, "real mode {m}");
+            flags.push(shipped);
+        }
+        assert_eq!(flags, [false, true, true]);
+        let ceps: Vec<c64> = f.eps_r.iter().map(|&e| c64::new(e, -0.02 * e)).collect();
+        let lossy = solve_lossy_hybrid_port_modes(
+            &f.mesh,
+            &ceps,
+            &f.masks.interior_edge_mask,
+            &f.masks.free_node_mask,
+            k0,
+            &opts,
+        )
+        .unwrap();
+        for m in 0..3 {
+            let der = HybridModeDerivative::new(
+                PortFace::from_strip(&f, k0),
+                &ceps,
+                FaceModes::Lossy(&lossy),
+                m,
+                ModeSensitivityOpts::default(),
+            )
+            .unwrap();
+            let shipped = crate::driven::ports::line_complex(
+                &blocks,
+                &d,
+                &f.mesh,
+                &f.conductor_nodes,
+                &[],
+                &lossy.modes[m],
+                k0,
+                &ceps,
+            )
+            .unwrap()
+            .no_net_current;
+            assert_eq!(
+                der.no_net_current(&line).unwrap(),
+                shipped,
+                "lossy mode {m}"
+            );
+            assert_eq!(shipped, m > 0, "lossy mode {m}");
         }
     }
 }
