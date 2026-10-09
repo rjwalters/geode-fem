@@ -41,10 +41,10 @@ use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::surface_p2::assemble_p2_surface_mass_triplets;
 use geode_core::driven::ports::{
-    ExtrudedWaveguideMesh, HybridPortFace, HybridWavePort, LumpedPort, MixedPortSweepPoint,
-    PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate, WavePort, WavePortSpec, WavePortSweepPoint,
-    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh, project_port_face,
-    solve_mixed_port_spec_sweep_on_space, solve_mixed_port_spec_sweep_with_mode,
+    ExtrudedWaveguideMesh, GuideTmGuard, HybridPortFace, HybridWavePort, LumpedPort,
+    MixedPortSweepPoint, PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate, WavePort, WavePortSpec,
+    WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    project_port_face, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_spec_sweep_with_mode,
     solve_mixed_port_sweep_on_space, solve_mixed_port_sweep_with_mode,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_spec_sweep_with_mode,
     solve_wave_port_sweep_on_space, solve_wave_port_sweep_with_mode, tm_guard_axial_reach,
@@ -1046,6 +1046,10 @@ struct GuardRow {
     margin: f64,
     /// Points between the p=2 guard and the 3-D p=2 TM-like cutoff.
     pts_left: f64,
+    /// The 3-D p=2 TM-like cutoff.
+    k3d: f64,
+    /// The interim p=2 guard.
+    guard: f64,
 }
 
 /// One measured case: asserts the p=2 guard (P2 face estimate) and the p=1
@@ -1107,6 +1111,8 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
         under,
         margin: est.margin(),
         pts_left: 100.0 * (1.0 - guard / k3d),
+        k3d,
+        guard,
     }
 }
 
@@ -1389,10 +1395,47 @@ struct GuardTable {
     max_kh: f64,
     tightest: Option<(f64, String)>,
     tightest_base: f64,
+    /// The guard computed from the 3-D model (issue #955).
+    computed: ComputedTable,
+}
+
+/// The computed guard's record over [`tm_guard_p2_measurement_table`]
+/// (issue #955).
+#[derive(Default)]
+struct ComputedTable {
+    /// Rows whose guard is [`TmCutoffSource::Computed3d`].
+    computed: usize,
+    /// Rows that fell back because the two section depths disagree.
+    depth_sensitive: usize,
+    /// Rows that fell back for another reason.
+    other_fallback: usize,
+    /// Fewest points between the computed guard and the 3-D cutoff.
+    tightest: Option<(f64, String)>,
+    /// Rows with `k_c·h_n` in `[√(δ₀/C_h), 2.5]`.
+    band_rows: usize,
+    /// Of those, rows whose guard is above (tighter than) the interim one.
+    band_tighter: usize,
+    /// Of those, rows whose guard is below the interim one.
+    band_lower: usize,
+    /// Of those, rows computed from the 3-D model whose guard is not above
+    /// the interim one.
+    band_computed_not_tighter: usize,
+    /// Rows (anywhere) whose guard is below the interim one.
+    lower: usize,
+    /// Median of the guard's margin below the face estimate over the rows.
+    margins: Vec<f64>,
+    /// The interim guard's margins on the same rows.
+    interim_margins: Vec<f64>,
 }
 
 impl GuardTable {
-    fn record(&mut self, label: &str, r: GuardRow) {
+    fn record(&mut self, label: &str, mesh: &TetMesh, r: GuardRow) {
+        self.record_with(label, r, &computed_guard(mesh));
+    }
+
+    /// [`Self::record`] with the computed guard `c` of the row's mesh.
+    fn record_with(&mut self, label: &str, r: GuardRow, c: &GuideTmGuard) {
+        self.computed.record(label, &r, c);
         self.rows += 1;
         self.max_kh = self.max_kh.max(r.kh);
         self.worst_under = self.worst_under.max(r.under);
@@ -1413,6 +1456,85 @@ impl GuardTable {
             self.tightest_base = self.tightest_base.min(r.pts_left);
         }
     }
+}
+
+impl ComputedTable {
+    /// Computes the guard of `mesh`'s port from the 3-D model, asserts it is
+    /// below the measured 3-D p=2 TM-like cutoff `r.k3d`, and records it
+    /// against the interim guard `r.guard`.
+    fn record(&mut self, label: &str, r: &GuardRow, c: &GuideTmGuard) {
+        use geode_core::driven::ports::{TmCutoffSource, TmMarginLawReason};
+        assert_eq!(
+            c.margin_law_guard_k_c.to_bits(),
+            r.guard.to_bits(),
+            "{label}"
+        );
+        assert!(
+            c.guard_k_c < r.k3d,
+            "{label}: computed guard {} ≥ 3-D p=2 TM {} ({c:?})",
+            c.guard_k_c,
+            r.k3d
+        );
+        match &c.source {
+            TmCutoffSource::Computed3d { .. } => self.computed += 1,
+            TmCutoffSource::MarginLaw {
+                reason:
+                    TmMarginLawReason::DepthSensitive {
+                        depth,
+                        k_deep,
+                        depth_shallow,
+                        k_shallow,
+                    },
+            } => {
+                eprintln!(
+                    "    {label}: depth-sensitive, k_c·h_n {:.3}, {k_deep:.4} at depth {depth:.3}, \
+                     {k_shallow:.4} at {depth_shallow:.3} ({:+.2} %)",
+                    r.kh,
+                    100.0 * (k_shallow / k_deep - 1.0)
+                );
+                self.depth_sensitive += 1
+            }
+            TmCutoffSource::MarginLaw { reason } => {
+                eprintln!("    {label}: fallback {reason:?}");
+                self.other_fallback += 1
+            }
+        }
+        let pts = 100.0 * (1.0 - c.guard_k_c / r.k3d);
+        eprintln!(
+            "    {label}: computed guard {:.4} ({}; {pts:.2} pt left; interim {:.4})",
+            c.guard_k_c,
+            if c.is_computed() { "3-D" } else { "margin law" },
+            r.guard
+        );
+        if self.tightest.as_ref().is_none_or(|t| pts < t.0) {
+            self.tightest = Some((pts, label.to_string()));
+        }
+        let k_face = r.guard / (1.0 - r.margin);
+        self.margins.push(c.margin_below(k_face));
+        self.interim_margins.push(r.margin);
+        if c.guard_k_c < r.guard {
+            self.lower += 1;
+        }
+        if r.kh >= (TM_GUARD_MARGIN / 0.025_f64).sqrt() && r.kh <= 2.5 {
+            self.band_rows += 1;
+            if c.guard_k_c > r.guard {
+                self.band_tighter += 1;
+            } else if c.is_computed() {
+                self.band_computed_not_tighter += 1;
+                eprintln!("    {label}: in band, computed from the 3-D model, not tighter");
+            }
+            if c.guard_k_c < r.guard {
+                self.band_lower += 1;
+                eprintln!("    {label}: in band, computed guard below the interim one");
+            }
+        }
+    }
+}
+
+/// Median of `v` (sorted in place).
+fn median(v: &mut [f64]) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
 }
 
 /// `reference/gmsh/guide_box.geo` meshed at `a × b × d` with size `lc` at
@@ -1473,8 +1595,15 @@ fn gmsh_guide_box(
 /// must be below `C_h`; at the base margin the worst undershoot must be
 /// below `δ₀`. The summary line reports both, the tightest row, and how
 /// many rows undershoot by the 5 % the withdrawn law allowed or more.
+///
+/// Issue #955: every row also computes the guard from the 3-D model
+/// (`PortFaceProjection::guide_tm_guard`) and asserts it below the same
+/// cutoff. A second summary line counts the rows computed and those that
+/// fell back to the margin law, and, over `k_c·h_n` in `[1.41, 2.5]`, the
+/// rows on which it is tighter than the interim guard; every computed row
+/// there must be. The Gmsh rows run on half the available threads.
 #[test]
-#[ignore = "heavy: 288 p=2 box eigensolves, 815 with gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
+#[ignore = "heavy: 288 p=2 box rows, 815 with gmsh, each with the #955 section solves; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
 fn tm_guard_p2_measurement_table() {
     use geode_core::driven::ports::TM_GUARD_AXIAL_COEFF;
     let mut table = GuardTable {
@@ -1484,7 +1613,7 @@ fn tm_guard_p2_measurement_table() {
     let mut structured = |label: String, nx, ny, nz, a, b, length| {
         let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
         let r = measure_p2_guard(&label, &g.mesh, a, b);
-        table.record(&label, r);
+        table.record(&label, &g.mesh, r);
         r
     };
     for &(a, b, nz, length) in &[
@@ -1671,7 +1800,7 @@ fn tm_guard_p2_measurement_table() {
         }
         let label = format!("stepped {a}×1, face {nx}×{ny}, z = {zs:?}");
         let r = measure_p2_guard(&label, &g.mesh, a, 1.0);
-        table.record(&label, r);
+        table.record(&label, &g.mesh, r);
     }
     let structured_rows = table.rows;
 
@@ -1756,18 +1885,52 @@ fn tm_guard_p2_measurement_table() {
     }
     let dir = std::env::temp_dir().join(format!("geode-905-gmsh-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut ran_gmsh = false;
+    // The Gmsh rows are independent: measure them on several threads, then
+    // record them in order.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().div_ceil(2));
+    let mut measured: Vec<Option<(String, GuardRow, GuideTmGuard)>> = vec![None; gmsh.len()];
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&(a, b, d, lc, lc1)) = gmsh.get(i) else {
+                            break;
+                        };
+                        let Some(mesh) = gmsh_guide_box(&dir, a, b, d, lc, lc1) else {
+                            break;
+                        };
+                        let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
+                        let r = measure_p2_guard(&label, &mesh, a, b);
+                        out.push((i, label, r, computed_guard(&mesh)));
+                    }
+                    out
+                })
+            })
+            .collect();
+        for w in workers {
+            for (i, label, r, c) in w.join().expect("Gmsh row worker") {
+                measured[i] = Some((label, r, c));
+            }
+        }
+    });
+    let ran_gmsh = measured.iter().any(Option::is_some);
+    if !ran_gmsh {
+        eprintln!("gmsh not on PATH: Gmsh rows skipped");
+    } else {
+        assert!(
+            measured.iter().all(Option::is_some),
+            "a Gmsh row was not measured"
+        );
+    }
     // The #905 scans alone: (rows, rows undershooting ≥ 5 %, worst
     // undershoot, fewest points left).
     let mut scan = (0usize, 0usize, 0.0_f64, f64::INFINITY);
-    for (i, &(a, b, d, lc, lc1)) in gmsh.iter().enumerate() {
-        let Some(mesh) = gmsh_guide_box(&dir, a, b, d, lc, lc1) else {
-            eprintln!("gmsh not on PATH: Gmsh rows skipped");
-            break;
-        };
-        ran_gmsh = true;
-        let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
-        let r = measure_p2_guard(&label, &mesh, a, b);
+    for (i, row) in measured.into_iter().enumerate() {
+        let Some((label, r, c)) = row else { continue };
         if i >= point_samples {
             scan.0 += 1;
             if r.under >= WITHDRAWN_P2_BASE_MARGIN {
@@ -1776,7 +1939,7 @@ fn tm_guard_p2_measurement_table() {
             scan.2 = scan.2.max(r.under);
             scan.3 = scan.3.min(r.pts_left);
         }
-        table.record(&label, r);
+        table.record_with(&label, r, &c);
     }
     let _ = std::fs::remove_dir_all(&dir);
     let (tightest, tightest_label) = table.tightest.clone().expect("rows");
@@ -1816,6 +1979,29 @@ fn tm_guard_p2_measurement_table() {
         assert!(scan.1 >= 5 && scan.2 > 0.12, "{scan:?}");
     }
     assert!(tightest > 0.0, "{tightest_label}: {tightest} pt");
+    let ct = &mut table.computed;
+    let (c_tightest, c_label) = ct.tightest.clone().expect("rows");
+    let (m_new, m_old) = (median(&mut ct.margins), median(&mut ct.interim_margins));
+    eprintln!(
+        "issue #955 computed guard: {} rows from the 3-D model, {} depth-sensitive and {} other \
+         fallbacks to the margin law; below the 3-D p=2 TM-like cutoff on every row, tightest \
+         {c_tightest:.2} pt ({c_label}); median margin below the face {:.2} % (interim {:.2} \
+         %); below the interim guard on {} rows; k_c·h_n in [1.41, 2.5]: {} rows, tighter than \
+         the interim guard on {}, below it on {}",
+        ct.computed,
+        ct.depth_sensitive,
+        ct.other_fallback,
+        100.0 * m_new,
+        100.0 * m_old,
+        ct.lower,
+        ct.band_rows,
+        ct.band_tighter,
+        ct.band_lower,
+    );
+    assert!(c_tightest > 0.0, "{c_label}: {c_tightest} pt");
+    // Where the guard is computed, it is tighter than the interim one on
+    // every row of the band issue #955 names.
+    assert_eq!(ct.band_computed_not_tighter, 0);
     assert!(
         table.worst_ratio < TM_GUARD_AXIAL_COEFF,
         "ratio {} at k_c·h_n {}",
@@ -1838,4 +2024,258 @@ fn tm_guard_p2_measurement_table() {
         "largest k_c·h_n {}",
         table.max_kh
     );
+}
+
+// ---------------------------------------------------------------------------
+// 11. TM guard at p=2 computed from the 3-D model (issue #955)
+// ---------------------------------------------------------------------------
+
+/// The computed guard ([`PortFaceProjection::guide_tm_guard`]) of the `z = 0`
+/// port of `mesh`, on the P2 estimate and window of [`guard_estimate_at`].
+fn computed_guard(mesh: &TetMesh) -> GuideTmGuard {
+    let port: Vec<[u32; 3]> = mesh
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-9))
+        .collect();
+    let face = project_port_face(mesh, &port).expect("port face");
+    let est = guard_estimate_at(mesh, ElementOrder::P2);
+    let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+    face.guide_tm_guard::<B>(mesh, &est, None, reach, &device())
+}
+
+/// The share of the band `[lo, hi]` above `guard` (`0` to `1`).
+fn band_lost(guard: f64, lo: f64, hi: f64) -> f64 {
+    ((hi - guard) / (hi - lo)).clamp(0.0, 1.0)
+}
+
+/// The fallbacks of the computed guard are typed (issue #955): a p=1
+/// estimate and an open rim keep the interim margin law, bit for bit, with
+/// no eigensolve and (for p=1) no note.
+#[test]
+fn computed_tm_guard_falls_back_to_the_margin_law_typed() {
+    use geode_core::driven::ports::{TmCutoffSource, TmMarginLawReason};
+    let g = extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0);
+    let face = project_port_face(&g.mesh, &g.port1_faces).unwrap();
+    // p=1: the interim guard, untouched.
+    let p1 = guard_estimate(&g.mesh);
+    let reach = tm_guard_axial_reach(p1.k_c(), 0.0);
+    let c = face.guide_tm_guard::<B>(&g.mesh, &p1, None, reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::ElementOrderP1
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p1.guard_k_c().to_bits());
+    assert_eq!(c.margin_law_guard_k_c.to_bits(), p1.guard_k_c().to_bits());
+    assert!(!c.is_computed() && c.note().is_none());
+    // An open rim edge: the section cannot be closed with PEC.
+    let p2 = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    let mut open = vec![false; face.edges.len()];
+    let rim = face.interior_edge_mask.iter().position(|&i| !i).unwrap();
+    open[rim] = true;
+    let c = face.guide_tm_guard::<B>(&g.mesh, &p2, Some(&open), reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::OpenRim
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p2.guard_k_c().to_bits());
+    assert!(c.note().expect("note").contains("conductor wall"));
+    // A mesh with no tet over the face.
+    let mut empty = g.mesh.clone();
+    empty.tets.clear();
+    let c = face.guide_tm_guard::<B>(&empty, &p2, None, reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::EmptySection
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p2.guard_k_c().to_bits());
+}
+
+/// p=1 is untouched by issue #955 bit for bit: the axial mesh read over the
+/// guide (refactored to share its scan with the computed guard) and the
+/// interim guard at both face orders, against values recorded on `main` at
+/// `f805bb67` before the change.
+#[test]
+fn tm_guard_inputs_are_bit_identical_to_main() {
+    // (mesh, spacing, P1 guard, P2 guard) bits.
+    let want: [(&str, u64, u64, u64); 5] = [
+        (
+            "s421",
+            0x3ff0000000000000,
+            0x40036e85189ef7bf,
+            0x40036ec77da842bb,
+        ),
+        (
+            "s1684",
+            0x3fd0000000000000,
+            0x400ab1bcddf1828d,
+            0x400ab1bd60eb3571,
+        ),
+        (
+            "f1",
+            0x3fef830e6081c1ea,
+            0x4003c43d8711f000,
+            0x4003c429d47755c8,
+        ),
+        (
+            "f2",
+            0x3feea0705727e14a,
+            0x400458221d9076ad,
+            0x4004583473fd3bb7,
+        ),
+        (
+            "f3",
+            0x3feaddf07a153ed4,
+            0x40055e356949282c,
+            0x40055f56e1f792da,
+        ),
+    ];
+    let read = |b: &[u8]| geode_core::mesh::read_tagged_tet_mesh(b).expect("msh").mesh;
+    let meshes = [
+        extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0).mesh,
+        extruded_rect_waveguide_mesh(16, 8, 4, 2.0, 1.0, 1.0).mesh,
+        read(include_bytes!(
+            "fixtures/guide_box_905_1p5x1x3p25_lc092.msh"
+        )),
+        read(include_bytes!("fixtures/guide_box_905_1p5x1x3p2_lc080.msh")),
+        read(include_bytes!("fixtures/guide_box_905_3x1x4p06_lc090.msh")),
+    ];
+    for ((name, spacing, g1, g2), mesh) in want.into_iter().zip(&meshes) {
+        let p1 = guard_estimate(mesh);
+        let p2 = guard_estimate_at(mesh, ElementOrder::P2);
+        assert_eq!(p1.axial_spacing.to_bits(), spacing, "{name}");
+        assert_eq!(p2.axial_spacing.to_bits(), spacing, "{name}");
+        assert_eq!(p1.guard_k_c().to_bits(), g1, "{name}");
+        assert_eq!(p2.guard_k_c().to_bits(), g2, "{name}");
+    }
+}
+
+/// The guard computed from the 3-D model against the interim guard on the
+/// three guides of issue #955's band table, in single-mode band lost
+/// (measured, not claimed):
+///
+/// - `2 × 1`, one layer of `h_n = b` (4 × 2 face): the section is the one
+///   layer, its TM-like cutoff is 3.4707, and the guard (3.4012) is above
+///   TE₂₀ = π. The band lost falls from 45 % to none.
+/// - `1.5 × 1` Gmsh fixtures (`lc` 0.92 and 0.80): **not recovered.** The
+///   section at depth 2.80 (the whole box) reads 3.5622, the section at
+///   2/3 of it 3.4092 (4.3 % apart; 3.5704 and 3.4176 at `lc` 0.80), so the
+///   depths disagree by more than the 2 % the computed guard claims and it
+///   falls back to the margin law. The top 64 % of TE₁₀ to TE₀₁ stays lost
+///   at `lc` 0.92.
+/// - `3 × 1` Gmsh fixture: the two depths agree (2.9015 and 2.9270, both
+///   carrying the low `E_z` mode of issue #905) and the guard is 2.8435,
+///   above the interim 2.6716 and 2.0 points below the 3-D cutoff. No band
+///   was lost there under either guard (TE₂₀ = 2.09).
+#[test]
+fn computed_tm_guard_band_against_the_interim_guard_on_the_issue_guides() {
+    use geode_core::driven::ports::{TM_GUARD_COMPUTED_MARGIN, TmCutoffSource, TmMarginLawReason};
+    // `2 × 1`, one layer of `h_n = b`: band TE₁₀ = π/2 to TE₂₀ = π.
+    let g = extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0);
+    let c = computed_guard(&g.mesh);
+    let k3d = box_tm_like_k(&g.mesh, ElementOrder::P2, 2.0, 1.0).expect("TM-like mode");
+    let TmCutoffSource::Computed3d {
+        k_c,
+        k_deep,
+        k_shallow,
+        ..
+    } = c.source
+    else {
+        panic!("2×1: {c:?}");
+    };
+    // One layer: both depths select it, and it is the measured box.
+    assert_eq!(k_deep.to_bits(), k_shallow.to_bits());
+    assert!((k_c - k3d).abs() < 1e-9 * k3d, "{k_c} vs {k3d}");
+    assert!((k_c - 3.4707).abs() < 1e-4, "{k_c}");
+    let est = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    assert_eq!(
+        c.guard_k_c.to_bits(),
+        ((1.0 - TM_GUARD_COMPUTED_MARGIN) * k_c.min(est.k_c())).to_bits()
+    );
+    assert!(c.guard_k_c < k3d && c.note().is_none());
+    let (lo, hi) = (PI / 2.0, PI);
+    let old = band_lost(c.margin_law_guard_k_c, lo, hi);
+    let new = band_lost(c.guard_k_c, lo, hi);
+    eprintln!(
+        "2×1, h_n = b: guard {:.4} (interim {:.4}), band lost {:.1} % (interim {:.1} %)",
+        c.guard_k_c,
+        c.margin_law_guard_k_c,
+        100.0 * new,
+        100.0 * old
+    );
+    assert!((old - 0.45).abs() < 0.01, "{old}");
+    assert_eq!(new, 0.0);
+
+    // The `1.5 × 1` fixtures: band TE₁₀ = π/1.5 to TE₀₁ = π.
+    let read = |b: &[u8]| geode_core::mesh::read_tagged_tet_mesh(b).expect("msh").mesh;
+    for (mesh, deep_want, shallow_want, old_want) in [
+        (
+            read(include_bytes!(
+                "fixtures/guide_box_905_1p5x1x3p25_lc092.msh"
+            )),
+            3.5622,
+            3.4092,
+            0.64,
+        ),
+        (
+            read(include_bytes!("fixtures/guide_box_905_1p5x1x3p2_lc080.msh")),
+            3.5704,
+            3.4176,
+            0.57,
+        ),
+    ] {
+        let c = computed_guard(&mesh);
+        let k3d = box_tm_like_k(&mesh, ElementOrder::P2, 1.5, 1.0).expect("TM-like mode");
+        let TmCutoffSource::MarginLaw {
+            reason:
+                TmMarginLawReason::DepthSensitive {
+                    k_deep, k_shallow, ..
+                },
+        } = c.source
+        else {
+            panic!("1.5×1: {c:?}");
+        };
+        assert!((k_deep - deep_want).abs() < 1e-4, "{k_deep}");
+        assert!((k_shallow - shallow_want).abs() < 1e-4, "{k_shallow}");
+        // The deeper section is the whole box: the measured cutoff.
+        assert!((k_deep - k3d).abs() < 1e-9 * k3d, "{k_deep} vs {k3d}");
+        assert!((k_deep - k_shallow) / k_deep > TM_GUARD_COMPUTED_MARGIN);
+        // The margin law, which is lower than the computed values here.
+        assert_eq!(c.guard_k_c.to_bits(), c.margin_law_guard_k_c.to_bits());
+        assert!(c.guard_k_c < (1.0 - TM_GUARD_COMPUTED_MARGIN) * k_shallow);
+        assert!(c.note().expect("note").contains("moves with the cut"));
+        let (lo, hi) = (PI / 1.5, PI);
+        let old = band_lost(c.margin_law_guard_k_c, lo, hi);
+        eprintln!(
+            "1.5×1 fixture: guard {:.4} (margin law; sections {k_deep:.4} / {k_shallow:.4}), band \
+             lost {:.1} %",
+            c.guard_k_c,
+            100.0 * old
+        );
+        assert!((old - old_want).abs() < 0.01, "{old}");
+        assert_eq!(band_lost(c.guard_k_c, lo, hi), old);
+    }
+
+    // The `3 × 1` fixture: the two depths agree.
+    let mesh = read(include_bytes!("fixtures/guide_box_905_3x1x4p06_lc090.msh"));
+    let c = computed_guard(&mesh);
+    let k3d = box_tm_like_k(&mesh, ElementOrder::P2, 3.0, 1.0).expect("TM-like mode");
+    let TmCutoffSource::Computed3d {
+        k_deep, k_shallow, ..
+    } = c.source
+    else {
+        panic!("3×1: {c:?}");
+    };
+    assert!((k_deep - k3d).abs() < 1e-9 * k3d, "{k_deep} vs {k3d}");
+    assert!((k_deep - 2.9015).abs() < 1e-4 && (k_shallow - 2.9270).abs() < 1e-4);
+    assert!((c.guard_k_c - 2.8435).abs() < 1e-4, "{c:?}");
+    assert!((c.margin_law_guard_k_c - 2.6716).abs() < 1e-4, "{c:?}");
+    assert!(c.guard_k_c < k3d);
+    assert_eq!(band_lost(c.guard_k_c, PI / 3.0, 2.0 * PI / 3.0), 0.0);
 }

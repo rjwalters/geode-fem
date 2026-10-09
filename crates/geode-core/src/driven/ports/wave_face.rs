@@ -772,6 +772,16 @@ impl PortFaceProjection {
     /// `(axial extent, nearest distance to the port plane)` of every tet
     /// of `mesh` with a face on the port or its centroid over the face.
     fn guide_tets(&self, mesh: &TetMesh) -> Vec<(f64, f64)> {
+        self.guide_footprint(mesh)
+            .into_iter()
+            .map(|(_, e, d)| (e, d))
+            .collect()
+    }
+
+    /// [`Self::guide_tets`] with each tet's index in `mesh.tets`: the guide
+    /// section the 3-D TM cutoff of issue #955 is computed on
+    /// (`wave_tm_guide`).
+    pub(super) fn guide_footprint(&self, mesh: &TetMesh) -> Vec<(usize, f64, f64)> {
         let sorted = |mut t: [u32; 3]| {
             t.sort_unstable();
             t
@@ -783,7 +793,7 @@ impl PortFaceProjection {
         // (axial extent, nearest distance to the port plane) of every tet
         // over the face.
         let mut over = Vec::new();
-        for tet in &mesh.tets {
+        for (t, tet) in mesh.tets.iter().enumerate() {
             let s = tet.map(|n| dot(rel(n), self.normal));
             let lo = s.iter().copied().fold(f64::INFINITY, f64::min);
             let hi = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -805,7 +815,7 @@ impl PortFaceProjection {
                     continue;
                 }
             }
-            over.push((hi - lo, if on_face { 0.0 } else { near }));
+            over.push((t, hi - lo, if on_face { 0.0 } else { near }));
         }
         over
     }
@@ -1730,8 +1740,10 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// guard must not be wired into the CLI as a hard error for p=2** without
 /// either a cutoff computed from the 3-D model itself (an eigensolve of
 /// the guide section, which needs neither the assumptions nor the
-/// constant; not implemented, issue #955) or a policy that warns and does
-/// not block in the gap between this guard and the measured cutoff.
+/// constant: [`PortFaceProjection::guide_tm_guard`], issue #955, which
+/// falls back to this law where it does not apply) or a policy that warns
+/// and does not block in the gap between this guard and the measured
+/// cutoff.
 pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
     let kh = k_c * axial_spacing;
     if !kh.is_finite() {
