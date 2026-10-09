@@ -770,7 +770,9 @@ fn microstrip_eps_eff_matches_hammerstad_jensen() {
 /// labelled by their current signature — `even` (in phase) first (larger
 /// `β²`) and `odd` second — with `ε_eff,even > ε_eff,odd` (the even mode
 /// keeps more field in the substrate) and `Z_e > Z_o`; S is reciprocal and
-/// the even ↔ odd conversion of the straight section is small.
+/// the even ↔ odd conversion of the straight section is small. Neither mode
+/// is flagged `no_net_current` (#953: the odd mode's per-conductor currents
+/// are opposite, not zero).
 #[test]
 #[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
 fn coupled_microstrip_channels_are_labelled_even_and_odd() {
@@ -826,6 +828,11 @@ fn coupled_microstrip_channels_are_labelled_even_and_odd() {
         for p in 0..2 {
             assert_eq!(label(&chans[2 * p]), "even");
             assert_eq!(label(&chans[2 * p + 1]), "odd");
+        }
+        // #953: the odd mode's currents are opposite but not zero, so the
+        // per-conductor test keeps its impedance.
+        for c in chans {
+            assert_eq!(c["hybrid"]["line"]["no_net_current"], false);
         }
         assert!(eps_e > eps_o && z_e > z_o);
         assert!(conv < 5e-3, "even→odd conversion {conv}");

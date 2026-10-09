@@ -472,6 +472,65 @@ fn wave_channel(p: &Problem, k: usize, mode: usize) -> usize {
         + mode
 }
 
+/// The rejection of a `z0` observable on a channel that carries no net
+/// conductor current (issue #953): a TE / TM waveguide mode of the port
+/// face, such as a coax TE₁₁, has no line impedance, so its report
+/// `z_line_ohm` is `null` and there is nothing to differentiate (the
+/// library's `Z_PI` there is a ratio of round-off; its own guard is issue
+/// #991). Runs each observed hybrid port's face sweep only (no 3-D solve),
+/// as `--touchstone` classification does, so the run fails before the
+/// expensive solve. `Ok(())` when every `z0` observable has a line
+/// impedance at every selected frequency.
+pub fn line_impedance_error(p: &Problem, sens: &SensitivityTarget) -> Result<(), CliError> {
+    let mut ports: Vec<usize> = sens
+        .observables
+        .iter()
+        .filter(|o| o.quantity == ObservableQuantity::Z0)
+        .filter_map(|o| o.wave_port)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    for k in ports {
+        let w = &p.wave_ports[k];
+        let Some(h) = w.hybrid.as_ref() else {
+            continue;
+        };
+        let sweep = crate::hybrid::face_sweep(p, k, false)?;
+        for o in sens
+            .observables
+            .iter()
+            .filter(|o| o.quantity == ObservableQuantity::Z0 && o.wave_port == Some(k))
+        {
+            for &fi in &sens.frequency_indices {
+                let Some(ch) = sweep
+                    .report
+                    .points
+                    .get(fi)
+                    .and_then(|pt| pt.channels.get(o.mode))
+                else {
+                    continue;
+                };
+                let flagged = crate::hybrid::channel_result(h, ch)
+                    .line
+                    .is_some_and(|l| l.no_net_current);
+                if flagged {
+                    return Err(CliError::InvalidSpec(format!(
+                        "`sensitivity` observable `{}`: wave port `{}` mode {} carries no net \
+                         conductor current at {} Hz (its conductor currents cancel to \
+                         round-off: a TE/TM waveguide mode of the port face, such as a coax \
+                         TE11, not a line mode), so it has no line impedance to differentiate \
+                         (its report `z_line_ohm` is null); differentiate this channel's \
+                         `eps_eff` or an S entry instead, or observe `z0` on a line (TEM / \
+                         quasi-TEM) channel",
+                        o.label, w.surface.name, o.mode, p.frequencies[fi].hz
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// One report row's S entry `[i][j]`.
 fn row_s(row: &FrequencyResult, i: usize, j: usize) -> c64 {
     let z = row.s[i][j];
@@ -1200,8 +1259,21 @@ pub fn driven(
             parity = parity.max((pt.s[k] - row_s(row, k / n, k % n)).norm() / scale);
         }
         for o in sens.observables.iter().filter(|o| o.wave_port.is_some()) {
-            if let (Some(want), Some(got)) = (row_port_mode(p, o, row), port_mode_complex(p, o, pt))
-            {
+            let want = row_port_mode(p, o, row);
+            let got = port_mode_complex(p, o, pt);
+            // Backstop of `line_impedance_error` (issue #953): a `z0` the
+            // report does not carry (no net conductor current) is never a
+            // value, whatever the library computes there (#991).
+            if o.quantity == ObservableQuantity::Z0 && want.is_none() && got.is_some() {
+                return Err(CliError::InvalidSpec(format!(
+                    "`sensitivity` observable `{}` at {} Hz: the report carries no line \
+                     impedance for this channel (`z_line_ohm` is null: it carries no net \
+                     conductor current), so there is no `z0` to differentiate; differentiate \
+                     its `eps_eff` or an S entry instead",
+                    o.label, row.frequency_hz
+                )));
+            }
+            if let (Some(want), Some(got)) = (want, got) {
                 let rel = (got - want).norm() / want.norm().max(f64::MIN_POSITIVE);
                 if rel.is_nan() || rel > PORT_MODE_PARITY_TOL {
                     return Err(CliError::SensitivitySolve(format!(
