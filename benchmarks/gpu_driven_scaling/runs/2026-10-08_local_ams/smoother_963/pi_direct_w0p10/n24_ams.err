@@ -1,3 +1,3 @@
-[size n=24] edges=102024 interior=98472 tets=82944 reps=0 (fixture 6.94 s)
+[size n=24] edges=102024 interior=98472 tets=82944 reps=0 (fixture 1.68 s)
 warning: GEODE_DRIVEN_AMS_PI_COARSE=direct overrides the default driven AMS preconditioner (a measurement knob, issue #963); unset it to use the default
-# ams_smoother edge_dim=98472 theta_max=3.413317 lanczos_steps=30 gershgorin=3.999964 rho_hat=3.754648 weight=0.399505 source=estimate estimate_ms=37.763
+# ams_smoother edge_dim=98472 theta_max=3.413317 lanczos_steps=30 gershgorin=3.999964 rho_hat=3.754648 weight=0.399505 source=estimate estimate_ms=43.399

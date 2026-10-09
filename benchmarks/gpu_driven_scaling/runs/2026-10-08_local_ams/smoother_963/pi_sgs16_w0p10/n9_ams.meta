@@ -1,12 +1,12 @@
 leg=n9_ams bin=<cargo-target>/release/deps/gpu_driven_scaling-e770a24497c61984
-start=2026-10-09T08:34:01Z
-loadavg_start=119.79 53.47 28.91
+start=2026-10-09T11:30:51Z
+loadavg_start=59.17 71.15 53.30
 rayon_num_threads=1
 scaling_omega=0.10
 ams_smooth_weight=auto
 GEODE_DRIVEN_AMS_PI_COARSE=sgs:16
-git=4b33acd624deade51ea79d3ae7e79ea3ba5d97d8 dirty=0
+git=b57ecb710fb0daa5c476bda2bc1e61cc36c8315c dirty=647
 env: GEODE_SCALING_SIZES=9 GEODE_SCALING_CONFIGS=iterative_ams GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1
-end=2026-10-09T08:34:02Z
-loadavg_end=119.79 53.47 28.91
+end=2026-10-09T11:30:52Z
+loadavg_end=59.17 71.15 53.30
 rc=0

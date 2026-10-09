@@ -9,7 +9,9 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 tree=$1 dir=$2; shift 2
 loadavg() { sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | xargs || cut -d' ' -f1-3 /proc/loadavg; }
-# stem | package | test target (--test name or --lib) | test name | ignored?
+# stem | package | test target (--test name or --lib) | test name | (unused)
+# Every test runs with --include-ignored: several are #[ignore]d (heavy in
+# debug) and would otherwise be skipped and still report "test result: ok".
 TESTS="
 spiral_smoke|geode-cli|spiral_golden|spiral_smoke_ams_matches_direct_lu|
 spiral_benchmark|geode-cli|spiral_golden|spiral_benchmark_ams_matches_direct_lu|ignored
@@ -27,14 +29,13 @@ echo "$TESTS" | while IFS='|' read -r stem pkg target name ign; do
   bin=$(cargo test --release -p "$pkg" "${sel[@]}" --no-run --message-format=json 2>/dev/null \
     | grep '"test":true' | sed -nE 's/.*"executable":"([^"]+\/deps\/[^"]+)".*/\1/p' | tail -1)
   out="$here/${tree}_${stem}.txt"
-  extra=(); [ -n "$ign" ] && extra=(--ignored)
   {
     echo "# tree=$tree test=$name"
     echo "# git=$(git rev-parse HEAD) dirty=$(git status --porcelain --untracked-files=no | wc -l | xargs) env=${*:-none}"
     echo "# start=$(date -u +%FT%TZ) loadavg_start=$(loadavg | tr ' ' ',')"
   } > "$out"
   (cd "crates/$pkg" && env "$@" GEODE_AMS_SMOOTH_REPORT=1 RAYON_NUM_THREADS=1 /usr/bin/time -l -o "$here/${tree}_${stem}.time" \
-     "$bin" "$name" --exact "${extra[@]}" --nocapture --test-threads 1) 2>&1 \
+     "$bin" "$name" --exact --include-ignored --nocapture --test-threads 1) 2>&1 \
     | sed -e "s#$dir#<repo>#g" -e "s#${CARGO_TARGET_DIR}#<cargo-target>#g" -e "s#$HOME#<home>#g" \
           -e "s#/private/var/folders/[^ \"]*#<tmp>#g" -e "s#/var/folders/[^ \"]*#<tmp>#g" >> "$out"
   echo "$tree $stem rc=${PIPESTATUS[0]}"

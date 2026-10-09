@@ -1,2 +1,2 @@
-[size n=9] edges=5859 interior=5337 tets=4374 reps=0 (fixture 0.13 s)
-# ams_smoother edge_dim=5337 theta_max=3.406743 lanczos_steps=30 gershgorin=3.999873 rho_hat=3.747417 weight=0.400276 source=estimate estimate_ms=1.984
+[size n=9] edges=5859 interior=5337 tets=4374 reps=0 (fixture 0.11 s)
+# ams_smoother edge_dim=5337 theta_max=3.406743 lanczos_steps=30 gershgorin=3.999873 rho_hat=3.747417 weight=0.400276 source=estimate estimate_ms=1.991

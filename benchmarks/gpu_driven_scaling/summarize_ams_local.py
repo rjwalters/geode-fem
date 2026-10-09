@@ -1531,7 +1531,18 @@ if s9_dir.is_dir():
     metas9 = [c["meta"] for _, _, _, cs in s9 for c in cs.values()]
     loads9 = [float(m[k].split()[0]) for m in metas9 for k in ("loadavg_start", "loadavg_end") if k in m]
     dates9 = sorted(m["start"] for m in metas9)
-    commit9 = lambda pred: sorted({c["meta"]["git"] for _, v, _, cs in s9 if pred(v) for c in cs.values()})
+    def commit9(pred):
+        """'<sha> dirty=<n>' per distinct sha, the dirty counts collapsed to a range."""
+        seen = {}
+        for _, v, _, cs in s9:
+            if pred(v):
+                for c in cs.values():
+                    sha, _, dirty = c["meta"]["git"].partition(" dirty=")
+                    seen.setdefault(sha, set()).add(int(dirty or 0))
+        return [
+            f"{sha} dirty={min(ds)}" + (f"..{max(ds)}" if max(ds) != min(ds) else "") for sha, ds in sorted(seen.items())
+        ]
+
     omegas9 = sorted({w for _, _, w, _ in s9})
 
     def identical(a, b):
@@ -1566,7 +1577,10 @@ if s9_dir.is_dir():
     )
     print(f"run_dir = {q(s9_dir.as_posix())}")
     print(f"main_commit = {q(', '.join(commit9(lambda v: v == 'main')))}")
-    print(f"branch_commit = {q(', '.join(commit9(lambda v: v != 'main')))}")
+    print(
+        f"branch_commit = {q(', '.join(commit9(lambda v: v != 'main')))}"
+        "  # dirty = tracked files under this run tree being rewritten by the run itself; see NOTE.txt"
+    )
     print(f"omegas = {omegas9}")
     print(f"started_between = [{q(dates9[0])}, {q(dates9[-1])}]")
     print(f"loadavg_1min_range = [{min(loads9):.2f}, {max(loads9):.2f}]  # {host.get('logical_cpus', '?')} logical CPUs")
@@ -1734,13 +1748,14 @@ if s9_dir.is_dir():
             return None
         txt = path.read_text()
         head = dict(t.split("=", 1) for line in txt.splitlines()[:3] for t in line[2:].split() if "=" in t)
-        done = re.search(r"^test result: (\w+)\.", txt, re.M)
+        done = re.search(r"^test result: (\w+)\. (\d+) passed", txt, re.M)
         return {
             "commit": head.get("git", "unknown") + (f" dirty={head['dirty']}" if "dirty" in head else ""),
             "env": head.get("env", "none"),
             "load": head.get("loadavg_start", "").split(",")[0],
             "finished": bool(done),
-            "passed": bool(done) and done.group(1) == "ok",
+            # "ok" with 0 passed means the test was filtered or ignored, not run.
+            "passed": bool(done) and done.group(1) == "ok" and int(done.group(2)) >= 1,
             "iterations": [int(x) for x in re.findall(r"(?:GHz: iters|: iterations) \[(\d+)\]", txt)],
             "time": time_file(val9 / f"{tree}_{stem}.time"),
         }

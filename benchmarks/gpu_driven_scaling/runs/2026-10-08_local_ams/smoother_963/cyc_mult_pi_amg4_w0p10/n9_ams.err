@@ -1,4 +1,4 @@
-[size n=9] edges=5859 interior=5337 tets=4374 reps=0 (fixture 0.32 s)
+[size n=9] edges=5859 interior=5337 tets=4374 reps=0 (fixture 0.13 s)
 warning: GEODE_DRIVEN_AMS_CYCLE=multiplicative overrides the default driven AMS preconditioner (a measurement knob, issue #963); unset it to use the default
 warning: GEODE_DRIVEN_AMS_PI_COARSE=amg:4 overrides the default driven AMS preconditioner (a measurement knob, issue #963); unset it to use the default
-# ams_smoother edge_dim=5337 theta_max=3.406518 lanczos_steps=30 gershgorin=3.999741 rho_hat=3.747170 weight=0.400302 source=estimate estimate_ms=1.989
+# ams_smoother edge_dim=5337 theta_max=3.406518 lanczos_steps=30 gershgorin=3.999741 rho_hat=3.747170 weight=0.400302 source=estimate estimate_ms=1.965

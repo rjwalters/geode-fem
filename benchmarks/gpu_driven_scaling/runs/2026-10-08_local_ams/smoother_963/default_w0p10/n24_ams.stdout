@@ -23,9 +23,9 @@ flaky = false
 reps = 0
 solve_reps_ok = 0
 e2e_reps_ok = 0
-warmup_solve_s = 4.951582
-warmup_setup_s = 0.997696
-warmup_krylov_s = 3.953695
+warmup_solve_s = 4.848069
+warmup_setup_s = 1.621821
+warmup_krylov_s = 3.226080
 solve_only_s = nan
 end_to_end_s = nan
 iterations = 55
@@ -37,5 +37,5 @@ sweep5_skipped = true
 # ---- end fragment ----
 ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.68s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.68s
 
