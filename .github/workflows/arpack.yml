@@ -264,7 +264,7 @@ jobs:
       # `-- --ignored`) so that a new #[ignore]d unit test is not pulled into
       # this job unmeasured: the guard fails until it is named here or put
       # on scripts/ci-test-coverage-ignored-allowlist.txt with a reason.
-      - name: Unit tests (geode-core, the #[ignore]d heavy-fixture tier)
+      - name: "Unit tests (geode-core, the #[ignore]d heavy-fixture tier)"
         run: |
           cargo test --features arpack -p geode-core --release --lib -- \
               --ignored --exact \
@@ -333,7 +333,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Gmsh (geode mesh, issue #704)
+      - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh
@@ -370,7 +370,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Gmsh (geode mesh, issue #704)
+      - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh

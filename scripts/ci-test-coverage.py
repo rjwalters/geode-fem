@@ -24,8 +24,11 @@ in the files it loads is also a target, reported and allowlisted as
 target; an integration target literally named `lib` is an error). The lib
 target is selected by `--lib`, by `--tests` / `--all-targets`, or by a
 command with no target selector at all (cargo's default: lib, bins and
-integration targets); `--test X`, `--bins`, `--doc`, ... alone skip it. It
-is *covered* only by a run of its whole default tier: a command that passes
+integration targets); `--test X`, `--bins`, `--doc`, ... alone skip it.
+(`--benches` also runs the lib unit tests in cargo, since the lib has
+`bench = true` by default; the guard does not count it. That is a deliberate
+under-count, the safe direction, and no workflow uses `--benches`; issue
+#942.) It is *covered* only by a run of its whole default tier: a command that passes
 a test-name filter (positional or after `--`, or `--skip`) or runs only
 `-- --ignored` is listed as a partial run, does not count, and is named
 in the failure message. So a later edit that narrows a blanket `--lib` run
@@ -1597,6 +1600,9 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     # Cargo runs the lib unit tests under `--lib`, under `--tests` /
     # `--all-targets` (every target with `test = true`), and when no target
     # selector is given; `--test X` / `--bins` / `--doc` / ... alone skip it.
+    # `--benches` also selects the lib in cargo (lib `bench = true` by
+    # default) but is deliberately not counted here: an under-count, the
+    # fail-closed direction (issue #942).
     sel.covers_lib = lib_flag or all_integration_flag or (not named and not non_integration)
 
     j = 0
@@ -2912,8 +2918,10 @@ def self_test() -> int:
     def lib_cov(script: str, **kw) -> set:
         return {k for k, v in lib_eval(script, **kw).coverage.items() if v}
 
-    HEAVY = [IgnoredTest("bench", path="driven::solve::tests"),
-             IgnoredTest("report", path="mesh::partition::tests")]
+    # Unit tests live in `mod tests`, so top_level=False: the `--skip` rule
+    # must then rely on the known module path (issue #942).
+    HEAVY = [IgnoredTest("bench", path="driven::solve::tests", top_level=False),
+             IgnoredTest("report", path="mesh::partition::tests", top_level=False)]
 
     class LibTargetTests(unittest.TestCase):
         # -- which commands cover the lib target ------------------------------
@@ -3002,6 +3010,15 @@ def self_test() -> int:
             r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
                          "cargo test -p a --lib -- --ignored --skip partition", HEAVY)
             self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["report"])
+            # A module test with a known path survives a `--skip` of another
+            # test (issue #942): the path, not top_level, decides.
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --lib -- --include-ignored --skip report", HEAVY)
+            self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["report"])
+            # Without a path, a module test under `--skip` stays fail-closed.
+            r = lib_eval("cargo test -p a --lib\ncargo test -p b --lib\n"
+                         "cargo test -p a --lib -- --include-ignored --skip report", [IgnoredTest("bench", top_level=False)])
+            self.assertEqual([t.name for _, t in r.ignored_new_gaps], ["bench"])
 
         def test_lib_ignored_allowlist_uses_the_module_path(self):
             ok = "cargo test -p a --lib\ncargo test -p b --lib"
