@@ -2619,9 +2619,25 @@ const NEAR_DEGENERATE: &str = "wave_port_degeneracy_near_degenerate";
 /// ports at `k0 = 2.5` (below every `2 × 0.9` TM cutoff, so the TE-only
 /// guard admits it): the report and the run's stderr.
 fn driven_gmsh_guide(fixture: &str, n_modes: usize) -> (serde_json::Value, String) {
-    let dir = scratch("degeneracy-923");
+    run_gmsh_guide("driven", fixture, n_modes, |_| {})
+}
+
+/// `geode check` on the spec of [`driven_gmsh_guide`] (issue #959).
+fn check_gmsh_guide(fixture: &str, n_modes: usize) -> (serde_json::Value, String) {
+    run_gmsh_guide("check", fixture, n_modes, |_| {})
+}
+
+/// `geode <cmd>` on the spec of [`driven_gmsh_guide`], `edit`ed: the
+/// report (the run must succeed) and the run's stderr.
+fn run_gmsh_guide(
+    cmd: &str,
+    fixture: &str,
+    n_modes: usize,
+    edit: impl FnOnce(&mut serde_json::Value),
+) -> (serde_json::Value, String) {
+    let dir = scratch(&format!("degeneracy-{cmd}"));
     let mesh = write_gmsh_fixture_guide(&dir, fixture, |f| f.to_vec());
-    let spec = serde_json::json!({
+    let mut spec = serde_json::json!({
         "schema_version": 1,
         "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
         "boundary_conditions": { "pec": ["walls"] },
@@ -2631,9 +2647,10 @@ fn driven_gmsh_guide(fixture: &str, n_modes: usize) -> (serde_json::Value, Strin
         ],
         "frequencies": { "unit": "k0", "values": [2.5] }
     });
+    edit(&mut spec);
     let path = dir.join("spec.json");
     std::fs::write(&path, spec.to_string()).unwrap();
-    let out = geode(&["driven", path.to_str().unwrap()]);
+    let out = geode(&[cmd, path.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     (json(&out), stderr)
 }
@@ -2796,14 +2813,15 @@ fn a_single_mode_rectangular_guide_reports_no_degeneracy_warning() {
 }
 
 /// Issue #923, the coax: through `geode driven` its face (a floating inner
-/// conductor) is a **hybrid** port, which the geometric degeneracy notes
-/// skip, so the run reports no `wave_port_degeneracy_*` warning for its
+/// conductor) is routed to the **hybrid** path, which the geometric
+/// degeneracy notes skip, so the run reports no `wave_port_degeneracy_*`
+/// warning for its
 /// degenerate TE₁₁ pair (channels 1 / 2 after the TEM mode). That the
 /// coax's geometric face itself gets no note, its clusters being truly
 /// degenerate, is the unit test
 /// `driven::tests::a_truly_degenerate_cluster_gets_no_degeneracy_warning`.
 #[test]
-fn a_coax_guide_reports_no_degeneracy_warning() {
+fn a_coax_guide_routes_hybrid_and_gets_no_geometric_degeneracy_warning() {
     let (v, stderr) = driven_gmsh_guide("guide_coax_lc018_015.msh", 3);
     assert_eq!(v["status"], "ok");
     for port in 0..2 {
@@ -2817,4 +2835,185 @@ fn a_coax_guide_reports_no_degeneracy_warning() {
     );
     assert!(!stderr.contains("degenera"), "{stderr}");
     eprintln!("coax warnings: {:#}", v["warnings"]);
+}
+
+// ---------------------------------------------------------------------
+// Issue #959: `geode check` reports the same degeneracy warnings
+// ---------------------------------------------------------------------
+
+/// The report's `warnings[]` as `(kind, wave_port, physical_group,
+/// message)`, in order (empty when the key is omitted).
+fn all_warnings(
+    v: &serde_json::Value,
+) -> Vec<(String, serde_json::Value, serde_json::Value, String)> {
+    v.get("warnings")
+        .map(|all| {
+            all.as_array()
+                .expect("warnings[]")
+                .iter()
+                .map(|w| {
+                    (
+                        w["kind"].as_str().unwrap().to_string(),
+                        w["wave_port"].clone(),
+                        w["physical_group"].clone(),
+                        w["message"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Issue #959: on the three Gmsh guides whose modes 4 / 5 `geode driven`
+/// warns about (six modes per port), `geode check` exits 0 with
+/// `status: "ok"` and reports the same degeneracy warnings — the same
+/// kinds, ports, groups and messages, byte for byte, in the same order,
+/// each also a `warning: …` line on its stderr: `lc = 0.30` ambiguous on
+/// both ports, `lc = 0.22` ambiguous and near-degenerate on both,
+/// `lc = 0.18` near-degenerate on both. Its whole `warnings[]` equals
+/// `driven`'s.
+#[test]
+fn check_reports_the_same_degeneracy_warnings_as_driven() {
+    for (fixture, kinds) in [
+        ("guide_box_lc030.msh", &[(AMBIGUOUS, 0), (AMBIGUOUS, 1)][..]),
+        (
+            "guide_box_lc022.msh",
+            &[
+                (AMBIGUOUS, 0),
+                (NEAR_DEGENERATE, 0),
+                (AMBIGUOUS, 1),
+                (NEAR_DEGENERATE, 1),
+            ][..],
+        ),
+        (
+            "guide_box_lc018.msh",
+            &[(NEAR_DEGENERATE, 0), (NEAR_DEGENERATE, 1)][..],
+        ),
+    ] {
+        let (check, check_err) = check_gmsh_guide(fixture, 6);
+        let (driven, driven_err) = driven_gmsh_guide(fixture, 6);
+        assert_eq!(check["kind"], "check", "{fixture}");
+        assert_eq!(check["status"], "ok", "{fixture}");
+        let from_check = degeneracy_warnings(&check, &check_err);
+        let from_driven = degeneracy_warnings(&driven, &driven_err);
+        assert_eq!(
+            from_check
+                .iter()
+                .map(|w| (w.0.as_str(), w.1))
+                .collect::<Vec<_>>(),
+            kinds,
+            "{fixture}: {from_check:#?}"
+        );
+        assert_eq!(from_check, from_driven, "{fixture}");
+        assert_eq!(all_warnings(&check), all_warnings(&driven), "{fixture}");
+    }
+}
+
+/// Issue #959: where `geode driven` reports no degeneracy warning,
+/// neither does `geode check`, and both exit 0 with `status: "ok"`: the
+/// single-mode and four-mode `lc = 0.30` guide (the pair's lower mode is
+/// not reported) and the coax (its ports route to the hybrid path, whose
+/// own warnings are unchanged and equal `driven`'s).
+#[test]
+fn check_reports_no_degeneracy_warning_where_driven_reports_none() {
+    for (fixture, n_modes) in [
+        ("guide_box_lc030.msh", 1),
+        ("guide_box_lc030.msh", 4),
+        ("guide_coax_lc018_015.msh", 3),
+    ] {
+        let (check, check_err) = check_gmsh_guide(fixture, n_modes);
+        let (driven, driven_err) = driven_gmsh_guide(fixture, n_modes);
+        let label = format!("{fixture} × {n_modes}");
+        assert_eq!(check["status"], "ok", "{label}");
+        assert!(
+            degeneracy_warnings(&check, &check_err).is_empty(),
+            "{label}"
+        );
+        assert!(
+            degeneracy_warnings(&driven, &driven_err).is_empty(),
+            "{label}"
+        );
+        assert!(!check_err.contains("degenera"), "{label}: {check_err}");
+        assert_eq!(all_warnings(&check), all_warnings(&driven), "{label}");
+    }
+}
+
+/// Issue #959, the order of `check`'s `warnings[]`, as in `driven`: the
+/// `preconditioner_fallback` note first, then the geometric ports'
+/// degeneracy notes in port order. The five-mode `lc = 0.30` guide (which
+/// warns on modes 4 / 5 of both ports) gains a floating PEC `island`, one
+/// interior triangle touching no wall, so the default `auto`
+/// preconditioner of an iterative spec falls back to `jacobi`.
+#[test]
+fn check_lists_the_preconditioner_fallback_before_the_degeneracy_warnings() {
+    let dir = scratch("degeneracy-order-959");
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../geode-core/tests/fixtures/guide_box_lc030.msh");
+    let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
+        .unwrap()
+        .mesh;
+    let bf = mesh.boundary_faces();
+    let z_is = |f: &[u32; 3], z: f64| {
+        f.iter()
+            .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
+    };
+    let port_in: Vec<_> = bf.iter().copied().filter(|f| z_is(f, 0.0)).collect();
+    let port_out: Vec<_> = bf.iter().copied().filter(|f| z_is(f, 1.0)).collect();
+    let walls: Vec<_> = bf
+        .iter()
+        .copied()
+        .filter(|f| !z_is(f, 0.0) && !z_is(f, 1.0))
+        .collect();
+    let on_boundary: std::collections::HashSet<u32> = bf.iter().flatten().copied().collect();
+    let tet = mesh
+        .tets
+        .iter()
+        .find(|t| t.iter().all(|n| !on_boundary.contains(n)))
+        .expect("an interior tet");
+    let island = [[tet[0], tet[1], tet[2]]];
+    let msh = write_msh(
+        &mesh.nodes,
+        &mesh.tets,
+        &[
+            (11, "port_in", &port_in),
+            (12, "port_out", &port_out),
+            (13, "walls", &walls),
+            (14, "island", &island),
+        ],
+    );
+    let mesh_path = dir.join("gmsh_guide.msh");
+    std::fs::write(&mesh_path, msh).unwrap();
+    let spec = serde_json::json!({
+        "schema_version": 1,
+        "mesh": { "path": mesh_path.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+        "boundary_conditions": { "pec": ["walls", "island"] },
+        "wave_ports": [
+            { "physical_group": "port_in", "n_modes": 5 },
+            { "physical_group": "port_out", "n_modes": 5 }
+        ],
+        "frequencies": { "unit": "k0", "values": [2.5] },
+        "solver": { "mode": "iterative" }
+    });
+    let path = dir.join("spec.json");
+    std::fs::write(&path, spec.to_string()).unwrap();
+    let out = geode(&["check", path.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let v = json(&out);
+    assert_eq!(v["status"], "ok");
+    let kinds: Vec<_> = all_warnings(&v)
+        .into_iter()
+        .map(|(kind, port, _, _)| (kind, port.as_u64()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("preconditioner_fallback".to_string(), None),
+            (AMBIGUOUS.to_string(), Some(0)),
+            (AMBIGUOUS.to_string(), Some(1)),
+        ],
+        "{stderr}"
+    );
+    let fallback = stderr.find("fell back to `jacobi`").expect("on stderr");
+    let degeneracy = stderr.find("wave port `port_in`").expect("on stderr");
+    assert!(fallback < degeneracy, "{stderr}");
 }
