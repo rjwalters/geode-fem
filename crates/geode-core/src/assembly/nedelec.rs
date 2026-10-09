@@ -34,6 +34,7 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{IndexingUpdateOp, Int, TensorData};
 use faer::Mat;
 
+use crate::assembly::dense_scatter::DenseScatter;
 use crate::assembly::p1::{SparsityPattern, gather_tet_coords};
 use crate::elements::nedelec::{
     batched_nedelec_local_mass_anisotropic_diag, batched_nedelec_local_mass_anisotropic_full,
@@ -200,10 +201,10 @@ pub fn assemble_global_nedelec<B: Backend>(
     let k_signed = local.k_local.mul(sign_outer.clone());
     let m_signed = local.m_local.mul(sign_outer);
 
-    // 3. Build flat linear indices: `tet_edge_idx[e, i] * n_edges + tet_edge_idx[e, j]`
-    //    for every (e, i, j). Same 1-D scatter pattern as P1 assembly.
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
-    let n_edges_i32 = n_edges as i32;
+    // 3. Collect the global `(tet_edge_idx[e, i], tet_edge_idx[e, j])` pair
+    //    for every (e, i, j). Same row-blocked 1-D scatter as P1 assembly
+    //    ([`DenseScatter`], issue #1011: no i32 overflow past 46_340 edges).
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 36);
     for row in tet_edge_idx {
         // Per-element hot loop: guard the signed local edge-matrix stack
         // `[n_elem, 6, 6]` under exponential backoff so the O(n_elem)
@@ -216,28 +217,20 @@ pub fn assemble_global_nedelec<B: Backend>(
         );
         for i in 0..6 {
             for j in 0..6 {
-                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+                pairs.push([row[i], row[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_edges, &device);
 
     // 4. Flatten local values to [n_elem * 36] and scatter-add into
-    //    a flat [n_edges * n_edges] zero tensor. Autodiff flows
+    //    a zero [n_edges, n_edges] matrix. Autodiff flows
     //    through the values via IndexingUpdateOp::Add.
     let k_flat = k_signed.reshape([n_elem * 36]);
     let m_flat = m_signed.reshape([n_elem * 36]);
 
-    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
-    let k_flat_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
-    let m_flat_assembled = zeros_flat.scatter(0, flat_indices, m_flat, IndexingUpdateOp::Add);
-
-    let k = k_flat_assembled.reshape([n_edges, n_edges]);
-    let m = m_flat_assembled.reshape([n_edges, n_edges]);
+    let k = scatter.scatter_add(k_flat);
+    let m = scatter.scatter_add(m_flat);
 
     // 5. Sparsity pattern from host-side tet_edge_idx.
     let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
@@ -425,10 +418,11 @@ fn build_slot_idx_parallel(pattern: &SparsityPattern, tet_edge_idx: &[[u32; 6]])
 /// Host-side scatter map from per-element local 6×6 entries to slots of
 /// the sorted global [`SparsityPattern`] (issue #218).
 ///
-/// The dense assemblers in this module scatter into a flat
-/// `[n_edges * n_edges]` tensor with `row * n_edges + col` linear
-/// indices, which (a) overflows Burn's i32 Int index for
-/// `n_edges > 46_340` and (b) costs O(n_edges²) memory. This map
+/// The dense assemblers in this module scatter into a dense
+/// `[n_edges, n_edges]` tensor with `row * n_edges + col` linear
+/// indices, which costs O(n_edges²) memory (and, before issue #1011
+/// split the scatter into row blocks, overflowed Burn's i32 Int index
+/// for `n_edges > 46_340`). This map
 /// precomputes, for every `(element, i, j)` local entry, the index of
 /// its `(row, col)` pair in the sorted pattern, so the same
 /// autodiff-preserving 1-D `scatter(0, …, Add)` can target a flat
@@ -587,8 +581,7 @@ fn scatter_to_pattern_vals<B: Backend>(
 /// flat `[nnz]` Burn value tensor aligned with the sorted
 /// [`SparsityPattern`] of the [`NedelecScatterMap`] it was assembled
 /// through, instead of a dense `[n_edges, n_edges]` matrix. Peak memory
-/// is O(nnz), and no i32 linear-index overflow occurs for
-/// `n_edges > 46_340`.
+/// is O(nnz) rather than O(n_edges²).
 #[derive(Debug, Clone)]
 pub struct NedelecSparseComplexSystem<B: Backend> {
     /// Curl-curl stiffness values (real), `[nnz]` in pattern order.
@@ -1122,8 +1115,7 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
     let m_signed = m_local_scaled.mul(sign_outer);
 
     // 3. Build flat linear indices.
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
-    let n_edges_i32 = n_edges as i32;
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 36);
     for row in tet_edge_idx {
         // Per-element hot loop: guard the signed local edge-matrix stack
         // `[n_elem, 6, 6]` under exponential backoff (see
@@ -1135,26 +1127,18 @@ pub fn assemble_global_nedelec_with_epsilon<B: Backend>(
         );
         for i in 0..6 {
             for j in 0..6 {
-                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+                pairs.push([row[i], row[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_edges, &device);
 
     // 4. Scatter-add into a flat zero tensor.
     let k_flat = k_signed.reshape([n_elem * 36]);
     let m_flat = m_signed.reshape([n_elem * 36]);
 
-    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
-    let k_flat_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
-    let m_flat_assembled = zeros_flat.scatter(0, flat_indices, m_flat, IndexingUpdateOp::Add);
-
-    let k = k_flat_assembled.reshape([n_edges, n_edges]);
-    let m = m_flat_assembled.reshape([n_edges, n_edges]);
+    let k = scatter.scatter_add(k_flat);
+    let m = scatter.scatter_add(m_flat);
 
     let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
 
@@ -1228,8 +1212,7 @@ pub fn assemble_global_nedelec_with_nu<B: Backend>(
     let m_signed = local.m_local.mul(sign_outer);
 
     // 3. Flat linear indices.
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
-    let n_edges_i32 = n_edges as i32;
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 36);
     for row in tet_edge_idx {
         assert_shape_contract_periodically!(
             NEDELEC_LOCAL_MATRIX_CONTRACT,
@@ -1238,24 +1221,17 @@ pub fn assemble_global_nedelec_with_nu<B: Backend>(
         );
         for i in 0..6 {
             for j in 0..6 {
-                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+                pairs.push([row[i], row[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_edges, &device);
 
     // 4. Scatter-add into flat zero tensors.
     let k_flat = k_signed.reshape([n_elem * 36]);
     let m_flat = m_signed.reshape([n_elem * 36]);
-    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
-    let k_flat_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
-    let m_flat_assembled = zeros_flat.scatter(0, flat_indices, m_flat, IndexingUpdateOp::Add);
-    let k = k_flat_assembled.reshape([n_edges, n_edges]);
-    let m = m_flat_assembled.reshape([n_edges, n_edges]);
+    let k = scatter.scatter_add(k_flat);
+    let m = scatter.scatter_add(m_flat);
 
     let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
     NedelecGlobalSystem { k, m, sparsity }
@@ -1761,8 +1737,7 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
     let m_im_signed = m_local_im.mul(sign_outer);
 
     // 3. Flat scatter indices.
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
-    let n_edges_i32 = n_edges as i32;
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 36);
     for row in tet_edge_idx {
         // Per-element hot loop: guard the signed local edge-matrix stack
         // `[n_elem, 6, 6]` under exponential backoff (see
@@ -1774,32 +1749,16 @@ pub fn assemble_global_nedelec_with_anisotropic_epsilon<B: Backend>(
         );
         for i in 0..6 {
             for j in 0..6 {
-                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+                pairs.push([row[i], row[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_edges, &device);
 
-    // 4. Scatter-add into flat zero tensors.
-    let k_flat = k_signed.reshape([n_elem * 36]);
-    let m_re_flat = m_re_signed.reshape([n_elem * 36]);
-    let m_im_flat = m_im_signed.reshape([n_elem * 36]);
-
-    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
-    let k_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), k_flat, IndexingUpdateOp::Add);
-    let m_re_assembled =
-        zeros_flat
-            .clone()
-            .scatter(0, flat_indices.clone(), m_re_flat, IndexingUpdateOp::Add);
-    let m_im_assembled = zeros_flat.scatter(0, flat_indices, m_im_flat, IndexingUpdateOp::Add);
-
-    let k = k_assembled.reshape([n_edges, n_edges]);
-    let m_re = m_re_assembled.reshape([n_edges, n_edges]);
-    let m_im = m_im_assembled.reshape([n_edges, n_edges]);
+    // 4. Scatter-add into zero dense matrices.
+    let k = scatter.scatter_add(k_signed.reshape([n_elem * 36]));
+    let m_re = scatter.scatter_add(m_re_signed.reshape([n_elem * 36]));
+    let m_im = scatter.scatter_add(m_im_signed.reshape([n_elem * 36]));
 
     let sparsity = sparsity_pattern_from_tet_edges(tet_edge_idx);
 
@@ -1986,8 +1945,7 @@ pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
     let sign_outer = sign_row.mul(sign_col);
 
     // 3. Flat scatter indices (shared by all four matrices).
-    let mut linear_idx: Vec<i32> = Vec::with_capacity(n_elem * 36);
-    let n_edges_i32 = n_edges as i32;
+    let mut pairs: Vec<[u32; 2]> = Vec::with_capacity(n_elem * 36);
     for row in tet_edge_idx {
         // Per-element hot loop: guard one representative local edge-matrix
         // stack `[n_elem, 6, 6]` (the four weighted locals share this shape)
@@ -1999,26 +1957,16 @@ pub fn assemble_global_nedelec_with_full_tensors<B: Backend>(
         );
         for i in 0..6 {
             for j in 0..6 {
-                linear_idx.push(row[i] as i32 * n_edges_i32 + row[j] as i32);
+                pairs.push([row[i], row[j]]);
             }
         }
     }
-    let flat_indices =
-        Tensor::<B, 1, Int>::from_data(TensorData::new(linear_idx, [n_elem * 36]), &device);
+    let scatter = DenseScatter::<B>::new(&pairs, n_edges, &device);
 
-    // 4. Scatter-add each signed local matrix into a flat zero tensor.
-    let zeros_flat = Tensor::<B, 1>::zeros([n_edges * n_edges], &device);
+    // 4. Scatter-add each signed local matrix into a zero dense matrix.
     let scatter_one = |local: Tensor<B, 3>| -> Tensor<B, 2> {
         let signed = local.mul(sign_outer.clone());
-        zeros_flat
-            .clone()
-            .scatter(
-                0,
-                flat_indices.clone(),
-                signed.reshape([n_elem * 36]),
-                IndexingUpdateOp::Add,
-            )
-            .reshape([n_edges, n_edges])
+        scatter.scatter_add(signed.reshape([n_elem * 36]))
     };
 
     let k_re = scatter_one(k_local_re);

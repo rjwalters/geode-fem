@@ -341,3 +341,82 @@ fn gather_tet_coords_wrong_arity_fires_contract() {
     let bad_tets = Tensor::<B, 2, Int>::from_data(TensorData::new(vec![0i32, 1, 2], [1, 3]), &dev);
     let _ = gather_tet_coords(nodes, bad_tets);
 }
+
+/// Issue #1011 regression: `cube_tet_mesh(35, ..)` has 46_656 nodes, the
+/// smallest cube past `n_dof = 46_340` where the old flat
+/// `row * n_dof + col` scatter index overflowed `i32` and P1 assembly
+/// panicked with `ndarray: index out of bounds`. Assemble it and check
+/// every entry of the last 656 rows (the second scatter block, rows
+/// `>= 2^31 / 46_656 = 46_028`, which only the row-blocked path writes)
+/// plus the first 8 rows against the CPU reference, and the total mass.
+///
+/// `#[ignore]`: the dense `[46_656, 46_656]` f64 `K` and `M` are ~17 GB
+/// each, so the test needs ~40 GB of RAM (39 GB peak RSS measured, 44 s); it is not run in CI (see
+/// `scripts/ci-test-coverage-ignored-allowlist.txt`). Run it in release:
+/// `cargo test -p geode-core --release --test assembly -- --ignored
+/// p1_assembly_past_i32_linear_index_limit_1011`.
+#[test]
+#[ignore = "needs ~40 GB RAM (dense 46_656^2 f64 K and M); run in release"]
+fn p1_assembly_past_i32_linear_index_limit_1011() {
+    let mesh = cube_tet_mesh(35, 1.0);
+    let n = mesh.n_nodes();
+    assert_eq!(n, 46_656);
+    assert!(
+        n * n > i32::MAX as usize,
+        "fixture must sit past the old limit"
+    );
+
+    let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
+    let sys = assemble_global_p1(nodes, tets, n);
+    assert_eq!(sys.k.dims(), [n, n]);
+    assert_eq!(sys.m.dims(), [n, n]);
+
+    // Sparse CPU reference over the rows checked below.
+    let checked = |r: usize| !(8..46_000).contains(&r);
+    let mut k_ref = std::collections::HashMap::<(usize, usize), f64>::new();
+    let mut m_ref = std::collections::HashMap::<(usize, usize), f64>::new();
+    for tet in &mesh.tets {
+        let verts = tet.map(|i| mesh.nodes[i as usize]);
+        let (ke, me) = cpu_p1_local(&verts);
+        for i in 0..4 {
+            let r = tet[i] as usize;
+            if !checked(r) {
+                continue;
+            }
+            for j in 0..4 {
+                let c = tet[j] as usize;
+                *k_ref.entry((r, c)).or_default() += ke[i][j];
+                *m_ref.entry((r, c)).or_default() += me[i][j];
+            }
+        }
+    }
+
+    for rows in [0..8, 46_000..n] {
+        let r0 = rows.start;
+        let n_rows = rows.len();
+        let k: Vec<f64> = readback_f64(sys.k.clone().slice([rows.clone(), 0..n]));
+        let m: Vec<f64> = readback_f64(sys.m.clone().slice([rows, 0..n]));
+        for dr in 0..n_rows {
+            for c in 0..n {
+                let key = (r0 + dr, c);
+                let (kw, mw) = (
+                    k_ref.get(&key).copied().unwrap_or(0.0),
+                    m_ref.get(&key).copied().unwrap_or(0.0),
+                );
+                let (kg, mg) = (k[dr * n + c], m[dr * n + c]);
+                assert!(
+                    (kg - kw).abs() <= 1e-9 * kw.abs().max(1.0),
+                    "K{key:?} = {kg}, reference {kw}"
+                );
+                assert!(
+                    (mg - mw).abs() <= 1e-9 * mw.abs().max(1e-6),
+                    "M{key:?} = {mg}, reference {mw}"
+                );
+            }
+        }
+    }
+
+    // Σ_ij M_ij = ∫ 1 dV = 1 over the whole unit cube.
+    let total: f64 = readback_f64(sys.m.sum())[0];
+    assert!((total - 1.0).abs() < 1e-9, "total mass {total}");
+}

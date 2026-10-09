@@ -85,7 +85,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
 /// confirming other-order solve when the face has a candidate pair.
 fn check_warnings(p: &Problem) -> Vec<crate::report::WarningResult> {
     let mut warnings = p.preconditioner_warnings();
-    let (notes, unavailable) = crate::driven::wave_port_degeneracy_warnings(p);
+    let (notes, unavailable) = crate::driven::wave_port_degeneracy_warnings(p, None);
     for w in &unavailable {
         eprintln!("warning: {}", w.message);
     }

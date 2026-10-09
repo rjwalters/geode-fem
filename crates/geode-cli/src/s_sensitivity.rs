@@ -67,6 +67,7 @@ use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder};
 
 use crate::backend::CompiledBackend;
 use crate::error::CliError;
+use crate::port_solves::PortSolves;
 use crate::problem::{ObservableDef, Problem, SensitivityParameter, SensitivityTarget};
 use crate::progress::SweepOptions;
 use crate::report::{
@@ -261,22 +262,19 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
 /// The spec's wave ports as library [`WavePortSpec`]s, exactly as the
 /// shipped sweep builds them (geometric ports at their constant fill, hybrid
 /// ports with the accuracy estimate off — it is a diagnostic, not part of S).
-fn wave_specs(p: &Problem) -> Result<Vec<WavePortSpec>, CliError> {
+/// Geometric ports are the run's shared face solves (issue #952).
+fn wave_specs(p: &Problem, solves: &PortSolves<'_>) -> Result<Vec<WavePortSpec>, CliError> {
     p.wave_ports
         .iter()
-        .map(|w| match &w.hybrid {
+        .enumerate()
+        .map(|(k, w)| match &w.hybrid {
             Some(h) => {
                 let mut port = crate::hybrid::hybrid_port(w, h);
                 port.opts.accuracy = None;
                 Ok(WavePortSpec::from(port))
             }
             None => {
-                let mut port = w.projection.wave_port(&p.edges, &w.a_inc).map_err(|err| {
-                    CliError::WavePort {
-                        name: w.surface.name.clone(),
-                        err,
-                    }
-                })?;
+                let mut port = solves.wave_port(k)?;
                 port.medium = p.port_medium(w);
                 Ok(WavePortSpec::Geometric(port))
             }
@@ -293,11 +291,12 @@ fn library_sweep(
     design: &SDesign,
     omegas: &[f64],
     port_modes: bool,
+    solves: &PortSolves<'_>,
 ) -> Result<SSensitivitySweep, CliError> {
     let mesh = &p.tagged.mesh;
     let lumped = crate::driven::lumped_ports(p);
     let walls = crate::driven::impedance_walls(p);
-    let wave = wave_specs(p)?;
+    let wave = wave_specs(p, solves)?;
     let bcs = DrivenBcs {
         pec_interior_mask: &p.pec_mask,
     };
@@ -481,7 +480,11 @@ fn wave_channel(p: &Problem, k: usize, mode: usize) -> usize {
 /// as `--touchstone` classification does, so the run fails before the
 /// expensive solve. `Ok(())` when every `z0` observable has a line
 /// impedance at every selected frequency.
-pub fn line_impedance_error(p: &Problem, sens: &SensitivityTarget) -> Result<(), CliError> {
+pub fn line_impedance_error(
+    p: &Problem,
+    sens: &SensitivityTarget,
+    solves: &PortSolves<'_>,
+) -> Result<(), CliError> {
     let mut ports: Vec<usize> = sens
         .observables
         .iter()
@@ -495,7 +498,8 @@ pub fn line_impedance_error(p: &Problem, sens: &SensitivityTarget) -> Result<(),
         let Some(h) = w.hybrid.as_ref() else {
             continue;
         };
-        let sweep = crate::hybrid::face_sweep(p, k, false)?;
+        // Shared with `--touchstone` classification (issue #952).
+        let sweep = solves.hybrid_face_sweep(k)?;
         for o in sens
             .observables
             .iter()
@@ -1195,7 +1199,8 @@ fn forward_rows(q: &Problem, jobs: usize) -> Result<Vec<FrequencyResult>, CliErr
     Ok(if q.wave_ports.is_empty() {
         crate::driven::sweep(q, None, "driven", opts)?.0
     } else {
-        crate::driven::wave_sweep(q, opts)?.0
+        // `q`'s own face solves: a perturbed problem is not the run's.
+        crate::driven::wave_sweep(q, opts, &PortSolves::new(q))?.0
     })
 }
 
@@ -1207,6 +1212,7 @@ pub fn driven(
     sens: &SensitivityTarget,
     rows: &[FrequencyResult],
     jobs: usize,
+    solves: &PortSolves<'_>,
 ) -> Result<SensitivityReport, CliError> {
     let t0 = Instant::now();
     let d = design(p, sens)?;
@@ -1219,7 +1225,7 @@ pub fn driven(
     };
     let omegas: Vec<f64> = solved.iter().map(|&i| p.frequencies[i].k0).collect();
     let port_modes = sens.observables.iter().any(|o| o.wave_port.is_some());
-    let sw = library_sweep(p, &d.sdesign, &omegas, port_modes)?;
+    let sw = library_sweep(p, &d.sdesign, &omegas, port_modes, solves)?;
     let n_lib = sw.params.len();
     let point_of = |fi: usize| -> &geode_core::driven::s_sensitivity::SSensitivityPoint {
         let at = solved.iter().position(|&s| s == fi).expect("solved");

@@ -88,8 +88,18 @@ against 8 threads). Above 1 means the geode cell took less.
 | | 8 | 26.7 (26.7–26.7) | 38.1 | 29.1 / 40.7 | 1.18; 6.62 | 0.83; 4.67 |
 | 6 @ 20 GHz ("shift", oracle-tuned) | 1 | 30.9 (30.8–30.9) | 30.8 | 33.2 / 33.2 | 5.68; 5.68 | 3.31; 3.31 |
 | | 8 | 25.2 (25.0–25.3) | 36.6 | 27.3 / 38.9 | 1.25; 6.89 | 0.88; 4.86 |
-| 8 @ 4.5 GHz, port-aware (returns 2 non-physical modes, #950) | 1 | 63.1 (63.1–63.2) | 63.1 | 67.3 / 67.2 | 2.78; 2.78 | 1.62; 1.62 |
+| 8 @ 4.5 GHz, port-aware (#514 route, now `port_aware_extract`; returned 2 non-physical modes) | 1 | 63.1 (63.1–63.2) | 63.1 | 67.3 / 67.2 | 2.78; 2.78 | 1.62; 1.62 |
 | | 8 | 47.1 (46.9–47.3) | 85.9 | 51.1 / 91.7 | 0.67; 2.94 | 0.47; 2.07 |
+
+The port-aware row is the issue #514 route as it stood at geode `8367ee7b` (and
+`61e8571e` for PR #964), before PR #1002. PR #1002 (#950) renamed that route
+`GEODE_GAUGE=port_aware_extract` and gave the name `port_aware` to a
+single-factorization port-subspace projection. That route returns the six
+physical modes for a 7-mode request, alongside one non-physical mode: the
+3.45 GHz port mode (#1003). It has not been timed on m6i; its local single-thread
+numbers are `[issue_950]` in
+[`results_like_for_like_local.toml`](results_like_for_like_local.toml). The
+times in this table are not re-run.
 
 The historical request (6 @ 4.5 GHz) returns 1 of the 6 modes. It was re-run for
 continuity at 30.9 s and 25.2 s (1 and 8 threads) and is in the TOML, not in
@@ -110,7 +120,9 @@ fewer core-seconds, by 1.62× to 6.89×.
   construction (cpu_percent 799 at 8 ranks). The core-second ratios overstate
   the CPU work Palace needs.
 - The two oracle-tuned geode requests need the Palace answer to set them up.
-  The port-aware request still returns two non-physical modes (#950).
+  The port-aware request timed here (the #514 route) returned two non-physical
+  modes. The current `port_aware` route (PR #1002) returns one, the 3.45 GHz
+  port mode, which is tracked in #1003.
 - `Save = 0` removes Palace's field output, not its error estimator. geode has
   no counterpart for the estimator.
 - One mesh (133k DOFs). Nothing here says anything about other sizes; the
