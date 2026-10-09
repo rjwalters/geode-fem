@@ -205,8 +205,9 @@ and committed baselines; none are new measurements.
   mass); fixtures [`fixtures/sphere_mie/baseline.json`](fixtures/sphere_mie/baseline.json)
   (full mesh) + [`fixtures/sphere_mie_small/baseline.json`](fixtures/sphere_mie_small/baseline.json);
   test `sphere_mie_numpy_reference.rs`. Full-mesh Burn-vs-NumPy physical band
-  max |Δλ| = 8.2e-7; TM₁,₁ at 5.69 % of the analytic anchor (full) / 6.59 %
-  (small) vs k = 1.30343
+  max |Δλ| = 8.2e-7; TM₁,₁ at 3.56 % of the analytic anchor (full) / 17.0 %
+  (small) vs k = 1.18710 (anchor corrected in #986; was 5.69 % / 6.59 % vs
+  the pre-#986 k = 1.30343)
   ([PR #179](https://github.com/rjwalters/geode-fem/pull/179)).
 - **JAX** — [`jax/sphere_mie.py`](jax/sphere_mie.py) (BCOO[complex128]
   scatter — friction artifact 12; tensor-ε autodiff probe clean, zero custom

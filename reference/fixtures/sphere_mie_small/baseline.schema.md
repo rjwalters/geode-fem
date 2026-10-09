@@ -43,11 +43,16 @@ points at `reference/fixtures/sphere_pml_small/sphere.msh` (48 nodes /
   stored physical modes would cut into the next band; positions [3, 4]
   are still compared (dense-vs-dense sees the whole spectrum) but are
   outside the closed-cluster claim.
-- **J.1 analytic anchor**: `analytic_tm11_k ≈ 1.3034341302750476`
-  re-exported from the Phase J.1 catalogue. The lowest physical mode's
-  `Re(k) ≈ 1.38929` classifies as TM_1,1 at **6.59 %** relative error
-  — inside the documented 8 % coarse-mesh acceptance band of
-  `mie_sphere.rs`.
+- **J.1 analytic anchor**: `analytic_tm11_k ≈ 1.1870945924547518`
+  re-exported from the Phase J.1 catalogue (checked at 1e-9 against
+  live `merged_roots`). The lowest physical mode's `Re(k) ≈ 1.38929`
+  classifies (nearest root) as TM_1,1 at **17.0 %** relative error.
+  That figure is recorded in `tm11_rel_err_lowest` but **not
+  asserted**: this 48-node mesh is a cross-language agreement fixture,
+  not an accuracy fixture; the accuracy band (5 %) lives on the full
+  mesh (`sphere_mie/`). Before issue #986 corrected the analytic roots
+  the anchor was 1.30343, the error read 6.59 %, and an 8 % band was
+  asserted — it passed only because the reference was wrong.
 - **Q tripwire**: `q_factor_lowest_physical ≈ 264.6` and
   `q_median_tm11_triplet ≈ 288.2`, both far above the
   `Q_LOWER_BAND_TM11 = 1.5` PML-misconfiguration tripwire (σ₀ drift /
@@ -83,9 +88,9 @@ faer QZ agree on it. Q stays sign-agnostic
 | `eigenvalues_lowest_complex`    | `[39]` | `c128` | `5e-4` (on `|Δ|`) | Lowest `spurious_dim + 8` eigenvalues, `|Re(λ)|` ascending.         |
 | `physical_eigenvalues_complex`  | `[5]`  | `c128` | `1e-4` (on `|Δ|`) | Lowest 5 physical modes. `Im(λ) < 0` (see sign note).               |
 | `strict_mode_window_len`        | `[1]`  | `f64`  | `0.5` absolute    | Closed TM_1,1 triplet window (= 3, #160 cluster closure).           |
-| `analytic_tm11_k`               | `[1]`  | `f64`  | `1e-9` absolute   | J.1 catalogue TM_1,1 root (the 8 % acceptance anchor).              |
+| `analytic_tm11_k`               | `[1]`  | `f64`  | `1e-9` absolute   | J.1 catalogue TM_1,1 root (≈ 1.18710; re-export check only).        |
 | `lowest_physical_re_k`          | `[1]`  | `f64`  | `1e-4` absolute   | `Re(√λ)` of the lowest physical mode (≈ 1.38929).                   |
-| `tm11_rel_err_lowest`           | `[1]`  | `f64`  | `1e-4` absolute   | Relative error vs analytic TM_1,1 (≈ 0.0659; must stay < 0.08).     |
+| `tm11_rel_err_lowest`           | `[1]`  | `f64`  | `1e-4` absolute   | Relative error vs analytic TM_1,1 (≈ 0.1703; recorded, not gated).  |
 | `q_factor_lowest_physical`      | `[1]`  | `f64`  | `5.0` absolute    | Q of lowest mode (≈ 264.6). See tolerance note below.               |
 | `q_median_tm11_triplet`         | `[1]`  | `f64`  | `5.0` absolute    | Triplet median Q (≈ 288.2; mirrors the Burn-side Q-band test).      |
 | `sigma_zero_lowest_physical_re` | `[1]`  | `f64`  | `5e-5` absolute   | Lowest physical Re(λ) at σ₀ = 0 (PEC collapse anchor).              |

@@ -8,7 +8,9 @@
 //!
 //! Acceptance is the benchmark's existing bound: each of the lowest 5
 //! physical modes pairs to an analytic PEC-cavity Mie root
-//! ([`geode_core::analytic::mie::merged_roots`]) within 15 % on `k`.
+//! ([`geode_core::analytic::mie::merged_roots`]) within 2 % on `k`
+//! (measured 0.16–0.41 %; tightened from 15 % in issue #986, which
+//! corrected the analytic PEC-cavity roots).
 
 use burn::tensor::backend::BackendTypes;
 use geode_core::analytic::mie::merged_roots;
@@ -70,7 +72,7 @@ fn sphere_pec_cavity_sparse_matches_mie_roots() {
             m.residual_rel
         );
         assert!(
-            rel <= 0.15,
+            rel <= 0.02,
             "mode {i}: k = {} is {:.2}% off",
             m.k0,
             100.0 * rel

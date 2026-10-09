@@ -21,8 +21,10 @@ Q tripwires, σ₀ = 0 anchor) — so the Rust cross-IR test
 
 # Generation-time gates (all THROW on violation)
 
-  1. Lowest physical mode classifies as TM_1,1 against the J.1 analytic
-     catalogue and sits inside the documented 8 % coarse-mesh band.
+  1. (Recorded, not a gate since issue #986.) The lowest physical mode's
+     relative error vs the J.1 TM_1,1 root — 17.0 % on this 48-node
+     mesh — is written to the fixture but not asserted: this is a
+     cross-language agreement fixture; the accuracy band is full-mesh.
   2. Q tripwire: lowest-mode Q and TM_1,1-triplet median Q > 1.5
      (`Q_LOWER_BAND_TM11` from mie_sphere.rs).
   3. Cluster closure (#160): the strict window (first 3 physical modes —
@@ -64,8 +66,8 @@ const MIE_ROOTS_BASELINE_PATH::String =
     joinpath(@__DIR__, "..", "fixtures", "mie_roots", "baseline.json")
 
 # Burn-side acceptance constants mirrored from
-# crates/geode-core/tests/mie_sphere.rs (and the NumPy generator).
-const TM11_REL_TOL::Float64 = 0.08
+# crates/geode-core/tests/mie_sphere.rs (and the NumPy generator). No TM_1,1
+# accuracy band on the small mesh since issue #986.
 const Q_LOWER_BAND_TM11::Float64 = 1.5
 
 # Strict cross-IR window (#160 cluster closure): the TM_1,1 triplet.
@@ -203,15 +205,12 @@ function main_gen_mie_small()
             "anisotropic-pencil sign regression (expected Im(λ) < 0)")
     end
 
-    # Gate 1: TM_1,1 classification + 8 % band.
+    # TM_1,1 relative error: recorded, not asserted (issue #986).
     analytic_tm11_k = load_analytic_tm11_k(MIE_ROOTS_BASELINE_PATH)
     lowest_re_k = real(result.physical_ks[1])
     rel_err_tm11 = abs(lowest_re_k - analytic_tm11_k) / analytic_tm11_k
     @printf("  lowest mode vs analytic TM_1,1 (k = %.6f): rel err = %.2f%%\n",
             analytic_tm11_k, rel_err_tm11 * 100)
-    rel_err_tm11 < TM11_REL_TOL || error(
-        "lowest mode rel err $(rel_err_tm11 * 100)% exceeds the documented " *
-        "$(TM11_REL_TOL * 100)% Burn-side acceptance band")
 
     # Gate 2: Q tripwire — lowest mode + TM_1,1-triplet median.
     q_lowest = result.q_factor_lowest_physical
@@ -284,7 +283,8 @@ function main_gen_mie_small()
             "interior pencil per the #160 tiebreaker pattern — Arpack " *
             "shift-invert avoided (lossy-cluster saturation). Anchored to " *
             "the J.1 analytic catalogue: lowest mode is the mesh-split " *
-            "TM_1,1 triplet's leading member at ~6.6% of k ≈ 1.30343. " *
+            "TM_1,1 triplet's leading member at 17.0% of k ≈ 1.18710 " *
+            "(recorded, not asserted; issue #986). " *
             "Strict cross-IR window = first 3 physical modes (closed " *
             "TM_1,1 triplet, #160 cluster-closure convention). Sign note: " *
             "physical Im(λ) < 0 on this small mesh's tensor pencil " *
@@ -452,8 +452,9 @@ function main_gen_mie_small()
                 "shape" => [1], "dtype" => "f64",
                 "description"   =>
                     "Relative error of the lowest physical Re(k) vs the " *
-                    "analytic TM_1,1 root. Must stay below the documented " *
-                    "8% coarse-mesh band (mie_sphere.rs).",
+                    "analytic TM_1,1 root (17.0% on this 48-node mesh). " *
+                    "Documented, not asserted: the coarse mesh is a " *
+                    "cross-language agreement fixture (issue #986).",
                 "tolerance_abs" => RE_K_TOL_ABS,
                 "data"          => [rel_err_tm11],
             ),
