@@ -2870,7 +2870,8 @@ impl DrivenOperator {
     /// and [`DrivenError::Solve`] (wrapping the Krylov error) for
     /// iteration breakdown or non-convergence — including the
     /// recursive-residual drift case where COCG's recursive residual met
-    /// the tolerance but the explicit residual did not (issue #744). A zero RHS is treated
+    /// the tolerance but the explicit residual did not, even after
+    /// residual replacement (issues #744, #943). A zero RHS is treated
     /// as a trivial all-zero solution (one iteration recorded) rather
     /// than an error — to match the direct path's
     /// `zero_source_gives_zero_field` semantics.
@@ -2912,6 +2913,7 @@ impl DrivenOperator {
                     iters: 0,
                     residual_rel: 0.0,
                     converged: true,
+                    replacements: 0,
                 },
             ));
         }
@@ -3161,7 +3163,12 @@ pub struct BackSolveReport {
 /// `Ok(KspReport { converged: false, .. })` in exactly one situation:
 /// the recursively-maintained residual crossed `tol` but the true
 /// residual recomputed with an explicit SpMV did not (recursive-residual
-/// drift on an ill-conditioned / poorly-preconditioned system).
+/// drift on an ill-conditioned / poorly-preconditioned system), and
+/// residual replacement (issue #943) could not repair it — either the
+/// replacement cap was spent or a replacement failed to reduce the
+/// explicit residual. A drift of a hair above `tol` is no longer a
+/// failure: the solver replaces the recursive residual with the explicit
+/// one and iterates on until the explicit residual meets `tol`.
 /// Max-iteration exhaustion is already an `Err(KspError::NotConverged)`.
 /// Accepting the drift case would report a `Z`/`S` value from an
 /// unconverged field as success, so every driven iterative back-solve
@@ -3176,10 +3183,11 @@ fn require_converged(
         Err(DrivenError::Solve(format!(
             "{path}: Krylov solve did not converge — the recursive residual met the \
              tolerance after {} iterations but the explicitly recomputed residual \
-             ‖Ax − b‖/‖b‖ = {:.3e} did not (recursive-residual drift; loosen solver.tol \
-             to a level the explicit residual can reach, use a stronger \
-             preconditioner, or use solver.mode = \"direct\")",
-            report.iters, report.residual_rel
+             ‖Ax − b‖/‖b‖ = {:.3e} did not, even after {} residual replacement(s) \
+             (recursive-residual drift; loosen solver.tol to a level the explicit \
+             residual can reach, use a stronger preconditioner, or use \
+             solver.mode = \"direct\")",
+            report.iters, report.residual_rel, report.replacements
         )))
     }
 }
@@ -4787,6 +4795,9 @@ mod tests {
             .solve(a.as_ref(), &b, &mut x, &pc)
             .expect("COCG returns Ok in the drift case");
         assert!(!raw.converged, "fixture must drift: {raw:?}");
+        // Issue #943: residual replacement was tried and could not
+        // reach a sub-rounding-floor tol, so the failure is honest.
+        assert!(raw.replacements >= 1, "{raw:?}");
         assert!(raw.iters < max_iters, "{raw:?}");
         assert!(raw.residual_rel > tol, "{raw:?}");
 
