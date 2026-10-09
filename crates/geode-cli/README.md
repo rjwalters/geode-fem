@@ -836,6 +836,9 @@ work):
   strip-edge cell size that would meet it — grade the mesh toward the
   conductor edges. A missing estimate (refined solve failed, no refined
   match, a degenerate cluster) raises `impedance_accuracy_unavailable`.
+  A channel with **no net conductor current** (`line.no_net_current`,
+  below) has no line impedance, so it gets no estimate and none of these
+  warnings, only `no_net_conductor_current`.
   **The shield is part of the design**: a shielded line's `Z₀` depends on
   its box (a `w/h = 1.9`, `ε_r = 4.4` microstrip sits about −3.3 % below
   the open-line Hammerstad–Jensen value in an `8h × 5h` box, −1 % in
@@ -844,8 +847,12 @@ work):
 - every warning is in the report's `warnings[]` (`kind`, `wave_port`,
   `physical_group`, `message`) and on stderr (`warning: wave port
   `<group>`: …`): complex pairs, accuracy, uncertified multiplicity of a
-  repeated eigenvalue, non-canonical cluster bases, cluster splits, and
-  the measured passivity of a lossy spec.
+  repeated eigenvalue, non-canonical cluster bases, cluster splits,
+  `no_net_conductor_current` (issue #953: a channel whose conductor
+  currents cancel to round-off — a TE / TM waveguide mode of the face,
+  such as a coax TE₁₁ — so `Z_PI` / `Z_VI` are undefined; raised once, at
+  the first frequency, and not a mesh problem: refining does not change
+  it), and the measured passivity of a lossy spec.
 
 **Line impedance** (`wave_ports[].impedance_definition`). A face with a
 floating conductor reports, per channel per row,
@@ -869,6 +876,26 @@ impedances are complex (unconjugated `Z_PI = 2P/Σ I_c²`: for a TEM line
 `√((R + jωL)/(G + jωC))`). The TE wave impedance `Z_TE` is never offered
 for a hybrid port: for microstrip it is about `η₀/√ε_eff`, not ~50 Ω, and
 predicts step reflections 14–19× too small.
+
+**No net conductor current** (issue #953). A face with a floating
+conductor can also carry waveguide (TE / TM) modes whose conductor
+currents cancel: a coax above its TE₁₁ cutoff (`k₀ = 2.5` on
+`guide_coax_lc018_015.msh`) reports the TEM line mode and two TE₁₁
+channels per port. `line.no_net_current` is `true` when **every**
+conductor's discrete-Ampère sum is at or below its a-priori
+floating-point round-off bound (no tuned constant; tested per conductor,
+so the odd mode of a coupled pair, with opposite non-zero currents, keeps
+its impedance). Such a channel is not a line mode: `line.z_pi_ohm`,
+`line.z_vi_ohm`, `z_line_ohm`, `z_line_accuracy` and `coupled_mode` are
+`null` (before #953 `Z_PI` was a round-off ratio of about `1e31 Ω` with a
+"refine 100000×" warning), and `line.z_pv_ohm` stays, as a
+path-dependent diagnostic of the waveguide mode only, not a line
+impedance. The channel's `β`, `eps_eff` and modal S are unaffected. It
+raises one `no_net_conductor_current` warning. `--touchstone` rejects
+such a propagating channel ([Hybrid wave
+ports](#hybrid-wave-ports-issue-807)), and a `z0` sensitivity observable
+on it is an `invalid_spec` error ([N-port driven
+sensitivities](#n-port-driven-sensitivities-issue-883)).
 
 **Per-channel report** (`results[].wave_channels[]`, every wave port;
 additive): `eps_eff = (Re β/k₀)²` for a propagating channel;
@@ -1417,7 +1444,14 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   (`power_current` by default) and `eps_eff = β²/k₀²`, both of a hybrid
   port's reported channel `mode` (default `0`; `real` by default, `imag`
   and `mag` too): face quantities of Epic #841 Phase 3a's 2-D derivative,
-  which only parameters that touch the port face move.
+  which only parameters that touch the port face move. A `z0` on a
+  channel with **no net conductor current** (`line.no_net_current`, a
+  TE / TM waveguide mode such as a coax TE₁₁; issue #953) is an
+  `invalid_spec` error naming the port and mode: the channel has no line
+  impedance (its report `z_line_ohm` is `null`), so differentiate its
+  `eps_eff` or an S entry instead, or observe `z0` on the line (TEM /
+  quasi-TEM) channel. It is raised from a face-only solve of the port,
+  before the 3-D sweep.
 - **Limitations of the values.** `db` (and `mag`) of an entry at the
   mesh's reflection floor — `S11` of a matched line, −68 dB in the
   microstrip cookbook — is discretization residue: its gradient is exact
@@ -2249,7 +2283,13 @@ microstrip mode it is about `η₀/√ε_eff` (≈ 207 Ω for a 50 Ω line on
 predicted from it are 14–19× too small. A hybrid port **without** a
 floating conductor (a partially filled waveguide) has no line impedance,
 so `--touchstone` rejects it with `invalid_spec`; its modal S is in the
-JSON report. A file with hybrid channels states the convention in its
+JSON report. Likewise a **propagating** channel with no net conductor
+current (`line.no_net_current`, a TE / TM waveguide mode such as a coax
+TE₁₁ above its cutoff; issue #953) has no line impedance to renormalize
+to, and it cannot be excluded (a propagating mode must be a channel), so
+`--touchstone` rejects it with `invalid_spec` from the face-only
+classification, before the 3-D sweep: keep the sweep below its cutoff
+for a Touchstone file, or use the JSON report's modal `results[].s`. A file with hybrid channels states the convention in its
 header (`! Hybrid wave channels (…): Z_c = the channel's line impedance
 under wave_ports[].impedance_definition …`, plus the `Z_TE` line when it
 also writes geometric channels).
