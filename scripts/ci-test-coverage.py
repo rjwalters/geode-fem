@@ -46,8 +46,10 @@ a feature gate), plus, unless `autobins = false`, `src/main.rs` (named after
 the package), `src/bin/*.rs` and `src/bin/*/main.rs`. A bin is selected by
 `--bins`, by `--bin <name>` (cargo globs honoured) for that bin only, by
 `--tests` / `--all-targets`, or by a command with no target selector at
-all; `--lib`, `--test X`, `--doc`, `--examples`, `--benches` alone skip it.
-Package selection and the partial-run rule are the lib target's: a
+all; `--lib`, `--test X`, `--doc`, `--examples` alone skip it.
+(`--benches` also runs the bin unit tests in cargo, since bins have
+`bench = true` by default; the guard does not count it, the same deliberate
+under-count as for the lib; issue #985.) Package selection and the partial-run rule are the lib target's: a
 name-filtered or `-- --ignored`-only run does not count, and its
 `#[ignore]`d tests are named by module path
 (`geode-cli/bin:geode::spec::tests::name`).
@@ -330,8 +332,12 @@ def bin_sources(crate_dir: Path) -> dict[str, tuple[Path, str | None]]:
     `[package] autobins = false`, the inferred bins `src/main.rs` (named
     after the package), `src/bin/*.rs` and `src/bin/*/main.rs`. An inferred
     bin whose name or file a `[[bin]]` section already claims is dropped,
-    as cargo does. A bin with `test = false` has no unit-test binary and is
-    skipped. gate is the bin's one `required-features` entry (cargo skips
+    as cargo does. A bin with `test = false` is skipped as a target: cargo
+    leaves it out of the default / `--tests` / `--all-targets` selections,
+    though `--bins` and `--bin NAME` still run its unit tests, so skipping it
+    can only under-count coverage (the fail-closed direction). `name` and
+    `path` may be basic (`"..."`) or literal (`'...'`) TOML strings;
+    multi-line strings and escapes are not modelled. gate is the bin's one `required-features` entry (cargo skips
     the bin when it is not enabled); more than one is not modelled and is
     an error.
     """
@@ -344,14 +350,14 @@ def bin_sources(crate_dir: Path) -> dict[str, tuple[Path, str | None]]:
     claimed_paths: set[Path] = set()
     for sec in re.finditer(r"^\[\[bin\]\][ \t]*$(.*?)(?=^\[|\Z)", text, re.M | re.S):
         body = sec.group(1)
-        nm = re.search(r'^\s*name\s*=\s*"([^"]+)"', body, re.M)
-        pm = re.search(r'^\s*path\s*=\s*"([^"]+)"', body, re.M)
+        nm = re.search(r'''^\s*name\s*=\s*(?:"([^"]+)"|'([^']+)')''', body, re.M)
+        pm = re.search(r'''^\s*path\s*=\s*(?:"([^"]+)"|'([^']+)')''', body, re.M)
         if not nm:
             sys.exit(f"ERROR: {crate_dir}/Cargo.toml has a [[bin]] without a `name`; "
                      "ci-test-coverage.py does not model that.")
-        name = nm.group(1)
+        name = nm.group(1) or nm.group(2)
         if pm:
-            path = crate_dir / pm.group(1)
+            path = crate_dir / (pm.group(1) or pm.group(2))
         elif name == pkg and (crate_dir / "src" / "main.rs").is_file():
             path = crate_dir / "src" / "main.rs"
         elif (crate_dir / "src" / "bin" / f"{name}.rs").is_file():
@@ -1743,8 +1749,10 @@ def parse(toks: list[str], bare_is_workspace: bool = True) -> Selection:
     # Issue #933: the same rule for bin unit tests. Cargo runs every bin's
     # unit tests under `--bins`, `--tests` / `--all-targets` (bins have
     # `test = true` by default) and with no target selector; `--bin NAME`
-    # runs the named ones; `--lib` / `--test X` / `--doc` / ... alone skip
-    # them.
+    # runs the named ones; `--lib` / `--test X` / `--doc` / `--examples`
+    # alone skip them. `--benches` also selects every bin in cargo (bins
+    # have `bench = true` by default) but is deliberately not counted here:
+    # an under-count, the fail-closed direction (issue #985).
     sel.all_bins = bins_flag or all_integration_flag or (not named and not non_integration)
     sel.bins = bins
 
@@ -3086,8 +3094,14 @@ def self_test() -> int:
 
         def test_other_selectors_do_not_cover_lib(self):
             for sel in ("--test t1", "--test '*'", "--bins", "--bin tool", "--doc",
-                        "--examples", "--benches"):
+                        "--examples", "--bench geode"):
                 self.assertNotIn(AL, lib_cov(f"cargo test -p a {sel}"), sel)
+
+        def test_benches_is_conservatively_not_counted_for_lib(self):
+            # Cargo does run the lib unit tests under `--benches` (the lib
+            # has `bench = true` by default); the guard's policy is to not
+            # count it, a deliberate under-count (issue #942).
+            self.assertNotIn(AL, lib_cov("cargo test -p a --benches"))
 
         def test_name_filtered_lib_run_is_partial(self):
             for cmd in ("cargo test -p a --lib eigen::",
@@ -3316,9 +3330,15 @@ def self_test() -> int:
 
         def test_other_selectors_do_not_cover_bins(self):
             for sel in ("--lib", "--test t1", "--test '*'", "--doc", "--examples",
-                        "--benches", "--example geode", "--bench geode"):
+                        "--example geode", "--bench geode"):
                 got = bin_cov(f"cargo test -p a {sel}")
                 self.assertFalse(got & {BG, BT}, sel)
+
+        def test_benches_is_conservatively_not_counted_for_bins(self):
+            # Cargo does run every bin's unit tests under `--benches` (bins
+            # have `bench = true` by default); the guard's policy is to not
+            # count it, a deliberate under-count (issue #985).
+            self.assertFalse(bin_cov("cargo test -p a --benches") & {BG, BT})
 
         def test_package_selection_applies(self):
             self.assertEqual(bin_cov("cargo test -p b --bins"), {("b", bin_key("b"))})
@@ -3415,6 +3435,13 @@ def self_test() -> int:
                     'required-features = ["f", "g"]\n')
                 with self.assertRaises(SystemExit):
                     bin_sources(c)
+                # Literal (single-quoted) TOML strings for name and path
+                # (issue #985).
+                (c / "Cargo.toml").write_text(
+                    "[package]\nname = 'x'\nautobins = false\n\n"
+                    "[[bin]]\nname = 'cli'\npath = 'src/cli.rs'\n")
+                got = {k: v[0].relative_to(c).as_posix() for k, v in bin_sources(c).items()}
+                self.assertEqual(got, {"cli": "src/cli.rs"})
 
         def test_discover_bin_targets(self):
             import tempfile
