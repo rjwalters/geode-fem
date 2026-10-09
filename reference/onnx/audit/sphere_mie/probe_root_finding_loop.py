@@ -338,8 +338,9 @@ def emit_characteristic_te(g: Emitter, k: str, l: int) -> str:
     t4 = g.op("Mul", [big_b, rs["chip"]], "bufpb")
     bufp = g.op("Sub", [t3, t4], "bufp")
 
+    # TE interface row is n·ψ'(x_in) (issue #986; was ψ'/n, the TM row).
     lhs = g.op("Mul", [ri["psi"], bufp], "lhs")
-    psip_n = g.op("Mul", [ri["psip"], g.f64(1.0 / N_INSIDE)], "psipn")
+    psip_n = g.op("Mul", [ri["psip"], g.f64(N_INSIDE)], "psipn")
     rhs = g.op("Mul", [psip_n, buf], "rhs")
     return g.op("Sub", [lhs, rhs], "char_te")
 

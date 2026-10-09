@@ -31,15 +31,32 @@
 //!   --test silvermuller_self_consistent -- --ignored
 //! ```
 //!
-//! # What the target modes are
+//! # What the target modes are (issue #940)
 //!
 //! The dense tier takes as its target "the first index past the gradient
-//! null cluster" in the `|Re λ|`-sorted list. At the seed `k₀ = 1` that is
-//! index 368, and it is **not** the dielectric sphere's lowest resonance
-//! (`λ ≈ 1.417 + 0.08j`, `k ≈ 1.19`, `Q ≈ 18`). It is an overdamped
-//! surface mode of the Silver-Müller term, `λ ≈ 0.125 + 2.297j`
-//! (`k ≈ 1.10 + 1.04j`, `Q ≈ 0.53`): several hundred of those have a
-//! smaller `|Re λ|` than the resonance and sort ahead of it.
+//! null cluster" in the `|Re λ|`-sorted list. What that index names depends
+//! on the seed:
+//!
+//! - At `k₀ = 1` it is index 368, and it is **not** a resonance of the
+//!   sphere. It is an overdamped mode of the Silver-Müller term,
+//!   `λ ≈ 0.125 + 2.297j` (`k ≈ 1.10 + 1.04j`), whose `λ` is almost
+//!   `j · 2.30 · k₀` (`Im λ / k₀` is 2.297 at `k₀ = 1` and 2.296 at the
+//!   end point `k = 1.2262 + 1.1481j`). A purely imaginary `λ` has
+//!   `Q = 1/2` exactly, hence its `Q ≈ 0.53`. Several hundred such modes
+//!   have a smaller `|Re λ|` than the resonance and sort ahead of it.
+//! - At `k₀ = 20` it is also index 368, and there it **is** the sphere's
+//!   lowest resonance, the `l = 1` branch, at its near-PEC value
+//!   `λ = 1.417260 + 0.078003j` (`k ≈ 1.19`, `Q ≈ 18`). `Q ≈ 18` belongs
+//!   to `k₀ = 20` only: a large `k₀` makes the boundary term nearly a PEC
+//!   wall.
+//!
+//! The self-consistent value of that resonance on this fixture is
+//! `k* = 0.557836 + 0.427141j`, `Q = 0.653`, from the continuum problem
+//! (`common/silvermuller_sphere.rs`, checked in CI by
+//! `analytic_sm_resonance_branch`). The FEM pencil converges on it to
+//! within the fixture's discretization error (0.88 %) with the
+//! vector-tracked driver (`sparse_vector_tracked_converges_on_sphere_resonance`
+//! in `silvermuller_self_consistent_vector_tracking.rs`).
 //!
 //! # What the two tiers share, and what they do not
 //!
@@ -53,7 +70,7 @@
 //! | Seed | Dense, frozen index | Sparse, [`ModeTarget::Nearest`] |
 //! |---|---|---|
 //! | `k₀ = 1`, index 368 | `MaxIterations(20)`, `k = 1.226173 + 1.148073j` | the same point; overlap 1.0000 at every step |
-//! | `k₀ = 20`, index 368 | `MaxIterations(20)`, `k = 1.2262 + 1.1481j` | `MaxIterations(20)`, `k = 0.562802 + 0.431012j`; overlap 0.879 or more at every step |
+//! | `k₀ = 20`, index 368 | `MaxIterations(20)`, `k = 1.2262 + 1.1481j`: leaves the resonance for the Silver-Müller mode of the first row | `MaxIterations(20)`, `k = 0.562802 + 0.431012j`: on the resonance, not yet converged; overlap 0.879 or more at every step |
 //! | `k₀ = 1`, index 369 | `MaxIterations(20)`, `k = 1.6413 + 1.5285j` | `Converged(16)`, `k = 1.306367 + 1.176238j`; the pick changes eigenvector at iterations 2 to 5 |
 //!
 //! "Overlap" is the bilinear M-overlap between the eigenvectors of two
@@ -73,35 +90,28 @@
 //! settles on a self-consistent mode that is not the continuation of the
 //! seed (`sparse_proximity_second_seed_changes_eigenvector`).
 //!
-//! The property "proximity keeps the mode where a frozen index hops" is
-//! true, and checked with the same overlap measurement, on the 3-DOF
-//! pencil of `synthetic_proximity_keeps_mode_where_frozen_index_hops`,
-//! where the step (0.02) is small against the spacing (0.12). It is not
-//! shown on the sphere. Following one eigenvector is the job of the
-//! vector-tracked driver
+//! Each of the two rules keeps the mode where the other hops on a pencil
+//! built for it, checked with the same overlap measurement:
+//! `synthetic_proximity_keeps_mode_where_frozen_index_hops` (step 0.02
+//! against spacing 0.12, `|Re λ|` order swaps) and
+//! `frozen_target_idx_prevents_mode_hop` (`|Re λ|` order fixed, step 0.90
+//! against spacing 0.50). Neither property is shown on the sphere, where
+//! the frozen index hops from both seeds it was run from. Following one
+//! eigenvector is the job of the vector-tracked driver
 //! (`silvermuller_self_consistent_vector_tracking.rs`).
 
-use burn::tensor::backend::BackendTypes;
+#[path = "common/silvermuller_sphere.rs"]
+mod sm_sphere;
 
-use geode_core::assembly::nedelec::{
-    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_n_interior_nodes,
-};
-use geode_core::assembly::p1::upload_mesh;
-use geode_core::assembly::surface::assemble_silver_muller_surface;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
-use geode_core::eigen::dense::{EigenError, burn_matrix_to_faer};
 use geode_core::eigen::self_consistent::{
     ModeTarget, SelfConsistentEigensolver, SelfConsistentResult, SparseSelfConsistentEigensolver,
     self_consistent_k, self_consistent_k_vector_tracked_with, self_consistent_k_with,
 };
-use geode_core::mesh::{PHYS_OUTER_BOUNDARY, read_sphere_fixture};
-use geode_core::testing::TestBackend;
-
-type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
+use sm_sphere::{
+    Recording, TraceStep, build_sphere_matrices, build_sphere_system, first_physical_index,
+    index_trace, min_overlap, proximity_trace, q_of, seed,
+};
 
 /// Eigenvalues requested per sparse solve: the window nearest the target.
 ///
@@ -119,112 +129,23 @@ const N_WINDOW: usize = 12;
 /// Dense index 368 at `k₀ = 1`: the first index past the null cluster, the
 /// target of `self_consistent_converges_for_target_mode`.
 const SEED_K1_FIRST: (f64, f64) = (0.125079, 2.297035);
-/// Dense index 369 at `k₀ = 1`: the frozen target of
-/// `frozen_target_idx_prevents_mode_hop`, and the seed of
-/// `sparse_proximity_second_seed_changes_eigenvector`.
+/// Dense index 369 at `k₀ = 1`: the seed of
+/// `sparse_proximity_second_seed_changes_eigenvector` (and, until issue
+/// #940, the frozen target of a dense test; see
+/// `frozen_target_idx_prevents_mode_hop`).
 const SEED_K1_SECOND: (f64, f64) = (0.136539, 3.060225);
 /// Dense index 368 at `k₀ = 20`: the first index past the null cluster, the
-/// target of `self_consistent_diverges_returns_clean_result`.
+/// target of `self_consistent_diverges_returns_clean_result`. It is the
+/// `l = 1` resonance at its near-PEC value (module docs).
 const SEED_K20_FIRST: (f64, f64) = (1.417260, 0.078003);
-
-fn seed(z: (f64, f64)) -> faer::c64 {
-    faer::c64::new(z.0, z.1)
-}
-
-/// The index of the first eigenvalue past the null cluster: the rule the
-/// dense tier uses for its frozen target.
-fn first_physical_index(lambdas: &[faer::c64]) -> usize {
-    let max_abs = lambdas
-        .iter()
-        .map(|l| l.re.hypot(l.im))
-        .fold(0.0_f64, f64::max);
-    let spurious_threshold = 1e-3 * max_abs;
-    lambdas
-        .iter()
-        .position(|l| l.re.hypot(l.im) > spurious_threshold)
-        .expect("at least one physical mode")
-}
-
-/// Build the (K, S, M, n_eigs, first_physical_idx) tuple for the sphere
-/// fixture at a given seed `k₀`. The first-physical-mode index is
-/// detected once at the initial solve (the spurious-mode cluster
-/// boundary) and returned so the self-consistent driver can use it as
-/// the frozen `target_idx`.
-fn build_sphere_system(
-    seed_k0: f64,
-) -> (faer::Mat<f64>, faer::Mat<f64>, faer::Mat<f64>, usize, usize) {
-    let (k_full, s_full, m_full, n_eigs) = build_sphere_matrices();
-
-    // Find the index of the lowest physical mode at the seed solve.
-    let solver = FaerComplexEigensolver;
-    let lambdas = solver
-        .smallest_complex_eigenvalues(
-            k_full.as_ref(),
-            s_full.as_ref(),
-            m_full.as_ref(),
-            seed_k0,
-            n_eigs,
-        )
-        .expect("initial sphere solve");
-    let first_physical = first_physical_index(&lambdas);
-
-    (k_full, s_full, m_full, n_eigs, first_physical)
-}
-
-/// The sphere fixture's `(K, S, M)` and the dense tier's `n_eigs` (twice
-/// the gradient null-space dimension). No eigensolve.
-fn build_sphere_matrices() -> (faer::Mat<f64>, faer::Mat<f64>, faer::Mat<f64>, usize) {
-    let f = read_sphere_fixture().expect("fixture load");
-    let n_index = 1.5_f64;
-    let epsilon_r = build_epsilon_r(&f.tet_physical_tags, n_index);
-
-    let edges = f.mesh.edges();
-    let n_edges = edges.len();
-    let tet_edges = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-
-    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
-    let sys = assemble_global_nedelec_with_epsilon(
-        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &epsilon_r,
-    );
-    let s_full = assemble_silver_muller_surface(
-        &f.mesh,
-        &f.boundary_triangles,
-        &f.triangle_physical_tags,
-        PHYS_OUTER_BOUNDARY,
-        &edges,
-    );
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_full = burn_matrix_to_faer(sys.m);
-
-    let spurious_lower_bound = sphere_n_interior_nodes(&f.mesh, geode_core::mesh::R_BUFFER);
-    let n_eigs = (spurious_lower_bound * 2).max(20);
-
-    (k_full, s_full, m_full, n_eigs)
-}
-
-/// Q with the standard outgoing-wave convention.
-fn q_of(k: faer::c64) -> f64 {
-    if k.im.abs() < 1e-12 {
-        f64::INFINITY
-    } else {
-        k.re / (2.0 * k.im.abs())
-    }
-}
 
 #[test]
 #[ignore = "dense reference tier (#917): ~21 full dense solves of the 4512-DOF pencil, tens of minutes in release; CI runs the sparse_* tier"]
 fn self_consistent_converges_for_target_mode() {
-    // Seed near the PEC ground-mode wavenumber (k ≈ 1.2 for the
-    // sphere fixture) and drive `k₀ ← Re(k_target)` on the first
-    // physical mode.
+    // Seed `k₀ = 1` and drive `k₀ ← Re(k_target)` on the first index
+    // past the null cluster. That index is the overdamped Silver-Müller
+    // mode, not the resonance (module docs, issue #940); the resonance is
+    // checked by `sparse_vector_tracked_converges_on_sphere_resonance`.
     //
     // The acceptance is **soft**: this fixture is coarse, the
     // Whitney spurious cluster has hundreds of near-zero modes that
@@ -344,118 +265,6 @@ fn self_consistent_diverges_returns_clean_result() {
     }
 }
 
-#[test]
-#[ignore = "dense reference tier (#917): ~21 full dense solves of the 4512-DOF pencil, tens of minutes in release; CI runs the sparse_* tier"]
-fn frozen_target_idx_prevents_mode_hop() {
-    // Mode-hop scenario: pin `target_idx = first_physical + 1`, then
-    // seed `k₀` slightly closer to the neighbour mode at `first_physical`.
-    // A naive (un-frozen) Newton would re-classify after the first solve
-    // and lock onto the wrong neighbour. The frozen index must keep us
-    // on the originally-requested eigenvalue.
-    let seed = 1.0_f64;
-    let (k_full, s_full, m_full, n_eigs, first_physical) = build_sphere_system(seed);
-
-    // Reference: at the seed `k₀`, what are Re(k) of the first two
-    // physical modes?
-    let solver = FaerComplexEigensolver;
-    let lambdas = solver
-        .smallest_complex_eigenvalues(
-            k_full.as_ref(),
-            s_full.as_ref(),
-            m_full.as_ref(),
-            seed,
-            n_eigs,
-        )
-        .expect("reference solve");
-
-    let principal_re = |lam: faer::c64| -> f64 {
-        let r = (lam.re * lam.re + lam.im * lam.im).sqrt();
-        ((r + lam.re) / 2.0).sqrt()
-    };
-
-    let target_idx = first_physical + 1;
-    if target_idx >= lambdas.len() {
-        eprintln!("not enough physical modes returned, skipping mode-hop test");
-        return;
-    }
-    let lam_first = lambdas[first_physical];
-    let lam_target = lambdas[target_idx];
-    let k_first = principal_re(lam_first);
-    let k_target = principal_re(lam_target);
-    eprintln!(
-        "seed Re(k) at first physical (idx {first_physical}) = {k_first:.4}, \
-         at frozen target (idx {target_idx}) = {k_target:.4}"
-    );
-
-    let result = self_consistent_k(
-        k_full.as_ref(),
-        s_full.as_ref(),
-        m_full.as_ref(),
-        seed,
-        target_idx,
-        n_eigs,
-        1e-6,
-        20,
-    )
-    .expect("self-consistent solve");
-
-    match result {
-        SelfConsistentResult::Converged { k, q, iterations } => {
-            eprintln!(
-                "frozen-idx converged in {iterations} iters: k = {:.6} + {:.6e}i, Q = {q:.4e}",
-                k.re, k.im
-            );
-            // The frozen index must land closer to the original
-            // `k_target` than to `k_first`. Mid-point test:
-            let mid = 0.5 * (k_first + k_target);
-            assert!(
-                k.re >= mid - 1e-6 || k.re >= k_target - 0.5 * (k_target - k_first).abs(),
-                "frozen target_idx hopped: converged at {:.4} but expected ≈ {:.4} (neighbour {:.4})",
-                k.re,
-                k_target,
-                k_first
-            );
-            // Q-of-target sanity: positive and finite.
-            assert!(q.is_finite() && q > 0.0, "Q invalid: {q}");
-            let _ = q_of(k); // silence unused-import warnings if any
-        }
-        SelfConsistentResult::MaxIterations { last_k, iterations } => {
-            // Acceptable: the frozen target may not converge as
-            // quickly as the easy lowest mode. As long as it didn't
-            // *hop* to the neighbour, the test passes.
-            eprintln!(
-                "frozen-idx max_iter {iterations}: last k = {:.4} + {:.4e}i",
-                last_k.re, last_k.im
-            );
-            let mid = 0.5 * (k_first + k_target);
-            assert!(
-                last_k.re >= mid - 1e-3,
-                "frozen target_idx hopped at max_iter: {:.4} vs target ~{:.4}",
-                last_k.re,
-                k_target
-            );
-        }
-        SelfConsistentResult::Diverged { last_k, iterations } => {
-            eprintln!(
-                "frozen-idx diverged in {iterations} iters at k = {:.4} + {:.4e}i — \
-                 acceptable as long as it didn't hop to the neighbour",
-                last_k.re, last_k.im
-            );
-        }
-        SelfConsistentResult::ModeLost {
-            last_k,
-            iterations,
-            best_overlap,
-        } => {
-            eprintln!(
-                "unexpected ModeLost from frozen-int driver: iters={iterations}, \
-                 last k = {:.4} + {:.4e}i, best_overlap = {best_overlap}",
-                last_k.re, last_k.im
-            );
-        }
-    }
-}
-
 // ---------------------------------------------------------------------
 // Sparse tier (issue #917): the dense tier's seeds on the sparse windowed
 // solver with proximity targeting. The seeds are the same; the target rule
@@ -463,213 +272,6 @@ fn frozen_target_idx_prevents_mode_hop() {
 // pins its deterministic outcome and the measured overlap between
 // successive picks.
 // ---------------------------------------------------------------------
-
-/// One recorded eigensolve of a self-consistent run.
-struct Solve {
-    k0: f64,
-    sigma: faer::c64,
-    pairs: Vec<(faer::c64, Vec<faer::c64>)>,
-}
-
-/// Wraps an eigensolver and records every solve the driver makes, with
-/// eigenvectors, so a test can score what the driver picked. It changes
-/// nothing about the run: the driver gets the inner solver's eigenvalues.
-struct Recording<'a, S: ?Sized> {
-    inner: &'a S,
-    solves: std::cell::RefCell<Vec<Solve>>,
-}
-
-impl<'a, S: SelfConsistentEigensolver + ?Sized> Recording<'a, S> {
-    fn new(inner: &'a S) -> Self {
-        Self {
-            inner,
-            solves: std::cell::RefCell::new(Vec::new()),
-        }
-    }
-}
-
-impl<S: SelfConsistentEigensolver + ?Sized> SelfConsistentEigensolver for Recording<'_, S> {
-    fn pencil_eigenvalues(
-        &self,
-        k: faer::MatRef<f64>,
-        s: faer::MatRef<f64>,
-        m: faer::MatRef<f64>,
-        k0: f64,
-        sigma: faer::c64,
-        n: usize,
-    ) -> Result<Vec<faer::c64>, EigenError> {
-        Ok(self
-            .pencil_eigenpairs(k, s, m, k0, sigma, n)?
-            .into_iter()
-            .map(|p| p.0)
-            .collect())
-    }
-
-    fn pencil_eigenpairs(
-        &self,
-        k: faer::MatRef<f64>,
-        s: faer::MatRef<f64>,
-        m: faer::MatRef<f64>,
-        k0: f64,
-        sigma: faer::c64,
-        n: usize,
-    ) -> Result<Vec<(faer::c64, Vec<faer::c64>)>, EigenError> {
-        let pairs = self.inner.pencil_eigenpairs(k, s, m, k0, sigma, n)?;
-        self.solves.borrow_mut().push(Solve {
-            k0,
-            sigma,
-            pairs: pairs.clone(),
-        });
-        Ok(pairs)
-    }
-}
-
-/// One step of a recorded run: what was picked, and how it relates to the
-/// previous pick.
-#[derive(Debug, Clone, Copy)]
-struct TraceStep {
-    k0: f64,
-    /// The picked eigenvalue.
-    lambda: faer::c64,
-    /// Bilinear M-overlap of the pick with the previous pick (`None` at the
-    /// first solve).
-    overlap: Option<f64>,
-    /// The largest overlap with the previous pick among the candidates that
-    /// were **not** picked (`None` at the first solve or with one candidate).
-    best_unpicked: Option<f64>,
-}
-
-/// The nonzeros of a dense matrix, so the overlaps below cost `O(nnz)`.
-fn nonzeros(m: faer::MatRef<f64>) -> Vec<(usize, usize, f64)> {
-    let mut out = Vec::new();
-    for j in 0..m.ncols() {
-        for i in 0..m.nrows() {
-            let v = m[(i, j)];
-            if v != 0.0 {
-                out.push((i, j, v));
-            }
-        }
-    }
-    out
-}
-
-/// Bilinear form `uᵀ M v` (no conjugation), the inner product of the
-/// complex-symmetric pencil.
-fn m_bilinear(m: &[(usize, usize, f64)], u: &[faer::c64], v: &[faer::c64]) -> faer::c64 {
-    let mut acc = faer::c64::new(0.0, 0.0);
-    for &(i, j, mij) in m {
-        acc += u[i] * v[j] * mij;
-    }
-    acc
-}
-
-/// `|uᵀ M v| / √(|Re uᵀ M u| · |Re vᵀ M v|)`: the score
-/// `self_consistent_k_vector_tracked` gives a candidate `v` against the
-/// previous target `u`. 1 for the same eigenvector, 0 for two different
-/// eigenvectors of one pencil (they are M-orthogonal).
-fn m_overlap(m: &[(usize, usize, f64)], u: &[faer::c64], v: &[faer::c64]) -> f64 {
-    let uv = m_bilinear(m, u, v);
-    let uu = m_bilinear(m, u, u).re.abs();
-    let vv = m_bilinear(m, v, v).re.abs();
-    uv.re.hypot(uv.im) / (uu * vv).sqrt().max(1e-300)
-}
-
-/// Score a recorded run. `pick` returns the index the driver's target rule
-/// selected in a solve.
-fn overlap_trace(
-    solves: &[Solve],
-    m: faer::MatRef<f64>,
-    pick: impl Fn(&Solve) -> usize,
-) -> Vec<TraceStep> {
-    let m = nonzeros(m);
-    let mut prev: Option<&Vec<faer::c64>> = None;
-    let mut out = Vec::new();
-    for solve in solves {
-        let picked = pick(solve);
-        let (overlap, best_unpicked) = match prev {
-            None => (None, None),
-            Some(u) => {
-                let scores: Vec<f64> = solve
-                    .pairs
-                    .iter()
-                    .map(|(_, v)| m_overlap(&m, u, v))
-                    .collect();
-                let best_unpicked = scores
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != picked)
-                    .map(|(_, s)| *s)
-                    .fold(None, |acc: Option<f64>, s| {
-                        Some(acc.map_or(s, |a| a.max(s)))
-                    });
-                (Some(scores[picked]), best_unpicked)
-            }
-        };
-        out.push(TraceStep {
-            k0: solve.k0,
-            lambda: solve.pairs[picked].0,
-            overlap,
-            best_unpicked,
-        });
-        prev = Some(&solve.pairs[picked].1);
-    }
-    out
-}
-
-/// Score a recorded [`ModeTarget::Nearest`] run of `self_consistent_k_with`.
-///
-/// The pick is reconstructed from the record, not re-derived: under
-/// `Nearest` the driver passes its anchor (the seed, then the previous
-/// target) as the shift `σ` and picks the eigenvalue nearest it. The
-/// function checks that reading against the record: every `σ` after the
-/// first must be the previous solve's pick, bit for bit.
-fn proximity_trace(solves: &[Solve], m: faer::MatRef<f64>, label: &str) -> Vec<TraceStep> {
-    let nearest = |solve: &Solve| -> usize {
-        solve
-            .pairs
-            .iter()
-            .enumerate()
-            .min_by(|a, b| {
-                (a.1.0 - solve.sigma)
-                    .norm()
-                    .total_cmp(&(b.1.0 - solve.sigma).norm())
-            })
-            .map(|(i, _)| i)
-            .expect("non-empty solve")
-    };
-    let trace = overlap_trace(solves, m, nearest);
-    for (i, step) in trace.iter().enumerate() {
-        if i > 0 {
-            assert_eq!(
-                (solves[i].sigma.re, solves[i].sigma.im),
-                (trace[i - 1].lambda.re, trace[i - 1].lambda.im),
-                "{label}: solve {} was not shifted at the previous pick",
-                i + 1
-            );
-        }
-        eprintln!(
-            "[{label}] it {:2} k0 = {:.6} n = {:2} pick λ = {:.6}{:+.6}i overlap = {} \
-             best unpicked = {}",
-            i + 1,
-            step.k0,
-            solves[i].pairs.len(),
-            step.lambda.re,
-            step.lambda.im,
-            step.overlap.map_or("n/a".into(), |o| format!("{o:.4}")),
-            step.best_unpicked
-                .map_or("n/a".into(), |o| format!("{o:.4}")),
-        );
-    }
-    trace
-}
-
-/// The smallest overlap between successive picks over a whole trace.
-fn min_overlap(trace: &[TraceStep]) -> f64 {
-    trace
-        .iter()
-        .filter_map(|s| s.overlap)
-        .fold(f64::INFINITY, f64::min)
-}
 
 /// Runs proximity targeting on the sparse solver from `(k0, target)` and
 /// returns the result with its overlap trace.
@@ -1015,17 +617,12 @@ fn synthetic_proximity_keeps_mode_where_frozen_index_hops() {
         .expect("frozen-index solve"),
         "frozen index",
     );
-    let frozen_trace = overlap_trace(&recording.solves.borrow(), m.as_ref(), |_| 0);
-    for (i, step) in frozen_trace.iter().enumerate() {
-        eprintln!(
-            "[synthetic frozen index] it {:2} k0 = {:.6} pick λ = {:.6}{:+.6}i overlap = {}",
-            i + 1,
-            step.k0,
-            step.lambda.re,
-            step.lambda.im,
-            step.overlap.map_or("n/a".into(), |o| format!("{o:.4}")),
-        );
-    }
+    let frozen_trace = index_trace(
+        &recording.solves.borrow(),
+        m.as_ref(),
+        0,
+        "synthetic frozen index",
+    );
     assert!(
         (k_frozen - intruder_k).norm() < 1e-5,
         "frozen-index k = {k_frozen}"
@@ -1079,6 +676,165 @@ fn synthetic_proximity_keeps_mode_where_frozen_index_hops() {
         // The seed pick is the target mode, `λ = 4 + 0.08j` at `k₀ = 4`.
         assert!((trace[0].lambda - faer::c64::new(4.0, 0.08)).norm() < 1e-9);
     }
+}
+
+/// The frozen index keeps the mode where the rule without it hops (issue
+/// #940), on a pencil built so that it does.
+///
+/// ```text
+///   K = diag(4, 4.5),  S = diag(1, 1.3),  M = I.
+/// ```
+///
+/// DOF 0 is the target, `λ = 4 + j k₀`; DOF 1 is an intruder,
+/// `λ = 4.5 + 1.3 j k₀`. The real parts never cross, so the `|Re λ|` order
+/// is fixed and index 0 is the target at every `k₀`: the case a frozen
+/// index is right for. The imaginary parts move fast with `k₀`, so
+/// eigenvalue proximity is wrong for it. From the seed `k₀ = 4` the first
+/// damped step takes `k₀` to 3.0987 and moves the target from `4 + 4j` to
+/// `4 + 3.0987j`, 0.90 away, while the intruder lands at `4.5 + 4.0283j`,
+/// 0.50 from the previous pick.
+///
+/// - **Without the frozen index** (`ModeTarget::Nearest`, seeded at the
+///   target) the run hops to the intruder at iteration 2 (overlap 0) and
+///   converges on the intruder's fixed point, `k = √4.9225 + 0.65j`.
+/// - **With it** (`ModeTarget::Index(0)`) the run keeps the target (overlap
+///   1 at every step) and converges on the target's fixed point,
+///   `k = √4.25 + 0.5j`. (Both fixed points solve `k² = K + j S Re k` in
+///   closed form.)
+/// - The vector-tracked driver keeps the target as well.
+///
+/// The test fails if the frozen index stops being frozen: a mutation of
+/// `ModeTarget::pick` that re-picks the eigenvalue nearest the previous
+/// pick for `ModeTarget::Index` after the first solve makes the frozen run
+/// hop at iteration 2, and the overlap and end-point assertions fail.
+///
+/// This is not shown on the sphere. There the frozen index is the rule
+/// that hops: from the seed `k₀ = 20` it leaves the `l = 1` resonance for
+/// an overdamped Silver-Müller mode (`vector_tracked_beats_frozen_int_idx`
+/// in `silvermuller_self_consistent_vector_tracking.rs`), and from the
+/// seed `k₀ = 1`, dense index 369, it ends at `k = 1.6413 + 1.5285j`, which
+/// is not the seed mode either (measured for #917; the dense test that ran
+/// it, the previous `frozen_target_idx_prevents_mode_hop`, asserted only a
+/// bound on `Re k` that the neighbouring mode also met). The mirror case,
+/// where proximity is right and the frozen index hops, is
+/// `synthetic_proximity_keeps_mode_where_frozen_index_hops`.
+#[test]
+fn frozen_target_idx_prevents_mode_hop() {
+    let k = faer::Mat::<f64>::from_fn(2, 2, |i, j| match (i, j) {
+        (0, 0) => 4.0,
+        (1, 1) => 4.5,
+        _ => 0.0,
+    });
+    let s = faer::Mat::<f64>::from_fn(2, 2, |i, j| match (i, j) {
+        (0, 0) => 1.0,
+        (1, 1) => 1.3,
+        _ => 0.0,
+    });
+    let m = faer::Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 1.0 } else { 0.0 });
+    let k0 = 4.0_f64;
+    let target_k = faer::c64::new(4.25_f64.sqrt(), 0.5);
+    let intruder_k = faer::c64::new(4.9225_f64.sqrt(), 0.65);
+    let dense = FaerComplexEigensolver;
+
+    let converged = |r: SelfConsistentResult, label: &str| -> faer::c64 {
+        match r {
+            SelfConsistentResult::Converged { k, .. } => k,
+            other => panic!("{label}: expected Converged, got {other:?}"),
+        }
+    };
+    let hops = |trace: &[TraceStep]| -> Vec<usize> {
+        trace
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.overlap.is_some_and(|o| o < 0.5))
+            .map(|(i, _)| i + 1)
+            .collect()
+    };
+
+    // Without the frozen index: proximity hops to the intruder.
+    let recording = Recording::new(&dense);
+    let k_near = converged(
+        self_consistent_k_with(
+            &recording,
+            k.as_ref(),
+            s.as_ref(),
+            m.as_ref(),
+            k0,
+            ModeTarget::Nearest(faer::c64::new(4.0, 4.0)),
+            2,
+            1e-9,
+            40,
+        )
+        .expect("proximity solve"),
+        "proximity",
+    );
+    let near_trace = proximity_trace(
+        &recording.solves.borrow(),
+        m.as_ref(),
+        "synthetic proximity, hop",
+    );
+    assert!((near_trace[0].lambda - faer::c64::new(4.0, 4.0)).norm() < 1e-9);
+    assert_eq!(hops(&near_trace), vec![2], "proximity hops at iteration 2");
+    assert!(
+        (k_near - intruder_k).norm() < 1e-6,
+        "proximity k = {k_near}"
+    );
+
+    // With the frozen index: the target throughout.
+    let recording = Recording::new(&dense);
+    let k_frozen = converged(
+        self_consistent_k_with(
+            &recording,
+            k.as_ref(),
+            s.as_ref(),
+            m.as_ref(),
+            k0,
+            ModeTarget::Index(0),
+            2,
+            1e-9,
+            40,
+        )
+        .expect("frozen-index solve"),
+        "frozen index",
+    );
+    let frozen_trace = index_trace(
+        &recording.solves.borrow(),
+        m.as_ref(),
+        0,
+        "synthetic frozen index, no hop",
+    );
+    assert!((frozen_trace[0].lambda - faer::c64::new(4.0, 4.0)).norm() < 1e-9);
+    assert!(frozen_trace.len() > 3, "{} solves", frozen_trace.len());
+    assert!(
+        hops(&frozen_trace).is_empty() && min_overlap(&frozen_trace) > 1.0 - 1e-9,
+        "the frozen index changed eigenvector: min overlap {}",
+        min_overlap(&frozen_trace)
+    );
+    assert!(
+        (k_frozen - target_k).norm() < 1e-6,
+        "frozen-index k = {k_frozen}"
+    );
+
+    // Vector tracking from the same seed keeps the target too.
+    let k_tracked = converged(
+        self_consistent_k_vector_tracked_with(
+            &dense,
+            k.as_ref(),
+            s.as_ref(),
+            m.as_ref(),
+            k0,
+            ModeTarget::Index(0),
+            2,
+            1e-9,
+            40,
+        )
+        .expect("vector-tracked solve"),
+        "vector tracking",
+    );
+    assert!(
+        (k_tracked - target_k).norm() < 1e-6,
+        "vector-tracked k = {k_tracked}"
+    );
 }
 
 #[test]

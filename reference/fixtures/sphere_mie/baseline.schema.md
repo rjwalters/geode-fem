@@ -33,11 +33,12 @@ loads via `read_sphere_fixture()`.
 - **Physical band** (observed, reproducing the Burn-side documented
   numbers from issues #49/#54):
   - TM_1,1 triplet: λ ≈ 1.51066 + 0.05534j, 1.51147 + 0.05541j,
-    1.51191 + 0.05603j → `Re(k)` ≈ 1.2293 at **5.69 / 5.66 / 5.65 %**
-    of the analytic TM_1,1 (`k ≈ 1.30343`) — matching the documented
-    "observed ≈ 5.7 %" anisotropic-UPML acceptance calibration.
-  - Then a gap to the TE_1,1 band at λ ≈ 3.486 + 0.390j (1.03 % /
-    0.94 % of the analytic TE_1,1).
+    1.51191 + 0.05603j → `Re(k)` ≈ 1.2293 at **3.56 / 3.58 / 3.60 %**
+    of the analytic TM_1,1 (`k ≈ 1.18710`, corrected in issue #986;
+    was 5.69 / 5.66 / 5.65 % of the pre-#986 root 1.30343).
+  - Then a gap to the TE_1,1 band at λ ≈ 3.486 + 0.390j (0.06 % /
+    0.15 % of the analytic TE_1,1 = 1.86880; was 1.03 % / 0.94 % of
+    the pre-#986 1.88943).
 - **Strict cross-IR mode window** (`strict_mode_window_len = 3`): the
   closed TM_1,1 triplet. Cluster closure (#160) is extremely clean on
   this refined mesh: triplet spread 0.0013 vs gap-to-next-band 1.974.
@@ -71,9 +72,9 @@ faer QZ agree on it. Q is sign-agnostic.
 | `eigenvalues_lowest_complex`   | `[376]` | `c128` | `5e-5` (on `|Δ|`) | Lowest `spurious_dim + 8` eigenvalues, `|Re(λ)|` ascending.     |
 | `physical_eigenvalues_complex` | `[5]`   | `c128` | `1e-5` (on `|Δ|`) | Lowest 5 physical modes. `Im(λ) > 0` (see sign note).           |
 | `strict_mode_window_len`       | `[1]`   | `f64`  | `0.5` absolute    | Closed TM_1,1 triplet window (= 3, #160 cluster closure).       |
-| `analytic_tm11_k`              | `[1]`   | `f64`  | `1e-9` absolute   | J.1 catalogue TM_1,1 root (the 8 % acceptance anchor).          |
+| `analytic_tm11_k`              | `[1]`   | `f64`  | `1e-9` absolute   | J.1 catalogue TM_1,1 root (≈ 1.18710; the 5 % acceptance anchor). |
 | `lowest_physical_re_k`         | `[1]`   | `f64`  | `1e-5` absolute   | `Re(√λ)` of the lowest physical mode (≈ 1.22930).               |
-| `tm11_rel_err_lowest`          | `[1]`   | `f64`  | `1e-5` absolute   | Relative error vs analytic TM_1,1 (≈ 0.0569; must stay < 0.08). |
+| `tm11_rel_err_lowest`          | `[1]`   | `f64`  | `1e-5` absolute   | Relative error vs analytic TM_1,1 (≈ 0.0356; must stay < 0.05). |
 | `q_factor_lowest_physical`     | `[1]`   | `f64`  | `1e-1` absolute   | Q of lowest mode (≈ 27.31). See tolerance note below.           |
 | `q_median_tm11_triplet`        | `[1]`   | `f64`  | `1e-1` absolute   | Triplet median Q (≈ 27.29; mirrors the Burn-side Q-band test).  |
 

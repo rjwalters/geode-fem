@@ -12,7 +12,8 @@ This file carries the anisotropic-UPML port that Phase H deferred:
 :mod:`sphere_pml` (#146) cross-implemented the *scalar isotropic* PML
 only. The Burn-side Mie acceptance depends on the anisotropic UPML to
 get under the ~16 % scalar-PML reflection ceiling documented in issue
-#49 (observed TM_1,1 error ≈ 5.7 % with UPML on the refined fixture).
+#49 (observed TM_1,1 error 3.56 % with UPML on the refined fixture against
+the issue-#986-corrected PEC-cavity root; ≈ 5.7 % against the pre-#986 root).
 A reference Mie slice at scalar-PML accuracy would be anchored to the
 wrong physics, so the UPML port lands here.
 

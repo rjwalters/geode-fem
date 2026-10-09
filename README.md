@@ -49,7 +49,7 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 
 | | |
 |---|---|
-| **Mie eigenmode** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + anisotropic UPML buffer): FEM Re(k) ≈ 1.229 vs analytic 1.30343, **~5.7% rel err / Q ≈ 27** on the bundled 774-node fixture. PR #60's anisotropic UPML (#54) broke the 16% scalar-PML reflection ceiling diagnosed in #52. |
+| **Mie eigenmode** | Lowest TM_1,1 mode (n=1.5 dielectric sphere, R/R_buffer=1/2, PEC outer + anisotropic UPML buffer): FEM Re(k) ≈ 1.229 vs analytic 1.18710, **3.6% rel err / Q ≈ 27** on the bundled 774-node fixture (analytic roots corrected in #986; was quoted as 5.7% against 1.30343). PR #60's anisotropic UPML (#54) broke the 16% scalar-PML reflection ceiling diagnosed in #52. |
 | **Mie driven scattering** | Plane-wave scattered-field driven solve with matched (full Sacks) UPML; `Q_ext` via the volume optical theorem, `Q_sca` via Poynting flux, both vs the analytic Mie series. **Below 5% rel err** on the fine on-resonance fixture (#224); the coarse 774-node fixture is mesh-dominated at high ka. See [`benchmarks/mie_sphere/driven_results.toml`](benchmarks/mie_sphere/driven_results.toml). |
 | **Patch antenna** | Probe-fed FR-4 patch (W/L/h = 38/29/1.6 mm, ε_r=4.4) with matched box-UPML and a Palace-style lumped probe port: f_res ≈ 2.27 GHz, **S11 dip −15.2 dB, −10 dB BW 38.7 MHz (1.71%)**, η ≈ 29 % on the impedance-matched fixture (#237). NTFF via Love-equivalence yields directivity / gain (#229). vs Balanis cavity-model oracle (`geode_core::analytic::patch`). See [`benchmarks/patch_antenna/results_matched.toml`](benchmarks/patch_antenna/results_matched.toml). |
 | **Spiral inductor** | 3.5-turn generic square spiral (54,428 edges) with Leontovich surface-impedance conductors: L extracted from `Im(Z)/ω` across a frequency sweep, **within −4.9 % of Mohan analytic and −6.8 % of MoM PEEC** at 1 GHz. See [`benchmarks/spiral_inductor/results.toml`](benchmarks/spiral_inductor/results.toml). |
@@ -452,21 +452,32 @@ root carries its `(l, n, polarisation, multiplicity = 2l+1)` label.
 each analytic root claims the next `2l + 1` consecutive FEM modes
 (sorted by `Re(k)`), producing an unambiguous `(l, n, pol, m_idx)`
 label per mode. On the bundled fixture (anisotropic UPML default)
-this identifies the lowest 3 FEM modes as the TM_1,1 triplet
-(Q ≈ 27), the next 3 as TE_1,1 (rel err ≈ 1%), and the next 5 as
-the TM_2,1 quintet (rel err ≈ 0.5 – 2.3%).
+the lowest 3 FEM modes are the TM_1,1 triplet (Q ≈ 27). Since #986
+corrected the analytic roots, the catalog puts TM_2,1 (1.81333) below
+TE_1,1 (1.86880), while the UPML pencil puts the TE_1,1-like triplet
+(Re k ≈ 1.870–1.872, Q ≈ 9) below a quintet at Re k ≈ 1.900–1.934.
+The k-ordered walk therefore labels modes 3–7 as TM_2,1 and 8–10 as
+TE_1,1, and marks the TM_2,1 rows `?` (close-pair overlap, #43). The
+table below groups modes by multiplet (3 vs 5) and Q instead; that
+assignment is an inference, not something the example asserts.
 
 **Current numbers** (bundled fixture, anisotropic UPML default,
 σ₀ = 5.0, k₀_ref = 2.0):
 
 | mode    | analytic kR | FEM Re(kR) | rel err Re(k) | Q     |
 | ------- | ----------- | ---------- | ------------- | ----- |
-| TM_1,1  | 1.30343     | ≈ 1.229    | ≈ 5.7%        | ≈ 27  |
-| TE_1,1  | 1.88943     | ≈ 1.870 – 1.872 | ≈ 0.9 – 1.0% | ≈ 9 |
-| TM_2,1  | 1.89074     | ≈ 1.900 – 1.934 | ≈ 0.5 – 2.3% | ≈ 31 – 48 |
+| TM_1,1  | 1.18710     | ≈ 1.229    | ≈ 3.6%        | ≈ 27  |
+| TE_1,1  | 1.86880     | ≈ 1.870 – 1.872 | ≈ 0.06 – 0.19% | ≈ 9 |
+| TM_2,1  | 1.81333     | ≈ 1.900 – 1.934 | ≈ 4.8 – 6.7% | ≈ 31 – 48 |
 
-For comparison, the legacy `--scalar-pml` path produces TM_1,1 at
-~16.2% rel err / Q ≈ 5.8 — the h-independent reflection floor
+Analytic values are the PEC-cavity roots after #986, which fixed a
+crosswise pairing of the TE/TM interface and wall conditions. Before
+it the table read TM_1,1 1.30343 (5.7%), TE_1,1 1.88943 (0.9 – 1.0%),
+TM_2,1 1.89074 (0.5 – 2.3%). The FEM values did not change.
+
+For comparison, the legacy `--scalar-pml` path produced TM_1,1 at
+~16.2% rel err / Q ≈ 5.8 (measured against the pre-#986 root 1.30343;
+not re-measured) — the h-independent reflection floor
 diagnosed in issue #52 and broken by issue #54's anisotropic UPML.
 
 **Why anisotropic helps** (issue #52 → #54). Under the scalar-isotropic

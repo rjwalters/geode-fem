@@ -32,7 +32,8 @@
 //!    `rank(d⁰_interior)`, computed algebraically from the de-Rham
 //!    operator independent of the eigenspectrum.
 //! 4. Each of the lowest 5 physical eigenvalues pairs to an analytic
-//!    Mie PEC-cavity root within 15 % relative on `k = √λ`.
+//!    Mie PEC-cavity root within 2 % relative on `k = √λ` (measured
+//!    0.16–0.41 %; 15 % before issue #986 corrected the analytic roots).
 //!
 //! Previously this test used a largest-relative-gap eigenvalue
 //! heuristic to count spurious modes. On the bundled 774-node fixture
@@ -339,7 +340,7 @@ fn sphere_pec_eigenmode_spectrum() {
 
     // 10. Quantitative acceptance (issue #69): each of the lowest 5
     //     physical FEM eigenvalues `k_fem = √λ` pairs to the closest
-    //     analytic PEC-cavity root from `mie::merged_roots` within ≤ 15 %
+    //     analytic PEC-cavity root from `mie::merged_roots` within ≤ 2 %
     //     relative on `k`.
     //
     //     The analytic catalog covers `l ∈ [1, 4]` with `n_max = 3`
@@ -352,10 +353,12 @@ fn sphere_pec_eigenmode_spectrum() {
     //     same analytic root (e.g. mesh-asymmetry splitting of a `2l+1`
     //     degenerate multiplet) — we do not enforce distinct pairings.
     //
-    //     **Tolerance**: the 15 % bound is calibrated to the bundled
-    //     coarse fixture (313 nodes / ~1226 tets); convergence-under-
-    //     refinement is the deferred sub-issue. Do not tighten this
-    //     bound in this ticket.
+    //     **Tolerance**: 2 %. Measured on the bundled fixture against
+    //     the issue-#986-corrected roots: physical[0..3] (TM_1,1
+    //     triplet, k ≈ 1.1914–1.1919 vs 1.18710) at 0.37–0.41 %,
+    //     physical[3..5] (TM_2,1, k ≈ 1.8088/1.8104 vs 1.81333) at
+    //     0.25/0.16 %. The previous 15 % bound was calibrated against the
+    //     pre-#986 crosswise roots (TM_1,1 = 1.30343, ≈ 8.6 % off).
     let analytic = merged_roots(n_index, &[1, 2, 3, 4], R_SPHERE, R_BUFFER, 3);
     assert!(
         !analytic.is_empty(),
@@ -369,7 +372,7 @@ fn sphere_pec_eigenmode_spectrum() {
         R_BUFFER,
     );
 
-    let rel_tol = 0.15_f64;
+    let rel_tol = 0.02_f64;
     for (i, &lam) in physical.iter().enumerate() {
         let k_fem = lam.sqrt();
         let closest = analytic

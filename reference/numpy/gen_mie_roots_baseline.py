@@ -16,8 +16,8 @@ The catalogue parameters mirror the Burn-side consumers exactly:
 Roots are stored sorted by the canonical key ``(pol, l, n)`` — *not* by
 ascending ``k`` — so the cross-check harness can join the two catalogues
 on exact integer tags without depending on global ``k``-order ties
-(near-degenerate roots from different channels, e.g. TE(1,1) at
-k = 1.88943 vs TM(2,1) at k = 1.89074, would otherwise make the
+(near-degenerate roots from different channels, e.g. TM(2,2) at
+k = 3.14655 vs TE(1,2) at k = 3.15029, would otherwise make the
 ordering fragile under sub-tolerance perturbations).
 
 Reproduction
