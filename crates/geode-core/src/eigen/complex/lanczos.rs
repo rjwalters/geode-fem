@@ -72,7 +72,9 @@ use crate::eigen::lanczos::{
     ConvergenceCheck, EXTENSION_BREAKDOWN_REL, ExtendMode, HISTORICAL_BREAKDOWN_REL, LanczosStop,
     TARGET_MATCH_REL_FLOOR, krylov_breakdown, negligible,
 };
-use crate::eigen::parallel::{ParallelismGuard, resolve_num_threads};
+use crate::eigen::parallel::{
+    ParallelismGuard, SequentialSolveScope, resolve_num_threads, sequential_scope_for_solves,
+};
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
@@ -235,6 +237,10 @@ fn shifted_pencil_complex(
         .map_err(|e| EigenError::FaerGevd(format!("complex shifted pencil assembly: {e:?}")))
 }
 
+/// [`crate::eigen::parallel::solve_probe`] key for the Lanczos loops' solves.
+#[cfg(test)]
+const LANCZOS_SOLVE_SITE: &str = "complex_lanczos";
+
 /// Solve `A y = b` in-place via a precomputed complex sparse LU.
 pub(crate) fn solve_with_lu(
     lu: &Lu<usize, c64>,
@@ -275,6 +281,79 @@ fn tridiag_complex_eigenvalues(alpha: &[c64], beta: &[c64]) -> Result<Vec<c64>, 
     t.as_ref()
         .eigenvalues()
         .map_err(|e| EigenError::FaerGevd(format!("tridiag complex evd: {e:?}")))
+}
+
+/// Largest relative residual estimate at which the eigenvalue-only solve
+/// still returns a Ritz value (issue #1023); see
+/// [`ritz_values_with_estimates`] for the estimate and
+/// [`SparseComplexShiftInvertLanczos::smallest_complex_pencil_eigenvalues_with_threads`]
+/// for why the value is withheld above it.
+///
+/// The estimate bounds the Ritz value's relative error in the `μ` plane only
+/// to first order and up to the eigenvalue's condition number, so this is a
+/// screen for values the Krylov space has not resolved, not an accuracy
+/// guarantee. On the Mie PML pencil of `tests/sparse_complex_eigensolver.rs`
+/// (378 steps for 376 requested values) the estimates of the final Ritz
+/// values split into two groups with nothing between them: 188 at or below
+/// `1e-12` and 190 above `1e-2`.
+const UNRESOLVED_RITZ_REL: f64 = 1e-3;
+
+/// The Ritz values `λ = σ + 1/μ` of the complex-symmetric tridiagonal
+/// `(alpha, beta)` (skipping `μ = 0`), each with its relative residual
+/// estimate `|β_k| |s_k| / (‖s‖₂ |μ|)`, where `s` is the tridiagonal
+/// eigenvector, `s_k` its last component and `beta_k` the `β` of the last
+/// Lanczos step (issue #1023).
+///
+/// The Lanczos relation `A⁻¹M V_k = V_k T_k + β_k v_{k+1} e_kᵀ` gives the
+/// Ritz pair `(μ, V_k s)` the residual `β_k s_k v_{k+1}`. The estimate is
+/// that residual relative to `μ V_k s`, taken in Krylov coordinates (the
+/// basis is bilinear-M-orthonormal, not orthonormal in the 2-norm, so it is
+/// an estimate and not the true residual norm). It costs no sparse mat-vec.
+/// A NaN estimate is returned as `+∞`.
+fn ritz_values_with_estimates(
+    alpha: &[c64],
+    beta: &[c64],
+    beta_k: c64,
+    sigma: f64,
+) -> Result<Vec<(c64, f64)>, EigenError> {
+    let k = alpha.len();
+    let (mus, s_mat) = tridiag_complex_eigenpairs(alpha, beta)?;
+    let sigma_c = c64::new(sigma, 0.0);
+    let beta_mag = beta_k.norm();
+    Ok(mus
+        .iter()
+        .enumerate()
+        .filter(|(_, mu)| mu.norm() != 0.0)
+        .map(|(col, mu)| {
+            let s_norm = (0..k)
+                .map(|row| s_mat[(row, col)].norm_sqr())
+                .sum::<f64>()
+                .sqrt();
+            let estimate = beta_mag * s_mat[(k - 1, col)].norm() / (s_norm * mu.norm());
+            let estimate = if estimate.is_nan() {
+                f64::INFINITY
+            } else {
+                estimate
+            };
+            (sigma_c + c64::new(1.0, 0.0) / *mu, estimate)
+        })
+        .collect())
+}
+
+/// The `n_modes` values nearest `σ` (stable), re-sorted by ascending `Re λ`
+/// (stable): [`nearest_picks`] for bare eigenvalues.
+fn nearest_values(mut values: Vec<c64>, sigma: f64, n_modes: usize) -> Vec<c64> {
+    values.sort_by(|a, b| {
+        let da = (a.re - sigma).hypot(a.im);
+        let db = (b.re - sigma).hypot(b.im);
+        da.partial_cmp(&db).unwrap_or(core::cmp::Ordering::Equal)
+    });
+    values.truncate(n_modes.min(values.len()));
+    values.sort_by(|a, b| {
+        a.re.partial_cmp(&b.re)
+            .unwrap_or(core::cmp::Ordering::Equal)
+    });
+    values
 }
 
 /// A single complex generalized eigenpair `(λ, x)` of a complex-symmetric
@@ -370,8 +449,9 @@ impl SparseComplexShiftInvertLanczos {
         //    speeds up the complex sparse LU but regresses the latency-bound
         //    single-RHS triangular solves in the Lanczos loop, and the guard
         //    restores the prior global parallelism on drop. `cap` makes
-        //    `n_threads == 1` a serial factorization.
-        let lu = self.factor(k, m, n_threads)?;
+        //    `n_threads == 1` a serial factorization. `_seq` keeps the loop's
+        //    triangular solves sequential until it drops (issue #956).
+        let (lu, _seq) = self.factor(k, m, n_threads)?;
 
         // 2. Lanczos in the bilinear M-inner product. The tridiagonal
         //    `T_k` is complex symmetric (not Hermitian) and its
@@ -412,7 +492,8 @@ impl SparseComplexShiftInvertLanczos {
             *x *= inv;
         }
 
-        let mut converged: Option<Vec<c64>> = None;
+        // Whether some step's tridiagonal had `n_modes` Ritz values.
+        let mut have_ritz = false;
         let mut w = vec![c64::new(0.0, 0.0); n];
         let mut work = vec![c64::new(0.0, 0.0); n];
         // Running `max |α_j|`, the scale of `T_k`, for the breakdown test.
@@ -422,6 +503,8 @@ impl SparseComplexShiftInvertLanczos {
             // M v
             spmv(m, &v, &mut mv);
             // w = A^{-1} (M v)
+            #[cfg(test)]
+            crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
             solve_with_lu(&lu, &mv, &mut w)?;
 
             // α_j = v^T M w = (M v)^T w  (using M^T = M, bilinear form)
@@ -480,29 +563,14 @@ impl SparseComplexShiftInvertLanczos {
             mv = vec![c64::new(0.0, 0.0); n];
             basis.push(core::mem::take(&mut v));
 
-            // Convergence probe on the complex tridiagonal.
+            // Convergence probe on the complex tridiagonal: the β stopping
+            // test only. The Ritz values that are returned are selected once
+            // after the loop, with their residual estimates (issue #1023).
             if alpha.len() >= n_modes && alpha.len() >= 2 {
                 let mus = tridiag_complex_eigenvalues(&alpha, &beta)?;
-                let sigma_c = c64::new(self.sigma, 0.0);
-                let mut lambdas: Vec<c64> = mus
-                    .iter()
-                    .filter(|mu| mu.re.hypot(mu.im) > 0.0)
-                    .map(|mu| sigma_c + c64::new(1.0, 0.0) / *mu)
-                    .collect();
-                lambdas.sort_by(|a, b| {
-                    let da = (a.re - self.sigma).hypot(a.im);
-                    let db = (b.re - self.sigma).hypot(b.im);
-                    da.partial_cmp(&db).unwrap_or(core::cmp::Ordering::Equal)
-                });
-                if lambdas.len() >= n_modes {
-                    let mut picked: Vec<c64> = lambdas.into_iter().take(n_modes).collect();
-                    // Final sort: ascending by Re(λ) — matches the dense
-                    // ComplexEigenSolver's output convention.
-                    picked.sort_by(|a, b| {
-                        a.re.partial_cmp(&b.re)
-                            .unwrap_or(core::cmp::Ordering::Equal)
-                    });
-
+                let n_finite = mus.iter().filter(|mu| mu.re.hypot(mu.im) > 0.0).count();
+                if n_finite >= n_modes {
+                    have_ritz = true;
                     // Kaniel–Saad-flavored convergence: |β_j| relative
                     // to the largest |μ| in the tridiagonal. β is
                     // complex here so we use its magnitude. Relative in
@@ -511,10 +579,8 @@ impl SparseComplexShiftInvertLanczos {
                     let mu_max = mus.iter().fold(0.0_f64, |a, mu| a.max(mu.re.hypot(mu.im)));
                     let beta_mag = nrm.re.hypot(nrm.im);
                     if beta_mag <= self.tol * mu_max {
-                        converged = Some(picked);
                         break;
                     }
-                    converged = Some(picked);
                 }
             }
 
@@ -529,17 +595,41 @@ impl SparseComplexShiftInvertLanczos {
             v = w.iter().map(|x| *x * inv).collect();
         }
 
-        let picked = converged.ok_or_else(|| {
-            EigenError::FaerGevd(format!(
+        if !have_ritz {
+            return Err(EigenError::FaerGevd(format!(
                 "complex Lanczos terminated after {} iters without computing {} ritz pairs",
                 alpha.len(),
                 n_modes
-            ))
-        })?;
+            )));
+        }
+
+        // 3. Ritz values of the final tridiagonal with the residual estimate
+        //    of each (issue #1023). `nrm` is the last `β`, pushed or not.
+        let ritz = ritz_values_with_estimates(&alpha, &beta, nrm, self.sigma)?;
+
         // Degenerate-shift guard (issue #696): fail loudly instead of
-        // returning a Ritz set collapsed onto a singular shift.
-        self.check_not_degenerate(k, m, picked.iter().copied())?;
-        Ok(picked)
+        // returning a Ritz set collapsed onto a singular shift. It sees the
+        // `n_modes` nearest Ritz values, converged or not, as it always has.
+        let nearest_all = nearest_values(ritz.iter().map(|r| r.0).collect(), self.sigma, n_modes);
+        self.check_not_degenerate(k, m, nearest_all.iter().copied())?;
+
+        // 4. Withhold the Ritz values the Krylov space has not resolved, then
+        //    the `n_modes` nearest `σ` of the rest, ascending `Re λ` (the
+        //    dense `ComplexEigenSolver`'s output convention).
+        let resolved: Vec<c64> = ritz
+            .iter()
+            .filter(|(_, estimate)| *estimate <= UNRESOLVED_RITZ_REL)
+            .map(|r| r.0)
+            .collect();
+        if resolved.is_empty() {
+            return Err(EigenError::FaerGevd(format!(
+                "complex Lanczos resolved none of its {} Ritz values after {} iters (every \
+                 residual estimate exceeds {UNRESOLVED_RITZ_REL:e}); raise max_iters",
+                ritz.len(),
+                alpha.len()
+            )));
+        }
+        Ok(nearest_values(resolved, self.sigma, n_modes))
     }
 
     /// Post-solve degenerate-shift check shared by both solve paths; see
@@ -594,8 +684,9 @@ impl SparseComplexShiftInvertLanczos {
         }
 
         // 1. Build A = K − σM and factor it once (parallelism scoped to the
-        //    factorization only, issue #518).
-        let lu = self.factor(k, m, resolve_num_threads())?;
+        //    factorization only, issue #518; the loop's solves sequential
+        //    while `_seq` lives, issue #956).
+        let (lu, _seq) = self.factor(k, m, resolve_num_threads())?;
 
         // 2. Lanczos in the bilinear M-inner product, retaining the full
         //    basis V_k for Ritz-vector recovery.
@@ -620,17 +711,29 @@ impl SparseComplexShiftInvertLanczos {
 
     /// Build `A = K − σM` and factor it once, scoping faer's global
     /// parallelism to the factorization (issue #518).
+    ///
+    /// Also returns the [`SequentialSolveScope`] the Lanczos loop runs under
+    /// (issue #956), taken once the factorization's guard has dropped, so the
+    /// factorization keeps `n_threads` and every triangular solve of the loop
+    /// runs with `Par::Seq`. Keep it bound for as long as the factor is used.
+    /// Each solve is one right-hand side through a fixed factor. `None` above
+    /// [`crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM`], where a capped
+    /// rayon pool measured faster and the loop keeps the caller's parallelism
+    /// (see [`crate::eigen::parallel::sequential_scope_for_solves`]).
     fn factor(
         &self,
         k: SparseColMatRef<'_, usize, c64>,
         m: SparseColMatRef<'_, usize, c64>,
         n_threads: usize,
-    ) -> Result<Lu<usize, c64>, EigenError> {
+    ) -> Result<(Lu<usize, c64>, Option<SequentialSolveScope>), EigenError> {
         let a = shifted_pencil_complex(k, m, self.sigma)?;
-        let _par = ParallelismGuard::cap(n_threads);
-        a.as_ref()
-            .sp_lu()
-            .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))
+        let lu = {
+            let _par = ParallelismGuard::cap(n_threads);
+            a.as_ref()
+                .sp_lu()
+                .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
+        };
+        Ok((lu, sequential_scope_for_solves(k.nrows())))
     }
 
     /// [`Self::smallest_eigenpairs`] with a **per-pair convergence check**
@@ -751,7 +854,7 @@ impl SparseComplexShiftInvertLanczos {
             return Ok(out);
         }
         let first_modes = first_modes.max(n_modes);
-        let lu = self.factor(k, m, resolve_num_threads())?;
+        let (lu, _seq) = self.factor(k, m, resolve_num_threads())?;
         let sigma = self.sigma;
         let mut kx = vec![c64::new(0.0, 0.0); n];
         let mut mx = vec![c64::new(0.0, 0.0); n];
@@ -1280,6 +1383,8 @@ impl ComplexLanczosRun {
         while self.stop.is_none() && self.alpha.len() < target {
             let j = self.alpha.len();
             spmv(m, &self.v, &mut self.mv);
+            #[cfg(test)]
+            crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
             solve_with_lu(lu, &self.mv, &mut self.w)?;
 
             let w = &mut self.w;
@@ -1739,6 +1844,108 @@ pub(crate) mod tests {
         }
     }
 
+    /// Issue #956: every triangular solve of the Lanczos loop runs while the
+    /// solving thread holds a `SequentialSolveScope`, on all three entry
+    /// points (eigenvalues only, eigenpairs, checked eigenpairs including an
+    /// extension pass), and the scope is gone when the solve returns. Above
+    /// `SEQUENTIAL_SOLVE_MAX_DIM` the loop holds none. What a live scope does
+    /// to faer's global parallelism is asserted in
+    /// `tests/faer_global_parallelism.rs`.
+    #[test]
+    fn lanczos_solves_run_under_a_sequential_scope_up_to_the_size_limit() {
+        use crate::eigen::parallel::solve_probe;
+        let n = 60usize;
+        let mut tk = Vec::new();
+        let mut tm = Vec::new();
+        for i in 0..n {
+            tk.push(Triplet::new(i, i, c64::new(2.0, 0.1)));
+            if i + 1 < n {
+                tk.push(Triplet::new(i, i + 1, c64::new(-1.0, 0.0)));
+                tk.push(Triplet::new(i + 1, i, c64::new(-1.0, 0.0)));
+            }
+            tm.push(Triplet::new(i, i, c64::new(1.0, 0.0)));
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &tk).unwrap();
+        let m = SparseColMat::try_new_from_triplets(n, n, &tm).unwrap();
+        // A short first pass so the checked solve has to extend.
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma: 0.0,
+            max_iters: 8,
+            tol: 1e-11,
+        };
+        let site = LANCZOS_SOLVE_SITE;
+        let _ = solve_probe::take(site);
+        assert_eq!(solve_probe::scopes_held(), 0);
+
+        // The eigenvalue path returns only resolved Ritz values (issue
+        // #1023), which 8 steps do not give: run it to the full dimension.
+        let values = SparseComplexShiftInvertLanczos {
+            max_iters: n,
+            ..solver
+        }
+        .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 4)
+        .unwrap();
+        assert_eq!(values.len(), 4);
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 0, "eigenvalue path made no probed solve");
+        assert_eq!(unscoped, 0, "eigenvalue path solved outside a scope");
+
+        let pairs = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), 4)
+            .unwrap();
+        assert!(!pairs.is_empty());
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 0, "eigenpair path made no probed solve");
+        assert_eq!(unscoped, 0, "eigenpair path solved outside a scope");
+
+        let checked = solver
+            .smallest_eigenpairs_checked(
+                k.as_ref(),
+                m.as_ref(),
+                4,
+                ConvergenceCheck {
+                    residual_tol: 1e-10,
+                    max_iters_cap: n,
+                    window: None,
+                },
+            )
+            .unwrap();
+        assert!(checked.extended, "the checked solve must extend here");
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert!(scoped > 8, "checked path made no extension solves");
+        assert_eq!(unscoped, 0, "checked path solved outside a scope");
+
+        assert_eq!(solve_probe::scopes_held(), 0, "a scope outlived its solve");
+
+        // One unknown above the limit: the loop keeps the caller's setting.
+        let big = crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM + 1;
+        let tridiag = |n: usize, d: c64| {
+            let mut t = Vec::with_capacity(3 * n);
+            for i in 0..n {
+                t.push(Triplet::new(i, i, d));
+                if i + 1 < n {
+                    t.push(Triplet::new(i, i + 1, c64::new(-1.0, 0.0)));
+                    t.push(Triplet::new(i + 1, i, c64::new(-1.0, 0.0)));
+                }
+            }
+            SparseColMat::try_new_from_triplets(n, n, &t).unwrap()
+        };
+        let k = tridiag(big, c64::new(2.0, 0.1));
+        let m = SparseColMat::try_new_from_triplets(
+            big,
+            big,
+            &(0..big)
+                .map(|i| Triplet::new(i, i, c64::new(1.0, 0.0)))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        // Only the solves matter here; 8 steps need not resolve a value.
+        let _ = solver.smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 2);
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert_eq!(scoped, 0, "a solve above the size limit ran under a scope");
+        assert!(unscoped > 0, "large path made no probed solve");
+    }
+
     /// The unit-cube PEC cavity curl-curl pencil (`n = 3`), lifted to
     /// complex. `K` has the discrete-gradient null space (one direction per
     /// free interior node) — the real-world shape of the issue #696 hazard.
@@ -2090,6 +2297,88 @@ pub(crate) mod tests {
             );
         }
         assert!(filtered.pairs.iter().all(|p| p.lambda.re > 0.9));
+    }
+
+    /// Issue #1023 regression. The eigenvalue-only solve runs the same
+    /// 16-step Krylov space as the plain eigenpair solve of
+    /// [`checked_withholds_spurious_ritz_value_near_sigma`], whose 3 Ritz
+    /// values nearest `σ = 1` include the spurious `λ ≈ 1.0900 + 0.1486j`.
+    /// It used to return that value. Its residual estimate is of order one,
+    /// so it is now withheld, and every value returned is an eigenvalue of
+    /// the pencil to the accuracy the estimate allows.
+    #[test]
+    fn eigenvalue_only_solve_withholds_unresolved_ritz_values() {
+        let (lam, k, m) = spurious_ritz_pencil();
+        let sigma = 1.0;
+        let solver = SparseComplexShiftInvertLanczos {
+            sigma,
+            max_iters: 16,
+            tol: 1e-12,
+        };
+        let n_modes = 3;
+        let nearest_gap = |l: c64| {
+            lam.iter()
+                .map(|e| (l - e).norm())
+                .fold(f64::INFINITY, f64::min)
+        };
+
+        // The unscreened selection of the same run (the plain eigenpair
+        // solve) contains the spurious value.
+        let plain = solver
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        let spurious = plain
+            .iter()
+            .map(|p| p.lambda)
+            .find(|l| l.im > 0.0 && nearest_gap(*l) > 0.05)
+            .expect("the 16-step Krylov space should hold a spurious Ritz value near σ");
+
+        let values = solver
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), n_modes)
+            .unwrap();
+        eprintln!("spurious {spurious}, returned {values:?}");
+        assert!(!values.is_empty());
+        assert!(values.len() <= n_modes);
+        for l in &values {
+            assert!(
+                (*l - spurious).norm() > 0.05,
+                "the spurious Ritz value {spurious} was returned as {l}"
+            );
+            assert!(l.im <= 0.0, "unphysical λ = {l} returned");
+            assert!(
+                nearest_gap(*l) < UNRESOLVED_RITZ_REL,
+                "λ = {l} is {:.2e} from the nearest eigenvalue",
+                nearest_gap(*l)
+            );
+        }
+        assert!(values.windows(2).all(|w| w[0].re <= w[1].re));
+
+        // The estimates themselves: of order one for the spurious value,
+        // small for each value returned.
+        let mut run = ComplexLanczosRun::start(m.as_ref(), 16).unwrap();
+        let (lu, _seq) = solver.factor(k.as_ref(), m.as_ref(), 1).unwrap();
+        run.extend(
+            &lu,
+            m.as_ref(),
+            n_modes,
+            16,
+            solver.tol,
+            ExtendMode::Historical,
+        )
+        .unwrap();
+        assert_eq!((run.alpha.len(), run.beta.len()), (16, 16));
+        let ritz = ritz_values_with_estimates(&run.alpha, &run.beta, run.beta[15], sigma).unwrap();
+        let estimate_of = |l: c64| {
+            ritz.iter()
+                .min_by(|a, b| (a.0 - l).norm().total_cmp(&(b.0 - l).norm()))
+                .unwrap()
+                .1
+        };
+        eprintln!("estimates: {ritz:?}");
+        assert!(estimate_of(spurious) > 0.1, "{}", estimate_of(spurious));
+        for l in &values {
+            assert!(estimate_of(*l) <= UNRESOLVED_RITZ_REL);
+        }
     }
 
     /// The seeded pencil of the PR #847 hole regression, diagonal around
