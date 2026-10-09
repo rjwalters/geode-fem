@@ -701,8 +701,12 @@ The CLI's geometric ports are p=1 (there is no element-order field
 yet), so the gap a message quotes is the p=1 gap of the modes in the
 report. The decision compares the same p=1 and p=2 face solves
 whichever order a port runs at, so a p=2 port of the same face would
-get the same warnings for the same pairs. Only `driven` computes them;
-`check` does not solve a geometric port's modes. Hybrid ports are
+get the same warnings for the same pairs. `geode check` reports the
+same warnings (issue #959): the same kinds, ports and messages, in the
+same place in `warnings[]` (after `preconditioner_fallback`, before the
+hybrid ports' warnings) and on stderr, without the sweep. A
+`wave_port_degeneracy_unavailable` warning is still a warning there, not
+an error, so `check` accepts every spec it accepted before. Hybrid ports are
 skipped: they have their own cluster diagnostics
 (`multiplicity_uncertified`, `cluster_split`,
 `non_canonical_cluster_basis`).
@@ -715,6 +719,15 @@ candidate pair, 20 to 80 ms with six modes and a candidate pair. That
 is 3 to 4 % of the sweep time of a 21-frequency run of the same spec,
 and 25 to 55 % of that of a one-frequency run, whose whole sweep takes
 20 ms to 0.8 s.
+
+`geode check` pays the same face solves, so a spec with geometric wave
+ports is no longer a solve-free check: 2-D port-face eigen-solves only,
+never the 3-D system. Measured in-process on the release build, two
+ports, medians of 11 runs: 3.5 ms (`lc = 0.30`, one mode per port),
+9.6 ms (`lc = 0.30`, six modes), 32 ms (`lc = 0.22`, six modes) and
+52 ms (`lc = 0.18`, six modes), against a whole `check` process of 62 to
+131 ms. The cost grows with the port face's size, so a very fine port
+face makes `check` noticeably slower.
 
 **Filled wave ports** (issue #777). The guide at a wave port may be
 filled with any **homogeneous** medium: a scalar `eps_r` (lossy or not),
@@ -885,7 +898,9 @@ port-face half of the sweep at every frequency without the 3-D solve:
 `wave_ports[].hybrid.frequencies[]` lists `n_propagating`, the
 termination and multiplicity counts, and per channel `β`, `eps_eff`,
 `normalization` and the `hybrid` diagnostics above (the same numbers
-`driven` reports), and `warnings[]` carries the same warnings.
+`driven` reports), and `warnings[]` carries the same warnings. For a
+geometric port `check` reports `modes: null` but solves the face for
+its degeneracy warnings (issue #959; see **Degeneracy warnings** above).
 
 Example (a 50 Ω microstrip, `examples/driven/microstrip_line.json`):
 
@@ -2845,7 +2860,8 @@ Additive in v1 (issue #683) — always present in `check`, present in
   a hybrid port's `medium`, `modes` and TM-guard fields are `null`.
 - **`warnings[]`** (additive, issue #807; omitted when empty): `kind`,
   `wave_port`, `physical_group`, `message` — hybrid-port diagnostics,
-  the measured passivity of a lossy spec and (issue #923, `driven`) a
+  the measured passivity of a lossy spec and (issue #923, `driven`;
+  issue #959, also `check`) a
   geometric wave port's degeneracy warnings
   (`wave_port_degeneracy_ambiguous`,
   `wave_port_degeneracy_near_degenerate`,

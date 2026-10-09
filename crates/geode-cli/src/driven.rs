@@ -1266,7 +1266,8 @@ fn port_degeneracy_warnings(
 ///
 /// Called once per `geode driven` run, by [`run`], which is the one place
 /// every output of the run (report, `--touchstone`, sensitivities) hangs
-/// from. Warnings only: the cluster decision is the library's
+/// from, and once per `geode check` run (issue #959), which reports the same
+/// warnings without the sweep. Warnings only: the cluster decision is the library's
 /// ([`PortFaceProjection::wave_port`] makes it again, bit for bit), and
 /// nothing reads these to change S, the Touchstone file or the exit status.
 ///

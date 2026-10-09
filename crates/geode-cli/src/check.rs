@@ -1,4 +1,6 @@
-//! `geode check`: validate a problem spec + mesh without solving.
+//! `geode check`: validate a problem spec + mesh without the 3-D solve
+//! (wave ports' 2-D face solves only: hybrid previews, issue #807, and
+//! geometric degeneracy warnings, issue #959).
 
 use std::path::Path;
 
@@ -16,12 +18,13 @@ use crate::report::{
 };
 use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 
-/// Load + resolve the spec and summarize it (no assembly, no solve).
+/// Load + resolve the spec and summarize it (no 3-D assembly or solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
     p.print_load_warnings();
-    let (wave_ports, mut warnings) = wave_port_previews(&p)?;
-    warnings.extend(p.preconditioner_warnings());
+    let mut warnings = check_warnings(&p);
+    let (wave_ports, hybrid_warnings) = wave_port_previews(&p)?;
+    warnings.extend(hybrid_warnings);
     Ok(CheckReport {
         provenance,
         kind: "check",
@@ -67,11 +70,36 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
     })
 }
 
+/// The warnings `check` reports ahead of the hybrid ports' face-sweep
+/// warnings, in `geode driven`'s order: the default preconditioner's
+/// fallback note (issue #930), then the degeneracy notes of the geometric
+/// wave ports (issue #959; the same
+/// [`crate::driven::wave_port_degeneracy_warnings`] `driven` calls, so the
+/// kinds and messages are byte-identical), then their
+/// `wave_port_degeneracy_unavailable` warnings. `check` runs no sweep whose
+/// error should take precedence, so the `unavailable` ones are printed on
+/// stderr here (the notes already are). Warnings only: neither the exit
+/// status nor `status` changes.
+///
+/// Cost: one raw face mode solve per geometric wave port, plus the
+/// confirming other-order solve when the face has a candidate pair.
+fn check_warnings(p: &Problem) -> Vec<crate::report::WarningResult> {
+    let mut warnings = p.preconditioner_warnings();
+    let (notes, unavailable) = crate::driven::wave_port_degeneracy_warnings(p);
+    for w in &unavailable {
+        eprintln!("warning: {}", w.message);
+    }
+    warnings.extend(notes);
+    warnings.extend(unavailable);
+    warnings
+}
+
 /// [`wave_port_summaries`] with each **hybrid** port's face solve at every
 /// sweep frequency (issue #807): the port-face half of the driven sweep —
 /// modes, `ε_eff`, line impedances, tracking, accuracy and warnings —
 /// without the 3-D solve ([`crate::hybrid::face_sweep`]). Geometric ports
-/// stay unsolved (`modes: null`), as before.
+/// stay `modes: null`: their face solves feed only the degeneracy warnings
+/// ([`check_warnings`], issue #959), not the summary.
 fn wave_port_previews(
     p: &Problem,
 ) -> Result<(Vec<WavePortSummary>, Vec<crate::report::WarningResult>), CliError> {

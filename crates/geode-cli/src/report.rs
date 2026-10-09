@@ -623,8 +623,8 @@ pub struct WarningResult {
     /// #930: the default `solver.preconditioner = "auto"` used `jacobi`
     /// instead of `ams`; the message says why), `"passivity"` (a lossy spec's
     /// measured `σ_max(S) > 1`), `"termination_clamped"`, a **geometric**
-    /// wave port's degeneracy notes (issue #923, `driven` only; the
-    /// message names the port, the mode pair and its numbers, and how to
+    /// wave port's degeneracy notes (issue #923, `driven`; also `check`,
+    /// issue #959, with the same messages; the message names the port, the mode pair and its numbers, and how to
     /// refine): `"wave_port_degeneracy_ambiguous"` (a candidate degenerate
     /// pair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5
     /// decision threshold, so another mesh of the cross-section, such as
@@ -635,7 +635,7 @@ pub struct WarningResult {
     /// `"wave_port_degeneracy_unconfirmed"` (a candidate pair kept distinct
     /// because its confirming solve failed) and
     /// `"wave_port_degeneracy_unavailable"` (the check itself could not
-    /// run), or (driven
+    /// run; `driven` reports it only once its sweep succeeds), or (driven
     /// `sensitivities.warnings`, issue #883) `"sensitivity_port_mode"`,
     /// `"sensitivity_shape_rigid"` (a shape parameter translating the whole
     /// model: gradients zero by construction),
