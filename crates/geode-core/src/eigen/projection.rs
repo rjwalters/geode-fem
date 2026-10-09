@@ -2541,18 +2541,15 @@ mod tests {
         assert!(diag.null_modes_dropped >= 1, "{diag:?}");
     }
 
+    type Sparse = SparseColMat<usize, f64>;
+
     /// A synthetic transmon pencil (issue #950): unit cube, `ε = 4`, PEC on
     /// every face except `z = 0`, whose triangles carry a lumped reactive
     /// shunt (`K_port = S_Γ / L̃`, `M_port = C̃ S_Γ`). Returns the reduced
     /// `(K + K_port, M + M_port, K_port)` and the interior gradient. The
     /// `z = 0` face has `r = 4` free nodes at `n = 3`, so the port carries a
     /// four-dimensional family of gradient directions, not one.
-    fn synthetic_transmon_pencil() -> (
-        SparseColMat<usize, f64>,
-        SparseColMat<usize, f64>,
-        SparseColMat<usize, f64>,
-        InteriorGradient,
-    ) {
+    fn synthetic_transmon_pencil() -> (Sparse, Sparse, Sparse, InteriorGradient) {
         use crate::eigen::transmon::{LumpedReactiveShunt, ReactiveElementNatural};
         use crate::testing::TestBackend;
         use burn::tensor::backend::BackendTypes;
