@@ -1700,6 +1700,22 @@ if s9_dir.is_dir():
     direct_rss_x = (
         cd["time"]["max_rss_bytes"] / c0["time"]["max_rss_bytes"] if c0 and cd else float("nan")
     )
+    # CPU of a candidate against the mean of main and default (identical code),
+    # and the spread between those two, which is the run-to-run noise here.
+    noise = []
+    for w in omegas9:
+        m, d0 = get("main", w), get("default", w)
+        if m and d0:
+            noise += [abs(cpu(a) - cpu(b)) / ((cpu(a) + cpu(b)) / 2) for a, b in zip(m, d0)]
+            for v in ("pi_amg4", "pi_sgs16"):
+                if get(v, w):
+                    r = [cpu(c) / ((cpu(a) + cpu(b)) / 2) for c, a, b in zip(get(v, w), m, d0)]
+                    print(
+                        f"{v}_cpu_over_baseline_w{w:.2f}".replace(".", "p")
+                        + f" = {fl(r, 2)}  # process CPU / mean of main and default, per size"
+                    )
+    if noise:
+        print(f"baseline_cpu_spread_max = {max(noise):.3f}  # |main - default| / mean, identical code: the noise floor")
     print(f"flat_band_variants_w0p10 = {flat}")
     print(
         "flat_band_at_all_omegas = "
@@ -1721,7 +1737,9 @@ if s9_dir.is_dir():
             "solve, and of those measured amg:4 (GEODE_DRIVEN_AMS_PI_COARSE=amg:4) is the candidate: flat "
             "at all three frequencies, O(n) per apply, and with a peak memory close to the default's "
             f"(pi_amg4_rss_over_default) where the exact LU needs {direct_rss_x:.1f} times it at "
-            f"{c0['n_edges'] if c0 else '?'} edges. It costs more CPU than the default up to 102k edges, so the switch rests on the at-scale "
+            f"{c0['n_edges'] if c0 else '?'} edges. It costs more process CPU than the default at every size "
+            "and frequency measured, by a ratio that falls with size (pi_amg4_cpu_over_baseline_*) to "
+            "about the noise floor (baseline_cpu_spread_max) at the largest, so the switch rests on the at-scale "
             "cells (the r6i ladder to 898k edges, where the default takes 105 iterations), which are "
             "operator-run. Combine it with GEODE_DRIVEN_AMS_CYCLE=multiplicative there to also measure the "
             "level. Smoother changes (l1-Jacobi, Chebyshev, more Jacobi or SGS sweeps) are not worth a "
@@ -1784,3 +1802,34 @@ if s9_dir.is_dir():
                 print(f"{t}_process_cpu_s = {r['time']['user_s'] + r['time']['sys_s']:.2f}  # includes the direct reference solve")
             if r["load"]:
                 print(f"{t}_loadavg_1min_start = {r['load']}")
+    if val9.is_dir() and trees9:
+        allr = {(t, stem): val9_run(t, stem) for stem in VAL9 for t in trees9}
+        allr = {k: r for k, r in allr.items() if r}
+        print()
+        print("[smoother_963_validation_summary]")
+        print(f"all_passed = {str(all(r['passed'] for r in allr.values())).lower()}  # {len(allr)} runs")
+        for t in trees9:
+            if t in ("main", "default"):
+                continue
+            more, less, same = [], 0, 0
+            for stem in VAL9:
+                a, b = allr.get((t, stem)), allr.get(("default", stem))
+                if not (a and b) or len(a["iterations"]) != len(b["iterations"]):
+                    continue
+                for i, (x, y) in enumerate(zip(a["iterations"], b["iterations"])):
+                    if x > y:
+                        more.append(f"{stem}[{i}] {x} vs {y}")
+                    elif x < y:
+                        less += 1
+                    else:
+                        same += 1
+            print(
+                f"{t}_vs_default = {q(f'{less} solves fewer iterations, {same} equal, {len(more)} more' + (': ' + '; '.join(more) if more else ''))}"
+            )
+        md = [
+            stem
+            for stem in VAL9
+            if allr.get(("main", stem)) and allr.get(("default", stem))
+            and allr[("main", stem)]["iterations"] != allr[("default", stem)]["iterations"]
+        ]
+        print(f"default_iterations_equal_main = {str(not md).lower()}  # every test that prints its counts")
