@@ -793,16 +793,17 @@ impl CoarseSolver {
 /// Solve `A · out = b` in place from a cached sparse LU (`out` overwritten).
 ///
 /// The solve runs under its own [`crate::eigen::parallel::SequentialSolveScope`]
-/// (issue #956): it is one right-hand side through a fixed factor, called once
-/// or twice per V-cycle, and too small to share out over the rayon pool. The
-/// driven back-solve already holds a scope around its whole Krylov solve
-/// (issue #946); this one also covers the eigen matrix-free AMS, whose Lanczos
-/// loop holds none. Scopes nest, so the inner one changes nothing there.
+/// (issue #956) up to [`crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM`]: it
+/// is one right-hand side through a fixed factor, called once or twice per
+/// V-cycle. The driven back-solve already holds a scope around its whole
+/// Krylov solve (issue #946); this one also covers the eigen matrix-free AMS,
+/// whose Lanczos loop holds none. Scopes nest, so the inner one changes nothing
+/// there.
 fn lu_solve(lu: &Lu<usize, f64>, b: &[f64], out: &mut [f64]) {
     use faer::linalg::solvers::Solve;
     let n = b.len();
     let mut mat: Mat<f64> = Mat::from_fn(n, 1, |row, _| b[row]);
-    let _seq = crate::eigen::parallel::SequentialSolveScope::enter();
+    let _seq = crate::eigen::parallel::sequential_scope_for_solves(n);
     #[cfg(test)]
     crate::eigen::parallel::solve_probe::record("ams_lu_solve");
     lu.solve_in_place(mat.as_mut());
@@ -3058,9 +3059,10 @@ mod tests {
     /// the solving thread, for both coarse solvers that make one (`Direct`, and
     /// the coarsest level of `Amg`), and no scope outlives the eigensolve. What
     /// a live scope does to faer's global parallelism is asserted in
-    /// `tests/faer_global_parallelism.rs`.
+    /// `tests/faer_global_parallelism.rs`. Above `SEQUENTIAL_SOLVE_MAX_DIM`
+    /// the coarse solve keeps the caller's setting.
     #[test]
-    fn eigen_ams_coarse_lu_solves_run_under_a_sequential_scope() {
+    fn eigen_ams_coarse_lu_solves_run_under_a_sequential_scope_up_to_the_size_limit() {
         use crate::eigen::lanczos::{InnerPreconditioner, InnerSolver, SparseShiftInvertLanczos};
         use crate::eigen::parallel::solve_probe;
 
@@ -3086,6 +3088,15 @@ mod tests {
             assert_eq!(unscoped, 0, "{coarse:?}: coarse LU solve outside a scope");
             assert_eq!(solve_probe::scopes_held(), 0, "{coarse:?}: scope leaked");
         }
+
+        // A Direct coarse solver one unknown above the limit takes no scope.
+        let big = crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM + 1;
+        let (a, _) = laplacian(big);
+        let direct = CoarseSolver::build(&a, CoarseSolve::Direct).unwrap();
+        let b = vec![1.0; big];
+        let mut x = vec![0.0; big];
+        direct.solve(&b, &mut x);
+        assert_eq!(solve_probe::take("ams_lu_solve"), (0, 1));
     }
 
     /// CORRECTNESS GATE (issue #565, mirrors #561): the AMG-coarse three-space

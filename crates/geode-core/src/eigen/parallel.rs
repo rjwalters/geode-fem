@@ -78,6 +78,11 @@
 //!   no scope;
 //! - the transient stepper's back-solve, per time step (#956).
 //!
+//! The three #956 holders take their scope through
+//! [`sequential_scope_for_solves`], only up to [`SEQUENTIAL_SOLVE_MAX_DIM`]
+//! unknowns: above it a rayon pool capped well below the core count made the
+//! whole solve measurably faster, and those solves keep the caller's setting.
+//!
 //! Scopes are counted, so those held by concurrent solves on different
 //! threads can end in any order, a scope inside another changes nothing, and
 //! a `ParallelismGuard` built on another thread meanwhile cannot put the loop
@@ -543,6 +548,30 @@ impl Drop for SequentialSolveScope {
             set_global_parallelism(target);
         }
     }
+}
+
+/// Largest system dimension whose repeated single-right-hand-side sparse
+/// triangular solves run under a [`SequentialSolveScope`] taken by
+/// [`sequential_scope_for_solves`] (issue #956).
+///
+/// Measured on a 28-CPU machine (`results_threading_956.toml` under
+/// `benchmarks/gpu_driven_scaling`). With the rayon pool at every core (the
+/// default) a sequential solve was the faster one at every size measured, up
+/// to 97k unknowns, and used several times less CPU. With the pool capped at 8
+/// threads it was faster only on small systems: per call, the complex LU of
+/// the eigen loop broke even at about 9k unknowns and the real LU of the
+/// transient step at about 20k, and on a 36k-unknown complex eigensolve and a
+/// 97k-unknown transient run the sequential loop made the whole solve 20 % and
+/// 25 to 50 % slower. Above this dimension the solve is therefore left on the
+/// caller's parallelism, as before #956.
+pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 10_000;
+
+/// A [`SequentialSolveScope`] for a run of single-right-hand-side solves
+/// through a fixed sparse LU of dimension `dim`, or `None` when `dim` exceeds
+/// [`SEQUENTIAL_SOLVE_MAX_DIM`] (issue #956). Bind the result for as long as
+/// the solves run.
+pub fn sequential_scope_for_solves(dim: usize) -> Option<SequentialSolveScope> {
+    (dim <= SEQUENTIAL_SOLVE_MAX_DIM).then(SequentialSolveScope::enter)
 }
 
 /// Test-only record of whether each repeated sparse triangular solve ran while

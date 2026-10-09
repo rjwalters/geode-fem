@@ -72,7 +72,9 @@ use crate::eigen::lanczos::{
     ConvergenceCheck, EXTENSION_BREAKDOWN_REL, ExtendMode, HISTORICAL_BREAKDOWN_REL, LanczosStop,
     TARGET_MATCH_REL_FLOOR, krylov_breakdown, negligible,
 };
-use crate::eigen::parallel::{ParallelismGuard, SequentialSolveScope, resolve_num_threads};
+use crate::eigen::parallel::{
+    ParallelismGuard, SequentialSolveScope, resolve_num_threads, sequential_scope_for_solves,
+};
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
@@ -633,17 +635,16 @@ impl SparseComplexShiftInvertLanczos {
     /// (issue #956), taken once the factorization's guard has dropped, so the
     /// factorization keeps `n_threads` and every triangular solve of the loop
     /// runs with `Par::Seq`. Keep it bound for as long as the factor is used.
-    /// This is what the real solver does
-    /// ([`crate::eigen::lanczos::SparseShiftInvertLanczos`], issue #946): each
-    /// solve is one right-hand side through a fixed factor, too small to share
-    /// out over the rayon pool (the measurements are in
-    /// `benchmarks/gpu_driven_scaling/results_threading_956.toml`).
+    /// Each solve is one right-hand side through a fixed factor. `None` above
+    /// [`crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM`], where a capped
+    /// rayon pool measured faster and the loop keeps the caller's parallelism
+    /// (see [`crate::eigen::parallel::sequential_scope_for_solves`]).
     fn factor(
         &self,
         k: SparseColMatRef<'_, usize, c64>,
         m: SparseColMatRef<'_, usize, c64>,
         n_threads: usize,
-    ) -> Result<(Lu<usize, c64>, SequentialSolveScope), EigenError> {
+    ) -> Result<(Lu<usize, c64>, Option<SequentialSolveScope>), EigenError> {
         let a = shifted_pencil_complex(k, m, self.sigma)?;
         let lu = {
             let _par = ParallelismGuard::cap(n_threads);
@@ -651,7 +652,7 @@ impl SparseComplexShiftInvertLanczos {
                 .sp_lu()
                 .map_err(|e| EigenError::FaerGevd(format!("complex sparse LU: {e:?}")))?
         };
-        Ok((lu, SequentialSolveScope::enter()))
+        Ok((lu, sequential_scope_for_solves(k.nrows())))
     }
 
     /// [`Self::smallest_eigenpairs`] with a **per-pair convergence check**
@@ -1742,11 +1743,12 @@ pub(crate) mod tests {
     /// Issue #956: every triangular solve of the Lanczos loop runs while the
     /// solving thread holds a `SequentialSolveScope`, on all three entry
     /// points (eigenvalues only, eigenpairs, checked eigenpairs including an
-    /// extension pass), and the scope is gone when the solve returns. What a
-    /// live scope does to faer's global parallelism is asserted in
+    /// extension pass), and the scope is gone when the solve returns. Above
+    /// `SEQUENTIAL_SOLVE_MAX_DIM` the loop holds none. What a live scope does
+    /// to faer's global parallelism is asserted in
     /// `tests/faer_global_parallelism.rs`.
     #[test]
-    fn lanczos_solves_run_under_a_sequential_scope() {
+    fn lanczos_solves_run_under_a_sequential_scope_up_to_the_size_limit() {
         use crate::eigen::parallel::solve_probe;
         let n = 60usize;
         let mut tk = Vec::new();
@@ -1805,6 +1807,35 @@ pub(crate) mod tests {
         assert_eq!(unscoped, 0, "checked path solved outside a scope");
 
         assert_eq!(solve_probe::scopes_held(), 0, "a scope outlived its solve");
+
+        // One unknown above the limit: the loop keeps the caller's setting.
+        let big = crate::eigen::parallel::SEQUENTIAL_SOLVE_MAX_DIM + 1;
+        let tridiag = |n: usize, d: c64| {
+            let mut t = Vec::with_capacity(3 * n);
+            for i in 0..n {
+                t.push(Triplet::new(i, i, d));
+                if i + 1 < n {
+                    t.push(Triplet::new(i, i + 1, c64::new(-1.0, 0.0)));
+                    t.push(Triplet::new(i + 1, i, c64::new(-1.0, 0.0)));
+                }
+            }
+            SparseColMat::try_new_from_triplets(n, n, &t).unwrap()
+        };
+        let k = tridiag(big, c64::new(2.0, 0.1));
+        let m = SparseColMat::try_new_from_triplets(
+            big,
+            big,
+            &(0..big)
+                .map(|i| Triplet::new(i, i, c64::new(1.0, 0.0)))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        solver
+            .smallest_complex_pencil_eigenvalues(k.as_ref(), m.as_ref(), 2)
+            .unwrap();
+        let (scoped, unscoped) = solve_probe::take(site);
+        assert_eq!(scoped, 0, "a solve above the size limit ran under a scope");
+        assert!(unscoped > 0, "large path made no probed solve");
     }
 
     /// The unit-cube PEC cavity curl-curl pencil (`n = 3`), lifted to

@@ -24,7 +24,8 @@
 //! channels ([`OnAnotherThread`]), so the order of events is fixed and no
 //! block depends on timing.
 //!
-//! Issue #956 added three more holders: the complex-symmetric shift-invert
+//! Issue #956 added three more holders, each only up to
+//! `SEQUENTIAL_SOLVE_MAX_DIM` unknowns: the complex-symmetric shift-invert
 //! Lanczos loop, the AMS coarse LU solve (per call) and the transient
 //! stepper's back-solve (per step). Each must leave the caller's setting in
 //! place when it returns.
@@ -34,10 +35,10 @@
 //! `ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not` in
 //! `driven/solve.rs`,
 //! `direct_backends_come_with_a_sequential_scope_and_matrix_free_does_not` in
-//! `eigen/lanczos.rs`, and (#956) `lanczos_solves_run_under_a_sequential_scope`
+//! `eigen/lanczos.rs`, and (#956) `lanczos_solves_run_under_a_sequential_scope_up_to_the_size_limit`
 //! in `eigen/complex/lanczos.rs`,
-//! `eigen_ams_coarse_lu_solves_run_under_a_sequential_scope` in `eigen/ams.rs`
-//! and `step_back_solve_runs_under_a_sequential_scope` in
+//! `eigen_ams_coarse_lu_solves_run_under_a_sequential_scope_up_to_the_size_limit` in `eigen/ams.rs`
+//! and `step_back_solve_runs_under_a_sequential_scope_up_to_the_size_limit` in
 //! `driven/transient.rs`.
 
 use burn::tensor::backend::BackendTypes;
