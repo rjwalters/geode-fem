@@ -41,7 +41,7 @@
 use std::collections::HashMap;
 
 use faer::c64;
-use faer::sparse::SparseColMat;
+use faer::sparse::{SparseColMat, SparseColMatRef};
 
 use super::hybrid::{
     HybridComplexLineReport, HybridLineReport, HybridPortFace, PortAccuracyOpts, PortWarning,
@@ -389,6 +389,105 @@ pub(super) fn signed_path(
         .collect()
 }
 
+/// Unit round-off `u = 2⁻⁵³` of `f64` (Higham's `u`; `f64::EPSILON / 2`).
+const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
+
+/// Higham's `γ_n = n·u / (1 − n·u)`: the relative error bound of a chain of
+/// `n` floating-point roundings (`+∞` once `n·u ≥ 1`).
+fn gamma(n: usize) -> f64 {
+    let nu = n as f64 * UNIT_ROUNDOFF;
+    if nu >= 1.0 {
+        f64::INFINITY
+    } else {
+        nu / (1.0 - nu)
+    }
+}
+
+/// Per-conductor **round-off bound** of the discrete-Ampère sums
+/// `q_c = Σ_{k∈c} (Gᵀẽ_t + Sẽ_z − k₀²T_εẽ_z)_k` (issue #953), from the
+/// moduli of the mode's DOFs (`e_t_abs`, `e_z_abs`) and the displacement
+/// term's per-node `(Σ |T_ε,kl|·|ẽ_z,l|, number of products)` (`t_abs`; the
+/// lossy path assembles its complex `T_ε` per triangle, so the caller
+/// supplies it).
+///
+/// `q_c` is a sum of `N_c` products (`N_c` = the stored entries of the
+/// conductor's `G` columns and `S`, `T_ε` rows); `A_c` is the sum of the
+/// products' moduli. However the sum is ordered, every product passes
+/// through at most `N_c − 1` additions and three multiplications (the
+/// matrix entry, `k₀·k₀`, and `k₀²` times the `T_ε` row), so the classic
+/// a-priori bound (Higham, *Accuracy and Stability of Numerical
+/// Algorithms*, Thm 3.1 / eq. 3.5) is `|fl(q_c) − q_c| ≤ γ_{N_c+3} · A_c`.
+/// A complex product adds at most a factor `√2` (Higham Lemma 3.5), which
+/// the bound always carries, so the same bound serves the lossy path.
+///
+/// So a computed `|q_c|` at or below this bound is **indistinguishable from
+/// zero** in floating point: the conductor carries no net current. It is
+/// scale-free (it moves with the mode's normalization, `k₀` and the mesh
+/// unit) and has no tuned constant. A conductor carrying a genuinely small
+/// current (a mode near its cutoff) has `|q_c| / A_c` set by the physics,
+/// many orders above `N_c·u`, and is not caught.
+///
+/// The bound covers the evaluation only, treating the mode and the blocks
+/// as given. On the coax guide of #953 the TE₁₁ sums sit at 0.005–0.15 of
+/// it and the TEM sum 12 orders above. A mode whose currents cancel only to
+/// the eigensolver tolerance, not to round-off, would fall above the bound
+/// and keep the numeric `Z_PI` and its accuracy warning, as before #953.
+/// The test fails toward the old reporting, never toward hiding a line
+/// impedance.
+fn ampere_roundoff_bound(
+    blocks: &HybridBlocks,
+    t_abs: (&[f64], &[usize]),
+    conductors: &[Vec<bool>],
+    e_t_abs: &[f64],
+    e_z_abs: &[f64],
+    k0: f64,
+) -> Vec<f64> {
+    // Per node: Σ|products| and the number of products.
+    let (mut a, mut cnt) = abs_matvec(blocks.s.as_ref(), e_z_abs);
+    let g = blocks.g.as_ref();
+    let (cp, ri, v) = (g.col_ptr(), g.row_idx(), g.val());
+    for k in 0..a.len() {
+        for p in cp[k]..cp[k + 1] {
+            a[k] += v[p].abs() * e_t_abs[ri[p]];
+        }
+        cnt[k] += cp[k + 1] - cp[k] + t_abs.1[k];
+        a[k] += k0 * k0 * t_abs.0[k];
+    }
+    conductors
+        .iter()
+        .map(|c| {
+            let (sum, terms) = (0..c.len())
+                .filter(|&k| c[k])
+                .fold((0.0, 0usize), |(s, t), k| (s + a[k], t + cnt[k]));
+            std::f64::consts::SQRT_2 * gamma(terms + 3) * sum
+        })
+        .collect()
+}
+
+/// `(|A|·x, products per row)` of a sparse matrix and a non-negative `x`.
+fn abs_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> (Vec<f64>, Vec<usize>) {
+    let mut y = vec![0.0; a.nrows()];
+    let mut cnt = vec![0usize; a.nrows()];
+    let (cp, ri, v) = (a.col_ptr(), a.row_idx(), a.val());
+    for (j, &xj) in x.iter().enumerate() {
+        for p in cp[j]..cp[j + 1] {
+            y[ri[p]] += v[p].abs() * xj;
+            cnt[ri[p]] += 1;
+        }
+    }
+    (y, cnt)
+}
+
+/// `true` when **every** conductor's net current is at round-off
+/// ([`ampere_roundoff_bound`]): the channel carries no net conductor current
+/// (a TE / TM waveguide mode of the face, such as a coax TE₁₁), so a
+/// current-based line impedance (`Z_PI`, `Z_VI`) is undefined. Tested per
+/// conductor, not on `Σ I_c`: an odd mode of a coupled pair has opposite but
+/// non-zero currents. `false` without conductors.
+fn no_net_current(q_abs: &[f64], bound: &[f64]) -> bool {
+    !q_abs.is_empty() && q_abs.iter().zip(bound).all(|(q, b)| q <= b)
+}
+
 /// Signed discrete-Ampère conductor currents of a real mode at `k0`:
 /// `I_c = −(1/k₀η₀) Σ_{k∈c} (Gᵀẽ_t + Sẽ_z − k₀²T_εẽ_z)_k`.
 pub(super) fn currents_real(
@@ -452,6 +551,12 @@ pub(super) fn line_real(
             (!p.is_empty()).then(|| p.iter().map(|&(e, sg)| sg * m.e_t[e]).sum::<f64>() / beta)
         })
         .collect();
+    let e_t_abs: Vec<f64> = m.e_t.iter().map(|x| x.abs()).collect();
+    let e_z_abs: Vec<f64> = m.e_z.iter().map(|x| x.abs()).collect();
+    let (t_a, t_n) = abs_matvec(blocks.t_eps.as_ref(), &e_z_abs);
+    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0);
+    let q_abs: Vec<f64> = currents.iter().map(|i| i.abs() * (k0 * eta)).collect();
+    let no_net_current = no_net_current(&q_abs, &bound);
     let i2: f64 = currents.iter().map(|i| i * i).sum();
     let z_pi = 2.0 * power / i2;
     let v2: Option<f64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
@@ -463,6 +568,7 @@ pub(super) fn line_real(
         z_pi,
         z_pv,
         z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
+        no_net_current,
     })
 }
 
@@ -497,12 +603,18 @@ pub(crate) fn line_complex(
     let mut s_ez = vec![ZERO; q.len()];
     rmatvec(blocks.s.as_ref(), &m.e_z, &mut s_ez);
     let mut t_ez = vec![ZERO; q.len()];
+    // Its round-off scale (`|ε|·|T_loc|·|ẽ_z|` per node, and the count).
+    let mut t_a = vec![0.0; q.len()];
+    let mut t_n = vec![0usize; q.len()];
     for (tri, e) in mesh.tris.iter().zip(eps) {
         let coords = tri.map(|n| mesh.nodes[n as usize]);
         let (_s, t_loc, _) = tri_p1_local(&coords);
         for p in 0..3 {
             for r in 0..3 {
-                t_ez[tri[p] as usize] += m.e_z[tri[r] as usize] * (*e * t_loc[p][r]);
+                let ez = m.e_z[tri[r] as usize];
+                t_ez[tri[p] as usize] += ez * (*e * t_loc[p][r]);
+                t_a[tri[p] as usize] += e.norm() * t_loc[p][r].abs() * ez.norm();
+                t_n[tri[p] as usize] += 1;
             }
         }
     }
@@ -530,6 +642,11 @@ pub(crate) fn line_complex(
                 .then(|| p.iter().fold(ZERO, |acc, &(e, sg)| acc + m.e_t[e] * sg) / m.beta)
         })
         .collect();
+    let e_t_abs: Vec<f64> = m.e_t.iter().map(|x| x.norm()).collect();
+    let e_z_abs: Vec<f64> = m.e_z.iter().map(|x| x.norm()).collect();
+    let bound = ampere_roundoff_bound(blocks, (&t_a, &t_n), conductors, &e_t_abs, &e_z_abs, k0);
+    let q_abs: Vec<f64> = currents.iter().map(|i| i.norm() * (k0 * eta)).collect();
+    let no_net_current = no_net_current(&q_abs, &bound);
     let i2: c64 = currents.iter().map(|i| i * i).sum();
     let z_pi = c64::new(2.0, 0.0) * power / i2;
     let v2: Option<c64> = voltages.iter().map(|v| v.map(|v| v * v)).sum();
@@ -541,12 +658,14 @@ pub(crate) fn line_complex(
         z_pi,
         z_pv,
         z_vi: z_pv.map(|z| (z * z_pi).sqrt()),
+        no_net_current,
     })
 }
 
 /// The impedance estimate of one channel at one frequency.
 pub(super) enum ZOutcome {
-    /// No line impedance (no conductor, or not propagating).
+    /// No line impedance (no conductor, not propagating, or no net
+    /// conductor current, #953).
     NotApplicable,
     /// The estimate.
     Estimate(ImpedanceAccuracy),
@@ -565,10 +684,12 @@ impl ZOutcome {
 }
 
 /// Pending impedance warnings of one port over a sweep: the worst
-/// above-threshold estimate and the first unavailable one per channel.
+/// above-threshold estimate, the first unavailable one and the first
+/// no-net-current one (#953) per channel.
 pub(super) struct ZWarnings {
     above: Vec<Option<PortWarningKind>>,
     unavailable: Vec<Option<PortWarningKind>>,
+    no_current: Vec<Option<PortWarningKind>>,
 }
 
 impl ZWarnings {
@@ -576,6 +697,16 @@ impl ZWarnings {
         Self {
             above: vec![None; k],
             unavailable: vec![None; k],
+            no_current: vec![None; k],
+        }
+    }
+
+    /// Record that channel `c`'s line at `omega` carries no net conductor
+    /// current ([`HybridLineReport::no_net_current`]; issue #953), with or
+    /// without the accuracy estimate: the first frequency is kept.
+    pub(super) fn record_no_current(&mut self, c: usize, omega: f64) {
+        if self.no_current[c].is_none() {
+            self.no_current[c] = Some(PortWarningKind::NoNetConductorCurrent { channel: c, omega });
         }
     }
 
@@ -716,6 +847,23 @@ impl ZWarnings {
                 kind,
             });
         }
+        for kind in self.no_current.into_iter().flatten() {
+            let PortWarningKind::NoNetConductorCurrent { channel, omega } = &kind else {
+                unreachable!()
+            };
+            out.push(PortWarning {
+                port: p_idx,
+                message: format!(
+                    "hybrid wave port {p_idx} channel {channel}: the mode carries no net \
+                     conductor current (from ω = {omega}: every conductor's current cancels to \
+                     floating-point round-off) — a TE/TM waveguide mode of the port face, not a \
+                     line mode — so Z_PI and Z_VI are undefined and no line impedance or \
+                     line-impedance accuracy is reported for it. This is not a mesh problem; \
+                     its modal S is still valid"
+                ),
+                kind,
+            });
+        }
         out
     }
 }
@@ -750,6 +898,28 @@ mod tests {
         // Refine factor: (est/τ)^{1/p}.
         assert!((e.refine_factor(e.estimate / 4.0) - 4.0).abs() < 1e-12);
         assert_eq!(e.refine_factor(1.0), 1.0);
+    }
+
+    #[test]
+    fn gamma_is_the_higham_bound_and_saturates() {
+        assert_eq!(gamma(0), 0.0);
+        let u = f64::EPSILON / 2.0;
+        assert!((gamma(100) / (100.0 * u) - 1.0).abs() < 1e-12);
+        assert_eq!(gamma(usize::MAX), f64::INFINITY);
+    }
+
+    /// #953: the channel has no net current only when **every** conductor
+    /// is at or below its round-off bound; an odd coupled pair (opposite,
+    /// non-zero currents, which cancel in `Σ I`) and a pair with one
+    /// carrying conductor are kept; no conductors is never flagged.
+    #[test]
+    fn no_net_current_needs_every_conductor_at_round_off() {
+        assert!(no_net_current(&[1e-14], &[1e-13]));
+        assert!(no_net_current(&[1e-14, 0.0], &[1e-13, 1e-13]));
+        assert!(!no_net_current(&[6.0], &[1e-12]));
+        assert!(!no_net_current(&[1.0, 1.0], &[1e-13, 1e-13]));
+        assert!(!no_net_current(&[1e-14, 1e-3], &[1e-13, 1e-13]));
+        assert!(!no_net_current(&[], &[]));
     }
 
     #[test]

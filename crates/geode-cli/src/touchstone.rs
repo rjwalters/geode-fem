@@ -378,6 +378,22 @@ fn classify_hybrid(
             .collect();
         let props: Vec<bool> = chans.iter().map(|ch| propagating(ch.beta)).collect();
         if props.iter().all(|&b| b) {
+            // A waveguide (TE / TM) mode with no net conductor current has
+            // no line impedance to renormalize to (#953).
+            if chans.iter().any(|ch| {
+                crate::hybrid::channel_result(h, ch)
+                    .line
+                    .is_some_and(|l| l.no_net_current)
+            }) {
+                return Err(unsupported(&format!(
+                    "{} carries no net conductor current (its conductor currents cancel to \
+                     round-off: a TE/TM waveguide mode of the port face, not a line mode), so it \
+                     has no line impedance to renormalize to; a propagating mode must be a \
+                     channel, so keep the sweep below its cutoff for a Touchstone file, or use \
+                     the JSON report's modal results[].s",
+                    channel_label(p, &c)
+                )));
+            }
             let zs: Vec<f64> = chans
                 .iter()
                 .filter_map(|ch| crate::hybrid::channel_result(h, ch).z_line_ohm)

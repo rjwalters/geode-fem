@@ -559,7 +559,9 @@ pub struct HybridChannelResult {
     /// The channel's characteristic impedance under the port's
     /// `impedance_definition` (ohms; complex on a lossy face): the `Z_c`
     /// that `--touchstone` renormalizes to `reference_ohm`. `null` without
-    /// a line impedance.
+    /// a line impedance, including a channel that carries no net conductor
+    /// current (`line.no_net_current`; a TE / TM waveguide mode such as a
+    /// coax TE₁₁, issue #953).
     pub z_line_ohm: Option<Complex>,
     /// Estimated discretization error of `z_line_ohm` (`null` without a line
     /// impedance, with the estimate off, or when unavailable — then an
@@ -596,17 +598,28 @@ pub struct ImpedanceAccuracyResult {
 /// strip edge) and on frequency.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct LineImpedanceResult {
-    /// Power–current impedance `Z_PI`.
-    pub z_pi_ohm: Complex,
+    /// Power–current impedance `Z_PI` (`null` when `no_net_current`: it
+    /// is undefined there).
+    pub z_pi_ohm: Option<Complex>,
     /// Power–voltage impedance `Z_PV` (`null` without a voltage path).
+    /// With `no_net_current` it is a path-dependent diagnostic of a
+    /// waveguide mode, not a line impedance.
     pub z_pv_ohm: Option<Complex>,
-    /// Voltage–current impedance `Z_VI` (`null` without a voltage path).
+    /// Voltage–current impedance `Z_VI` (`null` without a voltage path or
+    /// when `no_net_current`).
     pub z_vi_ohm: Option<Complex>,
     /// Signed conductor currents in the mode's normalization (A per unit
     /// modal amplitude), conductor order.
     pub currents: Vec<Complex>,
     /// Path voltages in the same normalization (`null` without a path).
     pub voltages: Vec<Option<Complex>>,
+    /// `true` when every conductor's net current cancels to floating-point
+    /// round-off (issue #953): the channel is a TE / TM waveguide mode of
+    /// the face (such as a coax TE₁₁), not a line mode, so `Z_PI` and
+    /// `Z_VI` are undefined (`null`), `z_line_ohm` is `null`, and a
+    /// `no_net_conductor_current` warning says so. Refining the face does
+    /// not change it.
+    pub no_net_current: bool,
 }
 
 /// A report-level warning (issue #807; additive in v1): never an error,
@@ -617,8 +630,10 @@ pub struct WarningResult {
     /// `"complex_pair_dropped"`, `"accuracy_above_threshold"`,
     /// `"attenuation_accuracy_above_threshold"`, `"accuracy_unavailable"`,
     /// `"impedance_accuracy_above_threshold"`,
-    /// `"impedance_accuracy_unavailable"`,
-    /// `"multiplicity_uncertified"`, `"cluster_split"`,
+    /// `"impedance_accuracy_unavailable"`, `"no_net_conductor_current"`
+    /// (issue #953: a hybrid channel whose conductor currents cancel to
+    /// round-off, a TE / TM waveguide mode with no line impedance; not a
+    /// mesh problem), `"multiplicity_uncertified"`, `"cluster_split"`,
     /// `"non_canonical_cluster_basis"`, `"preconditioner_fallback"` (issue
     /// #930: the default `solver.preconditioner = "auto"` used `jacobi`
     /// instead of `ams`; the message says why), `"passivity"` (a lossy spec's

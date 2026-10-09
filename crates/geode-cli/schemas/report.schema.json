@@ -2381,7 +2381,7 @@
           "description": "Estimated discretization error of `z_line_ohm` (`null` without a line\nimpedance, with the estimate off, or when unavailable — then an\n`impedance_accuracy_unavailable` warning says why). It does **not**\ninclude the shield box's effect on a shielded line's impedance\n(physics, not mesh error)."
         },
         "z_line_ohm": {
-          "description": "The channel's characteristic impedance under the port's\n`impedance_definition` (ohms; complex on a lossy face): the `Z_c`\nthat `--touchstone` renormalizes to `reference_ohm`. `null` without\na line impedance.",
+          "description": "The channel's characteristic impedance under the port's\n`impedance_definition` (ohms; complex on a lossy face): the `Z_c`\nthat `--touchstone` renormalizes to `reference_ohm`. `null` without\na line impedance, including a channel that carries no net conductor\ncurrent (`line.no_net_current`; a TE / TM waveguide mode such as a\ncoax TE₁₁, issue #953).",
           "items": {
             "format": "double",
             "type": "number"
@@ -3139,6 +3139,10 @@
           },
           "type": "array"
         },
+        "no_net_current": {
+          "description": "`true` when every conductor's net current cancels to floating-point\nround-off (issue #953): the channel is a TE / TM waveguide mode of\nthe face (such as a coax TE₁₁), not a line mode, so `Z_PI` and\n`Z_VI` are undefined (`null`), `z_line_ohm` is `null`, and a\n`no_net_conductor_current` warning says so. Refining the face does\nnot change it.",
+          "type": "boolean"
+        },
         "voltages": {
           "description": "Path voltages in the same normalization (`null` without a path).",
           "items": {
@@ -3156,17 +3160,20 @@
           "type": "array"
         },
         "z_pi_ohm": {
-          "description": "Power–current impedance `Z_PI`.",
+          "description": "Power–current impedance `Z_PI` (`null` when `no_net_current`: it\nis undefined there).",
           "items": {
             "format": "double",
             "type": "number"
           },
           "maxItems": 2,
           "minItems": 2,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "z_pv_ohm": {
-          "description": "Power–voltage impedance `Z_PV` (`null` without a voltage path).",
+          "description": "Power–voltage impedance `Z_PV` (`null` without a voltage path).\nWith `no_net_current` it is a path-dependent diagnostic of a\nwaveguide mode, not a line impedance.",
           "items": {
             "format": "double",
             "type": "number"
@@ -3179,7 +3186,7 @@
           ]
         },
         "z_vi_ohm": {
-          "description": "Voltage–current impedance `Z_VI` (`null` without a voltage path).",
+          "description": "Voltage–current impedance `Z_VI` (`null` without a voltage path or\nwhen `no_net_current`).",
           "items": {
             "format": "double",
             "type": "number"
@@ -3197,7 +3204,8 @@
         "z_pv_ohm",
         "z_vi_ohm",
         "currents",
-        "voltages"
+        "voltages",
+        "no_net_current"
       ],
       "type": "object"
     },
@@ -5336,7 +5344,7 @@
       "description": "A report-level warning (issue #807; additive in v1): never an error,\nalso printed on stderr as `warning: …`.",
       "properties": {
         "kind": {
-          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`,\n`\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"preconditioner_fallback\"` (issue\n#930: the default `solver.preconditioner = \"auto\"` used `jacobi`\ninstead of `ams`; the message says why), `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven` only; the\nmessage names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups).",
+          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`, `\"no_net_conductor_current\"`\n(issue #953: a hybrid channel whose conductor currents cancel to\nround-off, a TE / TM waveguide mode with no line impedance; not a\nmesh problem), `\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"preconditioner_fallback\"` (issue\n#930: the default `solver.preconditioner = \"auto\"` used `jacobi`\ninstead of `ams`; the message says why), `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven` only; the\nmessage names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups).",
           "type": "string"
         },
         "message": {

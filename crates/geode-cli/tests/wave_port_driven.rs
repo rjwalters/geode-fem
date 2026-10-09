@@ -2818,3 +2818,125 @@ fn a_coax_guide_reports_no_degeneracy_warning() {
     assert!(!stderr.contains("degenera"), "{stderr}");
     eprintln!("coax warnings: {:#}", v["warnings"]);
 }
+
+/// Issue #953, on the same coax spec: the TE11 channels (modes 1 and 2 of
+/// each port) carry no net conductor current, so they report
+/// `line.no_net_current = true`, `null` `z_pi_ohm` / `z_vi_ohm` /
+/// `z_line_ohm` / `z_line_accuracy` (before: `Z_PI` about `1e31 Ω`), one
+/// `no_net_conductor_current` warning each (also on stderr) with no refine
+/// guidance, and no `impedance_accuracy_*` warning. The TEM channel (mode 0)
+/// keeps its `Z_PI` (62.735 Ω / 62.882 Ω) and its 1.84 % / 1.25 %
+/// `impedance_accuracy_above_threshold` warning, unchanged.
+#[test]
+fn a_coax_guide_te_channels_report_no_line_impedance() {
+    let (v, stderr) = driven_gmsh_guide("guide_coax_lc018_015.msh", 3);
+    assert_eq!(v["status"], "ok");
+    let warnings = v["warnings"].as_array().expect("warnings[]");
+    let about = |port: usize, ch: usize| -> Vec<&serde_json::Value> {
+        let tag = format!("hybrid wave port {port} channel {ch}:");
+        warnings
+            .iter()
+            .filter(|w| w["wave_port"] == port && w["message"].as_str().unwrap().contains(&tag))
+            .collect()
+    };
+    for (port, z_tem, err_tem) in [(0usize, "62.735", "1.84 %"), (1, "62.882", "1.25 %")] {
+        let chans: Vec<&serde_json::Value> = v["results"][0]["wave_channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["port"] == port)
+            .collect();
+        assert_eq!(chans.len(), 3);
+        // TEM: Z unchanged, its accuracy warning unchanged.
+        let tem = &chans[0]["hybrid"];
+        assert_eq!(tem["line"]["no_net_current"], false);
+        let z = tem["z_line_ohm"][0].as_f64().expect("a TEM Z_line");
+        assert_eq!(format!("{z:.3}"), z_tem);
+        assert_eq!(tem["z_line_ohm"], tem["line"]["z_pi_ohm"]);
+        let w = about(port, 0);
+        assert_eq!(w.len(), 1, "{w:#?}");
+        assert_eq!(w[0]["kind"], "impedance_accuracy_above_threshold");
+        let msg = w[0]["message"].as_str().unwrap();
+        assert!(
+            msg.contains(err_tem) && msg.contains(&format!("Z_PI = {z_tem} Ω")),
+            "{msg}"
+        );
+        // TE11: no line impedance, one accurate warning, no refine advice.
+        for (mode, ch) in chans.iter().enumerate().skip(1) {
+            let h = &ch["hybrid"];
+            assert_eq!(ch["propagating"], true);
+            assert_eq!(h["line"]["no_net_current"], true, "port {port} mode {mode}");
+            assert!(h["line"]["z_pi_ohm"].is_null());
+            assert!(h["line"]["z_vi_ohm"].is_null());
+            assert!(h["z_line_ohm"].is_null());
+            assert!(h["z_line_accuracy"].is_null());
+            let w = about(port, mode);
+            assert_eq!(w.len(), 1, "{w:#?}");
+            assert_eq!(w[0]["kind"], "no_net_conductor_current");
+            let msg = w[0]["message"].as_str().unwrap();
+            assert!(msg.contains("no net conductor current"), "{msg}");
+            assert!(!msg.contains("refine"), "{msg}");
+            assert!(stderr.contains(msg), "{stderr}");
+        }
+    }
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w["kind"] == "impedance_accuracy_unavailable"),
+        "{warnings:#?}"
+    );
+}
+
+/// Issue #953: `--touchstone` on the coax spec cannot renormalize a TE11
+/// channel (no line impedance), so it fails with an `invalid_spec` error
+/// naming the cause and the remedies (sweep below the cutoff, or the modal
+/// `results[].s`) — never writing a ~1e31 Ω reference — while the same
+/// guide below the TE11 cutoff (`k₀ = 1`, `n_modes = 1`, TEM only) writes
+/// the file.
+#[test]
+fn a_coax_guide_touchstone_rejects_te_channels_with_no_line_impedance() {
+    let dir = scratch("touchstone-953");
+    let mesh = write_gmsh_fixture_guide(&dir, "guide_coax_lc018_015.msh", |f| f.to_vec());
+    let run = |n_modes: usize, k0: f64| {
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": LENGTH_UNIT_M },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in", "n_modes": n_modes, "reference_ohm": 50.0 },
+                { "physical_group": "port_out", "n_modes": n_modes, "reference_ohm": 50.0 }
+            ],
+            "frequencies": { "unit": "k0", "values": [k0] }
+        });
+        let path = dir.join(format!("spec-{n_modes}.json"));
+        std::fs::write(&path, spec.to_string()).unwrap();
+        let ts = dir.join(format!("coax-{n_modes}.s2p"));
+        let out = geode(&[
+            "driven",
+            path.to_str().unwrap(),
+            "--touchstone",
+            ts.to_str().unwrap(),
+        ]);
+        (out, ts)
+    };
+    let (out, ts) = run(3, 2.5);
+    assert!(!out.status.success(), "expected failure");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("report is JSON");
+    assert_eq!(v["status"], "error");
+    assert_eq!(v["error"]["code"], "invalid_spec", "{v:#}");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("no net conductor current")
+            && msg.contains("below its cutoff")
+            && msg.contains("results[].s"),
+        "{msg}"
+    );
+    assert!(!ts.exists());
+    let (out, ts) = run(1, 1.0);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(ts.exists());
+}
