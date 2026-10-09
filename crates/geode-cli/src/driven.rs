@@ -234,6 +234,12 @@ pub fn run(
     let plan = touchstone
         .map(|path| crate::touchstone::validate(&p, path))
         .transpose()?;
+    // A `z0` observable on a channel with no net conductor current has no
+    // line impedance to differentiate (issue #953): reject it from the
+    // face sweep, before the 3-D solve.
+    if let Some(sens) = p.sensitivity.as_ref().filter(|s| s.n_port) {
+        crate::s_sensitivity::line_impedance_error(&p, sens)?;
+    }
     // Wave-port specs export nothing, so there is nothing to validate.
     if outdir.is_some() && p.wave_ports.is_empty() {
         validate_export(&p)?;
