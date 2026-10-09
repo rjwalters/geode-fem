@@ -149,9 +149,9 @@ pub enum InnerSolver {
     #[default]
     Direct,
     /// Like [`Direct`](InnerSolver::Direct) — form and factor `A = K − σM`
-    /// once — but inject a **custom fill-reducing column ordering** into the LU
-    /// through faer 0.24's public deeper API instead of the COLAMD ordering
-    /// faer's high-level `sp_lu` hardcodes (issue #543). The ordering is a
+    /// once — but factor with a **custom fill-reducing column ordering**
+    /// (faer's `LuColOrdering::Custom`, available since faier 0.25) instead of
+    /// the COLAMD ordering faer's high-level `sp_lu` uses (issue #543). The ordering is a
     /// geometric coordinate nested dissection when per-DOF coordinates are
     /// supplied (via a `*_with_coords` entry point), otherwise AMD
     /// minimum-degree from the pattern alone. Both cut LU fill/memory versus
@@ -951,7 +951,7 @@ enum InnerBackend<'a> {
     /// Precomputed sparse LU of `A = K − σM` (direct path, COLAMD ordering).
     Lu(Lu<usize, f64>),
     /// Precomputed supernodal LU of `A = K − σM` built with a custom
-    /// fill-reducing column ordering via faer's public deeper API (issue #543).
+    /// fill-reducing column ordering via `LuColOrdering::Custom` (issue #543).
     CustomLu(crate::eigen::ordering::CustomOrderLu),
     /// Matrix-free operator + inner CG knobs (issue #524).
     MatrixFree {
@@ -1063,33 +1063,25 @@ impl SparseShiftInvertLanczos {
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
                     let _par = ParallelismGuard::cap(n_threads);
-                    // Fill-reducing ordering (issue #527, Phase 1). faer 0.24's
-                    // `sp_lu` uses a **COLAMD** (column approximate minimum
-                    // degree) fill-reducing column permutation. It is hardcoded:
-                    // `SymbolicLu::try_new` → `factorize_symbolic_lu` calls
-                    // `colamd::order` unconditionally, and `LuSymbolicParams`
-                    // exposes only `colamd::Control` — there is NO `Ordering`
-                    // enum and NO hook to supply a precomputed permutation.
-                    // (Contrast faer's *Cholesky* path, whose
-                    // `SymmetricOrdering` DOES offer `Amd`/`Identity`/`Custom`;
-                    // but the shifted pencil `A = K − σM` is symmetric-INDEFINITE,
-                    // so this direct path must use unsymmetric LU, not Cholesky.)
+                    // Fill-reducing ordering. `sp_lu` uses faer's default
+                    // **COLAMD** (column approximate minimum degree) column
+                    // permutation (`LuColOrdering::default()`). The shifted
+                    // pencil `A = K − σM` is symmetric-INDEFINITE, so this
+                    // direct path must use unsymmetric LU, not Cholesky.
                     //
-                    // Phase 1 goal was to plumb a stronger ordering (METIS
-                    // nested dissection) into this symbolic step to cut LU
-                    // fill-in. Outcome: NEGATIVE. faer 0.24's public sparse-LU
-                    // API accepts no user/alternative ordering, and the
-                    // `SymbolicLu` permutation fields are private, so a METIS
-                    // permutation cannot be injected without patching faer.
-                    // Pre-permuting the input does not help either: COLAMD is
-                    // invariant under column relabeling and simply re-derives
-                    // its own ordering, discarding any nested-dissection
-                    // structure. Adding a `metis` crate (a C-toolchain
-                    // dependency) would be dead weight with no integration
-                    // point. A stronger ordering therefore requires either a
-                    // faer upstream change (add an LU `Custom`-ordering hook,
-                    // mirroring Cholesky) or the compressed-factorization track
-                    // captured as Phase 2 below.
+                    // History: issue #527 Phase 1 tried to plumb a stronger
+                    // ordering (METIS nested dissection) in here and was a
+                    // NEGATIVE — upstream faer 0.24's sparse LU accepted no
+                    // caller ordering and kept the `SymbolicLu` permutation
+                    // private, and pre-permuting the input does not help
+                    // (COLAMD is invariant under column relabeling). Issue #543
+                    // escaped that wall by copying `factorize_symbolic_lu`
+                    // through faer's deeper API; since faier 0.25 (issue #972)
+                    // the symbolic LU takes the ordering directly via
+                    // `LuColOrdering::Custom`. That path is
+                    // [`InnerSolver::DirectCustomOrder`] (see
+                    // [`crate::eigen::ordering`]); this arm remains the COLAMD
+                    // default and the comparison baseline.
                     //
                     // Phase 2 (OUT OF SCOPE here, follow-on): the memory win at
                     // ~1M DOF is the O(N^{4/3}) LU fill itself, addressable by a
@@ -1101,16 +1093,6 @@ impl SparseShiftInvertLanczos {
                     // vs this exact-LU path. The complementary asymptotic fix is
                     // the matrix-free inner solve (`InnerSolver::MatrixFree`,
                     // issues #524/#526) already wired above.
-                    //
-                    // UPDATE (issue #543): the COLAMD wall above is now escapable
-                    // WITHOUT a faer fork. faer 0.24's *public deeper* sparse-LU
-                    // API (`col_etree`/`postorder`/`column_counts_ata`/
-                    // `factorize_supernodal_symbolic_lu`/`_numeric_lu`) accepts a
-                    // caller-supplied `Some(col_perm)`, so a coordinate
-                    // nested-dissection / AMD ordering can be injected directly.
-                    // That path is [`InnerSolver::DirectCustomOrder`] (see
-                    // [`crate::eigen::ordering`]); this arm remains the COLAMD
-                    // default and the comparison baseline.
                     a.as_ref()
                         .sp_lu()
                         .map_err(|e| EigenError::FaerGevd(format!("sparse LU: {e:?}")))?
@@ -1119,8 +1101,8 @@ impl SparseShiftInvertLanczos {
             }
             InnerSolver::DirectCustomOrder => {
                 // Issue #543: same explicit `A = K − σM` as `Direct`, but factor
-                // it with a custom fill-reducing column ordering injected through
-                // faer's public deeper API instead of COLAMD. The ordering is a
+                // it with a custom fill-reducing column ordering
+                // (`LuColOrdering::Custom`, faier 0.25) instead of COLAMD. The ordering is a
                 // geometric coordinate nested dissection when DOF coordinates are
                 // available, else AMD minimum-degree from the pattern alone —
                 // both cut LU fill/memory versus COLAMD while leaving the
@@ -1128,12 +1110,13 @@ impl SparseShiftInvertLanczos {
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
                     let _par = ParallelismGuard::cap(n_threads);
-                    let (fwd, inv) =
+                    // `LuColOrdering::Custom` takes the forward (new → old)
+                    // order only; the inverse is rebuilt inside faer.
+                    let (fwd, _inv) =
                         crate::eigen::ordering::column_ordering(a.as_ref().symbolic(), dof_coords)?;
                     crate::eigen::ordering::CustomOrderLu::factorize(
                         a.as_ref(),
-                        fwd,
-                        inv,
+                        &fwd,
                         faer::get_global_parallelism(),
                     )?
                 };
