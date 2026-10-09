@@ -80,8 +80,13 @@
 //! [`BlochCell::gamma_distance`], a rigorous lower bound on `|k − G|`
 //! (`max_d |k·d mod 2π| / |d|`), so the test holds on elongated cells
 //! along any axis (issue #915). Solve at the lattice vector itself for
-//! the Γ limit. Above the threshold, modes whose estimated error exceeds
-//! [`NEAR_GAMMA_WARN_REL_ERR`] are reported in [`BlochModes::warnings`];
+//! the Γ limit. `floor / 2λ` is a model, not a bound: the actual error is
+//! round-off noise around it, measured at up to
+//! [`NEAR_GAMMA_NOISE_FACTOR`] (7×) the model just above the threshold
+//! (issue #938). Above the threshold, modes whose estimated error exceeds
+//! [`NEAR_GAMMA_WARN_REL_ERR`] are reported in [`BlochModes::warnings`],
+//! which quotes both the model and the empirical bound
+//! `NEAR_GAMMA_NOISE_FACTOR × floor / 2λ`;
 //! that warning is also the safety net in a dielectric cell, whose light
 //! line `|k − G|² / ε_eff` sits below the vacuum one. On the `n = 6` unit
 //! 3-torus the threshold is about `3e-6` rad/length.
@@ -146,9 +151,9 @@ pub type HermitianPencil = (SparseColMat<usize, c64>, SparseColMat<usize, c64>);
 /// The largest **estimated** relative round-off error (`floor / 2λ`)
 /// that [`BlochCell::solve`] accepts on the bands with `ω → 0` near a
 /// Γ-equivalent point (issue #869). The actual error is round-off noise
-/// around that estimate: just above the threshold it was measured at
-/// 0.2–2.5× the estimate on `1 × 1 × 4` / `4 × 1 × 1` cells and up to about 7×
-/// on small cubes (6.8 measured, issue #915, #938), and it falls as `1 / |k − G|²`. It
+/// around that estimate: just above the threshold it was measured at up
+/// to [`NEAR_GAMMA_NOISE_FACTOR`] (7×) the estimate (issues #915, #938),
+/// and it falls as `1 / |k − G|²`. It
 /// sets [`BlochCell::near_gamma_min_distance`]: closer than that, the
 /// solve refuses with a typed [`BlochError::InvalidInput`].
 pub const NEAR_GAMMA_MAX_REL_ERR: f64 = 1e-2;
@@ -157,6 +162,44 @@ pub const NEAR_GAMMA_MAX_REL_ERR: f64 = 1e-2;
 /// ([`BlochCell::lambda_roundoff_floor`]` / 2λ`) exceeds this gets a
 /// warning in [`BlochModes::warnings`] (issue #869).
 pub const NEAR_GAMMA_WARN_REL_ERR: f64 = 1e-4;
+
+/// Empirical bound on the ratio of the **measured** relative ω error of a
+/// near-Γ light-line band to the `floor / 2λ` model (issue #938).
+///
+/// The model is not a bound: the error is round-off noise around it. The
+/// near-Γ warning in [`BlochModes::warnings`] quotes both the model and
+/// `NEAR_GAMMA_NOISE_FACTOR ×` the model, and the latter is the figure
+/// to read as the per-result accuracy. Neither the threshold
+/// ([`NEAR_GAMMA_MAX_REL_ERR`]) nor which solves are refused depends on
+/// this factor.
+///
+/// Scan (issue #938): fully periodic vacuum cells, default settings,
+/// release build, macOS arm64. `k = s · near_gamma_min_distance · dir`
+/// with `s = 1.00, 1.05, …, 1.55` along x̂, ŷ, ẑ. Along (1,1,1) the
+/// lower-bound distance refuses below `s = √3`, so `s` there spans
+/// `1.75 … 2.30` and `√3 · (1.00 … 1.55)`, and the table gives the worse
+/// of the two. Worst measured `err · s² / ε` per direction
+/// (`ε` = [`NEAR_GAMMA_MAX_REL_ERR`]; the ratio to the reported
+/// `floor / 2λ`, with `λ` computed, agrees within 6 %):
+///
+/// | cell | x̂ | ŷ | ẑ | (1,1,1) |
+/// |---|---|---|---|---|
+/// | `[4,4,8]`, 1×1×4 | 1.51 | 1.87 | 1.41 | 1.85 |
+/// | `[8,4,4]`, 4×1×1 | 2.28 | 1.64 | 2.12 | 2.75 |
+/// | `[3,3,12]`, 1×1×8 | 1.23 | 0.66 | 0.87 | 1.14 |
+/// | cube `n = 6` | 4.81 | 2.08 | 3.23 | 2.85 |
+/// | cube `n = 4` | 2.96 | 4.81 | 4.59 | 4.29 |
+///
+/// The largest single errors are 4.2e-2 (cube `n = 4`, ẑ, `s = 1.05`,
+/// 4.6× the model) and 4.0e-2 (cube `n = 6`, x̂, `s = 1.10`, 4.8×). The
+/// axis columns match the scan in the issue exactly. That scan reported
+/// up to 6.65 along (1,1,1) (cube `n = 4`), which neither (1,1,1) grid
+/// above reproduces. The denser #915 scan (1,601 solves on four cells)
+/// measured error/estimate up to 6.8 (largest error 4.5e-2, at `s = 1.00`
+/// on a small cube). The factor, 7, is that worst measured ratio rounded
+/// up. Round-off differs between platforms, so these figures can move.
+/// Widen the factor only from a new measurement.
+pub const NEAR_GAMMA_NOISE_FACTOR: f64 = 7.0;
 
 /// Prefix of the warning for a degenerate cluster cut by the top of the
 /// returned window.
@@ -626,7 +669,8 @@ impl BlochCell {
     /// `ε_mach · λ_max`, with `λ_max` estimated as `max_i K_ii / M_ii`.
     /// A band with `λ` near it is not resolved; in particular a band
     /// `ω ≈ |k − G|` carries a relative error of about `floor / 2λ`
-    /// (issue #869).
+    /// (issue #869), and measured up to [`NEAR_GAMMA_NOISE_FACTOR`] times
+    /// that (issue #938).
     pub fn lambda_roundoff_floor(&self) -> f64 {
         self.lambda_floor
     }
@@ -635,9 +679,12 @@ impl BlochCell {
     /// [`Self::solve`] accepts: `√(floor / 2ε)`, with `floor` =
     /// [`Self::lambda_roundoff_floor`] and `ε` =
     /// [`NEAR_GAMMA_MAX_REL_ERR`]. Below it (but above round-off, where
-    /// `k` is Γ-equivalent) the bands `ω ≈ |k − G|` would carry a relative
-    /// error above about `ε`, and the solve refuses with
-    /// [`BlochError::InvalidInput`] (issues #869, #915).
+    /// `k` is Γ-equivalent) the bands `ω ≈ |k − G|` would carry a modelled
+    /// relative error above `ε`, and the solve refuses with
+    /// [`BlochError::InvalidInput`] (issues #869, #915). The model is not
+    /// a bound: just above the threshold the measured error reaches about
+    /// [`NEAR_GAMMA_NOISE_FACTOR`]` × ε`, which the near-Γ warning reports
+    /// (issue #938).
     pub fn near_gamma_min_distance(&self) -> f64 {
         self.near_gamma_min_distance
     }
@@ -783,10 +830,13 @@ impl BlochCell {
             .collect();
         if let (Some(&first), Some(&last)) = (near.first(), near.last()) {
             let worst = self.lambda_floor / (2.0 * modes[first].lambda.max(f64::MIN_POSITIVE));
+            let bound = NEAR_GAMMA_NOISE_FACTOR * worst;
             warnings.push(format!(
                 "{} mode(s) ({first}..={last}, ω down to {:.3e}) are near the λ round-off floor \
-                 {:.3e}: estimated relative ω error up to {worst:.1e} (k is {:.3e} rad from a \
-                 Γ-equivalent point; move k away from it for accurate low bands)",
+                 {:.3e}: estimated relative ω error up to {worst:.1e} (round-off noise: measured \
+                 up to {NEAR_GAMMA_NOISE_FACTOR}× this near the threshold, so relative ω error \
+                 ≤ {bound:.1e}) (k is {:.3e} rad from a Γ-equivalent point; the error falls as \
+                 1/|k − G|², so move k away from it for accurate low bands)",
                 near.len(),
                 modes[first].omega,
                 self.lambda_floor,
