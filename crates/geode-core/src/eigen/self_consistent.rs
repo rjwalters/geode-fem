@@ -734,8 +734,9 @@ struct SelfConsistentState {
     dk_rel: Option<f64>,
 }
 
-/// Minimum acceptable bilinear M-overlap between successive iterations'
-/// target eigenvectors. Below this threshold we declare the mode lost.
+/// Minimum acceptable bilinear M-overlap ([`m_overlap_score`]) between
+/// successive iterations' target eigenvectors. Below this threshold we
+/// declare the mode lost.
 const MODE_OVERLAP_THRESHOLD: f64 = 0.5;
 
 /// Compute the matrix-vector product `M v` where `M` is real and `v`
@@ -780,32 +781,56 @@ fn complex_dot(u: &[c64], v: &[c64]) -> c64 {
     acc
 }
 
-/// Normalize `v` so that the bilinear M-norm `sqrt(Re(v^T M v))` is
-/// one. Returns `false` if `v^T M v` is M-bilinear-isotropic (norm
-/// numerically zero), in which case `v` is left unchanged and the
-/// caller should treat this as a mode-tracking failure.
+/// Scale `v` so that its bilinear self-product is exactly one:
+/// `v ← v / √(vᵀ M v)`, with the principal complex square root, so that
+/// `vᵀ M v = 1` afterwards (to round-off). Returns `false` if `v` is
+/// M-bilinear-isotropic (`|vᵀ M v|` numerically zero), in which case `v` is
+/// left unchanged and the caller should treat this as a mode-tracking
+/// failure.
 ///
-/// Why the real-part trick: for a complex-symmetric pencil the
-/// bilinear self-product `v^T M v` is complex in general. Taking the
-/// real part and discarding sign gives a positive scalar consistent
-/// with `|v|_M` when M is close to a real SPD; this is the same
-/// convention as the sparse Lanczos path (PR #55).
+/// For a complex-symmetric pencil `vᵀ M v` is complex in general, and an
+/// eigensolver may return `v` times any complex constant. Dividing by the
+/// complex root fixes both the scale and the phase (up to a sign), which is
+/// the normalization the sparse solver already returns (`xᵀ M x = 1`). An
+/// earlier version divided by `√|Re(vᵀ M v)|`, which left `|vᵀ M v|`
+/// anywhere in `[1, ∞)` depending on the phase the solver happened to
+/// return (issue #988).
 fn normalize_m_bilinear(v: &mut [c64], m: MatRef<f64>) -> bool {
     let n = v.len();
     let mut mv = vec![c64::new(0.0, 0.0); n];
     matvec_real_complex(m, v, &mut mv);
     let vtmv = complex_dot(v, &mv);
-    let nrm2 = vtmv.re;
-    if nrm2.abs() < 1e-30 {
+    if vtmv.norm() < 1e-30 {
         return false;
     }
-    let nrm = nrm2.abs().sqrt();
-    let scale = if nrm2 >= 0.0 { 1.0 / nrm } else { -1.0 / nrm };
+    let scale = c64::new(1.0, 0.0) / principal_sqrt(vtmv);
     for x in v.iter_mut() {
-        x.re *= scale;
-        x.im *= scale;
+        *x *= scale;
     }
     true
+}
+
+/// Mode-tracking score of a candidate `v` against the previous target `u`:
+///
+/// `|uᵀ M v| / √(|uᵀ M u| · |vᵀ M v|)`
+///
+/// from the three bilinear products `cross = uᵀ M v`, `u_self = uᵀ M u`,
+/// `v_self = vᵀ M v`. Every factor is a modulus, so the score is unchanged
+/// when `u` or `v` is multiplied by any nonzero complex constant: an
+/// eigenvector scores the same whatever phase and scale the eigensolver
+/// returned it with, and a re-phased copy of `u` scores exactly 1. Distinct
+/// eigenvectors of one complex-symmetric pencil are M-bilinear-orthogonal,
+/// so they score 0.
+///
+/// The score is **not** bounded by 1 for a different, nearly M-isotropic
+/// candidate (`|vᵀ M v| ≪ v^H M v`): the bilinear form has no
+/// Cauchy–Schwarz inequality. The sesquilinear
+/// `|u^H M v| / √(u^H M u · v^H M v)` is bounded, but scores a lossy
+/// eigenvector below 1 against itself across a `k₀` step, and it has not
+/// been measured as a tracking criterion, so the driver keeps the bilinear
+/// form (issue #988). The denominator is floored at `1e-30`.
+fn m_overlap_score(cross: c64, u_self: c64, v_self: c64) -> f64 {
+    cross.norm() / (u_self.norm() * v_self.norm()).sqrt().max(1e-30)
 }
 
 /// Run a vector-tracked self-consistent `k₀` iteration on the
@@ -814,8 +839,11 @@ fn normalize_m_bilinear(v: &mut [c64], m: MatRef<f64>) -> bool {
 /// Unlike [`self_consistent_k`] — which pins a frozen integer index
 /// into the by-`|Re(λ)|` sorted spectrum — this driver tracks the
 /// **eigenvector** of the target mode. At iteration `i+1` the picked
-/// mode is the one with maximum bilinear M-overlap against iteration
-/// `i`'s target eigenvector, normalized in the bilinear M-norm.
+/// mode is the one with maximum bilinear M-overlap
+/// `|uᵀ M v| / √(|uᵀ M u| · |vᵀ M v|)` against iteration `i`'s target
+/// eigenvector `u`. The score uses moduli throughout, so it does not depend
+/// on the phase or scale the eigensolver returns each eigenvector with
+/// (issue #988).
 ///
 /// This is the diagnosed unblocker for the Whitney-spurious-cluster
 /// re-shuffling problem: when ~177 spurious modes near `k = 0`
@@ -893,6 +921,36 @@ pub fn self_consistent_k_vector_tracked_with<S: SelfConsistentEigensolver + ?Siz
     tol: f64,
     max_iter: usize,
 ) -> Result<SelfConsistentResult, EigenError> {
+    vector_tracked_traced(
+        solver,
+        k_mat,
+        s_mat,
+        m_mat,
+        initial_k0,
+        initial,
+        n_eigs,
+        tol,
+        max_iter,
+        &mut |_, _| {},
+    )
+}
+
+/// [`self_consistent_k_vector_tracked_with`], reporting each solve's pick
+/// to `on_pick` as `(index into the solve's pairs, overlap score)`; the
+/// score is `None` for the seed solve, which is not picked by overlap.
+#[allow(clippy::too_many_arguments)]
+fn vector_tracked_traced<S: SelfConsistentEigensolver + ?Sized>(
+    solver: &S,
+    k_mat: MatRef<f64>,
+    s_mat: MatRef<f64>,
+    m_mat: MatRef<f64>,
+    initial_k0: f64,
+    initial: ModeTarget,
+    n_eigs: usize,
+    tol: f64,
+    max_iter: usize,
+    on_pick: &mut dyn FnMut(usize, Option<f64>),
+) -> Result<SelfConsistentResult, EigenError> {
     if let ModeTarget::Index(initial_target_idx) = initial {
         assert!(
             n_eigs > initial_target_idx,
@@ -928,41 +986,43 @@ pub fn self_consistent_k_vector_tracked_with<S: SelfConsistentEigensolver + ?Siz
                         iterations: it,
                     });
                 };
+                on_pick(picked, None);
                 let (lam, v) = pairs[picked].clone();
                 (lam, v, 1.0)
             }
             Some(prev) => {
-                // Compute |⟨prev, v_j⟩_M| for each candidate. We
-                // do not re-normalize candidates first (the dense
-                // solver's eigenvectors come out in an arbitrary
-                // normalization); instead we score by the
-                // **normalized** overlap
-                //   |⟨prev, v_j⟩_M| / sqrt(|⟨v_j, v_j⟩_M|)
-                // which is invariant to the candidate's M-norm.
-                // `prev` is already M-normalized so its denominator
-                // factor is 1.
+                // Score every candidate with `m_overlap_score`,
+                //   |prevᵀ M v_j| / √(|prevᵀ M prev| · |v_jᵀ M v_j|),
+                // which is invariant to any complex scaling of `prev` or
+                // of `v_j`. The candidates are not re-normalized first:
+                // the dense solver returns its eigenvectors with arbitrary
+                // scale and phase, and the score does not depend on
+                // either. `prev` has `prevᵀ M prev = 1` up to round-off
+                // (`normalize_m_bilinear`), but its self-product is still
+                // computed so that the score is exact.
                 //
                 // Cost: we precompute `M v_j` once per candidate
                 // (O(n^2)) and reuse it for both the cross-overlap
                 // (`prev^T (M v_j)`) and the self-overlap
                 // (`v_j^T (M v_j)`). This brings the per-iter
-                // overlap cost from 2·n_eigs·n^2 down to n_eigs·n^2.
+                // overlap cost from 2·n_eigs·n^2 down to
+                // (n_eigs + 1)·n^2.
                 let n = prev.len();
                 let mut best_idx = 0usize;
                 let mut best_score = -1.0_f64;
                 let mut mv = vec![c64::new(0.0, 0.0); n];
+                matvec_real_complex(m_mat, prev, &mut mv);
+                let prev_self = complex_dot(prev, &mv);
                 for (j, (_lam_j, v_j)) in pairs.iter().enumerate() {
                     matvec_real_complex(m_mat, v_j, &mut mv);
-                    let overlap = complex_dot(prev, &mv);
-                    let self_overlap = complex_dot(v_j, &mv);
-                    let mag = overlap.re.hypot(overlap.im);
-                    let self_norm = self_overlap.re.abs().sqrt().max(1e-30);
-                    let score = mag / self_norm;
+                    let score =
+                        m_overlap_score(complex_dot(prev, &mv), prev_self, complex_dot(v_j, &mv));
                     if score > best_score {
                         best_score = score;
                         best_idx = j;
                     }
                 }
+                on_pick(best_idx, Some(best_score));
 
                 if best_score < MODE_OVERLAP_THRESHOLD {
                     return Ok(SelfConsistentResult::ModeLost {
@@ -1669,5 +1729,221 @@ mod tests {
         let mut v = vec![c64::new(1.0, 0.0), c64::new(1.0, 0.0)];
         let ok = normalize_m_bilinear(&mut v, m.as_ref());
         assert!(!ok, "isotropic v must return false from normalize");
+    }
+
+    /// `uᵀ M v` for the tests below.
+    fn m_dot(m: MatRef<f64>, u: &[c64], v: &[c64]) -> c64 {
+        let mut mv = vec![c64::new(0.0, 0.0); v.len()];
+        matvec_real_complex(m, v, &mut mv);
+        complex_dot(u, &mv)
+    }
+
+    /// The driver's score of candidate `v` against previous target `u`.
+    fn score(m: MatRef<f64>, u: &[c64], v: &[c64]) -> f64 {
+        m_overlap_score(m_dot(m, u, v), m_dot(m, u, u), m_dot(m, v, v))
+    }
+
+    fn scaled(v: &[c64], c: c64) -> Vec<c64> {
+        v.iter().map(|x| *x * c).collect()
+    }
+
+    fn phase(theta: f64) -> c64 {
+        c64::new(theta.cos(), theta.sin())
+    }
+
+    /// Dense eigenpairs of the lossy `open_chain(30)` pencil at `k₀ = 4`:
+    /// complex eigenvalues, complex eigenvectors, `vᵀ M v` complex.
+    fn chain_pairs() -> (faer::Mat<f64>, Vec<(c64, Vec<c64>)>) {
+        let (k, s, m) = open_chain(30);
+        let pairs = FaerComplexEigensolver
+            .smallest_complex_pairs(k.as_ref(), s.as_ref(), m.as_ref(), 4.0, 30)
+            .expect("dense pairs");
+        (m, pairs)
+    }
+
+    /// Issue #988: the score does not depend on the phase or scale of
+    /// either vector.
+    #[test]
+    fn m_overlap_score_is_invariant_to_complex_scaling() {
+        let (m, pairs) = chain_pairs();
+        let m = m.as_ref();
+        let (u, w) = (&pairs[1].1, &pairs[2].1);
+        // The self-product carries a nontrivial phase, so the invariance
+        // is exercised, not satisfied trivially.
+        let uu = m_dot(m, u, u);
+        assert!(uu.im.abs() > 1e-3 * uu.norm(), "uᵀMu = {uu}");
+        // Distinct eigenvectors are M-bilinear-orthogonal.
+        let base = score(m, u, w);
+        assert!(base < 1e-8, "distinct eigenvectors score {base}");
+        let factors = [
+            phase(std::f64::consts::FRAC_PI_4),
+            phase(1.3),
+            phase(-2.0) * 1e-3,
+            c64::new(7.5, 0.0),
+            c64::new(-1.0, 0.0),
+            c64::new(0.0, 1.0),
+        ];
+        for c in factors {
+            let cu = scaled(u, c);
+            for s in [score(m, u, &cu), score(m, &cu, u)] {
+                assert!((s - 1.0).abs() < 1e-12, "same mode × {c}: score {s}");
+            }
+            let cw = scaled(w, c);
+            for s in [score(m, u, &cw), score(m, &cu, w), score(m, &cu, &cw)] {
+                assert!((s - base).abs() < 1e-12, "other mode × {c}: {s} vs {base}");
+            }
+        }
+    }
+
+    /// Issue #988, the reported spread: one eigenvector scored 1.05 to 5.98
+    /// against itself in a dense run, depending on the phase the solver
+    /// returned it with. The old rule (normalize the target by
+    /// `√|Re uᵀ M u|`, divide the candidate by `√|Re vᵀ M v|`) gives a
+    /// re-phased copy `e^{iθ} u` of a target with `uᵀ M u = 1` the score
+    /// `1 / √|cos 2θ|`; the phases below reproduce 1.05 and 5.98 exactly.
+    /// The fixed score is 1 at every phase.
+    #[test]
+    fn m_overlap_score_has_no_phase_spread() {
+        let (m, pairs) = chain_pairs();
+        let m = m.as_ref();
+        let mut u = pairs[1].1.clone();
+        assert!(normalize_m_bilinear(&mut u, m));
+        let legacy = |prev: &[c64], v: &[c64]| {
+            let prev_norm = m_dot(m, prev, prev).re.abs().sqrt();
+            let prev: Vec<c64> = prev.iter().map(|x| *x / prev_norm).collect();
+            m_dot(m, &prev, v).norm() / m_dot(m, v, v).re.abs().sqrt().max(1e-30)
+        };
+        for want in [1.05_f64, 5.98] {
+            let theta = 0.5 * (1.0 / (want * want)).acos();
+            let v = scaled(&u, phase(theta));
+            let old = legacy(&u, &v);
+            assert!((old - want).abs() < 1e-9, "legacy score {old}, want {want}");
+            let new = score(m, &u, &v);
+            assert!((new - 1.0).abs() < 1e-12, "θ = {theta}: score {new}");
+        }
+        // And over a sweep of phases: the old score spans more than a
+        // factor of 5, the new one does not move.
+        let (mut lo, mut hi) = (f64::INFINITY, 0.0_f64);
+        for i in 0..32 {
+            let v = scaled(&u, phase(0.1 + i as f64 * std::f64::consts::PI / 32.0));
+            let old = legacy(&u, &v);
+            (lo, hi) = (lo.min(old), hi.max(old));
+            assert!((score(m, &u, &v) - 1.0).abs() < 1e-12);
+        }
+        assert!(hi / lo > 5.0, "legacy spread {lo}..{hi}");
+    }
+
+    /// Issue #988: normalization fixes `vᵀ M v = 1` even when the
+    /// self-product is mostly imaginary (the old `√|Re|` rule left
+    /// `|vᵀ M v| ≈ 200` here).
+    #[test]
+    fn normalize_m_bilinear_unit_complex_self_product() {
+        let m = faer::Mat::<f64>::from_fn(2, 2, |i, j| if i == j { 1.0 } else { 0.0 });
+        // vᵀv = (1 + i)² + 0.01 = 0.01 + 2i.
+        let mut v = vec![c64::new(1.0, 1.0), c64::new(0.1, 0.0)];
+        assert!(normalize_m_bilinear(&mut v, m.as_ref()));
+        let n2 = m_dot(m.as_ref(), &v, &v);
+        assert!((n2 - c64::new(1.0, 0.0)).norm() < 1e-12, "vᵀMv = {n2}");
+    }
+
+    /// The dense solver with every returned eigenvector multiplied by
+    /// `phase(call, index)`.
+    struct Rephased<F: Fn(usize, usize) -> c64> {
+        phase: F,
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl<F: Fn(usize, usize) -> c64> SelfConsistentEigensolver for Rephased<F> {
+        fn pencil_eigenvalues(
+            &self,
+            k: MatRef<f64>,
+            s: MatRef<f64>,
+            m: MatRef<f64>,
+            k0: f64,
+            sigma: c64,
+            n: usize,
+        ) -> Result<Vec<c64>, EigenError> {
+            FaerComplexEigensolver.pencil_eigenvalues(k, s, m, k0, sigma, n)
+        }
+
+        fn pencil_eigenpairs(
+            &self,
+            k: MatRef<f64>,
+            s: MatRef<f64>,
+            m: MatRef<f64>,
+            k0: f64,
+            sigma: c64,
+            n: usize,
+        ) -> Result<Vec<(c64, Vec<c64>)>, EigenError> {
+            let call = self.calls.get();
+            self.calls.set(call + 1);
+            let mut pairs = FaerComplexEigensolver.pencil_eigenpairs(k, s, m, k0, sigma, n)?;
+            for (j, (_, v)) in pairs.iter_mut().enumerate() {
+                let c = (self.phase)(call, j);
+                v.iter_mut().for_each(|x| *x *= c);
+            }
+            Ok(pairs)
+        }
+    }
+
+    /// Issue #988: the vector-tracked driver makes the same picks, with the
+    /// same scores, the same iteration count and the same `k`, whatever
+    /// phases and scales the eigensolver returns its eigenvectors with.
+    #[test]
+    fn vector_tracked_is_invariant_to_eigenvector_phase() {
+        let (k, s, m) = open_chain(30);
+        let run = |phase: &dyn Fn(usize, usize) -> c64| {
+            let solver = Rephased {
+                phase,
+                calls: std::cell::Cell::new(0),
+            };
+            let mut picks = Vec::new();
+            let result = vector_tracked_traced(
+                &solver,
+                k.as_ref(),
+                s.as_ref(),
+                m.as_ref(),
+                4.0,
+                ModeTarget::Index(1),
+                30,
+                1e-9,
+                40,
+                &mut |idx, score| picks.push((idx, score)),
+            )
+            .expect("vector-tracked run");
+            (converged(result), picks)
+        };
+        let ((k_ref, q_ref, it_ref), picks_ref) = run(&|_, _| c64::new(1.0, 0.0));
+        assert!(
+            it_ref > 3,
+            "too few iterations to exercise tracking: {it_ref}"
+        );
+        assert_eq!(picks_ref.len(), it_ref);
+        // The last step barely moves `k₀`: it scores its own eigenvector.
+        let last = picks_ref[it_ref - 1].1.expect("score past the seed");
+        assert!((last - 1.0).abs() < 1e-6, "converged step scores {last}");
+        let rephasings: [&dyn Fn(usize, usize) -> c64; 3] = [
+            &|_, _| phase(std::f64::consts::FRAC_PI_4),
+            &|_, _| phase(1.3),
+            // A different phase and scale per solve and per eigenvector.
+            &|call, j| phase(0.7 * call as f64 + 1.9 * j as f64) * (1.0 + 0.37 * j as f64),
+        ];
+        for (r, phase_fn) in rephasings.iter().enumerate() {
+            let ((k_r, q_r, it_r), picks_r) = run(*phase_fn);
+            assert_eq!(it_r, it_ref, "rephasing {r}: iterations");
+            assert_eq!((k_r.re, k_r.im), (k_ref.re, k_ref.im), "rephasing {r}: k");
+            assert_eq!(q_r, q_ref, "rephasing {r}: Q");
+            for (step, (a, b)) in picks_ref.iter().zip(&picks_r).enumerate() {
+                assert_eq!(a.0, b.0, "rephasing {r}, step {step}: pick");
+                match (a.1, b.1) {
+                    (None, None) => {}
+                    (Some(x), Some(y)) => assert!(
+                        (x - y).abs() < 1e-12,
+                        "rephasing {r}, step {step}: score {x} vs {y}"
+                    ),
+                    other => panic!("rephasing {r}, step {step}: {other:?}"),
+                }
+            }
+        }
     }
 }

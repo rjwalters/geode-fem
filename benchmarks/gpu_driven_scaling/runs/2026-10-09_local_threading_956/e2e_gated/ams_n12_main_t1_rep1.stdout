@@ -1,0 +1,20 @@
+
+running 1 test
+test diag956_threading ... diag956 site=ams n=12
+diag956 loadavg_1min_process_start=10.01
+diag956 rayon_num_threads=1
+diag956 interior_edges=11244
+diag956 coarse=direct
+diag956 solve_user_s=6.469
+diag956 solve_sys_s=0.028
+diag956 solve_wall_s=6.500
+diag956 inner_iters=3873
+diag956 value[0] = -2.79409828607413147e-12
+diag956 value[1] = -7.97473198588249943e-13
+diag956 value[2] = 6.06625860655185534e-13
+diag956 value[3] = 2.35200747766839413e-12
+diag956 loadavg_1min_process_end=9.93
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.60s
+
