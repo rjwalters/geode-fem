@@ -81,8 +81,9 @@ use geode_core::eigen::self_consistent::{
     self_consistent_k_with,
 };
 use sm_sphere::{
-    OuterBc, Recording, build_sphere_matrices, build_sphere_system, index_trace, min_overlap,
-    nearest_to_sigma, q_of, seed, sm_root, sm_self_consistent_k, tracked_trace,
+    OuterBc, Recording, Solve, build_sphere_matrices, build_sphere_system, index_trace, m_bilinear,
+    min_overlap, nearest_to_sigma, nonzeros, q_of, seed, sm_root, sm_self_consistent_k,
+    tracked_trace,
 };
 
 /// Eigenvalues requested per sparse solve: the window nearest the target.
@@ -123,6 +124,113 @@ const SEED_K20_FIRST: (f64, f64) = (1.417260, 0.078003);
 /// same mode's `λ` is 0.73 % from the continuum value.
 const RESONANCE_K_REL_TOL: f64 = 0.02;
 
+/// Per-step report of a recorded dense run (issue #1021), one line per
+/// solve, for the committed logs under
+/// `benchmarks/mie_sphere/runs/*_sm_vector_tracking_dense/`.
+///
+/// It scores every candidate of a solve against the previous pick twice:
+/// with the driver's phase-invariant score
+/// `|uᵀ M v| / √(|uᵀ M u| · |vᵀ M v|)` (`new`) and with the score the driver
+/// used before issue #988, `|uᵀ M v| / √(|Re uᵀ M u| · |Re vᵀ M v|)`
+/// (`legacy`), on the same eigenvectors. Each line gives the pick (its index
+/// in the `|Re λ|`-sorted list, `λ`, `k = √λ`, `Q`, both scores), the two
+/// best other candidates under the new score, and the candidate the legacy
+/// score would have picked. `frozen` is the frozen index of a
+/// `ModeTarget::Index` run of `self_consistent_k_with`; `None` scores a
+/// vector-tracked run, whose pick after the first solve is the candidate of
+/// largest new score (the first one on a tie, as in the driver).
+///
+/// The legacy column is a counterfactual for one step: it says what the old
+/// score would have picked from this solve's candidates, not what an
+/// old-score run would have done, because that run's later solves depend on
+/// its earlier picks.
+fn dense_step_report(
+    solves: &[Solve],
+    m: faer::MatRef<f64>,
+    first: usize,
+    frozen: Option<usize>,
+    label: &str,
+) {
+    let m = nonzeros(m);
+    let mut prev: Option<&Vec<faer::c64>> = None;
+    for (it, solve) in solves.iter().enumerate() {
+        let n = solve.pairs.len();
+        let head = format!("[{label}] it {:2} k0 = {:.6} n = {n}", it + 1, solve.k0);
+        let describe = |idx: usize| {
+            let lambda = solve.pairs[idx].0;
+            let k = geode_core::eigen::wavenumber::principal_sqrt(lambda);
+            format!(
+                "idx {idx} λ = {:.6}{:+.6}i k = {:.6}{:+.6}i Q = {:.4}",
+                lambda.re,
+                lambda.im,
+                k.re,
+                k.im,
+                q_of(k)
+            )
+        };
+        let picked = match prev {
+            None => {
+                let picked = frozen.unwrap_or(first);
+                eprintln!("{head} pick {} (seed)", describe(picked));
+                picked
+            }
+            Some(u) => {
+                let uu = m_bilinear(&m, u, u);
+                let scores: Vec<(f64, f64)> = solve
+                    .pairs
+                    .iter()
+                    .map(|(_, v)| {
+                        let uv = m_bilinear(&m, u, v).norm();
+                        let vv = m_bilinear(&m, v, v);
+                        (
+                            uv / (uu.norm() * vv.norm()).sqrt().max(1e-300),
+                            uv / (uu.re.abs() * vv.re.abs()).sqrt().max(1e-300),
+                        )
+                    })
+                    .collect();
+                // Descending by the new score; the sort is stable, so the
+                // first index wins a tie, as in the driver.
+                let mut by_new: Vec<usize> = (0..n).collect();
+                by_new.sort_by(|&a, &b| scores[b].0.total_cmp(&scores[a].0));
+                let picked = frozen.unwrap_or(by_new[0]);
+                let mut legacy_best = 0;
+                for j in 1..n {
+                    if scores[j].1 > scores[legacy_best].1 {
+                        legacy_best = j;
+                    }
+                }
+                let others: Vec<String> = by_new
+                    .iter()
+                    .filter(|&&j| j != picked)
+                    .take(2)
+                    .map(|&j| {
+                        format!(
+                            "idx {j} λ = {:.6}{:+.6}i new = {:.4} legacy = {:.4}",
+                            solve.pairs[j].0.re, solve.pairs[j].0.im, scores[j].0, scores[j].1
+                        )
+                    })
+                    .collect();
+                eprintln!(
+                    "{head} pick {} new = {:.4} legacy = {:.4} | next: {} | legacy argmax: idx \
+                     {legacy_best} legacy = {:.4} ({})",
+                    describe(picked),
+                    scores[picked].0,
+                    scores[picked].1,
+                    others.join("; "),
+                    scores[legacy_best].1,
+                    if legacy_best == picked {
+                        "the pick"
+                    } else {
+                        "NOT the pick"
+                    }
+                );
+                picked
+            }
+        };
+        prev = Some(&solve.pairs[picked].1);
+    }
+}
+
 #[test]
 #[ignore = "dense reference tier (#917): 10 to 30 full dense solves of the 4512-DOF pencil with eigenvectors, tens of minutes in release; CI runs the sparse_* tier"]
 fn vector_tracked_converges_on_lowest_mode() {
@@ -138,18 +246,40 @@ fn vector_tracked_converges_on_lowest_mode() {
     let seed = 1.0_f64;
     let (k_full, s_full, m_full, n_eigs, first_physical) = build_sphere_system(seed);
     eprintln!("vector-tracked: n_eigs={n_eigs}, first physical idx={first_physical}");
+    let t0 = std::time::Instant::now();
 
-    let result = self_consistent_k_vector_tracked(
+    // `self_consistent_k_vector_tracked` is this call with the dense solver
+    // and `ModeTarget::Index`; the recording wrapper passes the solver's
+    // pairs through unchanged and keeps them for the per-step report.
+    let dense = FaerComplexEigensolver;
+    let recording = Recording::new(&dense);
+    let result = self_consistent_k_vector_tracked_with(
+        &recording,
         k_full.as_ref(),
         s_full.as_ref(),
         m_full.as_ref(),
         seed,
-        first_physical,
+        ModeTarget::Index(first_physical),
         n_eigs,
         1e-6,
         15,
     )
     .expect("vector-tracked solve");
+    eprintln!("lowest-mode: {result:?} after {:?}", t0.elapsed());
+    dense_step_report(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        first_physical,
+        None,
+        "dense vector-tracked, k0=1",
+    );
+    let trace = tracked_trace(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        |_| first_physical,
+        "dense vector-tracked, k0=1 (trace)",
+    );
+    eprintln!("lowest-mode: min overlap {:.4}", min_overlap(&trace));
 
     let (final_k, q, iterations, label) = match result {
         SelfConsistentResult::Converged { k, q, iterations } => (k, q, iterations, "Converged"),
@@ -270,6 +400,13 @@ fn vector_tracked_beats_frozen_int_idx() {
         "dense frozen index, k0=20",
     );
     eprintln!("frozen: {frozen:?} after {:?}", t0.elapsed());
+    dense_step_report(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        first_physical,
+        Some(first_physical),
+        "dense frozen index, k0=20 (report)",
+    );
 
     // Vector tracking from the same seed and index.
     let recording = Recording::new(&dense);
@@ -292,6 +429,13 @@ fn vector_tracked_beats_frozen_int_idx() {
         "dense vector-tracked, k0=20",
     );
     eprintln!("tracked: {tracked:?} after {:?}", t0.elapsed());
+    dense_step_report(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        first_physical,
+        None,
+        "dense vector-tracked, k0=20 (report)",
+    );
 
     // Both start on the resonance.
     assert_eq!(first_physical, 368);
@@ -370,17 +514,36 @@ fn vector_tracked_handles_mode_death() {
     let seed = 25.0_f64;
     let (k_full, s_full, m_full, n_eigs, _first_physical) = build_sphere_system(seed);
 
-    let result = self_consistent_k_vector_tracked(
+    let t0 = std::time::Instant::now();
+    let dense = FaerComplexEigensolver;
+    let recording = Recording::new(&dense);
+    let result = self_consistent_k_vector_tracked_with(
+        &recording,
         k_full.as_ref(),
         s_full.as_ref(),
         m_full.as_ref(),
         seed,
-        n_eigs - 1,
+        ModeTarget::Index(n_eigs - 1),
         n_eigs,
         1e-6,
         10,
     )
     .expect("solve must not error (only return one of the result variants)");
+    eprintln!("mode-death: {result:?} after {:?}", t0.elapsed());
+    dense_step_report(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        n_eigs - 1,
+        None,
+        "dense vector-tracked, k0=25",
+    );
+    let trace = tracked_trace(
+        &recording.solves.borrow(),
+        m_full.as_ref(),
+        |_| n_eigs - 1,
+        "dense vector-tracked, k0=25 (trace)",
+    );
+    eprintln!("mode-death: min overlap {:.4}", min_overlap(&trace));
 
     match result {
         SelfConsistentResult::ModeLost {
