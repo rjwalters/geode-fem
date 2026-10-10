@@ -8,16 +8,23 @@
 #   ams       eigen/ams.rs lu_solve, the AMS coarse LU solve (Direct coarse
 #             solver, and the coarsest level of Amg)
 #   transient driven/transient.rs TransientStepper::step, once per time step
-# The change that merged runs ams and transient under a SequentialSolveScope
+# The #956 change that merged runs ams and transient under a SequentialSolveScope
 # (Par::Seq), up to sequential_solve_max_dim unknowns.
 #
-# COMPLEX SITE: MEASURED, NOT SHIPPED. With the scope on the complex Lanczos
+# COMPLEX SITE: SHIPPED LATER, IN #1023. With the scope on the complex Lanczos
 # loop, sparse_complex_matches_dense_fixture returned a wrong eigenvalue on
-# linux x86-64 CI (issue #1023), so that loop was left as on main. The
-# complex rows below are kept as the measurement of that site: build = fix
-# and ungated there mean the commits in [meta], which scoped the complex
-# loop, not the tree that merged. Everything in this file, including the
-# agreement table, was measured on macOS aarch64 only ([hardware]).
+# linux x86-64 CI, so #956 left that loop as on main. #1023 found the cause
+# (an unconverged Ritz value born at the last Lanczos step, which the
+# eigenvalue-only path returned unscreened; the sequential solve itself was
+# accurate) and shipped the same scope, at the same limit, together with a
+# residual-estimate screen of the returned Ritz values. The complex rows
+# below are the measurement of the scope: build = fix and ungated there mean
+# the commits in [meta], which scoped the complex loop but had no screen.
+# The screen runs once after the loop (one dense eigenvector solve of the
+# tridiagonal) and was not re-measured; the per-call legs do not include it,
+# and the agreement table compares the unscreened values. Everything in
+# this file, including the agreement table, was measured on macOS aarch64
+# only ([hardware]).
 #
 # HOW TO READ: a developer machine shared with other work. Wall times move
 # with the load, so the 1-minute load average is recorded for every leg and
@@ -32,8 +39,8 @@ issue = 956
 measured_date = "2026-10-09"
 main_commit = "c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3"
 ungated_commit = "885e2cc16b3ba95fed41260b2a9ba6a2cf87ec89"  # scope at every size; superseded
-fix_commit = "f1f7faa38918ba19c53f66255bc38663b4011929"  # scope up to SEQUENTIAL_SOLVE_MAX_DIM at all three sites; ams and transient shipped so, complex did not
-complex_site = "measured, not shipped: linux x86-64 regression, see issue #1023"
+fix_commit = "f1f7faa38918ba19c53f66255bc38663b4011929"  # scope up to SEQUENTIAL_SOLVE_MAX_DIM at all three sites; ams and transient shipped so in #956, complex in #1023 (with a Ritz screen this commit lacks)
+complex_site = "measured in #956, shipped in #1023 with a residual-estimate screen of the eigenvalue-only path (the linux x86-64 failure was an unconverged Ritz value, not the solve)"
 sequential_solve_max_dim = 10000
 faer = "faier git rev b61bc35d0a166a48c3021dce60294bd92b680013 (0.24.4 fork); the crates.io 0.25.2 port (PR #995) was not merged when these ran"
 run_dir = "benchmarks/gpu_driven_scaling/runs/2026-10-09_local_threading_956"
@@ -2931,7 +2938,7 @@ loadavg_1min = [32.22, 29.07]  # process start, end
 n_values = 201
 
 [threading_fix_956.agreement]
-note = "max_i |x_i - main_i| / max_i |main_i| over the returned values (eigenvalues; transient: every V(t) sample of the excited port), x = ungated or fix, same size, thread count and repeat; the worst over repeats. main_thread_spread compares main at RAYON_NUM_THREADS=1 with main at 8 threads, the round-off floor already present on main. ams: the four values are the discrete gradient null cluster (|lambda| <= 3e-12, zero to round-off), so the denominator there is max(max_i |main_i|, |sigma| = 0.5); the inner iteration count is identical on every build. tolerance = 1e-09 on every *_vs_main value. Load does not enter here, so excluded legs are compared too. Platform: macOS aarch64 only ([hardware]). On linux x86-64 the complex site did not agree: with the scope, sparse_complex_matches_dense_fixture returned a wrong first eigenvalue in CI (issue #1023), and the complex scope was not shipped. The complex_* rows are that unshipped change."
+note = "max_i |x_i - main_i| / max_i |main_i| over the returned values (eigenvalues; transient: every V(t) sample of the excited port), x = ungated or fix, same size, thread count and repeat; the worst over repeats. main_thread_spread compares main at RAYON_NUM_THREADS=1 with main at 8 threads, the round-off floor already present on main. ams: the four values are the discrete gradient null cluster (|lambda| <= 3e-12, zero to round-off), so the denominator there is max(max_i |main_i|, |sigma| = 0.5); the inner iteration count is identical on every build. tolerance = 1e-09 on every *_vs_main value. Load does not enter here, so excluded legs are compared too. Platform: macOS aarch64 only ([hardware]). On linux x86-64 the complex site did not agree: with the scope and no Ritz screen, sparse_complex_matches_dense_fixture returned an unconverged Ritz value as its first eigenvalue in CI (issue #1023). The complex_* rows compare that unscreened build; the shipped loop (#1023) also withholds Ritz values whose residual estimate exceeds 1e-3."
 complex_n20_t1_fix_vs_main_max_rel_diff = 3.710e-11
 complex_n20_t8_fix_vs_main_max_rel_diff = 2.616e-11
 complex_n20_tdefault_fix_vs_main_max_rel_diff = 5.122e-11
