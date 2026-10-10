@@ -577,7 +577,8 @@ resolution. The 16 × 8 face over layers of 0.5 gets 7.7 %, a limit of
 numbers is a box shorter than the window (`3·2π/k_c`, above). On a coarse guide
 longer than it, the limit is **not** a bound: on the 216 long Gmsh
 guides (5.5 to 12 deep) of `geode-core`'s `tm_guard_p2_long_guide_table`,
-the p=1 limit is at or above a TM-like mode of the 3-D p=1 model on 20,
+the p=1 limit is at or above a TM-like mode of the 3-D p=1 model on 12
+(20 by the sampled share),
 by up to 198.7 % (`3 × 1 × 9.75`, about 3×; issues #990, #1005). These
 are coarse-mesh defect modes, some below TE₁₀, and whether a TE₁₀ drive
 excites them is not measured. `check` and `driven` warn on that regime
