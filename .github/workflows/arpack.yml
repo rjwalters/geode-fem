@@ -205,6 +205,10 @@ jobs:
       # Issue #946: `faer_global_parallelism` (faer's process-global
       # parallelism around a factorization guard, an AMS-preconditioned
       # back-solve and a direct eigensolve); one test, well under 1 s.
+      # Issue #966: `driven_matrix_free_ams` (the matrix-free path's
+      # host-side AMS against the assembled AMS, Direct and matrix-free
+      # Jacobi; coarse-solve pluggability; the backend / preconditioner
+      # rejections); about 11 s in release on a loaded local host.
       - name: Wave ports + iterative sweep + matrix-free driven equivalence
         run: |
           cargo test --features arpack -p geode-core --release \
@@ -212,7 +216,8 @@ jobs:
               --test wave_port_gauge \
               --test iterative_sweep \
               --test faer_global_parallelism \
-              --test driven_matrix_free_equivalence
+              --test driven_matrix_free_equivalence \
+              --test driven_matrix_free_ams
           cargo test --features arpack -p geode-core --release \
               --test wave_port \
               --test wave_port_step_mode_matching -- --include-ignored

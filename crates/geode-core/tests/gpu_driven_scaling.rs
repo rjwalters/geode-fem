@@ -149,6 +149,25 @@
 //! weight to stderr (one `# ams_smoother …` line), `GEODE_AMS_SMOOTH_WEIGHT`
 //! overrides the weight (`0.6` reproduces the previous fixed value), and
 //! `GEODE_SCALING_OMEGA` moves the single-ω cells off the default frequency.
+//!
+//! ## Matrix-free AMS config (issue #966)
+//!
+//! The opt-in config `matrix_free_ams` (emitted as `6_matrix_free_ams`,
+//! method `burn_cocg_ams`) is config 3's matrix-free COCG with config 5's AMS
+//! preconditioner: the same AMS build (proxy, coarse solves, smoother
+//! weight), applied on the host between the Burn operator applies. It runs on
+//! the CPU ndarray f64 backend only (the library rejects it elsewhere, and the
+//! harness skips it with a comment line), at the f64 tolerance, and always
+//! reports its setup split. Like config 5 it is not in the default set:
+//! ```text
+//! GEODE_SCALING_SIZES=15 GEODE_SCALING_REPS=0 \
+//!   GEODE_SCALING_CONFIGS=iterative,matrix_free,iterative_ams,matrix_free_ams \
+//!   GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_MF_AMS_PROFILE=1 \
+//!   cargo test -p geode-core --release --test gpu_driven_scaling -- --ignored --nocapture
+//! ```
+//! `GEODE_MF_AMS_PROFILE=1` makes each matrix-free AMS back-solve print one
+//! `# mf_ams_profile …` stderr line splitting its Krylov time into the host
+//! V-cycles and the transfers around them.
 
 use std::time::Instant;
 
@@ -234,7 +253,7 @@ const DEFAULT_ITER_MAX: usize = 20_000;
 /// |---|---|---|
 /// | `GEODE_SCALING_SIZES` | `6,9,12,15` | comma-separated `cube_tet_mesh(n)` sizes |
 /// | `GEODE_SCALING_REPS` | `3` | timed reps per loop; `0` = warm-up solve only |
-/// | `GEODE_SCALING_CONFIGS` | `direct,iterative,matrix_free` | config subset; `iterative_ams` (issue #930) is opt-in only |
+/// | `GEODE_SCALING_CONFIGS` | `direct,iterative,matrix_free` | config subset; `iterative_ams` (issue #930) and `matrix_free_ams` (issue #966) are opt-in only |
 /// | `GEODE_SCALING_SPLIT_SETUP` | unset | `1` adds `warmup_setup_s` / `warmup_krylov_s` to every cell |
 /// | `GEODE_SCALING_SKIP_E2E` | unset | `1` skips the end-to-end (re-assemble) reps |
 /// | `GEODE_SCALING_SKIP_SWEEP` | unset | `1` skips the 5-point ω sweep |
@@ -254,6 +273,8 @@ struct Knobs {
     matrix_free: bool,
     /// Assembled COCG + AMS (issue #930). Never on by default.
     iterative_ams: bool,
+    /// Opt-in config 6: matrix-free COCG + host-side AMS (issue #966).
+    matrix_free_ams: bool,
     /// Emit the setup / Krylov split of the warm-up solve on every cell.
     split_setup: bool,
     skip_e2e: bool,
@@ -294,9 +315,12 @@ impl Knobs {
         let configs: Vec<&str> = configs.split(',').map(str::trim).collect();
         for c in &configs {
             assert!(
-                matches!(*c, "direct" | "iterative" | "matrix_free" | "iterative_ams"),
+                matches!(
+                    *c,
+                    "direct" | "iterative" | "matrix_free" | "iterative_ams" | "matrix_free_ams"
+                ),
                 "GEODE_SCALING_CONFIGS entry {c:?} must be one of direct, iterative, \
-                 matrix_free, iterative_ams"
+                 matrix_free, iterative_ams, matrix_free_ams"
             );
         }
         Self {
@@ -306,6 +330,7 @@ impl Knobs {
             iterative: configs.contains(&"iterative"),
             matrix_free: configs.contains(&"matrix_free"),
             iterative_ams: configs.contains(&"iterative_ams"),
+            matrix_free_ams: configs.contains(&"matrix_free_ams"),
             split_setup: flag("GEODE_SCALING_SPLIT_SETUP"),
             skip_e2e: flag("GEODE_SCALING_SKIP_E2E"),
             skip_sweep: flag("GEODE_SCALING_SKIP_SWEEP"),
@@ -842,6 +867,12 @@ fn gpu_driven_scaling_benchmark() {
              (issue #930)"
         );
     }
+    if knobs.matrix_free_ams {
+        println!(
+            "# config 6=IterativeMatrixFree({mf_backend} {mf_dtype}) + host-side AMS, tol \
+             {ITER_TOL_F64:e}; opt-in (issue #966)"
+        );
+    }
     if knobs.split_setup {
         println!("# split_setup = true: every cell carries warmup_setup_s / warmup_krylov_s");
     }
@@ -1102,6 +1133,76 @@ fn gpu_driven_scaling_benchmark() {
                     *stagnated_residual,
                     message,
                 ),
+            }
+        }
+
+        // Config 6: matrix-free COCG + host-side AMS (issue #966). Opt-in,
+        // CPU ndarray f64 only. Same tolerance, cap and AMS as config 5; only
+        // the Krylov operator differs (matrix-free Burn apply instead of the
+        // assembled CSR). Non-convergence is a measured outcome.
+        if knobs.matrix_free_ams {
+            if !geode_core::driven::matrix_free::host_ams_supported::<B>(&device()) {
+                println!(
+                    "# config 6 skipped at n={n}: the matrix-free AMS needs the CPU ndarray \
+                     f64 backend (this run: {mf_backend} {mf_dtype})"
+                );
+            } else {
+                let mode = SolverMode::IterativeMatrixFree(
+                    iset_f64.with_preconditioner(IterativePreconditioner::AMS),
+                );
+                let o = time_config(n, &fix, mode, reps, knobs.skip_e2e);
+                match &o {
+                    Outcome::Converged(c) => {
+                        let sw = sweep(mode);
+                        let acc = acc_vs_direct(&c.e_edges);
+                        emit_cell(
+                            n,
+                            fix.n_edges,
+                            fix.n_interior,
+                            "6_matrix_free_ams",
+                            "burn_cocg_ams",
+                            "cpu",
+                            "f64",
+                            ITER_TOL_F64,
+                            c,
+                            acc,
+                            sw,
+                            knobs.skip_sweep,
+                            true, // always report the setup split, like config 5
+                        );
+                        if c.explicit_converged {
+                            assert!(
+                                c.residual_rel < 1e-5,
+                                "config 6 (matrix-free AMS) explicit residual {} exceeds 1e-5 \
+                                 at n={n}",
+                                c.residual_rel
+                            );
+                            assert!(
+                                acc.is_nan() || acc < 1e-5,
+                                "config 6 (matrix-free AMS) rel-L2 vs Direct = {acc} exceeds \
+                                 1e-5 at n={n}"
+                            );
+                        }
+                    }
+                    Outcome::Dnf {
+                        attempt_s,
+                        stagnated_residual,
+                        message,
+                    } => emit_dnf_cell(
+                        n,
+                        fix.n_edges,
+                        fix.n_interior,
+                        "6_matrix_free_ams",
+                        "burn_cocg_ams",
+                        "cpu",
+                        "f64",
+                        ITER_TOL_F64,
+                        iter_max,
+                        *attempt_s,
+                        *stagnated_residual,
+                        message,
+                    ),
+                }
             }
         }
     }

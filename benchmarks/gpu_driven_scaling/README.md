@@ -14,11 +14,14 @@ comparable cell-for-cell and must not be merged.
 | [`results.toml`](results.toml) | #501 | AWS g6e.xlarge: NVIDIA L40S, AMD EPYC 7R13 with 4 vCPU | n ∈ {6, 9, 12, 15}, 1 854 → 25 695 edges |
 | [`results_large_a100.toml`](results_large_a100.toml) | #520, PR #929 | Lambda Cloud `gpu_1x_a100_sxm4`: NVIDIA A100-SXM4-40GB, AMD EPYC 7J13 with 30 vCPU | 25 695 → 462 520 edges, plus Palace driven runs on the same meshes |
 | [`results_ams_cpu_local.toml`](results_ams_cpu_local.toml) | #930, #946, #945 | A developer Mac (Apple M3 Ultra) under unrelated load. **Not a benchmark host**: iteration counts are the result, times are indicative only | n ∈ {6, 9, 12, 15, 20, 24}, 1 854 → 102 024 edges, CPU f64 only, no Palace |
+| [`results_mf_ams_cpu_local.toml`](results_mf_ams_cpu_local.toml) | #966 | The same developer Mac under unrelated load, every leg single-threaded. **Not a benchmark host**: iteration counts are the result, per-iteration ratios are same-host, times indicative | n ∈ {15, 20, 24, 36, 40}, 25 695 → 462 520 edges: matrix-free COCG + host-side AMS against assembled AMS, assembled Jacobi and matrix-free Jacobi, CPU ndarray f64, no Palace |
+| [`results_threading_956.toml`](results_threading_956.toml) | #956 | The same developer Mac under unrelated load (1-minute load average recorded per leg; legs started above 100 excluded). **Not a benchmark host** | Per-call and end-to-end costs of three repeated triangular-solve sites, sequential vs the rayon pool at 1 and 8 threads and the default pool, 6.9k → 97k unknowns. Two of the sites shipped (AMS coarse, transient step); the complex Lanczos site is measured, not shipped (Linux x86-64 regression, #1023). Measured on the faier 0.24.4 pin; the 8-thread per-call legs near the 10 000 limit were rerun on faier 0.25.2 (`spot_check_faier_0_25_2`) |
 | [`results_ams_cpu_r6i.toml`](results_ams_cpu_r6i.toml) | #930 | AWS r6i.4xlarge (Intel Xeon Platinum 8375C, 8 cores / 16 threads, 128 GB), dedicated and idle, pinned with `taskset` | n ∈ {15, 20, 24, 36, 40}, 25 695 → 462 520 edges, plus one run at n = 50 (897 650 edges); CPU f64 Jacobi / AMS / Direct and Palace on the same box |
 
 Each file is the authoritative record of its own numbers and caveats. This
-README only explains what is in the directory, except for the summary in
-[AMS vs Jacobi vs Palace at scale](#ams-vs-jacobi-vs-palace-at-scale-930-same-host).
+README only explains what is in the directory, except for the summaries in
+[AMS vs Jacobi vs Palace at scale](#ams-vs-jacobi-vs-palace-at-scale-930-same-host)
+and [AMS on the matrix-free path](#ams-on-the-matrix-free-path-966-local).
 
 ## Layout
 
@@ -38,6 +41,12 @@ README only explains what is in the directory, except for the summary in
 | `summarize_ams_r6i.py` | Writes `results_ams_cpu_r6i.toml` (or, with `--markdown`, the table below) from the run tree |
 | `box_palace_cpu.sh` | Runs the CPU Palace image (`reference/palace/docker/Dockerfile`) on an exported cube mesh, pinned with `--cpuset-cpus` and `mpirun -bind-to core`; `PALACE_LINEAR_TYPE` picks Palace's linear solver |
 | `runs/2026-10-08_r6i_ams_scale/` | The evidence tree behind `results_ams_cpu_r6i.toml`: `t<T>_rep<K>/` (one `ams_cpu_sweep.sh` tree per thread count and repeat), `t1_rep3_n50/`, `direct_large/`, `omega/`, `palace/` (Palace with its `Default` linear solver), `palace_ams/` (Palace with `AMS`), the `chain930*.sh` scripts that ran them with their `chain*.out` exit codes, `palace_build.sh` / `export_meshes.sh`, `mesh_sha256.txt`, `host_extra.txt`, `session.txt` and `NOTE.txt` |
+| `results_mf_ams_cpu_local.toml` | The #966 record: the matrix-free path's AMS (harness config 6, `matrix_free_ams`) against the assembled AMS (config 5), assembled Jacobi (config 2) and matrix-free Jacobi (config 3). Generated, not hand-edited |
+| `summarize_mf_ams_local.py` | Writes `results_mf_ams_cpu_local.toml` to stdout from the #966 run tree |
+| `runs/2026-10-09_local_mf_ams/` | The evidence tree behind `results_mf_ams_cpu_local.toml`: legs `n<N>_{jacobi,ams,mfjacobi,mfams,mfxcheck}`, the capped matrix-free Jacobi legs in `mfjacobi_cap1/` and `mfjacobi_cap300/`, and `NOTE.txt` with the exact invocations |
+| `results_threading_956.toml` | The #956 record: per call and end to end, the complex Lanczos, AMS coarse and transient-step triangular solves on the rayon pool vs sequential, and why the fix stops at 10 000 unknowns. The complex Lanczos rows are measured, not shipped (#1023). Generated, not hand-edited |
+| `summarize_threading_956.py` | Writes `results_threading_956.toml` to stdout from its run tree |
+| `runs/2026-10-09_local_threading_956/` | The evidence tree behind `results_threading_956.toml`: the harness `diag956_threading.rs`, the scripts that ran it (`sweep956.sh`, `refine956.sh`, `gated956.sh`, `spotcheck956.sh`, in that order), `meta.txt`, `host.txt` and one `.stdout` per leg in `percall/`, `percall_refine/`, `e2e/`, `e2e_large/` and `e2e_gated/`; and `spotcheck_faier_0_25_2/` (the faier 0.25.2 spot check: `spotcheck956.sh` in the parent directory ran it, with its own `meta.txt`, the measurement-only `gate_off.patch` and `percall/`) |
 | `runs/2026-10-08_local_ams/` | The evidence tree behind `results_ams_cpu_local.toml`: the legs `n<N>_{direct,jacobi,ams,xcheck}` (default threading), `single_thread/` (the Jacobi and AMS legs rerun with `RAYON_NUM_THREADS=1`; every time ratio comes from these), `diagnostics/` (three one-off patched builds, stored as patch files plus captured output and described in its `NOTE.txt`), `threading_946/` (the before / after measurement of the #946 threading fix, one sweep tree per build and threading mode, plus `eigen_loop/`; see its `NOTE.txt`), `smoother_945/` (the #945 smoother-weight fix) and `smoother_963/` (where the remaining AMS iteration growth comes from: one sweep tree per V-cycle variant and frequency, `chain963.sh`, and `validation/`) |
 
 Inside `runs/2026-10-07_lambda_a100/`:
@@ -141,6 +150,13 @@ python3 -I benchmarks/gpu_driven_scaling/summarize_ams_local.py \
   benchmarks/gpu_driven_scaling/runs/2026-10-08_local_ams | cmp - benchmarks/gpu_driven_scaling/results_ams_cpu_local.toml
 ```
 
+The #956 record is reproduced the same way:
+
+```sh
+python3 -I benchmarks/gpu_driven_scaling/summarize_threading_956.py \
+  benchmarks/gpu_driven_scaling/runs/2026-10-09_local_threading_956 | cmp - benchmarks/gpu_driven_scaling/results_threading_956.toml
+```
+
 The AMS config is opt-in (`GEODE_SCALING_CONFIGS=...,iterative_ams`); the
 default config set and its output are unchanged.
 
@@ -164,6 +180,18 @@ python3 -I benchmarks/gpu_driven_scaling/summarize_ams_r6i.py \
 `ams_cpu_sweep.sh` takes `TASKSET_CPUS` (pin every leg, recording
 `Cpus_allowed_list` in its `.meta`) and `LEGS` (a subset of
 `direct jacobi ams xcheck`). Neither changes a run that does not set them.
+
+`results_mf_ams_cpu_local.toml` (#966) is generated the same way. `LEGS` also
+takes the opt-in matrix-free legs `mfjacobi` (config 3), `mfams` (config 6)
+and `mfxcheck` (Direct and both AMS configs in one process); the default leg
+set is unchanged. `runs/2026-10-09_local_mf_ams/NOTE.txt` has the exact
+sequence, including the capped (`GEODE_SCALING_ITER_MAX=1` and `=300`)
+matrix-free Jacobi legs. Then:
+
+```sh
+python3 -I benchmarks/gpu_driven_scaling/summarize_mf_ams_local.py \
+  benchmarks/gpu_driven_scaling/runs/2026-10-09_local_mf_ams | cmp - benchmarks/gpu_driven_scaling/results_mf_ams_cpu_local.toml
+```
 
 ## AMS vs Jacobi vs Palace at scale (#930, same host)
 
@@ -716,6 +744,37 @@ error, when it is above both `2/ρ̂` and the automatic weight), and
 The Jacobi iteration counts and port voltages at 25.7k, 59.7k and 102k edges
 are identical to the Lambda record's, which is the only cross-host statement
 this file supports. Do not put its timings beside the A100 or Palace cells.
+
+## AMS on the matrix-free path (#966, local)
+
+`SolverMode::IterativeMatrixFree` takes an explicit
+`IterativePreconditioner::Ams` on the CPU ndarray f64 backend: the assembled
+path's AMS (same proxy, same exact nodal LU coarse solve), applied on the host
+between the matrix-free operator applies. Only the Krylov operator is
+matrix-free. From `results_mf_ams_cpu_local.toml`, one thread, one loaded
+host:
+
+| edges | assembled AMS it | matrix-free AMS it | ms/it: assembled AMS | ms/it: matrix-free AMS | ms/it: matrix-free Jacobi | matrix-free Jacobi it |
+|---|---|---|---|---|---|---|
+| 25 695 | 39 | 39 | 8.4 | 21.6 | 13.3 | 2 907 |
+| 59 660 | 49 | 49 | 22.5 | 54.2 | 36.2 | 4 235 |
+| 102 024 | 55 | 55 | 42.6 | 90.5 | 54.6 | 5 249 |
+| 338 364 | 80 | 80 | 192.2 | 376.6 | 168.3 (capped runs) | not run |
+| 462 520 | 86 | 86 | 244.1 | 472.5 | 230.8 (capped runs) | not run |
+
+- The iteration counts are identical to the assembled AMS (and to the r6i
+  assembled counts) at every size; the issue's acceptance was within 1.5x.
+- Per iteration the matrix-free AMS costs about the matrix-free Jacobi
+  iteration plus the host V-cycle: on ndarray the matrix-free operator apply
+  costs about as much as the V-cycle, so it runs at 1.9x to 2.6x the assembled
+  AMS. The two `[n]` transfers per iteration are 2 to 3 %.
+- Against matrix-free Jacobi, time to solution is 32x to 42x shorter where
+  both were run (to 102k edges) and 34x and 41x shorter at 338k and 463k
+  edges, projected from the capped Jacobi runs.
+- This is a CPU stopgap, not a GPU design: the nodal LU's triangular solves
+  are serial, and on a GPU each iteration would add a PCIe round trip. The
+  host-side AMS is rejected on any other backend. No GPU claim follows from
+  this file.
 
 ## Where the remaining AMS growth comes from (#963)
 
