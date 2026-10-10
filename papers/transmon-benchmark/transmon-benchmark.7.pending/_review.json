@@ -1,0 +1,43 @@
+{
+  "schema_version": "1",
+  "kind": "tool_evidence",
+  "version_dir": "transmon-benchmark.7",
+  "critic_id": "pending",
+  "model": null,
+  "rubric": null,
+  "scores": [
+    {
+      "dimension": "pending_marker",
+      "score": null,
+      "max": 1,
+      "critical": false,
+      "evidence_span": null,
+      "fix": null,
+      "justification": "pending-marker detection is a deterministic placeholder-presence check; owns no rubric dim."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "nit",
+      "dimension": "pending_marker",
+      "evidence_span": "main.tex:L932",
+      "rationale": "Outstanding pending marker '[PENDING issue-1034]' \u2014 declared as known-incomplete (source: 'issue-1034'), not a defect. No dimension score penalty; gates the terminal state (READY/AUDITED) until resolved.",
+      "suggested_fix": "Resolve the pending source 'issue-1034' and replace the marker with the real value, or confirm the value is still genuinely pending and leave the marker in place for a later pass. Never fabricate a value to clear the marker.",
+      "tool_calls": [],
+      "downstream_risk": null
+    }
+  ],
+  "critical_flags": [
+    {
+      "type": "pending_dependency",
+      "justification": "1 unresolved pending marker(s) remain in the body (outstanding source(s): issue-1034): [PENDING issue-1034]. This is an honestly-declared known-incomplete value, NOT a defect \u2014 it does not lower any dimension score and does not force Verdict.BLOCK. It is surfaced here as an outstanding dependency; the artifact cannot reach the terminal state (READY/AUDITED) until every marker is replaced with its real value. Never fabricate a value to clear this flag.",
+      "evidence_span": "main.tex:L932"
+    }
+  ],
+  "total": null,
+  "threshold": null,
+  "verdict": null,
+  "rendered_artifact": null,
+  "probes": null,
+  "unscored": false
+}

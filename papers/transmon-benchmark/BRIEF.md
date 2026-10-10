@@ -14,6 +14,34 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
+## v7 preparation — 2026-10-10 (#1039)
+
+#1039 requests one new version beyond the v6 cap: fold the committed post-v6
+measurements into a draft while the real-device multi-parameter anchor
+experiment (#1034) is still in progress. The cap is raised to 7 for this pass,
+pending operator confirmation (requested on PR #1040); v6 and its review/audit
+remain immutable.
+This does not confer a new review score or publication readiness.
+
+- Harmonic motion (#594): 8.90× safe-budget extension, but a 128.792998 fF
+  endpoint. Replace the initial-slope 3.54× headline with the conditional
+  endpoint-slope estimate of at least 6.3×, explicitly stating its assumption.
+- CPU timing (#964/#927): replace the old unmatched-work efficiency claim and
+  plot with all three mode-recovering routes, OS pinning, measured CPU time,
+  and Palace field-output/error-estimator caveats. Include the subsequent
+  tuned-build control without pooling sessions.
+- Port-subspace update (#1002): seven requested modes recover six physical
+  modes, with the 3.45 GHz mode still unresolved under #1003. Its local timing
+  is not a replacement for the EC2 timing cell.
+- AMS at scale (#967): assembled CPU-f64 driven measurements, separate from
+  the transmon eigenmode and GPU experiments.
+- Keep a visible `[PENDING issue-1034]` anchor section and every existing
+  `TODO(operator)` marker. The real-device optimizer result, independent
+  review/audit, and operator publication inputs remain outstanding.
+
+The new draft's `provenance.md` maps these changes to committed evidence;
+its `validation.md` records checks without claiming an independent audit.
+
 ## ⭐ REFRAME 2026-07-16 (operator direction — SUPERSEDES the 2026-07-14 framing below where they conflict)
 
 **The paper's contribution is now DIFFERENTIABLE TRANSMON DESIGN — gradient-based

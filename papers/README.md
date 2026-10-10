@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.6/` |
+| `transmon-benchmark` | `transmon-benchmark.7/` (draft; anchor result pending; v6 is the last audited version) |
 
 ## Building a paper
 
