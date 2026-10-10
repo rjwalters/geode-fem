@@ -45,42 +45,44 @@
 //!
 //! # Measured (`tests/wave_port_p2.rs`, Gmsh 4.15.2)
 //!
-//! The reference is the box's lowest p=2 mode whose **sampled** `E_z`
-//! share is at least 0.4, the classifier of the #905 tables. Both tables
-//! are in `benchmarks/tm_guard_955/`.
+//! The reference is the box's lowest p=2 mode whose **exact** `E_z` share
+//! (volume-integrated) is at least 0.4 (issue #1041). Both tables are in
+//! `benchmarks/tm_guard_955/`.
 //!
 //! - **The cutoff used directly is unsafe.** As `0.98·min(k_TM,h, k_face)`
 //!   (the margin of option 1) it is at or above the reference on 213 of the
 //!   815 rows of `tm_guard_p2_measurement_table` (worst 8.45 % above,
-//!   `gmsh 3×1×4.13`, `lc` 0.9), and on 164 of the 216 long guides of
-//!   `tm_guard_p2_long_guide_table` (23 modes within reach, 110 straddling
-//!   the cut, 31 beyond it). The reference modes it misses on the 815-row
-//!   table carry 0.43 to 0.95 of their energy in `E_z` (exact share), and
-//!   the bound above lets a mode of share 0.43 sit up to 34 % below the
-//!   cutoff. The lowest reference there is at `0.895·k_TM,h`.
+//!   `gmsh 3×1×4.13`, `lc` 0.9), and on 173 of the 216 long guides of
+//!   `tm_guard_p2_long_guide_table` (37 modes within reach, 100 straddling
+//!   the cut, 36 beyond it). The reference modes it misses on the 815-row
+//!   table carry 0.43 to 0.95 of their energy in `E_z`, and the bound above
+//!   lets a mode of share 0.43 sit up to 34 % below the cutoff. The lowest
+//!   reference there is at `0.895·k_TM,h`.
 //! - **The floor `√0.4·k_TM,h` is safe on both tables but loses band.** It
 //!   is below the reference on every row of both, including the rows where
-//!   the interim law fails (`3 × 1`, `lc` 0.9) and the modes beyond reach
-//!   that option 1 misses. But it is below the interim guard on all 130
-//!   rows with `k_c·h_n` in `[1.41, 2.5]` (median margin below the face
-//!   36.7 % against 21.2 %). On the guides of the issue's band table it
-//!   gives up 58.0 % of the single-mode band on the `2 × 1` guide with
-//!   `h_n = b` (interim 45.4 %), 74.2 % on the `1.5 × 1` fixture at `lc`
-//!   0.92 (interim 64.1 %), and 6.8 % on the `3 × 1` fixture (interim none).
+//!   the interim law fails (`3 × 1`, `lc` 0.9) and the modes that option 1
+//!   misses. But it is below the interim guard on all 130 rows with
+//!   `k_c·h_n` in `[1.41, 2.5]` (median margin below the face 36.7 %
+//!   against 21.2 %). On the guides of the issue's band table it gives up
+//!   58.0 % of the single-mode band on the `2 × 1` guide with `h_n = b`
+//!   (interim 45.4 %), 74.2 % on the `1.5 × 1` fixture at `lc` 0.92
+//!   (interim 64.1 %), and 6.8 % on the `3 × 1` fixture (interim none).
 //!
 //! The floor is a theorem only for the exact share and for the modes of the
-//! section. The reference classifier samples the share at five points per
-//! tet without volume weights, and reads some modes far above their exact
-//! share (0.50 against 0.11 for the `3×1×8` long-guide mode). On a long
-//! guide the box has modes the section does not. On both counts the floor's
-//! safety on these tables is measured, not proved. Only the over-reading
-//! direction of the sampling is measured. The opposite direction is not: a
-//! mode below the reference with exact share at least 0.4 but sampled share
-//! under 0.4 would lower the true reference and could hide a miss, of this
-//! floor and of the #905 / #990 / #1005 tables. A probe of 12 of the
-//! highest-discrepancy rows (sampled minus exact share −0.15 to +0.24 on
-//! their reference modes) found no such mode; the tables were not rerun
-//! with the exact share as the classifier.
+//! section. On a long guide the box has modes the section does not, so the
+//! floor's safety on the long-guide table is measured, not proved.
+//!
+//! Before issue #1041 the tables classified by a share sampled at five
+//! points per tet without volume weights, which reads modes both above and
+//! below their exact share. Rerun with both classifiers from the same
+//! eigensolves, the 815-row table does not change: the reference moves up
+//! on 2 rows, down on none, and every guard misses the same rows. On the
+//! long guides the sampled share had hidden misses. It read a lower mode
+//! of exact share 0.41 to 0.70 at 0.07 to 0.38 on 21 `1.5 × 1` and
+//! `2.3 × 1` boxes, and option 1 (which selects its own section mode by
+//! the sampled share) misses 21 rows, not 8. It also over-read two modes
+//! (`3×1×8`, `3×1×11.75`: 0.50 and 0.68 sampled, 0.11 and 0.35 exact), so
+//! the interim law fails on 3 rows, not 5. The floor misses none by either.
 //!
 //! # The guard
 //!
