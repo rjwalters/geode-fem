@@ -3,7 +3,7 @@
 //!
 //! #589 and #594 each moved one island-scale parameter whose map dragged the
 //! junction-attachment nodes ~225 μm per unit θ, so the ~0.7 μm junction tets
-//! set the budget, and the 89.9 fF anchor sat at least 6.26× beyond the
+//! set the budget, and the 89.9 fF anchor sat at least about 6.26× beyond the
 //! harmonic morph's safe budget. This run builds three parameters whose
 //! harmonic morph fields are exactly zero on the junction neighborhood
 //! ([`geode_core::shape::transmon_morph`]): island length `theta_L`, island
@@ -710,12 +710,14 @@ fn main() {
     t.push_str("[reachability_estimate]\n");
     t.push_str("# ESTIMATE, not a measurement: a first-order (linearized) inference from the\n");
     t.push_str("# theta = 0 gradients and the measured budgets. #594's own linear estimate\n");
-    t.push_str("# understated its shortfall (3.5x linear vs >= 6.26x once the path slope fell\n");
+    t.push_str(
+        "# understated its shortfall (3.5x linear vs >= about 6.26x once the path slope fell\n",
+    );
     t.push_str("# from 209 to 114.5 fF/theta), so the linear factors below are lower bounds\n");
-    t.push_str("# if these slopes also decay. The path-corrected factor applies the same\n");
-    t.push_str("# #1034 correction using the slope MEASURED at the end of the budget-scaled\n");
-    t.push_str("# box step. It is a lower bound only if |dC_Sigma/ds| does not recover past\n");
-    t.push_str("# s_safe (the slope is measured at s_safe, not along the whole path).\n");
+    t.push_str("# if these slopes also decay. The path-corrected factors (box and joint) apply\n");
+    t.push_str("# the same #1034 correction using the slope MEASURED at the end of each\n");
+    t.push_str("# direction's safe step. Each is a lower bound only if |dC_Sigma/ds| does not\n");
+    t.push_str("# recover past s_safe (the slope is measured at s_safe, not along the path).\n");
     t.push_str("label = \"first-order estimate (inference)\"\n");
     let _ = writeln!(t, "c_sigma_target_ff = {:.1}", ff(C_SIGMA_TARGET_F));
     let _ = writeln!(t, "delta_c_needed_ff = {:.6}", ff(delta_c));
@@ -728,8 +730,9 @@ fn main() {
         let _ = writeln!(t, "{}_safe_budget_that_sign = {:.6}", PARAM_NAMES[p], q.1);
         let _ = writeln!(
             t,
-            "{}_linear_shortfall_alone = {:.3}  # theta_needed / budget; > 1 = unreachable alone",
-            PARAM_NAMES[p], q.2
+            "{}_linear_shortfall_alone = {}  # theta_needed / budget; > 1 = unreachable alone",
+            PARAM_NAMES[p],
+            floor_fmt(q.2, 3)
         );
         let _ = writeln!(
             t,
@@ -840,7 +843,8 @@ fn main() {
     );
     let _ = writeln!(
         t,
-        "joint_linear_shortfall = {joint_shortfall_linear:.3}  # 1 / s_safe"
+        "joint_linear_shortfall = {}  # 1 / s_safe",
+        floor_fmt(joint_shortfall_linear, 3)
     );
     let _ = writeln!(
         t,

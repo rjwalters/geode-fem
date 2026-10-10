@@ -10,9 +10,9 @@ parent = 1034
 n_nodes = 22684
 n_tets = 133314
 epsilon_model = "scalar (trace-averaged sapphire); the shape gradient is scalar-eps only"
-morph_solve_s = 0.78  # three Laplace solves
-gradient_s = 0.66  # one assembly + one LU + sweep
-wall_clock_s = 23.6
+morph_solve_s = 1.02  # three Laplace solves
+gradient_s = 0.70  # one assembly + one LU + sweep
+wall_clock_s = 27.5
 
 [parameterization]
 # Normalized parameters: theta_L = -0.1 shortens the pad above y_pin by 10%,
@@ -379,12 +379,12 @@ fraction_of_c_ii = 0.165405
 [reachability_estimate]
 # ESTIMATE, not a measurement: a first-order (linearized) inference from the
 # theta = 0 gradients and the measured budgets. #594's own linear estimate
-# understated its shortfall (3.5x linear vs >= 6.26x once the path slope fell
+# understated its shortfall (3.5x linear vs >= about 6.26x once the path slope fell
 # from 209 to 114.5 fF/theta), so the linear factors below are lower bounds
-# if these slopes also decay. The path-corrected factor applies the same
-# #1034 correction using the slope MEASURED at the end of the budget-scaled
-# box step. It is a lower bound only if |dC_Sigma/ds| does not recover past
-# s_safe (the slope is measured at s_safe, not along the whole path).
+# if these slopes also decay. The path-corrected factors (box and joint) apply
+# the same #1034 correction using the slope MEASURED at the end of each
+# direction's safe step. Each is a lower bound only if |dC_Sigma/ds| does not
+# recover past s_safe (the slope is measured at s_safe, not along the path).
 label = "first-order estimate (inference)"
 c_sigma_target_ff = 89.9
 delta_c_needed_ff = -47.806752
@@ -400,7 +400,7 @@ theta_W_linear_dc_within_budget_ff = -24.806008
 theta_W_c_sigma_fresh_at_budget_ff = 115.954542  # measured fresh extraction at its safe bound
 theta_G_theta_needed_alone = 0.779026  # linear, from the theta = 0 slope
 theta_G_safe_budget_that_sign = 0.784636
-theta_G_linear_shortfall_alone = 0.993  # theta_needed / budget; > 1 = unreachable alone
+theta_G_linear_shortfall_alone = 0.992  # theta_needed / budget; > 1 = unreachable alone
 theta_G_linear_dc_within_budget_ff = -48.151075
 theta_G_c_sigma_fresh_at_budget_ff = 111.813167  # measured fresh extraction at its safe bound
 box_theta = [-0.040959, -0.553015, 0.784636]  # every parameter at its reducing-sign safe bound
@@ -424,6 +424,6 @@ joint_c_sigma_linear_at_s_safe_ff = 131.321230
 joint_c_sigma_fresh_at_s_safe_ff = 132.348978  # measured fresh extraction
 joint_slope_at_s0_ff = -47.806752  # dC_Sigma/ds, = delta_c_needed by construction
 joint_slope_at_s_safe_ff = -33.323247  # measured gradient on the moved mesh
-joint_linear_shortfall = 7.487  # 1 / s_safe
+joint_linear_shortfall = 7.486  # 1 / s_safe
 joint_path_corrected_shortfall_lower_bound = 10.537  # (s_safe + remaining/slope_at_s_safe) / s_safe
 single_param_594_shortfall_lower_bound = 6.256959
