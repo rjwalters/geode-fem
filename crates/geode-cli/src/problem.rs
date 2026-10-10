@@ -25,8 +25,8 @@ use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, GuideAxialMesh, GuideScan, HybridPortFace,
     HybridWavePortOpts, LineImpedance, PortAccuracyOpts, PortFaceProjection, PortMedium,
-    TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH, TmCutoffEstimate,
-    project_port_face, tm_evanescent_leak, tm_guard_axial_reach,
+    TM_GUARD_AXIAL_COEFF, TM_GUARD_LONG_GUIDE_KH, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH,
+    TmCutoffEstimate, project_port_face, tm_evanescent_leak, tm_guard_axial_reach,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
@@ -4374,7 +4374,12 @@ impl PortMaterials<'_> {
     /// `δ = max(TM_GUARD_MARGIN, TM_GUARD_AXIAL_COEFF·(k_c·h_n)²)`: 5 % up
     /// to `k_c·h_n ≈ 1.41`, wider on a coarser axial mesh, and a rejection
     /// then says how far to refine the guide (the whole window, not only
-    /// the cells at the face) to admit the sweep. The
+    /// the cells at the face) to admit the sweep. The margin covers the
+    /// 3-D cutoff **only for boxes shorter than the window**: every box
+    /// it was measured on was. On guides longer than the window, coarse
+    /// ones, the guard is not a bound (issue #1005: at or above a p=1
+    /// TM-like mode on 20 of 216 long Gmsh guides, by up to 198.7 %;
+    /// `tm_guard_margin`, "Long guides: where the guard fails"). The
     /// filled limit is `guard_k_c/√(Re ε_n·μ_t)` ([`PortMedium::tm_cutoff_k0`]),
     /// evaluated at every sweep frequency for a dispersive fill; a fill
     /// with `Re ε_n·μ_t ≤ 0` has no TM cutoff and is rejected outright.
@@ -4397,6 +4402,16 @@ impl PortMaterials<'_> {
     /// to, and the frequency below which the leak is under 1 %. A
     /// rejection would be wrong here: the coarse cells may be a device
     /// region rather than the guide, and the leak is bounded.
+    ///
+    /// **Long, coarse guide (warning, issue #1005).** When the window's
+    /// `k_c^TM·h_n` is above [`TM_GUARD_LONG_GUIDE_KH`] (2.5) and the
+    /// mesh over the face extends beyond the window
+    /// ([`GuideScan::far_extent`]), the sweep runs with a warning that the
+    /// TM limit is not a bound there, how to leave the regime (refine the
+    /// guide to `h ≤ 2.5/k_c`, or shorten it), and that the threshold marks
+    /// the regime of the 20 measured misses rather than predicting one.
+    /// The operator ruled for a warning, not a rejection: tightening the
+    /// margin would block meshes that solve today.
     fn check_te_port_guard(
         &self,
         surf: &Surface,
@@ -4568,10 +4583,14 @@ impl PortMaterials<'_> {
                 )));
             }
         }
-        let warnings: Vec<String> = [axial.warning(), axial.far_warning()]
-            .into_iter()
-            .flatten()
-            .collect();
+        let warnings: Vec<String> = [
+            axial.warning(),
+            axial.far_warning(),
+            axial.long_guide_warning(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         Ok((est, (!warnings.is_empty()).then(|| warnings.join("\n"))))
     }
 }
@@ -4759,6 +4778,46 @@ impl TmAxialMesh<'_> {
             scale * far.guard_k_c(),
             percent(leak),
             (g * g - k * k).max(0.0).sqrt(),
+        ))
+    }
+
+    /// The long-coarse-guide warning (issue #1005, operator ruling: warn,
+    /// do not reject): `k_c^TM·h_n` > [`TM_GUARD_LONG_GUIDE_KH`] and the
+    /// guide footprint extends beyond the guard's window
+    /// ([`GuideScan::far_extent`] > `reach`). There the p=1 guard is not a
+    /// bound: on 20 of 216 long coarse Gmsh guides it was at or above a
+    /// TM-like mode of the 3-D p=1 model. The threshold marks that regime;
+    /// it does not predict a failure.
+    fn long_guide_warning(&self) -> Option<String> {
+        let k_c = self.est.k_c();
+        let kh = self.est.axial_kh();
+        if !(k_c.is_finite() && k_c > 0.0 && kh > TM_GUARD_LONG_GUIDE_KH) {
+            return None;
+        }
+        let far = self.scan.far_extent();
+        if !(self.reach.is_finite() && far > self.reach) {
+            return None;
+        }
+        Some(format!(
+            "wave port `{}`: long, coarse guide: the tets of the guide within {:.6} mesh units \
+             of the port (the guard's window) span up to h_n = {:.6} mesh units along it, \
+             k_c^TM·h_n = {kh:.3}, above {TM_GUARD_LONG_GUIDE_KH}, and the mesh over the port \
+             face extends {far:.6} mesh units from the port, beyond that window. If the guide \
+             continues that far, the TM limit is not a bound: on 216 long coarse Gmsh guides \
+             measured, the p=1 limit was at or above a TM-like (coarse-mesh defect) mode of \
+             the 3-D model on 20, by up to 198.7 % (about 3×; issues #990, #1005). This marks \
+             a regime, not a predicted failure: 211 of those 216 guides are above \
+             k_c^TM·h_n = {TM_GUARD_LONG_GUIDE_KH} and only 20 failed, long guides finer than \
+             that were not measured, and the threshold is 1.3 % below the lowest failing row \
+             (2.532; issue #1041 may move it). The sweep runs. To leave the regime, refine the \
+             mesh along the whole guide feeding port `{}` to h ≤ {:.6} mesh units along its \
+             axis, or shorten the guide to within {:.6} mesh units of the port",
+            self.name,
+            self.reach,
+            self.est.axial_spacing,
+            self.name,
+            TM_GUARD_LONG_GUIDE_KH / k_c,
+            self.reach,
         ))
     }
 
