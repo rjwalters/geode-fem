@@ -32,6 +32,12 @@
 //!     reach). The ignored `tm_guard_p2_long_guide_table` (issue #990) pins
 //!     the long coarse Gmsh guides on which the guard is **above** the box's
 //!     lowest TM-like mode.
+//! 11. The share-free TM cutoff of issue #955 (option 3): the continuum TM₁₁
+//!     on a structured guide, the share bound it proves on every mode, its
+//!     typed fallbacks, and, on both tables of 10. and the fixtures, its
+//!     guard against the interim law and option 1 (reproduced). Used
+//!     directly it is above the reference on many rows; its floor is safe
+//!     and loses band (an honest negative; `benchmarks/tm_guard_955/`).
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -44,10 +50,11 @@ use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::surface_p2::assemble_p2_surface_mass_triplets;
 use geode_core::driven::ports::{
-    ExtrudedWaveguideMesh, HybridPortFace, HybridWavePort, LumpedPort, MixedPortSweepPoint,
-    PortMedium, TM_GUARD_MARGIN, TmCutoffEstimate, WavePort, WavePortSpec, WavePortSweepPoint,
-    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh, project_port_face,
-    solve_mixed_port_spec_sweep_on_space, solve_mixed_port_spec_sweep_with_mode,
+    ExtrudedWaveguideMesh, GuideTmGuard, HybridPortFace, HybridWavePort, LumpedPort,
+    MixedPortSweepPoint, PortFaceProjection, PortMedium, TM_GUARD_MARGIN,
+    TM_GUIDE_SHALLOW_FRACTION, TmCutoffEstimate, TmCutoffSource, WavePort, WavePortSpec,
+    WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    project_port_face, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_spec_sweep_with_mode,
     solve_mixed_port_sweep_on_space, solve_mixed_port_sweep_with_mode,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_spec_sweep_with_mode,
     solve_wave_port_sweep_on_space, solve_wave_port_sweep_with_mode, tm_guard_axial_reach,
@@ -950,6 +957,10 @@ struct BoxMode {
     k: f64,
     /// `|E_z|²` share, sampled over every tet.
     share: f64,
+    /// `|E_z|²` share integrated exactly (volume-weighted degree-4 rule,
+    /// exact for the p=2 field): the share the share-free cutoff of issue
+    /// #955 bounds. Not used to select modes.
+    share_exact: f64,
     /// Share of the mode's `|E_z|²` in tets whose centroid is within the
     /// window's `reach` of the port (`z ≤ reach`).
     ez_within_reach: f64,
@@ -1032,6 +1043,7 @@ fn box_mode_window(
         [0.15, 0.15, 0.55, 0.15],
         [0.15, 0.15, 0.15, 0.55],
     ];
+    let rule = geode_core::elements::nedelec_p2::tet_quad_deg4();
     let mut shares: Vec<BoxMode> = modes
         .modes
         .modes
@@ -1042,7 +1054,14 @@ fn box_mode_window(
                 x[d] = c64::new(m.vector[i], 0.0);
             }
             let (mut ez, mut all, mut inside) = (0.0, 0.0, 0.0);
+            let (mut ez_x, mut all_x) = (0.0, 0.0);
             for t in 0..mesh.n_tets() {
+                let vol = tet_volume(mesh, t);
+                for &(bary, w) in &rule {
+                    let e = space.field_at(mesh, t, bary, &x);
+                    ez_x += vol * w * e[2].norm_sqr();
+                    all_x += vol * w * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
+                }
                 let zc = mesh.tets[t]
                     .iter()
                     .map(|&n| mesh.nodes[n as usize][2])
@@ -1060,6 +1079,7 @@ fn box_mode_window(
             BoxMode {
                 k: m.k0,
                 share: ez / all,
+                share_exact: ez_x / all_x,
                 ez_within_reach: inside / ez,
             }
         })
@@ -1083,10 +1103,23 @@ fn box_mode_window(
 /// carries `E_z` in the continuum, and every TM₁₁ₚ (p ≥ 1) sits above
 /// TM₁₁₀, so the lower threshold only ever adds mixed branches.
 fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<f64> {
-    box_mode_shares(mesh, order, a, b)
-        .into_iter()
-        .find(|&(_, share)| share >= TM_LIKE_EZ_SHARE)
-        .map(|(k, _)| k)
+    box_tm_like_mode(mesh, order, a, b).map(|m| m.k)
+}
+
+/// [`box_tm_like_k`] with the mode's shares.
+fn box_tm_like_mode(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<BoxMode> {
+    box_mode_window(mesh, order, a, b, 24, f64::INFINITY).tm_like()
+}
+
+/// Volume of tet `t` of `mesh`.
+fn tet_volume(mesh: &TetMesh, t: usize) -> f64 {
+    let p = mesh.tets[t].map(|n| mesh.nodes[n as usize]);
+    let d = |i: usize| [p[i][0] - p[0][0], p[i][1] - p[0][1], p[i][2] - p[0][2]];
+    let (u, v, w) = (d(1), d(2), d(3));
+    (u[0] * (v[1] * w[2] - v[2] * w[1]) - u[1] * (v[0] * w[2] - v[2] * w[0])
+        + u[2] * (v[0] * w[1] - v[1] * w[0]))
+        .abs()
+        / 6.0
 }
 
 /// The guard's face estimate at `order` and the axial spacing it reads over
@@ -1127,6 +1160,12 @@ struct GuardRow {
     margin: f64,
     /// Points between the p=2 guard and the 3-D p=2 TM-like cutoff.
     pts_left: f64,
+    /// The 3-D p=2 TM-like mode (the reference).
+    tm: BoxMode,
+    /// The P2 face estimate `k_c`.
+    k_face: f64,
+    /// The interim p=2 guard.
+    guard: f64,
 }
 
 /// One measured case: asserts the p=2 guard (P2 face estimate) and the p=1
@@ -1137,8 +1176,9 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     let est = guard_estimate_at(mesh, ElementOrder::P2);
     assert_eq!(est.element_order, ElementOrder::P2);
     assert_eq!(est.face_order, ElementOrder::P2);
-    let k3d = box_tm_like_k(mesh, ElementOrder::P2, a, b)
+    let tm = box_tm_like_mode(mesh, ElementOrder::P2, a, b)
         .unwrap_or_else(|| panic!("{label}: no TM-like p=2 mode"));
+    let k3d = tm.k;
     let kh = est.axial_kh();
     let under = 1.0 - k3d / est.k_c();
     let guard = est.guard_k_c();
@@ -1188,6 +1228,9 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
         under,
         margin: est.margin(),
         pts_left: 100.0 * (1.0 - guard / k3d),
+        tm,
+        k_face: est.k_c(),
+        guard,
     }
 }
 
@@ -1470,10 +1513,113 @@ struct GuardTable {
     max_kh: f64,
     tightest: Option<(f64, String)>,
     tightest_base: f64,
+    /// The candidate guards of issue #955 on the same rows.
+    c955: Table955,
+}
+
+/// The candidate guards of issue #955 over [`tm_guard_p2_measurement_table`].
+#[derive(Default)]
+struct Table955 {
+    interim: GuardStats,
+    opt1: GuardStats,
+    opt3: GuardStats,
+    floor: GuardStats,
+    /// Option-1 rows that fell back (depth-sensitive, no TM-like mode).
+    opt1_fallbacks: [usize; 2],
+    /// Option-3 rows that fell back to the margin law.
+    opt3_fallbacks: Vec<String>,
+    /// `|k_deep − k_shallow| / max` of the share-free cutoffs.
+    depth_spread: Vec<f64>,
+    /// Worst `s_exact ÷ (k_ref / k_deep)²` of the reference mode (≤ 1 when
+    /// the deep section is the box: module docs of `wave_tm_guide`).
+    worst_bound: (f64, String),
+    /// Smallest `k_ref ÷ k_c` (share-free) and the reference's exact share
+    /// there.
+    lowest_ratio: (f64, f64, String),
+    /// The artifact rows.
+    rows: Vec<String>,
+}
+
+impl Table955 {
+    fn record(&mut self, label: &str, r: &GuardRow, c: &ComputedGuards) {
+        assert_eq!(
+            c.opt3.margin_law_guard_k_c.to_bits(),
+            r.guard.to_bits(),
+            "{label}"
+        );
+        self.interim.record(label, r.guard, r);
+        self.opt1.record(label, c.opt1.guard, r);
+        self.opt3.record(label, c.direct(r.k_face), r);
+        self.floor.record(label, c.floor(), r);
+        match c.opt1.source {
+            Option1Source::Computed => {}
+            Option1Source::DepthSensitive => self.opt1_fallbacks[0] += 1,
+            Option1Source::NoTmLike => self.opt1_fallbacks[1] += 1,
+        }
+        let sf = c.share_free();
+        if let Some((k_c, k_deep, k_shallow, _)) = sf {
+            self.depth_spread
+                .push((k_deep - k_shallow).abs() / k_deep.max(k_shallow));
+            let bound = r.tm.share_exact / (r.tm.k / k_deep).powi(2);
+            if bound > self.worst_bound.0 {
+                self.worst_bound = (bound, label.to_string());
+            }
+            let ratio = r.tm.k / k_c;
+            if self.lowest_ratio.2.is_empty() || ratio < self.lowest_ratio.0 {
+                self.lowest_ratio = (ratio, r.tm.share_exact, label.to_string());
+            }
+        } else {
+            self.opt3_fallbacks
+                .push(format!("{label}: {:?}", c.opt3.source));
+        }
+        let (k_c, k_deep, k_shallow, share) =
+            sf.unwrap_or((f64::NAN, f64::NAN, f64::NAN, f64::NAN));
+        eprintln!(
+            "    #955 {label}: ref {:.4} (share {:.3} sampled, {:.3} exact); interim {:.4}; option 1 {:.4} ({:?}); share-free k_c {k_c:.4} (deep {k_deep:.4}, shallow {k_shallow:.4}, minimizer share {share:.3}) → option 3 {:.4}, floor {:.4}",
+            r.tm.k,
+            r.tm.share,
+            r.tm.share_exact,
+            r.guard,
+            c.opt1.guard,
+            c.opt1.source,
+            c.direct(r.k_face),
+            c.floor()
+        );
+        let f = |x: f64| {
+            if x.is_finite() {
+                format!("{x:.6}")
+            } else {
+                "nan".into()
+            }
+        };
+        self.rows.push(toml_row(&[
+            ("label", toml_str(label)),
+            ("kh", f(r.kh)),
+            ("k_face", f(r.k_face)),
+            ("ref_k", f(r.tm.k)),
+            ("ref_share_sampled", f(r.tm.share)),
+            ("ref_share_exact", f(r.tm.share_exact)),
+            ("interim", f(r.guard)),
+            ("option1", f(c.opt1.guard)),
+            ("option1_source", toml_str(&format!("{:?}", c.opt1.source))),
+            ("share_free_k_c", f(k_c)),
+            ("share_free_k_deep", f(k_deep)),
+            ("share_free_k_shallow", f(k_shallow)),
+            ("minimizer_share", f(share)),
+            ("option3", f(c.direct(r.k_face))),
+            ("floor", f(c.floor())),
+        ]));
+    }
 }
 
 impl GuardTable {
-    fn record(&mut self, label: &str, r: GuardRow) {
+    fn record(&mut self, label: &str, mesh: &TetMesh, r: GuardRow) {
+        self.record_with(label, r, &computed_guards(mesh));
+    }
+
+    /// [`Self::record`] with the candidate guards `c` of the row's mesh.
+    fn record_with(&mut self, label: &str, r: GuardRow, c: &ComputedGuards) {
+        self.c955.record(label, &r, c);
         self.rows += 1;
         self.max_kh = self.max_kh.max(r.kh);
         self.worst_under = self.worst_under.max(r.under);
@@ -1554,8 +1700,20 @@ fn gmsh_guide_box(
 /// must be below `C_h`; at the base margin the worst undershoot must be
 /// below `δ₀`. The summary line reports both, the tightest row, and how
 /// many rows undershoot by the 5 % the withdrawn law allowed or more.
+///
+/// Issue #955: every row also computes the share-free cutoff of the guide
+/// section and, from it, option 3 used directly and its floor, and option 1
+/// (reproduced from `1cae001f`), and reports them against the same
+/// reference. Pinned: option 1 and the floor are below it on every row, the
+/// floor is below the interim guard on every row with `k_c·h_n` in
+/// `[1.41, 2.5]`, the share-free solve never falls back, the share bound
+/// holds, and (with Gmsh) option 3 used directly is above the reference on
+/// more than 100 rows (213 at Gmsh 4.15.2). The Gmsh rows run on several
+/// threads (`GEODE_955_THREADS`, default half the cores). With
+/// `GEODE_BLESS_955=1` the rows are written to
+/// `benchmarks/tm_guard_955/measurement_table.toml`.
 #[test]
-#[ignore = "heavy: 288 p=2 box eigensolves, 815 with gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
+#[ignore = "heavy: 288 p=2 box rows, 815 with gmsh, each with the #955 section solves (~4 min release structured-only, ~5 min with gmsh on 12 threads); cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
 fn tm_guard_p2_measurement_table() {
     use geode_core::driven::ports::TM_GUARD_AXIAL_COEFF;
     let mut table = GuardTable {
@@ -1565,7 +1723,7 @@ fn tm_guard_p2_measurement_table() {
     let mut structured = |label: String, nx, ny, nz, a, b, length| {
         let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
         let r = measure_p2_guard(&label, &g.mesh, a, b);
-        table.record(&label, r);
+        table.record(&label, &g.mesh, r);
         r
     };
     for &(a, b, nz, length) in &[
@@ -1752,7 +1910,7 @@ fn tm_guard_p2_measurement_table() {
         }
         let label = format!("stepped {a}×1, face {nx}×{ny}, z = {zs:?}");
         let r = measure_p2_guard(&label, &g.mesh, a, 1.0);
-        table.record(&label, r);
+        table.record(&label, &g.mesh, r);
     }
     let structured_rows = table.rows;
 
@@ -1837,18 +1995,56 @@ fn tm_guard_p2_measurement_table() {
     }
     let dir = std::env::temp_dir().join(format!("geode-905-gmsh-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut ran_gmsh = false;
+    // The Gmsh rows are independent: measure them on several threads, then
+    // record them in order.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let threads = std::env::var("GEODE_955_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().div_ceil(2)))
+        .max(1);
+    let mut measured: Vec<Option<(String, GuardRow, ComputedGuards)>> = vec![None; gmsh.len()];
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&(a, b, d, lc, lc1)) = gmsh.get(i) else {
+                            break;
+                        };
+                        let Some(mesh) = gmsh_guide_box(&dir, a, b, d, lc, lc1) else {
+                            break;
+                        };
+                        let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
+                        let r = measure_p2_guard(&label, &mesh, a, b);
+                        out.push((i, label, r, computed_guards(&mesh)));
+                    }
+                    out
+                })
+            })
+            .collect();
+        for w in workers {
+            for (i, label, r, c) in w.join().expect("Gmsh row worker") {
+                measured[i] = Some((label, r, c));
+            }
+        }
+    });
+    let ran_gmsh = measured.iter().any(Option::is_some);
+    if !ran_gmsh {
+        eprintln!("gmsh not on PATH: Gmsh rows skipped");
+    } else {
+        assert!(
+            measured.iter().all(Option::is_some),
+            "a Gmsh row was not measured"
+        );
+    }
     // The #905 scans alone: (rows, rows undershooting ≥ 5 %, worst
     // undershoot, fewest points left).
     let mut scan = (0usize, 0usize, 0.0_f64, f64::INFINITY);
-    for (i, &(a, b, d, lc, lc1)) in gmsh.iter().enumerate() {
-        let Some(mesh) = gmsh_guide_box(&dir, a, b, d, lc, lc1) else {
-            eprintln!("gmsh not on PATH: Gmsh rows skipped");
-            break;
-        };
-        ran_gmsh = true;
-        let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
-        let r = measure_p2_guard(&label, &mesh, a, b);
+    for (i, row) in measured.into_iter().enumerate() {
+        let Some((label, r, c)) = row else { continue };
         if i >= point_samples {
             scan.0 += 1;
             if r.under >= WITHDRAWN_P2_BASE_MARGIN {
@@ -1857,7 +2053,7 @@ fn tm_guard_p2_measurement_table() {
             scan.2 = scan.2.max(r.under);
             scan.3 = scan.3.min(r.pts_left);
         }
-        table.record(&label, r);
+        table.record_with(&label, r, &c);
     }
     let _ = std::fs::remove_dir_all(&dir);
     let (tightest, tightest_label) = table.tightest.clone().expect("rows");
@@ -1897,6 +2093,72 @@ fn tm_guard_p2_measurement_table() {
         assert!(scan.1 >= 5 && scan.2 > 0.12, "{scan:?}");
     }
     assert!(tightest > 0.0, "{tightest_label}: {tightest} pt");
+    // Issue #955: the candidate guards on the same rows.
+    let t = &mut table.c955;
+    let spread_max = t.depth_spread.iter().copied().fold(0.0_f64, f64::max);
+    let spread_med = median(&mut t.depth_spread);
+    let lines = vec![
+        t.interim.summary("interim law"),
+        t.opt1.summary("option 1 (reproduced)"),
+        format!(
+            "option 1 sources: {} depth-sensitive and {} no-TM-like fallbacks",
+            t.opt1_fallbacks[0], t.opt1_fallbacks[1]
+        ),
+        t.opt3.summary("option 3 (share-free, 0.98·min)"),
+        t.floor.summary("share-free floor (√0.4·k_c)"),
+        format!(
+            "share-free: {} fallbacks; depth spread |k_deep − k_shallow| / max: median {:.3} %, max {:.3} %; worst s_exact ÷ (k_ref / k_deep)² {:.6} ({}); lowest k_ref ÷ k_c {:.4} at exact share {:.3} ({})",
+            t.opt3_fallbacks.len(),
+            100.0 * spread_med,
+            100.0 * spread_max,
+            t.worst_bound.0,
+            t.worst_bound.1,
+            t.lowest_ratio.0,
+            t.lowest_ratio.1,
+            t.lowest_ratio.2,
+        ),
+    ];
+    for l in &lines {
+        eprintln!("issue #955 {l}");
+    }
+    // Pinned (issue #955): option 1 as reproduced and the share-free floor
+    // are below the reference on every row, the floor is below the interim
+    // guard on every row of the band, the share-free solve never falls
+    // back, and the bound the floor rests on holds (the deep section is the
+    // whole box on every row of this table).
+    assert!(t.opt1.misses.is_empty(), "{:?}", t.opt1.misses);
+    assert!(t.floor.misses.is_empty(), "{:?}", t.floor.misses);
+    assert_eq!(t.floor.band[3], t.floor.band[0]);
+    assert!(t.opt3_fallbacks.is_empty(), "{:?}", t.opt3_fallbacks);
+    assert!(t.worst_bound.0 <= 1.0 + 1e-6, "{:?}", t.worst_bound);
+    if ran_gmsh {
+        // The negative: used directly, the cutoff is above the reference on
+        // the coarse Gmsh rows (213 rows at Gmsh 4.15.2).
+        assert!(t.opt3.misses.len() > 100, "{}", t.opt3.misses.len());
+    }
+    for (l, o) in &t.opt3.misses {
+        eprintln!("    option 3 miss: {l} ({:+.2} %)", 100.0 * o);
+    }
+    for (l, o) in &t.floor.misses {
+        eprintln!("    floor miss: {l} ({:+.2} %)", 100.0 * o);
+    }
+    for l in &t.opt3_fallbacks {
+        eprintln!("    option 3 fallback: {l}");
+    }
+    if ran_gmsh {
+        bless_955(
+            "measurement_table",
+            "cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+             tm_guard_p2_measurement_table --nocapture",
+            "Issue #955 option 3: the share-free TM cutoff k_TM,h^2 = min |curl u|^2 / |u.n|^2 \
+             over the discretely divergence-free p=2 fields of the PEC-closed guide section \
+             (depths reach and 2/3 reach), per row of tm_guard_p2_measurement_table (815 \
+             rows with gmsh), against the interim law and option 1 (reproduced). ref_k is the \
+             box's lowest p=2 mode with sampled E_z share >= 0.4.",
+            &lines,
+            &t.rows,
+        );
+    }
     assert!(
         table.worst_ratio < TM_GUARD_AXIAL_COEFF,
         "ratio {} at k_c·h_n {}",
@@ -2007,7 +2269,8 @@ fn long_guide_verdict(
 /// port, the `2 × 1` one beyond it. Per row it prints `k_c·h_n`, the margin,
 /// the guard, the box mode, its `E_z` share and the share of its `E_z`
 /// within reach. With Gmsh 4.15.2 every window covers its guard at 48
-/// modes; the run takes about 20 s in release on 14 threads.
+/// modes; the run took about 20 s in release on 14 threads before the issue #955
+/// columns, and 72 to 118 s with them on a loaded 28-core Mac.
 ///
 /// The p=1 column is **report-only**: the p=1 guard (P1 face estimate, same
 /// law, as the `geode driven` CLI enforces it) against the box's p=1
@@ -2017,9 +2280,17 @@ fn long_guide_verdict(
 /// whether a TE₁₀ drive excites them is not measured. Skipped (passes
 /// vacuously) without `gmsh` on `PATH`.
 ///
-/// When the computed guard of issue #955 lands, it is one more column here.
+/// Issue #955 adds three columns: option 1 (reproduced from `1cae001f`),
+/// the share-free cutoff used directly (option 3, `0.98·min(k_c, k_face)`)
+/// and its floor `√0.4·k_c`, each with the same growing-window verdict.
+/// Each miss is reported as within reach (≥ 90 % of the mode's `E_z`
+/// within reach), straddling the cut (≥ 40 %) or beyond it. Pinned at Gmsh
+/// 4.15.2: option 1 misses 8 rows (2 straddling, 6 beyond), option 3 used
+/// directly more than 100 (164), the floor none, and no column is
+/// inconclusive. With `GEODE_BLESS_955=1` the rows are written to
+/// `benchmarks/tm_guard_955/long_guide_table.toml`.
 #[test]
-#[ignore = "heavy: 432 box eigensolves (48+ modes) on Gmsh guides 5.5-12 deep, ~20 s release; needs gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_long_guide_table --nocapture"]
+#[ignore = "heavy: 432+ box eigensolves (48+ modes) on Gmsh guides 5.5-12 deep plus the #955 columns, ~1-2 min release; needs gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_long_guide_table --nocapture"]
 fn tm_guard_p2_long_guide_table() {
     let version = match std::process::Command::new("gmsh").arg("--version").output() {
         Ok(o) => {
@@ -2055,7 +2326,7 @@ fn tm_guard_p2_long_guide_table() {
     }
 
     /// One measured row.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone)]
     struct Row {
         a: f64,
         d: f64,
@@ -2068,6 +2339,10 @@ fn tm_guard_p2_long_guide_table() {
         p2: (LongGuideVerdict, Option<BoxMode>, usize, f64),
         p1_guard: f64,
         p1: (LongGuideVerdict, Option<BoxMode>, usize, f64),
+        /// Issue #955: the candidate guards and their verdicts (option 1
+        /// reproduced, option 3, the share-free floor).
+        c: ComputedGuards,
+        cand: [(LongGuideVerdict, Option<BoxMode>, usize, f64); 3],
     }
 
     let dir = std::env::temp_dir().join(format!("geode-990-long-{}", std::process::id()));
@@ -2099,6 +2374,9 @@ fn tm_guard_p2_long_guide_table() {
                     let p1_est = guard_estimate(&mesh);
                     let p1_guard = p1_est.guard_k_c();
                     let p1 = long_guide_verdict(&mesh, ElementOrder::P1, a, p1_guard, reach);
+                    let c = computed_guards(&mesh);
+                    let cand = [c.opt1.guard, c.direct(est.k_c()), c.floor()]
+                        .map(|g| long_guide_verdict(&mesh, ElementOrder::P2, a, g, reach));
                     rows.lock().unwrap().push(Row {
                         a,
                         d,
@@ -2111,6 +2389,8 @@ fn tm_guard_p2_long_guide_table() {
                         p2,
                         p1_guard,
                         p1,
+                        c,
+                        cand,
                     });
                 }
             });
@@ -2210,6 +2490,154 @@ fn tm_guard_p2_long_guide_table() {
     for l in &p1_inconclusive {
         eprintln!("    p=1 inconclusive (report-only): {l}");
     }
+    // Issue #955: the candidate guards against the same boxes. A miss is
+    // within reach when at least 90 % of the mode's E_z lies within reach,
+    // straddles the cut from 40 %, and is beyond it below that.
+    let mut counts = [0usize; 3];
+    let names = [
+        "option 1 (reproduced)",
+        "option 3 (share-free, 0.98·min)",
+        "share-free floor (√0.4·k_c)",
+    ];
+    let mut lines = Vec::new();
+    let mut toml_rows = Vec::new();
+    for (j, name) in names.iter().enumerate() {
+        let (mut in_reach, mut straddling, mut beyond, mut inconcl) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut worst = (0.0_f64, String::new());
+        let mut margins = Vec::new();
+        for r in &rows {
+            let label = format!("gmsh {}×1×{}, lc {}", r.a, r.d, r.lc);
+            let g = [r.c.opt1.guard, r.c.direct(r.k_c), r.c.floor()][j];
+            margins.push(1.0 - g / r.k_c);
+            let (v, m, _, _) = r.cand[j];
+            match v {
+                LongGuideVerdict::Above => {
+                    let m = m.expect("mode");
+                    let o = g / m.k - 1.0;
+                    if o > worst.0 {
+                        worst = (o, label.clone());
+                    }
+                    let entry = format!(
+                        "{label} (guard {g:.4} vs {:.4}, {:+.1} %, share {:.2} sampled / {:.2} exact, {:.2} within reach)",
+                        m.k,
+                        100.0 * o,
+                        m.share,
+                        m.share_exact,
+                        m.ez_within_reach
+                    );
+                    if m.ez_within_reach >= 0.9 {
+                        in_reach.push(entry);
+                    } else if m.ez_within_reach >= 0.4 {
+                        straddling.push(entry);
+                    } else {
+                        beyond.push(entry);
+                    }
+                }
+                LongGuideVerdict::Inconclusive => inconcl.push(label.clone()),
+                LongGuideVerdict::Below => {}
+            }
+        }
+        counts[j] = in_reach.len() + straddling.len() + beyond.len();
+        assert!(inconcl.is_empty(), "{name}: inconclusive {inconcl:?}");
+        lines.push(format!(
+            "{name}: at or above the box's p=2 TM-like mode on {} rows ({} within reach, {} \
+             straddling the cut, {} beyond), {} inconclusive; worst {:+.1} % ({}); median margin \
+             below the face {:.2} %",
+            in_reach.len() + straddling.len() + beyond.len(),
+            in_reach.len(),
+            straddling.len(),
+            beyond.len(),
+            inconcl.len(),
+            100.0 * worst.0,
+            worst.1,
+            100.0 * median(&mut margins),
+        ));
+        for e in &in_reach {
+            eprintln!("    {name} miss within reach: {e}");
+        }
+        for e in &straddling {
+            eprintln!("    {name} miss straddling the cut: {e}");
+        }
+        for e in &beyond {
+            eprintln!("    {name} miss beyond reach: {e}");
+        }
+        for e in &inconcl {
+            eprintln!("    {name} inconclusive: {e}");
+        }
+    }
+    // Pinned at Gmsh 4.15.2 (issue #955): option 1 as reproduced misses the
+    // 8 rows its builder reported, the share-free cutoff used directly
+    // misses most rows, and the floor none.
+    assert_eq!(counts[0], 8, "option 1 (reproduced)");
+    assert!(counts[1] > 100, "option 3 used directly: {}", counts[1]);
+    assert_eq!(counts[2], 0, "share-free floor");
+    let interim_line = format!(
+        "interim law: at or above the box's p=2 TM-like mode on {} rows",
+        gaps.len()
+    );
+    lines.insert(0, interim_line);
+    for l in &lines {
+        eprintln!("issue #955 long guides: {l}");
+    }
+    let f = |x: f64| {
+        if x.is_finite() {
+            format!("{x:.6}")
+        } else {
+            "nan".into()
+        }
+    };
+    let verdict = |v: &(LongGuideVerdict, Option<BoxMode>, usize, f64)| {
+        let (v, m, _, _) = v;
+        let mut out = vec![toml_str(&format!("{v:?}"))];
+        match m {
+            Some(m) => out.extend([f(m.k), f(m.share), f(m.share_exact), f(m.ez_within_reach)]),
+            None => out.extend(["nan".to_string(), "nan".into(), "nan".into(), "nan".into()]),
+        }
+        format!("[{}]", out.join(", "))
+    };
+    for r in &rows {
+        let sf =
+            r.c.share_free()
+                .unwrap_or((f64::NAN, f64::NAN, f64::NAN, f64::NAN));
+        toml_rows.push(toml_row(&[
+            ("a", f(r.a)),
+            ("d", f(r.d)),
+            ("lc", f(r.lc)),
+            ("kh", f(r.kh)),
+            ("k_face", f(r.k_c)),
+            ("reach", f(r.reach)),
+            ("interim", f(r.p2_guard)),
+            ("interim_verdict", verdict(&r.p2)),
+            ("option1", f(r.c.opt1.guard)),
+            (
+                "option1_source",
+                toml_str(&format!("{:?}", r.c.opt1.source)),
+            ),
+            ("option1_verdict", verdict(&r.cand[0])),
+            ("share_free_k_c", f(sf.0)),
+            ("share_free_k_deep", f(sf.1)),
+            ("share_free_k_shallow", f(sf.2)),
+            ("minimizer_share", f(sf.3)),
+            ("option3", f(r.c.direct(r.k_c))),
+            ("option3_verdict", verdict(&r.cand[1])),
+            ("floor", f(r.c.floor())),
+            ("floor_verdict", verdict(&r.cand[2])),
+        ]));
+    }
+    bless_955(
+        "long_guide_table",
+        "cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_p2_long_guide_table --nocapture",
+        "Issue #955 option 3 on the 216 long Gmsh guides of tm_guard_p2_long_guide_table \
+         (issue #990): the share-free TM cutoff of the PEC-closed guide section (depths reach \
+         and 2/3 reach) as a guard (option3 = 0.98 min(k_deep, k_shallow, k_face); floor = \
+         sqrt(0.4) k_c), against the interim law and option 1 (reproduced). Verdicts are \
+         [verdict, mode k, sampled share, exact share, E_z share within reach] of the whole \
+         box's lowest p=2 TM-like mode at or below the guard (or the lowest found).",
+        &lines,
+        &toml_rows,
+    );
     assert!(
         inconclusive.is_empty(),
         "p=2 rows whose window never covers the guard: {inconclusive:?}"
@@ -2250,5 +2678,610 @@ fn tm_guard_p2_long_guide_table() {
         } else {
             assert!(m.ez_within_reach < 0.1, "{label}: {m:?}");
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 11. The share-free TM cutoff at p=2 (issue #955, option 3), against the
+//     interim law and option 1
+// ---------------------------------------------------------------------------
+
+/// The `z = 0` port face of `mesh`.
+fn z0_face(mesh: &TetMesh) -> PortFaceProjection {
+    let port: Vec<[u32; 3]> = mesh
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-9))
+        .collect();
+    project_port_face(mesh, &port).expect("port face")
+}
+
+/// Option 1 of issue #955, **reproduced** for the row-for-row comparison
+/// (the WIP commit `1cae001f`, branch `wip/issue-955-option1`, not on
+/// `main`): the lowest mode of the PEC-closed `section` at p=2, among the
+/// modes nearest `(0.45·k_ref)²`, whose sampled `|E_z|²` share is at least
+/// [`TM_LIKE_EZ_SHARE`]; 24 modes, doubling to 96 while none is found and
+/// the window ends below `k_ref`.
+fn option1_section_cutoff(section: &TetMesh, k_ref: f64) -> Option<f64> {
+    let space = HcurlSpace::build(section, ElementOrder::P2);
+    let walls = section.boundary_faces();
+    let mask = space.pec_interior_mask(section, &[&walls]).ok()?;
+    let eps = vec![1.0; section.n_tets()];
+    let kept: Vec<usize> = (0..space.n_dofs()).filter(|&d| mask[d]).collect();
+    let pts = [
+        [0.25, 0.25, 0.25, 0.25],
+        [0.55, 0.15, 0.15, 0.15],
+        [0.15, 0.55, 0.15, 0.15],
+        [0.15, 0.15, 0.55, 0.15],
+        [0.15, 0.15, 0.15, 0.55],
+    ];
+    let mut n_modes = 24;
+    loop {
+        let mut settings = PecCavitySettings::new((0.45 * k_ref).powi(2), n_modes);
+        settings.max_iters = 480.max(5 * n_modes);
+        let modes = match solve_pec_cavity_modes_on_space::<B>(
+            &space,
+            section,
+            &PecCavityMaterials::Isotropic(&eps),
+            &mask,
+            &[],
+            &settings,
+            &device(),
+        ) {
+            Ok(m) => m.modes.modes,
+            Err(PecCavityError::TooFewModes { found, .. }) if found > 0 && found < n_modes => {
+                n_modes = found;
+                continue;
+            }
+            Err(_) => return None,
+        };
+        let mut shares: Vec<(f64, f64)> = modes
+            .iter()
+            .map(|m| {
+                let mut x = vec![c64::new(0.0, 0.0); space.n_dofs()];
+                for (i, &d) in kept.iter().enumerate() {
+                    x[d] = c64::new(m.vector[i], 0.0);
+                }
+                let (mut axial, mut all) = (0.0, 0.0);
+                for t in 0..section.n_tets() {
+                    for bary in pts {
+                        let e = space.field_at(section, t, bary, &x);
+                        axial += e[2].norm_sqr();
+                        all += e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr();
+                    }
+                }
+                (m.k0, axial / all)
+            })
+            .collect();
+        shares.sort_by(|p, q| p.0.total_cmp(&q.0));
+        if let Some(&(k, _)) = shares.iter().find(|m| m.1 >= TM_LIKE_EZ_SHARE) {
+            return Some(k);
+        }
+        let top = shares.last().map_or(0.0, |m| m.0);
+        if shares.len() < n_modes || top >= k_ref || 2 * n_modes > 96 {
+            return None;
+        }
+        n_modes *= 2;
+    }
+}
+
+/// Where a reproduced option-1 guard came from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Option1Source {
+    /// Both depths agree to 2 %: `0.98·min(k_deep, k_shallow, k_face)`.
+    Computed,
+    /// The depths disagree: the interim guard, clipped to the computed one.
+    DepthSensitive,
+    /// No TM-like section mode: the interim guard.
+    NoTmLike,
+}
+
+/// The reproduced option-1 guard of one port.
+#[derive(Debug, Clone, Copy)]
+struct Option1Guard {
+    guard: f64,
+    source: Option1Source,
+}
+
+/// The option-1 guard of the `z = 0` port of `mesh` ([`option1_section_cutoff`]
+/// at `reach` and 2/3 of it, the depth clipped to the guide's span as in
+/// `1cae001f`).
+fn option1_guard(
+    face: &PortFaceProjection,
+    mesh: &TetMesh,
+    est: &TmCutoffEstimate,
+    reach: f64,
+) -> Option1Guard {
+    let interim = est.guard_k_c();
+    let k_face = est.k_c();
+    let span = mesh
+        .tets
+        .iter()
+        .map(|t| {
+            t.iter()
+                .map(|&n| mesh.nodes[n as usize][2])
+                .fold(f64::INFINITY, f64::min)
+        })
+        .fold(0.0_f64, f64::max);
+    let depth = reach.max(0.0).min(span);
+    let (deep, shallow) = (
+        face.guide_section(mesh, depth),
+        face.guide_section(mesh, TM_GUIDE_SHALLOW_FRACTION * depth),
+    );
+    let Some(k_deep) = option1_section_cutoff(&deep, k_face) else {
+        return Option1Guard {
+            guard: interim,
+            source: Option1Source::NoTmLike,
+        };
+    };
+    let k_shallow = if shallow.n_tets() == deep.n_tets() {
+        k_deep
+    } else {
+        option1_section_cutoff(&shallow, k_face).unwrap_or(f64::INFINITY)
+    };
+    let computed = 0.98 * k_deep.min(k_shallow).min(k_face);
+    if (k_deep - k_shallow).abs() > 0.02 * k_deep.max(k_shallow) || !k_shallow.is_finite() {
+        Option1Guard {
+            guard: interim.min(computed),
+            source: Option1Source::DepthSensitive,
+        }
+    } else {
+        Option1Guard {
+            guard: computed,
+            source: Option1Source::Computed,
+        }
+    }
+}
+
+/// The candidate guards of one port beyond the interim law (issue #955).
+#[derive(Debug, Clone)]
+struct ComputedGuards {
+    /// Option 3: [`PortFaceProjection::guide_tm_guard`] (its guard is the
+    /// share-free floor; [`Self::direct`] is the cutoff used directly).
+    opt3: GuideTmGuard,
+    /// Option 1, reproduced.
+    opt1: Option1Guard,
+}
+
+impl ComputedGuards {
+    /// The share-free cutoffs `(k_c, k_deep, k_shallow, minimizer share)`,
+    /// or `None` on a fallback.
+    fn share_free(&self) -> Option<(f64, f64, f64, f64)> {
+        match self.opt3.source {
+            TmCutoffSource::ShareFree3d {
+                k_c,
+                k_deep,
+                k_shallow,
+                axial_share,
+                ..
+            } => Some((k_c, k_deep, k_shallow, axial_share)),
+            TmCutoffSource::MarginLaw { .. } => None,
+        }
+    }
+
+    /// The share-free floor `√0.4·k_c`: the library's guard
+    /// ([`GuideTmGuard::guard_k_c`]; the interim guard on a fallback).
+    fn floor(&self) -> f64 {
+        self.opt3.guard_k_c
+    }
+
+    /// Option 3 used directly: `0.98·min(k_c, k_face)` (the margin of
+    /// option 1), or the interim guard on a fallback. Measured unsafe.
+    fn direct(&self, k_face: f64) -> f64 {
+        self.share_free()
+            .map_or(self.opt3.margin_law_guard_k_c, |(k_c, ..)| {
+                0.98 * k_c.min(k_face)
+            })
+    }
+}
+
+/// The candidate guards of the `z = 0` port of `mesh` on the P2 estimate
+/// and window of [`guard_estimate_at`].
+fn computed_guards(mesh: &TetMesh) -> ComputedGuards {
+    let face = z0_face(mesh);
+    let est = guard_estimate_at(mesh, ElementOrder::P2);
+    let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+    ComputedGuards {
+        opt3: face.guide_tm_guard::<B>(mesh, &est, None, reach, &device()),
+        opt1: option1_guard(&face, mesh, &est, reach),
+    }
+}
+
+/// The record of one candidate guard over a table.
+#[derive(Default)]
+struct GuardStats {
+    rows: usize,
+    /// `(label, guard ÷ reference − 1)` of every row at or above the
+    /// reference mode.
+    misses: Vec<(String, f64)>,
+    /// Fewest points between the guard and the reference.
+    tightest: Option<(f64, String)>,
+    /// Margins below the face estimate.
+    margins: Vec<f64>,
+    /// Rows with `k_c·h_n` in `[√(δ₀/C_h), 2.5]`, and of those the rows on
+    /// which the guard is above, equal to and below the interim guard.
+    band: [usize; 4],
+}
+
+impl GuardStats {
+    fn record(&mut self, label: &str, guard: f64, r: &GuardRow) {
+        self.rows += 1;
+        if guard >= r.tm.k {
+            self.misses.push((label.to_string(), guard / r.tm.k - 1.0));
+        }
+        let pts = 100.0 * (1.0 - guard / r.tm.k);
+        if self.tightest.as_ref().is_none_or(|t| pts < t.0) {
+            self.tightest = Some((pts, label.to_string()));
+        }
+        self.margins.push(1.0 - guard / r.k_face);
+        if r.kh >= (TM_GUARD_MARGIN / 0.025_f64).sqrt() && r.kh <= 2.5 {
+            self.band[0] += 1;
+            if guard > r.guard {
+                self.band[1] += 1;
+            } else if guard == r.guard {
+                self.band[2] += 1;
+            } else {
+                self.band[3] += 1;
+            }
+        }
+    }
+
+    fn summary(&mut self, name: &str) -> String {
+        let (t, tl) = self.tightest.clone().unwrap_or((f64::NAN, String::new()));
+        let worst = self
+            .misses
+            .iter()
+            .cloned()
+            .fold((0.0_f64, String::new()), |w, m| {
+                if m.1 > w.0 { (m.1, m.0) } else { w }
+            });
+        format!(
+            "{name}: {} rows, at or above the 3-D p=2 TM-like mode on {} (worst {:+.2} %, {}); \
+             tightest {t:.2} pt ({tl}); median margin below the face {:.2} %; k_c·h_n in [1.41, \
+             2.5]: {} rows, above / equal to / below the interim guard on {} / {} / {}",
+            self.rows,
+            self.misses.len(),
+            100.0 * worst.0,
+            worst.1,
+            100.0 * median(&mut self.margins),
+            self.band[0],
+            self.band[1],
+            self.band[2],
+            self.band[3],
+        )
+    }
+}
+
+/// Median of `v` (sorted in place); `NaN` when empty.
+fn median(v: &mut [f64]) -> f64 {
+    if v.is_empty() {
+        return f64::NAN;
+    }
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+
+/// One row of a #955 artifact, as a TOML inline table.
+fn toml_row(fields: &[(&str, String)]) -> String {
+    let body: Vec<String> = fields.iter().map(|(k, v)| format!("{k} = {v}")).collect();
+    format!("{{ {} }}", body.join(", "))
+}
+
+/// A TOML string literal.
+fn toml_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Write `rows` to `benchmarks/tm_guard_955/<name>.toml` with the provenance
+/// trio when `GEODE_BLESS_955` is set (issue #955).
+fn bless_955(name: &str, regen: &str, description: &str, summary: &[String], rows: &[String]) {
+    if std::env::var_os("GEODE_BLESS_955").is_none() {
+        return;
+    }
+    let backend = geode_util::fixture::BackendInfo::of::<B>(&device());
+    let mut s = format!(
+        "# Auto-generated by `GEODE_BLESS_955=1 {regen}` (issue #955).\n# Do NOT edit by hand: \
+         regenerate after any intentional change.\n\n[meta]\n"
+    );
+    s.push_str(&format!("description = {}\n", toml_str(description)));
+    backend.push_meta(&mut s);
+    s.push_str(&format!(
+        "generated_at_commit = \"{}\"\n",
+        geode_util::repo::current_commit()
+    ));
+    let gmsh = std::process::Command::new("gmsh")
+        .arg("--version")
+        .output()
+        .map(|o| {
+            let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if v.is_empty() {
+                String::from_utf8_lossy(&o.stderr).trim().to_string()
+            } else {
+                v
+            }
+        })
+        .unwrap_or_else(|_| "not on PATH".into());
+    s.push_str(&format!(
+        "gmsh_version = {}\n\n[summary]\n",
+        toml_str(&gmsh)
+    ));
+    let lines: Vec<String> = summary
+        .iter()
+        .map(|l| format!("  {},", toml_str(l)))
+        .collect();
+    s.push_str(&format!("lines = [\n{}\n]\n\n", lines.join("\n")));
+    s.push_str(&format!("[data]\nrows = [\n  {},\n]\n", rows.join(",\n  ")));
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/tm_guard_955")
+        .join(format!("{name}.toml"));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, s).unwrap();
+    eprintln!("wrote {}", path.display());
+}
+
+/// The fallbacks of the share-free guard are typed (issue #955): a p=1
+/// estimate, an open rim and an empty section keep the interim margin law,
+/// bit for bit, with no solve.
+#[test]
+fn share_free_tm_guard_falls_back_to_the_margin_law_typed() {
+    use geode_core::driven::ports::TmMarginLawReason;
+    let g = extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0);
+    let face = project_port_face(&g.mesh, &g.port1_faces).unwrap();
+    // p=1: the interim guard, untouched.
+    let p1 = guard_estimate(&g.mesh);
+    let reach = tm_guard_axial_reach(p1.k_c(), 0.0);
+    let c = face.guide_tm_guard::<B>(&g.mesh, &p1, None, reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::ElementOrderP1
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p1.guard_k_c().to_bits());
+    assert_eq!(c.margin_law_guard_k_c.to_bits(), p1.guard_k_c().to_bits());
+    assert!(!c.is_computed());
+    // An open rim edge: the section cannot be closed with PEC.
+    let p2 = guard_estimate_at(&g.mesh, ElementOrder::P2);
+    let mut open = vec![false; face.edges.len()];
+    let rim = face.interior_edge_mask.iter().position(|&i| !i).unwrap();
+    open[rim] = true;
+    let c = face.guide_tm_guard::<B>(&g.mesh, &p2, Some(&open), reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::OpenRim
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p2.guard_k_c().to_bits());
+    // A mesh with no tet over the face.
+    let mut empty = g.mesh.clone();
+    empty.tets.clear();
+    let c = face.guide_tm_guard::<B>(&empty, &p2, None, reach, &device());
+    assert_eq!(
+        c.source,
+        TmCutoffSource::MarginLaw {
+            reason: TmMarginLawReason::EmptySection
+        }
+    );
+    assert_eq!(c.guard_k_c.to_bits(), p2.guard_k_c().to_bits());
+}
+
+/// p=1 is untouched by issue #955 bit for bit: the axial mesh read over the
+/// guide (refactored to share its scan with the guide section) and the
+/// interim guard at both face orders, against values recorded on `main`
+/// before the change.
+#[test]
+fn tm_guard_inputs_are_bit_identical_to_main() {
+    // (mesh, spacing, P1 guard, P2 guard) bits.
+    let want: [(&str, u64, u64, u64); 5] = [
+        (
+            "s421",
+            0x3ff0000000000000,
+            0x40036e85189ef7bf,
+            0x40036ec77da842bb,
+        ),
+        (
+            "s1684",
+            0x3fd0000000000000,
+            0x400ab1bcddf1828d,
+            0x400ab1bd60eb3571,
+        ),
+        (
+            "f1",
+            0x3fef830e6081c1ea,
+            0x4003c43d8711f000,
+            0x4003c429d47755c8,
+        ),
+        (
+            "f2",
+            0x3feea0705727e14a,
+            0x400458221d9076ad,
+            0x4004583473fd3bb7,
+        ),
+        (
+            "f3",
+            0x3feaddf07a153ed4,
+            0x40055e356949282c,
+            0x40055f56e1f792da,
+        ),
+    ];
+    let read = |b: &[u8]| geode_core::mesh::read_tagged_tet_mesh(b).expect("msh").mesh;
+    let meshes = [
+        extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0).mesh,
+        extruded_rect_waveguide_mesh(16, 8, 4, 2.0, 1.0, 1.0).mesh,
+        read(include_bytes!(
+            "fixtures/guide_box_905_1p5x1x3p25_lc092.msh"
+        )),
+        read(include_bytes!("fixtures/guide_box_905_1p5x1x3p2_lc080.msh")),
+        read(include_bytes!("fixtures/guide_box_905_3x1x4p06_lc090.msh")),
+    ];
+    for ((name, spacing, g1, g2), mesh) in want.into_iter().zip(&meshes) {
+        let p1 = guard_estimate(mesh);
+        let p2 = guard_estimate_at(mesh, ElementOrder::P2);
+        assert_eq!(p1.axial_spacing.to_bits(), spacing, "{name}");
+        assert_eq!(p2.axial_spacing.to_bits(), spacing, "{name}");
+        assert_eq!(p1.guard_k_c().to_bits(), g1, "{name}");
+        assert_eq!(p2.guard_k_c().to_bits(), g2, "{name}");
+    }
+}
+
+/// The share of the band `[lo, hi]` above `guard` (`0` to `1`).
+fn band_lost(guard: f64, lo: f64, hi: f64) -> f64 {
+    ((hi - guard) / (hi - lo)).clamp(0.0, 1.0)
+}
+
+/// The share-free guard of issue #955 on the three guides of its band
+/// table (the `2 × 1` guide over one layer of `h_n = b`, the two `1.5 × 1`
+/// fixtures and the `3 × 1` fixture), against the interim law and option 1
+/// (reproduced): the measured cutoffs, which guards stay below the box's
+/// TM-like mode, and the single-mode band each gives up. Measured, not
+/// claimed; the outcome is negative:
+///
+/// - The share-free cutoff is **above** the box's TM-like mode on all four
+///   (3.5273 against 3.4707, 3.7392 against 3.5622, 3.7400 against 3.5704,
+///   3.1994 against 2.9015): those modes carry 0.65 to 0.85 of their
+///   energy in `E_z` (exact share), and the cutoff bounds the share of a
+///   mode, not its frequency. Used directly (`0.98·min(k_c, k_face)`) it is
+///   above the mode on the three Gmsh fixtures.
+/// - The floor `√0.4·k_c` (the library's guard) is below the mode on all
+///   four, and loses **more** band than the interim law: 58.0 % against
+///   45.4 % on the `2 × 1` guide, 74.2 % against 64.1 % on the `1.5 × 1`
+///   fixture at `lc` 0.92, 6.8 % against none on the `3 × 1` fixture.
+/// - Every case also checks the bound the floor rests on: the box mode's
+///   exact `E_z` share is at most `(k / k_deep)²`.
+#[test]
+fn share_free_tm_guard_band_on_the_issue_guides() {
+    let read = |b: &[u8]| geode_core::mesh::read_tagged_tet_mesh(b).expect("msh").mesh;
+    // (label, mesh, a, band, share-free k_c, box mode, band lost by the
+    // interim law and by the floor).
+    type Case = (&'static str, TetMesh, f64, (f64, f64), f64, f64, f64, f64);
+    let cases: [Case; 4] = [
+        (
+            "2×1, h_n = b",
+            extruded_rect_waveguide_mesh(4, 2, 1, 2.0, 1.0, 1.0).mesh,
+            2.0,
+            (PI / 2.0, PI),
+            3.5273,
+            3.4707,
+            0.454,
+            0.580,
+        ),
+        (
+            "1.5×1 fixture, lc 0.92",
+            read(include_bytes!(
+                "fixtures/guide_box_905_1p5x1x3p25_lc092.msh"
+            )),
+            1.5,
+            (PI / 1.5, PI),
+            3.7392,
+            3.5622,
+            0.641,
+            0.742,
+        ),
+        (
+            "1.5×1 fixture, lc 0.80",
+            read(include_bytes!("fixtures/guide_box_905_1p5x1x3p2_lc080.msh")),
+            1.5,
+            (PI / 1.5, PI),
+            3.7400,
+            3.5704,
+            0.572,
+            0.741,
+        ),
+        (
+            "3×1 fixture",
+            read(include_bytes!("fixtures/guide_box_905_3x1x4p06_lc090.msh")),
+            3.0,
+            (PI / 3.0, 2.0 * PI / 3.0),
+            3.1994,
+            2.9015,
+            0.0,
+            0.068,
+        ),
+    ];
+    for (label, mesh, a, (lo, hi), k_c_want, k_ref_want, lost_interim, lost_floor) in &cases {
+        let c = computed_guards(mesh);
+        let k_face = guard_estimate_at(mesh, ElementOrder::P2).k_c();
+        let tm = box_tm_like_mode(mesh, ElementOrder::P2, *a, 1.0).expect("TM-like mode");
+        let (k_c, k_deep, k_shallow, share) = c.share_free().expect("share-free cutoff");
+        let interim = c.opt3.margin_law_guard_k_c;
+        let guards = [
+            ("interim", interim),
+            ("option 1", c.opt1.guard),
+            ("option 3", c.direct(k_face)),
+            ("floor", c.floor()),
+        ];
+        let mut line = format!(
+            "{label}: box TM-like {:.4} (share {:.3} sampled, {:.3} exact); share-free k_c {k_c:.4} \
+             (deep {k_deep:.4}, shallow {k_shallow:.4}, minimizer share {share:.3})",
+            tm.k, tm.share, tm.share_exact
+        );
+        for (name, g) in guards {
+            line += &format!(
+                "; {name} {g:.4} ({}, band lost {:.1} %)",
+                if g < tm.k { "below" } else { "ABOVE" },
+                100.0 * band_lost(g, *lo, *hi)
+            );
+        }
+        eprintln!("{line}");
+        assert!((k_c - k_c_want).abs() < 1e-4, "{label}: k_c {k_c}");
+        assert!(
+            (tm.k - k_ref_want).abs() < 1e-4,
+            "{label}: box mode {}",
+            tm.k
+        );
+        // The negative: the cutoff is above the box's TM-like mode.
+        assert!(k_c > tm.k, "{label}");
+        // The floor is below it, and gives up more band than the interim law.
+        assert!(c.floor() < tm.k, "{label}");
+        assert!(
+            (band_lost(interim, *lo, *hi) - lost_interim).abs() < 1e-3,
+            "{label}"
+        );
+        assert!(
+            (band_lost(c.floor(), *lo, *hi) - lost_floor).abs() < 1e-3,
+            "{label}"
+        );
+        assert!(c.floor() < interim || *lost_interim == 0.0, "{label}");
+        // The bound the floor rests on (module docs of `wave_tm_guide`): the
+        // deep section is the whole box here.
+        assert!(
+            tm.share_exact <= (tm.k / k_deep).powi(2) * (1.0 + 1e-6),
+            "{label}"
+        );
+    }
+}
+
+/// The share-free cutoff (issue #955) on a structured `2 × 1` guide: it is
+/// the continuum TM₁₁ cutoff `π·√(1/a² + 1/b²)` = 3.5124 to 0.03 %, at
+/// both section depths (the continuum value does not depend on the depth
+/// of a PEC-closed section), with a minimizer that is almost all `E_z`.
+/// On the `3 × 1` fixture every resolved mode of the box obeys the bound
+/// the guard rests on, exact `E_z` share `≤ (k / k_TM,h)²`.
+#[test]
+fn share_free_tm_cutoff_is_tm11_and_bounds_every_mode_share() {
+    use geode_core::driven::ports::share_free_tm_cutoff;
+    let tm11 = PI * (0.25_f64 + 1.0).sqrt();
+    for (nz, length) in [(4usize, 2.0), (8, 4.0)] {
+        let g = extruded_rect_waveguide_mesh(8, 4, nz, 2.0, 1.0, length);
+        let c = share_free_tm_cutoff::<B>(&g.mesh, [0.0, 0.0, 1.0], &device()).expect("solve");
+        eprintln!("8×4 face, {nz} layers over {length}: {c:?} (TM11 {tm11:.4})");
+        assert!((c.k_tm / tm11 - 1.0).abs() < 3e-4, "{c:?}");
+        assert!(c.axial_share > 0.998 && c.residual < 1e-8, "{c:?}");
+    }
+    let mesh = geode_core::mesh::read_tagged_tet_mesh(include_bytes!(
+        "fixtures/guide_box_905_3x1x4p06_lc090.msh"
+    ))
+    .expect("msh")
+    .mesh;
+    let c = share_free_tm_cutoff::<B>(&mesh, [0.0, 0.0, 1.0], &device()).expect("solve");
+    let w = box_mode_window(&mesh, ElementOrder::P2, 3.0, 1.0, 24, f64::INFINITY);
+    assert_eq!(w.modes.len(), 24);
+    for m in &w.modes {
+        assert!(
+            m.share_exact <= (m.k / c.k_tm).powi(2) * (1.0 + 1e-6),
+            "mode {m:?} against k_TM,h {}",
+            c.k_tm
+        );
     }
 }
