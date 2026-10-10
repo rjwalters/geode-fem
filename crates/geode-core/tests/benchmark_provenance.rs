@@ -137,6 +137,16 @@ const D_TRACKING: &str = "issue #692 allowlist — regenerate on an f64 backend 
 const MANIFEST: &[Entry] = &[
     // ---- Bucket A: Burn-backed, f64 provenance trio required ------------
     a(
+        "benchmarks/tm_guard_955/measurement_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_p2_measurement_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
+        "benchmarks/tm_guard_955/long_guide_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_p2_long_guide_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
         "benchmarks/periodic/results.toml",
         "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
          -- --ignored regenerate_periodic_results",

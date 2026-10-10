@@ -55,6 +55,7 @@ mod strip_line;
 mod wave;
 mod wave_face;
 pub(crate) mod wave_p2;
+mod wave_tm_guide;
 
 pub(crate) use hybrid::{ChanAt, ChanOrigin, FaceModeSet, hybrid_port_channel_sweep};
 pub use hybrid::{
@@ -101,4 +102,8 @@ pub use wave_p2::{
     PortFaceModeP2, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_sweep_on_space,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_sweep_on_space,
     wave_port_from_faces_on_space, waveguide_mode_reduce_on_space,
+};
+pub use wave_tm_guide::{
+    GuideTmGuard, ShareFreeCutoff, ShareFreeError, TM_GUIDE_SHALLOW_FRACTION, TM_LIKE_AXIAL_SHARE,
+    TmCutoffSource, TmMarginLawReason, share_free_tm_cutoff,
 };
