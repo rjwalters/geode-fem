@@ -153,3 +153,5 @@ papers/**/*.vision/pages/
 # Untracked deliberately: a copy-installed tool tree does not belong in a
 # public repo, and this one carried third-party content (2AMLogic/2am#94).
 .anvil/
+.squad/
+.claude/skills/squad/.install-local.json
