@@ -576,8 +576,8 @@ impl Drop for SequentialSolveScope {
 /// [`sequential_scope_for_solves`]: the AMS coarse LU solve, the transient
 /// step and the complex Lanczos loop. The complex loop was measured with the
 /// other two but took its scope later (issue #1023), once its eigenvalue-only
-/// path stopped returning unresolved Ritz values; the header of the results
-/// file, written before that, still calls its figures unshipped.
+/// path stopped returning unresolved Ritz values. Its figures measure the
+/// scope without that screen, which runs once after the loop.
 ///
 /// Those figures were taken on the faier 0.24.4 git pin. The 8-thread per-call
 /// legs were run again around this limit on faier 0.25.2, the version this
