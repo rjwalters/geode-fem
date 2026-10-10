@@ -573,6 +573,17 @@ So `δ = max(5 %, 0.025·(k_c·h_n)²)`: 5 % up to `k_c·h_n ≈ 1.41`, about
 resolution. The 16 × 8 face over layers of 0.5 gets 7.7 %, a limit of
 3.24, below its 3-D 3.318.
 
+**Boxes shorter than the guard's window only.** Every mesh behind these
+numbers is a box shorter than the window (`3·2π/k_c`, above). On a coarse guide
+longer than it, the limit is **not** a bound: on the 216 long Gmsh
+guides (5.5 to 12 deep) of `geode-core`'s `tm_guard_p2_long_guide_table`,
+the p=1 limit is at or above a TM-like mode of the 3-D p=1 model on 12
+(20 by the sampled share),
+by up to 198.7 % (`3 × 1 × 9.75`, about 3×; issues #990, #1005). These
+are coarse-mesh defect modes, some below TE₁₀, and whether a TE₁₀ drive
+excites them is not measured. `check` and `driven` warn on that regime
+(below) and do not reject it.
+
 `h_n` has to be read over the guide, not only at the face. The 3-D
 cutoff is set by the guide's coarsest cells. A 2 × 1 guide with a layer
 of 0.15 at the port over a layer of 0.6 has a 3-D TM₁₁ of 3.302. Read
@@ -633,6 +644,22 @@ axis within the guard's window of the port, not only at the face. At
 that resolution the port's TE modes are also coarse along the guide.
 The same text appears in `wave_ports[].tm_warning`, one line per
 warning.
+
+**Long, coarse guide (issue #1005).** `check` and `driven` also print a
+`warning:` line, and add it to `wave_ports[].tm_warning`, when a wave
+port's `k_c·h_n` is above 2.5 (`TM_GUARD_LONG_GUIDE_KH`) and the mesh
+over the port face extends beyond the guard's window. The sweep still
+runs. The warning says the TM limit is not a bound there and gives the
+fix: refine the whole guide to `h ≤ 2.5/k_c` along its axis, or shorten
+it to within the window. The threshold marks a regime, not a predicted
+failure. All 12 long-guide misses (20 by the sampled share) have `k_c·h_n` ≥ 2.532, and the 5
+long guides at or below 2.5 have none. But 211 of the 216 long guides
+are above 2.5 and only 12 of them miss (20 by the sampled share), and no fine long guide was
+measured, so how often the warning fires on a guide whose limit does
+hold is unknown. The headroom is thin, 1.3 % below the lowest failing
+row; issue #1041 re-checked the 2.5 threshold under the exact classifier and it held.
+A guide footprint can include a device region behind the port, so the
+warning says "if the guide continues" that far.
 
 For a filled guide the limit is scaled by `1/√(Re ε_n·μ_t)`, where
 `ε_n` is the permittivity along the port normal. That is the TM dual of
