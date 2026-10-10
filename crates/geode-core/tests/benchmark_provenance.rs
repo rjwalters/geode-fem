@@ -250,6 +250,11 @@ const MANIFEST: &[Entry] = &[
         "examples/transmon_pad_harmonic.rs: no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/multiparam_gradient.toml",
+        "examples/transmon_multiparam_diffopt.rs: scalar f64 electrostatic assembly + faer LU \
+         (shape::capacitance_matrix_shape_gradient), no Backend generic",
+    ),
+    b(
         // The #692 curation listed this under bucket D; the generator was
         // re-audited during implementation: it only uses the scalar
         // `assemble_electrostatic{,_tensor}` + `extract_capacitance` f64
