@@ -1537,7 +1537,10 @@ fn tf_arr(v: &toml::Value, key: &str) -> Vec<f64> {
 ///    every trajectory row valid and confirmed, the final FD checks ≤ 1e-3,
 ///    the theta trace equal to the summed steps, and physical dimensions;
 /// 6. the tensor C_Σ at the scalar design is NOT 89.9 fF, and the retarget
-///    block is self-consistent.
+///    block is self-consistent;
+/// 7. one uniform refinement lowers C_Σ at X⁰ and at every converged design
+///    (pinned values), the coarse values match the runs, and the framing
+///    says the anchor is reached on the coarse mesh only.
 #[allow(clippy::needless_range_loop)] // per-parameter comparisons of fixed-size triples
 #[test]
 fn committed_multiparam_results_toml_pins_optimizer_outcome() {
@@ -1722,15 +1725,99 @@ fn committed_multiparam_results_toml_pins_optimizer_outcome() {
     let cs = tf(tr, "c_sigma_scalar_at_tensor_design_ff");
     assert!((cs - tf(tr, "c_sigma_scalar_at_tensor_design_fresh_ff")).abs() <= 1e-9 * cs);
 
+    // 7. Mesh refinement.
+    let mr = &doc["mesh_refinement"];
+    assert_eq!(mr["levels_run"].as_integer(), Some(1));
+    assert_eq!(
+        mr["refined_n_tets"].as_integer(),
+        Some(8 * 133_314),
+        "red refinement: 8 children per tet"
+    );
+    assert!(
+        mr["converged_value"]
+            .as_str()
+            .unwrap()
+            .starts_with("unknown")
+    );
+    assert!(mr["second_level"].as_str().unwrap().starts_with("not run"));
+    let designs = mr["design"].as_array().unwrap();
+    // (name, coarse fF, refined fF) pinned from the committed run.
+    let pinned = [
+        ("X0", 137.706752, 101.359397),
+        ("X_final_stiffened_remorph_alpha_3", 89.900001, 66.609133),
+        ("X_final_stiffened_remorph_alpha_4", 89.900413, 66.989120),
+    ];
+    assert_eq!(designs.len(), pinned.len(), "X0 + each converged run");
+    for (name, coarse, fine) in pinned {
+        let d = designs
+            .iter()
+            .find(|d| d["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("no refinement row {name}"));
+        let (c, f) = (tf(d, "c_sigma_coarse_ff"), tf(d, "c_sigma_refined_ff"));
+        assert!((c - coarse).abs() < 1e-5, "{name}: coarse {c} vs {coarse}");
+        assert!((f - fine).abs() < 1e-5, "{name}: refined {f} vs {fine}");
+        assert!(f < c, "{name}: refinement must lower C_Σ");
+        assert_eq!(d["n_flipped"].as_integer(), Some(0));
+        // rel_shift is printed to 5 significant figures.
+        assert!((tf(d, "rel_shift") - (f - c) / c).abs() < 1e-4);
+        let lb: f64 = d["coarse_error_lower_bound_ff"].as_float().unwrap();
+        assert!(
+            lb <= c - f && lb > c - f - 0.01,
+            "{name}: floored lower bound"
+        );
+        if name != "X0" {
+            let run = runs
+                .iter()
+                .find(|r| format!("X_final_{}", r["mode"].as_str().unwrap()) == name)
+                .unwrap();
+            assert_eq!(run["outcome"].as_str(), Some("converged"));
+            assert!((tf(run, "c_sigma_final_ff") - c).abs() < 1e-5);
+        }
+    }
+    let head_row = designs
+        .iter()
+        .find(|d| d["headline"].as_bool() == Some(true))
+        .unwrap();
+    assert_eq!(head_row["mode"].as_str(), Some(head_mode));
+    // Refined, the headline design sits well below the anchor, beyond any
+    // tolerance; the refined X0 sits above it.
+    assert!(tf(head_row, "c_sigma_refined_ff") < 89.9 - 1000.0 * c_tol);
+    assert!(tf(&designs[0], "c_sigma_refined_ff") > 89.9);
+    let sm = &mr["summary"];
+    assert!(
+        tf(sm, "headline_refined_below_anchor_pct")
+            <= 100.0 * (89.9 - tf(head_row, "c_sigma_refined_ff")) / 89.9
+    );
+    // The coarse-identical alpha = 3 / 4 designs differ by about 91 tolerances once refined.
+    assert!(tf(sm, "converged_designs_spread_refined_ff") > 50.0 * c_tol);
+    assert!(tf(sm, "converged_designs_spread_coarse_ff") < c_tol);
+
     let hf = &doc["honest_framing"];
     for k in [
         "coarse_mesh",
         "regeneration",
         "remeshing",
         "stiffening_is_the_route",
+        "stall_margin",
+        "scalar_tensor_sign",
     ] {
         assert!(hf[k].is_str(), "honest_framing.{k}");
     }
+    let cm = hf["coarse_mesh"].as_str().unwrap();
+    assert!(cm.contains("coarse-mesh scalar-eps C_Sigma reaches 89.9 fF"));
+    assert!(cm.contains("not an 89.9 fF device design"));
+    assert!(
+        hf["scalar_tensor_sign"]
+            .as_str()
+            .unwrap()
+            .contains("at this discretization")
+    );
+    assert!(
+        doc["meta"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("coarse-mesh scalar-eps C_Sigma reaches 89.9 fF")
+    );
     let ol = &doc["outlines"];
     for k in [
         "island_start",
@@ -1886,4 +1973,70 @@ fn multiparam_optimizer_release() {
             assert!(s.min_quality_base >= 0.25, "step {k} ratio");
         }
     }
+}
+
+/// The #1036 discretization check at `X⁰`, re-run against the committed
+/// `[mesh_refinement]`: one uniform red refinement of the 133k-tet fixture
+/// (1.07M tets) lowers the scalar-ε `C_Σ` to the committed value.
+#[test]
+#[ignore = "release-tier: one direct electrostatic solve pair on the 1.07M-tet red refinement of the transmon fixture (~20-40 s in release)"]
+fn multiparam_mesh_refinement_x0_release() {
+    use geode_core::shape::transmon_morph::{TransmonMorphRoles, TransmonMorphSpec};
+    use geode_core::shape::transmon_remorph::red_refined_c_sigma;
+
+    let doc = multiparam_results_toml();
+    let x0 = doc["mesh_refinement"]["design"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["name"].as_str() == Some("X0"))
+        .unwrap()
+        .clone();
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let roles =
+        TransmonMorphRoles::identify(&fx, &base, TransmonMorphSpec::fixture_default(M_PER_UNIT))
+            .unwrap();
+    let comps = fx.split_metal_conductors();
+    let tris = |role: MetalRole| -> Vec<[u32; 3]> {
+        comps
+            .iter()
+            .filter(|c| c.role == role)
+            .flat_map(|c| c.triangles.iter().copied())
+            .collect()
+    };
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: roles.island.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: roles.feedline.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let r = red_refined_c_sigma(
+        &base,
+        &fx.epsilon_r_scalar(),
+        &conductors,
+        &[&tris(MetalRole::Island), &tris(MetalRole::Feedline)],
+        &roles.ground,
+        &tris(MetalRole::Ground),
+    )
+    .unwrap();
+    assert_eq!(r.n_tets, 8 * base.n_tets());
+    assert_eq!(r.n_flipped, 0);
+    let (c, f) = (r.coarse * 1e15, r.refined * 1e15);
+    assert!(
+        (c - tf(&x0, "c_sigma_coarse_ff")).abs() < 1e-5,
+        "coarse {c} vs committed"
+    );
+    assert!(
+        (f - tf(&x0, "c_sigma_refined_ff")).abs() < 1e-5,
+        "refined {f} vs committed {}",
+        tf(&x0, "c_sigma_refined_ff")
+    );
+    assert!(f < c);
 }

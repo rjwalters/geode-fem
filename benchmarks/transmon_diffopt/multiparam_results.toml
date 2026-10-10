@@ -4,14 +4,15 @@
 # Consumed by `tests/transmon_diffopt.rs`.
 
 [meta]
-description = "Per-step re-morphing and a bounded multi-parameter Gauss-Newton optimizer toward the 89.9 fF C_Sigma anchor on the REAL DeviceLayout SingleTransmon 133k-tet mesh (issue #1036, Phase B of #1034). Phase A's three junction-pinned fields (theta_L, theta_W, theta_G) are rebuilt about the current geometry at every accepted step (fixed / unit / volume-stiffened Laplace), one Laplace factorization per distinct pinned set; every accepted step keeps min tet volume ratio >= 0.25 against the original mesh and is confirmed by an independent fresh extraction."
+description = "A methods result: per-step re-morphing and a bounded multi-parameter Gauss-Newton optimizer toward the 89.9 fF C_Sigma anchor on the REAL DeviceLayout SingleTransmon 133k-tet mesh (issue #1036, Phase B of #1034). Phase A's three junction-pinned fields (theta_L, theta_W, theta_G) are rebuilt about the current geometry at every accepted step (fixed / unit / volume-stiffened Laplace), one Laplace factorization per distinct pinned set; every accepted step keeps min tet volume ratio >= 0.25 against the original mesh and is confirmed by an independent fresh extraction. The coarse-mesh scalar-eps C_Sigma reaches 89.9 fF. One uniform refinement (h halved) lowers it by 26.3% at X0 and by 25.9% at the headline design ([mesh_refinement]): refined, the headline design sits 25.9% below the anchor while the refined X0 sits 12.7% above it. The final dimensions are therefore not an 89.9 fF device design."
 issue = 1036
 parent = 1034
 builds_on = "benchmarks/transmon_diffopt/multiparam_gradient.toml (#1035)"
 n_nodes = 22684
 n_tets = 133314
-budget_sweep_s = 388.1
-wall_clock_s = 623.9
+budget_sweep_s = 375.9
+refinement_s = 38.9
+wall_clock_s = 591.3
 
 [anchor]
 # Declared in the generator before the optimization runs.
@@ -788,7 +789,7 @@ pad_width_um = 11.591318
 cutout_gap_um = 59.650444
 c_sigma_curve_ff = [137.706752, 127.515295, 119.386901, 112.706889, 107.087217, 102.271634, 98.085877, 96.306483, 96.191952]
 objective_curve = [5.595233e7, 4.039750e7, 2.832012e7, 1.900996e7, 1.195876e7, 6.793505e6, 3.233461e6, 2.054369e6, 1.986294e6]
-wall_s = 13.3
+wall_s = 11.4
 
 [[run]]
 mode = "unit_remorph"
@@ -813,7 +814,7 @@ pad_width_um = 11.392520
 cutout_gap_um = 63.528032
 c_sigma_curve_ff = [137.706752, 127.515295, 119.626296, 113.334142, 108.201004, 103.939952, 100.354968, 97.308006, 95.056878, 94.229677, 94.053101]
 objective_curve = [5.595233e7, 4.039750e7, 2.866675e7, 1.984846e7, 1.328120e7, 8.470642e6, 5.038692e6, 2.690641e6, 1.366333e6, 9.801345e5, 9.052092e5]
-wall_s = 21.8
+wall_s = 18.4
 
 [[run]]
 mode = "stiffened_remorph_alpha_1"
@@ -838,7 +839,7 @@ pad_width_um = 10.971610
 cutout_gap_um = 66.493720
 c_sigma_curve_ff = [137.706752, 127.515295, 119.624212, 113.331744, 108.201765, 103.948484, 100.377107, 97.351349, 94.775118, 93.087522, 92.759598, 92.516465, 92.288429, 92.074199, 92.063327]
 objective_curve = [5.595233e7, 4.039750e7, 2.866373e7, 1.984523e7, 1.328212e7, 8.479549e6, 5.057822e6, 2.719794e6, 1.228377e6, 5.443443e5, 4.412069e5, 3.713146e5, 3.109426e5, 2.588646e5, 2.563427e5]
-wall_s = 29.5
+wall_s = 24.8
 
 [[run]]
 mode = "stiffened_remorph_alpha_2"
@@ -863,7 +864,7 @@ pad_width_um = 10.073980
 cutout_gap_um = 66.942535
 c_sigma_curve_ff = [137.706752, 127.515295, 119.623112, 113.333162, 108.211700, 103.975503, 100.434049, 97.459062, 94.970818, 93.355550, 92.299077, 91.915359, 91.693451, 91.482271, 91.280077, 91.085867, 90.898878, 90.819818]
 objective_curve = [5.595233e7, 4.039750e7, 2.866213e7, 1.984714e7, 1.329410e7, 8.507774e6, 5.107153e6, 2.792811e6, 1.323506e6, 6.360690e5, 3.136488e5, 2.231922e5, 1.776040e5, 1.388794e5, 1.061218e5, 7.869006e4, 5.606065e4, 4.762036e4]
-wall_s = 43.4
+wall_s = 30.0
 
 [[run]]
 mode = "stiffened_remorph_alpha_3"
@@ -887,7 +888,7 @@ pad_width_um = 8.684458
 cutout_gap_um = 67.647410
 c_sigma_curve_ff = [137.706752, 127.515295, 119.622936, 113.338091, 108.230193, 104.020675, 100.528175, 97.643593, 95.329756, 93.873182, 92.794928, 91.788759, 90.845225, 90.639067, 90.442441, 90.254872, 90.075971, 89.905399, 89.900001]
 objective_curve = [5.595233e7, 4.039750e7, 2.866188e7, 1.985376e7, 1.331642e7, 8.555033e6, 5.189099e6, 2.919763e6, 1.506100e6, 8.316567e5, 4.518322e5, 1.965731e5, 5.025933e4, 3.086645e4, 1.669977e4, 7.177144e3, 1.771791e3, 1.674116e0, 9.115521e-8]
-wall_s = 46.9
+wall_s = 31.3
 
 [[run]]
 mode = "stiffened_remorph_alpha_4"
@@ -911,14 +912,14 @@ pad_width_um = 7.841009
 cutout_gap_um = 67.830657
 c_sigma_curve_ff = [137.706752, 127.515295, 119.623629, 113.346240, 108.256607, 104.083294, 100.659989, 97.909160, 95.858866, 94.633491, 93.522626, 91.991539, 91.184469, 90.012328, 89.900413]
 objective_curve = [5.595233e7, 4.039750e7, 2.866288e7, 1.986471e7, 1.334831e7, 8.620695e6, 5.304691e6, 3.106543e6, 1.793960e6, 1.161511e6, 6.965683e5, 2.399862e5, 9.212039e4, 7.229673e2, 9.799778e-3]
-wall_s = 34.6
+wall_s = 24.6
 
 [headline]
 selection_rule = "the first converged run in sweep order fixed, unit, alpha = 1, 2, 3, 4, i.e. the smallest swept stiffening exponent that reaches the anchor; the rule and the alpha list were fixed after exploratory runs, and every swept run is committed in [[run]]"
 mode = "stiffened_remorph_alpha_3"
 alpha = 3.0
 converged = true
-c_sigma_scalar_ff = 89.900001
+c_sigma_scalar_ff = 89.900001  # coarse mesh; once refined 66.609133 ([mesh_refinement])
 c_sigma_scalar_fresh_ff = 89.900001
 fresh_vs_problem_rel = 1.390e-14
 e_c_residual_hz = -3.019
@@ -1383,12 +1384,68 @@ cutout_edge_pos_final = [[42.0000, 0.0000], [51.6004, 19.2074], [61.8834, 39.780
 cutout_edge_neg_start = [[-42.0000, 0.0000], [-42.0000, 19.2074], [-42.0000, 39.7805], [-42.0000, 64.3986], [-42.0000, 95.5875], [-42.0000, 135.6787], [-42.0000, 182.8155], [-42.0000, 230.1337], [-42.0000, 277.4519], [-42.0000, 324.7701], [-42.0000, 372.0883], [-42.0000, 418.3944], [-42.0000, 453.9789], [-42.0000, 479.3865], [-42.0000, 497.5290], [-42.0000, 510.4839], [-42.0000, 519.7345]]
 cutout_edge_neg_final = [[-42.0000, 0.0000], [-51.6004, 19.2074], [-61.8834, 39.7805], [-71.9896, 64.3986], [-71.9896, 95.5875], [-71.9896, 135.6787], [-71.9896, 182.8155], [-71.9896, 230.1337], [-71.9896, 277.4519], [-71.9896, 324.7701], [-71.9896, 372.0883], [-71.9896, 418.3944], [-71.9896, 453.9789], [-62.2997, 479.3865], [-53.2316, 497.5290], [-46.7564, 510.4839], [-42.1327, 519.7345]]
 
+[mesh_refinement]
+method = "uniform red refinement (geode_core::mesh::red_refine): every tet split into 8 (octahedron cut on its shortest diagonal, children oriented as the parent), every edge halved; each metal-triangle edge midpoint joins that conductor, eps_r is inherited from the parent tet; C_Sigma re-solved with fresh_c_sigma (independent assembly + extraction, floating feedline)"
+monotonicity = "the fine P1 space contains the coarse one under the same Dirichlet and floating constraints, and C_Sigma is an energy minimum, so refinement can only lower it: each coarse value is an upper bound on the converged value, and each shift is a lower bound on the coarse discretization error"
+converged_value = "unknown: only one refinement level was run; the converged C_Sigma is not measured and these numbers do not bound it from below"
+second_level = "not run: an h/4 level is about 8.5M tets, judged too expensive for a local direct solve; not attempted"
+levels_run = 1
+coarse_n_tets = 133314
+refined_n_tets = 1066512
+refined_n_nodes = 179547
+validation = "unit-tested (mesh::red_refine and shape::transmon_remorph tests): the children tile and conform; a two-layer parallel plate (P1-exact) is unchanged by refinement to <= 1e-12; sheet plates in a grounded box (absent / floating / grounded second sheet) all drop by > 1e-3"
+[[mesh_refinement.design]]
+name = "X0"
+mode = "none"  # the unmorphed mesh
+alpha = nan
+headline = false
+c_sigma_coarse_ff = 137.706752
+c_sigma_refined_ff = 101.359397
+rel_shift = -2.6395e-1  # (refined - coarse)/coarse
+coarse_error_lower_bound_ff = 36.34  # coarse - refined (floored); coarse - converged is at least this
+refined_vs_anchor_rel = 1.2747e-1  # (refined - 89.9)/89.9, measured
+n_flipped = 0
+solve_s = 13.5
+[[mesh_refinement.design]]
+name = "X_final_stiffened_remorph_alpha_3"
+mode = "stiffened_remorph_alpha_3"
+alpha = 3.0
+headline = true
+c_sigma_coarse_ff = 89.900001
+c_sigma_refined_ff = 66.609133
+rel_shift = -2.5908e-1  # (refined - coarse)/coarse
+coarse_error_lower_bound_ff = 23.29  # coarse - refined (floored); coarse - converged is at least this
+refined_vs_anchor_rel = -2.5908e-1  # (refined - 89.9)/89.9, measured
+n_flipped = 0
+solve_s = 12.6
+[[mesh_refinement.design]]
+name = "X_final_stiffened_remorph_alpha_4"
+mode = "stiffened_remorph_alpha_4"
+alpha = 4.0
+headline = false
+c_sigma_coarse_ff = 89.900413
+c_sigma_refined_ff = 66.989120
+rel_shift = -2.5485e-1  # (refined - coarse)/coarse
+coarse_error_lower_bound_ff = 22.91  # coarse - refined (floored); coarse - converged is at least this
+refined_vs_anchor_rel = -2.5485e-1  # (refined - 89.9)/89.9, measured
+n_flipped = 0
+solve_s = 12.7
+
+[mesh_refinement.summary]
+headline_refined_below_anchor_pct = 25.9  # (89.9 - refined)/89.9, floored; inference from the monotonicity argument: refined is itself an upper bound, so the converged C_Sigma of this design is at least this far below 89.9
+x0_refined_above_anchor_pct = 12.7  # (refined - 89.9)/89.9, measured, floored (not a bound on the converged X0)
+converged_designs_spread_coarse_ff = 4.117828e-4  # max - min C_Sigma over the converged runs
+converged_designs_spread_refined_ff = 0.379988
+headline_shift_in_anchor_tolerances = 5582  # (coarse - refined)/c_sigma_tolerance at the headline design, floored
+reading = "the 10 kHz / 1e-9 agreement measures solver self-consistency on one fixed discretization, not accuracy: the discretization error is thousands of times the anchor tolerance. The optimizer, re-morph and stiffening machinery are exact on a given discretization; this is not a device-design result."
+
 [honest_framing]
-coarse_mesh = "C_Sigma is computed on a morphed copy of the coarse committed 133k-tet mesh. The fresh solve shows the optimizer is self-consistent; it does not show mesh convergence, nor equivalence with a DeviceLayout-regenerated device at the final dimensions."
+coarse_mesh = "C_Sigma is computed on a morphed copy of the coarse committed 133k-tet mesh, and only the coarse-mesh scalar-eps C_Sigma reaches 89.9 fF. One uniform refinement lowers C_Sigma by 26.3% at X0 and 25.9% at the headline design ([mesh_refinement]); refined, the headline design lands 25.9% below the anchor while the refined X0 is 12.7% above it. The fresh solve shows the optimizer is self-consistent on this discretization; it is not mesh-converged (the converged C_Sigma is unknown), the final dimensions are not an 89.9 fF device design, and equivalence with a DeviceLayout-regenerated device is not shown. This is a methods result."
 regeneration = "regenerating the device at the final dimensions needs the offline Julia/DeviceLayout toolchain: operator-only, not done"
 remeshing = "operator-only, not done"
-stiffening_is_the_route = "measured: with fixed fields and with unit re-morphing the optimizer stalls on the 0.25 ratio floor short of 89.9 fF (see [[run]]); only the volume-stiffened morph reaches it in this sweep. The mesh-quality floor is a property of the morph, not of the physical design, so the reached design depends on alpha (a larger alpha reaches a different design)."
-scalar_tensor_sign = "measured (scalar - tensor)/tensor = -4.9014e-3 at X_final against +7.4759e-3 at the #589 limit design: the scalar-eps error depends on the geometry, sign included, so the tensor anchor needs its own run ([tensor_retarget])"
+stiffening_is_the_route = "measured on the coarse mesh: with fixed fields and with unit re-morphing the optimizer stalls short of 89.9 fF (see [[run]]); only the volume-stiffened morph reaches it in this sweep. The mesh-quality floor is a property of the morph, not of the physical design, so the reached design depends on alpha (a larger alpha reaches a different design)."
+stall_margin = "the stalled runs stop at min ratio 0.251985..0.252000, i.e. at floor + margin (0.25 + 0.002), not at the floor: the linearized ratio rows clamp their rhs at 0 once a tet is below floor + margin. The margin therefore also affects which alpha is the smallest that converges: alpha = 2 stalls 0.92 fF short with 0.002 of ratio slack unused, and, as an inference only, a smaller margin might let it converge (not measured)."
+scalar_tensor_sign = "measured (scalar - tensor)/tensor = -4.9014e-3 at X_final against +7.4759e-3 at the #589 limit design, both on the coarse committed mesh: at this discretization the scalar-eps error depends on the geometry, sign included, so the tensor anchor needs its own run ([tensor_retarget]). Not measured once refined; with a 25.9% refinement shift in C_Sigma at X_final, whether the sign flip survives refinement is unknown"
 theta_g_limit = "measured: theta_G's re-morph bound is 1.001989 for every alpha and both path steps, and its limiting tet (centroid near [-58.6, 200.6, -13.3] um) has 3 of its 4 nodes pinned by theta_G's Dirichlet data (worst_tet_pinned_nodes). Inference: the morph has almost no say over that tet's ratio, so stiffening cannot move the bound; the stiffened runs reach the anchor through theta_L and theta_W while theta_G sits on it."
 theta_is_a_trace = "with re-morphing the accumulated theta is path-dependent; the physical dimensions measured from X_final are the design output"
 scalar_anchor = "the anchor is the scalar-eps C_Sigma; the tensor-eps value at the scalar design is listed in [headline] and reaches 89.9 fF only in [tensor_retarget]"

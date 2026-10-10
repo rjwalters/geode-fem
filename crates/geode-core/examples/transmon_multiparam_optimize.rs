@@ -2,6 +2,15 @@
 //! 89.9 fF `C_Σ` anchor on the real 133k-tet transmon mesh (Epic #569 /
 //! umbrella #1034, issue #1036, Phase B).
 //!
+//! This is a **methods result**: the optimizer, the re-morph and the volume
+//! stiffening work, and are exact on a given discretization. The
+//! **coarse-mesh** scalar-ε `C_Σ` reaches 89.9 fF. It is not a device-design
+//! result: one uniform refinement (step 5) lowers `C_Σ` by about 26 % at both
+//! `X⁰` and the final design, so refined, the headline design lands about
+//! 25.9 % below the anchor while the refined `X⁰` is about 12.7 % above it
+//! (measured; the converged value is unknown). The 10 kHz agreement is solver
+//! self-consistency on one fixed mesh, not accuracy.
+//!
 //! Phase A (#1035, `multiparam_gradient.toml`) built three junction-pinned
 //! parameters (island length `theta_L`, width `theta_W`, cutout gap
 //! `theta_G`) and found that the safe box corner, scaled to the 0.25 volume
@@ -20,10 +29,19 @@
 //! 3. **Optimizer sweep.** [`optimize_multiparam_bounded`] toward 89.9 fF
 //!    with every mode, each accepted step confirmed by an independent fresh
 //!    extraction and kept at min tet volume ratio ≥ 0.25 against `X⁰`.
-//! 4. **Headline design** (the smallest swept `alpha` that converges): the
-//!    trajectory, physical dimensions and outlines, FD spot checks of every
-//!    `D_i(X_final)`, the tensor-ε `C_Σ`, and an outer retarget so the
-//!    tensor-ε `C_Σ` also meets the anchor.
+//!    Stalled runs stop at ratio ≈ 0.252 (floor + the 0.002 linearized
+//!    margin), so the margin also affects which `alpha` is the smallest that
+//!    converges.
+//! 4. **Headline design** (the smallest swept `alpha` that converges on the
+//!    coarse mesh): the trajectory, physical dimensions and outlines, FD spot
+//!    checks of every `D_i(X_final)`, the tensor-ε `C_Σ`, and an outer
+//!    retarget so the coarse-mesh tensor-ε `C_Σ` also meets the anchor.
+//! 5. **Discretization check.** [`red_refined_c_sigma`] at `X⁰` and at every
+//!    converged `X_final`: one uniform red refinement (each tet split into 8,
+//!    `h` halved, about 1.07M tets). Refinement can only lower this
+//!    energy-minimum `C_Σ`, so each coarse value is an upper bound and each
+//!    shift a lower bound on the coarse error. A second level (`h/4`, about
+//!    8.5M tets) is not run.
 //!
 //! # Anchor quantity (declared before the runs)
 //!
@@ -63,8 +81,8 @@ use geode_core::shape::transmon_morph::{
     PARAM_NAMES, TransmonMorphRoles, TransmonMorphSpec, audit_field, parameter_fields,
 };
 use geode_core::shape::transmon_remorph::{
-    MorphFamily, RemorphMode, TransmonCSigmaProblem, TransmonDimensions, fresh_c_sigma,
-    remorph_budget, sheet_outline_loops,
+    MorphFamily, RefinedCSigma, RemorphMode, TransmonCSigmaProblem, TransmonDimensions,
+    fresh_c_sigma, red_refined_c_sigma, remorph_budget, sheet_outline_loops,
 };
 use geode_core::shape::{
     apply_node_motion, capacitance_matrix_shape_gradient, harmonic_extension_velocity,
@@ -650,11 +668,102 @@ fn main() {
         .collect();
     edge_pos.sort_by(|a, b| base.nodes[*a as usize][1].total_cmp(&base.nodes[*b as usize][1]));
     edge_neg.sort_by(|a, b| base.nodes[*a as usize][1].total_cmp(&base.nodes[*b as usize][1]));
+
+    // ---- 5. Discretization check: one uniform red refinement. ----
+    // X0 and every converged run's X_final, each split 8-to-1 (h halved)
+    // and re-solved with fresh_c_sigma. Refinement can only lower this
+    // energy-minimum C_Sigma, so each shift is a lower bound on the coarse
+    // error; the converged value is not measured.
+    let comps = fx.split_metal_conductors();
+    let tris_of = |role: MetalRole| -> Vec<[u32; 3]> {
+        comps
+            .iter()
+            .filter(|c| c.role == role)
+            .flat_map(|c| c.triangles.iter().copied())
+            .collect()
+    };
+    let (tri_island, tri_feed, tri_ground) = (
+        tris_of(MetalRole::Island),
+        tris_of(MetalRole::Feedline),
+        tris_of(MetalRole::Ground),
+    );
+    let mut refine_designs: Vec<(String, RemorphMode, Option<f64>, &TetMesh)> =
+        vec![("X0".to_string(), RemorphMode::Fixed, None, &base)];
+    for r in runs.iter().filter(|r| r.res.converged()) {
+        refine_designs.push((
+            format!("X_final_{}", r.mode.label()),
+            r.mode,
+            Some(r.prob.c_sigma()),
+            r.prob.current_mesh(),
+        ));
+    }
+    let t_ref = Instant::now();
+    let mut refined: Vec<(String, RemorphMode, RefinedCSigma, f64)> = Vec::new();
+    for (name, mode, c_prob, mesh) in &refine_designs {
+        let t_s = Instant::now();
+        let r = red_refined_c_sigma(
+            mesh,
+            &eps_r,
+            &conductors,
+            &[&tri_island, &tri_feed],
+            &ground,
+            &tri_ground,
+        )
+        .expect("refined C_Sigma");
+        let solve_s = t_s.elapsed().as_secs_f64();
+        assert_eq!(r.n_flipped, 0, "{name}: refinement flipped a tet");
+        assert!(
+            r.refined < r.coarse,
+            "{name}: refinement must lower C_Sigma ({} -> {})",
+            ff(r.coarse),
+            ff(r.refined)
+        );
+        if let Some(c) = c_prob {
+            assert!(
+                (r.coarse - c).abs() <= 1e-9 * c,
+                "{name}: coarse fresh C_Sigma disagrees with the run"
+            );
+        }
+        println!(
+            "refine {name}: C_Σ {:.6} fF → {:.6} fF ({} tets, {} nodes), shift {:.4e} ({solve_s:.1}s)",
+            ff(r.coarse),
+            ff(r.refined),
+            r.n_tets,
+            r.n_nodes,
+            r.rel_shift()
+        );
+        refined.push((name.clone(), *mode, r, solve_s));
+    }
+    let refine_s = t_ref.elapsed().as_secs_f64();
     let wall_s = t0.elapsed().as_secs_f64();
 
     // ------------------------------------------------------------------
     // Emit multiparam_results.toml.
     // ------------------------------------------------------------------
+    let x0_ref = refined[0].2;
+    let head_ref = refined
+        .iter()
+        .find(|r| r.1 == head.mode && r.0 != "X0")
+        .expect("headline refined")
+        .2;
+    let stalled: Vec<&Run> = runs
+        .iter()
+        .filter(|r| matches!(r.res.outcome, MultiParamOutcome::Stalled { .. }))
+        .collect();
+    let stall_ratio_lo = stalled
+        .iter()
+        .map(|r| min_tet_volume_ratio(&base, r.prob.current_mesh()))
+        .fold(f64::INFINITY, f64::min);
+    let stall_ratio_hi = stalled
+        .iter()
+        .map(|r| min_tet_volume_ratio(&base, r.prob.current_mesh()))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let last_stalled_stiff = stalled
+        .iter()
+        .filter(|r| matches!(r.mode, RemorphMode::Stiffened { .. }))
+        .last()
+        .map(|r| (alpha_of(r.mode), ff(r.prob.c_sigma() - C_SIGMA_TARGET_F)));
+
     let mut t = String::with_capacity(131_072);
     t.push_str("# Auto-generated by `cargo run -p geode-core --release \\\n");
     t.push_str("#   --example transmon_multiparam_optimize`.\n");
@@ -662,14 +771,29 @@ fn main() {
     t.push_str("# Consumed by `tests/transmon_diffopt.rs`.\n\n");
 
     t.push_str("[meta]\n");
-    t.push_str(
-        "description = \"Per-step re-morphing and a bounded multi-parameter Gauss-Newton \
-         optimizer toward the 89.9 fF C_Sigma anchor on the REAL DeviceLayout SingleTransmon \
-         133k-tet mesh (issue #1036, Phase B of #1034). Phase A's three junction-pinned fields \
-         (theta_L, theta_W, theta_G) are rebuilt about the current geometry at every accepted \
-         step (fixed / unit / volume-stiffened Laplace), one Laplace factorization per distinct \
-         pinned set; every accepted step keeps min tet volume ratio >= 0.25 against the \
-         original mesh and is confirmed by an independent fresh extraction.\"\n",
+    let _ = writeln!(
+        t,
+        "description = \"A methods result: per-step re-morphing and a bounded multi-parameter \
+         Gauss-Newton optimizer toward the 89.9 fF C_Sigma anchor on the REAL DeviceLayout \
+         SingleTransmon 133k-tet mesh (issue #1036, Phase B of #1034). Phase A's three \
+         junction-pinned fields (theta_L, theta_W, theta_G) are rebuilt about the current \
+         geometry at every accepted step (fixed / unit / volume-stiffened Laplace), one Laplace \
+         factorization per distinct pinned set; every accepted step keeps min tet volume ratio \
+         >= 0.25 against the original mesh and is confirmed by an independent fresh extraction. \
+         The coarse-mesh scalar-eps C_Sigma reaches 89.9 fF. One uniform refinement (h halved) \
+         lowers it by {}% at X0 and by {}% at the headline design ([mesh_refinement]): \
+         refined, the headline design sits {}% below the anchor while the refined X0 sits \
+         {}% above it. The final dimensions are therefore not an 89.9 fF device design.\"",
+        floor_fmt(-100.0 * x0_ref.rel_shift(), 1),
+        floor_fmt(-100.0 * head_ref.rel_shift(), 1),
+        floor_fmt(
+            -100.0 * (head_ref.refined - C_SIGMA_TARGET_F) / C_SIGMA_TARGET_F,
+            1
+        ),
+        floor_fmt(
+            100.0 * (x0_ref.refined - C_SIGMA_TARGET_F) / C_SIGMA_TARGET_F,
+            1
+        ),
     );
     t.push_str("issue = 1036\n");
     t.push_str("parent = 1034\n");
@@ -677,6 +801,7 @@ fn main() {
     let _ = writeln!(t, "n_nodes = {n_nodes}");
     let _ = writeln!(t, "n_tets = {n_tets}");
     let _ = writeln!(t, "budget_sweep_s = {budget_s:.1}");
+    let _ = writeln!(t, "refinement_s = {refine_s:.1}");
     let _ = writeln!(t, "wall_clock_s = {wall_s:.1}");
     t.push('\n');
 
@@ -980,7 +1105,12 @@ fn main() {
     let _ = writeln!(t, "alpha = {}", toml_f(alpha_of(head.mode)));
     let _ = writeln!(t, "converged = {}", head.res.converged());
     let hl = head.prob.log.last().unwrap();
-    let _ = writeln!(t, "c_sigma_scalar_ff = {:.6}", ff(hl.c_sigma));
+    let _ = writeln!(
+        t,
+        "c_sigma_scalar_ff = {:.6}  # coarse mesh; once refined {:.6} ([mesh_refinement])",
+        ff(hl.c_sigma),
+        ff(head_ref.refined)
+    );
     let _ = writeln!(
         t,
         "c_sigma_scalar_fresh_ff = {:.6}",
@@ -1165,12 +1295,154 @@ fn main() {
     );
     t.push('\n');
 
-    t.push_str("[honest_framing]\n");
+    // ---- [mesh_refinement] ----
+    t.push_str("[mesh_refinement]\n");
     t.push_str(
+        "method = \"uniform red refinement (geode_core::mesh::red_refine): every tet split into \
+         8 (octahedron cut on its shortest diagonal, children oriented as the parent), every \
+         edge halved; each metal-triangle edge midpoint joins that conductor, eps_r is \
+         inherited from the parent tet; C_Sigma re-solved with fresh_c_sigma (independent \
+         assembly + extraction, floating feedline)\"\n",
+    );
+    t.push_str(
+        "monotonicity = \"the fine P1 space contains the coarse one under the same Dirichlet \
+         and floating constraints, and C_Sigma is an energy minimum, so refinement can only \
+         lower it: each coarse value is an upper bound on the converged value, and each shift \
+         is a lower bound on the coarse discretization error\"\n",
+    );
+    t.push_str(
+        "converged_value = \"unknown: only one refinement level was run; the converged C_Sigma \
+         is not measured and these numbers do not bound it from below\"\n",
+    );
+    t.push_str(
+        "second_level = \"not run: an h/4 level is about 8.5M tets, judged too expensive for a \
+         local direct solve; not attempted\"\n",
+    );
+    t.push_str("levels_run = 1\n");
+    let _ = writeln!(t, "coarse_n_tets = {n_tets}");
+    let _ = writeln!(t, "refined_n_tets = {}", x0_ref.n_tets);
+    let _ = writeln!(t, "refined_n_nodes = {}", x0_ref.n_nodes);
+    t.push_str(
+        "validation = \"unit-tested (mesh::red_refine and shape::transmon_remorph tests): the \
+         children tile and conform; a two-layer parallel plate (P1-exact) is unchanged by \
+         refinement to <= 1e-12; sheet plates in a grounded box (absent / floating / grounded \
+         second sheet) all drop by > 1e-3\"\n",
+    );
+    for (name, mode, r, solve_s) in &refined {
+        t.push_str("[[mesh_refinement.design]]\n");
+        let _ = writeln!(t, "name = \"{name}\"");
+        if name == "X0" {
+            t.push_str("mode = \"none\"  # the unmorphed mesh\n");
+            t.push_str("alpha = nan\n");
+        } else {
+            let _ = writeln!(t, "mode = \"{}\"", mode.label());
+            let _ = writeln!(t, "alpha = {}", toml_f(alpha_of(*mode)));
+        }
+        let _ = writeln!(t, "headline = {}", name != "X0" && *mode == head.mode);
+        let _ = writeln!(t, "c_sigma_coarse_ff = {:.6}", ff(r.coarse));
+        let _ = writeln!(t, "c_sigma_refined_ff = {:.6}", ff(r.refined));
+        let _ = writeln!(
+            t,
+            "rel_shift = {:.4e}  # (refined - coarse)/coarse",
+            r.rel_shift()
+        );
+        let _ = writeln!(
+            t,
+            "coarse_error_lower_bound_ff = {}  # coarse - refined (floored); coarse - converged is at least this",
+            floor_fmt(ff(r.coarse - r.refined), 2)
+        );
+        let _ = writeln!(
+            t,
+            "refined_vs_anchor_rel = {:.4e}  # (refined - 89.9)/89.9, measured",
+            (r.refined - C_SIGMA_TARGET_F) / C_SIGMA_TARGET_F
+        );
+        let _ = writeln!(t, "n_flipped = {}", r.n_flipped);
+        let _ = writeln!(t, "solve_s = {solve_s:.1}");
+    }
+    let finals: Vec<&RefinedCSigma> = refined
+        .iter()
+        .filter(|r| r.0 != "X0")
+        .map(|r| &r.2)
+        .collect();
+    let spread_coarse = finals
+        .iter()
+        .map(|r| r.coarse)
+        .fold(f64::NEG_INFINITY, f64::max)
+        - finals
+            .iter()
+            .map(|r| r.coarse)
+            .fold(f64::INFINITY, f64::min);
+    let spread_refined = finals
+        .iter()
+        .map(|r| r.refined)
+        .fold(f64::NEG_INFINITY, f64::max)
+        - finals
+            .iter()
+            .map(|r| r.refined)
+            .fold(f64::INFINITY, f64::min);
+    t.push('\n');
+    t.push_str("[mesh_refinement.summary]\n");
+    let _ = writeln!(
+        t,
+        "headline_refined_below_anchor_pct = {}  # (89.9 - refined)/89.9, floored; inference from the monotonicity argument: refined is itself an upper bound, so the converged C_Sigma of this design is at least this far below 89.9",
+        floor_fmt(
+            100.0 * (C_SIGMA_TARGET_F - head_ref.refined) / C_SIGMA_TARGET_F,
+            1
+        )
+    );
+    let _ = writeln!(
+        t,
+        "x0_refined_above_anchor_pct = {}  # (refined - 89.9)/89.9, measured, floored (not a bound on the converged X0)",
+        floor_fmt(
+            100.0 * (x0_ref.refined - C_SIGMA_TARGET_F) / C_SIGMA_TARGET_F,
+            1
+        )
+    );
+    let _ = writeln!(
+        t,
+        "converged_designs_spread_coarse_ff = {:.6e}  # max - min C_Sigma over the converged runs",
+        ff(spread_coarse)
+    );
+    let _ = writeln!(
+        t,
+        "converged_designs_spread_refined_ff = {:.6}",
+        ff(spread_refined)
+    );
+    let _ = writeln!(
+        t,
+        "headline_shift_in_anchor_tolerances = {}  # (coarse - refined)/c_sigma_tolerance at the headline design, floored",
+        floor_fmt((head_ref.coarse - head_ref.refined) / c_tol, 0)
+    );
+    t.push_str(
+        "reading = \"the 10 kHz / 1e-9 agreement measures solver self-consistency on one fixed \
+         discretization, not accuracy: the discretization error is thousands of times the \
+         anchor tolerance. The optimizer, re-morph and stiffening machinery are exact on a \
+         given discretization; this is not a device-design result.\"\n",
+    );
+    t.push('\n');
+
+    t.push_str("[honest_framing]\n");
+    let _ = writeln!(
+        t,
         "coarse_mesh = \"C_Sigma is computed on a morphed copy of the coarse committed 133k-tet \
-         mesh. The fresh solve shows the optimizer is self-consistent; it does not show mesh \
-         convergence, nor equivalence with a DeviceLayout-regenerated device at the final \
-         dimensions.\"\n",
+         mesh, and only the coarse-mesh scalar-eps C_Sigma reaches 89.9 fF. One uniform \
+         refinement lowers C_Sigma by {}% at X0 and {}% at the headline design \
+         ([mesh_refinement]); refined, the headline design lands {}% below the anchor while \
+         the refined X0 is {}% above it. The fresh solve shows the optimizer is \
+         self-consistent on this discretization; it is not mesh-converged (the converged \
+         C_Sigma is unknown), the final dimensions are not an 89.9 fF device design, and \
+         equivalence with a DeviceLayout-regenerated device is not shown. This is a methods \
+         result.\"",
+        floor_fmt(-100.0 * x0_ref.rel_shift(), 1),
+        floor_fmt(-100.0 * head_ref.rel_shift(), 1),
+        floor_fmt(
+            100.0 * (C_SIGMA_TARGET_F - head_ref.refined) / C_SIGMA_TARGET_F,
+            1
+        ),
+        floor_fmt(
+            100.0 * (x0_ref.refined - C_SIGMA_TARGET_F) / C_SIGMA_TARGET_F,
+            1
+        ),
     );
     t.push_str(
         "regeneration = \"regenerating the device at the final dimensions needs the offline \
@@ -1178,17 +1450,31 @@ fn main() {
     );
     t.push_str("remeshing = \"operator-only, not done\"\n");
     t.push_str(
-        "stiffening_is_the_route = \"measured: with fixed fields and with unit re-morphing the \
-         optimizer stalls on the 0.25 ratio floor short of 89.9 fF (see [[run]]); only the \
+        "stiffening_is_the_route = \"measured on the coarse mesh: with fixed fields and with \
+         unit re-morphing the optimizer stalls short of 89.9 fF (see [[run]]); only the \
          volume-stiffened morph reaches it in this sweep. The mesh-quality floor is a property \
          of the morph, not of the physical design, so the reached design depends on alpha (a \
          larger alpha reaches a different design).\"\n",
     );
+    let (a_st, gap_st) = last_stalled_stiff.unwrap_or((f64::NAN, f64::NAN));
+    let _ = writeln!(
+        t,
+        "stall_margin = \"the stalled runs stop at min ratio {stall_ratio_lo:.6}..{stall_ratio_hi:.6}, \
+         i.e. at floor + margin ({RATIO_FLOOR} + {RATIO_MARGIN}), not at the floor: the \
+         linearized ratio rows clamp their rhs at 0 once a tet is below floor + margin. The \
+         margin therefore also affects which alpha is the smallest that converges: alpha = \
+         {a_st:.0} stalls {gap_st:.2} fF short with {RATIO_MARGIN} of ratio slack unused, and, as an \
+         inference only, a smaller margin might let it converge (not measured).\""
+    );
     let _ = writeln!(
         t,
         "scalar_tensor_sign = \"measured (scalar - tensor)/tensor = {delta_final:.4e} at X_final \
-         against +7.4759e-3 at the #589 limit design: the scalar-eps error depends on the \
-         geometry, sign included, so the tensor anchor needs its own run ([tensor_retarget])\""
+         against +7.4759e-3 at the #589 limit design, both on the coarse committed mesh: at \
+         this discretization the scalar-eps error depends on the geometry, sign included, so \
+         the tensor anchor needs its own run ([tensor_retarget]). Not measured once refined; \
+         with a {}% refinement shift in C_Sigma at X_final, whether the sign flip survives \
+         refinement is unknown\"",
+        floor_fmt(-100.0 * head_ref.rel_shift(), 1),
     );
     t.push_str(
         "theta_g_limit = \"measured: theta_G's re-morph bound is 1.001989 for every alpha and \

@@ -61,6 +61,7 @@ use crate::assembly::electrostatic::{
     Electrode, ElectrostaticError, assemble_electrostatic, extract_capacitance,
 };
 use crate::mesh::TetMesh;
+use crate::mesh::red_refine::red_refine;
 use crate::quantum::diffopt::{MultiEval, MultiParamProblem, StepCheck, StepConstraint};
 use crate::quantum::transmon::{d_e_c_hz_d_c_sigma, e_c_hz_from_capacitance};
 
@@ -752,6 +753,88 @@ pub fn fresh_c_sigma(
     }
 }
 
+/// [`fresh_c_sigma`] on a mesh and on its uniform red refinement
+/// ([`red_refined_c_sigma`]).
+#[derive(Clone, Copy, Debug)]
+pub struct RefinedCSigma {
+    /// `C_Σ` on the given mesh.
+    pub coarse: f64,
+    /// `C_Σ` on its red refinement (every tet split into 8, `h` halved).
+    pub refined: f64,
+    /// Fine-mesh tet count.
+    pub n_tets: usize,
+    /// Fine-mesh node count.
+    pub n_nodes: usize,
+    /// Fine tets oriented against their parent (0 for a valid refinement).
+    pub n_flipped: usize,
+}
+
+impl RefinedCSigma {
+    /// `(refined − coarse) / coarse`.
+    pub fn rel_shift(&self) -> f64 {
+        (self.refined - self.coarse) / self.coarse
+    }
+}
+
+/// `C_Σ` before and after one uniform red refinement of `mesh`
+/// ([`crate::mesh::red_refine`]), both through [`fresh_c_sigma`].
+///
+/// The conductors are sheets: `conductor_triangles[i]` (and
+/// `ground_triangles`) are the surface triangles of `conductors[i]` (and of
+/// the ground), and every edge midpoint of those triangles joins that
+/// conductor on the fine mesh. `ε_r` is inherited from the parent tet. The
+/// fine P1 space then contains the coarse one with the same Dirichlet and
+/// floating constraints, so for this energy-minimum functional
+/// `refined ≤ coarse` (to solver roundoff); the coarse value is an upper
+/// bound on the converged one and the shift is a lower bound on the coarse
+/// error. It says nothing about where the converged value lies.
+///
+/// # Errors
+///
+/// As [`fresh_c_sigma`], and [`ElectrostaticError::ShapeMismatch`] if
+/// `conductor_triangles` does not have one entry per conductor.
+///
+/// # Panics
+///
+/// If a conductor triangle edge is not an edge of `mesh`.
+pub fn red_refined_c_sigma(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    conductor_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+) -> Result<RefinedCSigma, ElectrostaticError> {
+    if conductor_triangles.len() != conductors.len() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "red_refined_c_sigma: {} triangle sets for {} conductors",
+            conductor_triangles.len(),
+            conductors.len()
+        )));
+    }
+    let coarse = fresh_c_sigma(mesh, eps_r, conductors, ground)?;
+    let r = red_refine(mesh);
+    let fine_conductors: Vec<Electrode> = conductors
+        .iter()
+        .zip(conductor_triangles)
+        .map(|(c, tris)| Electrode {
+            name: c.name.clone(),
+            nodes: r.lift_sheet_nodes(&c.nodes, tris),
+            voltage: c.voltage,
+        })
+        .collect();
+    let fine_ground = r.lift_sheet_nodes(ground, ground_triangles);
+    let fine_eps = r.lift_per_tet(eps_r);
+    let refined = fresh_c_sigma(&r.mesh, &fine_eps, &fine_conductors, &fine_ground)?;
+    Ok(RefinedCSigma {
+        coarse,
+        refined,
+        n_tets: r.mesh.n_tets(),
+        n_nodes: r.mesh.n_nodes(),
+        n_flipped: r.n_flipped,
+    })
+}
+
 /// Physical island and cutout dimensions measured from a (possibly morphed)
 /// fixture mesh, in mesh units.
 #[derive(Clone, Copy, Debug)]
@@ -769,7 +852,10 @@ pub struct TransmonDimensions {
     pub gap_min: f64,
     /// Largest such gap.
     pub gap_max: f64,
-    /// The gap at the ends of the moved run (taper 0): the unchanged value.
+    /// The largest gap over the cutout-edge nodes where `theta_G`'s taper is 0
+    /// (the ends of the moved run). Those edge nodes do not move, but the pad
+    /// half-width it is measured from does, so this changes whenever
+    /// `theta_W` does (30 µm at `X⁰`, 37.66 µm at #1036's headline design).
     pub gap_run_end: f64,
     /// Ground clearance above the pad top: lowest ground-sheet `y` above the
     /// pad (within the pad's `x` extent) minus `island_y_max`.
@@ -997,6 +1083,148 @@ mod tests {
             (r - 0.25).abs() < 1e-9 || u.unbounded,
             "the re-morph march must stop on the floor (ratio {r})"
         );
+    }
+
+    /// Every mesh face whose three nodes satisfy `on`.
+    fn faces_on(mesh: &TetMesh, on: impl Fn(&[f64; 3]) -> bool) -> Vec<[u32; 3]> {
+        let mut seen = BTreeSet::new();
+        for t in &mesh.tets {
+            for skip in 0..4 {
+                let mut f: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| t[i]).collect();
+                if f.iter().all(|&n| on(&mesh.nodes[n as usize])) {
+                    f.sort_unstable();
+                    seen.insert([f[0], f[1], f[2]]);
+                }
+            }
+        }
+        seen.into_iter().collect()
+    }
+
+    fn nodes_of(tris: &[[u32; 3]]) -> Vec<u32> {
+        let mut v: Vec<u32> = tris.iter().flatten().copied().collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    /// A two-layer parallel plate (plates at `z = 0` and `z = 1`, side faces
+    /// natural, interface at `z = 1/2` on a mesh plane): the exact potential
+    /// is piecewise linear in `z`, so P1 is exact on both meshes and the red
+    /// refinement must leave `C` unchanged to roundoff.
+    #[test]
+    fn red_refined_c_sigma_leaves_a_p1_exact_parallel_plate_unchanged() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let tol = 1e-12;
+        let top = faces_on(&mesh, |p| (p[2] - 1.0).abs() < tol);
+        let bottom = faces_on(&mesh, |p| p[2].abs() < tol);
+        let eps: Vec<f64> = mesh
+            .tets
+            .iter()
+            .map(|t| {
+                let zc: f64 = t.iter().map(|&n| mesh.nodes[n as usize][2]).sum::<f64>() / 4.0;
+                if zc < 0.5 { 1.0 } else { 3.0 }
+            })
+            .collect();
+        let island = vec![Electrode {
+            name: "island".into(),
+            nodes: nodes_of(&top),
+            voltage: 1.0,
+        }];
+        let r = red_refined_c_sigma(&mesh, &eps, &island, &[&top], &nodes_of(&bottom), &bottom)
+            .unwrap();
+        assert_eq!(r.n_tets, 8 * mesh.n_tets());
+        assert_eq!(r.n_flipped, 0);
+        let exact = crate::assembly::electrostatic::EPS_0 / (0.5 / 1.0 + 0.5 / 3.0);
+        assert!(
+            (r.coarse - exact).abs() <= 1e-10 * exact,
+            "coarse {} vs exact {exact}",
+            r.coarse
+        );
+        assert!(
+            r.rel_shift().abs() <= 1e-12,
+            "refinement moved a P1-exact C by {:e}",
+            r.rel_shift()
+        );
+    }
+
+    /// A sheet island inside a grounded box, with a second sheet below it
+    /// absent, floating or grounded: the sheet edges are singular, so in every
+    /// case refinement must lower `C_Σ` (nested P1 spaces, energy minimum) by
+    /// a clearly resolved amount.
+    #[test]
+    fn red_refined_c_sigma_only_lowers_a_floating_sheet_c_sigma() {
+        let mesh = cube_tet_mesh(8, 1.0);
+        let tol = 1e-12;
+        let in_sq = |p: &[f64; 3], z: f64| {
+            (p[2] - z).abs() < tol && (0.25 - tol..=0.75 + tol).contains(&p[0]) && {
+                (0.25 - tol..=0.75 + tol).contains(&p[1])
+            }
+        };
+        let isl = faces_on(&mesh, |p| in_sq(p, 0.625));
+        let fl = faces_on(&mesh, |p| in_sq(p, 0.375));
+        let gnd = faces_on(&mesh, |p| {
+            p.iter().any(|&x| x.abs() < tol || (x - 1.0).abs() < tol)
+        });
+        let eps = vec![1.0; mesh.n_tets()];
+        let conductors = vec![
+            Electrode {
+                name: "island".into(),
+                nodes: nodes_of(&isl),
+                voltage: 1.0,
+            },
+            Electrode {
+                name: "feedline".into(),
+                nodes: nodes_of(&fl),
+                voltage: 0.0,
+            },
+        ];
+        let one = red_refined_c_sigma(
+            &mesh,
+            &eps,
+            &conductors[..1],
+            &[&isl],
+            &nodes_of(&gnd),
+            &gnd,
+        )
+        .unwrap();
+        let two = red_refined_c_sigma(
+            &mesh,
+            &eps,
+            &conductors,
+            &[&isl, &fl],
+            &nodes_of(&gnd),
+            &gnd,
+        )
+        .unwrap();
+        let mut gnd_fl = gnd.clone();
+        gnd_fl.extend(&fl);
+        let three = red_refined_c_sigma(
+            &mesh,
+            &eps,
+            &conductors[..1],
+            &[&isl],
+            &nodes_of(&gnd_fl),
+            &gnd_fl,
+        )
+        .unwrap();
+        for (name, r) in [("no feedline", one), ("floating", two), ("grounded", three)] {
+            assert_eq!(r.n_flipped, 0);
+            assert!(
+                r.rel_shift() < -1e-3,
+                "{name}: refinement must lower C_Σ ({} -> {}, {:e})",
+                r.coarse,
+                r.refined,
+                r.rel_shift()
+            );
+        }
+        // A floating sheet raises C_Σ above "no sheet"; grounding it raises it
+        // further. On both meshes.
+        assert!(one.coarse < two.coarse && two.coarse < three.coarse);
+        assert!(one.refined < two.refined && two.refined < three.refined);
+        assert!(matches!(
+            red_refined_c_sigma(&mesh, &eps, &conductors, &[&isl], &[], &[]),
+            Err(ElectrostaticError::ShapeMismatch(_))
+        ));
     }
 
     #[test]
