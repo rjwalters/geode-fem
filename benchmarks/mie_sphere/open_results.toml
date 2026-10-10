@@ -5,7 +5,7 @@
 
 [meta]
 description = "Matched (full Sacks) UPML quasi-mode benchmark (issue #213): frozen-ω complex eigenpencil vs. open-space Mie WGM complex roots (OPEN_SPACE_WGM_TABLE_N15)."
-generated_at_commit = "2ff91af5568bbc7b67b7276f102e9991ea20ecc9"
+generated_at_commit = "41dfdb8ac7ac6ae30047cbb45545e016d8d6914b"
 pml_kernel = "matched_full_sacks"
 n_inside = 1.5
 sigma_values = [5.0, 10.0, 25.0]
@@ -14,6 +14,7 @@ notes = [
   "Claim to beat: ε-only UPML Q ≈ 9.0 on the triplet nearest TE_1,1 (Re(k) ≈ 1.870, results.toml) vs analytic open-space TE_1,1 Q ≈ 1.95. The ε-only Q ≈ 27 ground triplet is TM_1,1 (analytic Q ≈ 0.72).",
   "Mode identity (issue #1022): fem_* is the nearest member of the nearest IDENTIFIED multiplet of the target family (>= 0.5 of the in-ball energy in the family's vector spherical harmonics, and exactly 2l+1 such modes grouped within |dk| <= 0.02), not the eigenvalue nearest the root. identified = false means no complete multiplet exists in the solve. nearest_* describes the plain nearest mode, which earlier copies of this file reported (with an ambiguous flag).",
   "Verdict at sigma_0 = 25: the mode nearest the TE_1,1 root (k = 1.7772 + 0.6792j, formerly reported as TE_1,1 with Re(k) 5.5 % low and Q = 1.31) is a TM_1 mode. The 5.5 % offset was a mis-pick. The TE_1 content is split between two triplets (family_multiplets_*), about 19 % high and 26 % low on Re(k): sigma_0 = 25 does not isolate TE_1,1 on the 774-node fixture. The Picard refresh there re-freezes at the 19 %-high triplet and the nearest TE_1 triplet of the refreshed pencil is a different one (picard_re_k ≈ 1.53), so the frozen-ω linearization is not self-consistent at sigma_0 = 25 either.",
+  "Which sigma_0 = 25 triplet is TE_1,1 (issue #1026, open_sigma_sweep.toml): the identity check fixes polarisation and l, not the radial order, and the row at sigma_0 = 25 reports the TE_1 triplet NEAREST the root, which is the 19 %-high one. The sigma_0 continuation shows that triplet is a separate branch (continuous from sigma_0 = 6, where it is 51 % high), and that the sigma_0 = 5 TE_1,1 triplet continues into the 26 %-low one (k ≈ 1.386 + 0.666j, Q ≈ 1.04) through a crossing with a TM_2 quintuplet at sigma_0 ≈ 12.75 – 16.75 where per-mode identity is undecidable. The sigma_0 = 25 fem_* values below are therefore not TE_1,1.",
   "TM_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance competes with the PML continuum.",
   "Labels follow the issue #999 open-space catalog (TM = a_l electric multipole, TE = b_l magnetic multipole); earlier copies of this file had TE and TM swapped on the same two roots.",
   "Residual gap to the analytic root is dominated by PML truncation (thin shell at finite R_b) + discretization on the bundled 774-node fixture, not by the impedance mismatch the ε-only kernel had.",
