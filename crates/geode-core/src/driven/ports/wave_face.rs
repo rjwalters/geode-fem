@@ -1362,6 +1362,17 @@ impl GuideScan {
     pub fn coarser_than_distance(&self, h: f64) -> Option<f64> {
         nearest_coarser(&self.tets, h)
     }
+
+    /// How far the guide footprint reaches from the port plane: the
+    /// largest `distance + axial extent` of a scanned tet (mesh units,
+    /// `0` for an empty scan). Compared with [`tm_guard_axial_reach`] it
+    /// tells whether the guide is longer than the TM guard's window, where
+    /// the guard is not a bound ([`TM_GUARD_LONG_GUIDE_KH`], issue #1005).
+    /// The footprint is every tet over the face, so it can include a device
+    /// region behind the port as well as the guide.
+    pub fn far_extent(&self) -> f64 {
+        self.tets.iter().fold(0.0_f64, |m, &(e, d)| m.max(d + e))
+    }
 }
 
 /// The axial mesh of the guide feeding a port
@@ -1594,7 +1605,9 @@ pub fn wave_port_from_faces(
 /// on every mesh: on coarse Gmsh guides longer than the reach the 3-D p=2
 /// box has TM-like modes up to 44 % below the face value, at
 /// `0.046·(k_c·h_n)²` ([`tm_guard_margin`], "Long guides: where the guard
-/// fails").
+/// fails"), and the p=1 guard is above the box's p=1 TM-like mode on 12 of
+/// those 216 guides (20 by the sampled share; issue #1005). At either order the margin is a bound
+/// only for boxes shorter than the reach.
 ///
 /// `h_n` is read over the guide, not at the face. It is
 /// [`PortFaceProjection::guide_axial_spacing`] over
@@ -1640,7 +1653,11 @@ pub const TM_GUARD_MARGIN: f64 = 0.05;
 /// than the guard's reach. It is not a bound on every mesh: on coarse Gmsh
 /// guides longer than the reach the 3-D p=2 box has TM-like modes at up to
 /// `0.046·(k_c·h_n)²` below the face value, and the guard is above them
-/// ([`tm_guard_margin`], "Long guides: where the guard fails").
+/// ([`tm_guard_margin`], "Long guides: where the guard fails"). The same
+/// holds at p=1, the law the `geode driven` CLI enforces: on those long
+/// guides the p=1 guard is above the box's p=1 TM-like mode on 12 of 216
+/// rows (20 by the sampled share), by up to 198.7 % (issue #1005), so at p=1 too it is a bound only
+/// for boxes shorter than the reach.
 pub const TM_GUARD_AXIAL_COEFF: f64 = 0.025;
 
 /// Largest `k_c^TM·h_n` the axial term of [`tm_guard_margin`] was measured
@@ -1649,6 +1666,24 @@ pub const TM_GUARD_AXIAL_COEFF: f64 = 0.025;
 /// quadratic term stays on the conservative side), and the `geode` CLI
 /// says so.
 pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
+
+/// `k_c^TM·h_n` above which the `geode` CLI warns that a wave port's p=1 TM
+/// guard is not a bound, when the guide also extends beyond
+/// [`tm_guard_axial_reach`] ([`GuideScan::far_extent`]; issue #1005). The
+/// warning only; the guard's margin and its hard error do not depend on it.
+///
+/// It marks a **regime, not a predicted failure**. On the 216 long Gmsh
+/// guides of `tm_guard_p2_long_guide_table` (5.5 to 12 deep, Gmsh 4.15.2)
+/// the p=1 guard is at or above the box's p=1 TM-like mode on 12 rows
+/// (20 by the sampled share), every one at `k_c·h_n` ≥ 2.532 (`2×1×9.5`, `lc` 0.7, margin 16.0 %);
+/// the 5 rows at or below 2.5 have no p=1 miss. But 211 of the 216 rows
+/// are above 2.5 and only 12 of them miss (20 by the sampled share), and the set has no fine long
+/// guide, so how often the warning fires on a long guide whose guard does
+/// hold is not measured. 2.5 is margin `δ` = 15.6 %, 1.3 % below the
+/// lowest failing row: thin headroom. Issue #1041 re-checked the 2.5
+/// threshold under the exact `E_z` share classifier and it held: the
+/// lowest failing row is 2.532 under both classifiers.
+pub const TM_GUARD_LONG_GUIDE_KH: f64 = 2.5;
 
 /// The TE-only TM guard's relative margin for a geometric TM cutoff `k_c`
 /// (rad / mesh length unit) over a guide whose tets near the port span
@@ -1825,8 +1860,15 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// solve today. A p=2-only change is a policy question (issues #955,
 /// #891). At p=1 the same table reports (does not assert) the p=1 guard
 /// against the box's p=1 TM-like mode: it is at or above it on 12 of the
-/// 216 rows (20 by the sampled share), some of those modes below the TE₁₀
-/// cutoff (issue #1005).
+/// 216 rows (20 by the sampled share), by up to 198.7 % (`3×1×9.75`, `lc` 0.9), some of those modes
+/// below the TE₁₀ cutoff. So **the p=1 guard is not a bound on guides
+/// longer than its reach either.** The operator ruled (issue #1005) that
+/// this is documented and warned about, not enforced: the constants stay,
+/// and the `geode` CLI warns (does not reject) when a wave port's
+/// `k_c·h_n` is above [`TM_GUARD_LONG_GUIDE_KH`] = 2.5 and its guide
+/// extends beyond the reach ([`GuideScan::far_extent`]). The warning marks
+/// the regime of those rows, not a predicted failure (see the constant).
+/// A computed 3-D cutoff at p=1 waits on issue #955.
 ///
 /// # An interim bound, and who enforces it
 ///
@@ -2001,6 +2043,11 @@ impl TmCutoffEstimate {
     /// (the base [`TM_GUARD_MARGIN`] when no axial spacing is set, widened
     /// on a coarse axial mesh). Scale by `1/√(Re ε_n·μ_t)` for a filled
     /// guide ([`super::wave::PortMedium::tm_cutoff_k0`]).
+    ///
+    /// It is below the 3-D model's TM cutoff on every box measured shorter
+    /// than [`tm_guard_axial_reach`], and is **not** a bound on a longer
+    /// coarse guide, at p=1 (issue #1005) or p=2 (issue #990):
+    /// [`tm_guard_margin`], "Long guides: where the guard fails".
     pub fn guard_k_c(&self) -> f64 {
         (1.0 - self.margin()) * self.k_c()
     }

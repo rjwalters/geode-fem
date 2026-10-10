@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1009",
-  "loom_commit": "8889f7bd1eccfb4bc8239e7f5669b65f9815c30e",
+  "loom_version": "0.19.1026",
+  "loom_commit": "09a449709f5a1c6ae81b471ef56d466247e50808",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -38,7 +38,6 @@
     ".claude/commands/loom/champion-reference.md",
     ".claude/commands/loom/champion.md",
     ".claude/commands/loom/comment-body-literal-path.md",
-    ".claude/commands/loom/concierge.md",
     ".claude/commands/loom/curator-rate-budget.md",
     ".claude/commands/loom/curator.md",
     ".claude/commands/loom/doctor.md",
@@ -198,8 +197,6 @@
     ".loom/roles/champion.json",
     ".loom/roles/champion.md",
     ".loom/roles/comment-body-literal-path.md",
-    ".loom/roles/concierge.json",
-    ".loom/roles/concierge.md",
     ".loom/roles/curator-rate-budget.md",
     ".loom/roles/curator.json",
     ".loom/roles/curator.md",
@@ -720,7 +717,10 @@
     ".loom/scripts/tests/lib/session-lock-sandbox.sh",
     ".loom/scripts/tests/test-post-verdict-gate.sh",
     ".loom/scripts/tests/test-roll-pause-resume-live.sh",
-    ".loom/scripts/tests/test-spawn-claude-ambient-scrub.sh"
+    ".loom/scripts/tests/test-spawn-claude-ambient-scrub.sh",
+    ".loom/scripts/tests/test-check-main-clean-build-trees.sh",
+    ".loom/scripts/tests/test-resync-installed-payload-fallback.sh",
+    ".agents/skills/loom-builder-pr/SKILL.md"
   ],
   "last_resync": "2026-10-10",
   "requires_daemon": "0.19.772"

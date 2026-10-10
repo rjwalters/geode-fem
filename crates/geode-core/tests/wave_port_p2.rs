@@ -38,6 +38,14 @@
 //!     guard against the interim law and option 1 (reproduced). Used
 //!     directly it is above the reference on many rows; its floor is safe
 //!     and loses band (an honest negative; `benchmarks/tm_guard_955/`).
+//! 12. Whether a TE₁₀ drive excites the TM-like box modes the guards miss
+//!     on long guides (issue #1032): a wave-port probe that keeps the driven
+//!     field (and reproduces the library sweep's S), its structured
+//!     controls (a mirror-symmetric guide, symmetry-forbidden; an E-plane
+//!     height step, known excited), and the ignored
+//!     `tm_guard_excitation_table` over the long-guide misses
+//!     (`benchmarks/tm_guard_955/excitation_table.toml`). Nearly every
+//!     missed mode is excited.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -1040,17 +1048,19 @@ impl BoxWindow {
     }
 }
 
-/// The all-PEC guide box at `order`: its `n_modes` modes nearest
-/// `(0.45·TM₁₁)²` (fewer if the solve finds fewer), each with its `|E_z|²`
-/// share and the share of its `|E_z|²` within `reach` of the port.
-fn box_mode_window(
+/// The eigensolve behind [`box_mode_window`]: the space of the all-PEC
+/// guide box at `order`, the shift `σ = (0.45·TM₁₁)²` and its `n_modes`
+/// modes nearest `σ` (fewer if the solve finds fewer) as `(k, full-length
+/// field)`, in the solver's order. Issue #1032 reads the fields of the
+/// reference modes from it; the eigensolve is deterministic, so it returns
+/// the modes [`box_mode_window`] classifies.
+fn box_eigenmodes(
     mesh: &TetMesh,
     order: ElementOrder,
     a: f64,
     b: f64,
     n_modes: usize,
-    reach: f64,
-) -> BoxWindow {
+) -> (HcurlSpace, f64, Vec<(f64, Vec<c64>)>) {
     let space = HcurlSpace::build(mesh, order);
     let walls = mesh.boundary_faces();
     let mask = space.pec_interior_mask(mesh, &[&walls]).expect("mask");
@@ -1078,6 +1088,33 @@ fn box_mode_window(
         }
     };
     let kept: Vec<usize> = (0..space.n_dofs()).filter(|&d| mask[d]).collect();
+    let fields = modes
+        .modes
+        .modes
+        .iter()
+        .map(|m| {
+            let mut x = vec![c64::new(0.0, 0.0); space.n_dofs()];
+            for (i, &d) in kept.iter().enumerate() {
+                x[d] = c64::new(m.vector[i], 0.0);
+            }
+            (m.k0, x)
+        })
+        .collect();
+    (space, sigma, fields)
+}
+
+/// The all-PEC guide box at `order`: its `n_modes` modes nearest
+/// `(0.45·TM₁₁)²` (fewer if the solve finds fewer), each with its `|E_z|²`
+/// share and the share of its `|E_z|²` within `reach` of the port.
+fn box_mode_window(
+    mesh: &TetMesh,
+    order: ElementOrder,
+    a: f64,
+    b: f64,
+    n_modes: usize,
+    reach: f64,
+) -> BoxWindow {
+    let (space, sigma, modes) = box_eigenmodes(mesh, order, a, b, n_modes);
     let pts = [
         [0.25, 0.25, 0.25, 0.25],
         [0.55, 0.15, 0.15, 0.15],
@@ -1087,14 +1124,8 @@ fn box_mode_window(
     ];
     let rule = geode_core::elements::nedelec_p2::tet_quad_deg4();
     let mut shares: Vec<BoxMode> = modes
-        .modes
-        .modes
         .iter()
-        .map(|m| {
-            let mut x = vec![c64::new(0.0, 0.0); space.n_dofs()];
-            for (i, &d) in kept.iter().enumerate() {
-                x[d] = c64::new(m.vector[i], 0.0);
-            }
+        .map(|(k0, x)| {
             let (mut ez, mut all, mut inside) = (0.0, 0.0, 0.0);
             let (mut ez_x, mut all_x, mut inside_x) = (0.0, 0.0, 0.0);
             for t in 0..mesh.n_tets() {
@@ -1105,7 +1136,7 @@ fn box_mode_window(
                     .sum::<f64>()
                     / 4.0;
                 for &(bary, w) in &rule {
-                    let e = space.field_at(mesh, t, bary, &x);
+                    let e = space.field_at(mesh, t, bary, x);
                     ez_x += vol * w * e[2].norm_sqr();
                     all_x += vol * w * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
                     if zc <= reach {
@@ -1113,7 +1144,7 @@ fn box_mode_window(
                     }
                 }
                 for bary in pts {
-                    let e = space.field_at(mesh, t, bary, &x);
+                    let e = space.field_at(mesh, t, bary, x);
                     ez += e[2].norm_sqr();
                     all += e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr();
                     if zc <= reach {
@@ -1122,7 +1153,7 @@ fn box_mode_window(
                 }
             }
             BoxMode {
-                k: m.k0,
+                k: *k0,
                 share: ez / all,
                 share_exact: ez_x / all_x,
                 ez_within_reach: inside / ez,
@@ -2593,9 +2624,11 @@ fn long_guide_verdict(cache: &mut WindowCache, c: ShareClassifier, guard: f64) -
 /// share (issue #1005); the smallest `k_c·h_n` among them is 2.532
 /// (`2×1×9.5`, `lc` 0.7) by either classifier.
 ///
-/// These are coarse-mesh TM-like defect modes, not continuum TM modes;
-/// whether a TE₁₀ drive excites them is not measured. Skipped (passes
-/// vacuously) without `gmsh` on `PATH`.
+/// These are coarse-mesh TM-like defect modes, not continuum TM modes.
+/// Whether a TE₁₀ drive excites them is measured by
+/// [`tm_guard_excitation_table`] (issue #1032): it does, on every interim
+/// miss and on all but one or two rows of every other guard. Skipped
+/// (passes vacuously) without `gmsh` on `PATH`.
 ///
 /// Issue #955 adds three columns: option 1 (reproduced from `1cae001f`),
 /// the share-free cutoff used directly (option 3, `0.98·min(k_c, k_face)`)
@@ -3829,5 +3862,1870 @@ fn share_free_tm_cutoff_is_tm11_and_bounds_every_mode_share() {
             "mode {m:?} against k_TM,h {}",
             c.k_tm
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Does a TE₁₀ drive excite the TM-like box modes the guards miss?
+//     (issue #1032)
+// ---------------------------------------------------------------------------
+//
+// Every threshold below was fixed before the issue #1032 run over the miss
+// rows. A pilot over the controls only (the two structured controls and the
+// non-miss Gmsh rows) chose the baseline and the S-residual window; the
+// thresholds are the ones the issue's curation suggested.
+
+/// Relative step of the uniform geometric scan (`k_{i+1} = k_i·(1 + step)`):
+/// the resolution of a user's dense sweep.
+const EXCITATION_SCAN_STEP: f64 = 2.5e-4;
+
+/// Half-width of the bracket around the reference mode, relative:
+/// `k_ref·(1 ± 0.05)`.
+const EXCITATION_BRACKET: f64 = 0.05;
+
+/// A scan point is a TM-like response when the driven field's exact `E_z`
+/// share exceeds its sliding baseline ([`excitation_baseline`]) by more
+/// than this.
+const EXCITATION_EZ_EXCESS: f64 = 0.01;
+
+/// ... or when `S₁₁` or `S₂₁` of the TE₁₀ column departs from a local
+/// cubic fit ([`s_residual`]) by more than this.
+const EXCITATION_DS: f64 = 1e-3;
+
+/// Local maxima of the excess share that the zoom refines.
+const EXCITATION_ZOOM_SEEDS: usize = 8;
+
+/// Relative bracket width at which the golden-section zoom stops.
+const EXCITATION_ZOOM_FLOOR: f64 = 1e-12;
+
+/// **Added after the run** (issue #1032): a scan point is also a response
+/// when the driven field's projection on the reference mode
+/// ([`ProbePoint::proj`]) exceeds this, the mode carrying more than 10 % of
+/// the driven field's energy. The two rules above detect narrow features
+/// only: the known-excited height-step control, whose TE₁₀ → TM₁₁
+/// conversion spans the whole bracket, failed them at the table's scan step
+/// (its excess share stayed at 5.4e-3 against the moving median while its
+/// projection was 0.24). Both verdicts are reported
+/// ([`ExcitationScan::verdict_prereg`]).
+const EXCITATION_PROJECTION: f64 = 0.1;
+
+/// Points of the sliding cubic fit of [`s_residual`] (± 20 steps, ± 0.5 %).
+const EXCITATION_FIT_POINTS: usize = 41;
+
+/// Relative distance from a port mode's cutoff inside which a scan point is
+/// left out of the S residual (the S-parameters have a square-root branch
+/// point there, which a cubic does not fit).
+const EXCITATION_CUTOFF_GAP: f64 = 2e-3;
+
+/// How a TE₁₀ drive responds over a frequency range (issue #1032).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Excitation {
+    /// A point of the uniform scan shows a TM-like response: excess `E_z`
+    /// share above [`EXCITATION_EZ_EXCESS`], an S residual above
+    /// [`EXCITATION_DS`], or (not in the pre-registered rule) a projection
+    /// on the reference mode above [`EXCITATION_PROJECTION`]. A sweep at
+    /// [`EXCITATION_SCAN_STEP`] would see it.
+    Excited,
+    /// No scan point does, but the zoom finds a driven resonance whose
+    /// excess share exceeds [`EXCITATION_EZ_EXCESS`]: a feature narrower
+    /// than the scan step. Where its width bisects below the zoom floor,
+    /// f64 cannot tell a weakly coupled mode from rounding at an uncoupled
+    /// (bound) one.
+    Weak,
+    /// Neither: no excess share above [`EXCITATION_EZ_EXCESS`] at any scan
+    /// point or zoomed peak. A narrower feature than the zoom resolves, or
+    /// one between seeds, is not excluded.
+    NotExcited,
+}
+
+/// A TE-driven two-port over a guide (issue #1032): wave ports on two end
+/// faces carrying every TE face mode below `k_top` (at least TE₁₀), PEC on
+/// `walls`, vacuum. [`DrivenProbe::solve`] is the dense wave-port solve of
+/// [`solve_wave_port_sweep_on_space`] for the TE₁₀ excitation at port 1
+/// (the same rank-`N` modal Sherman-Morrison-Woodbury on the same
+/// factorization), keeping the field: the library returns S only.
+/// [`excitation_probe_matches_the_library_sweep`] checks the two agree.
+struct DrivenProbe<'m> {
+    mesh: &'m TetMesh,
+    space: HcurlSpace,
+    op: DrivenOperator,
+    mask: Vec<bool>,
+    ports: Vec<WavePort>,
+    /// `(port, mode)` of each channel, port-major.
+    chan: Vec<(usize, usize)>,
+    /// Full-length modal fluxes `f = S_p·e` and their interior restriction.
+    flux: Vec<Vec<f64>>,
+    flux_int: Vec<Vec<c64>>,
+    /// Per tet: its DOFs and its local `E_z` and full `E` mass matrices
+    /// (row-major), from the degree-4 rule (exact for `|E|²` at p=1, p=2).
+    local: Vec<(Vec<usize>, Vec<f64>, Vec<f64>)>,
+    /// The full-length field the response is projected on, if any.
+    reference: Option<Vec<c64>>,
+}
+
+/// One frequency of a [`DrivenProbe`].
+#[derive(Debug, Clone, Copy)]
+struct ProbePoint {
+    k: f64,
+    /// `S₁₁` and `S₂₁` of the TE₁₀ column (TE₁₀ at both ports).
+    s11: c64,
+    s21: c64,
+    /// The driven field's exact `E_z` energy share.
+    share: f64,
+    /// `|⟨φ, E⟩|² / (⟨φ, φ⟩·⟨E, E⟩)` in the `L²` inner product, with `φ`
+    /// the reference field (`NaN` without one).
+    proj: f64,
+}
+
+impl<'m> DrivenProbe<'m> {
+    fn new(
+        mesh: &'m TetMesh,
+        order: ElementOrder,
+        port_faces: [&[[u32; 3]]; 2],
+        walls: &[[u32; 3]],
+        k_top: f64,
+    ) -> Self {
+        let space = HcurlSpace::build(mesh, order);
+        let mask = space.pec_interior_mask(mesh, &[walls]).expect("PEC mask");
+        let ports: Vec<WavePort> = port_faces
+            .iter()
+            .map(|faces| {
+                let mut n = 6;
+                let mut p = loop {
+                    match wave_port_from_faces_on_space(&space, mesh, faces, &vec![one(); n]) {
+                        Ok(p) => break p,
+                        Err(e) if n > 1 => {
+                            eprintln!("port with {n} modes: {e:?}; trying {}", n - 1);
+                            n -= 1;
+                        }
+                        Err(e) => panic!("wave port: {e:?}"),
+                    }
+                };
+                assert!(
+                    p.modes.windows(2).all(|w| w[0].k_c <= w[1].k_c),
+                    "port modes not ascending"
+                );
+                let keep = p.modes.iter().filter(|m| m.k_c < k_top).count().max(1);
+                assert!(
+                    keep < p.modes.len() || p.modes.len() == 1,
+                    "every computed port mode is below k_top {k_top}: compute more"
+                );
+                p.modes.truncate(keep);
+                p
+            })
+            .collect();
+        let mut chan = Vec::new();
+        let mut flux = Vec::new();
+        for (pi, (port, faces)) in ports.iter().zip(port_faces).enumerate() {
+            let trips: Vec<(usize, usize, f64)> = match order {
+                ElementOrder::P1 => geode_core::assembly::surface::assemble_surface_mass_triplets(
+                    mesh,
+                    faces,
+                    space.edges(),
+                ),
+                ElementOrder::P2 => {
+                    assemble_p2_surface_mass_triplets(&space, mesh, faces).expect("S_p")
+                }
+            };
+            for (mi, m) in port.modes.iter().enumerate() {
+                let mut f = vec![0.0; space.n_dofs()];
+                for &(r, c, v) in &trips {
+                    f[r] += v * m.mode[c];
+                }
+                chan.push((pi, mi));
+                flux.push(f);
+            }
+        }
+        let flux_int = flux
+            .iter()
+            .map(|f| {
+                f.iter()
+                    .zip(&mask)
+                    .filter_map(|(&v, &keep)| keep.then_some(c64::new(v, 0.0)))
+                    .collect()
+            })
+            .collect();
+        let eps = vec![one(); mesh.n_tets()];
+        let zero_source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let op = DrivenOperator::assemble_with_space::<B>(
+            &space,
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            &[],
+            &[],
+            DrivenSource::Constant(&zero_source),
+            &device(),
+        )
+        .expect("driven operator");
+        let rule = geode_core::elements::nedelec_p2::tet_quad_deg4();
+        let mut unit = vec![c64::new(0.0, 0.0); space.n_dofs()];
+        let local = (0..mesh.n_tets())
+            .map(|t| {
+                let dofs: Vec<usize> = space.tet_dofs(t).iter().map(|&d| d as usize).collect();
+                let n = dofs.len();
+                let vol = tet_volume(mesh, t);
+                let (mut mz, mut mf) = (vec![0.0; n * n], vec![0.0; n * n]);
+                for &(bary, w) in &rule {
+                    let phi: Vec<[f64; 3]> = dofs
+                        .iter()
+                        .map(|&d| {
+                            unit[d] = one();
+                            let e = space.field_at(mesh, t, bary, &unit);
+                            unit[d] = c64::new(0.0, 0.0);
+                            e.map(|z| z.re)
+                        })
+                        .collect();
+                    for i in 0..n {
+                        for j in 0..n {
+                            let (p, q) = (phi[i], phi[j]);
+                            mz[i * n + j] += vol * w * p[2] * q[2];
+                            mf[i * n + j] += vol * w * (p[0] * q[0] + p[1] * q[1] + p[2] * q[2]);
+                        }
+                    }
+                }
+                (dofs, mz, mf)
+            })
+            .collect();
+        Self {
+            mesh,
+            space,
+            op,
+            mask,
+            ports,
+            chan,
+            flux,
+            flux_int,
+            local,
+            reference: None,
+        }
+    }
+
+    /// The probe with the response projected on `field` (full length).
+    fn with_reference(mut self, field: Vec<c64>) -> Self {
+        assert_eq!(field.len(), self.space.n_dofs());
+        self.reference = Some(field);
+        self
+    }
+
+    /// The cutoff of TE₁₀ at port 1.
+    fn te10_k_c(&self) -> f64 {
+        self.ports[0].modes[0].k_c
+    }
+
+    /// Every port mode's cutoff (port 1).
+    fn cutoffs(&self) -> Vec<f64> {
+        self.ports[0].modes.iter().map(|m| m.k_c).collect()
+    }
+
+    /// `(∫|E_z|², ∫|E|²)` and, with `phi`, `⟨φ, E⟩` and `⟨φ, φ⟩`.
+    fn energies(&self, x: &[c64], phi: Option<&[c64]>) -> (f64, f64, c64, f64) {
+        let (mut ez, mut all, mut pe, mut pp) = (0.0, 0.0, c64::new(0.0, 0.0), 0.0);
+        for (dofs, mz, mf) in &self.local {
+            let n = dofs.len();
+            for i in 0..n {
+                let xi = x[dofs[i]];
+                for j in 0..n {
+                    let xj = x[dofs[j]];
+                    let c = (xi.conj() * xj).re;
+                    ez += mz[i * n + j] * c;
+                    all += mf[i * n + j] * c;
+                    if let Some(phi) = phi {
+                        pe += xj * (phi[dofs[i]].re * mf[i * n + j]);
+                        pp += phi[dofs[i]].re * phi[dofs[j]].re * mf[i * n + j];
+                    }
+                }
+            }
+        }
+        (ez, all, pe, pp)
+    }
+
+    /// The TE₁₀ excitation of port 1 at `k`: the full-length field and the
+    /// S column.
+    fn field(&self, k: f64) -> (Vec<c64>, Vec<c64>) {
+        let zero = c64::new(0.0, 0.0);
+        let solver = self
+            .op
+            .prepare_at::<B>(k, SolverMode::Direct, &device())
+            .expect("factor");
+        let n_int = self.op.n_interior();
+        let nw = self.chan.len();
+        let ys: Vec<c64> = self
+            .chan
+            .iter()
+            .map(|&(p, m)| self.ports[p].admittance(m, k))
+            .collect();
+        assert!(
+            ys.iter().all(|y| y.norm() > 0.0),
+            "k = {k} at a port cutoff"
+        );
+        let back = |b: &[c64]| {
+            let mut x = vec![zero; n_int];
+            solver.back_solve(b, &mut x).expect("back-solve");
+            x
+        };
+        let dot = |u: &[c64], v: &[c64]| u.iter().zip(v).fold(zero, |s, (&p, &q)| s + p * q);
+        let ainv_u: Vec<Vec<c64>> = self.flux_int.iter().map(|f| back(f)).collect();
+        let mut cap = vec![zero; nw * nw];
+        for i in 0..nw {
+            for j in 0..nw {
+                cap[i * nw + j] = dot(&self.flux_int[i], &ainv_u[j]);
+            }
+            cap[i * nw + i] += c64::new(0.0, -1.0) / ys[i];
+        }
+        let drive = c64::new(0.0, 2.0) * ys[0];
+        let b: Vec<c64> = self.flux_int[0].iter().map(|&f| f * drive).collect();
+        let mut x = back(&b);
+        let rhs: Vec<c64> = self.flux_int.iter().map(|f| dot(f, &x)).collect();
+        let z = solve_small_complex(cap, rhs, nw);
+        for (u, &zi) in ainv_u.iter().zip(&z) {
+            for (xr, &ur) in x.iter_mut().zip(u) {
+                *xr -= ur * zi;
+            }
+        }
+        let mut full = vec![zero; self.space.n_dofs()];
+        let mut it = x.iter();
+        for (e, &keep) in full.iter_mut().zip(&self.mask) {
+            if keep {
+                *e = *it.next().expect("interior count");
+            }
+        }
+        let w0 = ys[0].sqrt();
+        let s = self
+            .flux
+            .iter()
+            .enumerate()
+            .map(|(q, f)| {
+                let a = f.iter().zip(&full).fold(zero, |s, (&f, &e)| s + e * f);
+                let a = if q == 0 { a - one() } else { a };
+                a * ys[q].sqrt() / w0
+            })
+            .collect();
+        (full, s)
+    }
+
+    /// [`Self::field`] reduced to a [`ProbePoint`].
+    fn solve(&self, k: f64) -> ProbePoint {
+        let (x, s) = self.field(k);
+        let (ez, all, pe, pp) = self.energies(&x, self.reference.as_deref());
+        let s21 = s[self.ports[0].modes.len()];
+        ProbePoint {
+            k,
+            s11: s[0],
+            s21,
+            share: ez / all,
+            proj: if self.reference.is_some() {
+                pe.norm_sqr() / (pp * all)
+            } else {
+                f64::NAN
+            },
+        }
+    }
+
+    /// The library's S column of the TE₁₀ excitation at `k`
+    /// ([`wave_sweep`]).
+    fn library_column(&self, k: f64) -> Vec<c64> {
+        let eps = vec![one(); self.mesh.n_tets()];
+        let pt = wave_sweep(&self.space, self.mesh, &eps, &self.mask, &self.ports, &[k]).remove(0);
+        (0..pt.n_channels)
+            .map(|r| pt.s[r * pt.n_channels])
+            .collect()
+    }
+}
+
+/// `x` with `a x = b` for a small dense complex `n × n` `a` (row-major), by
+/// Gaussian elimination with partial pivoting.
+fn solve_small_complex(mut a: Vec<c64>, mut b: Vec<c64>, n: usize) -> Vec<c64> {
+    for c in 0..n {
+        let p = (c..n)
+            .max_by(|&i, &j| a[i * n + c].norm().total_cmp(&a[j * n + c].norm()))
+            .expect("row");
+        assert!(a[p * n + c].norm() > 0.0, "singular SMW capacitance matrix");
+        if p != c {
+            for j in 0..n {
+                a.swap(c * n + j, p * n + j);
+            }
+            b.swap(c, p);
+        }
+        for r in c + 1..n {
+            let f = a[r * n + c] / a[c * n + c];
+            for j in c..n {
+                let v = a[c * n + j];
+                a[r * n + j] -= f * v;
+            }
+            let v = b[c];
+            b[r] -= f * v;
+        }
+    }
+    let mut x = vec![c64::new(0.0, 0.0); n];
+    for r in (0..n).rev() {
+        let s = (r + 1..n).fold(b[r], |s, j| s - a[r * n + j] * x[j]);
+        x[r] = s / a[r * n + r];
+    }
+    x
+}
+
+/// The sliding baseline of the driven `E_z` share: at each scan point, the
+/// median of the share over a window symmetric about it, `± bracket/2`
+/// (relative), shortened near the ends of the scan to stay symmetric but
+/// never below `± 20` points. A TE₁₀ response on a coarse mesh carries some
+/// `E_z`, which varies smoothly with `k`; the median of a symmetric window
+/// follows a linear trend without bias and ignores a resonance narrower
+/// than half the window.
+fn excitation_baseline(pts: &[ProbePoint], bracket: f64) -> Vec<f64> {
+    let n = pts.len();
+    let half = (1.0 + 0.5 * bracket).ln();
+    pts.iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let reach = half
+                .min((p.k / pts[0].k).ln())
+                .min((pts[n - 1].k / p.k).ln());
+            let lo_i = i.saturating_sub(20);
+            let hi_i = (i + 20).min(n - 1);
+            let mut w: Vec<f64> = pts
+                .iter()
+                .enumerate()
+                .filter(|(j, q)| (q.k / p.k).ln().abs() <= reach || (*j >= lo_i && *j <= hi_i))
+                .map(|(_, q)| q.share)
+                .collect();
+            w.sort_by(f64::total_cmp);
+            w[w.len() / 2]
+        })
+        .collect()
+}
+
+/// The residual of `S₁₁` and `S₂₁` against a local cubic: at each eligible
+/// point (TE₁₀ propagating, no port-mode cutoff within
+/// [`EXCITATION_CUTOFF_GAP`]), the larger of `|S − fit|` for the
+/// least-squares cubic in `k` (real and imaginary parts) over the
+/// [`EXCITATION_FIT_POINTS`] contiguous eligible points around it. `NaN`
+/// where ineligible or in a run shorter than the fit.
+fn s_residual(pts: &[ProbePoint], cutoffs: &[f64]) -> Vec<f64> {
+    let ok: Vec<bool> = pts
+        .iter()
+        .map(|p| {
+            p.k > cutoffs[0] * (1.0 + EXCITATION_CUTOFF_GAP)
+                && cutoffs
+                    .iter()
+                    .all(|&c| (p.k / c - 1.0).abs() > EXCITATION_CUTOFF_GAP)
+        })
+        .collect();
+    let mut out = vec![f64::NAN; pts.len()];
+    let mut i = 0;
+    while i < pts.len() {
+        if !ok[i] {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < pts.len() && ok[i] {
+            i += 1;
+        }
+        let end = i;
+        let m = EXCITATION_FIT_POINTS;
+        if end - start < m {
+            continue;
+        }
+        for c in start..end {
+            let s = c.saturating_sub(m / 2).clamp(start, end - m);
+            let k0 = pts[c].k;
+            let fit_at_c = |val: &dyn Fn(&ProbePoint) -> f64| {
+                // Normal equations of the cubic in u = k/k0 − 1.
+                let mut ata = [[0.0_f64; 4]; 4];
+                let mut atb = [0.0_f64; 4];
+                for p in &pts[s..s + m] {
+                    let u = p.k / k0 - 1.0;
+                    let row = [1.0, u, u * u, u * u * u];
+                    for r in 0..4 {
+                        for q in 0..4 {
+                            ata[r][q] += row[r] * row[q];
+                        }
+                        atb[r] += row[r] * val(p);
+                    }
+                }
+                let a: Vec<c64> = ata.iter().flatten().map(|&v| c64::new(v, 0.0)).collect();
+                let b: Vec<c64> = atb.iter().map(|&v| c64::new(v, 0.0)).collect();
+                solve_small_complex(a, b, 4)[0].re
+            };
+            let mut worst = 0.0_f64;
+            for get in [
+                (|p: &ProbePoint| p.s11) as fn(&ProbePoint) -> c64,
+                |p: &ProbePoint| p.s21,
+            ] {
+                let re = fit_at_c(&|p| get(p).re);
+                let im = fit_at_c(&|p| get(p).im);
+                worst = worst.max((get(&pts[c]) - c64::new(re, im)).norm());
+            }
+            out[c] = worst;
+        }
+    }
+    out
+}
+
+/// A driven resonance the zoom found.
+#[derive(Debug, Clone, Copy)]
+struct Resonance {
+    /// The zoomed peak of the driven `E_z` share.
+    peak: ProbePoint,
+    /// Its excess over the baseline at the nearest scan point.
+    excess: f64,
+    /// Relative width of the band where the excess share exceeds
+    /// [`EXCITATION_EZ_EXCESS`] (bisected on both sides); `clipped` if it
+    /// reaches an end of the scan.
+    width: f64,
+    clipped: bool,
+}
+
+/// The uniform scan of a [`DrivenProbe`] over `[lo, hi]`, its baseline and S
+/// residual, and the zoomed resonances.
+struct ExcitationScan {
+    pts: Vec<ProbePoint>,
+    base: Vec<f64>,
+    ds: Vec<f64>,
+    resonances: Vec<Resonance>,
+}
+
+impl ExcitationScan {
+    /// `zoom = false` skips the zoom (the cheap tier's broad control).
+    fn run(
+        probe: &DrivenProbe,
+        lo: f64,
+        hi: f64,
+        step: f64,
+        seeds_near: &[f64],
+        zoom: bool,
+    ) -> Self {
+        let mut ks = vec![lo];
+        while *ks.last().unwrap() < hi {
+            let k = ks.last().unwrap() * (1.0 + step);
+            ks.push(k);
+        }
+        // Never solve on a port cutoff (zero admittance).
+        let cut = probe.cutoffs();
+        for k in &mut ks {
+            if cut.iter().any(|&c| (*k / c - 1.0).abs() < 1e-9) {
+                *k *= 1.0 + 1e-8;
+            }
+        }
+        let pts: Vec<ProbePoint> = ks.iter().map(|&k| probe.solve(k)).collect();
+        let base = excitation_baseline(&pts, EXCITATION_BRACKET);
+        let ds = s_residual(&pts, &cut);
+        let excess = |i: usize| pts[i].share - base[i];
+        // Seeds: the largest local maxima of the excess share, and the scan
+        // points nearest the given `k`s.
+        let n = pts.len();
+        let mut maxima: Vec<usize> = (1..n.saturating_sub(1))
+            .filter(|&i| excess(i) >= excess(i - 1) && excess(i) >= excess(i + 1))
+            .collect();
+        maxima.sort_by(|&i, &j| excess(j).total_cmp(&excess(i)));
+        maxima.truncate(if zoom { EXCITATION_ZOOM_SEEDS } else { 0 });
+        for &k in seeds_near.iter().filter(|_| zoom) {
+            if let Some(i) = (1..n.saturating_sub(1))
+                .min_by(|&i, &j| (pts[i].k - k).abs().total_cmp(&(pts[j].k - k).abs()))
+                && !maxima.contains(&i)
+            {
+                maxima.push(i);
+            }
+        }
+        let nearest = |k: f64| {
+            (0..n)
+                .min_by(|&i, &j| (pts[i].k - k).abs().total_cmp(&(pts[j].k - k).abs()))
+                .expect("scan")
+        };
+        let mut resonances: Vec<Resonance> = Vec::new();
+        for i in maxima {
+            let peak = golden_max(probe, pts[i - 1].k, pts[i + 1].k);
+            let ex = peak.share - base[nearest(peak.k)];
+            if ex <= EXCITATION_EZ_EXCESS {
+                continue;
+            }
+            if resonances
+                .iter()
+                .any(|r| (r.peak.k / peak.k - 1.0).abs() < 1e-9)
+            {
+                continue;
+            }
+            // Width at the excess threshold: walk out along the scan to the
+            // first point below it, then bisect.
+            let level = |p: &ProbePoint| p.share - base[nearest(p.k)] - EXCITATION_EZ_EXCESS;
+            let mut edges = [0.0; 2];
+            let mut clipped = false;
+            for (side, dir) in [(0usize, -1i64), (1, 1)] {
+                let i0 = nearest(peak.k) as i64;
+                let mut j = i0;
+                while j >= 0 && (j as usize) < n && level(&pts[j as usize]) > 0.0 {
+                    j += dir;
+                }
+                if j < 0 || j as usize >= n {
+                    clipped = true;
+                    edges[side] = pts[if j < 0 { 0 } else { n - 1 }].k;
+                    continue;
+                }
+                let (mut inside, mut outside) = (peak.k, pts[j as usize].k);
+                for _ in 0..60 {
+                    if (inside / outside - 1.0).abs() < 1e-13 {
+                        break;
+                    }
+                    let mid = 0.5 * (inside + outside);
+                    if level(&probe.solve(mid)) > 0.0 {
+                        inside = mid;
+                    } else {
+                        outside = mid;
+                    }
+                }
+                edges[side] = 0.5 * (inside + outside);
+            }
+            resonances.push(Resonance {
+                peak,
+                excess: ex,
+                width: (edges[1] - edges[0]) / peak.k,
+                clipped,
+            });
+        }
+        resonances.sort_by(|p, q| p.peak.k.total_cmp(&q.peak.k));
+        Self {
+            pts,
+            base,
+            ds,
+            resonances,
+        }
+    }
+
+    /// The scan points in `[lo, hi]`.
+    fn idx(&self, lo: f64, hi: f64) -> impl Iterator<Item = usize> + '_ {
+        (0..self.pts.len()).filter(move |&i| self.pts[i].k >= lo && self.pts[i].k <= hi)
+    }
+
+    /// The largest excess share, S residual and raw share on the scan in
+    /// `[lo, hi]` (`NaN` S residual where none is eligible).
+    fn maxima(&self, lo: f64, hi: f64) -> (f64, f64, f64) {
+        let (mut ex, mut ds, mut sh) = (f64::NEG_INFINITY, f64::NAN, 0.0_f64);
+        for i in self.idx(lo, hi) {
+            ex = ex.max(self.pts[i].share - self.base[i]);
+            sh = sh.max(self.pts[i].share);
+            if self.ds[i].is_finite() {
+                ds = if ds.is_nan() {
+                    self.ds[i]
+                } else {
+                    ds.max(self.ds[i])
+                };
+            }
+        }
+        (ex, ds, sh)
+    }
+
+    /// The zoomed resonances in `[lo, hi]`.
+    fn resonances_in(&self, lo: f64, hi: f64) -> Vec<Resonance> {
+        self.resonances
+            .iter()
+            .copied()
+            .filter(|r| r.peak.k >= lo && r.peak.k <= hi)
+            .collect()
+    }
+
+    /// The largest projection on the reference mode on the scan in
+    /// `[lo, hi]`.
+    fn max_projection(&self, lo: f64, hi: f64) -> f64 {
+        self.idx(lo, hi)
+            .map(|i| self.pts[i].proj)
+            .fold(0.0_f64, f64::max)
+    }
+
+    /// The verdict over `[lo, hi]` ([`Excitation`]).
+    fn verdict(&self, lo: f64, hi: f64) -> Excitation {
+        match self.verdict_prereg(lo, hi) {
+            Excitation::Excited => Excitation::Excited,
+            _ if self.max_projection(lo, hi) > EXCITATION_PROJECTION => Excitation::Excited,
+            v => v,
+        }
+    }
+
+    /// The verdict by the rule fixed before the run: without
+    /// [`EXCITATION_PROJECTION`].
+    fn verdict_prereg(&self, lo: f64, hi: f64) -> Excitation {
+        let (ex, ds, _) = self.maxima(lo, hi);
+        if ex > EXCITATION_EZ_EXCESS || ds > EXCITATION_DS {
+            Excitation::Excited
+        } else if !self.resonances_in(lo, hi).is_empty() {
+            Excitation::Weak
+        } else {
+            Excitation::NotExcited
+        }
+    }
+}
+
+/// Golden-section maximum of the driven `E_z` share of `probe` on
+/// `[lo, hi]`, down to [`EXCITATION_ZOOM_FLOOR`].
+fn golden_max(probe: &DrivenProbe, lo: f64, hi: f64) -> ProbePoint {
+    let g = 0.5 * (5.0_f64.sqrt() - 1.0);
+    let (mut a, mut b) = (lo, hi);
+    let mut c = probe.solve(b - g * (b - a));
+    let mut d = probe.solve(a + g * (b - a));
+    while (b - a) > EXCITATION_ZOOM_FLOOR * a {
+        if c.share > d.share {
+            b = d.k;
+            d = c;
+            c = probe.solve(b - g * (b - a));
+        } else {
+            a = c.k;
+            c = d;
+            d = probe.solve(a + g * (b - a));
+        }
+    }
+    if c.share > d.share { c } else { d }
+}
+
+/// The boundary faces of a guide meshed over `z ∈ [0, d]`: the `z = 0`
+/// face, the `z = d` face and the walls (every other boundary face).
+fn guide_faces(mesh: &TetMesh, d: f64) -> [Vec<[u32; 3]>; 3] {
+    let at = |f: &[u32; 3], z: f64| {
+        f.iter()
+            .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
+    };
+    let mut out: [Vec<[u32; 3]>; 3] = Default::default();
+    for f in mesh.boundary_faces() {
+        let i = if at(&f, 0.0) {
+            0
+        } else if at(&f, d) {
+            1
+        } else {
+            2
+        };
+        out[i].push(f);
+    }
+    out
+}
+
+/// A structured `a × b × length` guide that is exactly mirror-symmetric in
+/// `y = b/2`: the `nx × ny_half × nz` extruded guide over `[0, b/2]` and its
+/// mirror image, sharing the nodes on the mirror plane. A TE₁₀ field is odd
+/// under that mirror and a TM₁₁-like field even, so the discrete operator
+/// cannot couple them (issue #1032, the symmetry-forbidden control).
+fn y_mirrored_guide(nx: usize, ny_half: usize, nz: usize, a: f64, b: f64, length: f64) -> TetMesh {
+    let half = extruded_rect_waveguide_mesh(nx, ny_half, nz, a, 0.5 * b, length).mesh;
+    let mut nodes = half.nodes.clone();
+    let map: Vec<u32> = half
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            if (p[1] - 0.5 * b).abs() < 1e-12 {
+                i as u32
+            } else {
+                nodes.push([p[0], b - p[1], p[2]]);
+                (nodes.len() - 1) as u32
+            }
+        })
+        .collect();
+    let mut tets = half.tets.clone();
+    for t in &half.tets {
+        // The mirror reverses orientation: swap two vertices back.
+        tets.push([
+            map[t[1] as usize],
+            map[t[0] as usize],
+            map[t[2] as usize],
+            map[t[3] as usize],
+        ]);
+    }
+    TetMesh {
+        nodes,
+        tets,
+        physical_groups: half.physical_groups.clone(),
+    }
+}
+
+/// One probed case of issue #1032.
+struct ExcitationCase<'m> {
+    label: String,
+    order: ElementOrder,
+    mesh: &'m TetMesh,
+    ports: [Vec<[u32; 3]>; 2],
+    walls: Vec<[u32; 3]>,
+    /// The reference mode (the box's lowest TM-like mode) and its field.
+    reference: BoxMode,
+    field: Vec<c64>,
+    /// `(guard name, guard k, whether it is at or above the reference)`.
+    guards: Vec<(&'static str, f64, bool)>,
+}
+
+/// What [`probe_case`] measured.
+struct ExcitationResult {
+    te10_k_c: f64,
+    n_port_modes: usize,
+    lo: f64,
+    hi: f64,
+    scan: ExcitationScan,
+    bracket: (f64, f64),
+    /// The largest `|S|` difference between the probe and the library
+    /// sweep at three checkpoints.
+    xcheck: f64,
+}
+
+/// Scan `case` over its bracket and every missing guard's band
+/// `[k_ref·(1 − bracket), guard]` at relative step `step`.
+fn probe_case(case: &ExcitationCase, step: f64, zoom: bool) -> ExcitationResult {
+    let k_ref = case.reference.k;
+    let bracket = (
+        k_ref * (1.0 - EXCITATION_BRACKET),
+        k_ref * (1.0 + EXCITATION_BRACKET),
+    );
+    let hi = case
+        .guards
+        .iter()
+        .filter(|g| g.2)
+        .map(|g| g.1)
+        .fold(bracket.1, f64::max);
+    let lo = bracket.0;
+    let probe = DrivenProbe::new(
+        case.mesh,
+        case.order,
+        [&case.ports[0], &case.ports[1]],
+        &case.walls,
+        hi,
+    )
+    .with_reference(case.field.clone());
+    let mut xcheck = 0.0_f64;
+    for k in [lo, k_ref, hi] {
+        let k = if probe.cutoffs().iter().any(|&c| (k / c - 1.0).abs() < 1e-6) {
+            k * (1.0 + 1e-5)
+        } else {
+            k
+        };
+        let (_, mine) = probe.field(k);
+        let lib = probe.library_column(k);
+        for (p, q) in mine.iter().zip(&lib) {
+            xcheck = xcheck.max((p - q).norm());
+        }
+    }
+    let scan = ExcitationScan::run(&probe, lo, hi, step, &[k_ref], zoom);
+    ExcitationResult {
+        te10_k_c: probe.te10_k_c(),
+        n_port_modes: probe.ports[0].modes.len(),
+        lo,
+        hi,
+        scan,
+        bracket,
+        xcheck,
+    }
+}
+
+/// The mode of the all-PEC box `mesh` at `order` (window `n_modes`) whose
+/// `k` is `k` (to `1e-8`, relative), as a full-length field.
+fn box_mode_field(
+    mesh: &TetMesh,
+    order: ElementOrder,
+    a: f64,
+    b: f64,
+    n_modes: usize,
+    k: f64,
+) -> Vec<c64> {
+    let (_, _, modes) = box_eigenmodes(mesh, order, a, b, n_modes);
+    modes
+        .into_iter()
+        .find(|(k0, _)| (k0 / k - 1.0).abs() < 1e-8)
+        .unwrap_or_else(|| panic!("no box mode at k = {k}"))
+        .1
+}
+
+/// The two structured controls of issue #1032 at `order`:
+///
+/// - **symmetry-forbidden:** the `y`-mirror-symmetric `2 × 1 × 2` guide
+///   ([`y_mirrored_guide`], `6 × 2 × 3` hexes). Its lowest TM-like box
+///   mode is TM₁₁₀-like, even under the mirror; TE₁₀ is odd.
+/// - **known excited:** the E-plane height step of
+///   `te_only_ports_above_tm11_give_length_dependent_s` (`2 × 1.2` into
+///   `2 × 0.6`, both sections 1 long, `h = 0.2`), which
+///   converts TE₁₀ into the `m = 1` family, TM₁₁ included.
+///
+/// Returns each case's mesh, ports, walls, reference mode and its field;
+/// the height step only with `step`.
+#[allow(clippy::type_complexity)]
+fn excitation_controls(
+    order: ElementOrder,
+    step: bool,
+) -> Vec<(
+    &'static str,
+    f64,
+    TetMesh,
+    [Vec<[u32; 3]>; 2],
+    Vec<[u32; 3]>,
+    BoxMode,
+    Vec<c64>,
+)> {
+    let mut out = Vec::new();
+    let sym = y_mirrored_guide(6, 1, 3, 2.0, 1.0, 2.0);
+    let [p1, p2, walls] = guide_faces(&sym, 2.0);
+    let w = box_mode_window(&sym, order, 2.0, 1.0, 24, f64::INFINITY);
+    let m = w.tm_like().expect("TM-like mode of the symmetric guide");
+    let field = box_mode_field(&sym, order, 2.0, 1.0, 24, m.k);
+    out.push(("control_symmetric", 2.0, sym, [p1, p2], walls, m, field));
+    if !step {
+        return out;
+    }
+    let g = extruded_height_step_waveguide_mesh(10, 6, 3, 5, 5, 2.0, 1.2, 0.6, 1.0, 1.0);
+    let w = box_mode_window(&g.mesh, order, 2.0, 1.2, 24, f64::INFINITY);
+    let m = w.tm_like().expect("TM-like mode of the height step");
+    let field = box_mode_field(&g.mesh, order, 2.0, 1.2, 24, m.k);
+    out.push((
+        "control_step",
+        2.0,
+        g.mesh,
+        [g.port1_faces, g.port2_faces],
+        g.sidewall_faces,
+        m,
+        field,
+    ));
+    out
+}
+
+/// **Issue #1032, the cheap tier.** The probe of the excitation table
+/// reproduces the library's wave-port S, and its two structured controls
+/// come out as they must:
+///
+/// - the symmetry-forbidden TM₁₁₀-like mode of a mirror-symmetric guide is
+///   **not excited** at p=1 and p=2 (the excess `E_z` share stays at
+///   rounding level over the `± 5 %` bracket and at every zoomed peak);
+/// - the TM-like mode of an E-plane height step is **excited** at p=1 (the
+///   step converts TE₁₀ into TM₁₁ across the bracket; the driven field's
+///   projection on the mode is about 0.24, above [`EXCITATION_PROJECTION`]).
+///
+/// The scan here is coarser than the table's (`2e-3`); the verdict rules
+/// are the same ([`Excitation`]).
+#[test]
+fn excitation_probe_matches_the_library_sweep() {
+    for order in ORDERS {
+        for (kind, _a, mesh, ports, walls, reference, field) in
+            excitation_controls(order, order == ElementOrder::P1)
+        {
+            let case = ExcitationCase {
+                label: kind.to_string(),
+                order,
+                mesh: &mesh,
+                ports,
+                walls,
+                reference,
+                field,
+                guards: Vec::new(),
+            };
+            let t0 = std::time::Instant::now();
+            let r = probe_case(&case, 2e-3, kind == "control_symmetric");
+            let (lo, hi) = r.bracket;
+            let (ex, ds, sh) = r.scan.maxima(lo, hi);
+            let v = r.scan.verdict(lo, hi);
+            eprintln!(
+                "{kind} at {order:?}: reference {:.4} (share {:.2}), TE10 k_c {:.4}, {} port \
+                 modes, {} points; max excess share {ex:.3e}, max S residual {ds:.3e}, peak \
+                 share {sh:.3e}, resonances {:?}; library cross-check {:.2e}; {v:?} ({:.1} s)",
+                reference.k,
+                reference.share_exact,
+                r.te10_k_c,
+                r.n_port_modes,
+                r.scan.pts.len(),
+                r.scan.resonances,
+                r.xcheck,
+                t0.elapsed().as_secs_f64(),
+            );
+            let proj = r.scan.pts.iter().map(|p| p.proj).fold(0.0_f64, f64::max);
+            eprintln!("    largest projection on the reference mode {proj:.3e}");
+            assert!(r.xcheck < 1e-9, "probe vs library S: {}", r.xcheck);
+            match kind {
+                "control_symmetric" => {
+                    assert_eq!(v, Excitation::NotExcited, "{kind} at {order:?}");
+                    assert!(proj < 1e-12, "{kind}: projection {proj}");
+                }
+                _ => {
+                    assert_eq!(v, Excitation::Excited, "{kind} at {order:?}");
+                    assert!(
+                        proj > 2.0 * EXCITATION_PROJECTION,
+                        "{kind}: projection {proj}"
+                    );
+                    assert!(sh > 0.1, "{kind}: peak share {sh}");
+                }
+            }
+        }
+    }
+}
+
+/// The largest change of `|S₁₁|` and `|S₂₁|` (TE₁₀ column) when the guide
+/// of `mesh` (`z ∈ [0, d]`) is re-meshed one grid step longer (`longer`,
+/// `z ∈ [0, d2]`), at 201 points over `[lo, hi]` where TE₁₀ propagates
+/// (the `te_only_ports_above_tm11_give_length_dependent_s` check). On a
+/// re-meshed Gmsh guide this includes the mesh-to-mesh discretization
+/// change; reported, not part of a verdict. `NaN` when TE₁₀ propagates at
+/// none of the points.
+#[allow(clippy::too_many_arguments)]
+fn length_change(
+    mesh: &TetMesh,
+    d: f64,
+    longer: &TetMesh,
+    d2: f64,
+    order: ElementOrder,
+    k_top: f64,
+    lo: f64,
+    hi: f64,
+) -> f64 {
+    fn probe(m: &TetMesh, d: f64, order: ElementOrder, k_top: f64) -> DrivenProbe<'_> {
+        let [p1, p2, walls] = guide_faces(m, d);
+        DrivenProbe::new(m, order, [&p1, &p2], &walls, k_top)
+    }
+    let a = probe(mesh, d, order, k_top);
+    let b = probe(longer, d2, order, k_top);
+    let (kc, cut) = (a.te10_k_c(), a.cutoffs());
+
+    let mut worst = f64::NAN;
+    for i in 0..=200 {
+        let k = lo * (hi / lo).powf(f64::from(i) / 200.0);
+        if k <= kc * (1.0 + EXCITATION_CUTOFF_GAP)
+            || cut
+                .iter()
+                .any(|&c| (k / c - 1.0).abs() < EXCITATION_CUTOFF_GAP)
+        {
+            continue;
+        }
+        let (p, q) = (a.solve(k), b.solve(k));
+        let change = (p.s11.norm() - q.s11.norm())
+            .abs()
+            .max((p.s21.norm() - q.s21.norm()).abs());
+        worst = if worst.is_nan() {
+            change
+        } else {
+            worst.max(change)
+        };
+    }
+    worst
+}
+
+/// One row of the long-guide table (`benchmarks/tm_guard_955/
+/// long_guide_table.toml`) as the excitation table reads it: the guide, and
+/// per guard its value and its committed verdict `(verdict, mode k)`.
+#[derive(Debug, Clone)]
+struct LongGuideRecord {
+    a: f64,
+    d: f64,
+    lc: f64,
+    /// `(name, guard, verdict, mode k)` for interim, option1, option3, p1.
+    guards: Vec<(&'static str, f64, String, f64)>,
+}
+
+/// The committed long-guide table's rows.
+fn long_guide_records() -> Vec<LongGuideRecord> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/tm_guard_955/long_guide_table.toml");
+    let doc: toml::Value = std::fs::read_to_string(&path)
+        .expect("long_guide_table.toml")
+        .parse()
+        .expect("TOML");
+    let num = |v: &toml::Value| {
+        v.as_float()
+            .or_else(|| v.as_integer().map(|i| i as f64))
+            .unwrap_or(f64::NAN)
+    };
+    doc["data"]["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|r| {
+            let g = |name: &'static str, value: &str, verdict: &str| {
+                let v = r[verdict].as_array().expect("verdict");
+                (
+                    name,
+                    num(&r[value]),
+                    v[0].as_str().expect("verdict string").to_string(),
+                    num(&v[1]),
+                )
+            };
+            LongGuideRecord {
+                a: num(&r["a"]),
+                d: num(&r["d"]),
+                lc: num(&r["lc"]),
+                guards: vec![
+                    g("interim", "interim", "interim_verdict"),
+                    g("option1", "option1", "option1_verdict"),
+                    g("option3", "option3", "option3_verdict"),
+                    g("p1", "p1_guard", "p1_verdict"),
+                ],
+            }
+        })
+        .collect()
+}
+
+/// The rows issue #1032 probes, from the committed long-guide table:
+/// `(record, order, kind)`.
+///
+/// - p=2: every row the interim law or option 1 misses (exact classifier),
+///   and a sample of 10 of the rows only option 3 misses (sorted by
+///   `(a, lc, d)`, every `n/10`-th);
+/// - p=1: every row the report-only p=1 guard misses;
+/// - controls (`non_miss`, p=2): on each of six guides, the first row at
+///   `d ≥ 8` that the interim law, option 1 and the p=1 guard all clear.
+fn excitation_rows() -> Vec<(LongGuideRecord, ElementOrder, &'static str)> {
+    let recs = long_guide_records();
+    assert_eq!(recs.len(), 216);
+    let misses =
+        |r: &LongGuideRecord, name: &str| r.guards.iter().any(|g| g.0 == name && g.2 == "Above");
+    let mut out = Vec::new();
+    let mut only3 = Vec::new();
+    for r in &recs {
+        if misses(r, "interim") || misses(r, "option1") {
+            out.push((r.clone(), ElementOrder::P2, "miss"));
+        } else if misses(r, "option3") {
+            only3.push(r.clone());
+        }
+    }
+    only3.sort_by(|p, q| {
+        (p.a, p.lc, p.d)
+            .partial_cmp(&(q.a, q.lc, q.d))
+            .expect("finite")
+    });
+    let n = only3.len();
+    for i in 0..10 {
+        out.push((only3[i * n / 10].clone(), ElementOrder::P2, "miss"));
+    }
+    for r in &recs {
+        if misses(r, "p1") {
+            out.push((r.clone(), ElementOrder::P1, "miss"));
+        }
+    }
+    for (a, lc) in [
+        (1.5, 0.8),
+        (2.0, 0.9),
+        (2.3, 0.9),
+        (3.0, 0.9),
+        (2.0, 0.7),
+        (2.0, 0.5),
+    ] {
+        let r = recs
+            .iter()
+            .find(|r| {
+                r.a == a
+                    && r.lc == lc
+                    && r.d >= 8.0
+                    && !misses(r, "interim")
+                    && !misses(r, "option1")
+                    && !misses(r, "p1")
+            })
+            .unwrap_or_else(|| panic!("no non-miss row on {a}×1, lc {lc}"));
+        out.push((r.clone(), ElementOrder::P2, "non_miss"));
+    }
+    out
+}
+
+/// **Issue #1032: does a TE₁₀ drive excite the TM-like box modes the guards
+/// miss on long guides?** The long-guide table
+/// ([`tm_guard_p2_long_guide_table`]) finds, by the exact classifier, the
+/// interim law at or above the box's lowest TM-like mode on 3 rows, option
+/// 1 (reproduced) on 21, option 3 used directly on 173, and the report-only
+/// p=1 guard on 12 (with Gmsh 4.15.2). Under "guard below every TM-like box
+/// mode" each is a miss whether or not a TE₁₀ drive couples to the mode.
+/// This table measures the coupling.
+///
+/// Rows ([`excitation_rows`]): every interim and option-1 miss and a sample
+/// of 10 option-3-only misses at p=2, every p=1 miss at p=1, and six
+/// non-miss rows of the same guides; plus the two structured controls of
+/// [`excitation_probe_matches_the_library_sweep`] (symmetry-forbidden at
+/// p=1 and p=2, known excited at p=1). Each Gmsh row is re-meshed, its
+/// guards and their verdicts recomputed and checked against the committed
+/// long-guide table, and its reference mode (the box's lowest TM-like
+/// mode, exact share) re-solved for its field.
+///
+/// The probe ([`DrivenProbe`]): wave ports on both end faces carrying every
+/// TE face mode below the top of the scan, the rest of the boundary PEC,
+/// TE₁₀ driven at port 1. It reproduces the library sweep's S (checked at
+/// three points per row). The scan runs over `k_ref·(1 − 5 %)` to the
+/// larger of `k_ref·(1 + 5 %)` and every missing guard, in relative steps of
+/// [`EXCITATION_SCAN_STEP`]: below the TE₁₀ cutoff the drive is the
+/// evanescent TE₁₀ (`β = −j·√(k_c² − k²)`). Per point it records `S₁₁`,
+/// `S₂₁`, the driven field's exact `E_z` share and its projection on the
+/// reference mode; then it zooms on the largest local maxima of the excess
+/// share ([`EXCITATION_ZOOM_SEEDS`], golden section to
+/// [`EXCITATION_ZOOM_FLOOR`]) and bisects each resonance's width.
+///
+/// Verdicts ([`Excitation`], thresholds fixed before the run): over the
+/// **bracket** `k_ref·(1 ± 5 %)` (does the drive excite the mode?) and over
+/// each missing guard's **band** `[k_ref·(1 − 5 %), guard]` (does a sweep
+/// the guard admits see TM-like content?). Each row also reports the
+/// length-extension check ([`length_change`], one grid step, 0.25,
+/// longer). Skipped (passes vacuously) without `gmsh` on `PATH`. With
+/// `GEODE_BLESS_955=1` the rows are written to
+/// `benchmarks/tm_guard_955/excitation_table.toml`.
+///
+/// **Departure from the pre-registered rule.** The known-excited height
+/// step failed the two narrow-feature criteria at the table's scan step
+/// (its TE₁₀ → TM₁₁ conversion spans the bracket, so the moving median
+/// rises with it). [`EXCITATION_PROJECTION`] was added after the run; it
+/// moves only that control's verdict. Both verdicts are in the artifact
+/// and pinned.
+///
+/// **Measured** (Gmsh 4.15.2, pinned; bracket as excited / weak / not):
+/// the interim law's 3 misses 3 / 0 / 0, option 1's 21 misses 20 / 1 / 0,
+/// option 3's 33 probed misses 32 / 1 / 0, the p=1 guard's 12 misses
+/// 11 / 0 / 1. Every sub-TE₁₀ p=1 mode (3) is excited by the evanescent
+/// drive, with the driven field over 98 % on the mode. The exceptions: one
+/// weak bracket (`1.5×1×7.5`, `lc` 0.75: a resonance on the reference mode
+/// whose width bisects below f64 resolution, so no sweep resolves it, and
+/// f64 cannot tell weak coupling from rounding at a bound mode); one p=1
+/// reference not excited (`3×1×6.5`, `lc` 0.9), though the band up to the
+/// p=1 guard above it is; and two option-3 bands with no response, where
+/// the guard is within 0.5 % of the mode and the driven resonance lies
+/// above the guard. All six non-miss rows are excited (their modes are
+/// above every guard but option 3's). The symmetric control's projection
+/// is at rounding level (1e-25), as the symmetry requires. Per row, the
+/// zoomed resonance with the largest projection on the reference mode lies
+/// within 1 % of the PEC-box `k_ref` on most rows (median +0.02 %; the open
+/// ports change the end condition), and its width at the 0.01 excess level
+/// is 1.5e-4 to 2.4e-2 of `k` (median 1e-2), apart from the weak row: wide
+/// enough for any ordinary sweep to land on.
+#[test]
+#[ignore = "heavy: about 50 dense driven scans (thousands of solves each) on Gmsh guides 5.5-12 deep; needs gmsh; GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored tm_guard_excitation_table --nocapture"]
+fn tm_guard_excitation_table() {
+    let version = match std::process::Command::new("gmsh").arg("--version").output() {
+        Ok(o) => {
+            let mut v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if v.is_empty() {
+                v = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            }
+            v
+        }
+        Err(_) => {
+            eprintln!("gmsh not on PATH: tm_guard_excitation_table skipped");
+            return;
+        }
+    };
+    let only = std::env::var("GEODE_1032_ONLY").ok();
+    let mut jobs = excitation_rows();
+    let counts = |kind: &str, order: ElementOrder| {
+        jobs.iter().filter(|j| j.2 == kind && j.1 == order).count()
+    };
+    assert_eq!(
+        [
+            counts("miss", ElementOrder::P2),
+            counts("miss", ElementOrder::P1),
+            counts("non_miss", ElementOrder::P2)
+        ],
+        [33, 12, 6],
+        "row set"
+    );
+    if let Some(o) = &only {
+        jobs.retain(|j| j.2 == o.as_str());
+    }
+
+    /// One measured Gmsh row.
+    struct Row {
+        rec: LongGuideRecord,
+        order: ElementOrder,
+        kind: &'static str,
+        reach: f64,
+        reference: BoxMode,
+        /// `(name, guard, recomputed verdict)` of the guards at this order.
+        guards: Vec<(&'static str, f64, LongGuideVerdict)>,
+        res: ExcitationResult,
+        length: f64,
+        seconds: f64,
+    }
+
+    let dir = std::env::temp_dir().join(format!("geode-1032-exc-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let threads = std::env::var("GEODE_1032_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map_or(4, |n| n.get() / 2)
+                .clamp(1, 12)
+        });
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let rows = std::sync::Mutex::new(Vec::<Row>::new());
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some((rec, order, kind)) = jobs.get(i).cloned() else {
+                        break;
+                    };
+                    let t0 = std::time::Instant::now();
+                    let (a, d, lc) = (rec.a, rec.d, rec.lc);
+                    let mesh = gmsh_guide_box(&dir, a, 1.0, d, lc, lc).expect("gmsh");
+                    let est = guard_estimate_at(&mesh, ElementOrder::P2);
+                    let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+                    let values: Vec<(&'static str, f64)> = match order {
+                        ElementOrder::P2 => {
+                            let c = computed_guards(&mesh);
+                            vec![
+                                ("interim", est.guard_k_c()),
+                                ("option1", c.opt1.guard),
+                                ("option3", c.direct(est.k_c())),
+                            ]
+                        }
+                        ElementOrder::P1 => vec![("p1", guard_estimate(&mesh).guard_k_c())],
+                    };
+                    let mut cache = WindowCache::new(&mesh, order, a, reach);
+                    let verdicts: Vec<(&'static str, f64, Verdict)> = values
+                        .iter()
+                        .map(|&(n, g)| {
+                            (
+                                n,
+                                g,
+                                long_guide_verdict(&mut cache, ShareClassifier::Exact, g),
+                            )
+                        })
+                        .collect();
+                    // Every guard's verdict names the same lowest TM-like
+                    // mode, from the smallest window that decides.
+                    let (_, _, (_, m, n_win, _)) = verdicts[0];
+                    let reference = m.expect("a TM-like box mode");
+                    for (name, _, (_, m, _, _)) in &verdicts {
+                        let k = m.expect("mode").k;
+                        assert!(
+                            (k / reference.k - 1.0).abs() < 1e-12,
+                            "{a}×1×{d} lc {lc}: {name} names mode {k}, not {}",
+                            reference.k
+                        );
+                    }
+                    let field = box_mode_field(&mesh, order, a, 1.0, n_win, reference.k);
+                    let [p1, p2, walls] = guide_faces(&mesh, d);
+                    let guards: Vec<(&'static str, f64, bool)> = verdicts
+                        .iter()
+                        .map(|(n, g, v)| (*n, *g, v.0 == LongGuideVerdict::Above))
+                        .collect();
+                    let case = ExcitationCase {
+                        label: format!("gmsh {a}×1×{d}, lc {lc}, {order:?}"),
+                        order,
+                        mesh: &mesh,
+                        ports: [p1, p2],
+                        walls,
+                        reference,
+                        field,
+                        guards,
+                    };
+                    let res = probe_case(&case, EXCITATION_SCAN_STEP, true);
+                    let longer = gmsh_guide_box(&dir, a, 1.0, d + 0.25, lc, lc).expect("gmsh");
+                    let length = length_change(
+                        &mesh,
+                        d,
+                        &longer,
+                        d + 0.25,
+                        order,
+                        res.hi,
+                        res.bracket.0,
+                        res.bracket.1,
+                    );
+                    let seconds = t0.elapsed().as_secs_f64();
+                    eprintln!(
+                        "EXC {}: {} points in {seconds:.0} s, bracket {:?}",
+                        case.label,
+                        res.scan.pts.len(),
+                        res.scan.verdict(res.bracket.0, res.bracket.1)
+                    );
+                    rows.lock().unwrap().push(Row {
+                        rec,
+                        order,
+                        kind,
+                        reach,
+                        reference,
+                        guards: verdicts.iter().map(|(n, g, v)| (*n, *g, v.0)).collect(),
+                        res,
+                        length,
+                        seconds,
+                    });
+                }
+            });
+        }
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut rows = rows.into_inner().unwrap();
+    rows.sort_by(|p, q| {
+        (
+            p.kind,
+            p.order == ElementOrder::P1,
+            p.rec.a,
+            p.rec.lc,
+            p.rec.d,
+        )
+            .partial_cmp(&(
+                q.kind,
+                q.order == ElementOrder::P1,
+                q.rec.a,
+                q.rec.lc,
+                q.rec.d,
+            ))
+            .expect("finite")
+    });
+    assert_eq!(rows.len(), jobs.len());
+    // The structured controls, at the table's scan step.
+    if only.is_none() || only.as_deref() == Some("control") {
+        for order in ORDERS {
+            for (kind, a, mesh, ports, walls, reference, field) in
+                excitation_controls(order, order == ElementOrder::P1)
+            {
+                let t0 = std::time::Instant::now();
+                let case = ExcitationCase {
+                    label: format!("{kind}, {order:?}"),
+                    order,
+                    mesh: &mesh,
+                    ports,
+                    walls,
+                    reference,
+                    field,
+                    guards: Vec::new(),
+                };
+                let res = probe_case(&case, EXCITATION_SCAN_STEP, true);
+                let length = mesh.nodes.iter().map(|p| p[2]).fold(0.0_f64, f64::max);
+                rows.push(Row {
+                    rec: LongGuideRecord {
+                        a,
+                        d: length,
+                        lc: f64::NAN,
+                        guards: Vec::new(),
+                    },
+                    order,
+                    kind,
+                    reach: f64::NAN,
+                    reference,
+                    guards: Vec::new(),
+                    res,
+                    length: f64::NAN,
+                    seconds: t0.elapsed().as_secs_f64(),
+                });
+            }
+        }
+    }
+
+    let vname = |v: Excitation| match v {
+        Excitation::Excited => "excited",
+        Excitation::Weak => "weak",
+        Excitation::NotExcited => "not_excited",
+    };
+    let label = |r: &Row| match r.kind {
+        "miss" | "non_miss" => format!(
+            "gmsh {}×1×{}, lc {}, {:?}",
+            r.rec.a, r.rec.d, r.rec.lc, r.order
+        ),
+        k => format!("{k}, {:?}", r.order),
+    };
+    let class = |r: &Row| {
+        let k = r.reference.k;
+        if k < r.res.te10_k_c {
+            "sub_te10"
+        } else if k < (2.0 * PI / r.rec.a).min(PI) {
+            "single_mode"
+        } else {
+            "multimode"
+        }
+    };
+    let bucket = |r: &Row| {
+        ["within", "straddling", "beyond"][reach_bucket(r.reference.ez_within_reach_exact)]
+    };
+    // The recomputed guards and verdicts against the committed long-guide
+    // table (another Gmsh version can mesh differently).
+    let mut mismatch = Vec::new();
+    for r in &rows {
+        for (name, g, v) in &r.guards {
+            let c = r.rec.guards.iter().find(|x| x.0 == *name).expect("guard");
+            let same_k = !c.3.is_finite() || (c.3 / r.reference.k - 1.0).abs() < 1e-6;
+            if format!("{v:?}") != c.2 || !same_k || (g / c.1 - 1.0).abs() > 1e-6 {
+                mismatch.push(format!(
+                    "{}: {name} {g:.6} {v:?} at {:.6} vs committed {:.6} {} at {:.6}",
+                    label(r),
+                    r.reference.k,
+                    c.1,
+                    c.2,
+                    c.3
+                ));
+            }
+        }
+    }
+    let f = |x: f64| {
+        if x.is_finite() {
+            format!("{x:.6e}")
+        } else {
+            "nan".into()
+        }
+    };
+    let res_list = |v: &[Resonance]| {
+        let items: Vec<String> = v
+            .iter()
+            .map(|r| {
+                format!(
+                    "[{}, {}, {}, {}, {}, {}]",
+                    f(r.peak.k),
+                    f(r.peak.share),
+                    f(r.excess),
+                    f(r.peak.proj),
+                    f(r.width),
+                    r.clipped
+                )
+            })
+            .collect();
+        format!("[{}]", items.join(", "))
+    };
+    let mut toml_rows = Vec::new();
+    for r in &rows {
+        let (lo, hi) = r.res.bracket;
+        let scan = &r.res.scan;
+        let (ex, ds, sh) = scan.maxima(lo, hi);
+        let proj = scan.max_projection(lo, hi);
+        let in_bracket = scan.resonances_in(lo, hi);
+        let missed: Vec<&(&str, f64, LongGuideVerdict)> = r
+            .guards
+            .iter()
+            .filter(|g| g.2 == LongGuideVerdict::Above)
+            .collect();
+        let mut bands = Vec::new();
+        for (name, g, _) in &missed {
+            let (bex, bds, _) = scan.maxima(lo, *g);
+            let n_res = scan.resonances_in(lo, *g).len();
+            bands.push((
+                *name,
+                format!(
+                    "[\"{}\", {}, {}, {}, {}, {}, \"{}\"]",
+                    vname(scan.verdict(lo, *g)),
+                    f(*g),
+                    f(bex),
+                    f(bds),
+                    f(scan.max_projection(lo, *g)),
+                    n_res,
+                    vname(scan.verdict_prereg(lo, *g)),
+                ),
+            ));
+        }
+        eprintln!(
+            "EXCITATION {} [{}]: k_ref {:.4} ({}, exact share {:.2}, {:.2} within reach, {}), \
+             TE10 k_c {:.4}, {} port modes, scan {:.4}..{:.4} ({} points, {:.0} s); bracket {}: \
+             max excess share {ex:.3e}, max S residual {ds:.3e}, peak share {sh:.3e}, max \
+             projection {proj:.3e}, resonances {}; bands {:?}; length change {:.3e}; library \
+             cross-check {:.1e}",
+            label(r),
+            r.kind,
+            r.reference.k,
+            class(r),
+            r.reference.share_exact,
+            r.reference.ez_within_reach_exact,
+            bucket(r),
+            r.res.te10_k_c,
+            r.res.n_port_modes,
+            r.res.lo,
+            r.res.hi,
+            scan.pts.len(),
+            r.seconds,
+            vname(scan.verdict(lo, hi)),
+            res_list(&in_bracket),
+            bands,
+            r.length,
+            r.res.xcheck,
+        );
+        let guard_of = |name: &str| {
+            r.guards
+                .iter()
+                .find(|g| g.0 == name)
+                .map_or(f64::NAN, |g| g.1)
+        };
+        let mut fields = vec![
+            ("kind", toml_str(r.kind)),
+            ("a", f(r.rec.a)),
+            ("d", f(r.rec.d)),
+            ("lc", f(r.rec.lc)),
+            ("order", toml_str(&format!("{:?}", r.order))),
+            ("class", toml_str(class(r))),
+            ("te10_k_c", f(r.res.te10_k_c)),
+            ("n_port_modes", r.res.n_port_modes.to_string()),
+            ("k_ref", f(r.reference.k)),
+            ("ref_share_exact", f(r.reference.share_exact)),
+            (
+                "ref_within_reach_exact",
+                f(r.reference.ez_within_reach_exact),
+            ),
+            ("reach", f(r.reach)),
+            ("reach_bucket", toml_str(bucket(r))),
+            (
+                "missed_by",
+                format!(
+                    "[{}]",
+                    missed
+                        .iter()
+                        .map(|g| toml_str(g.0))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ),
+            ("interim", f(guard_of("interim"))),
+            ("option1", f(guard_of("option1"))),
+            ("option3", f(guard_of("option3"))),
+            ("p1_guard", f(guard_of("p1"))),
+            ("scan_lo", f(r.res.lo)),
+            ("scan_hi", f(r.res.hi)),
+            ("n_scan", scan.pts.len().to_string()),
+            ("bracket_verdict", toml_str(vname(scan.verdict(lo, hi)))),
+            (
+                "bracket_verdict_prereg",
+                toml_str(vname(scan.verdict_prereg(lo, hi))),
+            ),
+            ("bracket_max_excess_share", f(ex)),
+            ("bracket_max_s_residual", f(ds)),
+            ("bracket_peak_share", f(sh)),
+            ("bracket_max_projection", f(proj)),
+            ("bracket_resonances", res_list(&in_bracket)),
+        ];
+        for (name, b) in bands {
+            fields.push((
+                match name {
+                    "interim" => "band_interim",
+                    "option1" => "band_option1",
+                    "option3" => "band_option3",
+                    _ => "band_p1",
+                },
+                b,
+            ));
+        }
+        fields.push(("length_change", f(r.length)));
+        fields.push(("library_xcheck", f(r.res.xcheck)));
+        toml_rows.push(toml_row(&fields));
+    }
+    // Per guard: the bracket and band verdicts over the probed rows it
+    // misses, and the split by class and reach.
+    let mut lines = Vec::new();
+    let tally = |it: &mut dyn Iterator<Item = Excitation>| {
+        let mut c = [0usize; 3];
+        for v in it {
+            c[match v {
+                Excitation::Excited => 0,
+                Excitation::Weak => 1,
+                Excitation::NotExcited => 2,
+            }] += 1;
+        }
+        c
+    };
+    let mut per_guard = Vec::new();
+    let mut per_kind = Vec::new();
+    for name in ["interim", "option1", "option3", "p1"] {
+        let missed: Vec<&Row> = rows
+            .iter()
+            .filter(|r| {
+                r.kind == "miss"
+                    && r.guards
+                        .iter()
+                        .any(|g| g.0 == name && g.2 == LongGuideVerdict::Above)
+            })
+            .collect();
+        let bracket = tally(
+            &mut missed
+                .iter()
+                .map(|r| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1)),
+        );
+        let band = tally(&mut missed.iter().map(|r| {
+            let g = r.guards.iter().find(|g| g.0 == name).expect("guard").1;
+            r.res.scan.verdict(r.res.bracket.0, g)
+        }));
+        let mut split = Vec::new();
+        for cl in ["sub_te10", "single_mode", "multimode"] {
+            for bk in ["within", "straddling", "beyond"] {
+                let sub: Vec<&&Row> = missed
+                    .iter()
+                    .filter(|r| class(r) == cl && bucket(r) == bk)
+                    .collect();
+                if sub.is_empty() {
+                    continue;
+                }
+                let c = tally(
+                    &mut sub
+                        .iter()
+                        .map(|r| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1)),
+                );
+                split.push(format!(
+                    "{cl}/{bk} {}: {}/{}/{}",
+                    sub.len(),
+                    c[0],
+                    c[1],
+                    c[2]
+                ));
+            }
+        }
+        let prereg = tally(
+            &mut missed
+                .iter()
+                .map(|r| r.res.scan.verdict_prereg(r.res.bracket.0, r.res.bracket.1)),
+        );
+        lines.push(format!(
+            "{name}: {} probed misses; bracket (excited/weak/not) {}/{}/{} ({}/{}/{} by the \
+             pre-registered rule); band up to the guard {}/{}/{}; by class/reach (bracket): {}",
+            missed.len(),
+            bracket[0],
+            bracket[1],
+            bracket[2],
+            prereg[0],
+            prereg[1],
+            prereg[2],
+            band[0],
+            band[1],
+            band[2],
+            split.join(", ")
+        ));
+        per_guard.push((name, missed.len(), bracket, prereg, band));
+    }
+
+    for kind in ["non_miss", "control_symmetric", "control_step"] {
+        let sub: Vec<&Row> = rows.iter().filter(|r| r.kind == kind).collect();
+        let c = tally(
+            &mut sub
+                .iter()
+                .map(|r| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1)),
+        );
+        let p = tally(
+            &mut sub
+                .iter()
+                .map(|r| r.res.scan.verdict_prereg(r.res.bracket.0, r.res.bracket.1)),
+        );
+        lines.push(format!(
+            "{kind}: {} rows; bracket (excited/weak/not) {}/{}/{} ({}/{}/{} by the \
+             pre-registered rule)",
+            sub.len(),
+            c[0],
+            c[1],
+            c[2],
+            p[0],
+            p[1],
+            p[2]
+        ));
+        per_kind.push((kind, sub.len(), c, p));
+    }
+    let xcheck = rows.iter().map(|r| r.res.xcheck).fold(0.0_f64, f64::max);
+    lines.push(format!(
+        "thresholds: excess E_z share > {EXCITATION_EZ_EXCESS} or S residual > {EXCITATION_DS} \
+         (fixed before the run), or projection on the reference mode > {EXCITATION_PROJECTION} \
+         (added after it), on a scan of relative step {EXCITATION_SCAN_STEP}; bracket \
+         ±{EXCITATION_BRACKET}; zoom {EXCITATION_ZOOM_SEEDS} seeds to {EXCITATION_ZOOM_FLOOR}; \
+         largest probe-vs-library S difference {xcheck:.1e}"
+    ));
+    for l in &lines {
+        eprintln!("issue #1032 excitation: {l}");
+    }
+    for m in &mismatch {
+        eprintln!("    committed-table mismatch: {m}");
+    }
+    assert!(xcheck < 1e-9, "probe vs library S: {xcheck}");
+    if only.is_some() {
+        eprintln!("GEODE_1032_ONLY set: partial run, nothing blessed or pinned");
+        return;
+    }
+    bless_955(
+        "excitation_table",
+        "cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_excitation_table --nocapture",
+        "Issue #1032: does a TE10 drive excite the TM-like box modes the TM guards miss on the \
+         long Gmsh guides of long_guide_table.toml? Rows: every interim and option-1 miss and 10 \
+         option-3-only misses at p=2, every p=1 miss at p=1 (exact classifier), six non-miss rows, \
+         and two structured controls (a y-mirror-symmetric guide, symmetry-forbidden; an E-plane \
+         height step, known excited). Wave ports on both end faces carry every TE face mode below \
+         the top of the scan; TE10 is driven at port 1 (evanescent below its cutoff). The scan \
+         runs from k_ref (1 - 0.05) to the larger of k_ref (1 + 0.05) and every missing guard in \
+         relative steps of 2.5e-4. Verdicts: excited = some scan point has a driven exact E_z \
+         share above its sliding median by > 0.01, an S11/S21 residual against a local cubic \
+         > 1e-3, or a projection of the driven field on the reference mode > 0.1; weak = none \
+         does but a golden-section zoom (8 seeds, to 1e-12) finds a resonance with excess share \
+         > 0.01; not_excited = neither. The projection criterion was added after the run, when \
+         the height-step control failed the other two (a broadband conversion); *_prereg is the \
+         verdict without it. bracket_* over k_ref (1 +- 0.05); band_<guard> = [verdict, guard, \
+         max excess share, max S residual, max projection, resonances, verdict_prereg] over \
+         [k_ref (1 - 0.05), guard]. Resonances are [k, share, excess share, projection on the \
+         reference mode, relative width at excess 0.01 (0 = below f64 resolution), width clipped \
+         by the scan]. length_change is NaN where TE10 propagates nowhere in the bracket.",
+        &lines,
+        &toml_rows,
+    );
+    assert!(
+        mismatch.is_empty(),
+        "the re-meshed rows differ from the committed long-guide table (Gmsh {version}): \
+         {mismatch:?}"
+    );
+    // Pinned at Gmsh 4.15.2 (issue #1032): per guard, (probed misses,
+    // bracket, bracket by the pre-registered rule, band up to the guard),
+    // each as (excited, weak, not excited).
+    assert_eq!(
+        per_guard,
+        vec![
+            ("interim", 3, [3, 0, 0], [3, 0, 0], [3, 0, 0]),
+            ("option1", 21, [20, 1, 0], [20, 1, 0], [20, 1, 0]),
+            ("option3", 33, [32, 1, 0], [32, 1, 0], [30, 1, 2]),
+            ("p1", 12, [11, 0, 1], [11, 0, 1], [12, 0, 0]),
+        ],
+        "per-guard verdicts"
+    );
+    // The controls: every non-miss row excited, the symmetry-forbidden mode
+    // not excited at either order, the height step excited (only by the
+    // projection criterion added after the run).
+    assert_eq!(
+        per_kind,
+        vec![
+            ("non_miss", 6, [6, 0, 0], [6, 0, 0]),
+            ("control_symmetric", 2, [0, 0, 2], [0, 0, 2]),
+            ("control_step", 1, [1, 0, 0], [0, 0, 1]),
+        ],
+        "control verdicts"
+    );
+    let find = |a: f64, d: f64, lc: f64, order: ElementOrder| {
+        rows.iter()
+            .find(|r| {
+                r.kind == "miss" && (r.rec.a, r.rec.d, r.rec.lc) == (a, d, lc) && r.order == order
+            })
+            .expect("row")
+    };
+    let bracket_of = |r: &Row| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1);
+    // The exceptions, by name. The one weak bracket: a resonance whose width
+    // bisects below f64 resolution, with the field on the reference mode.
+    let weak = find(1.5, 7.5, 0.75, ElementOrder::P2);
+    assert_eq!(bracket_of(weak), Excitation::Weak);
+    let w = weak
+        .res
+        .scan
+        .resonances_in(weak.res.bracket.0, weak.res.bracket.1);
+    assert!(
+        w.len() == 1 && w[0].width < 1e-12 && w[0].peak.proj > 0.8,
+        "{w:?}"
+    );
+    // The one p=1 reference mode not excited; the band up to the p=1 guard
+    // above it still is.
+    let quiet = find(3.0, 6.5, 0.9, ElementOrder::P1);
+    assert_eq!(bracket_of(quiet), Excitation::NotExcited);
+    assert_eq!(
+        quiet
+            .res
+            .scan
+            .verdict(quiet.res.bracket.0, quiet.guards[0].1),
+        Excitation::Excited
+    );
+    // The two option-3 bands with no response: the guard is within 0.5 % of
+    // the mode, and the driven resonance sits above the guard.
+    for (a, d, lc) in [(1.5, 5.5, 0.75), (2.3, 5.75, 0.9)] {
+        let r = find(a, d, lc, ElementOrder::P2);
+        let g = r
+            .guards
+            .iter()
+            .find(|g| g.0 == "option3")
+            .expect("option 3")
+            .1;
+        assert_eq!(
+            r.res.scan.verdict(r.res.bracket.0, g),
+            Excitation::NotExcited
+        );
+        assert!(g / r.reference.k - 1.0 < 5e-3, "{g} vs {}", r.reference.k);
+        assert!(r.res.scan.resonances.iter().all(|x| x.peak.k > g));
+    }
+    // Every sub-TE₁₀ p=1 mode is excited by the evanescent TE₁₀ drive, the
+    // driven field almost entirely on the reference mode.
+    let sub: Vec<&Row> = rows
+        .iter()
+        .filter(|r| r.kind == "miss" && class(r) == "sub_te10")
+        .collect();
+    assert_eq!(sub.len(), 3);
+    for r in sub {
+        assert_eq!(bracket_of(r), Excitation::Excited, "{}", label(r));
+        let p = r.res.scan.max_projection(r.res.bracket.0, r.res.bracket.1);
+        assert!(p > 0.98, "{}: projection {p}", label(r));
     }
 }
