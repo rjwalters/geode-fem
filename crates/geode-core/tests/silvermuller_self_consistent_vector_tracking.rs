@@ -65,10 +65,11 @@
 //! eigenvector and vector tracking reports `ModeLost`
 //! (`sparse_proximity_second_seed_changes_eigenvector` there).
 //!
-//! The sparse tier does not reproduce every dense outcome. The
-//! vector-tracked driver can only pick a candidate its window holds, so
-//! mode death from the seed `k₀ = 25` is `ModeLost` at iteration 2 here and
-//! `MaxIterations(10)` in the dense tier, which scores 736 modes.
+//! Mode death from the seed `k₀ = 25` is `ModeLost` at iteration 2 in both
+//! tiers (best overlap 0.173 against the sparse window, 0.104 against the
+//! dense tier's 736 modes). Before the phase-invariant score of issue #988
+//! the dense tier ended on `MaxIterations(10)` instead: the old score gave
+//! an unrelated mode an overlap above 1 (issue #1021).
 
 #[path = "common/silvermuller_sphere.rs"]
 mod sm_sphere;
@@ -239,7 +240,11 @@ fn vector_tracked_converges_on_lowest_mode() {
     // overdamped Silver-Müller mode (`λ ≈ 0.125 + 2.297j`, issue #940), and
     // this run follows that mode to `MaxIterations(15)` at
     // `k = 1.2261 + 1.1480j` (`Q = 0.534`). The resonance is checked by
-    // `sparse_vector_tracked_converges_on_sphere_resonance`.
+    // `sparse_vector_tracked_converges_on_sphere_resonance`. Re-measured
+    // under the #988 phase-invariant score (issue #1021), unchanged: index
+    // 368 at all 15 solves, each pick scoring 1.0000 against the previous
+    // one and no other candidate above 0.0032 (the old score gave the pick
+    // 1.08 to 3.07); 830 s in release at load 40 to 50.
     //
     // Acceptance: the run produces a valid result variant (no panic),
     // does not lose its mode, and ends with `Re k` in band and `Q > 0`.
@@ -335,27 +340,36 @@ fn vector_tracked_converges_on_lowest_mode() {
 ///   `k* = 0.557836 + 0.427141j`. Measured: `Converged(28)` at
 ///   `k = 0.562710 + 0.430975j`, `Q = 0.6528` (0.88 % from `k*`), the same
 ///   picks as the sparse run of
-///   `sparse_vector_tracked_converges_on_sphere_resonance` to `1e-12`. That
-///   measurement predates issue #988: the overlap score then divided by
-///   `|Re vᵀ M v|`, and the dense eigenvectors' arbitrary phases inflated
-///   it (1.05 to 5.98 for the pick). The score now uses moduli and does
-///   not depend on the phase, so the dense picks, being the sparse run's
-///   eigenvectors up to a complex scale, should score what they score there
-///   (0.879 at iteration 5, 0.999 or more elsewhere). That is not yet
-///   re-measured on this tier. The test asserts that no step falls below
-///   0.85. It does not assert the sparse test's margin over the best
-///   unpicked candidate: the dense list holds 1104 candidates, not about
-///   14, and their scores have not been measured.
+///   `sparse_vector_tracked_converges_on_sphere_resonance`. Re-measured
+///   under the #988 phase-invariant score (issue #1021, log in
+///   `benchmarks/mie_sphere/runs/2026-10-09_sm_vector_tracking_dense/`),
+///   unchanged: the same 28 picks (dense index 368 for solves 1 to 4, 767
+///   from solve 5 on) and the same `k`, `Q`. The pick's score is 0.8791 at
+///   iteration 5 (the first undamped step, `k₀` from 3.54 to 1.17), against
+///   0.3762 for the best unpicked candidate (index 776; the near-degenerate
+///   partner, index 766, scores 0.3138), and 0.999 to 1.0063 at every other
+///   step, against at most 0.1635. The old score gave the pick 1.05 to 5.98,
+///   and at iteration 5 the partner 1.77 against the pick's 2.17. The score
+///   can exceed 1 by a few 1e-3: the bilinear form `uᵀ M v` is not an inner
+///   product, so Cauchy-Schwarz does not bound it, and `u` and `v` are
+///   eigenvectors of pencils at different `k₀`. The test asserts every step
+///   above 0.85 and above the best unpicked candidate by more than 0.4. The
+///   sparse test's 0.5 is not asserted here: the dense list holds 1104
+///   candidates, not about 14, and the measured gap at iteration 5 is
+///   0.5029, too close to 0.5 for a margin; 0.4 leaves 0.10 (0.84 or more
+///   at every other step).
 /// - **The frozen index** changes eigenvector (a step with overlap below
 ///   0.5) and ends where the seed `k₀ = 1` run ends, on the overdamped
 ///   Silver-Müller mode (`MaxIterations(20)`, `k = 1.2262 + 1.1481j`), not
 ///   on the resonance. Measured: the change is at iteration 5 (the first
-///   undamped step, `k₀` from 3.54 to 1.17), overlap 0.0021, where index
+///   undamped step, `k₀` from 3.54 to 1.17), overlap 0.0007 under the #988
+///   score (0.0021 under the old one), where index
 ///   368 becomes a Silver-Müller mode (`λ = 0.170 + 2.692j`) and the
 ///   resonance has moved to `|Re λ|` rank 767.
 ///
 /// Measured 7581 s (126 min) in release on a 28-core host at load 110 to
-/// 130: 20 frozen and 28 tracked dense solves with 1104 eigenvectors each.
+/// 130, and 3842 s (64 min) at load 40 to 75 in the #1021 re-measurement:
+/// 20 frozen and 28 tracked dense solves with 1104 eigenvectors each.
 ///
 /// The test used to start from `k₀ = 1`, where index 368 is that
 /// Silver-Müller mode from the start, both drivers follow it, and its
@@ -469,6 +483,17 @@ fn vector_tracked_beats_frozen_int_idx() {
         100.0 * rel
     );
     assert!(min_overlap(&tracked_trace) > 0.85);
+    // Every pick wins by a margin (measured minimum 0.5029, at iteration 5;
+    // issue #1021).
+    for (it, step) in tracked_trace.iter().enumerate().skip(1) {
+        let overlap = step.overlap.expect("overlap past the first solve");
+        let best = step.best_unpicked.expect("more than one candidate");
+        assert!(
+            overlap - best > 0.4,
+            "iteration {}: overlap {overlap:.4}, best unpicked {best:.4}",
+            it + 1
+        );
+    }
 
     // Frozen index: changes eigenvector and ends off the resonance.
     let k_frozen = match frozen {
@@ -508,9 +533,19 @@ fn vector_tracked_handles_mode_death() {
     // Pick a seed and target so the iteration can't find a stable
     // overlap: target_idx = n_eigs - 1 (top of the requested window)
     // combined with a seed far above the physical spectrum (k₀ = 25).
-    // The iteration should either (a) cleanly return ModeLost when
-    // overlap drops below threshold, or (b) return Diverged /
-    // MaxIterations without panic. We accept any of those as "clean".
+    //
+    // Measured under the #988 phase-invariant score (issue #1021):
+    // `ModeLost` at iteration 2, best overlap 0.1042 (next 0.0915 and
+    // 0.0791), `last_k = 6.1457 + 0.5249j`, 182 s in release, the outcome
+    // of the sparse tier (`sparse_vector_tracked_handles_mode_death`). The
+    // first damped step takes `k₀` from 25 to 15.57 and no eigenvector of
+    // the new pencil continues the target. Before #988 this run ended on
+    // `MaxIterations(10)` at `k = 2.2580 + 2.0224j`: the old score gave
+    // index 675 an overlap of 1.0322 at iteration 2 (0.4825 for the new
+    // argmax), an artifact of the eigenvector's phase, so the driver
+    // "tracked" a mode it had already lost. The test now asserts the
+    // `ModeLost` outcome, with the 0.5 threshold five times the measured
+    // best overlap.
     let seed = 25.0_f64;
     let (k_full, s_full, m_full, n_eigs, _first_physical) = build_sphere_system(seed);
 
@@ -553,36 +588,13 @@ fn vector_tracked_handles_mode_death() {
         } => {
             eprintln!(
                 "ModeLost at iter {iterations}: last k = {:.4} + {:.4e}i, \
-                 best_overlap = {best_overlap:.3} — expected clean signal",
+                 best_overlap = {best_overlap:.3}",
                 last_k.re, last_k.im
             );
             assert!(best_overlap < 0.5);
-            assert!(iterations >= 1);
+            assert_eq!(iterations, 2);
         }
-        SelfConsistentResult::Diverged { last_k, iterations } => {
-            eprintln!(
-                "Diverged at iter {iterations}: last k = {:.4} + {:.4e}i — \
-                 also clean, no panic",
-                last_k.re, last_k.im
-            );
-        }
-        SelfConsistentResult::MaxIterations { last_k, iterations } => {
-            eprintln!(
-                "MaxIterations at iter {iterations}: last k = {:.4} + {:.4e}i — \
-                 also clean, no panic",
-                last_k.re, last_k.im
-            );
-        }
-        SelfConsistentResult::Converged { k, q, iterations } => {
-            // Surprise convergence — likely the seed accidentally
-            // landed near a high-order mode and tracked through. Log
-            // and accept; this test's contract is "no panic".
-            eprintln!(
-                "unexpectedly converged in {iterations} iters from \
-                 seed=25.0: k = {:.4} + {:.4e}i, Q = {q:.4}",
-                k.re, k.im
-            );
-        }
+        other => panic!("expected ModeLost at iteration 2, got {other:?}"),
     }
 }
 
@@ -1020,9 +1032,10 @@ fn sparse_vector_tracked_handles_mode_death() {
     // from 25 to about 15.6, which moves the target's eigenvalue out of
     // the 12-pair window, so no candidate overlaps and the result is
     // `ModeLost` at iteration 2 (best overlap 0.173). The dense tier
-    // scores its 736 lowest-`|Re λ|` modes instead and ends on
-    // `MaxIterations(10)` at `k = 2.2580 + 2.0224j`: a different outcome,
-    // not the same scenario. A sparse window of 48 also loses the mode and
+    // scores its 736 lowest-`|Re λ|` modes and ends the same way (best
+    // overlap 0.104, issue #1021); before the #988 score it ended on
+    // `MaxIterations(10)` at `k = 2.2580 + 2.0224j`, an artifact of the old
+    // score's phase dependence. A sparse window of 48 also loses the mode and
     // one of 160 tracks it to `Converged` (`k = 7.3656 + 0.3593j`),
     // measured for PR #941 and not run here.
     let k0 = 25.0_f64;
