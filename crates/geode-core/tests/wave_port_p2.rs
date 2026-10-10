@@ -38,6 +38,14 @@
 //!     guard against the interim law and option 1 (reproduced). Used
 //!     directly it is above the reference on many rows; its floor is safe
 //!     and loses band (an honest negative; `benchmarks/tm_guard_955/`).
+//! 12. Whether a TE₁₀ drive excites the TM-like box modes the guards miss
+//!     on long guides (issue #1032): a wave-port probe that keeps the driven
+//!     field (and reproduces the library sweep's S), its structured
+//!     controls (a mirror-symmetric guide, symmetry-forbidden; an E-plane
+//!     height step, known excited), and the ignored
+//!     `tm_guard_excitation_table` over the long-guide misses
+//!     (`benchmarks/tm_guard_955/excitation_table.toml`). Nearly every
+//!     missed mode is excited.
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -1128,7 +1136,7 @@ fn box_mode_window(
                     .sum::<f64>()
                     / 4.0;
                 for &(bary, w) in &rule {
-                    let e = space.field_at(mesh, t, bary, &x);
+                    let e = space.field_at(mesh, t, bary, x);
                     ez_x += vol * w * e[2].norm_sqr();
                     all_x += vol * w * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
                     if zc <= reach {
@@ -1136,7 +1144,7 @@ fn box_mode_window(
                     }
                 }
                 for bary in pts {
-                    let e = space.field_at(mesh, t, bary, &x);
+                    let e = space.field_at(mesh, t, bary, x);
                     ez += e[2].norm_sqr();
                     all += e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr();
                     if zc <= reach {
@@ -2616,9 +2624,11 @@ fn long_guide_verdict(cache: &mut WindowCache, c: ShareClassifier, guard: f64) -
 /// share (issue #1005); the smallest `k_c·h_n` among them is 2.532
 /// (`2×1×9.5`, `lc` 0.7) by either classifier.
 ///
-/// These are coarse-mesh TM-like defect modes, not continuum TM modes;
-/// whether a TE₁₀ drive excites them is not measured. Skipped (passes
-/// vacuously) without `gmsh` on `PATH`.
+/// These are coarse-mesh TM-like defect modes, not continuum TM modes.
+/// Whether a TE₁₀ drive excites them is measured by
+/// [`tm_guard_excitation_table`] (issue #1032): it does, on every interim
+/// miss and on all but one or two rows of every other guard. Skipped
+/// (passes vacuously) without `gmsh` on `PATH`.
 ///
 /// Issue #955 adds three columns: option 1 (reproduced from `1cae001f`),
 /// the share-free cutoff used directly (option 3, `0.98·min(k_c, k_face)`)
@@ -4418,10 +4428,9 @@ impl ExcitationScan {
         for &k in seeds_near.iter().filter(|_| zoom) {
             if let Some(i) = (1..n.saturating_sub(1))
                 .min_by(|&i, &j| (pts[i].k - k).abs().total_cmp(&(pts[j].k - k).abs()))
+                && !maxima.contains(&i)
             {
-                if !maxima.contains(&i) {
-                    maxima.push(i);
-                }
+                maxima.push(i);
             }
         }
         let nearest = |k: f64| {
@@ -4572,24 +4581,25 @@ fn golden_max(probe: &DrivenProbe, lo: f64, hi: f64) -> ProbePoint {
     if c.share > d.share { c } else { d }
 }
 
-/// `walls` of a guide meshed over `z ∈ [0, d]`: every boundary face off the
-/// two end faces, and the two end faces.
-fn guide_faces(mesh: &TetMesh, d: f64) -> (Vec<[u32; 3]>, Vec<[u32; 3]>, Vec<[u32; 3]>) {
+/// The boundary faces of a guide meshed over `z ∈ [0, d]`: the `z = 0`
+/// face, the `z = d` face and the walls (every other boundary face).
+fn guide_faces(mesh: &TetMesh, d: f64) -> [Vec<[u32; 3]>; 3] {
     let at = |f: &[u32; 3], z: f64| {
         f.iter()
             .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
     };
-    let (mut p1, mut p2, mut walls) = (Vec::new(), Vec::new(), Vec::new());
+    let mut out: [Vec<[u32; 3]>; 3] = Default::default();
     for f in mesh.boundary_faces() {
-        if at(&f, 0.0) {
-            p1.push(f);
+        let i = if at(&f, 0.0) {
+            0
         } else if at(&f, d) {
-            p2.push(f);
+            1
         } else {
-            walls.push(f);
-        }
+            2
+        };
+        out[i].push(f);
     }
-    (p1, p2, walls)
+    out
 }
 
 /// A structured `a × b × length` guide that is exactly mirror-symmetric in
@@ -4750,7 +4760,7 @@ fn excitation_controls(
 )> {
     let mut out = Vec::new();
     let sym = y_mirrored_guide(6, 1, 3, 2.0, 1.0, 2.0);
-    let (p1, p2, walls) = guide_faces(&sym, 2.0);
+    let [p1, p2, walls] = guide_faces(&sym, 2.0);
     let w = box_mode_window(&sym, order, 2.0, 1.0, 24, f64::INFINITY);
     let m = w.tm_like().expect("TM-like mode of the symmetric guide");
     let field = box_mode_field(&sym, order, 2.0, 1.0, 24, m.k);
@@ -4784,10 +4794,8 @@ fn excitation_controls(
 /// - the TM-like mode of an E-plane height step is **excited** at p=1 (the
 ///   step converts TE₁₀ into TM₁₁ across the bracket; the driven field's
 ///   projection on the mode is about 0.24, above [`EXCITATION_PROJECTION`]).
-
 ///
 /// The scan here is coarser than the table's (`2e-3`); the verdict rules
-
 /// are the same ([`Excitation`]).
 #[test]
 fn excitation_probe_matches_the_library_sweep() {
@@ -4851,6 +4859,7 @@ fn excitation_probe_matches_the_library_sweep() {
 /// re-meshed Gmsh guide this includes the mesh-to-mesh discretization
 /// change; reported, not part of a verdict. `NaN` when TE₁₀ propagates at
 /// none of the points.
+#[allow(clippy::too_many_arguments)]
 fn length_change(
     mesh: &TetMesh,
     d: f64,
@@ -4862,7 +4871,7 @@ fn length_change(
     hi: f64,
 ) -> f64 {
     fn probe(m: &TetMesh, d: f64, order: ElementOrder, k_top: f64) -> DrivenProbe<'_> {
-        let (p1, p2, walls) = guide_faces(m, d);
+        let [p1, p2, walls] = guide_faces(m, d);
         DrivenProbe::new(m, order, [&p1, &p2], &walls, k_top)
     }
     let a = probe(mesh, d, order, k_top);
@@ -5045,6 +5054,33 @@ fn excitation_rows() -> Vec<(LongGuideRecord, ElementOrder, &'static str)> {
 /// longer). Skipped (passes vacuously) without `gmsh` on `PATH`. With
 /// `GEODE_BLESS_955=1` the rows are written to
 /// `benchmarks/tm_guard_955/excitation_table.toml`.
+///
+/// **Departure from the pre-registered rule.** The known-excited height
+/// step failed the two narrow-feature criteria at the table's scan step
+/// (its TE₁₀ → TM₁₁ conversion spans the bracket, so the moving median
+/// rises with it). [`EXCITATION_PROJECTION`] was added after the run; it
+/// moves only that control's verdict. Both verdicts are in the artifact
+/// and pinned.
+///
+/// **Measured** (Gmsh 4.15.2, pinned; bracket as excited / weak / not):
+/// the interim law's 3 misses 3 / 0 / 0, option 1's 21 misses 20 / 1 / 0,
+/// option 3's 33 probed misses 32 / 1 / 0, the p=1 guard's 12 misses
+/// 11 / 0 / 1. Every sub-TE₁₀ p=1 mode (3) is excited by the evanescent
+/// drive, with the driven field over 98 % on the mode. The exceptions: one
+/// weak bracket (`1.5×1×7.5`, `lc` 0.75: a resonance on the reference mode
+/// whose width bisects below f64 resolution, so no sweep resolves it, and
+/// f64 cannot tell weak coupling from rounding at a bound mode); one p=1
+/// reference not excited (`3×1×6.5`, `lc` 0.9), though the band up to the
+/// p=1 guard above it is; and two option-3 bands with no response, where
+/// the guard is within 0.5 % of the mode and the driven resonance lies
+/// above the guard. All six non-miss rows are excited (their modes are
+/// above every guard but option 3's). The symmetric control's projection
+/// is at rounding level (1e-25), as the symmetry requires. Per row, the
+/// zoomed resonance with the largest projection on the reference mode lies
+/// within 1 % of the PEC-box `k_ref` on most rows (median +0.02 %; the open
+/// ports change the end condition), and its width at the 0.01 excess level
+/// is 1.5e-4 to 2.4e-2 of `k` (median 1e-2), apart from the weak row: wide
+/// enough for any ordinary sweep to land on.
 #[test]
 #[ignore = "heavy: about 50 dense driven scans (thousands of solves each) on Gmsh guides 5.5-12 deep; needs gmsh; GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored tm_guard_excitation_table --nocapture"]
 fn tm_guard_excitation_table() {
@@ -5153,7 +5189,7 @@ fn tm_guard_excitation_table() {
                         );
                     }
                     let field = box_mode_field(&mesh, order, a, 1.0, n_win, reference.k);
-                    let (p1, p2, walls) = guide_faces(&mesh, d);
+                    let [p1, p2, walls] = guide_faces(&mesh, d);
                     let guards: Vec<(&'static str, f64, bool)> = verdicts
                         .iter()
                         .map(|(n, g, v)| (*n, *g, v.0 == LongGuideVerdict::Above))
@@ -5607,6 +5643,89 @@ fn tm_guard_excitation_table() {
         "the re-meshed rows differ from the committed long-guide table (Gmsh {version}): \
          {mismatch:?}"
     );
-    eprintln!("per guard: {per_guard:?}");
-    eprintln!("per kind: {per_kind:?}");
+    // Pinned at Gmsh 4.15.2 (issue #1032): per guard, (probed misses,
+    // bracket, bracket by the pre-registered rule, band up to the guard),
+    // each as (excited, weak, not excited).
+    assert_eq!(
+        per_guard,
+        vec![
+            ("interim", 3, [3, 0, 0], [3, 0, 0], [3, 0, 0]),
+            ("option1", 21, [20, 1, 0], [20, 1, 0], [20, 1, 0]),
+            ("option3", 33, [32, 1, 0], [32, 1, 0], [30, 1, 2]),
+            ("p1", 12, [11, 0, 1], [11, 0, 1], [12, 0, 0]),
+        ],
+        "per-guard verdicts"
+    );
+    // The controls: every non-miss row excited, the symmetry-forbidden mode
+    // not excited at either order, the height step excited (only by the
+    // projection criterion added after the run).
+    assert_eq!(
+        per_kind,
+        vec![
+            ("non_miss", 6, [6, 0, 0], [6, 0, 0]),
+            ("control_symmetric", 2, [0, 0, 2], [0, 0, 2]),
+            ("control_step", 1, [1, 0, 0], [0, 0, 1]),
+        ],
+        "control verdicts"
+    );
+    let find = |a: f64, d: f64, lc: f64, order: ElementOrder| {
+        rows.iter()
+            .find(|r| {
+                r.kind == "miss" && (r.rec.a, r.rec.d, r.rec.lc) == (a, d, lc) && r.order == order
+            })
+            .expect("row")
+    };
+    let bracket_of = |r: &Row| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1);
+    // The exceptions, by name. The one weak bracket: a resonance whose width
+    // bisects below f64 resolution, with the field on the reference mode.
+    let weak = find(1.5, 7.5, 0.75, ElementOrder::P2);
+    assert_eq!(bracket_of(weak), Excitation::Weak);
+    let w = weak
+        .res
+        .scan
+        .resonances_in(weak.res.bracket.0, weak.res.bracket.1);
+    assert!(
+        w.len() == 1 && w[0].width < 1e-12 && w[0].peak.proj > 0.8,
+        "{w:?}"
+    );
+    // The one p=1 reference mode not excited; the band up to the p=1 guard
+    // above it still is.
+    let quiet = find(3.0, 6.5, 0.9, ElementOrder::P1);
+    assert_eq!(bracket_of(quiet), Excitation::NotExcited);
+    assert_eq!(
+        quiet
+            .res
+            .scan
+            .verdict(quiet.res.bracket.0, quiet.guards[0].1),
+        Excitation::Excited
+    );
+    // The two option-3 bands with no response: the guard is within 0.5 % of
+    // the mode, and the driven resonance sits above the guard.
+    for (a, d, lc) in [(1.5, 5.5, 0.75), (2.3, 5.75, 0.9)] {
+        let r = find(a, d, lc, ElementOrder::P2);
+        let g = r
+            .guards
+            .iter()
+            .find(|g| g.0 == "option3")
+            .expect("option 3")
+            .1;
+        assert_eq!(
+            r.res.scan.verdict(r.res.bracket.0, g),
+            Excitation::NotExcited
+        );
+        assert!(g / r.reference.k - 1.0 < 5e-3, "{g} vs {}", r.reference.k);
+        assert!(r.res.scan.resonances.iter().all(|x| x.peak.k > g));
+    }
+    // Every sub-TE₁₀ p=1 mode is excited by the evanescent TE₁₀ drive, the
+    // driven field almost entirely on the reference mode.
+    let sub: Vec<&Row> = rows
+        .iter()
+        .filter(|r| r.kind == "miss" && class(r) == "sub_te10")
+        .collect();
+    assert_eq!(sub.len(), 3);
+    for r in sub {
+        assert_eq!(bracket_of(r), Excitation::Excited, "{}", label(r));
+        let p = r.res.scan.max_projection(r.res.bracket.0, r.res.bracket.1);
+        assert!(p > 0.98, "{}: projection {p}", label(r));
+    }
 }
