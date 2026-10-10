@@ -4556,6 +4556,7 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
+ "toml 0.8.23",
 ]
 
 [[package]]

@@ -92,8 +92,42 @@
 //! (`σ₀ = 5`) to 26 % low (`σ₀ = 25`) in `Re(k)` while its Q falls from
 //! 4.8 through the analytic 1.95 (between `σ₀ = 13.5` and `13.75`, inside
 //! the mixing window) to 1.04.
-//! The self-consistent (Picard-converged) solve and the finer fixture,
-//! the other two hypotheses of #1026, were not run.
+//!
+//! # Eigen-path σ₀ (issue #1030)
+//!
+//! σ₀ = 25 is the **driven-path** calibration (`mie_driven_scattering`).
+//! It is not an eigen-path choice, and issue #1030 measured the eigen path
+//! separately. It used `examples/mie_open_quasimode` with
+//! `--self-consistent` (Picard re-freeze of Λ at the triplet's `Re(k)` to
+//! `|Δω| < 10⁻³`) and with `--fixture fine` (the bundled 5934-node
+//! `sphere_fine.msh`). The artifacts are
+//! `benchmarks/mie_sphere/open_selfconsistent{,_fine}.toml` and
+//! `open_sigma_sweep_fine.toml`. TE₁,₁ (triplet means):
+//!
+//! | fixture | σ₀ | self-consistent `Re(k)` err | Q (×1.952) | Picard |
+//! |---|---|---|---|---|
+//! | 774-node | 5 | −1.4 % | 4.76 (×2.44) | converged |
+//! | 774-node | 8.5 – 9.5 | −4.1 to −4.9 % | 2.93 – 2.63 (×1.50 – ×1.35) | converged |
+//! | 774-node | 10 | −5.3 % | 2.49 (×1.28) | converged |
+//! | 774-node | 17 – 25 | −19 to −48 % (TE₁,₁ inferred) | ×0.61 – ×0.48 | not converged, runs away |
+//! | fine | 5 | −1.6 % | 4.33 (×2.22) | converged |
+//! | fine | 10 | −1.9 % | 2.29 (×1.17) | converged |
+//! | fine | 15 | +3.3 % | 2.12 (×1.09) | converged |
+//! | fine | 25 | +4.1 % | 2.42 (×1.24) | converged |
+//!
+//! On `sphere_fine` the TE₁,₁ triplet is tracked from σ₀ = 5 to 25 in
+//! both continuation passes (step links ≥ 0.998, identified at every step,
+//! no mixing window) and sits 4.1 % high at σ₀ = 25. That points to the
+//! σ₀ = 25 "26 % low" above being a 774-node resolution effect. It is an
+//! inference from two meshes: the 774-node σ₀ = 25 attribution is itself
+//! inferred across the mixing window. Under the issue #1030 decision rule (with Λ
+//! self-consistent, `Re(k)` within 5 % and Q within [0.67, 1.5]× analytic,
+//! on a converged, non-hopped, identified triplet on the finest fixture
+//! measured), σ₀ = 10, 15 and 25 pass on `sphere_fine`. The
+//! **recommended eigen-path value is σ₀ = 10**, the most balanced of the
+//! three. On this file's 774-node fixture the rule passes only at
+//! σ₀ = 8.5 – 9.5, which is why the bands below stay frozen-ω, coarse-mesh
+//! bands at σ₀ = 5 and 10 and are unchanged.
 //!
 //! The trend with `σ₀` is opposite on the two observables: Q moves
 //! toward the analytic value (4.8 → 2.6, target 1.95) while `Re(k)`
@@ -110,7 +144,11 @@
 //! (`examples/mie_open_quasimode.rs` →
 //! `benchmarks/mie_sphere/open_results.toml`) additionally reports a
 //! Picard refresh (re-freeze at the recovered `Re(k)`, re-solve) and
-//! the σ₀ sensitivity axis.
+//! the σ₀ sensitivity axis. Its `--self-consistent` mode (issue #1030)
+//! iterates that refresh to a fixed point. On the 774-node fixture the
+//! frozen-ω values asserted here at σ₀ = 5 and 10 move by at most 0.4 % in
+//! `Re(k)` and 5 % in Q when Λ is made self-consistent (1.4 % → 1.4 % and
+//! 4.9 % → 5.3 % low; Q 4.80 → 4.76 and 2.6 → 2.49).
 //!
 //! # What this file asserts
 //!
@@ -126,7 +164,9 @@
 //!    Lanczos path relies on.
 //! 4. **σ₀ = 25 negative** — the mode nearest the root at the
 //!    driven-path calibration is rejected by the identity check (it is
-//!    TM₁), as are its seven neighbours.
+//!    TM₁), as are its seven neighbours. This is a 774-node, frozen-ω
+//!    statement about the driven calibration; the eigen-path σ₀ is
+//!    σ₀ = 10 (issue #1030, above).
 //!
 //! # Running the heavy tests
 //!
