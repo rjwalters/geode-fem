@@ -162,6 +162,10 @@ const MANIFEST: &[Entry] = &[
         "cargo run -p mie_sphere --release",
     ),
     a(
+        "benchmarks/mie_sphere/open_sigma_sweep.toml",
+        "cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.25",
+    ),
+    a(
         "benchmarks/patch_antenna/results.toml",
         "cargo run -p patch_antenna --release",
     ),
