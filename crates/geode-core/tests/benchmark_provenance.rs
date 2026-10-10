@@ -147,6 +147,11 @@ const MANIFEST: &[Entry] = &[
          tm_guard_p2_long_guide_table --nocapture (needs gmsh on PATH)",
     ),
     a(
+        "benchmarks/tm_guard_955/excitation_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_excitation_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
         "benchmarks/periodic/results.toml",
         "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
          -- --ignored regenerate_periodic_results",

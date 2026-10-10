@@ -3888,6 +3888,17 @@ const EXCITATION_ZOOM_SEEDS: usize = 8;
 /// Relative bracket width at which the golden-section zoom stops.
 const EXCITATION_ZOOM_FLOOR: f64 = 1e-12;
 
+/// **Added after the run** (issue #1032): a scan point is also a response
+/// when the driven field's projection on the reference mode
+/// ([`ProbePoint::proj`]) exceeds this, the mode carrying more than 10 % of
+/// the driven field's energy. The two rules above detect narrow features
+/// only: the known-excited height-step control, whose TE₁₀ → TM₁₁
+/// conversion spans the whole bracket, failed them at the table's scan step
+/// (its excess share stayed at 5.4e-3 against the moving median while its
+/// projection was 0.24). Both verdicts are reported
+/// ([`ExcitationScan::verdict_prereg`]).
+const EXCITATION_PROJECTION: f64 = 0.1;
+
 /// Points of the sliding cubic fit of [`s_residual`] (± 20 steps, ± 0.5 %).
 const EXCITATION_FIT_POINTS: usize = 41;
 
@@ -3900,12 +3911,16 @@ const EXCITATION_CUTOFF_GAP: f64 = 2e-3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Excitation {
     /// A point of the uniform scan shows a TM-like response: excess `E_z`
-    /// share above [`EXCITATION_EZ_EXCESS`] or an S residual above
-    /// [`EXCITATION_DS`]. A sweep at [`EXCITATION_SCAN_STEP`] would see it.
+    /// share above [`EXCITATION_EZ_EXCESS`], an S residual above
+    /// [`EXCITATION_DS`], or (not in the pre-registered rule) a projection
+    /// on the reference mode above [`EXCITATION_PROJECTION`]. A sweep at
+    /// [`EXCITATION_SCAN_STEP`] would see it.
     Excited,
     /// No scan point does, but the zoom finds a driven resonance whose
     /// excess share exceeds [`EXCITATION_EZ_EXCESS`]: a feature narrower
-    /// than the scan step.
+    /// than the scan step. Where its width bisects below the zoom floor,
+    /// f64 cannot tell a weakly coupled mode from rounding at an uncoupled
+    /// (bound) one.
     Weak,
     /// Neither: no excess share above [`EXCITATION_EZ_EXCESS`] at any scan
     /// point or zoomed peak. A narrower feature than the zoom resolves, or
@@ -4505,8 +4520,26 @@ impl ExcitationScan {
             .collect()
     }
 
+    /// The largest projection on the reference mode on the scan in
+    /// `[lo, hi]`.
+    fn max_projection(&self, lo: f64, hi: f64) -> f64 {
+        self.idx(lo, hi)
+            .map(|i| self.pts[i].proj)
+            .fold(0.0_f64, f64::max)
+    }
+
     /// The verdict over `[lo, hi]` ([`Excitation`]).
     fn verdict(&self, lo: f64, hi: f64) -> Excitation {
+        match self.verdict_prereg(lo, hi) {
+            Excitation::Excited => Excitation::Excited,
+            _ if self.max_projection(lo, hi) > EXCITATION_PROJECTION => Excitation::Excited,
+            v => v,
+        }
+    }
+
+    /// The verdict by the rule fixed before the run: without
+    /// [`EXCITATION_PROJECTION`].
+    fn verdict_prereg(&self, lo: f64, hi: f64) -> Excitation {
         let (ex, ds, _) = self.maxima(lo, hi);
         if ex > EXCITATION_EZ_EXCESS || ds > EXCITATION_DS {
             Excitation::Excited
@@ -4749,7 +4782,9 @@ fn excitation_controls(
 ///   **not excited** at p=1 and p=2 (the excess `E_z` share stays at
 ///   rounding level over the `± 5 %` bracket and at every zoomed peak);
 /// - the TM-like mode of an E-plane height step is **excited** at p=1 (the
-///   step converts TE₁₀ into TM₁₁; excess share far above the threshold).
+///   step converts TE₁₀ into TM₁₁ across the bracket; the driven field's
+///   projection on the mode is about 0.24, above [`EXCITATION_PROJECTION`]).
+
 ///
 /// The scan here is coarser than the table's (`2e-3`); the verdict rules
 
@@ -4798,7 +4833,10 @@ fn excitation_probe_matches_the_library_sweep() {
                 }
                 _ => {
                     assert_eq!(v, Excitation::Excited, "{kind} at {order:?}");
-                    assert!(ex > 2.0 * EXCITATION_EZ_EXCESS, "{kind}: excess {ex}");
+                    assert!(
+                        proj > 2.0 * EXCITATION_PROJECTION,
+                        "{kind}: projection {proj}"
+                    );
                     assert!(sh > 0.1, "{kind}: peak share {sh}");
                 }
             }
@@ -4811,7 +4849,8 @@ fn excitation_probe_matches_the_library_sweep() {
 /// `z ∈ [0, d2]`), at 201 points over `[lo, hi]` where TE₁₀ propagates
 /// (the `te_only_ports_above_tm11_give_length_dependent_s` check). On a
 /// re-meshed Gmsh guide this includes the mesh-to-mesh discretization
-/// change; reported, not part of a verdict.
+/// change; reported, not part of a verdict. `NaN` when TE₁₀ propagates at
+/// none of the points.
 fn length_change(
     mesh: &TetMesh,
     d: f64,
@@ -4830,7 +4869,7 @@ fn length_change(
     let b = probe(longer, d2, order, k_top);
     let (kc, cut) = (a.te10_k_c(), a.cutoffs());
 
-    let mut worst = 0.0_f64;
+    let mut worst = f64::NAN;
     for i in 0..=200 {
         let k = lo * (hi / lo).powf(f64::from(i) / 200.0);
         if k <= kc * (1.0 + EXCITATION_CUTOFF_GAP)
@@ -4841,9 +4880,14 @@ fn length_change(
             continue;
         }
         let (p, q) = (a.solve(k), b.solve(k));
-        worst = worst
-            .max((p.s11.norm() - q.s11.norm()).abs())
+        let change = (p.s11.norm() - q.s11.norm())
+            .abs()
             .max((p.s21.norm() - q.s21.norm()).abs());
+        worst = if worst.is_nan() {
+            change
+        } else {
+            worst.max(change)
+        };
     }
     worst
 }
@@ -5290,10 +5334,7 @@ fn tm_guard_excitation_table() {
         let (lo, hi) = r.res.bracket;
         let scan = &r.res.scan;
         let (ex, ds, sh) = scan.maxima(lo, hi);
-        let proj = scan
-            .idx(lo, hi)
-            .map(|i| scan.pts[i].proj)
-            .fold(0.0_f64, f64::max);
+        let proj = scan.max_projection(lo, hi);
         let in_bracket = scan.resonances_in(lo, hi);
         let missed: Vec<&(&str, f64, LongGuideVerdict)> = r
             .guards
@@ -5307,12 +5348,14 @@ fn tm_guard_excitation_table() {
             bands.push((
                 *name,
                 format!(
-                    "[\"{}\", {}, {}, {}, {}]",
+                    "[\"{}\", {}, {}, {}, {}, {}, \"{}\"]",
                     vname(scan.verdict(lo, *g)),
                     f(*g),
                     f(bex),
                     f(bds),
-                    n_res
+                    f(scan.max_projection(lo, *g)),
+                    n_res,
+                    vname(scan.verdict_prereg(lo, *g)),
                 ),
             ));
         }
@@ -5383,6 +5426,10 @@ fn tm_guard_excitation_table() {
             ("scan_hi", f(r.res.hi)),
             ("n_scan", scan.pts.len().to_string()),
             ("bracket_verdict", toml_str(vname(scan.verdict(lo, hi)))),
+            (
+                "bracket_verdict_prereg",
+                toml_str(vname(scan.verdict_prereg(lo, hi))),
+            ),
             ("bracket_max_excess_share", f(ex)),
             ("bracket_max_s_residual", f(ds)),
             ("bracket_peak_share", f(sh)),
@@ -5419,6 +5466,7 @@ fn tm_guard_excitation_table() {
         c
     };
     let mut per_guard = Vec::new();
+    let mut per_kind = Vec::new();
     for name in ["interim", "option1", "option3", "p1"] {
         let missed: Vec<&Row> = rows
             .iter()
@@ -5462,20 +5510,29 @@ fn tm_guard_excitation_table() {
                 ));
             }
         }
+        let prereg = tally(
+            &mut missed
+                .iter()
+                .map(|r| r.res.scan.verdict_prereg(r.res.bracket.0, r.res.bracket.1)),
+        );
         lines.push(format!(
-            "{name}: {} probed misses; bracket (excited/weak/not) {}/{}/{}; band up to the guard \
-             {}/{}/{}; by class/reach (bracket): {}",
+            "{name}: {} probed misses; bracket (excited/weak/not) {}/{}/{} ({}/{}/{} by the \
+             pre-registered rule); band up to the guard {}/{}/{}; by class/reach (bracket): {}",
             missed.len(),
             bracket[0],
             bracket[1],
             bracket[2],
+            prereg[0],
+            prereg[1],
+            prereg[2],
             band[0],
             band[1],
             band[2],
             split.join(", ")
         ));
-        per_guard.push((name, missed.len(), bracket, band));
+        per_guard.push((name, missed.len(), bracket, prereg, band));
     }
+
     for kind in ["non_miss", "control_symmetric", "control_step"] {
         let sub: Vec<&Row> = rows.iter().filter(|r| r.kind == kind).collect();
         let c = tally(
@@ -5483,20 +5540,31 @@ fn tm_guard_excitation_table() {
                 .iter()
                 .map(|r| r.res.scan.verdict(r.res.bracket.0, r.res.bracket.1)),
         );
+        let p = tally(
+            &mut sub
+                .iter()
+                .map(|r| r.res.scan.verdict_prereg(r.res.bracket.0, r.res.bracket.1)),
+        );
         lines.push(format!(
-            "{kind}: {} rows; bracket (excited/weak/not) {}/{}/{}",
+            "{kind}: {} rows; bracket (excited/weak/not) {}/{}/{} ({}/{}/{} by the \
+             pre-registered rule)",
             sub.len(),
             c[0],
             c[1],
-            c[2]
+            c[2],
+            p[0],
+            p[1],
+            p[2]
         ));
+        per_kind.push((kind, sub.len(), c, p));
     }
     let xcheck = rows.iter().map(|r| r.res.xcheck).fold(0.0_f64, f64::max);
     lines.push(format!(
         "thresholds: excess E_z share > {EXCITATION_EZ_EXCESS} or S residual > {EXCITATION_DS} \
-         on a scan of relative step {EXCITATION_SCAN_STEP}; bracket ±{EXCITATION_BRACKET}; \
-         zoom {EXCITATION_ZOOM_SEEDS} seeds to {EXCITATION_ZOOM_FLOOR}; largest probe-vs-library \
-         S difference {xcheck:.1e}"
+         (fixed before the run), or projection on the reference mode > {EXCITATION_PROJECTION} \
+         (added after it), on a scan of relative step {EXCITATION_SCAN_STEP}; bracket \
+         ±{EXCITATION_BRACKET}; zoom {EXCITATION_ZOOM_SEEDS} seeds to {EXCITATION_ZOOM_FLOOR}; \
+         largest probe-vs-library S difference {xcheck:.1e}"
     ));
     for l in &lines {
         eprintln!("issue #1032 excitation: {l}");
@@ -5521,12 +5589,16 @@ fn tm_guard_excitation_table() {
          the top of the scan; TE10 is driven at port 1 (evanescent below its cutoff). The scan \
          runs from k_ref (1 - 0.05) to the larger of k_ref (1 + 0.05) and every missing guard in \
          relative steps of 2.5e-4. Verdicts: excited = some scan point has a driven exact E_z \
-         share above its sliding median by > 0.01 or an S11/S21 residual against a local cubic \
-         > 1e-3; weak = none does but a golden-section zoom (8 seeds, to 1e-12) finds a resonance \
-         with excess share > 0.01; not_excited = neither. bracket_* over k_ref (1 +- 0.05); \
-         band_<guard> = [verdict, guard, max excess share, max S residual, resonances] over \
+         share above its sliding median by > 0.01, an S11/S21 residual against a local cubic \
+         > 1e-3, or a projection of the driven field on the reference mode > 0.1; weak = none \
+         does but a golden-section zoom (8 seeds, to 1e-12) finds a resonance with excess share \
+         > 0.01; not_excited = neither. The projection criterion was added after the run, when \
+         the height-step control failed the other two (a broadband conversion); *_prereg is the \
+         verdict without it. bracket_* over k_ref (1 +- 0.05); band_<guard> = [verdict, guard, \
+         max excess share, max S residual, max projection, resonances, verdict_prereg] over \
          [k_ref (1 - 0.05), guard]. Resonances are [k, share, excess share, projection on the \
-         reference mode, relative width at excess 0.01, width clipped by the scan].",
+         reference mode, relative width at excess 0.01 (0 = below f64 resolution), width clipped \
+         by the scan]. length_change is NaN where TE10 propagates nowhere in the bracket.",
         &lines,
         &toml_rows,
     );
@@ -5535,5 +5607,6 @@ fn tm_guard_excitation_table() {
         "the re-meshed rows differ from the committed long-guide table (Gmsh {version}): \
          {mismatch:?}"
     );
-    let _ = per_guard;
+    eprintln!("per guard: {per_guard:?}");
+    eprintln!("per kind: {per_kind:?}");
 }
