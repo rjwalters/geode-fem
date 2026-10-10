@@ -9,9 +9,10 @@
 //! (`kernel(K) = image(d⁰)`, the de-Rham identity). After PEC reduction
 //! that kernel has dimension `rank(d⁰_interior)`, one gradient mode per
 //! free interior node. In an un-projected shift-invert Lanczos solve these
-//! show up as a near-zero-λ cluster (λ ≈ 1e-16…1e-17) **plus**,
-//! occasionally, a gradient-adjacent mode that leaks *into* the physical
-//! band (the transmon benchmark's spurious 3.4528 GHz mode).
+//! show up as a near-zero-λ cluster (λ ≈ 1e-16…1e-17). (The transmon
+//! benchmark's 3.4528 GHz mode is **not** one of them: issue #514 measured
+//! it solenoidal, divergence ratio 6.18e-15, so no gradient projection
+//! touches it. See `docs/research/transmon-lumped-port-formulation.md`.)
 //!
 //! The tree-cotree **DOF-elimination** gauge ([`crate::eigen::gauge`],
 //! PR #508) removes exactly the right *count* of gradient DOFs, but it is
