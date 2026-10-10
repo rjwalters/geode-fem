@@ -48,9 +48,11 @@
 //! identified TE₁ triplets ([`select_multiplet`]). On the bundled fixture
 //! at `σ₀ = 25` that proximity rule and the physical branch disagree:
 //! the σ₀ continuation of issue #1026
-//! (`benchmarks/mie_sphere/open_sigma_sweep.toml`) shows that the TE₁,₁
-//! branch is the triplet 26 % low on `Re(k)`, while the triplet 19 % high
-//! (nearer the root) is a separate branch.
+//! (`benchmarks/mie_sphere/open_sigma_sweep.toml`) settles that the
+//! triplet 19 % high on `Re(k)` (nearer the root) is a separate branch,
+//! not TE₁,₁. For the triplet 26 % low the TE₁,₁ identity is **inferred**
+//! across a TM₂ mixing window (σ₀ ≈ 12.75 – 16.75), from shared
+//! membership and elimination; it is not tracked through that window.
 
 use faer::c64;
 
@@ -581,10 +583,13 @@ impl ClassifiedMode {
     /// TE (or TM) order-`l` mode of the ball + gap + PML structure passes
     /// for that family, whatever its radial order. The `n` in a label such
     /// as "TE₁,₁" is assigned by proximity to the analytic root among the
-    /// identified multiplets (see [`select_multiplet`]); which branch is
-    /// the TE₁,₁ quasi-mode at a given `σ₀` was settled by σ₀ continuation
-    /// (issue #1026, `benchmarks/mie_sphere/open_sigma_sweep.toml`), not by
-    /// this check.
+    /// identified multiplets (see [`select_multiplet`]). Which branch is
+    /// the TE₁,₁ quasi-mode at a given `σ₀` is a question for σ₀
+    /// continuation, not for this check. On the bundled fixture at
+    /// `σ₀ = 25` (issue #1026, `benchmarks/mie_sphere/open_sigma_sweep.toml`)
+    /// continuation settles that the 19 %-high triplet is a separate branch;
+    /// that the 26 %-low triplet is TE₁,₁ is inferred across a mixing
+    /// window, not tracked through.
     pub fn is_member_of(&self, family: MultipoleFamily) -> bool {
         self.family == Some(family) && self.multiplet_size == family.multiplicity()
     }
@@ -862,6 +867,11 @@ mod tests {
         // With (n k)² replaced by (1.01 n k)² the smallest residual is
         // 1.97e-2, so the check separates a correct radial profile from a
         // 1 % wavenumber error by more than three orders of magnitude.
+        //
+        // Limitation: away from the origin the singular y_l (and any
+        // j_l / y_l mix) solves the same equation, so this check fixes the
+        // wavenumber and the angular structure but cannot tell a regular
+        // j_l radial function from a singular y_l one.
         const H: f64 = 1e-3;
         const RESIDUAL_BOUND: f64 = 1e-5;
         let ks = [

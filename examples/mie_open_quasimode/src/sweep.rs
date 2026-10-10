@@ -47,6 +47,16 @@
 //! (`members_in_te1_triplet`), which follows a branch through a crossing
 //! that the subspace overlap alone cannot resolve.
 //!
+//! Branch continuations are not mutually exclusive: each branch ranks
+//! every mode of the step independently, so two branches can pick the
+//! same mode (this happens inside the mixing window, where one mode can
+//! carry most of the TE₁ content of two subspaces).
+//!
+//! Rows with `σ₀` in [`MIXING_WINDOW`] carry `in_mixing_window = true`.
+//! The window is an annotation read off the committed table (the σ₀ range
+//! where the low TE₁ triplet is unidentified at most steps in either
+//! pass, at step 0.25 and at step 0.1), not a quantity the sweep derives.
+//!
 //! The Euclidean overlap does not separate two **different** TE₁ triplets
 //! of one step well: they share the angular structure, and the
 //! eigenvectors of the complex-symmetric pencil are not orthogonal in this
@@ -69,6 +79,12 @@ use crate::{N_INSIDE, N_NEAR_SHIFT, solve_frozen_omega_with_vectors};
 
 /// The `l = 1` magnetic-dipole family.
 const TE1: MultipoleFamily = MultipoleFamily::ALL[0];
+
+/// The σ₀ range (inclusive) where the low TE₁ triplet hybridises with a
+/// TM₂ quintuplet on the bundled fixture and per-mode identity is
+/// undecidable. Annotation only: it sets `in_mixing_window` in the table
+/// and nothing else.
+const MIXING_WINDOW: (f64, f64) = (12.75, 16.75);
 
 /// Log every mode whose TE₁ overlap is at least this (diagnostic log
 /// only; nothing in the table depends on it).
@@ -594,6 +610,10 @@ fn write_sweep(
         s.push_str(&format!("branch = {}\n", r.branch));
         s.push_str(&format!("seed = {}\n", r.seed));
         s.push_str(&format!("identified = {}\n", r.identified));
+        s.push_str(&format!(
+            "in_mixing_window = {}\n",
+            (MIXING_WINDOW.0..=MIXING_WINDOW.1).contains(&r.sigma_0)
+        ));
         s.push_str(&format!("re_k = {re:.6}\n"));
         s.push_str(&format!("im_k = {im:.6}\n"));
         s.push_str(&format!(
@@ -688,9 +708,11 @@ fn write_sweep(
 const NOTES: &[&str] = &[
     "Pencil: K(Λ⁻¹(ω₀)) x = k² M(ε_r·Λ(ω₀)) x, Λ frozen at ω₀ = 1.88074 (Re k of the analytic TE_1,1 root) at every step; sparse shift-invert at σ = ω₀², the n_near_shift converged pairs nearest the shift.",
     "Branch tracking: a branch is a 3-dimensional eigenvector subspace. Each step's continuation is the three modes with the largest capture ‖Qᴴv‖²/‖v‖² by the previous step's subspace (Euclidean inner product on all edge DOFs). link_overlap_full = ‖Q_prevᴴ Q_next‖_F²/3; *_ball is the same on the in-ball edge DOFs, where the medium does not change with sigma_0. third_capture / fourth_capture are the smallest capture inside and the largest outside the continuation; a fourth_capture close to third_capture marks an ambiguous step. members_in_te1_triplet counts continuation members that belong to a complete TE_1 triplet of the step (holding_triplet_* is that triplet).",
-    "identified = true when the three continuation modes are exactly one complete TE_1 triplet (MIN_FAMILY_OVERLAP, MULTIPLET_LINK_TOL). Every complete triplet that is not exactly a branch continuation seeds a new branch (seed = true; seed_overlaps against every existing branch). Branch ids are per pass.",
+    "identified = true when the three continuation modes are exactly one complete TE_1 triplet (MIN_FAMILY_OVERLAP, MULTIPLET_LINK_TOL). Every complete triplet that is not exactly a branch continuation seeds a new branch (seed = true; seed_overlaps against every existing branch). Branch ids are per pass. Branch continuations are not mutually exclusive: two branches can pick the same mode. in_mixing_window = true marks rows with sigma_0 in [12.75, 16.75], the window read off this table (an annotation, not derived by the sweep).",
     "Verdict (issue #1026), hypothesis 1: the 19 %-high sigma_0 = 25 triplet (k ≈ 2.241 + 0.368j) is NOT the continuation of the sigma_0 = 5 TE_1,1 triplet. It is a separate branch, identified at every step from sigma_0 = 6 (k ≈ 2.835 + 0.410j, +51 %) to 25 with step links >= 0.998, and it never shares a mode with the low branch; it is also not the open-sphere TE_1,2 root (Re k = 4.08). Below sigma_0 = 6 it is no longer a complete triplet in the solve.",
-    "Verdict, continued: the 26 %-low sigma_0 = 25 triplet (k ≈ 1.386 + 0.666j) IS the continuation of the sigma_0 = 5 TE_1,1 triplet (k ≈ 1.855 + 0.192j), but only through a crossing. Between sigma_0 ≈ 12.75 and 16.75 the TE_1 triplet is near-degenerate with a TM_2 quintuplet and the modes hybridise (TE_1 overlap of individual modes falls to 0.4 – 0.8, the TM_2 modes pick up 0.1 – 0.4 TE_1), so per-mode identity is undecidable there: fourth_capture reaches 0.8 – 0.9 at sigma_0 step 0.25 and also at step 0.1 (not a step-size effect). Across the window, the tracker started at either end carries one (step 0.25) or two (step 0.1) of its three modes into the identified triplet at the other end, and never into the high triplet; Re(k) and Im(k) of the identified triplet vary smoothly through the window. Outside the window both ends are clean (links >= 0.99, identified at every step).",
-    "Consequence: on the 774-node fixture with Λ frozen at ω₀ = 1.88074, the matched-UPML eigen path moves TE_1,1 from 1.4 % low (sigma_0 = 5) to 26 % low (sigma_0 = 25) in Re(k), with Q falling from 4.8 through the analytic 1.95 (between sigma_0 = 13.5 and 13.75) to 1.04. No radial-order discriminator was added: the branches are told apart by continuation, not by a property of a single solve.",
+    "Verdict, continued: the 26 %-low sigma_0 = 25 triplet (k ≈ 1.386 + 0.666j) is INFERRED to be the continuation of the sigma_0 = 5 TE_1,1 triplet (k ≈ 1.855 + 0.192j) across a mixing window; it is not tracked through. Between sigma_0 ≈ 12.75 and 16.75 the low TE_1 triplet is near-degenerate with a TM_2 quintuplet and the modes hybridise (TE_1 overlap of individual modes falls to 0.4 – 0.8, the TM_2 modes pick up 0.1 – 0.4 TE_1), so per-mode identity is undecidable there: fourth_capture reaches 0.8 – 0.9 at sigma_0 step 0.25 and also at step 0.1 (not a step-size effect). In both passes the tracker's continuation of the starting triplet (branch 0: TE_1,1 at sigma_0 = 5 forward, the low triplet at sigma_0 = 25 backward) ends on a MIXED set at the other end (forward sigma_0 = 25: TE_1 overlap 0.003 – 0.987, 1 member in a TE_1 triplet; backward sigma_0 = 5: 0.003 – 0.969, 1 member), not on the low triplet, and the low triplet is picked up again as a new branch (forward branch 2 seeded at 15.75, backward branch 2 seeded at 13.75) with seed overlap 0.414 / 0.494 against branch 0. Those values lie inside the 0.26 – 0.59 band that two different TE_1 triplets of one step reach (te1_cross_overlap), so the subspace measure alone cannot link the two ends. The link rests on (a) shared membership: branch 0 carries one (step 0.25) or two (step 0.1) of its three modes into the identified low triplet at the other end, never into the high triplet; and (b) elimination: only two TE_1 triplets exist around the window and the high one is accounted for as a separate branch. Outside the window both ends are clean (links >= 0.99, identified at every step).",
+    "Inside the window the low TE_1 triplet is identified only at some steps (forward: 13.25 – 13.75, 15.75 and 16.75, i.e. 5 of the 17 window steps; at the other 12 only the high triplet is identified). Re(k) and Im(k) lie on a smooth curve at the steps where it is identified; in between it is unidentified.",
+    "Branch 0 rows AFTER the window (forward sigma_0 = 17 – 25, backward sigma_0 = 13.5 – 5) are the tracker following a mixed set (identified = false, members_in_te1_triplet <= 1). They are NOT the TE_1,1 estimate: e.g. forward branch 0 at sigma_0 = 25 (k ≈ 1.575 + 0.840j) is not TE_1,1. On that side of the window the low triplet is the re-seeded branch 2, in both passes.",
+    "Consequence: on the 774-node fixture with Λ frozen at ω₀ = 1.88074, the matched-UPML eigen path moves TE_1,1 from 1.4 % low (sigma_0 = 5) to 26 % low (sigma_0 = 25) in Re(k), with Q falling from 4.8 through the analytic 1.95 (between sigma_0 = 13.5 and 13.75, INSIDE the mixing window) to 1.04. No radial-order discriminator was added: the branches are told apart by continuation, not by a property of a single solve.",
     "Baseline for reading overlaps: two different TE_1 triplets of the same step overlap by te1_cross_overlap (0.26 – 0.59 on this grid), because they share the angular structure and the eigenvectors of the complex-symmetric pencil are not orthogonal in this inner product. Step-to-step links along a clean branch are >= 0.99.",
 ];

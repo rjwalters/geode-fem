@@ -64,25 +64,34 @@
 //! (`cargo run -p mie_open_quasimode --release -- --sigma-sweep
 //! --sigma-step 0.25` → `benchmarks/mie_sphere/open_sigma_sweep.toml`,
 //! every TE₁ triplet followed by eigenvector-subspace overlap from
-//! `σ₀ = 5` to `25` and back, Λ frozen as here) settles which triplet is
-//! which:
+//! `σ₀ = 5` to `25` and back, Λ frozen as here) settles one triplet and
+//! supports an inference about the other:
 //!
 //! - the **19 %-high** triplet, the one nearer the root, is a separate
 //!   branch: a complete TE₁ triplet at every step from `σ₀ = 6`
 //!   (`k ≈ 2.835 + 0.410j`, 51 % high) to `25`, step-to-step subspace
 //!   overlap ≥ 0.998, never sharing a mode with the low branch;
-//! - the **26 %-low** triplet is the continuation of the `σ₀ = 5` and `10`
-//!   triplet asserted on below. Between `σ₀ ≈ 12.75` and `16.75` that
-//!   triplet crosses a TM₂ quintuplet and the modes hybridise, so per-mode
-//!   identity is undecidable there (at step 0.25 and at step 0.1); the
-//!   tracker started at either end carries one (step 0.25) or two (step
-//!   0.1) of its three modes into the identified triplet at the other end,
-//!   never into the high one, and `k` of the identified triplet is smooth
-//!   through the window.
+//! - the **26 %-low** triplet is **inferred** to be the continuation of
+//!   the `σ₀ = 5` and `10` triplet asserted on below, across a mixing
+//!   window; it is not tracked through. Between `σ₀ ≈ 12.75` and `16.75`
+//!   that triplet crosses a TM₂ quintuplet and the modes hybridise, so
+//!   per-mode identity is undecidable there (at step 0.25 and at step
+//!   0.1). In both passes the tracker's own continuation ends on a mixed
+//!   set, and the low triplet is picked up again as a new branch whose
+//!   overlap with the tracked one (0.414 forward, 0.494 backward) is
+//!   inside the 0.26 – 0.59 band that two *different* TE₁ triplets of one
+//!   step reach. The link rests on shared membership (the tracker carries
+//!   one, at step 0.25, or two, at step 0.1, of its three modes into the
+//!   identified low triplet at the other end, never into the high one)
+//!   and on elimination (only two TE₁ triplets are present around the
+//!   window, and the high one is accounted for). Inside the window the
+//!   low triplet is identified at only 5 of the 17 forward steps; `k` lies
+//!   on a smooth curve at the steps where it is identified.
 //!
 //! So on this fixture the matched-UPML TE₁,₁ moves from 1.4 % low
 //! (`σ₀ = 5`) to 26 % low (`σ₀ = 25`) in `Re(k)` while its Q falls from
-//! 4.8 through the analytic 1.95 (between `σ₀ = 13.5` and `13.75`) to 1.04.
+//! 4.8 through the analytic 1.95 (between `σ₀ = 13.5` and `13.75`, inside
+//! the mixing window) to 1.04.
 //! The self-consistent (Picard-converged) solve and the finer fixture,
 //! the other two hypotheses of #1026, were not run.
 //!
@@ -766,9 +775,10 @@ fn matched_upml_sigma25_nearest_mode_is_not_te11() {
     // 3 + 5 = 8, which the eigenvalues alone show as one group of eight.
     // The TE₁ content is in
     // two complete triplets elsewhere (reported, not asserted). The σ₀
-    // continuation of issue #1026 shows the 26 %-low one is the TE₁,₁
-    // branch and the 19 %-high one (the one `select_multiplet` picks,
-    // being nearer the root) a separate branch; see the module docs:
+    // continuation of issue #1026 shows the 19 %-high one (the one
+    // `select_multiplet` picks, being nearer the root) is a separate
+    // branch; that the 26 %-low one is TE₁,₁ is inferred across a mixing
+    // window, not tracked through. See the module docs:
     //
     //   k = 2.2376 – 2.2429 + 0.365 – 0.372j  Q = 3.01 – 3.07  TE₁ 0.913 – 0.917
     //       (Re(k) 19.0 – 19.3 % high, Q ratio 1.54 – 1.57, in-ball energy 0.57 – 0.58)

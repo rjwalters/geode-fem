@@ -61,7 +61,9 @@
 //! check fixes polarisation and `l`, not the radial order, and the row
 //! reports the triplet nearest the root, so at `σ₀ = 25` it reports the
 //! 19 %-high one. The σ₀ continuation below (issue #1026) shows that this
-//! is a separate branch and that the TE₁,₁ branch is the 26 %-low triplet.
+//! is a separate branch. That the TE₁,₁ branch is the 26 %-low triplet is
+//! inferred across a TM₂ mixing window (σ₀ ≈ 12.75 – 16.75), from shared
+//! membership and elimination; it is not tracked through.
 //!
 //! # σ₀ continuation (`--sigma-sweep`, issue #1026)
 //!
@@ -529,10 +531,11 @@ fn write_results(rows: &[QuasiModeRow]) {
          identity check fixes polarisation and l, not the radial order, and the row at \
          sigma_0 = 25 reports the TE_1 triplet NEAREST the root, which is the 19 %-high one. \
          The sigma_0 continuation shows that triplet is a separate branch (continuous from \
-         sigma_0 = 6, where it is 51 % high), and that the sigma_0 = 5 TE_1,1 triplet continues \
-         into the 26 %-low one (k ≈ 1.386 + 0.666j, Q ≈ 1.04) through a crossing with a TM_2 \
-         quintuplet at sigma_0 ≈ 12.75 – 16.75 where per-mode identity is undecidable. The \
-         sigma_0 = 25 fem_* values below are therefore not TE_1,1.\",\n",
+         sigma_0 = 6, where it is 51 % high), so the sigma_0 = 25 fem_* values below are not \
+         TE_1,1. That the sigma_0 = 5 TE_1,1 triplet becomes the 26 %-low one (k ≈ 1.386 + \
+         0.666j, Q ≈ 1.04) is inferred, not tracked through: the two are separated by a crossing \
+         with a TM_2 quintuplet at sigma_0 ≈ 12.75 – 16.75 where per-mode identity is \
+         undecidable, and the link rests on shared membership and elimination.\",\n",
     );
     s.push_str(
         "  \"TM_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance \
