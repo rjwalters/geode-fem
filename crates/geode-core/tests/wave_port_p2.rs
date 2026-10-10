@@ -3066,12 +3066,25 @@ fn share_free_tm_guard_falls_back_to_the_margin_law_typed() {
     assert_eq!(c.guard_k_c.to_bits(), p2.guard_k_c().to_bits());
 }
 
-/// p=1 is untouched by issue #955 bit for bit: the axial mesh read over the
-/// guide (refactored to share its scan with the guide section) and the
-/// interim guard at both face orders, against values recorded on `main`
-/// before the change.
+/// The guard inputs issue #955 could move, against values recorded on
+/// `main` (aarch64 macOS) before the change:
+///
+/// - the axial mesh read over the guide, **bit for bit**. It is pure
+///   geometry from `guide_footprint`, the scan this PR refactored to share
+///   with the guide section, so it must not move on any platform;
+/// - the interim guard at both face orders, within
+///   [`GUARD_GOLDEN_MAX_ULPS`] ULP. The PR does not touch its code path
+///   (the face eigen-estimate `tm_cutoff_estimate_at_order` and
+///   `guard_k_c` are unchanged, and `guide_tm_guard` returns the p=1
+///   estimate's own guard without a solve), but the face eigen-estimate's
+///   last bits differ between aarch64 and x86_64 floating point: on linux
+///   x86_64 the `s421` P1 guard reads one ULP below the macOS golden. Exact
+///   bits recorded on one architecture cannot assert identity on another,
+///   so this check bounds the drift instead. Same-binary bit identity of
+///   the p=1 guard is asserted by
+///   `share_free_tm_guard_falls_back_to_the_margin_law_typed`.
 #[test]
-fn tm_guard_inputs_are_bit_identical_to_main() {
+fn tm_guard_inputs_match_main() {
     // (mesh, spacing, P1 guard, P2 guard) bits.
     let want: [(&str, u64, u64, u64); 5] = [
         (
@@ -3120,9 +3133,30 @@ fn tm_guard_inputs_are_bit_identical_to_main() {
         let p2 = guard_estimate_at(mesh, ElementOrder::P2);
         assert_eq!(p1.axial_spacing.to_bits(), spacing, "{name}");
         assert_eq!(p2.axial_spacing.to_bits(), spacing, "{name}");
-        assert_eq!(p1.guard_k_c().to_bits(), g1, "{name}");
-        assert_eq!(p2.guard_k_c().to_bits(), g2, "{name}");
+        for (order, got, want) in [("P1", p1.guard_k_c(), g1), ("P2", p2.guard_k_c(), g2)] {
+            let want = f64::from_bits(want);
+            let ulps = ulp_distance(got, want);
+            assert!(
+                ulps <= GUARD_GOLDEN_MAX_ULPS,
+                "{name} {order} guard: {got:e} vs golden {want:e} ({ulps} ULP apart)"
+            );
+        }
     }
+}
+
+/// How far the interim guard may sit from its `main` golden in
+/// [`tm_guard_inputs_match_main`]: a few ULP of cross-architecture drift in
+/// the face eigen-estimate (one ULP measured on linux x86_64), far below
+/// any change a code edit to the guard path would make.
+const GUARD_GOLDEN_MAX_ULPS: u64 = 16;
+
+/// Distance in ULP between two finite `f64` of the same sign.
+fn ulp_distance(a: f64, b: f64) -> u64 {
+    assert!(
+        a.is_finite() && b.is_finite() && a.is_sign_positive() == b.is_sign_positive(),
+        "ulp_distance: {a:e}, {b:e}"
+    );
+    a.to_bits().abs_diff(b.to_bits())
 }
 
 /// The share of the band `[lo, hi]` above `guard` (`0` to `1`).

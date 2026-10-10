@@ -73,7 +73,14 @@
 //! tet without volume weights, and reads some modes far above their exact
 //! share (0.50 against 0.11 for the `3×1×8` long-guide mode). On a long
 //! guide the box has modes the section does not. On both counts the floor's
-//! safety on these tables is measured, not proved.
+//! safety on these tables is measured, not proved. Only the over-reading
+//! direction of the sampling is measured. The opposite direction is not: a
+//! mode below the reference with exact share at least 0.4 but sampled share
+//! under 0.4 would lower the true reference and could hide a miss, of this
+//! floor and of the #905 / #990 / #1005 tables. A probe of 12 of the
+//! highest-discrepancy rows (sampled minus exact share −0.15 to +0.24 on
+//! their reference modes) found no such mode; the tables were not rerun
+//! with the exact share as the classifier.
 //!
 //! # The guard
 //!
