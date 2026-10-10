@@ -63,7 +63,9 @@ def main():
     assert [round(x, 1) for x in slopes] == [209.1, 114.5]
     extra_theta = attempt["remaining_gap_ff"] / slopes[-1]
     shortfall = (abs(attempt["theta_final"]) + extra_theta) / abs(safety["harmonic_theta_safe"])
-    assert round(shortfall, 1) == 6.3
+    assert round(shortfall, 2) == 6.26
+    contains("at least about")
+    contains("$6.26\\times$")
     contains("If the sensitivity")
     contains("conditional extrapolation")
     print(f"Endpoint slope {slopes[-1]:.6f} fF/theta; conditional extra |theta| "

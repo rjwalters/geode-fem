@@ -16,10 +16,11 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 ## v7 preparation — 2026-10-10 (#1039)
 
-The attended squad assignment requests one new version beyond the v6 cap:
-fold the committed post-v6 measurements into a draft while the real-device
-multi-parameter anchor experiment (#1034) is still in progress. The cap is
-extended to 7 for this requested pass; v6 and its review/audit remain immutable.
+#1039 requests one new version beyond the v6 cap: fold the committed post-v6
+measurements into a draft while the real-device multi-parameter anchor
+experiment (#1034) is still in progress. The cap is raised to 7 for this pass,
+pending operator confirmation (requested on PR #1040); v6 and its review/audit
+remain immutable.
 This does not confer a new review score or publication readiness.
 
 - Harmonic motion (#594): 8.90× safe-budget extension, but a 128.792998 fF

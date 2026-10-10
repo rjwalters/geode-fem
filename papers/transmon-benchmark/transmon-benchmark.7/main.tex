@@ -62,8 +62,8 @@ $\partial C_\Sigma/\partial\theta$ is FD-validated at $1.15\times 10^{-4}$
 with a genuine two-step convergence to a within-budget target.
 Harmonic mesh motion extends the safe deformation budget by $8.90\times$,
 but reaches only $128.793$\,fF toward the $89.9$\,fF anchor; the falling
-sensitivity implies a conditional extrapolated shortfall of at least
-$6.3\times$ the available budget. Multi-parameter anchor optimization
+sensitivity implies a conditional extrapolated shortfall of at least about
+$6.26\times$ the available budget. Multi-parameter anchor optimization
 remains pending, and eigenmode/EPR derivatives remain roadmap. The correctness credential: on the identical mesh,
 GEODE-FEM reproduces all six of Palace's transmon eigenmodes to
 $\leq 0.033\%$ (worst case $0.032\%$). The contribution is a capability,
@@ -620,9 +620,10 @@ to the EC2 timings (Section~\ref{sec:perf-cpu}).
 The extra mode remains a genuine eigenpair of the distributed reactive
 surface shunt. Removing a gradient kernel cannot remove it, and high
 port participation cannot distinguish it from the physical junction
-mode. A revised port formulation or a principled reference-free
-classifier remains unresolved; frequency matching to Palace is still
-used to identify the physical modes.
+mode. The planned fix is a \texttt{LumpedPort}-like port formulation
+(issue \#1003, beginning with a design spike); it has not been built.
+Until it lands, frequency matching to Palace is still used to identify
+the physical modes.
 
 \begin{figure}[t]
   \centering
@@ -922,8 +923,8 @@ $dC/d\theta=-(C/E_C)\,dE_C/d\theta$, the two recorded steps give
 $209.1$ and $114.5$\,fF per unit $\theta$. \emph{If the sensitivity
 does not recover beyond the measured endpoint}, the remaining gap needs
 at least another $38.893/114.5\simeq0.340$ in $|\theta|$, or a total
-approximately $0.404$: at least $6.3\times$ the safe budget after
-rounding. This is a conditional extrapolation, not a measured bound on
+approximately $0.404$: at least about $6.26\times$ the safe budget.
+This is a conditional extrapolation, not a measured bound on
 an uncomputed continuation. Both runs use scalar trace-averaged sapphire;
 neither establishes the tensor-material shape chain.
 
@@ -1095,7 +1096,7 @@ at $\omega=0.10$, on one dedicated \texttt{r6i.4xlarge}, with geode
 \texttt{64d44269}. AMS reduces one-core linear-solve time relative to
 Jacobi by $3.4$--$4.2\times$ across $25{,}695$--$897{,}650$ edges.
 It reduces iterations from $2969$--$13662$ to $39$--$105$, but does
-not eliminate iteration growth. Every measured solve meets an explicitly
+not eliminate iteration growth. Every geode solve meets an explicitly
 recomputed relative-residual tolerance of $10^{-8}$.
 
 \begin{table}[t]

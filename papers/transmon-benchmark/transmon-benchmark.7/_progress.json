@@ -13,7 +13,7 @@
     "max_iterations": 7,
     "revised_from": 6,
     "status": "DRAFT",
-    "authorization": "User requested assistance to Claude; Claude assigned v7 preparation in squad message 2, tracked in #1039. One explicitly requested revision beyond the old cap; no operator review fabricated.",
+    "authorization": "Tracked in #1039. One requested revision beyond the old cap of 6, pending operator confirmation (requested on PR #1040); no operator approval or review is claimed.",
     "pending_dependencies": [
       "#1034 multi-parameter anchor result",
       "independent paper review and audit",
