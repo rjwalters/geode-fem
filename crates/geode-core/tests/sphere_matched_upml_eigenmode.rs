@@ -117,8 +117,10 @@
 //!
 //! On `sphere_fine` the TE₁,₁ triplet is tracked from σ₀ = 5 to 25 in
 //! both continuation passes (step links ≥ 0.998, identified at every step,
-//! no mixing window), so the σ₀ = 25 "26 % low" above is a 774-node
-//! resolution effect. Under the issue #1030 decision rule (with Λ
+//! no mixing window) and sits 4.1 % high at σ₀ = 25. That points to the
+//! σ₀ = 25 "26 % low" above being a 774-node resolution effect. It is an
+//! inference from two meshes: the 774-node σ₀ = 25 attribution is itself
+//! inferred across the mixing window. Under the issue #1030 decision rule (with Λ
 //! self-consistent, `Re(k)` within 5 % and Q within [0.67, 1.5]× analytic,
 //! on a converged, non-hopped, identified triplet on the finest fixture
 //! measured), σ₀ = 10, 15 and 25 pass on `sphere_fine`. The

@@ -22,6 +22,9 @@ burn = { workspace = true }
 # (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver path
 # (`SparseColMat` / `Triplet`), matching geode-core's own faer reference.
 faer = { workspace = true, features = ["sparse-linalg"] }
+# Reads the committed fine sigma_0 continuation (`open_sigma_sweep_fine.toml`)
+# for the fine-fixture TE_1,1 attribution of `--self-consistent` (issue #1030).
+toml = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

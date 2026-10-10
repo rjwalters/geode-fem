@@ -127,8 +127,12 @@
 //! branch, 11 – 25 % of its energy in the ball against 43 – 54 % for
 //! TE₁,₁, with `Im(k)` 0.71 – 1.02 against 0.21 – 0.47) shares the in-ball
 //! angular structure (cross-overlap 0.40 – 0.90). Every fine
-//! self-consistent TE₁,₁ run stays on that triplet (refresh links ≥ 0.9986
-//! against ≤ 0.86 to the other triplet, no hop).
+//! self-consistent TE₁,₁ run stays on that triplet: refresh links are
+//! ≥ 0.9986 against ≤ 0.86 to the other triplet, above the relative hop
+//! threshold (0.82 – 0.93, see the `selfconsistent` module docs), so no
+//! hop. `open_selfconsistent_fine.toml` records these runs as
+//! `te11_tracked`, attributed from `open_sigma_sweep_fine.toml` at run
+//! time.
 //!
 //! **Recommendation (decision rule of issue #1030, applied on
 //! `sphere_fine`, the finest fixture measured): the eigen path uses
@@ -144,9 +148,12 @@
 //! σ₀ = 10 `Re(k)` is 5.3 % low, just outside. Above the TM₂ mixing window
 //! the TE₁,₁ attribution is still only inferred, and there the
 //! self-consistent iteration does not converge: it runs away to lower
-//! `Re(k)`. The "26 % low at σ₀ = 25" result of issue #1026 is therefore a
-//! 774-node resolution effect. On `sphere_fine` the same σ₀ gives TE₁,₁
-//! 4.0 % high frozen and 4.1 % high self-consistent. At σ₀ = 25 the
+//! `Re(k)`. This points to the "26 % low at σ₀ = 25" result of issue #1026
+//! being a 774-node resolution effect: on `sphere_fine`, where TE₁,₁ is
+//! tracked, the same σ₀ gives it 4.0 % high frozen and 4.1 % high
+//! self-consistent. That is an inference from two meshes, and the 774-node
+//! σ₀ = 25 attribution it rests on is itself inferred (across the mixing
+//! window, not tracked through). At σ₀ = 25 the
 //! identity-selected Picard on the 774-node fixture reproduces the known
 //! hop: it starts on the 19 %-high branch, jumps to the `Re k ≈ 1.53`
 //! triplet, and cycles between the two (4 hops, `cycled`).
@@ -880,7 +887,8 @@ struct Args {
 enum FixtureChoice {
     /// 774-node `sphere.msh` (every committed artifact of this example).
     Coarse,
-    /// ~5.9k-node `sphere_fine.msh` (issue #215), `--self-consistent` only.
+    /// ~5.9k-node `sphere_fine.msh` (issue #215), `--self-consistent` or
+    /// `--sigma-sweep` only.
     Fine,
 }
 
@@ -900,7 +908,7 @@ impl App for Args {
         }
         if fine && use_dense {
             return Err("--dense is not available on the fine fixture \
-                        (a 38.5k-DOF dense complex pencil needs well over 20 GB)"
+                        (a 38.5k-DOF dense complex pencil needs well over 50 GB)"
                 .into());
         }
         if self.self_consistent && (use_dense || self.sigma_sweep) {
@@ -982,7 +990,16 @@ impl App for Args {
                     .join("mie_sphere")
                     .join(file),
                 sparse_assembly: fine,
-                attribute: !fine,
+                attribution: if fine {
+                    selfconsistent::AttributionSource::Continuation(
+                        geode_util::repo::repo_root()
+                            .join("benchmarks")
+                            .join("mie_sphere")
+                            .join("open_sigma_sweep_fine.toml"),
+                    )
+                } else {
+                    selfconsistent::AttributionSource::MixingWindow
+                },
             };
             selfconsistent::run_selfconsistent::<B>(&device, &f, targets[0], &cfg);
             return Ok(());
