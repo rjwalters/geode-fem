@@ -78,6 +78,79 @@
 //! cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.25
 //! ```
 //!
+//! # Eigen-path σ₀: self-consistent Λ and the fine fixture (issue #1030)
+//!
+//! σ₀ = 25 is the **driven-path** calibration (`mie_driven_scattering`,
+//! unchanged). Whether it suits the eigen path is a separate question, and
+//! two more modes answer it:
+//!
+//! - `--self-consistent` replaces the frozen-ω₀ solve with a Picard
+//!   iteration per σ₀: re-freeze Λ at the current TE₁ triplet's mean
+//!   `Re(k)`, re-solve, re-identify, until `|Δω| < 10⁻³` or `--max-iters`
+//!   refreshes, recording whether the run converged, cycled or hopped to a
+//!   different triplet (see the `selfconsistent` module docs). Writes
+//!   `benchmarks/mie_sphere/open_selfconsistent.toml`.
+//! - `--fixture fine` runs `--self-consistent` or `--sigma-sweep` on the
+//!   bundled `sphere_fine.msh` (5934 nodes, 38 566 edges, 32 887 interior
+//!   DOFs), assembled through the sparse `[nnz]` path; the `*_fine.toml`
+//!   siblings are written. A fine solve takes 14 – 55 s (about 18 s at
+//!   ω₀) and the runs peak at 4.0 – 4.2 GB RSS on the local Mac. The dense
+//!   oracle is refused there.
+//!
+//! ```sh
+//! cargo run -p mie_open_quasimode --release -- --self-consistent --fixture coarse \
+//!     --sigma-start 5 --sigma-end 25 --sigma-step 0.5 --max-iters 6
+//! cargo run -p mie_open_quasimode --release -- --self-consistent --fixture fine \
+//!     --sigma-values 5,10,15,25 --max-iters 4
+//! cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.5 --fixture fine
+//! ```
+//!
+//! Measured TE₁,₁ (triplet means, analytic `Re(k) = 1.88074`, Q = 1.952):
+//!
+//! | fixture | σ₀ | frozen at ω₀: `Re(k)` err, Q | self-consistent: `Re(k)` err, Q (×analytic) | Picard |
+//! |---|---|---|---|---|
+//! | 774-node | 5 | −1.4 %, 4.80 | −1.4 %, 4.76 (×2.44) | converged, 1 refresh |
+//! | 774-node | 8.5 – 9.5 | −3.8 to −4.5 %, 3.03 – 2.75 | −4.1 to −4.9 %, 2.93 – 2.63 (×1.50 – ×1.35) | converged, 2 refreshes |
+//! | 774-node | 10 | −4.9 %, 2.6 | −5.3 %, 2.49 (×1.28) | converged, 2 refreshes |
+//! | 774-node | 17 – 25 (inferred) | −12 to −26 % | runs away to −19 to −48 % | not converged in 6 refreshes |
+//! | fine | 5 | −1.5 %, 4.39 | −1.6 %, 4.33 (×2.22) | converged, 1 refresh |
+//! | fine | 10 | −2.0 %, 2.33 | −1.9 %, 2.29 (×1.17) | converged, 2 refreshes |
+//! | fine | 15 | +3.6 %, 2.15 | +3.3 %, 2.12 (×1.09) | converged, 2 refreshes |
+//! | fine | 25 | +4.0 %, 2.44 | +4.1 %, 2.42 (×1.24) | converged, 2 refreshes |
+//!
+//! On `sphere_fine` the TE₁,₁ triplet is **tracked** from σ₀ = 5 to 25 in
+//! both passes of the continuation (`open_sigma_sweep_fine.toml`): it is a
+//! complete TE₁ triplet at every step, step links ≥ 0.998 and third
+//! capture ≥ 0.998, and the two passes assign the same triplet at every σ₀.
+//! No mixing window appears. The margin is the gap to the fourth capture,
+//! which reaches 0.90, because the only other TE₁ triplet (a PML-heavy
+//! branch, 11 – 25 % of its energy in the ball against 43 – 54 % for
+//! TE₁,₁, with `Im(k)` 0.71 – 1.02 against 0.21 – 0.47) shares the in-ball
+//! angular structure (cross-overlap 0.40 – 0.90). Every fine
+//! self-consistent TE₁,₁ run stays on that triplet (refresh links ≥ 0.9986
+//! against ≤ 0.86 to the other triplet, no hop).
+//!
+//! **Recommendation (decision rule of issue #1030, applied on
+//! `sphere_fine`, the finest fixture measured): the eigen path uses
+//! σ₀ = 10 for TE₁,₁, with Λ solved self-consistently.** There the
+//! converged, non-hopped, tracked TE₁,₁ triplet is `k = 1.8455 + 0.4024j`,
+//! `Re(k)` 1.9 % low and Q = 2.29 (×1.17), inside both limits (5 % and
+//! [0.67, 1.5]×). σ₀ = 15 and 25 also pass. σ₀ = 10 is the most balanced
+//! passing value (each error at about 40 % of its limit). It is also the
+//! passing value nearest the 774-node pass band, so it degrades least on
+//! the coarse mesh. σ₀ = 5 fails on Q (×2.22).
+//!
+//! On the 774-node fixture the rule passes only at σ₀ = 8.5 – 9.5. At
+//! σ₀ = 10 `Re(k)` is 5.3 % low, just outside. Above the TM₂ mixing window
+//! the TE₁,₁ attribution is still only inferred, and there the
+//! self-consistent iteration does not converge: it runs away to lower
+//! `Re(k)`. The "26 % low at σ₀ = 25" result of issue #1026 is therefore a
+//! 774-node resolution effect. On `sphere_fine` the same σ₀ gives TE₁,₁
+//! 4.0 % high frozen and 4.1 % high self-consistent. At σ₀ = 25 the
+//! identity-selected Picard on the 774-node fixture reproduces the known
+//! hop: it starts on the 19 %-high branch, jumps to the `Re k ≈ 1.53`
+//! triplet, and cycles between the two (4 hops, `cycled`).
+//!
 //! Before issue #999 the open-space catalog had TE and TM swapped, so
 //! these two targets were labelled the other way round (the primary was
 //! called TM₁,₁) and the ε-only comparison quoted the Q ≈ 27 of the

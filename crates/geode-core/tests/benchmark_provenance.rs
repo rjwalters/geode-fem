@@ -166,6 +166,21 @@ const MANIFEST: &[Entry] = &[
         "cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.25",
     ),
     a(
+        "benchmarks/mie_sphere/open_sigma_sweep_fine.toml",
+        "cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.5 \
+         --fixture fine",
+    ),
+    a(
+        "benchmarks/mie_sphere/open_selfconsistent.toml",
+        "cargo run -p mie_open_quasimode --release -- --self-consistent --fixture coarse \
+         --sigma-start 5 --sigma-end 25 --sigma-step 0.5 --max-iters 6",
+    ),
+    a(
+        "benchmarks/mie_sphere/open_selfconsistent_fine.toml",
+        "cargo run -p mie_open_quasimode --release -- --self-consistent --fixture fine \
+         --sigma-values 5,10,15,25 --max-iters 4",
+    ),
+    a(
         "benchmarks/patch_antenna/results.toml",
         "cargo run -p patch_antenna --release",
     ),
