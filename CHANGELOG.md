@@ -31,6 +31,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **TE₁₀-drive excitation of the TM-like modes the TM guards miss on long guides** (#1032, Part A; refs #1032, does not close it; test-only, no library or CLI change). This measures whether the misses of `tm_guard_p2_long_guide_table` matter for driven solves.
+  - **The probe.** `DrivenProbe` in `tests/wave_port_p2.rs` runs the dense wave-port solve with TE₁₀ driven at port 1. It uses the library's rank-N modal SMW on the same factorization and keeps the field. Its S matches `solve_wave_port_sweep_on_space` to 1.6e-11 on every row.
+  - **The scan.** It runs from `k_ref·(1 − 5 %)` to the larger of `k_ref·(1 + 5 %)` and every missing guard, in relative steps of 2.5e-4. Below its cutoff TE₁₀ is evanescent. Each point gives `S₁₁`, `S₂₁`, the driven field's exact `E_z` share and its projection on the reference mode. A golden-section zoom then refines the resonances.
+  - **Verdicts.** Excited: an `E_z` share more than 0.01 above a moving median, an S residual against a local cubic above 1e-3, or a projection above 0.1. Weak: found by the zoom only. Not excited: neither.
+  - **A departure.** The projection criterion was added after the run. The known-excited height-step control failed the two narrow-feature criteria, because its TE₁₀ → TM₁₁ conversion spans the bracket. It is the only verdict the criterion moves, and the artifact keeps both verdicts.
+  - **Measured** (Gmsh 4.15.2, `benchmarks/tm_guard_955/excitation_table.toml`; bracket excited / weak / not).
+    - Interim law: 3 / 0 / 0.
+    - Option 1 (reproduced): 20 / 1 / 0 of 21.
+    - Option 3: 32 / 1 / 0 of 33 probed.
+    - The p=1 guard: 11 / 0 / 1 of 12. The band up to the p=1 guard is excited on all 12.
+    - All three sub-TE₁₀ p=1 modes are excited by the evanescent drive, with more than 98 % of the driven field on the mode.
+    - The one weak row's resonance has a width below f64 resolution, so no sweep would resolve it.
+    - Controls: the six non-miss rows are excited; the mirror-symmetric guide's TM-like mode is not (projection 1e-25); the height step is excited.
+    - The resonances are 1.5e-4 to 2.4e-2 of `k` wide (median 1e-2), so an ordinary sweep lands on them.
+  - **What it suggests (an inference from these coarse Gmsh guides).** Restricting "guard below every TM-like box mode" to the modes a TE₁₀ drive excites would exempt almost nothing.
+  - **Tests.** `excitation_probe_matches_the_library_sweep` (default tier, about 25 s in release) runs the structured controls and the library cross-check. `tm_guard_excitation_table` (`#[ignore]`, Gmsh only, about 7 to 10 min on 10 threads) is run by the existing `--ignored` step, where it returns at once without Gmsh. It adds a bucket-A provenance entry.
 - **Junction-pinned three-parameter `C_Σ` gradient on the real 133k-tet transmon** (#1035, Phase A of #1034). This phase measures; it does not optimize (#1036 does).
   - `shape::capacitance_matrix_shape_gradient` returns the full Maxwell matrix and the nodal gradient of every entry. It does one assembly, one LU and one `N`-column back-substitution (`n_factorizations == 1`). Each entry's gradient is the explicit term `φ_iᵀ (∂K/∂X) φ_j` alone, off-diagonal entries included: both fields are discrete-harmonic, so the implicit terms vanish.
     - The conductors are arbitrary, disjoint Dirichlet regions; overlapping regions are rejected.
