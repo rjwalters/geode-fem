@@ -27,7 +27,7 @@ assembly = "sparse full-tensor Nédélec (Re parts; imag ≈ 0, lossless sapphir
 notes = [
   "Junction participation (geode-fem's stiffness-participation metric) p = (xᵀ K_port x) / (xᵀ (K + K_port) x): the junction LC mode has p ≈ 1, all cavity modes p ≈ 0. This is NOT the same quantity as Palace's field-based port-EPR (see [oracles.palace] note); the two are complementary, differently-normalized diagnostics that rank modes differently, so cross-solver mode-ID rests on frequency agreement, not participation agreement.",
   "The junction LC self-resonance f_LC = 1/(2π√(LC)) = 17.60 GHz; the p ≈ 1 mode at 17.49 GHz is that physical junction mode.",
-  "A spurious junction-surface-localized mode appears near 3.45 GHz below the physical band: geode-fem's Lanczos lacks the divergence-free projection Palace applies, so a gradient-nullspace-adjacent mode leaks in. It is NOT a physical mode (absent from Palace's spectrum) and is filtered by comparing against the committed oracle. Removing it is a follow-on (a port-aware div-free projection on the eigen path — issue #514); it does not affect the physical-mode cross-validation.",
+  "A junction-coupled mode appears near 3.45 GHz below the cavity band and is excluded here by comparing against the committed oracle. It is NOT gradient-adjacent: #514 measured it solenoidal (div-ratio 6.18e-15), so no divergence-free projection removes it. It is absent from the Palace table because Palace's eigensolver only searches ABOVE Target = 4.5 GHz (Palace source, fba6a5b), not because Palace's spectrum lacks it. Issue #1003 (docs/research/transmon-lumped-port-formulation.md) gives strong but unconfirmed evidence that it is the transmon qubit (plasma) mode; the classification below is unchanged pending the Palace re-run phase filed from #1003.",
   "Readout ports port_1/port_2 left OPEN (lossless v1); their 50 Ω would make the pencil complex (lossy Q), which is out of scope v1.",
   "Blog sanity band [4.14, 5.591] GHz (non-gating): the resonator mode 5.15 GHz sits ~7.9% below the 5.591 GHz blog resonator; mesh/order/junction-geometry differ from the blog's exact runs. The GATE is Palace-same-mesh, met at ≤0.04%.",
 ]
@@ -90,13 +90,18 @@ prediction = 0.70710678 # 1/√2
 test = "crates/geode-core/tests/transmon_eigenmode.rs::tripwire_real_junction_l_doubling"
 
 [spurious_mode]
-# A junction-surface-localized mode below the physical band: geode-fem's
-# real Lanczos lacks the divergence-free projection Palace applies, so a
-# gradient-nullspace-adjacent mode leaks in. It has NO Palace counterpart
-# and is EXCLUDED from the physical set (and from the ≤1% gate). Its high
-# geode-fem stiffness-participation is exactly why participation alone
-# cannot identify physical modes — frequency-matching against the Palace
-# oracle is what filters it out.
+# A junction-coupled mode below the cavity band, EXCLUDED from the physical
+# set (and from the ≤1% gate) by frequency-matching against the Palace
+# oracle. It is NOT gradient-adjacent: #514 measured it solenoidal
+# (div-ratio 6.18e-15, below), so no divergence-free projection touches it.
+# Issue #1003 (docs/research/transmon-lumped-port-formulation.md) found that
+# (a) Palace's run could not have returned it — Palace searches only ABOVE
+# Target = 4.5 GHz (SLEPc RG interval; Palace source fba6a5b) — and (b) it
+# carries 100% of its port energy as the uniform port voltage and sits 0.28%
+# below the lumped qubit estimate 1/(2π√(L(C_Σ+C_J))) = 3.4625 GHz. It is
+# therefore most likely the transmon qubit mode, not a port artifact. The
+# section name and `excluded = true` are kept unchanged until the Palace
+# re-run phase filed from #1003 confirms or refutes that.
 f_ghz = 3.4528
 participation = 0.9942  # geode-fem stiffness-participation (spurious, excluded)
 excluded = true
@@ -215,10 +220,12 @@ port_aware_junction_divergence_ratio = 5.017e1  # the retained junction mode's d
 # MECHANISM (narrowed): the 3.4528 GHz mode is a SECOND LC-like resonance of
 # the S_Γ port surface operator — a K_port-driven, junction-localized eigenmode
 # obeying the same 1/√L law as the physical junction LC mode, with no
-# cavity/box counterpart. Palace's LumpedPort formulation represents the port
-# DOFs differently (eliminated port unknowns vs. our S_Γ surface term added to
-# the full-space K), so this surface-operator eigenmode has NO Palace analogue —
-# which is exactly why it is absent from Palace's spectrum. It is genuinely
+# cavity/box counterpart. [Corrected by #1003: Palace's LumpedPort does NOT
+# eliminate the port unknowns — it adds the same distributed S_Γ surface term
+# with the same l/(wL), Cl/w scalings (lumpedportoperator.cpp
+# AddStiffnessBdrCoefficients / AddMassBdrCoefficients, fba6a5b). The mode is
+# absent from Palace's table because Palace searched only above Target = 4.5
+# GHz; see docs/research/transmon-lumped-port-formulation.md.] It is genuinely
 # solenoidal (div-ratio ≈ 6e-15), so NO divergence-free projection (bulk OR
 # port-aware) removes it; it remains filtered by frequency-matching against the
 # Palace oracle, unchanged.

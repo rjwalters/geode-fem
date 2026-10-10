@@ -1801,32 +1801,32 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// `tm_guard_p2_long_guide_table` (`tests/wave_port_p2.rs`) measures it on
 /// 216 Gmsh guides 5.5 to 12 deep (the six coarse guides of the #905 depth
 /// scans, plus `2 × 1` at `lc` 0.5 and 0.7), against the whole box's lowest
-/// p=2 TM-like mode. On 5 rows the p=2 guard is **above** that mode, by 4.7
-/// to 35.4 %: `3 × 1` at `lc` 0.9 and `d` = 7.75, 8, 9.75, 11.75, and
-/// `2 × 1 × 9.5` at `lc` 0.7 (Gmsh 4.15.2). The failure region measured:
-/// coarse Gmsh guides about one element across `b`, `k_c·h_n` ≈ 2.5 to
-/// 3.2 (margins 16 to 25 %), with TM-like modes (`E_z` shares 0.50 to
-/// 0.73) down to **44 % below** `k_c` (`3×1×9.75`: 1.86 against
-/// `k_c` = 3.31), that is `0.046·(k_c·h_n)²`, nearly twice
-/// [`TM_GUARD_AXIAL_COEFF`]. Four of the five modes are below TE₂₀, inside
-/// the single-mode band. The four `3 × 1` modes lie within the reach of the
-/// port (over 0.9 of their `E_z` energy); the `2 × 1` one lies beyond it.
-/// These are coarse-mesh
-/// TM-like defect modes, not continuum TM modes, and whether a TE₁₀ drive
-/// excites them is not measured. Two of them are TM-like only by the
-/// table's sampled share (five points per tet, not volume-weighted): the
-/// `3×1×8` and `3×1×11.75` modes read 0.50 and 0.68 sampled, but carry
-/// 0.11 and 0.35 of their energy in `E_z` integrated exactly (issue #955,
-/// `benchmarks/tm_guard_955/long_guide_table.toml`).
+/// p=2 TM-like mode (exact `E_z` share at least 0.4, issue #1041). On 3
+/// rows the p=2 guard is **above** that mode, by 19.5 to 35.4 %: `3 × 1`
+/// at `lc` 0.9 and `d` = 7.75 and 9.75, and `2 × 1 × 9.5` at `lc` 0.7
+/// (Gmsh 4.15.2). The failure region measured: coarse Gmsh guides about
+/// one element across `b`, `k_c·h_n` 2.53 to 3.09 (margins 16 to 24 %),
+/// with TM-like modes (exact `E_z` shares 0.52 to 0.58) down to **44 %
+/// below** `k_c` (`3×1×9.75`: 1.86 against `k_c` = 3.31), that is
+/// `0.046·(k_c·h_n)²`, nearly twice [`TM_GUARD_AXIAL_COEFF`]. All three
+/// modes are below TE₂₀, inside the single-mode band. The two `3 × 1`
+/// modes lie within the reach of the port (over 0.9 of their `E_z`
+/// energy); the `2 × 1` one lies beyond it. These are coarse-mesh TM-like
+/// defect modes, not continuum TM modes, and whether a TE₁₀ drive excites
+/// them is not measured. Before issue #1041 the table classified by a share
+/// sampled at five points per tet, not volume-weighted, and counted 5 rows:
+/// it also counted `3×1×8` and `3×1×11.75`, whose modes read 0.50 and 0.68
+/// sampled but carry 0.11 and 0.35 of their energy in `E_z`
+/// (`benchmarks/tm_guard_955/long_guide_table.toml`).
 ///
 /// The constants are **not** changed to cover these rows. Covering them
 /// needs `C_h` ≥ 0.046, and the same law and constants are the p=1 hard
 /// error of the `geode driven` CLI, which would then reject meshes that
 /// solve today. A p=2-only change is a policy question (issues #955,
 /// #891). At p=1 the same table reports (does not assert) the p=1 guard
-/// against the box's p=1 TM-like mode: it is at or above it on 20 of the
-/// 216 rows, some of those modes below the TE₁₀ cutoff (issue #1005, open
-/// for an operator decision).
+/// against the box's p=1 TM-like mode: it is at or above it on 12 of the
+/// 216 rows (20 by the sampled share), some of those modes below the TE₁₀
+/// cutoff (issue #1005).
 ///
 /// # An interim bound, and who enforces it
 ///
