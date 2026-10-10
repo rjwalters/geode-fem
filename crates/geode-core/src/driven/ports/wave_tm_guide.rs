@@ -54,10 +54,10 @@
 //!   815 rows of `tm_guard_p2_measurement_table` (worst 8.45 % above,
 //!   `gmsh 3×1×4.13`, `lc` 0.9), and on 164 of the 216 long guides of
 //!   `tm_guard_p2_long_guide_table` (23 modes within reach, 110 straddling
-//!   the cut, 31 beyond it). The reference modes it misses carry 0.5 to 0.95
-//!   of their energy in `E_z`, and the bound above lets such modes sit up
-//!   to 30 % below the cutoff. The lowest reference on the 815-row table is
-//!   at `0.895·k_TM,h`.
+//!   the cut, 31 beyond it). The reference modes it misses on the 815-row
+//!   table carry 0.43 to 0.95 of their energy in `E_z` (exact share), and
+//!   the bound above lets a mode of share 0.43 sit up to 34 % below the
+//!   cutoff. The lowest reference there is at `0.895·k_TM,h`.
 //! - **The floor `√0.4·k_TM,h` is safe on both tables but loses band.** It
 //!   is below the reference on every row of both, including the rows where
 //!   the interim law fails (`3 × 1`, `lc` 0.9) and the modes beyond reach
