@@ -24,11 +24,43 @@
 //! the ε-only baseline it is compared with, and the bands derived from
 //! that baseline changed.
 //!
-//! Caveat (issue #1022): at `σ₀ = 25` the identity of the mode this
-//! file measures is not verified. The test takes the nearest of five
-//! near-equidistant modes (an `l = 1` multiplet has three), and
-//! `benchmarks/mie_sphere/open_results.toml` flags its `σ₀ = 25` rows
-//! `ambiguous = true`.
+//! # Mode identity (issue #1022)
+//!
+//! The eigenvalue nearest the analytic root is not necessarily the
+//! TE₁,₁ quasi-mode, so every mode this file measures is identified from
+//! its eigenvector with `geode_core::postproc::mode_character`: at least
+//! half of its in-ball energy must project onto the `l = 1`
+//! magnetic-dipole family `j₁(n k r)·(â × r̂)` (azimuthal, no radial `E`),
+//! and it must sit in a group of exactly three such modes (`2l + 1`).
+//!
+//! Measured on the bundled 774-node fixture, Λ frozen at `Re(k) = 1.88074`:
+//!
+//! | `σ₀` | identified TE₁ triplet(s), `k` | `Re(k)` vs 1.88074 | Q (analytic 1.952) |
+//! |---|---|---|---|
+//! | 5  | `1.8542 – 1.8553 + 0.191 – 0.195j` | 1.35 – 1.41 % low | 4.77 – 4.87 |
+//! | 10 | `1.7881 – 1.7897 + 0.338 – 0.346j` | 4.84 – 4.93 % low | 2.59 – 2.64 |
+//! | 25 | `2.2376 – 2.2429 + 0.365 – 0.372j` | 19.0 – 19.3 % high | 3.01 – 3.07 |
+//! | 25 | `1.3804 – 1.3894 + 0.662 – 0.675j` | 26.1 – 26.6 % low | 1.02 – 1.05 |
+//!
+//! At `σ₀ = 5` and `10` the triplet is also the nearest group to the
+//! root. At `σ₀ = 25` it is not: the eight modes nearest the root
+//! (`k ≈ 1.77 – 1.80 + 0.68 – 0.72j`, Q 1.25 – 1.31) are a TM₁ triplet
+//! (TM₁ overlap 0.91 – 0.94, radial-`E` share 0.45 – 0.47) and a
+//! TE₂-dominant quintuplet, with TE₁ overlap ≤ 0.006 each. Until issue
+//! #1022 this file asserted on the nearest of them
+//! (`k = 1.7772 + 0.6792j`, "Re(k) 5.50 % low, Q = 1.31"). That was a
+//! TM₁ mode: **the 5.5 % offset was a mis-pick, not a property of the
+//! matched UPML**. The TE₁ content at `σ₀ = 25` is split between two
+//! triplets, neither within 19 % of the root on `Re(k)`, so `σ₀ = 25`
+//! does not isolate TE₁,₁ on this fixture. The acceptance bands are
+//! therefore asserted at `σ₀ = 5` and `10`; `σ₀ = 25` is reported, and
+//! its nearest mode is asserted to be rejected by the identity check.
+//!
+//! The trend with `σ₀` is opposite on the two observables: Q moves
+//! toward the analytic value (4.8 → 2.6, target 1.95) while `Re(k)`
+//! moves away (1.4 % → 4.9 % low). The ε-only path sits at
+//! `Re(k)` 0.45 – 0.57 % low with Q 8.9 – 9.0, so on this mode the
+//! matched UPML's gain is the linewidth, not the position.
 //!
 //! # ω-freeze linearization
 //!
@@ -48,11 +80,14 @@
 //! 2. **σ₀ = 0 assembly degenerate limit** — the full-tensor assembler
 //!    fed σ₀ = 0 matched materials reproduces the established
 //!    complex-scalar-ε assembly (real K, scalar M) entrywise.
-//! 3. **Quasi-mode Q** — with σ₀ = 25 (the driven-path calibration)
-//!    and ω frozen at the TE₁,₁ analytic root, the matched-UPML
-//!    quasi-mode Q drops from the ε-only ≈ 9.0 toward the analytic
-//!    ≈ 1.95. Also asserts the reduced pencil stays complex-symmetric
-//!    (`Aᵀ = A`), the invariant the Lanczos path relies on.
+//! 3. **Quasi-mode Q** — with ω frozen at the TE₁,₁ analytic root, the
+//!    *identified* TE₁ triplet's Q drops from the ε-only ≈ 9.0 toward
+//!    the analytic ≈ 1.95 at σ₀ = 5 and 10. Also asserts the reduced
+//!    pencil stays complex-symmetric (`Aᵀ = A`), the invariant the
+//!    Lanczos path relies on.
+//! 4. **σ₀ = 25 negative** — the mode nearest the root at the
+//!    driven-path calibration is rejected by the identity check (it is
+//!    TM₁), as are its seven neighbours.
 //!
 //! # Running the heavy tests
 //!
@@ -76,11 +111,16 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::driven::scattering::build_matched_upml_materials;
-use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
+use geode_core::eigen::complex::SparseComplexShiftInvertLanczos;
 use geode_core::eigen::dense::burn_matrix_to_faer;
-use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, TetMesh, read_sphere_fixture};
+use geode_core::eigen::lanczos::ConvergenceCheck;
+use geode_core::mesh::{
+    PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, TetMesh, read_sphere_fixture,
+};
+use geode_core::postproc::mode_character::{
+    ClassifiedMode, MultipoleFamily, classify_sphere_modes, select_multiplet,
+};
 use geode_core::testing::TestBackend;
-use geode_util::eigen::k_from_lambda;
 
 type B = TestBackend;
 
@@ -91,10 +131,39 @@ fn device() -> <B as BackendTypes>::Device {
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;
 
-/// UPML strength for the acceptance solve — the driven-path
-/// calibration from `tests/mie_driven_scattering.rs` (round-trip
-/// continuum attenuation `exp(−2σ₀d/3) ≈ 2·10⁻⁴`).
-const SIGMA_0: f64 = 25.0;
+/// UPML strength of the first acceptance solve: the value the ε-only
+/// eigen benchmark (`benchmarks/mie_sphere/results.toml`) uses, so the
+/// Q comparison with that baseline is at equal `σ₀`.
+const SIGMA_LOW: f64 = 5.0;
+
+/// UPML strength of the second acceptance solve.
+const SIGMA_MID: f64 = 10.0;
+
+/// The driven-path calibration from `tests/mie_driven_scattering.rs`
+/// (round-trip continuum attenuation `exp(−2σ₀d/3) ≈ 2·10⁻⁴`). On the
+/// eigen path it does not isolate TE₁,₁ (see the module docs), so it is
+/// reported and used for the negative identity test only.
+const SIGMA_DRIVEN: f64 = 25.0;
+
+/// The `l = 1` magnetic-dipole family every measured mode must belong to.
+const TE1: MultipoleFamily = MultipoleFamily::ALL[0];
+
+/// Eigenpairs requested nearest the shift. Measured: the TE₁ triplet is
+/// among the 8 nearest at σ₀ = 5 and 10; at σ₀ = 25 the two TE₁ triplets
+/// and the eight modes nearest the root are all among the 30 nearest.
+const N_REQUEST: usize = 40;
+
+/// Krylov dimension of the first Lanczos pass. The checked solve
+/// extends it until every requested pair meets the residual tolerance
+/// (measured: 168 steps at σ₀ = 5, 10 and 25, largest relative residual
+/// 5.3e-10). This file used an unchecked 256-step solve before issue
+/// #1022; the three checked solves together now take less time than
+/// that one did.
+const KRYLOV_DIM: usize = 128;
+
+/// How many of the modes nearest the root to print and, at σ₀ = 25, to
+/// run the negative identity check on: the full cluster of eight.
+const N_CANDIDATES: usize = 8;
 
 /// Per-tet edge index/sign tables in the form the assemblers take.
 fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
@@ -237,33 +306,29 @@ fn matched_upml_sigma_zero_matches_complex_scalar_assembly() {
     assert!(max_dm_im < 1e-9, "Im(M) leaked at σ₀ = 0: {max_dm_im}");
 }
 
-#[test]
-#[ignore = "heavy: full-tensor assembly + 3,300-DOF sparse shift-invert; run with --release"]
-fn matched_upml_quasimode_q_recovers_open_space_te11() {
-    // The headline acceptance test for issue #213: matched-UPML
-    // quasi-mode Q must shed the ε-only impedance-mismatch artifact
-    // (Q ≈ 9.0 on this mode) and land near the analytic open-space
-    // TE₁,₁ Q ≈ 1.95.
-    let te11 = te11_root();
-    eprintln!(
-        "analytic open-space TE_1,1: k = {:.5} {:+.5}j, Q = {:.4}",
-        te11.re_k,
-        te11.im_k,
-        te11.q()
-    );
-
-    let f = read_sphere_fixture().expect("fixture load");
+/// One frozen-ω matched-UPML eigensolve on the bundled fixture, with
+/// every returned mode classified by field character.
+///
+/// Assembles `K(Λ⁻¹(ω₀)) x = λ M(ε_r·Λ(ω₀)) x`, PEC-reduces it, asserts
+/// the reduced pencil is complex-symmetric, solves for the `N_REQUEST`
+/// converged eigenpairs nearest `σ = Re(k_a²)` and classifies the
+/// oscillatory ones.
+fn solve_and_classify(
+    f: &SphereFixture,
+    sigma_0: f64,
+    root: &MieRootComplex,
+) -> Vec<ClassifiedMode> {
     let n_edges = f.mesh.edges().len();
     let (tet_idx, tet_sign) = edge_tables(&f.mesh);
 
     // Freeze Λ at the analytic root frequency (ω₀ = Re(k), c = 1).
-    let omega0 = te11.re_k;
+    let omega0 = root.re_k;
     let (eps_tensor, nu_tensor) = build_matched_upml_materials(
         &f.mesh,
         &f.tet_physical_tags,
         PHYS_SPHERE_INTERIOR,
         N_INSIDE,
-        SIGMA_0,
+        sigma_0,
         omega0,
     );
 
@@ -293,7 +358,7 @@ fn matched_upml_quasimode_q_recovers_open_space_te11() {
         faer::Mat::<c64>::from_fn(dim, dim, |i, j| k_full[(interior_idx[i], interior_idx[j])]);
     let m_int =
         faer::Mat::<c64>::from_fn(dim, dim, |i, j| m_full[(interior_idx[i], interior_idx[j])]);
-    eprintln!("PEC reduction: {n_edges} → {dim} interior DOFs");
+    eprintln!("σ₀ = {sigma_0}: PEC reduction {n_edges} → {dim} interior DOFs");
 
     // Complex symmetry (Aᵀ = A) — the pencil invariant the sparse
     // Lanczos path relies on (curator test plan item 2). Λ and Λ⁻¹
@@ -342,14 +407,10 @@ fn matched_upml_quasimode_q_recovers_open_space_te11() {
     // tool. Shift-invert at σ = Re(k_a²) ≈ 3.3 puts the gradient
     // nullspace λ ≈ 0 far from the shift, so no spurious-mode filter
     // is needed beyond the oscillatory cut below.)
-    let lambda_target = c64::new(
-        te11.re_k * te11.re_k - te11.im_k * te11.im_k,
-        2.0 * te11.re_k * te11.im_k,
-    );
-    let n_request = 12;
+    let lambda_target_re = root.re_k * root.re_k - root.im_k * root.im_k;
     let solver = SparseComplexShiftInvertLanczos {
-        sigma: lambda_target.re,
-        max_iters: 256,
+        sigma: lambda_target_re,
+        max_iters: KRYLOV_DIM,
         tol: 1e-9,
     };
     let mut k_trips: Vec<Triplet<usize, usize, c64>> = Vec::new();
@@ -370,90 +431,389 @@ fn matched_upml_quasimode_q_recovers_open_space_te11() {
         SparseColMat::<usize, c64>::try_new_from_triplets(dim, dim, &k_trips).expect("sparse K");
     let m_sp =
         SparseColMat::<usize, c64>::try_new_from_triplets(dim, dim, &m_trips).expect("sparse M");
-    let lambdas = solver
-        .smallest_complex_pencil_eigenvalues(k_sp.as_ref(), m_sp.as_ref(), n_request)
+    // The identity check reads eigenvectors, so only converged pairs
+    // are admitted: an unconverged Ritz vector has no meaningful field
+    // character. Measured residuals are at most 5.3e-10.
+    let checked = solver
+        .smallest_eigenpairs_checked(
+            k_sp.as_ref(),
+            m_sp.as_ref(),
+            N_REQUEST,
+            ConvergenceCheck {
+                residual_tol: 1e-8,
+                max_iters_cap: 2 * KRYLOV_DIM,
+                window: None,
+            },
+        )
         .expect("sparse shift-invert complex eigensolve");
+    let max_residual = checked.residuals.iter().copied().fold(0.0_f64, f64::max);
+    eprintln!(
+        "{} converged pairs of {N_REQUEST} requested (max relative residual {max_residual:.1e}, \
+         {} withheld, {} Lanczos steps)",
+        checked.pairs.len(),
+        checked.rejected.len(),
+        checked.lanczos_steps
+    );
+    assert_eq!(
+        checked.shortfall(),
+        0,
+        "eigensolve returned fewer converged pairs than requested; withheld: {:?}",
+        checked.rejected
+    );
 
-    // Oscillatory modes only (the shift already excludes the
-    // gradient nullspace; keep the Re(λ) > 0 guard for robustness).
-    let physical: Vec<c64> = lambdas.iter().filter(|l| l.re > 0.0).copied().collect();
-    eprintln!("{} oscillatory physical modes returned", physical.len());
-    assert!(!physical.is_empty(), "no physical modes above threshold");
+    // Oscillatory modes only (the shift already excludes the gradient
+    // nullspace; keep the Re(λ) > 0 guard for robustness), scattered back
+    // to full-length edge vectors for the field-character integrals.
+    let full_fields: Vec<(c64, Vec<c64>)> = checked
+        .pairs
+        .iter()
+        .filter(|p| p.lambda.re > 0.0)
+        .map(|p| {
+            let mut full = vec![c64::new(0.0, 0.0); n_edges];
+            for (i, &g) in interior_idx.iter().enumerate() {
+                full[g] = p.vector[i];
+            }
+            (p.lambda, full)
+        })
+        .collect();
+    assert!(!full_fields.is_empty(), "no physical modes above threshold");
+    let modes: Vec<(c64, &[c64])> = full_fields
+        .iter()
+        .map(|(lambda, v)| (*lambda, v.as_slice()))
+        .collect();
+    classify_sphere_modes(f, &modes, N_INSIDE)
+}
 
-    // Match in the complex k-plane: minimize
-    // hypot(Re k − Re k_a, |Im k| − |Im k_a|). |Im| folds out the
-    // time-convention sign.
-    let dist = |lam: &c64| {
-        let (re_k, im_k) = k_from_lambda(*lam);
-        (re_k - te11.re_k).hypot(im_k.abs() - te11.im_k.abs())
-    };
-    let mut by_dist = physical.clone();
-    by_dist.sort_by(|a, b| dist(a).partial_cmp(&dist(b)).unwrap());
-    eprintln!("5 closest modes to the analytic TE_1,1 root:");
-    for lam in by_dist.iter().take(5) {
-        let (re_k, im_k) = k_from_lambda(*lam);
-        let q = re_k / (2.0 * im_k.abs().max(1e-300));
+/// Indices of `modes` sorted by distance to `root` in the
+/// `(Re k, |Im k|)` plane, nearest first.
+fn by_distance(modes: &[ClassifiedMode], root: &MieRootComplex) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..modes.len()).collect();
+    order.sort_by(|a, b| {
+        modes[*a]
+            .distance_to(root.re_k, root.im_k)
+            .partial_cmp(&modes[*b].distance_to(root.re_k, root.im_k))
+            .unwrap()
+    });
+    order
+}
+
+/// Print the audit table: the `N_CANDIDATES` modes nearest `root`, each
+/// with its multiplicity, field-character metrics and the identity
+/// verdict, then every mode of the TE₁ family in the solve.
+fn print_candidates(modes: &[ClassifiedMode], order: &[usize], root: &MieRootComplex) {
+    eprintln!(
+        "{N_CANDIDATES} closest modes to the analytic TE_1,1 root (k-cluster = group size among \
+         all modes, multiplet = group size within the mode's own family):"
+    );
+    for &i in order.iter().take(N_CANDIDATES) {
+        let m = &modes[i];
         eprintln!(
-            "  k = {re_k:.4} {im_k:+.4}j  (Q = {q:.3}, dist = {:.4})",
-            dist(lam)
+            "  dist = {:.4}  {}  ⇒ {}",
+            m.distance_to(root.re_k, root.im_k),
+            m.summary(),
+            match m.rejection(TE1) {
+                None => "TE_1 triplet member".to_string(),
+                Some(why) => format!("NOT TE_1,1: {why}"),
+            }
+        );
+    }
+    eprintln!(
+        "all TE_1-family modes among the {} classified:",
+        modes.len()
+    );
+    for &i in order {
+        let m = &modes[i];
+        if m.family == Some(TE1) {
+            eprintln!(
+                "  dist = {:.4}  {}  (Re(k) {:+.2}% vs analytic, Q ratio {:.3})",
+                m.distance_to(root.re_k, root.im_k),
+                m.summary(),
+                (m.k.re - root.re_k) / root.re_k * 100.0,
+                m.q() / root.q()
+            );
+        }
+    }
+}
+
+/// Identify the TE₁ triplet nearest the root and assert the identity:
+/// it exists, has three members, and the mode nearest the root overall
+/// is one of them (so "nearest" and "identified" agree at this σ₀).
+/// Returns the triplet, nearest member first.
+fn identified_te11_triplet(
+    modes: &[ClassifiedMode],
+    root: &MieRootComplex,
+    sigma_0: f64,
+) -> Vec<ClassifiedMode> {
+    let order = by_distance(modes, root);
+    print_candidates(modes, &order, root);
+    let members = select_multiplet(modes, TE1, root.re_k, root.im_k).unwrap_or_else(|| {
+        panic!("σ₀ = {sigma_0}: no complete TE_1 triplet among the classified modes")
+    });
+    assert_eq!(members.len(), 3, "an l = 1 multiplet has three members");
+    for &i in &members {
+        assert!(
+            modes[i].is_member_of(TE1),
+            "σ₀ = {sigma_0}: {} failed the TE_1 identity check: {:?}",
+            modes[i].summary(),
+            modes[i].rejection(TE1)
+        );
+    }
+    let nearest = &modes[order[0]];
+    assert!(
+        members.contains(&order[0]),
+        "σ₀ = {sigma_0}: the mode nearest the root is not in the identified TE_1 triplet \
+         ({}; {:?}). σ₀ = {sigma_0} no longer isolates TE_1,1, so the bands below would \
+         describe a different mode than the nearest one.",
+        nearest.summary(),
+        nearest.rejection(TE1)
+    );
+    members.iter().map(|&i| modes[i]).collect()
+}
+
+#[test]
+#[ignore = "heavy: two full-tensor assemblies + 3,300-DOF sparse shift-invert eigenpair solves; run with --release"]
+fn matched_upml_quasimode_q_recovers_open_space_te11() {
+    // The headline acceptance test for issue #213: matched-UPML
+    // quasi-mode Q must shed the ε-only impedance-mismatch artifact
+    // (Q ≈ 9.0 on this mode) and move toward the analytic open-space
+    // TE₁,₁ Q ≈ 1.95. Every band applies to all three members of a
+    // triplet identified by field character (issue #1022), not to the
+    // mode nearest the root.
+    let te11 = te11_root();
+    eprintln!(
+        "analytic open-space TE_1,1: k = {:.5} {:+.5}j, Q = {:.4}",
+        te11.re_k,
+        te11.im_k,
+        te11.q()
+    );
+    eprintln!(
+        "ε-only UPML baseline on this mode (benchmarks/mie_sphere/results.toml, σ₀ = 5): \
+         Re(k) = 1.8700 – 1.8723, Q = 8.9 – 9.0"
+    );
+    let f = read_sphere_fixture().expect("fixture load");
+
+    let report = |sigma_0: f64, triplet: &[ClassifiedMode]| {
+        for m in triplet {
+            eprintln!(
+                "σ₀ = {sigma_0}: identified TE_1,1 member k = {:.4} {:+.4}j, Q = {:.3} \
+                 (analytic Q = {:.3}); rel err Re(k) = {:.2}%, Q ratio = {:.3}, \
+                 TE_1 overlap = {:.3}, radial-E share = {:.3}",
+                m.k.re,
+                m.k.im,
+                m.q(),
+                te11.q(),
+                (m.k.re - te11.re_k).abs() / te11.re_k * 100.0,
+                m.q() / te11.q(),
+                m.character.overlap(TE1),
+                m.character.radial_fraction
+            );
+        }
+    };
+
+    // --- σ₀ = 5 (same σ₀ as the ε-only baseline) -----------------------
+    //
+    // Measured (774-node fixture): triplet k = 1.8542 – 1.8553
+    // + 0.1906 – 0.1947j; Re(k) 1.35 – 1.41 % low; Q = 4.765 – 4.865
+    // (ratio 2.44 – 2.49); TE₁ overlap 0.969, radial-E share 0.009,
+    // in-ball energy share 0.48 – 0.49.
+    let modes_low = solve_and_classify(&f, SIGMA_LOW, &te11);
+    let triplet_low = identified_te11_triplet(&modes_low, &te11, SIGMA_LOW);
+    report(SIGMA_LOW, &triplet_low);
+    for m in &triplet_low {
+        let rel_err_re = (m.k.re - te11.re_k).abs() / te11.re_k;
+        let q_ratio = m.q() / te11.q();
+        // 1. The impedance-mismatch artifact is reduced: Q at most two
+        //    thirds of the ε-only Q ≈ 9.0 at the same σ₀ (measured
+        //    4.77 – 4.87, i.e. 53 – 54 % of it). The `< 4.5` ("half the
+        //    ε-only Q") band this test carried before issue #1022 does
+        //    NOT hold at σ₀ = 5; it holds at σ₀ = 10 below. It was
+        //    calibrated on the σ₀ = 25 mis-picked TM₁ mode (Q = 1.31).
+        assert!(
+            m.q() < 6.0,
+            "σ₀ = 5 matched-UPML TE_1,1 Q = {:.3} did not shed the ε-only mismatch artifact \
+             (ε-only Q ≈ 9.0 on this mode; band < 6.0)",
+            m.q()
+        );
+        // 2. Within a factor 3 of the analytic open-space Q ≈ 1.95
+        //    (measured ratio 2.44 – 2.49; the band is unchanged).
+        assert!(
+            q_ratio > 1.0 / 3.0 && q_ratio < 3.0,
+            "σ₀ = 5 matched-UPML TE_1,1 Q ratio = {q_ratio:.3} outside [1/3, 3] of analytic"
+        );
+        // 3. Resonance position within 3 % of the analytic
+        //    Re(k) = 1.88074 (measured 1.35 – 1.41 % low; tightened
+        //    from the 10 % the mis-picked σ₀ = 25 mode needed). The
+        //    ε-only triplet is closer still (0.45 – 0.57 % low, it
+        //    tracks the nearby PEC-cavity TE₁,₁ = 1.86880), so this is
+        //    an absolute regression guard, not a no-worse-than-ε-only
+        //    claim.
+        assert!(
+            rel_err_re < 0.03,
+            "σ₀ = 5 matched-UPML TE_1,1 Re(k) rel err = {:.2}% (≥ 3%)",
+            rel_err_re * 100.0
         );
     }
 
-    let best = by_dist[0];
-    let (fem_re_k, fem_im_k) = k_from_lambda(best);
-    let fem_q = fem_re_k / (2.0 * fem_im_k.abs().max(1e-300));
-    let rel_err_re = (fem_re_k - te11.re_k).abs() / te11.re_k;
-    let q_ratio = fem_q / te11.q();
+    // --- σ₀ = 10 ---------------------------------------------------------
+    //
+    // Measured: triplet k = 1.7881 – 1.7897 + 0.3382 – 0.3459j; Re(k)
+    // 4.84 – 4.93 % low; Q = 2.586 – 2.644 (ratio 1.325 – 1.355); TE₁
+    // overlap 0.963 – 0.966, radial-E share 0.011 – 0.013.
+    let modes_mid = solve_and_classify(&f, SIGMA_MID, &te11);
+    let triplet_mid = identified_te11_triplet(&modes_mid, &te11, SIGMA_MID);
+    report(SIGMA_MID, &triplet_mid);
+    for m in &triplet_mid {
+        let rel_err_re = (m.k.re - te11.re_k).abs() / te11.re_k;
+        let q_ratio = m.q() / te11.q();
+        // 1. Q at most half the ε-only Q ≈ 9.0 (the pre-#1022 band,
+        //    now met by an identified TE₁,₁ triplet: measured ≈ 2.6).
+        assert!(
+            m.q() < 4.5,
+            "σ₀ = 10 matched-UPML TE_1,1 Q = {:.3} (ε-only Q ≈ 9.0 on this mode; band < 4.5)",
+            m.q()
+        );
+        // 2. Same factor-3 band (measured ratio 1.33 – 1.36).
+        assert!(
+            q_ratio > 1.0 / 3.0 && q_ratio < 3.0,
+            "σ₀ = 10 matched-UPML TE_1,1 Q ratio = {q_ratio:.3} outside [1/3, 3] of analytic"
+        );
+        // 3. Resonance position within 10 % (the pre-#1022 band;
+        //    measured 4.84 – 4.93 % low). The position error GROWS with
+        //    σ₀ (1.4 % at σ₀ = 5) while the Q error shrinks.
+        assert!(
+            rel_err_re < 0.10,
+            "σ₀ = 10 matched-UPML TE_1,1 Re(k) rel err = {:.2}% (≥ 10%)",
+            rel_err_re * 100.0
+        );
+    }
+
+    // 4. Raising σ₀ moves the identified triplet's Q toward the analytic
+    //    value: every σ₀ = 10 member is below every σ₀ = 5 member
+    //    (measured 2.59 – 2.64 vs 4.77 – 4.87) and still above the
+    //    analytic 1.95.
+    let q_max_mid = triplet_mid.iter().map(|m| m.q()).fold(0.0_f64, f64::max);
+    let q_min_mid = triplet_mid
+        .iter()
+        .map(|m| m.q())
+        .fold(f64::INFINITY, f64::min);
+    let q_min_low = triplet_low
+        .iter()
+        .map(|m| m.q())
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        q_max_mid < q_min_low && q_min_mid > te11.q(),
+        "TE_1,1 Q is not monotone toward the analytic {:.3}: σ₀ = 5 min {q_min_low:.3}, \
+         σ₀ = 10 range {q_min_mid:.3} – {q_max_mid:.3}",
+        te11.q()
+    );
+}
+
+#[test]
+#[ignore = "heavy: full-tensor assembly + 3,300-DOF sparse shift-invert eigenpair solve; run with --release"]
+fn matched_upml_sigma25_nearest_mode_is_not_te11() {
+    // Negative / mutation check for the identity test (issue #1022), on
+    // the real spectrum. At σ₀ = 25 the mode nearest the analytic TE₁,₁
+    // root is the one this file asserted on until #1022
+    // (k = 1.7772 + 0.6792j, "Re(k) 5.50 % low, Q = 1.31"). It is a TM₁
+    // mode, and so the identity check must reject it. If this test
+    // starts failing because a TE₁ triplet has become the nearest group,
+    // σ₀ = 25 isolates TE₁,₁ again and the acceptance bands can move
+    // back to it.
+    //
+    // Measured (774-node fixture), the eight modes nearest the root:
+    //
+    //   k = 1.7772 + 0.6792j  Q = 1.308  TM₁ 0.942, TE₁ 0.000, radial 0.467
+    //   k = 1.8045 + 0.6955j  Q = 1.297  TE₂ 0.716, TM₁ 0.191, TE₁ 0.001
+    //   k = 1.7803 + 0.6891j  Q = 1.292  TM₁ 0.914, TE₁ 0.001, radial 0.449
+    //   k = 1.7717 + 0.6906j  Q = 1.283  TM₁ 0.941, TE₁ 0.000, radial 0.458
+    //   k = 1.7936 + 0.7023j  Q = 1.277  TE₂ 0.477, TM₁ 0.445, TE₁ 0.004
+    //   k = 1.8026 + 0.7072j  Q = 1.275  TE₂ 0.764, TM₁ 0.115, TE₁ 0.003
+    //   k = 1.7933 + 0.7138j  Q = 1.256  TE₂ 0.676, TM₁ 0.233, TE₁ 0.002
+    //   k = 1.8015 + 0.7181j  Q = 1.254  TE₂ 0.575, TM₁ 0.270, TE₁ 0.006
+    //
+    // a TM₁ triplet plus a TE₂/TM₁-mixed quintuplet (four members above
+    // the 0.5 family threshold for TE₂, one with no majority family),
+    // 3 + 5 = 8, which the eigenvalues alone show as one group of eight.
+    // The TE₁ content is in
+    // two complete triplets elsewhere (reported, not asserted):
+    //
+    //   k = 2.2376 – 2.2429 + 0.365 – 0.372j  Q = 3.01 – 3.07  TE₁ 0.913 – 0.917
+    //       (Re(k) 19.0 – 19.3 % high, Q ratio 1.54 – 1.57, in-ball energy 0.57 – 0.58)
+    //   k = 1.3804 – 1.3894 + 0.662 – 0.675j  Q = 1.02 – 1.05  TE₁ 0.983 – 0.988
+    //       (Re(k) 26.1 – 26.6 % low, Q ratio 0.52 – 0.54, in-ball energy 0.18)
+    let te11 = te11_root();
+    let f = read_sphere_fixture().expect("fixture load");
+    let modes = solve_and_classify(&f, SIGMA_DRIVEN, &te11);
+    let order = by_distance(&modes, &te11);
+    print_candidates(&modes, &order, &te11);
+
+    // The old selection: nearest in (Re k, |Im k|).
+    let old_pick = &modes[order[0]];
     eprintln!(
-        "matched-UPML TE_1,1 quasi-mode: k = {fem_re_k:.4} {fem_im_k:+.4}j, Q = {fem_q:.3} \
-         (analytic Q = {:.3}); rel err Re(k) = {:.2}%, Q ratio = {q_ratio:.3}",
-        te11.q(),
-        rel_err_re * 100.0
+        "pre-#1022 selection (nearest mode): {} — rel err Re(k) = {:.2}%, Q ratio = {:.3}",
+        old_pick.summary(),
+        (old_pick.k.re - te11.re_k).abs() / te11.re_k * 100.0,
+        old_pick.q() / te11.q()
+    );
+    let why = old_pick.rejection(TE1);
+    assert!(
+        !old_pick.is_member_of(TE1) && why.is_some(),
+        "the identity check accepted the σ₀ = 25 nearest mode as TE_1,1: {}",
+        old_pick.summary()
     );
     eprintln!(
-        "ε-only UPML baseline on this mode (benchmarks/mie_sphere/results.toml): \
-         Re(k) ≈ 1.870, Q ≈ 9.0"
+        "identity check rejects it: {}",
+        why.as_deref().unwrap_or("")
+    );
+    // It is not a marginal rejection: the field is an electric dipole
+    // (measured TM₁ overlap 0.942, radial-E share 0.467; a TE mode has
+    // radial share ≈ 0.01 on this mesh).
+    let tm1 = MultipoleFamily::ALL[1];
+    assert_eq!(
+        old_pick.family,
+        Some(tm1),
+        "σ₀ = 25 nearest mode is no longer TM_1: {}",
+        old_pick.summary()
+    );
+    assert!(
+        old_pick.character.radial_fraction > 0.3,
+        "σ₀ = 25 nearest mode has radial-E share {:.3} (TM_1 measured 0.467)",
+        old_pick.character.radial_fraction
     );
 
-    // Acceptance bands — calibrated on the bundled 774-node fixture
-    // (see benchmarks/mie_sphere/open_results.toml for the achieved
-    // figures and the σ₀/Picard sensitivity):
-    //
-    // 1. The impedance-mismatch artifact must be gone: Q at most half
-    //    the ε-only Q ≈ 9.0 of this mode (measured ≈ 1.31). Before issue
-    //    #999 this read `< 10` against the ε-only Q ≈ 27 of the TM₁,₁
-    //    ground triplet, a different mode; `< 10` would not even
-    //    separate the matched UPML from the ε-only path on this one.
-    assert!(
-        fem_q < 4.5,
-        "matched-UPML TE_1,1 Q = {fem_q:.3} did not shed the ε-only mismatch artifact \
-         (ε-only Q ≈ 9.0 on this mode; band < 4.5)"
-    );
-    // 2. And within a factor 3 of the analytic open-space Q ≈ 1.95
-    //    (measured ratio ≈ 0.67).
-    assert!(
-        q_ratio > 1.0 / 3.0 && q_ratio < 3.0,
-        "matched-UPML TE_1,1 Q ratio = {q_ratio:.3} outside [1/3, 3] of analytic"
-    );
-    // 3. Resonance position: 10 % of the analytic Re(k) = 1.88074
-    //    (measured ≈ 5.5 % low). Before issue #999 this was a 35 % band
-    //    justified by the ε-only ground triplet sitting ≈ 35 % below the
-    //    root it was then (wrongly) compared with. On this mode the
-    //    ε-only triplet is closer on Re(k) (1.870, 0.6 % low, because it
-    //    tracks the nearby PEC-cavity TE₁,₁ = 1.86880), so the matched
-    //    UPML is *not* better on position here; its gain is the
-    //    linewidth (assertions 1–2). The band is an absolute
-    //    regression guard, not a no-worse-than-ε-only claim.
-    //
-    // Caveat (issue #1022): the mode identity at σ₀ = 25 is not
-    // verified. `best` is the nearest of five near-equidistant modes
-    // (dist 0.2229 – 0.2371, Q 1.28 – 1.31; an l = 1 multiplet has
-    // only three), and `open_results.toml` flags its σ₀ = 25 rows
-    // `ambiguous = true`. The σ₀ = 5 TE₁,₁ row there is unambiguous
-    // (Re(k) 1.36 % low).
-    assert!(
-        rel_err_re < 0.10,
-        "matched-UPML TE_1,1 Re(k) rel err = {:.2}% (≥ 10%)",
-        rel_err_re * 100.0
-    );
+    // None of the eight nearest modes is TE₁,₁ (measured TE₁ overlap
+    // ≤ 0.006 each; the family threshold is 0.5).
+    for &i in order.iter().take(N_CANDIDATES) {
+        let m = &modes[i];
+        assert!(
+            !m.is_member_of(TE1),
+            "σ₀ = 25: a mode of the nearest cluster passes the TE_1 identity check: {}",
+            m.summary()
+        );
+        assert!(
+            m.character.overlap(TE1) < 0.1,
+            "σ₀ = 25: nearest-cluster mode has TE_1 overlap {:.3} (measured ≤ 0.006): {}",
+            m.character.overlap(TE1),
+            m.summary()
+        );
+    }
+
+    // Non-gating report: the TE₁ triplet the identity check would pick.
+    match select_multiplet(&modes, TE1, te11.re_k, te11.im_k) {
+        Some(members) => {
+            for &i in &members {
+                let m = &modes[i];
+                eprintln!(
+                    "σ₀ = 25 (reported, not asserted): nearest identified TE_1 triplet member \
+                     k = {:.4} {:+.4}j, Q = {:.3}; Re(k) {:+.2}% vs analytic, Q ratio = {:.3}",
+                    m.k.re,
+                    m.k.im,
+                    m.q(),
+                    (m.k.re - te11.re_k) / te11.re_k * 100.0,
+                    m.q() / te11.q()
+                );
+            }
+        }
+        None => eprintln!("σ₀ = 25 (reported, not asserted): no complete TE_1 triplet found"),
+    }
 }

@@ -32,15 +32,32 @@
 //! shift. The Picard shift is a direct measure of how much the
 //! ω-freeze approximation matters at the achieved accuracy.
 //!
-//! # Mode targeting
+//! # Mode targeting and identity (issue #1022)
 //!
 //! - **TE₁,₁** (k = 1.8807 − 0.4818j, Q ≈ 1.95; the Bohren & Huffman
 //!   `b₁` magnetic-dipole pole) is the primary acceptance target — the
 //!   claim to beat is the ε-only Q ≈ 9.0 of the same mode.
 //! - **TM₁,₁** (k = 1.2590 − 0.8702j, Q ≈ 0.72; the `a₁` electric-dipole
 //!   pole) is best-effort: that broad a resonance is hard to separate
-//!   from the PML continuum and is reported with an `ambiguous` flag when
-//!   the complex-distance and nearest-`Re(k)` matches disagree.
+//!   from the PML continuum.
+//!
+//! A row is **not** the eigenvalue nearest the analytic root. Each
+//! eigenvector is classified with
+//! `geode_core::postproc::mode_character` (energy split ball / gap / PML,
+//! radial-`E` share, projection onto the TE/TM `l = 1, 2` multipole
+//! families), and a row reports the nearest **identified multiplet** of
+//! the target family: at least half of the in-ball energy in that family
+//! and exactly `2l + 1 = 3` such modes grouped in `k`. `identified` is
+//! `false` when no complete multiplet exists; `nearest_is_member` says
+//! whether the plain nearest mode belongs to the reported multiplet, and
+//! `nearest_family` names what the nearest mode is when it does not.
+//! These replace the `ambiguous` flag earlier copies of
+//! `open_results.toml` carried.
+//!
+//! At `σ₀ = 25` the nearest mode to the TE₁,₁ root is a TM₁ mode
+//! (`k = 1.7772 + 0.6792j`), which is what the pre-#1022 benchmark
+//! reported as "TE₁,₁, Re(k) 5.5 % low". The TE₁ content there is split
+//! between two triplets, 19 % high and 26 % low on `Re(k)`.
 //!
 //! Before issue #999 the open-space catalog had TE and TM swapped, so
 //! these two targets were labelled the other way round (the primary was
@@ -69,8 +86,8 @@
 //!
 //! `--release` is required (faer 0.24 `gevd` panics under
 //! debug-assertions on the `--dense` path, and the debug build is far
-//! too slow for the dense assembly). Sparse-path runtime is ~1 minute
-//! total on the bundled 774-node fixture.
+//! too slow for the dense assembly). Sparse-path runtime is about
+//! 20 s total on the bundled 774-node fixture.
 //!
 //! Writes `benchmarks/mie_sphere/open_results.toml` (sibling of the
 //! ε-only `results.toml`, which is left untouched).
@@ -100,25 +117,43 @@ use geode_core::assembly::nedelec::{
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::driven::scattering::build_matched_upml_materials;
 use geode_core::eigen::complex::{
-    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
-    SparseComplexShiftInvertLanczos,
+    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexShiftInvertLanczos,
 };
+use geode_core::eigen::lanczos::ConvergenceCheck;
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
+use geode_core::postproc::mode_character::{
+    ClassifiedMode, MultipoleFamily, classify_sphere_modes, select_multiplet,
+};
 use geode_core::testing::TestBackend;
-use geode_util::eigen::k_from_lambda;
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;
 
 /// UPML strength values for the sensitivity axis. 5.0 matches the
 /// ε-only eigen benchmark; 25.0 is the driven-path calibration
-/// (round-trip continuum attenuation `exp(−2σ₀d/3) ≈ 2·10⁻⁴`).
-const SIGMA_VALUES: &[f64] = &[5.0, 25.0];
+/// (round-trip continuum attenuation `exp(−2σ₀d/3) ≈ 2·10⁻⁴`); 10.0 sits
+/// between them (added with the identity check of issue #1022, which
+/// showed that 25.0 does not isolate TE₁,₁ on the eigen path).
+const SIGMA_VALUES: &[f64] = &[5.0, 10.0, 25.0];
 
 /// Number of eigenvalues nearest the shift requested from the sparse
 /// solver — wide enough to cover the quasi-mode multiplet plus the
 /// PML-continuum modes between it and the shift.
 const N_NEAR_SHIFT: usize = 60;
+
+/// Krylov dimension of the sparse solve's first pass; the checked solve
+/// extends it (up to [`KRYLOV_CAP`]) until every requested pair has
+/// converged, because the identity check needs converged eigenvectors.
+const KRYLOV_DIM: usize = 128;
+
+/// Hard cap on the extended Krylov dimension.
+const KRYLOV_CAP: usize = 512;
+
+/// Relative-residual tolerance for a pair to be classified.
+const RESIDUAL_TOL: f64 = 1e-8;
+
+/// How many of the modes nearest a target to print per solve.
+const N_PRINT: usize = 8;
 
 /// Extra eigenvalues requested above the gradient-nullspace count on
 /// the `--dense` oracle path (which sorts ascending by |Re(λ)| from 0).
@@ -126,18 +161,18 @@ const N_EXTRA_DENSE: usize = 80;
 
 /// One frozen-ω matched-UPML eigensolve: assemble
 /// `K(Λ⁻¹(ω)) x = λ M(ε_rΛ(ω)) x` on the bundled fixture, PEC-reduce,
-/// eigensolve (sparse shift-invert Lanczos at `σ = ω²` by default,
-/// dense QZ oracle with `use_dense`), and return the physical
-/// eigenvalues (gradient nullspace filtered by the magnitude-jump
-/// heuristic, oscillatory `Re(λ) > 0` only), sorted by ascending
-/// `Re(λ)`.
+/// eigensolve with eigenvectors (sparse shift-invert Lanczos at `σ = ω²`
+/// by default, with a per-pair convergence check; dense oracle with
+/// `use_dense`), and return the physical modes (gradient nullspace
+/// filtered by the magnitude-jump heuristic, oscillatory `Re(λ) > 0`
+/// only) classified by field character.
 fn solve_frozen_omega<B: Backend>(
     device: &B::Device,
     f: &SphereFixture,
     sigma_0: f64,
     omega: f64,
     use_dense: bool,
-) -> Vec<faer::c64> {
+) -> Vec<ClassifiedMode> {
     let edges = f.mesh.edges();
     let n_edges = edges.len();
     let tet_edges = f.mesh.tet_edges();
@@ -189,17 +224,17 @@ fn solve_frozen_omega<B: Backend>(
         m_full[(interior_idx[i], interior_idx[j])]
     });
 
-    let lambdas = if use_dense {
+    let pairs: Vec<(faer::c64, Vec<faer::c64>)> = if use_dense {
         // One-off dense oracle (`--dense`): sorts ascending by |Re(λ)|
         // from 0, so it must crawl through the gradient nullspace.
         let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
         let n_request = spurious_dim + N_EXTRA_DENSE;
         eprintln!(
             "  σ₀ = {sigma_0}, ω = {omega:.4}: {n_edges} edges → {dim} interior DOFs, \
-             dense oracle requesting {n_request} eigenvalues"
+             dense oracle requesting {n_request} eigenpairs"
         );
         FaerComplexEigensolver
-            .smallest_complex_pencil_eigenvalues(k_int.as_ref(), m_int.as_ref(), n_request)
+            .smallest_complex_pencil_pairs(k_int.as_ref(), m_int.as_ref(), n_request)
             .expect("dense complex eigensolve")
     } else {
         // Default: sparse shift-invert Lanczos at σ = ω² (the
@@ -208,7 +243,7 @@ fn solve_frozen_omega<B: Backend>(
         // beyond the oscillatory cut below.
         eprintln!(
             "  σ₀ = {sigma_0}, ω = {omega:.4}: {n_edges} edges → {dim} interior DOFs, \
-             requesting {N_NEAR_SHIFT} eigenvalues near σ = {:.4}",
+             requesting {N_NEAR_SHIFT} eigenpairs near σ = {:.4}",
             omega * omega
         );
         let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
@@ -229,55 +264,141 @@ fn solve_frozen_omega<B: Backend>(
             .expect("sparse K");
         let m_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(dim, dim, &m_trips)
             .expect("sparse M");
-        SparseComplexShiftInvertLanczos {
+        let checked = SparseComplexShiftInvertLanczos {
             sigma: omega * omega,
-            max_iters: 256,
+            max_iters: KRYLOV_DIM,
             tol: 1e-9,
         }
-        .smallest_complex_pencil_eigenvalues(k_sp.as_ref(), m_sp.as_ref(), N_NEAR_SHIFT)
-        .expect("sparse shift-invert complex eigensolve")
+        .smallest_eigenpairs_checked(
+            k_sp.as_ref(),
+            m_sp.as_ref(),
+            N_NEAR_SHIFT,
+            ConvergenceCheck {
+                residual_tol: RESIDUAL_TOL,
+                max_iters_cap: KRYLOV_CAP,
+                window: None,
+            },
+        )
+        .expect("sparse shift-invert complex eigensolve");
+        eprintln!(
+            "  {} converged pairs (max relative residual {:.1e}), {} withheld, {} Lanczos steps",
+            checked.pairs.len(),
+            checked.residuals.iter().copied().fold(0.0_f64, f64::max),
+            checked.rejected.len(),
+            checked.lanczos_steps
+        );
+        checked
+            .pairs
+            .into_iter()
+            .map(|p| (p.lambda, p.vector))
+            .collect()
     };
 
     // Gradient-nullspace filter (no-op on the shift-invert path) +
-    // oscillatory only.
-    let max_abs = lambdas
+    // oscillatory only; scatter back to full-length edge vectors for the
+    // field-character integrals.
+    let max_abs = pairs
         .iter()
-        .map(|l| l.re.hypot(l.im))
+        .map(|(l, _)| l.re.hypot(l.im))
         .fold(0.0_f64, f64::max);
     let thresh = if use_dense { 1e-3 * max_abs } else { 0.0 };
-    let mut physical: Vec<faer::c64> = lambdas
-        .iter()
-        .filter(|l| l.re.hypot(l.im) > thresh && l.re > 0.0)
-        .copied()
+    let mut physical: Vec<(faer::c64, Vec<faer::c64>)> = pairs
+        .into_iter()
+        .filter(|(l, _)| l.re.hypot(l.im) > thresh && l.re > 0.0)
+        .map(|(l, v)| {
+            let mut full = vec![faer::c64::new(0.0, 0.0); n_edges];
+            for (i, &g) in interior_idx.iter().enumerate() {
+                full[g] = v[i];
+            }
+            (l, full)
+        })
         .collect();
-    physical.sort_by(|a, b| a.re.partial_cmp(&b.re).unwrap());
-    physical
+    physical.sort_by(|a, b| a.0.re.partial_cmp(&b.0.re).unwrap());
+    let modes: Vec<(faer::c64, &[faer::c64])> =
+        physical.iter().map(|(l, v)| (*l, v.as_slice())).collect();
+    classify_sphere_modes(f, &modes, N_INSIDE)
 }
 
-/// Match the physical spectrum against an analytic complex root:
-/// minimize the complex distance `hypot(Re k − Re k_a, |Im k| − |Im k_a|)`
-/// in the k-plane (|Im| folds out the time-convention sign). Returns
-/// `(λ_best, ambiguous)` where `ambiguous` flags disagreement with the
-/// nearest-`Re(k)` match.
-fn match_root(physical: &[faer::c64], root: &MieRootComplex) -> Option<(faer::c64, bool)> {
-    let dist = |lam: &faer::c64| {
-        let (re_k, im_k) = k_from_lambda(*lam);
-        (re_k - root.re_k).hypot(im_k.abs() - root.im_k.abs())
-    };
-    let best = physical
-        .iter()
-        .min_by(|a, b| dist(a).partial_cmp(&dist(b)).unwrap())?;
-    let nearest_re = physical
-        .iter()
-        .min_by(|a, b| {
-            let da = (k_from_lambda(**a).0 - root.re_k).abs();
-            let db = (k_from_lambda(**b).0 - root.re_k).abs();
-            da.partial_cmp(&db).unwrap()
-        })
-        .expect("non-empty if best matched");
-    let ambiguous = (best.re - nearest_re.re).abs() > 1e-12 * best.re.abs().max(1.0)
-        || (best.im - nearest_re.im).abs() > 1e-12 * best.im.abs().max(1.0);
-    Some((*best, ambiguous))
+/// The target family of an analytic root (`l = 1` or `2` only).
+fn family_of(root: &MieRootComplex) -> MultipoleFamily {
+    MultipoleFamily {
+        pol: root.pol,
+        l: root.l,
+    }
+}
+
+/// What a solve says about one analytic root.
+struct RootMatch {
+    /// The nearest identified multiplet of the root's family, nearest
+    /// member first; `None` if no complete multiplet was found.
+    multiplet: Option<Vec<ClassifiedMode>>,
+    /// The plain nearest mode in `(Re k, |Im k|)` — what this benchmark
+    /// reported before issue #1022.
+    nearest: ClassifiedMode,
+    /// Whether `nearest` belongs to `multiplet`.
+    nearest_is_member: bool,
+    /// Mean `(Re k, Im k, Q)` of every complete multiplet of the family
+    /// in the solve, nearest the root first.
+    family_multiplets: Vec<(f64, f64, f64)>,
+}
+
+/// Match the classified spectrum against an analytic complex root by
+/// **identity**: select the complete multiplet of the root's family
+/// nearest the root in `hypot(Re k − Re k_a, |Im k| − |Im k_a|)` (|Im|
+/// folds out the time-convention sign). Prints the audit table of the
+/// [`N_PRINT`] nearest modes. `None` for an empty spectrum.
+fn match_root(modes: &[ClassifiedMode], root: &MieRootComplex) -> Option<RootMatch> {
+    let family = family_of(root);
+    let dist = |m: &ClassifiedMode| m.distance_to(root.re_k, root.im_k);
+    let mut order: Vec<usize> = (0..modes.len()).collect();
+    order.sort_by(|a, b| dist(&modes[*a]).partial_cmp(&dist(&modes[*b])).unwrap());
+    let nearest_idx = *order.first()?;
+    for &i in order.iter().take(N_PRINT) {
+        let m = &modes[i];
+        eprintln!(
+            "    dist = {:.4}  {}  ⇒ {}",
+            dist(m),
+            m.summary(),
+            match m.rejection(family) {
+                None => format!("{} multiplet member", family.label()),
+                Some(why) => format!("not {}: {why}", family.label()),
+            }
+        );
+    }
+    let members = select_multiplet(modes, family, root.re_k, root.im_k);
+    let nearest_is_member = members
+        .as_ref()
+        .is_some_and(|idx| idx.contains(&nearest_idx));
+
+    // Every complete multiplet of the family, by distance of its nearest
+    // member.
+    let mut seen: Vec<usize> = Vec::new();
+    let mut family_multiplets = Vec::new();
+    for &i in &order {
+        let m = &modes[i];
+        let Some(id) = m.multiplet_id else { continue };
+        if !m.is_member_of(family) || seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        let group: Vec<&ClassifiedMode> = modes
+            .iter()
+            .filter(|o| o.multiplet_id == Some(id))
+            .collect();
+        let n = group.len() as f64;
+        family_multiplets.push((
+            group.iter().map(|o| o.k.re).sum::<f64>() / n,
+            group.iter().map(|o| o.k.im).sum::<f64>() / n,
+            group.iter().map(|o| o.q()).sum::<f64>() / n,
+        ));
+    }
+
+    Some(RootMatch {
+        multiplet: members.map(|idx| idx.iter().map(|&i| modes[i]).collect()),
+        nearest: modes[nearest_idx],
+        nearest_is_member,
+        family_multiplets,
+    })
 }
 
 struct QuasiModeRow {
@@ -289,15 +410,26 @@ struct QuasiModeRow {
     analytic_re_k: f64,
     analytic_im_k: f64,
     analytic_q: f64,
-    fem_re_k: f64,
-    fem_im_k: f64,
-    fem_q: f64,
-    rel_err_re_k: f64,
-    q_ratio: f64,
-    ambiguous: bool,
+    /// The identity-based match (see [`match_root`]).
+    matched: RootMatch,
     /// One Picard refresh (re-freeze Λ at the recovered `Re(k)`,
-    /// re-solve): `(ω₁, Re(k), Im(k), Q)`.
+    /// re-solve, re-identify): `(ω₁, Re(k), Im(k), Q)` of the nearest
+    /// member of the identified multiplet. `None` when not attempted or
+    /// when the refreshed solve has no complete multiplet.
     picard: Option<(f64, f64, f64, f64)>,
+}
+
+impl QuasiModeRow {
+    /// The reported mode: nearest member of the identified multiplet.
+    fn reported(&self) -> Option<&ClassifiedMode> {
+        self.matched.multiplet.as_ref().and_then(|m| m.first())
+    }
+}
+
+/// `label_l` family name of a mode for the TOML, `"none"` if no family
+/// reaches a majority.
+fn family_label(m: &ClassifiedMode) -> String {
+    m.family.map_or_else(|| "none".to_string(), |f| f.label())
 }
 
 fn results_path() -> PathBuf {
@@ -341,9 +473,26 @@ fn write_results(rows: &[QuasiModeRow]) {
          The ε-only Q ≈ 27 ground triplet is TM_1,1 (analytic Q ≈ 0.72).\",\n",
     );
     s.push_str(
+        "  \"Mode identity (issue #1022): fem_* is the nearest member of the nearest \
+         IDENTIFIED multiplet of the target family (>= 0.5 of the in-ball energy in the \
+         family's vector spherical harmonics, and exactly 2l+1 such modes grouped within \
+         |dk| <= 0.02), not the eigenvalue nearest the root. identified = false means no \
+         complete multiplet exists in the solve. nearest_* describes the plain nearest \
+         mode, which earlier copies of this file reported (with an ambiguous flag).\",\n",
+    );
+    s.push_str(
+        "  \"Verdict at sigma_0 = 25: the mode nearest the TE_1,1 root \
+         (k = 1.7772 + 0.6792j, formerly reported as TE_1,1 with Re(k) 5.5 % low and \
+         Q = 1.31) is a TM_1 mode. The 5.5 % offset was a mis-pick. The TE_1 content is \
+         split between two triplets (family_multiplets_*), about 19 % high and 26 % low \
+         on Re(k): sigma_0 = 25 does not isolate TE_1,1 on the 774-node fixture. The \
+         Picard refresh there re-freezes at the 19 %-high triplet and the nearest TE_1 \
+         triplet of the refreshed pencil is a different one (picard_re_k ≈ 1.53), so the \
+         frozen-ω linearization is not self-consistent at sigma_0 = 25 either.\",\n",
+    );
+    s.push_str(
         "  \"TM_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance \
-         competes with the PML continuum; rows flagged ambiguous when the \
-         complex-distance and nearest-Re(k) matches disagree.\",\n",
+         competes with the PML continuum.\",\n",
     );
     s.push_str(
         "  \"Labels follow the issue #999 open-space catalog (TM = a_l electric \
@@ -367,12 +516,81 @@ fn write_results(rows: &[QuasiModeRow]) {
         s.push_str(&format!("analytic_re_k = {:.15e}\n", r.analytic_re_k));
         s.push_str(&format!("analytic_im_k = {:.15e}\n", r.analytic_im_k));
         s.push_str(&format!("analytic_q = {:.15e}\n", r.analytic_q));
-        s.push_str(&format!("fem_re_k = {:.15e}\n", r.fem_re_k));
-        s.push_str(&format!("fem_im_k = {:.15e}\n", r.fem_im_k));
-        s.push_str(&format!("fem_q = {:.15e}\n", r.fem_q));
-        s.push_str(&format!("rel_err_re_k = {:.15e}\n", r.rel_err_re_k));
-        s.push_str(&format!("q_ratio = {:.15e}\n", r.q_ratio));
-        s.push_str(&format!("ambiguous = {}\n", r.ambiguous));
+        let family = MultipoleFamily { pol: r.pol, l: r.l };
+        s.push_str(&format!("identified = {}\n", r.reported().is_some()));
+        if let (Some(m), Some(group)) = (r.reported(), r.matched.multiplet.as_ref()) {
+            let fold = |f: &dyn Fn(&ClassifiedMode) -> f64, init: f64, op: fn(f64, f64) -> f64| {
+                group.iter().map(f).fold(init, op)
+            };
+            s.push_str(&format!("fem_re_k = {:.15e}\n", m.k.re));
+            s.push_str(&format!("fem_im_k = {:.15e}\n", m.k.im));
+            s.push_str(&format!("fem_q = {:.15e}\n", m.q()));
+            s.push_str(&format!(
+                "rel_err_re_k = {:.15e}\n",
+                (m.k.re - r.analytic_re_k).abs() / r.analytic_re_k
+            ));
+            s.push_str(&format!("q_ratio = {:.15e}\n", m.q() / r.analytic_q));
+            s.push_str(&format!("multiplet_size = {}\n", group.len()));
+            s.push_str(&format!(
+                "multiplet_re_k_min = {:.15e}\n",
+                fold(&|m| m.k.re, f64::INFINITY, f64::min)
+            ));
+            s.push_str(&format!(
+                "multiplet_re_k_max = {:.15e}\n",
+                fold(&|m| m.k.re, f64::NEG_INFINITY, f64::max)
+            ));
+            s.push_str(&format!(
+                "multiplet_q_min = {:.15e}\n",
+                fold(&|m| m.q(), f64::INFINITY, f64::min)
+            ));
+            s.push_str(&format!(
+                "multiplet_q_max = {:.15e}\n",
+                fold(&|m| m.q(), f64::NEG_INFINITY, f64::max)
+            ));
+            s.push_str(&format!(
+                "family_overlap_min = {:.6}\n",
+                fold(&|m| m.character.overlap(family), f64::INFINITY, f64::min)
+            ));
+            s.push_str(&format!(
+                "radial_e_fraction_max = {:.6}\n",
+                fold(
+                    &|m| m.character.radial_fraction,
+                    f64::NEG_INFINITY,
+                    f64::max
+                )
+            ));
+            s.push_str(&format!(
+                "ball_energy_fraction = {:.6}\n",
+                m.character.ball_energy_fraction
+            ));
+            s.push_str(&format!(
+                "pml_energy_fraction = {:.6}\n",
+                m.character.pml_energy_fraction
+            ));
+        }
+        let fm = &r.matched.family_multiplets;
+        let list = |f: &dyn Fn(&(f64, f64, f64)) -> f64| {
+            fm.iter()
+                .map(|t| format!("{:.6}", f(t)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        s.push_str(&format!("family_multiplets_re_k = [{}]\n", list(&|t| t.0)));
+        s.push_str(&format!("family_multiplets_im_k = [{}]\n", list(&|t| t.1)));
+        s.push_str(&format!("family_multiplets_q = [{}]\n", list(&|t| t.2)));
+        let near = &r.matched.nearest;
+        s.push_str(&format!(
+            "nearest_is_member = {}\n",
+            r.matched.nearest_is_member
+        ));
+        s.push_str(&format!("nearest_family = \"{}\"\n", family_label(near)));
+        s.push_str(&format!("nearest_re_k = {:.15e}\n", near.k.re));
+        s.push_str(&format!("nearest_im_k = {:.15e}\n", near.k.im));
+        s.push_str(&format!("nearest_q = {:.15e}\n", near.q()));
+        s.push_str(&format!(
+            "nearest_family_overlap = {:.6}\n",
+            near.character.overlap(family)
+        ));
         if let Some((w1, re_k, im_k, q)) = r.picard {
             s.push_str(&format!("picard_omega = {w1:.15e}\n"));
             s.push_str(&format!("picard_re_k = {re_k:.15e}\n"));
@@ -450,50 +668,76 @@ impl App for Args {
                     root.im_k,
                     root.q()
                 );
-                let physical = solve_frozen_omega::<B>(&device, &f, sigma_0, omega0, use_dense);
-                eprintln!("  {} oscillatory physical modes", physical.len());
-                let Some((lam, ambiguous)) = match_root(&physical, root) else {
-                    eprintln!("  no physical mode matched — skipping row");
+                let modes = solve_frozen_omega::<B>(&device, &f, sigma_0, omega0, use_dense);
+                eprintln!("  {} oscillatory physical modes", modes.len());
+                let Some(matched) = match_root(&modes, root) else {
+                    eprintln!("  no physical mode returned — skipping row");
                     continue;
                 };
-                let (re_k, im_k) = k_from_lambda(lam);
-                let q = if im_k.abs() > 1e-12 {
-                    re_k / (2.0 * im_k.abs())
-                } else {
-                    f64::INFINITY
-                };
-                eprintln!(
-                    "  matched quasi-mode: k = {re_k:.4} {im_k:+.4}j, Q = {q:.3} \
-                 (rel err Re(k) = {:.2}%, Q ratio = {:.3}{})",
-                    (re_k - root.re_k).abs() / root.re_k * 100.0,
-                    q / root.q(),
-                    if ambiguous { ", AMBIGUOUS" } else { "" }
-                );
+                let family = family_of(root);
+                match matched.multiplet.as_ref().and_then(|m| m.first()) {
+                    Some(m) => eprintln!(
+                        "  identified {} multiplet, nearest member: k = {:.4} {:+.4}j, Q = {:.3} \
+                         (rel err Re(k) = {:.2}%, Q ratio = {:.3}){}",
+                        family.label(),
+                        m.k.re,
+                        m.k.im,
+                        m.q(),
+                        (m.k.re - root.re_k).abs() / root.re_k * 100.0,
+                        m.q() / root.q(),
+                        if matched.nearest_is_member {
+                            String::new()
+                        } else {
+                            format!(
+                                "; the nearest mode is NOT a member (it is {})",
+                                family_label(&matched.nearest)
+                            )
+                        }
+                    ),
+                    None => eprintln!(
+                        "  NO complete {} multiplet identified; nearest mode is {} at \
+                         k = {:.4} {:+.4}j",
+                        family.label(),
+                        family_label(&matched.nearest),
+                        matched.nearest.k.re,
+                        matched.nearest.k.im
+                    ),
+                }
 
                 // One Picard refresh for the primary TE target: re-freeze Λ
-                // at the recovered Re(k) and re-solve.
-                let picard = if root.pol == MiePolarisation::TE {
-                    let omega1 = re_k;
-                    eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
-                    let physical1 =
-                        solve_frozen_omega::<B>(&device, &f, sigma_0, omega1, use_dense);
-                    match_root(&physical1, root).map(|(lam1, _)| {
-                        let (re1, im1) = k_from_lambda(lam1);
-                        let q1 = if im1.abs() > 1e-12 {
-                            re1 / (2.0 * im1.abs())
-                        } else {
-                            f64::INFINITY
-                        };
-                        eprintln!(
-                            "  Picard: k = {re1:.4} {im1:+.4}j, Q = {q1:.3} \
-                         (ΔRe(k) = {:+.2e}, ΔQ = {:+.3})",
-                            re1 - re_k,
-                            q1 - q
-                        );
-                        (omega1, re1, im1, q1)
-                    })
-                } else {
-                    None
+                // at the identified mode's Re(k), re-solve and re-identify.
+                let picard = match (
+                    root.pol == MiePolarisation::TE,
+                    matched.multiplet.as_ref().and_then(|m| m.first()),
+                ) {
+                    (true, Some(m0)) => {
+                        let omega1 = m0.k.re;
+                        eprintln!("  Picard refresh at ω₁ = {omega1:.4} …");
+                        let modes1 =
+                            solve_frozen_omega::<B>(&device, &f, sigma_0, omega1, use_dense);
+                        let refreshed = match_root(&modes1, root)
+                            .and_then(|m| m.multiplet)
+                            .and_then(|m| m.first().copied());
+                        match refreshed {
+                            Some(m1) => {
+                                eprintln!(
+                                    "  Picard: k = {:.4} {:+.4}j, Q = {:.3} \
+                                     (ΔRe(k) = {:+.2e}, ΔQ = {:+.3})",
+                                    m1.k.re,
+                                    m1.k.im,
+                                    m1.q(),
+                                    m1.k.re - m0.k.re,
+                                    m1.q() - m0.q()
+                                );
+                                Some((omega1, m1.k.re, m1.k.im, m1.q()))
+                            }
+                            None => {
+                                eprintln!("  Picard: no complete multiplet after the refresh");
+                                None
+                            }
+                        }
+                    }
+                    _ => None,
                 };
 
                 rows.push(QuasiModeRow {
@@ -505,12 +749,7 @@ impl App for Args {
                     analytic_re_k: root.re_k,
                     analytic_im_k: root.im_k,
                     analytic_q: root.q(),
-                    fem_re_k: re_k,
-                    fem_im_k: im_k,
-                    fem_q: q,
-                    rel_err_re_k: (re_k - root.re_k).abs() / root.re_k,
-                    q_ratio: q / root.q(),
-                    ambiguous,
+                    matched,
                     picard,
                 });
             }
@@ -518,23 +757,38 @@ impl App for Args {
 
         write_results(&rows);
 
-        eprintln!("\nSummary (vs. open-space analytic roots):");
+        eprintln!("\nSummary (identified multiplets vs. open-space analytic roots):");
         for r in &rows {
-            eprintln!(
-                "  σ₀ = {:>4}: {}_{},{}  Re(k) {:.4} vs {:.4} ({:.1}% err), \
-             Q {:.3} vs {:.3} (ratio {:.3}){}",
+            let head = format!(
+                "  σ₀ = {:>4}: {}_{},{}",
                 r.sigma_0,
                 r.pol.as_str(),
                 r.l,
-                r.n,
-                r.fem_re_k,
-                r.analytic_re_k,
-                r.rel_err_re_k * 100.0,
-                r.fem_q,
-                r.analytic_q,
-                r.q_ratio,
-                if r.ambiguous { " [ambiguous]" } else { "" }
+                r.n
             );
+            match r.reported() {
+                Some(m) => eprintln!(
+                    "{head}  Re(k) {:.4} vs {:.4} ({:.1}% err), Q {:.3} vs {:.3} (ratio {:.3}){}",
+                    m.k.re,
+                    r.analytic_re_k,
+                    (m.k.re - r.analytic_re_k).abs() / r.analytic_re_k * 100.0,
+                    m.q(),
+                    r.analytic_q,
+                    m.q() / r.analytic_q,
+                    if r.matched.nearest_is_member {
+                        String::new()
+                    } else {
+                        format!(
+                            " [nearest mode is {}, not a member]",
+                            family_label(&r.matched.nearest)
+                        )
+                    }
+                ),
+                None => eprintln!(
+                    "{head}  not identified (nearest mode is {})",
+                    family_label(&r.matched.nearest)
+                ),
+            }
         }
 
         Ok(())
