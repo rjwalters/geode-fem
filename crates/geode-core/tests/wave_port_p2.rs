@@ -2584,7 +2584,7 @@ fn long_guide_verdict(cache: &mut WindowCache, c: ShareClassifier, guard: f64) -
 /// `E_z` shares and the shares of its `E_z` within reach. With Gmsh 4.15.2
 /// every window covers its guard at 48 modes; the run took about 20 s in
 /// release on 14 threads before the issue #955 columns, 72 to 118 s with
-/// them on a loaded 28-core Mac, and about 45 s since the eigensolve
+/// them on a loaded 28-core Mac, and 30 to 45 s since the eigensolve
 /// windows are shared across guards (issue #1041).
 ///
 /// The p=1 column is **report-only**: the p=1 guard (P1 face estimate, same
