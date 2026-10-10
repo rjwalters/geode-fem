@@ -255,6 +255,12 @@ const MANIFEST: &[Entry] = &[
          (shape::capacitance_matrix_shape_gradient), no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/multiparam_results.toml",
+        "examples/transmon_multiparam_optimize.rs: scalar/tensor f64 electrostatic assembly + \
+         faer LU (shape::transmon_remorph, quantum::diffopt::optimize_multiparam_bounded), no \
+         Backend generic",
+    ),
+    b(
         // The #692 curation listed this under bucket D; the generator was
         // re-audited during implementation: it only uses the scalar
         // `assemble_electrostatic{,_tensor}` + `extract_capacitance` f64
