@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "squad": {
+      "command": "node",
+      "args": [
+        ".claude/hooks/squad-mcp.mjs"
+      ],
+      "env": {
+        "SQUAD_DIR": ".squad",
+        "SQUAD_RUNTIME": "../squad/dist/index.js"
+      }
+    }
+  }
+}
