@@ -46,7 +46,33 @@
 //!    dense path is essentially free next to the sparse triangular
 //!    solves.
 //! 4. Map `μ → σ + 1/μ` in complex arithmetic, sort by `|λ - σ|`, and
-//!    return the `n_modes` closest to `σ`.
+//!    return the `n_modes` closest to `σ`. The eigenvalue-only solve first
+//!    withholds the Ritz values the Krylov space has not resolved (next
+//!    section).
+//!
+//! # Unresolved Ritz values (issue #1023)
+//!
+//! The bilinear Lanczos has no interlacing property, so a Ritz value that
+//! has not converged can lie anywhere, including nearer `σ` than converged
+//! ones, and whether one appears depends on round-off. On the Mie PML
+//! pencil of `tests/sparse_complex_eigensolver.rs` (3300 unknowns, 378
+//! steps) the last step produced `λ = 0.695253 − 0.3397i` on Linux x86-64
+//! when the triangular solves ran sequentially, in front of the true lowest
+//! mode `1.182320 + 0.2071i`. Both solves were accurate (`‖A y − b‖ / ‖b‖ ≤
+//! 2.4e-14`) and differed by `2e-15` to `8e-15`; a relative perturbation of
+//! `1e-15` on each solve gave other such values on macOS aarch64, and on
+//! x86-64 with the solves left on the rayon pool.
+//!
+//! Every tridiagonal eigenpair `(μ, s)` comes with the residual estimate
+//! `|β_k| |s_k| / (‖s‖₂ |μ|)` (`ritz_values_with_estimates`), at no extra
+//! sparse mat-vec. The eigenvalue-only solve
+//! ([`SparseComplexEigenSolver::smallest_complex_pencil_eigenvalues`])
+//! withholds the Ritz values whose estimate exceeds `UNRESOLVED_RITZ_REL`
+//! and returns the `n_modes` nearest `σ` of the rest, so it can return fewer
+//! than `n_modes` values. The eigenpair solves are unchanged:
+//! [`SparseComplexShiftInvertLanczos::smallest_eigenpairs`] is unchecked and
+//! [`SparseComplexShiftInvertLanczos::smallest_eigenpairs_checked`] checks
+//! the true residual of each pair.
 //!
 //! Full reorthogonalization at every step is the same defensive choice
 //! as the real path — at the n ≈ 6000 / k ≈ 30 sizes we care about,
@@ -134,6 +160,11 @@ impl Default for SparseComplexShiftInvertLanczos {
 pub trait SparseComplexEigenSolver {
     /// Solve `K x = λ M x` for the `n` eigenvalues closest to the
     /// solver's shift `σ`, sorted by ascending `Re(λ)`.
+    ///
+    /// [`SparseComplexShiftInvertLanczos`] returns fewer than `n` values
+    /// when its Krylov space resolved fewer (issue #1023, see
+    /// [`SparseComplexShiftInvertLanczos::smallest_complex_pencil_eigenvalues_with_threads`]),
+    /// and an error when it resolved none.
     fn smallest_complex_pencil_eigenvalues(
         &self,
         k: SparseColMatRef<'_, usize, c64>,
@@ -285,17 +316,28 @@ fn tridiag_complex_eigenvalues(alpha: &[c64], beta: &[c64]) -> Result<Vec<c64>, 
 
 /// Largest relative residual estimate at which the eigenvalue-only solve
 /// still returns a Ritz value (issue #1023); see
-/// [`ritz_values_with_estimates`] for the estimate and
-/// [`SparseComplexShiftInvertLanczos::smallest_complex_pencil_eigenvalues_with_threads`]
-/// for why the value is withheld above it.
+/// [`ritz_values_with_estimates`] for the estimate and the module docs for
+/// why a value above it is withheld.
 ///
-/// The estimate bounds the Ritz value's relative error in the `μ` plane only
-/// to first order and up to the eigenvalue's condition number, so this is a
-/// screen for values the Krylov space has not resolved, not an accuracy
-/// guarantee. On the Mie PML pencil of `tests/sparse_complex_eigensolver.rs`
-/// (378 steps for 376 requested values) the estimates of the final Ritz
-/// values split into two groups with nothing between them: 188 at or below
-/// `1e-12` and 190 above `1e-2`.
+/// This screens out values the Krylov space has not resolved. It is not an
+/// accuracy guarantee: the estimate is taken in Krylov coordinates and the
+/// basis is not orthonormal in the 2-norm. Measured on the Mie PML pencil of
+/// `tests/sparse_complex_eigensolver.rs` against the true relative residual
+/// `ρ = ‖K x − λ M x‖₂ / (max(|λ|, |σ|) ‖M x‖₂)` of each Ritz vector (22 runs
+/// of 378 steps on Linux x86-64 and 22 on macOS aarch64: rayon pool and
+/// sequential solves, plain and with a relative `1e-15` perturbation of each
+/// solve):
+///
+/// - `ρ` was up to about 1000 times the estimate (for estimates above
+///   `1e-12`), and the two rose together: median `ρ` was `1e-5` for estimates
+///   in `(1e-8, 1e-6]`, `0.1` in `(1e-4, 1e-3]` and `0.5` in `(1e-2, 1e-1]`.
+/// - The values returned (estimate `≤ 1e-3`) had `ρ ≤ 0.32`.
+/// - The three spurious values near the lowest physical modes, among them
+///   the `0.695253 − 0.3397i` of the issue, had estimates of 0.89 to 1.3 and
+///   `ρ` of 36 to 54.
+///
+/// The estimates form a continuum, so the threshold is a choice: `1e-3`
+/// leaves a factor of about 900 below the smallest spurious estimate seen.
 const UNRESOLVED_RITZ_REL: f64 = 1e-3;
 
 /// The Ritz values `λ = σ + 1/μ` of the complex-symmetric tridiagonal
@@ -429,6 +471,23 @@ impl SparseComplexShiftInvertLanczos {
     /// [`crate::eigen::lanczos::SparseShiftInvertLanczos::smallest_eigenvalues_with_threads`]
     /// for why the cross-thread tests use an explicit count rather than
     /// mutating the process environment.
+    ///
+    /// # What is returned (issue #1023)
+    ///
+    /// The Ritz values of the final tridiagonal whose residual estimate is at
+    /// most `UNRESOLVED_RITZ_REL` (`1e-3`), then the `n_modes` of those
+    /// nearest `σ`, ascending in `Re λ`. An unresolved Ritz value is
+    /// withheld rather than returned, so the result can hold fewer than
+    /// `n_modes` values. With `n_modes` close to the Krylov dimension (as in
+    /// a request for a whole null cluster plus a few modes) it usually does:
+    /// on the 3300-unknown Mie pencil, 378 steps for 376 requested values
+    /// resolve about 250. It is an error if no Ritz value is resolved; raise
+    /// `max_iters`. The degenerate-shift guard still sees the `n_modes`
+    /// nearest Ritz values, resolved or not.
+    ///
+    /// The screen is a first-order estimate, not a residual check: use
+    /// [`Self::smallest_eigenpairs_checked`] for pairs with a verified
+    /// residual.
     pub fn smallest_complex_pencil_eigenvalues_with_threads(
         &self,
         k: SparseColMatRef<'_, usize, c64>,
@@ -450,7 +509,10 @@ impl SparseComplexShiftInvertLanczos {
         //    single-RHS triangular solves in the Lanczos loop, and the guard
         //    restores the prior global parallelism on drop. `cap` makes
         //    `n_threads == 1` a serial factorization. `_seq` keeps the loop's
-        //    triangular solves sequential until it drops (issue #956).
+        //    triangular solves sequential until it drops (issue #956). The
+        //    round-off of a sequential solve differs from the pool's, which
+        //    is harmless only because step 4 withholds unresolved Ritz values
+        //    (issue #1023).
         let (lu, _seq) = self.factor(k, m, n_threads)?;
 
         // 2. Lanczos in the bilinear M-inner product. The tridiagonal
