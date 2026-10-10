@@ -3,7 +3,7 @@
 //!
 //! #589 and #594 each moved one island-scale parameter whose map dragged the
 //! junction-attachment nodes ~225 μm per unit θ, so the ~0.7 μm junction tets
-//! set the budget, and the 89.9 fF anchor sat at least 6.3× beyond the
+//! set the budget, and the 89.9 fF anchor sat at least 6.26× beyond the
 //! harmonic morph's safe budget. This run builds three parameters whose
 //! harmonic morph fields are exactly zero on the junction neighborhood
 //! ([`geode_core::shape::transmon_morph`]): island length `theta_L`, island
@@ -62,8 +62,17 @@ const HARMONIC_594_THETA_SAFE: f64 = -0.064609;
 /// `de_c_hz_dtheta` in `harmonic_results.toml` (the #1034 correction).
 const HARMONIC_594_SLOPE_0: f64 = 209.1;
 const HARMONIC_594_SLOPE_SAFE: f64 = 114.5;
-/// #1034's corrected single-parameter shortfall (`θ_anchor ≤ −0.40`).
-const HARMONIC_594_SHORTFALL_LOWER_BOUND: f64 = 6.3;
+/// #1034's corrected single-parameter shortfall lower bound, `1 + remaining /
+/// (slope_at_safe * |theta_safe|)` from `harmonic_results.toml` with the
+/// unrounded slope at the safe bound: 6.256959 ("at least about 6.26x").
+const HARMONIC_594_SHORTFALL_LOWER_BOUND: f64 = 6.256959;
+
+/// Format `x` floored to `dp` decimals, so a stated lower bound is never
+/// rounded up.
+fn floor_fmt(x: f64, dp: usize) -> String {
+    let p = 10f64.powi(dp as i32);
+    format!("{:.dp$}", (x * p).floor() / p)
+}
 
 fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
     let mut m = mesh.clone();
@@ -367,7 +376,7 @@ fn main() {
     println!(
         "box direction: safe s = {:.5} (first inversion {:.5}, worst tet at {} um); fresh C_Σ \
          {:.4} fF (linear {:.4}); slope {:.3} → {:.3} fF/s; path-corrected s ≥ \
-         {box_s_needed_path:.4} ({box_shortfall_path:.3}× the safe s)",
+         {} ({}× the safe s)",
         box_safe.theta,
         box_invert.theta,
         centroid_um(&box_safe),
@@ -375,6 +384,8 @@ fn main() {
         ff(c_sigma0 + box_safe.theta * box_slope0),
         ff(box_slope0),
         ff(box_slope_safe),
+        floor_fmt(box_s_needed_path, 4),
+        floor_fmt(box_shortfall_path, 2),
     );
     // Joint minimum-norm direction θ* = ΔC g / |g|² (reaches 89.9 fF linearly at s = 1).
     let g2: f64 = g_sigma.iter().map(|g| g * g).sum();
@@ -395,7 +406,7 @@ fn main() {
         .find(|(s, f, _)| *s == 1.0 && *f == MIN_VOL_RATIO_SAFE)
         .unwrap()
         .2;
-    // Measured (not linear) C_Σ and path slope at the joint safe point.
+    // Measured (not linear) C_Σ and path slope at the minimum-norm step s_safe.
     let (_, _, _, c_sig_joint, _) = extract(
         &base,
         &joint_vel,
@@ -424,7 +435,7 @@ fn main() {
     println!(
         "joint direction θ* = [{:.5}, {:.5}, {:.5}]: safe s = {:.5} (worst tet at {} um); \
          fresh C_Σ there {:.4} fF (linear {:.4}); slope {:.3} → {:.3} fF/s; linear shortfall \
-         {joint_shortfall_linear:.2}×, path-corrected ≥ {joint_shortfall_path:.2}×",
+         {joint_shortfall_linear:.2}×, path-corrected ≥ {}×",
         theta_star[0],
         theta_star[1],
         theta_star[2],
@@ -434,6 +445,7 @@ fn main() {
         ff(c_sigma0 + s_safe.theta * delta_c),
         ff(slope0),
         ff(slope_safe),
+        floor_fmt(joint_shortfall_path, 2),
     );
     let wall_s = t0.elapsed().as_secs_f64();
 
@@ -698,10 +710,12 @@ fn main() {
     t.push_str("[reachability_estimate]\n");
     t.push_str("# ESTIMATE, not a measurement: a first-order (linearized) inference from the\n");
     t.push_str("# theta = 0 gradients and the measured budgets. #594's own linear estimate\n");
-    t.push_str("# understated its shortfall (3.5x linear vs >= 6.3x once the path slope fell\n");
+    t.push_str("# understated its shortfall (3.5x linear vs >= 6.26x once the path slope fell\n");
     t.push_str("# from 209 to 114.5 fF/theta), so the linear factors below are lower bounds\n");
     t.push_str("# if these slopes also decay. The path-corrected factor applies the same\n");
-    t.push_str("# #1034 correction using the slope MEASURED at the joint safe point.\n");
+    t.push_str("# #1034 correction using the slope MEASURED at the end of the budget-scaled\n");
+    t.push_str("# box step. It is a lower bound only if |dC_Sigma/ds| does not recover past\n");
+    t.push_str("# s_safe (the slope is measured at s_safe, not along the whole path).\n");
     t.push_str("label = \"first-order estimate (inference)\"\n");
     let _ = writeln!(t, "c_sigma_target_ff = {:.1}", ff(C_SIGMA_TARGET_F));
     let _ = writeln!(t, "delta_c_needed_ff = {:.6}", ff(delta_c));
@@ -784,7 +798,8 @@ fn main() {
     );
     let _ = writeln!(
         t,
-        "box_path_corrected_shortfall_lower_bound = {box_shortfall_path:.3}  # (s_safe + remaining/slope_at_s_safe) / s_safe"
+        "box_path_corrected_shortfall_lower_bound = {}  # (s_safe + remaining/slope_at_s_safe) / s_safe",
+        floor_fmt(box_shortfall_path, 3)
     );
     let _ = writeln!(
         t,
@@ -829,7 +844,8 @@ fn main() {
     );
     let _ = writeln!(
         t,
-        "joint_path_corrected_shortfall_lower_bound = {joint_shortfall_path:.3}  # (s_safe + remaining/slope_at_s_safe) / s_safe"
+        "joint_path_corrected_shortfall_lower_bound = {}  # (s_safe + remaining/slope_at_s_safe) / s_safe",
+        floor_fmt(joint_shortfall_path, 3)
     );
     let _ = writeln!(
         t,

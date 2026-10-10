@@ -10,9 +10,9 @@ parent = 1034
 n_nodes = 22684
 n_tets = 133314
 epsilon_model = "scalar (trace-averaged sapphire); the shape gradient is scalar-eps only"
-morph_solve_s = 0.77  # three Laplace solves
-gradient_s = 0.65  # one assembly + one LU + sweep
-wall_clock_s = 23.8
+morph_solve_s = 0.78  # three Laplace solves
+gradient_s = 0.66  # one assembly + one LU + sweep
+wall_clock_s = 23.6
 
 [parameterization]
 # Normalized parameters: theta_L = -0.1 shortens the pad above y_pin by 10%,
@@ -328,7 +328,7 @@ junction_limits_any_budget = false  # true if a limiting tet is within 10 um
 theta_safe = -0.064609
 slope_at_theta0_ff = 209.1
 slope_at_theta_safe_ff = 114.5
-shortfall_lower_bound = 6.3  # #1034 correction: theta_anchor <= -0.40
+shortfall_lower_bound = 6.256959  # #1034 correction: theta_anchor <= -0.40
 
 [partial_charges]
 # Reaction charges (K phi_island) at theta = 0, summed over a disjoint,
@@ -379,10 +379,12 @@ fraction_of_c_ii = 0.165405
 [reachability_estimate]
 # ESTIMATE, not a measurement: a first-order (linearized) inference from the
 # theta = 0 gradients and the measured budgets. #594's own linear estimate
-# understated its shortfall (3.5x linear vs >= 6.3x once the path slope fell
+# understated its shortfall (3.5x linear vs >= 6.26x once the path slope fell
 # from 209 to 114.5 fF/theta), so the linear factors below are lower bounds
 # if these slopes also decay. The path-corrected factor applies the same
-# #1034 correction using the slope MEASURED at the joint safe point.
+# #1034 correction using the slope MEASURED at the end of the budget-scaled
+# box step. It is a lower bound only if |dC_Sigma/ds| does not recover past
+# s_safe (the slope is measured at s_safe, not along the whole path).
 label = "first-order estimate (inference)"
 c_sigma_target_ff = 89.9
 delta_c_needed_ff = -47.806752
@@ -411,7 +413,7 @@ box_c_sigma_linear_at_s_safe_ff = 65.432239
 box_c_sigma_fresh_at_s_safe_ff = 97.027749  # measured fresh extraction
 box_slope_at_s0_ff = -76.783735
 box_slope_at_s_safe_ff = -25.186851  # measured gradient on the moved mesh
-box_path_corrected_shortfall_lower_bound = 1.301  # (s_safe + remaining/slope_at_s_safe) / s_safe
+box_path_corrected_shortfall_lower_bound = 1.300  # (s_safe + remaining/slope_at_s_safe) / s_safe
 joint_theta_star = [-0.307890, -0.147823, 0.202237]  # minimum-norm step, Delta C g / |g|^2
 joint_s_pos_inversion = 0.178089  # theta = s * theta_star; worst tet at [-40.697, 619.026, 3.288] um
 joint_s_pos_safe = 0.133569  # theta = s * theta_star; worst tet at [-40.697, 619.026, 3.288] um
@@ -424,4 +426,4 @@ joint_slope_at_s0_ff = -47.806752  # dC_Sigma/ds, = delta_c_needed by constructi
 joint_slope_at_s_safe_ff = -33.323247  # measured gradient on the moved mesh
 joint_linear_shortfall = 7.487  # 1 / s_safe
 joint_path_corrected_shortfall_lower_bound = 10.537  # (s_safe + remaining/slope_at_s_safe) / s_safe
-single_param_594_shortfall_lower_bound = 6.3
+single_param_594_shortfall_lower_bound = 6.256959

@@ -1139,7 +1139,7 @@ fn committed_multiparam_gradient_toml_pins_fd_budgets_and_charges() {
     assert!(
         tf(re, "joint_path_corrected_shortfall_lower_bound") >= tf(re, "joint_linear_shortfall")
     );
-    assert_eq!(tf(re, "single_param_594_shortfall_lower_bound"), 6.3);
+    assert_eq!(tf(re, "single_param_594_shortfall_lower_bound"), 6.256959);
 }
 
 /// The issue #1035 pipeline on the real 133k-tet mesh, re-run against the
