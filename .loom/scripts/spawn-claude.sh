@@ -427,7 +427,12 @@ if [[ "${LOOM_SWEEP_CPU_QUOTA:-1}" != "0" ]]; then
     fi
 
     if command -v is_linux_systemd >/dev/null 2>&1 && is_linux_systemd; then
-        _cpu_quota_props=(-p "CPUQuota=${_cpu_quota_pct}%")
+        # OOMPolicy=continue (issue #11076): the systemd default (stop) tears
+        # down the WHOLE scope when the kernel OOM-kills any one child (a
+        # `git`/`rustc`), SIGTERMing the claude CLI; the resilient wrapper then
+        # retries while the daemon has already released the sweep as dead. With
+        # `continue` only the offending command fails and the agent can react.
+        _cpu_quota_props=(-p "CPUQuota=${_cpu_quota_pct}%" -p "OOMPolicy=continue")
         if [[ "$_cpu_wallclock" != "0" ]]; then
             _cpu_quota_props+=(-p "RuntimeMaxSec=${_cpu_wallclock}")
         fi
@@ -846,6 +851,19 @@ if [[ "$CONTAINMENT_ENABLED" == "1" ]]; then
     # `CARGO_INCREMENTAL=1 cargo …` outranks the ambient value for that
     # invocation only.
     _containment_env+=(-e "CARGO_INCREMENTAL=0")
+    # The debuginfo cap (#11190) rides the same boundary, but by NAME (`-e
+    # VAR`, no value) and only when set: the daemon-side seam already chose
+    # the value — or kept an operator's own — before it spawned this script,
+    # and this re-exec runs spawn-claude.sh, not spawn-worker.sh, so nothing
+    # inside the container re-runs that seam. Without this the worker log
+    # records the cap while the in-container cargo builds full DWARF. The two
+    # names are forwarded by the env-passthrough `case` below (by name, when
+    # present in `env`). "Present" is not "set to something", though: the
+    # passthrough forwards a set-but-EMPTY variable too, and cargo hard-fails
+    # on an empty one (`invalid value: string ""`) instead of reading it as
+    # unset, so the loop's input drops those two empties and the container
+    # sees them as unset. (`grep -v` exiting 1 on no output cannot abort this
+    # script: a process substitution's status is never the shell's.)
 
     # --- Env passthrough ---
     # Every LOOM_*/CLAUDE_*/SAFEHOUSE*/CODEX_* var (GH_TOKEN/GITHUB_TOKEN
@@ -868,11 +886,11 @@ if [[ "$CONTAINMENT_ENABLED" == "1" ]]; then
     # same host's bare-metal dispatch worked.
     while IFS='=' read -r _containment_var _; do
         case "$_containment_var" in
-            LOOM_* | CLAUDE_* | SAFEHOUSE* | CODEX_* | TRACEPARENT | OTEL_*)
+            LOOM_* | CLAUDE_* | SAFEHOUSE* | CODEX_* | TRACEPARENT | OTEL_* | CARGO_PROFILE_DEV_DEBUG | CARGO_PROFILE_TEST_DEBUG)
                 _containment_env+=(-e "$_containment_var")
                 ;;
         esac
-    done < <(env)
+    done < <(env | grep -v '^CARGO_PROFILE_[A-Z]*_DEBUG=$')
     _containment_env+=(-e "LOOM_SPAWN_CONTAINERIZED=1" -e "LOOM_WORKSPACE=${WORKSPACE}" -e "HOME=${HOME:-/home/loom}")
 
     # --- Resource-limit docker flags + observability labels (issue #7430) ---
@@ -1279,6 +1297,8 @@ unset _loom_print_mode
 # runs unpinned and a roll requeues it); a resume it cannot build is refused.
 # The session id is pinned once here: claude-wrapper.sh turns it into --resume
 # on a retry, because Claude refuses a second launch with the same id.
+# For a daemon item it also prints `--settings <json>` wiring the roll-pause
+# hook, which a consumer repo's own .claude/settings.json does not (#11049).
 if [[ -n "${LOOM_CLAUDE_SESSION_ID:-}${LOOM_RESUME_SESSION_ID:-}" ]]; then
     _resume_args_file="$(mktemp -t loom-resume-args.XXXXXX 2>/dev/null || mktemp)"
     if ! "$(loom_resolve_self_daemon_bin)" agent-resume claude-args >"$_resume_args_file"; then
