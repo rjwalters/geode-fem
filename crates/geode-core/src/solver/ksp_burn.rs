@@ -651,6 +651,14 @@ pub trait MatrixFreeComplexOperator<B: Backend> {
     fn apply(&self, x: &SplitComplex<B>) -> SplitComplex<B>;
     /// Jacobi preconditioner apply `z = M⁻¹ r`.
     fn jacobi_apply(&self, r: &SplitComplex<B>) -> SplitComplex<B>;
+    /// The preconditioner apply `z = M⁻¹ r` [`BurnCocg`] uses. Defaults to
+    /// [`Self::jacobi_apply`]; an operator wrapper overrides it to swap in
+    /// another preconditioner (the driven matrix-free path's host-side AMS,
+    /// issue #966) without touching the Krylov loop. `M⁻¹` must be symmetric
+    /// under the bilinear form for COCG to stay well defined.
+    fn precondition(&self, r: &SplitComplex<B>) -> SplitComplex<B> {
+        self.jacobi_apply(r)
+    }
 }
 
 impl<B: Backend> MatrixFreeComplexOperator<B> for ComplexMatrixFreeOperator<B> {
@@ -748,13 +756,18 @@ impl BurnCocg {
         }
     }
 
-    /// Solve `A z = b` for the complex `z` (split-complex), with on-device
-    /// Jacobi preconditioning from `op`. Returns a
+    /// Solve `A z = b` for the complex `z` (split-complex), preconditioned by
+    /// `op`'s [`MatrixFreeComplexOperator::precondition`] (its on-device
+    /// Jacobi unless the operator overrides it). Returns a
     /// [`KspReport`] plus the solution.
     ///
-    /// Only O(1) scalars cross the host boundary per iteration; `b` is uploaded
-    /// once by the caller and `x` downloaded once by the caller after this
-    /// returns (see [`SplitComplex::upload`] / [`download`](SplitComplex::download)).
+    /// With the default (Jacobi) preconditioner only O(1) scalars cross the
+    /// host boundary per iteration; `b` is uploaded once by the caller and `x`
+    /// downloaded once by the caller after this returns (see
+    /// [`SplitComplex::upload`] / [`download`](SplitComplex::download)). An
+    /// overridden [`MatrixFreeComplexOperator::precondition`] may add its own
+    /// transfers (the host-side driven AMS moves one `[n]` vector each way per
+    /// application).
     pub fn solve<B: Backend, Op: MatrixFreeComplexOperator<B>>(
         &self,
         op: &Op,
@@ -801,7 +814,7 @@ impl BurnCocg {
         }
 
         // z = M⁻¹ r, p = z, ρ = rᵀz.
-        let mut z = op.jacobi_apply(&r);
+        let mut z = op.precondition(&r);
         let mut p = z.clone();
         let mut rho = self.dot(&r, &z);
         bd_check(rho, 0, "r^T z", self.breakdown_tol)?;
@@ -863,7 +876,7 @@ impl BurnCocg {
                 };
                 replacements += 1;
                 last_replaced_rel = residual_rel;
-                z = op.jacobi_apply(&r);
+                z = op.precondition(&r);
                 rho = self.dot(&r, &z);
                 bd_check(rho, k + 1, "r^T z", self.breakdown_tol)?;
                 p = z.clone();
@@ -871,7 +884,7 @@ impl BurnCocg {
             }
 
             // z = M⁻¹ r; ρ_new = rᵀz; β = ρ_new/ρ.
-            z = op.jacobi_apply(&r);
+            z = op.precondition(&r);
             let rho_new = self.dot(&r, &z);
             bd_check(rho_new, k + 1, "r^T z", self.breakdown_tol)?;
             let beta = rho_new / rho;

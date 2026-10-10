@@ -60,9 +60,49 @@
 //! to the volume complex diagonal and forms its own inverse-diagonal through
 //! the shared [`crate::solver::ksp_burn::safe_complex_inv_diag`].
 //!
+//! # AMS preconditioner (issue #966, CPU stopgap)
+//!
+//! [`crate::driven::solve::IterativePreconditioner::Ams`] on this path runs
+//! the **same** Hiptmair–Xu AMS the assembled [`crate::driven::solve::SolverMode::Iterative`]
+//! path builds ([`crate::driven::solve::DrivenAms`]: the real SPD proxy `P(ω)`,
+//! the discrete gradient, the per-ω smoother weight and the pluggable
+//! gradient-space coarse solve, [`crate::driven::solve::AmsCoarseSolve`]),
+//! applied **on the host** between Burn operator applies. Only the Krylov
+//! operator is matrix-free; the preconditioner is not:
+//!
+//! - **Setup** (once per ω): assemble the real proxy `P(ω)` (one real CSR with
+//!   the pattern of `A(ω)`), form `Gᵀ P G` and `Πᵀ P Π`, factor `Gᵀ P G` with
+//!   sparse LU ([`crate::driven::solve::AmsCoarseSolve::Auto`] = `Direct`; the
+//!   SGS / AMG gradient solves are measured to drift, see the `solve_ams`
+//!   module docs, and stay selectable for measurement).
+//! - **Per COCG iteration**: one Burn operator apply (as for Jacobi), then
+//!   one host AMS application: download the `[n_edges]` residual, gather it
+//!   to the interior, run the real symmetric V-cycle on its real and
+//!   imaginary parts (each V-cycle does several `P` SpMVs, the `Πᵀ P Π` SGS
+//!   sweeps and two sparse triangular solves of the nodal LU), scatter the
+//!   result back to full-edge space and upload it. That is one `[n]`
+//!   transfer each way per iteration on top of the O(1) scalar budget below.
+//!
+//! On the ndarray backend the transfers are host memory copies; on a GPU they
+//! would be PCIe round trips plus a serial triangular solve per iteration,
+//! which is why the AMS option is restricted to a CPU (ndarray) f64 backend
+//! and rejected elsewhere with
+//! [`crate::driven::solve::DrivenError::UnsupportedMatrixFree`]. A GPU-resident
+//! AMS needs an `O(nnz)`-per-apply coarse solve that does not drift on the
+//! driven proxy; that is a separate step. The default stays the on-device
+//! Jacobi: `Auto` resolves to it here, with a warning.
+//!
+//! Because the build is shared, the `GEODE_DRIVEN_AMS_*` measurement knobs
+//! of the `solve_ams` module (issue #963) act on this path too, and
+//! [`crate::driven::solve::DrivenLinearSolver::ams`] returns the built AMS here
+//! as on the assembled path.
+//!
+//! `GEODE_MF_AMS_PROFILE=1` prints, per back-solve, the wall time spent in the
+//! host V-cycles and in the transfers around them (stderr, one line).
+//!
 //! # Host-sync budget
 //!
-//! The per-iteration host-sync budget is exactly PR #487's — O(1) scalars per
+//! The per-iteration host-sync budget (Jacobi) is exactly PR #487's — O(1) scalars per
 //! COCG iteration (`ρ`, `pᵀq`, the residual norm), no `[n]`-sized transfer.
 //! The COO correction adds **no** new host sync: the triplet tensors are
 //! uploaded once at setup, and the per-matvec gather/scatter/scale is entirely
@@ -80,12 +120,17 @@
 //! in CI; the CUDA f32 leg is deferred to the rented box (PR #487 precision
 //! plan).
 
+use std::cell::Cell;
+use std::sync::Arc;
+use std::time::Instant;
+
 use bunsen::contracts::{assert_shape_contract, define_shape_contract};
 use burn::tensor::backend::Backend;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
 
-use crate::driven::solve::{DrivenError, DrivenOperator, SurfaceImpedanceModel};
+use crate::driven::solve::{DrivenAms, DrivenError, DrivenOperator, SurfaceImpedanceModel};
+use crate::solver::ksp::Preconditioner as _;
 use crate::solver::ksp_burn::{
     BurnCocg, ComplexMatrixFreeOperator, MatrixFreeComplexOperator, SplitComplex,
     safe_complex_inv_diag,
@@ -311,6 +356,81 @@ impl<B: Backend> MatrixFreeComplexOperator<B> for SurfaceCorrectedOperator<B> {
     }
 }
 
+/// Wall-clock accounting of the host-side AMS applications in one back-solve
+/// (`GEODE_MF_AMS_PROFILE=1`, issue #966).
+#[derive(Default)]
+struct HostAmsProfile {
+    /// Applications.
+    applies: Cell<usize>,
+    /// Seconds in download + interior gather and full-edge scatter + upload.
+    transfer_s: Cell<f64>,
+    /// Seconds in the real/imaginary V-cycles.
+    vcycle_s: Cell<f64>,
+}
+
+/// [`SurfaceCorrectedOperator`] with its preconditioner replaced by the
+/// host-side driven AMS (issue #966; module docs, "AMS preconditioner"). The
+/// operator apply, interior projection and Jacobi stay the composite's.
+struct HostAmsOperator<'a, B: Backend> {
+    op: &'a SurfaceCorrectedOperator<B>,
+    ams: &'a DrivenAms,
+    interior_to_full: &'a [usize],
+    n_edges: usize,
+    profile: HostAmsProfile,
+}
+
+impl<B: Backend> MatrixFreeComplexOperator<B> for HostAmsOperator<'_, B> {
+    fn n_edges(&self) -> usize {
+        self.n_edges
+    }
+
+    fn device(&self) -> &B::Device {
+        self.op.device()
+    }
+
+    fn project_interior(&self, v: &SplitComplex<B>) -> SplitComplex<B> {
+        self.op.project_interior(v)
+    }
+
+    fn apply(&self, x: &SplitComplex<B>) -> SplitComplex<B> {
+        self.op.apply(x)
+    }
+
+    fn jacobi_apply(&self, r: &SplitComplex<B>) -> SplitComplex<B> {
+        self.op.jacobi_apply(r)
+    }
+
+    fn precondition(&self, r: &SplitComplex<B>) -> SplitComplex<B> {
+        let t0 = Instant::now();
+        let r_full = r.download();
+        let r_int: Vec<c64> = self.interior_to_full.iter().map(|&f| r_full[f]).collect();
+        let t1 = Instant::now();
+        let mut z_int = vec![c64::new(0.0, 0.0); r_int.len()];
+        self.ams.apply(&r_int, &mut z_int);
+        let t2 = Instant::now();
+        let mut z_full = vec![c64::new(0.0, 0.0); self.n_edges];
+        for (&f, &z) in self.interior_to_full.iter().zip(&z_int) {
+            z_full[f] = z;
+        }
+        let z = SplitComplex::<B>::upload(&z_full, self.op.device());
+        let t3 = Instant::now();
+        let p = &self.profile;
+        p.applies.set(p.applies.get() + 1);
+        p.transfer_s
+            .set(p.transfer_s.get() + (t1 - t0).as_secs_f64() + (t3 - t2).as_secs_f64());
+        p.vcycle_s.set(p.vcycle_s.get() + (t2 - t1).as_secs_f64());
+        z
+    }
+}
+
+/// `true` if the host-side AMS may run on backend `B` (issue #966): a CPU
+/// ndarray backend with an `f64` float element. On anything else
+/// [`DrivenOperator::prepare_at`] rejects a matrix-free AMS request with
+/// [`DrivenError::UnsupportedMatrixFree`].
+pub fn host_ams_supported<B: Backend>(device: &B::Device) -> bool {
+    B::name(device).starts_with("ndarray") && std::mem::size_of::<B::FloatElem>() == 8
+}
+
 /// A per-ω matrix-free back-solve handle: the composite operator plus the COCG
 /// knobs and the interior↔full index map. Built once per ω by
 /// [`crate::driven::solve::DrivenOperator::prepare_at`] and reused across every
@@ -318,6 +438,8 @@ impl<B: Backend> MatrixFreeComplexOperator<B> for SurfaceCorrectedOperator<B> {
 pub struct MatrixFreeSolver<B: Backend> {
     op: SurfaceCorrectedOperator<B>,
     cocg: BurnCocg,
+    /// Host-side AMS preconditioner (issue #966); `None` = on-device Jacobi.
+    ams: Option<Arc<DrivenAms>>,
     /// `interior_to_full[i]` = full-edge index of the `i`-th interior DOF.
     interior_to_full: Vec<usize>,
     n_edges: usize,
@@ -405,6 +527,7 @@ impl<B: Backend> MatrixFreeSolver<B> {
         Ok(Self {
             op,
             cocg: BurnCocg::new(tol, max_iters),
+            ams: None,
             interior_to_full,
             n_edges: ing.n_edges,
             n_interior: driven.n_interior(),
@@ -419,6 +542,30 @@ impl<B: Backend> MatrixFreeSolver<B> {
     pub fn with_max_replacements(mut self, max_replacements: usize) -> Self {
         self.cocg.max_replacements = max_replacements;
         self
+    }
+
+    /// Builder-style switch from the on-device Jacobi to the host-side AMS
+    /// preconditioner `ams` (issue #966; module docs, "AMS preconditioner").
+    /// `ams` must be built for the same operator and ω (its dimension is the
+    /// interior DOF count). The caller checks [`host_ams_supported`] first.
+    ///
+    /// # Panics
+    ///
+    /// If `ams`'s dimension is not this solver's interior DOF count.
+    pub fn with_ams(mut self, ams: Arc<DrivenAms>) -> Self {
+        assert_eq!(
+            ams.dim(),
+            self.n_interior,
+            "AMS dimension does not match the interior DOF count"
+        );
+        self.ams = Some(ams);
+        self
+    }
+
+    /// The host-side AMS this solver applies ([`Self::with_ams`]), or `None`
+    /// for the on-device Jacobi.
+    pub fn ams(&self) -> Option<&DrivenAms> {
+        self.ams.as_deref()
     }
 
     /// Solve `A(ω) x = b` for one interior-length complex RHS, writing the
@@ -459,10 +606,38 @@ impl<B: Backend> MatrixFreeSolver<B> {
         }
         let b = SplitComplex::<B>::upload(&b_full, &self.device);
 
-        let (x, report) = self
-            .cocg
-            .solve(&self.op, &b)
-            .map_err(|e| DrivenError::Solve(format!("matrix-free COCG: {e}")))?;
+        let solved = match &self.ams {
+            None => self.cocg.solve(&self.op, &b),
+            Some(ams) => {
+                let wrapped = HostAmsOperator {
+                    op: &self.op,
+                    ams,
+                    interior_to_full: &self.interior_to_full,
+                    n_edges: self.n_edges,
+                    profile: HostAmsProfile::default(),
+                };
+                // The V-cycle's coarse LU solves are far too small to share
+                // out across faer's global thread pool (issue #946; see
+                // `DrivenPreconditioner::sequential_solve_scope`).
+                let _seq = crate::eigen::parallel::SequentialSolveScope::enter();
+                let t0 = Instant::now();
+                let solved = self.cocg.solve(&wrapped, &b);
+                if std::env::var_os("GEODE_MF_AMS_PROFILE").is_some_and(|v| v == "1") {
+                    let p = &wrapped.profile;
+                    eprintln!(
+                        "# mf_ams_profile applies={} krylov_s={:.6} vcycle_s={:.6} \
+                         transfer_s={:.6}",
+                        p.applies.get(),
+                        t0.elapsed().as_secs_f64(),
+                        p.vcycle_s.get(),
+                        p.transfer_s.get()
+                    );
+                }
+                solved
+            }
+        };
+        let (x, report) =
+            solved.map_err(|e| DrivenError::Solve(format!("matrix-free COCG: {e}")))?;
 
         // Download full-edge solution and filter → interior.
         let x_full = x.download();

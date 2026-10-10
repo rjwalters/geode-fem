@@ -810,8 +810,9 @@ mod tests {
 
     /// Issue #986: at `n = 1` the two interface rows coincide, so the fix
     /// must leave the empty-cavity spectrum untouched. Check (a) the
-    /// characteristic functions are bit-identical to the pre-#986
-    /// crosswise formulas on a dense `k` grid for `l = 1..=4`, and (b) the
+    /// characteristic functions match the pre-#986 crosswise formulas to
+    /// `64 ε` of the product magnitudes (#1018) on a dense `k` grid for
+    /// `l = 1..=4`, and (b) the
     /// `l = 1` roots equal the textbook empty-cavity values
     /// `j_1(k R_b) = 0` (TE) and `(x j_1(x))' = 0` at `x = k R_b` (TM).
     #[test]
@@ -834,15 +835,44 @@ mod tests {
         for l in 1..=4 {
             for i in 0..2000 {
                 let k = 0.1 + 0.005 * i as f64;
-                assert_eq!(
-                    characteristic_te(1.0, l, r_s, r_b, k).to_bits(),
-                    pre_986_te(l, k).to_bits(),
-                    "TE l={l} k={k}"
+                // The two forms are algebraically equal at `n = 1` but are
+                // different operation sequences (`ψ'/n` here against `n·ψ'`
+                // in the library, and a different row pairing), so their
+                // rounding can differ. Debug builds agree bit for bit; in
+                // `--release`, inlining and constant-folding of `n = 1`
+                // change which sequence is evaluated, and the results differ
+                // by a few ULP. Not root-caused beyond this (rustc neither
+                // reorders floating-point operations nor contracts to FMA).
+                //
+                // The difference of two products can cancel near a root, so
+                // the tolerance scales with the product magnitudes, not with
+                // the (possibly tiny) result. The factor is 64: the largest
+                // observed `|g − e| / (ε·scale)` is 5.92 (TE, `l = 1`,
+                // `k = 0.255`, where `ψ`/`χ` cancel internally at small
+                // argument), and a `1e-12` relative change to either
+                // function still fails the test.
+                let (x_s, x_b) = (k * r_s, k * r_b);
+                let te_scale = {
+                    let (a, b) = (chi(l, x_b), psi(l, x_b));
+                    let buf = a * psi(l, x_s) - b * chi(l, x_s);
+                    let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+                    (psi(l, x_s) * bufp).abs() + (psi_prime(l, x_s) * buf).abs()
+                };
+                let tm_scale = {
+                    let (a, b) = (chi_prime(l, x_b), psi_prime(l, x_b));
+                    let buf = a * psi(l, x_s) - b * chi(l, x_s);
+                    let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+                    (psi(l, x_s) * bufp).abs() + (psi_prime(l, x_s) * buf).abs()
+                };
+                let (g, e) = (characteristic_te(1.0, l, r_s, r_b, k), pre_986_te(l, k));
+                assert!(
+                    (g - e).abs() <= 64.0 * f64::EPSILON * te_scale,
+                    "TE l={l} k={k}: got {g}, expected {e}"
                 );
-                assert_eq!(
-                    characteristic_tm(1.0, l, r_s, r_b, k).to_bits(),
-                    pre_986_tm(l, k).to_bits(),
-                    "TM l={l} k={k}"
+                let (g, e) = (characteristic_tm(1.0, l, r_s, r_b, k), pre_986_tm(l, k));
+                assert!(
+                    (g - e).abs() <= 64.0 * f64::EPSILON * tm_scale,
+                    "TM l={l} k={k}: got {g}, expected {e}"
                 );
             }
         }
