@@ -33,6 +33,15 @@ were run with the phase-invariant overlap score
   | `vector_tracked_handles_mode_death` | 182 s |
 
 - **Result:** all 3 passed.
+- **Assertions added after this run.** The logged run was taken at
+  `f66b2a60`, before commit `20b39ba6` added two assertions: every pick in
+  `vector_tracked_beats_frozen_int_idx` beats the best unpicked candidate by
+  more than 0.4, and `vector_tracked_handles_mode_death` ends `ModeLost` at
+  iteration 2. (The log's mode-death result line still prints the old
+  code's "expected clean signal".) The 0.4 margin was checked against the numbers in this log
+  only, not re-run. The tightened mode-death test was re-run on the tree
+  merged with main and passed in 137 s. None of these dense tests is run by
+  any CI tier: they are on `scripts/ci-test-coverage-ignored-allowlist.txt`.
 
 ## Outcome
 
@@ -57,6 +66,13 @@ were run with the phase-invariant overlap score
     artifact of the eigenvector's phase. The new score gives no candidate more
     than 0.104.
   - The sparse tier gets the same result (`ModeLost` at iteration 2).
+  - What this shows: none of the 736 candidates the dense tier keeps (the
+    lowest `|Re λ|` modes; the seed, index 735, is the last of them)
+    continues the target, so `ModeLost` is the correct driver outcome for
+    that candidate list, and the old `MaxIterations(10)` was an
+    eigenvector-phase artifact of the old score. It does not show that the
+    mode dies physically: a sparse window of 160 tracks this mode to
+    `Converged` at `k = 7.3656 + 0.3593j` (measured for PR #941).
 
 Each solve has a `(report)` line in the log. It gives the pick (index, `λ`,
 `k`, `Q`), the pick's new and old scores, the two best other candidates, and

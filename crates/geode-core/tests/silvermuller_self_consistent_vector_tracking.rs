@@ -244,7 +244,7 @@ fn vector_tracked_converges_on_lowest_mode() {
     // under the #988 phase-invariant score (issue #1021), unchanged: index
     // 368 at all 15 solves, each pick scoring 1.0000 against the previous
     // one and no other candidate above 0.0032 (the old score gave the pick
-    // 1.08 to 3.07); 830 s in release at load 40 to 50.
+    // 1.08 to 3.07); 830 s in release at load 25 to 47.
     //
     // Acceptance: the run produces a valid result variant (no panic),
     // does not lose its mode, and ends with `Re k` in band and `Q > 0`.
@@ -357,7 +357,8 @@ fn vector_tracked_converges_on_lowest_mode() {
 ///   sparse test's 0.5 is not asserted here: the dense list holds 1104
 ///   candidates, not about 14, and the measured gap at iteration 5 is
 ///   0.5029, too close to 0.5 for a margin; 0.4 leaves 0.10 (0.84 or more
-///   at every other step).
+///   at every other step). The logged run predates the 0.4 assertion, which
+///   was checked against the logged values only, not re-run.
 /// - **The frozen index** changes eigenvector (a step with overlap below
 ///   0.5) and ends where the seed `k₀ = 1` run ends, on the overdamped
 ///   Silver-Müller mode (`MaxIterations(20)`, `k = 1.2262 + 1.1481j`), not
@@ -368,7 +369,7 @@ fn vector_tracked_converges_on_lowest_mode() {
 ///   resonance has moved to `|Re λ|` rank 767.
 ///
 /// Measured 7581 s (126 min) in release on a 28-core host at load 110 to
-/// 130, and 3842 s (64 min) at load 40 to 75 in the #1021 re-measurement:
+/// 130, and 3842 s (64 min) at load 17 to 85 in the #1021 re-measurement:
 /// 20 frozen and 28 tracked dense solves with 1104 eigenvectors each.
 ///
 /// The test used to start from `k₀ = 1`, where index 368 is that
@@ -538,14 +539,21 @@ fn vector_tracked_handles_mode_death() {
     // `ModeLost` at iteration 2, best overlap 0.1042 (next 0.0915 and
     // 0.0791), `last_k = 6.1457 + 0.5249j`, 182 s in release, the outcome
     // of the sparse tier (`sparse_vector_tracked_handles_mode_death`). The
-    // first damped step takes `k₀` from 25 to 15.57 and no eigenvector of
-    // the new pencil continues the target. Before #988 this run ended on
-    // `MaxIterations(10)` at `k = 2.2580 + 2.0224j`: the old score gave
-    // index 675 an overlap of 1.0322 at iteration 2 (0.4825 for the new
-    // argmax), an artifact of the eigenvector's phase, so the driver
-    // "tracked" a mode it had already lost. The test now asserts the
+    // first damped step takes `k₀` from 25 to 15.57, and none of the 736
+    // candidates the dense tier keeps (the lowest `|Re λ|` modes; the seed,
+    // index 735, is the last of them) continues the target: the best
+    // overlap is 0.104. So `ModeLost` is the correct driver outcome for
+    // this candidate list. It does not show that the mode dies physically:
+    // a sparse window of 160 tracks this mode to `Converged`
+    // (measured for PR #941; see `sparse_vector_tracked_handles_mode_death`).
+    // Before #988 this run ended on `MaxIterations(10)` at
+    // `k = 2.2580 + 2.0224j`: the old score gave index 675 an overlap of
+    // 1.0322 at iteration 2 (0.4825 for the new argmax), an artifact of the
+    // eigenvector's phase, so the driver "tracked" a mode it had already
+    // lost from its candidate list. The test now asserts the
     // `ModeLost` outcome, with the 0.5 threshold five times the measured
-    // best overlap.
+    // best overlap. The logged run predates that assertion; the tightened
+    // test was re-run on the merged tree (137 s, passed).
     let seed = 25.0_f64;
     let (k_full, s_full, m_full, n_eigs, _first_physical) = build_sphere_system(seed);
 
@@ -601,8 +609,8 @@ fn vector_tracked_handles_mode_death() {
 // ---------------------------------------------------------------------
 // Sparse tier (issue #917): the dense tier's seeds on the sparse windowed
 // solver, with the dense tests' assertions and no tolerance loosened. The
-// first-seed runs end where the dense ones do; the mode-death run does not
-// (module docs).
+// first-seed runs end where the dense ones do, and so does the mode-death
+// run since the #988 score (module docs).
 // ---------------------------------------------------------------------
 
 #[test]
@@ -1023,9 +1031,9 @@ fn synthetic_vector_tracked_beats_frozen_int_idx() {
 )]
 fn sparse_vector_tracked_handles_mode_death() {
     // From the seed of `vector_tracked_handles_mode_death`: `k₀ = 25` and
-    // the eigenvalue at the top of the dense window there. The dense test
-    // accepts any clean variant. This one asserts the variant it gets,
-    // `ModeLost` at iteration 2, so the mode-death path stays covered.
+    // the eigenvalue at the top of the dense window there. Both this test
+    // and the dense one assert `ModeLost` at iteration 2, so the mode-death
+    // path stays covered.
     //
     // The variant depends on the candidate set, as expected for a seed
     // this far from self-consistency. The first damped step takes `k₀`
