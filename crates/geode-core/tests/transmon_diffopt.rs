@@ -25,6 +25,12 @@
 //!   `C_Σ` gradient. `committed_multiparam_gradient_toml_pins_fd_budgets_and_charges`
 //!   (CI-fast) pins `multiparam_gradient.toml`; `multiparam_gradient_release`
 //!   (`#[ignore]`) re-runs the pipeline against it.
+//! - **Issue #1036 (Phase B of #1034):** the bounded multi-parameter
+//!   optimizer with per-step re-morphing. Two CI-fast FEM plate tests
+//!   (converge inside the box; honest stall outside it),
+//!   `committed_multiparam_results_toml_pins_optimizer_outcome` (CI-fast) pins
+//!   `multiparam_results.toml`, and `multiparam_optimizer_release`
+//!   (`#[ignore]`) re-runs the first three headline steps against it.
 
 use std::path::PathBuf;
 
@@ -32,7 +38,10 @@ use geode_core::assembly::electrostatic::{
     EPS_0, Electrode, assemble_electrostatic, extract_capacitance,
 };
 use geode_core::mesh::{MetalRole, TetMesh, cube_tet_mesh, read_transmon_smoke_fixture};
-use geode_core::quantum::diffopt::{optimize_e_c_to_target, optimize_e_c_to_target_bounded};
+use geode_core::quantum::diffopt::{
+    ActiveConstraint, MultiEval, MultiParamOptions, MultiParamOutcome, MultiParamProblem,
+    StepCheck, optimize_e_c_to_target, optimize_e_c_to_target_bounded, optimize_multiparam_bounded,
+};
 use geode_core::quantum::transmon::{capacitance_from_e_c_hz, e_c_hz_from_capacitance};
 use geode_core::shape::{
     apply_in_plane_scale, apply_node_motion, capacitance_shape_gradient,
@@ -1306,4 +1315,728 @@ fn multiparam_gradient_release() {
     let c_ii = grad.c[0][0];
     assert!((part.regions_total() + c_ii).abs() <= 1e-9 * c_ii);
     assert!(part.free_residual.abs() <= 1e-9 * c_ii);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Issue #1036 (Phase B of #1034): bounded multi-parameter optimizer with
+// per-step re-morphing.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Two-parameter parallel plate on the FEM pipeline: `θ_0` stretches the gap
+/// (`x`), `θ_1` stretches the plate side (`y`), both re-applied about the
+/// current coordinates (`D = (x, 0, 0)` and `(0, y, 0)` evaluated on `X_k`,
+/// so the stretches compound). `E_C` and its Jacobian come from
+/// [`capacitance_shape_gradient`] on the current mesh; the confirmation is an
+/// independent forward solve. The P1 field of a parallel plate is exact, so
+/// `C = ε A/d` holds to round-off.
+struct PlateProblem {
+    mesh: TetMesh,
+    eps_r: Vec<f64>,
+    electrodes: Vec<Electrode>,
+    ground: Vec<u32>,
+    pending: Option<(Vec<f64>, TetMesh)>,
+}
+
+impl PlateProblem {
+    fn fields(mesh: &TetMesh) -> [Vec<[f64; 3]>; 2] {
+        [
+            mesh.nodes.iter().map(|p| [p[0], 0.0, 0.0]).collect(),
+            mesh.nodes.iter().map(|p| [0.0, p[1], 0.0]).collect(),
+        ]
+    }
+    fn moved(&self, d: &[f64]) -> TetMesh {
+        let f = Self::fields(&self.mesh);
+        apply_node_motion(&apply_node_motion(&self.mesh, &f[0], d[0]), &f[1], d[1])
+    }
+    fn eval_at(&self, mesh: &TetMesh) -> MultiEval {
+        let g =
+            capacitance_shape_gradient(mesh, &self.eps_r, &self.electrodes, &self.ground).unwrap();
+        let f = Self::fields(mesh);
+        MultiEval {
+            values: vec![e_c_hz_from_capacitance(g.c_self)],
+            jacobian: vec![f.iter().map(|d| g.de_c_hz_dtheta(d)).collect()],
+        }
+    }
+}
+
+impl MultiParamProblem for PlateProblem {
+    fn n_params(&self) -> usize {
+        2
+    }
+    fn current(&self) -> MultiEval {
+        self.eval_at(&self.mesh)
+    }
+    fn check_step(&mut self, d: &[f64]) -> StepCheck {
+        let r = min_tet_volume_ratio(&self.mesh, &self.moved(d));
+        StepCheck {
+            feasible: r > 0.0,
+            min_quality_base: r,
+            min_quality_step: r,
+            violated: Vec::new(),
+        }
+    }
+    fn evaluate_step(&mut self, d: &[f64]) -> MultiEval {
+        let m = self.moved(d);
+        let e = self.eval_at(&m);
+        self.pending = Some((d.to_vec(), m));
+        e
+    }
+    fn accept_step(&mut self, d: &[f64]) {
+        let (pd, m) = self.pending.take().unwrap();
+        assert_eq!(pd, d);
+        self.mesh = m;
+    }
+    fn confirm(&mut self) -> Option<Vec<f64>> {
+        let rho = vec![0.0; self.mesh.n_tets()];
+        let sys = assemble_electrostatic(
+            &self.mesh,
+            &self.eps_r,
+            &rho,
+            &self.electrodes,
+            &self.ground,
+        )
+        .unwrap();
+        let phi = sys.solve().unwrap();
+        Some(vec![e_c_hz_from_capacitance(2.0 * sys.field_energy(&phi))])
+    }
+}
+
+fn plate_problem() -> (PlateProblem, f64) {
+    let side = 1e-3;
+    let (mesh, eps_r, electrodes, ground) = plate_fixture(3, side);
+    let c0 = EPS_0 * EPS_R * side; // ε A/d with A = side², d = side
+    (
+        PlateProblem {
+            mesh,
+            eps_r,
+            electrodes,
+            ground,
+            pending: None,
+        },
+        c0,
+    )
+}
+
+fn plate_options(target_c: f64, bounds: [(f64, f64); 2]) -> MultiParamOptions {
+    MultiParamOptions {
+        targets: vec![e_c_hz_from_capacitance(target_c)],
+        tolerances: vec![1e4],
+        scaling: vec![1.0, 1.0],
+        theta0: vec![0.0, 0.0],
+        theta_bounds: bounds.to_vec(),
+        max_scaled_step: 0.1,
+        max_steps: 40,
+        max_constraint_rounds: 4,
+        max_backtracks: 20,
+        min_progress: 1e-6,
+    }
+}
+
+/// Issue #1036 analytic optimizer test on the FEM pipeline. Gap and plate
+/// side compound multiplicatively, so `C/C0 = (1 + side stretch)² / (1 + gap
+/// stretch)` where each stretch is the product of the per-step factors.
+/// Inside the box the run converges to 10 kHz and the converged geometry's
+/// capacitance matches `ε A/d` measured from the final mesh; every accepted
+/// step's fresh forward solve agrees with the gradient driver's value.
+#[test]
+fn multiparam_plate_fem_converges_and_confirms() {
+    let (mut prob, c0) = plate_problem();
+    let target = 0.6 * c0;
+    let res = optimize_multiparam_bounded(
+        &mut prob,
+        &plate_options(target, [(-0.8, 1.0), (-0.8, 1.0)]),
+    );
+    assert!(res.converged(), "outcome {:?}", res.outcome);
+    assert!(res.last().residuals[0].abs() <= 1e4);
+    for s in &res.trajectory {
+        assert!(
+            s.confirm_rel <= 1e-9,
+            "step {}: fresh solve disagrees by {:.3e}",
+            s.iter,
+            s.confirm_rel
+        );
+    }
+    // Closed form from the final geometry: C = ε A / d.
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for p in &prob.mesh.nodes {
+        for d in 0..3 {
+            lo[d] = lo[d].min(p[d]);
+            hi[d] = hi[d].max(p[d]);
+        }
+    }
+    let c_closed = EPS_0 * EPS_R * (hi[1] - lo[1]) * (hi[2] - lo[2]) / (hi[0] - lo[0]);
+    let c_final = capacitance_from_e_c_hz(res.last().values[0]);
+    assert!(
+        (c_final - c_closed).abs() / c_closed < 1e-9,
+        "FEM C {c_final} vs ε A/d {c_closed}"
+    );
+    assert!((c_final - target).abs() / target < 1e-4);
+    // Both parameters moved: the gap opened, the side shrank.
+    assert!(res.last().theta[0] > 0.0 && res.last().theta[1] < 0.0);
+}
+
+/// The same plate with a target outside the box (`C = 0.2 C0`, box allows
+/// at most a 1.3× gap and a 0.8× side) stops with an honest `Stalled`
+/// outcome on the box bounds, not a fabricated convergence.
+#[test]
+fn multiparam_plate_fem_stalls_outside_the_box() {
+    let (mut prob, c0) = plate_problem();
+    let res = optimize_multiparam_bounded(
+        &mut prob,
+        &plate_options(0.2 * c0, [(0.0, 0.3), (-0.2, 0.0)]),
+    );
+    assert!(!res.converged());
+    let MultiParamOutcome::Stalled { active, .. } = &res.outcome else {
+        panic!("expected a stall, got {:?}", res.outcome);
+    };
+    assert!(
+        active.contains(&ActiveConstraint::UpperBound(0)),
+        "{active:?}"
+    );
+    assert!(
+        active.contains(&ActiveConstraint::LowerBound(1)),
+        "{active:?}"
+    );
+    let last = res.last();
+    assert!((last.theta[0] - 0.3).abs() < 1e-12 && (last.theta[1] + 0.2).abs() < 1e-12);
+    let c_final = capacitance_from_e_c_hz(last.values[0]);
+    assert!(c_final > 0.4 * c0, "the box keeps C well above the target");
+}
+
+fn multiparam_results_toml() -> toml::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/multiparam_results.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse multiparam_results.toml")
+}
+
+fn tf_arr(v: &toml::Value, key: &str) -> Vec<f64> {
+    v[key]
+        .as_array()
+        .unwrap_or_else(|| panic!("key {key:?} missing or not an array"))
+        .iter()
+        .map(|x| x.as_float().unwrap())
+        .collect()
+}
+
+/// Pin the committed `benchmarks/transmon_diffopt/multiparam_results.toml`
+/// (issue #1036) without solving anything:
+///
+/// 1. the anchor quantity is declared (scalar-ε) with its tolerance, and the
+///    tensor quantity is kept separate;
+/// 2. one Laplace factorization per distinct pinned set (`theta_L` +
+///    `theta_W`, then `theta_G`), matching Phase A's fields;
+/// 3. the fixed-field #594 budget reproduces −0.064609 to ≤ 1e-6, the
+///    curator's 1.8× is labelled an inference, and every budget row ends on
+///    the floor;
+/// 4. every swept run kept min ratio ≥ 0.25 and fresh agreement ≤ 1e-9; the
+///    fixed and unit runs stall short of 89.9 fF with a recorded gap and
+///    active constraints;
+/// 5. the headline run converged within tolerance on the scalar anchor, with
+///    every trajectory row valid and confirmed, the final FD checks ≤ 1e-3,
+///    the theta trace equal to the summed steps, and physical dimensions;
+/// 6. the tensor C_Σ at the scalar design is NOT 89.9 fF, and the retarget
+///    block is self-consistent;
+/// 7. one uniform refinement lowers C_Σ at X⁰ and at every converged design
+///    (pinned values), the coarse values match the runs, and the framing
+///    says the anchor is reached on the coarse mesh only.
+#[allow(clippy::needless_range_loop)] // per-parameter comparisons of fixed-size triples
+#[test]
+fn committed_multiparam_results_toml_pins_optimizer_outcome() {
+    let doc = multiparam_results_toml();
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1036));
+    assert_eq!(doc["meta"]["n_tets"].as_integer(), Some(133_314));
+
+    // 1. Anchor.
+    let an = &doc["anchor"];
+    assert_eq!(tf(an, "c_sigma_target_ff"), 89.9);
+    assert!(
+        an["anchor_quantity"]
+            .as_str()
+            .unwrap()
+            .starts_with("scalar-eps")
+    );
+    let c_tol = tf(an, "c_sigma_tolerance_ff");
+    assert!(c_tol > 0.0 && c_tol < 0.01, "C tolerance {c_tol} fF");
+    assert!(tf(an, "c_sigma_tolerance_rel") < 0.1 * tf(an, "scalar_vs_tensor_delta_reference"));
+
+    // 2. Factorization reuse.
+    let fz = &doc["factorization"];
+    assert_eq!(fz["n_factorizations_per_rebuild"].as_integer(), Some(2));
+    let groups = fz["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].as_array().unwrap().len(), 2);
+    assert_eq!(groups[1].as_array().unwrap()[0].as_str(), Some("theta_G"));
+    for r in tf_arr(fz, "shared_vs_phase_a_rel") {
+        assert!(r <= 1e-12, "shared-LU field vs Phase A rel {r}");
+    }
+    assert!(tf(fz, "island_scale_594_family_vs_harmonic_extension_rel") <= 1e-12);
+
+    // 3. Budgets.
+    let rf = &doc["budget_594_reference"];
+    assert!(tf(rf, "fixed_reproduction_abs_err") <= 1e-6);
+    assert!((tf(rf, "fixed_theta_safe_reproduced") - (-0.064609)).abs() <= 1e-6);
+    assert!(rf["curator_unit_gain_inference"].is_float());
+    let budgets = doc["budget"].as_array().unwrap();
+    let families = ["island_scale_594", "theta_L", "theta_W", "theta_G"];
+    for fam in families {
+        let rows: Vec<_> = budgets
+            .iter()
+            .filter(|b| b["family"].as_str() == Some(fam))
+            .collect();
+        // fixed + (unit + 4 alphas) × 2 step sizes.
+        assert_eq!(rows.len(), 11, "{fam}: budget rows");
+        assert_eq!(rows[0]["mode"].as_str(), Some("fixed"));
+        for b in &rows {
+            assert!(
+                (tf(b, "worst_ratio") - 0.25).abs() < 1e-6,
+                "{fam}: off the floor"
+            );
+            assert_eq!(b["worst_tet_centroid_um"].as_array().unwrap().len(), 3);
+        }
+    }
+
+    // 4. Runs.
+    let runs = doc["run"].as_array().unwrap();
+    assert_eq!(runs.len(), 6, "fixed, unit and four alphas");
+    for r in runs {
+        assert!(tf(r, "min_ratio_vs_x0") >= 0.25, "{:?}", r["mode"]);
+        assert!(tf(r, "max_fresh_confirm_rel") <= 1e-9, "{:?}", r["mode"]);
+        let c = tf(r, "c_sigma_final_ff");
+        assert!((c - tf(r, "c_sigma_final_fresh_ff")).abs() <= 1e-9 * c);
+        let curve = tf_arr(r, "c_sigma_curve_ff");
+        assert!(
+            (curve[0] - 137.706752).abs() < 1e-5,
+            "every run starts at X0"
+        );
+        assert_eq!(curve.len(), r["n_steps"].as_integer().unwrap() as usize + 1);
+        let obj = tf_arr(r, "objective_curve");
+        for w in obj.windows(2) {
+            assert!(w[1] < w[0], "{:?}: objective must decrease", r["mode"]);
+        }
+    }
+    for mode in ["fixed", "unit_remorph"] {
+        let r = runs
+            .iter()
+            .find(|r| r["mode"].as_str() == Some(mode))
+            .unwrap();
+        assert_eq!(r["outcome"].as_str(), Some("stalled"), "{mode}");
+        assert!(
+            tf(r, "remaining_gap_ff") > c_tol,
+            "{mode}: a measured gap must remain"
+        );
+        let active = r["stall_active"].as_array().unwrap();
+        assert!(
+            active
+                .iter()
+                .any(|a| a.as_str().unwrap().starts_with("ratio_floor")),
+            "{mode}: the ratio floor must be the active constraint"
+        );
+    }
+    let fixed_c = tf(
+        runs.iter()
+            .find(|r| r["mode"].as_str() == Some("fixed"))
+            .unwrap(),
+        "c_sigma_final_ff",
+    );
+    assert!(
+        fixed_c < 97.03 && fixed_c > 89.9,
+        "the fixed-field optimizer improves on Phase A's box step yet misses: {fixed_c}"
+    );
+
+    // 5. Headline.
+    let h = &doc["headline"];
+    assert_eq!(h["converged"].as_bool(), Some(true));
+    let c = tf(h, "c_sigma_scalar_ff");
+    assert!(
+        (c - 89.9).abs() <= c_tol,
+        "headline C_Σ {c} vs 89.9 ± {c_tol}"
+    );
+    assert!(tf(h, "fresh_vs_problem_rel") <= 1e-9);
+    assert!(tf(h, "e_c_residual_hz").abs() <= tf(an, "tol_hz"));
+    assert!(tf(h, "min_ratio_vs_x0") >= 0.25);
+    let head_mode = h["mode"].as_str().unwrap();
+    assert!(
+        head_mode.starts_with("stiffened"),
+        "headline mode {head_mode}"
+    );
+    let first_conv = runs
+        .iter()
+        .find(|r| r["outcome"].as_str() == Some("converged"))
+        .unwrap();
+    assert_eq!(
+        first_conv["mode"].as_str(),
+        Some(head_mode),
+        "selection rule"
+    );
+    let traj = h["trajectory"].as_array().unwrap();
+    let mut acc = [0.0_f64; 3];
+    for (k, row) in traj.iter().enumerate() {
+        assert_eq!(row["iter"].as_integer(), Some(k as i64));
+        assert!(tf(row, "min_ratio_vs_x0") >= 0.25, "row {k}");
+        assert!(tf(row, "fresh_rel") <= 1e-9, "row {k}");
+        let d = tf_arr(row, "dtheta");
+        for (a, x) in acc.iter_mut().zip(&d) {
+            *a += x;
+        }
+        let th = tf_arr(row, "theta");
+        for p in 0..3 {
+            assert!(
+                (th[p] - acc[p]).abs() < 1e-7,
+                "row {k}: theta trace != Σ dtheta"
+            );
+        }
+    }
+    let fd = h["final_fd"].as_array().unwrap();
+    assert_eq!(fd.len(), 3);
+    for r in fd {
+        assert!(tf(r, "rel_err") <= 1e-3, "{:?}", r["name"]);
+    }
+    let g0 = &h["start_geometry"];
+    let g1 = &h["final_geometry"];
+    assert!((tf(g0, "pad_width_um") - 24.0).abs() < 1e-6);
+    assert!((tf(g0, "cutout_gap_min_um") - 30.0).abs() < 1e-6);
+    assert!(tf(g1, "island_length_um") < tf(g0, "island_length_um"));
+    assert!(tf(g1, "pad_width_um") < tf(g0, "pad_width_um"));
+    assert!(tf(g1, "cutout_gap_min_um") > tf(g0, "cutout_gap_min_um"));
+    assert!(
+        (tf(g1, "island_y_min_um") - tf(g0, "island_y_min_um")).abs() < 1e-9,
+        "the junction lead end never moves"
+    );
+
+    // 6. Tensor.
+    let delta = tf(h, "scalar_vs_tensor_delta");
+    assert!(
+        delta.abs() > 1e-3 && delta.abs() < 2e-2,
+        "scalar-vs-tensor delta {delta}"
+    );
+    assert!(
+        tf(h, "tensor_gap_to_anchor_ff").abs() > c_tol,
+        "the scalar design must not be reported as reaching the tensor anchor"
+    );
+    let tr = &doc["tensor_retarget"];
+    let reached = tr["tensor_reached"].as_bool().unwrap();
+    assert_eq!(
+        reached,
+        tf(tr, "tensor_e_c_residual_hz").abs() <= tf(an, "tol_hz")
+    );
+    assert!(tf(tr, "min_ratio_vs_x0") >= 0.25);
+    let cs = tf(tr, "c_sigma_scalar_at_tensor_design_ff");
+    assert!((cs - tf(tr, "c_sigma_scalar_at_tensor_design_fresh_ff")).abs() <= 1e-9 * cs);
+
+    // 7. Mesh refinement.
+    let mr = &doc["mesh_refinement"];
+    assert_eq!(mr["levels_run"].as_integer(), Some(1));
+    assert_eq!(
+        mr["refined_n_tets"].as_integer(),
+        Some(8 * 133_314),
+        "red refinement: 8 children per tet"
+    );
+    assert!(
+        mr["converged_value"]
+            .as_str()
+            .unwrap()
+            .starts_with("unknown")
+    );
+    assert!(mr["second_level"].as_str().unwrap().starts_with("not run"));
+    let designs = mr["design"].as_array().unwrap();
+    // (name, coarse fF, refined fF) pinned from the committed run.
+    let pinned = [
+        ("X0", 137.706752, 101.359397),
+        ("X_final_stiffened_remorph_alpha_3", 89.900001, 66.609133),
+        ("X_final_stiffened_remorph_alpha_4", 89.900413, 66.989120),
+    ];
+    assert_eq!(designs.len(), pinned.len(), "X0 + each converged run");
+    for (name, coarse, fine) in pinned {
+        let d = designs
+            .iter()
+            .find(|d| d["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("no refinement row {name}"));
+        let (c, f) = (tf(d, "c_sigma_coarse_ff"), tf(d, "c_sigma_refined_ff"));
+        assert!((c - coarse).abs() < 1e-5, "{name}: coarse {c} vs {coarse}");
+        assert!((f - fine).abs() < 1e-5, "{name}: refined {f} vs {fine}");
+        assert!(f < c, "{name}: refinement must lower C_Σ");
+        assert_eq!(d["n_flipped"].as_integer(), Some(0));
+        // rel_shift is printed to 5 significant figures.
+        assert!((tf(d, "rel_shift") - (f - c) / c).abs() < 1e-4);
+        let lb: f64 = d["coarse_error_lower_bound_ff"].as_float().unwrap();
+        assert!(
+            lb <= c - f && lb > c - f - 0.01,
+            "{name}: floored lower bound"
+        );
+        if name != "X0" {
+            let run = runs
+                .iter()
+                .find(|r| format!("X_final_{}", r["mode"].as_str().unwrap()) == name)
+                .unwrap();
+            assert_eq!(run["outcome"].as_str(), Some("converged"));
+            assert!((tf(run, "c_sigma_final_ff") - c).abs() < 1e-5);
+        }
+    }
+    let head_row = designs
+        .iter()
+        .find(|d| d["headline"].as_bool() == Some(true))
+        .unwrap();
+    assert_eq!(head_row["mode"].as_str(), Some(head_mode));
+    // Refined, the headline design sits well below the anchor, beyond any
+    // tolerance; the refined X0 sits above it.
+    assert!(tf(head_row, "c_sigma_refined_ff") < 89.9 - 1000.0 * c_tol);
+    assert!(tf(&designs[0], "c_sigma_refined_ff") > 89.9);
+    let sm = &mr["summary"];
+    assert!(
+        tf(sm, "headline_refined_below_anchor_pct")
+            <= 100.0 * (89.9 - tf(head_row, "c_sigma_refined_ff")) / 89.9
+    );
+    // The coarse-identical alpha = 3 / 4 designs differ by about 91 tolerances once refined.
+    assert!(tf(sm, "converged_designs_spread_refined_ff") > 50.0 * c_tol);
+    assert!(tf(sm, "converged_designs_spread_coarse_ff") < c_tol);
+
+    let hf = &doc["honest_framing"];
+    for k in [
+        "coarse_mesh",
+        "regeneration",
+        "remeshing",
+        "stiffening_is_the_route",
+        "stall_margin",
+        "scalar_tensor_sign",
+    ] {
+        assert!(hf[k].is_str(), "honest_framing.{k}");
+    }
+    let cm = hf["coarse_mesh"].as_str().unwrap();
+    assert!(cm.contains("coarse-mesh scalar-eps C_Sigma reaches 89.9 fF"));
+    assert!(cm.contains("not an 89.9 fF device design"));
+    assert!(
+        hf["scalar_tensor_sign"]
+            .as_str()
+            .unwrap()
+            .contains("at this discretization")
+    );
+    assert!(
+        doc["meta"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("coarse-mesh scalar-eps C_Sigma reaches 89.9 fF")
+    );
+    let ol = &doc["outlines"];
+    for k in [
+        "island_start",
+        "island_final",
+        "cutout_edge_pos_final",
+        "cutout_edge_neg_final",
+    ] {
+        assert!(ol[k].as_array().unwrap().len() > 10, "outline {k}");
+    }
+}
+
+/// The issue #1036 pipeline on the real 133k-tet mesh, re-run against the
+/// committed `multiparam_results.toml` (regenerate with the
+/// `transmon_multiparam_optimize` example):
+///
+/// 1. the shared-LU fields (two factorizations) match Phase A's
+///    one-solve-each fields, and the fixed-field #594 budget reproduces;
+/// 2. the headline mode's first three optimizer steps reproduce the
+///    committed trajectory (θ, C_Σ), each confirmed by a fresh extraction to
+///    ≤ 1e-9 and valid against the 0.25 floor.
+#[allow(clippy::needless_range_loop)] // per-parameter comparisons of fixed-size triples
+#[test]
+#[ignore = "release-tier: 3 re-morphed optimizer steps (2 Laplace LUs + 1 gradient LU + 1 fresh extraction each) on the 133k-tet fixture (~8 s in release)"]
+fn multiparam_optimizer_release() {
+    use geode_core::shape::transmon_morph::{
+        TransmonMorphRoles, TransmonMorphSpec, parameter_fields,
+    };
+    use geode_core::shape::transmon_remorph::{
+        MorphFamily, RemorphMode, TransmonCSigmaProblem, remorph_budget,
+    };
+
+    let doc = multiparam_results_toml();
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let roles =
+        TransmonMorphRoles::identify(&fx, &base, TransmonMorphSpec::fixture_default(M_PER_UNIT))
+            .unwrap();
+
+    // --- 1. Fields and the #594 baseline. ---
+    let family = MorphFamily::transmon(&roles);
+    let shared = family.fields(&base, &base, RemorphMode::Unit).unwrap();
+    assert_eq!(shared.n_factorizations, 2);
+    assert_eq!(shared.groups, vec![vec![0, 1], vec![2]]);
+    let phase_a = parameter_fields(&base, &roles).unwrap();
+    for p in 0..3 {
+        let scale = phase_a[p]
+            .iter()
+            .flat_map(|v| v.iter())
+            .fold(0.0_f64, |m, x| m.max(x.abs()));
+        let err = phase_a[p]
+            .iter()
+            .zip(&shared.fields[p])
+            .flat_map(|(a, b)| (0..3).map(move |d| (a[d] - b[d]).abs()))
+            .fold(0.0_f64, f64::max);
+        assert!(
+            err <= 1e-12 * scale,
+            "param {p}: shared field rel {:.3e}",
+            err / scale
+        );
+    }
+    let comps = fx.split_metal_conductors();
+    let island = comps.iter().find(|c| c.role == MetalRole::Island).unwrap();
+    let fz = harmonic_fixed_zero(&base, &roles.ground, &roles.feedline, &island.nodes);
+    let fam594 = MorphFamily::island_scale(island.nodes.clone(), fz);
+    let (b594, _) = remorph_budget(
+        &fam594,
+        0,
+        &base,
+        RemorphMode::Fixed,
+        -1.0,
+        0.25,
+        0.01,
+        10.0,
+    )
+    .unwrap();
+    assert!(
+        (b594.theta - (-0.064609)).abs() <= 1e-6,
+        "#594 budget {}",
+        b594.theta
+    );
+
+    // --- 2. Three headline steps. ---
+    let h = &doc["headline"];
+    let alpha = tf(h, "alpha");
+    let o = &doc["optimizer"];
+    let bounds: Vec<(f64, f64)> = o["theta_bounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| {
+            let b = b.as_array().unwrap();
+            (b[0].as_float().unwrap(), b[1].as_float().unwrap())
+        })
+        .collect();
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: roles.island.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: roles.feedline.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let mut prob = TransmonCSigmaProblem::new(
+        MorphFamily::transmon(&roles),
+        RemorphMode::Stiffened { alpha },
+        base.clone(),
+        fx.epsilon_r_scalar(),
+        conductors,
+        roles.ground.clone(),
+        tf(o, "ratio_floor"),
+        tf(o, "ratio_margin"),
+    )
+    .unwrap();
+    let opts = MultiParamOptions {
+        targets: vec![tf(&doc["anchor"], "e_c_target_hz")],
+        tolerances: vec![tf(&doc["anchor"], "tol_hz")],
+        scaling: tf_arr(o, "scaling"),
+        theta0: vec![0.0; 3],
+        theta_bounds: bounds,
+        max_scaled_step: tf(o, "max_scaled_step"),
+        max_steps: 3,
+        max_constraint_rounds: 12,
+        max_backtracks: 12,
+        min_progress: 1e-4,
+    };
+    let res = optimize_multiparam_bounded(&mut prob, &opts);
+    assert_eq!(res.trajectory.len(), 4, "three accepted steps");
+    let traj = h["trajectory"].as_array().unwrap();
+    for (k, (s, l)) in res.trajectory.iter().zip(&prob.log).enumerate() {
+        let want = &traj[k];
+        let th = tf_arr(want, "theta");
+        for p in 0..3 {
+            assert!(
+                (s.theta[p] - th[p]).abs() < 1e-7,
+                "step {k} theta[{p}] {} vs committed {}",
+                s.theta[p],
+                th[p]
+            );
+        }
+        let c = l.c_sigma * 1e15;
+        assert!(
+            (c - tf(want, "c_sigma_ff")).abs() < 1e-5,
+            "step {k}: C_Σ {c} vs committed {}",
+            tf(want, "c_sigma_ff")
+        );
+        let fresh = l.c_sigma_fresh.expect("confirmed");
+        assert!((fresh - l.c_sigma).abs() <= 1e-9 * fresh, "step {k} fresh");
+        if k > 0 {
+            assert!(s.min_quality_base >= 0.25, "step {k} ratio");
+        }
+    }
+}
+
+/// The #1036 discretization check at `X⁰`, re-run against the committed
+/// `[mesh_refinement]`: one uniform red refinement of the 133k-tet fixture
+/// (1.07M tets) lowers the scalar-ε `C_Σ` to the committed value.
+#[test]
+#[ignore = "release-tier: one direct electrostatic solve pair on the 1.07M-tet red refinement of the transmon fixture (~20-40 s in release)"]
+fn multiparam_mesh_refinement_x0_release() {
+    use geode_core::shape::transmon_morph::{TransmonMorphRoles, TransmonMorphSpec};
+    use geode_core::shape::transmon_remorph::red_refined_c_sigma;
+
+    let doc = multiparam_results_toml();
+    let x0 = doc["mesh_refinement"]["design"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["name"].as_str() == Some("X0"))
+        .unwrap()
+        .clone();
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let roles =
+        TransmonMorphRoles::identify(&fx, &base, TransmonMorphSpec::fixture_default(M_PER_UNIT))
+            .unwrap();
+    let comps = fx.split_metal_conductors();
+    let tris = |role: MetalRole| -> Vec<[u32; 3]> {
+        comps
+            .iter()
+            .filter(|c| c.role == role)
+            .flat_map(|c| c.triangles.iter().copied())
+            .collect()
+    };
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: roles.island.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: roles.feedline.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let r = red_refined_c_sigma(
+        &base,
+        &fx.epsilon_r_scalar(),
+        &conductors,
+        &[&tris(MetalRole::Island), &tris(MetalRole::Feedline)],
+        &roles.ground,
+        &tris(MetalRole::Ground),
+    )
+    .unwrap();
+    assert_eq!(r.n_tets, 8 * base.n_tets());
+    assert_eq!(r.n_flipped, 0);
+    let (c, f) = (r.coarse * 1e15, r.refined * 1e15);
+    assert!(
+        (c - tf(&x0, "c_sigma_coarse_ff")).abs() < 1e-5,
+        "coarse {c} vs committed"
+    );
+    assert!(
+        (f - tf(&x0, "c_sigma_refined_ff")).abs() < 1e-5,
+        "refined {f} vs committed {}",
+        tf(&x0, "c_sigma_refined_ff")
+    );
+    assert!(f < c);
 }

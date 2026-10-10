@@ -90,6 +90,7 @@ use crate::assembly::electrostatic::{
 use crate::mesh::TetMesh;
 
 pub mod transmon_morph;
+pub mod transmon_remorph;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Minimal forward-mode dual number for exact differentiation of the P1
@@ -870,6 +871,309 @@ pub fn worst_tet_volume_ratio(base: &TetMesh, moved: &TetMesh) -> (f64, usize) {
         }
     }
     worst
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Re-morphing support (Epic #569 / umbrella #1034, issue #1036, Phase B).
+//
+// A re-morphing optimizer rebuilds every parameter field `D_i(X_k)` about the
+// current coordinates at each accepted iterate. Three pieces:
+//
+// * `assemble_p1_laplace_weighted`: the P1 Laplace operator with a per-tet
+//   diffusivity, so a volume-stiffened morph (diffusivity `(V₀/V_k)^α`) can
+//   push deformation away from tets that have already been compressed. The
+//   unit-coefficient `assemble_p1_laplace` above is untouched; a unit test
+//   checks the weighted sibling reproduces it bit-for-bit at weights of 1.
+// * `harmonic_dirichlet_velocities`: several fields from ONE factorization.
+//   That is valid only when every column pins the same node set (the
+//   prescribed nodes plus `fixed_zero`), with only the values differing, so
+//   the function rejects columns whose prescribed sets differ.
+// * `tet_volume_ratios` / `tet_volume_ratio_derivatives`: the per-tet ratio
+//   against the base mesh and its exact first derivative along a set of
+//   node-motion fields, which linearize the mesh-quality constraint.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// [`assemble_p1_laplace`] with a per-tet diffusivity: `L_ij = Σ_t w_t ∫_t
+/// ∇λ_i·∇λ_j`. With every weight equal to 1 it reproduces the unit operator
+/// bit-for-bit (the element kernel is the same; `x · 1.0 == x` exactly).
+fn assemble_p1_laplace_weighted(
+    mesh: &TetMesh,
+    weights: &[f64],
+) -> Result<SparseColMat<usize, f64>, ElectrostaticError> {
+    if weights.len() != mesh.n_tets() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "Laplace diffusivity has {} entries, mesh has {} tets",
+            weights.len(),
+            mesh.n_tets()
+        )));
+    }
+    if let Some((t, w)) = weights
+        .iter()
+        .enumerate()
+        .find(|(_, w)| !(w.is_finite() && **w > 0.0))
+    {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "Laplace diffusivity of tet {t} is {w}; it must be finite and positive"
+        )));
+    }
+    let n = mesh.n_nodes();
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    for (tet, &w) in mesh.tets.iter().zip(weights) {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, _m, _v) = tet_p1_local(&coords);
+        for p in 0..4 {
+            let gp = tet[p] as usize;
+            for q in 0..4 {
+                trips.push(Triplet::new(gp, tet[q] as usize, w * k_local[p][q]));
+            }
+        }
+    }
+    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
+        .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))
+}
+
+/// Several **harmonic extensions from one factorization**: column `c` solves
+///
+/// ```text
+///   ∇·(w ∇D_c) = 0 on the free nodes,   D_c = v on `columns[c]`,   D_c = 0 on `fixed_zero`,
+/// ```
+///
+/// with `w` the per-tet `diffusivity` (`None` = unit, the operator of
+/// [`harmonic_dirichlet_velocity`]). As there, a node in both a column and
+/// `fixed_zero` stays fixed.
+///
+/// One LU serves every column only because every column has the same
+/// Dirichlet **set**: the function requires the prescribed node sets of all
+/// columns to be identical (values may differ), and returns an error
+/// otherwise. Fields whose pinned sets differ (on the transmon, `theta_G`
+/// releases a ground band that `theta_L` and `theta_W` pin) must be built by
+/// separate calls, one factorization per distinct set. The single-column,
+/// unit-diffusivity call is the same field as [`harmonic_dirichlet_velocity`]
+/// (to round-off; a unit test checks it).
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] for an out-of-range node, columns
+/// with different prescribed node sets, a node prescribed twice in one
+/// column, or a bad diffusivity; [`ElectrostaticError::Assembly`] /
+/// [`ElectrostaticError::Factorization`] from the Laplace assembly and solve.
+pub fn harmonic_dirichlet_velocities(
+    mesh: &TetMesh,
+    diffusivity: Option<&[f64]>,
+    columns: &[Vec<(u32, [f64; 3])>],
+    fixed_zero: &[u32],
+) -> Result<Vec<Vec<[f64; 3]>>, ElectrostaticError> {
+    let n = mesh.n_nodes();
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    let node_set = |c: &[(u32, [f64; 3])]| -> Vec<u32> {
+        let mut s: Vec<u32> = c.iter().map(|(g, _)| *g).collect();
+        s.sort_unstable();
+        s
+    };
+    let set0 = node_set(&columns[0]);
+    if set0.windows(2).any(|w| w[0] == w[1]) {
+        return Err(ElectrostaticError::ShapeMismatch(
+            "harmonic_dirichlet_velocities: a node is prescribed twice in column 0".to_string(),
+        ));
+    }
+    if let Some(&g) = set0.iter().find(|g| **g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "prescribed node {g} out of range (n_nodes {n})"
+        )));
+    }
+    for (c, col) in columns.iter().enumerate().skip(1) {
+        if node_set(col) != set0 {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "harmonic_dirichlet_velocities: column {c} prescribes a different node set \
+                 from column 0; one factorization is valid only for identical Dirichlet sets \
+                 (build differing sets with separate calls)"
+            )));
+        }
+    }
+    if let Some(&g) = fixed_zero.iter().find(|g| **g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "fixed_zero node {g} out of range (n_nodes {n})"
+        )));
+    }
+    let n_cols = columns.len();
+    let mut pinned = vec![false; n];
+    let mut dval = vec![vec![[0.0_f64; 3]; n]; n_cols];
+    for (c, col) in columns.iter().enumerate() {
+        for &(g, v) in col {
+            pinned[g as usize] = true;
+            dval[c][g as usize] = v;
+        }
+    }
+    for &g in fixed_zero {
+        pinned[g as usize] = true;
+        for d in dval.iter_mut() {
+            d[g as usize] = [0.0; 3];
+        }
+    }
+    let mut free_of = vec![None; n];
+    let mut n_free = 0usize;
+    for (g, &p) in pinned.iter().enumerate() {
+        if !p {
+            free_of[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+    let l_full = match diffusivity {
+        None => assemble_p1_laplace(mesh)?,
+        Some(w) => assemble_p1_laplace_weighted(mesh, w)?,
+    };
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    let mut b: Mat<f64> = Mat::zeros(n_free, 3 * n_cols);
+    {
+        let l_ref = l_full.as_ref();
+        let cp = l_ref.col_ptr();
+        let row_idx = l_ref.row_idx();
+        let vals = l_ref.val();
+        for j in 0..n {
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                let v = vals[k];
+                match (free_of[i], free_of[j]) {
+                    (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                    (Some(fi), None) => {
+                        for (c, d) in dval.iter().enumerate() {
+                            for a in 0..3 {
+                                b[(fi, 3 * c + a)] -= v * d[j][a];
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut vels = dval;
+    if n_free > 0 {
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+            .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+        let lu = k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        lu.solve_in_place(b.as_mut());
+        for (c, vel) in vels.iter_mut().enumerate() {
+            for (g, slot) in free_of.iter().enumerate() {
+                if let Some(fi) = slot {
+                    vel[g] = [b[(*fi, 3 * c)], b[(*fi, 3 * c + 1)], b[(*fi, 3 * c + 2)]];
+                }
+            }
+        }
+    }
+    Ok(vels)
+}
+
+/// The signed-volume ratio `vol(moved tet) / vol(base tet)` of every tet
+/// (the per-tet values behind [`min_tet_volume_ratio`]).
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count.
+pub fn tet_volume_ratios(base: &TetMesh, moved: &TetMesh) -> Vec<f64> {
+    assert_eq!(
+        base.n_tets(),
+        moved.n_tets(),
+        "tet_volume_ratios: tet counts differ (fixed-topology maps only)"
+    );
+    (0..base.n_tets())
+        .map(|t| tet_signed_6vol(moved, t) / tet_signed_6vol(base, t))
+        .collect()
+}
+
+/// Volume-stiffening diffusivity `w_t = (V₀_t / V_t)^α` for a re-morph about
+/// `current`: tets that `current` has already compressed relative to `base`
+/// get a stiffer Laplace coefficient, so the next field deforms them less.
+/// `α = 0` gives the unit operator.
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] if `alpha` is negative or not
+/// finite, or if any tet of `current` is inverted or degenerate.
+pub fn volume_stiffening_weights(
+    base: &TetMesh,
+    current: &TetMesh,
+    alpha: f64,
+) -> Result<Vec<f64>, ElectrostaticError> {
+    if !(alpha.is_finite() && alpha >= 0.0) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "volume_stiffening_weights: alpha {alpha} must be finite and non-negative"
+        )));
+    }
+    let ratios = tet_volume_ratios(base, current);
+    if let Some((t, r)) = ratios.iter().enumerate().find(|(_, r)| **r <= 0.0) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "volume_stiffening_weights: tet {t} has volume ratio {r} (inverted)"
+        )));
+    }
+    Ok(ratios.into_iter().map(|r| r.powf(-alpha)).collect())
+}
+
+/// Exact first derivatives of the tet volume ratio `r_t = V_t(X)/V₀_t` at
+/// `current` along node-motion fields: entry `[k][i]` is
+/// `d r_{tets[k]} / dθ_i` for `X = current + Σ_i θ_i fields[i]` at `θ = 0`.
+/// Each derivative is the closed form `d(6V) = Σ_a (∂det/∂e_a)·(D_a − D_0)`
+/// with `∂det/∂e_1 = e_2×e_3` and its cyclic shifts; a unit test checks it
+/// against central differences.
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count, a tet index is out of range, or
+/// a field's length differs from the node count.
+pub fn tet_volume_ratio_derivatives(
+    base: &TetMesh,
+    current: &TetMesh,
+    tets: &[usize],
+    fields: &[&[[f64; 3]]],
+) -> Vec<Vec<f64>> {
+    assert_eq!(
+        base.n_tets(),
+        current.n_tets(),
+        "tet_volume_ratio_derivatives: tet counts differ"
+    );
+    for f in fields {
+        assert_eq!(
+            f.len(),
+            current.n_nodes(),
+            "tet_volume_ratio_derivatives: field length != node count"
+        );
+    }
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    tets.iter()
+        .map(|&t| {
+            let tet = current.tets[t];
+            let x = |k: usize| current.nodes[tet[k] as usize];
+            let (e1, e2, e3) = (sub(x(1), x(0)), sub(x(2), x(0)), sub(x(3), x(0)));
+            let (c1, c2, c3) = (cross(e2, e3), cross(e3, e1), cross(e1, e2));
+            let v0 = tet_signed_6vol(base, t);
+            fields
+                .iter()
+                .map(|f| {
+                    let d = |k: usize| f[tet[k] as usize];
+                    (dot(c1, sub(d(1), d(0))) + dot(c2, sub(d(2), d(0))) + dot(c3, sub(d(3), d(0))))
+                        / v0
+                })
+                .collect()
+        })
+        .collect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -3243,5 +3547,141 @@ mod tests {
         let mut bad = electrodes.clone();
         bad[1].nodes.push(ground[0]);
         assert!(capacitance_matrix_shape_gradient(&mesh, &eps_r, &bad, &ground).is_err());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Re-morphing support (issue #1036).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// The unit-coefficient path is untouched: the weighted Laplace with every
+    /// weight equal to 1 reproduces `assemble_p1_laplace` bit-for-bit
+    /// (structure and every stored value).
+    #[test]
+    fn weighted_laplace_with_unit_weights_is_bit_identical() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let unit = assemble_p1_laplace(&mesh).unwrap();
+        let w = assemble_p1_laplace_weighted(&mesh, &vec![1.0; mesh.n_tets()]).unwrap();
+        let (a, b) = (unit.as_ref(), w.as_ref());
+        assert_eq!(a.col_ptr(), b.col_ptr());
+        assert_eq!(a.row_idx(), b.row_idx());
+        assert_eq!(a.val().len(), b.val().len());
+        for (x, y) in a.val().iter().zip(b.val()) {
+            assert_eq!(
+                x.to_bits(),
+                y.to_bits(),
+                "unit-weight value differs: {x} vs {y}"
+            );
+        }
+        // A non-unit weight really changes the operator, linearly.
+        let w2 = assemble_p1_laplace_weighted(&mesh, &vec![2.0; mesh.n_tets()]).unwrap();
+        for (x, y) in a.val().iter().zip(w2.as_ref().val()) {
+            assert_eq!(2.0 * x, *y);
+        }
+        assert!(assemble_p1_laplace_weighted(&mesh, &[1.0]).is_err());
+        let mut bad = vec![1.0; mesh.n_tets()];
+        bad[0] = 0.0;
+        assert!(assemble_p1_laplace_weighted(&mesh, &bad).is_err());
+    }
+
+    fn face_data(mesh: &TetMesh, scale: f64) -> (Vec<(u32, [f64; 3])>, Vec<u32>) {
+        let tol = 1e-9;
+        let mut presc = Vec::new();
+        let mut fixed = Vec::new();
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if (p[0] - 1.0).abs() < tol {
+                presc.push((i as u32, [0.0, scale * p[1], scale * p[2] * p[1]]));
+            } else if p[0].abs() < tol {
+                fixed.push(i as u32);
+            }
+        }
+        (presc, fixed)
+    }
+
+    /// One factorization for several columns with the same Dirichlet set
+    /// gives the same fields as one solve each; columns with different sets
+    /// are rejected.
+    #[test]
+    fn multi_column_harmonic_matches_single_solves_and_rejects_mixed_sets() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (c1, fixed) = face_data(&mesh, 0.1);
+        let (c2, _) = face_data(&mesh, -0.3);
+        let multi =
+            harmonic_dirichlet_velocities(&mesh, None, &[c1.clone(), c2.clone()], &fixed).unwrap();
+        for (col, field) in [c1.clone(), c2].iter().zip(&multi) {
+            let single = harmonic_dirichlet_velocity(&mesh, col, &fixed).unwrap();
+            let err = single
+                .iter()
+                .zip(field)
+                .flat_map(|(a, b)| (0..3).map(move |d| (a[d] - b[d]).abs()))
+                .fold(0.0_f64, f64::max);
+            assert!(err <= 1e-14, "shared-factor field differs by {err:e}");
+        }
+        // A different prescribed set cannot share the factorization.
+        let mut c3 = c1.clone();
+        c3.pop();
+        let err = harmonic_dirichlet_velocities(&mesh, None, &[c1.clone(), c3], &fixed);
+        assert!(matches!(err, Err(ElectrostaticError::ShapeMismatch(_))));
+        // Stiffening changes the interior field but not the Dirichlet data.
+        let w: Vec<f64> = (0..mesh.n_tets()).map(|t| 1.0 + (t % 5) as f64).collect();
+        let stiff =
+            harmonic_dirichlet_velocities(&mesh, Some(&w), std::slice::from_ref(&c1), &fixed)
+                .unwrap();
+        let moved_interior = stiff[0]
+            .iter()
+            .zip(&multi[0])
+            .map(|(a, b)| (a[1] - b[1]).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            moved_interior > 1e-6,
+            "a non-uniform diffusivity must change D"
+        );
+        for (n, v) in &c1 {
+            assert_eq!(stiff[0][*n as usize], *v);
+        }
+    }
+
+    /// The closed-form tet-volume-ratio derivative matches central FD, and the
+    /// stiffening weights are `(V0/V)^alpha`.
+    #[test]
+    fn tet_volume_ratio_derivatives_match_fd_and_stiffening_weights() {
+        let base = cube_tet_mesh(3, 1.0);
+        let d1: Vec<[f64; 3]> = base
+            .nodes
+            .iter()
+            .map(|p| [0.1 * p[1] * p[2], -0.05 * p[0], 0.2 * p[0] * p[1]])
+            .collect();
+        let d2: Vec<[f64; 3]> = base
+            .nodes
+            .iter()
+            .map(|p| [0.03 * p[2], 0.07 * p[0] * p[0], -0.04 * p[1]])
+            .collect();
+        let current = apply_node_motion(&base, &d2, 0.3);
+        let tets: Vec<usize> = (0..base.n_tets()).step_by(7).collect();
+        let g = tet_volume_ratio_derivatives(&base, &current, &tets, &[&d1, &d2]);
+        let h = 1e-6;
+        for (k, &t) in tets.iter().enumerate() {
+            for (i, d) in [&d1, &d2].iter().enumerate() {
+                let rp = tet_volume_ratios(&base, &apply_node_motion(&current, d, h))[t];
+                let rm = tet_volume_ratios(&base, &apply_node_motion(&current, d, -h))[t];
+                let fd = (rp - rm) / (2.0 * h);
+                assert!(
+                    (g[k][i] - fd).abs() <= 1e-7 * (1.0 + fd.abs()),
+                    "tet {t} field {i}: {} vs FD {fd}",
+                    g[k][i]
+                );
+            }
+        }
+        let r = tet_volume_ratios(&base, &current);
+        let w = volume_stiffening_weights(&base, &current, 2.0).unwrap();
+        for (ri, wi) in r.iter().zip(&w) {
+            assert!((wi - ri.powf(-2.0)).abs() <= 1e-15 * wi);
+        }
+        assert!(
+            volume_stiffening_weights(&base, &base, 1.5)
+                .unwrap()
+                .iter()
+                .all(|w| *w == 1.0)
+        );
+        assert!(volume_stiffening_weights(&base, &current, -1.0).is_err());
     }
 }
