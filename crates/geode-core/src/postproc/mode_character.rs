@@ -37,6 +37,20 @@
 //! orthogonal over the ball, so the four captured fractions add up to at
 //! most 1 (up to quadrature and discretization error) and the remainder
 //! is `l ≥ 3` content.
+//!
+//! # What the identity does not fix: radial order
+//!
+//! The projection fixes the polarisation and `l` only. Every TE `l = 1`
+//! eigenmode of the spherically symmetric ball + gap + PML + PEC-wall
+//! structure has TE₁ character in the ball, whatever its radial order, so
+//! an identified TE₁ triplet is not by itself the `n = 1` quasi-mode. The
+//! `n` in "TE₁,₁" is assigned by proximity to the analytic root among the
+//! identified TE₁ triplets ([`select_multiplet`]). On the bundled fixture
+//! at `σ₀ = 25` that proximity rule and the physical branch disagree:
+//! the σ₀ continuation of issue #1026
+//! (`benchmarks/mie_sphere/open_sigma_sweep.toml`) shows that the TE₁,₁
+//! branch is the triplet 26 % low on `Re(k)`, while the triplet 19 % high
+//! (nearer the root) is a separate branch.
 
 use faer::c64;
 
@@ -104,7 +118,9 @@ impl MultipoleFamily {
     ///
     /// # Panics
     ///
-    /// Panics if `l` is not 1 or 2, or `i ≥ 2l + 1`.
+    /// Panics if `i ≥ 2l + 1`, or if `l` is not 1 or 2 (in particular for
+    /// any `l > 2`: only the dipole and quadrupole families are
+    /// implemented).
     pub fn member_field(self, i: usize, n_inside: f64, k: c64, x: [f64; 3]) -> [c64; 3] {
         assert!(
             i < self.multiplicity(),
@@ -222,6 +238,12 @@ pub struct SphereModeCharacter {
 
 impl SphereModeCharacter {
     /// Captured in-ball energy fraction for `family`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `family` is not one of [`MultipoleFamily::ALL`], i.e. if
+    /// `family.l` is not 1 or 2 (the fields of [`MultipoleFamily`] are
+    /// public, so such a value can be built).
     pub fn overlap(&self, family: MultipoleFamily) -> f64 {
         self.overlaps[family.slot()]
     }
@@ -554,12 +576,26 @@ impl ClassifiedMode {
 
     /// The identity check: the mode's dominant family is `family` **and**
     /// it sits in a same-family multiplet of exactly `2l + 1` members.
+    ///
+    /// This fixes the polarisation and `l`, **not the radial order**: every
+    /// TE (or TM) order-`l` mode of the ball + gap + PML structure passes
+    /// for that family, whatever its radial order. The `n` in a label such
+    /// as "TE₁,₁" is assigned by proximity to the analytic root among the
+    /// identified multiplets (see [`select_multiplet`]); which branch is
+    /// the TE₁,₁ quasi-mode at a given `σ₀` was settled by σ₀ continuation
+    /// (issue #1026, `benchmarks/mie_sphere/open_sigma_sweep.toml`), not by
+    /// this check.
     pub fn is_member_of(&self, family: MultipoleFamily) -> bool {
         self.family == Some(family) && self.multiplet_size == family.multiplicity()
     }
 
     /// Why [`Self::is_member_of`] rejects this mode for `family`, or
     /// `None` if it accepts.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `family.l` is not 1 or 2 (it reads
+    /// [`SphereModeCharacter::overlap`]).
     pub fn rejection(&self, family: MultipoleFamily) -> Option<String> {
         if self.is_member_of(family) {
             return None;
@@ -794,6 +830,104 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Central-difference curl of `f` at `x` with step `h`.
+    fn fd_curl(f: &dyn Fn([f64; 3]) -> [c64; 3], x: [f64; 3], h: f64) -> [c64; 3] {
+        // d[j][i] = ∂_j F_i.
+        let d: [[c64; 3]; 3] = std::array::from_fn(|j| {
+            let mut xp = x;
+            let mut xm = x;
+            xp[j] += h;
+            xm[j] -= h;
+            let (fp, fm) = (f(xp), f(xm));
+            std::array::from_fn(|i| (fp[i] - fm[i]) / c64::new(2.0 * h, 0.0))
+        });
+        [d[1][2] - d[2][1], d[2][0] - d[0][2], d[0][1] - d[1][0]]
+    }
+
+    #[test]
+    fn member_fields_solve_the_in_ball_helmholtz_equation() {
+        // Independent check of the basis itself (issue #1026): the other
+        // tests here build their synthetic fields with `member_field`, the
+        // same function the projection uses, so a wrong radial profile
+        // would pass them. Here no projection is involved: each member
+        // field must satisfy curl curl F = (n k)² F, evaluated by nested
+        // central differences, and a TE field must have no radial part.
+        //
+        // Measured (these five points, three k, all four families):
+        // largest relative residual 4.67e-6 at h = 1e-3 and 1.17e-6 at
+        // h = 5e-4, the 4× of an O(h²) truncation error (round-off is
+        // ~ε/h² ≈ 2e-10). The bound is about 2× the h = 1e-3 measurement.
+        // With (n k)² replaced by (1.01 n k)² the smallest residual is
+        // 1.97e-2, so the check separates a correct radial profile from a
+        // 1 % wavenumber error by more than three orders of magnitude.
+        const H: f64 = 1e-3;
+        const RESIDUAL_BOUND: f64 = 1e-5;
+        let ks = [
+            c64::new(1.880_74, -0.481_81), // open-space TE_1,1 root
+            c64::new(1.386, 0.666),        // σ₀ = 25 low TE_1 triplet
+            c64::new(2.6, 0.0),            // real k
+        ];
+        let points = [
+            [0.3, 0.1, -0.2],
+            [-0.5, 0.4, 0.3],
+            [0.1, -0.7, 0.5],
+            [0.6, 0.6, -0.4],
+            [0.2, -0.3, 0.75],
+        ];
+        let rel = |a: [c64; 3], b: [c64; 3]| {
+            let num: f64 = (0..3).map(|d| (a[d] - b[d]).norm_sqr()).sum::<f64>().sqrt();
+            let den: f64 = (0..3).map(|d| b[d].norm_sqr()).sum::<f64>().sqrt();
+            num / den
+        };
+        let mut worst = 0.0_f64;
+        let mut worst_detuned = f64::INFINITY;
+        let mut worst_radial = 0.0_f64;
+        for fam in MultipoleFamily::ALL {
+            for &k in &ks {
+                let nk2 = (k * c64::new(N_INSIDE, 0.0)) * (k * c64::new(N_INSIDE, 0.0));
+                for i in 0..fam.multiplicity() {
+                    let field = |p: [f64; 3]| fam.member_field(i, N_INSIDE, k, p);
+                    for &x in &points {
+                        let cc = fd_curl(&|p| fd_curl(&field, p, H), x, H);
+                        let fx = field(x);
+                        let want: [c64; 3] = std::array::from_fn(|d| nk2 * fx[d]);
+                        let r = rel(cc, want);
+                        worst = worst.max(r);
+                        let detuned: [c64; 3] =
+                            std::array::from_fn(|d| c64::new(1.01 * 1.01, 0.0) * want[d]);
+                        worst_detuned = worst_detuned.min(rel(cc, detuned));
+                        if fam.pol == MiePolarisation::TE {
+                            let xr = x[0] * fx[0] + x[1] * fx[1] + x[2] * fx[2];
+                            let scale = dot3(x, x).sqrt()
+                                * (0..3).map(|d| fx[d].norm_sqr()).sum::<f64>().sqrt();
+                            worst_radial = worst_radial.max(xr.norm() / scale);
+                        }
+                        assert!(
+                            r < RESIDUAL_BOUND,
+                            "{} member {i}, k = {k:?}, x = {x:?}: relative Helmholtz residual \
+                             {r:.3e} ≥ {RESIDUAL_BOUND:e}",
+                            fam.label()
+                        );
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "worst relative residual {worst:.3e}; smallest with a 1 % detuned k {worst_detuned:.3e}; \
+             worst TE |x·F|/(|x||F|) = {worst_radial:.3e}"
+        );
+        assert!(
+            worst_detuned > 100.0 * RESIDUAL_BOUND,
+            "the check does not resolve a 1 % wavenumber error ({worst_detuned:.3e})"
+        );
+        // x·F is a sum of products of exactly-orthogonal factors, so it
+        // vanishes up to round-off (measured 1.05e-16 relative).
+        assert!(
+            worst_radial < 1e-14,
+            "TE member field has a radial part: {worst_radial:.3e}"
+        );
     }
 
     #[test]

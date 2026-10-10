@@ -57,7 +57,24 @@
 //! At `σ₀ = 25` the nearest mode to the TE₁,₁ root is a TM₁ mode
 //! (`k = 1.7772 + 0.6792j`), which is what the pre-#1022 benchmark
 //! reported as "TE₁,₁, Re(k) 5.5 % low". The TE₁ content there is split
-//! between two triplets, 19 % high and 26 % low on `Re(k)`.
+//! between two triplets, 19 % high and 26 % low on `Re(k)`. The identity
+//! check fixes polarisation and `l`, not the radial order, and the row
+//! reports the triplet nearest the root, so at `σ₀ = 25` it reports the
+//! 19 %-high one. The σ₀ continuation below (issue #1026) shows that this
+//! is a separate branch and that the TE₁,₁ branch is the 26 %-low triplet.
+//!
+//! # σ₀ continuation (`--sigma-sweep`, issue #1026)
+//!
+//! `--sigma-sweep` replaces the three-point benchmark with a continuation
+//! in σ₀ (default 5 → 25 in steps of 0.5; the committed table uses
+//! `--sigma-step 0.25`), Λ frozen at the TE₁,₁ root frequency at every
+//! step, that follows every TE₁ triplet by eigenvector-subspace overlap in
+//! both directions. See the `sweep` module docs for the method. Writes
+//! `benchmarks/mie_sphere/open_sigma_sweep.toml`:
+//!
+//! ```sh
+//! cargo run -p mie_open_quasimode --release -- --sigma-sweep --sigma-step 0.25
+//! ```
 //!
 //! Before issue #999 the open-space catalog had TE and TM swapped, so
 //! these two targets were labelled the other way round (the primary was
@@ -98,6 +115,8 @@
 //! Phase 3a). The physics, report output, and `open_results.toml`
 //! artifact are preserved exactly; only the entry point (hand-rolled
 //! `--dense` argv scan → `clap` derive + `geode_app::App`) changed.
+
+mod sweep;
 
 use std::fs;
 use std::path::PathBuf;
@@ -173,6 +192,20 @@ fn solve_frozen_omega<B: Backend>(
     omega: f64,
     use_dense: bool,
 ) -> Vec<ClassifiedMode> {
+    solve_frozen_omega_with_vectors::<B>(device, f, sigma_0, omega, use_dense).0
+}
+
+/// [`solve_frozen_omega`], also returning each mode's full-length
+/// edge-DOF eigenvector (same order as the classified modes). The σ₀
+/// continuation sweep (issue #1026) follows branches by eigenvector
+/// overlap, so it needs the vectors the plain benchmark drops.
+pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
+    device: &B::Device,
+    f: &SphereFixture,
+    sigma_0: f64,
+    omega: f64,
+    use_dense: bool,
+) -> (Vec<ClassifiedMode>, Vec<Vec<faer::c64>>) {
     let edges = f.mesh.edges();
     let n_edges = edges.len();
     let tet_edges = f.mesh.tet_edges();
@@ -316,7 +349,8 @@ fn solve_frozen_omega<B: Backend>(
     physical.sort_by(|a, b| a.0.re.partial_cmp(&b.0.re).unwrap());
     let modes: Vec<(faer::c64, &[faer::c64])> =
         physical.iter().map(|(l, v)| (*l, v.as_slice())).collect();
-    classify_sphere_modes(f, &modes, N_INSIDE)
+    let classified = classify_sphere_modes(f, &modes, N_INSIDE);
+    (classified, physical.into_iter().map(|(_, v)| v).collect())
 }
 
 /// The target family of an analytic root (`l = 1` or `2` only).
@@ -491,6 +525,16 @@ fn write_results(rows: &[QuasiModeRow]) {
          frozen-ω linearization is not self-consistent at sigma_0 = 25 either.\",\n",
     );
     s.push_str(
+        "  \"Which sigma_0 = 25 triplet is TE_1,1 (issue #1026, open_sigma_sweep.toml): the \
+         identity check fixes polarisation and l, not the radial order, and the row at \
+         sigma_0 = 25 reports the TE_1 triplet NEAREST the root, which is the 19 %-high one. \
+         The sigma_0 continuation shows that triplet is a separate branch (continuous from \
+         sigma_0 = 6, where it is 51 % high), and that the sigma_0 = 5 TE_1,1 triplet continues \
+         into the 26 %-low one (k ≈ 1.386 + 0.666j, Q ≈ 1.04) through a crossing with a TM_2 \
+         quintuplet at sigma_0 ≈ 12.75 – 16.75 where per-mode identity is undecidable. The \
+         sigma_0 = 25 fem_* values below are therefore not TE_1,1.\",\n",
+    );
+    s.push_str(
         "  \"TM_1,1 (analytic Q ≈ 0.72) is best-effort: that broad a resonance \
          competes with the PML continuum.\",\n",
     );
@@ -621,6 +665,24 @@ struct Args {
     #[arg(long)]
     dense: bool,
 
+    /// Run the σ₀ continuation sweep of the TE₁ triplets (issue #1026)
+    /// instead of the three-point benchmark, writing
+    /// `benchmarks/mie_sphere/open_sigma_sweep.toml`.
+    #[arg(long)]
+    sigma_sweep: bool,
+
+    /// First σ₀ of the continuation sweep.
+    #[arg(long, default_value_t = 5.0)]
+    sigma_start: f64,
+
+    /// Last σ₀ of the continuation sweep (inclusive).
+    #[arg(long, default_value_t = 25.0)]
+    sigma_end: f64,
+
+    /// σ₀ step of the continuation sweep.
+    #[arg(long, default_value_t = 0.5)]
+    sigma_step: f64,
+
     #[command(flatten)]
     verbose: Verbosity,
 }
@@ -654,6 +716,20 @@ impl App for Args {
                 .expect("target root in catalog")
         })
         .collect();
+
+        if self.sigma_sweep {
+            sweep::run_sweep::<B>(
+                &device,
+                &f,
+                targets[0],
+                &sweep::SweepGrid {
+                    start: self.sigma_start,
+                    end: self.sigma_end,
+                    step: self.sigma_step,
+                },
+            );
+            return Ok(());
+        }
 
         let mut rows = Vec::new();
         for &sigma_0 in SIGMA_VALUES {
