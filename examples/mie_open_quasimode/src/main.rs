@@ -118,22 +118,24 @@
 //! artifact are preserved exactly; only the entry point (hand-rolled
 //! `--dense` argv scan → `clap` derive + `geode_app::App`) changed.
 
+mod selfconsistent;
 mod sweep;
 
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use burn::prelude::Backend;
+use burn::prelude::{Backend, Tensor};
 use burn::tensor::backend::BackendTypes;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use faer::sparse::{SparseColMat, Triplet};
 
 use geode_app::{App, Verbosity};
 use geode_core::analytic::mie::{MiePolarisation, MieRootComplex, open_space_wgm_roots_n15};
 use geode_core::assembly::nedelec::{
-    assemble_global_nedelec_with_full_tensors, burn_complex_mass_to_faer, sphere_n_interior_nodes,
-    sphere_pec_interior_edges,
+    NedelecScatterMap, assemble_global_nedelec_with_full_tensors,
+    assemble_global_nedelec_with_full_tensors_sparse, burn_complex_mass_to_faer,
+    sphere_n_interior_nodes, sphere_pec_interior_edges,
 };
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::driven::scattering::build_matched_upml_materials;
@@ -141,7 +143,9 @@ use geode_core::eigen::complex::{
     ComplexEigenSolver, FaerComplexEigensolver, SparseComplexShiftInvertLanczos,
 };
 use geode_core::eigen::lanczos::ConvergenceCheck;
-use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
+use geode_core::mesh::{
+    PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fine_fixture, read_sphere_fixture,
+};
 use geode_core::postproc::mode_character::{
     ClassifiedMode, MultipoleFamily, classify_sphere_modes, select_multiplet,
 };
@@ -180,6 +184,18 @@ const N_PRINT: usize = 8;
 /// the `--dense` oracle path (which sorts ascending by |Re(λ)| from 0).
 const N_EXTRA_DENSE: usize = 80;
 
+/// The PEC-reduced complex pencil `(K, M)` of one frozen-ω solve.
+enum ReducedPencil {
+    /// Dense interior submatrices (774-node fixture, and the `--dense`
+    /// oracle).
+    Dense(faer::Mat<faer::c64>, faer::Mat<faer::c64>),
+    /// Interior triplets read straight off the sparse `[nnz]` assembly.
+    Sparse(
+        Vec<Triplet<usize, usize, faer::c64>>,
+        Vec<Triplet<usize, usize, faer::c64>>,
+    ),
+}
+
 /// One frozen-ω matched-UPML eigensolve: assemble
 /// `K(Λ⁻¹(ω)) x = λ M(ε_rΛ(ω)) x` on the bundled fixture, PEC-reduce,
 /// eigensolve with eigenvectors (sparse shift-invert Lanczos at `σ = ω²`
@@ -194,19 +210,28 @@ fn solve_frozen_omega<B: Backend>(
     omega: f64,
     use_dense: bool,
 ) -> Vec<ClassifiedMode> {
-    solve_frozen_omega_with_vectors::<B>(device, f, sigma_0, omega, use_dense).0
+    solve_frozen_omega_with_vectors::<B>(device, f, sigma_0, omega, use_dense, None).0
 }
 
 /// [`solve_frozen_omega`], also returning each mode's full-length
 /// edge-DOF eigenvector (same order as the classified modes). The σ₀
 /// continuation sweep (issue #1026) follows branches by eigenvector
 /// overlap, so it needs the vectors the plain benchmark drops.
+///
+/// `scatter = Some(map)` assembles through the sparse `[nnz]` path
+/// (`assemble_global_nedelec_with_full_tensors_sparse`) and reduces the
+/// PEC wall on the pattern, never forming an `n_edges²` matrix. The
+/// `sphere_fine` fixture (38 566 edges) needs it: the dense path would
+/// allocate four 38 566² f64 Burn matrices plus two complex faer copies
+/// (well over 50 GB). `None` keeps the dense assembly every committed
+/// 774-node artifact was generated with.
 pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
     device: &B::Device,
     f: &SphereFixture,
     sigma_0: f64,
     omega: f64,
     use_dense: bool,
+    scatter: Option<&NedelecScatterMap>,
 ) -> (Vec<ClassifiedMode>, Vec<Vec<faer::c64>>) {
     let edges = f.mesh.edges();
     let n_edges = edges.len();
@@ -229,20 +254,6 @@ pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
         omega,
     );
 
-    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, device);
-    let sys = assemble_global_nedelec_with_full_tensors::<B>(
-        nodes_t,
-        tets_t,
-        &tet_idx,
-        &tet_sign,
-        n_edges,
-        &eps_tensor,
-        &nu_tensor,
-    );
-
-    let k_full = burn_complex_mass_to_faer(sys.k_re, sys.k_im);
-    let m_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
-
     // PEC outer-wall reduction (complex K — extract the interior
     // submatrices directly).
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
@@ -252,14 +263,76 @@ pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
         .filter_map(|(i, &b)| if b { Some(i) } else { None })
         .collect();
     let dim = interior_idx.len();
-    let k_int = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
-        k_full[(interior_idx[i], interior_idx[j])]
-    });
-    let m_int = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
-        m_full[(interior_idx[i], interior_idx[j])]
-    });
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, device);
+    let reduced = match scatter {
+        None => {
+            let sys = assemble_global_nedelec_with_full_tensors::<B>(
+                nodes_t,
+                tets_t,
+                &tet_idx,
+                &tet_sign,
+                n_edges,
+                &eps_tensor,
+                &nu_tensor,
+            );
+            let k_full = burn_complex_mass_to_faer(sys.k_re, sys.k_im);
+            let m_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
+            let k_int = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
+                k_full[(interior_idx[i], interior_idx[j])]
+            });
+            let m_int = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
+                m_full[(interior_idx[i], interior_idx[j])]
+            });
+            ReducedPencil::Dense(k_int, m_int)
+        }
+        Some(map) => {
+            assert!(
+                !use_dense,
+                "the dense oracle needs the dense assembly; it is not available on the \
+                 sparse-assembly (fine-fixture) path"
+            );
+            let sys = assemble_global_nedelec_with_full_tensors_sparse::<B>(
+                nodes_t,
+                tets_t,
+                &tet_sign,
+                map,
+                &eps_tensor,
+                &nu_tensor,
+            );
+            let host = |t: Tensor<B, 1>| -> Vec<f64> { t.into_data().iter::<f64>().collect() };
+            let (k_re, k_im) = (host(sys.k_re_vals), host(sys.k_im_vals));
+            let (m_re, m_im) = (host(sys.m_re_vals), host(sys.m_im_vals));
+            let mut local = vec![usize::MAX; n_edges];
+            for (i, &g) in interior_idx.iter().enumerate() {
+                local[g] = i;
+            }
+            let pattern = map.pattern();
+            let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+            let mut m_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+            for slot in 0..pattern.nnz() {
+                let r = local[pattern.rows[slot] as usize];
+                let c = local[pattern.cols[slot] as usize];
+                if r == usize::MAX || c == usize::MAX {
+                    continue;
+                }
+                let kv = faer::c64::new(k_re[slot], k_im[slot]);
+                if kv.re != 0.0 || kv.im != 0.0 {
+                    k_trips.push(Triplet::new(r, c, kv));
+                }
+                let mv = faer::c64::new(m_re[slot], m_im[slot]);
+                if mv.re != 0.0 || mv.im != 0.0 {
+                    m_trips.push(Triplet::new(r, c, mv));
+                }
+            }
+            ReducedPencil::Sparse(k_trips, m_trips)
+        }
+    };
 
     let pairs: Vec<(faer::c64, Vec<faer::c64>)> = if use_dense {
+        let ReducedPencil::Dense(k_int, m_int) = &reduced else {
+            unreachable!("asserted above: --dense implies the dense assembly")
+        };
         // One-off dense oracle (`--dense`): sorts ascending by |Re(λ)|
         // from 0, so it must crawl through the gradient nullspace.
         let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
@@ -281,20 +354,26 @@ pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
              requesting {N_NEAR_SHIFT} eigenpairs near σ = {:.4}",
             omega * omega
         );
-        let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
-        let mut m_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
-        for j in 0..dim {
-            for i in 0..dim {
-                let kv = k_int[(i, j)];
-                if kv.re != 0.0 || kv.im != 0.0 {
-                    k_trips.push(Triplet::new(i, j, kv));
+        let (k_trips, m_trips) = match reduced {
+            ReducedPencil::Dense(k_int, m_int) => {
+                let mut k_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+                let mut m_trips: Vec<Triplet<usize, usize, faer::c64>> = Vec::new();
+                for j in 0..dim {
+                    for i in 0..dim {
+                        let kv = k_int[(i, j)];
+                        if kv.re != 0.0 || kv.im != 0.0 {
+                            k_trips.push(Triplet::new(i, j, kv));
+                        }
+                        let mv = m_int[(i, j)];
+                        if mv.re != 0.0 || mv.im != 0.0 {
+                            m_trips.push(Triplet::new(i, j, mv));
+                        }
+                    }
                 }
-                let mv = m_int[(i, j)];
-                if mv.re != 0.0 || mv.im != 0.0 {
-                    m_trips.push(Triplet::new(i, j, mv));
-                }
+                (k_trips, m_trips)
             }
-        }
+            ReducedPencil::Sparse(k_trips, m_trips) => (k_trips, m_trips),
+        };
         let k_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(dim, dim, &k_trips)
             .expect("sparse K");
         let m_sp = SparseColMat::<usize, faer::c64>::try_new_from_triplets(dim, dim, &m_trips)
@@ -353,6 +432,15 @@ pub(crate) fn solve_frozen_omega_with_vectors<B: Backend>(
         physical.iter().map(|(l, v)| (*l, v.as_slice())).collect();
     let classified = classify_sphere_modes(f, &modes, N_INSIDE);
     (classified, physical.into_iter().map(|(_, v)| v).collect())
+}
+
+/// Per-tet global edge indices (`tet_edges` without the signs).
+pub(crate) fn tet_edge_indices(f: &SphereFixture) -> Vec<[u32; 6]> {
+    f.mesh
+        .tet_edges()
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect()
 }
 
 /// The target family of an analytic root (`l = 1` or `2` only).
@@ -686,8 +774,41 @@ struct Args {
     #[arg(long, default_value_t = 0.5)]
     sigma_step: f64,
 
+    /// Run the self-consistent-Λ Picard iteration of the TE₁ triplets
+    /// (issue #1030) instead of the three-point benchmark, writing
+    /// `benchmarks/mie_sphere/open_selfconsistent.toml` (coarse) or
+    /// `open_selfconsistent_fine.toml` (fine). The σ₀ grid is
+    /// `--sigma-values` if given, else `--sigma-start/--sigma-end/--sigma-step`.
+    #[arg(long)]
+    self_consistent: bool,
+
+    /// Explicit σ₀ grid for `--self-consistent`, comma separated.
+    #[arg(long, value_delimiter = ',')]
+    sigma_values: Vec<f64>,
+
+    /// Maximum Picard refreshes per run after the ω₀ solve
+    /// (`--self-consistent`).
+    #[arg(long, default_value_t = 6)]
+    max_iters: usize,
+
+    /// Mesh fixture. `fine` (`sphere_fine.msh`, 38 566 edges) is only
+    /// supported with `--self-consistent` or `--sigma-sweep` (writing the
+    /// `*_fine.toml` siblings) and the sparse eigensolver; it assembles
+    /// through the sparse `[nnz]` path.
+    #[arg(long, value_enum, default_value_t = FixtureChoice::Coarse)]
+    fixture: FixtureChoice,
+
     #[command(flatten)]
     verbose: Verbosity,
+}
+
+/// Which bundled sphere mesh to solve on.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum FixtureChoice {
+    /// 774-node `sphere.msh` (every committed artifact of this example).
+    Coarse,
+    /// ~5.9k-node `sphere_fine.msh` (issue #215), `--self-consistent` only.
+    Fine,
 }
 
 impl App for Args {
@@ -696,7 +817,29 @@ impl App for Args {
         let device = <B as BackendTypes>::Device::default();
 
         let use_dense = self.dense;
-        let f = read_sphere_fixture()?;
+        let fine = self.fixture == FixtureChoice::Fine;
+        if fine && !(self.self_consistent || self.sigma_sweep) {
+            return Err(
+                "--fixture fine is only supported with --self-consistent or \
+                        --sigma-sweep (open_results.toml is a 774-node record)"
+                    .into(),
+            );
+        }
+        if fine && use_dense {
+            return Err("--dense is not available on the fine fixture \
+                        (a 38.5k-DOF dense complex pencil needs well over 20 GB)"
+                .into());
+        }
+        if self.self_consistent && (use_dense || self.sigma_sweep) {
+            return Err(
+                "--self-consistent runs the sparse path alone; drop --dense / --sigma-sweep".into(),
+            );
+        }
+        let f = if fine {
+            read_sphere_fine_fixture()?
+        } else {
+            read_sphere_fixture()?
+        };
         eprintln!(
             "sphere fixture: {} nodes, {} tets",
             f.mesh.n_nodes(),
@@ -720,7 +863,60 @@ impl App for Args {
         })
         .collect();
 
+        if self.self_consistent {
+            let sigmas = if self.sigma_values.is_empty() {
+                sweep::SweepGrid {
+                    start: self.sigma_start,
+                    end: self.sigma_end,
+                    step: self.sigma_step,
+                }
+                .values()
+            } else {
+                self.sigma_values.clone()
+            };
+            let grid_args = if self.sigma_values.is_empty() {
+                format!(
+                    "--sigma-start {} --sigma-end {} --sigma-step {}",
+                    self.sigma_start, self.sigma_end, self.sigma_step
+                )
+            } else {
+                format!(
+                    "--sigma-values {}",
+                    self.sigma_values
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            };
+            let (fixture, mesh_file, file) = if fine {
+                ("fine", "sphere_fine.msh", "open_selfconsistent_fine.toml")
+            } else {
+                ("coarse", "sphere.msh", "open_selfconsistent.toml")
+            };
+            let cfg = selfconsistent::ScConfig {
+                fixture,
+                mesh_file,
+                command: format!(
+                    "cargo run -p mie_open_quasimode --release -- --self-consistent \
+                     --fixture {fixture} {grid_args} --max-iters {}",
+                    self.max_iters
+                ),
+                sigmas,
+                max_iters: self.max_iters,
+                path: geode_util::repo::repo_root()
+                    .join("benchmarks")
+                    .join("mie_sphere")
+                    .join(file),
+                sparse_assembly: fine,
+                attribute: !fine,
+            };
+            selfconsistent::run_selfconsistent::<B>(&device, &f, targets[0], &cfg);
+            return Ok(());
+        }
+
         if self.sigma_sweep {
+            let scatter = fine.then(|| NedelecScatterMap::new(&tet_edge_indices(&f)));
             sweep::run_sweep::<B>(
                 &device,
                 &f,
@@ -730,6 +926,7 @@ impl App for Args {
                     end: self.sigma_end,
                     step: self.sigma_step,
                 },
+                scatter.as_ref(),
             );
             return Ok(());
         }

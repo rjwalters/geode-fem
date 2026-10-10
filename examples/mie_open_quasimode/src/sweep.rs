@@ -71,6 +71,7 @@ use burn::prelude::Backend;
 use faer::c64;
 
 use geode_core::analytic::mie::MieRootComplex;
+use geode_core::assembly::nedelec::NedelecScatterMap;
 use geode_core::mesh::{PHYS_SPHERE_INTERIOR, SphereFixture};
 use geode_core::postproc::mode_character::{ClassifiedMode, MultipoleFamily};
 use geode_util::fixture::BackendInfo;
@@ -78,13 +79,13 @@ use geode_util::fixture::BackendInfo;
 use crate::{N_INSIDE, N_NEAR_SHIFT, solve_frozen_omega_with_vectors};
 
 /// The `l = 1` magnetic-dipole family.
-const TE1: MultipoleFamily = MultipoleFamily::ALL[0];
+pub(crate) const TE1: MultipoleFamily = MultipoleFamily::ALL[0];
 
 /// The σ₀ range (inclusive) where the low TE₁ triplet hybridises with a
 /// TM₂ quintuplet on the bundled fixture and per-mode identity is
 /// undecidable. Annotation only: it sets `in_mixing_window` in the table
 /// and nothing else.
-const MIXING_WINDOW: (f64, f64) = (12.75, 16.75);
+pub(crate) const MIXING_WINDOW: (f64, f64) = (12.75, 16.75);
 
 /// Log every mode whose TE₁ overlap is at least this (diagnostic log
 /// only; nothing in the table depends on it).
@@ -98,7 +99,7 @@ pub(crate) struct SweepGrid {
 }
 
 impl SweepGrid {
-    fn values(&self) -> Vec<f64> {
+    pub(crate) fn values(&self) -> Vec<f64> {
         let n = ((self.end - self.start) / self.step).round() as usize;
         (0..=n).map(|i| self.start + i as f64 * self.step).collect()
     }
@@ -122,7 +123,7 @@ fn masked(v: &[c64], mask: &[bool]) -> Vec<c64> {
 /// Orthonormal basis (modified Gram–Schmidt, applied twice, Hermitian
 /// inner product) of the span of `vs`, each restricted to `mask`.
 /// Numerically dependent directions are dropped.
-fn orthonormal_basis(vs: &[&[c64]], mask: &[bool]) -> Vec<Vec<c64>> {
+pub(crate) fn orthonormal_basis(vs: &[&[c64]], mask: &[bool]) -> Vec<Vec<c64>> {
     let mut q: Vec<Vec<c64>> = Vec::new();
     for v in vs {
         let mut w = masked(v, mask);
@@ -154,7 +155,7 @@ fn capture(q: &[Vec<c64>], v: &[c64], mask: &[bool]) -> f64 {
 }
 
 /// `‖Qaᴴ Qb‖_F² / max(dim)` between two orthonormal bases.
-fn subspace_overlap(qa: &[Vec<c64>], qb: &[Vec<c64>]) -> f64 {
+pub(crate) fn subspace_overlap(qa: &[Vec<c64>], qb: &[Vec<c64>]) -> f64 {
     let d = qa.len().max(qb.len());
     if d == 0 {
         return 0.0;
@@ -168,7 +169,7 @@ fn subspace_overlap(qa: &[Vec<c64>], qb: &[Vec<c64>]) -> f64 {
 
 /// Every complete TE₁ triplet of a solve, as sorted index lists into
 /// `modes`, ordered by `Re(k)`.
-fn te1_triplets(modes: &[ClassifiedMode]) -> Vec<Vec<usize>> {
+pub(crate) fn te1_triplets(modes: &[ClassifiedMode]) -> Vec<Vec<usize>> {
     let mut ids: Vec<usize> = Vec::new();
     let mut out: Vec<Vec<usize>> = Vec::new();
     for m in modes {
@@ -194,7 +195,7 @@ fn te1_triplets(modes: &[ClassifiedMode]) -> Vec<Vec<usize>> {
 }
 
 /// Mean `k` of a group of modes.
-fn mean_k(modes: &[ClassifiedMode], idx: &[usize]) -> c64 {
+pub(crate) fn mean_k(modes: &[ClassifiedMode], idx: &[usize]) -> c64 {
     let s: c64 = idx.iter().map(|&i| modes[i].k).sum();
     s / idx.len() as f64
 }
@@ -306,7 +307,7 @@ struct StepInfo {
 }
 
 /// `(in-ball edges, all edges)` masks.
-fn edge_masks(f: &SphereFixture) -> (Vec<bool>, Vec<bool>) {
+pub(crate) fn edge_masks(f: &SphereFixture) -> (Vec<bool>, Vec<bool>) {
     let n_edges = f.mesh.edges().len();
     let mut ball = vec![false; n_edges];
     for (t, row) in f.mesh.tet_edges().iter().enumerate() {
@@ -321,21 +322,35 @@ fn edge_masks(f: &SphereFixture) -> (Vec<bool>, Vec<bool>) {
 
 /// Run the continuation sweep (forward, then backward over the same grid)
 /// and write `open_sigma_sweep.toml`.
+///
+/// `scatter = Some(map)` runs on the `sphere_fine` fixture through the
+/// sparse assembly (issue #1030) and writes `open_sigma_sweep_fine.toml`
+/// instead; the mixing-window annotation and the verdict notes are
+/// 774-node records and are not written there.
 pub(crate) fn run_sweep<B: Backend>(
     device: &B::Device,
     f: &SphereFixture,
     root: &MieRootComplex,
     grid: &SweepGrid,
+    scatter: Option<&NedelecScatterMap>,
 ) {
     let masks = edge_masks(f);
     let sigmas = grid.values();
-    let (mut rows, mut steps) = run_pass::<B>(device, f, root, &sigmas, "forward", &masks);
+    let (mut rows, mut steps) = run_pass::<B>(device, f, root, &sigmas, "forward", &masks, scatter);
     let reversed: Vec<f64> = sigmas.iter().rev().copied().collect();
-    let (back_rows, back_steps) = run_pass::<B>(device, f, root, &reversed, "backward", &masks);
+    let (back_rows, back_steps) =
+        run_pass::<B>(device, f, root, &reversed, "backward", &masks, scatter);
     rows.extend(back_rows);
     steps.extend(back_steps);
 
-    write_sweep(&BackendInfo::of::<B>(device), root, grid, &rows, &steps);
+    write_sweep(
+        &BackendInfo::of::<B>(device),
+        root,
+        grid,
+        &rows,
+        &steps,
+        scatter.is_some(),
+    );
 
     eprintln!("\nSweep summary:");
     for r in &rows {
@@ -351,6 +366,7 @@ fn run_pass<B: Backend>(
     sigmas: &[f64],
     pass: &'static str,
     masks: &(Vec<bool>, Vec<bool>),
+    scatter: Option<&NedelecScatterMap>,
 ) -> (Vec<SweepRow>, Vec<StepInfo>) {
     let (mask_ball, mask_full) = (&masks.0[..], &masks.1[..]);
     let omega0 = root.re_k;
@@ -360,7 +376,8 @@ fn run_pass<B: Backend>(
 
     for (step, &sigma_0) in sigmas.iter().enumerate() {
         eprintln!("=== {pass} step {step}: σ₀ = {sigma_0} (Λ frozen at ω₀ = {omega0:.5}) ===");
-        let (modes, vecs) = solve_frozen_omega_with_vectors::<B>(device, f, sigma_0, omega0, false);
+        let (modes, vecs) =
+            solve_frozen_omega_with_vectors::<B>(device, f, sigma_0, omega0, false, scatter);
         for m in modes
             .iter()
             .filter(|m| m.character.overlap(TE1) >= TE1_CONTENT_LOG)
@@ -502,7 +519,7 @@ fn run_pass<B: Backend>(
     (rows, steps)
 }
 
-fn means(ms: &[ClassifiedMode]) -> (f64, f64, f64) {
+pub(crate) fn means(ms: &[ClassifiedMode]) -> (f64, f64, f64) {
     let n = ms.len() as f64;
     (
         ms.iter().map(|m| m.k.re).sum::<f64>() / n,
@@ -519,15 +536,19 @@ fn max_of(ms: &[ClassifiedMode], f: impl Fn(&ClassifiedMode) -> f64) -> f64 {
     ms.iter().map(f).fold(f64::NEG_INFINITY, f64::max)
 }
 
-fn sweep_path() -> PathBuf {
+fn sweep_path(fine: bool) -> PathBuf {
     geode_util::repo::repo_root()
         .join("benchmarks")
         .join("mie_sphere")
-        .join("open_sigma_sweep.toml")
+        .join(if fine {
+            "open_sigma_sweep_fine.toml"
+        } else {
+            "open_sigma_sweep.toml"
+        })
 }
 
 /// A TOML float (`nan` where a field does not apply).
-fn tf(x: f64) -> String {
+pub(crate) fn tf(x: f64) -> String {
     if x.is_nan() {
         "nan".to_string()
     } else {
@@ -535,7 +556,7 @@ fn tf(x: f64) -> String {
     }
 }
 
-fn float_list(xs: impl Iterator<Item = f64>) -> String {
+pub(crate) fn float_list(xs: impl Iterator<Item = f64>) -> String {
     xs.map(|x| format!("{x:.6}")).collect::<Vec<_>>().join(", ")
 }
 
@@ -545,22 +566,35 @@ fn write_sweep(
     grid: &SweepGrid,
     rows: &[SweepRow],
     steps: &[StepInfo],
+    fine: bool,
 ) {
-    let path = sweep_path();
+    let path = sweep_path(fine);
     let mut s = String::new();
     s.push_str(&format!(
         "# Auto-generated by `cargo run -p mie_open_quasimode --release -- --sigma-sweep \
-         --sigma-start {} --sigma-end {} --sigma-step {}`.\n\
+         --sigma-start {} --sigma-end {} --sigma-step {}{}`.\n\
          # Do NOT edit by hand — regenerate after any intentional change.\n\
          # Issue #1026: sigma_0 continuation of the matched-UPML TE_1 triplets.\n\n",
-        grid.start, grid.end, grid.step
+        grid.start,
+        grid.end,
+        grid.step,
+        if fine { " --fixture fine" } else { "" }
     ));
     s.push_str("[meta]\n");
-    s.push_str(
-        "description = \"Matched (full Sacks) UPML sigma_0 continuation (issue #1026): every \
-         TE_1 triplet of the frozen-omega eigenpencil followed by eigenvector-subspace overlap \
-         between sigma_0 = 5 and 25, forward and backward, on the 774-node sphere fixture.\"\n",
-    );
+    if fine {
+        s.push_str(
+            "description = \"Matched (full Sacks) UPML sigma_0 continuation (issues #1026, \
+             #1030): every TE_1 triplet of the frozen-omega eigenpencil followed by \
+             eigenvector-subspace overlap, forward and backward, on the 5934-node sphere_fine \
+             fixture (sparse assembly).\"\n",
+        );
+    } else {
+        s.push_str(
+            "description = \"Matched (full Sacks) UPML sigma_0 continuation (issue #1026): every \
+             TE_1 triplet of the frozen-omega eigenpencil followed by eigenvector-subspace overlap \
+             between sigma_0 = 5 and 25, forward and backward, on the 774-node sphere fixture.\"\n",
+        );
+    }
     backend.push_meta(&mut s);
     s.push_str(&format!(
         "generated_at_commit = \"{}\"\n",
@@ -577,8 +611,14 @@ fn write_sweep(
     s.push_str(&format!("sigma_end = {}\n", grid.end));
     s.push_str(&format!("sigma_step = {}\n", grid.step));
     s.push_str("notes = [\n");
-    for n in NOTES {
+    let notes: &[&str] = if fine { &NOTES[..2] } else { NOTES };
+    for n in notes {
         s.push_str(&format!("  \"{n}\",\n"));
+    }
+    if fine {
+        for n in FINE_NOTES {
+            s.push_str(&format!("  \"{n}\",\n"));
+        }
     }
     s.push_str("]\n\n");
 
@@ -612,7 +652,7 @@ fn write_sweep(
         s.push_str(&format!("identified = {}\n", r.identified));
         s.push_str(&format!(
             "in_mixing_window = {}\n",
-            (MIXING_WINDOW.0..=MIXING_WINDOW.1).contains(&r.sigma_0)
+            !fine && (MIXING_WINDOW.0..=MIXING_WINDOW.1).contains(&r.sigma_0)
         ));
         s.push_str(&format!("re_k = {re:.6}\n"));
         s.push_str(&format!("im_k = {im:.6}\n"));
@@ -715,4 +755,11 @@ const NOTES: &[&str] = &[
     "Branch 0 rows AFTER the window (forward sigma_0 = 17 – 25, backward sigma_0 = 13.5 – 5) are the tracker following a mixed set (identified = false, members_in_te1_triplet <= 1). They are NOT the TE_1,1 estimate: e.g. forward branch 0 at sigma_0 = 25 (k ≈ 1.575 + 0.840j) is not TE_1,1. On that side of the window the low triplet is the re-seeded branch 2, in both passes.",
     "Consequence: on the 774-node fixture with Λ frozen at ω₀ = 1.88074, the matched-UPML eigen path moves TE_1,1 from 1.4 % low (sigma_0 = 5) to 26 % low (sigma_0 = 25) in Re(k), with Q falling from 4.8 through the analytic 1.95 (between sigma_0 = 13.5 and 13.75, INSIDE the mixing window) to 1.04. No radial-order discriminator was added: the branches are told apart by continuation, not by a property of a single solve.",
     "Baseline for reading overlaps: two different TE_1 triplets of the same step overlap by te1_cross_overlap (0.26 – 0.59 on this grid), because they share the angular structure and the eigenvectors of the complex-symmetric pencil are not orthogonal in this inner product. Step-to-step links along a clean branch are >= 0.99.",
+];
+
+/// `[meta].notes` of `open_sigma_sweep_fine.toml` after the two method
+/// notes it shares with the 774-node table.
+const FINE_NOTES: &[&str] = &[
+    "identified = true when the three continuation modes are exactly one complete TE_1 triplet (MIN_FAMILY_OVERLAP, MULTIPLET_LINK_TOL). Every complete triplet that is not exactly a branch continuation seeds a new branch (seed = true; seed_overlaps against every existing branch). Branch ids are per pass. Branch continuations are not mutually exclusive. in_mixing_window is false on every row: the [12.75, 16.75] window is a 774-node annotation and none is annotated here.",
+    "Fine-fixture run (issue #1030): the same sweep on sphere_fine.msh (5934 nodes, 38 566 edges), assembled through the sparse [nnz] path. Its reading (which branch is TE_1,1 at each sigma_0) is in the issue #1030 docs of examples/mie_open_quasimode and open_selfconsistent_fine.toml.",
 ];
