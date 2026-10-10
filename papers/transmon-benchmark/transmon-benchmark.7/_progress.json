@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-10T17:20:36.652151+00:00",
+      "completed": "2026-10-10T17:24:47.267587+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 7,
+    "max_iterations": 7,
+    "revised_from": 6,
+    "status": "DRAFT",
+    "authorization": "User requested assistance to Claude; Claude assigned v7 preparation in squad message 2, tracked in #1039. One explicitly requested revision beyond the old cap; no operator review fabricated.",
+    "pending_dependencies": [
+      "#1034 multi-parameter anchor result",
+      "independent paper review and audit",
+      "existing TODO(operator) submission inputs"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1791652977.6544,
+      "refs_mtime": null
+    }
+  }
+}
