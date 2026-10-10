@@ -7,7 +7,7 @@
 description = "Matched (full Sacks) UPML eigen path with Λ solved self-consistently (issue #1030): Picard re-freeze of Λ at the chosen TE_1 triplet's mean Re(k), per sigma_0, on the fine fixture (sphere_fine.msh)."
 backend = "ndarray"
 float_dtype = "F64"
-generated_at_commit = "6a9ea2bf55dba21a1f6e3b6c859d3d8518c725e4"
+generated_at_commit = "8435afe3f658532442cdceb90992e33ead99f72e"
 pml_kernel = "matched_full_sacks"
 fixture = "fine"
 mesh_file = "sphere_fine.msh"
@@ -25,16 +25,18 @@ sigma_values = [5, 10, 15, 25]
 max_iters = 4
 omega_tol = 0.001
 link_min = 0.8
+hop_rule = "link < max(link_min, (1 + max(best_other_link, prev_cross)) / 2)"
+te11_attribution_source = "open_sigma_sweep_fine.toml (forward and backward passes agree on TE_1,1 at 41 sigma_0 values, 5 to 25)"
 rule_re_k = 0.05
 rule_q_band = [0.67, 1.5]
 n_solves = 26
-total_wall_s = 580.4
+total_wall_s = 613.4
 notes = [
   "Each sigma_0 starts from the solve with Λ frozen at omega_0 (Re k of the analytic TE_1,1 root). A Picard refresh re-freezes Λ at the mean Re(k) of the current TE_1 triplet, re-solves (sparse shift-invert at the new omega², n_near_shift converged pairs) and re-identifies. status: converged = |omega_{i+1} - omega_i| < omega_tol; cycled = omega_{i+1} returned within omega_tol of an earlier non-adjacent freeze; oscillating / not_converged = max_iters refreshes reached, with / without the last three Δω alternating in sign; lost = a solve had no usable TE_1 triplet. final_* is the last iterate (for converged runs: self-consistent to omega_tol).",
   "policy = identity: every iterate takes the complete TE_1 triplet nearest the analytic root (select_multiplet; the selection of open_results.toml and its single Picard refresh), so iterate 0 is the open_results.toml multiplet. policy = branch: one run per TE_1 triplet of the omega_0 solve (start_rank = its index by Re k); every iterate takes the triplet with the largest eigenvector-subspace overlap with the previous iterate's triplet.",
-  "A hop is a refresh whose chosen triplet overlaps the previous iterate's triplet (all edge DOFs, ‖Q_prevᴴ Q‖_F²/3) by less than link_min: the iterate moved to a different triplet. Clean sigma_0-continuation links are >= 0.99 and two different TE_1 triplets of one solve overlap by 0.26 - 0.59 (open_sigma_sweep.toml te1_cross_overlap), so link_min sits in that gap. iter_best_other_link is the previous triplet's largest overlap with any other triplet. continuity_* = overlap of the final triplet with the iterate-0 triplet.",
+  "A hop is a refresh whose chosen triplet's link (overlap with the previous iterate's triplet, all edge DOFs, ‖Q_prevᴴ Q‖_F²/3) is below iter_hop_threshold = max(link_min, (1 + ref) / 2), ref = the larger finite one of iter_best_other_link (the previous triplet's largest overlap with any other triplet of the new solve) and iter_prev_cross (its largest overlap with any other triplet of its own solve); link_min alone when neither exists. The link must lie closer to 1 than to the level a different triplet reaches. A single global threshold cannot separate the triplets on both fixtures: two different TE_1 triplets of one solve overlap by 0.26 - 0.59 on the 774-node fixture (open_sigma_sweep.toml) but up to 0.898 on sphere_fine (open_sigma_sweep_fine.toml), while genuine 774-node links go down to 0.89 - 0.92 (sigma_0 = 12 - 17, e.g. 0.916 at sigma_0 = 17). On the committed grids the rule makes the same hop calls as a fixed 0.8 floor; on sphere_fine it is what separates the triplets (thresholds 0.90 - 0.93 at sigma_0 = 10 and 15). continuity_* = overlap of the final triplet with the iterate-0 triplet.",
   "k and Q of a triplet are the means over its three members (Q = mean of Re k / 2|Im k|), as in open_sigma_sweep.toml; open_results.toml fem_* is the member nearest the root, which differs from the mean by up to the triplet spread.",
-  "te11_attribution (774-node fixture only, from the issue #1026 continuation of the omega_0 solves): te11_tracked = lowest-Re(k) TE_1 triplet below the mixing window (tracked from sigma_0 = 5); te11_inferred = lowest-Re(k) triplet above the window (INFERRED to be TE_1,1 across the window by shared membership and elimination, not tracked through); undecidable = inside the window [12.75, 16.75]; other_branch = the high triplet, a separate branch. not_tracked = no sigma_0 continuation exists on this fixture.",
+  "te11_attribution (te11_attribution_source), 774-node fixture, from the issue #1026 continuation of the omega_0 solves: te11_tracked = lowest-Re(k) TE_1 triplet below the mixing window (tracked from sigma_0 = 5); te11_inferred = lowest-Re(k) triplet above the window (INFERRED to be TE_1,1 across the window by shared membership and elimination, not tracked through); undecidable = inside the window [12.75, 16.75]; other_branch = the high triplet, a separate branch. sphere_fine, from open_sigma_sweep_fine.toml read at run time: te11_tracked = the omega_0-solve triplet whose mean k equals (to 5e-6) the k of the TE_1,1 branch (lowest-Re(k) forward seed at the first sigma_0) where the forward branch and the backward branch ending on that seed are identified at every step from the first sigma_0 and agree; other_branch = equal to another identified branch; not_tracked = neither (or sigma_0 off the sweep grid).",
   "Decision rule (issue #1030): recommend an eigen-path sigma_0 for TE_1,1 only if, with Λ self-consistent, |rel_re_k| <= rule_re_k AND q_ratio in rule_q_band, on a converged, non-hopped, identified TE_1,1 triplet on the finest fixture measured. meets_rule checks everything but the attribution.",
 ]
 
@@ -42,7 +44,7 @@ notes = [
 sigma_0 = 5
 policy = "identity"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 1
 hops = 0
@@ -68,13 +70,15 @@ iter_n_te1_triplets = [2, 2]
 iter_link_full = [nan, 0.999985]
 iter_link_ball = [nan, 0.999999]
 iter_best_other_link = [nan, 0.400861]
+iter_prev_cross = [nan, 0.397480]
+iter_hop_threshold = [nan, 0.800000]
 iter_nearest_root_is_chosen = [true, true]
 
 [[run]]
 sigma_0 = 5
 policy = "branch"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 1
 hops = 0
@@ -100,13 +104,15 @@ iter_n_te1_triplets = [2, 2]
 iter_link_full = [nan, 0.999985]
 iter_link_ball = [nan, 0.999999]
 iter_best_other_link = [nan, 0.400861]
+iter_prev_cross = [nan, 0.397480]
+iter_hop_threshold = [nan, 0.800000]
 iter_nearest_root_is_chosen = [true, true]
 
 [[run]]
 sigma_0 = 5
 policy = "branch"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "other_branch"
 status = "converged"
 refreshes = 3
 hops = 0
@@ -132,13 +138,15 @@ iter_n_te1_triplets = [2, 1, 1, 1]
 iter_link_full = [nan, 0.970344, 0.999824, 1.000000]
 iter_link_ball = [nan, 0.950514, 0.999749, 1.000000]
 iter_best_other_link = [nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.397480, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true]
 
 [[run]]
 sigma_0 = 10
 policy = "identity"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -164,13 +172,15 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999946, 1.000000]
 iter_link_ball = [nan, 0.999995, 1.000000]
 iter_best_other_link = [nan, 0.806975, 0.811584]
+iter_prev_cross = [nan, 0.800086, 0.811956]
+iter_hop_threshold = [nan, 0.903488, 0.905978]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
 sigma_0 = 10
 policy = "branch"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -196,13 +206,15 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999946, 1.000000]
 iter_link_ball = [nan, 0.999995, 1.000000]
 iter_best_other_link = [nan, 0.806975, 0.811584]
+iter_prev_cross = [nan, 0.800086, 0.811956]
+iter_hop_threshold = [nan, 0.903488, 0.905978]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
 sigma_0 = 10
 policy = "branch"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "other_branch"
 status = "not_converged"
 refreshes = 4
 hops = 0
@@ -228,13 +240,15 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.993293, 0.997627, 0.999230, 0.999785]
 iter_link_ball = [nan, 0.993845, 0.997063, 0.998898, 0.999670]
 iter_best_other_link = [nan, 0.764017, 0.686167, 0.636949, 0.609642]
+iter_prev_cross = [nan, 0.800086, 0.711699, 0.652042, 0.617692]
+iter_hop_threshold = [nan, 0.900043, 0.855850, 0.826021, 0.808846]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
 sigma_0 = 15
 policy = "identity"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -260,13 +274,15 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999853, 0.999999]
 iter_link_ball = [nan, 0.999993, 1.000000]
 iter_best_other_link = [nan, 0.852906, 0.859767]
+iter_prev_cross = [nan, 0.845497, 0.860421]
+iter_hop_threshold = [nan, 0.926453, 0.930210]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
 sigma_0 = 15
 policy = "branch"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "other_branch"
 status = "not_converged"
 refreshes = 4
 hops = 0
@@ -292,13 +308,15 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.992907, 0.996496, 0.997241, 0.997091]
 iter_link_ball = [nan, 0.997507, 0.999149, 0.999601, 0.999693]
 iter_best_other_link = [nan, 0.803466, 0.725095, 0.658333, 0.609308]
+iter_prev_cross = [nan, 0.845497, 0.757227, 0.691168, 0.632355]
+iter_hop_threshold = [nan, 0.922749, 0.878614, 0.845584, 0.816177]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
 sigma_0 = 15
 policy = "branch"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -324,13 +342,15 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999853, 0.999999]
 iter_link_ball = [nan, 0.999993, 1.000000]
 iter_best_other_link = [nan, 0.852906, 0.859767]
+iter_prev_cross = [nan, 0.845497, 0.860421]
+iter_hop_threshold = [nan, 0.926453, 0.930210]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
 sigma_0 = 25
 policy = "identity"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -356,13 +376,15 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.998571, 1.000000]
 iter_link_ball = [nan, 0.999966, 1.000000]
 iter_best_other_link = [nan, 0.644800, 0.656144]
+iter_prev_cross = [nan, 0.636921, 0.655984]
+iter_hop_threshold = [nan, 0.822400, 0.828072]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
 sigma_0 = 25
 policy = "branch"
 start_rank = 0
-te11_attribution = "not_tracked"
+te11_attribution = "other_branch"
 status = "oscillating"
 refreshes = 4
 hops = 1
@@ -388,13 +410,15 @@ iter_n_te1_triplets = [2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.889292, 0.791343, 0.997617, 0.999690]
 iter_link_ball = [nan, 0.990645, 0.995127, 0.999942, 0.999992]
 iter_best_other_link = [nan, 0.559293, nan, nan, nan]
+iter_prev_cross = [nan, 0.636921, 0.395565, nan, nan]
+iter_hop_threshold = [nan, 0.818460, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, true, true, true]
 
 [[run]]
 sigma_0 = 25
 policy = "branch"
 start_rank = 1
-te11_attribution = "not_tracked"
+te11_attribution = "te11_tracked"
 status = "converged"
 refreshes = 2
 hops = 0
@@ -420,6 +444,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.998571, 1.000000]
 iter_link_ball = [nan, 0.999966, 1.000000]
 iter_best_other_link = [nan, 0.644800, 0.656144]
+iter_prev_cross = [nan, 0.636921, 0.655984]
+iter_hop_threshold = [nan, 0.822400, 0.828072]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[solve]]
@@ -428,7 +454,7 @@ omega = 1.852018
 n_modes = 63
 te1_triplets_re_k = [1.851519, 2.949007]
 te1_triplets_im_k = [0.213726, 0.721931]
-wall_s = 17.9
+wall_s = 18.8
 
 [[solve]]
 sigma_0 = 5
@@ -436,7 +462,7 @@ omega = 1.880740
 n_modes = 64
 te1_triplets_re_k = [1.852018, 2.956964]
 te1_triplets_im_k = [0.210699, 0.710056]
-wall_s = 18.1
+wall_s = 18.9
 
 [[solve]]
 sigma_0 = 5
@@ -444,7 +470,7 @@ omega = 2.956964
 n_modes = 60
 te1_triplets_re_k = [3.077474]
 te1_triplets_im_k = [0.433953]
-wall_s = 17.4
+wall_s = 18.4
 
 [[solve]]
 sigma_0 = 5
@@ -452,7 +478,7 @@ omega = 3.077474
 n_modes = 60
 te1_triplets_re_k = [3.082354]
 te1_triplets_im_k = [0.415946]
-wall_s = 13.6
+wall_s = 14.1
 
 [[solve]]
 sigma_0 = 5
@@ -460,7 +486,7 @@ omega = 3.082354
 n_modes = 60
 te1_triplets_re_k = [3.082537]
 te1_triplets_im_k = [0.415249]
-wall_s = 13.7
+wall_s = 14.1
 
 [[solve]]
 sigma_0 = 10
@@ -468,7 +494,7 @@ omega = 1.843559
 n_modes = 58
 te1_triplets_re_k = [1.845581, 2.132736]
 te1_triplets_im_k = [0.402830, 1.016155]
-wall_s = 17.8
+wall_s = 18.9
 
 [[solve]]
 sigma_0 = 10
@@ -476,7 +502,7 @@ omega = 1.845581
 n_modes = 57
 te1_triplets_re_k = [1.845459, 2.134433]
 te1_triplets_im_k = [0.402439, 1.016415]
-wall_s = 17.7
+wall_s = 18.6
 
 [[solve]]
 sigma_0 = 10
@@ -484,7 +510,7 @@ omega = 1.880740
 n_modes = 59
 te1_triplets_re_k = [1.843559, 2.163533]
 te1_triplets_im_k = [0.395736, 1.020565]
-wall_s = 17.6
+wall_s = 18.6
 
 [[solve]]
 sigma_0 = 10
@@ -492,7 +518,7 @@ omega = 2.163533
 n_modes = 62
 te1_triplets_re_k = [1.837402, 2.373524]
 te1_triplets_im_k = [0.348743, 1.029552]
-wall_s = 22.4
+wall_s = 23.4
 
 [[solve]]
 sigma_0 = 10
@@ -500,7 +526,7 @@ omega = 2.373524
 n_modes = 72
 te1_triplets_re_k = [1.837792, 2.505853]
 te1_triplets_im_k = [0.320724, 1.012152]
-wall_s = 22.9
+wall_s = 23.6
 
 [[solve]]
 sigma_0 = 10
@@ -508,7 +534,7 @@ omega = 2.505853
 n_modes = 70
 te1_triplets_re_k = [1.838845, 2.579615]
 te1_triplets_im_k = [0.305375, 0.992955]
-wall_s = 18.4
+wall_s = 18.7
 
 [[solve]]
 sigma_0 = 10
@@ -516,7 +542,7 @@ omega = 2.579615
 n_modes = 76
 te1_triplets_re_k = [1.839569, 2.617527]
 te1_triplets_im_k = [0.297467, 0.980022]
-wall_s = 18.8
+wall_s = 21.4
 
 [[solve]]
 sigma_0 = 15
@@ -524,7 +550,7 @@ omega = 1.013504
 n_modes = 45
 te1_triplets_re_k = [0.942507, 1.951850]
 te1_triplets_im_k = [0.726160, 0.395165]
-wall_s = 22.8
+wall_s = 24.8
 
 [[solve]]
 sigma_0 = 15
@@ -532,7 +558,7 @@ omega = 1.118167
 n_modes = 51
 te1_triplets_re_k = [1.013504, 1.956228]
 te1_triplets_im_k = [0.765445, 0.400593]
-wall_s = 23.1
+wall_s = 24.2
 
 [[solve]]
 sigma_0 = 15
@@ -540,7 +566,7 @@ omega = 1.277072
 n_modes = 68
 te1_triplets_re_k = [1.118167, 1.961245]
 te1_triplets_im_k = [0.813840, 0.410103]
-wall_s = 23.1
+wall_s = 25.4
 
 [[solve]]
 sigma_0 = 15
@@ -548,7 +574,7 @@ omega = 1.520884
 n_modes = 61
 te1_triplets_re_k = [1.277072, 1.963805]
 te1_triplets_im_k = [0.869359, 0.427123]
-wall_s = 17.9
+wall_s = 19.1
 
 [[solve]]
 sigma_0 = 15
@@ -556,7 +582,7 @@ omega = 1.880740
 n_modes = 58
 te1_triplets_re_k = [1.520884, 1.949070]
 te1_triplets_im_k = [0.917772, 0.454315]
-wall_s = 18.1
+wall_s = 21.7
 
 [[solve]]
 sigma_0 = 15
@@ -564,7 +590,7 @@ omega = 1.942628
 n_modes = 67
 te1_triplets_re_k = [1.564964, 1.943296]
 te1_triplets_im_k = [0.923060, 0.458444]
-wall_s = 18.2
+wall_s = 19.1
 
 [[solve]]
 sigma_0 = 15
@@ -572,7 +598,7 @@ omega = 1.949070
 n_modes = 70
 te1_triplets_re_k = [1.569600, 1.942628]
 te1_triplets_im_k = [0.923581, 0.458845]
-wall_s = 18.4
+wall_s = 20.1
 
 [[solve]]
 sigma_0 = 25
@@ -580,7 +606,7 @@ omega = 0.641643
 n_modes = 17
 te1_triplets_re_k = [0.647822]
 te1_triplets_im_k = [0.152012]
-wall_s = 54.5
+wall_s = 55.6
 
 [[solve]]
 sigma_0 = 25
@@ -588,7 +614,7 @@ omega = 0.647822
 n_modes = 11
 te1_triplets_re_k = [0.645595]
 te1_triplets_im_k = [0.155939]
-wall_s = 53.1
+wall_s = 55.9
 
 [[solve]]
 sigma_0 = 25
@@ -596,7 +622,7 @@ omega = 0.659024
 n_modes = 27
 te1_triplets_re_k = [0.641643]
 te1_triplets_im_k = [0.163274]
-wall_s = 28.3
+wall_s = 28.6
 
 [[solve]]
 sigma_0 = 25
@@ -604,7 +630,7 @@ omega = 1.020371
 n_modes = 40
 te1_triplets_re_k = [0.659024, 1.937576]
 te1_triplets_im_k = [0.455677, 0.376342]
-wall_s = 22.8
+wall_s = 24.1
 
 [[solve]]
 sigma_0 = 25
@@ -612,7 +638,7 @@ omega = 1.880740
 n_modes = 65
 te1_triplets_re_k = [1.020371, 1.956615]
 te1_triplets_im_k = [0.768940, 0.401159]
-wall_s = 18.3
+wall_s = 19.3
 
 [[solve]]
 sigma_0 = 25
@@ -620,7 +646,7 @@ omega = 1.956615
 n_modes = 68
 te1_triplets_re_k = [1.050594, 1.958226]
 te1_triplets_im_k = [0.783762, 0.403753]
-wall_s = 22.7
+wall_s = 23.8
 
 [[solve]]
 sigma_0 = 25
@@ -628,5 +654,5 @@ omega = 1.958226
 n_modes = 68
 te1_triplets_re_k = [1.051233, 1.958258]
 te1_triplets_im_k = [0.784065, 0.403810]
-wall_s = 22.8
+wall_s = 24.2
 

@@ -7,7 +7,7 @@
 description = "Matched (full Sacks) UPML eigen path with Λ solved self-consistently (issue #1030): Picard re-freeze of Λ at the chosen TE_1 triplet's mean Re(k), per sigma_0, on the coarse fixture (sphere.msh)."
 backend = "ndarray"
 float_dtype = "F64"
-generated_at_commit = "6a9ea2bf55dba21a1f6e3b6c859d3d8518c725e4"
+generated_at_commit = "8435afe3f658532442cdceb90992e33ead99f72e"
 pml_kernel = "matched_full_sacks"
 fixture = "coarse"
 mesh_file = "sphere.msh"
@@ -25,16 +25,18 @@ sigma_values = [5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 
 max_iters = 6
 omega_tol = 0.001
 link_min = 0.8
+hop_rule = "link < max(link_min, (1 + max(best_other_link, prev_cross)) / 2)"
+te11_attribution_source = "issue #1026 continuation (open_sigma_sweep.toml), mixing window [12.75, 16.75]"
 rule_re_k = 0.05
 rule_q_band = [0.67, 1.5]
 n_solves = 439
-total_wall_s = 679.2
+total_wall_s = 742.8
 notes = [
   "Each sigma_0 starts from the solve with Λ frozen at omega_0 (Re k of the analytic TE_1,1 root). A Picard refresh re-freezes Λ at the mean Re(k) of the current TE_1 triplet, re-solves (sparse shift-invert at the new omega², n_near_shift converged pairs) and re-identifies. status: converged = |omega_{i+1} - omega_i| < omega_tol; cycled = omega_{i+1} returned within omega_tol of an earlier non-adjacent freeze; oscillating / not_converged = max_iters refreshes reached, with / without the last three Δω alternating in sign; lost = a solve had no usable TE_1 triplet. final_* is the last iterate (for converged runs: self-consistent to omega_tol).",
   "policy = identity: every iterate takes the complete TE_1 triplet nearest the analytic root (select_multiplet; the selection of open_results.toml and its single Picard refresh), so iterate 0 is the open_results.toml multiplet. policy = branch: one run per TE_1 triplet of the omega_0 solve (start_rank = its index by Re k); every iterate takes the triplet with the largest eigenvector-subspace overlap with the previous iterate's triplet.",
-  "A hop is a refresh whose chosen triplet overlaps the previous iterate's triplet (all edge DOFs, ‖Q_prevᴴ Q‖_F²/3) by less than link_min: the iterate moved to a different triplet. Clean sigma_0-continuation links are >= 0.99 and two different TE_1 triplets of one solve overlap by 0.26 - 0.59 (open_sigma_sweep.toml te1_cross_overlap), so link_min sits in that gap. iter_best_other_link is the previous triplet's largest overlap with any other triplet. continuity_* = overlap of the final triplet with the iterate-0 triplet.",
+  "A hop is a refresh whose chosen triplet's link (overlap with the previous iterate's triplet, all edge DOFs, ‖Q_prevᴴ Q‖_F²/3) is below iter_hop_threshold = max(link_min, (1 + ref) / 2), ref = the larger finite one of iter_best_other_link (the previous triplet's largest overlap with any other triplet of the new solve) and iter_prev_cross (its largest overlap with any other triplet of its own solve); link_min alone when neither exists. The link must lie closer to 1 than to the level a different triplet reaches. A single global threshold cannot separate the triplets on both fixtures: two different TE_1 triplets of one solve overlap by 0.26 - 0.59 on the 774-node fixture (open_sigma_sweep.toml) but up to 0.898 on sphere_fine (open_sigma_sweep_fine.toml), while genuine 774-node links go down to 0.89 - 0.92 (sigma_0 = 12 - 17, e.g. 0.916 at sigma_0 = 17). On the committed grids the rule makes the same hop calls as a fixed 0.8 floor; on sphere_fine it is what separates the triplets (thresholds 0.90 - 0.93 at sigma_0 = 10 and 15). continuity_* = overlap of the final triplet with the iterate-0 triplet.",
   "k and Q of a triplet are the means over its three members (Q = mean of Re k / 2|Im k|), as in open_sigma_sweep.toml; open_results.toml fem_* is the member nearest the root, which differs from the mean by up to the triplet spread.",
-  "te11_attribution (774-node fixture only, from the issue #1026 continuation of the omega_0 solves): te11_tracked = lowest-Re(k) TE_1 triplet below the mixing window (tracked from sigma_0 = 5); te11_inferred = lowest-Re(k) triplet above the window (INFERRED to be TE_1,1 across the window by shared membership and elimination, not tracked through); undecidable = inside the window [12.75, 16.75]; other_branch = the high triplet, a separate branch. not_tracked = no sigma_0 continuation exists on this fixture.",
+  "te11_attribution (te11_attribution_source), 774-node fixture, from the issue #1026 continuation of the omega_0 solves: te11_tracked = lowest-Re(k) TE_1 triplet below the mixing window (tracked from sigma_0 = 5); te11_inferred = lowest-Re(k) triplet above the window (INFERRED to be TE_1,1 across the window by shared membership and elimination, not tracked through); undecidable = inside the window [12.75, 16.75]; other_branch = the high triplet, a separate branch. sphere_fine, from open_sigma_sweep_fine.toml read at run time: te11_tracked = the omega_0-solve triplet whose mean k equals (to 5e-6) the k of the TE_1,1 branch (lowest-Re(k) forward seed at the first sigma_0) where the forward branch and the backward branch ending on that seed are identified at every step from the first sigma_0 and agree; other_branch = equal to another identified branch; not_tracked = neither (or sigma_0 off the sweep grid).",
   "Decision rule (issue #1030): recommend an eigen-path sigma_0 for TE_1,1 only if, with Λ self-consistent, |rel_re_k| <= rule_re_k AND q_ratio in rule_q_band, on a converged, non-hopped, identified TE_1,1 triplet on the finest fixture measured. meets_rule checks everything but the attribution.",
 ]
 
@@ -68,6 +70,8 @@ iter_n_te1_triplets = [1, 1]
 iter_link_full = [nan, 0.999987]
 iter_link_ball = [nan, 0.999999]
 iter_best_other_link = [nan, nan]
+iter_prev_cross = [nan, nan]
+iter_hop_threshold = [nan, 0.800000]
 iter_nearest_root_is_chosen = [true, true]
 
 [[run]]
@@ -100,6 +104,8 @@ iter_n_te1_triplets = [1, 1]
 iter_link_full = [nan, 0.999987]
 iter_link_ball = [nan, 0.999999]
 iter_best_other_link = [nan, nan]
+iter_prev_cross = [nan, nan]
+iter_hop_threshold = [nan, 0.800000]
 iter_nearest_root_is_chosen = [true, true]
 
 [[run]]
@@ -132,6 +138,8 @@ iter_n_te1_triplets = [1, 1, 1]
 iter_link_full = [nan, 0.999976, 1.000000]
 iter_link_ball = [nan, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, nan]
+iter_prev_cross = [nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -164,6 +172,8 @@ iter_n_te1_triplets = [1, 1, 1]
 iter_link_full = [nan, 0.999976, 1.000000]
 iter_link_ball = [nan, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, nan]
+iter_prev_cross = [nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -196,6 +206,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999956, 1.000000]
 iter_link_ball = [nan, 0.999996, 1.000000]
 iter_best_other_link = [nan, 0.298416, 0.301579]
+iter_prev_cross = [nan, 0.293912, 0.301383]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -228,6 +240,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999956, 1.000000]
 iter_link_ball = [nan, 0.999996, 1.000000]
 iter_best_other_link = [nan, 0.298416, 0.301579]
+iter_prev_cross = [nan, 0.293912, 0.301383]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -260,6 +274,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.239449, 0.989100, 0.999979, 1.000000]
 iter_link_ball = [nan, 0.597550, 0.998954, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, 0.240850, 0.299470, 0.301624]
+iter_prev_cross = [nan, 0.293912, nan, 0.296402, 0.301491]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -292,6 +308,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999924, 1.000000]
 iter_link_ball = [nan, 0.999993, 1.000000]
 iter_best_other_link = [nan, 0.327934, 0.331676]
+iter_prev_cross = [nan, 0.322610, 0.331423]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -324,6 +342,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999924, 1.000000]
 iter_link_ball = [nan, 0.999993, 1.000000]
 iter_best_other_link = [nan, 0.327934, 0.331676]
+iter_prev_cross = [nan, 0.322610, 0.331423]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -356,6 +376,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.266916, 0.987228, 0.999969, 1.000000]
 iter_link_ball = [nan, 0.629855, 0.998780, 0.999997, 1.000000]
 iter_best_other_link = [nan, nan, 0.268877, 0.329375, 0.331743]
+iter_prev_cross = [nan, 0.322610, nan, 0.326000, 0.331582]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -388,6 +410,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999874, 1.000000]
 iter_link_ball = [nan, 0.999989, 1.000000]
 iter_best_other_link = [nan, 0.355510, 0.359704]
+iter_prev_cross = [nan, 0.349302, 0.359385]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -420,6 +444,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999874, 1.000000]
 iter_link_ball = [nan, 0.999989, 1.000000]
 iter_best_other_link = [nan, 0.355510, 0.359704]
+iter_prev_cross = [nan, 0.349302, 0.359385]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -452,6 +478,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.293707, 0.985011, 0.999955, 1.000000]
 iter_link_ball = [nan, 0.659615, 0.998579, 0.999996, 1.000000]
 iter_best_other_link = [nan, nan, 0.296306, 0.357306, 0.359794]
+iter_prev_cross = [nan, 0.349302, nan, 0.353609, 0.359603]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -484,6 +512,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999795, 0.999999]
 iter_link_ball = [nan, 0.999982, 1.000000]
 iter_best_other_link = [nan, 0.381049, 0.385475]
+iter_prev_cross = [nan, 0.373964, 0.385085]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -516,6 +546,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999795, 0.999999]
 iter_link_ball = [nan, 0.999982, 1.000000]
 iter_best_other_link = [nan, 0.381049, 0.385475]
+iter_prev_cross = [nan, 0.373964, 0.385085]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -548,6 +580,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.319798, 0.982321, 0.999933, 1.000000]
 iter_link_ball = [nan, 0.686932, 0.998343, 0.999994, 1.000000]
 iter_best_other_link = [nan, nan, 0.323095, 0.383114, 0.385585]
+iter_prev_cross = [nan, 0.373964, nan, 0.379126, 0.385363]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -580,6 +614,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999669, 0.999999]
 iter_link_ball = [nan, 0.999971, 1.000000]
 iter_best_other_link = [nan, 0.404222, 0.408526]
+iter_prev_cross = [nan, 0.396363, 0.408065]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -612,6 +648,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999669, 0.999999]
 iter_link_ball = [nan, 0.999971, 1.000000]
 iter_best_other_link = [nan, 0.404222, 0.408526]
+iter_prev_cross = [nan, 0.396363, 0.408065]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -644,6 +682,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.345033, 0.978977, 0.999901, 1.000000]
 iter_link_ball = [nan, 0.711934, 0.998055, 0.999991, 1.000000]
 iter_best_other_link = [nan, nan, 0.349049, 0.406387, 0.408644]
+iter_prev_cross = [nan, 0.396363, nan, 0.402191, 0.408395]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -676,6 +716,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999464, 0.999998]
 iter_link_ball = [nan, 0.999953, 1.000000]
 iter_best_other_link = [nan, 0.424476, 0.428103]
+iter_prev_cross = [nan, 0.416083, 0.427586]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -708,6 +750,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999464, 0.999998]
 iter_link_ball = [nan, 0.999953, 1.000000]
 iter_best_other_link = [nan, 0.424476, 0.428103]
+iter_prev_cross = [nan, 0.416083, 0.427586]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -740,6 +784,8 @@ iter_n_te1_triplets = [2, 2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.966476, 0.281563, 0.970569, 0.999823, 0.999999]
 iter_link_ball = [nan, 0.973049, 0.597902, 0.997299, 0.999985, 1.000000]
 iter_best_other_link = [nan, 0.369156, nan, 0.366508, 0.426268, 0.428198]
+iter_prev_cross = [nan, 0.416083, 0.288289, nan, 0.421620, 0.427905]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, true, true, true, true]
 
 [[run]]
@@ -772,6 +818,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999122, 0.999995]
 iter_link_ball = [nan, 0.999923, 1.000000]
 iter_best_other_link = [nan, 0.440997, 0.443093]
+iter_prev_cross = [nan, 0.432514, 0.442552]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -804,6 +852,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.999122, 0.999995]
 iter_link_ball = [nan, 0.999923, 1.000000]
 iter_best_other_link = [nan, 0.440997, 0.443093]
+iter_prev_cross = [nan, 0.432514, 0.442552]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -836,6 +886,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.968238, 0.999189, 0.999989, 1.000000]
 iter_link_ball = [nan, 0.974313, 0.999471, 0.999994, 1.000000]
 iter_best_other_link = [nan, 0.391798, 0.304985, 0.293347, 0.292070]
+iter_prev_cross = [nan, 0.432514, 0.312177, 0.294128, 0.292153]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -868,6 +920,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.998524, 0.999991]
 iter_link_ball = [nan, 0.999869, 0.999999]
 iter_best_other_link = [nan, 0.452714, 0.451964]
+iter_prev_cross = [nan, 0.444809, 0.451454]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -900,6 +954,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.998524, 0.999991]
 iter_link_ball = [nan, 0.999869, 0.999999]
 iter_best_other_link = [nan, 0.452714, 0.451964]
+iter_prev_cross = [nan, 0.444809, 0.451454]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -932,6 +988,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.967308, 0.999254, 0.999989, 1.000000]
 iter_link_ball = [nan, 0.975377, 0.999430, 0.999992, 1.000000]
 iter_best_other_link = [nan, 0.412465, 0.327609, 0.315306, 0.313849]
+iter_prev_cross = [nan, 0.444809, 0.335101, 0.316199, 0.313952]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -964,6 +1022,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.997425, 0.999980]
 iter_link_ball = [nan, 0.999762, 0.999998]
 iter_best_other_link = [nan, 0.458561, 0.452967]
+iter_prev_cross = [nan, 0.451889, 0.452528]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -996,6 +1056,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.997425, 0.999980]
 iter_link_ball = [nan, 0.999762, 0.999998]
 iter_best_other_link = [nan, 0.458561, 0.452967]
+iter_prev_cross = [nan, 0.451889, 0.452528]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -1028,6 +1090,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.963506, 0.999270, 0.999987, 1.000000]
 iter_link_ball = [nan, 0.976194, 0.999391, 0.999990, 1.000000]
 iter_best_other_link = [nan, 0.430564, 0.349449, 0.336483, 0.334832]
+iter_prev_cross = [nan, 0.451889, 0.357039, 0.337473, 0.334955]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1060,6 +1124,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.995261, 0.999953]
 iter_link_ball = [nan, 0.999523, 0.999995]
 iter_best_other_link = [nan, 0.458463, 0.444967]
+iter_prev_cross = [nan, 0.452606, 0.444463]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -1092,6 +1158,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.995261, 0.999953]
 iter_link_ball = [nan, 0.999523, 0.999995]
 iter_best_other_link = [nan, 0.458463, 0.444967]
+iter_prev_cross = [nan, 0.452606, 0.444463]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -1124,6 +1192,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.956137, 0.999247, 0.999986, 1.000000]
 iter_link_ball = [nan, 0.976711, 0.999354, 0.999988, 1.000000]
 iter_best_other_link = [nan, 0.445625, 0.370398, 0.356860, 0.355012]
+iter_prev_cross = [nan, 0.452606, 0.377831, 0.357922, 0.355153]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1156,6 +1226,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.990625, 0.999875]
 iter_link_ball = [nan, 0.998900, 0.999983]
 iter_best_other_link = [nan, 0.454431, 0.427844]
+iter_prev_cross = [nan, 0.446199, 0.426783]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -1188,6 +1260,8 @@ iter_n_te1_triplets = [2, 2, 2]
 iter_link_full = [nan, 0.990625, 0.999875]
 iter_link_ball = [nan, 0.998900, 0.999983]
 iter_best_other_link = [nan, 0.454431, 0.427844]
+iter_prev_cross = [nan, 0.446199, 0.426783]
+iter_hop_threshold = [nan, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true]
 
 [[run]]
@@ -1220,6 +1294,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.944681, 0.999183, 0.999983, 1.000000]
 iter_link_ball = [nan, 0.976904, 0.999321, 0.999985, 1.000000]
 iter_best_other_link = [nan, 0.457980, 0.390242, 0.376322, 0.374286]
+iter_prev_cross = [nan, 0.446199, 0.397193, 0.377416, 0.374442]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1252,6 +1328,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.979655, 0.999611, 0.999994]
 iter_link_ball = [nan, 0.996839, 0.999920, 0.999999]
 iter_best_other_link = [nan, 0.448136, 0.398630, 0.391274]
+iter_prev_cross = [nan, 0.432565, 0.396580, 0.391036]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true]
 
 [[run]]
@@ -1284,6 +1362,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.979655, 0.999611, 0.999994]
 iter_link_ball = [nan, 0.996839, 0.999920, 0.999999]
 iter_best_other_link = [nan, 0.448136, 0.398630, 0.391274]
+iter_prev_cross = [nan, 0.432565, 0.396580, 0.391036]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true]
 
 [[run]]
@@ -1316,6 +1396,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.930291, 0.999066, 0.999979, 1.000000]
 iter_link_ball = [nan, 0.976859, 0.999289, 0.999983, 1.000000]
 iter_best_other_link = [nan, 0.469656, 0.408664, 0.394664, 0.392470]
+iter_prev_cross = [nan, 0.432565, 0.414726, 0.395733, 0.392634]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1348,6 +1430,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 1, 2]
 iter_link_full = [nan, 0.434513, 0.514995, 0.802452, 0.384992, 0.517738]
 iter_link_ball = [nan, 0.846285, 0.865718, 0.972538, 0.831022, 0.867195]
 iter_best_other_link = [nan, nan, 0.893753, 0.502630, nan, 0.892808]
+iter_prev_cross = [nan, 0.410782, nan, 0.433840, 0.374935, nan]
+iter_hop_threshold = [nan, 0.800000, 0.946877, 0.800000, 0.800000, 0.946404]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true]
 
 [[run]]
@@ -1380,6 +1464,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2, 2]
 iter_link_full = [nan, 0.434513, 0.893753, 0.998278, 0.999959, 0.999999]
 iter_link_ball = [nan, 0.846285, 0.969211, 0.998905, 0.999970, 0.999999]
 iter_best_other_link = [nan, nan, 0.514995, 0.428626, 0.412190, 0.409382]
+iter_prev_cross = [nan, 0.410782, nan, 0.433840, 0.413361, 0.409576]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, false, false, false, false]
 
 [[run]]
@@ -1412,6 +1498,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.916719, 0.998869, 0.999973, 0.999999]
 iter_link_ball = [nan, 0.976833, 0.999257, 0.999980, 0.999999]
 iter_best_other_link = [nan, 0.483817, 0.425240, 0.411582, 0.409284]
+iter_prev_cross = [nan, 0.410782, 0.429905, 0.412548, 0.409442]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1444,6 +1532,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.925414, 0.998308, 0.999973]
 iter_link_ball = [nan, 0.976639, 0.999420, 0.999991]
 iter_best_other_link = [nan, 0.403513, 0.300924, 0.286687]
+iter_prev_cross = [nan, 0.377085, 0.298662, 0.286431]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true]
 
 [[run]]
@@ -1476,6 +1566,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.925414, 0.998308, 0.999973]
 iter_link_ball = [nan, 0.976639, 0.999420, 0.999991]
 iter_best_other_link = [nan, 0.403513, 0.300924, 0.286687]
+iter_prev_cross = [nan, 0.377085, 0.298662, 0.286431]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true]
 
 [[run]]
@@ -1508,6 +1600,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.907858, 0.998533, 0.999963, 0.999999]
 iter_link_ball = [nan, 0.977136, 0.999217, 0.999977, 0.999999]
 iter_best_other_link = [nan, 0.501582, 0.439407, 0.426651, 0.424330]
+iter_prev_cross = [nan, 0.377085, 0.442029, 0.427406, 0.424464]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -1540,6 +1634,8 @@ iter_n_te1_triplets = [1, 2, 2, 1, 2, 1, 2]
 iter_link_full = [nan, 0.520017, 0.595888, 0.280473, 0.561942, 0.545589, 0.546502]
 iter_link_ball = [nan, 0.868715, 0.917820, 0.807525, 0.891164, 0.882731, 0.882938]
 iter_best_other_link = [nan, 0.904208, 0.546958, nan, 0.892473, nan, 0.895827]
+iter_prev_cross = [nan, nan, 0.450155, 0.273049, nan, 0.452070, nan]
+iter_hop_threshold = [nan, 0.952104, 0.800000, 0.800000, 0.946236, 0.800000, 0.947913]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -1572,6 +1668,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2]
 iter_link_full = [nan, 0.904208, 0.997950, 0.999946, 0.999998]
 iter_link_ball = [nan, 0.977863, 0.999161, 0.999973, 0.999999]
 iter_best_other_link = [nan, 0.520017, 0.450426, 0.439280, 0.437058]
+iter_prev_cross = [nan, nan, 0.450155, 0.439677, 0.437141]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false]
 
 [[run]]
@@ -1604,6 +1702,8 @@ iter_n_te1_triplets = [2, 1, 2, 1, 2]
 iter_link_full = [nan, 0.309506, 0.570263, 0.557964, 0.559497]
 iter_link_ball = [nan, 0.822463, 0.898372, 0.891924, 0.892223]
 iter_best_other_link = [nan, nan, 0.892867, nan, 0.896081]
+iter_prev_cross = [nan, 0.290394, nan, 0.452613, nan]
+iter_hop_threshold = [nan, 0.800000, 0.946434, 0.800000, 0.948041]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -1636,6 +1736,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.309506, 0.892867, 0.994601, 0.999863, 0.999996, 1.000000]
 iter_link_ball = [nan, 0.822463, 0.972487, 0.998494, 0.999948, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, 0.570263, 0.459788, 0.449318, 0.446853, 0.446379]
+iter_prev_cross = [nan, 0.290394, nan, 0.452613, 0.449059, 0.446837, 0.446377]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, false, false, false, false, false]
 
 [[run]]
@@ -1668,6 +1770,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.903846, 0.996947, 0.999917, 0.999997, 1.000000]
 iter_link_ball = [nan, 0.978895, 0.999078, 0.999968, 0.999999, 1.000000]
 iter_best_other_link = [nan, 0.534627, 0.457455, 0.448680, 0.446728, 0.446355]
+iter_prev_cross = [nan, 0.290394, 0.453148, 0.448513, 0.446716, 0.446354]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false, false]
 
 [[run]]
@@ -1700,6 +1804,8 @@ iter_n_te1_triplets = [1, 2, 1, 2, 1]
 iter_link_full = [nan, 0.541855, 0.567582, 0.562449, 0.562936]
 iter_link_ball = [nan, 0.885926, 0.899671, 0.898709, 0.898970]
 iter_best_other_link = [nan, 0.905703, nan, 0.897437, nan]
+iter_prev_cross = [nan, nan, 0.449987, nan, 0.447736]
+iter_hop_threshold = [nan, 0.952851, 0.800000, 0.948718, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -1732,6 +1838,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.905703, 0.995309, 0.999866, 0.999995, 1.000000]
 iter_link_ball = [nan, 0.980128, 0.998958, 0.999962, 0.999999, 1.000000]
 iter_best_other_link = [nan, 0.541855, 0.459914, 0.453885, 0.452396, 0.452093]
+iter_prev_cross = [nan, nan, 0.449987, 0.452874, 0.452230, 0.452062]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false]
 
 [[run]]
@@ -1764,6 +1872,8 @@ iter_n_te1_triplets = [1, 2, 1, 2, 1]
 iter_link_full = [nan, 0.538817, 0.562869, 0.553951, 0.554430]
 iter_link_ball = [nan, 0.890986, 0.904230, 0.902510, 0.902774]
 iter_best_other_link = [nan, 0.910703, nan, 0.901805, nan]
+iter_prev_cross = [nan, nan, 0.440211, nan, 0.435546]
+iter_hop_threshold = [nan, 0.955352, 0.800000, 0.950902, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -1796,6 +1906,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.910703, 0.993016, 0.999783, 0.999992, 1.000000]
 iter_link_ball = [nan, 0.981583, 0.998799, 0.999955, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.538817, 0.458099, 0.453949, 0.453033, 0.452838]
+iter_prev_cross = [nan, nan, 0.440211, 0.451715, 0.452630, 0.452758]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false]
 
 [[run]]
@@ -1828,6 +1940,8 @@ iter_n_te1_triplets = [1, 2, 1, 2, 1]
 iter_link_full = [nan, 0.522135, 0.544192, 0.529489, 0.529950]
 iter_link_ball = [nan, 0.892465, 0.905113, 0.901908, 0.902173]
 iter_best_other_link = [nan, 0.920370, nan, 0.911377, nan]
+iter_prev_cross = [nan, nan, 0.423570, nan, 0.415792]
+iter_hop_threshold = [nan, 0.960185, 0.800000, 0.955689, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -1860,6 +1974,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.920370, 0.990701, 0.999665, 0.999986, 0.999999]
 iter_link_ball = [nan, 0.983369, 0.998640, 0.999945, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.522135, 0.453111, 0.448361, 0.447852, 0.447751]
+iter_prev_cross = [nan, nan, 0.423570, 0.444361, 0.447096, 0.447598]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false]
 
 [[run]]
@@ -1892,6 +2008,8 @@ iter_n_te1_triplets = [1, 2, 1, 2, 1]
 iter_link_full = [nan, 0.487370, 0.507027, 0.484455, 0.484880]
 iter_link_ball = [nan, 0.888059, 0.900046, 0.893751, 0.894012]
 iter_best_other_link = [nan, 0.934073, nan, 0.924853, nan]
+iter_prev_cross = [nan, nan, 0.397909, nan, 0.385261]
+iter_hop_threshold = [nan, 0.967037, 0.800000, 0.962427, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -1924,6 +2042,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.934073, 0.989695, 0.999543, 0.999980, 0.999999]
 iter_link_ball = [nan, 0.985487, 0.998576, 0.999936, 0.999997, 1.000000]
 iter_best_other_link = [nan, 0.487370, 0.444585, 0.437163, 0.436571, 0.436478]
+iter_prev_cross = [nan, nan, 0.397909, 0.430537, 0.435283, 0.436211]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false]
 
 [[run]]
@@ -1956,6 +2076,8 @@ iter_n_te1_triplets = [1, 1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.948394, 0.427545, 0.340703, 0.970708, 0.998317, 0.999799]
 iter_link_ball = [nan, 0.987682, 0.842596, 0.877025, 0.993945, 0.999773, 0.999975]
 iter_best_other_link = [nan, nan, 0.990795, 0.535243, 0.455780, 0.541136, 0.558575]
+iter_prev_cross = [nan, nan, nan, 0.408897, 0.458540, 0.542945, 0.559390]
+iter_hop_threshold = [nan, 0.800000, 0.995398, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -1988,6 +2110,8 @@ iter_n_te1_triplets = [1, 1, 2, 2, 2, 2]
 iter_link_full = [nan, 0.948394, 0.990795, 0.999485, 0.999976, 0.999999]
 iter_link_ball = [nan, 0.987682, 0.998689, 0.999930, 0.999997, 1.000000]
 iter_best_other_link = [nan, nan, 0.427545, 0.419498, 0.418526, 0.418362]
+iter_prev_cross = [nan, nan, nan, 0.408897, 0.416408, 0.417911]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, false, false, false, false]
 
 [[run]]
@@ -2020,6 +2144,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.377143, 0.326842, 0.985509, 0.998860, 0.999833, 0.999970]
 iter_link_ball = [nan, 0.857551, 0.853798, 0.998016, 0.999868, 0.999981, 0.999997]
 iter_best_other_link = [nan, 0.960169, 0.390943, 0.519422, 0.569384, 0.579131, 0.582146]
+iter_prev_cross = [nan, nan, 0.321128, 0.524757, 0.572448, 0.580598, 0.582825]
+iter_hop_threshold = [nan, 0.980085, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2052,6 +2178,8 @@ iter_n_te1_triplets = [1, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.960169, 0.993192, 0.999541, 0.999976, 0.999999]
 iter_link_ball = [nan, 0.989653, 0.998932, 0.999935, 0.999997, 1.000000]
 iter_best_other_link = [nan, 0.377143, 0.394469, 0.391093, 0.390394, 0.390260]
+iter_prev_cross = [nan, nan, 0.321128, 0.375647, 0.387118, 0.389538]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false]
 
 [[run]]
@@ -2084,6 +2212,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.916312, 0.996946, 0.999581, 0.999919, 0.999982, 0.999996]
 iter_link_ball = [nan, 0.984069, 0.999653, 0.999952, 0.999991, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.437848, 0.570843, 0.582146, 0.583942, 0.584247, 0.584282]
+iter_prev_cross = [nan, 0.445381, 0.577402, 0.585599, 0.585678, 0.585111, 0.584711]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2116,6 +2246,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.916312, 0.996946, 0.999581, 0.999919, 0.999982, 0.999996]
 iter_link_ball = [nan, 0.984069, 0.999653, 0.999952, 0.999991, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.437848, 0.570843, 0.582146, 0.583942, 0.584247, 0.584282]
+iter_prev_cross = [nan, 0.445381, 0.577402, 0.585599, 0.585678, 0.585111, 0.584711]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2148,6 +2280,8 @@ iter_n_te1_triplets = [2, 2, 1, 1, 1, 1]
 iter_link_full = [nan, 0.968570, 0.995519, 0.999668, 0.999981, 0.999999]
 iter_link_ball = [nan, 0.991275, 0.999191, 0.999947, 0.999997, 1.000000]
 iter_best_other_link = [nan, 0.312963, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.445381, 0.272054, nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, true, true, true, true]
 
 [[run]]
@@ -2180,6 +2314,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 1, 2, 2]
 iter_link_full = [nan, 0.945422, 0.997427, 0.578675, 0.937480, 0.295773, 0.321841]
 iter_link_ball = [nan, 0.992291, 0.999702, 0.918112, 0.983214, 0.817037, 0.857819]
 iter_best_other_link = [nan, 0.487667, 0.576064, 0.999590, nan, 0.994829, 0.338913]
+iter_prev_cross = [nan, 0.499629, 0.585066, 0.583589, 0.579451, nan, 0.280473]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.999795, 0.800000, 0.997414, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2212,6 +2348,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.945422, 0.997427, 0.999590, 0.999910, 0.999978, 0.999994]
 iter_link_ball = [nan, 0.992291, 0.999702, 0.999949, 0.999988, 0.999997, 0.999999]
 iter_best_other_link = [nan, 0.487667, 0.576064, 0.578675, 0.576841, 0.575344, 0.574438]
+iter_prev_cross = [nan, 0.499629, 0.585066, 0.583589, 0.579451, 0.576725, 0.575168]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, false, false, false, false]
 
 [[run]]
@@ -2244,6 +2382,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2, 2]
 iter_link_full = [nan, 0.974245, 0.997160, 0.999787, 0.999987, 0.999999]
 iter_link_ball = [nan, 0.992577, 0.999402, 0.999961, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, 0.301823, 0.308460, 0.309457, 0.309665]
+iter_prev_cross = [nan, 0.499629, nan, 0.290499, 0.305457, 0.308733]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, false, false, false, false]
 
 [[run]]
@@ -2276,6 +2416,8 @@ iter_n_te1_triplets = [2, 2, 2, 1, 1, 2, 2]
 iter_link_full = [nan, 0.960719, 0.573550, 0.943513, 0.996624, 0.246186, 0.301216]
 iter_link_ball = [nan, 0.995151, 0.919498, 0.985333, 0.999139, 0.793455, 0.846704]
 iter_best_other_link = [nan, 0.518835, 0.997689, nan, nan, 0.999741, 0.291947]
+iter_prev_cross = [nan, 0.535295, 0.585152, 0.575116, nan, nan, 0.243338]
+iter_hop_threshold = [nan, 0.800000, 0.998845, 0.800000, 0.800000, 0.999871, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2308,6 +2450,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.960719, 0.997689, 0.999581, 0.999898, 0.999972, 0.999992]
 iter_link_ball = [nan, 0.995151, 0.999714, 0.999943, 0.999985, 0.999996, 0.999999]
 iter_best_other_link = [nan, 0.518835, 0.573550, 0.568596, 0.563242, 0.559841, 0.557859]
+iter_prev_cross = [nan, 0.535295, 0.585152, 0.575116, 0.566848, 0.561835, 0.558962]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, false, false, false, false, false]
 
 [[run]]
@@ -2340,6 +2484,8 @@ iter_n_te1_triplets = [2, 1, 1, 2, 2, 2]
 iter_link_full = [nan, 0.978090, 0.998169, 0.999870, 0.999992, 1.000000]
 iter_link_ball = [nan, 0.993627, 0.999556, 0.999972, 0.999998, 1.000000]
 iter_best_other_link = [nan, nan, nan, 0.248127, 0.251380, 0.252124]
+iter_prev_cross = [nan, 0.535295, nan, nan, 0.246098, 0.250880]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, false, false, false]
 
 [[run]]
@@ -2372,6 +2518,8 @@ iter_n_te1_triplets = [2, 2, 1, 1, 1, 1, 1]
 iter_link_full = [nan, 0.537368, 0.956739, 0.997897, 0.999858, 0.999992, 1.000000]
 iter_link_ball = [nan, 0.920678, 0.988832, 0.999419, 0.999964, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.969733, nan, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.558395, 0.580203, nan, nan, nan, nan]
+iter_hop_threshold = [nan, 0.984866, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2404,6 +2552,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.969733, 0.997826, 0.999560, 0.999883, 0.999965, 0.999989]
 iter_link_ball = [nan, 0.996439, 0.999708, 0.999934, 0.999982, 0.999994, 0.999998]
 iter_best_other_link = [nan, 0.537368, 0.565928, 0.554291, 0.545624, 0.540350, 0.537264]
+iter_prev_cross = [nan, 0.558395, 0.580203, 0.562488, 0.550287, 0.543005, 0.538779]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2436,6 +2586,8 @@ iter_n_te1_triplets = [2, 1, 1, 1, 1, 1]
 iter_link_full = [nan, 0.980789, 0.998769, 0.999920, 0.999995, 1.000000]
 iter_link_ball = [nan, 0.994487, 0.999668, 0.999980, 0.999999, 1.000000]
 iter_best_other_link = [nan, nan, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.558395, nan, nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true, true]
 
 [[run]]
@@ -2468,6 +2620,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.547227, 0.288981, 0.603423, 0.562272, 0.294620, 0.620492]
 iter_link_ball = [nan, 0.922339, 0.827706, 0.895673, 0.919811, 0.831322, 0.899600]
 iter_best_other_link = [nan, 0.975397, 0.957567, 0.292473, 0.994602, 0.948777, 0.301449]
+iter_prev_cross = [nan, 0.572825, 0.571869, 0.296851, 0.583784, 0.557883, 0.306457]
+iter_hop_threshold = [nan, 0.987698, 0.978783, 0.800000, 0.997301, 0.974389, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2500,6 +2654,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.975397, 0.997880, 0.999526, 0.999865, 0.999958, 0.999986]
 iter_link_ball = [nan, 0.997096, 0.999692, 0.999924, 0.999977, 0.999993, 0.999998]
 iter_best_other_link = [nan, 0.547227, 0.554911, 0.537381, 0.525707, 0.518709, 0.514600]
+iter_prev_cross = [nan, 0.572825, 0.571869, 0.547261, 0.531425, 0.522021, 0.516521]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2532,6 +2688,8 @@ iter_n_te1_triplets = [2, 1, 1, 1, 1, 1]
 iter_link_full = [nan, 0.982782, 0.999133, 0.999949, 0.999997, 1.000000]
 iter_link_ball = [nan, 0.995203, 0.999751, 0.999986, 0.999999, 1.000000]
 iter_best_other_link = [nan, nan, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.572825, nan, nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true, true]
 
 [[run]]
@@ -2564,6 +2722,8 @@ iter_n_te1_triplets = [2, 2, 1, 1, 1, 1, 1]
 iter_link_full = [nan, 0.551020, 0.958021, 0.998801, 0.999937, 0.999997, 1.000000]
 iter_link_ball = [nan, 0.922837, 0.990367, 0.999645, 0.999982, 0.999999, 1.000000]
 iter_best_other_link = [nan, 0.979102, nan, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.581139, 0.561273, nan, nan, nan, nan]
+iter_hop_threshold = [nan, 0.989551, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true, true]
 
 [[run]]
@@ -2596,6 +2756,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.979102, 0.997872, 0.999481, 0.999843, 0.999949, 0.999983]
 iter_link_ball = [nan, 0.997451, 0.999669, 0.999912, 0.999973, 0.999991, 0.999997]
 iter_best_other_link = [nan, 0.551020, 0.541673, 0.518994, 0.504688, 0.496202, 0.491227]
+iter_prev_cross = [nan, 0.581139, 0.561273, 0.530506, 0.511404, 0.500118, 0.493510]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2628,6 +2790,8 @@ iter_n_te1_triplets = [2, 1, 1, 1, 1]
 iter_link_full = [nan, 0.984331, 0.999364, 0.999967, 0.999998]
 iter_link_ball = [nan, 0.995806, 0.999812, 0.999990, 0.999999]
 iter_best_other_link = [nan, nan, nan, nan, nan]
+iter_prev_cross = [nan, 0.581139, nan, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, true, true, true]
 
 [[run]]
@@ -2660,6 +2824,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.550510, 0.377732, 0.386343, 0.375468, 0.375653]
 iter_link_ball = [nan, 0.922619, 0.878472, 0.877782, 0.870039, 0.870016]
 iter_best_other_link = [nan, 0.981584, 0.958232, 0.780336, 0.969548, 0.762059]
+iter_prev_cross = [nan, 0.585066, 0.549202, 0.409602, 0.570619, 0.397391]
+iter_hop_threshold = [nan, 0.990792, 0.979116, 0.890168, 0.984774, 0.881029]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true]
 
 [[run]]
@@ -2692,6 +2858,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.981584, 0.997811, 0.999419, 0.999814, 0.999937, 0.999979]
 iter_link_ball = [nan, 0.997644, 0.999641, 0.999899, 0.999968, 0.999989, 0.999996]
 iter_best_other_link = [nan, 0.550510, 0.527038, 0.499922, 0.483401, 0.473711, 0.468067]
+iter_prev_cross = [nan, 0.585066, 0.549202, 0.512965, 0.491004, 0.478130, 0.470631]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2724,6 +2892,8 @@ iter_n_te1_triplets = [2, 1, 2, 2, 2]
 iter_link_full = [nan, 0.985593, 0.999520, 0.999978, 0.999999]
 iter_link_ball = [nan, 0.996318, 0.999858, 0.999993, 1.000000]
 iter_best_other_link = [nan, nan, 0.320273, 0.304128, 0.300248]
+iter_prev_cross = [nan, 0.585066, nan, 0.319305, 0.303856]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, true, false, false, false]
 
 [[run]]
@@ -2756,6 +2926,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.546919, 0.426858, 0.437959, 0.429141, 0.429376]
 iter_link_ball = [nan, 0.921943, 0.905475, 0.904955, 0.901897, 0.901880]
 iter_best_other_link = [nan, 0.983264, 0.958272, 0.850069, 0.969846, 0.838704]
+iter_prev_cross = [nan, 0.585807, 0.536216, 0.470422, 0.560855, 0.461014]
+iter_hop_threshold = [nan, 0.991632, 0.979136, 0.925035, 0.984923, 0.919352]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true]
 
 [[run]]
@@ -2788,6 +2960,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.983264, 0.997698, 0.999332, 0.999773, 0.999921, 0.999973]
 iter_link_ball = [nan, 0.997742, 0.999609, 0.999885, 0.999962, 0.999987, 0.999996]
 iter_best_other_link = [nan, 0.546919, 0.511602, 0.480732, 0.462425, 0.451829, 0.445724]
+iter_prev_cross = [nan, 0.585807, 0.536216, 0.495149, 0.470750, 0.456606, 0.448458]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2820,6 +2994,8 @@ iter_n_te1_triplets = [2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.986659, 0.999629, 0.999985, 0.999999]
 iter_link_ball = [nan, 0.996756, 0.999893, 0.999996, 1.000000]
 iter_best_other_link = [nan, 0.422043, nan, nan, nan]
+iter_prev_cross = [nan, 0.585807, 0.435999, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, true, true, true]
 
 [[run]]
@@ -2852,6 +3028,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.541115, 0.459865, 0.472900, 0.466957, 0.467223]
 iter_link_ball = [nan, 0.920969, 0.916171, 0.915790, 0.914533, 0.914520]
 iter_best_other_link = [nan, 0.984389, 0.958180, 0.890815, 0.970032, 0.883919]
+iter_prev_cross = [nan, 0.584214, 0.522713, 0.512826, 0.549959, 0.506614]
+iter_hop_threshold = [nan, 0.992194, 0.979090, 0.945408, 0.985016, 0.941960]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true]
 
 [[run]]
@@ -2884,6 +3062,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.984389, 0.997524, 0.999208, 0.999713, 0.999897, 0.999964]
 iter_link_ball = [nan, 0.997780, 0.999573, 0.999868, 0.999955, 0.999985, 0.999995]
 iter_best_other_link = [nan, 0.541115, 0.495800, 0.461836, 0.442174, 0.430963, 0.424591]
+iter_prev_cross = [nan, 0.584214, 0.522713, 0.477412, 0.450991, 0.435905, 0.427355]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false, false, false]
 
 [[run]]
@@ -2916,6 +3096,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.987583, 0.999709, 0.999990, 1.000000]
 iter_link_ball = [nan, 0.997131, 0.999919, 0.999997, 1.000000]
 iter_best_other_link = [nan, 0.470990, 0.436931, 0.426107, 0.423911]
+iter_prev_cross = [nan, 0.584214, 0.489267, 0.437604, 0.426171]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false]
 
 [[run]]
@@ -2948,6 +3130,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.503816, 0.480432, 0.491632, 0.490912]
 iter_link_ball = [nan, 0.916395, 0.918302, 0.920099, 0.920123]
 iter_best_other_link = [nan, 0.988396, 0.898440, 0.970933, 0.911177]
+iter_prev_cross = [nan, 0.580906, 0.525590, 0.540351, 0.537133]
+iter_hop_threshold = [nan, 0.994198, 0.949220, 0.985467, 0.955588]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -2980,6 +3164,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 1, 1]
 iter_link_full = [nan, 0.985111, 0.997271, 0.999022, 0.999618, 0.999859, 0.999951]
 iter_link_ball = [nan, 0.997779, 0.999531, 0.999846, 0.999945, 0.999981, 0.999994]
 iter_best_other_link = [nan, 0.533726, 0.479964, 0.443558, 0.422965, nan, nan]
+iter_prev_cross = [nan, 0.580906, 0.508980, 0.459992, 0.431963, 0.416265, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false, true, true]
 
 [[run]]
@@ -3012,6 +3198,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.988396, 0.999770, 0.999993, 1.000000]
 iter_link_ball = [nan, 0.997454, 0.999939, 0.999998, 1.000000]
 iter_best_other_link = [nan, 0.503816, 0.491503, 0.485687, 0.484549]
+iter_prev_cross = [nan, 0.580906, 0.525590, 0.492706, 0.485848]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false]
 
 [[run]]
@@ -3044,6 +3232,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.525364, 0.498352, 0.506197, 0.505393]
 iter_link_ball = [nan, 0.920272, 0.921947, 0.922763, 0.922780]
 iter_best_other_link = [nan, 0.989120, 0.920227, 0.970908, 0.929168]
+iter_prev_cross = [nan, 0.576336, 0.550121, 0.528334, 0.557926]
+iter_hop_threshold = [nan, 0.994560, 0.960113, 0.985454, 0.964584]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3076,6 +3266,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.985524, 0.996908, 0.998739, 0.999467, 0.999798, 0.999931]
 iter_link_ball = [nan, 0.997749, 0.999480, 0.999816, 0.999931, 0.999975, 0.999992]
 iter_best_other_link = [nan, 0.525213, 0.464359, 0.426173, nan, nan, nan]
+iter_prev_cross = [nan, 0.576336, 0.495222, 0.443054, 0.413830, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, true, true, true]
 
 [[run]]
@@ -3108,6 +3300,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.989120, 0.999816, 0.999995, 1.000000]
 iter_link_ball = [nan, 0.997731, 0.999953, 0.999999, 1.000000]
 iter_best_other_link = [nan, 0.525364, 0.527760, 0.525161, 0.524664]
+iter_prev_cross = [nan, 0.576336, 0.550121, 0.529377, 0.525385]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false]
 
 [[run]]
@@ -3140,6 +3334,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.539058, 0.508498, 0.513947, 0.513066]
 iter_link_ball = [nan, 0.922117, 0.923553, 0.923834, 0.923844]
 iter_best_other_link = [nan, 0.989767, 0.934710, 0.970775, 0.941257]
+iter_prev_cross = [nan, 0.570843, 0.566372, 0.515997, 0.571465]
+iter_hop_threshold = [nan, 0.994884, 0.967355, 0.985388, 0.970629]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3172,6 +3368,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.985681, 0.996387, 0.998297, 0.999223, 0.999700, 0.999900]
 iter_link_ball = [nan, 0.997698, 0.999416, 0.999772, 0.999908, 0.999966, 0.999989]
 iter_best_other_link = [nan, 0.515926, 0.449219, 0.409923, nan, nan, nan]
+iter_prev_cross = [nan, 0.570843, 0.481582, 0.426716, 0.396696, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, true, true, true]
 
 [[run]]
@@ -3204,6 +3402,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.989767, 0.999852, 0.999997, 1.000000]
 iter_link_ball = [nan, 0.997970, 0.999964, 0.999999, 1.000000]
 iter_best_other_link = [nan, 0.539058, 0.551612, 0.550988, 0.550847]
+iter_prev_cross = [nan, 0.570843, 0.566372, 0.553543, 0.551250]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false, false]
 
 [[run]]
@@ -3236,6 +3436,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.547186, 0.513129, 0.516839, 0.515889]
 iter_link_ball = [nan, 0.922821, 0.924018, 0.923981, 0.923984]
 iter_best_other_link = [nan, 0.990348, 0.944648, 0.970535, 0.949612]
+iter_prev_cross = [nan, 0.564680, 0.576681, 0.503506, 0.579764]
+iter_hop_threshold = [nan, 0.995174, 0.972324, 0.985268, 0.974806]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3268,6 +3470,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.985608, 0.995634, 0.997597, 0.998826, 0.999545, 0.999852]
 iter_link_ball = [nan, 0.997629, 0.999333, 0.999704, 0.999871, 0.999952, 0.999985]
 iter_best_other_link = [nan, 0.506136, 0.434760, 0.394990, nan, nan, nan]
+iter_prev_cross = [nan, 0.564680, 0.468162, 0.411066, 0.380570, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, true, true, true]
 
 [[run]]
@@ -3300,6 +3504,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.990348, 0.999880, 0.999998]
 iter_link_ball = [nan, 0.998177, 0.999972, 0.999999]
 iter_best_other_link = [nan, 0.547186, 0.566952, 0.567554]
+iter_prev_cross = [nan, 0.564680, 0.576681, 0.569106]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false]
 
 [[run]]
@@ -3332,6 +3538,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.551310, 0.513800, 0.516234, 0.515224]
 iter_link_ball = [nan, 0.922830, 0.923793, 0.923556, 0.923552]
 iter_best_other_link = [nan, 0.990870, 0.951616, 0.970186, 0.955491]
+iter_prev_cross = [nan, 0.558039, 0.582650, 0.490990, 0.584220]
+iter_hop_threshold = [nan, 0.995435, 0.975808, 0.985093, 0.977746]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3364,6 +3572,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 1, 1, 1]
 iter_link_full = [nan, 0.985313, 0.994535, 0.996481, 0.998180, 0.999300, 0.999781]
 iter_link_ball = [nan, 0.997542, 0.999218, 0.999598, 0.999809, 0.999928, 0.999977]
 iter_best_other_link = [nan, 0.496059, 0.421188, 0.381418, nan, nan, nan]
+iter_prev_cross = [nan, 0.558039, 0.455035, 0.396155, 0.365276, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, true, true, true]
 
 [[run]]
@@ -3396,6 +3606,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.990870, 0.999902, 0.999998]
 iter_link_ball = [nan, 0.998356, 0.999979, 1.000000]
 iter_best_other_link = [nan, 0.551310, 0.576311, 0.577673]
+iter_prev_cross = [nan, 0.558039, 0.582650, 0.578610]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false]
 
 [[run]]
@@ -3428,6 +3640,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.552517, 0.511611, 0.513098, 0.512038]
 iter_link_ball = [nan, 0.922397, 0.923129, 0.922763, 0.922753]
 iter_best_other_link = [nan, 0.991340, 0.956557, 0.969725, 0.959658]
+iter_prev_cross = [nan, 0.551069, 0.585406, 0.478547, 0.585824]
+iter_hop_threshold = [nan, 0.995670, 0.978279, 0.984863, 0.979829]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3460,6 +3674,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 1, 1]
 iter_link_full = [nan, 0.984781, 0.992917, 0.994687, 0.997134, 0.998923, 0.999679]
 iter_link_ball = [nan, 0.997435, 0.999055, 0.999426, 0.999703, 0.999887, 0.999965]
 iter_best_other_link = [nan, 0.485876, 0.408681, 0.369027, 0.345460, nan, nan]
+iter_prev_cross = [nan, 0.551069, 0.442252, 0.381981, 0.350347, 0.332425, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false, true, true]
 
 [[run]]
@@ -3492,6 +3708,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.991340, 0.999919, 0.999999]
 iter_link_ball = [nan, 0.998511, 0.999983, 1.000000]
 iter_best_other_link = [nan, 0.552517, 0.581384, 0.583210]
+iter_prev_cross = [nan, 0.551069, 0.585406, 0.583766]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false]
 
 [[run]]
@@ -3524,6 +3742,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.551580, 0.507358, 0.508137, 0.507038]
 iter_link_ball = [nan, 0.921675, 0.922179, 0.921730, 0.921714]
 iter_best_other_link = [nan, 0.991761, 0.960055, 0.969147, 0.962584]
+iter_prev_cross = [nan, 0.543880, 0.585761, 0.466254, 0.585294]
+iter_hop_threshold = [nan, 0.995881, 0.980027, 0.984574, 0.981292]
 iter_nearest_root_is_chosen = [true, true, true, true, true]
 
 [[run]]
@@ -3556,6 +3776,8 @@ iter_n_te1_triplets = [2, 2, 1, 2, 1, 1, 1]
 iter_link_full = [nan, 0.983984, 0.990515, 0.991805, 0.995472, 0.998362, 0.999541]
 iter_link_ball = [nan, 0.997306, 0.998819, 0.999140, 0.999518, 0.999815, 0.999946]
 iter_best_other_link = [nan, 0.475748, nan, 0.357367, nan, nan, nan]
+iter_prev_cross = [nan, 0.543880, 0.429853, nan, 0.334968, nan, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, true, false, true, true, true]
 
 [[run]]
@@ -3588,6 +3810,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.991761, 0.999933, 0.999999]
 iter_link_ball = [nan, 0.998647, 0.999987, 1.000000]
 iter_best_other_link = [nan, 0.551580, 0.583340, 0.585440]
+iter_prev_cross = [nan, 0.543880, 0.585761, 0.585757]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false]
 
 [[run]]
@@ -3620,6 +3844,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 2]
 iter_link_full = [nan, 0.549056, 0.501631, 0.968444, 0.581355, 0.502421]
 iter_link_ball = [nan, 0.920763, 0.921041, 0.995992, 0.918557, 0.921685]
 iter_best_other_link = [nan, 0.992140, 0.962471, 0.501877, 0.999851, 0.959430]
+iter_prev_cross = [nan, 0.536561, 0.584308, 0.454170, 0.583158, 0.585362]
+iter_hop_threshold = [nan, 0.996070, 0.981236, 0.800000, 0.999926, 0.979715]
 iter_nearest_root_is_chosen = [true, true, true, true, true, true]
 
 [[run]]
@@ -3652,6 +3878,8 @@ iter_n_te1_triplets = [2, 2, 2, 2, 2, 1, 1]
 iter_link_full = [nan, 0.982869, 0.986928, 0.987200, 0.992918, 0.997578, 0.999368]
 iter_link_ball = [nan, 0.997149, 0.998469, 0.998654, 0.999186, 0.999689, 0.999912]
 iter_best_other_link = [nan, 0.465820, 0.387182, 0.345771, 0.314285, nan, nan]
+iter_prev_cross = [nan, 0.536561, 0.417866, 0.355220, 0.318040, 0.293224, nan]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [false, false, false, false, false, true, true]
 
 [[run]]
@@ -3684,6 +3912,8 @@ iter_n_te1_triplets = [2, 2, 2, 2]
 iter_link_full = [nan, 0.992140, 0.999944, 0.999999]
 iter_link_ball = [nan, 0.998765, 0.999989, 1.000000]
 iter_best_other_link = [nan, 0.549056, 0.583003, 0.585253]
+iter_prev_cross = [nan, 0.536561, 0.584308, 0.585419]
+iter_hop_threshold = [nan, 0.800000, 0.800000, 0.800000]
 iter_nearest_root_is_chosen = [true, false, false, false]
 
 [[solve]]
@@ -3692,7 +3922,7 @@ omega = 1.854871
 n_modes = 57
 te1_triplets_re_k = [1.853973]
 te1_triplets_im_k = [0.194589]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 5
@@ -3700,7 +3930,7 @@ omega = 1.880740
 n_modes = 63
 te1_triplets_re_k = [1.854871]
 te1_triplets_im_k = [0.192317]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 5.5
@@ -3708,7 +3938,7 @@ omega = 1.847135
 n_modes = 57
 te1_triplets_re_k = [1.847086]
 te1_triplets_im_k = [0.211571]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 5.5
@@ -3716,7 +3946,7 @@ omega = 1.848392
 n_modes = 58
 te1_triplets_re_k = [1.847135]
 te1_triplets_im_k = [0.211451]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 5.5
@@ -3724,7 +3954,7 @@ omega = 1.880740
 n_modes = 59
 te1_triplets_re_k = [1.848392]
 te1_triplets_im_k = [0.208404]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6
@@ -3732,7 +3962,7 @@ omega = 1.840157
 n_modes = 58
 te1_triplets_re_k = [1.840107, 2.828575]
 te1_triplets_im_k = [0.228150, 0.416052]
-wall_s = 1.3
+wall_s = 1.4
 
 [[solve]]
 sigma_0 = 6
@@ -3740,7 +3970,7 @@ omega = 1.840181
 n_modes = 57
 te1_triplets_re_k = [1.840108, 2.828579]
 te1_triplets_im_k = [0.228148, 0.416048]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 6
@@ -3756,7 +3986,7 @@ omega = 1.841846
 n_modes = 57
 te1_triplets_re_k = [1.840181, 2.828858]
 te1_triplets_im_k = [0.227977, 0.415812]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6
@@ -3764,7 +3994,7 @@ omega = 1.867677
 n_modes = 62
 te1_triplets_re_k = [1.841295, 2.833116]
 te1_triplets_im_k = [0.225365, 0.412168]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 6
@@ -3772,7 +4002,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [1.841846, 2.835219]
 te1_triplets_im_k = [0.224068, 0.410339]
-wall_s = 1.3
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6
@@ -3780,7 +4010,7 @@ omega = 2.835219
 n_modes = 80
 te1_triplets_re_k = [1.867677]
 te1_triplets_im_k = [0.157938]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 6.5
@@ -3788,7 +4018,7 @@ omega = 1.833105
 n_modes = 60
 te1_triplets_re_k = [1.833040, 2.801323]
 te1_triplets_im_k = [0.244466, 0.437619]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6.5
@@ -3796,7 +4026,7 @@ omega = 1.833144
 n_modes = 65
 te1_triplets_re_k = [1.833042, 2.801331]
 te1_triplets_im_k = [0.244462, 0.437613]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 6.5
@@ -3804,7 +4034,7 @@ omega = 1.834456
 n_modes = 63
 te1_triplets_re_k = [1.833105, 2.801575]
 te1_triplets_im_k = [0.244318, 0.437432]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6.5
@@ -3812,7 +4042,7 @@ omega = 1.835266
 n_modes = 63
 te1_triplets_re_k = [1.833144, 2.801725]
 te1_triplets_im_k = [0.244230, 0.437321]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 6.5
@@ -3820,7 +4050,7 @@ omega = 1.863112
 n_modes = 62
 te1_triplets_re_k = [1.834456, 2.806812]
 te1_triplets_im_k = [0.241228, 0.433502]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 6.5
@@ -3828,7 +4058,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [1.835266, 2.809948]
 te1_triplets_im_k = [0.239369, 0.431100]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 6.5
@@ -3836,7 +4066,7 @@ omega = 2.809948
 n_modes = 61
 te1_triplets_re_k = [1.863112]
 te1_triplets_im_k = [0.170690]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7
@@ -3844,7 +4074,7 @@ omega = 1.825988
 n_modes = 64
 te1_triplets_re_k = [1.825906, 2.773507]
 te1_triplets_im_k = [0.260585, 0.456899]
-wall_s = 1.4
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 7
@@ -3852,7 +4082,7 @@ omega = 1.826045
 n_modes = 65
 te1_triplets_re_k = [1.825909, 2.773519]
 te1_triplets_im_k = [0.260579, 0.456892]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7
@@ -3860,7 +4090,7 @@ omega = 1.827562
 n_modes = 64
 te1_triplets_re_k = [1.825988, 2.773827]
 te1_triplets_im_k = [0.260402, 0.456691]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 7
@@ -3868,7 +4098,7 @@ omega = 1.828674
 n_modes = 63
 te1_triplets_re_k = [1.826045, 2.774054]
 te1_triplets_im_k = [0.260273, 0.456544]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7
@@ -3876,7 +4106,7 @@ omega = 1.858349
 n_modes = 61
 te1_triplets_re_k = [1.827562, 2.779983]
 te1_triplets_im_k = [0.256870, 0.452636]
-wall_s = 1.6
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 7
@@ -3884,7 +4114,7 @@ omega = 1.880740
 n_modes = 63
 te1_triplets_re_k = [1.828674, 2.784328]
 te1_triplets_im_k = [0.254366, 0.449702]
-wall_s = 1.3
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7
@@ -3892,7 +4122,7 @@ omega = 2.784328
 n_modes = 78
 te1_triplets_re_k = [1.858349]
 te1_triplets_im_k = [0.183377]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3900,7 +4130,7 @@ omega = 1.818814
 n_modes = 64
 te1_triplets_re_k = [1.818713, 2.745283]
 te1_triplets_im_k = [0.276575, 0.473995]
-wall_s = 1.3
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 7.5
@@ -3908,7 +4138,7 @@ omega = 1.818896
 n_modes = 65
 te1_triplets_re_k = [1.818717, 2.745301]
 te1_triplets_im_k = [0.276565, 0.473984]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3916,7 +4146,7 @@ omega = 1.820622
 n_modes = 64
 te1_triplets_re_k = [1.818814, 2.745682]
 te1_triplets_im_k = [0.276351, 0.473769]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3924,7 +4154,7 @@ omega = 1.822080
 n_modes = 64
 te1_triplets_re_k = [1.818896, 2.746003]
 te1_triplets_im_k = [0.276171, 0.473587]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3932,7 +4162,7 @@ omega = 1.853408
 n_modes = 68
 te1_triplets_re_k = [1.820622, 2.752783]
 te1_triplets_im_k = [0.272354, 0.469679]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3940,7 +4170,7 @@ omega = 1.880740
 n_modes = 64
 te1_triplets_re_k = [1.822080, 2.758509]
 te1_triplets_im_k = [0.269118, 0.466275]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 7.5
@@ -3948,7 +4178,7 @@ omega = 2.758509
 n_modes = 78
 te1_triplets_re_k = [1.853408]
 te1_triplets_im_k = [0.196008]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8
@@ -3956,7 +4186,7 @@ omega = 1.811582
 n_modes = 62
 te1_triplets_re_k = [1.811458, 2.716763]
 te1_triplets_im_k = [0.292505, 0.488983]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8
@@ -3964,7 +4194,7 @@ omega = 1.811694
 n_modes = 61
 te1_triplets_re_k = [1.811465, 2.716790]
 te1_triplets_im_k = [0.292490, 0.488970]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 8
@@ -3972,7 +4202,7 @@ omega = 1.813636
 n_modes = 63
 te1_triplets_re_k = [1.811582, 2.717251]
 te1_triplets_im_k = [0.292234, 0.488745]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8
@@ -3988,7 +4218,7 @@ omega = 1.848312
 n_modes = 62
 te1_triplets_re_k = [1.813636, 2.725321]
 te1_triplets_im_k = [0.287742, 0.484716]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 8
@@ -4004,7 +4234,7 @@ omega = 2.732599
 n_modes = 63
 te1_triplets_re_k = [1.848312]
 te1_triplets_im_k = [0.208597]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8.5
@@ -4012,7 +4242,7 @@ omega = 1.804289
 n_modes = 65
 te1_triplets_re_k = [1.804125, 2.688037]
 te1_triplets_im_k = [0.308444, 0.501910]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8.5
@@ -4020,7 +4250,7 @@ omega = 1.804423
 n_modes = 62
 te1_triplets_re_k = [1.804133, 2.688071]
 te1_triplets_im_k = [0.308425, 0.501896]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 8.5
@@ -4028,7 +4258,7 @@ omega = 1.806818
 n_modes = 60
 te1_triplets_re_k = [1.804289, 2.688678]
 te1_triplets_im_k = [0.308089, 0.501644]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 8.5
@@ -4036,7 +4266,7 @@ omega = 1.808889
 n_modes = 65
 te1_triplets_re_k = [1.804423, 2.689202]
 te1_triplets_im_k = [0.307799, 0.501427]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8.5
@@ -4044,7 +4274,7 @@ omega = 1.846705
 n_modes = 64
 te1_triplets_re_k = [1.806818, 2.698565]
 te1_triplets_im_k = [0.302608, 0.497418]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8.5
@@ -4052,7 +4282,7 @@ omega = 1.880740
 n_modes = 65
 te1_triplets_re_k = [1.808889, 2.706678]
 te1_triplets_im_k = [0.298107, 0.493763]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 8.5
@@ -4068,7 +4298,7 @@ omega = 2.839903
 n_modes = 61
 te1_triplets_re_k = [1.846705]
 te1_triplets_im_k = [0.212489]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 9
@@ -4076,7 +4306,7 @@ omega = 1.797055
 n_modes = 61
 te1_triplets_re_k = [1.796691, 2.659224]
 te1_triplets_im_k = [0.324444, 0.512774]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9
@@ -4084,7 +4314,7 @@ omega = 1.802271
 n_modes = 61
 te1_triplets_re_k = [1.797055, 2.660625]
 te1_triplets_im_k = [0.323664, 0.512294]
-wall_s = 1.3
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9
@@ -4092,7 +4322,7 @@ omega = 1.880740
 n_modes = 59
 te1_triplets_re_k = [1.802271, 2.680813]
 te1_triplets_im_k = [0.312450, 0.504830]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9
@@ -4100,7 +4330,7 @@ omega = 2.680813
 n_modes = 62
 te1_triplets_re_k = [1.837716, 2.819399]
 te1_triplets_im_k = [0.233715, 0.423637]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 9
@@ -4124,7 +4354,7 @@ omega = 2.836694
 n_modes = 60
 te1_triplets_re_k = [1.842279, 2.836868]
 te1_triplets_im_k = [0.223047, 0.408891]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4132,7 +4362,7 @@ omega = 1.789543
 n_modes = 59
 te1_triplets_re_k = [1.789085, 2.630346]
 te1_triplets_im_k = [0.340622, 0.521584]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4140,7 +4370,7 @@ omega = 1.795609
 n_modes = 62
 te1_triplets_re_k = [1.789543, 2.632060]
 te1_triplets_im_k = [0.339655, 0.521119]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4148,7 +4378,7 @@ omega = 1.880740
 n_modes = 61
 te1_triplets_re_k = [1.795609, 2.655071]
 te1_triplets_im_k = [0.326758, 0.514169]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 9.5
@@ -4156,7 +4386,7 @@ omega = 2.655071
 n_modes = 61
 te1_triplets_re_k = [1.832243, 2.798227]
 te1_triplets_im_k = [0.246283, 0.439894]
-wall_s = 1.3
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4164,7 +4394,7 @@ omega = 2.798227
 n_modes = 60
 te1_triplets_re_k = [1.836780, 2.815791]
 te1_triplets_im_k = [0.235882, 0.426526]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4172,7 +4402,7 @@ omega = 2.815791
 n_modes = 60
 te1_triplets_re_k = [1.837304, 2.817812]
 te1_triplets_im_k = [0.234670, 0.424914]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 9.5
@@ -4180,7 +4410,7 @@ omega = 2.817812
 n_modes = 60
 te1_triplets_re_k = [1.837364, 2.818043]
 te1_triplets_im_k = [0.234531, 0.424729]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 10
@@ -4196,7 +4426,7 @@ omega = 1.788869
 n_modes = 60
 te1_triplets_re_k = [1.781816, 2.603670]
 te1_triplets_im_k = [0.355836, 0.527874]
-wall_s = 1.3
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 10
@@ -4204,7 +4434,7 @@ omega = 1.880740
 n_modes = 63
 te1_triplets_re_k = [1.788869, 2.629540]
 te1_triplets_im_k = [0.341077, 0.521800]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 10
@@ -4212,7 +4442,7 @@ omega = 2.629540
 n_modes = 63
 te1_triplets_re_k = [1.826665, 2.776476]
 te1_triplets_im_k = [0.258885, 0.454961]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 10
@@ -4220,7 +4450,7 @@ omega = 2.776476
 n_modes = 60
 te1_triplets_re_k = [1.831657, 2.795949]
 te1_triplets_im_k = [0.247616, 0.441546]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 10
@@ -4228,7 +4458,7 @@ omega = 2.795949
 n_modes = 60
 te1_triplets_re_k = [1.832279, 2.798367]
 te1_triplets_im_k = [0.246201, 0.439792]
-wall_s = 1.4
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 10
@@ -4236,7 +4466,7 @@ omega = 2.798367
 n_modes = 60
 te1_triplets_re_k = [1.832355, 2.798665]
 te1_triplets_im_k = [0.246027, 0.439574]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4244,7 +4474,7 @@ omega = 1.773775
 n_modes = 62
 te1_triplets_re_k = [1.773031, 2.573207]
 te1_triplets_im_k = [0.373754, 0.532941]
-wall_s = 1.3
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4252,7 +4482,7 @@ omega = 1.782005
 n_modes = 64
 te1_triplets_re_k = [1.773775, 2.575696]
 te1_triplets_im_k = [0.372262, 0.532607]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 10.5
@@ -4260,7 +4490,7 @@ omega = 1.880740
 n_modes = 61
 te1_triplets_re_k = [1.782005, 2.604347]
 te1_triplets_im_k = [0.355445, 0.527736]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4268,7 +4498,7 @@ omega = 2.604347
 n_modes = 64
 te1_triplets_re_k = [1.820990, 2.754232]
 te1_triplets_im_k = [0.271536, 0.468827]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4276,7 +4506,7 @@ omega = 2.754232
 n_modes = 60
 te1_triplets_re_k = [1.826432, 2.775567]
 te1_triplets_im_k = [0.259406, 0.455557]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4284,7 +4514,7 @@ omega = 2.775567
 n_modes = 60
 te1_triplets_re_k = [1.827159, 2.778410]
 te1_triplets_im_k = [0.257775, 0.453684]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 10.5
@@ -4292,7 +4522,7 @@ omega = 2.778410
 n_modes = 60
 te1_triplets_re_k = [1.827255, 2.778786]
 te1_triplets_im_k = [0.257559, 0.453435]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 11
@@ -4300,7 +4530,7 @@ omega = 1.765272
 n_modes = 59
 te1_triplets_re_k = [1.764294, 2.545344]
 te1_triplets_im_k = [0.390820, 0.535794]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11
@@ -4308,7 +4538,7 @@ omega = 1.774952
 n_modes = 62
 te1_triplets_re_k = [1.765272, 2.548337]
 te1_triplets_im_k = [0.388957, 0.535562]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 11
@@ -4316,7 +4546,7 @@ omega = 1.880740
 n_modes = 61
 te1_triplets_re_k = [1.774952, 2.579671]
 te1_triplets_im_k = [0.369891, 0.532046]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 11
@@ -4324,7 +4554,7 @@ omega = 2.579671
 n_modes = 65
 te1_triplets_re_k = [1.815227, 2.731578]
 te1_triplets_im_k = [0.284251, 0.481472]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 11
@@ -4332,7 +4562,7 @@ omega = 2.731578
 n_modes = 60
 te1_triplets_re_k = [1.821108, 2.754694]
 te1_triplets_im_k = [0.271275, 0.468554]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11
@@ -4340,7 +4570,7 @@ omega = 2.754694
 n_modes = 60
 te1_triplets_re_k = [1.821946, 2.757984]
 te1_triplets_im_k = [0.269415, 0.466591]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11
@@ -4348,7 +4578,7 @@ omega = 2.757984
 n_modes = 60
 te1_triplets_re_k = [1.822064, 2.758448]
 te1_triplets_im_k = [0.269153, 0.466312]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11.5
@@ -4356,7 +4586,7 @@ omega = 1.754764
 n_modes = 63
 te1_triplets_re_k = [1.754609, 2.517381]
 te1_triplets_im_k = [0.408400, 0.537117]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11.5
@@ -4364,7 +4594,7 @@ omega = 1.756091
 n_modes = 60
 te1_triplets_re_k = [1.754764, 2.517806]
 te1_triplets_im_k = [0.408133, 0.537109]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11.5
@@ -4372,7 +4602,7 @@ omega = 1.767626
 n_modes = 56
 te1_triplets_re_k = [1.756091, 2.521478]
 te1_triplets_im_k = [0.405823, 0.537024]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11.5
@@ -4380,7 +4610,7 @@ omega = 1.880740
 n_modes = 57
 te1_triplets_re_k = [1.767626, 2.555667]
 te1_triplets_im_k = [0.384422, 0.534919]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 11.5
@@ -4388,7 +4618,7 @@ omega = 2.555667
 n_modes = 60
 te1_triplets_re_k = [1.809378, 2.708597]
 te1_triplets_im_k = [0.297042, 0.492874]
-wall_s = 1.3
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 11.5
@@ -4404,7 +4634,7 @@ omega = 2.733370
 n_modes = 60
 te1_triplets_re_k = [1.816637, 2.737122]
 te1_triplets_im_k = [0.281151, 0.478510]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 11.5
@@ -4412,7 +4642,7 @@ omega = 2.737122
 n_modes = 60
 te1_triplets_re_k = [1.816780, 2.737685]
 te1_triplets_im_k = [0.280836, 0.478204]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4420,7 +4650,7 @@ omega = 1.751235
 n_modes = 59
 te1_triplets_re_k = [2.491989]
 te1_triplets_im_k = [0.536802]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4428,7 +4658,7 @@ omega = 1.759908
 n_modes = 58
 te1_triplets_re_k = [2.494834]
 te1_triplets_im_k = [0.536921]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4436,7 +4666,7 @@ omega = 1.801657
 n_modes = 62
 te1_triplets_re_k = [1.751235, 2.508235]
 te1_triplets_im_k = [0.414111, 0.537189]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4444,7 +4674,7 @@ omega = 1.880740
 n_modes = 56
 te1_triplets_re_k = [1.759908, 2.532318]
 te1_triplets_im_k = [0.398989, 0.536605]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4452,7 +4682,7 @@ omega = 2.491989
 n_modes = 63
 te1_triplets_re_k = [1.801520, 2.677893]
 te1_triplets_im_k = [0.314070, 0.505972]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4460,7 +4690,7 @@ omega = 2.494834
 n_modes = 60
 te1_triplets_re_k = [1.801657, 2.678426]
 te1_triplets_im_k = [0.313774, 0.505765]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4468,7 +4698,7 @@ omega = 2.532318
 n_modes = 62
 te1_triplets_re_k = [1.803433, 2.685341]
 te1_triplets_im_k = [0.309939, 0.503015]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 12
@@ -4476,7 +4706,7 @@ omega = 2.678426
 n_modes = 60
 te1_triplets_re_k = [1.809864, 2.710503]
 te1_triplets_im_k = [0.295984, 0.491981]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4484,7 +4714,7 @@ omega = 2.685341
 n_modes = 60
 te1_triplets_re_k = [1.810150, 2.711628]
 te1_triplets_im_k = [0.295359, 0.491450]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4492,7 +4722,7 @@ omega = 2.710503
 n_modes = 60
 te1_triplets_re_k = [1.811180, 2.715672]
 te1_triplets_im_k = [0.293112, 0.489513]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4508,7 +4738,7 @@ omega = 2.715672
 n_modes = 60
 te1_triplets_re_k = [1.811389, 2.716493]
 te1_triplets_im_k = [0.292655, 0.489114]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12
@@ -4532,7 +4762,7 @@ omega = 1.736782
 n_modes = 61
 te1_triplets_re_k = [1.734998, 2.463428]
 te1_triplets_im_k = [0.441923, 0.534286]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12.5
@@ -4540,7 +4770,7 @@ omega = 1.751686
 n_modes = 69
 te1_triplets_re_k = [1.736782, 2.468422]
 te1_triplets_im_k = [0.438713, 0.534909]
-wall_s = 1.7
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 12.5
@@ -4548,7 +4778,7 @@ omega = 1.880740
 n_modes = 62
 te1_triplets_re_k = [1.751686, 2.509447]
 te1_triplets_im_k = [0.413359, 0.537191]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12.5
@@ -4556,7 +4786,7 @@ omega = 2.509447
 n_modes = 58
 te1_triplets_re_k = [1.797370, 2.661835]
 te1_triplets_im_k = [0.322990, 0.511875]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12.5
@@ -4564,7 +4794,7 @@ omega = 2.661835
 n_modes = 60
 te1_triplets_re_k = [1.804498, 2.689495]
 te1_triplets_im_k = [0.307636, 0.501305]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12.5
@@ -4572,7 +4802,7 @@ omega = 2.689495
 n_modes = 60
 te1_triplets_re_k = [1.805700, 2.694193]
 te1_triplets_im_k = [0.305032, 0.499318]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 12.5
@@ -4580,7 +4810,7 @@ omega = 2.694193
 n_modes = 60
 te1_triplets_re_k = [1.805902, 2.694981]
 te1_triplets_im_k = [0.304595, 0.498979]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13
@@ -4588,7 +4818,7 @@ omega = 1.733235
 n_modes = 81
 te1_triplets_re_k = [2.439343]
 te1_triplets_im_k = [0.530095]
-wall_s = 1.7
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 13
@@ -4596,7 +4826,7 @@ omega = 1.788556
 n_modes = 101
 te1_triplets_re_k = [2.457671]
 te1_triplets_im_k = [0.533465]
-wall_s = 4.4
+wall_s = 4.7
 
 [[solve]]
 sigma_0 = 13
@@ -4604,7 +4834,7 @@ omega = 1.791157
 n_modes = 75
 te1_triplets_re_k = [1.733235, 2.458521]
 te1_triplets_im_k = [0.445119, 0.533593]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 13
@@ -4612,7 +4842,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [2.486964]
 te1_triplets_im_k = [0.536537]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13
@@ -4628,7 +4858,7 @@ omega = 2.457671
 n_modes = 58
 te1_triplets_re_k = [1.789571, 2.632168]
 te1_triplets_im_k = [0.339594, 0.521089]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13
@@ -4636,7 +4866,7 @@ omega = 2.486964
 n_modes = 62
 te1_triplets_re_k = [1.791157, 2.638134]
 te1_triplets_im_k = [0.336237, 0.519413]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 13
@@ -4644,7 +4874,7 @@ omega = 2.638134
 n_modes = 60
 te1_triplets_re_k = [1.798710, 2.667007]
 te1_triplets_im_k = [0.320114, 0.510045]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13
@@ -4652,7 +4882,7 @@ omega = 2.667007
 n_modes = 61
 te1_triplets_re_k = [1.800046, 2.672175]
 te1_triplets_im_k = [0.317243, 0.508148]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13
@@ -4660,7 +4890,7 @@ omega = 2.672175
 n_modes = 60
 te1_triplets_re_k = [1.800282, 2.673089]
 te1_triplets_im_k = [0.316736, 0.507806]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4668,7 +4898,7 @@ omega = 1.735557
 n_modes = 79
 te1_triplets_re_k = [2.418378]
 te1_triplets_im_k = [0.524729]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 13.5
@@ -4684,7 +4914,7 @@ omega = 1.880740
 n_modes = 75
 te1_triplets_re_k = [1.735557, 2.464989]
 te1_triplets_im_k = [0.440915, 0.534489]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 13.5
@@ -4692,7 +4922,7 @@ omega = 2.418378
 n_modes = 64
 te1_triplets_re_k = [1.782022, 2.604408]
 te1_triplets_im_k = [0.355410, 0.527723]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4708,7 +4938,7 @@ omega = 2.464989
 n_modes = 85
 te1_triplets_re_k = [1.784766, 2.614361]
 te1_triplets_im_k = [0.349697, 0.525565]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 13.5
@@ -4716,7 +4946,7 @@ omega = 2.604408
 n_modes = 69
 te1_triplets_re_k = [1.792267, 2.642331]
 te1_triplets_im_k = [0.333881, 0.518180]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4724,7 +4954,7 @@ omega = 2.614361
 n_modes = 64
 te1_triplets_re_k = [1.792767, 2.644227]
 te1_triplets_im_k = [0.332818, 0.517609]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4732,7 +4962,7 @@ omega = 2.642331
 n_modes = 60
 te1_triplets_re_k = [1.794149, 2.649487]
 te1_triplets_im_k = [0.329876, 0.515977]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4740,7 +4970,7 @@ omega = 2.644227
 n_modes = 60
 te1_triplets_re_k = [1.794241, 2.649840]
 te1_triplets_im_k = [0.329678, 0.515865]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4748,7 +4978,7 @@ omega = 2.649487
 n_modes = 60
 te1_triplets_re_k = [1.794497, 2.650817]
 te1_triplets_im_k = [0.329133, 0.515554]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4756,7 +4986,7 @@ omega = 2.649840
 n_modes = 60
 te1_triplets_re_k = [1.794514, 2.650882]
 te1_triplets_im_k = [0.329096, 0.515533]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4764,7 +4994,7 @@ omega = 2.650817
 n_modes = 60
 te1_triplets_re_k = [1.794561, 2.651063]
 te1_triplets_im_k = [0.328995, 0.515475]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 13.5
@@ -4772,7 +5002,7 @@ omega = 2.650882
 n_modes = 60
 te1_triplets_re_k = [1.794565, 2.651075]
 te1_triplets_im_k = [0.328989, 0.515471]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 14
@@ -4780,7 +5010,7 @@ omega = 1.776116
 n_modes = 79
 te1_triplets_re_k = [2.410864]
 te1_triplets_im_k = [0.522384]
-wall_s = 1.7
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 14
@@ -4788,7 +5018,7 @@ omega = 1.778160
 n_modes = 81
 te1_triplets_re_k = [2.411512]
 te1_triplets_im_k = [0.522596]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 14
@@ -4796,7 +5026,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [2.443746]
 te1_triplets_im_k = [0.531013]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 14
@@ -4804,7 +5034,7 @@ omega = 2.411512
 n_modes = 76
 te1_triplets_re_k = [1.776116, 2.583644]
 te1_triplets_im_k = [0.367534, 0.531449]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14
@@ -4812,7 +5042,7 @@ omega = 2.443746
 n_modes = 96
 te1_triplets_re_k = [1.778160, 2.590719]
 te1_triplets_im_k = [0.363368, 0.530295]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 14
@@ -4820,7 +5050,7 @@ omega = 2.590719
 n_modes = 72
 te1_triplets_re_k = [1.786643, 2.621265]
 te1_triplets_im_k = [0.345764, 0.523924]
-wall_s = 1.5
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 14
@@ -4828,7 +5058,7 @@ omega = 2.621265
 n_modes = 61
 te1_triplets_re_k = [1.788259, 2.627261]
 te1_triplets_im_k = [0.342365, 0.522402]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14
@@ -4836,7 +5066,7 @@ omega = 2.627261
 n_modes = 61
 te1_triplets_re_k = [1.788571, 2.628424]
 te1_triplets_im_k = [0.341707, 0.522096]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14
@@ -4844,7 +5074,7 @@ omega = 2.628424
 n_modes = 61
 te1_triplets_re_k = [1.788631, 2.628649]
 te1_triplets_im_k = [0.341580, 0.522037]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14.5
@@ -4852,7 +5082,7 @@ omega = 1.768963
 n_modes = 75
 te1_triplets_re_k = [2.389278]
 te1_triplets_im_k = [0.514299]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 14.5
@@ -4860,7 +5090,7 @@ omega = 1.771288
 n_modes = 78
 te1_triplets_re_k = [2.389986]
 te1_triplets_im_k = [0.514598]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 14.5
@@ -4868,7 +5098,7 @@ omega = 1.880740
 n_modes = 75
 te1_triplets_re_k = [2.423450]
 te1_triplets_im_k = [0.526183]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 14.5
@@ -4876,7 +5106,7 @@ omega = 2.389986
 n_modes = 62
 te1_triplets_re_k = [1.768963, 2.559916]
 te1_triplets_im_k = [0.381813, 0.534498]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14.5
@@ -4884,7 +5114,7 @@ omega = 2.423450
 n_modes = 84
 te1_triplets_re_k = [1.771288, 2.567443]
 te1_triplets_im_k = [0.377230, 0.533662]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 14.5
@@ -4892,7 +5122,7 @@ omega = 2.567443
 n_modes = 61
 te1_triplets_re_k = [1.780308, 2.598283]
 te1_triplets_im_k = [0.358955, 0.528930]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 14.5
@@ -4908,7 +5138,7 @@ omega = 2.604563
 n_modes = 60
 te1_triplets_re_k = [1.782416, 2.605828]
 te1_triplets_im_k = [0.354592, 0.527431]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 14.5
@@ -4916,7 +5146,7 @@ omega = 2.605828
 n_modes = 60
 te1_triplets_re_k = [1.782487, 2.606082]
 te1_triplets_im_k = [0.354445, 0.527378]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 15
@@ -4924,7 +5154,7 @@ omega = 1.761441
 n_modes = 57
 te1_triplets_re_k = [2.369309]
 te1_triplets_im_k = [0.504849]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4932,7 +5162,7 @@ omega = 1.764076
 n_modes = 55
 te1_triplets_re_k = [2.370067]
 te1_triplets_im_k = [0.505246]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4940,7 +5170,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [2.404279]
 te1_triplets_im_k = [0.520136]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 15
@@ -4948,7 +5178,7 @@ omega = 2.370067
 n_modes = 61
 te1_triplets_re_k = [1.761441, 2.536801]
 te1_triplets_im_k = [0.396169, 0.536363]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4956,7 +5186,7 @@ omega = 2.404279
 n_modes = 70
 te1_triplets_re_k = [1.764076, 2.544681]
 te1_triplets_im_k = [0.391233, 0.535843]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 15
@@ -4964,7 +5194,7 @@ omega = 2.544681
 n_modes = 59
 te1_triplets_re_k = [1.773710, 2.575477]
 te1_triplets_im_k = [0.372394, 0.532637]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4972,7 +5202,7 @@ omega = 2.575477
 n_modes = 60
 te1_triplets_re_k = [1.775615, 2.581927]
 te1_triplets_im_k = [0.368551, 0.531711]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4980,7 +5210,7 @@ omega = 2.581927
 n_modes = 60
 te1_triplets_re_k = [1.776005, 2.583264]
 te1_triplets_im_k = [0.367759, 0.531507]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15
@@ -4996,7 +5226,7 @@ omega = 1.753451
 n_modes = 60
 te1_triplets_re_k = [2.351083]
 te1_triplets_im_k = [0.494326]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15.5
@@ -5004,7 +5234,7 @@ omega = 1.756421
 n_modes = 64
 te1_triplets_re_k = [2.351878]
 te1_triplets_im_k = [0.494827]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15.5
@@ -5020,7 +5250,7 @@ omega = 2.351878
 n_modes = 65
 te1_triplets_re_k = [1.753451, 2.514220]
 te1_triplets_im_k = [0.410382, 0.537164]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 15.5
@@ -5028,7 +5258,7 @@ omega = 2.386369
 n_modes = 65
 te1_triplets_re_k = [1.756421, 2.522398]
 te1_triplets_im_k = [0.405243, 0.536998]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 15.5
@@ -5036,7 +5266,7 @@ omega = 2.522398
 n_modes = 80
 te1_triplets_re_k = [1.766767, 2.552972]
 te1_triplets_im_k = [0.386084, 0.535167]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 15.5
@@ -5044,7 +5274,7 @@ omega = 2.552972
 n_modes = 62
 te1_triplets_re_k = [1.768841, 2.559525]
 te1_triplets_im_k = [0.382053, 0.534538]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15.5
@@ -5052,7 +5282,7 @@ omega = 2.559525
 n_modes = 61
 te1_triplets_re_k = [1.769275, 2.560915]
 te1_triplets_im_k = [0.381202, 0.534394]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 15.5
@@ -5060,7 +5290,7 @@ omega = 2.560915
 n_modes = 61
 te1_triplets_re_k = [1.769367, 2.561210]
 te1_triplets_im_k = [0.381022, 0.534362]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16
@@ -5068,7 +5298,7 @@ omega = 1.610942
 n_modes = 60
 te1_triplets_re_k = [1.605665, 2.304160]
 te1_triplets_im_k = [0.598328, 0.456601]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16
@@ -5076,7 +5306,7 @@ omega = 1.624161
 n_modes = 60
 te1_triplets_re_k = [1.610942, 2.306945]
 te1_triplets_im_k = [0.594877, 0.459359]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16
@@ -5084,7 +5314,7 @@ omega = 1.658660
 n_modes = 60
 te1_triplets_re_k = [1.624161, 2.314453]
 te1_triplets_im_k = [0.585714, 0.466427]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 16
@@ -5092,7 +5322,7 @@ omega = 1.759360
 n_modes = 61
 te1_triplets_re_k = [1.658660, 2.338219]
 te1_triplets_im_k = [0.558091, 0.485651]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 16
@@ -5100,7 +5330,7 @@ omega = 1.880740
 n_modes = 63
 te1_triplets_re_k = [2.369813]
 te1_triplets_im_k = [0.505113]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16
@@ -5108,7 +5338,7 @@ omega = 2.369813
 n_modes = 68
 te1_triplets_re_k = [2.500496]
 te1_triplets_im_k = [0.537091]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 16
@@ -5116,7 +5346,7 @@ omega = 2.500496
 n_modes = 59
 te1_triplets_re_k = [1.759360, 2.530734]
 te1_triplets_im_k = [0.399987, 0.536681]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 16
@@ -5124,7 +5354,7 @@ omega = 2.530734
 n_modes = 76
 te1_triplets_re_k = [1.761638, 2.537381]
 te1_triplets_im_k = [0.395804, 0.536329]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16
@@ -5132,7 +5362,7 @@ omega = 2.537381
 n_modes = 77
 te1_triplets_re_k = [1.762126, 2.538827]
 te1_triplets_im_k = [0.394897, 0.536241]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16
@@ -5140,7 +5370,7 @@ omega = 2.538827
 n_modes = 83
 te1_triplets_re_k = [1.762231, 2.539140]
 te1_triplets_im_k = [0.394700, 0.536221]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16.5
@@ -5148,7 +5378,7 @@ omega = 1.570911
 n_modes = 57
 te1_triplets_re_k = [1.567601, 2.286982]
 te1_triplets_im_k = [0.620020, 0.437801]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16.5
@@ -5156,7 +5386,7 @@ omega = 1.578291
 n_modes = 61
 te1_triplets_re_k = [1.570911, 2.288301]
 te1_triplets_im_k = [0.618342, 0.439361]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 16.5
@@ -5164,7 +5394,7 @@ omega = 1.595039
 n_modes = 63
 te1_triplets_re_k = [1.578291, 2.291349]
 te1_triplets_im_k = [0.614465, 0.442890]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 16.5
@@ -5172,7 +5402,7 @@ omega = 1.634730
 n_modes = 64
 te1_triplets_re_k = [1.595039, 2.298880]
 te1_triplets_im_k = [0.604933, 0.451160]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16.5
@@ -5180,7 +5410,7 @@ omega = 1.740554
 n_modes = 63
 te1_triplets_re_k = [1.634730, 2.321059]
 te1_triplets_im_k = [0.577832, 0.472228]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16.5
@@ -5188,7 +5418,7 @@ omega = 1.880740
 n_modes = 62
 te1_triplets_re_k = [2.354657]
 te1_triplets_im_k = [0.496546]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16.5
@@ -5196,7 +5426,7 @@ omega = 2.354657
 n_modes = 88
 te1_triplets_re_k = [1.740554, 2.479024]
 te1_triplets_im_k = [0.432033, 0.535969]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 16.5
@@ -5204,7 +5434,7 @@ omega = 2.479024
 n_modes = 69
 te1_triplets_re_k = [1.751384, 2.508635]
 te1_triplets_im_k = [0.413863, 0.537190]
-wall_s = 1.5
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 16.5
@@ -5212,7 +5442,7 @@ omega = 2.508635
 n_modes = 66
 te1_triplets_re_k = [1.753866, 2.515350]
 te1_triplets_im_k = [0.409675, 0.537150]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 16.5
@@ -5220,7 +5450,7 @@ omega = 2.515350
 n_modes = 60
 te1_triplets_re_k = [1.754417, 2.516855]
 te1_triplets_im_k = [0.408731, 0.537126]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 16.5
@@ -5228,7 +5458,7 @@ omega = 2.516855
 n_modes = 60
 te1_triplets_re_k = [1.754540, 2.517191]
 te1_triplets_im_k = [0.408519, 0.537121]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17
@@ -5236,7 +5466,7 @@ omega = 1.526546
 n_modes = 78
 te1_triplets_re_k = [1.524751, 2.272149]
 te1_triplets_im_k = [0.638597, 0.418761]
-wall_s = 2.0
+wall_s = 2.2
 
 [[solve]]
 sigma_0 = 17
@@ -5244,7 +5474,7 @@ omega = 1.530190
 n_modes = 66
 te1_triplets_re_k = [1.526546, 2.272698]
 te1_triplets_im_k = [0.637929, 0.419518]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17
@@ -5252,7 +5482,7 @@ omega = 1.537637
 n_modes = 65
 te1_triplets_re_k = [1.530190, 2.273831]
 te1_triplets_im_k = [0.636544, 0.421066]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17
@@ -5260,7 +5490,7 @@ omega = 1.553075
 n_modes = 67
 te1_triplets_re_k = [1.537637, 2.276220]
 te1_triplets_im_k = [0.633595, 0.424272]
-wall_s = 1.8
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17
@@ -5268,7 +5498,7 @@ omega = 1.586075
 n_modes = 66
 te1_triplets_re_k = [1.553075, 2.281516]
 te1_triplets_im_k = [0.626954, 0.431112]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17
@@ -5276,7 +5506,7 @@ omega = 1.662065
 n_modes = 69
 te1_triplets_re_k = [1.586075, 2.294738]
 te1_triplets_im_k = [0.610164, 0.446688]
-wall_s = 4.2
+wall_s = 4.6
 
 [[solve]]
 sigma_0 = 17
@@ -5284,7 +5514,7 @@ omega = 1.880740
 n_modes = 69
 te1_triplets_re_k = [1.662065, 2.340903]
 te1_triplets_im_k = [0.555056, 0.487554]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17
@@ -5300,7 +5530,7 @@ omega = 2.458177
 n_modes = 61
 te1_triplets_re_k = [2.486669]
 te1_triplets_im_k = [0.536520]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17
@@ -5308,7 +5538,7 @@ omega = 2.486669
 n_modes = 58
 te1_triplets_re_k = [2.493324]
 te1_triplets_im_k = [0.536861]
-wall_s = 1.4
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 17
@@ -5316,7 +5546,7 @@ omega = 2.493324
 n_modes = 60
 te1_triplets_re_k = [2.494862]
 te1_triplets_im_k = [0.536922]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17
@@ -5324,7 +5554,7 @@ omega = 2.494862
 n_modes = 60
 te1_triplets_re_k = [2.495217]
 te1_triplets_im_k = [0.536935]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17.5
@@ -5332,7 +5562,7 @@ omega = 1.483077
 n_modes = 44
 te1_triplets_re_k = [1.480272, 2.260035]
 te1_triplets_im_k = [0.652419, 0.400968]
-wall_s = 1.6
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 17.5
@@ -5340,7 +5570,7 @@ omega = 1.488418
 n_modes = 51
 te1_triplets_re_k = [1.483077, 2.260724]
 te1_triplets_im_k = [0.651695, 0.402039]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 17.5
@@ -5348,7 +5578,7 @@ omega = 1.498667
 n_modes = 51
 te1_triplets_re_k = [1.488418, 2.262061]
 te1_triplets_im_k = [0.650265, 0.404096]
-wall_s = 1.7
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 17.5
@@ -5356,7 +5586,7 @@ omega = 1.518633
 n_modes = 59
 te1_triplets_re_k = [1.498667, 2.264723]
 te1_triplets_im_k = [0.647321, 0.408111]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17.5
@@ -5364,7 +5594,7 @@ omega = 1.558778
 n_modes = 70
 te1_triplets_re_k = [1.518633, 2.270315]
 te1_triplets_im_k = [0.640807, 0.416205]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17.5
@@ -5372,7 +5602,7 @@ omega = 1.645657
 n_modes = 72
 te1_triplets_re_k = [1.558778, 2.283602]
 te1_triplets_im_k = [0.624314, 0.433708]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17.5
@@ -5380,7 +5610,7 @@ omega = 1.734191
 n_modes = 68
 te1_triplets_re_k = [1.595188, 2.298951]
 te1_triplets_im_k = [0.604844, 0.451235]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 17.5
@@ -5388,7 +5618,7 @@ omega = 1.880740
 n_modes = 70
 te1_triplets_re_k = [1.645657, 2.328508]
 te1_triplets_im_k = [0.569148, 0.478334]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 17.5
@@ -5396,7 +5626,7 @@ omega = 2.264723
 n_modes = 80
 te1_triplets_re_k = [2.422153]
 te1_triplets_im_k = [0.525821]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 17.5
@@ -5404,7 +5634,7 @@ omega = 2.328508
 n_modes = 74
 te1_triplets_re_k = [2.438173]
 te1_triplets_im_k = [0.529839]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17.5
@@ -5412,7 +5642,7 @@ omega = 2.422153
 n_modes = 66
 te1_triplets_re_k = [1.734191, 2.461178]
 te1_triplets_im_k = [0.443384, 0.533978]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17.5
@@ -5420,7 +5650,7 @@ omega = 2.438173
 n_modes = 69
 te1_triplets_re_k = [1.735572, 2.465031]
 te1_triplets_im_k = [0.440888, 0.534495]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 17.5
@@ -5428,7 +5658,7 @@ omega = 2.465031
 n_modes = 60
 te1_triplets_re_k = [1.737853, 2.471430]
 te1_triplets_im_k = [0.436799, 0.535245]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 17.5
@@ -5436,7 +5666,7 @@ omega = 2.471430
 n_modes = 60
 te1_triplets_re_k = [1.738391, 2.472943]
 te1_triplets_im_k = [0.435843, 0.535404]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 17.5
@@ -5444,7 +5674,7 @@ omega = 2.472943
 n_modes = 60
 te1_triplets_re_k = [1.738518, 2.473300]
 te1_triplets_im_k = [0.435617, 0.535440]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5452,7 +5682,7 @@ omega = 1.437466
 n_modes = 36
 te1_triplets_re_k = [1.433468, 2.249691]
 te1_triplets_im_k = [0.661797, 0.383965]
-wall_s = 1.7
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 18
@@ -5460,7 +5690,7 @@ omega = 1.444737
 n_modes = 36
 te1_triplets_re_k = [1.437466, 2.250499]
 te1_triplets_im_k = [0.661187, 0.385358]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 18
@@ -5476,7 +5706,7 @@ omega = 1.482902
 n_modes = 43
 te1_triplets_re_k = [1.458072, 2.254876]
 te1_triplets_im_k = [0.657487, 0.392709]
-wall_s = 1.7
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 18
@@ -5484,7 +5714,7 @@ omega = 1.530600
 n_modes = 64
 te1_triplets_re_k = [1.482902, 2.260681]
 te1_triplets_im_k = [0.651741, 0.401972]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 18
@@ -5492,7 +5722,7 @@ omega = 1.628980
 n_modes = 64
 te1_triplets_re_k = [1.530600, 2.273960]
 te1_triplets_im_k = [0.636386, 0.421241]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5500,7 +5730,7 @@ omega = 1.729841
 n_modes = 68
 te1_triplets_re_k = [1.574193, 2.289638]
 te1_triplets_im_k = [0.616641, 0.440922]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5508,7 +5738,7 @@ omega = 1.880740
 n_modes = 70
 te1_triplets_re_k = [1.628980, 2.317394]
 te1_triplets_im_k = [0.582183, 0.469056]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5516,7 +5746,7 @@ omega = 2.260681
 n_modes = 69
 te1_triplets_re_k = [2.405215]
 te1_triplets_im_k = [0.520467]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5524,7 +5754,7 @@ omega = 2.317394
 n_modes = 74
 te1_triplets_re_k = [2.419195]
 te1_triplets_im_k = [0.524970]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18
@@ -5532,7 +5762,7 @@ omega = 2.405215
 n_modes = 68
 te1_triplets_re_k = [2.440638]
 te1_triplets_im_k = [0.530372]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5540,7 +5770,7 @@ omega = 2.419195
 n_modes = 69
 te1_triplets_re_k = [2.444011]
 te1_triplets_im_k = [0.531066]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5548,7 +5778,7 @@ omega = 2.440638
 n_modes = 67
 te1_triplets_re_k = [1.729841, 2.449157]
 te1_triplets_im_k = [0.451321, 0.532046]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18
@@ -5556,7 +5786,7 @@ omega = 2.444011
 n_modes = 67
 te1_triplets_re_k = [1.730134, 2.449963]
 te1_triplets_im_k = [0.450782, 0.532191]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18
@@ -5564,7 +5794,7 @@ omega = 2.449963
 n_modes = 67
 te1_triplets_re_k = [1.730651, 2.451384]
 te1_triplets_im_k = [0.449835, 0.532441]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18
@@ -5572,7 +5802,7 @@ omega = 2.451384
 n_modes = 68
 te1_triplets_re_k = [1.730774, 2.451723]
 te1_triplets_im_k = [0.449609, 0.532500]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5580,7 +5810,7 @@ omega = 1.390938
 n_modes = 42
 te1_triplets_re_k = [1.385694, 2.240888]
 te1_triplets_im_k = [0.666492, 0.368036]
-wall_s = 2.0
+wall_s = 2.2
 
 [[solve]]
 sigma_0 = 18.5
@@ -5588,7 +5818,7 @@ omega = 1.400196
 n_modes = 46
 te1_triplets_re_k = [1.390938, 2.241785]
 te1_triplets_im_k = [0.666205, 0.369724]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5596,7 +5826,7 @@ omega = 1.416671
 n_modes = 36
 te1_triplets_re_k = [1.400196, 2.243406]
 te1_triplets_im_k = [0.665562, 0.372739]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 18.5
@@ -5604,7 +5834,7 @@ omega = 1.446424
 n_modes = 37
 te1_triplets_re_k = [1.416671, 2.246424]
 te1_triplets_im_k = [0.663987, 0.378218]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 18.5
@@ -5612,7 +5842,7 @@ omega = 1.501774
 n_modes = 42
 te1_triplets_re_k = [1.446424, 2.252357]
 te1_triplets_im_k = [0.659694, 0.388519]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 18.5
@@ -5620,7 +5850,7 @@ omega = 1.611898
 n_modes = 74
 te1_triplets_re_k = [1.501774, 2.265556]
 te1_triplets_im_k = [0.646376, 0.409346]
-wall_s = 4.3
+wall_s = 4.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5628,7 +5858,7 @@ omega = 1.880740
 n_modes = 65
 te1_triplets_re_k = [1.611898, 2.307462]
 te1_triplets_im_k = [0.594240, 0.459862]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5636,7 +5866,7 @@ omega = 2.265556
 n_modes = 59
 te1_triplets_re_k = [2.391332]
 te1_triplets_im_k = [0.515160]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 18.5
@@ -5644,7 +5874,7 @@ omega = 2.307462
 n_modes = 67
 te1_triplets_re_k = [2.401371]
 te1_triplets_im_k = [0.519084]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5652,7 +5882,7 @@ omega = 2.391332
 n_modes = 66
 te1_triplets_re_k = [2.421483]
 te1_triplets_im_k = [0.525631]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5660,7 +5890,7 @@ omega = 2.401371
 n_modes = 69
 te1_triplets_re_k = [2.423881]
 te1_triplets_im_k = [0.526302]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5668,7 +5898,7 @@ omega = 2.421483
 n_modes = 68
 te1_triplets_re_k = [2.428675]
 te1_triplets_im_k = [0.527575]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18.5
@@ -5676,7 +5906,7 @@ omega = 2.423881
 n_modes = 68
 te1_triplets_re_k = [2.429246]
 te1_triplets_im_k = [0.527720]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18.5
@@ -5684,7 +5914,7 @@ omega = 2.428675
 n_modes = 68
 te1_triplets_re_k = [2.430385]
 te1_triplets_im_k = [0.528008]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 18.5
@@ -5700,7 +5930,7 @@ omega = 2.430385
 n_modes = 68
 te1_triplets_re_k = [2.430792]
 te1_triplets_im_k = [0.528109]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 18.5
@@ -5716,7 +5946,7 @@ omega = 1.344675
 n_modes = 40
 te1_triplets_re_k = [1.338274, 2.233422]
 te1_triplets_im_k = [0.666643, 0.353343]
-wall_s = 2.0
+wall_s = 2.3
 
 [[solve]]
 sigma_0 = 19
@@ -5732,7 +5962,7 @@ omega = 1.375245
 n_modes = 45
 te1_triplets_re_k = [1.355794, 2.236055]
 te1_triplets_im_k = [0.667095, 0.358658]
-wall_s = 3.0
+wall_s = 3.4
 
 [[solve]]
 sigma_0 = 19
@@ -5740,7 +5970,7 @@ omega = 1.409736
 n_modes = 41
 te1_triplets_re_k = [1.375245, 2.239147]
 te1_triplets_im_k = [0.666902, 0.364712]
-wall_s = 2.0
+wall_s = 2.3
 
 [[solve]]
 sigma_0 = 19
@@ -5748,7 +5978,7 @@ omega = 1.472580
 n_modes = 41
 te1_triplets_re_k = [1.409736, 2.245132]
 te1_triplets_im_k = [0.664718, 0.375893]
-wall_s = 3.9
+wall_s = 4.3
 
 [[solve]]
 sigma_0 = 19
@@ -5756,7 +5986,7 @@ omega = 1.519861
 n_modes = 59
 te1_triplets_re_k = [1.434791, 2.249957]
 te1_triplets_im_k = [0.661599, 0.384425]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 19
@@ -5764,7 +5994,7 @@ omega = 1.594443
 n_modes = 76
 te1_triplets_re_k = [1.472580, 2.258191]
 te1_triplets_im_k = [0.654306, 0.398064]
-wall_s = 2.1
+wall_s = 2.4
 
 [[solve]]
 sigma_0 = 19
@@ -5772,7 +6002,7 @@ omega = 1.693760
 n_modes = 68
 te1_triplets_re_k = [1.519248, 2.270496]
 te1_triplets_im_k = [0.640590, 0.416460]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5780,7 +6010,7 @@ omega = 1.695131
 n_modes = 64
 te1_triplets_re_k = [1.519861, 2.270678]
 te1_triplets_im_k = [0.640372, 0.416714]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 19
@@ -5788,7 +6018,7 @@ omega = 1.880740
 n_modes = 60
 te1_triplets_re_k = [1.594443, 2.298596]
 te1_triplets_im_k = [0.605291, 0.450859]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5796,7 +6026,7 @@ omega = 2.249957
 n_modes = 63
 te1_triplets_re_k = [1.693760, 2.373591]
 te1_triplets_im_k = [0.517291, 0.507049]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5804,7 +6034,7 @@ omega = 2.258191
 n_modes = 56
 te1_triplets_re_k = [1.695131, 2.375476]
 te1_triplets_im_k = [0.515369, 0.507986]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5812,7 +6042,7 @@ omega = 2.298596
 n_modes = 63
 te1_triplets_re_k = [2.384787]
 te1_triplets_im_k = [0.512349]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 19
@@ -5820,7 +6050,7 @@ omega = 2.384787
 n_modes = 68
 te1_triplets_re_k = [2.404867]
 te1_triplets_im_k = [0.520344]
-wall_s = 1.5
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 19
@@ -5828,7 +6058,7 @@ omega = 2.404867
 n_modes = 63
 te1_triplets_re_k = [2.409561]
 te1_triplets_im_k = [0.521954]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5836,7 +6066,7 @@ omega = 2.409561
 n_modes = 67
 te1_triplets_re_k = [2.410657]
 te1_triplets_im_k = [0.522317]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19
@@ -5844,7 +6074,7 @@ omega = 2.410657
 n_modes = 67
 te1_triplets_re_k = [2.410914]
 te1_triplets_im_k = [0.522401]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5852,7 +6082,7 @@ omega = 1.299691
 n_modes = 41
 te1_triplets_re_k = [1.292341, 2.227111]
 te1_triplets_im_k = [0.662695, 0.339951]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 19.5
@@ -5860,7 +6090,7 @@ omega = 1.312393
 n_modes = 36
 te1_triplets_re_k = [1.299691, 2.228068]
 te1_triplets_im_k = [0.663594, 0.342046]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 19.5
@@ -5868,7 +6098,7 @@ omega = 1.334475
 n_modes = 35
 te1_triplets_re_k = [1.312393, 2.229768]
 te1_triplets_im_k = [0.664907, 0.345707]
-wall_s = 1.6
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 19.5
@@ -5876,7 +6106,7 @@ omega = 1.373316
 n_modes = 43
 te1_triplets_re_k = [1.334475, 2.232869]
 te1_triplets_im_k = [0.666468, 0.352207]
-wall_s = 2.0
+wall_s = 2.2
 
 [[solve]]
 sigma_0 = 19.5
@@ -5892,7 +6122,7 @@ omega = 1.576701
 n_modes = 62
 te1_triplets_re_k = [1.443295, 2.251701]
 te1_triplets_im_k = [0.660236, 0.387409]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 19.5
@@ -5900,7 +6130,7 @@ omega = 1.880740
 n_modes = 61
 te1_triplets_re_k = [1.576701, 2.290680]
 te1_triplets_im_k = [0.615316, 0.442124]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5908,7 +6138,7 @@ omega = 2.251701
 n_modes = 58
 te1_triplets_re_k = [2.360928]
 te1_triplets_im_k = [0.500252]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5916,7 +6146,7 @@ omega = 2.290680
 n_modes = 58
 te1_triplets_re_k = [2.369487]
 te1_triplets_im_k = [0.504943]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5924,7 +6154,7 @@ omega = 2.360928
 n_modes = 59
 te1_triplets_re_k = [2.385203]
 te1_triplets_im_k = [0.512533]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 19.5
@@ -5932,7 +6162,7 @@ omega = 2.369487
 n_modes = 60
 te1_triplets_re_k = [2.387136]
 te1_triplets_im_k = [0.513381]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5940,7 +6170,7 @@ omega = 2.385203
 n_modes = 59
 te1_triplets_re_k = [2.390694]
 te1_triplets_im_k = [0.514895]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5948,7 +6178,7 @@ omega = 2.387136
 n_modes = 60
 te1_triplets_re_k = [2.391132]
 te1_triplets_im_k = [0.515077]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 19.5
@@ -5956,7 +6186,7 @@ omega = 2.390694
 n_modes = 63
 te1_triplets_re_k = [2.391939]
 te1_triplets_im_k = [0.515410]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5964,7 +6194,7 @@ omega = 2.391132
 n_modes = 60
 te1_triplets_re_k = [2.392039]
 te1_triplets_im_k = [0.515451]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 19.5
@@ -5972,7 +6202,7 @@ omega = 2.391939
 n_modes = 61
 te1_triplets_re_k = [2.392222]
 te1_triplets_im_k = [0.515526]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20
@@ -5980,7 +6210,7 @@ omega = 1.256759
 n_modes = 39
 te1_triplets_re_k = [1.248739, 2.221801]
 te1_triplets_im_k = [0.655285, 0.327850]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20
@@ -5988,7 +6218,7 @@ omega = 1.270670
 n_modes = 47
 te1_triplets_re_k = [1.256759, 2.222733]
 te1_triplets_im_k = [0.656916, 0.330037]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 20
@@ -5996,7 +6226,7 @@ omega = 1.294915
 n_modes = 38
 te1_triplets_re_k = [1.270670, 2.224396]
 te1_triplets_im_k = [0.659458, 0.333870]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20
@@ -6012,7 +6242,7 @@ omega = 1.414168
 n_modes = 40
 te1_triplets_re_k = [1.337572, 2.233319]
 te1_triplets_im_k = [0.666613, 0.353132]
-wall_s = 2.5
+wall_s = 2.6
 
 [[solve]]
 sigma_0 = 20
@@ -6020,7 +6250,7 @@ omega = 1.558774
 n_modes = 53
 te1_triplets_re_k = [1.414168, 2.245954]
 te1_triplets_im_k = [0.664262, 0.377376]
-wall_s = 2.0
+wall_s = 2.3
 
 [[solve]]
 sigma_0 = 20
@@ -6028,7 +6258,7 @@ omega = 1.670355
 n_modes = 71
 te1_triplets_re_k = [1.468830, 2.257314]
 te1_triplets_im_k = [0.655175, 0.396665]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20
@@ -6036,7 +6266,7 @@ omega = 1.673086
 n_modes = 67
 te1_triplets_re_k = [1.470112, 2.257612]
 te1_triplets_im_k = [0.654882, 0.397142]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20
@@ -6044,7 +6274,7 @@ omega = 1.880740
 n_modes = 64
 te1_triplets_re_k = [1.558774, 2.283600]
 te1_triplets_im_k = [0.624316, 0.433706]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20
@@ -6052,7 +6282,7 @@ omega = 2.245954
 n_modes = 65
 te1_triplets_re_k = [1.670355, 2.347667]
 te1_triplets_im_k = [0.547268, 0.492130]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20
@@ -6060,7 +6290,7 @@ omega = 2.257314
 n_modes = 65
 te1_triplets_re_k = [1.673086, 2.350006]
 te1_triplets_im_k = [0.544462, 0.493642]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 20
@@ -6068,7 +6298,7 @@ omega = 2.283600
 n_modes = 66
 te1_triplets_re_k = [2.355477]
 te1_triplets_im_k = [0.497044]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20
@@ -6076,7 +6306,7 @@ omega = 2.355477
 n_modes = 67
 te1_triplets_re_k = [1.691693, 2.370796]
 te1_triplets_im_k = [0.520200, 0.505625]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20
@@ -6084,7 +6314,7 @@ omega = 2.370796
 n_modes = 68
 te1_triplets_re_k = [1.694144, 2.374117]
 te1_triplets_im_k = [0.516752, 0.507312]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20
@@ -6092,7 +6322,7 @@ omega = 2.374117
 n_modes = 68
 te1_triplets_re_k = [1.694669, 2.374839]
 te1_triplets_im_k = [0.516015, 0.507672]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6100,7 +6330,7 @@ omega = 1.216395
 n_modes = 41
 te1_triplets_re_k = [1.208007, 2.217359]
 te1_triplets_im_k = [0.645120, 0.316982]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 20.5
@@ -6108,7 +6338,7 @@ omega = 1.231103
 n_modes = 39
 te1_triplets_re_k = [1.216395, 2.218235]
 te1_triplets_im_k = [0.647472, 0.319190]
-wall_s = 1.7
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 20.5
@@ -6116,7 +6346,7 @@ omega = 1.256979
 n_modes = 43
 te1_triplets_re_k = [1.231103, 2.219820]
 te1_triplets_im_k = [0.651271, 0.323098]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20.5
@@ -6124,7 +6354,7 @@ omega = 1.302829
 n_modes = 44
 te1_triplets_re_k = [1.256979, 2.222759]
 te1_triplets_im_k = [0.656959, 0.330097]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20.5
@@ -6132,7 +6362,7 @@ omega = 1.385412
 n_modes = 38
 te1_triplets_re_k = [1.302829, 2.228483]
 te1_triplets_im_k = [0.663946, 0.342945]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20.5
@@ -6140,7 +6370,7 @@ omega = 1.540760
 n_modes = 45
 te1_triplets_re_k = [1.385412, 2.240841]
 te1_triplets_im_k = [0.666506, 0.367945]
-wall_s = 1.6
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 20.5
@@ -6148,7 +6378,7 @@ omega = 1.655325
 n_modes = 61
 te1_triplets_re_k = [1.442229, 2.251479]
 te1_triplets_im_k = [0.660416, 0.387032]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6156,7 +6386,7 @@ omega = 1.657987
 n_modes = 63
 te1_triplets_re_k = [1.443500, 2.251744]
 te1_triplets_im_k = [0.660201, 0.387481]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6164,7 +6394,7 @@ omega = 1.880740
 n_modes = 63
 te1_triplets_re_k = [1.540760, 2.277253]
 te1_triplets_im_k = [0.632310, 0.425634]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6172,7 +6402,7 @@ omega = 2.240841
 n_modes = 61
 te1_triplets_re_k = [1.655325, 2.335644]
 te1_triplets_im_k = [0.561004, 0.483778]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20.5
@@ -6180,7 +6410,7 @@ omega = 2.251479
 n_modes = 62
 te1_triplets_re_k = [1.657987, 2.337695]
 te1_triplets_im_k = [0.558683, 0.485275]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20.5
@@ -6188,7 +6418,7 @@ omega = 2.277253
 n_modes = 62
 te1_triplets_re_k = [1.664346, 2.342731]
 te1_triplets_im_k = [0.552982, 0.488820]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 20.5
@@ -6196,7 +6426,7 @@ omega = 2.342731
 n_modes = 65
 te1_triplets_re_k = [2.355895]
 te1_triplets_im_k = [0.497296]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6204,7 +6434,7 @@ omega = 2.355895
 n_modes = 64
 te1_triplets_re_k = [2.358599]
 te1_triplets_im_k = [0.498902]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 20.5
@@ -6212,7 +6442,7 @@ omega = 2.358599
 n_modes = 65
 te1_triplets_re_k = [2.359156]
 te1_triplets_im_k = [0.499228]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21
@@ -6228,7 +6458,7 @@ omega = 1.193987
 n_modes = 42
 te1_triplets_re_k = [1.178883, 2.214465]
 te1_triplets_im_k = [0.635890, 0.309425]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 21
@@ -6236,7 +6466,7 @@ omega = 1.220953
 n_modes = 46
 te1_triplets_re_k = [1.193987, 2.215937]
 te1_triplets_im_k = [0.640884, 0.313324]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 21
@@ -6244,7 +6474,7 @@ omega = 1.269332
 n_modes = 36
 te1_triplets_re_k = [1.220953, 2.218720]
 te1_triplets_im_k = [0.648694, 0.320396]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 21
@@ -6252,7 +6482,7 @@ omega = 1.357205
 n_modes = 40
 te1_triplets_re_k = [1.269332, 2.224234]
 te1_triplets_im_k = [0.659229, 0.333499]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 21
@@ -6260,7 +6490,7 @@ omega = 1.522751
 n_modes = 45
 te1_triplets_re_k = [1.357205, 2.236273]
 te1_triplets_im_k = [0.667106, 0.359091]
-wall_s = 2.5
+wall_s = 2.6
 
 [[solve]]
 sigma_0 = 21
@@ -6268,7 +6498,7 @@ omega = 1.640318
 n_modes = 63
 te1_triplets_re_k = [1.415913, 2.246281]
 te1_triplets_im_k = [0.664072, 0.377962]
-wall_s = 1.5
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21
@@ -6284,7 +6514,7 @@ omega = 1.880740
 n_modes = 62
 te1_triplets_re_k = [1.522751, 2.271543]
 te1_triplets_im_k = [0.639331, 0.417921]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 21
@@ -6292,7 +6522,7 @@ omega = 2.236273
 n_modes = 62
 te1_triplets_re_k = [1.640318, 2.324787]
 te1_triplets_im_k = [0.573460, 0.475339]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21
@@ -6300,7 +6530,7 @@ omega = 2.246281
 n_modes = 66
 te1_triplets_re_k = [1.642926, 2.326585]
 te1_triplets_im_k = [0.571370, 0.476800]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21
@@ -6308,7 +6538,7 @@ omega = 2.271543
 n_modes = 62
 te1_triplets_re_k = [1.649374, 2.331191]
 te1_triplets_im_k = [0.566068, 0.480426]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 21
@@ -6316,7 +6546,7 @@ omega = 2.331191
 n_modes = 62
 te1_triplets_re_k = [1.663963, 2.342422]
 te1_triplets_im_k = [0.553333, 0.488608]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21
@@ -6324,7 +6554,7 @@ omega = 2.342422
 n_modes = 64
 te1_triplets_re_k = [1.666636, 2.344588]
 te1_triplets_im_k = [0.550857, 0.490085]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 21
@@ -6332,7 +6562,7 @@ omega = 2.344588
 n_modes = 66
 te1_triplets_re_k = [1.667149, 2.345008]
 te1_triplets_im_k = [0.550373, 0.490367]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6340,7 +6570,7 @@ omega = 1.144317
 n_modes = 29
 te1_triplets_re_k = [1.135987]
 te1_triplets_im_k = [0.619198]
-wall_s = 2.4
+wall_s = 2.7
 
 [[solve]]
 sigma_0 = 21.5
@@ -6348,7 +6578,7 @@ omega = 1.159459
 n_modes = 29
 te1_triplets_re_k = [1.144317]
 te1_triplets_im_k = [0.622736]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 21.5
@@ -6356,7 +6586,7 @@ omega = 1.187008
 n_modes = 31
 te1_triplets_re_k = [1.159459, 2.212663]
 te1_triplets_im_k = [0.628798, 0.304469]
-wall_s = 1.6
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 21.5
@@ -6364,7 +6594,7 @@ omega = 1.237256
 n_modes = 42
 te1_triplets_re_k = [1.187008, 2.215249]
 te1_triplets_im_k = [0.638632, 0.311517]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6372,7 +6602,7 @@ omega = 1.329688
 n_modes = 46
 te1_triplets_re_k = [1.237256, 2.220501]
 te1_triplets_im_k = [0.652739, 0.324748]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6380,7 +6610,7 @@ omega = 1.504827
 n_modes = 37
 te1_triplets_re_k = [1.329688, 2.232180]
 te1_triplets_im_k = [0.666208, 0.350782]
-wall_s = 2.0
+wall_s = 2.2
 
 [[solve]]
 sigma_0 = 21.5
@@ -6388,7 +6618,7 @@ omega = 1.627879
 n_modes = 71
 te1_triplets_re_k = [1.391241, 2.241837]
 te1_triplets_im_k = [0.666186, 0.369822]
-wall_s = 1.8
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 21.5
@@ -6396,7 +6626,7 @@ omega = 1.634307
 n_modes = 67
 te1_triplets_re_k = [1.394359, 2.242378]
 te1_triplets_im_k = [0.665987, 0.370833]
-wall_s = 1.7
+wall_s = 2.0
 
 [[solve]]
 sigma_0 = 21.5
@@ -6404,7 +6634,7 @@ omega = 1.880740
 n_modes = 64
 te1_triplets_re_k = [1.504827, 2.266388]
 te1_triplets_im_k = [0.645423, 0.410569]
-wall_s = 1.4
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 21.5
@@ -6412,7 +6642,7 @@ omega = 2.242378
 n_modes = 60
 te1_triplets_re_k = [1.627879, 2.316712]
 te1_triplets_im_k = [0.582999, 0.468453]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6420,7 +6650,7 @@ omega = 2.266388
 n_modes = 60
 te1_triplets_re_k = [1.634307, 2.320783]
 te1_triplets_im_k = [0.578158, 0.471993]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6428,7 +6658,7 @@ omega = 2.320783
 n_modes = 59
 te1_triplets_re_k = [1.648180, 2.330322]
 te1_triplets_im_k = [0.567064, 0.479754]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 21.5
@@ -6436,7 +6666,7 @@ omega = 2.330322
 n_modes = 61
 te1_triplets_re_k = [1.650524, 2.332037]
 te1_triplets_im_k = [0.565102, 0.481075]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 21.5
@@ -6444,7 +6674,7 @@ omega = 2.332037
 n_modes = 59
 te1_triplets_re_k = [1.650943, 2.332347]
 te1_triplets_im_k = [0.564748, 0.481311]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6460,7 +6690,7 @@ omega = 1.127538
 n_modes = 25
 te1_triplets_re_k = [1.112653]
 te1_triplets_im_k = [0.608496]
-wall_s = 1.6
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 22
@@ -6468,7 +6698,7 @@ omega = 1.155217
 n_modes = 26
 te1_triplets_re_k = [1.127538]
 te1_triplets_im_k = [0.615459]
-wall_s = 1.6
+wall_s = 1.8
 
 [[solve]]
 sigma_0 = 22
@@ -6476,7 +6706,7 @@ omega = 1.206712
 n_modes = 42
 te1_triplets_re_k = [1.155217, 2.212283]
 te1_triplets_im_k = [0.627147, 0.303395]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6484,7 +6714,7 @@ omega = 1.302968
 n_modes = 46
 te1_triplets_re_k = [1.206712, 2.217225]
 te1_triplets_im_k = [0.644745, 0.316643]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6500,7 +6730,7 @@ omega = 1.612338
 n_modes = 60
 te1_triplets_re_k = [1.365554, 2.237583]
 te1_triplets_im_k = [0.667090, 0.361674]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 22
@@ -6508,7 +6738,7 @@ omega = 1.618978
 n_modes = 63
 te1_triplets_re_k = [1.368783, 2.238099]
 te1_triplets_im_k = [0.667048, 0.362682]
-wall_s = 1.7
+wall_s = 1.9
 
 [[solve]]
 sigma_0 = 22
@@ -6516,7 +6746,7 @@ omega = 1.880740
 n_modes = 62
 te1_triplets_re_k = [1.487056, 2.261717]
 te1_triplets_im_k = [0.650636, 0.403569]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 22
@@ -6524,7 +6754,7 @@ omega = 2.238099
 n_modes = 58
 te1_triplets_re_k = [1.612338, 2.307701]
 te1_triplets_im_k = [0.593945, 0.460095]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6532,7 +6762,7 @@ omega = 2.261717
 n_modes = 60
 te1_triplets_re_k = [1.618978, 2.311414]
 te1_triplets_im_k = [0.589397, 0.463629]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 22
@@ -6540,7 +6770,7 @@ omega = 2.311414
 n_modes = 60
 te1_triplets_re_k = [1.632318, 2.319501]
 te1_triplets_im_k = [0.579675, 0.470893]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6548,7 +6778,7 @@ omega = 2.319501
 n_modes = 61
 te1_triplets_re_k = [1.634411, 2.320851]
 te1_triplets_im_k = [0.578077, 0.472051]
-wall_s = 1.4
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22
@@ -6588,7 +6818,7 @@ omega = 1.177759
 n_modes = 47
 te1_triplets_re_k = [1.125586, 2.209764]
 te1_triplets_im_k = [0.614573, 0.295966]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 22.5
@@ -6604,7 +6834,7 @@ omega = 1.469494
 n_modes = 38
 te1_triplets_re_k = [1.277124, 2.225189]
 te1_triplets_im_k = [0.660514, 0.335666]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 22.5
@@ -6620,7 +6850,7 @@ omega = 1.603380
 n_modes = 67
 te1_triplets_re_k = [1.343625, 2.234212]
 te1_triplets_im_k = [0.666843, 0.354953]
-wall_s = 1.8
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 22.5
@@ -6644,7 +6874,7 @@ omega = 2.257468
 n_modes = 65
 te1_triplets_re_k = [1.603380, 2.302988]
 te1_triplets_im_k = [0.599786, 0.455418]
-wall_s = 1.5
+wall_s = 1.4
 
 [[solve]]
 sigma_0 = 22.5
@@ -6716,7 +6946,7 @@ omega = 1.452188
 n_modes = 39
 te1_triplets_re_k = [1.252209, 2.222202]
 te1_triplets_im_k = [0.656005, 0.328794]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 23
@@ -6724,7 +6954,7 @@ omega = 1.580555
 n_modes = 48
 te1_triplets_re_k = [1.315575, 2.230203]
 te1_triplets_im_k = [0.665189, 0.346633]
-wall_s = 2.5
+wall_s = 2.4
 
 [[solve]]
 sigma_0 = 23
@@ -6740,7 +6970,7 @@ omega = 1.880740
 n_modes = 65
 te1_triplets_re_k = [1.452188, 2.253589]
 te1_triplets_im_k = [0.658640, 0.390580]
-wall_s = 1.5
+wall_s = 1.4
 
 [[solve]]
 sigma_0 = 23
@@ -6796,7 +7026,7 @@ omega = 1.072562
 n_modes = 19
 te1_triplets_re_k = [1.046501]
 te1_triplets_im_k = [0.571370]
-wall_s = 1.6
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 23.5
@@ -6828,7 +7058,7 @@ omega = 1.564445
 n_modes = 44
 te1_triplets_re_k = [1.291450, 2.226997]
 te1_triplets_im_k = [0.662580, 0.339698]
-wall_s = 1.6
+wall_s = 1.7
 
 [[solve]]
 sigma_0 = 23.5
@@ -6876,7 +7106,7 @@ omega = 2.293549
 n_modes = 59
 te1_triplets_re_k = [1.584881, 2.294206]
 te1_triplets_im_k = [0.610838, 0.446100]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 24
@@ -6908,7 +7138,7 @@ omega = 1.100452
 n_modes = 26
 te1_triplets_re_k = [1.048978, 2.204431]
 te1_triplets_im_k = [0.572955, 0.277184]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24
@@ -6932,7 +7162,7 @@ omega = 1.548284
 n_modes = 45
 te1_triplets_re_k = [1.267993, 2.224071]
 te1_triplets_im_k = [0.658997, 0.333128]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24
@@ -6988,7 +7218,7 @@ omega = 0.991965
 n_modes = 24
 te1_triplets_re_k = [0.986684]
 te1_triplets_im_k = [0.527847]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -6996,7 +7226,7 @@ omega = 1.003235
 n_modes = 26
 te1_triplets_re_k = [0.991965]
 te1_triplets_im_k = [0.532126]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -7020,7 +7250,7 @@ omega = 1.183282
 n_modes = 26
 te1_triplets_re_k = [1.077744]
 te1_triplets_im_k = [0.590214]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -7028,7 +7258,7 @@ omega = 1.402139
 n_modes = 38
 te1_triplets_re_k = [1.183282, 2.214888]
 te1_triplets_im_k = [0.637391, 0.310556]
-wall_s = 4.6
+wall_s = 4.5
 
 [[solve]]
 sigma_0 = 24.5
@@ -7036,7 +7266,7 @@ omega = 1.532142
 n_modes = 37
 te1_triplets_re_k = [1.245254, 2.221402]
 te1_triplets_im_k = [0.654538, 0.326905]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -7044,7 +7274,7 @@ omega = 1.539456
 n_modes = 37
 te1_triplets_re_k = [1.248704, 2.221797]
 te1_triplets_im_k = [0.655277, 0.327841]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -7068,7 +7298,7 @@ omega = 2.243753
 n_modes = 59
 te1_triplets_re_k = [1.539456, 2.276819]
 te1_triplets_im_k = [0.632850, 0.425064]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 24.5
@@ -7076,7 +7306,7 @@ omega = 2.276819
 n_modes = 58
 te1_triplets_re_k = [1.550206, 2.280494]
 te1_triplets_im_k = [0.628244, 0.429820]
-wall_s = 1.5
+wall_s = 1.4
 
 [[solve]]
 sigma_0 = 24.5
@@ -7100,7 +7330,7 @@ omega = 0.984334
 n_modes = 28
 te1_triplets_re_k = [0.973946]
 te1_triplets_im_k = [0.517142]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 25
@@ -7116,7 +7346,7 @@ omega = 1.056467
 n_modes = 27
 te1_triplets_re_k = [1.007081, 2.202369]
 te1_triplets_im_k = [0.543882, 0.266999]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 25
@@ -7140,7 +7370,7 @@ omega = 1.523422
 n_modes = 46
 te1_triplets_re_k = [1.226692, 2.219338]
 te1_triplets_im_k = [0.650175, 0.321921]
-wall_s = 4.6
+wall_s = 4.4
 
 [[solve]]
 sigma_0 = 25
@@ -7148,7 +7378,7 @@ omega = 1.532940
 n_modes = 41
 te1_triplets_re_k = [1.231121, 2.219822]
 te1_triplets_im_k = [0.651276, 0.323103]
-wall_s = 1.7
+wall_s = 1.6
 
 [[solve]]
 sigma_0 = 25
@@ -7156,7 +7386,7 @@ omega = 1.880740
 n_modes = 58
 te1_triplets_re_k = [1.386154, 2.240966]
 te1_triplets_im_k = [0.666469, 0.368183]
-wall_s = 1.5
+wall_s = 1.4
 
 [[solve]]
 sigma_0 = 25
@@ -7164,7 +7394,7 @@ omega = 2.219338
 n_modes = 59
 te1_triplets_re_k = [1.516076, 2.269566]
 te1_triplets_im_k = [0.641701, 0.415147]
-wall_s = 1.4
+wall_s = 1.5
 
 [[solve]]
 sigma_0 = 25
@@ -7196,5 +7426,5 @@ omega = 2.274931
 n_modes = 59
 te1_triplets_re_k = [1.534701, 2.275266]
 te1_triplets_im_k = [0.634777, 0.423001]
-wall_s = 1.5
+wall_s = 1.4
 
