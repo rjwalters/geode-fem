@@ -602,7 +602,10 @@ jobs:
       # its 288 structured / one-element-across / stepped rows run here; its
       # 527 Gmsh rows run only where gmsh is on PATH (not on this runner).
       # Its tm_guard_p2_long_guide_table (issue #990) is Gmsh-only and
-      # returns at once here; locally it takes about 20 s in release.
+      # returns at once here; locally it takes about 1-2 min in release with
+      # the issue #955 columns. Issue #955 adds the share-free section solves
+      # and the option-1 reproduction to every measurement-table row: the 288
+      # structured rows took 227 s locally (release, loaded Mac, serial).
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \

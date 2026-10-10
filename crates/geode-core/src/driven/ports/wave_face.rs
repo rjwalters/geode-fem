@@ -776,6 +776,16 @@ impl PortFaceProjection {
     /// `(axial extent, nearest distance to the port plane)` of every tet
     /// of `mesh` with a face on the port or its centroid over the face.
     fn guide_tets(&self, mesh: &TetMesh) -> Vec<(f64, f64)> {
+        self.guide_footprint(mesh)
+            .into_iter()
+            .map(|(_, e, d)| (e, d))
+            .collect()
+    }
+
+    /// [`Self::guide_tets`] with each tet's index in `mesh.tets`: the guide
+    /// section the share-free TM cutoff of issue #955 is computed on
+    /// ([`Self::guide_section`]).
+    pub(super) fn guide_footprint(&self, mesh: &TetMesh) -> Vec<(usize, f64, f64)> {
         let sorted = |mut t: [u32; 3]| {
             t.sort_unstable();
             t
@@ -787,7 +797,7 @@ impl PortFaceProjection {
         // (axial extent, nearest distance to the port plane) of every tet
         // over the face.
         let mut over = Vec::new();
-        for tet in &mesh.tets {
+        for (t, tet) in mesh.tets.iter().enumerate() {
             let s = tet.map(|n| dot(rel(n), self.normal));
             let lo = s.iter().copied().fold(f64::INFINITY, f64::min);
             let hi = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -809,7 +819,7 @@ impl PortFaceProjection {
                     continue;
                 }
             }
-            over.push((hi - lo, if on_face { 0.0 } else { near }));
+            over.push((t, hi - lo, if on_face { 0.0 } else { near }));
         }
         over
     }
@@ -1803,7 +1813,11 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// port (over 0.9 of their `E_z` energy); the `2 × 1` one lies beyond it.
 /// These are coarse-mesh
 /// TM-like defect modes, not continuum TM modes, and whether a TE₁₀ drive
-/// excites them is not measured.
+/// excites them is not measured. Two of them are TM-like only by the
+/// table's sampled share (five points per tet, not volume-weighted): the
+/// `3×1×8` and `3×1×11.75` modes read 0.50 and 0.68 sampled, but carry
+/// 0.11 and 0.35 of their energy in `E_z` integrated exactly (issue #955,
+/// `benchmarks/tm_guard_955/long_guide_table.toml`).
 ///
 /// The constants are **not** changed to cover these rows. Covering them
 /// needs `C_h` ≥ 0.046, and the same law and constants are the p=1 hard
@@ -1847,7 +1861,13 @@ pub const TM_GUARD_MEASURED_KH: f64 = 3.42;
 /// either a cutoff computed from the 3-D model itself (an eigensolve of
 /// the guide section, which needs neither the assumptions nor the
 /// constant; not implemented, issue #955) or a policy that warns and does
-/// not block in the gap between this guard and the measured cutoff.
+/// not block in the gap between this guard and the measured cutoff. The
+/// share-free cutoff of issue #955 ([`PortFaceProjection::guide_tm_guard`],
+/// opt-in, not called by the crate) is not that cutoff: it bounds the
+/// `E_z` share of a mode, not its frequency, and measured, it is above the
+/// box's TM-like mode on 213 of the 815 rows of the p=2 table when used
+/// directly; its theorem-backed floor is safe there but below this guard on
+/// every row with `k_c·h_n` in `[1.41, 2.5]` (`wave_tm_guide`).
 pub fn tm_guard_margin(k_c: f64, axial_spacing: f64) -> f64 {
     let kh = k_c * axial_spacing;
     if !kh.is_finite() {
