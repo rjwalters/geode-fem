@@ -931,7 +931,9 @@ fn p2_wave_port_errors_are_typed() {
 // ---------------------------------------------------------------------------
 
 /// `|E_z|²` share at and above which [`box_tm_like_k`] counts a box mode as
-/// TM-like.
+/// TM-like. The share is the exact one ([`BoxMode::share_exact`]) since
+/// issue #1041; before it, the five-point sampled share
+/// ([`ShareClassifier::Sampled`], still reported).
 ///
 /// Issue #905 left it unchanged. The modes behind that issue carry shares
 /// of 0.84 to 0.97 (`p2_tm_guard_covers_the_issue_905_meshes`), so the
@@ -940,30 +942,64 @@ fn p2_wave_port_errors_are_typed() {
 const TM_LIKE_EZ_SHARE: f64 = 0.4;
 
 /// The modes of the all-PEC guide box at `order` nearest `(0.45·TM₁₁)²`, as
-/// `(k, |E_z|² share)` in ascending `k`. The share is sampled over every
-/// tet. A window of 24 modes: enough for the boxes of the measurement
-/// table (up to 4.4 deep), not for long guides ([`box_mode_window`]).
+/// `(k, |E_z|² share)` in ascending `k`. The share is the exact one
+/// ([`BoxMode::share_exact`], the classifier since issue #1041). A window
+/// of 24 modes: enough for the boxes of the measurement table (up to 4.4
+/// deep), not for long guides ([`box_mode_window`]).
 fn box_mode_shares(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Vec<(f64, f64)> {
     box_mode_window(mesh, order, a, b, 24, f64::INFINITY)
         .modes
         .into_iter()
-        .map(|m| (m.k, m.share))
+        .map(|m| (m.k, m.share_exact))
         .collect()
+}
+
+/// Which `|E_z|²` share classifies a box mode as TM-like (issue #1041).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShareClassifier {
+    /// [`BoxMode::share_exact`]: the classifier of every table.
+    Exact,
+    /// [`BoxMode::share`], five unweighted points per tet: the classifier
+    /// of the tables before issue #1041, kept for the side-by-side
+    /// comparison only.
+    Sampled,
+}
+
+impl ShareClassifier {
+    /// Both, the classifier first.
+    const BOTH: [Self; 2] = [Self::Exact, Self::Sampled];
 }
 
 /// One mode of a [`BoxWindow`].
 #[derive(Debug, Clone, Copy)]
 struct BoxMode {
     k: f64,
-    /// `|E_z|²` share, sampled over every tet.
+    /// `|E_z|²` share sampled at five points per tet, without volume
+    /// weights. Reported only; the classifier before issue #1041
+    /// ([`ShareClassifier::Sampled`]).
     share: f64,
     /// `|E_z|²` share integrated exactly (volume-weighted degree-4 rule,
-    /// exact for the p=2 field): the share the share-free cutoff of issue
-    /// #955 bounds. Not used to select modes.
+    /// exact for `|E|²` at p=1 and p=2): the share the share-free cutoff of
+    /// issue #955 bounds, and the classifier ([`ShareClassifier::Exact`],
+    /// issue #1041).
     share_exact: f64,
-    /// Share of the mode's `|E_z|²` in tets whose centroid is within the
-    /// window's `reach` of the port (`z ≤ reach`).
+    /// Share of the mode's sampled `|E_z|²` in tets whose centroid is
+    /// within the window's `reach` of the port (`z ≤ reach`). Reported only.
     ez_within_reach: f64,
+    /// [`Self::ez_within_reach`] integrated exactly (the same degree-4
+    /// rule): what sorts a miss into within reach, straddling or beyond
+    /// (issue #1041).
+    ez_within_reach_exact: f64,
+}
+
+impl BoxMode {
+    /// The share `c` classifies by.
+    fn share_by(&self, c: ShareClassifier) -> f64 {
+        match c {
+            ShareClassifier::Exact => self.share_exact,
+            ShareClassifier::Sampled => self.share,
+        }
+    }
 }
 
 /// The modes of an all-PEC guide box that one eigensolve returned: the
@@ -979,12 +1015,18 @@ impl BoxWindow {
         self.modes.last().map_or(0.0, |m| m.k)
     }
 
-    /// The lowest TM-like mode (`|E_z|²` share ≥ [`TM_LIKE_EZ_SHARE`]).
+    /// The lowest TM-like mode (exact `|E_z|²` share ≥
+    /// [`TM_LIKE_EZ_SHARE`]).
     fn tm_like(&self) -> Option<BoxMode> {
+        self.tm_like_by(ShareClassifier::Exact)
+    }
+
+    /// The lowest mode whose share by `c` is at least [`TM_LIKE_EZ_SHARE`].
+    fn tm_like_by(&self, c: ShareClassifier) -> Option<BoxMode> {
         self.modes
             .iter()
             .copied()
-            .find(|m| m.share >= TM_LIKE_EZ_SHARE)
+            .find(|m| m.share_by(c) >= TM_LIKE_EZ_SHARE)
     }
 
     /// Whether the window holds **every** mode of the box at or below `k`.
@@ -1054,19 +1096,22 @@ fn box_mode_window(
                 x[d] = c64::new(m.vector[i], 0.0);
             }
             let (mut ez, mut all, mut inside) = (0.0, 0.0, 0.0);
-            let (mut ez_x, mut all_x) = (0.0, 0.0);
+            let (mut ez_x, mut all_x, mut inside_x) = (0.0, 0.0, 0.0);
             for t in 0..mesh.n_tets() {
                 let vol = tet_volume(mesh, t);
-                for &(bary, w) in &rule {
-                    let e = space.field_at(mesh, t, bary, &x);
-                    ez_x += vol * w * e[2].norm_sqr();
-                    all_x += vol * w * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
-                }
                 let zc = mesh.tets[t]
                     .iter()
                     .map(|&n| mesh.nodes[n as usize][2])
                     .sum::<f64>()
                     / 4.0;
+                for &(bary, w) in &rule {
+                    let e = space.field_at(mesh, t, bary, &x);
+                    ez_x += vol * w * e[2].norm_sqr();
+                    all_x += vol * w * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
+                    if zc <= reach {
+                        inside_x += vol * w * e[2].norm_sqr();
+                    }
+                }
                 for bary in pts {
                     let e = space.field_at(mesh, t, bary, &x);
                     ez += e[2].norm_sqr();
@@ -1081,6 +1126,7 @@ fn box_mode_window(
                 share: ez / all,
                 share_exact: ez_x / all_x,
                 ez_within_reach: inside / ez,
+                ez_within_reach_exact: inside_x / ez_x,
             }
         })
         .collect();
@@ -1092,8 +1138,9 @@ fn box_mode_window(
 }
 
 /// Lowest TM-like resonance of the all-PEC guide box at `order`: of the
-/// modes above `(0.45·TM₁₁)²`, the lowest whose `|E_z|²` share (sampled
-/// over every tet) is at least [`TM_LIKE_EZ_SHARE`].
+/// modes above `(0.45·TM₁₁)²`, the lowest whose exact `|E_z|²` share
+/// ([`BoxMode::share_exact`]; the five-point sampled share before issue
+/// #1041) is at least [`TM_LIKE_EZ_SHARE`].
 ///
 /// Below one half on purpose (Judge, PR #887): at a box degeneracy (one tet
 /// layer of `d = b`, where TE₁₀₁ and TM₁₁₀ meet) the discrete model mixes
@@ -1108,7 +1155,38 @@ fn box_tm_like_k(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<
 
 /// [`box_tm_like_k`] with the mode's shares.
 fn box_tm_like_mode(mesh: &TetMesh, order: ElementOrder, a: f64, b: f64) -> Option<BoxMode> {
-    box_mode_window(mesh, order, a, b, 24, f64::INFINITY).tm_like()
+    box_tm_like_modes(mesh, order, a, b, f64::INFINITY).0
+}
+
+/// Window sizes [`box_tm_like_modes`] tries in turn while the window holds
+/// no TM-like mode by the classifier.
+const REFERENCE_WINDOWS: [usize; 3] = [24, 48, 96];
+
+/// The box's lowest TM-like mode by the exact share and by the sampled one
+/// (issue #1041), and the window size the exact one was found in. Both
+/// come from the 24-mode window of the tables before issue #1041; only
+/// when that window holds no mode of exact share ≥ [`TM_LIKE_EZ_SHARE`]
+/// does the exact one look in larger ones ([`REFERENCE_WINDOWS`]). The
+/// modes' within-reach shares are against `reach`.
+fn box_tm_like_modes(
+    mesh: &TetMesh,
+    order: ElementOrder,
+    a: f64,
+    b: f64,
+    reach: f64,
+) -> (Option<BoxMode>, Option<BoxMode>, usize) {
+    let w = box_mode_window(mesh, order, a, b, REFERENCE_WINDOWS[0], reach);
+    let sampled = w.tm_like_by(ShareClassifier::Sampled);
+    if let Some(m) = w.tm_like() {
+        return (Some(m), sampled, REFERENCE_WINDOWS[0]);
+    }
+    for n in &REFERENCE_WINDOWS[1..] {
+        let w = box_mode_window(mesh, order, a, b, *n, reach);
+        if let Some(m) = w.tm_like() {
+            return (Some(m), sampled, *n);
+        }
+    }
+    (None, sampled, REFERENCE_WINDOWS[2])
 }
 
 /// Volume of tet `t` of `mesh`.
@@ -1160,8 +1238,17 @@ struct GuardRow {
     margin: f64,
     /// Points between the p=2 guard and the 3-D p=2 TM-like cutoff.
     pts_left: f64,
-    /// The 3-D p=2 TM-like mode (the reference).
+    /// The 3-D p=2 TM-like mode (the reference, by the exact share).
     tm: BoxMode,
+    /// The reference by the sampled share (the classifier before issue
+    /// #1041), for the side-by-side comparison; `None` when no mode of the
+    /// 24-mode window has sampled share ≥ [`TM_LIKE_EZ_SHARE`].
+    tm_sampled: Option<BoxMode>,
+    /// The eigensolve window the reference was found in (24 unless the
+    /// 24-mode window holds no mode of exact share ≥ 0.4).
+    ref_window: usize,
+    /// The p=1 guard.
+    p1_guard: f64,
     /// The P2 face estimate `k_c`.
     k_face: f64,
     /// The interim p=2 guard.
@@ -1173,11 +1260,39 @@ struct GuardRow {
 /// the order-independent law. Every case is checked: a box with no TM-like
 /// p=2 mode fails the test.
 fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
+    let r = measure_p2_row(label, mesh, a, b);
+    if let Some(breach) = r.breach() {
+        panic!("{label}: {breach}");
+    }
+    r
+}
+
+impl GuardRow {
+    /// Which guard, if any, is at or above the reference: what
+    /// [`measure_p2_guard`] asserts against.
+    fn breach(&self) -> Option<String> {
+        let k3d = self.tm.k;
+        if self.guard >= k3d {
+            Some(format!("p=2 guard {} ≥ 3-D p=2 TM {k3d}", self.guard))
+        } else if self.p1_guard >= k3d {
+            Some(format!("p=1 guard {} ≥ 3-D p=2 TM {k3d}", self.p1_guard))
+        } else {
+            None
+        }
+    }
+}
+
+/// [`measure_p2_guard`] without its assertion that both guards are below the
+/// reference ([`GuardRow::breach`]), which the measurement table checks over
+/// all rows at once so that one run reports every breach (issue #1041). The
+/// margin-law checks still assert per row.
+fn measure_p2_row(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     let est = guard_estimate_at(mesh, ElementOrder::P2);
     assert_eq!(est.element_order, ElementOrder::P2);
     assert_eq!(est.face_order, ElementOrder::P2);
-    let tm = box_tm_like_mode(mesh, ElementOrder::P2, a, b)
-        .unwrap_or_else(|| panic!("{label}: no TM-like p=2 mode"));
+    let reach = tm_guard_axial_reach(est.k_c(), 0.0);
+    let (tm, tm_sampled, ref_window) = box_tm_like_modes(mesh, ElementOrder::P2, a, b, reach);
+    let tm = tm.unwrap_or_else(|| panic!("{label}: no TM-like p=2 mode"));
     let k3d = tm.k;
     let kh = est.axial_kh();
     let under = 1.0 - k3d / est.k_c();
@@ -1190,10 +1305,14 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
     let tm11 = ((PI / a).powi(2) + (PI / b).powi(2)).sqrt();
     eprintln!(
         "{label}: k_c·h_n {kh:.3}, face P2 est {:.4} (P1 est {:.4}, TM11 {tm11:.4}), 3-D p=2 \
-         TM {k3d:.4} (undershoot {:+.3} %, ÷(k_c·h_n)² {:.4}); p=2 guard {guard:.4} (margin \
+         TM {k3d:.4} (exact share {:.3}, sampled {:.3}, window {ref_window}; by the sampled \
+         share {}) (undershoot {:+.3} %, ÷(k_c·h_n)² {:.4}); p=2 guard {guard:.4} (margin \
          {:.2} %, {:.2} pt left), p=1 guard {p1_guard:.4}",
         est.k_c(),
         p1.k_c(),
+        tm.share_exact,
+        tm.share,
+        tm_sampled.map_or("none".to_string(), |m| format!("{:.4}", m.k)),
         100.0 * under,
         under / (kh * kh),
         100.0 * est.margin(),
@@ -1212,11 +1331,6 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
         }
         None => assert_eq!(est.margin(), TM_GUARD_MARGIN, "{label}"),
     }
-    assert!(guard < k3d, "{label}: p=2 guard {guard} ≥ 3-D p=2 TM {k3d}");
-    assert!(
-        p1_guard < k3d,
-        "{label}: p=1 guard {p1_guard} ≥ 3-D p=2 TM {k3d}"
-    );
     // Issue #905: one law at every order.
     assert_eq!(
         est.margin().to_bits(),
@@ -1229,6 +1343,9 @@ fn measure_p2_guard(label: &str, mesh: &TetMesh, a: f64, b: f64) -> GuardRow {
         margin: est.margin(),
         pts_left: 100.0 * (1.0 - guard / k3d),
         tm,
+        tm_sampled,
+        ref_window,
+        p1_guard,
         k_face: est.k_c(),
         guard,
     }
@@ -1417,8 +1534,13 @@ fn p2_tm_guard_covers_the_issue_905_meshes() {
             .iter()
             .find(|m| m.1 >= TM_LIKE_EZ_SHARE)
             .expect("TM-like mode");
-        // A TM-like mode outright, not a hybrid at the threshold.
-        assert!(share > 0.8, "{label}: E_z share {share}");
+        // A TM-like mode outright, not a hybrid at the threshold: exact
+        // shares 0.846, 0.850 and 0.728 (sampled 0.843, 0.853 and 0.954;
+        // the sampled share was pinned `> 0.8` before issue #1041). The
+        // sampled classifier picks the same mode.
+        assert!(share > 0.7, "{label}: E_z share {share}");
+        let (_, by_sampled, _) = box_tm_like_modes(&mesh, ElementOrder::P2, a, b, f64::INFINITY);
+        assert_eq!(by_sampled.map(|m| m.k), Some(k3d), "{label}");
         // The withdrawn law: 5 % (its fourth-order term is below that), and
         // its guard was above the 3-D cutoff.
         assert!(2e-4 * est.axial_kh().powi(4) < WITHDRAWN_P2_BASE_MARGIN);
@@ -1439,17 +1561,19 @@ fn p2_tm_guard_covers_the_issue_905_meshes() {
         assert!(r.pts_left > 7.5, "{label}: {} pt left", r.pts_left);
     }
     // The `3 × 1` guide: two TM-like modes near 2.9, the sixth and seventh
-    // of the box, where the continuum's lowest (TM₁₁₀) is the tenth.
+    // of the box, where the continuum's lowest (TM₁₁₀) is the tenth. Exact
+    // shares (issue #1041): at most 0.014 on the first five, 0.728 and
+    // 0.721 on the pair (sampled up to 0.079, and 0.954 and 0.951).
     let mesh = geode_core::mesh::read_tagged_tet_mesh(cases[2].0)
         .expect("msh")
         .mesh;
     let shares = box_mode_shares(&mesh, ElementOrder::P2, 3.0, 1.0);
     for (i, &(k, share)) in shares.iter().enumerate().take(7) {
         if i < 5 {
-            assert!(share < 0.2, "mode {i} at {k}: {share}");
+            assert!(share < 0.05, "mode {i} at {k}: {share}");
         } else {
             assert!(
-                share > 0.9 && (k - 2.91).abs() < 0.02,
+                share > 0.7 && (k - 2.91).abs() < 0.02,
                 "mode {i}: {k} {share}"
             );
         }
@@ -1495,6 +1619,13 @@ fn p2_tm_guard_margin_law() {
     assert!(est.axial_spacing_admitting(0.97 * kc).is_none());
 }
 
+/// The rows of [`tm_guard_p2_measurement_table`] on which the interim p=2
+/// guard or the p=1 guard is at or above the reference ([`GuardRow::breach`];
+/// the per-row assertion of [`measure_p2_guard`]), at Gmsh 4.15.2 under the
+/// exact classifier (issue #1041). The test fails with the diff when the
+/// set moves.
+const MEASUREMENT_TABLE_KNOWN_BREACHES: [&str; 0] = [];
+
 /// Records the rows of [`tm_guard_p2_measurement_table`].
 #[derive(Default)]
 struct GuardTable {
@@ -1524,6 +1655,21 @@ struct Table955 {
     opt1: GuardStats,
     opt3: GuardStats,
     floor: GuardStats,
+    /// The same four guards against the reference by the sampled share
+    /// (the classifier before issue #1041), in the order above.
+    sampled: [GuardStats; 4],
+    /// Rows whose reference moves under the exact classifier (issue
+    /// #1041): `(label, sampled-classifier k, exact-classifier k)`, the
+    /// exact one higher (the sampled reference is not TM-like by its exact
+    /// share) and lower (a lower mode is TM-like by its exact share only).
+    reclassified_up: Vec<(String, f64, f64)>,
+    reclassified_down: Vec<(String, f64, f64)>,
+    /// Rows whose exact-classifier reference lies outside the 24-mode
+    /// window: `(label, window)`.
+    grown_window: Vec<(String, usize)>,
+    /// Rows on which the interim p=2 or the p=1 guard is at or above the
+    /// reference ([`GuardRow::breach`]).
+    breaches: Vec<String>,
     /// Option-1 rows that fell back (depth-sensitive, no TM-like mode).
     opt1_fallbacks: [usize; 2],
     /// Option-3 rows that fell back to the margin law.
@@ -1547,10 +1693,33 @@ impl Table955 {
             r.guard.to_bits(),
             "{label}"
         );
-        self.interim.record(label, r.guard, r);
-        self.opt1.record(label, c.opt1.guard, r);
-        self.opt3.record(label, c.direct(r.k_face), r);
-        self.floor.record(label, c.floor(), r);
+        let guards = [r.guard, c.opt1.guard, c.direct(r.k_face), c.floor()];
+        self.interim.record(label, guards[0], r);
+        self.opt1.record(label, guards[1], r);
+        self.opt3.record(label, guards[2], r);
+        self.floor.record(label, guards[3], r);
+        match r.tm_sampled {
+            Some(ts) => {
+                for (st, g) in self.sampled.iter_mut().zip(guards) {
+                    st.record_against(label, g, ts, r);
+                }
+                if ts.k < r.tm.k {
+                    self.reclassified_up.push((label.to_string(), ts.k, r.tm.k));
+                } else if ts.k > r.tm.k {
+                    self.reclassified_down
+                        .push((label.to_string(), ts.k, r.tm.k));
+                }
+            }
+            None => self
+                .reclassified_down
+                .push((label.to_string(), f64::NAN, r.tm.k)),
+        }
+        if r.ref_window != REFERENCE_WINDOWS[0] {
+            self.grown_window.push((label.to_string(), r.ref_window));
+        }
+        if let Some(b) = r.breach() {
+            self.breaches.push(format!("{label}: {b}"));
+        }
         match c.opt1.source {
             Option1Source::Computed => {}
             Option1Source::DepthSensitive => self.opt1_fallbacks[0] += 1,
@@ -1574,11 +1743,13 @@ impl Table955 {
         }
         let (k_c, k_deep, k_shallow, share) =
             sf.unwrap_or((f64::NAN, f64::NAN, f64::NAN, f64::NAN));
+        let ts = r.tm_sampled;
         eprintln!(
-            "    #955 {label}: ref {:.4} (share {:.3} sampled, {:.3} exact); interim {:.4}; option 1 {:.4} ({:?}); share-free k_c {k_c:.4} (deep {k_deep:.4}, shallow {k_shallow:.4}, minimizer share {share:.3}) → option 3 {:.4}, floor {:.4}",
+            "    #955 {label}: ref {:.4} (share {:.3} sampled, {:.3} exact; by the sampled share {}); interim {:.4}; option 1 {:.4} ({:?}); share-free k_c {k_c:.4} (deep {k_deep:.4}, shallow {k_shallow:.4}, minimizer share {share:.3}) → option 3 {:.4}, floor {:.4}",
             r.tm.k,
             r.tm.share,
             r.tm.share_exact,
+            ts.map_or("none".to_string(), |m| format!("{:.4}", m.k)),
             r.guard,
             c.opt1.guard,
             c.opt1.source,
@@ -1599,6 +1770,18 @@ impl Table955 {
             ("ref_k", f(r.tm.k)),
             ("ref_share_sampled", f(r.tm.share)),
             ("ref_share_exact", f(r.tm.share_exact)),
+            ("ref_ez_within_reach_exact", f(r.tm.ez_within_reach_exact)),
+            ("ref_window", r.ref_window.to_string()),
+            ("ref_k_sampled_classifier", f(ts.map_or(f64::NAN, |m| m.k))),
+            (
+                "ref_sampled_classifier_share_sampled",
+                f(ts.map_or(f64::NAN, |m| m.share)),
+            ),
+            (
+                "ref_sampled_classifier_share_exact",
+                f(ts.map_or(f64::NAN, |m| m.share_exact)),
+            ),
+            ("p1_guard", f(r.p1_guard)),
             ("interim", f(r.guard)),
             ("option1", f(c.opt1.guard)),
             ("option1_source", toml_str(&format!("{:?}", c.opt1.source))),
@@ -1712,6 +1895,19 @@ fn gmsh_guide_box(
 /// threads (`GEODE_955_THREADS`, default half the cores). With
 /// `GEODE_BLESS_955=1` the rows are written to
 /// `benchmarks/tm_guard_955/measurement_table.toml`.
+///
+/// Issue #1041: the reference is the lowest mode whose **exact** `E_z`
+/// share is at least [`TM_LIKE_EZ_SHARE`]. Each row also finds the
+/// reference by the five-point sampled share (the classifier before
+/// #1041) from the same eigensolve and reports every guard against both.
+/// At Gmsh 4.15.2 the exact classifier moves the reference on 2 rows, both
+/// up (`coarse face over 4 layers, 2×1, face 32×1, over 0.999` and
+/// `gmsh 1.5×1×3.08, lc 0.8`) and on none down, and no guard's miss count
+/// changes (interim 0, option 1 0, option 3 213, floor 0 by either). The
+/// per-row assertion that both guards are below the reference
+/// ([`GuardRow::breach`]) is checked over all rows at once against
+/// [`MEASUREMENT_TABLE_KNOWN_BREACHES`] (none), so a run reports every
+/// breach before it fails.
 #[test]
 #[ignore = "heavy: 288 p=2 box rows, 815 with gmsh, each with the #955 section solves (~4 min release structured-only, ~5 min with gmsh on 12 threads); cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_measurement_table --nocapture"]
 fn tm_guard_p2_measurement_table() {
@@ -1722,7 +1918,7 @@ fn tm_guard_p2_measurement_table() {
     };
     let mut structured = |label: String, nx, ny, nz, a, b, length| {
         let g = extruded_rect_waveguide_mesh(nx, ny, nz, a, b, length);
-        let r = measure_p2_guard(&label, &g.mesh, a, b);
+        let r = measure_p2_row(&label, &g.mesh, a, b);
         table.record(&label, &g.mesh, r);
         r
     };
@@ -1909,7 +2105,7 @@ fn tm_guard_p2_measurement_table() {
             p[2] = zs[(2.0 * p[2]).round() as usize];
         }
         let label = format!("stepped {a}×1, face {nx}×{ny}, z = {zs:?}");
-        let r = measure_p2_guard(&label, &g.mesh, a, 1.0);
+        let r = measure_p2_row(&label, &g.mesh, a, 1.0);
         table.record(&label, &g.mesh, r);
     }
     let structured_rows = table.rows;
@@ -2018,7 +2214,7 @@ fn tm_guard_p2_measurement_table() {
                             break;
                         };
                         let label = format!("gmsh {a}×{b}×{d}, lc {lc} → {lc1}");
-                        let r = measure_p2_guard(&label, &mesh, a, b);
+                        let r = measure_p2_row(&label, &mesh, a, b);
                         out.push((i, label, r, computed_guards(&mesh)));
                     }
                     out
@@ -2056,10 +2252,24 @@ fn tm_guard_p2_measurement_table() {
         table.record_with(&label, r, &c);
     }
     let _ = std::fs::remove_dir_all(&dir);
+    // Issue #1041: every row's breach (the per-row assertion of
+    // `measure_p2_guard`), reported together before the pin.
+    for b in &table.c955.breaches {
+        eprintln!("    BREACH: {b}");
+    }
+    assert_eq!(
+        table.c955.breaches,
+        MEASUREMENT_TABLE_KNOWN_BREACHES
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        "rows on which the p=2 or p=1 guard is at or above the exact-classified reference"
+    );
     let (tightest, tightest_label) = table.tightest.clone().expect("rows");
     eprintln!(
-        "{} rows ({structured_rows} structured, Gmsh rows {}); p=2 guard below the 3-D p=2 \
-         TM-like cutoff on every row, tightest {tightest:.2} pt ({tightest_label}); worst \
+        "{} rows ({structured_rows} structured, Gmsh rows {}; reference: lowest p=2 mode with \
+         exact E_z share >= 0.4); p=2 guard below the 3-D p=2 TM-like cutoff on every row, \
+         tightest {tightest:.2} pt ({tightest_label}); worst \
          undershoot {:.3} %; where the axial term sets the margin ({} rows): worst \
          ÷(k_c·h_n)² {:.4} at k_c·h_n {:.2} (C_h = {TM_GUARD_AXIAL_COEFF}); at the base margin \
          ({} rows): worst undershoot {:.3} %, tightest {:.2} pt; coarse faces over four \
@@ -2097,7 +2307,23 @@ fn tm_guard_p2_measurement_table() {
     let t = &mut table.c955;
     let spread_max = t.depth_spread.iter().copied().fold(0.0_f64, f64::max);
     let spread_med = median(&mut t.depth_spread);
-    let lines = vec![
+    let [s_interim, s_opt1, s_opt3, s_floor] = &mut t.sampled;
+    let sampled_lines = [
+        s_interim.summary("sampled classifier: interim law"),
+        s_opt1.summary("sampled classifier: option 1 (reproduced)"),
+        s_opt3.summary("sampled classifier: option 3 (share-free, 0.98·min)"),
+        s_floor.summary("sampled classifier: share-free floor (√0.4·k_c)"),
+    ];
+    let mut lines = vec![
+        format!(
+            "classifier: exact E_z share >= 0.4 (issue #1041); {} rows change reference: {} \
+             to a higher mode (the sampled reference is not TM-like by its exact share), {} to \
+             a lower one; {} references outside the 24-mode window",
+            t.reclassified_up.len() + t.reclassified_down.len(),
+            t.reclassified_up.len(),
+            t.reclassified_down.len(),
+            t.grown_window.len(),
+        ),
         t.interim.summary("interim law"),
         t.opt1.summary("option 1 (reproduced)"),
         format!(
@@ -2118,14 +2344,60 @@ fn tm_guard_p2_measurement_table() {
             t.lowest_ratio.2,
         ),
     ];
+    lines.extend(sampled_lines);
     for l in &lines {
         eprintln!("issue #955 {l}");
+    }
+    for (l, ks, kx) in &t.reclassified_up {
+        eprintln!("    reference up: {l} (sampled-classifier {ks:.4} → exact-classifier {kx:.4})");
+    }
+    for (l, ks, kx) in &t.reclassified_down {
+        eprintln!(
+            "    reference down: {l} (sampled-classifier {ks:.4} → exact-classifier {kx:.4})"
+        );
+    }
+    for (l, n) in &t.grown_window {
+        eprintln!("    reference outside the 24-mode window: {l} (found at {n})");
+    }
+    for (st, name) in t
+        .sampled
+        .iter()
+        .zip(["interim", "option 1", "option 3", "floor"])
+    {
+        if name == "option 3" {
+            continue;
+        }
+        for (l, o) in &st.misses {
+            eprintln!(
+                "    sampled-classifier {name} miss: {l} ({:+.2} %)",
+                100.0 * o
+            );
+        }
     }
     // Pinned (issue #955): option 1 as reproduced and the share-free floor
     // are below the reference on every row, the floor is below the interim
     // guard on every row of the band, the share-free solve never falls
     // back, and the bound the floor rests on holds (the deep section is the
     // whole box on every row of this table).
+    // Issue #1041: on this table no lower mode is TM-like by its exact
+    // share only, and every guard's misses are the same by either
+    // classifier.
+    assert!(t.reclassified_down.is_empty(), "{:?}", t.reclassified_down);
+    assert!(t.grown_window.is_empty(), "{:?}", t.grown_window);
+    for (x, smp) in [&t.interim, &t.opt1, &t.opt3, &t.floor]
+        .into_iter()
+        .zip(&t.sampled)
+    {
+        let names = |g: &GuardStats| g.misses.iter().map(|m| m.0.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            names(x),
+            names(smp),
+            "misses by the exact and the sampled classifier"
+        );
+    }
+    if ran_gmsh {
+        assert_eq!(t.reclassified_up.len(), 2, "{:?}", t.reclassified_up);
+    }
     assert!(t.opt1.misses.is_empty(), "{:?}", t.opt1.misses);
     assert!(t.floor.misses.is_empty(), "{:?}", t.floor.misses);
     assert_eq!(t.floor.band[3], t.floor.band[0]);
@@ -2153,8 +2425,11 @@ fn tm_guard_p2_measurement_table() {
             "Issue #955 option 3: the share-free TM cutoff k_TM,h^2 = min |curl u|^2 / |u.n|^2 \
              over the discretely divergence-free p=2 fields of the PEC-closed guide section \
              (depths reach and 2/3 reach), per row of tm_guard_p2_measurement_table (815 \
-             rows with gmsh), against the interim law and option 1 (reproduced). ref_k is the \
-             box's lowest p=2 mode with sampled E_z share >= 0.4.",
+             rows with gmsh), against the interim law and option 1 (reproduced). Classifier \
+             (issue #1041): ref_k is the box's lowest p=2 mode with exact (volume-integrated) \
+             E_z share >= 0.4; ref_k_sampled_classifier is the lowest with five-point sampled \
+             share >= 0.4 (the classifier before #1041), for comparison only. Option 1 selects \
+             its section mode by the sampled share, as reproduced from 1cae001f.",
             &lines,
             &t.rows,
         );
@@ -2184,17 +2459,18 @@ fn tm_guard_p2_measurement_table() {
 }
 
 /// The rows of [`tm_guard_p2_long_guide_table`] on which the interim p=2
-/// guard is at or above the box's lowest p=2 TM-like mode, as
-/// `(a, d, lc)` of `reference/gmsh/guide_box.geo` (`b` = 1, `lc` at both
-/// ends), measured at Gmsh 4.15.2. Another Gmsh version can mesh these
-/// boxes differently and move the set; the test then fails with the diff.
-const LONG_GUIDE_KNOWN_GAPS: [(f64, f64, f64); 5] = [
-    (2.0, 9.5, 0.7),
-    (3.0, 7.75, 0.9),
-    (3.0, 8.0, 0.9),
-    (3.0, 9.75, 0.9),
-    (3.0, 11.75, 0.9),
-];
+/// guard is at or above the box's lowest p=2 TM-like mode (exact `E_z`
+/// share ≥ [`TM_LIKE_EZ_SHARE`], issue #1041), as `(a, d, lc)` of
+/// `reference/gmsh/guide_box.geo` (`b` = 1, `lc` at both ends), measured
+/// at Gmsh 4.15.2. Another Gmsh version can mesh these boxes differently
+/// and move the set; the test then fails with the diff.
+///
+/// Under the sampled share (before issue #1041) the set was five rows:
+/// these three and `3×1×8` and `3×1×11.75` at `lc` 0.9, whose modes read
+/// 0.50 and 0.68 sampled but carry 0.11 and 0.35 of their energy in `E_z`
+/// exactly. The table still reports that set and pins its size.
+const LONG_GUIDE_KNOWN_GAPS: [(f64, f64, f64); 3] =
+    [(2.0, 9.5, 0.7), (3.0, 7.75, 0.9), (3.0, 9.75, 0.9)];
 
 /// Window sizes [`tm_guard_p2_long_guide_table`] tries in turn until the
 /// window covers the guard ([`BoxWindow::covers`]).
@@ -2213,21 +2489,53 @@ enum LongGuideVerdict {
     Inconclusive,
 }
 
-/// The guard `guard` against the all-PEC box at `order`, growing the
-/// eigensolve window through [`LONG_GUIDE_WINDOWS`] until it decides. Returns
-/// the verdict, the lowest TM-like mode found (if any) and the window size
-/// and top used.
-fn long_guide_verdict(
-    mesh: &TetMesh,
+/// A verdict of [`long_guide_verdict`]: the verdict, the lowest TM-like
+/// mode found (if any) and the window size and top used.
+type Verdict = (LongGuideVerdict, Option<BoxMode>, usize, f64);
+
+/// The eigensolve windows of one all-PEC box at one order
+/// ([`LONG_GUIDE_WINDOWS`]), solved on first use and shared by every guard
+/// and both classifiers of a row (issue #1041). The eigensolve is
+/// deterministic, so sharing changes no verdict, only the run time.
+struct WindowCache<'m> {
+    mesh: &'m TetMesh,
     order: ElementOrder,
     a: f64,
-    guard: f64,
     reach: f64,
-) -> (LongGuideVerdict, Option<BoxMode>, usize, f64) {
+    windows: Vec<BoxWindow>,
+}
+
+impl<'m> WindowCache<'m> {
+    fn new(mesh: &'m TetMesh, order: ElementOrder, a: f64, reach: f64) -> Self {
+        Self {
+            mesh,
+            order,
+            a,
+            reach,
+            windows: Vec::new(),
+        }
+    }
+
+    /// Window `i` of [`LONG_GUIDE_WINDOWS`].
+    fn get(&mut self, i: usize) -> &BoxWindow {
+        while self.windows.len() <= i {
+            let n = LONG_GUIDE_WINDOWS[self.windows.len()];
+            self.windows.push(box_mode_window(
+                self.mesh, self.order, self.a, 1.0, n, self.reach,
+            ));
+        }
+        &self.windows[i]
+    }
+}
+
+/// The guard `guard` against the all-PEC box of `cache`, with TM-like
+/// modes classified by `c`, growing the eigensolve window through
+/// [`LONG_GUIDE_WINDOWS`] until it decides.
+fn long_guide_verdict(cache: &mut WindowCache, c: ShareClassifier, guard: f64) -> Verdict {
     let mut last = None;
-    for n in LONG_GUIDE_WINDOWS {
-        let w = box_mode_window(mesh, order, a, 1.0, n, reach);
-        let tm = w.tm_like();
+    for (i, n) in LONG_GUIDE_WINDOWS.into_iter().enumerate() {
+        let w = cache.get(i);
+        let tm = w.tm_like_by(c);
         if let Some(m) = tm.filter(|m| m.k <= guard) {
             return (LongGuideVerdict::Above, Some(m), n, w.top());
         }
@@ -2250,7 +2558,10 @@ fn long_guide_verdict(
 /// deep: the six coarse Gmsh guides of the #905 depth scans plus `2 × 1` at
 /// `lc` 0.5 and 0.7, `d` = 5.5 … 12 in steps of 0.25 (216 rows, the grid of
 /// the issue #955 exploration). The reference is the whole box's lowest
-/// TM-like mode.
+/// TM-like mode: exact `E_z` share ≥ [`TM_LIKE_EZ_SHARE`] (issue #1041).
+/// Every verdict is also taken by the five-point sampled share, the
+/// classifier before issue #1041, from the same eigensolves
+/// ([`WindowCache`]), and reported next to it.
 ///
 /// A long box has many TE₁₀ₚ modes below TM₁₁₀, so the 24-mode window of
 /// [`box_mode_shares`] does not reach the guard. Each row's window starts at
@@ -2264,17 +2575,23 @@ fn long_guide_verdict(
 /// diff), and the documented shape of the failure: the worst row
 /// (`3×1×9.75`, `lc` 0.9) has the guard 35.4 % above a mode 43.8 % below
 /// `k_c`, `0.046·(k_c·h_n)²` against `C_h` = 0.025; the gaps are at
-/// `k_c·h_n` 2.5 to 3.2; four of the five modes are below TE₂₀, inside the
-/// single-mode band; the four `3 × 1` modes lie within the reach of the
-/// port, the `2 × 1` one beyond it. Per row it prints `k_c·h_n`, the margin,
-/// the guard, the box mode, its `E_z` share and the share of its `E_z`
-/// within reach. With Gmsh 4.15.2 every window covers its guard at 48
-/// modes; the run took about 20 s in release on 14 threads before the issue #955
-/// columns, and 72 to 118 s with them on a loaded 28-core Mac.
+/// `k_c·h_n` 2.5 to 3.2; all three modes are below TE₂₀, inside the
+/// single-mode band; the two `3 × 1` modes lie within the reach of the
+/// port, the `2 × 1` one beyond it. (By the sampled share there were five
+/// gaps, four of them below TE₂₀; the two it adds, `3×1×8` and
+/// `3×1×11.75`, are not TM-like by their exact shares of 0.11 and 0.35.)
+/// Per row it prints `k_c·h_n`, the margin, the guard, the box mode, its
+/// `E_z` shares and the shares of its `E_z` within reach. With Gmsh 4.15.2
+/// every window covers its guard at 48 modes; the run took about 20 s in
+/// release on 14 threads before the issue #955 columns, 72 to 118 s with
+/// them on a loaded 28-core Mac, and 30 to 45 s since the eigensolve
+/// windows are shared across guards (issue #1041).
 ///
 /// The p=1 column is **report-only**: the p=1 guard (P1 face estimate, same
 /// law, as the `geode driven` CLI enforces it) against the box's p=1
-/// TM-like mode. It finds 20 such rows at Gmsh 4.15.2 (issue #1005).
+/// TM-like mode. It finds 12 such rows at Gmsh 4.15.2, 20 by the sampled
+/// share (issue #1005); the smallest `k_c·h_n` among them is 2.532
+/// (`2×1×9.5`, `lc` 0.7) by either classifier.
 ///
 /// These are coarse-mesh TM-like defect modes, not continuum TM modes;
 /// whether a TE₁₀ drive excites them is not measured. Skipped (passes
@@ -2283,12 +2600,20 @@ fn long_guide_verdict(
 /// Issue #955 adds three columns: option 1 (reproduced from `1cae001f`),
 /// the share-free cutoff used directly (option 3, `0.98·min(k_c, k_face)`)
 /// and its floor `√0.4·k_c`, each with the same growing-window verdict.
-/// Each miss is reported as within reach (≥ 90 % of the mode's `E_z`
-/// within reach), straddling the cut (≥ 40 %) or beyond it. Pinned at Gmsh
-/// 4.15.2: option 1 misses 8 rows (2 straddling, 6 beyond), option 3 used
-/// directly more than 100 (164), the floor none, and no column is
-/// inconclusive. With `GEODE_BLESS_955=1` the rows are written to
-/// `benchmarks/tm_guard_955/long_guide_table.toml`.
+/// Each miss is reported as within reach (≥ 90 % of the mode's exact `E_z`
+/// energy within reach), straddling the cut (≥ 40 %) or beyond it. Pinned
+/// at Gmsh 4.15.2: option 1 misses 21 rows (4 within reach, 7 straddling,
+/// 10 beyond), option 3 used directly more than 100 (173), the floor none,
+/// and no column is inconclusive. By the sampled share option 1 misses the
+/// 8 rows its builder reported (pinned, with the interim law's 5, the
+/// floor's 0 and the p=1 guard's 20): the 13 it adds are `1.5 × 1` boxes
+/// whose reference falls to a mode of exact share 0.45 to 0.70 that the
+/// sampling read at 0.14 to 0.38 (on two of the 8, `1.5×1×8.5` at `lc` 0.8
+/// and `1.5×1×9.5` at 0.92, the reference also falls, to modes of exact
+/// share 0.65 and 0.41 read at 0.34 and 0.07). Option 1 selects its own section mode by
+/// the sampled share, as reproduced from `1cae001f`; that is part of the
+/// guard under test and is not changed. With `GEODE_BLESS_955=1` the rows
+/// are written to `benchmarks/tm_guard_955/long_guide_table.toml`.
 #[test]
 #[ignore = "heavy: 432+ box eigensolves (48+ modes) on Gmsh guides 5.5-12 deep plus the #955 columns, ~1-2 min release; needs gmsh; cargo test --release --test wave_port_p2 -- --ignored tm_guard_p2_long_guide_table --nocapture"]
 fn tm_guard_p2_long_guide_table() {
@@ -2336,13 +2661,21 @@ fn tm_guard_p2_long_guide_table() {
         margin: f64,
         reach: f64,
         p2_guard: f64,
-        p2: (LongGuideVerdict, Option<BoxMode>, usize, f64),
+        /// The verdicts by the exact classifier, then by the sampled one
+        /// (issue #1041).
+        p2: Verdict,
+        p2_s: Verdict,
         p1_guard: f64,
-        p1: (LongGuideVerdict, Option<BoxMode>, usize, f64),
+        /// `k_c·h_n` of the p=1 estimate.
+        p1_kh: f64,
+        p1: Verdict,
+        p1_s: Verdict,
         /// Issue #955: the candidate guards and their verdicts (option 1
-        /// reproduced, option 3, the share-free floor).
+        /// reproduced, option 3, the share-free floor), by the exact
+        /// classifier and by the sampled one.
         c: ComputedGuards,
-        cand: [(LongGuideVerdict, Option<BoxMode>, usize, f64); 3],
+        cand: [Verdict; 3],
+        cand_s: [Verdict; 3],
     }
 
     let dir = std::env::temp_dir().join(format!("geode-990-long-{}", std::process::id()));
@@ -2370,13 +2703,18 @@ fn tm_guard_p2_long_guide_table() {
                     let est = guard_estimate_at(&mesh, ElementOrder::P2);
                     let reach = tm_guard_axial_reach(est.k_c(), 0.0);
                     let p2_guard = est.guard_k_c();
-                    let p2 = long_guide_verdict(&mesh, ElementOrder::P2, a, p2_guard, reach);
+                    let mut w2 = WindowCache::new(&mesh, ElementOrder::P2, a, reach);
+                    let [p2, p2_s] =
+                        ShareClassifier::BOTH.map(|cl| long_guide_verdict(&mut w2, cl, p2_guard));
                     let p1_est = guard_estimate(&mesh);
                     let p1_guard = p1_est.guard_k_c();
-                    let p1 = long_guide_verdict(&mesh, ElementOrder::P1, a, p1_guard, reach);
+                    let mut w1 = WindowCache::new(&mesh, ElementOrder::P1, a, reach);
+                    let [p1, p1_s] =
+                        ShareClassifier::BOTH.map(|cl| long_guide_verdict(&mut w1, cl, p1_guard));
                     let c = computed_guards(&mesh);
-                    let cand = [c.opt1.guard, c.direct(est.k_c()), c.floor()]
-                        .map(|g| long_guide_verdict(&mesh, ElementOrder::P2, a, g, reach));
+                    let guards = [c.opt1.guard, c.direct(est.k_c()), c.floor()];
+                    let [cand, cand_s] = ShareClassifier::BOTH
+                        .map(|cl| guards.map(|g| long_guide_verdict(&mut w2, cl, g)));
                     rows.lock().unwrap().push(Row {
                         a,
                         d,
@@ -2387,10 +2725,14 @@ fn tm_guard_p2_long_guide_table() {
                         reach,
                         p2_guard,
                         p2,
+                        p2_s,
                         p1_guard,
+                        p1_kh: p1_est.axial_kh(),
                         p1,
+                        p1_s,
                         c,
                         cand,
+                        cand_s,
                     });
                 }
             });
@@ -2407,14 +2749,14 @@ fn tm_guard_p2_long_guide_table() {
 
     let fmt_mode = |m: Option<BoxMode>| match m {
         Some(m) => format!(
-            "{:.4} (E_z share {:.2}, {:.2} within reach)",
-            m.k, m.share, m.ez_within_reach
+            "{:.4} (E_z share {:.2} exact, {:.2} sampled; {:.2} within reach exact, {:.2} sampled)",
+            m.k, m.share_exact, m.share, m.ez_within_reach_exact, m.ez_within_reach
         ),
         None => "none in window".to_string(),
     };
+    let label_of = |r: &Row| format!("gmsh {}×1×{}, lc {}", r.a, r.d, r.lc);
     let mut gaps = Vec::new();
     let mut inconclusive = Vec::new();
-    let (mut p1_gaps, mut p1_inconclusive) = (Vec::new(), Vec::new());
     // (overshoot of the guard over the mode, label), and the worst
     // `(1 − k_mode/k_c) ÷ (k_c·h_n)²` among the gaps.
     let mut worst_over = (0.0_f64, String::new());
@@ -2423,21 +2765,30 @@ fn tm_guard_p2_long_guide_table() {
     let mut in_band = Vec::new();
     let mut gap_modes = Vec::new();
     for r in &rows {
-        let label = format!("gmsh {}×1×{}, lc {}", r.a, r.d, r.lc);
+        let label = label_of(r);
         let (v2, m2, n2, top2) = r.p2;
         let (v1, m1, n1, top1) = r.p1;
         eprintln!(
             "LONG {label}: k_c·h_n {:.3}, margin {:.2} %, reach {:.2}, k_c {:.4}; p=2 guard {:.4} \
-             vs box p=2 TM-like {} [{v2:?}, window {n2} to {top2:.3}]; p=1 guard {:.4} vs box \
-             p=1 TM-like {} [{v1:?}, window {n1} to {top1:.3}]",
+             vs box p=2 TM-like {} [{v2:?}, window {n2} to {top2:.3}; sampled classifier {:?} \
+             at {}]; p=1 guard {:.4} vs box p=1 TM-like {} [{v1:?}, window {n1} to {top1:.3}; \
+             sampled classifier {:?} at {}]",
             r.kh,
             100.0 * r.margin,
             r.reach,
             r.k_c,
             r.p2_guard,
             fmt_mode(m2),
+            r.p2_s.0,
+            r.p2_s
+                .1
+                .map_or("none".to_string(), |m| format!("{:.4}", m.k)),
             r.p1_guard,
             fmt_mode(m1),
+            r.p1_s.0,
+            r.p1_s
+                .1
+                .map_or("none".to_string(), |m| format!("{:.4}", m.k)),
         );
         match v2 {
             LongGuideVerdict::Above => {
@@ -2461,10 +2812,184 @@ fn tm_guard_p2_long_guide_table() {
             LongGuideVerdict::Inconclusive => inconclusive.push(label.clone()),
             LongGuideVerdict::Below => {}
         }
-        match v1 {
-            LongGuideVerdict::Above => p1_gaps.push(label.clone()),
-            LongGuideVerdict::Inconclusive => p1_inconclusive.push(label.clone()),
-            LongGuideVerdict::Below => {}
+    }
+    // Every guard against the same boxes, by both classifiers (issues #955,
+    // #1041). A miss is within reach when at least 90 % of the mode's exact
+    // `E_z` energy lies within reach, straddles the cut from 40 %, and is
+    // beyond it below that.
+    /// One guard's misses over the table by one classifier.
+    struct Tally {
+        line: String,
+        labels: Vec<String>,
+        inconclusive: Vec<String>,
+    }
+    let tally = |name: &str, guard: &dyn Fn(&Row) -> f64, verdict: &dyn Fn(&Row) -> Verdict| {
+        let mut entries: [Vec<String>; 3] = Default::default();
+        let (mut labels, mut inconcl) = (Vec::new(), Vec::new());
+        let mut worst = (0.0_f64, String::new());
+        let mut margins = Vec::new();
+        for r in &rows {
+            let label = label_of(r);
+            let g = guard(r);
+            margins.push(1.0 - g / r.k_c);
+            let (v, m, _, _) = verdict(r);
+            match v {
+                LongGuideVerdict::Above => {
+                    let m = m.expect("mode");
+                    let o = g / m.k - 1.0;
+                    if o > worst.0 {
+                        worst = (o, label.clone());
+                    }
+                    entries[reach_bucket(m.ez_within_reach_exact)].push(format!(
+                        "{label} (guard {g:.4} vs {:.4}, {:+.1} %, share {:.2} exact / {:.2} \
+                         sampled, {:.2} within reach exact / {:.2} sampled)",
+                        m.k,
+                        100.0 * o,
+                        m.share_exact,
+                        m.share,
+                        m.ez_within_reach_exact,
+                        m.ez_within_reach,
+                    ));
+                    labels.push(label);
+                }
+                LongGuideVerdict::Inconclusive => inconcl.push(label),
+                LongGuideVerdict::Below => {}
+            }
+        }
+        for (e, kind) in entries
+            .iter()
+            .zip(["within reach", "straddling the cut", "beyond reach"])
+        {
+            for e in e {
+                eprintln!("    {name} miss {kind}: {e}");
+            }
+        }
+        for e in &inconcl {
+            eprintln!("    {name} inconclusive: {e}");
+        }
+        Tally {
+            line: format!(
+                "{name}: at or above the box's TM-like mode on {} rows ({} within reach, {} \
+                 straddling the cut, {} beyond), {} inconclusive; worst {:+.1} % ({}); median \
+                 margin below the face {:.2} %",
+                labels.len(),
+                entries[0].len(),
+                entries[1].len(),
+                entries[2].len(),
+                inconcl.len(),
+                100.0 * worst.0,
+                worst.1,
+                100.0 * median(&mut margins),
+            ),
+            labels,
+            inconclusive: inconcl,
+        }
+    };
+    let cand_guard = |r: &Row, j: usize| [r.c.opt1.guard, r.c.direct(r.k_c), r.c.floor()][j];
+    let names = [
+        "interim law",
+        "option 1 (reproduced)",
+        "option 3 (share-free, 0.98·min)",
+        "share-free floor (√0.4·k_c)",
+        "p=1 guard (report-only, box p=1 mode)",
+    ];
+    let mut tallies: Vec<[Tally; 2]> = Vec::new();
+    for (j, name) in names.iter().enumerate() {
+        let pair = ShareClassifier::BOTH.map(|cl| {
+            let tag = match cl {
+                ShareClassifier::Exact => (*name).to_string(),
+                ShareClassifier::Sampled => format!("sampled classifier: {name}"),
+            };
+            let sampled = cl == ShareClassifier::Sampled;
+            match j {
+                0 => tally(&tag, &|r| r.p2_guard, &|r| {
+                    if sampled { r.p2_s } else { r.p2 }
+                }),
+                4 => tally(&tag, &|r| r.p1_guard, &|r| {
+                    if sampled { r.p1_s } else { r.p1 }
+                }),
+                _ => tally(&tag, &|r| cand_guard(r, j - 1), &|r| {
+                    if sampled {
+                        r.cand_s[j - 1]
+                    } else {
+                        r.cand[j - 1]
+                    }
+                }),
+            }
+        });
+        tallies.push(pair);
+    }
+    // The rows whose reference (the box's lowest TM-like mode, at p=2 and
+    // at p=1) moves under the exact classifier: up (the sampled reference is
+    // not TM-like by its exact share) and down (a lower mode is TM-like by
+    // its exact share only).
+    let mut moved = Vec::new();
+    for (order, pick) in [
+        (
+            "p=2",
+            (|r: &Row| (r.p2.1, r.p2_s.1)) as fn(&Row) -> (Option<BoxMode>, Option<BoxMode>),
+        ),
+        ("p=1", |r: &Row| (r.p1.1, r.p1_s.1)),
+    ] {
+        let (mut up, mut down) = (0usize, 0usize);
+        for r in &rows {
+            let (x, smp) = pick(r);
+            let (kx, ks) = (
+                x.map_or(f64::INFINITY, |m| m.k),
+                smp.map_or(f64::INFINITY, |m| m.k),
+            );
+            if kx > ks {
+                up += 1;
+                eprintln!(
+                    "    {order} reference up: {} ({ks:.4} → {kx:.4})",
+                    label_of(r)
+                );
+            } else if kx < ks {
+                down += 1;
+                eprintln!(
+                    "    {order} reference down: {} ({ks:.4} → {kx:.4})",
+                    label_of(r)
+                );
+            }
+        }
+        moved.push(format!(
+            "{order}: {up} rows to a higher reference, {down} to a lower one"
+        ));
+    }
+    // The p=1 misses (issue #1005): their smallest `k_c·h_n`.
+    let p1_min_kh = |labels: &[String]| {
+        rows.iter()
+            .filter(|r| labels.contains(&label_of(r)))
+            .map(|r| (r.kh, r.p1_kh, label_of(r)))
+            .fold((f64::INFINITY, f64::INFINITY, String::new()), |w, x| {
+                if x.0 < w.0 { x } else { w }
+            })
+    };
+    let p1_min = [&tallies[4][0], &tallies[4][1]].map(|t| p1_min_kh(&t.labels));
+    let mut lines = vec![format!(
+        "classifier: exact E_z share >= 0.4 (issue #1041); references moved: {}; p=1 misses: \
+         smallest k_c·h_n {:.3} (p=1 estimate {:.3}, {}) exact, {:.3} ({:.3}, {}) sampled",
+        moved.join("; "),
+        p1_min[0].0,
+        p1_min[0].1,
+        p1_min[0].2,
+        p1_min[1].0,
+        p1_min[1].1,
+        p1_min[1].2,
+    )];
+    for pair in &tallies {
+        lines.push(pair[0].line.clone());
+    }
+    for pair in &tallies {
+        lines.push(pair[1].line.clone());
+    }
+    for (pair, name) in tallies.iter().zip(names) {
+        let (x, smp) = (&pair[0].labels, &pair[1].labels);
+        for l in x.iter().filter(|l| !smp.contains(l)) {
+            eprintln!("    {name}: miss under the exact classifier only: {l}");
+        }
+        for l in smp.iter().filter(|l| !x.contains(l)) {
+            eprintln!("    {name}: miss under the sampled classifier only: {l}");
         }
     }
     eprintln!(
@@ -2481,102 +3006,9 @@ fn tm_guard_p2_long_guide_table() {
         worst_under.1,
         worst_ratio,
         geode_core::driven::ports::TM_GUARD_AXIAL_COEFF,
-        p1_gaps.len(),
-        p1_inconclusive.len(),
+        tallies[4][0].labels.len(),
+        tallies[4][0].inconclusive.len(),
     );
-    for l in &p1_gaps {
-        eprintln!("    p=1 gap (report-only): {l}");
-    }
-    for l in &p1_inconclusive {
-        eprintln!("    p=1 inconclusive (report-only): {l}");
-    }
-    // Issue #955: the candidate guards against the same boxes. A miss is
-    // within reach when at least 90 % of the mode's E_z lies within reach,
-    // straddles the cut from 40 %, and is beyond it below that.
-    let mut counts = [0usize; 3];
-    let names = [
-        "option 1 (reproduced)",
-        "option 3 (share-free, 0.98·min)",
-        "share-free floor (√0.4·k_c)",
-    ];
-    let mut lines = Vec::new();
-    let mut toml_rows = Vec::new();
-    for (j, name) in names.iter().enumerate() {
-        let (mut in_reach, mut straddling, mut beyond, mut inconcl) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        let mut worst = (0.0_f64, String::new());
-        let mut margins = Vec::new();
-        for r in &rows {
-            let label = format!("gmsh {}×1×{}, lc {}", r.a, r.d, r.lc);
-            let g = [r.c.opt1.guard, r.c.direct(r.k_c), r.c.floor()][j];
-            margins.push(1.0 - g / r.k_c);
-            let (v, m, _, _) = r.cand[j];
-            match v {
-                LongGuideVerdict::Above => {
-                    let m = m.expect("mode");
-                    let o = g / m.k - 1.0;
-                    if o > worst.0 {
-                        worst = (o, label.clone());
-                    }
-                    let entry = format!(
-                        "{label} (guard {g:.4} vs {:.4}, {:+.1} %, share {:.2} sampled / {:.2} exact, {:.2} within reach)",
-                        m.k,
-                        100.0 * o,
-                        m.share,
-                        m.share_exact,
-                        m.ez_within_reach
-                    );
-                    if m.ez_within_reach >= 0.9 {
-                        in_reach.push(entry);
-                    } else if m.ez_within_reach >= 0.4 {
-                        straddling.push(entry);
-                    } else {
-                        beyond.push(entry);
-                    }
-                }
-                LongGuideVerdict::Inconclusive => inconcl.push(label.clone()),
-                LongGuideVerdict::Below => {}
-            }
-        }
-        counts[j] = in_reach.len() + straddling.len() + beyond.len();
-        assert!(inconcl.is_empty(), "{name}: inconclusive {inconcl:?}");
-        lines.push(format!(
-            "{name}: at or above the box's p=2 TM-like mode on {} rows ({} within reach, {} \
-             straddling the cut, {} beyond), {} inconclusive; worst {:+.1} % ({}); median margin \
-             below the face {:.2} %",
-            in_reach.len() + straddling.len() + beyond.len(),
-            in_reach.len(),
-            straddling.len(),
-            beyond.len(),
-            inconcl.len(),
-            100.0 * worst.0,
-            worst.1,
-            100.0 * median(&mut margins),
-        ));
-        for e in &in_reach {
-            eprintln!("    {name} miss within reach: {e}");
-        }
-        for e in &straddling {
-            eprintln!("    {name} miss straddling the cut: {e}");
-        }
-        for e in &beyond {
-            eprintln!("    {name} miss beyond reach: {e}");
-        }
-        for e in &inconcl {
-            eprintln!("    {name} inconclusive: {e}");
-        }
-    }
-    // Pinned at Gmsh 4.15.2 (issue #955): option 1 as reproduced misses the
-    // 8 rows its builder reported, the share-free cutoff used directly
-    // misses most rows, and the floor none.
-    assert_eq!(counts[0], 8, "option 1 (reproduced)");
-    assert!(counts[1] > 100, "option 3 used directly: {}", counts[1]);
-    assert_eq!(counts[2], 0, "share-free floor");
-    let interim_line = format!(
-        "interim law: at or above the box's p=2 TM-like mode on {} rows",
-        gaps.len()
-    );
-    lines.insert(0, interim_line);
     for l in &lines {
         eprintln!("issue #955 long guides: {l}");
     }
@@ -2587,15 +3019,22 @@ fn tm_guard_p2_long_guide_table() {
             "nan".into()
         }
     };
-    let verdict = |v: &(LongGuideVerdict, Option<BoxMode>, usize, f64)| {
+    let verdict = |v: &Verdict| {
         let (v, m, _, _) = v;
         let mut out = vec![toml_str(&format!("{v:?}"))];
         match m {
-            Some(m) => out.extend([f(m.k), f(m.share), f(m.share_exact), f(m.ez_within_reach)]),
-            None => out.extend(["nan".to_string(), "nan".into(), "nan".into(), "nan".into()]),
+            Some(m) => out.extend([
+                f(m.k),
+                f(m.share),
+                f(m.share_exact),
+                f(m.ez_within_reach),
+                f(m.ez_within_reach_exact),
+            ]),
+            None => out.extend(std::iter::repeat_n("nan".to_string(), 5)),
         }
         format!("[{}]", out.join(", "))
     };
+    let mut toml_rows = Vec::new();
     for r in &rows {
         let sf =
             r.c.share_free()
@@ -2609,20 +3048,28 @@ fn tm_guard_p2_long_guide_table() {
             ("reach", f(r.reach)),
             ("interim", f(r.p2_guard)),
             ("interim_verdict", verdict(&r.p2)),
+            ("interim_verdict_sampled", verdict(&r.p2_s)),
+            ("p1_kh", f(r.p1_kh)),
+            ("p1_guard", f(r.p1_guard)),
+            ("p1_verdict", verdict(&r.p1)),
+            ("p1_verdict_sampled", verdict(&r.p1_s)),
             ("option1", f(r.c.opt1.guard)),
             (
                 "option1_source",
                 toml_str(&format!("{:?}", r.c.opt1.source)),
             ),
             ("option1_verdict", verdict(&r.cand[0])),
+            ("option1_verdict_sampled", verdict(&r.cand_s[0])),
             ("share_free_k_c", f(sf.0)),
             ("share_free_k_deep", f(sf.1)),
             ("share_free_k_shallow", f(sf.2)),
             ("minimizer_share", f(sf.3)),
             ("option3", f(r.c.direct(r.k_c))),
             ("option3_verdict", verdict(&r.cand[1])),
+            ("option3_verdict_sampled", verdict(&r.cand_s[1])),
             ("floor", f(r.c.floor())),
             ("floor_verdict", verdict(&r.cand[2])),
+            ("floor_verdict_sampled", verdict(&r.cand_s[2])),
         ]));
     }
     bless_955(
@@ -2632,12 +3079,24 @@ fn tm_guard_p2_long_guide_table() {
         "Issue #955 option 3 on the 216 long Gmsh guides of tm_guard_p2_long_guide_table \
          (issue #990): the share-free TM cutoff of the PEC-closed guide section (depths reach \
          and 2/3 reach) as a guard (option3 = 0.98 min(k_deep, k_shallow, k_face); floor = \
-         sqrt(0.4) k_c), against the interim law and option 1 (reproduced). Verdicts are \
-         [verdict, mode k, sampled share, exact share, E_z share within reach] of the whole \
-         box's lowest p=2 TM-like mode at or below the guard (or the lowest found).",
+         sqrt(0.4) k_c), against the interim law, option 1 (reproduced) and the report-only p=1 \
+         guard. Classifier (issue #1041): a box mode is TM-like when its exact \
+         (volume-integrated) E_z share is >= 0.4; the *_verdict_sampled fields classify by the \
+         five-point sampled share instead (the classifier before #1041), for comparison only. \
+         Option 1 selects its section mode by the sampled share, as reproduced from 1cae001f. \
+         Verdicts are [verdict, mode k, sampled share, exact share, sampled E_z share within \
+         reach, exact E_z share within reach] of the whole box's lowest TM-like mode at or \
+         below the guard (or the lowest found).",
         &lines,
         &toml_rows,
     );
+    for pair in &tallies {
+        assert!(
+            pair[0].inconclusive.is_empty() || std::ptr::eq(pair, &tallies[4]),
+            "{}",
+            pair[0].line
+        );
+    }
     assert!(
         inconclusive.is_empty(),
         "p=2 rows whose window never covers the guard: {inconclusive:?}"
@@ -2648,6 +3107,33 @@ fn tm_guard_p2_long_guide_table() {
     assert!(
         new.is_empty() && fixed.is_empty(),
         "long-guide gaps moved (Gmsh {version}): new {new:?}, no longer failing {fixed:?}"
+    );
+    // Pinned at Gmsh 4.15.2 (issues #955, #1041). By the exact classifier:
+    // option 1 as reproduced misses 21 rows (4 within reach, 7 straddling,
+    // 10 beyond), the share-free cutoff used directly most rows (173), the
+    // floor none. By the sampled classifier the table reproduces the
+    // counts before issue #1041: interim law 5, option 1 the 8 rows its
+    // builder reported, the floor none, the p=1 guard 20.
+    let counts = tallies
+        .iter()
+        .map(|p| p[0].labels.len())
+        .collect::<Vec<_>>();
+    let sampled = tallies
+        .iter()
+        .map(|p| p[1].labels.len())
+        .collect::<Vec<_>>();
+    assert_eq!(counts[1], 21, "option 1 (reproduced)");
+    assert!(counts[2] > 100, "option 3 used directly: {}", counts[2]);
+    assert_eq!(counts[3], 0, "share-free floor");
+    assert_eq!(
+        [sampled[0], sampled[1], sampled[3], sampled[4]],
+        [5, 8, 0, 20],
+        "sampled classifier: interim, option 1, floor, p=1"
+    );
+    assert!(
+        sampled[2] > 100,
+        "sampled classifier, option 3: {}",
+        sampled[2]
     );
     // What the docs of `tm_guard_margin` and `p2_resolution_warning` state:
     // the worst row is `3×1×9.75`, the guard 35 % above a mode 44 % below
@@ -2667,16 +3153,16 @@ fn tm_guard_p2_long_guide_table() {
             .expect("row");
         assert!(r.kh > 2.5 && r.kh < 3.2, "{r:?}");
     }
-    // Four of the five gap modes are below TE₂₀, inside the single-mode
-    // band (all but `3×1×8`, at 2.370); the four `3 × 1` modes lie within
-    // the reach, the `2×1×9.5` one beyond it.
-    assert_eq!(in_band.len(), 4, "{in_band:?}");
-    assert!(!in_band.iter().any(|l| l.contains("3×1×8,")), "{in_band:?}");
+    // All three gap modes are below TE₂₀, inside the single-mode band (by
+    // the sampled classifier four of five were: `3×1×8`'s mode, at 2.370,
+    // was above it); the two `3 × 1` modes lie within the reach (exact
+    // `E_z` share within reach), the `2×1×9.5` one beyond it.
+    assert_eq!(in_band.len(), gaps.len(), "{in_band:?}");
     for (label, a, m) in &gap_modes {
         if *a == 3.0 {
-            assert!(m.ez_within_reach > 0.9, "{label}: {m:?}");
+            assert!(m.ez_within_reach_exact > 0.9, "{label}: {m:?}");
         } else {
-            assert!(m.ez_within_reach < 0.1, "{label}: {m:?}");
+            assert!(m.ez_within_reach_exact < 0.1, "{label}: {m:?}");
         }
     }
 }
@@ -2901,15 +3387,25 @@ struct GuardStats {
     /// Rows with `k_c·h_n` in `[√(δ₀/C_h), 2.5]`, and of those the rows on
     /// which the guard is above, equal to and below the interim guard.
     band: [usize; 4],
+    /// The misses within reach, straddling the cut and beyond it, by the
+    /// reference's exact `E_z` share within reach (≥ 0.9, ≥ 0.4, below).
+    split: [usize; 3],
 }
 
 impl GuardStats {
     fn record(&mut self, label: &str, guard: f64, r: &GuardRow) {
+        self.record_against(label, guard, r.tm, r);
+    }
+
+    /// [`Self::record`] against the reference `tm` (the row's reference by
+    /// another classifier).
+    fn record_against(&mut self, label: &str, guard: f64, tm: BoxMode, r: &GuardRow) {
         self.rows += 1;
-        if guard >= r.tm.k {
-            self.misses.push((label.to_string(), guard / r.tm.k - 1.0));
+        if guard >= tm.k {
+            self.misses.push((label.to_string(), guard / tm.k - 1.0));
+            self.split[reach_bucket(tm.ez_within_reach_exact)] += 1;
         }
-        let pts = 100.0 * (1.0 - guard / r.tm.k);
+        let pts = 100.0 * (1.0 - guard / tm.k);
         if self.tightest.as_ref().is_none_or(|t| pts < t.0) {
             self.tightest = Some((pts, label.to_string()));
         }
@@ -2936,11 +3432,15 @@ impl GuardStats {
                 if m.1 > w.0 { (m.1, m.0) } else { w }
             });
         format!(
-            "{name}: {} rows, at or above the 3-D p=2 TM-like mode on {} (worst {:+.2} %, {}); \
-             tightest {t:.2} pt ({tl}); median margin below the face {:.2} %; k_c·h_n in [1.41, \
-             2.5]: {} rows, above / equal to / below the interim guard on {} / {} / {}",
+            "{name}: {} rows, at or above the 3-D p=2 TM-like mode on {} ({} within reach, {} \
+             straddling the cut, {} beyond; worst {:+.2} %, {}); tightest {t:.2} pt ({tl}); \
+             median margin below the face {:.2} %; k_c·h_n in [1.41, 2.5]: {} rows, above / \
+             equal to / below the interim guard on {} / {} / {}",
             self.rows,
             self.misses.len(),
+            self.split[0],
+            self.split[1],
+            self.split[2],
             100.0 * worst.0,
             worst.1,
             100.0 * median(&mut self.margins),
@@ -2949,6 +3449,18 @@ impl GuardStats {
             self.band[2],
             self.band[3],
         )
+    }
+}
+
+/// Where a mode with exact `E_z` share `within` inside the guard's reach
+/// lies: 0 within reach (≥ 0.9), 1 straddling the cut (≥ 0.4), 2 beyond.
+fn reach_bucket(within: f64) -> usize {
+    if within >= 0.9 {
+        0
+    } else if within >= 0.4 {
+        1
+    } else {
+        2
     }
 }
 

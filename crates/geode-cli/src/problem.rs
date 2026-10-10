@@ -4378,7 +4378,7 @@ impl PortMaterials<'_> {
     /// 3-D cutoff **only for boxes shorter than the window**: every box
     /// it was measured on was. On guides longer than the window, coarse
     /// ones, the guard is not a bound (issue #1005: at or above a p=1
-    /// TM-like mode on 20 of 216 long Gmsh guides, by up to 198.7 %;
+    /// TM-like mode on 12 of 216 long Gmsh guides (20 by the sampled share), by up to 198.7 %;
     /// `tm_guard_margin`, "Long guides: where the guard fails"). The
     /// filled limit is `guard_k_c/√(Re ε_n·μ_t)` ([`PortMedium::tm_cutoff_k0`]),
     /// evaluated at every sweep frequency for a dispersive fill; a fill
@@ -4409,7 +4409,7 @@ impl PortMaterials<'_> {
     /// ([`GuideScan::far_extent`]), the sweep runs with a warning that the
     /// TM limit is not a bound there, how to leave the regime (refine the
     /// guide to `h ≤ 2.5/k_c`, or shorten it), and that the threshold marks
-    /// the regime of the 20 measured misses rather than predicting one.
+    /// the regime of the measured misses rather than predicting one.
     /// The operator ruled for a warning, not a rejection: tightening the
     /// margin would block meshes that solve today.
     fn check_te_port_guard(
@@ -4785,7 +4785,7 @@ impl TmAxialMesh<'_> {
     /// do not reject): `k_c^TM·h_n` > [`TM_GUARD_LONG_GUIDE_KH`] and the
     /// guide footprint extends beyond the guard's window
     /// ([`GuideScan::far_extent`] > `reach`). There the p=1 guard is not a
-    /// bound: on 20 of 216 long coarse Gmsh guides it was at or above a
+    /// bound: on 12 of 216 (20 by the sampled share) long coarse Gmsh guides it was at or above a
     /// TM-like mode of the 3-D p=1 model. The threshold marks that regime;
     /// it does not predict a failure.
     fn long_guide_warning(&self) -> Option<String> {
@@ -4805,11 +4805,11 @@ impl TmAxialMesh<'_> {
              face extends {far:.6} mesh units from the port, beyond that window. If the guide \
              continues that far, the TM limit is not a bound: on 216 long coarse Gmsh guides \
              measured, the p=1 limit was at or above a TM-like (coarse-mesh defect) mode of \
-             the 3-D model on 20, by up to 198.7 % (about 3×; issues #990, #1005). This marks \
+             the 3-D model on 12 (20 by the sampled share), by up to 198.7 % (about 3×; issues #990, #1005). This marks \
              a regime, not a predicted failure: 211 of those 216 guides are above \
-             k_c^TM·h_n = {TM_GUARD_LONG_GUIDE_KH} and only 20 failed, long guides finer than \
+             k_c^TM·h_n = {TM_GUARD_LONG_GUIDE_KH} and only 12 failed (20 by the sampled share), long guides finer than \
              that were not measured, and the threshold is 1.3 % below the lowest failing row \
-             (2.532; issue #1041 may move it). The sweep runs. To leave the regime, refine the \
+             (2.532; issue #1041 re-checked the 2.5 threshold under the exact classifier and it held). The sweep runs. To leave the regime, refine the \
              mesh along the whole guide feeding port `{}` to h ≤ {:.6} mesh units along its \
              axis, or shorten the guide to within {:.6} mesh units of the port",
             self.name,

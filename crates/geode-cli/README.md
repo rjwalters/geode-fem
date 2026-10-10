@@ -651,12 +651,12 @@ over the port face extends beyond the guard's window. The sweep still
 runs. The warning says the TM limit is not a bound there and gives the
 fix: refine the whole guide to `h ≤ 2.5/k_c` along its axis, or shorten
 it to within the window. The threshold marks a regime, not a predicted
-failure. All 20 long-guide misses have `k_c·h_n` ≥ 2.532, and the 5
+failure. All 12 long-guide misses (20 by the sampled share) have `k_c·h_n` ≥ 2.532, and the 5
 long guides at or below 2.5 have none. But 211 of the 216 long guides
-are above 2.5 and only 20 of them miss, and no fine long guide was
+are above 2.5 and only 12 of them miss (20 by the sampled share), and no fine long guide was
 measured, so how often the warning fires on a guide whose limit does
 hold is unknown. The headroom is thin, 1.3 % below the lowest failing
-row, and the exact-share re-run of the tables (issue #1041) can move it.
+row; issue #1041 re-checked the 2.5 threshold under the exact classifier and it held.
 A guide footprint can include a device region behind the port, so the
 warning says "if the guide continues" that far.
 

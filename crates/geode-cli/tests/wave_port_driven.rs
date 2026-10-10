@@ -2179,7 +2179,7 @@ fn a_long_coarse_guide_warns_that_the_tm_limit_is_not_a_bound_and_still_solves()
             assert!(w.contains("above 2.5"), "{w}");
             assert!(w.contains("the TM limit is not a bound"), "{w}");
             assert!(w.contains("not a predicted failure"), "{w}");
-            assert!(w.contains("issue #1041"), "{w}");
+            assert!(w.contains("re-checked the 2.5 threshold"), "{w}");
             let far = number_after(&w, "the mesh over the port face extends ");
             assert!((far - 6.0).abs() < 1e-9, "{w}");
             let reach = number_after(&w, "the tets of the guide within ");
@@ -2209,6 +2209,12 @@ fn a_short_or_fine_guide_does_not_get_the_long_guide_warning() {
         let file = axial_spec(name, spec, &[1.7, 1.8]);
         let v = json(&geode(&["check", file.to_str().unwrap()]));
         for i in 0..2 {
+            if name.starts_with("short") {
+                // Coarse enough that only the short guide keeps it quiet.
+                let p = &v["wave_ports"][i];
+                let kh = f64_at(&p["tm_k_c"]) * f64_at(&p["tm_axial_spacing"]);
+                assert!(kh > 2.5, "{name}: {p:#}");
+            }
             assert!(long_guide_warning(&v, i).is_none(), "{name}: {v:#}");
         }
     }

@@ -594,7 +594,8 @@ jobs:
       # transient_sparams likewise needs GEODE_BLESS_TRANSIENT=1, #823),
       # mixed_pencil_fiber_benchmark 20 s,
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
-      # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
+      # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests; the
+      # #1035 multiparam_gradient_release adds about 7 s locally),
       # sphere_matched_upml_eigenmode 8 s or less (three tests since #1022;
       # measured locally 7.7 s against 12.9 s for the two before it),
       # the rest 0-5 s.
