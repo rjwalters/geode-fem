@@ -872,6 +872,23 @@ pub fn extract_capacitance_amg_pcg(
     ground: &[u32],
     opts: AmgPcgOptions,
 ) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+    let (matrix, report, _) = extract_capacitance_amg_pcg_fields(sys, conductors, ground, opts)?;
+    Ok((matrix, report))
+}
+
+/// Extract the capacitance matrix and retain the full potential for each unit
+/// conductor excitation. Potentials include pinned values, in conductor order.
+/// These are the same fields used to compute the energy-method matrix; keeping
+/// them enables shape sensitivities without another solve or factorization.
+///
+/// # Errors
+/// As [`extract_capacitance_amg_pcg`].
+pub fn extract_capacitance_amg_pcg_fields(
+    sys: &ElectrostaticSystem,
+    conductors: &[Electrode],
+    ground: &[u32],
+    opts: AmgPcgOptions,
+) -> Result<(CapacitanceMatrix, AmgPcgReport, Vec<Vec<f64>>), ElectrostaticError> {
     let ground_dofs: Vec<usize> = ground.iter().map(|&g| g as usize).collect();
     let cond_dofs: Vec<Vec<usize>> = conductors
         .iter()
@@ -900,7 +917,7 @@ fn amg_pcg_maxwell(
     cond_dofs: &[Vec<usize>],
     ground_dofs: &[usize],
     opts: AmgPcgOptions,
-) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+) -> Result<(CapacitanceMatrix, AmgPcgReport, Vec<Vec<f64>>), ElectrostaticError> {
     let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles)
         .map_err(|e| ElectrostaticError::Factorization(format!("AMG setup: {e:?}")))?;
     let n = cond_dofs.len();
@@ -995,6 +1012,7 @@ fn amg_pcg_maxwell(
             c_flux_diag: vec![None; n],
         },
         report,
+        us,
     ))
 }
 
@@ -1669,6 +1687,20 @@ pub fn extract_capacitance_p2_amg_pcg_dofs(
     dofs: &P2SheetDofs,
     opts: AmgPcgOptions,
 ) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+    let (matrix, report, _) = extract_capacitance_p2_amg_pcg_fields(sys, dofs, opts)?;
+    Ok((matrix, report))
+}
+
+/// P2 counterpart of [`extract_capacitance_amg_pcg_fields`]. Each returned
+/// potential contains vertex values followed by global edge-midpoint values.
+///
+/// # Errors
+/// As [`extract_capacitance_p2_amg_pcg_dofs`].
+pub fn extract_capacitance_p2_amg_pcg_fields(
+    sys: &ElectrostaticP2System,
+    dofs: &P2SheetDofs,
+    opts: AmgPcgOptions,
+) -> Result<(CapacitanceMatrix, AmgPcgReport, Vec<Vec<f64>>), ElectrostaticError> {
     amg_pcg_maxwell(
         &sys.k,
         &sys.k_full,

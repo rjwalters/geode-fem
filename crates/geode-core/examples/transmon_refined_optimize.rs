@@ -3,16 +3,21 @@
 //! refinement is outside differentiation. A discrete target hit is not convergence.
 //! Run: cargo run -p geode-core --release --example transmon_refined_optimize
 //! Environment: REFINED_OPT_CYCLES (default 8), REFINED_OPT_MAX_TETS (2 million),
-//! REFINED_OPT_DIR (output directory). No reference benchmark is overwritten.
+//! REFINED_OPT_ORDER (1 or 2), REFINED_OPT_DIR (output directory). No reference benchmark is overwritten.
 
 use geode_core::adapt::refine::{BisectionMesh, RefineOpts};
-use geode_core::assembly::electrostatic::{Electrode, tet_bary_grads};
+use geode_core::assembly::electrostatic::{
+    AmgPcgOptions, Electrode, assemble_electrostatic, assemble_electrostatic_p2_sheets,
+    extract_capacitance_amg_pcg_fields, extract_capacitance_p2_amg_pcg_fields, tet_bary_grads,
+};
 use geode_core::mesh::{
     MetalRole, TaggedTetMesh, TetMesh, TransmonFixture, read_transmon_smoke_fixture,
 };
-use geode_core::shape::refined_capacitance::p1_energy_shape_derivatives;
+use geode_core::shape::min_tet_volume_ratio;
+use geode_core::shape::refined_capacitance::{
+    p1_energy_shape_derivatives, p2_energy_shape_derivatives,
+};
 use geode_core::shape::transmon_morph::{TransmonMorphRoles, TransmonMorphSpec, parameter_fields};
-use geode_core::shape::{capacitance_matrix_shape_gradient, min_tet_volume_ratio};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
@@ -37,7 +42,7 @@ fn moved(base: &TetMesh, fields: &[Vec<[f64; 3]>], theta: &[f64; 3]) -> TetMesh 
 fn fixture(tagged: &TaggedTetMesh, original: &TransmonFixture) -> TransmonFixture {
     TransmonFixture {
         mesh: tagged.mesh.clone(),
-        tags: original.tags.clone(),
+        tags: original.tags,
         tet_physical_tags: tagged.tet_physical_tags.clone(),
         boundary_triangles: tagged.boundary_triangles.clone(),
         triangle_physical_tags: tagged.triangle_physical_tags.clone(),
@@ -74,29 +79,73 @@ struct Solve {
     gradient: Vec<f64>,
     phi: Vec<f64>,
     elapsed: f64,
+    true_residual: f64,
+    iterations: Vec<usize>,
 }
 fn solve(fx: &TransmonFixture, fields: &[Vec<[f64; 3]>]) -> Solve {
+    let order = std::env::var("REFINED_OPT_ORDER")
+        .unwrap_or("1".into())
+        .parse()
+        .unwrap();
+    solve_with_order(fx, fields, order)
+}
+fn solve_with_order(fx: &TransmonFixture, fields: &[Vec<[f64; 3]>], order: usize) -> Solve {
     let start = Instant::now();
     let (conductors, ground) = electrodes(fx);
     let eps = fx.epsilon_r_scalar();
-    let full = capacitance_matrix_shape_gradient(&fx.mesh, &eps, &conductors, &ground).unwrap();
+    let rho = vec![0.0; fx.mesh.n_tets()];
+    let (full, report, phis) = if order == 1 {
+        let sys = assemble_electrostatic(&fx.mesh, &eps, &rho, &conductors, &ground).unwrap();
+        extract_capacitance_amg_pcg_fields(&sys, &conductors, &ground, AmgPcgOptions::default())
+            .unwrap()
+    } else {
+        assert_eq!(order, 2);
+        let components = fx.split_metal_conductors();
+        let tris = |role| {
+            components
+                .iter()
+                .find(|c| c.role == role)
+                .unwrap()
+                .triangles
+                .as_slice()
+        };
+        let (sys, dofs) = assemble_electrostatic_p2_sheets(
+            &fx.mesh,
+            &eps,
+            &rho,
+            &conductors,
+            &[tris(MetalRole::Island), tris(MetalRole::Feedline)],
+            &ground,
+            tris(MetalRole::Ground),
+        )
+        .unwrap();
+        extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, AmgPcgOptions::default()).unwrap()
+    };
+    assert!(report.rel_residual.iter().all(|r| *r <= 1e-9));
     let vf = -full.c[1][0] / full.c[1][1];
-    let phi: Vec<_> = full.phis[0]
+    let phi: Vec<_> = phis[0]
         .iter()
-        .zip(&full.phis[1])
+        .zip(&phis[1])
         .map(|(a, b)| a + vf * b)
         .collect();
     let c = full.c[0][0] + vf * full.c[0][1];
-    let gradient = p1_energy_shape_derivatives(&fx.mesh, &eps, &phi, fields)
-        .unwrap()
-        .iter()
-        .map(|v| v * 1e15)
-        .collect();
+    let gradient = if order == 1 {
+        p1_energy_shape_derivatives(&fx.mesh, &eps, &phi, fields)
+    } else {
+        p2_energy_shape_derivatives(&fx.mesh, &eps, &phi, fields)
+    }
+    .unwrap()
+    .iter()
+    .map(|v| v * 1e15)
+    .collect();
+    let phi = phi[..fx.mesh.n_nodes()].to_vec();
     Solve {
         c: c * 1e15,
         gradient,
         phi,
         elapsed: start.elapsed().as_secs_f64(),
+        true_residual: report.rel_residual.iter().copied().fold(0.0, f64::max),
+        iterations: report.iterations,
     }
 }
 
@@ -152,7 +201,7 @@ fn indicators(fx: &TransmonFixture, phi: &[f64]) -> Vec<f64> {
 fn save(path: &PathBuf, history: &[Value], status: &str, theta: &[f64; 3]) {
     fs::write(
         path,
-        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":TARGET,
+        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":TARGET,"optimization_order":std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into()),
         "geometry_map":"fixed coarse junction-pinned harmonic fields; exact nested P1 prolongation",
         "convergence_threshold_relative":0.01,"status":status,"theta":theta,"history":history}))
         .unwrap(),
@@ -162,7 +211,7 @@ fn save(path: &PathBuf, history: &[Value], status: &str, theta: &[f64; 3]) {
 
 // The small coarse mesh carries exactly the same polygonal final geometry.
 // Palace can change polynomial order/refinement independently of our optimizer.
-fn export_palace(fx: &TransmonFixture, out: &std::path::Path) {
+fn export_palace(fx: &TransmonFixture, out: &std::path::Path, mesh_name: &str) {
     let components = fx.split_metal_conductors();
     let mut sheet_tag = HashMap::new();
     for comp in components {
@@ -176,7 +225,7 @@ fn export_palace(fx: &TransmonFixture, out: &std::path::Path) {
             sheet_tag.insert(tri, tag);
         }
     }
-    let mut f = std::io::BufWriter::new(fs::File::create(out.join("final_coarse.msh")).unwrap());
+    let mut f = std::io::BufWriter::new(fs::File::create(out.join(mesh_name)).unwrap());
     writeln!(
         f,
         "$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$Nodes\n{}",
@@ -223,7 +272,7 @@ fn export_palace(fx: &TransmonFixture, out: &std::path::Path) {
     f.flush().unwrap();
     for order in 1..=3 {
         let config = json!({"Problem":{"Type":"Electrostatic","Output":format!("palace_p{order}"),"Verbose":1},
-            "Model":{"Mesh":"final_coarse.msh","L0":1.0},
+            "Model":{"Mesh":mesh_name,"L0":1.0},
             "Domains":{"Materials":[{"Attributes":[fx.tags.substrate],"Permittivity":(9.3+9.3+11.5)/3.0},{"Attributes":[fx.tags.vacuum],"Permittivity":1.0}]},
             "Boundaries":{"Ground":{"Attributes":[101]},"Terminal":[{"Index":1,"Attributes":[102]},{"Index":2,"Attributes":[103]}]},
             "Solver":{"Order":order,"Electrostatic":{"Save":0},"Linear":{"Type":"BoomerAMG","Tol":1e-10,"MaxIts":2000}}});
@@ -273,7 +322,7 @@ fn main() {
     for cycle in 0..=cycles {
         let mut current = fixture(state.mesh(), &fx);
         current.mesh = moved(&state.mesh().mesh, &fields, &theta);
-        let solved = solve(&current, &fields);
+        let solved = solve_with_order(&current, &fields, 1);
         let shift = previous.map(|c| (solved.c - c) / c);
         println!(
             "cycle {cycle}: {} tets, C={:.9} fF, gradient={:?}, shift={shift:?}, {:.1}s",
@@ -282,7 +331,7 @@ fn main() {
             solved.gradient,
             solved.elapsed
         );
-        history.push(json!({"kind":"refinement","cycle":cycle,"n_tets":current.mesh.n_tets(),"n_nodes":current.mesh.n_nodes(),"theta":theta,"c_ff":solved.c,"gradient_ff":solved.gradient,"relative_shift":shift,"solve_s":solved.elapsed}));
+        history.push(json!({"kind":"refinement","cycle":cycle,"n_tets":current.mesh.n_tets(),"n_nodes":current.mesh.n_nodes(),"theta":theta,"c_ff":solved.c,"gradient_ff":solved.gradient,"relative_shift":shift,"solve_s":solved.elapsed,"true_relative_residual":solved.true_residual,"iterations":solved.iterations}));
         save(&result_path, &history, "running", &theta);
         if cycle == cycles {
             break;
@@ -338,16 +387,17 @@ fn main() {
     // Optimization is deliberately after the resolution study, on a fixed mesh.
     // A separate validation pass below must still establish design stability.
     let mut last = None;
+    let mut cached = None;
     for step in 0..20 {
         let mut current = fixture(state.mesh(), &fx);
         current.mesh = moved(&state.mesh().mesh, &fields, &theta);
-        let s = solve(&current, &fields);
+        let s = cached.take().unwrap_or_else(|| solve(&current, &fields));
         let ratio = min_tet_volume_ratio(&state.mesh().mesh, &current.mesh);
         println!(
             "opt {step}: C={:.9}, theta={theta:?}, ratio={ratio:.5}",
             s.c
         );
-        history.push(json!({"kind":"optimization","step":step,"c_ff":s.c,"gradient_ff":s.gradient,"theta":theta,"min_volume_ratio":ratio,"solve_s":s.elapsed}));
+        history.push(json!({"kind":"optimization","step":step,"c_ff":s.c,"gradient_ff":s.gradient,"theta":theta,"min_volume_ratio":ratio,"solve_s":s.elapsed,"true_relative_residual":s.true_residual,"iterations":s.iterations}));
         save(&result_path, &history, "optimizing", &theta);
         if (s.c - TARGET).abs() < 0.005 {
             last = Some(s);
@@ -381,6 +431,7 @@ fn main() {
                 let t = solve(&candidate, &fields);
                 if (t.c - TARGET).abs() < (s.c - TARGET).abs() {
                     theta = trial;
+                    cached = Some(t);
                     accepted = true;
                     break;
                 }
@@ -396,10 +447,15 @@ fn main() {
 
     let mut export_fx = fx.clone();
     export_fx.mesh = moved(&fx.mesh, &coarse_fields, &theta);
-    export_palace(&export_fx, &out);
+    export_palace(&export_fx, &out, "final_coarse.msh");
+    let coarse_check = solve(&export_fx, &coarse_fields);
+    history.push(json!({"kind":"final_coarse_cross_solver_reference","c_ff":coarse_check.c,"gradient_ff":coarse_check.gradient}));
     if let Some(last) = last {
         let mut final_fx = fixture(state.mesh(), &fx);
         final_fx.mesh = moved(&state.mesh().mesh, &fields, &theta);
+        let adaptive_export = out.join("adaptive");
+        fs::create_dir_all(&adaptive_export).unwrap();
+        export_palace(&final_fx, &adaptive_export, "final_coarse.msh");
         // FD uses fully re-solved perturbed fields, not a frozen-field energy.
         for i in 0..3 {
             let h = 1e-4;
@@ -424,10 +480,11 @@ fn main() {
         ranked.sort_by(|&a, &b| eta[b].total_cmp(&eta[a]));
         let mut marked = Vec::new();
         let mut total = 0.0;
+        let marking_threshold = 0.5 * eta.iter().sum::<f64>();
         for t in ranked {
             marked.push(t);
             total += eta[t];
-            if total >= 0.5 * eta.iter().sum::<f64>() {
+            if total >= marking_threshold {
                 break;
             }
         }
@@ -451,7 +508,7 @@ fn main() {
         fine_fx.mesh = moved(&refined.mesh.mesh, &fine_fields, &theta);
         let fine = solve(&fine_fx, &fine_fields);
         let change = (fine.c - last.c) / last.c;
-        history.push(json!({"kind":"held_out_refinement","n_tets":fine_fx.mesh.n_tets(),"c_ff":fine.c,"relative_shift":change,"target_relative_error":(fine.c-TARGET)/TARGET,"gradient_ff":fine.gradient,"solve_s":fine.elapsed}));
+        history.push(json!({"kind":"held_out_refinement","n_tets":fine_fx.mesh.n_tets(),"c_ff":fine.c,"relative_shift":change,"target_relative_error":(fine.c-TARGET)/TARGET,"gradient_ff":fine.gradient,"solve_s":fine.elapsed,"true_relative_residual":fine.true_residual,"iterations":fine.iterations}));
         println!(
             "held-out: {} tets C={:.9}, shift={:.4}%",
             fine_fx.mesh.n_tets(),
