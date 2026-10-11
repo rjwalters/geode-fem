@@ -58,7 +58,9 @@ use super::{
     volume_stiffening_weights, worst_tet_volume_ratio,
 };
 use crate::assembly::electrostatic::{
-    Electrode, ElectrostaticError, assemble_electrostatic, extract_capacitance,
+    AmgPcgOptions, AmgPcgReport, CapacitanceMatrix, Electrode, ElectrostaticError,
+    assemble_electrostatic, assemble_electrostatic_p2_sheets, extract_capacitance,
+    extract_capacitance_amg_pcg, extract_capacitance_p2_amg_pcg_dofs, extract_capacitance_p2_dofs,
 };
 use crate::mesh::TetMesh;
 use crate::mesh::red_refine::red_refine;
@@ -735,6 +737,15 @@ pub fn fresh_c_sigma(
     let rho = vec![0.0; mesh.n_tets()];
     let sys = assemble_electrostatic(mesh, eps_r, &rho, conductors, ground)?;
     let cm = extract_capacitance(&sys, mesh, eps_r, conductors, ground, &[])?;
+    floating_c_sigma(&cm, conductors)
+}
+
+/// `C_Σ` of `conductors[0]` from a Maxwell matrix, reduced over the floating
+/// `conductors[1..]` (at most one: `C_ii − C_if²/C_ff`).
+fn floating_c_sigma(
+    cm: &CapacitanceMatrix,
+    conductors: &[Electrode],
+) -> Result<f64, ElectrostaticError> {
     let get = |a: &str, b: &str| {
         cm.get(a, b).ok_or_else(|| {
             ElectrostaticError::ShapeMismatch(format!("no capacitance entry ({a}, {b})"))
@@ -833,6 +844,244 @@ pub fn red_refined_c_sigma(
         n_nodes: r.mesh.n_nodes(),
         n_flipped: r.n_flipped,
     })
+}
+
+/// The linear solver behind a [`c_sigma_with_solver`] extraction.
+#[derive(Clone, Copy, Debug)]
+pub enum CSigmaSolver {
+    /// Sparse LU per excitation: exactly [`fresh_c_sigma`].
+    Direct,
+    /// Smoothed-aggregation AMG-preconditioned CG
+    /// ([`extract_capacitance_amg_pcg`]); `O(nnz)` memory.
+    AmgPcg(AmgPcgOptions),
+}
+
+/// [`fresh_c_sigma`] with a chosen linear solver. The assembly, the energy
+/// method and the floating reduction are the same; with
+/// [`CSigmaSolver::Direct`] the result is bit-identical to
+/// [`fresh_c_sigma`]. The PCG report is returned for
+/// [`CSigmaSolver::AmgPcg`].
+///
+/// # Errors
+///
+/// As [`fresh_c_sigma`] and [`extract_capacitance_amg_pcg`].
+pub fn c_sigma_with_solver(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    ground: &[u32],
+    solver: CSigmaSolver,
+) -> Result<(f64, Option<AmgPcgReport>), ElectrostaticError> {
+    match solver {
+        CSigmaSolver::Direct => Ok((fresh_c_sigma(mesh, eps_r, conductors, ground)?, None)),
+        CSigmaSolver::AmgPcg(opts) => {
+            let rho = vec![0.0; mesh.n_tets()];
+            let sys = assemble_electrostatic(mesh, eps_r, &rho, conductors, ground)?;
+            let (cm, rep) = extract_capacitance_amg_pcg(&sys, conductors, ground, opts)?;
+            Ok((floating_c_sigma(&cm, conductors)?, Some(rep)))
+        }
+    }
+}
+
+/// Lagrange element order of a [`sheet_c_sigma`] solve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElementOrder {
+    /// Linear (P1), [`assemble_electrostatic`].
+    P1,
+    /// Quadratic (P2) with sheet-edge pinning,
+    /// [`assemble_electrostatic_p2_sheets`].
+    P2,
+}
+
+/// Element order and linear solver of one `C_Σ` solve.
+#[derive(Clone, Copy, Debug)]
+pub struct LevelSolve {
+    /// Element order.
+    pub order: ElementOrder,
+    /// Linear solver.
+    pub solver: CSigmaSolver,
+}
+
+/// The scalar-ε `C_Σ` of sheet conductors at a chosen element order and
+/// solver (issue #1051). At P1 this is [`c_sigma_with_solver`] (the
+/// triangles are unused). At P2 every conductor and the ground pin their
+/// nodes plus their sheet-triangle edge midpoints
+/// ([`crate::assembly::electrostatic::P2DofMap::sheet_dofs`]). Both are
+/// conforming, so both are upper bounds on the converged `C_Σ`, and the P2
+/// space on a mesh contains the P1 one (P2 ≤ P1 on the same mesh).
+///
+/// # Errors
+///
+/// As [`c_sigma_with_solver`] and [`assemble_electrostatic_p2_sheets`].
+///
+/// # Panics
+///
+/// At P2, if a triangle edge is not an edge of `mesh`.
+#[allow(clippy::too_many_arguments)]
+pub fn sheet_c_sigma(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    conductor_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+    solve: LevelSolve,
+) -> Result<(f64, Option<AmgPcgReport>), ElectrostaticError> {
+    match solve.order {
+        ElementOrder::P1 => c_sigma_with_solver(mesh, eps_r, conductors, ground, solve.solver),
+        ElementOrder::P2 => {
+            let rho = vec![0.0; mesh.n_tets()];
+            let (sys, dofs) = assemble_electrostatic_p2_sheets(
+                mesh,
+                eps_r,
+                &rho,
+                conductors,
+                conductor_triangles,
+                ground,
+                ground_triangles,
+            )?;
+            let (cm, rep) = match solve.solver {
+                CSigmaSolver::Direct => (extract_capacitance_p2_dofs(&sys, &dofs)?, None),
+                CSigmaSolver::AmgPcg(opts) => {
+                    let (cm, rep) = extract_capacitance_p2_amg_pcg_dofs(&sys, &dofs, opts)?;
+                    (cm, Some(rep))
+                }
+            };
+            Ok((floating_c_sigma(&cm, conductors)?, rep))
+        }
+    }
+}
+
+/// One level of [`red_refined_c_sigma_levels`].
+#[derive(Clone, Debug)]
+pub struct CSigmaLevel {
+    /// Number of red refinements of the input mesh (`h / 2^level`).
+    pub level: usize,
+    /// Tet count at this level.
+    pub n_tets: usize,
+    /// Node count at this level.
+    pub n_nodes: usize,
+    /// Tets oriented against their parent, summed over every refinement so
+    /// far (0 for a valid hierarchy).
+    pub n_flipped: usize,
+    /// `C_Σ` at this level (`None` when the level was not solved).
+    pub c_sigma: Option<f64>,
+    /// The element order and solver used (`None` when not solved).
+    pub solver: Option<LevelSolve>,
+    /// The PCG convergence record, for [`CSigmaSolver::AmgPcg`].
+    pub pcg: Option<AmgPcgReport>,
+    /// Wall time of the refinement that produced this level (0 at level 0).
+    pub refine_s: f64,
+    /// Wall time of the solve (0 when not solved).
+    pub solve_s: f64,
+}
+
+/// `C_Σ` on `mesh` and on its successive uniform red refinements
+/// (issue #1051): level `k` is `mesh` refined `k` times, so `h / 2^k` and
+/// `8^k` times the tets. `solvers[k]` picks the solver for level `k`
+/// (element order and linear solver, [`sheet_c_sigma`]; `None` skips the
+/// solve but still refines through it); there are `solvers.len() − 1`
+/// refinements.
+///
+/// Conductors are sheets, as in [`red_refined_c_sigma`]: at every level
+/// each conductor's (and the ground's) node set gains the midpoints of its
+/// surface triangles' edges, and the triangles are split into their four
+/// red children ([`crate::mesh::red_refine::RedRefinement::lift_triangles`])
+/// for the next level. `ε_r` is inherited from the parent tet. The P1
+/// spaces are nested with the same Dirichlet and floating constraints, so
+/// the solved P1 `C_Σ` values are non-increasing in `k` (to solver
+/// tolerance), and every solved value (P1 or P2) is an upper bound on the
+/// converged one.
+///
+/// `on_level` is called as each level finishes (for progress logging on
+/// long runs). Only one level's mesh is held at a time.
+///
+/// # Errors
+///
+/// As [`c_sigma_with_solver`], and [`ElectrostaticError::ShapeMismatch`]
+/// if `conductor_triangles` does not have one entry per conductor.
+///
+/// # Panics
+///
+/// If a conductor triangle edge is not an edge of the mesh.
+#[allow(clippy::too_many_arguments)]
+pub fn red_refined_c_sigma_levels(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    conductor_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+    solvers: &[Option<LevelSolve>],
+    on_level: &mut dyn FnMut(&CSigmaLevel),
+) -> Result<Vec<CSigmaLevel>, ElectrostaticError> {
+    if conductor_triangles.len() != conductors.len() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "red_refined_c_sigma_levels: {} triangle sets for {} conductors",
+            conductor_triangles.len(),
+            conductors.len()
+        )));
+    }
+    let mut cur_mesh = mesh.clone();
+    let mut cur_eps = eps_r.to_vec();
+    let mut cur_cond = conductors.to_vec();
+    let mut cur_tris: Vec<Vec<[u32; 3]>> = conductor_triangles.iter().map(|t| t.to_vec()).collect();
+    let mut cur_ground = ground.to_vec();
+    let mut cur_ground_tris = ground_triangles.to_vec();
+    let mut n_flipped = 0;
+    let mut out = Vec::with_capacity(solvers.len());
+    for (level, solver) in solvers.iter().enumerate() {
+        let mut refine_s = 0.0;
+        if level > 0 {
+            let t = std::time::Instant::now();
+            let r = red_refine(&cur_mesh);
+            n_flipped += r.n_flipped;
+            for (c, tris) in cur_cond.iter_mut().zip(cur_tris.iter_mut()) {
+                c.nodes = r.lift_sheet_nodes(&c.nodes, tris);
+                *tris = r.lift_triangles(tris);
+            }
+            cur_ground = r.lift_sheet_nodes(&cur_ground, &cur_ground_tris);
+            cur_ground_tris = r.lift_triangles(&cur_ground_tris);
+            cur_eps = r.lift_per_tet(&cur_eps);
+            cur_mesh = r.mesh;
+            refine_s = t.elapsed().as_secs_f64();
+        }
+        let t = std::time::Instant::now();
+        let (c_sigma, pcg) = match solver {
+            Some(s) => {
+                let tri_refs: Vec<&[[u32; 3]]> = cur_tris.iter().map(Vec::as_slice).collect();
+                let (c, rep) = sheet_c_sigma(
+                    &cur_mesh,
+                    &cur_eps,
+                    &cur_cond,
+                    &tri_refs,
+                    &cur_ground,
+                    &cur_ground_tris,
+                    *s,
+                )?;
+                (Some(c), rep)
+            }
+            None => (None, None),
+        };
+        let lvl = CSigmaLevel {
+            level,
+            n_tets: cur_mesh.n_tets(),
+            n_nodes: cur_mesh.n_nodes(),
+            n_flipped,
+            c_sigma,
+            solver: *solver,
+            pcg,
+            refine_s,
+            solve_s: if solver.is_some() {
+                t.elapsed().as_secs_f64()
+            } else {
+                0.0
+            },
+        };
+        on_level(&lvl);
+        out.push(lvl);
+    }
+    Ok(out)
 }
 
 /// Physical island and cutout dimensions measured from a (possibly morphed)
@@ -1225,6 +1474,136 @@ mod tests {
             red_refined_c_sigma(&mesh, &eps, &conductors, &[&isl], &[], &[]),
             Err(ElectrostaticError::ShapeMismatch(_))
         ));
+    }
+
+    /// The multilevel driver (#1051): level 1 reproduces
+    /// [`red_refined_c_sigma`] bit for bit, level 2 lowers `C_Σ` again, the
+    /// AMG-PCG solve agrees with the direct one at every level, and the sheet
+    /// node sets keep exactly the fine sheet nodes through two refinements.
+    #[test]
+    fn red_refined_c_sigma_levels_nests_and_matches_one_level() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let tol = 1e-12;
+        let in_sq = |p: &[f64; 3], z: f64| {
+            (p[2] - z).abs() < tol && (0.25 - tol..=0.75 + tol).contains(&p[0]) && {
+                (0.25 - tol..=0.75 + tol).contains(&p[1])
+            }
+        };
+        let isl = faces_on(&mesh, |p| in_sq(p, 0.75));
+        let fl = faces_on(&mesh, |p| in_sq(p, 0.25));
+        let gnd = faces_on(&mesh, |p| {
+            p.iter().any(|&x| x.abs() < tol || (x - 1.0).abs() < tol)
+        });
+        let eps: Vec<f64> = (0..mesh.n_tets())
+            .map(|t| if t % 3 == 0 { 4.0 } else { 1.0 })
+            .collect();
+        let conductors = vec![
+            Electrode {
+                name: "island".into(),
+                nodes: nodes_of(&isl),
+                voltage: 1.0,
+            },
+            Electrode {
+                name: "feedline".into(),
+                nodes: nodes_of(&fl),
+                voltage: 0.0,
+            },
+        ];
+        let one = red_refined_c_sigma(
+            &mesh,
+            &eps,
+            &conductors,
+            &[&isl, &fl],
+            &nodes_of(&gnd),
+            &gnd,
+        )
+        .unwrap();
+        let p1 = |solver| {
+            Some(LevelSolve {
+                order: ElementOrder::P1,
+                solver,
+            })
+        };
+        let pcg = p1(CSigmaSolver::AmgPcg(AmgPcgOptions::default()));
+        let mut seen = Vec::new();
+        let run = |solvers: &[Option<LevelSolve>], seen: &mut Vec<usize>| {
+            red_refined_c_sigma_levels(
+                &mesh,
+                &eps,
+                &conductors,
+                &[&isl, &fl],
+                &nodes_of(&gnd),
+                &gnd,
+                solvers,
+                &mut |l| seen.push(l.level),
+            )
+            .unwrap()
+        };
+        let direct = run(&[p1(CSigmaSolver::Direct); 3], &mut seen);
+        assert_eq!(seen, vec![0, 1, 2]);
+        let iter = run(&[pcg, None, pcg], &mut seen);
+        let c = |l: &CSigmaLevel| l.c_sigma.unwrap();
+        assert_eq!(c(&direct[0]), one.coarse);
+        assert_eq!(c(&direct[1]), one.refined);
+        assert_eq!(direct[2].n_tets, 64 * mesh.n_tets());
+        assert_eq!(direct[2].n_flipped, 0);
+        assert!(c(&direct[2]) < c(&direct[1]) * (1.0 - 1e-3));
+        assert!(iter[1].c_sigma.is_none() && iter[1].pcg.is_none());
+        for k in [0, 2] {
+            let d = (c(&iter[k]) - c(&direct[k])).abs() / c(&direct[k]);
+            assert!(d <= 1e-9, "level {k}: PCG vs LU {d:e}");
+            assert!(iter[k].pcg.as_ref().unwrap().iterations[0] > 0);
+        }
+        // P2 with sheet-edge pinning: below P1 on the same mesh (nested
+        // spaces), PCG equal to LU, and the second level lowers it again.
+        let p2 = |solver| {
+            Some(LevelSolve {
+                order: ElementOrder::P2,
+                solver,
+            })
+        };
+        let q = run(
+            &[
+                p2(CSigmaSolver::Direct),
+                p2(CSigmaSolver::Direct),
+                p2(CSigmaSolver::AmgPcg(AmgPcgOptions::default())),
+            ],
+            &mut seen,
+        );
+        let qd = run(&[p2(CSigmaSolver::Direct), None, None], &mut seen);
+        assert_eq!(c(&q[0]), c(&qd[0]));
+        for k in 0..2 {
+            assert!(
+                c(&q[k]) < c(&direct[k]) * (1.0 - 1e-4),
+                "level {k}: P2 {} vs P1 {}",
+                c(&q[k]),
+                c(&direct[k])
+            );
+            assert!(c(&q[k + 1]) < c(&q[k]));
+        }
+        // The facet rule would leave the sheet edges free: sheet pinning must
+        // matter on these interior sheets.
+        let rho = vec![0.0; mesh.n_tets()];
+        let facet = crate::assembly::electrostatic::assemble_electrostatic_p2(
+            &mesh,
+            &eps,
+            &rho,
+            &conductors,
+            &nodes_of(&gnd),
+        )
+        .unwrap();
+        let cm = crate::assembly::electrostatic::extract_capacitance_p2(
+            &facet,
+            &conductors,
+            &nodes_of(&gnd),
+        )
+        .unwrap();
+        let c_facet = floating_c_sigma(&cm, &conductors).unwrap();
+        assert!(
+            c_facet < c(&q[0]) * (1.0 - 1e-3),
+            "facet {c_facet} vs sheet {}",
+            c(&q[0])
+        );
     }
 
     #[test]

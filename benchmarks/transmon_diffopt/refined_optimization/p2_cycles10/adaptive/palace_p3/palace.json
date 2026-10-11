@@ -1,0 +1,14 @@
+{
+  "GitTag": "v0.17.0-99-gfba6a5b9d",
+  "Problem": {
+    "DegreesOfFreedom": 2119930,
+    "MPISize": 4,
+    "MeshElements": 452056,
+    "MultigridDegreesOfFreedom": [
+      86729,
+      642686,
+      2119930
+    ],
+    "OpenMPThreads": 1
+  }
+}

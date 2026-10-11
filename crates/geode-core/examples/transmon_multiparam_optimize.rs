@@ -8,8 +8,10 @@
 //! result: one uniform refinement (step 5) lowers `C_Σ` by about 26 % at both
 //! `X⁰` and the final design, so refined, the headline design lands about
 //! 25.9 % below the anchor while the refined `X⁰` is about 12.7 % above it
-//! (measured; the converged value is unknown). The 10 kHz agreement is solver
-//! self-consistency on one fixed mesh, not accuracy.
+//! (measured). The converged values are measured by #1051
+//! (`c_sigma_convergence.toml`): converged, both designs lie below the
+//! anchor. The 10 kHz agreement is solver self-consistency on one fixed
+//! mesh, not accuracy.
 //!
 //! Phase A (#1035, `multiparam_gradient.toml`) built three junction-pinned
 //! parameters (island length `theta_L`, width `theta_W`, cutout gap
@@ -40,17 +42,19 @@
 //!    converged `X_final`: one uniform red refinement (each tet split into 8,
 //!    `h` halved, about 1.07M tets). Refinement can only lower this
 //!    energy-minimum `C_Σ`, so each coarse value is an upper bound and each
-//!    shift a lower bound on the coarse error. A second level (`h/4`, about
-//!    8.5M tets) is not run.
+//!    shift a lower bound on the coarse error. Further levels (`h/4`, P2)
+//!    are in #1051's `examples/transmon_c_sigma_convergence.rs`.
 //!
 //! # Anchor quantity (declared before the runs)
 //!
-//! The anchor applies to the **scalar-ε** `C_Σ` (trace-averaged sapphire):
-//! the quantity the shape gradient differentiates and that every earlier
-//! phase compared with 89.9 fF. The tensor-ε `C_Σ` differed from it by
-//! +7.5e-3 relative at #589's limit design (`pad_results.toml`), about 100×
-//! the 10 kHz `E_C` tolerance, so it is reported separately and reaches the
-//! anchor only through the explicit outer retarget, never by assumption.
+//! The anchor applies to the **scalar-ε** `C_Σ` (trace-averaged sapphire)
+//! on the coarse mesh: the quantity the shape gradient differentiates and
+//! that every earlier phase compared with 89.9 fF. The tensor-ε `C_Σ`
+//! differed from it by +7.5e-3 relative at #589's limit design
+//! (`pad_results.toml`), about 100× the 10 kHz `E_C` tolerance, so it is
+//! reported separately and reaches the coarse-mesh anchor only through the
+//! explicit outer retarget, never by assumption. "Reaches the anchor"
+//! everywhere in this run means on the coarse committed mesh.
 //!
 //! Run with:
 //!
@@ -833,8 +837,8 @@ fn main() {
         "scalar_vs_tensor_delta_reference = 7.4759e-3  # pad_results.toml [approximations]\n",
     );
     t.push_str(
-        "tensor_handling = \"reported at X_final; reaches the anchor only through the explicit \
-         outer retarget in [tensor_retarget], never by assumption\"\n",
+        "tensor_handling = \"reported at X_final; reaches the coarse-mesh anchor only through \
+         the explicit outer retarget in [tensor_retarget], never by assumption\"\n",
     );
     let _ = writeln!(
         t,
@@ -1097,7 +1101,8 @@ fn main() {
     t.push_str("[headline]\n");
     t.push_str(
         "selection_rule = \"the first converged run in sweep order fixed, unit, alpha = 1, 2, \
-         3, 4, i.e. the smallest swept stiffening exponent that reaches the anchor; the rule \
+         3, 4, i.e. the smallest swept stiffening exponent that reaches the coarse-mesh \
+         anchor; the rule \
          and the alpha list were fixed after exploratory runs, and every swept run is \
          committed in [[run]]\"\n",
     );
@@ -1311,12 +1316,13 @@ fn main() {
          is a lower bound on the coarse discretization error\"\n",
     );
     t.push_str(
-        "converged_value = \"unknown: only one refinement level was run; the converged C_Sigma \
-         is not measured and these numbers do not bound it from below\"\n",
+        "converged_value = \"not measured here (one level; these numbers do not bound it from \
+         below); measured by #1051 in c_sigma_convergence.toml (P1 to h/4 and P2 to h/2): \
+         converged, both X0 and the headline design lie below 89.9 fF\"\n",
     );
     t.push_str(
-        "second_level = \"not run: an h/4 level is about 8.5M tets, judged too expensive for a \
-         local direct solve; not attempted\"\n",
+        "second_level = \"not run in this file; #1051 runs h/4 (8.5M tets) with AMG-PCG in \
+         c_sigma_convergence.toml (a direct LU at h/4 does not fit)\"\n",
     );
     t.push_str("levels_run = 1\n");
     let _ = writeln!(t, "coarse_n_tets = {n_tets}");
@@ -1430,7 +1436,8 @@ fn main() {
          ([mesh_refinement]); refined, the headline design lands {}% below the anchor while \
          the refined X0 is {}% above it. The fresh solve shows the optimizer is \
          self-consistent on this discretization; it is not mesh-converged (the converged \
-         C_Sigma is unknown), the final dimensions are not an 89.9 fF device design, and \
+         values, below 89.9 fF at both X0 and this design, are in #1051's \
+         c_sigma_convergence.toml), the final dimensions are not an 89.9 fF device design, and \
          equivalence with a DeviceLayout-regenerated device is not shown. This is a methods \
          result.\"",
         floor_fmt(-100.0 * x0_ref.rel_shift(), 1),
@@ -1481,16 +1488,17 @@ fn main() {
          both path steps, and its limiting tet (centroid near [-58.6, 200.6, -13.3] um) has 3 \
          of its 4 nodes pinned by theta_G's Dirichlet data (worst_tet_pinned_nodes). Inference: \
          the morph has almost no say over that tet's ratio, so stiffening cannot move the \
-         bound; the stiffened runs reach the anchor through theta_L and theta_W while theta_G \
-         sits on it.\"\n",
+         bound; the stiffened runs reach the coarse-mesh anchor through theta_L and theta_W \
+         while theta_G sits on it.\"\n",
     );
     t.push_str(
         "theta_is_a_trace = \"with re-morphing the accumulated theta is path-dependent; the \
          physical dimensions measured from X_final are the design output\"\n",
     );
     t.push_str(
-        "scalar_anchor = \"the anchor is the scalar-eps C_Sigma; the tensor-eps value at the \
-         scalar design is listed in [headline] and reaches 89.9 fF only in [tensor_retarget]\"\n",
+        "scalar_anchor = \"the anchor is the coarse-mesh scalar-eps C_Sigma; the tensor-eps \
+         value at the scalar design is listed in [headline] and reaches 89.9 fF on the coarse \
+         mesh only in [tensor_retarget]\"\n",
     );
 
     let out_root = std::env::var("TRANSMON_DIFFOPT_BENCH_DIR")

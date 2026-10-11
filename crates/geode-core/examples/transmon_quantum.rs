@@ -37,6 +37,21 @@ use geode_core::quantum::transmon::{
 /// Metres per mesh unit (micrometre mesh).
 const M_PER_UNIT: f64 = 1e-6;
 
+// Issue #1051 mesh-convergence values, copied from
+// `benchmarks/transmon_diffopt/c_sigma_convergence.toml` (`[tensor_eps]`,
+// `[x0_extrapolation]`) and cross-checked against it by
+// `tests/transmon_diffopt.rs`.
+/// Tensor-ε P1 `C_Σ` at h, h/2, h/4 (fF).
+const MESH_CONV_TENSOR_P1_FF: [f64; 3] = [136.684731, 102.375301, 89.493342];
+/// Tensor-ε upper bound (P1 h/4, rounded up) (fF).
+const MESH_CONV_TENSOR_UPPER_FF: f64 = 89.50;
+/// Tensor-ε Richardson estimate band (fF).
+const MESH_CONV_TENSOR_BAND_FF: [f64; 2] = [76.61, 81.75];
+/// Scalar-ε upper bound (P2 h/2, rounded up) (fF).
+const MESH_CONV_SCALAR_UPPER_FF: f64 = 83.02;
+/// Scalar-ε estimate band (fF).
+const MESH_CONV_SCALAR_BAND_FF: [f64; 2] = [74.14, 79.62];
+
 /// Scale a mesh's node coordinates by `s` (in place on a clone).
 fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
     let mut m = mesh.clone();
@@ -249,6 +264,56 @@ fn main() {
     let _ = writeln!(t, "max_rel_asymmetry = {:.3e}", cm_t.max_rel_asymmetry());
     t.push('\n');
 
+    // Issue #1051: the mesh-convergence study of this C_Sigma. The numbers
+    // are copied from benchmarks/transmon_diffopt/c_sigma_convergence.toml
+    // (generator: examples/transmon_c_sigma_convergence.rs) and cross-checked
+    // against it by tests/transmon_diffopt.rs.
+    let c_t = cm_t.get("island", "island").unwrap() * 1e15;
+    assert!(
+        (c_t - MESH_CONV_TENSOR_P1_FF[0]).abs() < 1e-5,
+        "the #1051 convergence study starts from a different coarse tensor C_Sigma"
+    );
+    t.push_str("[capacitance.mesh_convergence]\n");
+    t.push_str("# Issue #1051. The C_Sigma above is NOT mesh-converged. Values copied from\n");
+    t.push_str("# benchmarks/transmon_diffopt/c_sigma_convergence.toml (uniform red\n");
+    t.push_str("# refinement of this mesh; every value is a conforming upper bound).\n");
+    t.push_str("source = \"benchmarks/transmon_diffopt/c_sigma_convergence.toml\"\n");
+    let _ = writeln!(
+        t,
+        "tensor_p1_c_sigma_ff = [{:.6}, {:.6}, {:.6}]  # h (this file), h/2, h/4",
+        MESH_CONV_TENSOR_P1_FF[0], MESH_CONV_TENSOR_P1_FF[1], MESH_CONV_TENSOR_P1_FF[2]
+    );
+    let _ = writeln!(
+        t,
+        "tensor_upper_bound_ff = {MESH_CONV_TENSOR_UPPER_FF}  # P1 h/4, rounded up: the converged tensor C_Sigma is below this"
+    );
+    let _ = writeln!(
+        t,
+        "tensor_estimate_band_ff = [{}, {}]  # Richardson at p = 1 and at the observed order; an estimate, not a bound",
+        MESH_CONV_TENSOR_BAND_FF[0], MESH_CONV_TENSOR_BAND_FF[1]
+    );
+    let _ = writeln!(
+        t,
+        "scalar_upper_bound_ff = {MESH_CONV_SCALAR_UPPER_FF}  # P2 h/2, rounded up"
+    );
+    let _ = writeln!(
+        t,
+        "scalar_estimate_band_ff = [{}, {}]  # an estimate, not a bound",
+        MESH_CONV_SCALAR_BAND_FF[0], MESH_CONV_SCALAR_BAND_FF[1]
+    );
+    let e_c_factor = c_t / MESH_CONV_TENSOR_UPPER_FF;
+    let _ = writeln!(
+        t,
+        "coarse_c_sigma_overstated_by_at_least_ff = {:.2}  # this file's tensor C_Sigma minus tensor_upper_bound_ff (floored)",
+        ((c_t - MESH_CONV_TENSOR_UPPER_FF) * 100.0).floor() / 100.0
+    );
+    let _ = writeln!(
+        t,
+        "e_c_understated_by_at_least_pct = {:.1}  # E_C ~ 1/C_Sigma: (coarse C / upper bound - 1), floored",
+        ((e_c_factor - 1.0) * 1000.0).floor() / 10.0
+    );
+    t.push_str("reading = \"measured: the converged C_Sigma of this geometry is below the 89.9 fF anchor, so the 136.7 fF vs about 90 fF gap reported here is coarse-mesh discretization error, not a model difference. Every C_Sigma, E_C, E_J/E_C, omega01 and alpha in this file is a coarse-mesh number. The scalar-vs-tensor delta is one too: it changes sign under refinement. What remains against the anchor is a gap of the opposite sign (converged C_Sigma below 89.9 fF), whose cause is not measured here.\"\n\n");
+
     t.push_str("[capacitance.bc_sensitivity]\n");
     t.push_str("# Exterior far-field wall grounded (Dirichlet) vs the baseline\n");
     t.push_str("# open natural-Neumann truncation — the BC-model term.\n");
@@ -331,7 +396,12 @@ fn main() {
     t.push_str("# delta_omega01/omega01 ~= 1/2 delta_C_Sigma/C_Sigma.\n");
     let _ = writeln!(
         t,
-        "c_matrix_accuracy = {c_accuracy}  # PR #481 oracle ~1% class"
+        "c_matrix_accuracy = {c_accuracy}  # PR #481 oracle ~1% class; does NOT cover this mesh's discretization error (#1051)"
+    );
+    let _ = writeln!(
+        t,
+        "band_scope = \"this band is the PR #481 oracle class plus the eps-model term on the coarse mesh; it excludes the mesh discretization error, which [capacitance.mesh_convergence] measures to be far larger (at least {:.1}% of this file's C_Sigma, floored), so it is not an accuracy band for omega01\"",
+        ((c_t - MESH_CONV_TENSOR_UPPER_FF) / c_t * 1000.0).floor() / 10.0
     );
     let _ = writeln!(t, "dw01_from_c_frac = {dw01_from_c:.4e}");
     let _ = writeln!(t, "dw01_from_eps_model_frac = {dw01_from_eps:.4e}");
@@ -342,7 +412,8 @@ fn main() {
         w01 / 1e9 * (1.0 - w01_band_frac),
         w01 / 1e9 * (1.0 + w01_band_frac)
     );
-    t.push_str("model_difference_terms = \"floating readout feedline (folded out via Schur reduction), junction self-C 5.5 fF (not in this electrostatic C_Sigma), exterior natural-Neumann truncation\"\n\n");
+    t.push_str("terms_not_in_this_c_sigma = \"floating readout feedline (folded out via Schur reduction), junction self-C 5.5 fF (not in this electrostatic C_Sigma), exterior natural-Neumann truncation\"\n");
+    t.push_str("anchor_gap = \"the 136.7 fF vs about 90 fF gap is discretization error (issue #1051, [capacitance.mesh_convergence]), not the model terms above: those are small (the BC term is 6e-5) or, for the junction self-C, of the wrong sign to explain a C_Sigma above the anchor\"\n\n");
 
     t.push_str("[quantum.anchors]\n");
     t.push_str("# Curator-confirmed EXPECTATIONS to compare against (NOT tuning targets).\n");
@@ -451,4 +522,7 @@ fn main() {
         -e_c / 1e9
     );
     println!("  anchors: blog omega01 4.14 GHz, E_C 0.2156 GHz, C_Sigma ~89.9 fF, E_J/E_C ~51");
+    println!(
+        "  NOT mesh-converged (#1051): converged tensor C_Sigma < {MESH_CONV_TENSOR_UPPER_FF} fF"
+    );
 }

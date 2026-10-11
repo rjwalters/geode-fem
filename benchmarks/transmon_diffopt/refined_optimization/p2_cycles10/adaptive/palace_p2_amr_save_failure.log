@@ -1,0 +1,134 @@
+>> /usr/lib64/mpich/bin/mpirun -n 4 /opt/palace/bin/palace-arm64.bin /work/palace_p2_amr.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 4 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+One or more external boundary attributes has no associated boundary condition!
+"PMC"/"ZeroCharge" condition is assumed!
+
+Boundary attribute list: 3
+
+Added 3777 elements in 2 iterations of local bisection for under-resolved interior boundaries
+Added 6670 duplicate vertices for interior boundaries in the mesh
+Added 16309 duplicate boundary elements for interior boundaries in the mesh
+Added 13560 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 4.000e-03 m, tc = 1.334e-02 ns
+Finished partitioning mesh into 4 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-2.000e-03, -7.070e-04, -1.000e-03) m
+ (Xmax, Ymax, Zmax) = (+2.000e-03, +2.993e-03, +1.000e-03) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices         20834       21682       23629       86729
+ edges           135724      138989      147598      555957
+ faces           227798      230321      236394      921287
+ elements        112422      113014      113565      452056
+ neighbors            3           3           3
+
+            minimum     maximum
+ h      3.57299e-05    0.128545
+ kappa      1.00669     18.4851
+
+Estimated current per-rank memory usage is: Min. 347.3M, Max. 479.1M, Avg. 380.6M, Total 1.5G
+Estimated current per-node memory usage is: Min. 1.5G, Max. 1.5G, Avg. 1.5G, Total 1.5G
+
+Configuring Dirichlet BC at attributes:
+ 101-103
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 642686, ND (p = 2): 2954488, RT (p = 2): 4120029
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 86729 unknowns
+ Level 1 (p = 2): 642686 unknowns
+
+Computing electrostatic fields for 2 terminal boundaries
+
+It 1/2: Index = 1 (elapsed time = 2.08e-07 s)
+
+PCG solver converged in 16 iterations (avg. reduction factor: 2.328e-01)
+ Sol. ||V|| = 3.370055e+02 (||RHS|| = 9.687931e+01)
+ Field energy E = 1.693e-11 J
+ Updating solution error estimates
+
+It 2/2: Index = 2 (elapsed time = 1.50e+01 s)
+
+PCG solver converged in 12 iterations (avg. reduction factor: 1.358e-01)
+ Sol. ||V|| = 6.470983e+01 (||RHS|| = 4.642757e+01)
+ Field energy E = 9.201e-11 J
+ Updating solution error estimates
+
+Cumulative timing statistics:
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   0.658       5.855       4.554
+  Mesh Preprocessing             4.865      10.059       6.165
+Operator Construction            0.761       0.785       0.769
+Linear Solve                     1.194       1.199       1.197
+  Setup                          3.906       3.911       3.909
+  Preconditioner                10.407      10.410      10.408
+  Coarse Solve                   0.086       0.087       0.086
+Estimation                       0.154       0.159       0.156
+  Construction                   7.681       7.683       7.682
+  Solve                         14.623      14.625      14.624
+Postprocessing                   0.243       0.244       0.244
+Disk IO                          1.278       1.283       1.280
+--------------------------------------------------------------
+Total                           51.106      51.106      51.106
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   11.6M       11.6M       11.6M
+  Mesh Preprocessing              1.6G        1.6G        1.6G
+Operator Construction           360.0M      360.0M        1.9G
+Linear Solve                      0.0K        0.0K        1.9G
+  Setup                           1.5G        1.5G        3.5G
+  Preconditioner                  0.0K        0.0K        3.5G
+  Coarse Solve                    0.0K        0.0K        3.5G
+Estimation                      744.5M      744.5M        4.2G
+  Construction                    1.6G        1.6G        5.8G
+  Solve                         322.7M      322.7M        6.1G
+Postprocessing                    1.5M        1.5M        6.1G
+Disk IO                         145.2M      145.2M        6.2G
+--------------------------------------------------------------
+Total                             6.3G        6.3G        6.3G
+Estimated peak per-rank memory usage is: Min. 1.6G, Max. 1.6G, Avg. 1.6G, Total 6.3G
+Estimated peak per-node memory usage is: Min. 6.3G, Max. 6.3G, Avg. 6.3G, Total 6.3G
+
+Adaptive mesh refinement (AMR) iteration 1:
+ Indicator norm = 4.545e-01, global unknowns = 642686
+ Max. iterations = 2, tol. = 1.000e-06, max. size = 1500000
+terminate called after throwing an instance of 'std::filesystem::__cxx11::filesystem_error'
+  what():  filesystem error: cannot copy: Permission denied [palace_p2_amr/palace.json] [palace_p2_amr/iteration1/palace.json]
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   PID 21 RUNNING AT 8ba6743ab1ca
+=   EXIT CODE: 6
+=   CLEANING UP REMAINING PROCESSES
+=   YOU CAN IGNORE THE BELOW CLEANUP MESSAGES
+===================================================================================
+YOUR APPLICATION TERMINATED WITH THE EXIT STRING: Terminated (signal 15)
+This typically refers to a problem with your application.
+Please see the FAQ page for debugging suggestions

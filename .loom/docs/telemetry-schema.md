@@ -937,13 +937,15 @@ side, 16,898 `failure` records folded 5,326 sub-60 s spawn deaths together with
 235 genuine Judge rejections and 6,373 deaths nothing observed at all.
 
 `disposition` is that missing axis. It is **required on every record written
-since #9441**, low-cardinality, and **strictly additive**: `result` is emitted
-unchanged beside it, so every pre-#9441 consumer keeps working.
+since #9441** and low-cardinality. `result` is still emitted beside it. Since
+#11429 a `failure` is reported as `success` for `noop_already_done`, and for a
+`landed` sweep with no rejection or rework signal (see the `result` rules
+below); every other record keeps the process result.
 
 | value | meaning |
 |---|---|
-| `landed` | The sweep produced a PR for its issue. |
-| `noop_already_done` | Nothing to do: the issue was already closed before dispatch, or the run exited clean and short having produced no PR, no phase and no work. |
+| `landed` | The sweep produced a PR for its issue. A `failure` is reported as `success` only when the PR landed with no rejection or rework signal: the Judge approved it and never requested changes, and no classifier labelled a crash, death or exhausted Doctor loop (#11429). Otherwise `result` keeps the process result. |
+| `noop_already_done` | Nothing to do: the issue was already closed before dispatch, or the run exited clean and short having produced no PR, no phase and no work. Its `result` is `success` (#11429). |
 | `curator_closed` | The Curator closed the issue instead of building it (the "Issues Are Suggestions" path) — a correct outcome, not a failure. |
 | `curator_rescoped` | The Curator handed the issue back to `loom:triage` / `loom:curated` (and off `loom:issue` / `loom:building`) instead of building it. |
 | `env_failure` | The *environment* broke: spawn/pre-flight death, account or credit exhaustion, rate limit, harness execution error. |
@@ -1136,11 +1138,15 @@ immediately preceding attempt), and `trigger` — why this sweep was
 dispatched: `first` \| `retry_after_env_failure` \|
 `retry_after_substantive_failure` \| `doctor_after_changes_requested` \|
 `rebase_main_moved` \| `merge_conflict` \| `stale_base_rejudge` \|
-`ci_failure_fix` \| `operator_redispatch` \| `unknown`. Derived at the
-terminal transition from the previous attempt's disposition (or, for
-pre-#9441 lines, its `result` + `failure_class`); `unknown` is counted. All
-three are absent when the journal could not be read or the repo slug never
-resolved.
+`ci_failure_fix` \| `redispatch_after_success` \| `operator_redispatch` \|
+`unknown`. Derived at the terminal transition from the previous attempt's
+disposition (or, for pre-#9441 lines, its `result` + `failure_class`); `unknown`
+is counted. All three are absent when the journal could not be read or the repo
+slug never resolved. `redispatch_after_success` (Issue #11429) means the
+previous attempt landed, found the work already done, or was closed or
+rescoped by the Curator. Records written before #11429 call that case
+`operator_redispatch`. That name is now reserved for a dispatch that an
+operator is known to have asked for, and no dispatch path sets it yet.
 
 **`rework_events`** (array of `{kind, reason?, classification?,
 duration_sec?}`) — in-sweep rework observed by the terminal turn from two
@@ -1622,6 +1628,8 @@ Each name fixes its OTLP kind. `loom.dispatch.decisions` is a monotonic
 `reason` ∈ `dispatched`, `labeled`, `in_flight`, `quarantined`,
 `workspace_commands_missing`, `pr_open`, `peer_claim`, `backoff`,
 `pr_open_backoff`, `noop_cooldown`, `declined`, `prless_retry`,
+`already_landed` (#11429: the issue's work already landed),
+`already_closed` (#11429: the issue is closed as not planned),
 `recheck_interval`, `host_constraint`, `host_class` (#9034: a `loom:heavy`
 candidate refused on a `local-dev` host), `capacity`, `ramp_cap`, `saturation`,
 `build_backoff` (#9410: the build back-off held an unstarred issue build),
@@ -1838,7 +1846,8 @@ that covers candidate evaluation and dispatch. Its attributes are
 `error`, `build_backoff_held` (#9410; only when the back-off deferred at least one candidate, #10624),
 `no_eligible_work`, `capacity_full`, `all_skipped`, first match wins), `loom.dispatch.seen`, `loom.dispatch.dispatched`,
 `loom.dispatch.errors` and `loom.dispatch.max_concurrent`. Each `dispatch()` attempt in the
-tick is one `loom.dispatch.admission` child span (#8907), with the tick's trace
+tick is one `loom.dispatch.admission` child span (#8907; a candidate the #8865
+open-PR pre-filter skips is not an attempt and has no admission span), with the tick's trace
 id and the tick span as its parent. Its attributes are `loom.issue`,
 `loom.dispatch.admission_result` (`dispatched`, `in_flight`, `refused`,
 `error`) and `loom.dispatch.reason` (the `loom.dispatch.decisions` reason it
@@ -1849,8 +1858,9 @@ queue position (Issue #9669): `loom.queue.candidate_rank` (1-indexed position
 in the tick's shaped pass-2 candidate order) and `loom.queue.total_candidates`
 (that order's length), present only when the tick recorded a plan order naming
 this admission; a single-workspace tick records none. A `pr_open` refusal
-in a locked repo also carries that repo's `lockout.*` weight (Issue #9674;
-see the disposition span's table below). Its status is
+made inside `dispatch()` (since #8865 only when the open-PR listing could not
+be read, or on a non-finder route) in a locked repo also carries that repo's
+`lockout.*` weight (Issue #9674; see the disposition span's table below). Its status is
 `error` only for `error`.
 
 #### `loom.dispatch.disposition` (Issue #9222): per-issue "why is it waiting"
@@ -1896,7 +1906,9 @@ tick; otherwise a root of its own. Attributes:
 The lockout attributes ride the repo's `open_pr` rows only — the guard's own
 refusals — so a per-repo ranking never double counts the repo's other rows.
 `loom.dispatch.admission` spans with `loom.dispatch.reason = "pr_open"` carry
-the same three attributes (Issue #9674). Rank lockouts by frozen backlog with
+the same three attributes (Issue #9674), but exist only for in-`dispatch()`
+refusals: a pre-filtered skip (#8865) has none, so the `open_pr` disposition
+rows are the durable source. Rank lockouts by frozen backlog with
 a SigNoz query over `span.name = 'loom.dispatch.disposition'` and
 `loom.queue.disposition = 'open_pr'`, grouping by `loom.repo` and taking the
 latest `lockout.frozen_candidates_count` / `lockout.frozen_points_sum` per
@@ -1941,14 +1953,14 @@ GitHub rate limit (Issue #10022):
 | `loom.ratelimit.trip` span | instant span, own root trace (derived from `loom.ratelimit.source` + trip instant) | `loom.ratelimit.source` (the tripping job), `loom.ratelimit.cooldown_until` (RFC 3339), `github.ratelimit.core.used`, `.core.own`, `.core.external`, and the same three for `graphql` | one per rate-limit breaker trip; a re-trip while cooling emits nothing. `used` is the trip-time probe's pool-wide count, `own` this host's forge-call ledger for the window, `external` = `used − own`. Each is **omitted** (not 0) when unknown: no `used` in the probe, an untrusted probe reading (#8997), or the ledger sink off |
 | `forge.reader.withdrawn` span | instant span, own root trace (derived from the App, owner, resource and the instant) | `forge.reader.app` (the reader App id), `forge.reader.owner` (lowercased; `-` for an App-wide withdrawal), `forge.reader.resource` (`core`, `graphql`, `search`, `all`, or `app` for an App-wide withdrawal), `forge.reader.until` (RFC 3339), `forge.reader.source` (`header`, `probe` or `default`: where the end came from), `forge.reader.secondary` (`true` for a secondary limit) | one per reader withdrawal (W4-A). A rate limit withdraws only the refused `(owner, resource)` bucket; a secondary limit or a refused credential withdraws that owner's `all`; a mint or key failure, or any failure under `LOOM_READ_ROUTING=legacy`, withdraws the App (`app`). A per-repo coverage withdrawal emits nothing |
 | `forge.reader.spill` span | instant span, own root trace (derived from the repo, resource, home reader, mode and instant) | `forge.spill.owner_repo`, `forge.spill.resource` (`core` / `graphql` / `search`), `forge.spill.from` (home reader App id), `forge.spill.to` (target reader App id, or `home` when none has headroom and on release), `forge.spill.mode` (`partial` / `full` / `off`), `forge.spill.until` (RFC 3339 release instant) | one per read-pool spill-latch transition (W4-B, [daemon-reference](daemon-reference.md) `forge.readPool.routing`): engaged when the home bucket is projected at or above `spillProjectedPct` / `spillFullPct` or is withdrawn, released at the home bucket's reset; one more when a held latch re-picks a target that was withdrawn, went stale or reached `spillFullPct` (current mode, new `to`). A few per repo per day is normal; a steady stream means the pool is short of readers |
-| `invoke github` span | one per `gh` facade execution; child of the caller's span (or `LOOM_TRACEPARENT`), else its own root (derived per [`trace-identity.md`](trace-identity.md)) | process truth: `github.operation`, `github.access_intent`, `github.target`, `github.outcome` (`ok`, `exit_nonzero`, `signaled`, `timeout`, `spawn_failed`, `collect_failed`, `routing_refused`, `routing_blocked`, `adapter_unavailable`), `github.exit_code`, `github.invocation`, `github.launcher`, `github.api`, `context_source`. What GitHub billed (#10343): `github.http.status` (`200`, `304`, `403`, … or `unknown`), `github.http.not_modified` (`true`/`false`, `unknown` without a status), `github.http.requests` (pages of a `--paginate --include` call, `1` for one `--include` block, `2` for `run download`, `0` when nothing was sent, else `unknown`), `github.http.source` (`headers`, `stderr`, `none`), `github.billing` (`ok`, `not_modified`, `rate_limited`, `error`, `not_sent`), and the bucket join keys `github.resource`, `github.account`, `github.cred_owner` (`-` when not an App installation), `github.role` (`reader`, `writer`, `writer-fallback`). Since #10752: `github.caller` (the daemon pass whose caller scope the call ran in, e.g. `stale_blocked_release`; absent outside one), `github.repo` (the `owner/repo` the ledger booked the call under) and, on a write, `github.number` (the issue/PR number(s) its argv targets) | one per execution (a reader-routed read retried on the writer is two). The status comes from the `--include` status line, else `gh`'s `(HTTP NNN)` / `HTTP NNN:` stderr marker, else it is `unknown` — never guessed; a passthrough run is always `unknown`. A `304` is `github.billing=not_modified` while `github.outcome=exit_nonzero` (gh exits non-zero on it) |
+| `invoke github` span | one per `gh` facade execution; child of the caller's span (or `LOOM_TRACEPARENT`), else its own root (derived per [`trace-identity.md`](trace-identity.md)) | process truth: `github.operation`, `github.access_intent`, `github.target`, `github.outcome` (`ok`, `exit_nonzero`, `signaled`, `timeout`, `spawn_failed`, `collect_failed`, `routing_refused`, `routing_blocked`, `adapter_unavailable`), `github.exit_code`, `github.invocation`, `github.launcher`, `github.api`, `context_source`. What GitHub billed (#10343): `github.http.status` (`200`, `304`, `403`, … or `unknown`), `github.http.not_modified` (`true`/`false`, `unknown` without a status), `github.http.requests` (pages of a `--paginate --include` call, `1` for one `--include` block, `2` for `run download`, `0` when nothing was sent, else `unknown`), `github.http.source` (`headers`, `stderr`, `none`), `github.billing` (`ok`, `not_modified`, `rate_limited`, `secondary_limited`, `error`, `not_sent`), and the bucket join keys `github.resource`, `github.account`, `github.cred_owner` (`-` when not an App installation), `github.role` (`reader`, `writer`, `writer-fallback`). Since #10752: `github.caller` (the daemon pass whose caller scope the call ran in, e.g. `stale_blocked_release`; absent outside one), `github.repo` (the `owner/repo` the ledger booked the call under) and, on a write, `github.number` (the issue/PR number(s) its argv targets). Since #11407: `github.route` (a `gh api` endpoint as a template from gh-shim's finite table, e.g. `/repos/{owner}/{repo}/pulls/{n}/reviews`, query dropped; `/graphql`; `(unknown)` for a path the table lacks; `(other-host)`; `(none)` for no endpoint; `(porcelain)` for a non-`api` command), `http.request.method` (`gh api` only: `GET`, `POST`, … or `_OTHER`) and `github.command` (the gh command group, e.g. `api`, `pr view`, `issue list`; in the agent `gh` front, the agent's command rather than the `gh api` the front sent). No raw path, query or argument value is recorded | one per execution (a reader-routed read retried on the writer is two). The status comes from the `--include` status line, else `gh`'s `(HTTP NNN)` / `HTTP NNN:` stderr marker, else it is `unknown` — never guessed; a passthrough run is always `unknown`. A `304` is `github.billing=not_modified` while `github.outcome=exit_nonzero` (gh exits non-zero on it) |
 | `github.ratelimit.remaining` | `Gauge` | `{request}`; labels `resource`, `account`, `owner`, `role` (+ `installation` on a bucket point) | requests left in one bucket. On an App host every point is a bucket-book reading (below); the 60 s `gh api rate_limit` probe is booked there as the `(writer account, workspace owner, resource)` bucket (`role=writer`), never exported bare. On an ambient-login host the probe (falling back to the breaker's last trip-time reading while its reset windows are still open) is exported with `owner="-"`, `role="ambient"`; an unresolvable `account` stays `unknown` and is retried at most every 20 min, never while the breaker is suppressing |
 | `github.ratelimit.used` | `Gauge` | `{request}`; labels as above | requests spent this window; absent when the response carried no `used`. Monotone only within one window (`github.ratelimit.reset`): several hosts export one bucket with readings of different ages, and a pre-#10571 daemon's label set can carry two interleaved windows, so GitHub's bill is each window's high-water mark (`github-shadow.sql`), never Σ of drops-as-resets |
 | `github.ratelimit.reset` | `Gauge` | `s` (Unix epoch seconds); labels as above | when the bucket's window resets |
 | `github.ratelimit.breaker_skips` | delta `Sum` | `{pass}`; label `reason` | job passes skipped because the breaker was suppressing, flushed on the 60 s tick |
 | `github.ratelimit.{remaining,used,reset}` per bucket | `Gauge` | as above | one series per believed reading of the forge bucket book (W1), exported once per 60 s tick after the probe: every App installation's pool this host spends, keyed `(account, owner, resource)` of the identity minted into each credential directory (its `identity.json` sidecar, else the roster and `origin` remote — #10571), with `installation` = that App installation's id (`-` without a sidecar; one per `(account, owner)`); `role` is `writer` for the App minted into the workspace's primary directory, else `reader`. A writer sidecar that disagrees with the roster wins and counts `bucket_book.writer_identity_mismatch` on `loom.forge.facade.events`. Fed by the free `x-ratelimit-*` headers of `gh api --include` calls, by one free `gh api rate_limit` probe per published credential directory after each 5-minute reader-refresh pass, and by the 60 s probe (#10343). A reading counts only while its window is open and it is under 10 minutes old. Since #10343 no `github.ratelimit.*` point leaves without `owner`; since #10571 one label set is one bucket |
-| `loom.forge.calls` | delta `Sum` | `{request}`; labels `caller`, `op`, `role`, `account`, `cred_owner`, `installation`, `target_owner`, `resource`, `agent`, `outcome` | requests the `gh` facade sent since the previous point (W1), flushed on the 60 s tick. Since #10607 it also carries agent sessions' `gh` calls, ingested by the daemon from the agent `gh` front's sink rows on the same tick: `agent` is the agent role (`builder`, `judge`, …, `other`, `none`; `-` on the daemon's own rows), and `caller` says served (`agent_gh_front`) or passthrough (`agent.gh.<command>`, booked `ok` before it runs). Ingested rows are untrusted input: re-validated, re-labelled from closed vocabularies, and capped at 512 agent label sets per flush apart from the daemon's own (an over-cap set keeps only `agent`, served/passthrough and `outcome`). A `--paginate --include` call counts its pages; `run download` counts 2. The free `gh api rate_limit` probe is counted under `resource` = `other` (a request observation, never a charge). `outcome` ∈ `ok`, `not_modified`, `rate_limited`, `error`, `shed` (reserved for a budget gate). Past 2048 distinct label sets between flushes, a new set is folded into one series per `outcome` with every other label `overflow`, so totals are kept and the point count stays bounded. Accumulated only while an ops sink is registered |
-| `loom.forge.facade.events` | delta `Sum` | `{event}`; label `reason` = the counter name | named `gh`-facade events that are not forge calls, since the previous point, flushed on the same tick: `facade.cwd_route.disagree` (a checkout whose local sources name different repositories, so its untargeted reads stay on the writer — counted once per call, whether W1's accounting or W4-C's derivation saw it), `repo_facts.redirected`, `repo_facts.resolver_disagree`, and the dispatch guard's W9 counters: `guard.open_pr.refused_memo` / `guard.open_pr.refused_probed` (an open-PR refusal at the 2.5 memo short circuit / at the 2.6 probe; the 2.6 probe of an ordinary dispatch can itself be answered from the memo and still counts as `refused_probed`), `guard.open_pr.refused_distinct` (the first refusal of an `(issue, PR)` pair in a workspace this UTC hour) and `guard.issue_view.fallback` (a conditional 2.5/2.7 issue read fell back to the unconditional one); the captain's intake pass (W7): `intake.listing_shed` (a repo's open-issue walk was shed because every reader was out of budget; the repo is skipped this pass, nothing is sent to the writer), `intake.triage_reverted` (the label write's answer carried another `loom:*` label, so the `loom:triage` just added was removed) and `bucket_book.writer_identity_mismatch` (#10571). Only counters that moved emit a point. Exported only while an ops sink is registered |
+| `loom.forge.calls` | delta `Sum` | `{request}`; labels `caller`, `op`, `role`, `account`, `cred_owner`, `installation`, `target_owner`, `resource`, `agent`, `outcome` | requests the `gh` facade sent since the previous point (W1), flushed on the 60 s tick. Since #10607 it also carries agent sessions' `gh` calls, ingested by the daemon from the agent `gh` front's sink rows on the same tick: `agent` is the agent role (`builder`, `judge`, …, `other`, `none`; `-` on the daemon's own rows), and `caller` says served (`agent_gh_front`) or passthrough (`agent.gh.<command>`, booked `ok` before it runs). Ingested rows are untrusted input: re-validated, re-labelled from closed vocabularies, and capped at 512 agent label sets per flush apart from the daemon's own (an over-cap set keeps only `agent`, served/passthrough and `outcome`). A `--paginate --include` call counts its pages; `run download` counts 2. The free `gh api rate_limit` probe is counted under `resource` = `other` (a request observation, never a charge). `outcome` ∈ `ok`, `not_modified`, `rate_limited` (primary pool), `secondary_limited` (a secondary / burst limit, #11418), `error`, `shed` (reserved for a budget gate). Past 2048 distinct label sets between flushes, a new set is folded into one series per `outcome` with every other label `overflow`, so totals are kept and the point count stays bounded. Accumulated only while an ops sink is registered |
+| `loom.forge.facade.events` | delta `Sum` | `{event}`; label `reason` = the counter name | named `gh`-facade events that are not forge calls, since the previous point, flushed on the same tick: `facade.cwd_route.disagree` (a checkout whose local sources name different repositories, so its untargeted reads stay on the writer — counted once per call, whether W1's accounting or W4-C's derivation saw it), `repo_facts.redirected`, `repo_facts.resolver_disagree`, and the dispatch guard's W9 counters: `guard.open_pr.refused_memo` / `guard.open_pr.refused_probed` (an open-PR refusal at the 2.5 memo short circuit / at the 2.6 probe; the 2.6 probe of an ordinary dispatch can itself be answered from the memo and still counts as `refused_probed`), `guard.open_pr.refused_distinct` (the first refusal of an `(issue, PR)` pair in a workspace this UTC hour; all three count in-`dispatch()` refusals only, so they fall to near zero on the work-finder route, whose #8865 pre-filter skips PR-blocked candidates before `dispatch()`) and `guard.issue_view.fallback` (a conditional 2.5/2.7 issue read fell back to the unconditional one); the captain's intake pass (W7): `intake.listing_shed` (a repo's open-issue walk was shed because every reader was out of budget; the repo is skipped this pass, nothing is sent to the writer), `intake.triage_reverted` (the label write's answer carried another `loom:*` label, so the `loom:triage` just added was removed) and `bucket_book.writer_identity_mismatch` (#10571). Only counters that moved emit a point. Exported only while an ops sink is registered |
 
 `resource` ∈ `core`, `graphql` (`search` too on a bucket point). On an
 ambient-login host's points `account` is the validated `gh` login, else
@@ -2083,10 +2095,11 @@ Each row:
 | `operator_priority_at` | RFC 3339, optional | when it was starred (the `labeled` timeline event), when known. Omitted for an unstarred issue, or a starred one ordered by its `created_at` fallback |
 | `created_at` | RFC 3339, optional | issue creation time (the age ordering key) |
 | `tier` | string, optional | the `tier:*` label, informational only |
-| `disposition` | string | `dispatched`, `in_flight`, `deferred_capacity`, `deferred_ramp_cap`, `deferred_saturation`, `deferred_build_backoff`, `deferred_out_of_slice`, `deferred_repo_cap`, `deferred_file_overlap`, `workspace_halted`, `workspace_commands_missing`, `host_constraint`, `host_class_refused`, `parked`, `hard_exclusion`, `recheck_interval`, `quarantined`, `dispatch_backoff`, `open_pr_backoff`, `noop_cooldown`, `declined`, `prless_retry`, `peer_claim`, `open_pr`, `dispatch_error`, `labelled_blocked` (unknown values are forward-compatible) |
+| `disposition` | string | `dispatched`, `in_flight`, `deferred_capacity`, `deferred_ramp_cap`, `deferred_saturation`, `deferred_build_backoff`, `deferred_out_of_slice`, `deferred_repo_cap`, `deferred_file_overlap`, `workspace_halted`, `workspace_commands_missing`, `host_constraint`, `host_class_refused`, `parked`, `hard_exclusion`, `recheck_interval`, `quarantined`, `dispatch_backoff`, `open_pr_backoff`, `noop_cooldown`, `declined`, `prless_retry`, `peer_claim`, `open_pr`, `dispatch_error`, `already_landed`, `already_closed`, `labelled_blocked` (unknown values are forward-compatible) |
 | `state` | string | `running` / `ready` / `blocked`, derived by the daemon so clients never keep a copy of the mapping |
 | `reason` | string | human-readable reason, also daemon-derived |
-| `detail` | string, optional | only for `parked` (the park label), `open_pr` (`open PR #N`), `deferred_file_overlap` (`file overlap: <paths>`, the shared `## Affected Files` paths, #9781) and `labelled_blocked` (the hold labels it also carries, from `loom:operator`, `loom:operator-only`, `loom:operator-mechanical`, `loom:needs-capability`). Free-form dispatch-error and comment text is never exported |
+| `detail` | string, optional | only for `parked` (the park label), `open_pr` (`open PR #N`), `deferred_file_overlap` (`file overlap: <paths>`, the shared `## Affected Files` paths, #9781), `already_landed` (`forge_closed` or `journal_landed`, #11429) and `labelled_blocked` (the hold labels it also carries, from `loom:operator`, `loom:operator-only`, `loom:operator-mechanical`, `loom:needs-capability`). Free-form dispatch-error and comment text is never exported |
+| `halt_cause` | string, optional | only for `workspace_halted` (#11417): why the repo's dispatch is held, the closed vocabulary of the SigNoz `loom.queue.halt_cause` attribute (`main_red`, `gate_pending`, `token_pool`, `preflight_advisory`, `drain`, `breaker`, `write_scope`, `ci_billing`, `install_incompatible`, `daemon_too_old`, `maintain_only`, `disk_reservation`). Additive; no `schema_version` bump. `reason` names the cause (`blocked: repo dispatch held — main red`) and keeps the generic sentence only when the cause is unknown |
 | `position` | integer, optional | 1-based place in the host's **shaped** dispatch order (#9288, below). `null` when the row is not dispatchable on this host this tick |
 | `plan_state` | string | `running` / `next` / `queued` / `blocked` (#9288); `unknown` when absent |
 | `keys` | array, optional | `{name, value}` comparator keys that placed the row, in comparator order |
@@ -2339,11 +2352,29 @@ nanoseconds). `forge_transition_at` is the forge's own instant: the new review
 label's `labeled` event (one paginated issue-events read per actual move,
 with no per-pass limit, every page of the history, and only when it falls
 inside the pass window), or the PR's
-`merged_at` / `closed_at`. Every part is the same on every host, whatever its
-polling time. **A transition with no forge instant** (a sweep stage, a ready
-row, a failed read) **is emitted without
-`loom.fact_id`**; readers dedupe it by `(repo, issue, next_stage)` within a
-short window (see [`telemetry-replay.md`](telemetry-replay.md)).
+`merged_at` / `closed_at`, or for a hold release (`merge_hold` →
+`merge_wait`) the hold label's `unlabeled` event (#11401). Every part is the
+same on every host, whatever its polling time.
+
+**A transition with no forge instant (#11401)** keys on, first match:
+
+1. the holding sweep: `derived_hex(["loom.fact", "eta.stage_outcome", repo,
+   issue, stage, next_stage, "sweep", sweep_id, entered_at], 16)`, where
+   `entered_at` is the sweep checkpoint's (empty otherwise). A row of this
+   host's sweep (`sweep.curator`, `sweep.builder`, and `review_wait` /
+   `doctor` / `merge_wait` while the sweep holds the item) carries the
+   additive body field `sweep_id`; only that host emits it.
+2. the forge-dated entry (`entered_at_source = forge`):
+   `derived_hex(["loom.fact", "eta.stage_outcome", repo, issue, stage,
+   next_stage, "entry", entered_at], 16)`.
+
+With neither, the record has **no `loom.fact_id` and carries
+`loom.fact_id_missing_reason`** instead: `forge_read_failed` (a history or
+`pulls/{n}` read this pass needed failed) or `no_forge_instant`. Every record
+carries exactly one of the two, and `host.export` counts the second kind
+(`fact_id_missing_total`). Ids keyed on a forge instant are unchanged by
+#11401. The body field `fact_id_missing_reason` is the producer's view of why
+no forge instant dates the exit, present even when a fallback key applies.
 
 The log record's **time is `left_at`** and its **observed timestamp is
 `observed_at`**. The body is the record's JSON. The scalars ride as
@@ -2571,19 +2602,24 @@ Each row:
 | `issue` | integer | issue number |
 | `stage` | string | `ready_wait`, `sweep.curator`, `sweep.builder`, `review_wait`, `doctor`, `merge_wait`, `merge_hold` |
 | `entered_at` | RFC 3339 | when the item entered `stage` |
-| `entered_at_lower_bound` | bool, optional | present (`true`) when `entered_at` is only a lower bound, for example when the item was first seen mid-stage after a restart |
+| `entered_at_lower_bound` | bool, optional | present (`true`) when `entered_at` is only a lower bound. Since #11391 a lower-bound row of a stage a label enters (`ready_wait`, `review_wait`, `doctor`, `merge_wait`, `merge_hold`) is dated by that label's `labeled` event in the item's forge history (the same read `eta.stage_outcome` uses, #11367) and is exact; only a row the forge cannot date (a sweep's `sweep.curator` / `sweep.builder` stage, a history with no such event, a failed or not-yet-read history) keeps the bound. At most 100 new histories are read per pass, so after a restart the rest follow over the next passes |
 | `pr` | integer, optional | the PR, when known |
 | `host` | string, optional | the host whose sweep holds the item. Present **only** when the emitting host runs it; absent rather than guessed otherwise |
 | `slot` | `regular` / `overflow`, optional | the dispatch slot that sweep holds (`overflow` = the host's single `loom:operator-priority` overflow slot, #9244). Present exactly when `host` is |
+| `sweep_id` | string, optional | the id of this host's sweep that holds the item, the `loom.fact_id` key of the row's `eta.stage_outcome` when no forge instant dates the exit (#11401). Present exactly when `host` is. Additive on `fleet-state/v1` |
 | `model`, `effort`, `effort_source`, `model_source`, `runtime`, `attempt_index`, `trigger`, `previous_sweep_id` | optional | a row of a sweep this host runs (`sweep.curator`, `sweep.builder`, `review_wait`, `doctor`, `merge_wait`): the [dispatch facts](#sweepstarted) its `sweep.started` carried, with the same values (#11280). Absent for a sweep this daemon did not dispatch (adopted after a restart), and each one absent when unknown. Additive on `fleet-state/v1` |
 | `rank` | integer, optional | `ready_wait` only: this host's planner rank (1-based position in its dispatch order on the last work-finder tick). Per host: two hosts' ranks for one issue are two true answers |
-| `star` | bool, optional | `ready_wait` only: starred at any level (absent = `false`) |
+| `star` | bool, optional | starred at any level (absent = `false`). Every row since #11391: a PR row reads the PR's `loom:operator-priority` / level labels, and a row keeps the star an earlier row of the item carried (a `ready_wait` row is rebuilt from the tick, so an un-star shows there) |
 | `star_at` | RFC 3339, optional | `ready_wait` only: when it was starred, when known |
-| `level` | integer, optional | `ready_wait` only: effective operator priority level (absent = `0`) |
+| `level` | integer, optional | effective operator priority level (absent = `0`); on every row, like `star` (#11391) |
 | `fleet_priority` | integer, optional | `ready_wait` only: the repo's fleet (workspace) priority tier; lower dispatches first |
 | `created_at` | RFC 3339, optional | `ready_wait` only: the issue's creation instant, the planner's age input (age = `as_of - created_at`; the instant is sent so an unchanged row stays unchanged) |
 | `main_red_fix` | bool, optional | `ready_wait` only: a red-main fix the planner boosted this tick (absent = `false`) |
 | `hold_kind` | string, optional | the item is under a hold now: one of `operator`, `operator_only`, `operator_decision`, `merge_risk`, `critical_file`, `ac_hold`, `blocked`, `other` (the long-standing snake_case hold names). Derived from the PR's labels; the emitter does not read Champion's comments, so it reports `operator` where Champion applied `merge_risk` / `critical_file` / `ac_hold` and leaves that split to the reader. Additive on `fleet-state/v1`; absent = not held (or an older emitter) |
+| `holds` | array of string, optional | every hold the PR's labels name now (#11391), strongest first: `operator_decision`, `operator_only`, `operator`, `blocked`, `sequenced`, `other`. `hold_kind` is the winning one; a row with two holds no longer loses one. Absent = none. Additive on `fleet-state/v1` |
+| `rework` | integer, optional | Judge rejections the item's PR has taken (#11391): each arrival of `loom:changes-requested` in the PR's label history, except a repeat with no `loom:review-requested` / `loom:pr` arrival between (a relabel inside one attempt). Counted once per PR from the history, then +1 each time the row enters `doctor`. It does not read comments, so a daemon base-conflict flag that `sweep.outcome` excludes can count here. Absent = `0` or not read. Additive on `fleet-state/v1` |
+| `conflict` | bool, optional | the PR carries `loom:merge-conflict` (#11391; from the review listing, no extra read). Absent = `false` |
+| `ci_fail` | bool, optional | the PR carries `loom:ci-failure` (#11391; same listing). Absent = `false` |
 | `held_since` | RFC 3339, optional | when the current hold began. Present exactly when `hold_kind` is |
 | `held_since_lower_bound` | bool, optional | present (`true`) when `held_since` is the first pass that saw the hold, not an observed transition |
 | `hold_released_at` | RFC 3339, optional | the hold cleared: the pass that first saw it clear. The clearing delta carries it with `hold_kind` / `held_since` absent, and it is kept while the row is otherwise unchanged. A held item that merges or closes gets none: its removal is the end |
@@ -3008,9 +3044,11 @@ elected, there are no caps, and no rate or estimate is computed in the daemon.
 | `exporters[].queue_depth` | integer | envelopes queued, waiting for a flush |
 | `exporters[].dropped_total` | integer | envelopes dropped (oldest first) at a full queue |
 | `exporters[].last_flush_ok_at` | RFC3339? | last acked batch; omitted when none this process (unknown, not a fabricated time) |
+| `fact_id_missing_total` | integer | `eta.stage_outcome` exits this process emitted without a `loom.fact_id` (each carried `loom.fact_id_missing_reason`, #11401); cumulative per process lifetime like `dropped_total`; `0` on records from before #11401 |
 
 Attributes: `loom.host_export.exporters` (count), `.queue_depth` (sum),
-`.dropped_total` (sum), `.last_flush_ok_at` (latest).
+`.dropped_total` (sum), `.last_flush_ok_at` (latest),
+`.fact_id_missing_total`.
 
 **`dropped_total` is cumulative per process lifetime.** It restarts at 0 when
 the daemon restarts, so a reader computing "drops in a window" must treat a
@@ -3097,6 +3135,18 @@ forge call):
 | Operator/watchdog cancel (`finish_cancel`) | `cancelled` |
 | Clean exit (code `0`) with no `merge-done`, not the #4366 no-progress shape | `success` |
 | Everything else — non-zero exit, unobservable exit status, the #4366 clean-exit-with-zero-progress shape, or a death that left a checkpoint behind | `failure` |
+
+A `failure` whose `disposition` is `noop_already_done` is reported as
+`success` (Issue #11429): there was no work to do. A `failure` whose
+`disposition` is `landed` is reported as `success` only when there is no
+rejection or rework signal: the Judge verdicts were read, every one is a
+`pass`, and no classifier labelled the transition (`failure_class` absent:
+no crash, death or exhausted Doctor loop). A Judge rejection, even one the
+Doctor fixed, keeps `failure`, so `landed` + `failure` still names the PRs
+that needed rework or did not make it. The collector's live path reads no
+Judge verdicts, so its `landed` failures stay `failure`. `failure_class` keeps
+what the classifier saw, the paired `sweep.completed` keeps the process
+result, and the opt-in issue write-back still keys on the process result.
 
 An *unobservable* exit status (a reconstructed entry reaped via `kill(pid, 0)`,
 which yields no code) is deliberately a `failure`, not a `success`: absence of

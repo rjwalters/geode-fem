@@ -266,6 +266,24 @@ const MANIFEST: &[Entry] = &[
          Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/c_sigma_convergence.toml",
+        "examples/transmon_c_sigma_convergence.rs: scalar/tensor f64 P1 and P2 electrostatic \
+         assembly + faer LU / AMG-PCG on host CSR (shape::transmon_remorph::\
+         red_refined_c_sigma_levels, issue #1051), no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml",
+        "examples/transmon_refined_optimize.rs: scalar f64 P1/P2 electrostatic assembly + AMG-PCG \
+         on host CSR and the f64 energy shape derivative (shape::refined_capacitance, issue \
+         #1056), no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_resolution_corrected/\
+         summary.toml",
+        "examples/transmon_refined_optimize.rs with REFINED_OPT_TARGET set (issue #1056): same \
+         f64 path as p2_cycles10/summary.toml, no Backend generic",
+    ),
+    b(
         // The #692 curation listed this under bucket D; the generator was
         // re-audited during implementation: it only uses the scalar
         // `assemble_electrostatic{,_tensor}` + `extract_capacitance` f64

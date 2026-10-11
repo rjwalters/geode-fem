@@ -167,6 +167,33 @@ impl RedRefinement {
         out.dedup();
         out
     }
+
+    /// Lift a surface triangle set to the fine mesh: each coarse triangle
+    /// `(a, b, c)` becomes its four red children `(a, m_ab, m_ca)`,
+    /// `(m_ab, b, m_bc)`, `(m_ca, m_bc, c)` and `(m_ab, m_bc, m_ca)`, all
+    /// with the parent's winding. Red refinement splits every coarse face
+    /// this way, so each child is a face of the fine mesh; this is what lets
+    /// [`Self::lift_sheet_nodes`] be applied again on the next level
+    /// (issue #1051).
+    ///
+    /// # Panics
+    ///
+    /// If a triangle edge is not an edge of the coarse mesh.
+    pub fn lift_triangles(&self, triangles: &[[u32; 3]]) -> Vec<[u32; 3]> {
+        let m = |a: u32, b: u32| {
+            self.midpoint(a, b)
+                .unwrap_or_else(|| panic!("triangle edge ({a}, {b}) is not a mesh edge"))
+        };
+        let mut out = Vec::with_capacity(4 * triangles.len());
+        for &[a, b, c] in triangles {
+            let (ab, bc, ca) = (m(a, b), m(b, c), m(c, a));
+            out.push([a, ab, ca]);
+            out.push([ab, b, bc]);
+            out.push([ca, bc, c]);
+            out.push([ab, bc, ca]);
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -257,5 +284,69 @@ mod tests {
             .filter(|&n| r.mesh.nodes[n as usize][2].abs() < 1e-12)
             .collect();
         assert_eq!(lifted, want, "exactly the fine nodes on the sheet");
+    }
+
+    #[test]
+    fn lift_triangles_gives_fine_faces_tiling_the_sheet() {
+        let mut coarse = cube_tet_mesh(2, 1.0);
+        // An interior sheet at z = 0.5 (shared faces, not boundary faces),
+        // with a perturbed interior so the triangles are not all similar.
+        for (i, p) in coarse.nodes.iter_mut().enumerate() {
+            if p[0] > 1e-9 && p[0] < 1.0 - 1e-9 && p[1] > 1e-9 && p[1] < 1.0 - 1e-9 {
+                p[0] += 0.04 * ((i % 3) as f64 - 1.0);
+            }
+        }
+        let on = |m: &TetMesh, n: u32| (m.nodes[n as usize][2] - 0.5).abs() < 1e-12;
+        let sheet_faces = |m: &TetMesh| {
+            let mut f = std::collections::BTreeSet::new();
+            for t in &m.tets {
+                for skip in 0..4 {
+                    let mut g: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| t[i]).collect();
+                    if g.iter().all(|&n| on(m, n)) {
+                        g.sort_unstable();
+                        f.insert([g[0], g[1], g[2]]);
+                    }
+                }
+            }
+            f
+        };
+        let tris: Vec<[u32; 3]> = sheet_faces(&coarse).into_iter().collect();
+        assert!(!tris.is_empty());
+        let r = red_refine(&coarse);
+        let lifted = r.lift_triangles(&tris);
+        assert_eq!(lifted.len(), 4 * tris.len());
+        let mut got: Vec<[u32; 3]> = lifted
+            .iter()
+            .map(|t| {
+                let mut s = *t;
+                s.sort_unstable();
+                s
+            })
+            .collect();
+        got.sort_unstable();
+        let want: Vec<[u32; 3]> = sheet_faces(&r.mesh).into_iter().collect();
+        assert_eq!(got, want, "exactly the fine faces on the sheet");
+        // Winding: every child's normal has the parent's sign.
+        let nz = |m: &TetMesh, t: &[u32; 3]| {
+            let p = |k: usize| m.nodes[t[k] as usize];
+            let (u, v) = (sub(p(1), p(0)), sub(p(2), p(0)));
+            u[0] * v[1] - u[1] * v[0]
+        };
+        for (k, c) in lifted.iter().enumerate() {
+            assert!(
+                nz(&r.mesh, c) * nz(&coarse, &tris[k / 4]) > 0.0,
+                "child {k}"
+            );
+        }
+        // A second level lifts through the first.
+        let r2 = red_refine(&r.mesh);
+        let nodes: Vec<u32> = (0..r.mesh.n_nodes() as u32)
+            .filter(|&n| on(&r.mesh, n))
+            .collect();
+        let lifted2 = r2.lift_sheet_nodes(&nodes, &lifted);
+        let want2: Vec<u32> = (0..r2.mesh.n_nodes() as u32)
+            .filter(|&n| on(&r2.mesh, n))
+            .collect();
+        assert_eq!(lifted2, want2);
     }
 }
