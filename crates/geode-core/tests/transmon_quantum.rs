@@ -9,8 +9,10 @@
 //! - **Release / `#[ignore]`:** the full E_C extraction on the real 133k-tet
 //!   DeviceLayout fixture (split into its three metal conductors), pinning
 //!   the committed `benchmarks/transmon_quantum/results.toml` numbers and
-//!   the honest-negative finding (extracted C_Σ vs the ~90 fF anchor, with
-//!   the BC-insensitivity diagnosis).
+//!   the coarse-mesh finding (extracted C_Σ above the ~90 fF anchor, with
+//!   the BC-insensitivity diagnosis). Issue #1051 measured that gap to be
+//!   discretization error, not a model difference: converged, C_Σ is below
+//!   the anchor (`benchmarks/transmon_diffopt/c_sigma_convergence.toml`).
 //!
 //! The RELEASE E_C test regenerates the same numbers the
 //! `transmon_quantum` example writes; run it with
@@ -224,8 +226,10 @@ fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
 /// This is the RELEASE counterpart of the `transmon_quantum` example: it
 /// splits the metal into the three conductors, solves the tensor-ε
 /// electrostatic capacitance, derives C_Σ / E_C / ω01, and asserts the
-/// documented results (C_Σ ≈ 137 fF — larger than the ~90 fF anchor — the
-/// escape-hatch finding, with the BC-insensitivity check).
+/// documented coarse-mesh results (C_Σ ≈ 137 fF, larger than the ~90 fF
+/// anchor, with the BC-insensitivity check). The gap is discretization
+/// error on this 133k-tet mesh (issue #1051), so these pins are regression
+/// pins of the coarse-mesh numbers, not accuracy claims.
 #[test]
 #[ignore = "release-tier: full 133k-tet electrostatic solve (~2 min)"]
 fn real_fixture_e_c_extraction_release() {
@@ -284,10 +288,11 @@ fn real_fixture_e_c_extraction_release() {
         (c_sigma_ff - 136.7).abs() / 136.7 < 0.01,
         "C_Σ = {c_sigma_ff} fF, committed ≈ 136.7"
     );
-    // The escape-hatch finding: LARGER than the ~90 fF anchor.
+    // On this coarse mesh C_Σ is LARGER than the ~90 fF anchor
+    // (discretization error, issue #1051; not a model difference).
     assert!(
         c_sigma_ff > 100.0,
-        "expected C_Σ above the ~90 fF anchor (the honest finding), got {c_sigma_ff}"
+        "expected the coarse-mesh C_Σ above the ~90 fF anchor, got {c_sigma_ff}"
     );
 
     // Scalar-ε run for the anisotropy delta (~0.75%).

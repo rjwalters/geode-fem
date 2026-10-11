@@ -1437,6 +1437,47 @@ impl AmgCoarseSolver {
     }
 }
 
+/// The smoothed-aggregation AMG of [`AmgCoarseSolver`] as a stand-alone
+/// approximate inverse for a scalar SPD operator, with the default tuning
+/// (`GEODE_AMG_*` env knobs ignored) and a chosen V-cycle count per apply.
+///
+/// Crate-internal facade for the AMG-preconditioned CG of the electrostatic
+/// capacitance extraction (issue #1051), so that path does not reach into
+/// the coarse-solve internals of the AMS cycle.
+pub(crate) struct ScalarAmg(AmgCoarseSolver);
+
+impl ScalarAmg {
+    /// Build the hierarchy for the SPD operator `a` (CSC).
+    ///
+    /// # Errors
+    ///
+    /// As [`AmgCoarseSolver::from_csc`].
+    pub(crate) fn new(
+        a: SparseColMatRef<'_, usize, f64>,
+        cycles: usize,
+    ) -> Result<Self, EigenError> {
+        AmgCoarseSolver::from_csc(
+            a,
+            AmgConfig {
+                cycles: cycles.max(1),
+                ..AmgConfig::default()
+            },
+        )
+        .map(Self)
+    }
+
+    /// `out ≈ A⁻¹ b`: a fixed linear SPD operator (valid as a CG
+    /// preconditioner).
+    pub(crate) fn apply(&self, b: &[f64], out: &mut [f64]) {
+        self.0.solve(b, out);
+    }
+
+    /// Coarsening levels above the direct coarsest solve.
+    pub(crate) fn n_levels(&self) -> usize {
+        self.0.levels.len()
+    }
+}
+
 /// Copy a borrowed CSC operator into an owned [`SparseColMat`] (the AMG builder
 /// needs an owned finest level so the coarsening loop is uniform).
 fn csc_owned(a: SparseColMatRef<'_, usize, f64>) -> SparseColMat<usize, f64> {

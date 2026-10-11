@@ -122,12 +122,33 @@ Source: [`benchmarks/transmon_quantum/results.toml`](../../benchmarks/transmon_q
 pinned by [`crates/geode-core/tests/transmon_quantum.rs`](../../crates/geode-core/tests/transmon_quantum.rs)
 (`real_fixture_e_c_extraction_release`).
 
-- Extracted (tensor-ε sapphire): **C_Σ ≈ 136.7 fF → E_C ≈ 0.142 GHz**, `E_J/E_C ≈ 77.6`,
-  ω01 ≈ 3.38 GHz, α ≈ −0.158 GHz (`α ≈ −E_C` sanity holds).
-- **Honest negative (keep it in the paper):** the extracted C_Σ ≈ 136.7 fF is *larger* than
-  the ~90 fF blog anchor (which back-solves from the expected E_C ≈ 0.2156 GHz). The benchmark
-  documents this as a BC-insensitive, model-difference finding, not a bug — the paper reports
-  the extracted number and the discrepancy honestly, it does not retrofit to the anchor.
+- Extracted on the committed 133k-tet mesh (tensor-ε sapphire): **C_Σ ≈ 136.7 fF → E_C ≈ 0.142 GHz**,
+  `E_J/E_C ≈ 77.6`, ω01 ≈ 3.38 GHz, α ≈ −0.158 GHz (`α ≈ −E_C` sanity holds). These are
+  **coarse-mesh numbers, not mesh-converged** (next bullet).
+- **Honest negative, corrected by issue #1051 (keep it in the paper):** the coarse C_Σ ≈ 136.7 fF is
+  *larger* than the ~90 fF blog anchor (which back-solves from the expected E_C ≈ 0.2156 GHz). This
+  was first documented as a BC-insensitive model difference. A mesh-convergence study
+  ([`benchmarks/transmon_diffopt/c_sigma_convergence.toml`](../../benchmarks/transmon_diffopt/c_sigma_convergence.toml),
+  generator `examples/transmon_c_sigma_convergence.rs`) shows that it is **discretization error**:
+  - *Measured.* Under uniform red refinement the scalar-ε C_Σ at P1 is 137.71 → 101.36 → 87.75 fF
+    (h, h/2, h/4; 133k, 1.07M, 8.5M tets), and at P2 it is 90.04 → 83.02 fF (h, h/2). The tensor-ε
+    P1 values are 136.68 → 102.38 → 89.49 fF.
+  - *Rigorous.* Each value is a conforming energy minimum, so each is an upper bound on the
+    converged C_Σ of this geometry. The converged scalar-ε C_Σ is below 83.02 fF and the converged
+    tensor-ε C_Σ is below 89.50 fF: both lie **below** the anchor, and the coarse scalar value
+    overstates the converged one by at least 54.69 fF.
+  - *Estimate, not a bound.* Richardson extrapolation puts the converged scalar-ε C_Σ at about
+    74.1–79.7 fF. The three P1 levels are not in the asymptotic regime (observed order 1.41 against
+    the order 1 expected at sheet edges), so the band is wide and there is no rigorous lower bound.
+  - *What remains.* A gap of the opposite sign: converged, geode's electrostatic C_Σ is below the
+    anchor. *Inference only:* the 5.5 fF junction self-capacitance, which is not in this C_Σ,
+    closes part of it; the rest is not explained here.
+  - The scalar-vs-tensor delta is not converged either: it is +0.75 % on the coarse mesh and
+    −1.9 % at h/4.
+
+  The paper must report mesh-converged values (or the coarse values with this error stated); it
+  must not present the 136.7 fF vs ~90 fF gap as a model difference, and it does not retrofit to
+  the anchor.
 
 ### 3b. The gradients that make the chain differentiable (PROVEN — merged)
 
@@ -248,8 +269,11 @@ operator, complement not rival.
   eigenmode parity (0.032% worst-case).
 - [`benchmarks/transmon_quantum/results.toml`](../../benchmarks/transmon_quantum/results.toml) +
   [`crates/geode-core/tests/transmon_quantum.rs`](../../crates/geode-core/tests/transmon_quantum.rs)
-  — the capacitance→E_C→Hamiltonian extraction (C_Σ ≈ 136.7 fF, E_C ≈ 0.142 GHz; the ~90 fF /
-  0.2156 GHz anchor discrepancy is the documented honest negative).
+  — the capacitance→E_C→Hamiltonian extraction on the coarse mesh (C_Σ ≈ 136.7 fF, E_C ≈ 0.142 GHz).
+  The ~90 fF / 0.2156 GHz anchor discrepancy is coarse-mesh discretization error, not a model
+  difference (issue #1051).
+- [`benchmarks/transmon_diffopt/c_sigma_convergence.toml`](../../benchmarks/transmon_diffopt/c_sigma_convergence.toml)
+  — the C_Σ mesh-convergence study (P1 to h/4, P2 to h/2): converged, C_Σ lies below the anchor.
 - [`benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md`](../../benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md)
   — the σ=4.5 deep-shift eigensolve blocker (#562/#565).
 - Issues/PRs — **merged (PROVEN):** #570/PR #573 ([`crate::adjoint`](../../crates/geode-core/src/adjoint.rs)),

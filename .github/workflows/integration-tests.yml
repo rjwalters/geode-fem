@@ -598,7 +598,9 @@ jobs:
       # #1035 multiparam_gradient_release adds about 7 s locally and the
       # #1036 multiparam_optimizer_release about 8 s and
       # multiparam_mesh_refinement_x0_release, a 1.07M-tet refined solve,
-      # about 14 s and 4.8 GB peak RSS),
+      # about 14 s and 4.8 GB peak RSS; the #1051
+      # c_sigma_convergence_cheap_levels_release, AMG-PCG at P1 h and h/2 and
+      # P2 h, adds about 10 s; its h/4 level is a manual generator run),
       # sphere_matched_upml_eigenmode 8 s or less (three tests since #1022;
       # measured locally 7.7 s against 12.9 s for the two before it),
       # the rest 0-5 s.
