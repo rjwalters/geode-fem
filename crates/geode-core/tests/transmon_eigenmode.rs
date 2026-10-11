@@ -1317,6 +1317,187 @@ fn tripwire_mode_id_participation_separates() {
     assert!(pmax <= 1.0 && pmin >= 0.0);
 }
 
+/// Issue #1044 (CI-fast, synthetic): the zero-voltage patch modes of the
+/// distributed `S_Γ` shunt are removed by the rank-1 port-voltage shunt A2.
+///
+/// On the synthetic cube the port is the whole `z = 0` face with its boundary on
+/// PEC. `n = 2` leaves one free node inside the patch (as on the 133k fixture),
+/// `n = 3` leaves four. A dense generalized eigensolve of both pencils shows:
+///
+/// - under `S_Γ` there is one finite-λ eigenpair per free patch node with zero
+///   port voltage (`V²/(xᵀS_Γx) < 1e-3`) and junction participation `> 0.9`:
+///   the sheet-internal LC modes (the 17.49 GHz mode on the fixture);
+/// - under A2 those eigenpairs are gone: A2 has exactly `#free patch nodes` more
+///   null modes than `S_Γ`, and no eigenvalue within 1 % of any of them;
+/// - the gradient `∇ψ_c` of every free patch node is an exact null vector of
+///   `K + K_A2` (`bᵀ∇ψ_c = 0` and `K∇ψ_c = 0`) but not of `K + K_S`.
+#[test]
+fn port_voltage_shunt_removes_zero_voltage_patch_modes_synthetic() {
+    use geode_core::eigen::dense::FaerDenseEigensolver;
+    use geode_core::eigen::projection::InteriorGradient;
+    use geode_core::eigen::transmon::LumpedPortVoltageShunt;
+
+    for (n_div, want_free_patch) in [(2usize, 1usize), (3, 4)] {
+        let fx = synthetic_fixture(n_div);
+        let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+        let (kv, mv) =
+            assemble_real_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, &fx.epsilon_tensor);
+        let pat = scatter.pattern();
+        let mut idx = vec![None; fx.edges.len()];
+        let mut dim = 0;
+        for (e, &k) in fx.interior_mask.iter().enumerate() {
+            if k {
+                idx[e] = Some(dim);
+                dim += 1;
+            }
+        }
+        let dense = |base: Option<&[f64]>, extra: &[(usize, usize, f64)]| {
+            let mut a = faer::Mat::<f64>::zeros(dim, dim);
+            if let Some(v) = base {
+                for k in 0..v.len() {
+                    if let (Some(i), Some(j)) =
+                        (idx[pat.rows[k] as usize], idx[pat.cols[k] as usize])
+                    {
+                        a[(i, j)] += v[k];
+                    }
+                }
+            }
+            for &(r, c, v) in extra {
+                if let (Some(i), Some(j)) = (idx[r], idx[c]) {
+                    a[(i, j)] += v;
+                }
+            }
+            a
+        };
+        let element = ReactiveElementNatural {
+            l_natural: 1.0,
+            c_natural: 0.05,
+        };
+        let shunt = LumpedReactiveShunt {
+            faces: &fx.junction_faces,
+            length: 1.0,
+            width: 1.0,
+            element,
+        };
+        let a2 = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, [0.0, 1.0, 0.0]);
+        let k_s = dense(Some(&kv), &shunt.k_port_triplets(&fx.mesh, &fx.edges));
+        let m_s = dense(Some(&mv), &shunt.m_port_triplets(&fx.mesh, &fx.edges));
+        let k_a = dense(Some(&kv), &a2.k_port_triplets(&fx.mesh, &fx.edges));
+        let m_a = dense(Some(&mv), &a2.m_port_triplets(&fx.mesh, &fx.edges));
+        let s_gamma = dense(
+            None,
+            &geode_core::driven::ports::assemble_port_surface_mass(
+                &fx.mesh,
+                &fx.junction_faces,
+                &fx.edges,
+            ),
+        );
+        let mut b = vec![0.0_f64; dim];
+        for (e, v) in a2.voltage_functional(&fx.mesh, &fx.edges) {
+            if let Some(r) = idx[e] {
+                b[r] = v;
+            }
+        }
+        let quad = |a: &faer::Mat<f64>, x: &[f64]| {
+            let mut q = 0.0;
+            for i in 0..dim {
+                for j in 0..dim {
+                    q += x[i] * a[(i, j)] * x[j];
+                }
+            }
+            q
+        };
+        let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).map(|(a, c)| a * c).sum::<f64>();
+
+        let k_scale = (0..dim).fold(0.0_f64, |a, i| a.max(k_s[(i, i)].abs()));
+        let null_tol = 1e-8 * k_scale;
+        let spec_s = FaerDenseEigensolver
+            .smallest_eigenpairs(k_s.as_ref(), m_s.as_ref(), dim)
+            .expect("dense S_Γ eigensolve");
+        let spec_a = FaerDenseEigensolver
+            .smallest_eigenpairs(k_a.as_ref(), m_a.as_ref(), dim)
+            .expect("dense A2 eigensolve");
+        let nulls = |sp: &[geode_core::eigen::dense::EigenPair]| {
+            sp.iter().filter(|p| p.lambda.abs() < null_tol).count()
+        };
+
+        // Zero-voltage, port-dominated finite eigenpairs under S_Γ.
+        let bumps: Vec<f64> = spec_s
+            .iter()
+            .filter(|p| p.lambda.abs() >= null_tol)
+            .filter(|p| {
+                let x = &p.vector;
+                let xsx = quad(&s_gamma, x);
+                let v = dot(&b, x);
+                let k_port = shunt.k_scale() * xsx;
+                xsx > 0.0 && v * v / xsx < 1e-3 && k_port / quad(&k_s, x) > 0.9
+            })
+            .map(|p| p.lambda)
+            .collect();
+        eprintln!(
+            "n = {n_div}: dim {dim}, S_Γ nulls {}, A2 nulls {}, S_Γ zero-voltage modes λ = {bumps:?}",
+            nulls(&spec_s),
+            nulls(&spec_a)
+        );
+        assert_eq!(
+            bumps.len(),
+            want_free_patch,
+            "one zero-voltage S_Γ mode per free patch node"
+        );
+        assert_eq!(
+            nulls(&spec_a),
+            nulls(&spec_s) + want_free_patch,
+            "A2 must turn each zero-voltage patch mode into a null mode"
+        );
+        for &lb in &bumps {
+            let near = spec_a
+                .iter()
+                .find(|p| (p.lambda - lb).abs() <= 0.01 * lb)
+                .map(|p| p.lambda);
+            assert!(
+                near.is_none(),
+                "A2 still has an eigenvalue {near:?} within 1 % of the S_Γ patch mode λ = {lb}"
+            );
+        }
+
+        // ∇ψ_c of each free patch node: an exact null vector of K + K_A2.
+        let grad =
+            InteriorGradient::build(&fx.edges, &fx.interior_mask, &idx, fx.mesh.n_nodes(), dim);
+        let g = grad.matrix();
+        let mut patch_cols = 0;
+        for col in 0..g.ncols() {
+            let mut x = vec![0.0_f64; dim];
+            for p in g.col_ptr()[col]..g.col_ptr()[col + 1] {
+                x[g.row_idx()[p]] = g.val()[p];
+            }
+            if quad(&s_gamma, &x) <= 0.0 {
+                continue; // a volume node: no trace on the patch
+            }
+            patch_cols += 1;
+            let norm = |a: &faer::Mat<f64>| {
+                (0..dim)
+                    .map(|i| (0..dim).map(|j| a[(i, j)] * x[j]).sum::<f64>().abs())
+                    .fold(0.0_f64, f64::max)
+            };
+            assert!(
+                dot(&b, &x).abs() < 1e-14,
+                "port voltage of ∇ψ_c must vanish"
+            );
+            assert!(
+                norm(&k_a) <= 1e-12 * k_scale,
+                "‖(K + K_A2) ∇ψ_c‖∞ = {:e}, want 0",
+                norm(&k_a)
+            );
+            assert!(
+                norm(&k_s) > 1e-3 * k_scale,
+                "‖(K + K_S) ∇ψ_c‖∞ = {:e} should not vanish",
+                norm(&k_s)
+            );
+        }
+        assert_eq!(patch_cols, want_free_patch, "free patch nodes");
+    }
+}
+
 // -------------------------------------------------------------------------
 // Release / #[ignore]: full real-mesh eigensolve + Palace oracle.
 // -------------------------------------------------------------------------
@@ -2221,6 +2402,297 @@ fn real_transmon_port_subspace_returns_six_physical_at_n7() {
              ([issue_950] portaware_s4p5_n7) by {r:.2e} > {PORT_SUBSPACE_N7_REL_TOL:e}"
         );
     }
+}
+
+/// The six non-null modes (GHz) the #1003 probe measured under the rank-1
+/// port-voltage shunt A2 with the plain bulk projector at σ = 4.5 GHz, `N = 6`
+/// (`docs/research/transmon-lumped-port-formulation.md` §3.3, four decimals).
+const A2_BULK_N6_PROBE_GHZ: [f64; 6] = [3.4528, 5.1528, 15.4650, 18.6927, 20.7034, 26.0883];
+
+/// Relative tolerance against [`A2_BULK_N6_PROBE_GHZ`] (0.01 %, issue #1044).
+const A2_BULK_N6_REL_TOL: f64 = 1e-4;
+
+/// RELEASE (issue #1044): the rank-1 port-voltage junction shunt A2
+/// (`JunctionPortModel::PortVoltage`) on the committed 133k fixture.
+///
+/// 1. `max|Gᵀ b| = 0` on the fixture: the plain bulk projector is exact.
+/// 2. A2 + the plain bulk projector at σ = 4.5 GHz, `N = 6`, one factorization:
+///    the six modes of [`A2_BULK_N6_PROBE_GHZ`] within 0.01 %, every relative
+///    residual `≤ 1e-8` (the Lanczos tolerance), asserted **≤ 1e-8** (measured 1.7e-9 to 1.9e-9 across runs), no
+///    re-admitted gradient direction, and **no Palace frequency filter**. The
+///    only filter is the reference-free exact-null cut of
+///    `smallest_nonnull_eigenpairs` (issue #950), which drops one `λ ≈ 0` pair.
+/// 3. A2 ungauged at σ = 17.5 GHz, `N = 8`: no mode in (15.5, 18.6) GHz, so the
+///    17.49 GHz port-sheet mode of the distributed shunt is gone.
+///
+/// Numbers: `benchmarks/transmon_eigen/results.toml`, `[port_voltage_a2]`.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_port_voltage_a2_bulk_projector_n6 --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF sparse shift-invert eigensolves — release benchmark only"]
+fn real_transmon_port_voltage_a2_bulk_projector_n6() {
+    use geode_core::eigen::projection::{
+        InteriorGradient, solve_transmon_eigenmodes_projected_with_port_model,
+    };
+    use geode_core::eigen::transmon::{
+        JunctionPortModel, LumpedPortVoltageShunt, solve_transmon_eigenmodes_full_with_port_model,
+    };
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let shunt = LumpedReactiveShunt {
+        faces: &jport.faces,
+        length: jport.length,
+        width: jport.width,
+        element,
+    };
+    let a2 = JunctionPortModel::PortVoltage { e_hat: jport.e_hat };
+
+    // ---- 1: Gᵀ b = 0 on the fixture. ----
+    let mut idx = vec![None; edges.len()];
+    let mut dim = 0;
+    for (e, &k) in interior_mask.iter().enumerate() {
+        if k {
+            idx[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    let grad = InteriorGradient::build(&edges, &interior_mask, &idx, f.mesh.n_nodes(), dim);
+    let mut b = vec![0.0_f64; dim];
+    let b_full = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, jport.e_hat)
+        .voltage_functional(&f.mesh, &edges);
+    for &(e, v) in &b_full {
+        if let Some(r) = idx[e] {
+            b[r] = v;
+        }
+    }
+    let g = grad.matrix();
+    let mut gt_b = 0.0_f64;
+    for col in 0..g.ncols() {
+        let acc: f64 = (g.col_ptr()[col]..g.col_ptr()[col + 1])
+            .map(|p| g.val()[p] * b[g.row_idx()[p]])
+            .sum();
+        gt_b = gt_b.max(acc.abs());
+    }
+    let b_max = b.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+    eprintln!(
+        "A2: nnz(b) = {}, max|b| = {b_max:.4}, max|Gᵀ b| = {gt_b:e}",
+        b_full.len()
+    );
+    assert!(b_max > 0.0, "the port-voltage functional vanished");
+    assert!(gt_b <= 1e-14 * b_max, "max|Gᵀ b| = {gt_b:e}, want 0");
+
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt,
+        interior_mask: &interior_mask,
+    };
+
+    // ---- 2: plain bulk projector, σ = 4.5 GHz, N = 6. ----
+    let t0 = std::time::Instant::now();
+    let sigma = lambda_shift_for_frequency_hz(4.5e9, M_PER_UNIT);
+    let (modes, diag) =
+        solve_transmon_eigenmodes_projected_with_port_model(&pencil, a2, sigma, 6, M_PER_UNIT)
+            .expect("A2 bulk-projected eigensolve");
+    eprintln!(
+        "A2 bulk projector: {:.1}s, {} Lanczos iters, {} factorizations, {} re-admitted, \
+         {} null modes dropped (max |λ| {:.2e}, ceiling {:.2e})",
+        t0.elapsed().as_secs_f64(),
+        diag.iterations,
+        diag.shifted_factorizations,
+        diag.readmitted_gradient_directions,
+        diag.null_modes_dropped,
+        diag.max_dropped_null_lambda,
+        diag.null_ceiling,
+    );
+    for (i, m) in modes.iter().enumerate() {
+        eprintln!(
+            "  mode[{i}]: f = {:.6} GHz (λ = {:.6e}), p = {:.4}, residual = {:.2e}, div = {:.1e}",
+            m.frequency_ghz(),
+            m.lambda,
+            m.participation,
+            diag.mode_residual_rels[i],
+            diag.mode_divergence_ratios[i],
+        );
+    }
+    assert_eq!(
+        diag.shifted_factorizations, 1,
+        "one factorization of K − σM"
+    );
+    assert_eq!(
+        diag.readmitted_gradient_directions, 0,
+        "the bulk projector re-admits nothing"
+    );
+    assert_eq!(modes.len(), 6, "6 modes requested: {:?}", freqs(&modes));
+    for (m, &want) in modes.iter().zip(A2_BULK_N6_PROBE_GHZ.iter()) {
+        let r = (m.frequency_ghz() - want).abs() / want;
+        assert!(
+            r <= A2_BULK_N6_REL_TOL,
+            "A2 mode {:.6} GHz differs from the probe's {want} GHz by {r:.2e}",
+            m.frequency_ghz()
+        );
+    }
+    for (i, &res) in diag.mode_residual_rels.iter().enumerate() {
+        assert!(
+            res <= 1e-8,
+            "A2 mode[{i}] residual {res:.2e} > 1e-8: the bulk projector should be exact"
+        );
+    }
+
+    // ---- 3: ungauged at σ = 17.5 GHz: no 17.49 GHz port-sheet mode. ----
+    let t1 = std::time::Instant::now();
+    let sigma_j = lambda_shift_for_frequency_hz(17.5e9, M_PER_UNIT);
+    let ung = solve_transmon_eigenmodes_full_with_port_model(
+        &pencil,
+        a2,
+        &[],
+        sigma_j,
+        8,
+        M_PER_UNIT,
+        InnerSolver::Direct,
+    )
+    .expect("A2 ungauged eigensolve");
+    let ung_f: Vec<f64> = ung.iter().map(|m| m.report.frequency_ghz()).collect();
+    eprintln!(
+        "A2 ungauged σ = 17.5 GHz: {:.1}s, modes {:?}",
+        t1.elapsed().as_secs_f64(),
+        ung_f.iter().map(|f| format!("{f:.6}")).collect::<Vec<_>>()
+    );
+    assert!(
+        ung_f.iter().any(|&f| (f - 15.465).abs() < 0.01)
+            && ung_f.iter().any(|&f| (f - 18.693).abs() < 0.01),
+        "the σ = 17.5 GHz window should bracket 15.465 and 18.693 GHz: {ung_f:?}"
+    );
+    assert!(
+        ung_f.iter().all(|&f| !(15.5..=18.6).contains(&f)),
+        "A2 has a mode in (15.5, 18.6) GHz: {ung_f:?}"
+    );
+}
+
+/// Shipped-shunt frequencies (GHz) under the plain bulk projector, σ = 4.5 GHz,
+/// `N = 6`; the committed `[issue_950]` cells of
+/// `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml` agree to 6 decimals.
+const SHIPPED_BULK_N6_GHZ: [f64; 6] = [
+    3.452751, 5.152825, 15.464979, 18.692705, 20.703377, 26.088287,
+];
+
+/// RELEASE (issue #1044): the *shipped* `LumpedReactiveShunt`
+/// (`JunctionPortModel::DistributedSurface`) through the same new solve entry
+/// points as [`real_transmon_port_voltage_a2_bulk_projector_n6`], on the 133k
+/// fixture. It backs the `shipped_*` keys of `[port_voltage_a2]` in
+/// `benchmarks/transmon_eigen/results.toml` and the contrast the CHANGELOG
+/// cites: the six frequencies match, but the plain bulk projector is *not*
+/// exact (`Gᵀ K_port ≠ 0`), so the qubit-mode residual is above 1e-4 (A2: ≤ 1e-8),
+/// and the ungauged σ = 17.5 GHz window has the 17.49 GHz port-sheet mode.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_shipped_shunt_bulk_projector_n6 --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF sparse shift-invert eigensolves — release benchmark only"]
+fn real_transmon_shipped_shunt_bulk_projector_n6() {
+    use geode_core::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model;
+    use geode_core::eigen::transmon::{
+        JunctionPortModel, solve_transmon_eigenmodes_full_with_port_model,
+    };
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt: LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        },
+        interior_mask: &interior_mask,
+    };
+
+    let sigma = lambda_shift_for_frequency_hz(4.5e9, M_PER_UNIT);
+    let (modes, diag) = solve_transmon_eigenmodes_projected_with_port_model(
+        &pencil,
+        JunctionPortModel::DistributedSurface,
+        sigma,
+        6,
+        M_PER_UNIT,
+    )
+    .expect("shipped-shunt bulk-projected eigensolve");
+    for (i, m) in modes.iter().enumerate() {
+        eprintln!(
+            "  shipped mode[{i}]: f = {:.6} GHz, residual = {:.2e}",
+            m.frequency_ghz(),
+            diag.mode_residual_rels[i]
+        );
+    }
+    eprintln!("  shipped null modes dropped: {}", diag.null_modes_dropped);
+    assert_eq!(modes.len(), 6, "6 modes requested: {:?}", freqs(&modes));
+    for (m, &want) in modes.iter().zip(SHIPPED_BULK_N6_GHZ.iter()) {
+        let r = (m.frequency_ghz() - want).abs() / want;
+        assert!(
+            r <= 1e-6,
+            "shipped mode {:.6} GHz differs from the committed {want} GHz by {r:.2e}",
+            m.frequency_ghz()
+        );
+    }
+    // The contrast: the bulk projector is not exact under the distributed S_Γ.
+    assert!(
+        diag.mode_residual_rels[0] > 1e-4,
+        "shipped qubit-mode residual {:.2e} should exceed 1e-4",
+        diag.mode_residual_rels[0]
+    );
+    assert_eq!(diag.null_modes_dropped, 1, "one exact-null pair dropped");
+
+    // Ungauged σ = 17.5 GHz, N = 8: the 17.49 GHz port-sheet mode is present.
+    let sigma_j = lambda_shift_for_frequency_hz(17.5e9, M_PER_UNIT);
+    let ung = solve_transmon_eigenmodes_full_with_port_model(
+        &pencil,
+        JunctionPortModel::DistributedSurface,
+        &[],
+        sigma_j,
+        8,
+        M_PER_UNIT,
+        InnerSolver::Direct,
+    )
+    .expect("shipped ungauged eigensolve");
+    let ung_f: Vec<f64> = ung.iter().map(|m| m.report.frequency_ghz()).collect();
+    eprintln!("shipped ungauged σ = 17.5 GHz: {ung_f:?}");
+    assert!(
+        ung_f.iter().any(|&f| (f - 17.490109).abs() < 1e-4),
+        "the shipped shunt should have its 17.490109 GHz mode: {ung_f:?}"
+    );
 }
 
 /// CHARACTERIZATION (issue #514, release-gated): the 3.4528 GHz spurious mode
