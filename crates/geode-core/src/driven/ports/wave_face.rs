@@ -1847,8 +1847,12 @@ pub const TM_GUARD_LONG_GUIDE_KH: f64 = 2.5;
 /// modes are below TE₂₀, inside the single-mode band. The two `3 × 1`
 /// modes lie within the reach of the port (over 0.9 of their `E_z`
 /// energy); the `2 × 1` one lies beyond it. These are coarse-mesh TM-like
-/// defect modes, not continuum TM modes, and whether a TE₁₀ drive excites
-/// them is not measured. Before issue #1041 the table classified by a share
+/// defect modes, not continuum TM modes. Whether a TE₁₀ drive excites
+/// them is measured by `benchmarks/tm_guard_955/excitation_table.toml`
+/// (issue #1032): on those coarse Gmsh guides (`lc` 0.5 to 0.92) nearly
+/// every missed mode carries TM-like content under the drive, which
+/// suggests, as an inference not shown for finer meshes, that exempting
+/// undriven modes would exempt almost nothing. Before issue #1041 the table classified by a share
 /// sampled at five points per tet, not volume-weighted, and counted 5 rows:
 /// it also counted `3×1×8` and `3×1×11.75`, whose modes read 0.50 and 0.68
 /// sampled but carry 0.11 and 0.35 of their energy in `E_z`
