@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on build directory
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1056/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1056/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 3m 26s
+     Running unittests src/lib.rs (target/release/deps/geode_core-c034e78ab3a6100e)
+
+running 2 tests
+test shape::refined_capacitance::tests::quadratic_energy_derivative_matches_independent_kernel_fd ... ok
+test shape::refined_capacitance::tests::floating_energy_derivative_matches_solved_fd_and_scaling ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 776 filtered out; finished in 0.01s

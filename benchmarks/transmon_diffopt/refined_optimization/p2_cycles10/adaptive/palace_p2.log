@@ -1,0 +1,120 @@
+>> /usr/lib64/mpich/bin/mpirun -n 4 /opt/palace/bin/palace-arm64.bin /work/palace_p2.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 4 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+One or more external boundary attributes has no associated boundary condition!
+"PMC"/"ZeroCharge" condition is assumed!
+
+Boundary attribute list: 3
+
+Added 3777 elements in 2 iterations of local bisection for under-resolved interior boundaries
+Added 6670 duplicate vertices for interior boundaries in the mesh
+Added 16309 duplicate boundary elements for interior boundaries in the mesh
+Added 13560 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 4.000e-03 m, tc = 1.334e-02 ns
+Finished partitioning mesh into 4 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-2.000e-03, -7.070e-04, -1.000e-03) m
+ (Xmax, Ymax, Zmax) = (+2.000e-03, +2.993e-03, +1.000e-03) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices         20834       21682       23629       86729
+ edges           135724      138989      147598      555957
+ faces           227798      230321      236394      921287
+ elements        112422      113014      113565      452056
+ neighbors            3           3           3
+
+            minimum     maximum
+ h      3.57299e-05    0.128545
+ kappa      1.00669     18.4851
+
+Estimated current per-rank memory usage is: Min. 76.0M, Max. 375.5M, Avg. 151.5M, Total 606.2M
+Estimated current per-node memory usage is: Min. 606.5M, Max. 606.5M, Avg. 606.5M, Total 606.5M
+
+Configuring Dirichlet BC at attributes:
+ 101-103
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 642686, ND (p = 2): 2954488, RT (p = 2): 4120029
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 86729 unknowns
+ Level 1 (p = 2): 642686 unknowns
+
+Computing electrostatic fields for 2 terminal boundaries
+
+It 1/2: Index = 1 (elapsed time = 1.25e-07 s)
+
+PCG solver converged in 16 iterations (avg. reduction factor: 2.328e-01)
+ Sol. ||V|| = 3.370055e+02 (||RHS|| = 9.687931e+01)
+ Field energy E = 1.693e-11 J
+ Updating solution error estimates
+
+It 2/2: Index = 2 (elapsed time = 1.63e+01 s)
+
+PCG solver converged in 12 iterations (avg. reduction factor: 1.361e-01)
+ Sol. ||V|| = 6.470983e+01 (||RHS|| = 4.642757e+01)
+ Field energy E = 9.201e-11 J
+ Updating solution error estimates
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 4.545e-01, global unknowns = 642686
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 1.4G, Max. 1.5G, Avg. 1.5G, Total 5.8G
+Estimated peak per-node memory usage is: Min. 5.8G, Max. 5.8G, Avg. 5.8G, Total 5.8G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   0.649       5.935       4.608
+  Mesh Preprocessing             1.746       7.020       3.065
+Operator Construction            0.683       0.688       0.684
+Linear Solve                     1.189       1.199       1.194
+  Setup                          3.735       3.741       3.739
+  Preconditioner                10.392      10.407      10.399
+  Coarse Solve                   0.093       0.097       0.095
+Estimation                       0.194       0.214       0.200
+  Construction                  11.419      11.424      11.422
+  Solve                         16.202      16.204      16.203
+Postprocessing                   0.291       0.300       0.295
+Disk IO                          1.261       1.275       1.268
+--------------------------------------------------------------
+Total                           53.214      53.215      53.215
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   10.7M       10.7M       10.7M
+  Mesh Preprocessing            376.3M      376.3M      387.0M
+Operator Construction             1.0G        1.0G        1.4G
+Linear Solve                      0.0K        0.0K        1.4G
+  Setup                           1.5G        1.5G        2.9G
+  Preconditioner                  0.0K        0.0K        2.9G
+  Coarse Solve                  216.0K      216.0K        2.9G
+Estimation                      747.4M      747.4M        3.6G
+  Construction                    1.6G        1.6G        5.2G
+  Solve                         358.1M      358.1M        5.6G
+Postprocessing                    2.4M        2.4M        5.6G
+Disk IO                         145.2M      145.2M        5.7G
+--------------------------------------------------------------
+Total                             5.8G        5.8G        5.8G

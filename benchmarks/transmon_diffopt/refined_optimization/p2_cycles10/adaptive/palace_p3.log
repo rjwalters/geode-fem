@@ -1,0 +1,84 @@
+>> /usr/lib64/mpich/bin/mpirun -n 4 /opt/palace/bin/palace-arm64.bin /work/palace_p3.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 4 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+One or more external boundary attributes has no associated boundary condition!
+"PMC"/"ZeroCharge" condition is assumed!
+
+Boundary attribute list: 3
+
+Added 3777 elements in 2 iterations of local bisection for under-resolved interior boundaries
+Added 6670 duplicate vertices for interior boundaries in the mesh
+Added 16309 duplicate boundary elements for interior boundaries in the mesh
+Added 13560 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 4.000e-03 m, tc = 1.334e-02 ns
+Finished partitioning mesh into 4 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-2.000e-03, -7.070e-04, -1.000e-03) m
+ (Xmax, Ymax, Zmax) = (+2.000e-03, +2.993e-03, +1.000e-03) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices         20834       21682       23629       86729
+ edges           135724      138989      147598      555957
+ faces           227798      230321      236394      921287
+ elements        112422      113014      113565      452056
+ neighbors            3           3           3
+
+            minimum     maximum
+ h      3.57299e-05    0.128545
+ kappa      1.00669     18.4851
+
+Estimated current per-rank memory usage is: Min. 76.1M, Max. 375.8M, Avg. 151.6M, Total 606.5M
+Estimated current per-node memory usage is: Min. 606.8M, Max. 606.8M, Avg. 606.8M, Total 606.8M
+
+Configuring Dirichlet BC at attributes:
+ 101-103
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 3): 2119930, ND (p = 3): 8551761, RT (p = 3): 10952394
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 45, Q = 24 (quadrature order = 6)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 86729 unknowns
+ Level 1 (p = 2): 642686 unknowns
+ Level 2 (p = 3): 2119930 unknowns
+
+Computing electrostatic fields for 2 terminal boundaries
+
+It 1/2: Index = 1 (elapsed time = 6.99e-05 s)
+
+PCG solver converged in 14 iterations (avg. reduction factor: 1.790e-01)
+ Sol. ||V|| = 6.134279e+02 (||RHS|| = 1.436095e+02)
+ Field energy E = 1.683e-11 J
+ Updating solution error estimates
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   PID 22 RUNNING AT c702b6fc9991
+=   EXIT CODE: 9
+=   CLEANING UP REMAINING PROCESSES
+=   YOU CAN IGNORE THE BELOW CLEANUP MESSAGES
+===================================================================================
+YOUR APPLICATION TERMINATED WITH THE EXIT STRING: Killed (signal 9)
+This typically refers to a problem with your application.
+Please see the FAQ page for debugging suggestions

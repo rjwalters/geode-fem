@@ -1,0 +1,46 @@
+{
+  "image": "palace:cpu-1043",
+  "image_id": "sha256:bbe02bf83f5b26bdcf04101640873a82584495a64033ffdf079fb4bff7a83176",
+  "mesh_sha256": "dde0eac7a4728944c7db8f62c425b63c1f4b4b4d1dc6d6e11609ce44f3d1ddeb",
+  "quantity": "scalar-epsilon island capacitance with neutral floating feedline; no junction self-capacitance",
+  "target_ff": 89.9,
+  "runs": [
+    {
+      "order": 2,
+      "capacitance_matrix_f": [
+        [
+          8.990029411909e-14,
+          -1.352359352052e-18
+        ],
+        [
+          -1.352359352052e-18,
+          4.884626638245e-13
+        ]
+      ],
+      "c_sigma_ff": 89.90029411534586,
+      "relative_target_error": 3.2715833799823457e-06,
+      "wall_s": 53.774109124999995,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--cpus",
+        "4",
+        "--memory",
+        "12g",
+        "--ipc=host",
+        "-e",
+        "OMP_NUM_THREADS=1",
+        "-v",
+        "/Volumes/Stripe/geode-fem/issue-1056/benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/adaptive:/work",
+        "-w",
+        "/work",
+        "palace:cpu-1043",
+        "-np",
+        "4",
+        "/work/palace_p2.json"
+      ]
+    }
+  ]
+}
