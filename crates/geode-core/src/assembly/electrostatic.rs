@@ -96,6 +96,9 @@ pub enum ElectrostaticError {
     /// A conductor electrode referenced an empty node set (no mesh node
     /// matched the electrode), which would leave that terminal floating.
     EmptyElectrode(String),
+    /// The AMG-preconditioned CG of [`extract_capacitance_amg_pcg`] did not
+    /// reach its residual tolerance within the iteration cap.
+    NotConverged(String),
 }
 
 impl std::fmt::Display for ElectrostaticError {
@@ -105,6 +108,7 @@ impl std::fmt::Display for ElectrostaticError {
             Self::Assembly(s) => write!(f, "electrostatic assembly failed: {s}"),
             Self::Factorization(s) => write!(f, "electrostatic factorization failed: {s}"),
             Self::EmptyElectrode(s) => write!(f, "electrostatic empty electrode: {s}"),
+            Self::NotConverged(s) => write!(f, "electrostatic iterative solve: {s}"),
         }
     }
 }
@@ -203,29 +207,7 @@ impl ElectrostaticSystem {
     fn solve_with_pinned(&self, pinned_value: &[f64]) -> Result<Vec<f64>, ElectrostaticError> {
         use faer::linalg::solvers::Solve;
 
-        // Fold the pinned columns of the *full* K into a free-node RHS:
-        //   b_free[fi] = − Σ_{j pinned} K_full[i, j] · φ_pinned[j].
-        let mut b_free = vec![0.0_f64; self.n_free];
-        let k_ref = self.k_full.as_ref();
-        let cp = k_ref.col_ptr();
-        let row_idx = k_ref.row_idx();
-        let vals = k_ref.val();
-        for j in 0..self.n_nodes {
-            if self.free_of_global[j].is_some() {
-                continue; // free column: contributes to the LHS, not the fold-in
-            }
-            let vj = pinned_value[j];
-            if vj == 0.0 {
-                continue;
-            }
-            for k in cp[j]..cp[j + 1] {
-                let i = row_idx[k];
-                if let Some(fi) = self.free_of_global[i] {
-                    b_free[fi] -= vals[k] * vj;
-                }
-            }
-        }
-
+        let b_free = self.fold_pinned(pinned_value);
         let lu = self
             .k
             .as_ref()
@@ -233,15 +215,31 @@ impl ElectrostaticSystem {
             .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
         let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| b_free[i]);
         lu.solve_in_place(rhs.as_mut());
+        Ok(self.scatter_free(pinned_value, |fi| rhs[(fi, 0)]))
+    }
 
+    /// A full-length potential: free node `g` takes `free(free_of_global[g])`,
+    /// pinned node `g` takes `pinned_value[g]`.
+    fn scatter_free(&self, pinned_value: &[f64], free: impl Fn(usize) -> f64) -> Vec<f64> {
         let mut phi = vec![0.0_f64; self.n_nodes];
         for (g, slot) in self.free_of_global.iter().enumerate() {
             match slot {
-                Some(fi) => phi[g] = rhs[(*fi, 0)],
+                Some(fi) => phi[g] = free(*fi),
                 None => phi[g] = pinned_value[g],
             }
         }
-        Ok(phi)
+        phi
+    }
+
+    /// Fold the pinned columns of the *full* K into a free-node RHS
+    /// ([`fold_pinned_columns`]).
+    fn fold_pinned(&self, pinned_value: &[f64]) -> Vec<f64> {
+        fold_pinned_columns(
+            &self.k_full,
+            &self.free_of_global,
+            self.n_free,
+            pinned_value,
+        )
     }
 
     /// Total field energy `W = ½ φᵀ K φ` using the **full** stiffness, for
@@ -251,6 +249,36 @@ impl ElectrostaticSystem {
     pub fn field_energy(&self, phi: &[f64]) -> f64 {
         0.5 * quad_form(&self.k_full, phi, phi)
     }
+}
+
+/// Fold the pinned columns of a *full* stiffness into a free-DOF RHS
+/// (source-free): `b_free[fi] = − Σ_{j pinned} K_full[i, j] · u_pinned[j]`.
+fn fold_pinned_columns(
+    k_full: &SparseColMat<usize, f64>,
+    free_of_global: &[Option<usize>],
+    n_free: usize,
+    pinned_value: &[f64],
+) -> Vec<f64> {
+    let mut b_free = vec![0.0_f64; n_free];
+    let k_ref = k_full.as_ref();
+    let cp = k_ref.col_ptr();
+    let row_idx = k_ref.row_idx();
+    let vals = k_ref.val();
+    for (j, slot) in free_of_global.iter().enumerate() {
+        if slot.is_some() {
+            continue; // free column: contributes to the LHS, not the fold-in
+        }
+        let vj = pinned_value[j];
+        if vj == 0.0 {
+            continue;
+        }
+        for k in cp[j]..cp[j + 1] {
+            if let Some(fi) = free_of_global[row_idx[k]] {
+                b_free[fi] -= vals[k] * vj;
+            }
+        }
+    }
+    b_free
 }
 
 /// Compute the (full-K) bilinear form `uᵀ K v` for two full-length node
@@ -764,6 +792,212 @@ pub fn extract_capacitance(
     })
 }
 
+/// Options for [`extract_capacitance_amg_pcg`].
+#[derive(Clone, Copy, Debug)]
+pub struct AmgPcgOptions {
+    /// Stop when `‖b − K x‖₂ ≤ rel_tol · ‖b‖₂` on the free nodes.
+    pub rel_tol: f64,
+    /// CG iteration cap per excitation.
+    pub max_iter: usize,
+    /// Smoothed-aggregation AMG V-cycles per preconditioner apply.
+    pub cycles: usize,
+}
+
+impl Default for AmgPcgOptions {
+    fn default() -> Self {
+        Self {
+            rel_tol: 1e-10,
+            max_iter: 2000,
+            cycles: 1,
+        }
+    }
+}
+
+/// Convergence record of [`extract_capacitance_amg_pcg`], one entry per
+/// excitation (conductor order).
+#[derive(Clone, Debug)]
+pub struct AmgPcgReport {
+    /// CG iterations taken.
+    pub iterations: Vec<usize>,
+    /// Final **true** relative residual `‖b − K x‖₂ / ‖b‖₂` (recomputed,
+    /// not the CG recurrence's estimate).
+    pub rel_residual: Vec<f64>,
+    /// AMG coarsening levels above the direct coarsest solve.
+    pub amg_levels: usize,
+}
+
+/// `y = K x` for a **symmetric** CSC `K`: column `j` dotted with `x` is
+/// `(Kᵀx)_j = (Kx)_j`, so each output entry is an independent gather.
+fn sym_spmv(k: &SparseColMat<usize, f64>, x: &[f64], y: &mut [f64]) {
+    let k_ref = k.as_ref();
+    let cp = k_ref.col_ptr();
+    let row_idx = k_ref.row_idx();
+    let vals = k_ref.val();
+    for (j, yj) in y.iter_mut().enumerate() {
+        let mut s = 0.0;
+        for q in cp[j]..cp[j + 1] {
+            s += vals[q] * x[row_idx[q]];
+        }
+        *yj = s;
+    }
+}
+
+fn dot_slices(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+/// [`extract_capacitance`] with the per-excitation solves done by
+/// **conjugate gradients preconditioned with smoothed-aggregation AMG**
+/// instead of a sparse LU (issue #1051).
+///
+/// The matrix and every other step are identical: the same reduced SPD
+/// `K`, the same pinned-value fold-in, and the energy method
+/// `C_ij = φ⁽ⁱ⁾ᵀ K_full φ⁽ʲ⁾` on the full stiffness. Only the linear solve
+/// differs, so the result matches the direct path to the solve tolerance
+/// (the energy-method `C` error is quadratic in the potential error). The
+/// AMG hierarchy is built once and reused for every excitation. Memory is
+/// `O(nnz(K))`, which is what makes the 8.5M-tet transmon level (#1051)
+/// affordable where a sparse LU's fill is not measured to fit.
+///
+/// No surface-flux cross-check is offered (`c_flux_diag` is all-`None`).
+///
+/// # Errors
+///
+/// [`ElectrostaticError::Factorization`] if the AMG setup fails, and
+/// [`ElectrostaticError::NotConverged`] if an excitation does not reach
+/// `opts.rel_tol` within `opts.max_iter` iterations.
+pub fn extract_capacitance_amg_pcg(
+    sys: &ElectrostaticSystem,
+    conductors: &[Electrode],
+    ground: &[u32],
+    opts: AmgPcgOptions,
+) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+    let ground_dofs: Vec<usize> = ground.iter().map(|&g| g as usize).collect();
+    let cond_dofs: Vec<Vec<usize>> = conductors
+        .iter()
+        .map(|c| c.nodes.iter().map(|&n| n as usize).collect())
+        .collect();
+    let names: Vec<String> = conductors.iter().map(|c| c.name.clone()).collect();
+    amg_pcg_maxwell(
+        &sys.k,
+        &sys.k_full,
+        &sys.free_of_global,
+        &names,
+        &cond_dofs,
+        &ground_dofs,
+        opts,
+    )
+}
+
+/// The AMG-PCG energy-method Maxwell matrix on any assembled system (P1 or
+/// P2): one unit excitation per conductor DOF set, the reduced `k` solved by
+/// PCG, `C_ij = u⁽ⁱ⁾ᵀ K_full u⁽ʲ⁾`.
+fn amg_pcg_maxwell(
+    k: &SparseColMat<usize, f64>,
+    k_full: &SparseColMat<usize, f64>,
+    free_of_global: &[Option<usize>],
+    names: &[String],
+    cond_dofs: &[Vec<usize>],
+    ground_dofs: &[usize],
+    opts: AmgPcgOptions,
+) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+    let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles)
+        .map_err(|e| ElectrostaticError::Factorization(format!("AMG setup: {e:?}")))?;
+    let n = cond_dofs.len();
+    let nf = k.ncols();
+    let n_dof = free_of_global.len();
+    let mut report = AmgPcgReport {
+        iterations: Vec::with_capacity(n),
+        rel_residual: Vec::with_capacity(n),
+        amg_levels: amg.n_levels(),
+    };
+    let mut us: Vec<Vec<f64>> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut pinned_value = vec![0.0_f64; n_dof];
+        for &g in ground_dofs {
+            pinned_value[g] = 0.0;
+        }
+        for (kk, dofs) in cond_dofs.iter().enumerate() {
+            let v = if kk == i { 1.0 } else { 0.0 };
+            for &d in dofs {
+                pinned_value[d] = v;
+            }
+        }
+        let b = fold_pinned_columns(k_full, free_of_global, nf, &pinned_value);
+        let b_norm = dot_slices(&b, &b).sqrt();
+        let mut x = vec![0.0_f64; nf];
+        let mut it = 0;
+        if b_norm > 0.0 {
+            let mut r = b.clone();
+            let mut z = vec![0.0_f64; nf];
+            amg.apply(&r, &mut z);
+            let mut p = z.clone();
+            let mut rz = dot_slices(&r, &z);
+            let mut q = vec![0.0_f64; nf];
+            while dot_slices(&r, &r).sqrt() > opts.rel_tol * b_norm {
+                if it == opts.max_iter {
+                    return Err(ElectrostaticError::NotConverged(format!(
+                        "excitation {i}: relative residual {:.3e} after {it} iterations \
+                         (tolerance {:.1e})",
+                        dot_slices(&r, &r).sqrt() / b_norm,
+                        opts.rel_tol
+                    )));
+                }
+                sym_spmv(k, &p, &mut q);
+                let alpha = rz / dot_slices(&p, &q);
+                for j in 0..nf {
+                    x[j] += alpha * p[j];
+                    r[j] -= alpha * q[j];
+                }
+                amg.apply(&r, &mut z);
+                let rz_new = dot_slices(&r, &z);
+                let beta = rz_new / rz;
+                rz = rz_new;
+                for j in 0..nf {
+                    p[j] = z[j] + beta * p[j];
+                }
+                it += 1;
+            }
+        }
+        // True residual, recomputed.
+        let mut kx = vec![0.0_f64; nf];
+        sym_spmv(k, &x, &mut kx);
+        let res = b
+            .iter()
+            .zip(&kx)
+            .map(|(bi, ki)| (bi - ki).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        report.iterations.push(it);
+        report
+            .rel_residual
+            .push(if b_norm > 0.0 { res / b_norm } else { 0.0 });
+        let mut u = pinned_value;
+        for (g, slot) in free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                u[g] = x[*fi];
+            }
+        }
+        us.push(u);
+    }
+    let mut c = vec![vec![0.0_f64; n]; n];
+    for i in 0..n {
+        for j in i..n {
+            let v = quad_form(k_full, &us[i], &us[j]);
+            c[i][j] = v;
+            c[j][i] = v;
+        }
+    }
+    Ok((
+        CapacitanceMatrix {
+            names: names.to_vec(),
+            c,
+            c_flux_diag: vec![None; n],
+        },
+        report,
+    ))
+}
+
 /// Recover the piecewise-constant field `E = −∇φ` per tet from a nodal
 /// potential. For P1, `φ` is linear on each tet, so `∇φ = Σ_p φ_p ∇λ_p` is
 /// constant per element and `E = −∇φ`. Returns `e[t] = [E_x, E_y, E_z]`.
@@ -1031,6 +1265,36 @@ impl P2DofMap {
         dofs.dedup();
         dofs
     }
+
+    /// The pinned P2 DOF set of a **sheet** conductor: its vertex DOFs plus
+    /// the edge-midpoint DOFs of every edge of its surface `triangles`
+    /// (issue #1051). A zero-thickness sheet embedded between two
+    /// dielectrics lies on **interior** faces, which the boundary-facet rule
+    /// of [`Self::electrode_dofs`] never selects; pinning the triangle edges
+    /// instead makes the quadratic potential exactly constant on every sheet
+    /// triangle, so the P2 space stays conforming to the sheet Dirichlet
+    /// data. Sorted, deduplicated.
+    ///
+    /// # Panics
+    ///
+    /// If a triangle edge is not an edge of the mesh.
+    pub fn sheet_dofs(&self, nodes: &[u32], triangles: &[[u32; 3]]) -> Vec<usize> {
+        let mut dofs: Vec<usize> = nodes.iter().map(|&n| n as usize).collect();
+        for t in triangles {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                let key = if a < b { (a, b) } else { (b, a) };
+                let idx = *self
+                    .edge_index
+                    .get(&key)
+                    .unwrap_or_else(|| panic!("triangle edge ({a}, {b}) is not a mesh edge"));
+                dofs.push(self.n_nodes + idx as usize);
+            }
+        }
+        dofs.sort_unstable();
+        dofs.dedup();
+        dofs
+    }
 }
 
 /// Assembled 3-D **quadratic (P2)** scalar electrostatic system, indexed on
@@ -1166,7 +1430,6 @@ pub fn assemble_electrostatic_p2(
     electrodes: &[Electrode],
     ground: &[u32],
 ) -> Result<ElectrostaticP2System, ElectrostaticError> {
-    let n_nodes = mesh.n_nodes();
     let n_tets = mesh.n_tets();
     if eps_r.len() != n_tets {
         return Err(ElectrostaticError::ShapeMismatch(format!(
@@ -1187,6 +1450,26 @@ pub fn assemble_electrostatic_p2(
     }
 
     let dof_map = P2DofMap::new(mesh);
+    // Dirichlet pinning: ground first, then electrodes (later wins),
+    // matching the P1 path's ordering. Edge DOFs come from the facet rule.
+    let mut pins = vec![(dof_map.electrode_dofs(ground), 0.0)];
+    for e in electrodes {
+        pins.push((dof_map.electrode_dofs(&e.nodes), e.voltage));
+    }
+    assemble_p2_pinned(mesh, eps_r, rho, dof_map, &pins)
+}
+
+/// The P2 assembly with explicit pinned DOF sets `(dofs, value)`, applied
+/// in order (later wins); `eps_r` / `rho` lengths are already checked.
+fn assemble_p2_pinned(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    rho: &[f64],
+    dof_map: P2DofMap,
+    pins: &[(Vec<usize>, f64)],
+) -> Result<ElectrostaticP2System, ElectrostaticError> {
+    let n_nodes = mesh.n_nodes();
+    let n_tets = mesh.n_tets();
     let n_dof = dof_map.n_dof();
     let tet_edges = mesh.tet_edges();
 
@@ -1227,18 +1510,12 @@ pub fn assemble_electrostatic_p2(
     let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_dof, n_dof, &full_trips)
         .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
 
-    // Dirichlet pinning: ground first, then electrodes (later wins),
-    // matching the P1 path's ordering. Edge DOFs come from the facet rule.
     let mut dirichlet_value = vec![0.0_f64; n_dof];
     let mut pinned = vec![false; n_dof];
-    for d in dof_map.electrode_dofs(ground) {
-        pinned[d] = true;
-        dirichlet_value[d] = 0.0;
-    }
-    for e in electrodes {
-        for d in dof_map.electrode_dofs(&e.nodes) {
+    for (dofs, v) in pins {
+        for &d in dofs {
             pinned[d] = true;
-            dirichlet_value[d] = e.voltage;
+            dirichlet_value[d] = *v;
         }
     }
 
@@ -1292,6 +1569,117 @@ pub fn assemble_electrostatic_p2(
     })
 }
 
+/// Explicit pinned P2 DOF sets of a sheet-conductor problem, as built by
+/// [`assemble_electrostatic_p2_sheets`] (issue #1051).
+#[derive(Debug, Clone)]
+pub struct P2SheetDofs {
+    /// Conductor names, in [`Electrode`] order.
+    pub names: Vec<String>,
+    /// Per-conductor pinned DOFs ([`P2DofMap::sheet_dofs`]).
+    pub conductors: Vec<Vec<usize>>,
+    /// Ground pinned DOFs.
+    pub ground: Vec<usize>,
+}
+
+/// [`assemble_electrostatic_p2`] for **sheet** conductors: each
+/// conductor's (and the ground's) pinned DOFs are its nodes plus the edge
+/// midpoints of its surface triangles ([`P2DofMap::sheet_dofs`]), not the
+/// boundary-facet rule. `electrode_triangles[i]` belongs to
+/// `electrodes[i]`. The returned [`P2SheetDofs`] feeds
+/// [`extract_capacitance_p2_dofs`] /
+/// [`extract_capacitance_p2_amg_pcg_dofs`].
+///
+/// # Errors
+///
+/// As [`assemble_electrostatic_p2`], and
+/// [`ElectrostaticError::ShapeMismatch`] if `electrode_triangles` does not
+/// have one entry per electrode.
+///
+/// # Panics
+///
+/// If a triangle edge is not an edge of `mesh`.
+pub fn assemble_electrostatic_p2_sheets(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    rho: &[f64],
+    electrodes: &[Electrode],
+    electrode_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+) -> Result<(ElectrostaticP2System, P2SheetDofs), ElectrostaticError> {
+    let n_tets = mesh.n_tets();
+    if eps_r.len() != n_tets || rho.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "eps_r / rho lengths {} / {} != tet count {n_tets}",
+            eps_r.len(),
+            rho.len()
+        )));
+    }
+    if electrode_triangles.len() != electrodes.len() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "{} triangle sets for {} electrodes",
+            electrode_triangles.len(),
+            electrodes.len()
+        )));
+    }
+    for e in electrodes {
+        if e.nodes.is_empty() {
+            return Err(ElectrostaticError::EmptyElectrode(e.name.clone()));
+        }
+    }
+    let dof_map = P2DofMap::new(mesh);
+    let dofs = P2SheetDofs {
+        names: electrodes.iter().map(|e| e.name.clone()).collect(),
+        conductors: electrodes
+            .iter()
+            .zip(electrode_triangles)
+            .map(|(e, t)| dof_map.sheet_dofs(&e.nodes, t))
+            .collect(),
+        ground: dof_map.sheet_dofs(ground, ground_triangles),
+    };
+    let mut pins = vec![(dofs.ground.clone(), 0.0)];
+    for (e, d) in electrodes.iter().zip(&dofs.conductors) {
+        pins.push((d.clone(), e.voltage));
+    }
+    let sys = assemble_p2_pinned(mesh, eps_r, rho, dof_map, &pins)?;
+    Ok((sys, dofs))
+}
+
+/// [`extract_capacitance_p2`] with explicit pinned DOF sets (for example
+/// from [`assemble_electrostatic_p2_sheets`]); sparse LU per excitation.
+///
+/// # Errors
+///
+/// Propagates [`ElectrostaticError`] from the per-excitation solves.
+pub fn extract_capacitance_p2_dofs(
+    sys: &ElectrostaticP2System,
+    dofs: &P2SheetDofs,
+) -> Result<CapacitanceMatrix, ElectrostaticError> {
+    maxwell_p2_lu(sys, &dofs.names, &dofs.conductors, &dofs.ground)
+}
+
+/// [`extract_capacitance_p2_dofs`] with AMG-preconditioned CG instead of a
+/// sparse LU (as [`extract_capacitance_amg_pcg`] for P1).
+///
+/// # Errors
+///
+/// As [`extract_capacitance_amg_pcg`].
+pub fn extract_capacitance_p2_amg_pcg_dofs(
+    sys: &ElectrostaticP2System,
+    dofs: &P2SheetDofs,
+    opts: AmgPcgOptions,
+) -> Result<(CapacitanceMatrix, AmgPcgReport), ElectrostaticError> {
+    amg_pcg_maxwell(
+        &sys.k,
+        &sys.k_full,
+        &sys.free_of_global,
+        &dofs.names,
+        &dofs.conductors,
+        &dofs.ground,
+        opts,
+    )
+}
+
 /// Extract the N×N Maxwell capacitance matrix by the **energy method** at
 /// P2 — second-order sibling of [`extract_capacitance`], structurally
 /// identical: `N` unit-voltage solves reusing the assembled system, then
@@ -1313,19 +1701,30 @@ pub fn extract_capacitance_p2(
     conductors: &[Electrode],
     ground: &[u32],
 ) -> Result<CapacitanceMatrix, ElectrostaticError> {
-    let n = conductors.len();
-
     let ground_dofs = sys.dof_map.electrode_dofs(ground);
     let cond_dofs: Vec<Vec<usize>> = conductors
         .iter()
         .map(|c| sys.dof_map.electrode_dofs(&c.nodes))
         .collect();
+    let names: Vec<String> = conductors.iter().map(|c| c.name.clone()).collect();
+    maxwell_p2_lu(sys, &names, &cond_dofs, &ground_dofs)
+}
+
+/// The P2 energy-method Maxwell matrix with sparse-LU excitations on
+/// explicit pinned DOF sets.
+fn maxwell_p2_lu(
+    sys: &ElectrostaticP2System,
+    names: &[String],
+    cond_dofs: &[Vec<usize>],
+    ground_dofs: &[usize],
+) -> Result<CapacitanceMatrix, ElectrostaticError> {
+    let n = cond_dofs.len();
 
     // One unit-voltage solve per conductor.
     let mut us: Vec<Vec<f64>> = Vec::with_capacity(n);
     for i in 0..n {
         let mut pinned_value = vec![0.0_f64; sys.n_dof];
-        for &d in &ground_dofs {
+        for &d in ground_dofs {
             pinned_value[d] = 0.0;
         }
         for (k, dofs) in cond_dofs.iter().enumerate() {
@@ -1348,7 +1747,7 @@ pub fn extract_capacitance_p2(
     }
 
     Ok(CapacitanceMatrix {
-        names: conductors.iter().map(|c| c.name.clone()).collect(),
+        names: names.to_vec(),
         c,
         c_flux_diag: vec![None; n],
     })
@@ -1622,6 +2021,83 @@ mod tests {
         assert!((cm.c[0][0] - EPS_0).abs() / EPS_0 < 1e-6);
         assert!(cm.has_maxwell_sign_structure(1e-9));
         assert_eq!(cm.c_sigma(0), cm.c[0][0]);
+    }
+
+    /// The AMG-PCG extraction (#1051) reproduces the direct-LU Maxwell
+    /// matrix on a two-conductor problem with an `ε_r` contrast: two
+    /// interior node blocks, ground on the `x = 0` face, a substrate of
+    /// `ε_r = 10` below `z = 0.5`.
+    #[test]
+    fn amg_pcg_capacitance_matches_direct_lu() {
+        let mesh = cube_tet_mesh(10, 1.0);
+        let eps_r: Vec<f64> = mesh
+            .tets
+            .iter()
+            .map(|t| {
+                let zc: f64 = t.iter().map(|&v| mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
+                if zc < 0.5 { 10.0 } else { 1.0 }
+            })
+            .collect();
+        let rho = vec![0.0; mesh.n_tets()];
+        let tol = 1e-9;
+        let pick = |f: &dyn Fn(&[f64; 3]) -> bool| -> Vec<u32> {
+            mesh.nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| f(p))
+                .map(|(i, _)| i as u32)
+                .collect()
+        };
+        let ground = pick(&|p| p[0].abs() < tol);
+        let a = pick(&|p| {
+            (0.3 - tol..=0.5 + tol).contains(&p[0])
+                && (0.3 - tol..=0.7 + tol).contains(&p[1])
+                && (p[2] - 0.5).abs() < tol
+        });
+        let b = pick(&|p| {
+            (0.7 - tol..=0.8 + tol).contains(&p[0])
+                && (0.2 - tol..=0.8 + tol).contains(&p[1])
+                && (p[2] - 0.5).abs() < tol
+        });
+        let conductors = vec![
+            Electrode {
+                name: "a".into(),
+                nodes: a,
+                voltage: 1.0,
+            },
+            Electrode {
+                name: "b".into(),
+                nodes: b,
+                voltage: 0.0,
+            },
+        ];
+        let sys = assemble_electrostatic(&mesh, &eps_r, &rho, &conductors, &ground).unwrap();
+        let lu = extract_capacitance(&sys, &mesh, &eps_r, &conductors, &ground, &[]).unwrap();
+        let (cg, rep) =
+            extract_capacitance_amg_pcg(&sys, &conductors, &ground, AmgPcgOptions::default())
+                .unwrap();
+        assert!(rep.amg_levels >= 1, "AMG did not coarsen");
+        for (k, (&it, &res)) in rep.iterations.iter().zip(&rep.rel_residual).enumerate() {
+            assert!(it > 0 && it < 200, "excitation {k}: {it} iterations");
+            assert!(res <= 1e-9, "excitation {k}: true residual {res:e}");
+        }
+        let scale = lu.c[0][0].abs();
+        for i in 0..2 {
+            for j in 0..2 {
+                let d = (cg.c[i][j] - lu.c[i][j]).abs() / scale;
+                assert!(d <= 1e-10, "C[{i}][{j}]: PCG vs LU {d:e}");
+            }
+        }
+        // An off-diagonal coupling is present (the check is not vacuous).
+        assert!(lu.c[0][1] < -1e-3 * scale);
+        let cap = AmgPcgOptions {
+            max_iter: 1,
+            ..AmgPcgOptions::default()
+        };
+        assert!(matches!(
+            extract_capacitance_amg_pcg(&sys, &conductors, &ground, cap),
+            Err(ElectrostaticError::NotConverged(_))
+        ));
     }
 
     /// The tensor element stiffness reduces EXACTLY to the scalar one when

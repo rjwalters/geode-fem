@@ -1737,9 +1737,32 @@ fn committed_multiparam_results_toml_pins_optimizer_outcome() {
         mr["converged_value"]
             .as_str()
             .unwrap()
-            .starts_with("unknown")
+            .contains("c_sigma_convergence.toml")
     );
     assert!(mr["second_level"].as_str().unwrap().starts_with("not run"));
+    // No unqualified "reaches the anchor" survives (#1051 cleanup).
+    for (k, v) in [
+        ("anchor.tensor_handling", &doc["anchor"]["tensor_handling"]),
+        (
+            "headline.selection_rule",
+            &doc["headline"]["selection_rule"],
+        ),
+        (
+            "honest_framing.theta_g_limit",
+            &doc["honest_framing"]["theta_g_limit"],
+        ),
+        (
+            "honest_framing.scalar_anchor",
+            &doc["honest_framing"]["scalar_anchor"],
+        ),
+    ] {
+        let v = v.as_str().unwrap();
+        assert!(
+            !v.contains("reaches the anchor") && !v.contains("reach the anchor"),
+            "{k}"
+        );
+        assert!(v.contains("coarse-mesh"), "{k}: {v}");
+    }
     let designs = mr["design"].as_array().unwrap();
     // (name, coarse fF, refined fF) pinned from the committed run.
     let pinned = [
@@ -1979,7 +2002,7 @@ fn multiparam_optimizer_release() {
 /// `[mesh_refinement]`: one uniform red refinement of the 133k-tet fixture
 /// (1.07M tets) lowers the scalar-ε `C_Σ` to the committed value.
 #[test]
-#[ignore = "release-tier: one direct electrostatic solve pair on the 1.07M-tet red refinement of the transmon fixture (~20-40 s in release)"]
+#[ignore = "release-tier: one direct electrostatic solve pair on the 1.07M-tet red refinement of the transmon fixture (~14 s in release, 4.8 GB peak RSS)"]
 fn multiparam_mesh_refinement_x0_release() {
     use geode_core::shape::transmon_morph::{TransmonMorphRoles, TransmonMorphSpec};
     use geode_core::shape::transmon_remorph::red_refined_c_sigma;
@@ -2039,4 +2062,274 @@ fn multiparam_mesh_refinement_x0_release() {
         tf(&x0, "c_sigma_refined_ff")
     );
     assert!(f < c);
+}
+
+fn c_sigma_convergence_toml() -> toml::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/c_sigma_convergence.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse c_sigma_convergence.toml")
+}
+
+/// The committed `C_Σ` of `(order, level, solver)` in a `[[x0]]` /
+/// `[[alpha3.level]]` table.
+fn conv_c(rows: &toml::Value, order: &str, level: i64, solver: &str) -> f64 {
+    let r = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| {
+            r["order"].as_str() == Some(order)
+                && r["level"].as_integer() == Some(level)
+                && r["solver"].as_str() == Some(solver)
+        })
+        .unwrap_or_else(|| panic!("no row {order} level {level} {solver}"));
+    tf(r, "c_sigma_ff")
+}
+
+/// Re-derive the #1051 Richardson table from the committed levels and check
+/// every printed number: decrements, order, the four estimates, the
+/// outward-rounded band and the rounded-up upper bound.
+fn check_extrapolation(ex: &toml::Value, c: [f64; 3], q: [f64; 2]) {
+    let (d1, d2) = (c[0] - c[1], c[1] - c[2]);
+    let p = (d1 / d2).log2();
+    // The levels are read back at their printed 6 decimals, so the fF values
+    // re-derive to about 1e-5; the order is printed to 4 decimals.
+    let close = |k: &str, want: f64, tol: f64| {
+        let got = tf(ex, k);
+        assert!((got - want).abs() <= tol, "{k}: {got} vs {want}");
+    };
+    close("p1_decrement_h_to_h2_ff", d1, 2e-6);
+    close("p1_decrement_h2_to_h4_ff", d2, 2e-6);
+    close("observed_order", p, 1e-4);
+    let rich = |p: f64| c[2] - d2 / (2f64.powf(p) - 1.0);
+    close("richardson_observed_order_ff", rich(p), 2e-5);
+    close("richardson_p1_ff", rich(1.0), 2e-5);
+    close("richardson_p2_ff", rich(2.0), 2e-5);
+    let b = 8.0 * (d1 - 2.0 * d2) / 3.0;
+    let a = 2.0 * (d1 - 0.75 * b);
+    close("fit_a_h_plus_b_h2_ff", c[0] - a - b, 2e-5);
+    close("p2_richardson_p1_ff", 2.0 * q[1] - q[0], 2e-5);
+    let ub = c.iter().chain(&q).copied().fold(f64::INFINITY, f64::min);
+    let ub_printed = tf(ex, "upper_bound_ff");
+    assert!(
+        ub_printed >= ub && ub_printed < ub + 0.01,
+        "upper bound rounded up"
+    );
+    let ests = [rich(p), rich(1.0), c[0] - a - b, 2.0 * q[1] - q[0]];
+    let band = tf_arr(ex, "estimate_band_ff");
+    let lo = ests.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = ests.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!(band[0] <= lo && band[0] > lo - 0.01, "band low floored");
+    assert!(band[1] >= hi && band[1] < hi + 0.01, "band high rounded up");
+    // Every estimate lies below the measured upper bound; p = 2 does not.
+    assert!(hi < ub);
+    assert!(rich(2.0) > ub, "p = 2 must be ruled out by the upper bound");
+    assert!(tf(ex, "max_order_consistent_with_upper_bound") < 2.0);
+}
+
+/// Default tier: the committed #1051 convergence study
+/// (`benchmarks/transmon_diffopt/c_sigma_convergence.toml`) is internally
+/// consistent: nested P1 levels decrease, P2 lies below P1 on the same mesh,
+/// PCG agrees with LU where both ran, the Richardson numbers re-derive, every
+/// lower bound is floored and every upper bound rounded up, and the
+/// converged `X⁰` `C_Σ` lies below the 89.9 fF anchor.
+#[test]
+fn committed_c_sigma_convergence_toml_pins_the_study() {
+    let doc = c_sigma_convergence_toml();
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1051));
+    assert_eq!(
+        doc["method"]["sheet_triangles_on_mesh_boundary"].as_integer(),
+        Some(0)
+    );
+    let x0 = &doc["x0"];
+    for r in x0.as_array().unwrap() {
+        let n = r["level"].as_integer().unwrap();
+        assert_eq!(
+            r["n_tets"].as_integer(),
+            Some(133_314 * 8_i64.pow(n as u32))
+        );
+        if r["solver"].as_str() == Some("amg_pcg") {
+            assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+        }
+    }
+    let c = [0, 1, 2].map(|k| conv_c(x0, "P1", k, "amg_pcg"));
+    let q = [0, 1].map(|k| conv_c(x0, "P2", k, "amg_pcg"));
+    // #1050's committed [mesh_refinement] values, reproduced.
+    assert!((conv_c(x0, "P1", 0, "direct_lu") - 137.706752).abs() < 1e-5);
+    assert!((conv_c(x0, "P1", 1, "direct_lu") - 101.359397).abs() < 1e-5);
+    for k in 0..2 {
+        let d = conv_c(x0, "P1", k, "direct_lu");
+        assert!(
+            (c[k as usize] - d).abs() <= 1e-9 * d,
+            "P1 level {k}: PCG vs LU"
+        );
+    }
+    let qd = conv_c(x0, "P2", 0, "direct_lu");
+    assert!((q[0] - qd).abs() <= 1e-9 * qd, "P2 h: PCG vs LU");
+    assert!(c[0] > c[1] && c[1] > c[2], "nested P1 levels decrease");
+    assert!(q[0] < c[0] && q[1] < c[1] && q[1] < q[0], "P2 below P1");
+    check_extrapolation(&doc["x0_extrapolation"], c, q);
+
+    let a3 = &doc["alpha3"]["level"];
+    let ca = [0, 1, 2].map(|k| conv_c(a3, "P1", k, "amg_pcg"));
+    let qa = [0, 1].map(|k| conv_c(a3, "P2", k, "amg_pcg"));
+    assert!((ca[0] - 89.900001).abs() < 1e-5 && (ca[1] - 66.609133).abs() < 1e-5);
+    assert!(ca[0] > ca[1] && ca[1] > ca[2] && qa[1] < qa[0] && qa[1] < ca[1]);
+    check_extrapolation(&doc["alpha3_extrapolation"], ca, qa);
+
+    let te = &doc["tensor_eps"];
+    let tc = tf_arr(te, "c_sigma_ff");
+    assert!(
+        (tc[0] - 136.684731).abs() < 1e-5,
+        "transmon_quantum's tensor C_Sigma"
+    );
+    assert!(tc[0] > tc[1] && tc[1] > tc[2]);
+    assert!(tf(te, "upper_bound_ff") >= tc[2] && tf(te, "upper_bound_ff") < 89.9);
+    // Scalar minus tensor changes sign under refinement (measured).
+    let st = tf_arr(te, "scalar_minus_tensor_rel");
+    for k in 0..3 {
+        assert!((st[k] - (c[k] - tc[k]) / tc[k]).abs() < 1e-6, "level {k}");
+    }
+    assert!(st[0] > 0.0 && st[1] < 0.0 && st[2] < 0.0);
+    let tb = tf_arr(te, "estimate_band_ff");
+    let t_d2 = tc[1] - tc[2];
+    assert!(tb[0] <= tc[2] - t_d2 && tb[0] > tc[2] - t_d2 - 0.01);
+    assert!(tb[1] < tf(te, "upper_bound_ff"));
+
+    // The framing: floored lower bounds, and the converged X0 below the anchor.
+    let fr = &doc["framing"];
+    let ub = c.iter().chain(&q).copied().fold(f64::INFINITY, f64::min);
+    let floored = |k: &str, exact: f64| {
+        let v = tf(fr, k);
+        assert!(
+            v <= exact && v > exact - 0.01,
+            "{k}: {v} vs {exact} (floored, 2 dp)"
+        );
+    };
+    floored("coarse_error_lower_bound_ff", c[0] - ub);
+    floored("converged_below_anchor_ff", 89.9 - ub);
+    assert!(ub < 89.9 && c[0] - ub > 50.0);
+    let pct = tf(fr, "converged_below_anchor_pct");
+    let exact = 100.0 * (89.9 - ub) / 89.9;
+    assert!(pct <= exact && pct > exact - 0.1);
+    assert!(
+        fr["model_difference"]
+            .as_str()
+            .unwrap()
+            .contains("discretization error")
+    );
+    assert!(
+        fr["asymptotic"]
+            .as_str()
+            .unwrap()
+            .starts_with("not established")
+    );
+
+    // transmon_quantum's results.toml copies the study's headline numbers
+    // into [capacitance.mesh_convergence]; they must match this file.
+    let tq_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_quantum/results.toml");
+    let tq: toml::Value =
+        toml::from_str(&std::fs::read_to_string(&tq_path).expect("read transmon_quantum"))
+            .expect("parse transmon_quantum results.toml");
+    let mc = &tq["capacitance"]["mesh_convergence"];
+    assert_eq!(tf_arr(mc, "tensor_p1_c_sigma_ff"), tc);
+    assert_eq!(tf(mc, "tensor_upper_bound_ff"), tf(te, "upper_bound_ff"));
+    assert_eq!(tf_arr(mc, "tensor_estimate_band_ff"), tb);
+    let ex = &doc["x0_extrapolation"];
+    assert_eq!(tf(mc, "scalar_upper_bound_ff"), tf(ex, "upper_bound_ff"));
+    assert_eq!(
+        tf_arr(mc, "scalar_estimate_band_ff"),
+        tf_arr(ex, "estimate_band_ff")
+    );
+    let over = tf(mc, "coarse_c_sigma_overstated_by_at_least_ff");
+    let exact = tc[0] - tf(te, "upper_bound_ff");
+    assert!(over <= exact + 1e-9 && over > exact - 0.01, "floored");
+    assert!(
+        mc["reading"]
+            .as_str()
+            .unwrap()
+            .contains("discretization error, not a model difference")
+    );
+}
+
+/// Release tier: re-solve the cheap levels of the #1051 study against the
+/// committed values: P1 `X⁰` at h and h/2 and P2 `X⁰` at h, all by AMG-PCG
+/// (about 10 s and 2 GB locally). The h/4 level (8.5M tets, about 80 s and
+/// 7.3 GB peak RSS) and P2 at h/2 are a **manual** run: regenerate with
+/// `cargo run -p geode-core --release --example transmon_c_sigma_convergence`
+/// (about 5 min, 13 to 15 GB), which asserts them.
+#[test]
+#[ignore = "release-tier: AMG-PCG electrostatic solves on the transmon fixture and its 1.07M-tet red refinement (~10 s in release)"]
+fn c_sigma_convergence_cheap_levels_release() {
+    use geode_core::assembly::electrostatic::AmgPcgOptions;
+    use geode_core::shape::transmon_morph::{TransmonMorphRoles, TransmonMorphSpec};
+    use geode_core::shape::transmon_remorph::{
+        CSigmaSolver, ElementOrder, LevelSolve, red_refined_c_sigma_levels,
+    };
+
+    let doc = c_sigma_convergence_toml();
+    let x0 = &doc["x0"];
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let roles =
+        TransmonMorphRoles::identify(&fx, &base, TransmonMorphSpec::fixture_default(M_PER_UNIT))
+            .unwrap();
+    let comps = fx.split_metal_conductors();
+    let tris = |role: MetalRole| -> Vec<[u32; 3]> {
+        comps
+            .iter()
+            .filter(|c| c.role == role)
+            .flat_map(|c| c.triangles.iter().copied())
+            .collect()
+    };
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: roles.island.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: roles.feedline.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let solve = |order| {
+        Some(LevelSolve {
+            order,
+            solver: CSigmaSolver::AmgPcg(AmgPcgOptions::default()),
+        })
+    };
+    let run = |solvers: &[Option<LevelSolve>]| {
+        red_refined_c_sigma_levels(
+            &base,
+            &fx.epsilon_r_scalar(),
+            &conductors,
+            &[&tris(MetalRole::Island), &tris(MetalRole::Feedline)],
+            &roles.ground,
+            &tris(MetalRole::Ground),
+            solvers,
+            &mut |_| {},
+        )
+        .unwrap()
+    };
+    let p1 = run(&[solve(ElementOrder::P1), solve(ElementOrder::P1)]);
+    let p2 = run(&[solve(ElementOrder::P2)]);
+    for (got, want, what) in [
+        (&p1[0], conv_c(x0, "P1", 0, "amg_pcg"), "P1 h"),
+        (&p1[1], conv_c(x0, "P1", 1, "amg_pcg"), "P1 h/2"),
+        (&p2[0], conv_c(x0, "P2", 0, "amg_pcg"), "P2 h"),
+    ] {
+        let c = got.c_sigma.unwrap() * 1e15;
+        assert!((c - want).abs() < 1e-5, "{what}: {c} vs committed {want}");
+        let rep = got.pcg.as_ref().unwrap();
+        assert!(
+            rep.rel_residual.iter().all(|&r| r <= 1e-9),
+            "{what}: residual"
+        );
+    }
+    assert_eq!(p1[1].n_flipped, 0);
 }
