@@ -792,10 +792,17 @@ pub fn extract_capacitance(
     })
 }
 
+/// The recomputed true residual must satisfy
+/// `‖b − K x‖₂ ≤ TRUE_RESIDUAL_SLACK · rel_tol · ‖b‖₂` for the solve to count
+/// as converged (the recurrence residual alone is not trusted).
+const TRUE_RESIDUAL_SLACK: f64 = 10.0;
+
 /// Options for [`extract_capacitance_amg_pcg`].
 #[derive(Clone, Copy, Debug)]
 pub struct AmgPcgOptions {
-    /// Stop when `‖b − K x‖₂ ≤ rel_tol · ‖b‖₂` on the free nodes.
+    /// Stop when the CG residual satisfies `‖b − K x‖₂ ≤ rel_tol · ‖b‖₂` on
+    /// the free nodes; the solve is then accepted only if the recomputed true
+    /// residual is within `10 · rel_tol · ‖b‖₂`, else `NotConverged`.
     pub rel_tol: f64,
     /// CG iteration cap per excitation.
     pub max_iter: usize,
@@ -942,6 +949,11 @@ fn amg_pcg_maxwell(
         }
         let b = fold_pinned_columns(k_full, free_of_global, nf, &pinned_value);
         let b_norm = dot_slices(&b, &b).sqrt();
+        if !b_norm.is_finite() {
+            return Err(ElectrostaticError::NotConverged(format!(
+                "excitation {i}: non-finite right-hand side"
+            )));
+        }
         let mut x = vec![0.0_f64; nf];
         let mut it = 0;
         if b_norm > 0.0 {
@@ -951,7 +963,18 @@ fn amg_pcg_maxwell(
             let mut p = z.clone();
             let mut rz = dot_slices(&r, &z);
             let mut q = vec![0.0_f64; nf];
-            while dot_slices(&r, &r).sqrt() > opts.rel_tol * b_norm {
+            loop {
+                let rn = dot_slices(&r, &r).sqrt();
+                // A NaN/inf residual fails every `>` comparison, so it must be
+                // caught before the convergence test, not by it.
+                if !rn.is_finite() {
+                    return Err(ElectrostaticError::NotConverged(format!(
+                        "excitation {i}: non-finite residual after {it} iterations"
+                    )));
+                }
+                if rn <= opts.rel_tol * b_norm {
+                    break;
+                }
                 if it == opts.max_iter {
                     return Err(ElectrostaticError::NotConverged(format!(
                         "excitation {i}: relative residual {:.3e} after {it} iterations \
@@ -961,7 +984,16 @@ fn amg_pcg_maxwell(
                     )));
                 }
                 sym_spmv(k, &p, &mut q);
-                let alpha = rz / dot_slices(&p, &q);
+                let pq = dot_slices(&p, &q);
+                // CG on an SPD operator has p.q > 0; otherwise the operator
+                // is indefinite/singular (or the data are non-finite).
+                if pq.is_nan() || pq <= 0.0 || pq.is_infinite() {
+                    return Err(ElectrostaticError::NotConverged(format!(
+                        "excitation {i}: CG breakdown (p.Kp = {pq:e} <= 0 or non-finite) \
+                         after {it} iterations; the operator is not SPD"
+                    )));
+                }
+                let alpha = rz / pq;
                 for j in 0..nf {
                     x[j] += alpha * p[j];
                     r[j] -= alpha * q[j];
@@ -985,10 +1017,18 @@ fn amg_pcg_maxwell(
             .map(|(bi, ki)| (bi - ki).powi(2))
             .sum::<f64>()
             .sqrt();
+        let true_rel = if b_norm > 0.0 { res / b_norm } else { 0.0 };
+        // The recurrence residual can drift from the true one; success
+        // requires the true residual within TRUE_RESIDUAL_SLACK x rel_tol.
+        if true_rel.is_nan() || true_rel > TRUE_RESIDUAL_SLACK * opts.rel_tol {
+            return Err(ElectrostaticError::NotConverged(format!(
+                "excitation {i}: recurrence residual met the tolerance but the true relative \
+                 residual is {true_rel:.3e} (> {TRUE_RESIDUAL_SLACK} x tolerance {:.1e})",
+                opts.rel_tol
+            )));
+        }
         report.iterations.push(it);
-        report
-            .rel_residual
-            .push(if b_norm > 0.0 { res / b_norm } else { 0.0 });
+        report.rel_residual.push(true_rel);
         let mut u = pinned_value;
         for (g, slot) in free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
@@ -2130,6 +2170,141 @@ mod tests {
             extract_capacitance_amg_pcg(&sys, &conductors, &ground, cap),
             Err(ElectrostaticError::NotConverged(_))
         ));
+    }
+
+    /// Tridiagonal `(n+2)`-DOF chain: DOF 0 ground, DOF n+1 the conductor,
+    /// DOFs 1..=n free. `diag`/`off` build both `k_full` and its free block.
+    fn chain(
+        n: usize,
+        diag: impl Fn(usize) -> f64,
+        off: f64,
+    ) -> (SparseColMat<usize, f64>, SparseColMat<usize, f64>) {
+        let mut full = Vec::new();
+        let mut red = Vec::new();
+        for i in 0..n + 2 {
+            full.push(faer::sparse::Triplet::new(i, i, diag(i)));
+            if i + 1 < n + 2 {
+                full.push(faer::sparse::Triplet::new(i, i + 1, off));
+                full.push(faer::sparse::Triplet::new(i + 1, i, off));
+            }
+        }
+        for i in 0..n {
+            red.push(faer::sparse::Triplet::new(i, i, diag(i + 1)));
+            if i + 1 < n {
+                red.push(faer::sparse::Triplet::new(i, i + 1, off));
+                red.push(faer::sparse::Triplet::new(i + 1, i, off));
+            }
+        }
+        (
+            SparseColMat::try_new_from_triplets(n, n, &red).unwrap(),
+            SparseColMat::try_new_from_triplets(n + 2, n + 2, &full).unwrap(),
+        )
+    }
+
+    fn run_chain(
+        k: &SparseColMat<usize, f64>,
+        k_full: &SparseColMat<usize, f64>,
+        n: usize,
+    ) -> Result<(), ElectrostaticError> {
+        let free: Vec<Option<usize>> = (0..n + 2)
+            .map(|g| {
+                if g == 0 || g == n + 1 {
+                    None
+                } else {
+                    Some(g - 1)
+                }
+            })
+            .collect();
+        amg_pcg_maxwell(
+            k,
+            k_full,
+            &free,
+            &["c".to_string()],
+            &[vec![n + 1]],
+            &[0],
+            AmgPcgOptions::default(),
+        )
+        .map(|_| ())
+    }
+
+    /// Control: the SPD chain converges (so the failures below are the guards).
+    #[test]
+    fn amg_pcg_guard_control_spd_chain_converges_1061() {
+        let n = 40;
+        let (k, kf) = chain(n, |_| 2.0, -1.0);
+        run_chain(&k, &kf, n).unwrap();
+    }
+
+    /// A NaN must be an error, never a "converged" `Ok`.
+    #[test]
+    fn amg_pcg_nan_is_not_converged_1061() {
+        let n = 40;
+        // NaN in the full operator poisons the folded right-hand side.
+        let (k, mut kf) = chain(n, |_| 2.0, -1.0);
+        let nan_rows: Vec<_> = {
+            let r = kf.as_ref();
+            let mut t = Vec::new();
+            for j in 0..r.ncols() {
+                for q in r.col_ptr()[j]..r.col_ptr()[j + 1] {
+                    let v = r.val()[q];
+                    t.push(faer::sparse::Triplet::new(
+                        r.row_idx()[q],
+                        j,
+                        if r.row_idx()[q] == n && j == n + 1 {
+                            f64::NAN
+                        } else {
+                            v
+                        },
+                    ));
+                }
+            }
+            t
+        };
+        kf = SparseColMat::try_new_from_triplets(n + 2, n + 2, &nan_rows).unwrap();
+        assert!(matches!(
+            run_chain(&k, &kf, n),
+            Err(ElectrostaticError::NotConverged(m)) if m.contains("non-finite")
+        ));
+        // NaN inside the solve operator (reduced k), finite right-hand side:
+        // p.Kp is NaN on the first iteration (breakdown guard, non-finite).
+        let (_, kf) = chain(n, |_| 2.0, -1.0);
+        let mut t = Vec::new();
+        for i in 0..n {
+            t.push(faer::sparse::Triplet::new(
+                i,
+                i,
+                if i == n / 2 { f64::NAN } else { 2.0 },
+            ));
+            if i + 1 < n {
+                t.push(faer::sparse::Triplet::new(i, i + 1, -1.0));
+                t.push(faer::sparse::Triplet::new(i + 1, i, -1.0));
+            }
+        }
+        let k = SparseColMat::try_new_from_triplets(n, n, &t).unwrap();
+        let r = run_chain(&k, &kf, n);
+        assert!(
+            matches!(
+                &r,
+                Err(ElectrostaticError::NotConverged(m)) if m.contains("non-finite")
+            ),
+            "{r:?}"
+        );
+    }
+
+    /// An indefinite operator (p.Kp <= 0) is a CG breakdown, not an `Ok`.
+    #[test]
+    fn amg_pcg_indefinite_is_not_converged_1061() {
+        let n = 40;
+        // Negative diagonal: -(SPD chain) is negative definite, so p.Kp < 0.
+        let (k, kf) = chain(n, |_| -2.0, 1.0);
+        let r = run_chain(&k, &kf, n);
+        assert!(
+            matches!(
+                &r,
+                Err(ElectrostaticError::NotConverged(m)) if m.contains("breakdown")
+            ),
+            "{r:?}"
+        );
     }
 
     /// The tensor element stiffness reduces EXACTLY to the scalar one when

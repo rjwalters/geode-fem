@@ -27,7 +27,7 @@ expected_order = "inference from theory: the potential near a zero-thickness she
 [memory]
 host = "local, 96 GiB RAM, 28 CPUs; no cloud"
 measured_with = "/usr/bin/time -l on single-purpose probes, 2026-10-10 (not measured by this generator)"
-generator_peak_rss_gb = [12.8, 13.8]  # this whole run, one process: min and max over four earlier runs
+generator_peak_rss_gb = [12.8, 14.4]  # this whole run, one process: min and max over five earlier runs
 pcg_p1_h_h2_h4_peak_rss_gb = 7.29  # X0, all three levels by AMG-PCG in one process
 p2_h_h2_peak_rss_gb = 8.02  # X0, P2 h (LU) then h/2 (AMG-PCG)
 direct_lu_h4_killed_rss_gb = 51.63  # killed by a 50 GB RSS watchdog

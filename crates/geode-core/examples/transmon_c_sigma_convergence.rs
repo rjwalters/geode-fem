@@ -86,9 +86,9 @@ const MAX_STEPS: usize = 40;
 // Peak memory, measured on this host (96 GiB, 28 CPUs) with
 // `/usr/bin/time -l` on single-purpose probes, 2026-10-10. Not measured by
 // this generator (no RSS API in the dependency set).
-/// This whole generator, one process: max RSS over four earlier runs (GB).
+/// This whole generator, one process: min and max RSS over five earlier runs of this generator (GB).
 /// It varies with host load.
-const GENERATOR_PEAK_RSS_GB: [f64; 2] = [12.8, 13.8];
+const GENERATOR_PEAK_RSS_GB: [f64; 2] = [12.8, 14.4];
 /// P1 h, h/2, h/4 at X0, all by AMG-PCG, one process: max RSS (GB).
 const PCG_THREE_LEVEL_PEAK_RSS_GB: f64 = 7.29;
 /// P2 h (LU) then P2 h/2 (AMG-PCG), one process: max RSS (GB).
@@ -643,7 +643,7 @@ fn main() {
     t.push_str("measured_with = \"/usr/bin/time -l on single-purpose probes, 2026-10-10 (not measured by this generator)\"\n");
     let _ = writeln!(
         t,
-        "generator_peak_rss_gb = [{}, {}]  # this whole run, one process: min and max over four earlier runs",
+        "generator_peak_rss_gb = [{}, {}]  # this whole run, one process: min and max over five earlier runs",
         GENERATOR_PEAK_RSS_GB[0], GENERATOR_PEAK_RSS_GB[1]
     );
     let _ = writeln!(
