@@ -1,0 +1,10 @@
+Info    : Running 'gmsh /Volumes/Stripe/geode-fem/issue-1043/crates/geode-core/tests/fixtures/transmon_smoke.msh -0 -save -format msh2 -o transmon_smoke_v22.msh' [Gmsh 4.15.2-git, 1 node, max. 1 thread]
+Info    : Started on Sat Oct 10 21:20:50 2026
+Info    : Reading '/Volumes/Stripe/geode-fem/issue-1043/crates/geode-core/tests/fixtures/transmon_smoke.msh'...
+Info    : 428 entities
+Info    : 22684 nodes
+Info    : 148142 elements
+Info    : Done reading '/Volumes/Stripe/geode-fem/issue-1043/crates/geode-core/tests/fixtures/transmon_smoke.msh'
+Info    : Writing 'transmon_smoke_v22.msh'...
+Info    : Done writing 'transmon_smoke_v22.msh'
+Info    : Stopped on Sat Oct 10 21:20:50 2026 (From start: Wall 0.23832s, CPU 0.296631s)
