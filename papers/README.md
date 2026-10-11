@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.6/` |
+| `transmon-benchmark` | `transmon-benchmark.7/` (draft, not reviewed; v6 is the last audited version, and v7 withdraws its absent-qubit-mode and model-difference claims and adds the C_Σ convergence study and the refined real-device optimization) |
 
 ## Building a paper
 
