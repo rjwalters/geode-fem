@@ -1,5 +1,7 @@
 %% transmon-benchmark.7 — post-v6 evidence update, 2026-10-10.
-%% Draft preparation under #1039; anchor result #1034 remains pending.
+%% Draft preparation under #1039, corrected in place on PR #1040 for the
+%% qubit-mode finding (#1047/#1055), the Palace unknown count, the coarse-mesh
+%% C_Sigma error (#1050) and the #1035/#1036 methods result.
 %% See provenance.md and changelog.md. Historical v6 and its critics are unchanged.
 
 \documentclass{anvil-paper}
@@ -62,14 +64,25 @@ $\partial C_\Sigma/\partial\theta$ is FD-validated at $1.15\times 10^{-4}$
 with a genuine two-step convergence to a within-budget target.
 Harmonic mesh motion extends the safe deformation budget by $8.90\times$,
 but reaches only $128.793$\,fF toward the $89.9$\,fF anchor; the falling
-sensitivity implies a conditional extrapolated shortfall of at least about
-$6.26\times$ the available budget. Multi-parameter anchor optimization
-remains pending, and eigenmode/EPR derivatives remain roadmap. The correctness credential: on the identical mesh,
-GEODE-FEM reproduces all six of Palace's transmon eigenmodes to
-$\leq 0.033\%$ (worst case $0.032\%$). The contribution is a capability,
+sensitivity implies a conditional extrapolated shortfall of at least
+$6.25\times$ the available budget. A three-parameter, junction-pinned
+optimizer with per-step volume-stiffened re-morphing then drives the
+coarse-mesh $C_\Sigma$ to $89.9$\,fF in 18 steps. That is a methods
+result, not a device design: one uniform refinement lowers $C_\Sigma$ of
+the unmodified device by $26.3\%$, so every device-mesh capacitance here
+is a coarse-mesh upper bound, and the converged value is still being
+measured. Eigenmode/EPR derivatives remain roadmap. The correctness
+credential: from the identical input mesh, GEODE-FEM reproduces Palace's
+six eigenmodes above $4.5$\,GHz to $\leq 0.033\%$ (worst case $0.032\%$),
+and the transmon qubit mode at $3.45$\,GHz to $5\times10^{-5}\,\%$.
+Earlier versions of this paper called that mode spurious and the qubit
+mode absent; a Palace run with its search target below the mode
+corrects both statements. The contribution is a capability,
 not a speed race --- on raw performance the measured record shows no
 corner where GEODE-FEM beats Palace at scale, and we report it honestly.
-Every number traces to a committed artifact.
+Every result traces to a committed artifact; statements that rest on a
+scratch probe, on a reading of Palace's source, or on inference are
+labelled as such.
 \end{abstract}
 
 \section{Introduction}
@@ -135,12 +148,15 @@ literature, not because the method is qubit-specific.
 A design-gradient claim from a new solver is only as credible as the
 solver's forward answers, so the paper carries its correctness credential
 up front: on a real transmon-plus-readout-resonator geometry meshed once
-and consumed identically by both codes, geode-fem reproduces Palace ---
-the MFEM-based \citep{mfem,andrej2024high} reference solver for
-superconducting-qubit design --- to within $0.033\%$ across all six
-eigenmodes (worst case $0.032\%$; junction LC mode $0.001\%$), with exact
-analytic tripwires guarding against coincidental agreement
-(Section~\ref{sec:agreement}). This parity is \emph{a credential, not the
+and given as the same input file to both codes, geode-fem reproduces
+Palace --- the MFEM-based \citep{mfem,andrej2024high} reference solver
+for superconducting-qubit design --- to within $0.033\%$ across the six
+eigenmodes Palace returns above $4.5$\,GHz (worst case $0.032\%$), and to
+$5\times10^{-5}\,\%$ on the transmon qubit mode at $3.45$\,GHz, with
+analytic scaling tripwires guarding against coincidental agreement
+(Section~\ref{sec:agreement}). Palace refines the mesh around the metal
+sheets internally, so the two discrete problems are not identical
+(Section~\ref{sec:geometry}). This parity is \emph{a credential, not the
 contribution} --- matching Palace is the price of entry --- and it is,
 incidentally, the first independent third-party validation of the
 Palace/DeviceLayout.jl transmon stack, which has no publication of its
@@ -174,13 +190,18 @@ Our contributions are:
     FD-validated at $1.15\times 10^{-4}$ and a genuine two-step
     convergence; and harmonic mesh motion that widens the safe budget
     $8.90\times$ but still stalls at $128.793$\,fF toward the $89.9$\,fF
-    anchor (Section~\ref{sec:optdemo}). The multi-parameter anchor
-    experiment is explicitly pending.
-  \item \textbf{The correctness credential.} Same-mesh, same-physics,
-    same-junction-model cross-validation against Palace at
-    $\leq 0.033\%$ across all six modes, with oracle-first methodology
-    and honest-physics reporting --- the by-construction absent qubit
-    mode and a disclosed, diagnosed spurious mode
+    anchor; and a three-parameter junction-pinned optimizer with
+    per-step re-morphing that reaches $89.9$\,fF on the coarse mesh
+    (Section~\ref{sec:optdemo}). The last is a methods result: the
+    device-mesh $C_\Sigma$ is not mesh-converged, and the converged
+    value is still being measured.
+  \item \textbf{The correctness credential.} Same-input-mesh,
+    same-physics, same-junction-model cross-validation against Palace at
+    $\leq 0.033\%$ across the six modes above $4.5$\,GHz and
+    $5\times10^{-5}\,\%$ on the qubit mode, with oracle-first methodology
+    and honest-physics reporting --- including the correction of two
+    claims made in earlier versions, that the qubit mode was absent and
+    that the $3.45$\,GHz mode was spurious
     (Sections~\ref{sec:agreement} and~\ref{sec:honest-physics}) ---
     doubling as the first independent validation of the
     Palace/DeviceLayout.jl stack.
@@ -285,9 +306,11 @@ constructed models) and the Palace-centered workflow of
 \citet{ye2025electromagnetic} (validated against cryogenic measurement at
 ${\sim}0.3\%$). Both wrap and trust Palace; neither is a same-mesh
 comparison against an independently \emph{implemented} solver. Our
-protocol eliminates meshing and model entry as confounders --- identical
-MSH fixture, identical lumped-shunt junction, first-order N\'ed\'elec on
-both sides --- so residuals isolate formulation and solver correctness.
+protocol removes mesh generation and model entry as confounders ---
+identical MSH fixture, identical lumped-shunt junction, first-order
+N\'ed\'elec on both sides --- so residuals reflect formulation, solver
+and Palace's internal refinement of the metal sheets
+(Section~\ref{sec:geometry}), not independently built models.
 Mature open EM tools normally carry a methods paper (GetDP
 \citep{dular1998general}, FEniCS/DOLFIN \citep{logg2010dolfin}, Gmsh
 \citep{gmsh}, scikit-rf \citep{arsenovic2022scikit}, MFEM
@@ -386,11 +409,24 @@ remain after eliminating perfect-electric-conductor (PEC) boundary edges.
 PEC is applied on all metal surfaces and the exterior box; the two
 readout ports are left open (lossless), so no resistive element enters
 and the eigenproblem pencil stays real symmetric.
+These counts are geode-fem's. Palace reads the same file but does not
+solve the same discrete problem: its run logs record $4{,}913$ elements
+added by local bisection around under-resolved interior boundaries and
+$6{,}014$ duplicated vertices where it cracks the metal sheets, and it
+assembles $183{,}891$ first-order N\'ed\'elec unknowns against
+geode-fem's $156{,}863$ (about $17\%$ more). ``Same mesh'' in this paper
+therefore means the same \emph{input} mesh. Earlier versions said the
+two solvers consumed an identical mesh and solved an identical discrete
+problem; that was wrong, and the timing comparisons of
+Section~\ref{sec:perf-cpu} carry the difference as a fairness caveat.
+This mesh is also coarse for the electrostatic quantities: one uniform
+refinement lowers $C_\Sigma$ by $26.3\%$ (Section~\ref{sec:lom}).
 Figure~\ref{fig:geometry} shows the geometry with physical groups
 color-coded. Every measurement in this paper --- the eigenmode
 credential, the electrostatic LOM chain, and the real-device gradient
 demonstration --- runs on this one committed mesh (plus a uniformly
-refined variant for the scale study of Section~\ref{sec:perf}).
+refined variant for the scale study of Section~\ref{sec:perf}, and one
+uniform refinement for the $C_\Sigma$ check of Section~\ref{sec:lom}).
 
 \begin{figure}[t]
   \centering
@@ -404,8 +440,9 @@ refined variant for the scale study of Section~\ref{sec:perf}).
   \texttt{lumped\_element} surface (enlarged in the inset, actual
   triangulation shown), the two readout ports, and the exterior-boundary
   outline; the \texttt{substrate} and \texttt{vacuum} volume groups fill
-  the enclosing box. Both solvers consume this identical mesh (22{,}684
-  nodes; 133{,}314 tetrahedra).}
+  the enclosing box. Both solvers read this file (22{,}684
+  nodes; 133{,}314 tetrahedra); Palace then refines it internally
+  around the metal sheets (Section~\ref{sec:geometry}).}
   \label{fig:geometry}
 \end{figure}
 
@@ -433,12 +470,17 @@ eigenproblem is then the real symmetric generalized pencil
 \end{equation}
 In Palace, the same physics is entered as a reactive \texttt{LumpedPort}
 ($L \parallel C$, no resistance) on the same surface group; the readout
-ports are configured open, so Palace's pencil is likewise real. This
+ports are configured open, so Palace's pencil is likewise real. Palace's
+source confirms the correspondence: its \texttt{LumpedPort} adds the
+same scalar surface-mass terms with the same per-square scalings
+(\path{docs/research/transmon-lumped-port-formulation.md}, \S1). This
 one-to-one correspondence is what makes the comparison same-physics as
-well as same-mesh.
+well as same-input-mesh. It also means that any property of the
+distributed surface term in Eq.~\ref{eq:port} is shared by both solvers
+(Section~\ref{sec:port-artifact}).
 
-\section{The Correctness Credential: Same-Mesh Cross-Validation Against
-Palace}
+\section{The Correctness Credential: Same-Input-Mesh Cross-Validation
+Against Palace}
 \label{sec:agreement}
 
 A solver claiming design gradients must first prove its forward answers;
@@ -449,16 +491,24 @@ its solutions (such as their derivatives) is worth discussing.
 
 \paragraph{Protocol.}
 The benchmark is oracle-first. The mesh is generated once, committed,
-pinned by SHA-256, and consumed by both solvers at matched (first) order
+pinned by SHA-256, and read by both solvers at matched (first) order
 with the identical junction model; residual disagreement is therefore
-attributable to formulation or implementation, not meshing. Two exact
-analytic tripwires guard against coincidental or
-self-consistent-but-wrong agreement: the isolated junction LC resonance
-$f_{LC} = 1/(2\pi\sqrt{LC}) = 17.60$\,GHz anchors the junction mode, and
-a Josephson $\sqrt{L}$-scaling test requires that doubling $L$ move the
-junction mode by exactly $1/\sqrt{2}$ --- measured: $17.4901 \to
+attributable to formulation, implementation or Palace's internal
+refinement (Section~\ref{sec:geometry}), not to independent meshing.
+Two analytic tripwires guard against coincidental or
+self-consistent-but-wrong agreement. Both test the port term's $L$ and
+$C$ scalings. The first is the resonance of the port sheet's own
+inductance against its own capacitance,
+$f_{LC} = 1/(2\pi\sqrt{LC}) = 17.60$\,GHz, which anchors the
+$17.49$\,GHz mode. The second is a $\sqrt{L}$-scaling test: doubling $L$
+must move that mode by $1/\sqrt{2}$ --- measured: $17.4901 \to
 12.37$\,GHz, committed ratio $0.7071$ (computed from the unrounded
-values; Figure~\ref{fig:lscaling}). The suite also contains inverse tests
+values; Figure~\ref{fig:lscaling}). Earlier versions called the
+$17.49$\,GHz mode ``the junction mode'' and treated these two checks as
+pinning the junction physics. Section~\ref{sec:port-artifact} shows that
+this mode carries no port voltage, so the checks pin the port
+\emph{operator}, not the qubit; the qubit mode has its own scaling check
+in Section~\ref{sec:qubit-mode}. The suite also contains inverse tests
 that \emph{must fail} (perturbed configurations required to disagree with
 the oracle --- a pipeline that still passes under them is not measuring
 anything), and the Palace oracle is deterministic: a rerun from the
@@ -473,22 +523,32 @@ stiffness-participation ratio
                {x^{\mathsf{T}} \left(K + K_{\mathrm{port}}\right) x}
   \label{eq:participation}
 \end{equation}
-cleanly separates the junction LC mode ($p = 1.000$) from resonator and
-box modes ($p = 0.000$ at the artifact's three-decimal precision). Palace
-reports a field-based per-port energy participation, a differently
-normalized quantity that does \emph{not} rank the modes the same way on
-the committed run (all six of its port-EPR values are $\leq
-5\times10^{-4}$, with the junction mode's the smallest in magnitude); the
-two diagnostics are complementary, not a shared discriminant, and we do
-not compare them numerically. Cross-solver mode identification therefore
-rests on frequency agreement against the analytic anchor.
+measures the share of a mode's stiffness energy stored in the port
+surface term, whatever its spatial pattern. It is $p = 1.000$ for the
+$17.49$\,GHz mode, $p = 0.9942$ for the $3.45$\,GHz mode, and $p = 0.000$
+(at the artifact's three-decimal precision) for the resonator and box
+modes. Palace's port EPR is built from the port \emph{voltage}
+functional alone, so it counts only the uniform-voltage part of that
+energy. The two diagnostics agree where the port field is a uniform
+voltage and disagree where it is not: on the qubit mode Palace reports
+$0.99424$ against geode-fem's $0.9942$, while on the $17.49$\,GHz mode
+Palace reports $2.49\times10^{-8}$ against geode-fem's $1.000$
+(Section~\ref{sec:honest-physics}). In the original Palace run, which
+searched only above $4.5$\,GHz, all six port-EPR values are
+$\leq 5\times10^{-4}$; earlier versions read that as two diagnostics
+ranking the modes differently, when the cause was the qubit mode's
+absence from Palace's search window. The six-mode comparison of
+Table~\ref{tab:agreement} is matched by frequency.
 
 \begin{table}[t]
   \centering
-  \caption{Eigenmode agreement on the identical mesh (22{,}684 nodes /
-  133{,}314 tets / 156{,}863 N\'ed\'elec DOFs, 133{,}108 interior after
-  PEC), first order in both solvers, junction as a lumped reactive shunt
-  ($L = 14.860$\,nH, $C = 5.5$\,fF). geode-fem at commit
+  \caption{Eigenmode agreement from the identical input mesh (22{,}684
+  nodes / 133{,}314 tets; geode-fem solves 156{,}863 N\'ed\'elec DOFs,
+  133{,}108 interior after PEC; Palace refines internally and solves
+  183{,}891), first order in both solvers, junction as a lumped reactive
+  shunt ($L = 14.860$\,nH, $C = 5.5$\,fF). These are the six modes
+  Palace returns when it searches above $4.5$\,GHz; the qubit mode below
+  that target is in Table~\ref{tab:qubit}. geode-fem at commit
   \texttt{3174015}; Palace at commit \texttt{fba6a5b}. All values are
   quoted verbatim from the committed
   \texttt{benchmarks/transmon\_eigen/results.toml}: geode-fem frequencies
@@ -503,19 +563,26 @@ rests on frequency agreement against the analytic anchor.
     \midrule
     \texttt{resonator} & readout resonator & 5.153 & 5.151335830348 & 0.032 \\
     \texttt{mode\_2} & box/cavity & 15.465 & 15.46052107794 & 0.029 \\
-    \texttt{junction\_lc} & junction LC & 17.490 & 17.49010903536 & 0.001 \\
+    \texttt{junction\_lc} & port-sheet LC$^{\ast}$ & 17.490 & 17.49010903536 & 0.001 \\
     \texttt{mode\_4} & box/cavity & 18.693 & 18.69165792915 & 0.007 \\
     \texttt{mode\_5} & box/cavity & 20.703 & 20.69755679425 & 0.026 \\
     \texttt{mode\_6} & box/cavity & 26.088 & 26.08089940472 & 0.027 \\
     \bottomrule
   \end{tabular}
+
+  \smallskip
+  {\footnotesize $^{\ast}$The artifact key \texttt{junction\_lc} is kept
+  verbatim. Palace's port EPR for this mode is $2.49\times10^{-8}$, and
+  Section~\ref{sec:port-artifact} identifies it as an artifact of the
+  distributed port term.}
 \end{table}
 
 \begin{figure}[t]
   \centering
   \anvilfig{fig2-agreement.pdf}{fig2\_agreement.py}
-  \caption{Mode-frequency agreement: geode-fem versus Palace on the
-  identical mesh, with per-mode relative deviations annotated. Data from
+  \caption{Mode-frequency agreement: geode-fem versus Palace from the
+  identical input mesh, for the six modes above Palace's $4.5$\,GHz
+  search target, with per-mode relative deviations annotated. Data from
   the committed benchmark artifacts
   (\texttt{benchmarks/transmon\_eigen/results.toml} and Palace's
   committed \texttt{eig.csv}).}
@@ -525,120 +592,282 @@ rests on frequency agreement against the analytic anchor.
 \begin{figure}[t]
   \centering
   \anvilfig{fig3-lscaling.pdf}{fig3\_l\_scaling.py}
-  \caption{Josephson inductance-scaling tripwire: junction-mode frequency
-  versus junction inductance $L$ on log-log axes. Doubling $L$ moves the
-  junction mode from $17.4901$ to $12.37$\,GHz --- committed ratio
-  $0.7071 = 1/\sqrt{2}$ --- exactly as $f \propto 1/\sqrt{L}$ requires.
-  Measured values from the committed
-  \texttt{benchmarks/transmon\_eigen/results.toml} tripwire block.}
+  \caption{Inductance-scaling checks on log-log axes. Doubling $L$ moves
+  the $17.49$\,GHz port-sheet mode from $17.4901$ to $12.37$\,GHz
+  (committed ratio $0.7071 = 1/\sqrt{2}$), and moves the qubit mode from
+  $3.4528$ to $2.4449$\,GHz in geode-fem (ratio $0.7081$) and from
+  $3.452749$ to $2.444899$\,GHz in Palace (ratio $0.70810$). The qubit
+  mode's ratio sits slightly above $1/\sqrt{2}$ because the full-wave
+  mode lies $0.28\%$ below the lumped estimate at $L$ and $0.14\%$ below
+  it at $2L$. Values from the committed
+  \texttt{benchmarks/transmon\_eigen/results.toml}
+  (\texttt{[tripwires.junction\_l\_doubling]}, \texttt{[spurious\_mode]}
+  and \texttt{[oracles.palace\_target2]}).}
   \label{fig:lscaling}
 \end{figure}
 
 \paragraph{Result.}
 Table~\ref{tab:agreement}: all six modes agree to $\leq 0.033\%$ (worst
-case $0.032\%$), with the junction LC mode --- the mode the junction
-model exists to produce --- at $0.001\%$. The junction mode sits $0.6\%$
-below the isolated-circuit anchor $f_{LC} = 17.60$\,GHz in \emph{both}
-solvers (the small shift reflects its embedding in the field problem),
-and the agreement is between genuinely independent code paths --- a
-batched-tensor assembly feeding a direct-factorization Lanczos in Rust,
-and a projected, preconditioned Krylov method in C++ --- so a common
-implementation error is an unlikely explanation for the residual, and
-the tripwires exclude self-consistent-but-wrong junction physics.
+case $0.032\%$). The $17.49$\,GHz port-sheet mode agrees most closely,
+at $0.001\%$, and sits $0.6\%$ below $f_{LC} = 17.60$\,GHz in \emph{both}
+solvers. Agreement that tight on a mode confined to the four port
+triangles is what an identical port operator would produce, and it is
+weaker evidence about the bulk discretizations than the cavity modes'
+${\sim}0.03\%$. The qubit mode, which Palace returns only when asked to
+search below it, agrees to $5\times10^{-5}\,\%$
+(Section~\ref{sec:qubit-mode}, Table~\ref{tab:qubit}). The agreement is
+between genuinely independent code paths --- a batched-tensor assembly
+feeding a direct-factorization Lanczos in Rust, and a projected,
+preconditioned Krylov method in C++ --- on discrete problems that
+differ by Palace's internal refinement ($183{,}891$ against $156{,}863$
+unknowns). A common implementation error is therefore an unlikely
+explanation for the residual. A shared \emph{modeling} property is not
+excluded by cross-comparison, and Section~\ref{sec:port-artifact}
+reports one. All of this is same-input-mesh agreement at first order;
+none of these frequencies is a mesh-converged value.
 
-\section{Honest Physics: The Absent Qubit Mode and a Disclosed Spurious
-Mode}
+\section{Honest Physics: The Qubit Mode, Two Withdrawn Claims, and a
+Port-Sheet Artifact}
 \label{sec:honest-physics}
 
-\subsection{No \texorpdfstring{${\sim}4$\,GHz}{\textasciitilde 4 GHz} qubit mode exists, by construction}
-\label{sec:absent-mode}
+Versions 1--6 of this paper made two claims in this section, and both
+were wrong. The first was that no qubit mode exists in this junction
+model by construction, and that Palace confirmed its absence. The second
+was that geode-fem's $3.4528$\,GHz mode is a spurious port artifact with
+no Palace counterpart. We withdraw both. The committed evidence
+identifies the $3.45$\,GHz mode as the transmon qubit mode, which Palace
+also returns, and it points to a different mode, at $17.49$\,GHz, as the
+artifact of the port model. This section separates what is proven by
+committed artifacts from what is derived, what a scratch probe measured,
+and what is only planned.
 
-The DeviceLayout.jl blog workflow \citep{devicelayout-blog} reports a
-spectrum running from $4.14$ to $5.591$\,GHz --- including a
-${\sim}4$\,GHz qubit mode --- while Table~\ref{tab:agreement} contains
-no mode below $5.15$\,GHz. This is a property of the model, stated plainly: the
-physical transmon frequency arises from the Josephson inductance
-resonating against the \emph{pad (shunt) capacitance} of roughly
-$80$--$100$\,fF \citep{koch2007}, and the lumped-shunt model of
-Section~\ref{sec:junction} gives the junction only its own $5.5$\,fF, so
-its resonance lands at $17.5$\,GHz. Both solvers agree on the absence:
-Palace's projected eigensolve, instructed to hunt at $\sigma =
-4.5$\,GHz, finds nothing below the $5.15$\,GHz resonator. The blog
-spectrum is not reproduced by this model, and no agreement with it is
-claimed. The route to qubit quantities from this geometry is the
-electrostatic LOM chain of Section~\ref{sec:lom} --- which is exactly the
-chain this paper makes differentiable.
+\subsection{The \texorpdfstring{$3.45$\,GHz}{3.45 GHz} mode is the transmon qubit mode}
+\label{sec:qubit-mode}
 
-\subsection{One spurious mode: disclosed, diagnosed, characterized}
-\label{sec:spurious-mode}
+\paragraph{Why the earlier Palace run could not return it.}
+The original Palace run asked for six modes with
+\texttt{Target}~$= 4.5$\,GHz and returned nothing below the $5.15$\,GHz
+resonator. Earlier versions read that as Palace hunting near
+$4.5$\,GHz and finding no qubit mode. That misreads \texttt{Target}.
+Palace's eigensolver accepts only eigenvalues at or above the target: its
+SLEPc configuration restricts the search region to that side, and its
+configuration schema defines \texttt{Target} as the frequency ``above
+which to search''
+(\path{docs/research/transmon-lumped-port-formulation.md}, \S2, read
+from the Palace source at the benchmarked changeset). The run's silence
+below $4.5$\,GHz was therefore not evidence of absence.
 
-Honest cross-validation requires reporting where the solvers
-\emph{disagree}, and there is exactly one such place. geode-fem's
-headline Lanczos operates on the raw pencil of Eq.~\ref{eq:pencil}
-without a gauge projection, and on this problem it leaks one spurious
-mode at $3.4528$\,GHz, junction-localized ($p = 0.9942$), with no Palace
-counterpart. The artifact was run to ground through a measured
-three-step gauge/projection arc, every step committed
-(Section~\ref{sec:repro}): (1) classical tree--cotree elimination
-\citep{albanese1988solution,manges1995generalized} removes it but is not
+\paragraph{Proven: Palace returns the mode when asked.}
+We re-ran Palace at the same changeset on the same input mesh, with the
+same materials, \texttt{LumpedPort}, order, eigensolver tolerances and
+linear solver, changing only \texttt{Target} ($4.5 \to 2.0$\,GHz) and the
+number of modes ($6 \to 8$); a second cell also doubles $L$. A control
+cell with the original request reproduces the committed spectrum to a
+relative $6.5\times10^{-13}$, so the local build does not move the
+eigenvalues. Table~\ref{tab:qubit} gives the result
+(\path{benchmarks/transmon_eigen/results.toml},
+\texttt{[oracles.palace\_target2]}; raw outputs under
+\path{reference/fixtures/transmon_palace/results_p1_target2/}).
+
+\begin{table}[t]
+  \centering
+  \caption{The qubit mode in both solvers, from the identical input mesh
+  at first order. Palace values are from the \texttt{Target}~$= 2$\,GHz
+  re-run; geode-fem values are the committed ones that earlier versions
+  reported as a spurious mode. The lumped estimate is
+  $1/(2\pi\sqrt{L(C_\Sigma + C_J)})$ with the electrostatic
+  $C_\Sigma = 136.684731$\,fF of Section~\ref{sec:lom} and
+  $C_J = 5.5$\,fF. Palace's column is its port EPR; geode-fem's is the
+  stiffness participation of Eq.~\ref{eq:participation}. This is a
+  same-input-mesh comparison on a coarse mesh, not a converged qubit
+  frequency.}
+  \label{tab:qubit}
+  \small
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Quantity & Palace & geode-fem & Lumped estimate \\
+    \midrule
+    Qubit mode, $L = 14.860$\,nH (GHz) & 3.452749 & 3.452751 & 3.46246 \\
+    Port EPR / participation $p$ & 0.99424 & 0.9942 & --- \\
+    Qubit mode, $2L$ (GHz) & 2.444899 & 2.4449 & 2.44833 \\
+    $L$-doubling ratio ($1/\sqrt{2} = 0.70711$) & 0.70810 & 0.7081 & 0.70711 \\
+    \midrule
+    $17.49$\,GHz mode: port EPR / $p$ & $2.49\times10^{-8}$ & 1.000 & --- \\
+    $17.49$\,GHz mode at $2L$ (GHz) & 12.3674 & 12.37 & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Palace finds the mode at $3.452749$\,GHz with port EPR $0.99424$;
+geode-fem's committed value is $3.452751$\,GHz with $p = 0.9942$. The two
+frequencies agree to $5\times10^{-5}\,\%$. Under $L$ doubling the mode
+moves to $2.444899$\,GHz in Palace, a ratio of $0.70810$, against
+geode-fem's committed $0.7081$. Palace's value lies $0.280\%$ below the
+lumped estimate at $L$ and $0.140\%$ below it at $2L$. That estimate
+takes $C_\Sigma$ from the electrostatic branch on the same coarse mesh,
+so it is a consistency check between this paper's eigenmode and LOM
+branches, not an independent anchor. Every other mode in the re-run
+matches the committed Palace spectrum, and two further modes converge
+above it ($33.384$ and $33.896$\,GHz).
+
+Earlier versions explained the supposed absence by saying that the
+lumped-shunt model gives the junction only its own $5.5$\,fF, so that its
+resonance lands at $17.5$\,GHz, and that the pad capacitance of a
+physical transmon \citep{koch2007} was missing. That explanation was
+wrong. The full-wave eigenproblem contains the island's capacitance
+through the field itself, which is why a mode exists in which the
+junction inductance resonates against the whole island.
+
+\paragraph{What this does not show.}
+This is not the converged physical qubit frequency. Both solvers start
+from the same coarse 133k-tetrahedron mesh at first order, and they do
+not solve the same discrete problem: Palace refines around the metal
+sheets and solves $183{,}891$ unknowns against geode-fem's $156{,}863$
+(Section~\ref{sec:geometry}). The mesh is also far from converged for
+the capacitance that sets this frequency: one uniform refinement lowers
+the scalar-$\varepsilon$ $C_\Sigma$ by $26.3\%$
+(Section~\ref{sec:lom}). The lumped estimate goes as
+$1/\sqrt{C_\Sigma + C_J}$, so we infer that the qubit frequency is not
+converged on this mesh either; that inference has not been tested by a
+refined eigensolve. The DeviceLayout.jl blog workflow
+\citep{devicelayout-blog} reports a spectrum from $4.14$ to
+$5.591$\,GHz that includes a ${\sim}4$\,GHz qubit mode. We do not claim
+to reproduce it, and we do not attribute the difference from our
+$3.45$\,GHz to any single cause.
+
+\paragraph{The committed artifacts still carry the old labels.}
+\path{benchmarks/transmon_eigen/results.toml} keeps this mode under the
+section name \texttt{[spurious\_mode]} with \texttt{excluded = true}, and
+the CPU timing artifacts label it \texttt{spurious\_port}. The
+re-baselining of those classifications is tracked separately (issue
+\#1045) and has not been done. We quote the artifact keys verbatim and
+state here what the evidence now shows.
+
+\subsection{The gauge and projection arc, re-read}
+\label{sec:gauge-arc}
+
+Earlier versions told the following arc as the diagnosis of a spurious
+mode. Its measurements stand, every step committed
+(Section~\ref{sec:repro}); what they mean changes once the two modes are
+correctly identified. geode-fem's headline Lanczos operates on the raw
+pencil of Eq.~\ref{eq:pencil} without a gauge projection. (1) Classical
+tree--cotree elimination
+\citep{albanese1988solution,manges1995generalized} is not
 spectrum-preserving for the generalized eigenproblem --- the resonator
 shifts $1.64\%$ ($5.1528 \to 5.2372$\,GHz), outside our bar, pinned as a
-regression test; (2) the spectrum-preserving bulk divergence-free
+regression test. (2) The spectrum-preserving bulk divergence-free
 projector (structurally Palace's confinement) preserves the cavity
-spectrum ($0.029\%$) and collapses the 13{,}747-mode gradient cluster,
-but \emph{deflates the physical junction mode} --- a lumped inductor is a
-quasi-static, curl-free flux path (measured divergence ratio $50.2$;
-projected norm $1.06\times10^{-4}$) --- while the spurious mode, being
-genuinely solenoidal (divergence ratio ${\approx}6\times10^{-15}$),
-\emph{survives}; (3) a port-aware rank-1 re-admission of the junction
-flux direction yields a projector that retains all six physical modes at
-$\leq 0.029\%$ worst case versus Palace. What the artifact \emph{is}:
-under the L-doubling harness it moves $3.4528 \to 2.4449$\,GHz (ratio
-$0.7081$, the junction $1/\sqrt{L}$ law) with $99.4\%$ of its stiffness
-energy in the $K_{\mathrm{port}}$ surface term --- a second LC-like
-resonance of the port-surface operator $S_\Gamma$, which Palace's
-\texttt{LumpedPort} elimination represents differently and therefore
-never sees. The headline comparison deliberately remains the committed
-ungauged benchmark (the port-aware solver shipped after the headline
-measurement); the filter now excludes a \emph{characterized} artifact
-rather than an unexplained one. Figure~\ref{fig:participation} contrasts
-the spectra. The arc measures precisely what Palace's divergence-free
-projection buys in a production eigensolver, and what a lumped-element
-formulation demands beyond it.
+spectrum ($0.029\%$) and collapses the 13{,}747-mode gradient cluster.
+It removes the $17.49$\,GHz mode, which is almost entirely a gradient
+field (measured divergence ratio $50.2$; projected norm
+$1.06\times10^{-4}$), and it keeps the $3.45$\,GHz mode, which is
+solenoidal with respect to the interior gradients (divergence ratio
+${\approx}6\times10^{-15}$). Earlier versions described this as the
+projector deflating the physical junction mode while the spurious mode
+survived. With the identities corrected it reads the other way: the
+projector kept the qubit mode and removed the port-sheet mode. (3) A
+port-aware rank-1 re-admission of one gradient direction restores the
+$17.49$\,GHz mode and returns all six of Palace's
+\texttt{Target}~$= 4.5$\,GHz modes at $\leq 0.029\%$ worst case. That
+construction did what it was built to do. Its purpose, though, was to
+retain a mode that Section~\ref{sec:port-artifact} identifies as an
+artifact, because the Palace reference then in hand contained that mode
+and did not contain the qubit mode.
 
+The remaining committed characterization of the $3.45$\,GHz mode is
+unchanged and now reads as a description of the qubit mode: under the
+$L$-doubling harness it moves $3.4528 \to 2.4449$\,GHz (ratio $0.7081$)
+with $99.4\%$ of its stiffness energy in the $K_{\mathrm{port}}$ term.
+Earlier versions added that Palace's \texttt{LumpedPort} represents the
+port differently and therefore never sees this mode. That was also
+wrong: Palace's port operator has the same structure
+(Section~\ref{sec:junction}), and Palace sees the mode.
 
-The subsequent port-subspace implementation removes the near-zero
-survivor and admits the junction direction with one shifted factorization.
-On this fixture, requesting seven modes at $4.5$\,GHz returns the six
-physical modes (worst relative frequency error $0.0289\%$) plus the
-$3.452751$\,GHz port mode; requesting six still misses the highest
-physical mode. The committed local comparison records mean process CPU
-times of $46.32$\,s for the older eight-mode extraction route and
-$23.25$\,s for the new seven-mode route. These are geode-only measurements
-on a loaded Apple M3 Ultra, not a Palace comparison or a same-box update
-to the EC2 timings (Section~\ref{sec:perf-cpu}).
-The extra mode remains a genuine eigenpair of the distributed reactive
-surface shunt. Removing a gradient kernel cannot remove it, and high
-port participation cannot distinguish it from the physical junction
-mode. The planned fix is a \texttt{LumpedPort}-like port formulation
-(issue \#1003, beginning with a design spike); it has not been built.
-Until it lands, frequency matching to Palace is still used to identify
-the physical modes.
+The headline comparison deliberately remains the committed ungauged
+benchmark. The subsequent port-subspace implementation removes the
+near-zero survivor and admits the port-patch gradient direction with one shifted
+factorization. On this fixture, requesting seven modes at $4.5$\,GHz
+returns the six modes of Table~\ref{tab:agreement} (worst relative
+frequency error $0.0289\%$) plus the $3.452751$\,GHz qubit mode;
+requesting six still misses the highest of the six. The committed local
+comparison records mean process CPU times of $46.32$\,s for the older
+eight-mode extraction route and $23.25$\,s for the new seven-mode route.
+These are geode-only measurements on a loaded Apple M3 Ultra, not a
+Palace comparison or a same-box update to the EC2 timings
+(Section~\ref{sec:perf-cpu}). geode-fem's benchmark harness still
+classifies modes by frequency matching against the Palace reference; no
+reference-free rule is built. Figure~\ref{fig:participation} shows the
+spectrum.
+
+\subsection{The \texorpdfstring{$17.49$\,GHz}{17.49 GHz} mode: a zero-voltage resonance of the distributed port term}
+\label{sec:port-artifact}
+
+\paragraph{Proven by committed data.}
+Palace's port EPR for the $17.49$\,GHz mode is $2.49\times10^{-8}$, in
+the original run and in the re-run. After $L$ doubling the mode moves to
+$12.3674$\,GHz (ratio $0.70711$) and its port EPR is
+$2.94\times10^{-8}$. Palace builds that EPR from the port voltage, so in
+Palace this mode carries essentially no port voltage. In geode-fem the
+same mode has $p = 1.000$: all of its stiffness energy is in the port
+surface term. Both statements hold only if that energy sits in a
+surface pattern whose net voltage is zero.
+
+\paragraph{Measured by a scratch probe.}
+A probe on the committed fixture measured the uniform-voltage share of
+each mode's port energy in geode-fem: $0.00\%$ for the $17.49$\,GHz mode
+and $100.00\%$ for the $3.45$\,GHz mode. The probe source is committed
+(\path{docs/research/transmon-lumped-port-formulation.probe-1003.rs})
+but it is scratch evidence: the build does not compile it, and no
+regression test pins these two numbers.
+
+\paragraph{Derived.}
+The junction patch is four triangles with five nodes, of which only the
+centre node is not on a conductor. The gradient of that node's hat
+function is curl-free and has zero port voltage, but the isotropic
+surface term of Eq.~\ref{eq:port} still stores energy in it. A field
+confined to the patch then has Rayleigh quotient $1/(LC)$, which is
+$f_{LC} = 17.60$\,GHz, and the volume mass of the adjacent tetrahedra
+lowers it to $17.49$\,GHz. A two-terminal junction cannot carry this
+pattern. On this reading the mode is a sheet-internal resonance created
+by representing a lumped element as a distributed isotropic sheet, and
+both solvers have it because both use that representation. The reading
+predicts one such mode per free patch node, so a finer port mesh should
+show a cluster just below $f_{LC}$. That falsifier has not been run.
+
+\paragraph{What it means for the credential.}
+The $0.001\%$ agreement on this mode is agreement on a shared artifact
+of the port model. It still tests that the two implementations assemble
+the same port operator, and nothing more. The physical content of the
+credential is the five cavity modes and the qubit mode.
+
+\paragraph{Roadmap, not built.}
+The planned remedy is a rank-1 port-voltage formulation (issue \#1044):
+replace $S_\Gamma$ in Eq.~\ref{eq:port} by $b\,b^{\mathsf{T}}$, with
+$b_i = (1/w)\int_\Gamma N_i\cdot\hat{e}\,dS$ the port-voltage
+functional, so that only the energy of the port voltage is kept. In the
+same scratch probe this formulation removes the $17.49$\,GHz mode
+(no mode remains between $15.47$ and $18.69$\,GHz), leaves the
+$3.4528$\,GHz mode and the five cavity modes unchanged to four decimals,
+and makes the plain bulk projector exact (six modes from a six-mode
+request, residuals $\leq 1.7\times10^{-9}$, no reference filter). These
+are probe measurements on uncommitted solver code. No shipped solver
+path, committed benchmark or table in this paper uses the formulation.
+A solver using it would no longer reproduce Palace's $17.49$\,GHz mode,
+and whether it becomes the default is an open decision (issue \#1046).
 
 \begin{figure}[t]
   \centering
   \anvilfig{fig6-participation.pdf}{fig6\_participation.py}
-  \caption{geode-fem junction-participation spectrum on the identical
-  mesh, with Palace's mode locations (from the committed
-  \texttt{eig.csv}) overlaid. The physical junction LC mode appears at
-  $17.49$\,GHz in both solvers' spectra (geode-fem stiffness
-  participation $p = 1.000$); geode-fem's un-projected headline Lanczos
-  additionally leaks one spurious junction-localized mode at
-  $3.4528$\,GHz ($p = 0.9942$) with no Palace counterpart ---
-  characterized in Section~\ref{sec:spurious-mode} as a port-surface
-  artifact obeying the junction $1/\sqrt{L}$ law. Palace's field-based
-  port-EPR is a differently normalized diagnostic and is not plotted on
-  geode-fem's participation axis (Section~\ref{sec:agreement}).}
+  \caption{geode-fem stiffness-participation spectrum, with Palace's
+  mode locations from the \texttt{Target}~$= 2$\,GHz re-run overlaid
+  (its two modes above $33$\,GHz are outside the plotted range). The
+  qubit mode appears at $3.45$\,GHz in both solvers (geode-fem
+  $p = 0.9942$; Palace port EPR $0.99424$). The $17.49$\,GHz mode has
+  $p = 1.000$ in geode-fem but a Palace port EPR of
+  $2.49\times10^{-8}$: its port energy carries no port voltage
+  (Section~\ref{sec:port-artifact}). Palace's port EPR is not plotted on
+  geode-fem's participation axis because the two quantities coincide
+  only for uniform-voltage port fields (Section~\ref{sec:agreement}).}
   \label{fig:participation}
 \end{figure}
 
@@ -661,20 +890,59 @@ Measured on the committed fixture
 (\path{benchmarks/transmon_quantum/results.toml}): $C_\Sigma =
 136.7$\,fF, hence $E_C = 0.142$\,GHz, $E_J/E_C = 77.6$ (with $E_J$ from
 the junction inductance), $\omega_{01} = 3.38$\,GHz, and anharmonicity
-$\alpha = -0.158$\,GHz --- a plausible transmon computed end-to-end from
-committed geometry, with the $\alpha \approx -E_C$ sanity holding.
+$\alpha = -0.158$\,GHz, with the $\alpha \approx -E_C$ sanity holding.
+The chain runs end-to-end from committed geometry. Its inputs are
+coarse-mesh values, as the next paragraph shows. The linear eigenproblem
+resolves the same oscillator at $3.45$\,GHz
+(Section~\ref{sec:qubit-mode}); $\omega_{01}$ is its anharmonic
+$0 \to 1$ transition, computed from a $C_\Sigma$ that omits the
+junction's own $5.5$\,fF, so the two numbers are not expected to
+coincide.
 
-\paragraph{The honest negative that travels with this chain.}
+\paragraph{The committed mesh is not converged for $C_\Sigma$.}
+One uniform refinement of the committed mesh splits every tetrahedron
+into eight ($133{,}314 \to 1{,}066{,}512$). It lowers the
+scalar-$\varepsilon$ $C_\Sigma$ of the unmodified device from
+$137.706752$ to $101.359397$\,fF, a drop of $26.3\%$
+(\path{benchmarks/transmon_diffopt/multiparam_results.toml},
+\texttt{[mesh\_refinement]}). The refined P1 space contains the coarse
+one under the same constraints, and $C_\Sigma$ is an energy minimum, so
+refinement can only lower it. Each coarse value is therefore an
+\emph{upper bound} on the converged value, and the shift of
+$36.34$\,fF is a lower bound on the coarse discretization error. Only
+one refinement level was run. The converged $C_\Sigma$ is not measured,
+and the refined value does not bound it from below. A convergence study
+is in progress (issue \#1051); this draft uses none of its results.
+
+The refinement was measured for the scalar-$\varepsilon$ model, the one
+the shape gradient differentiates. The tensor value of $136.7$\,fF above
+has not been re-solved on the refined mesh. The monotonicity argument
+applies to it equally, so it too is an upper bound; that its error is of
+similar size is an inference from the $0.75\%$ coarse-mesh difference
+between the two models, not a measurement. It follows that
+$E_C = 0.142$\,GHz is a coarse-mesh lower bound, and that $E_J/E_C$,
+$\omega_{01}$ and $\alpha$ will move when $C_\Sigma$ converges. Every
+device-mesh $C_\Sigma$ and $E_C$ in Section~\ref{sec:optdemo} carries
+the same caveat.
+
+\paragraph{The gap to the design anchor, and a withdrawn diagnosis.}
 The extracted $C_\Sigma = 136.7$\,fF \emph{exceeds} the ${\sim}90$\,fF
 design-anchor value back-solved from the blog workflow's expected
-$E_C = 0.2156$\,GHz. The committed benchmark diagnoses this as a
-model-definition difference, not a truncation artifact (grounding the
-exterior wall moves $C_\Sigma$ by a relative $6\times10^{-5}$; the
-scalar-versus-tensor sapphire treatment shifts it $0.75\%$). We report
-the extracted numbers and the discrepancy; we do not retrofit to the
-anchor. Section~\ref{sec:optdemo} returns to this gap as an optimization
-target --- and reports honestly how far a fixed-topology parametrization
-gets toward closing it.
+$E_C = 0.2156$\,GHz. Earlier versions, following the committed
+benchmark, diagnosed this as a model-definition difference and not a
+truncation artifact, on two checks: grounding the exterior wall moves
+$C_\Sigma$ by a relative $6\times10^{-5}$, and the scalar-versus-tensor
+sapphire treatment shifts it $0.75\%$. Those two measurements stand, but
+neither tests mesh convergence, and we withdraw the diagnosis. The
+discretization error is at least $36.34$\,fF, the same order as the
+gap itself, and after one refinement the scalar-$\varepsilon$
+$C_\Sigma$ of the unmodified device sits $12.7\%$ above the $89.9$\,fF
+anchor instead of $53\%$ above it. How much of the gap is
+discretization and how much is model definition cannot be said until the
+converged value is measured. We report the extracted numbers and the
+discrepancy; we do not retrofit to the anchor.
+Section~\ref{sec:optdemo} uses the anchor as an optimization target on
+the coarse mesh and reports what that does and does not establish.
 
 \section{Differentiable Sensitivities: The Discrete-Adjoint Layer}
 \label{sec:adjoint}
@@ -793,12 +1061,25 @@ observed relative errors at the $10^{-9}$ level.
 Negative}
 \label{sec:optdemo}
 
-Two demonstrations, in deliberately labeled honesty tiers: a closed-loop
-proof on an analytic fixture, then the real device mesh. Both use damped
-Newton on $E_C(\theta) - E_C^{\mathrm{target}}$ (equivalently
+Three demonstrations, in deliberately labeled honesty tiers: a
+closed-loop proof on an analytic fixture, a single-parameter run on the
+real device mesh, and a three-parameter bounded optimizer on that mesh.
+The first two use damped Newton on
+$E_C(\theta) - E_C^{\mathrm{target}}$ (equivalently
 $C(\theta)$) with the analytic $dE_C/d\theta$ from
 Section~\ref{sec:chain}; each Newton step costs one forward plus one
-adjoint solve on a single factorization. The framing claim is
+adjoint solve on a single factorization.
+
+One caveat governs every device-mesh number in this section. The
+capacitances are computed on the coarse committed mesh or on morphed
+copies of it, and that mesh overstates $C_\Sigma$: one uniform
+refinement lowers it by $26.3\%$ (Section~\ref{sec:lom}). The gradient
+validations and convergence statements below are exact statements about
+the coarse discrete problem. The finite-difference checks test the
+derivative of the discrete $C_\Sigma$, and the fresh solves test
+self-consistency on one discretization. None of them is evidence about
+the converged device, and the distances to the $89.9$\,fF anchor are
+distances measured in coarse-mesh capacitance. The framing claim is
 capability and step-count, not wall clock: a derivative-free loop
 (the parameter sweeps of current practice) spends $N_{\mathrm{params}}$
 extra forward solves per step to estimate what the adjoint delivers
@@ -894,7 +1175,7 @@ $\theta = 0$ gradient puts it at $\theta \approx -0.241$ --- but the
 fixed-topology map inverts its first tetrahedron at $\theta = -0.0097$,
 and the run's conservative budget (minimum tet-volume ratio $0.25$) caps
 $\theta_{\mathrm{safe}} = -0.0073$, where the bounded Newton run stalls
-at $C_\Sigma = 136.5$\,fF: a $33\times$ shortfall. The diagnosis is
+at $C_\Sigma = 136.5$\,fF: a $33\times$ shortfall on the coarse mesh. The diagnosis is
 geometric, not a gradient failure: the island's junction-attachment
 nodes sit ${\sim}225\,\mu$m from the island centroid, so the centroid
 scale drags them against ${\sim}0.7\,\mu$m junction-region tetrahedra.
@@ -923,21 +1204,109 @@ $dC/d\theta=-(C/E_C)\,dE_C/d\theta$, the two recorded steps give
 $209.1$ and $114.5$\,fF per unit $\theta$. \emph{If the sensitivity
 does not recover beyond the measured endpoint}, the remaining gap needs
 at least another $38.893/114.5\simeq0.340$ in $|\theta|$, or a total
-approximately $0.404$: at least about $6.26\times$ the safe budget.
+approximately $0.404$: at least $6.25\times$ the safe budget (computed
+$6.256959$, floored).
 This is a conditional extrapolation, not a measured bound on
-an uncomputed continuation. Both runs use scalar trace-averaged sapphire;
-neither establishes the tensor-material shape chain.
+an uncomputed continuation. It is also a statement about the coarse
+mesh, whose $C_\Sigma$ starts $47.8$\,fF above the anchor; once refined,
+the unmodified device starts about $11.5$\,fF above it
+(Section~\ref{sec:lom}), so the $33\times$ and $6.25\times$ factors do
+not describe the converged problem. Both runs use scalar trace-averaged
+sapphire; neither establishes the tensor-material shape chain.
 
-\subsection{Multi-parameter real-device anchor experiment (pending)}
-\label{sec:anchor-pending}
-\noindent\textbf{[PENDING issue-1034]} The anchor-reaching experiment
-will combine junction-pinned length, width and cutout-gap parameters,
-then re-solve the mesh-motion field at each bounded optimization step.
-A subsequent coupling constraint will test the island--claw ratio
-$\beta=C_g/C_\Sigma$. The trajectory, parameter bounds, finite-difference
-checks, minimum element-volume ratios and independent final extraction
-are not yet available in this draft. No anchor-reaching or two-target
-result is claimed here.
+\subsection{Three junction-pinned parameters: a methods result}
+\label{sec:multiparam}
+
+The single-parameter runs stall because one scaling drags the junction
+leads against sub-micron tetrahedra. The third tier removes that
+constraint and adds a bounded optimizer. Its outcome is a methods
+result. It is not a device design, for reasons stated at the end of this
+subsection.
+
+\paragraph{Gradients (proven on the coarse mesh).}
+Three harmonic morph fields change the island length ($\theta_L$), the
+pad width ($\theta_W$) and the cutout gap ($\theta_G$). Each is exactly
+zero on the junction nodes and on the island leads, so no parameter
+moves the junction region. The gradient of
+$C_\Sigma = C_{ii} - C_{if}^2/C_{ff}$ with respect to all three comes
+from one assembly and one factorization. At $\theta = 0$ it is
+$93.427139$, $44.855961$ and $-61.367367$\,fF per unit parameter, and
+the full-pipeline central finite difference at $h = 10^{-4}$ agrees to
+relative errors of $7.9\times10^{-7}$, $3.4\times10^{-10}$ and
+$1.1\times10^{-8}$
+(\path{benchmarks/transmon_diffopt/multiparam_gradient.toml}). With the
+fields held fixed, moving along the joint corner of the three safe
+budgets does not reach the anchor: a fresh extraction at the largest
+safe fraction gives $97.027749$\,fF.
+
+\paragraph{Bounded optimizer with per-step re-morphing (proven on the
+coarse mesh).}
+The optimizer rebuilds the three morph fields about the current
+geometry at every accepted step. Each step is a projected minimum-norm
+Gauss--Newton step on the $E_C$ residual under box, trust-region and
+linearized volume-ratio constraints. Every accepted step keeps the
+minimum tetrahedron volume ratio against the original mesh at or above
+$0.25$ and is confirmed by an independent fresh extraction. Six morph
+variants were run in a fixed order
+(\path{benchmarks/transmon_diffopt/multiparam_results.toml}):
+\begin{itemize}
+  \item fixed fields stall at $96.191952$\,fF, and unit re-morphing
+    stalls at $94.053101$\,fF;
+  \item volume-stiffened re-morphing with exponent $\alpha = 1$ and
+    $\alpha = 2$ stalls at $92.063327$ and $90.819818$\,fF;
+  \item $\alpha = 3$ converges in 18 steps to $89.900001$\,fF, with an
+    $E_C$ residual of $-3.019$\,Hz against a $10$\,kHz tolerance, a
+    minimum volume ratio of $0.250635$, fresh-solve agreement of
+    $1.39\times10^{-14}$, and finite-difference agreement at the final
+    design of $1.2\times10^{-8}$, $1.2\times10^{-9}$ and
+    $9.2\times10^{-9}$;
+  \item $\alpha = 4$ converges in 14 steps to $89.900413$\,fF.
+\end{itemize}
+The quantity that reaches $89.9$\,fF is the coarse-mesh
+scalar-$\varepsilon$ $C_\Sigma$. At that design the tensor-$\varepsilon$
+value is $90.342806$\,fF; a separate outer retarget brings the tensor
+value to $89.899807$\,fF in two rounds, again on the coarse mesh.
+
+\paragraph{What this result is not.}
+\emph{The design is not unique.} The $\alpha = 3$ and $\alpha = 4$ runs
+both reach the anchor with different geometries: island length
+$564.62$ against $580.55\,\mu$m, pad width $8.68$ against
+$7.84\,\mu$m, and cutout gap $67.65$ against $67.83\,\mu$m (from
+$625.5$, $24.0$ and $30.0\,\mu$m). The mesh-quality floor is a property
+of the morph and not of the device, so the design reached depends on
+$\alpha$.
+
+\emph{The exponent was selected post hoc.} The headline rule, the
+smallest swept $\alpha$ that converges, and the list of exponents were
+fixed after exploratory runs. All six runs are committed.
+
+\emph{It is not a device-design result.} On the once-refined mesh the
+$\alpha = 3$ design has $C_\Sigma = 66.609133$\,fF, which is $25.9\%$
+\emph{below} the anchor, while the unmodified device, refined, is
+$12.7\%$ above it. The refinement shift at the headline design is
+$5{,}582$ times the anchor tolerance. The $10$\,kHz convergence and the
+$10^{-14}$ fresh-solve agreement therefore measure the optimizer's
+self-consistency on one discretization, not accuracy. The final
+dimensions are not an $89.9$\,fF device. The design has also not been
+regenerated by the layout toolchain or remeshed.
+
+What the result does establish is the method: junction-pinned
+multi-parameter gradients that survive finite-difference checks on
+production geometry, a re-morphing scheme that extends the reachable
+range, and a bounded optimizer that converges on the discretization it
+is given.
+
+\paragraph{Pending.}
+\noindent\textbf{[PENDING issue-1051]} The mesh-converged $C_\Sigma$ of
+this device, and with it the size of the true gap to the anchor, are
+being measured. No result of that study is used in this draft, and no
+anchor-reaching claim is made for a converged discretization.
+
+\noindent\textbf{[PENDING issue-1037]} A second design target, the
+island--claw coupling ratio $\beta = C_g/C_\Sigma$, has not been run.
+The optimizer interface accepts several targets and is unit-tested with
+two targets and three parameters, but no two-target experiment on the
+device exists.
 
 \section{Roadmap: Differentiating the Eigenmode Branch}
 \label{sec:roadmap}
@@ -1004,8 +1373,9 @@ the optimizer's cost or establishes a general solver ranking.
 
 The earlier timing request, six modes at $4.5$\,GHz, did not establish
 equivalent work. In the mode-logged re-run it returns four near-kernel
-modes, the spurious port mode and only one physical mode in geode-fem,
-whereas Palace returns all six physical modes. The historical run has
+modes, the $3.45$\,GHz qubit mode and only one of Palace's six modes in
+geode-fem, whereas Palace, which searches only above its target, returns
+its six. The historical run has
 no committed mode log or CPU-time record; its mode content and actual
 thread count cannot be recovered. We therefore withdraw the earlier
 claim that one geode core beats eight Palace ranks with roughly twelve
@@ -1022,16 +1392,35 @@ requested width. Table~\ref{tab:cpu} retains all three geode requests
 that recover the six reference modes. Two are tuned using the reference
 spectrum: requesting thirty modes at $4.5$\,GHz, or moving the shift to
 $20$\,GHz. The older port-aware extraction route does not use reference
-frequencies to choose its request, but returns two non-physical modes
-alongside the six; identifying the physical subset still uses Palace.
+frequencies to choose its request, but returns two further modes
+alongside the six (one near-kernel mode and the qubit mode); matching
+the six still uses Palace.
 Palace's target is a lower bound, whereas geode's shift is a centre, so
 identical numerical requests need not select identical spectra.
+
+Two asymmetries qualify every comparison in Table~\ref{tab:cpu}. First,
+the solvers do not solve the same number of unknowns. Palace refines
+the input mesh around the metal sheets, and every timed Palace run
+assembles $183{,}891$ N\'ed\'elec unknowns against geode-fem's
+$156{,}863$ ($133{,}108$ interior), about $17\%$ more
+(Section~\ref{sec:geometry}). The table does not correct for this, and
+the difference favours geode-fem. Second, the reference set is Palace's
+six modes above $4.5$\,GHz. That set includes the $17.49$\,GHz
+port-sheet mode and excludes the qubit mode, which Palace cannot return
+at this target (Section~\ref{sec:honest-physics}). The ``Extra modes''
+column counts returned modes outside that set. In the thirty-mode and
+port-aware rows one of the extras is the qubit mode, which the committed
+artifact still labels \texttt{spurious\_port}; the others are
+near-kernel modes.
 
 \begin{table}[t]
   \centering
   \caption{Mode-verified CPU timings on one m6i.4xlarge: median wall
-  seconds / measured core-seconds. All rows contain the six physical
-  modes. Three repeats per cell except Palace one-rank Save=0 (one run).
+  seconds / measured core-seconds. All rows contain the six reference
+  modes of Table~\ref{tab:agreement}. The solvers start from the same
+  input mesh but Palace solves $183{,}891$ unknowns and geode-fem
+  $156{,}863$; the timings are not normalized for that.
+  Three repeats per cell except Palace one-rank Save=0 (one run).
   The two oracle-tuned requests are marked $\dagger$; the historical
   port-aware route is the pre-port-subspace implementation.
   Palace always requests six modes above $4.5$\,GHz.}
@@ -1068,7 +1457,8 @@ At one wide the geode routes take less wall and CPU time, but neither
 comparison isolates a solver kernel: geode writes no fields and has no
 counterpart to Palace's error estimator, which remains enabled even
 with Save=0 (about $40.2$\,s at one rank and $5.0$\,s at eight).
-MPI busy-waiting also affects measured Palace core-seconds. No single
+MPI busy-waiting also affects measured Palace core-seconds. Palace also
+carries about $17\%$ more unknowns in every cell. No single
 route is selected as a headline winner.
 
 The Palace build uses SuperLU-preconditioned GMRES, not AMS:
@@ -1077,14 +1467,16 @@ SuperLU. A later, separate m6i session with a tuned Palace build found
 only a $1.01$--$1.05\times$ same-box wall-time improvement over its
 untuned control; cross-session differences must not be credited to
 compiler tuning. Those runs also predate the new port-subspace solver.
-The local update in Section~\ref{sec:spurious-mode} cannot be substituted
+The local update in Section~\ref{sec:gauge-arc} cannot be substituted
 into this same-box timing table.
 
 At $1{,}157{,}564$ DOFs, a historical geode direct run completed on a
 128\,GB box in $565.5$\,s with $92.2$\,GB peak RSS. Palace's earlier
 eight-rank run recorded $423.12$\,s and about $33$\,GB aggregate memory.
 These are different-host observations, and the geode request lacks
-mode-content verification. They establish the direct factorization's
+mode-content verification. The DOF count is geode-fem's; we infer that
+Palace's internal refinement applies to that mesh as well, and its
+unknown count for that run is not quoted here. They establish the direct factorization's
 large memory requirement, not a controlled performance crossover or
 equivalent physical-mode throughput.
 
@@ -1212,9 +1604,13 @@ Table~\ref{tab:cpu}.
 \section{Reproducibility}
 \label{sec:repro}
 
-Every artifact behind every number in this paper is committed and
+Every artifact behind every result in this paper is committed and
 scripted.\footnote{Repository URL and archival DOI for the geode-fem
 source to be added at submission. TODO(operator).}
+The exceptions are labelled where they occur: the scratch-probe
+measurements and source readings of Section~\ref{sec:honest-physics}
+trace to a committed design note and probe source, not to a regenerable
+benchmark artifact.
 
 \begin{itemize}
   \item \textbf{Geometry and mesh.} Generated by DeviceLayout.jl
@@ -1230,21 +1626,35 @@ source to be added at submission. TODO(operator).}
     reproduce bit-for-bit across the conversion. Documented in the
     committed \texttt{palace\_config.provenance.txt} because it is
     exactly the kind of silent pipeline step a same-mesh claim must
-    disclose.
+    disclose. A second such step went undisclosed in earlier versions:
+    Palace refines the mesh it reads ($4{,}913$ elements added by local
+    bisection, $6{,}014$ duplicated vertices) and solves $183{,}891$
+    unknowns, as its committed run logs record
+    (\path{reference/fixtures/transmon_palace/results_p1/palace_run_v22.log}).
   \item \textbf{Credential artifacts.} The Palace configuration and
     provenance under \path{reference/fixtures/transmon_palace/};
     geode-fem's benchmark definitions, the agreement numbers, the
     L-doubling tripwire ($17.4901 \to 12.37$\,GHz, committed ratio
-    $0.7071$), the spurious-mode measurements ($3.4528$\,GHz,
-    $p = 0.9942$; L-doubling ratio $0.7081$), and the full
-    gauge/projection arc of Section~\ref{sec:spurious-mode}
+    $0.7071$), the qubit-mode measurements ($3.4528$\,GHz,
+    $p = 0.9942$; L-doubling ratio $0.7081$; stored under the
+    artifact's \texttt{[spurious\_mode]} key), Palace's
+    \texttt{Target}~$= 2$\,GHz re-run
+    (\texttt{[oracles.palace\_target2]}), and the full
+    gauge/projection arc of Section~\ref{sec:gauge-arc}
     (tree--cotree counts and the $1.64\%$ shift; bulk-projection
     divergence ratio $50.2$ and projected norm $1.06\times10^{-4}$;
     port-aware acceptance at $\leq 0.029\%$) in
     \path{benchmarks/transmon_eigen/results.toml}, each pinned by a
     release-tier regression test. Palace's raw outputs
     (\texttt{eig.csv}, per-port participation, run log) are committed;
-    a rerun reproduced \texttt{eig.csv} bit-for-bit.
+    a rerun reproduced \texttt{eig.csv} bit-for-bit. The re-run's
+    configurations, logs, \texttt{eig.csv}, \texttt{port-EPR.csv} and
+    provenance are under
+    \path{reference/fixtures/transmon_palace/results_p1_target2/}. The
+    source reading of Palace's port operator and search window, the
+    port-voltage probe and the planned rank-1 formulation are in
+    \path{docs/research/transmon-lumped-port-formulation.md}; its probe
+    is scratch source that the build does not compile.
   \item \textbf{Precision of the committed agreement numbers.}
     \path{benchmarks/transmon_eigen/results.toml} stores geode-fem
     frequencies at three decimals while the Palace column carries full
@@ -1257,7 +1667,7 @@ source to be added at submission. TODO(operator).}
     unless marked as committed.
   \item \textbf{LOM chain.} The three-conductor capacitance extraction
     and Koch-exact spectrum ($C_\Sigma = 136.7$\,fF, $E_C =
-    0.142$\,GHz, and the anchor-gap diagnosis of
+    0.142$\,GHz, and the boundary and sapphire-model checks of
     Section~\ref{sec:lom}) in
     \path{benchmarks/transmon_quantum/results.toml}; pinned by the
     release test \path{crates/geode-core/tests/transmon_quantum.rs}.
@@ -1275,7 +1685,11 @@ source to be added at submission. TODO(operator).}
     bounded anchor attempt with its mesh-safety budget in
     \path{benchmarks/transmon_diffopt/pad_results.toml}; harmonic motion
     and its bounded anchor attempt in
-    \path{benchmarks/transmon_diffopt/harmonic_results.toml}; all consumed
+    \path{benchmarks/transmon_diffopt/harmonic_results.toml}; the
+    three-parameter gradients in
+    \path{benchmarks/transmon_diffopt/multiparam_gradient.toml}; the
+    bounded optimizer runs and the one-level mesh refinement in
+    \path{benchmarks/transmon_diffopt/multiparam_results.toml}; all consumed
     by \path{crates/geode-core/tests/transmon_diffopt.rs}.
   \item \textbf{Performance artifacts.} The historical CPU cell in
     \path{benchmarks/transmon_bench_cpu/results.toml}; mode-verified
@@ -1301,7 +1715,10 @@ source to be added at submission. TODO(operator).}
     \texttt{us-east-1}; the
     1.16M-DOF completion row: a 128\,GB \texttt{r6i}-class box (see the
     committed log). GPU cell: EC2 \texttt{g6e.xlarge} (4 vCPU, 30\,GB;
-    1$\times$ NVIDIA L40S 46\,GB; driver 595.71.05, CUDA 13.2).
+    1$\times$ NVIDIA L40S 46\,GB; driver 595.71.05, CUDA 13.2). The
+    Palace \texttt{Target}~$= 2$\,GHz re-run: a local Apple M3 Ultra,
+    Palace built from the in-repository Docker recipe (arm64), eight MPI
+    ranks; no timing from it is used.
   \item \textbf{Versions.} geode-fem commit \texttt{3174015} (headline
     credential and historical CPU cells; the adjoint/diffopt layers are merged
     post-\texttt{3174015} and cited by PR number); Palace commit
@@ -1315,26 +1732,35 @@ source to be added at submission. TODO(operator).}
 In V\&V terms \citep{roache1997quantification,oberkampf2010verification}
 the cross-validation is code verification and code-to-code comparison,
 not validation against nature: two independent implementations agreeing
-to $\leq 0.033\%$ on the identical discrete problem, with analytic
-tripwires pinning the junction physics. It does not certify that either
+to $\leq 0.033\%$ from the identical input mesh, on discrete problems
+that differ by Palace's internal refinement, with scaling tripwires on
+the port operator and on the qubit mode. It does not certify that either
 solver matches a measured device --- that is what
 \citet{ye2025electromagnetic}-style experimental benchmarks address ---
 but it rules out the large error class living in formulation, assembly,
-boundary handling, and eigensolver machinery. For this paper's purpose
-it establishes the specific premise the gradients need: the forward
-solutions being differentiated are production-accurate.
+boundary handling, and eigensolver machinery. It establishes that
+geode-fem's eigenmode path reproduces a production solver from the same
+input. It does not establish mesh convergence. In particular the
+electrostatic observable that this paper differentiates is not
+converged on this mesh (Section~\ref{sec:lom}), and the eigenmode
+credential says nothing about that.
 
 \paragraph{What the differentiable-design evidence supports.}
 The proven capability is bounded and we state its boundary. Proven: the
 $2\times 2$ adjoint matrix at operator level (FD-validated with mutation
 tests); the capacitance$\to E_C$ chain with its stationarity collapse;
 a closed Newton loop confirmed by independent fresh solves on both an
-analytic fixture and the real 133k-tet mesh; and a real-mesh gradient
-validated at $1.15\times10^{-4}$ against the full independent pipeline.
+analytic fixture and the real 133k-tet mesh; a real-mesh gradient
+validated at $1.15\times10^{-4}$ against the full independent pipeline;
+and, as a method, three junction-pinned gradients and a bounded
+re-morphing optimizer that converges on the coarse discretization
+(Section~\ref{sec:multiparam}).
 Not proven, and not claimed: eigenmode/EPR derivatives (the
-Section~\ref{sec:roadmap} wall); anchor-reaching real-device
-optimization (harmonic motion still stops at $128.793$\,fF in
-Section~\ref{sec:optdemo-pad}, with the multi-parameter result pending); tensor-$\varepsilon$ shape chains;
+Section~\ref{sec:roadmap} wall); a design that meets the anchor on a
+converged mesh (the coarse-mesh design sits $25.9\%$ below it after one
+refinement, and the converged $C_\Sigma$ is still being measured);
+two-target or coupling-constrained optimization;
+tensor-$\varepsilon$ shape chains;
 multi-parameter optimization at scale; and any wall-clock superiority
 over sweep-based workflows. The capability is also not qubit-specific
 --- shape and material sensitivities of electrostatic and driven-EM
@@ -1344,10 +1770,19 @@ unmet need.
 
 \paragraph{Threats to validity.}
 A common-mode error --- both solvers wrong the same way --- cannot be
-excluded by cross-comparison alone; the analytic anchors and disjoint
-implementations make it unlikely for the junction physics. The
-optimization demonstrations are single-parameter by design; nothing here
-demonstrates multi-parameter or constrained optimization behavior. The
+excluded by cross-comparison alone, and this paper now contains an
+example. The $17.49$\,GHz mode is an artifact of a port representation
+that both solvers share; the two agree on it to $0.001\%$, and earlier
+versions took that agreement, with the $f_{LC}$ anchor, as confirmation
+of the junction physics. The same versions asserted the absence of a
+mode that Palace had not been asked for. Agreement with a reference
+bounds implementation error, not shared modeling choices or the
+reference's own search window. The device-mesh capacitances are
+coarse-mesh upper bounds, so the anchor comparisons are not statements
+about the converged device. The three-parameter optimizer's stiffening
+exponent was chosen after exploratory runs, and its design is not
+unique. No two-target or coupling-constrained optimization is
+demonstrated. The
 parallel-plate tier's one-step convergence is an affine-map property,
 disclosed as such. The real-device chain uses the scalar trace-averaged
 sapphire (tensor-$\varepsilon$ delta quantified at $0.75\%$).
@@ -1359,22 +1794,26 @@ establish equivalent-work throughput.
 \paragraph{Limitations.}
 (i) One geometry, one mesh, first order only --- higher-order and
 mesh-refinement convergence is future work (a $p = 2$ Palace
-configuration is committed for that purpose). (ii) The lossless model
+configuration is committed for that purpose). The one refinement that
+has been run shows $C_\Sigma$ is far from converged; no refined
+eigensolve has been run. (ii) The lossless model
 leaves readout ports open; resistive terminations (hence
 complex-symmetric pencils and mode $Q$s) are out of scope. (iii) The
-credential eigenpath remains the ungauged committed benchmark; the
-new port-subspace route retains all six modes when seven are requested,
-but the solenoidal port artifact is still identified using the reference
-spectrum rather than eliminated. (iv) The CPU evidence depends on
+credential eigenpath remains the ungauged committed benchmark, and mode
+classification still uses the Palace reference spectrum. The shipped
+port term retains the $17.49$\,GHz port-sheet artifact; the rank-1
+port-voltage formulation that removes it in a probe is planned and not
+built. The committed artifacts still label the qubit mode as spurious. (iv) The CPU evidence depends on
 request selection, field output, error estimation and implementation
-version; it supports no unconditional per-core or scaling advantage.
+version, and Palace solves about $17\%$ more unknowns from the same
+input mesh; it supports no unconditional per-core or scaling advantage.
 (v) GPU evidence covers
 driven-solve correctness and an honest scaling negative in f32 on a
 cube fixture family; no GPU eigensolve path exists. (vi) The
 differentiable branch is electrostatic/LOM only (eigenmode/EPR is
 roadmap), currently scalar-$\varepsilon$ for the shape chain, and its
-real-device demonstration is bounded by the fixed-topology
-parametrization budget.
+real-device demonstrations are bounded by the fixed-topology morph
+budget and run on a mesh that is not converged for $C_\Sigma$.
 
 \section{Conclusion}
 \label{sec:conclusion}
@@ -1384,11 +1823,16 @@ geometry gradients for electrostatic and driven FEM operators. Its
 stationary capacitance derivative closes the geometry-to-charging-energy
 loop, with fresh-solve confirmation on an analytic fixture and a
 within-budget real-device target. Harmonic motion extends the real-mesh
-safe deformation budget $8.90\times$, but the $89.9$\,fF anchor remains
-unreached; the multi-parameter experiment is pending. Same-mesh agreement
-with Palace supplies a forward-solver credential, while the updated
-mode-verified timing and driven AMS experiments delimit the computational
-cost without claiming a general performance advantage. Eigenmode/EPR
+safe deformation budget $8.90\times$ without reaching the $89.9$\,fF
+anchor. A three-parameter junction-pinned optimizer with per-step
+re-morphing does reach it on the coarse mesh, as a methods result: that
+mesh overstates $C_\Sigma$ by at least $36.34$\,fF, the design is not
+unique, and the converged value is still being measured.
+Same-input-mesh agreement with Palace supplies a forward-solver
+credential that now includes the transmon qubit mode, which earlier
+versions wrongly reported as absent. The updated mode-verified timing
+and driven AMS experiments delimit the computational cost without
+claiming a general performance advantage. Eigenmode/EPR
 derivatives remain future work.
 
 \paragraph{Acknowledgments.}

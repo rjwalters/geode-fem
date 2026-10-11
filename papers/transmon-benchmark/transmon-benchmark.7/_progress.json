@@ -10,18 +10,23 @@
   },
   "metadata": {
     "iteration": 7,
-    "max_iterations": 7,
+    "max_iterations": 12,
     "revised_from": 6,
     "status": "DRAFT",
-    "authorization": "Tracked in #1039. One requested revision beyond the old cap of 6, pending operator confirmation (requested on PR #1040); no operator approval or review is claimed.",
+    "authorization": "Tracked in #1039. Revision beyond the old cap of 6 is authorized by the operator on 2026-10-10 as a standing permission to revise this paper past the cap (\"we can continue revising the paper as many times as we want\"; recorded on PR #1040 by an agent session on the operator's behalf). max_iterations is raised to 12 so the cap does not gate the next revisions. No review score or audit is claimed.",
     "pending_dependencies": [
-      "#1034 multi-parameter anchor result",
+      "#1051 mesh-converged C_Sigma (in progress, unmerged; no result used)",
+      "#1037 Phase C two-target (C_g / beta) experiment",
+      "#1044 rank-1 port-voltage formulation (roadmap, not built); #1045 artifact re-baselining",
       "independent paper review and audit",
       "existing TODO(operator) submission inputs"
     ],
     "evidence_snapshot": {
-      "brief_mtime": 1791652977.6544,
+      "brief_mtime": 1791697617.8361979,
       "refs_mtime": null
-    }
+    },
+    "in_place_corrections": [
+      "2026-10-10 PR #1040: qubit mode (#1047/#1055), Palace unknown count, coarse-mesh C_Sigma (#1050), #1035/#1036 methods result"
+    ]
   }
 }

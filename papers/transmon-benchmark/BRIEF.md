@@ -14,33 +14,89 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v7 preparation — 2026-10-10 (#1039)
+## v7 preparation — 2026-10-10 (#1039, corrected in place on PR #1040)
 
-#1039 requests one new version beyond the v6 cap: fold the committed post-v6
-measurements into a draft while the real-device multi-parameter anchor
-experiment (#1034) is still in progress. The cap is raised to 7 for this pass,
-pending operator confirmation (requested on PR #1040); v6 and its review/audit
-remain immutable.
+#1039 requests a new version beyond the v6 cap: fold the committed post-v6
+measurements into a draft. Revising past the cap is authorized by the
+operator: on 2026-10-10 the operator gave standing permission to keep revising
+this paper ("we can continue revising the paper as many times as we want"),
+recorded on PR #1040 by an agent session on the operator's behalf.
+`max_iterations` in `.anvil.json` is 12 so the cap does not gate the next
+revisions. v6 and its review/audit remain immutable.
 This does not confer a new review score or publication readiness.
 
-- Harmonic motion (#594): 8.90× safe-budget extension, but a 128.792998 fF
-  endpoint. Replace the initial-slope 3.54× headline with the conditional
-  endpoint-slope estimate of at least 6.3×, explicitly stating its assumption.
-- CPU timing (#964/#927): replace the old unmatched-work efficiency claim and
-  plot with all three mode-recovering routes, OS pinning, measured CPU time,
-  and Palace field-output/error-estimator caveats. Include the subsequent
-  tuned-build control without pooling sessions.
-- Port-subspace update (#1002): seven requested modes recover six physical
-  modes, with the 3.45 GHz mode still unresolved under #1003. Its local timing
-  is not a replacement for the EC2 timing cell.
+`main` moved while v7 was unmerged, and four of the draft's claims turned out
+to be wrong or stale. v7 was corrected in place. **Where this section conflicts
+with anything below it in this BRIEF, this section wins.** The older sections
+are kept as history and still say that no qubit mode exists, that the
+3.45 GHz mode is spurious, that the meshes are identical, and that the
+136.7 vs ~90 fF gap is a model difference. All four are withdrawn.
+
+PROVEN (committed artifacts; the reviser may state these as results):
+
+- **The 3.4528 GHz mode is the transmon qubit mode** (#1003 spike, PR #1047;
+  Palace re-run #1043, PR #1055). Palace at `Target = 2 GHz` returns
+  3.452749 GHz with port EPR 0.99424; geode gives 3.452751 GHz, p = 0.9942.
+  The L-doubling ratio is 0.70810. The earlier Palace run could not return
+  the mode because Palace searches only above `Target`. Source:
+  `benchmarks/transmon_eigen/results.toml` `[oracles.palace_target2]`,
+  `reference/fixtures/transmon_palace/results_p1_target2/`.
+- **Same-mesh caveat.** That agreement is a same-input-mesh, first-order
+  cross-check on a coarse mesh. It is not a converged qubit frequency.
+- **Palace does not solve the identical discrete problem.** It refines the
+  PEC sheets internally and solves 183,891 ND unknowns against geode's
+  156,863. Say "identical input mesh". The ≤0.033 % frequency agreement
+  stands. Every timing comparison carries this as a fairness caveat.
+- **The 17.49 GHz mode has Palace port EPR 2.49e-8** (both runs). It is the
+  artifact of the distributed port term, and Palace has it too. Its 0.001 %
+  agreement is agreement on a shared artifact.
+- **The committed 133k mesh is not converged for C_Σ** (PR #1050,
+  `benchmarks/transmon_diffopt/multiparam_results.toml` `[mesh_refinement]`).
+  One red refinement moves X⁰ from 137.706752 to 101.359397 fF (−26.3 %). The
+  coarse value is an upper bound; the converged value is unmeasured. Every
+  coarse-mesh C_Σ / E_C figure needs this caveat: the LOM chain, the #589 and
+  #594 real-device runs, the 33× and 6.25× shortfalls, and the 89.9 fF anchor
+  discussion.
+- **#1034 Phases A and B are a METHODS result** (#1035/PR #1042,
+  #1036/PR #1050): three junction-pinned gradients, FD-validated; a bounded
+  optimizer with per-step volume-stiffened re-morphing; the coarse-mesh
+  scalar-ε C_Σ reaches 89.9 fF at α = 3 in 18 steps. The design is not unique
+  (α = 4 reaches another), α was selected post hoc, and on the once-refined
+  mesh the design sits 25.9 % below the anchor. It is not a device design.
+
+NOT PROVEN (the reviser must keep these out of the results):
+
+- **ROADMAP:** the rank-1 port-voltage formulation (A2, #1044) that removes
+  the 17.49 GHz mode. A scratch probe measured it; it is not built. The
+  artifact re-baselining (#1045) and the default switch (#1046) are open.
+- **Scratch-probe and derived statements** (uniform-voltage shares, the
+  patch-bump mechanism): label them as such. The Palace source readings trace
+  to the design note, not to a vendored file.
+- **Pending:** the converged-mesh C_Σ (#1051, in progress and unmerged: cite
+  no result from it) and the Phase C two-target work (#1037). Keep
+  `[PENDING issue-1051]` and `[PENDING issue-1037]` visible.
+- **Inferences** must be worded as inferences. Lower bounds are floored
+  (6.256959 is "at least 6.25×", not 6.26× or 6.3×).
+
+Carried from the first v7 draft, still valid:
+
+- Harmonic motion (#594): 8.90× safe-budget extension, a 128.792998 fF
+  endpoint, and the conditional endpoint-slope estimate with its assumption
+  stated.
+- CPU timing (#964/#927): all three mode-recovering routes, OS pinning,
+  measured CPU time, Palace field-output/error-estimator caveats, and the
+  tuned-build control without pooling sessions. "Six physical modes" there
+  means Palace's six above 4.5 GHz.
+- Port-subspace update (#1002): seven requested modes recover those six plus
+  the qubit mode. Its local timing is not a replacement for the EC2 cell.
 - AMS at scale (#967): assembled CPU-f64 driven measurements, separate from
   the transmon eigenmode and GPU experiments.
-- Keep a visible `[PENDING issue-1034]` anchor section and every existing
-  `TODO(operator)` marker. The real-device optimizer result, independent
-  review/audit, and operator publication inputs remain outstanding.
+- Every existing `TODO(operator)` marker stays untouched. Independent
+  review/audit and the operator publication inputs remain outstanding.
 
-The new draft's `provenance.md` maps these changes to committed evidence;
-its `validation.md` records checks without claiming an independent audit.
+The draft's `provenance.md` maps these changes to committed evidence and
+lists what could not be traced to one; its `validation.md` records checks
+without claiming an independent audit.
 
 ## ⭐ REFRAME 2026-07-16 (operator direction — SUPERSEDES the 2026-07-14 framing below where they conflict)
 

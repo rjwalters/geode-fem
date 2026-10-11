@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.7/` (draft; anchor result pending; v6 is the last audited version) |
+| `transmon-benchmark` | `transmon-benchmark.7/` (draft; converged-mesh C_Σ pending; v6 is the last audited version, and v7 withdraws its absent-qubit-mode claim) |
 
 ## Building a paper
 
