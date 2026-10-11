@@ -62,7 +62,7 @@ rel_err = 1.038e-5
 # 1. The adjoint differentiates C_ii; the target is C_Sigma = C_ii - C_if^2/C_ff.
 feedline_correction_theta0_ff = 2.359e-9  # relative 1.713e-11
 feedline_correction_limit_ff = 2.321e-9  # relative 1.700e-11
-# 2. Scalar-vs-tensor epsilon (committed theta=0 delta ~ 7.5e-3):
+# 2. Scalar-vs-tensor epsilon (committed theta=0 delta ~ 7.5e-3; a COARSE-MESH value, its sign flips under refinement, see c_sigma_convergence.toml):
 c_sigma_tensor_limit_ff = 135.524302
 scalar_vs_tensor_delta_limit = 7.4759e-3  # at the limit design
 

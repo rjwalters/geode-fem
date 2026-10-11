@@ -620,7 +620,7 @@ fn main() {
         corr_lim * 1e15,
         corr_lim / c_sigma_limit
     );
-    t.push_str("# 2. Scalar-vs-tensor epsilon (committed theta=0 delta ~ 7.5e-3):\n");
+    t.push_str("# 2. Scalar-vs-tensor epsilon (committed theta=0 delta ~ 7.5e-3; a COARSE-MESH value, its sign flips under refinement, see c_sigma_convergence.toml):\n");
     let _ = writeln!(
         t,
         "c_sigma_tensor_limit_ff = {:.6}",
