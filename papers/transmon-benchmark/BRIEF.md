@@ -14,7 +14,7 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v7 preparation — 2026-10-10 (#1039, corrected in place on PR #1040)
+## v7 preparation — 2026-10-10, updated 2026-10-11 (#1039, corrected in place on PR #1040)
 
 #1039 requests a new version beyond the v6 cap: fold the committed post-v6
 measurements into a draft. Revising past the cap is authorized by the
@@ -26,11 +26,18 @@ revisions. v6 and its review/audit remain immutable.
 This does not confer a new review score or publication readiness.
 
 `main` moved while v7 was unmerged, and four of the draft's claims turned out
-to be wrong or stale. v7 was corrected in place. **Where this section conflicts
+to be wrong or stale. v7 was corrected in place, and again on 2026-10-11 when
+the convergence study (#1051, PR #1057) and the refined optimization (#1056,
+PR #1058) merged. **Where this section conflicts
 with anything below it in this BRIEF, this section wins.** The older sections
 are kept as history and still say that no qubit mode exists, that the
 3.45 GHz mode is spurious, that the meshes are identical, and that the
 136.7 vs ~90 fF gap is a model difference. All four are withdrawn.
+
+**Headline (2026-10-11).** Differentiable design with a refinement-validated
+real-device optimization: a rigorous upper bound on the converged capacitance
+of the design plus an extrapolated estimate, no continuum certification, and
+the mesh-convergence finding as a result of its own.
 
 PROVEN (committed artifacts; the reviser may state these as results):
 
@@ -50,19 +57,46 @@ PROVEN (committed artifacts; the reviser may state these as results):
 - **The 17.49 GHz mode has Palace port EPR 2.49e-8** (both runs). It is the
   artifact of the distributed port term, and Palace has it too. Its 0.001 %
   agreement is agreement on a shared artifact.
-- **The committed 133k mesh is not converged for C_Σ** (PR #1050,
-  `benchmarks/transmon_diffopt/multiparam_results.toml` `[mesh_refinement]`).
-  One red refinement moves X⁰ from 137.706752 to 101.359397 fF (−26.3 %). The
-  coarse value is an upper bound; the converged value is unmeasured. Every
-  coarse-mesh C_Σ / E_C figure needs this caveat: the LOM chain, the #589 and
-  #594 real-device runs, the 33× and 6.25× shortfalls, and the 89.9 fF anchor
-  discussion.
-- **#1034 Phases A and B are a METHODS result** (#1035/PR #1042,
-  #1036/PR #1050): three junction-pinned gradients, FD-validated; a bounded
-  optimizer with per-step volume-stiffened re-morphing; the coarse-mesh
-  scalar-ε C_Σ reaches 89.9 fF at α = 3 in 18 steps. The design is not unique
-  (α = 4 reaches another), α was selected post hoc, and on the once-refined
-  mesh the design sits 25.9 % below the anchor. It is not a device design.
+- **C_Σ mesh convergence** (#1051, PR #1057,
+  `benchmarks/transmon_diffopt/c_sigma_convergence.toml`). X⁰ scalar-ε:
+  P1 137.706752 / 101.359397 / 87.753422 fF at h, h/2, h/4 (8.5M tets,
+  AMG-PCG); P2 90.044141 / 83.015285 fF at h, h/2.
+  - RIGOROUS: every conforming value is an upper bound, so the converged X⁰
+    C_Σ is below 83.02 fF, at least 7.6 % BELOW the 89.9 fF anchor. The
+    coarse mesh overstates it by at least 54.69 fF.
+  - ESTIMATE: 74.14–79.62 fF. Not asymptotic, not a bound.
+  - The 137.7 vs ~90 fF gap was discretization error, not a model
+    difference. The residual gap has the opposite sign. The 5.5 fF junction
+    self-capacitance is outside this C_Σ (its role is an inference).
+  - The tensor-ε value converges below 89.50 fF, and the scalar-vs-tensor
+    sign flips under refinement.
+  - "Converged" refers to the committed polygonal geometry.
+- **Refined real-device optimization** (#1056, PR #1058,
+  `benchmarks/transmon_diffopt/refined_optimization/`). Flux-jump adaptive
+  refinement; a P2 equilibrium-energy shape gradient, FD-validated (worst
+  3.87e-7); the optimizer INCREASES C_Σ from 78.387918 to 89.900518 fF in
+  three accepted steps on a 448k-tet mesh.
+  - Seven held-out rounds fall to 89.014998 fF at 3.29M tets. RIGOROUS:
+    converged below 89.02 fF. ESTIMATE: about 88.8–88.9 fF, slower-rate
+    alternatives disclosed. A 1 % threshold is NOT claimed.
+  - Design increment about 11.5 fF, stable (11.513 → 11.405). X⁰ on the same
+    series: 78.39 → 77.61 fF.
+  - Resolution-corrected design: 90.980 → 90.077 fF. RIGOROUS: below
+    90.08 fF, at most +0.20 %. ESTIMATE: 89.84–89.96 fF.
+  - **Caveat that must stay in the paper (#1062):** the corrected series is
+    the first one rescaled (ratio constant to within 8.1e-5), so the band
+    contains the anchor BY CONSTRUCTION. Its width is the spread between
+    methods, not an uncertainty. Only the upper side is proven; at slower
+    rates the design lands 0.25–0.57 % below the anchor.
+  - Palace P2 agrees to 2.5e-6 on the same discretization. That is not
+    evidence about discretization error. Palace P3 was killed and is not
+    evidence.
+  - The numerical path is native f64, outside the Burn tape. Say so.
+- **The coarse-mesh optimizations are a cautionary precursor, not results.**
+  #1034 Phases A and B (#1035/PR #1042, #1036/PR #1050) passed every
+  self-consistency check and moved the WRONG way, lowering C_Σ; converged,
+  that design is below 52.37 fF. The #589/#594 "anchor shortfall" (33×, at
+  least 6.25×) was an artifact of an unconverged mesh. Keep both short.
 
 NOT PROVEN (the reviser must keep these out of the results):
 
@@ -72,17 +106,22 @@ NOT PROVEN (the reviser must keep these out of the results):
 - **Scratch-probe and derived statements** (uniform-voltage shares, the
   patch-bump mechanism): label them as such. The Palace source readings trace
   to the design note, not to a vendored file.
-- **Pending:** the converged-mesh C_Σ (#1051, in progress and unmerged: cite
-  no result from it) and the Phase C two-target work (#1037). Keep
-  `[PENDING issue-1051]` and `[PENDING issue-1037]` visible.
-- **Inferences** must be worded as inferences. Lower bounds are floored
-  (6.256959 is "at least 6.25×", not 6.26× or 6.3×).
+- **No continuum value is certified.** There is no lower bound on any
+  converged C_Σ. A two-sided bound (complementary energy, or a much finer or
+  higher-order solve) is ROADMAP (#1062).
+- **ROADMAP:** the Phase C two-target work (#1037) is open and waits on an
+  operator decision. Nothing in the paper depends on it, so it is stated as
+  roadmap and carries no `[PENDING …]` marker. v7 has no pending marker.
+- **Inferences** must be worded as inferences. Lower bounds are floored and
+  upper bounds and errors are rounded up (6.256959 is "at least 6.25×", not
+  6.26× or 6.3×; the committed `multiparam_gradient.toml` comment says
+  "about 6.26x", and `provenance.md` records the difference).
 
 Carried from the first v7 draft, still valid:
 
 - Harmonic motion (#594): 8.90× safe-budget extension, a 128.792998 fF
   endpoint, and the conditional endpoint-slope estimate with its assumption
-  stated.
+  stated. Historical since 2026-10-11 (see above).
 - CPU timing (#964/#927): all three mode-recovering routes, OS pinning,
   measured CPU time, Palace field-output/error-estimator caveats, and the
   tuned-build control without pooling sessions. "Six physical modes" there
