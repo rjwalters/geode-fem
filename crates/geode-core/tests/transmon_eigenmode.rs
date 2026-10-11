@@ -2418,7 +2418,7 @@ const A2_BULK_N6_REL_TOL: f64 = 1e-4;
 /// 1. `max|Gᵀ b| = 0` on the fixture: the plain bulk projector is exact.
 /// 2. A2 + the plain bulk projector at σ = 4.5 GHz, `N = 6`, one factorization:
 ///    the six modes of [`A2_BULK_N6_PROBE_GHZ`] within 0.01 %, every relative
-///    residual `≤ 1e-8` (the Lanczos tolerance; measured ≤ 1.8e-9), no
+///    residual `≤ 1e-8` (the Lanczos tolerance), and **≤ 2e-9** (measured 1.7e-9 to 1.8e-9), no
 ///    re-admitted gradient direction, and **no Palace frequency filter**. The
 ///    only filter is the reference-free exact-null cut of
 ///    `smallest_nonnull_eigenpairs` (issue #950), which drops one `λ ≈ 0` pair.
@@ -2551,8 +2551,8 @@ fn real_transmon_port_voltage_a2_bulk_projector_n6() {
     }
     for (i, &res) in diag.mode_residual_rels.iter().enumerate() {
         assert!(
-            res <= 1e-8,
-            "A2 mode[{i}] residual {res:.2e} > 1e-8: the bulk projector should be exact"
+            res <= 2e-9,
+            "A2 mode[{i}] residual {res:.2e} > 2e-9: the bulk projector should be exact"
         );
     }
 
@@ -2583,6 +2583,115 @@ fn real_transmon_port_voltage_a2_bulk_projector_n6() {
     assert!(
         ung_f.iter().all(|&f| !(15.5..=18.6).contains(&f)),
         "A2 has a mode in (15.5, 18.6) GHz: {ung_f:?}"
+    );
+}
+
+/// Shipped-shunt frequencies (GHz) under the plain bulk projector, σ = 4.5 GHz,
+/// `N = 6`; the committed `[issue_950]` cells of
+/// `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml` agree to 6 decimals.
+const SHIPPED_BULK_N6_GHZ: [f64; 6] = [
+    3.452751, 5.152825, 15.464979, 18.692705, 20.703377, 26.088287,
+];
+
+/// RELEASE (issue #1044): the *shipped* `LumpedReactiveShunt`
+/// (`JunctionPortModel::DistributedSurface`) through the same new solve entry
+/// points as [`real_transmon_port_voltage_a2_bulk_projector_n6`], on the 133k
+/// fixture. It backs the `shipped_*` keys of `[port_voltage_a2]` in
+/// `benchmarks/transmon_eigen/results.toml` and the contrast the CHANGELOG
+/// cites: the six frequencies match, but the plain bulk projector is *not*
+/// exact (`Gᵀ K_port ≠ 0`), so the qubit-mode residual is above 1e-4 (A2: ≤ 2e-9),
+/// and the ungauged σ = 17.5 GHz window has the 17.49 GHz port-sheet mode.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_shipped_shunt_bulk_projector_n6 --nocapture
+/// ```
+#[test]
+#[ignore = "two 133k-DOF sparse shift-invert eigensolves — release benchmark only"]
+fn real_transmon_shipped_shunt_bulk_projector_n6() {
+    use geode_core::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model;
+    use geode_core::eigen::transmon::{
+        JunctionPortModel, solve_transmon_eigenmodes_full_with_port_model,
+    };
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(JUNCTION_L_H, JUNCTION_C_F, M_PER_UNIT);
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt: LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        },
+        interior_mask: &interior_mask,
+    };
+
+    let sigma = lambda_shift_for_frequency_hz(4.5e9, M_PER_UNIT);
+    let (modes, diag) = solve_transmon_eigenmodes_projected_with_port_model(
+        &pencil,
+        JunctionPortModel::DistributedSurface,
+        sigma,
+        6,
+        M_PER_UNIT,
+    )
+    .expect("shipped-shunt bulk-projected eigensolve");
+    for (i, m) in modes.iter().enumerate() {
+        eprintln!(
+            "  shipped mode[{i}]: f = {:.6} GHz, residual = {:.2e}",
+            m.frequency_ghz(),
+            diag.mode_residual_rels[i]
+        );
+    }
+    eprintln!("  shipped null modes dropped: {}", diag.null_modes_dropped);
+    assert_eq!(modes.len(), 6, "6 modes requested: {:?}", freqs(&modes));
+    for (m, &want) in modes.iter().zip(SHIPPED_BULK_N6_GHZ.iter()) {
+        let r = (m.frequency_ghz() - want).abs() / want;
+        assert!(
+            r <= 1e-6,
+            "shipped mode {:.6} GHz differs from the committed {want} GHz by {r:.2e}",
+            m.frequency_ghz()
+        );
+    }
+    // The contrast: the bulk projector is not exact under the distributed S_Γ.
+    assert!(
+        diag.mode_residual_rels[0] > 1e-4,
+        "shipped qubit-mode residual {:.2e} should exceed 1e-4",
+        diag.mode_residual_rels[0]
+    );
+    assert_eq!(diag.null_modes_dropped, 1, "one exact-null pair dropped");
+
+    // Ungauged σ = 17.5 GHz, N = 8: the 17.49 GHz port-sheet mode is present.
+    let sigma_j = lambda_shift_for_frequency_hz(17.5e9, M_PER_UNIT);
+    let ung = solve_transmon_eigenmodes_full_with_port_model(
+        &pencil,
+        JunctionPortModel::DistributedSurface,
+        &[],
+        sigma_j,
+        8,
+        M_PER_UNIT,
+        InnerSolver::Direct,
+    )
+    .expect("shipped ungauged eigensolve");
+    let ung_f: Vec<f64> = ung.iter().map(|m| m.report.frequency_ghz()).collect();
+    eprintln!("shipped ungauged σ = 17.5 GHz: {ung_f:?}");
+    assert!(
+        ung_f.iter().any(|&f| (f - 17.490109).abs() < 1e-4),
+        "the shipped shunt should have its 17.490109 GHz mode: {ung_f:?}"
     );
 }
 

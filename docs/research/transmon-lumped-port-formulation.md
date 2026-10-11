@@ -225,7 +225,7 @@ inverted. The qubit mode is present in geode, and Palace was not asked to look f
 |---|---|---|---|
 | **shipped `S_Γ`** | 6 near-kernel, **3.4528**, 5.1528 | 2 near-kernel, 3.4528, 5.1528, 15.4650, **17.4901**, 18.6927, 20.7034 | 3.4528, 5.1528, 15.4650, 18.6927, 20.7034, 26.0883. The 17.49 GHz mode is deflated (#509). Residuals up to **5.5e-3**, because `P` is not exact when `Gᵀ K_port ≠ 0`. |
 | **A1** directional `∫(N_i·ê)(N_j·ê)` | 6 near-kernel, 3.4528, 5.1528 | 2 near-kernel, 3.4528, 5.1528, 15.4650, **17.3777**, 18.6927, 20.7034 | not run |
-| **A2** rank-1 `(1/L̃) b bᵀ`, `C̃ b bᵀ` | 6 near-kernel, 3.4528, 5.1528 | 3 near-kernel, 3.4528, 5.1528, 15.4650, 18.6927, 20.7034. **No mode between 15.47 and 18.69 GHz.** | **3.4528, 5.1528, 15.4650, 18.6927, 20.7034, 26.0883**, residuals **≤ 1.7e-9** |
+| **A2** rank-1 `(1/L̃) b bᵀ`, `C̃ b bᵀ` | 6 near-kernel, 3.4528, 5.1528 | 3 near-kernel, 3.4528, 5.1528, 15.4650, 18.6927, 20.7034. **No mode between 15.47 and 18.69 GHz.** | **3.4528, 5.1528, 15.4650, 18.6927, 20.7034, 26.0883**, residuals **≤ 2e-9** |
 
 Here `b_i = (1/w)∫_Γ N_i·ê dS`, which is `assemble_port_flux / w`
 (`crates/geode-core/src/driven/ports/lumped.rs:185`). Palace uses the same voltage
@@ -291,7 +291,7 @@ conflicts with A2, and this note says the conflict is real (O1).
 - As a result, `image(d⁰_interior)` is exactly the kernel of `K + K_port`, and the
   **plain bulk projector** `MOrthogonalGradientProjector`
   (`crates/geode-core/src/eigen/projection.rs`, used by `solve_transmon_eigenmodes_projected`,
-  :1352) is exact. Measured: six non-null modes, residuals ≤ 1.7e-9, against up to 5.5e-3
+  :1352) is exact. Measured: six non-null modes, residuals ≤ 2e-9, against up to 5.5e-3
   for the shipped `S_Γ` under the same `P`.
 - No re-admission is needed. `PortAwareGradientProjector` (:473, the `û` extract) and
   `PortSubspaceGradientProjector` (:628) exist **only** to keep the 17.49 GHz bump mode,

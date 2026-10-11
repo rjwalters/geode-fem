@@ -354,7 +354,7 @@ junction_lc_l_scaling_ratio = 0.70711
 #  - max|G^T b| = 0 exactly, so G^T K_port = G^T M_port = 0 and the plain bulk
 #    MOrthogonalGradientProjector is exact under A2;
 #  - A2 + the plain bulk projector at sigma = 4.5 GHz, N = 6 returns the six
-#    modes below in one factorization, residuals <= 1.74e-9, with NO Palace
+#    modes below in one factorization, residuals <= 2e-9, with NO Palace
 #    frequency filter. The only filter is the reference-free exact-null cut of
 #    smallest_nonnull_eigenpairs (issue #950), which drops one lambda = -4.0e-20
 #    pair (ceiling 1.19e-12);
@@ -390,7 +390,7 @@ bulk_sigma_ghz = 4.5
 bulk_n_requested = 6
 bulk_modes_ghz = [3.452753, 5.152825, 15.464979, 18.692705, 20.703377, 26.088287]
 bulk_participation = [0.9942, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000]  # (V^2/L~) / x^T K_tot x
-bulk_residual_rels = [1.74e-9, 1.62e-9, 9.20e-11, 4.90e-10, 8.28e-10, 1.55e-10]
+bulk_residual_rels = [1.88e-9, 1.68e-9, 9.05e-11, 4.95e-10, 8.24e-10, 1.64e-10]  # run to run varies ~10% (mode 0: 1.74e-9 to 1.88e-9); the test gates <= 2e-9
 bulk_divergence_ratios = [4.2e-15, 2.6e-15, 4.8e-15, 7.2e-15, 8.9e-15, 4.7e-15]
 bulk_lanczos_iterations = 96
 bulk_shifted_factorizations = 1
@@ -408,8 +408,10 @@ ungauged_modes_ghz = [0.000742, 0.000827, 0.000853, 3.452753, 5.152825, 15.46497
 ungauged_empty_band_ghz = [15.5, 18.6]  # the test asserts no mode here
 
 # Shipped shunt (distributed S_Gamma) on the same paths, for comparison. These
-# came from an uncommitted scratch harness calling the same entry points with
-# JunctionPortModel::DistributedSurface, on the same host and date. Their
+# are measured by the committed test
+# crates/geode-core/tests/transmon_eigenmode.rs::real_transmon_shipped_shunt_bulk_projector_n6
+# (the same entry points with JunctionPortModel::DistributedSurface); the A2
+# keys above come from real_transmon_port_voltage_a2_bulk_projector_n6. Their
 # non-null frequencies match the committed [issue_950] cells (for example
 # portaware_s4p5_n7) of
 # benchmarks/transmon_bench_cpu/results_like_for_like_local.toml to six decimals.
