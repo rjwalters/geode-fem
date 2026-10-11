@@ -1,0 +1,19 @@
+{
+  "source_commit": "1b445770abd268e44c542e9363047583c8b6e9b5",
+  "source_pr": "https://github.com/rjwalters/geode-fem/pull/1058",
+  "independent_review": "pending",
+  "files": {
+    "refined_validation.json": "2a8188bd12fcac68b853dd99b2849c80e53b8cda1bb34213b16ad5be486a08e0",
+    "refined_results.json": "33a7a8af27c7d8c51c74578465bbcfaaa5feb69fcb1ed2ef8761fb629f97b183",
+    "refined_design.json": "0473dd764428e8c7d73e23dff25a9bd564a99792077b967c43d6183e08404afc",
+    "optimized_island.json": "11da1bc9c024e209e530d76ce7a93a7c5c97f4e2e2255c44407dc72a46c032fd"
+  },
+  "optimized_island_derivation": "MSH 2.2 final_coarse.msh exported by the pinned experiment; collect type-2 triangles with physical tag 102, look up their node coordinates, and convert metres to micrometres. No smoothing or fitted shape.",
+  "repository_inputs": {
+    "crates/geode-core/tests/fixtures/transmon_smoke.msh": "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd",
+    "benchmarks/transmon_eigen/results.toml": "7bfb50fdbef086cf854999996bce29960c349c1d66bc651c127100223e8a1e48",
+    "benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml": "70ae9ec5fcd3a82a3682f38e710ca85e44c59be6e4f215c533752f81dc035ea7",
+    "benchmarks/transmon_diffopt/results.toml": "76ef73d1fa148be02a955f8eef564f8fa7da39e6a97ed94e5ab86814087e2582",
+    "benchmarks/transmon_diffopt/pad_results.toml": "cdd7c6e95f4a17c0d369836abf40574ebdc91225803ca475efa56ed842dc2a62"
+  }
+}

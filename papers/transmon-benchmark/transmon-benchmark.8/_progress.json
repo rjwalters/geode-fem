@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-11T06:13:09.968818+00:00"
+    },
+    "revise": {
+      "state": "done",
+      "completed": "2026-10-11T06:13:09.968818+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 8,
+    "max_iterations": 12,
+    "revised_from": 7,
+    "status": "DRAFT",
+    "authorization": "Operator requested figure improvements in this attended session (#1059). Standing permission to revise beyond the old cap is recorded on PR #1040; v7 and all earlier artifacts are preserved.",
+    "pending_dependencies": [
+      "#1051 continuum-converged C_Sigma; local P2 checks do not close it",
+      "#1037 Phase C two-target (C_g / beta) experiment",
+      "#1058 independent review of the pinned refined-optimization evidence",
+      "#1044 port-voltage formulation; #1045 artifact re-baselining",
+      "independent v8 paper review and audit",
+      "existing TODO(operator) submission inputs"
+    ],
+    "source_paper_commit": "a50a446a955c02a8e361c8482d765fb48f254fc6",
+    "new_evidence_commit": "1b445770abd268e44c542e9363047583c8b6e9b5",
+    "evidence_snapshot": {
+      "brief_mtime": 1791698780.7113585,
+      "refs_mtime": null
+    }
+  }
+}
