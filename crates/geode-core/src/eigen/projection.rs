@@ -1396,7 +1396,7 @@ pub fn solve_transmon_eigenmodes_projected(
 /// and no port-aware re-admission ([`PortAwareGradientProjector`],
 /// [`PortSubspaceGradientProjector`]) is needed. Those projectors exist only to
 /// keep the zero-voltage bump mode, which A2 does not have. On the 133k
-/// fixture the A2 residuals are `≤ 2e-9`.
+/// fixture the A2 residuals are `≤ 1e-8`.
 ///
 /// # Errors
 ///

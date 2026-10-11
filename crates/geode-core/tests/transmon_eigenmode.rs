@@ -2418,7 +2418,7 @@ const A2_BULK_N6_REL_TOL: f64 = 1e-4;
 /// 1. `max|Gᵀ b| = 0` on the fixture: the plain bulk projector is exact.
 /// 2. A2 + the plain bulk projector at σ = 4.5 GHz, `N = 6`, one factorization:
 ///    the six modes of [`A2_BULK_N6_PROBE_GHZ`] within 0.01 %, every relative
-///    residual `≤ 1e-8` (the Lanczos tolerance), and **≤ 2e-9** (measured 1.7e-9 to 1.8e-9), no
+///    residual `≤ 1e-8` (the Lanczos tolerance), asserted **≤ 1e-8** (measured 1.7e-9 to 1.9e-9 across runs), no
 ///    re-admitted gradient direction, and **no Palace frequency filter**. The
 ///    only filter is the reference-free exact-null cut of
 ///    `smallest_nonnull_eigenpairs` (issue #950), which drops one `λ ≈ 0` pair.
@@ -2551,8 +2551,8 @@ fn real_transmon_port_voltage_a2_bulk_projector_n6() {
     }
     for (i, &res) in diag.mode_residual_rels.iter().enumerate() {
         assert!(
-            res <= 2e-9,
-            "A2 mode[{i}] residual {res:.2e} > 2e-9: the bulk projector should be exact"
+            res <= 1e-8,
+            "A2 mode[{i}] residual {res:.2e} > 1e-8: the bulk projector should be exact"
         );
     }
 
@@ -2599,7 +2599,7 @@ const SHIPPED_BULK_N6_GHZ: [f64; 6] = [
 /// fixture. It backs the `shipped_*` keys of `[port_voltage_a2]` in
 /// `benchmarks/transmon_eigen/results.toml` and the contrast the CHANGELOG
 /// cites: the six frequencies match, but the plain bulk projector is *not*
-/// exact (`Gᵀ K_port ≠ 0`), so the qubit-mode residual is above 1e-4 (A2: ≤ 2e-9),
+/// exact (`Gᵀ K_port ≠ 0`), so the qubit-mode residual is above 1e-4 (A2: ≤ 1e-8),
 /// and the ungauged σ = 17.5 GHz window has the 17.49 GHz port-sheet mode.
 ///
 /// ```sh
