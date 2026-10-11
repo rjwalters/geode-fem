@@ -70,11 +70,22 @@
 //! - **Full EPR post-processing is Phase C.** The only participation
 //!   quantity here is the minimal junction-energy ratio
 //!   [`ModeReport::participation`] used for mode identification.
+//!
+//! # Opt-in rank-1 port-voltage shunt (issue #1044)
+//!
+//! [`LumpedPortVoltageShunt`] replaces `S_Γ` by the rank-1 form
+//! `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ`, with `b` the uniform
+//! port-voltage functional. It is selected per solve with
+//! [`JunctionPortModel::PortVoltage`] through
+//! [`solve_transmon_eigenmodes_full_with_port_model`] (ungauged) and
+//! [`crate::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model`]
+//! (bulk projector, exact under A2). The default stays the distributed
+//! [`LumpedReactiveShunt`].
 
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::nedelec::NedelecScatterMap;
-use crate::driven::ports::assemble_port_surface_mass;
+use crate::driven::ports::{assemble_port_flux, assemble_port_surface_mass};
 use crate::eigen::dense::EigenError;
 #[allow(unused_imports)] // referenced in doc links
 use crate::eigen::dense::EigenPair;
@@ -197,6 +208,194 @@ impl LumpedReactiveShunt<'_> {
             .into_iter()
             .map(|(r, c, v)| (r, c, s * v))
             .collect()
+    }
+}
+
+/// The **rank-1 port-voltage** junction shunt (formulation A2 of
+/// `docs/research/transmon-lumped-port-formulation.md`, issue #1044): the
+/// exact two-terminal lumped `L ∥ C` element, opt-in beside the default
+/// distributed [`LumpedReactiveShunt`].
+///
+/// # Operator
+///
+/// With the uniform port-voltage functional
+///
+/// ```text
+/// b_i = (1/w) ∫_Γ N_i · ê dS        (= assemble_port_flux / w),   V = bᵀx,
+/// ```
+///
+/// the junction stores exactly the lumped energies `V²/L̃` and `C̃ V²`:
+///
+/// ```text
+/// K_port = (1/L̃) b bᵀ,     M_port = C̃ b bᵀ.
+/// ```
+///
+/// Both are real symmetric rank-1 PSD, so the pencil stays real symmetric and
+/// `K + |σ|M` stays SPD. For the uniform tangential field `E = E₀ ê` on a
+/// rectangular port (`V = E₀ ℓ`) the energies equal those of the distributed
+/// shunt (`(ℓ/(w L̃)) ∫_Γ |E_t|² dS = E₀² ℓ²/L̃`). The two shunts differ only
+/// on non-uniform patch fields. A zero-voltage patch pattern (`bᵀx = 0`) gets
+/// no port stiffness here, while the distributed `S_Γ` gives it its own `L`/`C`
+/// resonance. On the 133k fixture that resonance is the 17.49 GHz port-sheet
+/// mode, which this shunt removes. Palace's `LumpedPort` uses the same `V`
+/// functional, but only for post-processing; its operator is `S_Γ` (note §1).
+///
+/// # Gauge consequence
+///
+/// For a free node `n` (not on PEC), `(Gᵀb)_n = (1/w) ∫_Γ ∇λ_n · ê dS =
+/// (1/w) ∮_{∂Γ} λ_n (ê·ν) ds`. On a rectangular port the two sides parallel to
+/// `ê` have `ê·ν = 0` and the two terminal sides lie on PEC, where `λ_n = 0`.
+/// So `Gᵀ b = 0` and `Gᵀ K_port = Gᵀ M_port = 0`: `image(d⁰_interior)` stays
+/// exactly in the kernel of `K + K_port`, and the plain bulk
+/// [`crate::eigen::projection::MOrthogonalGradientProjector`] is exact. This
+/// requires the terminal sides of the port to be on PEC.
+///
+/// Junction participation is `(V²/L̃) / xᵀ K_tot x`
+/// ([`ModeReport::participation`] with this `K_port`).
+#[derive(Debug, Clone)]
+pub struct LumpedPortVoltageShunt<'a> {
+    /// Port surface triangles (0-based node triples into `mesh.nodes`).
+    pub faces: &'a [[u32; 3]],
+    /// Port width `w` (area / length), in mesh units: the averaging width of
+    /// the voltage functional.
+    pub width: f64,
+    /// Unit field direction `ê` across the gap (tangential to the port).
+    pub e_hat: [f64; 3],
+    /// Reactive element values in natural units (mesh length unit).
+    pub element: ReactiveElementNatural,
+}
+
+impl<'a> LumpedPortVoltageShunt<'a> {
+    /// The A2 shunt with the same faces, width and element values as a
+    /// distributed `shunt`, plus the port direction `e_hat`. (The gap length
+    /// `ℓ` does not enter A2: it is carried by the functional `b` itself.)
+    pub fn from_reactive_shunt(shunt: &LumpedReactiveShunt<'a>, e_hat: [f64; 3]) -> Self {
+        Self {
+            faces: shunt.faces,
+            width: shunt.width,
+            e_hat,
+            element: shunt.element,
+        }
+    }
+
+    /// Stiffness scaling `1/L̃` applied to `b bᵀ`. Zero when `l_natural` is
+    /// infinite (junction removed).
+    pub fn k_scale(&self) -> f64 {
+        if self.element.l_natural.is_infinite() {
+            0.0
+        } else {
+            1.0 / self.element.l_natural
+        }
+    }
+
+    /// Mass scaling `C̃` applied to `b bᵀ`.
+    pub fn m_scale(&self) -> f64 {
+        self.element.c_natural
+    }
+
+    /// A copy with the inductor removed (`L̃ = ∞`, so `k_scale() == 0`); the
+    /// capacitance is kept, as in [`LumpedReactiveShunt::without_inductor`].
+    pub fn without_inductor(&self) -> Self {
+        let mut out = self.clone();
+        out.element.l_natural = f64::INFINITY;
+        out
+    }
+
+    /// The uniform port-voltage functional `b = assemble_port_flux / w` as a
+    /// sparse list `(global edge, b_e)` of its nonzero entries, in ascending
+    /// edge order. `V = Σ b_e x_e` for a full-length edge vector `x`.
+    pub fn voltage_functional(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, f64)> {
+        let inv_w = 1.0 / self.width;
+        assemble_port_flux(mesh, self.faces, self.e_hat, edges)
+            .into_iter()
+            .enumerate()
+            .filter(|&(_, f)| f != 0.0)
+            .map(|(e, f)| (e, f * inv_w))
+            .collect()
+    }
+
+    /// `scale · b bᵀ` as triplets over global edge indices (`nnz(b)²` entries).
+    fn rank1_triplets(
+        &self,
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+        scale: f64,
+    ) -> Vec<(usize, usize, f64)> {
+        if scale == 0.0 {
+            return Vec::new();
+        }
+        let b = self.voltage_functional(mesh, edges);
+        let mut out = Vec::with_capacity(b.len() * b.len());
+        for &(i, bi) in &b {
+            for &(j, bj) in &b {
+                out.push((i, j, scale * (bi * bj))); // (bi·bj) first: bitwise symmetric
+            }
+        }
+        out
+    }
+
+    /// Assemble the `K_port = (1/L̃) b bᵀ` triplets `(row, col, value)` over
+    /// global edge indices. Empty when `k_scale() == 0`.
+    pub fn k_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        self.rank1_triplets(mesh, edges, self.k_scale())
+    }
+
+    /// Assemble the `M_port = C̃ b bᵀ` triplets `(row, col, value)` over global
+    /// edge indices.
+    pub fn m_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        self.rank1_triplets(mesh, edges, self.m_scale())
+    }
+}
+
+/// Surface triplets `(row, col, value)` over global edge indices.
+pub type PortTriplets = Vec<(usize, usize, f64)>;
+
+/// Which junction port operator a transmon eigensolve uses (issue #1044).
+///
+/// The geometry and element values always come from the pencil's
+/// [`TransmonPencil::shunt`]; this selects how they enter `K` and `M`.
+/// [`JunctionPortModel::DistributedSurface`] is the default and reproduces
+/// every committed number. [`JunctionPortModel::PortVoltage`] is the opt-in
+/// rank-1 A2 term ([`LumpedPortVoltageShunt`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+pub enum JunctionPortModel {
+    /// The distributed isotropic surface term `K_port = (ℓ/(w L̃)) S_Γ`,
+    /// `M_port = (C̃ ℓ/w) S_Γ` ([`LumpedReactiveShunt`]): Palace's
+    /// `LumpedPort` operator. The default.
+    #[default]
+    DistributedSurface,
+    /// The rank-1 port-voltage term `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ`
+    /// ([`LumpedPortVoltageShunt`]) with port direction `e_hat` (the
+    /// fixture's `TransmonPort::e_hat`).
+    PortVoltage {
+        /// Unit field direction `ê` across the gap.
+        e_hat: [f64; 3],
+    },
+}
+
+impl JunctionPortModel {
+    /// The `(K_port, M_port)` triplets over global edge indices for `shunt`
+    /// under this model.
+    pub fn port_triplets(
+        &self,
+        shunt: &LumpedReactiveShunt<'_>,
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+    ) -> (PortTriplets, PortTriplets) {
+        match *self {
+            Self::DistributedSurface => (
+                shunt.k_port_triplets(mesh, edges),
+                shunt.m_port_triplets(mesh, edges),
+            ),
+            Self::PortVoltage { e_hat } => {
+                let a2 = LumpedPortVoltageShunt::from_reactive_shunt(shunt, e_hat);
+                (
+                    a2.k_port_triplets(mesh, edges),
+                    a2.m_port_triplets(mesh, edges),
+                )
+            }
+        }
     }
 }
 
@@ -561,9 +760,46 @@ pub fn solve_transmon_eigenmodes_full_with_london(
     m_per_unit: f64,
     inner: InnerSolver,
 ) -> Result<Vec<TransmonMode>, EigenError> {
+    solve_transmon_eigenmodes_full_with_port_model(
+        pencil,
+        JunctionPortModel::default(),
+        london,
+        sigma,
+        n_modes,
+        m_per_unit,
+        inner,
+    )
+}
+
+/// [`solve_transmon_eigenmodes_full_with_london`] with an explicit junction
+/// [`JunctionPortModel`] (issue #1044): the ungauged entry point for the
+/// opt-in rank-1 port-voltage shunt A2 ([`JunctionPortModel::PortVoltage`]).
+///
+/// With [`JunctionPortModel::DistributedSurface`] this is exactly
+/// [`solve_transmon_eigenmodes_full_with_london`]. Under A2 the junction
+/// participation reported per mode is `(V²/L̃) / xᵀ K_tot x`.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve.
+///
+/// # Panics
+///
+/// As [`solve_transmon_eigenmodes_full_with_london`].
+pub fn solve_transmon_eigenmodes_full_with_port_model(
+    pencil: &TransmonPencil<'_>,
+    port_model: JunctionPortModel,
+    london: &[LondonSurface<'_>],
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
     let (interior_index, dim) = ungauged_interior_reindex(pencil)?;
     solve_transmon_eigenmodes_reindexed(
         pencil,
+        port_model,
         london,
         &interior_index,
         dim,
@@ -622,6 +858,7 @@ pub fn solve_transmon_eigenmodes_gauged(
     }
     Ok(solve_transmon_eigenmodes_reindexed(
         pencil,
+        JunctionPortModel::DistributedSurface,
         &[],
         gauge.gauged_index_map(),
         dim,
@@ -643,9 +880,11 @@ pub fn solve_transmon_eigenmodes_gauged(
 /// terms, reduced assembly, Lanczos, participation) is index-agnostic.
 /// `london` walls add their `λ_L⁻¹ S_Γ` stiffness to the K side (issue
 /// #604); the junction-participation numerator stays `K_port`-only.
+/// `port_model` selects the junction operator (issue #1044).
 #[allow(clippy::too_many_arguments)]
 fn solve_transmon_eigenmodes_reindexed(
     pencil: &TransmonPencil<'_>,
+    port_model: JunctionPortModel,
     london: &[LondonSurface<'_>],
     reindex: &[Option<usize>],
     dim: usize,
@@ -659,9 +898,8 @@ fn solve_transmon_eigenmodes_reindexed(
     assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
     let interior_index = reindex;
 
-    // Junction surface terms over the full edge set.
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+    // Junction port terms over the full edge set.
+    let (k_port, m_port) = port_model.port_triplets(&pencil.shunt, pencil.mesh, pencil.edges);
 
     // K-side extras: the junction K_port plus every London wall's
     // kinetic-inductance stiffness λ_L⁻¹ S_Γ (issue #604).
@@ -1269,6 +1507,285 @@ mod tests {
             (q - 1.0).abs() < 1e-12,
             "uniform-field xᵀ S_Γ x = {q}, want Area = 1"
         );
+    }
+
+    fn a2_on<'a>(faces: &'a [[u32; 3]], l: f64, c: f64) -> LumpedPortVoltageShunt<'a> {
+        LumpedPortVoltageShunt::from_reactive_shunt(&shunt_on(faces, l, c), [0.0, 1.0, 0.0])
+    }
+
+    fn dense_of(trips: &[(usize, usize, f64)], n: usize) -> Vec<f64> {
+        let mut a = vec![0.0_f64; n * n];
+        for &(r, c, v) in trips {
+            a[r * n + c] += v;
+        }
+        a
+    }
+
+    /// Edge DOFs of the uniform field `E = ŷ`: `u_e = ŷ · (x_b − x_a)`.
+    fn uniform_y(mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<f64> {
+        edges
+            .iter()
+            .map(|e| mesh.nodes[e[1] as usize][1] - mesh.nodes[e[0] as usize][1])
+            .collect()
+    }
+
+    /// Issue #1044: the A2 port terms are exactly `(1/L̃) b bᵀ` and `C̃ b bᵀ`:
+    /// symmetric, rank one (every quadratic form is `(bᵀx)²/L̃`, so PSD), with
+    /// `b = assemble_port_flux / w`.
+    #[test]
+    fn port_voltage_shunt_is_symmetric_rank1_psd() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let (l, c) = (10.0, 5.0);
+        let mut a2 = a2_on(&faces, l, c);
+        a2.width = 0.5; // a non-unit width, to check the 1/w of b
+        let n = edges.len();
+
+        let b_sparse = a2.voltage_functional(&mesh, &edges);
+        let flux = assemble_port_flux(&mesh, &faces, [0.0, 1.0, 0.0], &edges);
+        let mut b = vec![0.0_f64; n];
+        for &(e, v) in &b_sparse {
+            b[e] = v;
+        }
+        for e in 0..n {
+            assert!(
+                (b[e] - flux[e] / 0.5).abs() < 1e-15,
+                "b != flux / w at edge {e}"
+            );
+        }
+        assert!(
+            b_sparse.windows(2).all(|w| w[0].0 < w[1].0),
+            "voltage functional must be in ascending edge order"
+        );
+        assert_eq!(
+            a2.k_port_triplets(&mesh, &edges).len(),
+            b_sparse.len() * b_sparse.len(),
+            "rank-1 triplet count must be nnz(b)²"
+        );
+
+        let k = dense_of(&a2.k_port_triplets(&mesh, &edges), n);
+        let m = dense_of(&a2.m_port_triplets(&mesh, &edges), n);
+        for r in 0..n {
+            for col in 0..n {
+                let want_k = b[r] * b[col] / l;
+                let want_m = c * b[r] * b[col];
+                assert!(
+                    (k[r * n + col] - want_k).abs() < 1e-15,
+                    "K_port != b bᵀ / L̃"
+                );
+                assert!((m[r * n + col] - want_m).abs() < 1e-13, "M_port != C̃ b bᵀ");
+                assert_eq!(k[r * n + col], k[col * n + r], "K_port not symmetric");
+                assert_eq!(m[r * n + col], m[col * n + r], "M_port not symmetric");
+            }
+        }
+        for seed in 0..8u64 {
+            let x: Vec<f64> = (0..n)
+                .map(|i| (((i as u64 + seed * 7 + 1) as f64) * 0.7391).sin())
+                .collect();
+            let v: f64 = b.iter().zip(&x).map(|(a, y)| a * y).sum();
+            let mut q = 0.0;
+            for r in 0..n {
+                for col in 0..n {
+                    q += x[r] * k[r * n + col] * x[col];
+                }
+            }
+            assert!(
+                (q - v * v / l).abs() <= 1e-13 * (v * v / l).max(1e-30),
+                "xᵀ K_port x = {q}, want (bᵀx)²/L̃ = {}",
+                v * v / l
+            );
+        }
+
+        // Junction removal empties K_port and keeps M_port.
+        let removed = a2.without_inductor();
+        assert_eq!(removed.k_scale(), 0.0);
+        assert!(removed.k_port_triplets(&mesh, &edges).is_empty());
+        assert_eq!(
+            removed.m_port_triplets(&mesh, &edges),
+            a2.m_port_triplets(&mesh, &edges)
+        );
+    }
+
+    /// Issue #1044: on the uniform field `u` (`E = ŷ`) of a flat rectangular
+    /// port, `S_Γ u = f`, `uᵀ S_Γ u = area`, the port voltage is `bᵀu = ℓ`, and
+    /// A2 stores exactly the energy of the distributed shunt:
+    /// `uᵀ K_A2 u = uᵀ K_S u` and likewise for `M`.
+    #[test]
+    fn port_voltage_matches_distributed_shunt_on_uniform_field() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let n = edges.len();
+        let u = uniform_y(&mesh, &edges);
+        let s = dense_of(&assemble_port_surface_mass(&mesh, &faces, &edges), n);
+        let f = assemble_port_flux(&mesh, &faces, [0.0, 1.0, 0.0], &edges);
+        let mut usu = 0.0;
+        for r in 0..n {
+            let su: f64 = (0..n).map(|col| s[r * n + col] * u[col]).sum();
+            assert!((su - f[r]).abs() < 1e-14, "S_Γ u != f at edge {r}");
+            usu += u[r] * su;
+        }
+        assert!((usu - 1.0).abs() < 1e-12, "uᵀ S_Γ u = {usu}, want area 1");
+
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        let a2 = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, [0.0, 1.0, 0.0]);
+        let v: f64 = a2
+            .voltage_functional(&mesh, &edges)
+            .iter()
+            .map(|&(e, b)| b * u[e])
+            .sum();
+        assert!((v - shunt.length).abs() < 1e-12, "V(u) = {v}, want ℓ");
+        let quad = |t: &[(usize, usize, f64)]| t.iter().map(|&(r, c, x)| u[r] * x * u[c]).sum();
+        let (ks, ms): (f64, f64) = (
+            quad(&shunt.k_port_triplets(&mesh, &edges)),
+            quad(&shunt.m_port_triplets(&mesh, &edges)),
+        );
+        let (ka, ma): (f64, f64) = (
+            quad(&a2.k_port_triplets(&mesh, &edges)),
+            quad(&a2.m_port_triplets(&mesh, &edges)),
+        );
+        assert!(
+            (ks - ka).abs() < 1e-12 * ks,
+            "uniform-field K energy: S {ks}, A2 {ka}"
+        );
+        assert!(
+            (ms - ma).abs() < 1e-12 * ms,
+            "uniform-field M energy: S {ms}, A2 {ma}"
+        );
+    }
+
+    /// Issue #1044: with the port's boundary on PEC and free nodes inside the
+    /// patch, `Gᵀ b = 0` (to round-off) while `Gᵀ S_Γ ≠ 0`, so the plain bulk
+    /// gradient projector is exact under A2 and not under `S_Γ`. `n = 2` has
+    /// one free patch node (as on the 133k fixture); `n = 3, 4` have 4 and 9.
+    #[test]
+    fn port_voltage_gradient_annihilates_b() {
+        use crate::eigen::projection::InteriorGradient;
+        use crate::mesh::spiral::pec_interior_mask_from_triangles;
+
+        for (n_div, want_free_patch) in [(2usize, 1usize), (3, 4), (4, 9)] {
+            let mesh = cube_tet_mesh(n_div, 1.0);
+            let edges = mesh.edges();
+            let faces = z0_port(&mesh);
+            // PEC on every outer face except the port face z = 0.
+            let on = |f: &[u32; 3], c: usize, val: f64| {
+                f.iter()
+                    .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12)
+            };
+            let metal: Vec<[u32; 3]> = mesh
+                .faces()
+                .into_iter()
+                .filter(|f| {
+                    (on(f, 2, 1.0)
+                        || on(f, 0, 0.0)
+                        || on(f, 0, 1.0)
+                        || on(f, 1, 0.0)
+                        || on(f, 1, 1.0))
+                        && !on(f, 2, 0.0)
+                })
+                .collect();
+            let mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
+            let mut idx = vec![None; edges.len()];
+            let mut dim = 0;
+            for (e, &k) in mask.iter().enumerate() {
+                if k {
+                    idx[e] = Some(dim);
+                    dim += 1;
+                }
+            }
+            let grad = InteriorGradient::build(&edges, &mask, &idx, mesh.n_nodes(), dim);
+            let g = grad.matrix();
+
+            // Free patch nodes: on z = 0 and a gradient column.
+            let mut free = vec![false; mesh.n_nodes()];
+            for (e, &k) in mask.iter().enumerate() {
+                if !k {
+                    continue;
+                }
+                for &v in &edges[e] {
+                    free[v as usize] = true;
+                }
+            }
+            for (e, &k) in mask.iter().enumerate() {
+                if !k {
+                    for &v in &edges[e] {
+                        free[v as usize] = false;
+                    }
+                }
+            }
+            let free_patch = (0..mesh.n_nodes())
+                .filter(|&v| free[v] && mesh.nodes[v][2].abs() < 1e-12)
+                .count();
+            assert_eq!(
+                free_patch, want_free_patch,
+                "free patch nodes (n = {n_div})"
+            );
+
+            let a2 = a2_on(&faces, 10.0, 5.0);
+            let mut b = vec![0.0_f64; dim];
+            for (e, v) in a2.voltage_functional(&mesh, &edges) {
+                if let Some(r) = idx[e] {
+                    b[r] = v;
+                }
+            }
+            let b_max = b.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+            assert!(b_max > 0.1, "b vanished on the interior edges");
+            let s_red: Vec<(usize, usize, f64)> = assemble_port_surface_mass(&mesh, &faces, &edges)
+                .into_iter()
+                .filter_map(|(r, c, v)| Some((idx[r]?, idx[c]?, v)))
+                .collect();
+            let mut gt_b = 0.0_f64;
+            let mut gt_s = 0.0_f64;
+            for col in 0..g.ncols() {
+                let mut acc = 0.0;
+                let mut row = vec![0.0_f64; dim];
+                for p in g.col_ptr()[col]..g.col_ptr()[col + 1] {
+                    let r = g.row_idx()[p];
+                    acc += g.val()[p] * b[r];
+                    for &(sr, sc, sv) in &s_red {
+                        if sr == r {
+                            row[sc] += g.val()[p] * sv;
+                        }
+                    }
+                }
+                gt_b = gt_b.max(acc.abs());
+                gt_s = gt_s.max(row.iter().fold(0.0_f64, |a, v| a.max(v.abs())));
+            }
+            assert!(
+                gt_b <= 1e-14 * b_max,
+                "max|Gᵀ b| = {gt_b:e} (n = {n_div}), want 0 to round-off"
+            );
+            assert!(
+                gt_s > 1e-3,
+                "Gᵀ S_Γ should not vanish: {gt_s:e} (n = {n_div})"
+            );
+        }
+    }
+
+    /// The default port model is the distributed shunt, and its triplets are
+    /// exactly the [`LumpedReactiveShunt`] ones (so every default solve is
+    /// unchanged by issue #1044).
+    #[test]
+    fn default_port_model_is_distributed_shunt() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        assert_eq!(
+            JunctionPortModel::default(),
+            JunctionPortModel::DistributedSurface
+        );
+        let (k, m) = JunctionPortModel::default().port_triplets(&shunt, &mesh, &edges);
+        assert_eq!(k, shunt.k_port_triplets(&mesh, &edges));
+        assert_eq!(m, shunt.m_port_triplets(&mesh, &edges));
+        let a2 = JunctionPortModel::PortVoltage {
+            e_hat: [0.0, 1.0, 0.0],
+        };
+        let (k2, m2) = a2.port_triplets(&shunt, &mesh, &edges);
+        let direct = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, [0.0, 1.0, 0.0]);
+        assert_eq!(k2, direct.k_port_triplets(&mesh, &edges));
+        assert_eq!(m2, direct.m_port_triplets(&mesh, &edges));
     }
 
     /// `frequency_hz_from_lambda` and `lambda_shift_for_frequency_hz` are
