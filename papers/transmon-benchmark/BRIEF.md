@@ -14,6 +14,53 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
+## v8 — figure revision, 2026-10-11 (#1059, PR #1060; tracker #1063)
+
+**v8 = the merged v7 + a figure revision.** Its text is v7 as merged to
+`main` (`0951f862`, PR #1040). The v7 section below therefore still defines
+what the paper may claim; where this section and it differ on figures, this
+section wins, and on claims the v7 section wins. v1–v7 and their critics stay
+immutable. v8 is a DRAFT; no score, review or audit carries over. The
+operator's standing permission (PR #1040) covers revising past the old cap.
+
+What v8 changed:
+
+- **All eight figures redrawn** from committed artifacts with one
+  self-contained style (`figures/src/figure_style.py`): at most 6.3 in wide,
+  included at 0.98 of the text width, no font under 8 pt on the page, no
+  legend or annotation over text (enforced in code), file number = printed
+  number.
+- **New Figure 6** (§9.4): the refined optimization of both designs, the
+  seven-round held-out series with the rigorous upper bounds, the estimate
+  bands (labelled not bounds) and the slow-rate fits, the corrected band
+  labelled as containing the anchor **by construction**, and the actual
+  island outlines. v7's convergence-figure panel (b) moved into it.
+- **The historical optimization figure moved to Appendix A** as Figure 8,
+  with v7's caption.
+- **#1063 carry-overs:** the verifier asserts the title; provenance says
+  "relative spread of 8.1e-5"; the GPU wording no longer says "slower at
+  every measured size" (at 25,695 edges GPU matrix-free 81.764 s vs CPU
+  matrix-free 82.056 s); the Figure 8(b) legend no longer covers its label.
+
+Rules for any later figure work:
+
+- Figures show what the text proves and no more. **No single-round or "1 %"
+  verdict** on the refined design (an intermediate v8 draft drew a ±1 %
+  "working tolerance" around one held-out round; that reading is withdrawn).
+  Bounds are drawn as bounds, estimates as estimates, and the corrected
+  design's band carries the by-construction label wherever it appears.
+- Every plotted data value comes from a committed artifact; the one exception
+  (the optimized island outline, whose mesh is gitignored) is a hashed
+  snapshot checked against the committed `design.json`.
+
+**Operator decisions still open (#1063), deliberately not touched in v8:** the
+title; what the 89.9 fF anchor means relative to the junction's 5.5 fF (if it
+is a total capacitance, the matching electrostatic target is about 84.4 fF);
+the inherited "first independent validation of the Palace/DeviceLayout.jl
+stack" claim; the acknowledgment wording and the other `TODO(operator)` lines.
+Next for v8: the Anvil review, audit and numeric critics, then the Zenodo
+deposit.
+
 ## v7 preparation — 2026-10-10, updated 2026-10-11 (#1039, corrected in place on PR #1040)
 
 #1039 requests a new version beyond the v6 cap: fold the committed post-v6
