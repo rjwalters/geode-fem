@@ -37,7 +37,7 @@ recommends a formulation and splits the build into phases.
 | On the 133k fixture, the 3.4528 GHz mode carries **100.00 %** of its port energy in the uniform port voltage (`V²/L̃`). The 17.49 GHz mode carries **0.00 %**. | **Measured** (geode probe, local) | §3.1 |
 | Palace's own port EPR for its 17.49 GHz mode is `2.49e-08`, which means zero port voltage. That is consistent with the 0.00 % above. | **Committed data** (`results_p1/port-EPR.csv`) | §3.1 |
 | The 3.4528 GHz frequency is within 0.28 % of the lumped-circuit qubit prediction `1/(2π√(L(C_Σ+C_J))) = 3.4625 GHz`, using geode's committed electrostatic `C_Σ = 136.68 fF`. It also obeys the `1/√L` law (0.7081, committed). | **Computed from committed numbers** | §3.2 |
-| That the 3.4528 GHz mode is *the* physical qubit mode. | **Inferred** (strongly). The decisive check is a Palace run with `Target` below 3.45 GHz (phase P1). | §3.2, §8 |
+| That the 3.4528 GHz mode is *the* physical qubit mode. | **Confirmed by P1** (#1043). It was inferred at spike time. Palace at `Target = 2 GHz` returns 3.452749 GHz with port EPR 0.99424, and the mode scales 0.70810 under L doubling. | §3.2, §8, §10 |
 | A2 removes the 17.49 GHz mode and keeps 3.4528 GHz and the cavity modes. Under A2, `Gᵀ b = 0` exactly. With the plain bulk projector, A2 returns six modes at `N = 6` with no oracle filter. | **Measured** (geode probe, local, uncommitted code) | §3.3 |
 | A1 (directional surface term) does not remove the 17.49 GHz mode. It moves it to 17.3777 GHz. | **Measured** (geode probe) | §3.3 |
 | A3 (Lagrange multiplier) is algebraically A2 after Schur elimination. | **Derived, not run** | §3.4 |
@@ -129,7 +129,7 @@ that "Palace's projected eigensolve hunted at σ = 4.5 GHz and found nothing bel
 `papers/transmon-benchmark/transmon-benchmark.3/main.tex:657-680`) misreads `Target`.
 It needs correcting (phase P3).
 
-**Not yet verified:** whether Palace *does* return about 3.45 GHz when asked
+**Not yet verified at spike time; since confirmed by P1 (§10):** whether Palace *does* return about 3.45 GHz when asked
 (`Target ≈ 2 GHz`). That is phase P1, a local docker run. Docker was not running on the
 spike host, and the image was not built.
 
@@ -407,3 +407,61 @@ Filed under Epic #476 with `loom:triage` only:
 - **O4. Published claims.** The transmon paper draft (`transmon-benchmark.3`) and the
   Palace-outreach comparison document state that no qubit mode exists and that Palace
   confirmed its absence. Should those be held or corrected before P1 reports?
+
+## 10. Findings: P1 Palace re-run below the qubit (#1043)
+
+**Verdict: confirmed.** Palace returns the 3.45 GHz mode when it is asked to search below
+it. Its port EPR is about 1, and it follows the `1/√L` law. Falsifier 1 of §9 did not
+fire.
+
+**How it was run.**
+
+- The vendored `reference/palace/docker/Dockerfile`, unmodified, built locally (arm64)
+  at the same Palace changeset `fba6a5b`. No cloud was used.
+- Same input mesh (MSH 2.2 conversion, SHA identical to the m6i runs), same materials,
+  same `LumpedPort` (L = 14.860 nH, C = 5.5 fF), Order 1, same eigen tolerances and the
+  same linear solver.
+- Only `Target` (4.5 → 2.0 GHz) and `N` (6 → 8) change, plus L → 2L for the second cell.
+- A control cell with the committed request (`Target = 4.5`, `N = 6`) reproduces
+  `results_p1/eig.csv` to a relative 6.5e-13. So the local build does not move the
+  spectrum.
+- Artifacts: `reference/fixtures/transmon_palace/results_p1_target2/` (configs, logs,
+  `eig.csv`, `port-EPR.csv`, `provenance.txt`). Numbers:
+  `benchmarks/transmon_eigen/results.toml`, `[oracles.palace_target2]`.
+
+| quantity | Palace | geode | lumped `1/(2π√(L(C_Σ+C_J)))` |
+|---|---:|---:|---:|
+| qubit mode, L = 14.86 nH (GHz) | **3.452749** | 3.452751 | 3.46246 |
+| port EPR `p[1]` (Palace) / stiffness participation `p` (geode) | **0.99424** | 0.9942 | n/a |
+| qubit mode, L = 29.72 nH (GHz) | **2.444899** | 2.4449 | 2.44833 |
+| L-doubling ratio (`1/√2 = 0.70711`) | **0.70810** | 0.7081 | 0.70711 |
+| 17.49 GHz mode: port EPR (committed run: +2.49e-08) | +2.49e-08 | n/a | n/a |
+| 17.49 GHz mode under L doubling (GHz) | 12.3674 (EPR 2.94e-08, ratio 0.70711) | 12.37 | n/a |
+
+- geode and Palace agree on the qubit mode to 5e-5 %, and on its L-doubled value to
+  3e-5 %. Palace sits 0.28 % below the lumped estimate at L and 0.14 % below at 2L. That
+  is the expected Rayleigh-Ritz direction (§3.2), and the gap shrinks as the frequency
+  drops.
+- Every other mode in the `Target = 2` cell matches the committed Palace spectrum. Two
+  more converged above it (33.384 and 33.896 GHz).
+- Palace's energy table (`domain-E.csv`) for the qubit mode puts 99.4 % of the
+  magnetic-side energy in the junction inductor. The 17.49 GHz mode has near-zero port
+  EPR in both cells. This is consistent with §3.1's zero-voltage, sheet-internal reading
+  of that mode, but P1 does not test that reading directly.
+- An observation for P3, not a reclassification: on the qubit mode, Palace's port EPR
+  and geode's stiffness participation agree to four digits (0.9942). They are also both
+  about 5e-4 on the 5.15 GHz mode. The "opposite ranking" in `[oracles.palace]` came
+  from the qubit mode missing from Palace's window.
+
+**What this does not show.**
+
+- This is a **same-mesh** comparison, not the converged physical qubit frequency. Both
+  solvers start from the same coarse 133k-tet mesh. Palace refines around the PEC sheets
+  internally and solves 183,891 ND unknowns against geode's 156,863.
+- #1036 measured this mesh's scalar-ε `C_Σ` dropping 26.3 % under one uniform refinement
+  (`benchmarks/transmon_diffopt/multiparam_results.toml`, `[mesh_refinement]`), and the
+  converged value is unmeasured. The qubit frequency goes as `1/√(C_Σ + C_J)`, so it is
+  not converged on this mesh either.
+- The classification in `results.toml` (`[spurious_mode]`, `excluded = true`,
+  `[modes.junction_lc]`) is unchanged. That is phase P3 (#1045).
+- O1–O4 remain operator decisions. P1 supplies the evidence O1 and O4 were waiting on.
