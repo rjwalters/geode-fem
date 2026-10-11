@@ -56,6 +56,11 @@ def ceil_sci(x, digits=1):
     return f"{mantissa:.{digits}f}\\times10^{{{exponent}}}"
 
 
+def pin(value, count):
+    """Exact occurrence count, so that editing one copy cannot hide behind the others."""
+    assert TEX.count(value) == count, (value, TEX.count(value), count)
+
+
 def phrase(value):
     """Like contains(), ignoring how the source wraps its lines."""
     assert re.sub(r"\s+", " ", value) in NORM, f"Missing manuscript phrase: {value}"
@@ -94,6 +99,29 @@ def check_qubit_mode():
     ratio = pal["l2_qubit_f_ghz"] / pal["qubit_f_ghz"]
     assert f"{ratio:.5f}" == "0.70810" == f"{pal['qubit_l_scaling_ratio']:.5f}"
     contains("0.70810")
+    # Table 2, row by row, built from the artifact (not just "appears somewhere").
+    contains(f"Qubit mode, $L = 14.860$\\,nH (GHz) & {pal['qubit_f_ghz']:.6f} & "
+             f"{pal['geode_qubit_f_ghz']:.6f} & {pal['lumped_qubit_f_ghz']:.5f} \\\\")
+    contains(f"Port EPR / participation $p$ & {pal['qubit_port_epr']:.5f} & "
+             f"{spur['participation']} & --- \\\\")
+    contains(f"Qubit mode, $2L$ (GHz) & {pal['l2_qubit_f_ghz']:.6f} & "
+             f"{pal['l2_geode_qubit_f_ghz']} & {pal['l2_lumped_qubit_f_ghz']:.5f} \\\\")
+    contains(f"$L$-doubling ratio ($1/\\sqrt{{2}} = 0.70711$) & {ratio:.5f} & "
+             f"{pal['geode_qubit_l_scaling_ratio']} & 0.70711 \\\\")
+    # The prose copies, each in its own sentence.
+    phrase(f"Palace finds the mode at ${pal['qubit_f_ghz']:.6f}$\\,GHz with port EPR "
+           f"${pal['qubit_port_epr']:.5f}$; geode-fem's committed value is "
+           f"${pal['geode_qubit_f_ghz']:.6f}$\\,GHz")
+    phrase(f"moves to ${pal['l2_qubit_f_ghz']:.6f}$\\,GHz in Palace, a ratio of ${ratio:.5f}$")
+    # Two further modes converge above the committed spectrum.
+    extra = pal["modes_ghz"][-2:]
+    assert pal["n_converged"] == 9 == len(pal["modes_ghz"]) and extra[0] > 33
+    phrase(f"above it (${extra[0]:.3f}$ and ${extra[1]:.3f}$\\,GHz)")
+    for value, count in [(f"{pal['qubit_f_ghz']:.6f}", 3), (f"{pal['geode_qubit_f_ghz']:.6f}", 3),
+                         (f"{pal['qubit_port_epr']:.5f}", 4), (f"{ratio:.5f}", 3),
+                         (f"{pal['l2_qubit_f_ghz']:.6f}", 3), (f"{extra[0]:.3f}", 1),
+                         (f"{extra[1]:.3f}", 1)]:
+        pin(value, count)
     sheet_ratio = pal["l2_junction_lc_f_ghz"] / pal["junction_lc_f_ghz"]
     assert f"{sheet_ratio:.5f}" == "0.70711"
     agree_pct = abs(pal["geode_qubit_f_ghz"] / pal["qubit_f_ghz"] - 1) * 100
@@ -147,6 +175,14 @@ def check_unknown_counts(meta, cpu):
     assert round((183891 / 156863 - 1) * 100) == 17
     for value in ["183{,}891", "156{,}863", "4{,}913", "6{,}014", "about $17\\%$"]:
         contains(value)
+    # Each copy is pinned: Section 4.1, the agreement and honest-physics
+    # sections, the CPU section and its table note, and the limitations.
+    for value, count in [("183{,}891", 7), ("4{,}913", 2), ("6{,}014", 2), ("about $17\\%$", 4)]:
+        pin(value, count)
+    phrase("its run logs record $4{,}913$ elements added by local bisection around "
+           "under-resolved interior boundaries and $6{,}014$ duplicated vertices where it "
+           "cracks the metal sheets, and it assembles $183{,}891$ first-order N\\'ed\\'elec "
+           "unknowns against geode-fem's $156{,}863$ (about $17\\%$ more)")
     # Every remaining "identical ... mesh" must be the input mesh; the one
     # exception is the sentence that withdraws the earlier claim.
     for hit in re.finditer(r"identical\s+mesh", TEX):
@@ -169,7 +205,15 @@ def check_multiparam():
     assert grad["base_geometry"]["n_factorizations"] == 1
     for g in grad["gradient"]:
         assert g["headline_h"] == 1e-4 and g["headline_rel_err"] <= 1e-3
-        contains(f"${sci(g['headline_rel_err'])}$")
+    # Errors are rounded UP: 7.945e-7 -> 8.0e-7, 3.353e-10 -> 3.4e-10, 1.141e-8 -> 1.2e-8.
+    errs = [ceil_sci(g["headline_rel_err"]) for g in grad["gradient"]]
+    assert errs == ["8.0\\times10^{-7}", "3.4\\times10^{-10}", "1.2\\times10^{-8}"], errs
+    phrase(f"${errs[0]}$, ${errs[1]}$ and ${errs[2]}$ (rounded up)")
+    # 1.2e-8 also stands in the sensitivity-matrix table (the driven shape row).
+    for value, count in zip(errs, [1, 1, 2]):
+        pin(f"${value}$", count)
+    for stale in ["7.9\\times10^{-7}", "1.1\\times10^{-8}"]:
+        absent(stale)
 
     res = read("benchmarks/transmon_diffopt/multiparam_results.toml")
     assert res["anchor"]["c_sigma_target_ff"] == 89.9
@@ -273,7 +317,7 @@ def check_convergence(x0_1050, headline_1050):
                   "$6.88$\\,fF", "$7.6\\%$", "$11.4$--$17.6\\%$", "$65.8\\%$",
                   "$79.64$--$85.12$\\,fF", "$88.52$\\,fF", "$7.02$\\,fF"]:
         contains(value)
-    assert TEX.count("$83.02$\\,fF") >= 6 and TEX.count("$54.69$\\,fF") >= 5
+    assert TEX.count("$83.02$\\,fF") >= 7 and TEX.count("$54.69$\\,fF") >= 5
 
     tensor = conv["tensor_eps"]
     for value in tensor["c_sigma_ff"]:
@@ -295,6 +339,28 @@ def check_convergence(x0_1050, headline_1050):
     assert mc["scalar_upper_bound_ff"] == 83.02 and mc["scalar_estimate_band_ff"] == [74.14, 79.62]
     contains("$47.18$\\,fF")
     contains("$52.7\\%$")
+    # The tensor bound is only just below the anchor: floored, 0.44 % -> 0.4 %.
+    assert floor_to((anchor - tensor["upper_bound_ff"]) / anchor * 100, 1) == 0.4
+    # Scope (judge, PR #1040): 83.02 fF, 54.69 fF and 7.6 % are scalar-permittivity
+    # numbers. Wherever the headline is claimed, the model is named and the
+    # tensor bound stands beside it.
+    for text in [
+            # abstract
+            "refinement the scalar-permittivity capacitance of the unmodified device falls",
+            "at least $7.6\\%$ with scalar permittivity, and at least $0.4\\%$ with the sapphire "
+            "tensor that the lumped-element chain uses (converged below $89.50$\\,fF)",
+            # contributions
+            "In the scalar-permittivity model, the committed 133k-tetrahedron mesh overstates "
+            "$C_\\Sigma$ by at least $54.69$\\,fF, and the converged unmodified device lies below "
+            "$83.02$\\,fF.",
+            "the overstatement is at least $47.18$\\,fF and the converged value lies below "
+            "$89.50$\\,fF",
+            # conclusion
+            "the committed mesh overstates the scalar-permittivity $C_\\Sigma$ by at least "
+            "$54.69$\\,fF and the tensor-permittivity one by at least $47.18$\\,fF",
+            "it in both models (below $83.02$\\,fF and below $89.50$\\,fF)"]:
+        phrase(text)
+    absent("lies at least $7.6\\%$ below the anchor")
 
     # The coarse-mesh alpha = 3 design under the same refinement.
     a3 = level_table(conv["alpha3"]["level"])
@@ -468,9 +534,46 @@ def check_refined(conv_ex):
     assert 8.0e-5 < spread < 8.1e-5, spread
     assert ceil_sci(spread, 1) == "8.1\\times10^{-5}"
     contains("$8.1\\times10^{-5}$")
-    assert NORM.count("contains the anchor by construction") >= 5  # abstract, 7, 9.4, 13 (x2), 14
-    for text in ["\\textbf{This band contains the anchor by construction.}",
-                 "The corrected series is the first series rescaled",
+    pin("$8.1\\times10^{-5}$", 1)
+    # 8.06e-5 is the RELATIVE spread (max/min - 1); the absolute max - min is 8.15e-5.
+    assert 8.1e-5 < max(ratio) - min(ratio) < 8.2e-5
+    phrase("the ratio of the two is constant to a relative spread of $8.1\\times10^{-5}$ "
+           "(largest ratio over smallest, minus one;")
+    absent("constant to within")
+    # The caveat must stay at every place the corrected band is cited (BRIEF).
+    # Count pinned, and each copy checked in its own context.
+    assert NORM.count("contains the anchor by construction") == 6
+    for text in [
+            "$89.84$--$89.96$\\,fF contains the anchor by construction, because its "
+            "refinement series is the first one rescaled",                       # abstract
+            "and its estimate band contains the anchor by construction",          # Figure 5 caption
+            "\\textbf{This band contains the anchor by construction.}",           # section 9.4
+            "The second band contains the anchor by construction.",               # discussion
+            "That design's estimate band contains the anchor by construction.",   # limitations
+            "with an estimate band that contains the anchor by construction. "
+            "Only upper bounds are proven"]:                                      # conclusion
+        phrase(text)
+    # Where the headline is claimed, the numerical path is disclosed (judge, PR #1040).
+    for text in [
+            # abstract
+            "That $C_\\Sigma$ is the scalar-permittivity electrostatic value, with the junction's "
+            "$5.5$\\,fF self-capacitance excluded.",
+            "in native f64; it does not run on the Burn tape and uses no factorization",
+            # contributions
+            "It uses the stationarity identity of the previous item, and it runs outside the "
+            "Burn tape and without the adjoint layer's factorization.",
+            # architecture: the inherited sentence is scoped to the adjoint layer
+            "it is what makes the adjoint-layer gradients of Section~\\ref{sec:adjoint} and the "
+            "coarse-mesh tiers of Section~\\ref{sec:optdemo} \\emph{solver-derived}",
+            "it uses neither the Burn tape nor a factorization",
+            # conclusion
+            "That result is for the scalar-permittivity electrostatic $C_\\Sigma$ without the "
+            "junction's $5.5$\\,fF",
+            "solved iteratively in native f64, outside the Burn tape and without a factorization"]:
+        phrase(text)
+    absent("makes the gradients in this paper")
+    assert "AMG-PCG instead of a sparse LU" in readme
+    for text in ["The corrected series is the first series rescaled",
                  "The width of the band is the spread between extrapolation methods. It is not an uncertainty.",
                  "Only the upper side is proven.",
                  "Neither exists here; it is future work (issue \\#1062).",
@@ -560,7 +663,7 @@ def main():
     # Headline values recur in the abstract, contributions, body, captions,
     # discussion and conclusion. Pin every occurrence, so that changing one
     # copy cannot pass on the strength of the others.
-    pinned = {'$83.02$\\,fF': 6, '$54.69$\\,fF': 5, '$74.14$--$79.62$\\,fF': 4, '$7.6\\%$': 2, '$89.02$\\,fF': 6, '$88.8$--$88.9$\\,fF': 5, '$90.08$\\,fF': 6, '$0.20\\%$': 2, '$89.84$--$89.96$\\,fF': 3, '$0.25$--$0.57\\%$': 2, '$88.77$--$88.91$\\,fF': 1, '$77.61$\\,fF': 1, '$52.37$\\,fF': 1, '$0.98\\%$': 2, '$3.87\\times10^{-7}$': 3, '$11.4$--$17.6\\%$': 1, '$6.88$\\,fF': 1, '$47.8$\\,fF': 4}
+    pinned = {'$83.02$\\,fF': 7, '$89.50$\\,fF': 4, '$47.18$\\,fF': 3, '$0.4\\%$': 1, '$54.69$\\,fF': 5, '$74.14$--$79.62$\\,fF': 4, '$7.6\\%$': 2, '$89.02$\\,fF': 6, '$88.8$--$88.9$\\,fF': 5, '$90.08$\\,fF': 6, '$0.20\\%$': 2, '$89.84$--$89.96$\\,fF': 3, '$0.25$--$0.57\\%$': 2, '$88.77$--$88.91$\\,fF': 1, '$77.61$\\,fF': 1, '$52.37$\\,fF': 1, '$0.98\\%$': 2, '$3.87\\times10^{-7}$': 3, '$11.4$--$17.6\\%$': 1, '$6.88$\\,fF': 1, '$47.8$\\,fF': 4}
     for value, count in pinned.items():
         assert TEX.count(value) == count, (value, TEX.count(value), count)
     # No other "below N fF" or "N--M fF" capacitance may appear unchecked.
@@ -632,6 +735,12 @@ def main():
                               for k in group.split(",")}
     assert cite_keys(TEX) == cite_keys(prior_tex)
     absent("pending operator confirmation")
+    # The GPU path loses at every measured size (Section 11.3): it does not "accelerate".
+    absent("GPU path accelerates")
+    phrase("correctly, but slower than the CPU at every measured size")
+    # The acknowledgments match the abstract: labelled exceptions, not "every number".
+    absent("every reported number traced")
+    assert NORM.count("on a reading of Palace's source, or on inference are labelled as such") == 2
     print("PASS: CPU and AMS tables, mode/repeat counts, harmonic calculation, local update, "
           "qubit mode and Palace re-run, unknown counts, C_Sigma convergence study, "
           "refined optimization (bounds, estimates, by-construction caveat, Palace check), "

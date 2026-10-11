@@ -37,7 +37,7 @@ Evidence tiers used in §6 of the manuscript, and what each rests on:
 | §9.4 resolution-corrected design **(pass 3)** | [p2_cycles10_resolution_corrected/summary.toml](../../../benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_resolution_corrected/summary.toml); first run's `held_out_result.resolution_corrected_target_ff` | Target 90.978253 = 89.9 × 89.900518 / 88.835038 (recomputed). `optimized_ff = 90.980103919`, three steps, 627.452356 × 29.447205 µm, ratio 0.57790, worst FD 3.937e−7 (stated 3.94e−7). Series 90.980104 → 90.076691 at 3,331,618 tets. RIGOROUS, upper side only: `upper_bound_ff = 90.08`, `converged_above_anchor_at_most_relative = 0.0020`. ESTIMATE: `band_ff = [89.84, 89.96]`, within 0.07 %. Slow-rate fits 89.394848 and 89.678525: 0.5619 % and 0.2464 % below the anchor, stated 0.57 % and 0.25 % (rounded up, as the README does). |
 | §9.4 "by construction" caveat, abstract, Fig. 5 caption, §13, §14 **(pass 3)** | Both `summary.toml` series; issue #1062 (PR #1058 re-review) | **Derived here, and not yet in the committed README** (#1062 asks for it to be added). The verifier computes the round-by-round ratio of the corrected series to the primary one: it runs from 1.011927 to 1.012009, a relative spread of 8.06e−5, stated "constant to within 8.1e−5" (rounded up; the issue says 8e−5). The consequences stated in the manuscript (the band contains the anchor by construction; its width is the spread between methods and not an uncertainty; only the upper bound and the transfer of the relative bias to about 1e−4 are established) follow from that ratio and from how the target was set. The complementary-energy route to a lower bound is #1062's proposal: roadmap, not built. |
 | §9.4 Palace check **(pass 3)** | `p2_cycles10/adaptive/palace_validation.json`, `palace_p2.log`, `palace_p3.log`, `failed_attempts.json`, `palace_validation_amr.json`; the corrected run's `adaptive/palace_validation.json`; [validation_summary.json](../../../benchmarks/transmon_diffopt/refined_optimization/validation_summary.json) `cross_solver` | Palace P2 89.900294115 fF against 89.900518266: −2.4933e−6, stated 2.5e−6. Corrected design: 90.979877072 against 90.980103919, the same. `Added 3777 elements in 2 iterations of local bisection`. P3: exit code 9, `incomplete_no_capacitance_matrix`, "Killed (signal 9)" in the log; cause not independently established, so the manuscript does not say out-of-memory. AMR: island unchanged, feedline self-capacitance 1.90 %. `validation_summary.json` is a hand-assembled index (it says so); the verifier checks it against the generated `summary.toml` files. |
-| §9.4 roadmap; §12 costs **(pass 3)** | `multiparam_results.toml` `optimizer.phase_c_hooks`; issues #1037, #1062; README "Reproduction" | Phase C (#1037) is open, untriaged and waiting on an operator decision; nothing depends on it, so `[PENDING issue-1037]` is replaced by a roadmap paragraph. No `[PENDING …]` marker remains. Costs: "about 20 min and up to 29.4 GB", "about 10 min and 26.0 GB" are the README's figures, not re-measured. |
+| §9.4 roadmap; §12 costs **(pass 3)** | `multiparam_results.toml` `optimizer.phase_c_hooks`; issues #1037, #1062; README "Reproduction" | Phase C (#1037) is ruled and not yet built: the operator ruled on it on 2026-10-10 (cut = the claw plus the resonator trace; hold β = C_g/C_Σ at its θ = 0 value while C_Σ goes to 89.9 fF; add a claw-gap parameter, giving 4 parameters and 2 targets). The issue is open and sequenced after #1036. Nothing depends on it, so `[PENDING issue-1037]` is replaced by a roadmap paragraph. No `[PENDING …]` marker remains. Costs: "about 20 min and up to 29.4 GB", "about 10 min and 26.0 GB" are the README's figures, not re-measured. |
 | §6.1, Table 2, abstract, §1, §5: qubit mode **(new)** | [results.toml](../../../benchmarks/transmon_eigen/results.toml) `[oracles.palace_target2]` (#1043, PR #1055); raw outputs in [results_p1_target2/](../../../reference/fixtures/transmon_palace/results_p1_target2/) (`eig.csv`, `port-EPR.csv`, `palace_run.log`, `provenance.txt`) | PROVEN. Palace `qubit_f_ghz` 3.452749306805, `qubit_port_epr` 0.99424; `geode_qubit_f_ghz` 3.452751; `qubit_geode_vs_palace_pct` 5e−5; `l2_qubit_f_ghz` 2.444899, `qubit_l_scaling_ratio` 0.70810; `lumped_qubit_f_ghz` 3.46246 and `l2_lumped_qubit_f_ghz` 2.44833 (recomputed in `verify_evidence.py` from C_Σ = 136.684731 fF); −0.280 % and −0.140 %; `control_target4p5_max_rel_diff` 6.5e−13; further modes 33.384 and 33.896 GHz. geode's 3.4528 GHz, p = 0.9942, 2.4449 GHz and 0.7081 are the unchanged `[spurious_mode]` values. The same-mesh caveat is the artifact's own "SAME-MESH, NOT CONVERGED" comment. |
 | §6.1, Palace's search window **(new)** | [design note](../../../docs/research/transmon-lumped-port-formulation.md) §2 | Read from source (SLEPc region filter; schema text "above which to search"). Corroborated by the PROVEN re-run. |
 | §4.2, §5, §6.3: Palace's port operator and port EPR **(new)** | Design note §1 and §3.1 | Read from source: same scalar surface-mass terms and per-square scalings; the port EPR is built from the port-voltage functional. Corroborated by the committed run log line `Ls = 1.486e-08 H/sq, Cs = 5.500e-15 F/sq`. |
@@ -60,7 +60,9 @@ manuscript:
 - That the qubit frequency is not mesh-converged. Stated as an inference; no
   refined eigensolve exists. (The matching inference about the tensor-ε C_Σ
   is gone: #1051 measured it.)
-- **The "by construction" ratio (8.1e-5).** It is computed by
+- **The "by construction" ratio (8.1e-5).** It is the relative spread of the
+  round-by-round ratio (largest over smallest, minus one: 8.06e-5, rounded up;
+  the absolute max − min is 8.15e-5). It is computed by
   `verify_evidence.py` from the two committed series and is not a field of
   any committed artifact; the committed README does not yet make the
   by-construction point (#1062, open).
@@ -69,7 +71,8 @@ manuscript:
   unconverged mesh", "describe no physical design problem".
 - Small derived numbers, each recomputed by the verifier from committed
   values: 7.02 fF, 88.52 fF, 13.6 %, 41.7 %, 47.8 fF, "less than 1 %" for the
-  increment.
+  increment, and (pass 4) "at least 0.4 %" for the tensor-ε bound against the
+  anchor ((89.9 − 89.50)/89.9 = 0.44 %, floored).
 - The README's 625.5 and 24 µm starting dimensions and its run times and
   peak memory are prose in a committed README, not generated fields.
 - That Palace's internal refinement also applies to the 1.16M-DOF mesh. Stated
@@ -95,5 +98,6 @@ rebuilt PDF; the two new tables and the new figure shifted the later ones
 (the CPU table is now Table 6, the AMS table Table 7). The older optimization
 figure (file `fig5-*`; Figure 6 in the PDF) remains
 explicitly about the parallel plate and the rigid island-only coarse-mesh
-experiment; its caption now says that panel (b) is historical. No figure
+experiment; its caption says that panel (b) is historical, and since pass 4
+its in-figure title and annotation say so too (regenerated; same data). No figure
 shows the optimizer steps of the refined run (three accepted steps).

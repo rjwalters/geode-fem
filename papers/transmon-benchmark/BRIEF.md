@@ -84,7 +84,7 @@ PROVEN (committed artifacts; the reviser may state these as results):
   - Resolution-corrected design: 90.980 → 90.077 fF. RIGOROUS: below
     90.08 fF, at most +0.20 %. ESTIMATE: 89.84–89.96 fF.
   - **Caveat that must stay in the paper (#1062):** the corrected series is
-    the first one rescaled (ratio constant to within 8.1e-5), so the band
+    the first one rescaled (ratio constant to a relative spread of 8.1e-5), so the band
     contains the anchor BY CONSTRUCTION. Its width is the spread between
     methods, not an uncertainty. Only the upper side is proven; at slower
     rates the design lands 0.25–0.57 % below the anchor.
@@ -109,8 +109,11 @@ NOT PROVEN (the reviser must keep these out of the results):
 - **No continuum value is certified.** There is no lower bound on any
   converged C_Σ. A two-sided bound (complementary energy, or a much finer or
   higher-order solve) is ROADMAP (#1062).
-- **ROADMAP:** the Phase C two-target work (#1037) is open and waits on an
-  operator decision. Nothing in the paper depends on it, so it is stated as
+- **ROADMAP:** the Phase C two-target work (#1037) is ruled and not yet
+  built. The operator ruled on 2026-10-10: the cut is the claw plus the
+  resonator trace; the target is to hold β = C_g/C_Σ at its θ = 0 value
+  while C_Σ goes to 89.9 fF; a claw-gap parameter is added (4 parameters,
+  2 targets). Nothing in the paper depends on it, so it is stated as
   roadmap and carries no `[PENDING …]` marker. v7 has no pending marker.
 - **Inferences** must be worded as inferences. Lower bounds are floored and
   upper bounds and errors are rounded up (6.256959 is "at least 6.25×", not

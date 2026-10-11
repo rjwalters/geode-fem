@@ -63,7 +63,12 @@ to a $0.2156$\,GHz target $E_C$, confirmed by an independent fresh solve
 to $1.4\times 10^{-15}$. On the real DeviceLayout transmon, a
 finite-difference-validated quadratic-element shape gradient on an
 adaptively refined mesh drives the island capacitance $C_\Sigma$ to the
-$89.9$\,fF design anchor in three accepted steps, and seven held-out
+$89.9$\,fF design anchor in three accepted steps. That $C_\Sigma$ is the
+scalar-permittivity electrostatic value, with the junction's $5.5$\,fF
+self-capacitance excluded. Its gradient is a hand-derived
+equilibrium-energy shape derivative, solved by conjugate gradients with
+an algebraic-multigrid preconditioner in native f64; it does not run on
+the Burn tape and uses no factorization. Seven held-out
 refinement rounds then bound the converged capacitance of that design
 rigorously from above (below $89.02$\,fF) and estimate it by
 extrapolation at about $88.8$--$88.9$\,fF; we do not certify a
@@ -74,13 +79,15 @@ anchor by construction, because its refinement series is the first one
 rescaled; at slower assumed convergence rates it lands $0.25$--$0.57\%$
 below. Only the upper side is proven, and a two-sided bound is future
 work. The convergence study is a result in its own right. Under uniform
-refinement the capacitance of the unmodified device falls from
-$137.7$\,fF on the committed 133k-tetrahedron mesh to below $83.02$\,fF
-(rigorous; estimated at $74.14$--$79.62$\,fF). The gap to the
-${\sim}90$\,fF anchor that earlier versions called a model difference
-was therefore discretization error, and the converged capacitance of
-the committed geometry lies at least $7.6\%$ below the anchor, not
-above it. Earlier coarse-mesh optimizations lowered $C_\Sigma$ to reach
+refinement the scalar-permittivity capacitance of the unmodified device
+falls from $137.7$\,fF on the committed 133k-tetrahedron mesh to below
+$83.02$\,fF (rigorous; estimated at $74.14$--$79.62$\,fF). The gap to
+the ${\sim}90$\,fF anchor that earlier versions called a model
+difference was therefore discretization error, and the converged
+capacitance of the committed geometry lies below the anchor, not above
+it. How far below depends on the permittivity model: at least $7.6\%$
+with scalar permittivity, and at least $0.4\%$ with the sapphire tensor
+that the lumped-element chain uses (converged below $89.50$\,fF). Earlier coarse-mesh optimizations lowered $C_\Sigma$ to reach
 the anchor; they moved the wrong way and are kept as a cautionary
 precursor. Eigenmode/EPR derivatives remain roadmap. The correctness
 credential: from the identical input mesh, GEODE-FEM reproduces Palace's
@@ -201,17 +208,24 @@ Our contributions are:
     optimization on an adaptively refined 448k-tetrahedron mesh with
     quadratic elements reaches the $89.9$\,fF anchor in three accepted
     steps, with gradients finite-difference-validated at
-    $3.87\times10^{-7}$ or better. Seven held-out refinement rounds
+    $3.87\times10^{-7}$ or better. That gradient is a hand-derived
+    equilibrium-energy shape derivative, solved by conjugate gradients
+    with an algebraic-multigrid preconditioner in native f64. It uses
+    the stationarity identity of the previous item, and it runs outside
+    the Burn tape and without the adjoint layer's factorization. Seven held-out refinement rounds
     give a rigorous upper bound on the converged capacitance of the
     design (below $89.02$\,fF) and an extrapolated estimate (about
     $88.8$--$88.9$\,fF). A resolution-corrected second design converges
     below $90.08$\,fF. No continuum value is certified and no lower
     bound is proven (Section~\ref{sec:refined}).
-  \item \textbf{A measured mesh-convergence correction.} The committed
-    133k-tetrahedron mesh overstates $C_\Sigma$ by at least
-    $54.69$\,fF. Converged, the unmodified device lies below
-    $83.02$\,fF: under the ${\sim}90$\,fF anchor, where earlier versions
-    placed it above. Their ``model difference'' diagnosis is withdrawn,
+  \item \textbf{A measured mesh-convergence correction.} In the
+    scalar-permittivity model, the committed 133k-tetrahedron mesh
+    overstates $C_\Sigma$ by at least $54.69$\,fF, and the converged
+    unmodified device lies below $83.02$\,fF. With the sapphire tensor
+    that the lumped-element chain uses, the overstatement is at least
+    $47.18$\,fF and the converged value lies below $89.50$\,fF. Both
+    bounds are under the ${\sim}90$\,fF anchor, where earlier versions
+    placed the device above it. Their ``model difference'' diagnosis is withdrawn,
     and the coarse-mesh optimizations that lowered $C_\Sigma$ toward the
     anchor are re-read as a cautionary precursor
     (Sections~\ref{sec:lom} and~\ref{sec:multiparam}).
@@ -401,10 +415,16 @@ the missing derivative into one additional linear solve against the
 \emph{same} factorization (Section~\ref{sec:adjoint}). The division of
 labor is deliberate --- autodiff where the substrate provides it (element
 kernels, via forward-mode duals), adjoint algebra where it does not (the
-solve) --- and it is what makes the gradients in this paper
-\emph{solver-derived} in the sense the design loop of
-Section~\ref{sec:intro} lacks: the same assembly and the same
-factorization that produce the observable produce its gradient.
+solve) --- and it is what makes the adjoint-layer gradients of
+Section~\ref{sec:adjoint} and the coarse-mesh tiers of
+Section~\ref{sec:optdemo} \emph{solver-derived} in the sense the design
+loop of Section~\ref{sec:intro} lacks: the same assembly and the same
+factorization that produce the observable produce its gradient. The
+refined real-device optimization of Section~\ref{sec:refined} is
+solver-derived in a narrower sense. Its gradient is evaluated from the
+same solved field that gives the capacitance, but with hand-derived
+quadratic-element integrals and an iterative solve in native f64; it
+uses neither the Burn tape nor a factorization.
 
 \section{Benchmark Problem: Geometry, Mesh, and Junction Model}
 \label{sec:problem}
@@ -1130,9 +1150,10 @@ solver. The coarse-mesh LOM tiers of Section~\ref{sec:optdemo} exercise
 the scalar column end-to-end, and the refined optimization of
 Section~\ref{sec:refined} uses the same stationarity identity in a
 native-f64 P2 implementation; the driven column is merged and validated at
-the operator level and composes with the driven solve that geode-fem's
-GPU path accelerates --- RF shape optimization is the natural follow-on,
-not exercised here.
+the operator level and composes with the driven solve, the one solve
+geode-fem's GPU path runs (correctly, but slower than the CPU at every
+measured size; Section~\ref{sec:perf-gpu}) --- RF shape optimization is
+the natural follow-on, not exercised here.
 
 \subsection{The \texorpdfstring{capacitance$\to E_C$}{capacitance-to-E\_C} chain, and a vanishing adjoint}
 \label{sec:chain}
@@ -1344,7 +1365,7 @@ harmonic morph fields change the island length, the pad width and the
 cutout gap; each is exactly zero on the junction nodes and the island
 leads, so no parameter moves the junction region. Their gradients agree
 with full-pipeline finite differences to relative errors of
-$7.9\times10^{-7}$, $3.4\times10^{-10}$ and $1.1\times10^{-8}$. A
+$8.0\times10^{-7}$, $3.4\times10^{-10}$ and $1.2\times10^{-8}$ (rounded up). A
 bounded Gauss--Newton optimizer with per-step volume-stiffened
 re-morphing then drove the coarse-mesh scalar-$\varepsilon$ $C_\Sigma$
 from $137.706752$ down to $89.900001$\,fF in 18 steps, within a
@@ -1515,8 +1536,9 @@ near it from below.
 methods give a band of $89.84$--$89.96$\,fF, within $0.07\%$ of the
 anchor on either side. \textbf{This band contains the anchor by
 construction.} The corrected series is the first series rescaled:
-round by round, the ratio of the two is constant to within
-$8.1\times10^{-5}$ (our computation from the two committed series). An
+round by round, the ratio of the two is constant to a relative spread
+of $8.1\times10^{-5}$ (largest ratio over smallest, minus one; our
+computation from the two committed series). An
 extrapolation rule applied to both therefore returns, to about that
 accuracy, the first run's extrapolated value times that ratio, and the
 target was set to the
@@ -1786,7 +1808,7 @@ GPU performance nor a remedy for the interior eigenproblem.
 \subsection{GPU cell: correctness proven, scaling an honest negative}
 \label{sec:perf-gpu}
 
-geode-fem's GPU path accelerates the \emph{driven} solve (matrix-free
+geode-fem's GPU path runs the \emph{driven} solve (matrix-free
 apply + on-device COCG), not the eigensolve of the credential, and all
 GPU execution is CUDA-f32 (Section~\ref{sec:architecture}). On
 2026-07-14, geode-fem code executed on a physical GPU for the first time
@@ -2113,15 +2135,21 @@ geometry gradients for electrostatic and driven FEM operators, and the
 stationary capacitance derivative closes the geometry-to-charging-energy
 loop. On the real device, a finite-difference-validated P2 shape
 gradient on an adaptively refined mesh reaches the $89.9$\,fF anchor in
-three accepted steps. Held-out refinement then shows what that design
+three accepted steps. That result is for the scalar-permittivity
+electrostatic $C_\Sigma$ without the junction's $5.5$\,fF, and its
+gradient is a hand-derived equilibrium-energy shape derivative solved
+iteratively in native f64, outside the Burn tape and without a
+factorization. Held-out refinement then shows what that design
 is worth: its converged capacitance is rigorously below $89.02$\,fF and
 is estimated at about $88.8$--$88.9$\,fF. A resolution-corrected design
 converges below $90.08$\,fF, with an estimate band that contains the
 anchor by construction. Only upper bounds are proven; no continuum
 value is certified, and a two-sided bound is the next experiment. The
 convergence study behind these statements is a result of its own: the
-committed mesh overstates $C_\Sigma$ by at least $54.69$\,fF, the
-converged device lies below the anchor and not above it, and the
+committed mesh overstates the scalar-permittivity $C_\Sigma$ by at
+least $54.69$\,fF and the tensor-permittivity one by at least
+$47.18$\,fF, the converged device lies below the anchor and not above
+it in both models (below $83.02$\,fF and below $89.50$\,fF), and the
 coarse-mesh optimizations that lowered $C_\Sigma$ to reach the anchor
 moved the wrong way while passing every self-consistency check.
 Same-input-mesh agreement with Palace supplies a forward-solver
@@ -2134,8 +2162,9 @@ derivatives remain future work.
 \paragraph{Acknowledgments.}
 geode-fem's development was AI-orchestrated (agent-driven implementation
 with human direction and review); this benchmark program and paper
-follow the same discipline, with every reported number traced to a
-committed, human-auditable artifact.
+follow the same discipline: results are traced to committed,
+human-auditable artifacts, and statements that rest on a scratch probe,
+on a reading of Palace's source, or on inference are labelled as such.
 % TODO(operator): finalize acknowledgment wording before submission.
 % TODO(operator): whiteroom L1-L4 operator specification — decide
 % public/citable (repo/DOI) vs acknowledged-not-cited (BRIEF coauthor note).
