@@ -89,6 +89,7 @@ use crate::assembly::electrostatic::{
 };
 use crate::mesh::TetMesh;
 
+pub mod refined_capacitance;
 pub mod transmon_morph;
 pub mod transmon_remorph;
 

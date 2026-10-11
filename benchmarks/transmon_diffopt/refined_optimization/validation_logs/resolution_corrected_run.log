@@ -1,0 +1,51 @@
+cycle 0: 133314 tets, C=137.706752265 fF, gradient=[93.42713929124406, 44.855961320303244, -61.367366931339916], shift=None, 0.5s
+refined 80 marked -> 134561 tets
+cycle 1: 134561 tets, C=120.517232349 fF, gradient=[94.67457124378357, 37.596366447247036, -41.72103425837812], shift=Some(-0.12482699383011937), 0.6s
+refined 211 marked -> 136748 tets
+cycle 2: 136748 tets, C=110.852326322 fF, gradient=[93.6767852197216, 34.86486927104249, -31.88626833094064], shift=Some(-0.08019522054098832), 0.5s
+refined 450 marked -> 145475 tets
+cycle 3: 145475 tets, C=104.059201522 fF, gradient=[89.77006865981973, 32.782805697242544, -27.086000238872316], shift=Some(-0.061280850163847364), 0.6s
+refined 813 marked -> 156376 tets
+cycle 4: 156376 tets, C=98.037118612 fF, gradient=[85.13309715172782, 31.573305045342327, -22.952208188595666], shift=Some(-0.05787170016559484), 0.6s
+refined 1619 marked -> 168852 tets
+cycle 5: 168852 tets, C=93.608991921 fF, gradient=[84.20623778425905, 30.862792568365123, -20.14257780539334], shift=Some(-0.045167858402441544), 0.6s
+refined 2818 marked -> 186732 tets
+cycle 6: 186732 tets, C=90.412188534 fF, gradient=[83.78357341700537, 30.646637499704905, -18.687335556672224], shift=Some(-0.03415060157560445), 0.7s
+refined 4811 marked -> 215663 tets
+cycle 7: 215663 tets, C=87.600496060 fF, gradient=[82.97135115519397, 30.57798782716138, -17.540133255414535], shift=Some(-0.031098599858025957), 0.8s
+refined 8489 marked -> 265774 tets
+cycle 8: 265774 tets, C=85.432204782 fF, gradient=[82.0823496115219, 30.436158679283498, -16.68100349094541], shift=Some(-0.02475204337749648), 1.0s
+refined 13725 marked -> 336823 tets
+cycle 9: 336823 tets, C=83.692085666 fF, gradient=[81.22279419422432, 30.41255537874478, -16.227176643766263], shift=Some(-0.020368421025707635), 1.3s
+refined 23247 marked -> 448279 tets
+cycle 10: 448279 tets, C=82.323696618 fF, gradient=[80.46529865869462, 30.354665184060494, -15.822326280981104], shift=Some(-0.01635028015294695), 1.8s
+opt 0: C=78.387918461, theta=[0.0, 0.0, 0.0], ratio=1.00000
+opt 1: C=86.776977014, theta=[0.00233869235170151, 0.1659045, -0.16492355933866895], ratio=0.71912
+opt 2: C=91.297924822, theta=[0.0032422732585572957, 0.230886640392798, -0.25387061587475285], ratio=0.57791
+opt 3: C=90.980103919, theta=[0.0031901242263159112, 0.22696687079482472, -0.24759856025481827], ratio=0.58760
+held-out round 0: 448279 tets, final C=90.980103919, X0 C=None, ratio=0.58760, 12.8s
+held-out round 1: 528677 tets, final C=90.736602272, X0 C=None, ratio=0.58760, 15.6s
+held-out round 2: 684107 tets, final C=90.538647931, X0 C=None, ratio=0.58760, 21.0s
+held-out round 3: 905316 tets, final C=90.391037381, X0 C=None, ratio=0.58760, 28.6s
+held-out round 4: 1247811 tets, final C=90.281356456, X0 C=None, ratio=0.58760, 39.4s
+held-out round 5: 1708342 tets, final C=90.191605939, X0 C=None, ratio=0.58760, 58.4s
+held-out round 6: 2398139 tets, final C=90.127899467, X0 C=None, ratio=0.58760, 93.6s
+held-out round 7: 3331618 tets, final C=90.076691481, X0 C=None, ratio=0.58760, 148.3s
+      607.68 real       590.22 user        19.43 sys
+         25950240768  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             7881400  page reclaims
+                 414  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  11  voluntary context switches
+              286317  involuntary context switches
+       7036581487109  instructions retired
+       2370203308507  cycles elapsed
+         21614529784  peak memory footprint

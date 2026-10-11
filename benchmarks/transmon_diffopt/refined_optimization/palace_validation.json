@@ -1,0 +1,122 @@
+{
+  "image": "palace:cpu-1043",
+  "image_id": "sha256:bbe02bf83f5b26bdcf04101640873a82584495a64033ffdf079fb4bff7a83176",
+  "mesh_sha256": "7d61229c0babadb1abb8bfdaf16c74af7401e8d72e9d91964f366854ac8f72ae",
+  "quantity": "scalar-epsilon island capacitance with neutral floating feedline; no junction self-capacitance",
+  "target_ff": 89.9,
+  "runs": [
+    {
+      "order": 1,
+      "capacitance_matrix_f": [
+        [
+          1.484046138728e-13,
+          -1.457403629638e-18
+        ],
+        [
+          -1.457403629638e-18,
+          9.147082330549e-13
+        ]
+      ],
+      "c_sigma_ff": 148.40461387047793,
+      "relative_target_error": 0.6507743478362393,
+      "wall_s": 3.9638335,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--cpus",
+        "4",
+        "--memory",
+        "12g",
+        "--ipc=host",
+        "-e",
+        "OMP_NUM_THREADS=1",
+        "-v",
+        "benchmarks/transmon_diffopt/refined_optimization:/work",
+        "-w",
+        "/work",
+        "palace:cpu-1043",
+        "-np",
+        "4",
+        "/work/palace_p1.json"
+      ]
+    },
+    {
+      "order": 2,
+      "capacitance_matrix_f": [
+        [
+          9.532387385292e-14,
+          -1.404851275949e-18
+        ],
+        [
+          -1.404851275949e-18,
+          4.88462663918e-13
+        ]
+      ],
+      "c_sigma_ff": 95.32387384887956,
+      "relative_target_error": 0.06033230087741437,
+      "wall_s": 15.437539165999999,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--cpus",
+        "4",
+        "--memory",
+        "12g",
+        "--ipc=host",
+        "-e",
+        "OMP_NUM_THREADS=1",
+        "-v",
+        "benchmarks/transmon_diffopt/refined_optimization:/work",
+        "-w",
+        "/work",
+        "palace:cpu-1043",
+        "-np",
+        "4",
+        "/work/palace_p2.json"
+      ],
+      "relative_shift_from_previous": -0.3576758069525068
+    },
+    {
+      "order": 3,
+      "capacitance_matrix_f": [
+        [
+          8.761416315967e-14,
+          -1.360452268355e-18
+        ],
+        [
+          -1.360452268355e-18,
+          4.269142958944e-13
+        ]
+      ],
+      "c_sigma_ff": 87.61416315533464,
+      "relative_target_error": -0.025426438761572467,
+      "wall_s": 54.637120042,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--cpus",
+        "4",
+        "--memory",
+        "12g",
+        "--ipc=host",
+        "-e",
+        "OMP_NUM_THREADS=1",
+        "-v",
+        "benchmarks/transmon_diffopt/refined_optimization:/work",
+        "-w",
+        "/work",
+        "palace:cpu-1043",
+        "-np",
+        "4",
+        "/work/palace_p3.json"
+      ],
+      "relative_shift_from_previous": -0.08087911645059043
+    }
+  ]
+}
