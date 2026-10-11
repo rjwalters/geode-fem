@@ -31,6 +31,33 @@
 //! Hz; the physical constants below carry SI units so `E_J`/`E_C` come out
 //! in Hz directly.
 //!
+//! # `C_Σ` and the junction capacitance (issue #1066)
+//!
+//! geode's electrostatic `C_Σ` is the island capacitance to ground and to
+//! the claw (`C_B + C_g` in Koch's notation). It does **not** contain the
+//! junction's own self-capacitance `C_J`, which the DeviceLayout / Palace
+//! configuration models as a lumped element in parallel with `L_J`. The
+//! charging energy of the device therefore uses the total
+//!
+//! ```text
+//!   E_C = e² / (2 (C_Σ + C_J)),
+//! ```
+//!
+//! which is [`e_c_hz_from_c_sigma`]. [`e_c_hz_from_capacitance`] is the bare
+//! formula and expects the **total** capacitance.
+//!
+//! # The DeviceLayout anchor (issue #1066)
+//!
+//! [`TransmonAnchor::devicelayout`] is the single source of truth for the
+//! design target. It is derived from the published DeviceLayout
+//! SingleTransmon qubit frequency (4.14 GHz), read as the **harmonic**
+//! frequency of the linear `L_J ∥ (C_Σ + C_J)` eigenproblem that Palace
+//! solves, `f = 1/(2π √(L_J (C_Σ + C_J)))`, with `L_J` and `C_J` from the
+//! DeviceLayout configuration ([`crate::mesh::transmon`]). This gives
+//! `C_Σ ≈ 93.954 fF` and `E_C ≈ 0.19477 GHz`. It replaces the earlier
+//! 89.84–89.9 fF / 0.2156 GHz anchor, which inverted the anharmonic
+//! `√(8 E_J E_C) − E_C` at 4.14 GHz and left `C_J` out.
+//!
 //! # Exact oracle: Koch 2007 charge-basis diagonalization
 //!
 //! The single-junction transmon spectrum ([Koch et al., PRA 76, 042319
@@ -112,8 +139,12 @@ pub fn e_j_hz_from_inductance(l_j_henry: f64) -> f64 {
     FLUX_QUANTUM * FLUX_QUANTUM / (4.0 * pi * pi * l_j_henry) / H_PLANCK
 }
 
-/// Charging energy in **Hz** (`E_C/h`) from the total capacitance across
-/// the junction `C_Σ` (farads): `E_C = e²/(2 C_Σ)`, `E_C/h = e²/(2 C_Σ h)`.
+/// Charging energy in **Hz** (`E_C/h`) from the **total** capacitance
+/// across the junction (farads): `E_C = e²/(2 C)`, `E_C/h = e²/(2 C h)`.
+///
+/// The argument must already include the junction self-capacitance. For
+/// geode's electrostatic `C_Σ` (junction excluded) use
+/// [`e_c_hz_from_c_sigma`], which adds `C_J` (issue #1066).
 ///
 /// # Panics
 ///
@@ -184,6 +215,170 @@ pub fn d_omega01_asymptotic_d_e_c(e_j_hz: f64, e_c_hz: f64) -> f64 {
 pub fn capacitance_from_e_c_hz(e_c_hz: f64) -> f64 {
     assert!(e_c_hz > 0.0, "E_C must be positive, got {e_c_hz}");
     E_CHARGE * E_CHARGE / (2.0 * e_c_hz * H_PLANCK)
+}
+
+/// Charging energy in **Hz** of a transmon whose electrostatic island
+/// capacitance is `c_sigma_farad` (junction excluded, geode's definition)
+/// and whose junction self-capacitance is `c_j_farad`:
+/// `E_C = e² / (2 (C_Σ + C_J))`. Use this, not [`e_c_hz_from_capacitance`],
+/// when the capacitance comes from the electrostatic extraction.
+///
+/// # Panics
+///
+/// Panics if `c_j_farad` is negative or `c_sigma_farad + c_j_farad` is not
+/// strictly positive.
+pub fn e_c_hz_from_c_sigma(c_sigma_farad: f64, c_j_farad: f64) -> f64 {
+    assert!(
+        c_j_farad >= 0.0,
+        "C_J must be non-negative, got {c_j_farad}"
+    );
+    e_c_hz_from_capacitance(c_sigma_farad + c_j_farad)
+}
+
+/// `∂(E_C/h)/∂C_Σ` (Hz/F) of [`e_c_hz_from_c_sigma`]:
+/// `−e² / (2 (C_Σ + C_J)² h)`. `C_J` is a constant, so this is
+/// [`d_e_c_hz_d_c_sigma`] evaluated at the total capacitance.
+///
+/// # Panics
+///
+/// Panics under the same conditions as [`e_c_hz_from_c_sigma`].
+pub fn d_e_c_hz_from_c_sigma_d_c_sigma(c_sigma_farad: f64, c_j_farad: f64) -> f64 {
+    assert!(
+        c_j_farad >= 0.0,
+        "C_J must be non-negative, got {c_j_farad}"
+    );
+    d_e_c_hz_d_c_sigma(c_sigma_farad + c_j_farad)
+}
+
+/// The electrostatic `C_Σ` (F, junction excluded) implied by a charging
+/// energy `E_C/h` (Hz) and a junction capacitance `c_j_farad`: the inverse
+/// of [`e_c_hz_from_c_sigma`].
+///
+/// # Panics
+///
+/// Panics if `e_c_hz` is not strictly positive or `c_j_farad` is negative.
+pub fn c_sigma_from_e_c_hz(e_c_hz: f64, c_j_farad: f64) -> f64 {
+    assert!(
+        c_j_farad >= 0.0,
+        "C_J must be non-negative, got {c_j_farad}"
+    );
+    capacitance_from_e_c_hz(e_c_hz) - c_j_farad
+}
+
+/// Harmonic (linear `L ∥ C`) frequency in Hz, `f = 1/(2π √(L C_total))`.
+/// For a transmon this is `√(8 E_J E_C)` exactly, with `E_C` from the same
+/// `C_total`: the frequency of the linear eigenproblem Palace solves when
+/// the junction is a lumped `L_J ∥ C_J`.
+///
+/// # Panics
+///
+/// Panics if either argument is not strictly positive.
+pub fn harmonic_frequency_hz(l_henry: f64, c_total_farad: f64) -> f64 {
+    assert!(
+        l_henry > 0.0 && c_total_farad > 0.0,
+        "L and C must be positive, got {l_henry}, {c_total_farad}"
+    );
+    1.0 / (2.0 * std::f64::consts::PI * (l_henry * c_total_farad).sqrt())
+}
+
+/// The total capacitance (F) whose harmonic frequency with `l_henry` is
+/// `frequency_hz`: `C_total = 1/((2π f)² L)`, the inverse of
+/// [`harmonic_frequency_hz`].
+///
+/// # Panics
+///
+/// Panics if either argument is not strictly positive.
+pub fn total_capacitance_from_harmonic_frequency(frequency_hz: f64, l_henry: f64) -> f64 {
+    assert!(
+        frequency_hz > 0.0 && l_henry > 0.0,
+        "f and L must be positive, got {frequency_hz}, {l_henry}"
+    );
+    let w = 2.0 * std::f64::consts::PI * frequency_hz;
+    1.0 / (w * w * l_henry)
+}
+
+/// The published DeviceLayout SingleTransmon qubit frequency (Hz): the
+/// "Initial frequencies: [4.14, 5.591] GHz" of the DeviceLayout.jl
+/// SingleTransmon example, a linear Palace eigenmode solve. Operator ruling
+/// of 2026-10-11 on #1063: the anchor is this published value.
+pub const DEVICELAYOUT_QUBIT_FREQUENCY_HZ: f64 = 4.14e9;
+
+/// A transmon design anchor derived from a harmonic qubit frequency and the
+/// junction's lumped `L_J ∥ C_J` (issue #1066). Every field follows from
+/// the three inputs; construct it with [`TransmonAnchor::from_harmonic`] or
+/// [`TransmonAnchor::devicelayout`] rather than restating any of them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransmonAnchor {
+    /// Harmonic qubit frequency (Hz) the anchor reproduces.
+    pub frequency_hz: f64,
+    /// Junction inductance `L_J` (H).
+    pub l_j_henry: f64,
+    /// Junction self-capacitance `C_J` (F).
+    pub c_j_farad: f64,
+    /// `C_total = C_Σ + C_J = 1/((2π f)² L_J)` (F).
+    pub c_total_farad: f64,
+    /// Electrostatic target `C_Σ = C_total − C_J` (F), junction excluded:
+    /// the quantity geode's capacitance extraction and optimizers report.
+    pub c_sigma_farad: f64,
+    /// `E_C/h = e²/(2 C_total h)` (Hz).
+    pub e_c_hz: f64,
+    /// `E_J/h` (Hz) from `L_J`.
+    pub e_j_hz: f64,
+}
+
+impl TransmonAnchor {
+    /// Derive the anchor from a harmonic frequency and the junction's
+    /// `L_J`, `C_J`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `frequency_hz` or `l_j_henry` is not strictly positive, if
+    /// `c_j_farad` is negative, or if `C_J` is not below the total.
+    pub fn from_harmonic(frequency_hz: f64, l_j_henry: f64, c_j_farad: f64) -> Self {
+        assert!(
+            c_j_farad >= 0.0,
+            "C_J must be non-negative, got {c_j_farad}"
+        );
+        let c_total_farad = total_capacitance_from_harmonic_frequency(frequency_hz, l_j_henry);
+        assert!(
+            c_j_farad < c_total_farad,
+            "C_J {c_j_farad} must be below C_total {c_total_farad}"
+        );
+        Self {
+            frequency_hz,
+            l_j_henry,
+            c_j_farad,
+            c_total_farad,
+            c_sigma_farad: c_total_farad - c_j_farad,
+            e_c_hz: e_c_hz_from_capacitance(c_total_farad),
+            e_j_hz: e_j_hz_from_inductance(l_j_henry),
+        }
+    }
+
+    /// The DeviceLayout SingleTransmon anchor: the published 4.14 GHz
+    /// ([`DEVICELAYOUT_QUBIT_FREQUENCY_HZ`]) with the configuration's
+    /// `L_J = 14.860 nH` and `C_J = 5.5 fF`
+    /// ([`crate::mesh::transmon::JUNCTION_INDUCTANCE_H`],
+    /// [`crate::mesh::transmon::JUNCTION_CAPACITANCE_F`]):
+    /// `C_total ≈ 99.4537 fF`, `C_Σ ≈ 93.9537 fF`, `E_C/h ≈ 0.194766 GHz`.
+    pub fn devicelayout() -> Self {
+        Self::from_harmonic(
+            DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
+            crate::mesh::transmon::JUNCTION_INDUCTANCE_H,
+            crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
+        )
+    }
+
+    /// The harmonic frequency (Hz) of an electrostatic `C_Σ` (F, junction
+    /// excluded) with this anchor's `L_J` and `C_J`.
+    pub fn harmonic_frequency_of_c_sigma_hz(&self, c_sigma_farad: f64) -> f64 {
+        harmonic_frequency_hz(self.l_j_henry, c_sigma_farad + self.c_j_farad)
+    }
+
+    /// `E_C/h` (Hz) of an electrostatic `C_Σ` (F) with this anchor's `C_J`.
+    pub fn e_c_hz_of_c_sigma(&self, c_sigma_farad: f64) -> f64 {
+        e_c_hz_from_c_sigma(c_sigma_farad, self.c_j_farad)
+    }
 }
 
 /// The transmon `01` transition frequency asymptote (Hz),
@@ -471,25 +666,73 @@ mod tests {
         );
     }
 
-    /// E_C ⇄ C_Σ round-trip, and the anchor: E_C/h = 0.2156 GHz ⇒
-    /// C_Σ ≈ 89.9 fF (curator-confirmed back-solve).
+    /// E_C ⇄ C round-trip of the bare formula (total capacitance).
     #[test]
-    fn e_c_capacitance_roundtrip_and_anchor() {
-        let e_c = e_c_hz_from_capacitance(89.9e-15);
-        assert!(
-            (e_c / 1e9 - 0.2156).abs() < 5e-3,
-            "E_C/h = {} GHz, want ≈ 0.2156",
-            e_c / 1e9
-        );
-        let c = capacitance_from_e_c_hz(e_c);
-        assert!((c - 89.9e-15).abs() / 89.9e-15 < 1e-12);
-        // The 0.2156 GHz anchor back-solves to ~89.9 fF.
-        let c_anchor = capacitance_from_e_c_hz(0.2156e9);
-        assert!(
-            (c_anchor * 1e15 - 89.9).abs() < 0.5,
-            "C_Σ = {} fF, want ≈ 89.9",
-            c_anchor * 1e15
-        );
+    fn e_c_capacitance_roundtrip() {
+        for &c in &[50e-15_f64, 99.4537e-15, 136.7e-15] {
+            let e_c = e_c_hz_from_capacitance(c);
+            let back = capacitance_from_e_c_hz(e_c);
+            assert!((back - c).abs() / c < 1e-12);
+        }
+        // e²/(2h) = 19.3702 GHz·fF.
+        let k = e_c_hz_from_capacitance(1e-15) / 1e9;
+        assert!((k - 19.370_2).abs() < 1e-4, "e²/(2h) = {k} GHz·fF");
+    }
+
+    /// The DeviceLayout anchor (issue #1066): derived from 4.14 GHz,
+    /// L_J = 14.860 nH and C_J = 5.5 fF, it is C_total = 99.4537 fF,
+    /// C_Σ = 93.9537 fF and E_C/h = 0.194766 GHz (the operator ruling on
+    /// #1063), and it reproduces 4.14 GHz through the harmonic formula.
+    #[test]
+    fn devicelayout_anchor_is_the_harmonic_back_solve() {
+        let a = TransmonAnchor::devicelayout();
+        assert_eq!(a.frequency_hz, 4.14e9);
+        assert_eq!(a.l_j_henry, 14.860e-9);
+        assert_eq!(a.c_j_farad, 5.5e-15);
+        assert!((a.c_total_farad * 1e15 - 99.4537).abs() < 5e-5, "{a:?}");
+        assert!((a.c_sigma_farad * 1e15 - 93.9537).abs() < 5e-5, "{a:?}");
+        assert!((a.e_c_hz / 1e9 - 0.194766).abs() < 5e-7, "{a:?}");
+        assert!((a.e_j_hz / 1e9 - 11.0001).abs() < 1e-3, "{a:?}");
+        assert_eq!(a.c_sigma_farad, a.c_total_farad - a.c_j_farad);
+        // Round trip through the frequency and through E_C.
+        let f = a.harmonic_frequency_of_c_sigma_hz(a.c_sigma_farad);
+        assert!((f - 4.14e9).abs() / 4.14e9 < 1e-13, "f = {f}");
+        assert!((a.e_c_hz_of_c_sigma(a.c_sigma_farad) - a.e_c_hz).abs() / a.e_c_hz < 1e-14);
+        let c_back = c_sigma_from_e_c_hz(a.e_c_hz, a.c_j_farad);
+        assert!((c_back - a.c_sigma_farad).abs() / a.c_sigma_farad < 1e-12);
+        // The superseded anchor is not this one: 89.9 fF is about 4 fF short.
+        assert!(a.c_sigma_farad * 1e15 - 89.9 > 4.0);
+    }
+
+    /// The E_C convention includes C_J (issue #1066), and √(8 E_J E_C) with
+    /// that E_C equals the linear-LC frequency 1/(2π √(L_J (C_Σ + C_J)))
+    /// for any C_Σ. Leaving C_J out overstates E_C by C_J/C_Σ.
+    #[test]
+    fn e_c_with_junction_matches_linear_lc_frequency() {
+        let (l_j, c_j) = (14.860e-9, 5.5e-15);
+        let e_j = e_j_hz_from_inductance(l_j);
+        for &c_sigma in &[78.3879e-15_f64, 90.0e-15, 93.9537e-15, 136.7e-15] {
+            let e_c = e_c_hz_from_c_sigma(c_sigma, c_j);
+            assert_eq!(e_c, e_c_hz_from_capacitance(c_sigma + c_j));
+            let lc = harmonic_frequency_hz(l_j, c_sigma + c_j);
+            let plasma = (8.0 * e_j * e_c).sqrt();
+            assert!(
+                (plasma - lc).abs() / lc < 1e-12,
+                "√(8E_JE_C) {plasma} vs LC {lc} at C_Σ {c_sigma}"
+            );
+            let bare = e_c_hz_from_capacitance(c_sigma);
+            let over = bare / e_c - 1.0;
+            assert!((over - c_j / c_sigma).abs() < 1e-12, "overstatement {over}");
+        }
+        // The derivative of the junction-inclusive E_C matches FD.
+        let c = 93.9537e-15;
+        let h = c * 1e-6;
+        let fd = (e_c_hz_from_c_sigma(c + h, c_j) - e_c_hz_from_c_sigma(c - h, c_j)) / (2.0 * h);
+        let ana = d_e_c_hz_from_c_sigma_d_c_sigma(c, c_j);
+        assert!((ana - fd).abs() / fd.abs() < 1e-6, "{ana} vs {fd}");
+        // Inverting the harmonic frequency recovers the total capacitance.
+        let ct = total_capacitance_from_harmonic_frequency(harmonic_frequency_hz(l_j, c), l_j);
+        assert!((ct - c).abs() / c < 1e-12);
     }
 
     /// The analytic `∂(E_C/h)/∂C_Σ` matches a central finite difference of
@@ -497,7 +740,7 @@ mod tests {
     /// factor is exact, not an approximation).
     #[test]
     fn d_e_c_d_c_sigma_matches_finite_difference() {
-        for &c in &[50e-15_f64, 89.9e-15, 136.7e-15, 200e-15] {
+        for &c in &[50e-15_f64, 93.9537e-15, 136.7e-15, 200e-15] {
             let ana = d_e_c_hz_d_c_sigma(c);
             let h = c * 1e-6;
             let fd = (e_c_hz_from_capacitance(c + h) - e_c_hz_from_capacitance(c - h)) / (2.0 * h);
@@ -556,13 +799,20 @@ mod tests {
         assert_eq!(ev, vec![1.0, 3.0, 4.0, 7.0]);
     }
 
-    /// Koch spectrum at the transmon anchor (E_J/E_C ≈ 51): the exact
-    /// ω01 matches the √(8 E_J E_C) − E_C asymptote to the transmon-regime
-    /// tolerance, and α ≈ −E_C.
+    /// Koch spectrum in the transmon regime: at E_J/E_C ≈ 51 (the ratio of
+    /// the superseded 0.2156 GHz anchor) and at the DeviceLayout anchor
+    /// (E_J/E_C ≈ 56.5, issue #1066) the exact ω01 matches the
+    /// √(8 E_J E_C) − E_C asymptote to the transmon-regime tolerance, and
+    /// α ≈ −E_C.
     #[test]
-    fn koch_spectrum_matches_asymptotics_at_anchor() {
+    fn koch_spectrum_matches_asymptotics_in_transmon_regime() {
         let e_j = 11.0e9;
-        let e_c = 11.0e9 / 51.0; // E_J/E_C = 51 → E_C ≈ 0.2157 GHz
+        for e_c in [11.0e9 / 51.0, TransmonAnchor::devicelayout().e_c_hz] {
+            koch_regime_case(e_j, e_c);
+        }
+    }
+
+    fn koch_regime_case(e_j: f64, e_c: f64) {
         let spec = transmon_spectrum(e_j, e_c, 0.0, 30, 3);
         assert!(spec.converged, "spectrum not converged at N=30");
 
@@ -606,28 +856,43 @@ mod tests {
         );
     }
 
-    /// ω01 lands near the blog's ~4.14 GHz start-geometry qubit when fed
-    /// E_J = 11 GHz and the back-solved E_C = 0.2156 GHz.
+    /// DeviceLayout's 4.14 GHz is the HARMONIC frequency of the anchor
+    /// (issue #1066): √(8 E_J E_C) at the anchor E_C reproduces it to
+    /// rounding. The anharmonic Koch ω01 at the same E_C sits below it by
+    /// about E_C (here 3.94 GHz, 4.8 % low), so 4.14 GHz must not be read
+    /// as ω01. The earlier version of this test fed the mis-derived
+    /// 0.2156 GHz into the Koch ω01 and compared it with 4.14 GHz.
     #[test]
-    fn koch_omega01_near_blog_anchor() {
-        let e_j = e_j_hz_from_inductance(14.860e-9);
-        let e_c = 0.2156e9;
-        let spec = transmon_spectrum(e_j, e_c, 0.0, 30, 3);
-        let w01 = spec.omega01_hz() / 1e9;
+    fn devicelayout_frequency_is_harmonic_not_koch_omega01() {
+        let a = TransmonAnchor::devicelayout();
+        let plasma = (8.0 * a.e_j_hz * a.e_c_hz).sqrt() / 1e9;
+        assert!((plasma - 4.14).abs() < 1e-9, "√(8E_JE_C) = {plasma} GHz");
+        let w01 = transmon_spectrum(a.e_j_hz, a.e_c_hz, 0.0, 30, 3).omega01_hz() / 1e9;
+        let asym = omega01_asymptotic_hz(a.e_j_hz, a.e_c_hz) / 1e9;
+        assert!((asym - (4.14 - a.e_c_hz / 1e9)).abs() < 1e-9);
+        // The Koch ω01 is below the harmonic frequency by roughly E_C, and
+        // within the asymptote's transmon-regime 2 %.
+        let gap = 4.14 - w01;
         assert!(
-            (w01 - 4.14).abs() < 0.15,
-            "ω01 = {w01} GHz, want ≈ 4.14 (blog start qubit)"
+            gap > 0.8 * a.e_c_hz / 1e9 && gap < 1.2 * a.e_c_hz / 1e9,
+            "harmonic − ω01 = {gap} GHz, E_C = {} GHz",
+            a.e_c_hz / 1e9
+        );
+        assert!(
+            (w01 - asym).abs() / asym < 0.02,
+            "ω01 {w01} vs asymptote {asym}"
         );
     }
 
     /// Convergence: doubling N does not move ω01 (the `converged` flag).
     #[test]
     fn koch_spectrum_converges() {
-        let spec = transmon_spectrum(11.0e9, 0.2156e9, 0.0, 25, 3);
+        let e_c = TransmonAnchor::devicelayout().e_c_hz;
+        let spec = transmon_spectrum(11.0e9, e_c, 0.0, 25, 3);
         assert!(spec.converged);
         // And explicit N=25 vs N=60 agreement.
-        let a = transmon_spectrum(11.0e9, 0.2156e9, 0.0, 25, 3).omega01_hz();
-        let b = transmon_spectrum(11.0e9, 0.2156e9, 0.0, 60, 3).omega01_hz();
+        let a = transmon_spectrum(11.0e9, e_c, 0.0, 25, 3).omega01_hz();
+        let b = transmon_spectrum(11.0e9, e_c, 0.0, 60, 3).omega01_hz();
         assert!((a - b).abs() / b < 1e-9, "N-doubling ω01 drift");
     }
 
@@ -651,7 +916,7 @@ mod tests {
     /// scaling.
     #[test]
     fn kerr_closed_forms() {
-        let e_c = 0.2156e9;
+        let e_c = TransmonAnchor::devicelayout().e_c_hz;
         // Qubit mode p ≈ 1: self-Kerr ≈ −E_C/2.
         let a = self_kerr_from_epr(e_c, 1.0);
         assert!((a - (-0.5 * e_c)).abs() < 1e-3);
@@ -666,7 +931,7 @@ mod tests {
     /// factor-of-2 drift between the two derivations would break this.
     #[test]
     fn duffing_quantum_kerr_correspondence() {
-        let e_c = 0.2156e9;
+        let e_c = TransmonAnchor::devicelayout().e_c_hz;
         for &p in &[0.05_f64, 0.3, 0.7, 1.0] {
             let quantum = self_kerr_from_epr(e_c, p);
             let classical = duffing_kerr_from_epr(e_c, p);

@@ -65,7 +65,7 @@ use crate::assembly::electrostatic::{
 use crate::mesh::TetMesh;
 use crate::mesh::red_refine::red_refine;
 use crate::quantum::diffopt::{MultiEval, MultiParamProblem, StepCheck, StepConstraint};
-use crate::quantum::transmon::{d_e_c_hz_d_c_sigma, e_c_hz_from_capacitance};
+use crate::quantum::transmon::{d_e_c_hz_from_c_sigma_d_c_sigma, e_c_hz_from_c_sigma};
 
 /// How the parameter fields are rebuilt along a path.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -467,9 +467,12 @@ pub struct IterateLog {
 /// per [`RemorphMode`], driven by
 /// [`crate::quantum::diffopt::optimize_multiparam_bounded`].
 ///
-/// * **Value:** `E_C/h` (Hz) of the scalar-ε `C_Σ = C_ii − C_if²/C_ff`, from
-///   one assembly + one LU ([`capacitance_matrix_shape_gradient`] and its
-///   floating reduction).
+/// * **Value:** `E_C/h = e²/(2 (C_Σ + C_J) h)` (Hz) of the scalar-ε
+///   `C_Σ = C_ii − C_if²/C_ff`, from one assembly + one LU
+///   ([`capacitance_matrix_shape_gradient`] and its floating reduction).
+///   `C_J` is the junction self-capacitance, by default the DeviceLayout
+///   5.5 fF ([`crate::mesh::transmon::JUNCTION_CAPACITANCE_F`], issue
+///   #1066); see [`TransmonCSigmaProblem::with_junction_capacitance`].
 /// * **Jacobian:** `∂E_C/∂Δθ_i = (dE_C/dC_Σ) · ⟨∇_X C_Σ, D_i(X_k)⟩`.
 /// * **Constraint:** every accepted mesh has min tet volume ratio against
 ///   `X⁰` at least `ratio_floor`; [`MultiParamProblem::check_step`] rejects a
@@ -487,6 +490,7 @@ pub struct TransmonCSigmaProblem {
     ratio_floor: f64,
     margin: f64,
     max_violated: usize,
+    junction_capacitance: f64,
     current: Point,
     pending: Option<(Vec<f64>, Point)>,
     /// One entry per accepted iterate (index 0 is the start).
@@ -538,6 +542,7 @@ impl TransmonCSigmaProblem {
             ratio_floor,
             margin,
             max_violated: 6,
+            junction_capacitance: crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
             pending: None,
             log: Vec::new(),
         };
@@ -580,10 +585,41 @@ impl TransmonCSigmaProblem {
         })
     }
 
-    fn eval_of(p: &Point) -> MultiEval {
-        let de = d_e_c_hz_d_c_sigma(p.c_sigma);
+    /// Set the junction self-capacitance `C_J` (F) added to `C_Σ` in
+    /// `E_C`. The default is the DeviceLayout 5.5 fF (issue #1066).
+    /// `0.0` reproduces the pre-#1066 convention `E_C = e²/(2 C_Σ)`, which
+    /// only the superseded historical runs (#1036, #1057) use, so that
+    /// their committed trajectories still reproduce. A `C_Σ` target maps to
+    /// the same root either way; only the Newton iterates differ.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `c_j_farad` is negative.
+    #[must_use]
+    pub fn with_junction_capacitance(mut self, c_j_farad: f64) -> Self {
+        assert!(
+            c_j_farad >= 0.0,
+            "C_J must be non-negative, got {c_j_farad}"
+        );
+        self.junction_capacitance = c_j_farad;
+        self
+    }
+
+    /// The junction self-capacitance `C_J` (F) used in `E_C`.
+    pub fn junction_capacitance(&self) -> f64 {
+        self.junction_capacitance
+    }
+
+    /// `E_C/h` (Hz) of an electrostatic `C_Σ` (F) in this problem's
+    /// convention: `e²/(2 (C_Σ + C_J) h)`.
+    pub fn e_c_hz(&self, c_sigma_farad: f64) -> f64 {
+        e_c_hz_from_c_sigma(c_sigma_farad, self.junction_capacitance)
+    }
+
+    fn eval_of(&self, p: &Point) -> MultiEval {
+        let de = d_e_c_hz_from_c_sigma_d_c_sigma(p.c_sigma, self.junction_capacitance);
         MultiEval {
-            values: vec![e_c_hz_from_capacitance(p.c_sigma)],
+            values: vec![self.e_c_hz(p.c_sigma)],
             jacobian: vec![p.dc_sigma.iter().map(|g| de * g).collect()],
         }
     }
@@ -630,7 +666,7 @@ impl MultiParamProblem for TransmonCSigmaProblem {
     }
 
     fn current(&self) -> MultiEval {
-        Self::eval_of(&self.current)
+        self.eval_of(&self.current)
     }
 
     fn check_step(&mut self, dtheta: &[f64]) -> StepCheck {
@@ -681,7 +717,7 @@ impl MultiParamProblem for TransmonCSigmaProblem {
         let p = self
             .point(trial, fixed.as_deref())
             .expect("fresh gradient solve at the trial geometry");
-        let e = Self::eval_of(&p);
+        let e = self.eval_of(&p);
         self.pending = Some((dtheta.to_vec(), p));
         e
     }
@@ -715,7 +751,7 @@ impl MultiParamProblem for TransmonCSigmaProblem {
         if let Some(l) = self.log.last_mut() {
             l.c_sigma_fresh = Some(c);
         }
-        Some(vec![e_c_hz_from_capacitance(c)])
+        Some(vec![self.e_c_hz(c)])
     }
 }
 

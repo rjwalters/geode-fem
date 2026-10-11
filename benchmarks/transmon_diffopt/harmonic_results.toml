@@ -2,6 +2,9 @@
 #   --example transmon_pad_harmonic`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): coarse-mesh history (#594) aimed at the mis-derived 89.9 fF anchor;
+# the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance. Kept, not re-run. E_C here is e^2/(2 C_Sigma) without C_J;
+# the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "Harmonic (Laplace-smoothed) mesh-morphing island-pad optimization on the REAL DeviceLayout SingleTransmon on the committed 133k-tet mesh (issue #594, extending #589). The rigid island-only scale of #589 concentrated all deformation in the ~0.7 um junction-region tets and inverted the mesh at theta ~ -0.0097 (safe boundary ~ -0.00726), 33x short of the 89.9 fF anchor. Here the prescribed island motion is extended into the volume by a P1 Laplace solve (Dirichlet on the island, zero on the other conductors and the far boundary), so near-island free nodes move with the island and the strain spreads. The morph field D is precomputed once; the map stays X(theta)=X0+theta*D so the #583/#589 one-forward+one-adjoint gradient contraction <grad_node, D> carries over unchanged and is re-FD-validated here."

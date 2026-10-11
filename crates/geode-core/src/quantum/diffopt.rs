@@ -1012,7 +1012,9 @@ mod tests {
     fn full_newton_converges_in_one_step() {
         let e_c0 = 0.16143e9; // 120 fF start
         let c0 = 120e-15;
-        let target = 0.2156e9; // the transmon anchor
+        // A synthetic target. It is the value of the superseded #505 anchor
+        // (issue #1066); the kernel is anchor-agnostic and any E_C would do.
+        let target = 0.2156e9;
         let res = optimize_e_c_to_target(target, 0.0, 1.0, 1.0, 20, analytic_eval(e_c0, c0));
         assert!(res.converged, "Newton must converge");
         assert_eq!(res.n_steps, 1, "affine response ⇒ exactly one Newton step");

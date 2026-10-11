@@ -7,7 +7,8 @@
 //! Run: cargo run -p geode-core --release --example transmon_refined_optimize
 //! Environment: REFINED_OPT_CYCLES (default 8), REFINED_OPT_MAX_TETS (2 million),
 //! REFINED_OPT_ORDER (1 or 2), REFINED_OPT_DIR (output directory),
-//! REFINED_OPT_TARGET (optimizer target in fF, default the 89.9 fF anchor),
+//! REFINED_OPT_TARGET (optimizer target in fF, default the DeviceLayout anchor
+//! `TransmonAnchor::devicelayout().c_sigma_farad`, about 93.9537 fF, issue #1066),
 //! REFINED_OPT_HELD_OUT_ROUNDS (default 7), REFINED_OPT_HELD_OUT_MAX_TETS
 //! (4 million), REFINED_OPT_HELD_OUT_X0 (1 = also solve `X0` per round).
 //! No reference benchmark is overwritten.
@@ -20,6 +21,7 @@ use geode_core::assembly::electrostatic::{
 use geode_core::mesh::{
     MetalRole, TaggedTetMesh, TetMesh, TransmonFixture, read_transmon_smoke_fixture,
 };
+use geode_core::quantum::transmon::TransmonAnchor;
 use geode_core::shape::min_tet_volume_ratio;
 use geode_core::shape::refined_capacitance::{
     p1_energy_shape_derivatives, p2_energy_shape_derivatives,
@@ -32,14 +34,41 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// The 89.9 fF anchor every result is compared against.
-const ANCHOR: f64 = 89.9;
 const SCALE: [f64; 3] = [0.040959, 0.553015, 0.784636];
+
+/// The anchor every result is compared against, in fF: the electrostatic
+/// `C_Σ` (junction excluded) whose harmonic frequency with the junction's
+/// `L_J ∥ C_J` is DeviceLayout's published 4.14 GHz (issue #1066). It is
+/// derived in one place, `TransmonAnchor::devicelayout`. Runs before #1066
+/// used a mis-derived 89.9 fF here; their artifacts are kept and labelled
+/// superseded.
+fn anchor_ff() -> f64 {
+    TransmonAnchor::devicelayout().c_sigma_farad * 1e15
+}
 
 /// Optimizer target in fF: the anchor unless `REFINED_OPT_TARGET` offsets it
 /// (the resolution-corrected run).
 fn target() -> f64 {
-    std::env::var("REFINED_OPT_TARGET").map_or(ANCHOR, |v| v.parse().unwrap())
+    std::env::var("REFINED_OPT_TARGET").map_or(anchor_ff(), |v| v.parse().unwrap())
+}
+
+/// Harmonic qubit frequency (GHz) of an electrostatic `C_Σ` in fF, with the
+/// anchor's `L_J ∥ C_J`. Decreasing in `C_Σ`, so a rigorous upper bound on
+/// `C_Σ` is a rigorous lower bound on this frequency.
+fn harmonic_ghz(c_sigma_ff: f64) -> f64 {
+    TransmonAnchor::devicelayout().harmonic_frequency_of_c_sigma_hz(c_sigma_ff * 1e-15) / 1e9
+}
+/// `E_C/h` (GHz) of an electrostatic `C_Σ` in fF, junction capacitance included.
+fn e_c_ghz(c_sigma_ff: f64) -> f64 {
+    TransmonAnchor::devicelayout().e_c_hz_of_c_sigma(c_sigma_ff * 1e-15) / 1e9
+}
+fn floor_to(v: f64, digits: i32) -> f64 {
+    let k = 10f64.powi(digits);
+    (v * k).floor() / k
+}
+fn ceil_to(v: f64, digits: i32) -> f64 {
+    let k = 10f64.powi(digits);
+    (v * k).ceil() / k
 }
 fn env_usize(name: &str, default: usize) -> usize {
     std::env::var(name).map_or(default, |v| v.parse().unwrap())
@@ -217,7 +246,7 @@ fn indicators(fx: &TransmonFixture, phi: &[f64]) -> Vec<f64> {
 fn save(path: &Path, history: &[Value], status: &str, theta: &[f64; 3]) {
     fs::write(
         path,
-        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":target(),"anchor_ff":ANCHOR,"optimization_order":std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into()),
+        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":target(),"anchor_ff":anchor_ff(),"anchor_issue":1066,"optimization_order":std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into()),
         "geometry_map":"fixed coarse junction-pinned harmonic fields; exact nested P1 prolongation",
         "convergence_threshold_relative":0.01,"status":status,"theta":theta,"history":history}))
         .unwrap(),
@@ -538,23 +567,58 @@ fn write_extrapolation(f: &mut impl Write, table: &str, reference: f64, ex: &Ext
         (over(ex.band[0]) * 1e4).ceil() / 1e4
     )
     .unwrap();
+    // Issue #1066 item 7: what each number implies for the qubit, as an
+    // observation. E_C includes C_J; the harmonic frequency is
+    // 1/(2 pi sqrt(L_J (C_Sigma + C_J))). Both decrease with C_Sigma, so the
+    // rigorous upper bound on C_Sigma gives rigorous LOWER bounds here
+    // (rounded down); estimate bands are rounded outward.
+    writeln!(
+        f,
+        "[{table}.qubit]  # observation only: E_C = e^2/(2(C_Sigma + C_J)) and f = 1/(2 pi sqrt(L_J (C_Sigma + C_J))) with the [anchor] L_J, C_J\n\
+         round_0_e_c_ghz = {:.6}\n\
+         round_0_harmonic_ghz = {:.6}\n\
+         converged_e_c_at_least_ghz = {:.6}  # RIGOROUS, from upper_bound_ff, rounded down\n\
+         converged_harmonic_at_least_ghz = {:.4}  # RIGOROUS, from upper_bound_ff, rounded down\n\
+         estimate_e_c_ghz = [{:.6}, {:.6}]  # ESTIMATE, from band_ff, rounded outward\n\
+         estimate_harmonic_ghz = [{:.4}, {:.4}]  # ESTIMATE, from band_ff, rounded outward\n\
+         slow_rate_harmonic_ghz = {}  # SENSITIVITY, from the slow-rate fits, alpha = 1/3 and 1/2, rounded to 1e-4",
+        e_c_ghz(reference),
+        harmonic_ghz(reference),
+        floor_to(e_c_ghz(ex.upper_bound_ff), 6),
+        floor_to(harmonic_ghz(ex.upper_bound_ff), 4),
+        floor_to(e_c_ghz(ex.band[1]), 6),
+        ceil_to(e_c_ghz(ex.band[0]), 6),
+        floor_to(harmonic_ghz(ex.band[1]), 4),
+        ceil_to(harmonic_ghz(ex.band[0]), 4),
+        list(
+            &ex.slow_fits
+                .iter()
+                .map(|(_, c)| harmonic_ghz(*c))
+                .collect::<Vec<_>>(),
+            4
+        )
+    )
+    .unwrap();
 }
 /// Deterministic headline summary (no timings): the artifact the pin test reads.
 fn write_summary(out: &Path, s: &Summary<'_>) {
     let mut f = std::io::BufWriter::new(fs::File::create(out.join("summary.toml")).unwrap());
     let order = std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into());
     let (first, last) = (&s.rounds[0], s.rounds.last().unwrap());
+    let a = TransmonAnchor::devicelayout();
+    let anchor = anchor_ff();
     writeln!(
         f,
         "# Auto-generated by `cargo run -p geode-core --release --example transmon_refined_optimize`\n\
          # (see the README next to the run directory for the environment of this run).\n\
          # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible.\n\n\
          [meta]\n\
-         issue = 1056\n\
+         issue = 1066\n\
+         method_issue = 1056\n\
          generator = \"crates/geode-core/examples/transmon_refined_optimize.rs\"\n\
          fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\"\n\
          quantity = \"scalar-eps island capacitance with a neutral floating feedline (C_ii - C_if^2/C_ff), energy method, f64; no junction self-capacitance\"\n\
-         anchor_ff = {ANCHOR}\n\
+         anchor_ff = {anchor:?}\n\
          optimizer_target_ff = {:?}\n\
          resolution_corrected = {}\n\
          element_order = {order}\n\
@@ -562,8 +626,28 @@ fn write_summary(out: &Path, s: &Summary<'_>) {
          solver = \"AMG-PCG, relative residual 1e-10, true residual recomputed and asserted <= 1e-9\"\n\
          bounds = \"the held-out spaces are nested and conforming and the capacitance is an energy minimum, so every solved value is an upper bound on the converged value of the same polygonal geometry; there is no rigorous lower bound, and every extrapolation below is an estimate\"",
         s.target,
-        s.target != ANCHOR,
+        s.target != anchor,
         s.cycles
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "\n[anchor]  # issue #1066: the published DeviceLayout qubit frequency read as the harmonic frequency of the linear L_J || (C_Sigma + C_J) eigenproblem; derived in geode_core::quantum::transmon::TransmonAnchor::devicelayout\n\
+         frequency_ghz = {:?}\n\
+         l_j_nh = {:?}\n\
+         c_j_ff = {:?}\n\
+         c_total_ff = {:?}  # 1/((2 pi f)^2 L_J)\n\
+         c_sigma_target_ff = {:?}  # c_total_ff - c_j_ff, junction excluded\n\
+         e_c_ghz = {:?}  # e^2/(2 C_total h)\n\
+         e_j_ghz = {:?}\n\
+         superseded_anchor_ff = 89.9  # mis-derived (#505 inverted the anharmonic formula at 4.14 GHz and left out C_J); runs against it are kept and labelled superseded",
+        a.frequency_hz / 1e9,
+        a.l_j_henry * 1e9,
+        a.c_j_farad * 1e15,
+        a.c_total_farad * 1e15,
+        a.c_sigma_farad * 1e15,
+        a.e_c_hz / 1e9,
+        a.e_j_hz / 1e9
     )
     .unwrap();
     writeln!(
@@ -650,40 +734,40 @@ fn write_summary(out: &Path, s: &Summary<'_>) {
         last.n_tets,
         last.fin.c,
         (last.fin.c - first.fin.c) / first.fin.c,
-        (last.fin.c - ANCHOR) / ANCHOR
+        (last.fin.c - anchor) / anchor
     )
     .unwrap();
     if let Some(ex) = s.ex_final {
         // Rigorous, one-sided: the converged value is below the last solved
         // value. Below the anchor that gives a minimum shortfall (rounded
         // down); above it, only a maximum excess (rounded up).
-        if last.fin.c < ANCHOR {
+        if last.fin.c < anchor {
             writeln!(
                 f,
                 "converged_below_anchor_at_least_relative = {:.4}  # RIGOROUS, from the unrounded last value, rounded down",
-                ((ANCHOR - last.fin.c) / ANCHOR * 1e4).floor() / 1e4
+                ((anchor - last.fin.c) / anchor * 1e4).floor() / 1e4
             )
             .unwrap();
         } else {
             writeln!(
                 f,
                 "converged_above_anchor_at_most_relative = {:.4}  # RIGOROUS upper side only, rounded up; there is no rigorous lower bound, so nothing here proves the converged value is near the anchor",
-                ((last.fin.c - ANCHOR) / ANCHOR * 1e4).ceil() / 1e4
+                ((last.fin.c - anchor) / anchor * 1e4).ceil() / 1e4
             )
             .unwrap();
         }
         writeln!(
             f,
             "estimate_relative_to_anchor = [{:.4}, {:.4}]  # ESTIMATE band against the anchor, rounded outward",
-            ((ex.band[0] - ANCHOR) / ANCHOR * 1e4).floor() / 1e4,
-            ((ex.band[1] - ANCHOR) / ANCHOR * 1e4).ceil() / 1e4
+            ((ex.band[0] - anchor) / anchor * 1e4).floor() / 1e4,
+            ((ex.band[1] - anchor) / anchor * 1e4).ceil() / 1e4
         )
         .unwrap();
-        if s.target == ANCHOR {
+        if s.target == anchor {
             writeln!(
                 f,
                 "resolution_corrected_target_ff = {:.6}  # anchor * round-0 value / geometric-tail midpoint: the round-0 target whose extrapolation is expected near the anchor",
-                ANCHOR * first.fin.c / ex.midpoint()
+                anchor * first.fin.c / ex.midpoint()
             )
             .unwrap();
         }

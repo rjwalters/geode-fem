@@ -1,0 +1,59 @@
+{
+  "Boundaries": {
+    "Ground": {
+      "Attributes": [
+        101
+      ]
+    },
+    "Terminal": [
+      {
+        "Attributes": [
+          102
+        ],
+        "Index": 1
+      },
+      {
+        "Attributes": [
+          103
+        ],
+        "Index": 2
+      }
+    ]
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "Permittivity": 10.033333333333333
+      },
+      {
+        "Attributes": [
+          2
+        ],
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Model": {
+    "L0": 1.0,
+    "Mesh": "final_adapted.msh"
+  },
+  "Problem": {
+    "Output": "palace_p3",
+    "Type": "Electrostatic",
+    "Verbose": 1
+  },
+  "Solver": {
+    "Electrostatic": {
+      "Save": 0
+    },
+    "Linear": {
+      "MaxIts": 2000,
+      "Tol": 1e-10,
+      "Type": "BoomerAMG"
+    },
+    "Order": 3
+  }
+}

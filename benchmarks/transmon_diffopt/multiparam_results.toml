@@ -2,6 +2,9 @@
 #   --example transmon_multiparam_optimize`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): coarse-mesh history (#1036) aimed at the mis-derived 89.9 fF anchor;
+# the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance. Kept, not re-run. E_C here is e^2/(2 C_Sigma) without C_J;
+# the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "A methods result: per-step re-morphing and a bounded multi-parameter Gauss-Newton optimizer toward the 89.9 fF C_Sigma anchor on the REAL DeviceLayout SingleTransmon 133k-tet mesh (issue #1036, Phase B of #1034). Phase A's three junction-pinned fields (theta_L, theta_W, theta_G) are rebuilt about the current geometry at every accepted step (fixed / unit / volume-stiffened Laplace), one Laplace factorization per distinct pinned set; every accepted step keeps min tet volume ratio >= 0.25 against the original mesh and is confirmed by an independent fresh extraction. The coarse-mesh scalar-eps C_Sigma reaches 89.9 fF. One uniform refinement (h halved) lowers it by 26.3% at X0 and by 25.9% at the headline design ([mesh_refinement]): refined, the headline design sits 25.9% below the anchor while the refined X0 sits 12.7% above it. The final dimensions are therefore not an 89.9 fF device design."
