@@ -1014,7 +1014,7 @@ mod tests {
         let c0 = 120e-15;
         // A synthetic target. It is the value of the superseded #505 anchor
         // (issue #1066); the kernel is anchor-agnostic and any E_C would do.
-        let target = 0.2156e9;
+        let target = 0.2156e9; // synthetic target, not the anchor
         let res = optimize_e_c_to_target(target, 0.0, 1.0, 1.0, 20, analytic_eval(e_c0, c0));
         assert!(res.converged, "Newton must converge");
         assert_eq!(res.n_steps, 1, "affine response ⇒ exactly one Newton step");
@@ -1039,7 +1039,7 @@ mod tests {
     fn damped_newton_geometric_trajectory() {
         let e_c0 = 0.16143e9;
         let c0 = 120e-15;
-        let target = 0.2156e9;
+        let target = 0.2156e9; // synthetic target, not the anchor
         let tol = 1e3; // 1 kHz
         let res = optimize_e_c_to_target(target, 0.0, 0.5, tol, 50, analytic_eval(e_c0, c0));
         assert!(res.converged, "damped Newton must converge within tol");
@@ -1091,7 +1091,7 @@ mod tests {
     fn clamped_newton_bounds_every_step_and_converges() {
         let e_c0 = 0.16143e9;
         let c0 = 120e-15;
-        let target = 0.2156e9; // θ* = target/E_C0 − 1 ≈ 0.3357
+        let target = 0.2156e9; // synthetic, not the anchor; θ* = target/E_C0 − 1 ≈ 0.3357
         let clamp = 0.1;
         let res = optimize_e_c_to_target_clamped(
             target,
@@ -1139,7 +1139,7 @@ mod tests {
     fn bounded_newton_stalls_honestly_at_a_tight_bound() {
         let e_c0 = 0.16143e9;
         let c0 = 120e-15;
-        let target = 0.2156e9; // θ* ≈ 0.3357, beyond the 0.2 bound below
+        let target = 0.2156e9; // synthetic, not the anchor; θ* ≈ 0.3357, beyond the 0.2 bound below
         let bound = 0.2;
         let res = optimize_e_c_to_target_bounded(
             target,

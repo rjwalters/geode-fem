@@ -58,6 +58,20 @@
 //! 89.84–89.9 fF / 0.2156 GHz anchor, which inverted the anharmonic
 //! `√(8 E_J E_C) − E_C` at 4.14 GHz and left `C_J` out.
 //!
+//! **Caveat: the anchor is a resonator-hybridized mode.** 4.14 GHz is the
+//! lower of two coupled Palace eigenmodes (`[4.14, 5.591]` GHz), while `C_Σ`
+//! treats the resonator as ground, so the pure-LC inversion reads a
+//! hybridized mode as the bare qubit. Level repulsion pushes the Palace mode
+//! down, so the bare-qubit-consistent `C_Σ` target is **below** 93.9537 fF.
+//! First order (an estimate; `g` is not measured here): the shift is
+//! `g² (1/Δ + 1/Σ)` with Δ = 1.451 GHz and Σ = 9.731 GHz, so
+//! `g/2π` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, about 0.10, 0.24,
+//! 0.38 fF in `C_Σ`. #1043's same-mesh Palace-vs-LC offset (0.281 %,
+//! 3.452751 vs 3.462456 GHz) mixes in solver and permittivity-model
+//! differences; read it as a ceiling of about 0.3 % in frequency, about
+//! 0.6 fF in `C_Σ`, not a bound. Anchor-relative figures smaller than that
+//! are not resolved by this anchor.
+//!
 //! # Exact oracle: Koch 2007 charge-basis diagonalization
 //!
 //! The single-junction transmon spectrum ([Koch et al., PRA 76, 042319
@@ -301,6 +315,11 @@ pub fn total_capacitance_from_harmonic_frequency(frequency_hz: f64, l_henry: f64
 /// "Initial frequencies: [4.14, 5.591] GHz" of the DeviceLayout.jl
 /// SingleTransmon example, a linear Palace eigenmode solve. Operator ruling
 /// of 2026-10-11 on #1063: the anchor is this published value.
+///
+/// This is the lower of two coupled, resonator-hybridized eigenmodes, so the
+/// bare-qubit-consistent `C_Σ` is below the one derived from it (see the
+/// module docs: an estimated 0.1–0.4 fF at `g/2π` = 50–100 MHz, with a
+/// ceiling of about 0.6 fF from #1043's 0.281 % offset).
 pub const DEVICELAYOUT_QUBIT_FREQUENCY_HZ: f64 = 4.14e9;
 
 /// A transmon design anchor derived from a harmonic qubit frequency and the

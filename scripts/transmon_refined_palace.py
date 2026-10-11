@@ -33,8 +33,10 @@ def anchor_ff(root):
     for candidate in (root / 'results.json', root.parent / 'results.json'):
         if candidate.exists():
             doc = json.loads(candidate.read_text())
-            # The earliest exploratory runs predate `anchor_ff`; they targeted
-            # the (superseded) anchor itself.
+            # Runs that predate `anchor_ff` (the top-level and cycles16
+            # exploratory results) fall back to the optimizer target, which
+            # for those runs was the superseded 89.9 fF anchor itself. The
+            # fallback would be wrong for a run that offsets the target.
             value = doc.get('anchor_ff', doc.get('target_scalar_capacitance_ff'))
             return float(value), os.path.relpath(candidate)
     raise SystemExit(f'no results.json with anchor_ff next to {root}')

@@ -588,9 +588,10 @@ impl TransmonCSigmaProblem {
     /// Set the junction self-capacitance `C_J` (F) added to `C_Σ` in
     /// `E_C`. The default is the DeviceLayout 5.5 fF (issue #1066).
     /// `0.0` reproduces the pre-#1066 convention `E_C = e²/(2 C_Σ)`, which
-    /// only the superseded historical runs (#1036, #1057) use, so that
+    /// only the superseded historical runs (#1036 via PR #1050, #1051 via PR #1057) use, so that
     /// their committed trajectories still reproduce. A `C_Σ` target maps to
-    /// the same root either way; only the Newton iterates differ.
+    /// the same root either way, provided the `E_C` target is built in this
+    /// problem's own convention; only the Newton iterates differ.
     ///
     /// # Panics
     ///

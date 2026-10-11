@@ -19,6 +19,29 @@ is the harmonic frequency `f = 1/(2 pi sqrt(L_J (C_Sigma + C_J)))`:
 | `C_Sigma = C_total - C_J` (junction excluded) | **93.953660 fF** |
 | `E_C = e^2/(2 C_total)` | 0.194766 GHz |
 
+**Caveat: the anchor is a resonator-hybridized mode.** DeviceLayout's 4.14 GHz
+is the lower of two coupled Palace eigenmodes (`[4.14, 5.591] GHz`, N = 2).
+geode's `C_Sigma` treats the resonator as part of ground, so the pure-LC
+inversion above reads a hybridized mode as if it were the bare qubit.
+- **Sign.** Level repulsion from the 5.591 GHz mode pushes the Palace mode
+  down. The bare-qubit-consistent `C_Sigma` target is therefore **below**
+  93.9537 fF.
+- **First-order size (an estimate; `g` is not measured here).** The shift is
+  `g^2 (1/Delta + 1/Sigma)` with `Delta` = 1.451 GHz and `Sigma` = 9.731 GHz.
+  `g / 2 pi` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, which is about 0.10,
+  0.24, 0.38 fF in `C_Sigma`.
+- **Ceiling.** #1043's same-mesh Palace-vs-LC offset is 0.281 %
+  (3.452751 vs 3.462456 GHz). It mixes in solver and permittivity-model
+  differences, so it is a ceiling of about 0.3 % in frequency, about 0.6 fF in
+  `C_Sigma`, not a bound.
+- **Consequence.** Every "relative to the anchor" figure below is measured
+  against this ruled pure-LC anchor, not a hybridization-corrected one. Figures
+  smaller than the possible offset are **not resolved by this anchor**: "at most
+  0.20 % above", the -0.09 % / +0.08 % band, and "the band contains the
+  anchor". The "at least 1.01 % below" figure survives, with its margin
+  shrinking to about 0.4 % at the ceiling.
+- Source spread: the Palace tutorial's own 4.0991 GHz would give about 95.95 fF.
+
 The derivation lives in one place,
 `geode_core::quantum::transmon::TransmonAnchor::devicelayout`. The generator
 reads the anchor from there and records it in each `summary.toml` (`[anchor]`)

@@ -17,6 +17,7 @@ solver = "AMG-PCG, relative residual 1e-10, true residual recomputed and asserte
 bounds = "the held-out spaces are nested and conforming and the capacitance is an energy minimum, so every solved value is an upper bound on the converged value of the same polygonal geometry; there is no rigorous lower bound, and every extrapolation below is an estimate"
 
 [anchor]  # issue #1066: the published DeviceLayout qubit frequency read as the harmonic frequency of the linear L_J || (C_Sigma + C_J) eigenproblem; derived in geode_core::quantum::transmon::TransmonAnchor::devicelayout
+# caveat: 4.14 GHz is the lower of two coupled Palace eigenmodes ([4.14, 5.591] GHz), hybridized with the resonator, while C_Sigma treats the resonator as ground. Level repulsion puts the Palace mode below the bare-qubit LC frequency, so the bare-qubit-consistent C_Sigma target is BELOW this anchor. Estimate (g not measured): g/2pi = 50-100 MHz gives about 0.10-0.38 fF; the same-mesh Palace-vs-LC offset of #1043 (0.281 %) is a ceiling of about 0.6 fF, not a bound. Anchor-relative figures smaller than that are not resolved by this anchor.
 frequency_ghz = 4.14
 l_j_nh = 14.860000000000001
 c_j_ff = 5.5

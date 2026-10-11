@@ -633,6 +633,7 @@ fn write_summary(out: &Path, s: &Summary<'_>) {
     writeln!(
         f,
         "\n[anchor]  # issue #1066: the published DeviceLayout qubit frequency read as the harmonic frequency of the linear L_J || (C_Sigma + C_J) eigenproblem; derived in geode_core::quantum::transmon::TransmonAnchor::devicelayout\n\
+         # caveat: 4.14 GHz is the lower of two coupled Palace eigenmodes ([4.14, 5.591] GHz), hybridized with the resonator, while C_Sigma treats the resonator as ground. Level repulsion puts the Palace mode below the bare-qubit LC frequency, so the bare-qubit-consistent C_Sigma target is BELOW this anchor. Estimate (g not measured): g/2pi = 50-100 MHz gives about 0.10-0.38 fF; the same-mesh Palace-vs-LC offset of #1043 (0.281 %) is a ceiling of about 0.6 fF, not a bound. Anchor-relative figures smaller than that are not resolved by this anchor.\n\
          frequency_ghz = {:?}\n\
          l_j_nh = {:?}\n\
          c_j_ff = {:?}\n\
