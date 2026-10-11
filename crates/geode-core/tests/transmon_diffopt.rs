@@ -31,6 +31,16 @@
 //!   `committed_multiparam_results_toml_pins_optimizer_outcome` (CI-fast) pins
 //!   `multiparam_results.toml`, and `multiparam_optimizer_release`
 //!   (`#[ignore]`) re-runs the first three headline steps against it.
+//! - **Issue #1056:** optimization on a 448k-tet adapted P2 mesh and its
+//!   held-out refinement series.
+//!   `committed_refined_optimization_summary_pins_held_out_series` and
+//!   `committed_resolution_corrected_summary_pins_extrapolation_target`
+//!   (CI-fast) pin the two `refined_optimization/*/summary.toml` files and
+//!   re-derive every bound and estimate with its rounding direction;
+//!   `committed_refined_optimization_artifacts_have_no_host_paths_or_pass_claims`
+//!   (CI-fast) guards the JSON and log artifacts; and
+//!   `refined_optimization_coarse_reference_release` (`#[ignore]`) re-solves
+//!   the committed design on the 133k-tet fixture mesh.
 
 use std::path::PathBuf;
 
@@ -2332,4 +2342,468 @@ fn c_sigma_convergence_cheap_levels_release() {
         );
     }
     assert_eq!(p1[1].n_flipped, 0);
+}
+
+// -------------------------------------------------------------------------
+// Issue #1056: optimization on an adapted P2 mesh and its held-out
+// refinement series.
+// -------------------------------------------------------------------------
+
+fn refined_optimization_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/refined_optimization")
+}
+
+fn refined_summary_toml(run: &str) -> toml::Value {
+    let path = refined_optimization_dir().join(run).join("summary.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse refined-optimization summary.toml")
+}
+
+/// The `c_ff` column of a `[[held_out]]` table.
+fn held_out_series(doc: &toml::Value, key: &str) -> Vec<f64> {
+    doc["held_out"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| tf(r, key))
+        .collect()
+}
+
+/// Re-derive one `[..._extrapolation]` table from its series and check the
+/// rounding directions: the rigorous bound is rounded **up** and lies above
+/// the last solved value, the estimate band is rounded **outward** and
+/// contains the geometric tail and every in-band free-rate fit, and the
+/// whole estimate band lies below the rigorous bound.
+fn check_held_out_extrapolation(ex: &toml::Value, c: &[f64]) {
+    let d: Vec<f64> = c.windows(2).map(|w| w[0] - w[1]).collect();
+    assert!(
+        d.iter().all(|&x| x > 0.0),
+        "nested spaces: every round must lower C"
+    );
+    let ratios: Vec<f64> = d.windows(2).map(|w| w[1] / w[0]).collect();
+    for (got, want) in tf_arr(ex, "decrements_ff").iter().zip(&d) {
+        assert!((got - want).abs() < 1e-6);
+    }
+    for (got, want) in tf_arr(ex, "decrement_ratios").iter().zip(&ratios) {
+        assert!((got - want).abs() < 1e-4);
+    }
+    let last = *c.last().unwrap();
+    let bound = tf(ex, "upper_bound_ff");
+    assert!(
+        bound >= last && bound - last < 0.01,
+        "bound {bound} vs last {last}"
+    );
+    assert!(((last * 100.0).ceil() / 100.0 - bound).abs() < 1e-9);
+    let tail = |r: f64| last - d.last().unwrap() * r / (1.0 - r);
+    let r_min = ratios.iter().copied().fold(f64::INFINITY, f64::min);
+    let r_max = ratios.iter().copied().fold(0.0, f64::max);
+    assert!(r_max < 1.0);
+    let geo = tf_arr(ex, "geometric_tail_ff");
+    assert!((geo[0] - tail(r_max)).abs() < 1e-5 && (geo[1] - tail(r_min)).abs() < 1e-5);
+    assert!((tf(ex, "geometric_tail_midpoint_ff") - 0.5 * (geo[0] + geo[1])).abs() < 2e-6);
+    let band = tf_arr(&ex["estimate"], "band_ff");
+    let mut members = geo.clone();
+    for fit in ex["free_rate_fit"].as_array().unwrap() {
+        if fit["in_band"].as_bool().unwrap() {
+            members.push(tf(fit, "c_inf_ff"));
+        }
+    }
+    let lo = members.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = members.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        band[0] <= lo && lo - band[0] < 0.01 + 1e-9,
+        "band low {band:?} vs {lo}"
+    );
+    assert!(
+        band[1] >= hi && band[1] - hi < 0.01 + 1e-9,
+        "band high {band:?} vs {hi}"
+    );
+    assert!(band[1] < bound, "an estimate above the rigorous bound");
+    // The slower-rate sensitivity fits sit below the band: they are the
+    // reason the band is an estimate and not a lower bound.
+    for fit in ex["slow_rate_fit"].as_array().unwrap() {
+        assert!(tf(fit, "c_inf_ff") < band[0]);
+    }
+    // By how much round 0 overstates the estimate, rounded outward.
+    let over = tf_arr(&ex["estimate"], "round_0_overstates_estimate_relative");
+    let (o_lo, o_hi) = ((c[0] - band[1]) / band[1], (c[0] - band[0]) / band[0]);
+    assert!(over[0] <= o_lo && o_lo - over[0] < 1e-4 + 1e-12);
+    assert!(over[1] >= o_hi && over[1] - o_hi < 1e-4 + 1e-12);
+}
+
+/// Pins `refined_optimization/p2_cycles10/summary.toml` (issue #1056): the
+/// 89.9 fF target is reached on the 448k-tet adapted P2 mesh, and seven
+/// further held-out refinement rounds of the same geometry keep lowering
+/// the capacitance. Rigorous: the converged value is below 89.02 fF.
+/// Estimate: about 88.8 to 88.9 fF (computed band 88.77 to 88.91), so the
+/// optimized value overstates it by about 1.1 to 1.3 %. The design is **not** shown to meet the target within 1 %
+/// once converged, and the estimate says it does not.
+#[test]
+fn committed_refined_optimization_summary_pins_held_out_series() {
+    let doc = refined_summary_toml("p2_cycles10");
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1056));
+    assert_eq!(doc["meta"]["element_order"].as_integer(), Some(2));
+    assert_eq!(doc["meta"]["resolution_corrected"].as_bool(), Some(false));
+    assert_eq!(tf(&doc["meta"], "anchor_ff"), 89.9);
+    assert_eq!(tf(&doc["meta"], "optimizer_target_ff"), 89.9);
+
+    let opt = &doc["optimization"];
+    assert_eq!(opt["n_tets"].as_integer(), Some(448_279));
+    assert_eq!(opt["accepted_steps"].as_integer(), Some(3));
+    assert!((tf(opt, "initial_ff") - 78.387918461).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - 89.900518266).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - 89.9).abs() < 0.005);
+    // The minimum over the accepted steps is an intermediate step, not the
+    // final one; both are far above the 0.25 floor.
+    assert_eq!(tf(opt, "min_volume_ratio_over_accepted_steps"), 0.61413);
+    assert_eq!(tf(opt, "final_min_volume_ratio"), 0.61948);
+    let steps = opt["step"].as_array().unwrap();
+    assert_eq!(steps.len(), 4);
+    let step_min = steps
+        .iter()
+        .map(|s| tf(s, "min_volume_ratio"))
+        .fold(f64::INFINITY, f64::min);
+    assert_eq!(step_min, tf(opt, "min_volume_ratio_over_accepted_steps"));
+    assert_eq!(tf_arr(&steps[3], "theta"), tf_arr(opt, "theta"));
+
+    let checks = doc["gradient_check"].as_array().unwrap();
+    assert_eq!(checks.len(), 3);
+    for g in checks {
+        let (a, fd) = (tf(g, "analytic_ff"), tf(g, "fd_ff"));
+        assert!(((a - fd) / fd).abs() < 4e-7, "solved FD: {a} vs {fd}");
+        assert!(tf(g, "relative_error") < 4e-7);
+    }
+
+    // The series, to every printed digit.
+    let want: [(i64, f64, f64); 8] = [
+        (448_279, 89.900518266, 78.387918461),
+        (528_324, 89.662754721, 78.177697100),
+        (684_646, 89.470365799, 78.011928175),
+        (900_226, 89.324261426, 77.882040589),
+        (1_239_090, 89.216843083, 77.786773744),
+        (1_693_481, 89.128358967, 77.710172560),
+        (2_369_256, 89.065595293, 77.653890383),
+        (3_289_543, 89.014998313, 77.609944786),
+    ];
+    let rows = doc["held_out"].as_array().unwrap();
+    assert_eq!(rows.len(), want.len());
+    for (k, (r, (n, c, x0))) in rows.iter().zip(want).enumerate() {
+        assert_eq!(r["round"].as_integer(), Some(k as i64));
+        assert_eq!(r["n_tets"].as_integer(), Some(n));
+        assert!((tf(r, "c_ff") - c).abs() < 5e-9, "round {k} final design");
+        assert!((tf(r, "x0_c_ff") - x0).abs() < 5e-9, "round {k} X0");
+        assert!((tf(r, "design_increment_ff") - (c - x0)).abs() < 5e-9);
+        assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+        assert!(tf(r, "x0_pcg_max_true_rel_residual") <= 1e-9);
+        // The geometry map is prolonged exactly: same ratio at every level.
+        assert_eq!(tf(r, "min_volume_ratio"), 0.61948);
+    }
+    assert!((tf(&rows[0], "c_ff") - tf(opt, "optimized_ff")).abs() < 5e-9);
+    assert!((tf(&rows[0], "x0_c_ff") - tf(opt, "initial_ff")).abs() < 5e-9);
+
+    let c = held_out_series(&doc, "c_ff");
+    let x0 = held_out_series(&doc, "x0_c_ff");
+    check_held_out_extrapolation(&doc["final_design_extrapolation"], &c);
+    check_held_out_extrapolation(&doc["x0_extrapolation"], &x0);
+
+    // Rigorous statements (rounded in the conservative direction).
+    let fin = &doc["final_design_extrapolation"];
+    assert_eq!(tf(fin, "upper_bound_ff"), 89.02);
+    assert_eq!(tf(&doc["x0_extrapolation"], "upper_bound_ff"), 77.61);
+    let res = &doc["held_out_result"];
+    assert_eq!(res["rounds"].as_integer(), Some(7));
+    // The round-0 target a resolution-corrected run should aim at.
+    let corrected = tf(res, "resolution_corrected_target_ff");
+    assert_eq!(corrected, 90.978253);
+    assert!((corrected - 89.9 * c[0] / tf(fin, "geometric_tail_midpoint_ff")).abs() < 2e-6);
+    let below = tf(res, "converged_below_anchor_at_least_relative");
+    assert_eq!(below, 0.0098);
+    assert!(below <= (89.9 - c[7]) / 89.9);
+    // Seven rounds lower C by 0.985 %, and the last decrement is still
+    // 0.05 fF: the series has not converged.
+    let shift = tf(res, "last_round_relative_shift_from_round_0");
+    assert!((shift - (c[7] - c[0]) / c[0]).abs() < 1e-9);
+    assert!(shift < -0.0098 && shift > -0.0099);
+    assert!(c[6] - c[7] > 0.05);
+
+    // Estimates (not bounds): 88.8 to 88.9 fF, a 1.1 to 1.3 % overstatement.
+    let band = tf_arr(&fin["estimate"], "band_ff");
+    assert_eq!(band, [88.77, 88.91]);
+    let over = tf_arr(&fin["estimate"], "round_0_overstates_estimate_relative");
+    assert_eq!(over, [0.0111, 0.0128]);
+    // The whole estimate band is more than 1 % below the anchor, so the
+    // estimate says the 1 % criterion is not met; the rigorous bound alone
+    // (0.98 %) does not decide it.
+    let rel = tf_arr(res, "estimate_relative_to_anchor");
+    assert_eq!(rel, [-0.0126, -0.0110]);
+    assert!(rel[1] < -0.01);
+    assert!(below < 0.01);
+    let x0_band = tf_arr(&doc["x0_extrapolation"]["estimate"], "band_ff");
+    assert_eq!(x0_band, [77.42, 77.52]);
+
+    // Sensitivities drift too: -0.93 %, -0.67 % and -2.26 % over the series.
+    let g = tf_arr(&rows[7], "gradient_relative_shift_from_round_0");
+    for (got, want) in g.iter().zip([-0.0093, -0.0067, -0.0226]) {
+        assert!((got - want).abs() < 5e-5, "gradient shift {got} vs {want}");
+    }
+    // The design increment is stable: 11.51 fF at round 0, 11.41 at round 7.
+    assert!((tf(&rows[0], "design_increment_ff") - 11.5126).abs() < 1e-4);
+    assert!((tf(&rows[7], "design_increment_ff") - 11.4051).abs() < 1e-4);
+
+    // results.json carries the same series, and no pass/fail verdict.
+    let text = std::fs::read_to_string(refined_optimization_dir().join("p2_cycles10/results.json"))
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        json["status"].as_str(),
+        Some("target_reached_on_optimization_mesh_held_out_series_recorded")
+    );
+    let json_rounds: Vec<&serde_json::Value> = json["history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|h| h["kind"] == "held_out_round")
+        .collect();
+    assert_eq!(json_rounds.len(), 8);
+    for (h, (cf, cx)) in json_rounds.iter().zip(c.iter().zip(&x0)) {
+        assert!((h["final_design"]["c_ff"].as_f64().unwrap() - cf).abs() < 5e-9);
+        assert!((h["x0"]["c_ff"].as_f64().unwrap() - cx).abs() < 5e-9);
+    }
+}
+
+/// Pins `refined_optimization/p2_cycles10_resolution_corrected/summary.toml`
+/// (issue #1056): the same optimization with the 448k-tet target offset by
+/// the measured discretization bias of the first run, so that the
+/// **extrapolated** value of the new geometry lands on the 89.9 fF anchor.
+/// This is an extrapolation-targeted design, not a continuum certificate:
+/// the only rigorous statement is the upper bound (below 90.08 fF).
+#[test]
+fn committed_resolution_corrected_summary_pins_extrapolation_target() {
+    let first = refined_summary_toml("p2_cycles10");
+    let doc = refined_summary_toml("p2_cycles10_resolution_corrected");
+    assert_eq!(doc["meta"]["resolution_corrected"].as_bool(), Some(true));
+    assert_eq!(tf(&doc["meta"], "anchor_ff"), 89.9);
+    // The offset target was fixed by the first run, before this one:
+    // anchor * (round-0 value) / (geometric-tail midpoint).
+    let target = tf(&doc["meta"], "optimizer_target_ff");
+    assert_eq!(target, 90.978253);
+    assert_eq!(
+        target,
+        tf(&first["held_out_result"], "resolution_corrected_target_ff")
+    );
+    let c_first = held_out_series(&first, "c_ff");
+    let mid = tf(
+        &first["final_design_extrapolation"],
+        "geometric_tail_midpoint_ff",
+    );
+    assert!((target - 89.9 * c_first[0] / mid).abs() < 2e-6);
+
+    let opt = &doc["optimization"];
+    assert_eq!(opt["n_tets"].as_integer(), Some(448_279));
+    assert_eq!(opt["accepted_steps"].as_integer(), Some(3));
+    assert!((tf(opt, "initial_ff") - 78.387918461).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - 90.980103919).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - target).abs() < 0.005);
+    assert_eq!(tf(opt, "min_volume_ratio_over_accepted_steps"), 0.57790);
+    assert_eq!(tf(opt, "final_min_volume_ratio"), 0.58759);
+    for g in doc["gradient_check"].as_array().unwrap() {
+        assert!(tf(g, "relative_error") < 4e-7);
+    }
+
+    let want: [(i64, f64); 8] = [
+        (448_279, 90.980103919),
+        (528_677, 90.736602272),
+        (684_107, 90.538647931),
+        (905_316, 90.391037381),
+        (1_247_811, 90.281356456),
+        (1_708_342, 90.191605939),
+        (2_398_139, 90.127899467),
+        (3_331_618, 90.076691481),
+    ];
+    let rows = doc["held_out"].as_array().unwrap();
+    assert_eq!(rows.len(), want.len());
+    for (k, (r, (n, c))) in rows.iter().zip(want).enumerate() {
+        assert_eq!(r["n_tets"].as_integer(), Some(n));
+        assert!((tf(r, "c_ff") - c).abs() < 5e-9, "round {k}");
+        assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+        assert!(r.get("x0_c_ff").is_none());
+    }
+    let c = held_out_series(&doc, "c_ff");
+    let ex = &doc["final_design_extrapolation"];
+    check_held_out_extrapolation(ex, &c);
+
+    // Rigorous: only the upper side. The last solved value is still above
+    // the anchor, so nothing rigorous places the converged value near it.
+    assert_eq!(tf(ex, "upper_bound_ff"), 90.08);
+    let res = &doc["held_out_result"];
+    assert!(
+        res.get("converged_below_anchor_at_least_relative")
+            .is_none()
+    );
+    let above = tf(res, "converged_above_anchor_at_most_relative");
+    assert_eq!(above, 0.0020);
+    assert!(above >= (c[7] - 89.9) / 89.9);
+
+    // Estimate: the band contains the anchor and is within 0.07 % of it;
+    // the midpoint the target was built from lands 0.002 fF from it.
+    let band = tf_arr(&ex["estimate"], "band_ff");
+    assert_eq!(band, [89.84, 89.96]);
+    assert!(band[0] < 89.9 && 89.9 < band[1]);
+    assert_eq!(
+        tf_arr(res, "estimate_relative_to_anchor"),
+        [-0.0007, 0.0007]
+    );
+    assert!((tf(ex, "geometric_tail_midpoint_ff") - 89.9).abs() < 0.002);
+    // The estimate depends on the assumed rate: at the slower rates the
+    // same series extrapolates 0.2 to 0.6 % below the anchor.
+    let slow: Vec<f64> = ex["slow_rate_fit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| tf(f, "c_inf_ff"))
+        .collect();
+    assert!((slow[0] - 89.3948).abs() < 1e-3 && (slow[1] - 89.6785).abs() < 1e-3);
+    // The discretization bias is the same in both runs to the printed
+    // precision: both round-0 values overstate their estimate by 1.1-1.3 %.
+    let over = tf_arr(&ex["estimate"], "round_0_overstates_estimate_relative");
+    assert_eq!(over, [0.0113, 0.0127]);
+}
+
+/// No committed artifact of the #1056 runs may claim that the design passed
+/// a refinement threshold, and none may carry a host path.
+#[test]
+fn committed_refined_optimization_artifacts_have_no_host_paths_or_pass_claims() {
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("json" | "log" | "toml" | "txt" | "md")
+            ) {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&refined_optimization_dir(), &mut files);
+    assert!(files.len() > 20, "walked only {} files", files.len());
+    for path in files {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for needle in ["/Volumes/", "/Users/", "/home/"] {
+            assert!(
+                !text.contains(needle),
+                "{} contains a host path ({needle})",
+                path.display()
+            );
+        }
+        // The one-round pass verdict of the first version of this study.
+        assert!(
+            !text.contains("passes_1pct")
+                && !text.contains("refinement_capacitance_and_sensitivity_check"),
+            "{} still carries the one-round pass verdict",
+            path.display()
+        );
+    }
+}
+
+/// Release tier: re-solve the committed design on the committed 133k-tet
+/// fixture mesh (P2, AMG-PCG) and compare with `[coarse_reference]` of
+/// `p2_cycles10/summary.toml`: the capacitance, the three solved shape
+/// sensitivities, and the island dimensions of `[design]`. About 4 s in
+/// release. The 448k-tet adapted mesh and the held-out series (3.3M tets,
+/// about 29 GB) are a **manual** run of the generator, documented in
+/// `benchmarks/transmon_diffopt/refined_optimization/README.md`.
+#[test]
+#[ignore = "release-tier: one P2 AMG-PCG electrostatic solve pair on the 133k-tet transmon fixture (~4 s in release)"]
+fn refined_optimization_coarse_reference_release() {
+    use geode_core::assembly::electrostatic::{
+        AmgPcgOptions, assemble_electrostatic_p2_sheets, extract_capacitance_p2_amg_pcg_fields,
+    };
+    use geode_core::shape::refined_capacitance::p2_energy_shape_derivatives;
+    use geode_core::shape::transmon_morph::{
+        TransmonMorphRoles, TransmonMorphSpec, parameter_fields,
+    };
+
+    let doc = refined_summary_toml("p2_cycles10");
+    let theta = tf_arr(&doc["optimization"], "theta");
+    let mut fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    fx.mesh = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let roles = TransmonMorphRoles::identify(
+        &fx,
+        &fx.mesh,
+        TransmonMorphSpec::fixture_default(M_PER_UNIT),
+    )
+    .unwrap();
+    let fields = parameter_fields(&fx.mesh, &roles).unwrap().to_vec();
+    for (i, x) in fx.mesh.nodes.iter_mut().enumerate() {
+        for (field, step) in fields.iter().zip(&theta) {
+            for d in 0..3 {
+                x[d] += step * field[i][d];
+            }
+        }
+    }
+    let comps = fx.split_metal_conductors();
+    let comp = |role: MetalRole| comps.iter().find(|c| c.role == role).unwrap();
+    let conductors = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: comp(MetalRole::Island).nodes.clone(),
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: comp(MetalRole::Feedline).nodes.clone(),
+            voltage: 0.0,
+        },
+    ];
+    let eps = fx.epsilon_r_scalar();
+    let (sys, dofs) = assemble_electrostatic_p2_sheets(
+        &fx.mesh,
+        &eps,
+        &vec![0.0; fx.mesh.n_tets()],
+        &conductors,
+        &[
+            &comp(MetalRole::Island).triangles,
+            &comp(MetalRole::Feedline).triangles,
+        ],
+        &comp(MetalRole::Ground).nodes,
+        &comp(MetalRole::Ground).triangles,
+    )
+    .unwrap();
+    let (full, report, phis) =
+        extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, AmgPcgOptions::default()).unwrap();
+    assert!(report.rel_residual.iter().all(|&r| r <= 1e-9));
+    let vf = -full.c[1][0] / full.c[1][1];
+    let phi: Vec<f64> = phis[0]
+        .iter()
+        .zip(&phis[1])
+        .map(|(a, b)| a + vf * b)
+        .collect();
+    let c = (full.c[0][0] + vf * full.c[0][1]) * 1e15;
+    let reference = &doc["coarse_reference"];
+    assert!(
+        (c - tf(reference, "c_ff")).abs() < 1e-6,
+        "coarse C {c} vs committed {}",
+        tf(reference, "c_ff")
+    );
+    let gradient = p2_energy_shape_derivatives(&fx.mesh, &eps, &phi, &fields).unwrap();
+    for (g, want) in gradient.iter().zip(tf_arr(reference, "gradient_ff")) {
+        assert!(
+            (g * 1e15 - want).abs() < 1e-6 * want.abs(),
+            "coarse gradient {} vs committed {want}",
+            g * 1e15
+        );
+    }
+    // The coarse mesh carries the same polygonal island as the adapted one.
+    let island = &comp(MetalRole::Island).nodes;
+    let extent = |d: usize| {
+        let v = island.iter().map(|&n| fx.mesh.nodes[n as usize][d] * 1e6);
+        v.clone().fold(f64::NEG_INFINITY, f64::max) - v.fold(f64::INFINITY, f64::min)
+    };
+    assert!((extent(1) - tf(&doc["design"], "island_length_um")).abs() < 1e-5);
+    assert!((extent(0) - tf(&doc["design"], "pad_width_um")).abs() < 1e-5);
 }

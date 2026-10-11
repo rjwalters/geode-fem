@@ -12,6 +12,6 @@
     ]
   ],
   "island_length_um": 627.3238636940164,
-  "pad_width_um": 29.087261455691788,
-  "note": "Measured from the exported polygonal geometry, not from accumulated optimization parameters."
+  "note": "Written by the generator from the island sheet nodes of the final adapted mesh (the exported polygonal geometry), not from accumulated optimization parameters.",
+  "pad_width_um": 29.087261455691788
 }

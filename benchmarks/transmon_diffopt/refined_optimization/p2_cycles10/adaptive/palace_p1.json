@@ -38,7 +38,7 @@
   },
   "Model": {
     "L0": 1.0,
-    "Mesh": "final_coarse.msh"
+    "Mesh": "final_adapted.msh"
   },
   "Problem": {
     "Output": "palace_p1",

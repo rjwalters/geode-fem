@@ -1,4 +1,6 @@
 {
+  "record_type": "hand-assembled record of failed Palace attempts; not written by a generator",
+  "mesh_name_note": "both attempts ran when the adapted mesh was named final_coarse.msh; it is now final_adapted.msh with the same SHA-256, and the retained logs and resolved configurations still show the old name",
   "image_id": "sha256:bbe02bf83f5b26bdcf04101640873a82584495a64033ffdf079fb4bff7a83176",
   "mesh_sha256": "dde0eac7a4728944c7db8f62c425b63c1f4b4b4d1dc6d6e11609ce44f3d1ddeb",
   "attempts": [

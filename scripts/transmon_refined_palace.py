@@ -5,11 +5,18 @@ Usage: python3 scripts/transmon_refined_palace.py OUTPUT_DIR [--orders 1 2 3]
 Uses the local palace:cpu-1043 image (no build/pull/cloud). Preserves complete
 logs and solver outputs, then reports the floating-feedline Schur complement.
 Order-to-order agreement is empirical evidence, not a certified error bound.
+Agreement with GEODE at the same order on the same mesh shows that the two
+solvers agree on that discretization; it says nothing about its error.
+
+The mesh is the one named by `Model.Mesh` in OUTPUT_DIR/palace_p1.json. The
+recorded command carries OUTPUT_DIR relative to the current directory (run
+from the repository root), not the absolute path Docker is given.
 """
 import argparse
 import csv
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import time
@@ -28,12 +35,14 @@ def main():
         parser.error('orders and processes must be positive; amr-steps must be nonnegative')
     image_id = subprocess.check_output(
         ['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'], text=True).strip()
-    report = {'image': args.image, 'image_id': image_id,
-              'mesh_sha256': hashlib.sha256((root / 'final_coarse.msh').read_bytes()).hexdigest(),
+    template = json.loads((root / 'palace_p1.json').read_text())
+    mesh_name = template['Model']['Mesh']
+    recorded_root = os.path.relpath(root)
+    report = {'image': args.image, 'image_id': image_id, 'mesh': mesh_name,
+              'mesh_sha256': hashlib.sha256((root / mesh_name).read_bytes()).hexdigest(),
               'quantity': 'scalar-epsilon island capacitance with neutral floating feedline; no junction self-capacitance',
               'target_ff': 89.9, 'amr_steps': args.amr_steps, 'runs': []}
     report_path = root / ('palace_validation_amr.json' if args.amr_steps else 'palace_validation.json')
-    template = json.loads((root / 'palace_p1.json').read_text())
     for order in args.orders:
         cfg = dict(template)
         cfg['Solver'] = dict(template['Solver'], Order=order)
@@ -53,13 +62,15 @@ def main():
                    '--memory', '12g', '--ipc=host', '-e', 'OMP_NUM_THREADS=1',
                    '-v', f'{root}:/work', '-w', '/work', args.image,
                    '-np', str(args.processes), f'/work/{path.name}']
+        # Recorded with the repository-relative directory: no host paths in artifacts.
+        recorded = [f'{recorded_root}:/work' if c == f'{root}:/work' else c for c in command]
         print(f'Palace p={order}: starting', flush=True)
         with (root / f'{tag}.log').open('w') as log:
             process = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
         if process.returncode:
             report['runs'].append({'order': order, 'status': 'failed',
                                    'exit_code': process.returncode,
-                                   'wall_s': time.monotonic()-start, 'command': command})
+                                   'wall_s': time.monotonic()-start, 'command': recorded})
             report_path.write_text(json.dumps(report, indent=2)+'\n')
             raise SystemExit(f'Palace p={order} failed ({process.returncode}); see {tag}.log')
         with (root / tag / 'terminal-C.csv').open() as stream:
@@ -73,7 +84,7 @@ def main():
         run = {'order': order, 'status': 'completed',
                'capacitance_matrix_f': [values[0][1:], values[1][1:]],
                'c_sigma_ff': c_sigma, 'relative_target_error': c_sigma/89.9-1,
-               'wall_s': time.monotonic()-start, 'command': command}
+               'wall_s': time.monotonic()-start, 'command': recorded}
         if report['runs']:
             run['relative_shift_from_previous'] = c_sigma/report['runs'][-1]['c_sigma_ff']-1
         report['runs'].append(run)

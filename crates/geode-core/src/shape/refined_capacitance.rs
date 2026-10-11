@@ -314,4 +314,162 @@ mod tests {
             assert!((fd - derivative).abs() / c < 2e-8);
         }
     }
+
+    /// The solved P2 problem the transmon optimization relies on, in small:
+    /// a driven plate, a **floating sheet patch strictly inside the mesh**
+    /// (its triangle-edge P2 DOFs pinned through `P2DofMap::sheet_dofs`,
+    /// with free sheet edges where the field is singular) and a ground
+    /// plate. The energy partial derivative of the equilibrated
+    /// floating-neutral field must equal the central difference of the
+    /// reduced capacitance `C_00 - C_01^2 / C_11` taken from **fully
+    /// re-solved** perturbed meshes. The gradient uses the AMG-PCG fields;
+    /// the finite difference uses the independent sparse-LU extraction.
+    #[test]
+    fn p2_floating_sheet_energy_derivative_matches_solved_fd() {
+        use crate::assembly::electrostatic::{
+            AmgPcgOptions, assemble_electrostatic_p2_sheets, extract_capacitance_p2_amg_pcg_fields,
+            extract_capacitance_p2_dofs,
+        };
+        let mesh = cube_tet_mesh(4, 1.0);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-12;
+        // A node is on the plate at height `z` if it lies in the centred
+        // square of half-width `half` (0.5 = the whole cross-section).
+        let on = |x: &[f64; 3], z: f64, half: f64| {
+            near(x[2], z) && (x[0] - 0.5).abs() < half + 1e-12 && (x[1] - 0.5).abs() < half + 1e-12
+        };
+        let plate = |z: f64, half: f64| -> (Vec<u32>, Vec<[u32; 3]>) {
+            let nodes: Vec<u32> = (0..mesh.n_nodes() as u32)
+                .filter(|&i| on(&mesh.nodes[i as usize], z, half))
+                .collect();
+            let mut triangles = std::collections::BTreeSet::new();
+            for tet in &mesh.tets {
+                for face in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]] {
+                    let mut tri = face.map(|a| tet[a]);
+                    if tri.iter().all(|&v| on(&mesh.nodes[v as usize], z, half)) {
+                        tri.sort_unstable();
+                        triangles.insert(tri);
+                    }
+                }
+            }
+            (nodes, triangles.into_iter().collect())
+        };
+        let (top_nodes, top_tris) = plate(1.0, 0.5);
+        let (sheet_nodes, sheet_tris) = plate(0.5, 0.25);
+        let (ground_nodes, ground_tris) = plate(0.0, 0.5);
+        // The sheet is a 2 x 2-cell interior patch: 9 nodes, 8 triangles,
+        // none of them on the mesh boundary.
+        assert_eq!((sheet_nodes.len(), sheet_tris.len()), (9, 8));
+        let electrodes = vec![
+            Electrode {
+                name: "top".into(),
+                nodes: top_nodes,
+                voltage: 1.0,
+            },
+            Electrode {
+                name: "floating".into(),
+                nodes: sheet_nodes,
+                voltage: 0.0,
+            },
+        ];
+        // Two dielectric layers, so the material interface is on the sheet plane.
+        let eps: Vec<f64> = mesh
+            .tets
+            .iter()
+            .map(|t| {
+                let z = t.iter().map(|&v| mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
+                if z < 0.5 { 9.0 } else { 1.0 }
+            })
+            .collect();
+        let rho = vec![0.0; mesh.n_tets()];
+        let assemble = |m: &TetMesh| {
+            assemble_electrostatic_p2_sheets(
+                m,
+                &eps,
+                &rho,
+                &electrodes,
+                &[&top_tris, &sheet_tris],
+                &ground_nodes,
+                &ground_tris,
+            )
+            .unwrap()
+        };
+        // Reduced capacitance from an independent direct solve.
+        let reduced = |m: &TetMesh| {
+            let (sys, dofs) = assemble(m);
+            let c = extract_capacitance_p2_dofs(&sys, &dofs).unwrap().c;
+            c[0][0] - c[0][1] * c[1][0] / c[1][1]
+        };
+        let (sys, dofs) = assemble(&mesh);
+        // The sheet pins its 9 vertices and the 16 edges of its 8 triangles.
+        assert_eq!(dofs.conductors[1].len(), 9 + 16);
+        let (matrix, report, potentials) = extract_capacitance_p2_amg_pcg_fields(
+            &sys,
+            &dofs,
+            AmgPcgOptions {
+                rel_tol: 1e-13,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(report.rel_residual.iter().all(|r| *r < 1e-11));
+        let vf = -matrix.c[1][0] / matrix.c[1][1];
+        // The floating sheet is really coupled: its potential is interior.
+        assert!(vf > 0.05 && vf < 0.95, "floating potential {vf}");
+        let phi: Vec<f64> = potentials[0]
+            .iter()
+            .zip(&potentials[1])
+            .map(|(a, b)| a + vf * b)
+            .collect();
+        let c = matrix.c[0][0] + vf * matrix.c[0][1];
+        assert!((c / reduced(&mesh) - 1.0).abs() < 1e-10);
+
+        let dilation = mesh.nodes.clone();
+        let translation = vec![[1.0, -2.0, 0.5]; mesh.n_nodes()];
+        // Tilts and shears the floating sheet and moves its free edges.
+        let warp: Vec<_> = mesh
+            .nodes
+            .iter()
+            .map(|x| {
+                [
+                    0.2 * x[0] * x[1] + 0.1 * x[2],
+                    -0.15 * x[1] * x[2],
+                    0.25 * x[2] * (1.0 - x[2]) * (1.0 + x[0]),
+                ]
+            })
+            .collect();
+        // Widens the sheet in its own plane and leaves both plates fixed.
+        let widen: Vec<_> = mesh
+            .nodes
+            .iter()
+            .map(|x| {
+                let w = 4.0 * x[2] * (1.0 - x[2]);
+                [w * (x[0] - 0.5), w * (x[1] - 0.5), 0.0]
+            })
+            .collect();
+        // Moves the sheet towards the driven plate.
+        let lift: Vec<_> = mesh
+            .nodes
+            .iter()
+            .map(|x| [0.0, 0.0, x[2] * (1.0 - x[2])])
+            .collect();
+        let fields = vec![dilation, translation, warp, widen, lift];
+        let derivatives = p2_energy_shape_derivatives(&mesh, &eps, &phi, &fields).unwrap();
+        // Capacitance scales with length and ignores a rigid translation.
+        assert!((derivatives[0] / c - 1.0).abs() < 1e-9);
+        assert!(derivatives[1].abs() / c < 1e-9);
+        let h = 1e-4;
+        for (k, (field, derivative)) in fields.iter().zip(&derivatives).enumerate() {
+            let fd = (reduced(&apply_node_motion(&mesh, field, h))
+                - reduced(&apply_node_motion(&mesh, field, -h)))
+                / (2.0 * h);
+            assert!(
+                (fd - derivative).abs() / c < 1e-7,
+                "field {k}: analytic {derivative} vs solved FD {fd} (C = {c})"
+            );
+        }
+        // The three non-affine motions are not degenerate directions.
+        for (k, derivative) in derivatives.iter().enumerate().skip(2) {
+            assert!(derivative.abs() / c > 1e-2, "field {k} is degenerate");
+        }
+    }
 }

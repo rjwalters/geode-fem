@@ -53,7 +53,7 @@
     "L0": 1.0,
     "MakeHexahedral": false,
     "MakeSimplex": false,
-    "Mesh": "final_coarse.msh",
+    "Mesh": "final_adapted.msh",
     "RefineCrackElements": true,
     "Refinement": {
       "MaxIts": 2,

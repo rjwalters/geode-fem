@@ -1,9 +1,16 @@
-//! Refine, optimize, then validate the SAME geometry on another discretization.
+//! Refine, optimize, then measure the SAME geometry on a held-out refinement series.
 //! The initial coarse harmonic geometry map is prolonged exactly between meshes;
-//! refinement is outside differentiation. A discrete target hit is not convergence.
+//! refinement is outside differentiation. A discrete target hit is not convergence:
+//! after the optimization the final geometry (and `X0`) is re-solved on several
+//! further flux-jump refinement rounds, and the series, its rigorous upper bound
+//! and its (non-rigorous) extrapolation are written to `summary.toml`.
 //! Run: cargo run -p geode-core --release --example transmon_refined_optimize
 //! Environment: REFINED_OPT_CYCLES (default 8), REFINED_OPT_MAX_TETS (2 million),
-//! REFINED_OPT_ORDER (1 or 2), REFINED_OPT_DIR (output directory). No reference benchmark is overwritten.
+//! REFINED_OPT_ORDER (1 or 2), REFINED_OPT_DIR (output directory),
+//! REFINED_OPT_TARGET (optimizer target in fF, default the 89.9 fF anchor),
+//! REFINED_OPT_HELD_OUT_ROUNDS (default 7), REFINED_OPT_HELD_OUT_MAX_TETS
+//! (4 million), REFINED_OPT_HELD_OUT_X0 (1 = also solve `X0` per round).
+//! No reference benchmark is overwritten.
 
 use geode_core::adapt::refine::{BisectionMesh, RefineOpts};
 use geode_core::assembly::electrostatic::{
@@ -22,12 +29,21 @@ use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-const TARGET: f64 = 89.9;
+/// The 89.9 fF anchor every result is compared against.
+const ANCHOR: f64 = 89.9;
 const SCALE: [f64; 3] = [0.040959, 0.553015, 0.784636];
 
+/// Optimizer target in fF: the anchor unless `REFINED_OPT_TARGET` offsets it
+/// (the resolution-corrected run).
+fn target() -> f64 {
+    std::env::var("REFINED_OPT_TARGET").map_or(ANCHOR, |v| v.parse().unwrap())
+}
+fn env_usize(name: &str, default: usize) -> usize {
+    std::env::var(name).map_or(default, |v| v.parse().unwrap())
+}
 fn moved(base: &TetMesh, fields: &[Vec<[f64; 3]>], theta: &[f64; 3]) -> TetMesh {
     let mut mesh = base.clone();
     for (i, x) in mesh.nodes.iter_mut().enumerate() {
@@ -198,10 +214,10 @@ fn indicators(fx: &TransmonFixture, phi: &[f64]) -> Vec<f64> {
     }
     eta
 }
-fn save(path: &PathBuf, history: &[Value], status: &str, theta: &[f64; 3]) {
+fn save(path: &Path, history: &[Value], status: &str, theta: &[f64; 3]) {
     fs::write(
         path,
-        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":TARGET,"optimization_order":std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into()),
+        serde_json::to_string_pretty(&json!({"target_scalar_capacitance_ff":target(),"anchor_ff":ANCHOR,"optimization_order":std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into()),
         "geometry_map":"fixed coarse junction-pinned harmonic fields; exact nested P1 prolongation",
         "convergence_threshold_relative":0.01,"status":status,"theta":theta,"history":history}))
         .unwrap(),
@@ -278,10 +294,405 @@ fn export_palace(fx: &TransmonFixture, out: &std::path::Path, mesh_name: &str) {
             "Solver":{"Order":order,"Electrostatic":{"Save":0},"Linear":{"Type":"BoomerAMG","Tol":1e-10,"MaxIts":2000}}});
         fs::write(
             out.join(format!("palace_p{order}.json")),
-            serde_json::to_string_pretty(&config).unwrap(),
+            serde_json::to_string_pretty(&config).unwrap() + "\n",
         )
         .unwrap();
     }
+}
+/// Exact nodal prolongation of the geometry-map fields to a refined mesh.
+fn prolong(
+    fields: &[Vec<[f64; 3]>],
+    p: faer::sparse::SparseColMatRef<'_, usize, f64>,
+) -> Vec<Vec<[f64; 3]>> {
+    fields
+        .iter()
+        .map(|field| {
+            let mut fine = vec![[0.0; 3]; p.nrows()];
+            for (col, value) in field.iter().enumerate() {
+                for q in p.col_ptr()[col]..p.col_ptr()[col + 1] {
+                    let row = p.row_idx()[q];
+                    for (d, &v) in value.iter().enumerate() {
+                        fine[row][d] += p.val()[q] * v;
+                    }
+                }
+            }
+            fine
+        })
+        .collect()
+}
+/// Mark the largest indicators carrying half of the indicator sum.
+fn dorfler(eta: &[f64]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..eta.len()).collect();
+    order.sort_by(|&a, &b| eta[b].total_cmp(&eta[a]));
+    let threshold = 0.5 * eta.iter().sum::<f64>();
+    let mut sum = 0.0;
+    let mut marked = Vec::new();
+    for t in order {
+        marked.push(t);
+        sum += eta[t];
+        if sum >= threshold {
+            break;
+        }
+    }
+    marked
+}
+struct Step {
+    c: f64,
+    theta: [f64; 3],
+    ratio: f64,
+}
+struct Round {
+    n_tets: usize,
+    n_nodes: usize,
+    ratio: f64,
+    fin: Solve,
+    x0: Option<Solve>,
+}
+struct Design {
+    bbox: [[f64; 3]; 2],
+    length: f64,
+    width: f64,
+}
+/// Island bounding box (um) measured on the final adapted mesh.
+fn design_dimensions(fx: &TransmonFixture) -> Design {
+    let components = fx.split_metal_conductors();
+    let island = components
+        .iter()
+        .find(|c| c.role == MetalRole::Island)
+        .unwrap();
+    let mut bbox = [[f64::INFINITY; 3], [f64::NEG_INFINITY; 3]];
+    for &v in &island.nodes {
+        for (d, x) in fx.mesh.nodes[v as usize].iter().enumerate() {
+            bbox[0][d] = bbox[0][d].min(x * 1e6);
+            bbox[1][d] = bbox[1][d].max(x * 1e6);
+        }
+    }
+    Design {
+        bbox,
+        length: bbox[1][1] - bbox[0][1],
+        width: bbox[1][0] - bbox[0][0],
+    }
+}
+
+/// Whether a scanned free-fit rate is an interior minimum of the scan.
+fn interior_rate(alpha: f64) -> bool {
+    alpha > 7.5e-4 && alpha < 2.99975
+}
+/// Least-squares `c = c_inf + a x`; returns `(c_inf, sum of squared residuals)`.
+fn line_fit(x: &[f64], c: &[f64]) -> (f64, f64) {
+    let m = x.len() as f64;
+    let (xm, cm) = (x.iter().sum::<f64>() / m, c.iter().sum::<f64>() / m);
+    let sxx: f64 = x.iter().map(|v| (v - xm).powi(2)).sum();
+    let sxc: f64 = x.iter().zip(c).map(|(v, w)| (v - xm) * (w - cm)).sum();
+    let a = sxc / sxx;
+    let c_inf = cm - a * xm;
+    let sse = x
+        .iter()
+        .zip(c)
+        .map(|(v, w)| (w - c_inf - a * v).powi(2))
+        .sum();
+    (c_inf, sse)
+}
+/// `c_inf` of the least-squares fit `c = c_inf + a n^-alpha` at a fixed rate.
+fn power_fit(n: &[f64], c: &[f64], alpha: f64) -> (f64, f64) {
+    let x: Vec<f64> = n.iter().map(|v| v.powf(-alpha)).collect();
+    line_fit(&x, c)
+}
+/// What a held-out series says about the converged value of one geometry.
+/// Only `upper_bound_ff` is rigorous. Everything else is an estimate.
+struct Extrapolation {
+    decrements: Vec<f64>,
+    ratios: Vec<f64>,
+    /// Last solved value rounded UP to 0.01 fF.
+    upper_bound_ff: f64,
+    /// Geometric tail `c_last - d_last r / (1 - r)` at the largest and the
+    /// smallest observed decrement ratio (low, high), unrounded.
+    geometric: [f64; 2],
+    /// Free-rate fits `c_inf + a n^-alpha`: (first round used, alpha, c_inf).
+    /// A fit whose rate sits on an end of the scan found no interior
+    /// minimum; it is recorded but kept out of `band`.
+    free_fits: Vec<(usize, f64, f64)>,
+    /// Fixed slower rates on rounds 2..: (alpha, c_inf).
+    slow_fits: Vec<(f64, f64)>,
+    /// Outward-rounded (0.01 fF) union of `geometric` and `free_fits`.
+    band: [f64; 2],
+}
+impl Extrapolation {
+    fn midpoint(&self) -> f64 {
+        0.5 * (self.geometric[0] + self.geometric[1])
+    }
+    fn json(&self) -> Value {
+        json!({"decrements_ff":self.decrements,"decrement_ratios":self.ratios,"upper_bound_ff":self.upper_bound_ff,
+            "geometric_tail_ff":self.geometric,"geometric_tail_midpoint_ff":self.midpoint(),
+            "free_rate_fits":self.free_fits.iter().map(|(k,a,c)| json!({"first_round":k,"alpha":a,"c_inf_ff":c,"in_band":interior_rate(*a)})).collect::<Vec<_>>(),
+            "slow_rate_fits":self.slow_fits.iter().map(|(a,c)| json!({"alpha":a,"c_inf_ff":c})).collect::<Vec<_>>(),
+            "estimate_band_ff":self.band})
+    }
+}
+/// Needs at least five rounds with strictly decreasing, contracting values;
+/// otherwise no extrapolation is attempted (the series itself is still saved).
+fn extrapolate(n: &[f64], c: &[f64]) -> Option<Extrapolation> {
+    if c.len() < 5 {
+        return None;
+    }
+    let decrements: Vec<f64> = c.windows(2).map(|w| w[0] - w[1]).collect();
+    let ratios: Vec<f64> = decrements.windows(2).map(|w| w[1] / w[0]).collect();
+    if decrements.iter().any(|d| *d <= 0.0) || ratios.iter().any(|r| *r >= 1.0) {
+        return None;
+    }
+    let (last, d_last) = (*c.last().unwrap(), *decrements.last().unwrap());
+    let tail = |r: f64| last - d_last * r / (1.0 - r);
+    let r_min = ratios.iter().copied().fold(f64::INFINITY, f64::min);
+    let r_max = ratios.iter().copied().fold(0.0, f64::max);
+    let geometric = [tail(r_max), tail(r_min)];
+    let mut free_fits = Vec::new();
+    for first in 2..=c.len().saturating_sub(4) {
+        // Scan the rate; three unknowns, so at least four rounds per fit.
+        let best = (1..=6000)
+            .map(|i| {
+                let alpha = 5e-4 * i as f64;
+                let (c_inf, sse) = power_fit(&n[first..], &c[first..], alpha);
+                (alpha, c_inf, sse)
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .unwrap();
+        free_fits.push((first, best.0, best.1));
+    }
+    let slow_fits = [1.0 / 3.0, 0.5]
+        .iter()
+        .map(|&alpha| (alpha, power_fit(&n[2..], &c[2..], alpha).0))
+        .collect();
+    let all = geometric
+        .iter()
+        .copied()
+        .chain(free_fits.iter().filter(|f| interior_rate(f.1)).map(|f| f.2));
+    let lo = all.clone().fold(f64::INFINITY, f64::min);
+    let hi = all.fold(f64::NEG_INFINITY, f64::max);
+    Some(Extrapolation {
+        decrements,
+        ratios,
+        upper_bound_ff: (last * 100.0).ceil() / 100.0,
+        geometric,
+        free_fits,
+        slow_fits,
+        band: [(lo * 100.0).floor() / 100.0, (hi * 100.0).ceil() / 100.0],
+    })
+}
+
+struct Summary<'a> {
+    target: f64,
+    theta: [f64; 3],
+    steps: &'a [Step],
+    checks: &'a [(f64, f64, f64)],
+    coarse: &'a Solve,
+    design: &'a Design,
+    rounds: &'a [Round],
+    ex_final: Option<&'a Extrapolation>,
+    ex_x0: Option<&'a Extrapolation>,
+    cycles: usize,
+}
+fn list(values: &[f64], digits: usize) -> String {
+    let items: Vec<String> = values.iter().map(|v| format!("{v:.digits$}")).collect();
+    format!("[{}]", items.join(", "))
+}
+fn write_extrapolation(f: &mut impl Write, table: &str, reference: f64, ex: &Extrapolation) {
+    writeln!(f, "\n[{table}]").unwrap();
+    writeln!(f, "decrements_ff = {}", list(&ex.decrements, 6)).unwrap();
+    writeln!(f, "decrement_ratios = {}", list(&ex.ratios, 4)).unwrap();
+    writeln!(
+        f,
+        "upper_bound_ff = {:.2}  # RIGOROUS: last solved value rounded up; the converged value of this geometry is below it",
+        ex.upper_bound_ff
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "geometric_tail_ff = {}  # ESTIMATE: c_last - d_last r/(1-r) at the largest and smallest observed ratio",
+        list(&ex.geometric, 6)
+    )
+    .unwrap();
+    writeln!(f, "geometric_tail_midpoint_ff = {:.6}", ex.midpoint()).unwrap();
+    for (first, alpha, c_inf) in &ex.free_fits {
+        writeln!(
+            f,
+            "[[{table}.free_rate_fit]]  # ESTIMATE: least squares c_inf + a n_tets^-alpha, alpha scanned in steps of 5e-4\nfirst_round = {first}\nalpha = {alpha:.4}\nc_inf_ff = {c_inf:.6}\nin_band = {}",
+            interior_rate(*alpha)
+        )
+        .unwrap();
+    }
+    for (alpha, c_inf) in &ex.slow_fits {
+        writeln!(
+            f,
+            "[[{table}.slow_rate_fit]]  # SENSITIVITY: the same fit on rounds 2.. at an assumed slower rate\nalpha = {alpha:.6}\nc_inf_ff = {c_inf:.6}"
+        )
+        .unwrap();
+    }
+    // Relative to the round-0 value the optimizer saw: by how much it
+    // overstates the estimated converged value (low end floored, high end ceiled).
+    let over = |est: f64| (reference - est) / est;
+    writeln!(
+        f,
+        "[{table}.estimate]  # NOT a bound: union of the geometric tail and the free-rate fits, rounded outward\nband_ff = {}\nround_0_overstates_estimate_relative = [{:.4}, {:.4}]",
+        list(&ex.band, 2),
+        (over(ex.band[1]) * 1e4).floor() / 1e4,
+        (over(ex.band[0]) * 1e4).ceil() / 1e4
+    )
+    .unwrap();
+}
+/// Deterministic headline summary (no timings): the artifact the pin test reads.
+fn write_summary(out: &Path, s: &Summary<'_>) {
+    let mut f = std::io::BufWriter::new(fs::File::create(out.join("summary.toml")).unwrap());
+    let order = std::env::var("REFINED_OPT_ORDER").unwrap_or("1".into());
+    let (first, last) = (&s.rounds[0], s.rounds.last().unwrap());
+    writeln!(
+        f,
+        "# Auto-generated by `cargo run -p geode-core --release --example transmon_refined_optimize`\n\
+         # (see the README next to the run directory for the environment of this run).\n\
+         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible.\n\n\
+         [meta]\n\
+         issue = 1056\n\
+         generator = \"crates/geode-core/examples/transmon_refined_optimize.rs\"\n\
+         fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\"\n\
+         quantity = \"scalar-eps island capacitance with a neutral floating feedline (C_ii - C_if^2/C_ff), energy method, f64; no junction self-capacitance\"\n\
+         anchor_ff = {ANCHOR}\n\
+         optimizer_target_ff = {:?}\n\
+         resolution_corrected = {}\n\
+         element_order = {order}\n\
+         p1_preparation_cycles = {}\n\
+         solver = \"AMG-PCG, relative residual 1e-10, true residual recomputed and asserted <= 1e-9\"\n\
+         bounds = \"the held-out spaces are nested and conforming and the capacitance is an energy minimum, so every solved value is an upper bound on the converged value of the same polygonal geometry; there is no rigorous lower bound, and every extrapolation below is an estimate\"",
+        s.target,
+        s.target != ANCHOR,
+        s.cycles
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "\n[optimization]\nn_tets = {}\nn_nodes = {}\ninitial_ff = {:.9}\noptimized_ff = {:.9}\naccepted_steps = {}\ntheta = {:?}\nmin_volume_ratio_over_accepted_steps = {:.5}  # rounded down\nfinal_min_volume_ratio = {:.5}  # rounded down",
+        first.n_tets,
+        first.n_nodes,
+        s.steps[0].c,
+        s.steps.last().unwrap().c,
+        s.steps.len() - 1,
+        s.theta,
+        (s.steps.iter().map(|t| t.ratio).fold(f64::INFINITY, f64::min) * 1e5).floor() / 1e5,
+        (s.steps.last().unwrap().ratio * 1e5).floor() / 1e5
+    )
+    .unwrap();
+    for (k, t) in s.steps.iter().enumerate() {
+        writeln!(
+            f,
+            "[[optimization.step]]\nstep = {k}\nc_ff = {:.9}\ntheta = {:?}\nmin_volume_ratio = {:.5}",
+            t.c,
+            t.theta,
+            (t.ratio * 1e5).floor() / 1e5
+        )
+        .unwrap();
+    }
+    writeln!(
+        f,
+        "\n[design]  # island sheet nodes of the final adapted mesh\nisland_length_um = {:.6}\npad_width_um = {:.6}",
+        s.design.length, s.design.width
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "\n[coarse_reference]  # the same theta on the committed 133k-tet fixture mesh (coarse geometry-map fields)\nc_ff = {:.9}\ngradient_ff = {}",
+        s.coarse.c,
+        list(&s.coarse.gradient, 9)
+    )
+    .unwrap();
+    for (i, (analytic, fd, rel)) in s.checks.iter().enumerate() {
+        writeln!(
+            f,
+            "\n[[gradient_check]]  # central difference of fully re-solved capacitances, h = 1e-4\nparameter = {i}\nanalytic_ff = {analytic:.9}\nfd_ff = {fd:.9}\nrelative_error = {rel:.3e}"
+        )
+        .unwrap();
+    }
+    for (k, r) in s.rounds.iter().enumerate() {
+        let shift: Vec<f64> = r
+            .fin
+            .gradient
+            .iter()
+            .zip(&first.fin.gradient)
+            .map(|(g, g0)| (g - g0) / g0 + 0.0)
+            .collect();
+        writeln!(
+            f,
+            "\n[[held_out]]  # round 0 is the optimization mesh; each round marks half the flux-jump indicator of the final design\nround = {k}\nn_tets = {}\nn_nodes = {}\nmin_volume_ratio = {:.5}\nc_ff = {:.9}\nrelative_shift_from_round_0 = {:.6e}\ngradient_ff = {}\ngradient_relative_shift_from_round_0 = {}\npcg_iterations = {:?}\npcg_max_true_rel_residual = {:.3e}",
+            r.n_tets,
+            r.n_nodes,
+            (r.ratio * 1e5).floor() / 1e5,
+            r.fin.c,
+            (r.fin.c - first.fin.c) / first.fin.c,
+            list(&r.fin.gradient, 9),
+            list(&shift, 6),
+            r.fin.iterations,
+            r.fin.true_residual
+        )
+        .unwrap();
+        if let Some(x0) = &r.x0 {
+            writeln!(
+                f,
+                "x0_c_ff = {:.9}\nx0_gradient_ff = {}\nx0_pcg_max_true_rel_residual = {:.3e}\ndesign_increment_ff = {:.9}",
+                x0.c,
+                list(&x0.gradient, 9),
+                x0.true_residual,
+                r.fin.c - x0.c
+            )
+            .unwrap();
+        }
+    }
+    writeln!(
+        f,
+        "\n[held_out_result]\nrounds = {}\nlast_round_n_tets = {}\nlast_round_c_ff = {:.9}\nlast_round_relative_shift_from_round_0 = {:.6e}\nlast_round_relative_to_anchor = {:.6e}",
+        s.rounds.len() - 1,
+        last.n_tets,
+        last.fin.c,
+        (last.fin.c - first.fin.c) / first.fin.c,
+        (last.fin.c - ANCHOR) / ANCHOR
+    )
+    .unwrap();
+    if let Some(ex) = s.ex_final {
+        // Rigorous, one-sided: the converged value is below the last solved
+        // value. Below the anchor that gives a minimum shortfall (rounded
+        // down); above it, only a maximum excess (rounded up).
+        if last.fin.c < ANCHOR {
+            writeln!(
+                f,
+                "converged_below_anchor_at_least_relative = {:.4}  # RIGOROUS, from the unrounded last value, rounded down",
+                ((ANCHOR - last.fin.c) / ANCHOR * 1e4).floor() / 1e4
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                f,
+                "converged_above_anchor_at_most_relative = {:.4}  # RIGOROUS upper side only, rounded up; there is no rigorous lower bound, so nothing here proves the converged value is near the anchor",
+                ((last.fin.c - ANCHOR) / ANCHOR * 1e4).ceil() / 1e4
+            )
+            .unwrap();
+        }
+        writeln!(
+            f,
+            "estimate_relative_to_anchor = [{:.4}, {:.4}]  # ESTIMATE band against the anchor, rounded outward",
+            ((ex.band[0] - ANCHOR) / ANCHOR * 1e4).floor() / 1e4,
+            ((ex.band[1] - ANCHOR) / ANCHOR * 1e4).ceil() / 1e4
+        )
+        .unwrap();
+        if s.target == ANCHOR {
+            writeln!(
+                f,
+                "resolution_corrected_target_ff = {:.6}  # anchor * round-0 value / geometric-tail midpoint: the round-0 target whose extrapolation is expected near the anchor",
+                ANCHOR * first.fin.c / ex.midpoint()
+            )
+            .unwrap();
+        }
+        write_extrapolation(&mut f, "final_design_extrapolation", first.fin.c, ex);
+    }
+    if let Some(ex) = s.ex_x0 {
+        write_extrapolation(&mut f, "x0_extrapolation", first.x0.as_ref().unwrap().c, ex);
+    }
+    f.flush().unwrap();
 }
 fn main() {
     let cycles: usize = std::env::var("REFINED_OPT_CYCLES")
@@ -337,18 +748,7 @@ fn main() {
             break;
         }
         let eta = indicators(&current, &solved.phi);
-        let mut order: Vec<usize> = (0..eta.len()).collect();
-        order.sort_by(|&a, &b| eta[b].total_cmp(&eta[a]));
-        let threshold = 0.5 * eta.iter().sum::<f64>();
-        let mut sum = 0.0;
-        let mut marked = Vec::new();
-        for t in order {
-            marked.push(t);
-            sum += eta[t];
-            if sum >= threshold {
-                break;
-            }
-        }
+        let marked = dorfler(&eta);
         let mut trial_state = state.clone();
         let refined = trial_state.refine(&marked, &RefineOpts::default()).unwrap();
         println!(
@@ -366,28 +766,15 @@ fn main() {
             break;
         }
         state = trial_state;
-        let p = refined.node_prolongation.as_ref();
-        fields = fields
-            .iter()
-            .map(|field| {
-                let mut fine = vec![[0.0; 3]; p.nrows()];
-                for (col, value) in field.iter().enumerate() {
-                    for q in p.col_ptr()[col]..p.col_ptr()[col + 1] {
-                        let row = p.row_idx()[q];
-                        for (d, &v) in value.iter().enumerate() {
-                            fine[row][d] += p.val()[q] * v;
-                        }
-                    }
-                }
-                fine
-            })
-            .collect();
+        fields = prolong(&fields, refined.node_prolongation.as_ref());
         previous = Some(solved.c);
     }
     // Optimization is deliberately after the resolution study, on a fixed mesh.
     // A separate validation pass below must still establish design stability.
+    let target = target();
     let mut last = None;
     let mut cached = None;
+    let mut steps: Vec<Step> = Vec::new();
     for step in 0..20 {
         let mut current = fixture(state.mesh(), &fx);
         current.mesh = moved(&state.mesh().mesh, &fields, &theta);
@@ -399,7 +786,12 @@ fn main() {
         );
         history.push(json!({"kind":"optimization","step":step,"c_ff":s.c,"gradient_ff":s.gradient,"theta":theta,"min_volume_ratio":ratio,"solve_s":s.elapsed,"true_relative_residual":s.true_residual,"iterations":s.iterations}));
         save(&result_path, &history, "optimizing", &theta);
-        if (s.c - TARGET).abs() < 0.005 {
+        steps.push(Step {
+            c: s.c,
+            theta,
+            ratio,
+        });
+        if (s.c - target).abs() < 0.005 {
             last = Some(s);
             break;
         }
@@ -410,7 +802,7 @@ fn main() {
             .map(|(g, w)| (g * w).powi(2))
             .sum();
         let mut delta: [f64; 3] =
-            std::array::from_fn(|i| (TARGET - s.c) * s.gradient[i] * SCALE[i].powi(2) / norm);
+            std::array::from_fn(|i| (target - s.c) * s.gradient[i] * SCALE[i].powi(2) / norm);
         let trust = delta
             .iter()
             .zip(SCALE)
@@ -429,7 +821,7 @@ fn main() {
                 let mut candidate = current.clone();
                 candidate.mesh = m;
                 let t = solve(&candidate, &fields);
-                if (t.c - TARGET).abs() < (s.c - TARGET).abs() {
+                if (t.c - target).abs() < (s.c - target).abs() {
                     theta = trial;
                     cached = Some(t);
                     accepted = true;
@@ -450,82 +842,123 @@ fn main() {
     export_palace(&export_fx, &out, "final_coarse.msh");
     let coarse_check = solve(&export_fx, &coarse_fields);
     history.push(json!({"kind":"final_coarse_cross_solver_reference","c_ff":coarse_check.c,"gradient_ff":coarse_check.gradient}));
-    if let Some(last) = last {
-        let mut final_fx = fixture(state.mesh(), &fx);
-        final_fx.mesh = moved(&state.mesh().mesh, &fields, &theta);
-        let adaptive_export = out.join("adaptive");
-        fs::create_dir_all(&adaptive_export).unwrap();
-        export_palace(&final_fx, &adaptive_export, "final_coarse.msh");
-        // FD uses fully re-solved perturbed fields, not a frozen-field energy.
-        for i in 0..3 {
-            let h = 1e-4;
-            let mut tp = theta;
-            tp[i] += h;
-            let mut tm = theta;
-            tm[i] -= h;
-            let mut plus = final_fx.clone();
-            plus.mesh = moved(&state.mesh().mesh, &fields, &tp);
-            let mut minus = final_fx.clone();
-            minus.mesh = moved(&state.mesh().mesh, &fields, &tm);
-            let fd = (solve(&plus, &fields).c - solve(&minus, &fields).c) / (2.0 * h);
-            let rel = (fd - last.gradient[i]).abs() / fd.abs().max(1e-12);
-            assert!(rel < 1e-3, "final FD parameter {i}: {rel}");
-            history.push(json!({"kind":"final_gradient_check","parameter":i,"h":h,"analytic_ff":last.gradient[i],"fd_ff":fd,"relative_error":rel}));
-            save(&result_path, &history, "validating", &theta);
-        }
-        // Refine the final geometry independently of optimization. The
-        // validation solves never update theta and do not feed its target.
-        let eta = indicators(&final_fx, &last.phi);
-        let mut ranked: Vec<usize> = (0..eta.len()).collect();
-        ranked.sort_by(|&a, &b| eta[b].total_cmp(&eta[a]));
-        let mut marked = Vec::new();
-        let mut total = 0.0;
-        let marking_threshold = 0.5 * eta.iter().sum::<f64>();
-        for t in ranked {
-            marked.push(t);
-            total += eta[t];
-            if total >= marking_threshold {
-                break;
-            }
-        }
-        let refined = state.refine(&marked, &RefineOpts::default()).unwrap();
-        let p = refined.node_prolongation.as_ref();
-        let fine_fields: Vec<Vec<[f64; 3]>> = fields
-            .iter()
-            .map(|field| {
-                let mut fine = vec![[0.0; 3]; p.nrows()];
-                for (col, value) in field.iter().enumerate() {
-                    for q in p.col_ptr()[col]..p.col_ptr()[col + 1] {
-                        for (d, &v) in value.iter().enumerate() {
-                            fine[p.row_idx()[q]][d] += p.val()[q] * v;
-                        }
-                    }
-                }
-                fine
-            })
-            .collect();
-        let mut fine_fx = fixture(&refined.mesh, &fx);
-        fine_fx.mesh = moved(&refined.mesh.mesh, &fine_fields, &theta);
-        let fine = solve(&fine_fx, &fine_fields);
-        let change = (fine.c - last.c) / last.c;
-        history.push(json!({"kind":"held_out_refinement","n_tets":fine_fx.mesh.n_tets(),"c_ff":fine.c,"relative_shift":change,"target_relative_error":(fine.c-TARGET)/TARGET,"gradient_ff":fine.gradient,"solve_s":fine.elapsed,"true_relative_residual":fine.true_residual,"iterations":fine.iterations}));
-        println!(
-            "held-out: {} tets C={:.9}, shift={:.4}%",
-            fine_fx.mesh.n_tets(),
-            fine.c,
-            100.0 * change
-        );
-        save(
-            &result_path,
-            &history,
-            if change.abs() <= 0.01 && (fine.c - TARGET).abs() / TARGET <= 0.01 {
-                "one_local_refinement_passes_1pct_independent_validation_pending"
-            } else {
-                "discrete_target_reached_refinement_validation_failed"
-            },
-            &theta,
-        );
-    } else {
+    let Some(last) = last else {
         save(&result_path, &history, "optimization_stalled", &theta);
+        return;
+    };
+    let mut final_fx = fixture(state.mesh(), &fx);
+    final_fx.mesh = moved(&state.mesh().mesh, &fields, &theta);
+    let adaptive_export = out.join("adaptive");
+    fs::create_dir_all(&adaptive_export).unwrap();
+    export_palace(&final_fx, &adaptive_export, "final_adapted.msh");
+    let design = design_dimensions(&final_fx);
+    fs::write(
+        out.join("design.json"),
+        serde_json::to_string_pretty(&json!({"island_bbox_um":design.bbox,"island_length_um":design.length,"pad_width_um":design.width,
+            "note":"Written by the generator from the island sheet nodes of the final adapted mesh (the exported polygonal geometry), not from accumulated optimization parameters."})).unwrap() + "\n",
+    )
+    .unwrap();
+    // FD uses fully re-solved perturbed fields, not a frozen-field energy.
+    let mut checks = Vec::new();
+    for i in 0..3 {
+        let h = 1e-4;
+        let mut tp = theta;
+        tp[i] += h;
+        let mut tm = theta;
+        tm[i] -= h;
+        let mut plus = final_fx.clone();
+        plus.mesh = moved(&state.mesh().mesh, &fields, &tp);
+        let mut minus = final_fx.clone();
+        minus.mesh = moved(&state.mesh().mesh, &fields, &tm);
+        let fd = (solve(&plus, &fields).c - solve(&minus, &fields).c) / (2.0 * h);
+        let rel = (fd - last.gradient[i]).abs() / fd.abs().max(1e-12);
+        assert!(rel < 1e-3, "final FD parameter {i}: {rel}");
+        history.push(json!({"kind":"final_gradient_check","parameter":i,"h":h,"analytic_ff":last.gradient[i],"fd_ff":fd,"relative_error":rel}));
+        checks.push((last.gradient[i], fd, rel));
+        save(&result_path, &history, "validating", &theta);
     }
+    drop(final_fx);
+    // Held-out series: keep refining the final geometry, independently of the
+    // optimization. These solves never update theta and do not feed its target.
+    // Round 0 is the optimization mesh; marking uses the final design's field.
+    let max_rounds = env_usize("REFINED_OPT_HELD_OUT_ROUNDS", 7);
+    let series_max_tets = env_usize("REFINED_OPT_HELD_OUT_MAX_TETS", 4_000_000);
+    let with_x0 = env_usize("REFINED_OPT_HELD_OUT_X0", 1) == 1;
+    let mut rounds: Vec<Round> = Vec::new();
+    for round in 0..=max_rounds {
+        let base = state.mesh().mesh.clone();
+        let mut at_final = fixture(state.mesh(), &fx);
+        at_final.mesh = moved(&base, &fields, &theta);
+        let ratio = min_tet_volume_ratio(&base, &at_final.mesh);
+        let fin = solve(&at_final, &fields);
+        let x0 = with_x0.then(|| solve(&fixture(state.mesh(), &fx), &fields));
+        println!(
+            "held-out round {round}: {} tets, final C={:.9}, X0 C={:?}, ratio={ratio:.5}, {:.1}s",
+            base.n_tets(),
+            fin.c,
+            x0.as_ref().map(|s| s.c),
+            fin.elapsed
+        );
+        let side = |s: &Solve| json!({"c_ff":s.c,"gradient_ff":s.gradient,"solve_s":s.elapsed,"true_relative_residual":s.true_residual,"iterations":s.iterations});
+        history.push(json!({"kind":"held_out_round","round":round,"n_tets":base.n_tets(),"n_nodes":base.n_nodes(),"min_volume_ratio":ratio,
+            "relative_shift_from_round_0":rounds.first().map(|r: &Round| (fin.c - r.fin.c) / r.fin.c),
+            "final_design":side(&fin),"x0":x0.as_ref().map(side)}));
+        save(&result_path, &history, "held_out_series_running", &theta);
+        let marked = (round < max_rounds).then(|| dorfler(&indicators(&at_final, &fin.phi)));
+        rounds.push(Round {
+            n_tets: base.n_tets(),
+            n_nodes: base.n_nodes(),
+            ratio,
+            fin,
+            x0,
+        });
+        let Some(marked) = marked else { break };
+        drop(at_final);
+        let refined = state.refine(&marked, &RefineOpts::default()).unwrap();
+        if refined.mesh.mesh.n_tets() > series_max_tets {
+            println!(
+                "held-out: next round would have {} tets, above the cap; stop",
+                refined.mesh.mesh.n_tets()
+            );
+            break;
+        }
+        fields = prolong(&fields, refined.node_prolongation.as_ref());
+    }
+    let n: Vec<f64> = rounds.iter().map(|r| r.n_tets as f64).collect();
+    let c_final: Vec<f64> = rounds.iter().map(|r| r.fin.c).collect();
+    let ex_final = extrapolate(&n, &c_final);
+    let ex_x0 = with_x0
+        .then(|| {
+            extrapolate(
+                &n,
+                &rounds
+                    .iter()
+                    .map(|r| r.x0.as_ref().unwrap().c)
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flatten();
+    history.push(json!({"kind":"held_out_summary","final_design":ex_final.as_ref().map(Extrapolation::json),"x0":ex_x0.as_ref().map(Extrapolation::json),
+        "note":"upper_bound_ff is rigorous (nested conforming spaces, energy minimum, rounded up); every other number is an estimate with the stated method, not a bound"}));
+    save(
+        &result_path,
+        &history,
+        "target_reached_on_optimization_mesh_held_out_series_recorded",
+        &theta,
+    );
+    write_summary(
+        &out,
+        &Summary {
+            target,
+            theta,
+            steps: &steps,
+            checks: &checks,
+            coarse: &coarse_check,
+            design: &design,
+            rounds: &rounds,
+            ex_final: ex_final.as_ref(),
+            ex_x0: ex_x0.as_ref(),
+            cycles,
+        },
+    );
 }

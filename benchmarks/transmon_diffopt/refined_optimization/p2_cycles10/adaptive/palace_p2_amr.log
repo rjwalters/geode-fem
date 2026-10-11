@@ -49,7 +49,7 @@ Parallel Mesh Stats:
  h      3.57299e-05    0.128545
  kappa      1.00669     18.4851
 
-Estimated current per-rank memory usage is: Min. 346.3M, Max. 480.8M, Avg. 380.3M, Total 1.5G
+Estimated current per-rank memory usage is: Min. 344.1M, Max. 477.8M, Avg. 378.2M, Total 1.5G
 Estimated current per-node memory usage is: Min. 1.5G, Max. 1.5G, Avg. 1.5G, Total 1.5G
 
 Configuring Dirichlet BC at attributes:
@@ -67,14 +67,14 @@ Assembling multigrid hierarchy:
 
 Computing electrostatic fields for 2 terminal boundaries
 
-It 1/2: Index = 1 (elapsed time = 3.34e-07 s)
+It 1/2: Index = 1 (elapsed time = 3.75e-07 s)
 
 PCG solver converged in 16 iterations (avg. reduction factor: 2.328e-01)
  Sol. ||V|| = 3.370055e+02 (||RHS|| = 9.687931e+01)
  Field energy E = 1.693e-11 J
  Updating solution error estimates
 
-It 2/2: Index = 2 (elapsed time = 1.57e+01 s)
+It 2/2: Index = 2 (elapsed time = 1.46e+01 s)
 
 PCG solver converged in 12 iterations (avg. reduction factor: 1.358e-01)
  Sol. ||V|| = 6.470983e+01 (||RHS|| = 4.642757e+01)
@@ -85,35 +85,35 @@ Cumulative timing statistics:
 
 Elapsed Time Report (s)           Min.        Max.        Avg.
 ==============================================================
-Initialization                   0.668       6.002       4.666
-  Mesh Preprocessing             4.879      10.209       6.212
-Operator Construction            0.773       0.790       0.783
-Linear Solve                     1.228       1.231       1.230
-  Setup                          3.968       3.970       3.969
-  Preconditioner                10.733      10.738      10.735
-  Coarse Solve                   0.089       0.097       0.092
-Estimation                       0.157       0.165       0.162
-  Construction                   8.271       8.282       8.277
-  Solve                         15.763      15.765      15.765
-Postprocessing                   0.262       0.267       0.264
-Disk IO                          1.299       1.301       1.300
+Initialization                   0.671       5.876       4.568
+  Mesh Preprocessing             4.772       9.971       6.076
+Operator Construction            0.829       0.842       0.838
+Linear Solve                     1.161       1.170       1.166
+  Setup                          3.897       3.898       3.897
+  Preconditioner                10.058      10.072      10.063
+  Coarse Solve                   0.086       0.092       0.090
+Estimation                       0.168       0.179       0.172
+  Construction                   7.415       7.421       7.418
+  Solve                         14.554      14.556      14.555
+Postprocessing                   0.237       0.242       0.240
+Disk IO                          1.225       1.227       1.227
 --------------------------------------------------------------
-Total                           53.471      53.471      53.471
+Total                           50.335      50.335      50.335
 
 Peak Memory                   Per-Node       Total   Total HWM
 ==============================================================
-Initialization                   11.2M       11.2M       11.2M
+Initialization                   10.8M       10.8M       10.8M
   Mesh Preprocessing              1.6G        1.6G        1.6G
-Operator Construction           358.7M      358.7M        1.9G
+Operator Construction           372.5M      372.5M        1.9G
 Linear Solve                      0.0K        0.0K        1.9G
   Setup                           1.5G        1.5G        3.5G
   Preconditioner                  0.0K        0.0K        3.5G
-  Coarse Solve                    0.0K        0.0K        3.5G
-Estimation                      744.5M      744.5M        4.2G
+  Coarse Solve                  192.0K      192.0K        3.5G
+Estimation                      746.2M      746.2M        4.2G
   Construction                    1.6G        1.6G        5.8G
-  Solve                         325.6M      325.6M        6.1G
-Postprocessing                    1.9M        1.9M        6.1G
-Disk IO                         145.4M      145.4M        6.2G
+  Solve                         323.6M      323.6M        6.1G
+Postprocessing                    1.5M        1.5M        6.1G
+Disk IO                         145.1M      145.1M        6.2G
 --------------------------------------------------------------
 Total                             6.3G        6.3G        6.3G
 Estimated peak per-rank memory usage is: Min. 1.6G, Max. 1.6G, Avg. 1.6G, Total 6.3G
@@ -155,14 +155,14 @@ Assembling multigrid hierarchy:
 
 Computing electrostatic fields for 2 terminal boundaries
 
-It 1/2: Index = 1 (elapsed time = 4.17e-07 s)
+It 1/2: Index = 1 (elapsed time = 4.20e-08 s)
 
 PCG solver converged in 16 iterations (avg. reduction factor: 2.328e-01)
  Sol. ||V|| = 3.370055e+02 (||RHS|| = 9.687931e+01)
  Field energy E = 1.693e-11 J
  Updating solution error estimates
 
-It 2/2: Index = 2 (elapsed time = 1.60e+01 s)
+It 2/2: Index = 2 (elapsed time = 1.54e+01 s)
 
 PCG solver converged in 12 iterations (avg. reduction factor: 1.366e-01)
  Sol. ||V|| = 7.136762e+01 (||RHS|| = 4.642753e+01)
@@ -173,39 +173,39 @@ Cumulative timing statistics:
 
 Elapsed Time Report (s)           Min.        Max.        Avg.
 ==============================================================
-Initialization                   0.668       6.002       4.666
-  Mesh Preprocessing             4.879      10.209       6.212
-Operator Construction            1.657       1.675       1.667
-Linear Solve                     2.510       2.517       2.515
-  Setup                          8.350       8.352       8.351
-  Preconditioner                21.835      21.852      21.841
-  Coarse Solve                   0.177       0.200       0.189
-Estimation                       0.327       0.330       0.329
-  Construction                  16.355      16.373      16.365
-  Solve                         31.707      31.711      31.710
-Adaptation                       1.031       1.039       1.034
+Initialization                   0.671       5.876       4.568
+  Mesh Preprocessing             4.772       9.971       6.076
+Operator Construction            1.654       1.671       1.663
+Linear Solve                     2.379       2.395       2.388
+  Setup                          7.895       7.897       7.896
+  Preconditioner                20.643      20.657      20.650
+  Coarse Solve                   0.170       0.177       0.175
+Estimation                       0.322       0.333       0.326
+  Construction                  14.884      14.890      14.887
+  Solve                         29.791      29.796      29.795
+Adaptation                       0.992       1.006       0.998
   Rebalancing                    0.000       0.000       0.000
-Postprocessing                   0.517       0.525       0.522
-Disk IO                          1.299       1.301       1.300
+Postprocessing                   0.478       0.486       0.482
+Disk IO                          1.225       1.227       1.227
 --------------------------------------------------------------
-Total                           96.720      96.720      96.720
+Total                           91.157      91.157      91.157
 
 Peak Memory                   Per-Node       Total   Total HWM
 ==============================================================
-Initialization                   11.2M       11.2M       11.2M
+Initialization                   10.8M       10.8M       10.8M
   Mesh Preprocessing              1.6G        1.6G        1.6G
-Operator Construction           366.2M      366.2M        1.9G
+Operator Construction           374.9M      374.9M        1.9G
 Linear Solve                      0.0K        0.0K        1.9G
   Setup                           1.5G        1.5G        3.5G
   Preconditioner                  0.0K        0.0K        3.5G
   Coarse Solve                  384.0K      384.0K        3.5G
-Estimation                      869.8M      869.8M        4.3G
+Estimation                      901.6M      901.6M        4.4G
   Construction                    1.6G        1.6G        5.9G
-  Solve                         325.6M      325.6M        6.2G
+  Solve                         323.6M      323.6M        6.2G
 Adaptation                        0.0K        0.0K        6.2G
   Rebalancing                     0.0K        0.0K        6.2G
-Postprocessing                    1.9M        1.9M        6.2G
-Disk IO                         145.4M      145.4M        6.4G
+Postprocessing                    2.6M        2.6M        6.2G
+Disk IO                         145.1M      145.1M        6.4G
 --------------------------------------------------------------
 Total                             6.4G        6.4G        6.4G
 Estimated peak per-rank memory usage is: Min. 1.6G, Max. 1.7G, Avg. 1.6G, Total 6.5G
@@ -255,7 +255,7 @@ PCG solver converged in 16 iterations (avg. reduction factor: 2.360e-01)
  Field energy E = 1.693e-11 J
  Updating solution error estimates
 
-It 2/2: Index = 2 (elapsed time = 1.66e+01 s)
+It 2/2: Index = 2 (elapsed time = 1.57e+01 s)
 
 PCG solver converged in 13 iterations (avg. reduction factor: 1.634e-01)
  Sol. ||V|| = 1.052188e+02 (||RHS|| = 6.267675e+01)
@@ -271,38 +271,38 @@ Estimated peak per-node memory usage is: Min. 6.9G, Max. 6.9G, Avg. 6.9G, Total 
 
 Elapsed Time Report (s)           Min.        Max.        Avg.
 ==============================================================
-Initialization                   0.668       6.002       4.666
-  Mesh Preprocessing             4.879      10.209       6.212
-Operator Construction            2.929       2.962       2.950
-Linear Solve                     3.870       3.895       3.883
-  Setup                         12.672      12.675      12.673
-  Preconditioner                33.572      33.595      33.585
-  Coarse Solve                   0.302       0.323       0.315
-Estimation                       0.491       0.500       0.495
-  Construction                  24.709      24.726      24.715
-  Solve                         48.327      48.333      48.331
-Adaptation                       2.447       2.465       2.455
-  Rebalancing                    1.199       1.211       1.205
-Postprocessing                   0.806       0.817       0.812
-Disk IO                          1.299       1.301       1.300
+Initialization                   0.671       5.876       4.568
+  Mesh Preprocessing             4.772       9.971       6.076
+Operator Construction            2.826       2.843       2.834
+Linear Solve                     3.697       3.723       3.710
+  Setup                         12.053      12.056      12.055
+  Preconditioner                32.064      32.095      32.079
+  Coarse Solve                   0.294       0.309       0.300
+Estimation                       0.496       0.510       0.503
+  Construction                  22.668      22.672      22.670
+  Solve                         45.764      45.770      45.769
+Adaptation                       2.180       2.189       2.184
+  Rebalancing                    1.084       1.091       1.087
+Postprocessing                   0.748       0.761       0.753
+Disk IO                          1.225       1.227       1.227
 --------------------------------------------------------------
-Total                          143.626     143.626     143.626
+Total                          135.842     135.843     135.843
 
 Peak Memory                   Per-Node       Total   Total HWM
 ==============================================================
-Initialization                   11.2M       11.2M       11.2M
+Initialization                   10.8M       10.8M       10.8M
   Mesh Preprocessing              1.6G        1.6G        1.6G
-Operator Construction           378.1M      378.1M        2.0G
-Linear Solve                      0.0K        0.0K        2.0G
+Operator Construction           386.9M      386.9M        1.9G
+Linear Solve                      0.0K        0.0K        1.9G
   Setup                           1.5G        1.5G        3.5G
   Preconditioner                  0.0K        0.0K        3.5G
   Coarse Solve                    1.9M        1.9M        3.5G
-Estimation                        1.3G        1.3G        4.8G
+Estimation                        1.3G        1.3G        4.7G
   Construction                    1.6G        1.6G        6.3G
-  Solve                         325.6M      325.6M        6.6G
+  Solve                         323.6M      323.6M        6.6G
 Adaptation                        0.0K        0.0K        6.6G
   Rebalancing                     0.0K        0.0K        6.6G
-Postprocessing                    3.0M        3.0M        6.6G
-Disk IO                         145.4M      145.4M        6.8G
+Postprocessing                    4.5M        4.5M        6.6G
+Disk IO                         145.1M      145.1M        6.8G
 --------------------------------------------------------------
 Total                             6.8G        6.8G        6.8G
