@@ -2,13 +2,13 @@
   "version": 1,
   "thread": "transmon-benchmark",
   "phases": {
-    "figures": {
-      "state": "done",
-      "completed": "2026-10-11T06:13:09.968818+00:00"
-    },
     "revise": {
       "state": "done",
-      "completed": "2026-10-11T06:13:09.968818+00:00"
+      "completed": "2026-10-11T20:31:29.883245+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-11T20:31:29.883245+00:00"
     }
   },
   "metadata": {
@@ -16,19 +16,20 @@
     "max_iterations": 12,
     "revised_from": 7,
     "status": "DRAFT",
-    "authorization": "Operator requested figure improvements in this attended session (#1059). Standing permission to revise beyond the old cap is recorded on PR #1040; v7 and all earlier artifacts are preserved.",
+    "authorization": "Tracked in #1059 (PR #1060) and #1063. Operator-requested figure revision of the merged v7. The operator's standing permission to revise this paper past the cap (\"we can continue revising the paper as many times as we want\", recorded on PR #1040) covers it; there is no iteration gate. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "0951f862 (transmon-benchmark.7 as merged to main in db32b4f4, PR #1040)",
+    "scope": "v8 = final v7 text + figure revision (all eight figures redrawn, new refined-optimization figure, historical optimization figure moved to Appendix A) + #1063 non-blocking carry-overs (title assertion, provenance 8.1e-5 wording, GPU 'every measured size' wording, Figure 8(b) legend overlap)",
     "pending_dependencies": [
-      "#1051 continuum-converged C_Sigma; local P2 checks do not close it",
-      "#1037 Phase C two-target (C_g / beta) experiment",
-      "#1058 independent review of the pinned refined-optimization evidence",
-      "#1044 port-voltage formulation; #1045 artifact re-baselining",
-      "independent v8 paper review and audit",
+      "#1062 two-sided (lower) bound on the converged C_Sigma: roadmap, not built; no continuum value is certified",
+      "#1037 Phase C two-target (C_g / beta) experiment: roadmap; ruled by the operator on 2026-10-10 (claw-plus-resonator cut, hold beta = C_g/C_Sigma, add a claw-gap parameter), not yet built; no pending marker",
+      "#1044 rank-1 port-voltage formulation (roadmap, not built); #1045 artifact re-baselining",
+      "#1063 operator decisions, not resolved here: the title; what the 89.9 fF anchor means relative to the junction's 5.5 fF; the 'first independent validation' claim; acknowledgments and the other TODO(operator) lines",
+      "independent v8 paper review, audit and numeric critic (Anvil), then the Zenodo deposit",
       "existing TODO(operator) submission inputs"
     ],
-    "source_paper_commit": "a50a446a955c02a8e361c8482d765fb48f254fc6",
-    "new_evidence_commit": "1b445770abd268e44c542e9363047583c8b6e9b5",
     "evidence_snapshot": {
-      "brief_mtime": 1791698780.7113585,
+      "main_commit": "f285e969",
+      "brief_mtime": 1791750703.3190155,
       "refs_mtime": null
     }
   }

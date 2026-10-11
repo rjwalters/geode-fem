@@ -1,41 +1,142 @@
-# v8 evidence and figure provenance
+# Evidence for v8
 
-The inherited manuscript and evidence baseline is v7 at
-`a50a446a955c02a8e361c8482d765fb48f254fc6` (PR #1040), including main at
-`f4f24a2a`. The detailed historical evidence map remains in
-[the v7 provenance](../transmon-benchmark.7/provenance.md). No solver run was
-performed for this figure revision and no previous review status transfers.
+v8 is the merged v7 manuscript (`main` at `0951f862`, merge `db32b4f4`,
+PR #1040) plus a figure revision (#1059, PR #1060) and the non-blocking
+carry-overs of the v8 tracker #1063. Every claim in the text is v7's, so the
+v7 evidence map is carried forward below unchanged in substance. Rows and
+paragraphs marked **(v8)** are new or changed in this version; the other
+markers (**(corrected)**, **(new)**, **(pass 3)**) are v7's in-place passes on
+PR #1040. Table and figure numbers are those of the v8 PDF: the tables are
+numbered as in v7; the figures are renumbered (see "Figures" at the end).
+Evidence snapshot: `origin/main` at `f285e969` (2026-10-11), which contains
+every artifact v7 cited at `919a739d`; no cited artifact changed between the
+two. No solver or generator was run for v8.
 
-The new Figure 5 and refined-optimization subsection consume experimental
-artifacts from PR #1058 at `1b445770abd268e44c542e9363047583c8b6e9b5`.
-Independent review of that experiment is pending. Its code baseline is
-`12b91c0d`; this paper branch does not import the solver changes.
+Evidence tiers used in §6 of the manuscript, and what each rests on:
 
-| Local snapshot | Source at the pinned commit |
-|---|---|
-| `figures/src/data/refined_results.json` | `benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/results.json` |
-| `figures/src/data/refined_design.json` | `benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/design.json` |
-| `figures/src/data/refined_validation.json` | `benchmarks/transmon_diffopt/refined_optimization/validation_summary.json` |
-| `figures/src/data/optimized_island.json` | Derived from the experiment's exported `p2_cycles10/final_coarse.msh`: the 139 type-2 triangles in physical group 102, coordinates converted from metres to micrometres. The export is a local experimental artifact, not a committed mesh; its SHA-256 is recorded in this snapshot. No smoothing or fitted shape is used. |
+- **PROVEN**: a committed, regenerable artifact (TOML, CSV, run log).
+- **Read from source**: Palace source at `fba6a5b`, as reported in the #1003
+  design note. The Palace source is not vendored in this repository, so these
+  statements trace to the note, not to a file a reader can open here.
+- **Measured by a scratch probe**: the committed probe source
+  `docs/research/transmon-lumped-port-formulation.probe-1003.rs`. Cargo does
+  not build it, its output log is not committed, and no test pins its numbers.
+- **Derived**: an argument in the note, with its falsifier not run.
+- **ROADMAP**: planned in an open issue, not built.
 
-The three source JSON files are exact snapshots. `data/provenance.json` records
-their hashes, the derived-outline hash, source commit, and hashes of the five
-committed repository inputs used by the other plots. Initial conductor outlines
-come from `crates/geode-core/tests/fixtures/transmon_smoke.msh`.
+| Manuscript anchor | Committed source | Fields and interpretation |
+|---|---|---|
+| Abstract; §9.2, harmonic motion | [harmonic_results.toml](../../../benchmarks/transmon_diffopt/harmonic_results.toml) (introduced by `653f5d0a`, #594/#599) | `mesh_safety`: −0.007258 and −0.064609 at volume ratio 0.25, ratio 8.90; `fd_validation`: 209.087034 fF/θ, relative FD error 1.054e−4 at h=1e−4; `meta`: 0.34 s harmonic solve, 7.8 s run. |
+| §9.2, anchor endpoint | Same artifact, `anchor_attempt` | 128.792998 fF; remaining gap 38.892998 fF; fresh extraction agrees at the recorded precision; `converged=false`, `stalled_at_bound=true`. |
+| §9.2, coarse-mesh shortfall, now historical **(pass 3)** | Same artifact, `anchor_attempt.step[0:2]`; [multiparam_gradient.toml](../../../benchmarks/transmon_diffopt/multiparam_gradient.toml) `shortfall_lower_bound` | Derive dC/dθ = −C(dE_C/dθ)/(E_C×10⁹), since the artifact stores E_C in GHz and its derivative in Hz. Slopes: 209.1 → 114.5 fF/θ. Remaining gap divided by endpoint slope = 0.339647. Total / safe budget = 6.256959. **Wording.** The manuscript says "at least 6.25×" (floored, because it is a lower bound) and prints the computed 6.256959 beside it; this is the only wording in the manuscript, and it now occurs in §9.2 only. The committed artifact stores the value as `shortfall_lower_bound = 6.256959` and its comment, like the #1034 thread, says ">= about 6.26x". The two agree on the number and differ in rounding; the verifier asserts both. Conditional on the sensitivity not recovering beyond the endpoint. The whole #589/#594 shortfall discussion is compressed and labelled historical: the reduction those runs attempted (47.8 fF = 137.706752 − 89.9) is an artifact of the unconverged mesh, since the converged X⁰ is below the anchor. "Describe no physical design problem" is the manuscript's reading of that fact. |
+| §7, Table 3, Fig. 5, abstract, §1, §9, §13, §14: C_Σ mesh convergence **(pass 3)** | [c_sigma_convergence.toml](../../../benchmarks/transmon_diffopt/c_sigma_convergence.toml) (#1051, PR #1057): `[[x0]]`, `[x0_extrapolation]`, `[tensor_eps]`, `[framing]`, `[method]`, `[memory]` | X⁰ scalar-ε: P1 137.706752 / 101.359397 / 87.753422 fF at h, h/2, h/4 (133,314 / 1,066,512 / 8,532,096 tets); P2 90.044141 / 83.015285 at h, h/2. `upper_bound_ff = 83.02` (smallest solved value, rounded up): RIGOROUS. `estimate_band_ff = [74.14, 79.62]` (min/max of four extrapolations, outward): ESTIMATE, "not established" as asymptotic. `observed_order = 1.4176`, stated 1.41 (floored). `coarse_error_lower_bound_ff = 54.69`; this is 137.706752 − 83.015285 floored (against the rounded bound 83.02 it would be 54.68; the artifact's value is the valid one because the converged value is below the unrounded 83.015285). `converged_below_anchor_ff = 6.88`, `_pct = 7.6`; `estimate_below_anchor_pct = [11.4, 17.6]`; `estimate_plus_junction_self_c_ff = [79.64, 85.12]` (the artifact labels it inference only). 65.8 % from `framing.c_matrix_accuracy`. `expected_order` is the artifact's own "inference from theory". `method.geometry` gives the polygonal-surface scope. AMG-PCG at h/4 and P2 h/2, `solver_cross_check` ≤ 1e-9; `memory`: 96 GiB host, direct LU at h/4 "does not fit safely", generator peak RSS 12.8–13.8 GB on earlier runs; `wall_clock_s = 280.4`. **Derived in the manuscript and recomputed by the verifier:** 7.02 fF (P2 h minus P2 h/2, floored); 88.52 fF (83.02 + 5.5; inference, labelled); 47.8 fF (coarse minus anchor). |
+| §7: tensor-ε convergence and the LOM consequences **(pass 3)** | Same artifact `[tensor_eps]`; [transmon_quantum/results.toml](../../../benchmarks/transmon_quantum/results.toml) `[capacitance.mesh_convergence]` | Tensor P1 136.684731 / 102.375301 / 89.493342 fF; `upper_bound_ff = 89.50`; `estimate_band_ff = [76.61, 81.75]` (two Richardson values; no P2 tensor path). `scalar_minus_tensor_rel = [7.4772e-3, −9.9233e-3, −1.9442e-2]`, stated +0.75 %, −0.99 %, −1.94 % and recomputed from the two columns. `coarse_c_sigma_overstated_by_at_least_ff = 47.18`; `e_c_understated_by_at_least_pct = 52.7`. This replaces the earlier **inference** that the tensor error is "of similar size": it is now measured. |
+| §7: the anchor gap **(pass 3)** | `[framing].model_difference`; `results.toml` `[quantum.derived_omega01_band].anchor_gap` | The artifact's reading, adopted: the 137.7 (136.7) vs ~90 fF gap is discretization error, "more than all of it"; what remains is a gap of the opposite sign. The exterior-wall 6e-5 and the coarse 0.75 % checks stand as measurements. That the junction self-C "closes part of it" and that the rest may lie in the geometry representation or the anchor's derivation are **inferences**, labelled, and are the artifact's own. |
+| §9.3, coarse-mesh precursor **(pass 3; replaces the pass-2 "methods result" rows)** | [multiparam_gradient.toml](../../../benchmarks/transmon_diffopt/multiparam_gradient.toml) (#1035, PR #1042); [multiparam_results.toml](../../../benchmarks/transmon_diffopt/multiparam_results.toml) (#1036, PR #1050); `c_sigma_convergence.toml` `[[alpha3.level]]`, `[alpha3_extrapolation]` | Kept, compressed: `headline_rel_err` 7.945e−7 / 3.353e−10 / 1.141e−8; α = 3 converged in 18 steps at 89.900001 fF, α = 4 in 14 steps at a different geometry; fresh agreement 1.39e−14; `headline.selection_rule` ("fixed after exploratory runs", reported as "selected post hoc"). The α = 3 design under refinement: 66.609133 (P1 h/2), 56.298812 (P1 h/4), 52.368047 (P2 h/2); `upper_bound_ff = 52.37`; `estimate_band_ff = [45.98, 48.11]`. **Derived:** at least 41.7 % below the anchor ((89.9 − 52.37)/89.9, floored). "Moved the wrong way" is the manuscript's statement of two measured facts: that run lowered C_Σ from 137.706752 to 89.900001, and the converged X⁰ is below the anchor. Dropped from the manuscript as no longer needed: the four stalled variants, the −3.019 Hz residual, the 0.250635 ratio, the final-design FD triple, the tensor retarget, the 25.9 % / 12.7 % / 36.34 fF / 5,582 figures. They remain in the artifact. |
+| §9.4 method and primary run, abstract, §1, §13, §14 **(pass 3)** | [refined_optimization/README.md](../../../benchmarks/transmon_diffopt/refined_optimization/README.md); [p2_cycles10/summary.toml](../../../benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml) (#1056, PR #1058): `[meta]`, `[optimization]`, `[design]`, `[[gradient_check]]` | `p1_preparation_cycles = 10`, `element_order = 2`, 448,279 tets, AMG-PCG. `initial_ff = 78.387918461` → `optimized_ff = 89.900518266` in `accepted_steps = 3` (an increase). Island 627.323864 µm, pad width 29.087261 µm; 625.5 and 24 µm are the README's starting values. `min_volume_ratio_over_accepted_steps = 0.61413` (floor 0.25). Worst `relative_error` 3.866e−7, stated 3.87e−7 (rounded up). The method paragraph (flux-jump marking, nodal prolongation of the coarse junction-pinned fields, the equilibrium-energy derivative, the P2 integrand, "native f64 … Burn is not used in this numerical path") is the README's "Differentiation and optimization" section. |
+| §9.4 held-out series, Table 5, Fig. 6b **(pass 3; figure v8)** | Same `summary.toml`: `[[held_out]]`, `[held_out_result]`, `[final_design_extrapolation]`, `[x0_extrapolation]` | Eight rounds, 448,279 → 3,289,543 tets, 89.900518 → 89.014998 fF. RIGOROUS: `upper_bound_ff = 89.02`; `converged_below_anchor_at_least_relative = 0.0098`. ESTIMATE: `geometric_tail_ff = [88.778547, 88.891530]`, free-rate fits 88.900718 / 88.863790 / 88.892726, `band_ff = [88.77, 88.91]` ("about 88.8–88.9"); `round_0_overstates_estimate_relative = [0.0111, 0.0128]`; `estimate_relative_to_anchor = [−0.0126, −0.0110]`; slow-rate fits 88.336686 (α = 1/3) and 88.618200 (α = 1/2). The 1 % threshold is not claimed (`validation_summary.json` `one_percent_threshold`: "not claimed"). X⁰: 78.387918 → 77.609945, `upper_bound_ff = 77.61`, band [77.42, 77.52]. `design_increment_ff` 11.512599805 → 11.405053527. The verifier recomputes the decrements, the ratios, the geometric tail, the band and every percentage from the series; it transcribes the least-squares fits. **Derived:** X⁰ at least 13.6 % below the anchor ((89.9 − 77.61)/89.9, floored); the increment changes by less than 1 %; "most of the error is common to the two geometries" is an observation on this series, labelled as not a bound. |
+| §9.4 resolution-corrected design **(pass 3)** | [p2_cycles10_resolution_corrected/summary.toml](../../../benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_resolution_corrected/summary.toml); first run's `held_out_result.resolution_corrected_target_ff` | Target 90.978253 = 89.9 × 89.900518 / 88.835038 (recomputed). `optimized_ff = 90.980103919`, three steps, 627.452356 × 29.447205 µm, ratio 0.57790, worst FD 3.937e−7 (stated 3.94e−7). Series 90.980104 → 90.076691 at 3,331,618 tets. RIGOROUS, upper side only: `upper_bound_ff = 90.08`, `converged_above_anchor_at_most_relative = 0.0020`. ESTIMATE: `band_ff = [89.84, 89.96]`, within 0.07 %. Slow-rate fits 89.394848 and 89.678525: 0.5619 % and 0.2464 % below the anchor, stated 0.57 % and 0.25 % (rounded up, as the README does). |
+| §9.4 "by construction" caveat, abstract, Fig. 6 caption, §13, §14 **(pass 3; caption v8)** | Both `summary.toml` series; issue #1062 (PR #1058 re-review) | **Derived here, and not yet in the committed README** (#1062 asks for it to be added). The verifier computes the round-by-round ratio of the corrected series to the primary one: it runs from 1.011927 to 1.012009, a relative spread of 8.06e−5 (largest ratio over smallest, minus one), stated as "a relative spread of 8.1e−5" (rounded up; the issue says 8e−5; the absolute max − min is 8.15e−5). **(v8)** v7's row said "constant to within 8.1e−5", the wording the manuscript had dropped in pass 4 (#1063). The consequences stated in the manuscript (the band contains the anchor by construction; its width is the spread between methods and not an uncertainty; only the upper bound and the transfer of the relative bias to about 1e−4 are established) follow from that ratio and from how the target was set. The complementary-energy route to a lower bound is #1062's proposal: roadmap, not built. |
+| §9.4 Palace check **(pass 3)** | `p2_cycles10/adaptive/palace_validation.json`, `palace_p2.log`, `palace_p3.log`, `failed_attempts.json`, `palace_validation_amr.json`; the corrected run's `adaptive/palace_validation.json`; [validation_summary.json](../../../benchmarks/transmon_diffopt/refined_optimization/validation_summary.json) `cross_solver` | Palace P2 89.900294115 fF against 89.900518266: −2.4933e−6, stated 2.5e−6. Corrected design: 90.979877072 against 90.980103919, the same. `Added 3777 elements in 2 iterations of local bisection`. P3: exit code 9, `incomplete_no_capacitance_matrix`, "Killed (signal 9)" in the log; cause not independently established, so the manuscript does not say out-of-memory. AMR: island unchanged, feedline self-capacitance 1.90 %. `validation_summary.json` is a hand-assembled index (it says so); the verifier checks it against the generated `summary.toml` files. |
+| §9.4 roadmap; §12 costs **(pass 3)** | `multiparam_results.toml` `optimizer.phase_c_hooks`; issues #1037, #1062; README "Reproduction" | Phase C (#1037) is ruled and not yet built: the operator ruled on it on 2026-10-10 (cut = the claw plus the resonator trace; hold β = C_g/C_Σ at its θ = 0 value while C_Σ goes to 89.9 fF; add a claw-gap parameter, giving 4 parameters and 2 targets). The issue is open and sequenced after #1036. Nothing depends on it, so `[PENDING issue-1037]` is replaced by a roadmap paragraph. No `[PENDING …]` marker remains. Costs: "about 20 min and up to 29.4 GB", "about 10 min and 26.0 GB" are the README's figures, not re-measured. |
+| §6.1, Table 2, abstract, §1, §5: qubit mode **(new)** | [results.toml](../../../benchmarks/transmon_eigen/results.toml) `[oracles.palace_target2]` (#1043, PR #1055); raw outputs in [results_p1_target2/](../../../reference/fixtures/transmon_palace/results_p1_target2/) (`eig.csv`, `port-EPR.csv`, `palace_run.log`, `provenance.txt`) | PROVEN. Palace `qubit_f_ghz` 3.452749306805, `qubit_port_epr` 0.99424; `geode_qubit_f_ghz` 3.452751; `qubit_geode_vs_palace_pct` 5e−5; `l2_qubit_f_ghz` 2.444899, `qubit_l_scaling_ratio` 0.70810; `lumped_qubit_f_ghz` 3.46246 and `l2_lumped_qubit_f_ghz` 2.44833 (recomputed in `verify_evidence.py` from C_Σ = 136.684731 fF); −0.280 % and −0.140 %; `control_target4p5_max_rel_diff` 6.5e−13; further modes 33.384 and 33.896 GHz. geode's 3.4528 GHz, p = 0.9942, 2.4449 GHz and 0.7081 are the unchanged `[spurious_mode]` values. The same-mesh caveat is the artifact's own "SAME-MESH, NOT CONVERGED" comment. |
+| §6.1, Palace's search window **(new)** | [design note](../../../docs/research/transmon-lumped-port-formulation.md) §2 | Read from source (SLEPc region filter; schema text "above which to search"). Corroborated by the PROVEN re-run. |
+| §4.2, §5, §6.3: Palace's port operator and port EPR **(new)** | Design note §1 and §3.1 | Read from source: same scalar surface-mass terms and per-square scalings; the port EPR is built from the port-voltage functional. Corroborated by the committed run log line `Ls = 1.486e-08 H/sq, Cs = 5.500e-15 F/sq`. |
+| §6.3, 17.49 GHz mode **(new)** | `[oracles.palace_target2]` `junction_lc_port_epr`, `l2_junction_lc_*`; [results_p1/port-EPR.csv](../../../reference/fixtures/transmon_palace/results_p1/port-EPR.csv) | PROVEN: port EPR 2.49e−8 in both runs; 12.3674 GHz, 2.94e−8 and ratio 0.70711 under L doubling; geode p = 1.000 from `[modes.junction_lc]`. Measured by a scratch probe: uniform-voltage share 0.00 % (17.49 GHz) and 100.00 % (3.4528 GHz), note §3.1. Derived: the patch-bump mechanism, note §3.1; the "cluster below f_LC on a finer port mesh" falsifier is not run. |
+| §6.3, rank-1 port-voltage formulation **(new)** | Design note §3.3, §5, §8; issue #1044 | ROADMAP. The probe numbers (no mode between 15.47 and 18.69 GHz; other modes unchanged to four decimals; residuals ≤ 1.7e−9) come from the scratch probe on uncommitted solver code. Nothing shipped uses the formulation. |
+| §4.1, Table 1, Table 6, §11.1, §12: unknown counts **(new)** | [palace_run_v22.log](../../../reference/fixtures/transmon_palace/results_p1/palace_run_v22.log); the ten timed Palace logs under `benchmarks/transmon_bench_cpu/runs/2026-10-08_m6i_like_for_like/raw/`; `results.toml` `[meta]` | Palace: `ND (p = 1): 183891`, `Added 4913 elements in 2 iterations of local bisection`, `Added 6014 duplicate vertices`. geode: `n_nedelec_dofs = 156863`, `n_interior_dofs = 133108`. "About 17 %" is 183891 / 156863 − 1 = 17.2 %. |
+| §6.2, port-subspace update **(corrected)** | [results_like_for_like_local.toml](../../../benchmarks/transmon_bench_cpu/results_like_for_like_local.toml), `issue_950` | At `5b1dc7e964f0c42c7ac14ad782c96a8e0d5e9a3d`, N=7 recovers Palace's six `Target = 4.5 GHz` modes plus the 3.452751 GHz mode, which the artifact labels `spurious_port` and the manuscript now identifies as the qubit mode; worst frequency error 0.0289%; N=6 recovers five. `finding`: 46.32 → 23.25 mean process CPU seconds. Loaded Mac, geode-only, no EC2 or Palace speed comparison. |
+| §11.1, Table 6 and CPU figure (Fig. 7) | [results_like_for_like_m6i.toml](../../../benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml), `route`, `palace_fixture`, `cell`, `issue_763` | geode `61e8571e`, Palace `fba6a5b`, 133108 interior DOFs. Every displayed table value is checked by `verify_evidence.py`. Three repeats except Palace 1-rank Save=0 (one). Core-seconds are user+sys, not wall×width. Extra-mode counts 24/0/2 (one of the 24 and one of the 2 is the qubit mode, class `spurious_port`); the historical request recovers one of Palace's six modes plus the qubit mode. Error estimator remains enabled at Save=0. Historical thread count and mode content are not retroactively verified. |
+| §11.1, tuned-build qualification | [results_tuned_palace_m6i.toml](../../../benchmarks/transmon_bench_cpu/results_tuned_palace_m6i.toml), `palace_linear_solver`, `palace`; [CPU README](../../../benchmarks/transmon_bench_cpu/README.md) | Same-box untuned/tuned ratios 1.012–1.045 across the four Palace cells, displayed as 1.01–1.05. SuperLU identification comes from the pinned source plus build configuration, not a runtime solver-name log. Later session does not retime the new port-subspace route. |
+| §11.1, historical scale qualification | [completion log](../../../benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log), [historical results](../../../benchmarks/transmon_bench_cpu/results.toml) | Carry 565.5 s / 92.2 GB and 423.12 s / approximately 33 GB as different-host observations. Remove the controlled-crossover and equivalent-mode-throughput inference. |
+| §11.2 and Table 7 | [results_ams_cpu_r6i.toml](../../../benchmarks/gpu_driven_scaling/results_ams_cpu_r6i.toml), `comparison`, `cell`, `palace_cell`, `scaling` | geode `64d44269`, one r6i.4xlarge, assembled f64 driven cube. Table values checked against `comparison`; median two geode / three Palace runs, except 897650 edges (one). Setup and iteration timing boundaries differ from whole-process times and from Palace's operator-construction boundary, disclosed in caption. |
+| §8.1 and the §11.3 bold sentence: GPU wording **(v8)** | [gpu_driven_scaling/results.toml](../../../benchmarks/gpu_driven_scaling/results.toml), `[[cell]]` `solve_only_s` | v7 said the GPU path is "slower than the CPU at every measured size" (§8.1) and "loses to every CPU configuration at every measured size" (§11.3, bold, following the artifact's own HONEST READ comment). Both were too strong by one cell (#1063): at 25,695 edges the GPU-f32 matrix-free solve-only median is 81.763958 s against 82.056014 s for CPU matrix-free (config 3). v8 says the GPU is slower than both assembled CPU configurations (direct LU, assembled-CSR COCG) at every size, and slower than CPU matrix-free at every size except the largest, where the two are at parity (81.764 versus 82.056 s). End-to-end at that size the GPU is slower (85.45 against 82.49 s); the paper quotes solve-only, as Table 8 does. The verifier checks every inequality against the 16 cells. |
+| §11.2, memory/setup/parallelism | Same artifact | AMS 3.422/8.540 GB versus Jacobi approximately 1.049/2.001 GB at 462520/897650 edges; top-size setup 53.488 s. Eight-wide solve approximately 50.4 vs 4.2 s at 462520 edges. Iterations 39→105; Jacobi 2969→13662. The 3.4–4.2× range is one-core solve time, not whole-process speedup. |
 
-The local result is three accepted gradient steps from 78.387918 to 89.900518 fF,
-with a 89.900294 fF Palace check and 89.662755 fF finer-mesh check. These compare
-a scalar-epsilon electrostatic model on fixed polygonal geometry. Mesh refinement
-is outside the differentiated parameterization. They do not close the pending
-continuum-convergence study (#1051), two-target study (#1037), tensor shape
-optimization, CAD remeshing, or full-wave inverse design. A recorded P3 attempt
-was killed incomplete and is not positive evidence. Exploratory P1 runs informed
-the choices; the manuscript states that scope.
+Not traceable to a committed artifact, and worded accordingly in the
+manuscript:
 
-Figures 1–4 and 6 read committed mesh/TOML artifacts directly. Figure 7 preserves
-the old analytic and one-parameter data in the appendix; it is not the trajectory
-of the refined optimization. Both verification scripts check author-side
-transcription and regeneration, not independent scientific correctness.
+- The probe's numbers (uniform-voltage shares; the rank-1 formulation's mode
+  list and residuals). The probe source is committed, its output is not.
+- The statements about Palace's source. They trace to the design note only.
+- That the qubit frequency is not mesh-converged. Stated as an inference; no
+  refined eigensolve exists. (The matching inference about the tensor-ε C_Σ
+  is gone: #1051 measured it.)
+- **The "by construction" ratio (8.1e-5).** It is the relative spread of the
+  round-by-round ratio (largest over smallest, minus one: 8.06e-5, rounded up;
+  the absolute max − min is 8.15e-5). It is computed by
+  `verify_evidence.py` from the two committed series and is not a field of
+  any committed artifact; the committed README does not yet make the
+  by-construction point (#1062, open).
+- Readings of measured facts that no artifact states in these words: "the
+  optimizer moved the wrong way", "the shortfall was an artifact of an
+  unconverged mesh", "describe no physical design problem".
+- Small derived numbers, each recomputed by the verifier from committed
+  values: 7.02 fF, 88.52 fF, 13.6 %, 41.7 %, 47.8 fF, "less than 1 %" for the
+  increment, and (pass 4) "at least 0.4 %" for the tensor-ε bound against the
+  anchor ((89.9 − 89.50)/89.9 = 0.44 %, floored).
+- The README's 625.5 and 24 µm starting dimensions and its run times and
+  peak memory are prose in a committed README, not generated fields.
+- That Palace's internal refinement also applies to the 1.16M-DOF mesh. Stated
+  as an inference; no unknown count for that run is quoted.
 
-No bibliography entries or citation keys were added. Existing operator inputs,
-active pending markers, and inherited citation-support limitations remain.
+The unchanged analytic, eigenfrequency, GPU and LOM numbers retain their v6
+sources and audit trail. Their interpretation does not: the v6 audit accepted
+the absent-qubit, spurious-mode, identical-mesh and model-difference claims
+that v7 withdraws. The v6 review, audit and numeric critic files and their canonical JSON scorecards
+were read for context; v6's 42/44 and AUDITED state are not transferred to v7,
+and nothing is transferred to v8 (v7 has no review score).
+No bibliography entries or citation keys were added. The previous audit's
+limitations on off-disk citation support remain unresolved.
+
+Run `python3.14 verify_evidence.py` (any Python 3.11 or newer) to check the
+transcriptions and print SHA-256 hashes of the evidence files. **(v8)** It is
+v7's verifier with every per-occurrence pin kept; pins are re-counted only
+where a v8 caption adds or moves a copy (listed in the script), and it now also
+asserts that the title is unchanged from v6 and v7 (#1063), checks the GPU
+wording against the 16 GPU cells, and rejects the withdrawn single-round
+wording of an intermediate v8 draft (below).
+
+## Figures (v8)
+
+All eight figures are drawn by the scripts in `figures/src/` with a shared,
+self-contained style (`figure_style.py`); `verify_figures.py` checks their
+inputs, layout rules, content and byte-identical regeneration. The file number
+is the printed number.
+
+| Figure | File | Inputs (all committed unless stated) | v8 change |
+|---|---|---|---|
+| 1 | `fig1-geometry` | `transmon_smoke.msh` (SHA-256 pinned): `metal` split into its three node-disjoint conductors, `lumped_element`, `port_*`, `exterior_boundary` | Redrawn: conductor outlines instead of the full surface mesh; actual junction triangulation; a cross-section labelled as schematic. |
+| 2 | `fig2-agreement` | `transmon_eigen/results.toml` `[modes.*]`, `[oracles.palace_target2]` | Adds the qubit mode (3.452751 vs 3.452749 GHz, +0.00005 %) and signed differences; labels by role, not by the artifact key `junction_lc`; "same input mesh" with both unknown counts. The six signed values reproduce Table 1's `rel_err_pct` (checked). |
+| 3 | `fig3-lscaling` | same artifact, `[tripwires.junction_l_doubling]`, `[spurious_mode]`, `[oracles.palace_target2]` | Qubit mode and port-sheet artifact in separate panels with their committed ratios; linear axes (the v7 caption's "log-log" is gone). |
+| 4 | `fig4-participation` | same artifact, `[modes.*]`, `[spurious_mode]`, `[oracles.palace_target2]` | geode-fem's p and Palace's port EPR on separate axes; direct labels instead of a legend that covered the 17.49 GHz stem; v7's overlay of Palace's re-run mode locations kept as a rug. |
+| 5 | `fig5-convergence` | `c_sigma_convergence.toml` `[[x0]]`, `[x0_extrapolation]`, `[tensor_eps]` | v7's Figure 5a only, now with the tensor-ε P1 series and its 89.50 fF bound beside the scalar 83.02 fF bound. v7's panel (b) moved to Figure 6b. |
+| 6 | `fig6-refined-optimization` | both `refined_optimization/*/summary.toml`; `p2_cycles10/design.json`; `transmon_smoke.msh`; **snapshot** `figures/src/data/optimized_island.json` | New. (a) Accepted steps of both runs; (b) the seven held-out rounds of both designs with the rigorous upper bounds, the estimate bands (labelled not bounds), the slow-rate fits, and the corrected band labelled as containing the anchor by construction; (c)–(e) actual island outlines. |
+| 7 | `fig7-cpu-wallclock` | `results_like_for_like_m6i.toml` `[route.*]`, `[palace_fixture]` | One linear axis for both widths (v7 had bars); "six reference modes", the † marks of Table 6. |
+| 8 | `fig8-legacy-diffopt` | `transmon_diffopt/results.toml`, `pad_results.toml` | v7's Figure 6, moved to Appendix A with its v7 caption and its pass-4 title and annotation ("anchor shortfall was a mesh artifact"); legend moved off the "first tet inversion" label (#1063). |
+
+**The one snapshot (v8).** The optimized island outline of Figure 6c–e is the
+139 island triangles (physical surface 102) of `p2_cycles10/final_coarse.msh`,
+the committed mesh moved to the primary design (the artifact README's
+definition). The artifact directory gitignores its meshes, so the outline is
+kept in `figures/src/data/optimized_island.json` with the exported mesh's
+SHA-256 (`e2203d41…8152`). It was extracted by the first #1059 author from a
+local run of the PR #1058 generator; v8 did not re-run the generator. Its
+bounding box equals the committed `p2_cycles10/design.json` `island_bbox_um`
+exactly, so it reproduces the committed island length (627.323864 µm) and pad
+width (29.087261 µm); `verify_figures.py` asserts this.
+
+**What an intermediate v8 draft said, and why it is gone (v8).** The first v8
+draft on PR #1060 was built from v7 at `a50a446a`, before v7's last two passes,
+and pinned the #1058 evidence at `1b445770`, before the seven-round series. Its
+new §9 subsection said the refined design's results "meet the working 1 %
+local capacitance/sensitivity check" on one held-out refinement (89.662755 fF,
+a 0.2645 % shift); its Figure 5 drew a ±1 % "working tolerance" band around
+that single check; and its abstract and conclusion said the design "passes a
+held-out local refinement check" and showed "local refinement stability".
+That single-round reading was withdrawn on PR #1058 and v7 (`validation_summary.json`
+`one_percent_threshold`: "not claimed"). v8 keeps none of it: the text is v7's
+§9.4, Figure 6b shows the seven-round series, and both verifiers reject the
+old wording. The three JSON snapshots that draft copied from `1b445770`
+(`refined_results.json`, `refined_validation.json`, `refined_design.json`)
+are deleted; Figure 6 reads the committed `summary.toml` files instead.
