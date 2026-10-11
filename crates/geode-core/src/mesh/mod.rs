@@ -24,6 +24,7 @@ pub mod msh_tags;
 pub mod partition;
 pub mod patch;
 pub mod periodic;
+pub mod red_refine;
 pub mod sphere;
 pub mod spiral;
 pub mod transmon;

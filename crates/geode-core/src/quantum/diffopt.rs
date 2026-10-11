@@ -270,6 +270,726 @@ where
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Multi-parameter bounded Gauss-Newton with linearized inequality
+// constraints (Epic #569 / umbrella #1034, issue #1036, Phase B).
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The scalar drivers above take one θ. The transmon design has P ≥ 3
+// parameters and M = 1 target (E_C), and Phase C (#1037) adds a second
+// target (a hold on β = C_g/C_Σ) and a fourth parameter. The step is
+//
+//   min ½‖S⁻¹Δθ‖²   s.t.   J Δθ = −t·r,   box ∩ trust region,   a_k·Δθ ≥ b_k,
+//
+// in the fixed scaling S, with t ∈ [0, 1] maximized first: t = 1 is the full
+// minimum-norm Gauss-Newton step; t < 1 is the largest fraction of the
+// linearized residual the constraints allow. The rows a_k·Δθ ≥ b_k are
+// linearized inequality constraints the problem reports when a trial step
+// fails its own (nonlinear) check; on the transmon they are tets whose volume
+// ratio against the original mesh would fall below the floor.
+//
+// The QP is tiny (P parameters), so it is solved exactly by enumerating the
+// active sets of at most P − M constraints: for each candidate set the
+// equality-constrained minimum-norm point is a small dense solve, and the
+// feasible candidate of smallest norm is the optimum (the KKT active set of a
+// strictly convex QP can always be chosen linearly independent).
+
+/// Values and Jacobian of the targets at one geometry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultiEval {
+    /// One value per target (on the transmon, `E_C/h` in Hz).
+    pub values: Vec<f64>,
+    /// `jacobian[j][i] = ∂values[j]/∂Δθ_i` at this geometry.
+    pub jacobian: Vec<Vec<f64>>,
+}
+
+/// A linearized inequality constraint on the step: `grad · Δθ ≥ rhs`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepConstraint {
+    /// A problem-defined identifier (on the transmon, the tet index).
+    pub id: usize,
+    /// The constraint row, `∂q/∂Δθ` at the current iterate.
+    pub grad: Vec<f64>,
+    /// The right-hand side. The optimizer uses `min(rhs, 0)`, so the zero step
+    /// is always feasible and a constraint can only stop further decrease.
+    pub rhs: f64,
+}
+
+/// The problem's geometry-only verdict on a trial step (no solve).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepCheck {
+    /// True iff the trial step satisfies the problem's nonlinear constraints.
+    pub feasible: bool,
+    /// The worst constraint quantity against the original geometry (on the
+    /// transmon, the min tet volume ratio against `X⁰`).
+    pub min_quality_base: f64,
+    /// The worst constraint quantity against the current iterate (min tet
+    /// volume ratio against `X_k`).
+    pub min_quality_step: f64,
+    /// Violated constraints, most violated first, linearized about the
+    /// current iterate. Empty when `feasible`.
+    pub violated: Vec<StepConstraint>,
+}
+
+/// A design problem driven by [`optimize_multiparam_bounded`].
+///
+/// The problem owns the geometry. A re-morphing problem moves its own
+/// coordinates on [`MultiParamProblem::accept_step`] and rebuilds its
+/// parameter fields there, so `Δθ` is always a step from the current iterate
+/// and the accumulated `θ` is a trace, not a coordinate.
+pub trait MultiParamProblem {
+    /// Number of parameters `P`.
+    fn n_params(&self) -> usize;
+    /// Values and Jacobian at the current accepted iterate.
+    fn current(&self) -> MultiEval;
+    /// Geometry-only check of `current + Δθ` (cheap: no solve).
+    fn check_step(&mut self, dtheta: &[f64]) -> StepCheck;
+    /// A fresh solve at `current + Δθ`: values there, and the Jacobian with
+    /// respect to a step taken from there. The problem may cache the trial for
+    /// [`MultiParamProblem::accept_step`].
+    fn evaluate_step(&mut self, dtheta: &[f64]) -> MultiEval;
+    /// Make `current + Δθ` (the last evaluated step) the new iterate.
+    fn accept_step(&mut self, dtheta: &[f64]);
+    /// An independent fresh evaluation of the current iterate's values, used
+    /// to confirm every accepted step. `None` if the problem has none.
+    fn confirm(&mut self) -> Option<Vec<f64>> {
+        None
+    }
+}
+
+/// Settings of [`optimize_multiparam_bounded`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultiParamOptions {
+    /// One target value per row of [`MultiEval::values`].
+    pub targets: Vec<f64>,
+    /// Convergence tolerance per target: `|value − target| ≤ tol`.
+    pub tolerances: Vec<f64>,
+    /// The fixed parameter scaling `S` (positive): the step minimizes
+    /// `‖S⁻¹Δθ‖` and the trust region is `|Δθ_i| ≤ max_scaled_step · S_i`.
+    /// It must stay fixed for the whole run (with one target and P ≥ 2 the
+    /// step is not unique, and `S` is what picks it).
+    pub scaling: Vec<f64>,
+    /// Starting accumulated parameters.
+    pub theta0: Vec<f64>,
+    /// Box on the accumulated parameters, `(lo, hi)` per parameter.
+    pub theta_bounds: Vec<(f64, f64)>,
+    /// Trust region in scaled units.
+    pub max_scaled_step: f64,
+    /// Maximum number of accepted steps.
+    pub max_steps: usize,
+    /// Maximum rounds of adding violated constraints per step.
+    pub max_constraint_rounds: usize,
+    /// Maximum step halvings (geometry, then descent) per step.
+    pub max_backtracks: usize,
+    /// The run stalls if the largest feasible fraction `t` of the linearized
+    /// residual falls to or below this.
+    pub min_progress: f64,
+}
+
+/// A constraint active in a step's QP solution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveConstraint {
+    /// Parameter `i` on its box lower bound.
+    LowerBound(usize),
+    /// Parameter `i` on its box upper bound.
+    UpperBound(usize),
+    /// Parameter `i` on the trust region.
+    TrustRegion(usize),
+    /// A problem constraint ([`StepConstraint::id`]).
+    Problem(usize),
+}
+
+/// Why a run stopped short of convergence.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MultiParamOutcome {
+    /// Every `|value − target| ≤ tol`.
+    Converged,
+    /// No feasible step makes progress: the active constraints are listed.
+    Stalled {
+        /// The constraints active in the last QP solution.
+        active: Vec<ActiveConstraint>,
+        /// A one-line diagnosis.
+        reason: String,
+    },
+    /// The step budget ran out.
+    MaxSteps,
+}
+
+/// One accepted iterate (index 0 is the start).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultiParamStep {
+    /// Iteration index.
+    pub iter: usize,
+    /// Accumulated parameters (a trace when the problem re-morphs).
+    pub theta: Vec<f64>,
+    /// The step that produced this iterate (zeros at index 0).
+    pub dtheta: Vec<f64>,
+    /// Values from the problem's own evaluation.
+    pub values: Vec<f64>,
+    /// `values − targets`.
+    pub residuals: Vec<f64>,
+    /// `Σ_j (residual_j / tol_j)²`.
+    pub objective: f64,
+    /// The fraction `t` of the linearized residual the step's QP targeted
+    /// (1 at index 0).
+    pub progress: f64,
+    /// Constraints active in the step's QP solution.
+    pub active: Vec<ActiveConstraint>,
+    /// The problem's worst constraint quantity against the original geometry.
+    pub min_quality_base: f64,
+    /// The problem's worst constraint quantity against the previous iterate.
+    pub min_quality_step: f64,
+    /// Geometry checks spent on this step.
+    pub n_geometry_checks: usize,
+    /// Step halvings on this step.
+    pub n_backtracks: usize,
+    /// The independent confirmation of `values`, if the problem has one.
+    pub confirmed: Option<Vec<f64>>,
+    /// Worst `|confirmed − values| / |values|` (0 if not confirmed).
+    pub confirm_rel: f64,
+}
+
+/// Result of [`optimize_multiparam_bounded`].
+#[derive(Debug, Clone)]
+pub struct MultiParamResult {
+    /// Every accepted iterate, oldest first.
+    pub trajectory: Vec<MultiParamStep>,
+    /// How the run ended.
+    pub outcome: MultiParamOutcome,
+    /// Problem evaluations (fresh solves), accepted or not.
+    pub n_evaluations: usize,
+    /// Geometry checks over the whole run.
+    pub n_geometry_checks: usize,
+}
+
+impl MultiParamResult {
+    /// True iff the run converged.
+    pub fn converged(&self) -> bool {
+        self.outcome == MultiParamOutcome::Converged
+    }
+
+    /// The last accepted iterate.
+    pub fn last(&self) -> &MultiParamStep {
+        self.trajectory
+            .last()
+            .expect("trajectory has the start row")
+    }
+}
+
+/// One linear inequality `row · u ≥ rhs` in scaled coordinates.
+#[derive(Debug, Clone)]
+struct Ineq {
+    row: Vec<f64>,
+    rhs: f64,
+    tag: ActiveConstraint,
+}
+
+/// Solve the small dense system `A x = b` by Gaussian elimination with
+/// partial pivoting; `None` if `A` is singular to `rel_tol` of its largest
+/// diagonal-scale entry.
+fn solve_small(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+    let n = b.len();
+    let scale = a
+        .iter()
+        .flat_map(|r| r.iter())
+        .fold(0.0_f64, |m, v| m.max(v.abs()));
+    if scale == 0.0 || !scale.is_finite() {
+        return None;
+    }
+    for col in 0..n {
+        let piv = (col..n).max_by(|&p, &q| a[p][col].abs().total_cmp(&a[q][col].abs()))?;
+        if a[piv][col].abs() <= 1e-12 * scale {
+            return None;
+        }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        let (top, rest) = a.split_at_mut(col + 1);
+        let pivot_row = &top[col];
+        for (k, row) in rest.iter_mut().enumerate() {
+            let f = row[col] / pivot_row[col];
+            if f != 0.0 {
+                for (x, pv) in row.iter_mut().zip(pivot_row).skip(col) {
+                    *x -= f * pv;
+                }
+                b[col + 1 + k] -= f * b[col];
+            }
+        }
+    }
+    let mut x = vec![0.0; n];
+    for r in (0..n).rev() {
+        let s: f64 = (r + 1..n).map(|c| a[r][c] * x[c]).sum();
+        x[r] = (b[r] - s) / a[r][r];
+    }
+    Some(x)
+}
+
+/// The minimum-norm `u` with `rows · u = rhs`, or `None` if the rows are
+/// dependent.
+fn min_norm_solution(rows: &[&[f64]], rhs: &[f64], p: usize) -> Option<Vec<f64>> {
+    let m = rows.len();
+    if m == 0 {
+        return Some(vec![0.0; p]);
+    }
+    let g: Vec<Vec<f64>> = (0..m)
+        .map(|i| {
+            (0..m)
+                .map(|j| rows[i].iter().zip(rows[j]).map(|(a, b)| a * b).sum())
+                .collect()
+        })
+        .collect();
+    let lam = solve_small(g, rhs.to_vec())?;
+    let mut u = vec![0.0; p];
+    for (row, l) in rows.iter().zip(&lam) {
+        for (ui, ri) in u.iter_mut().zip(row.iter()) {
+            *ui += l * ri;
+        }
+    }
+    Some(u)
+}
+
+/// All subsets of `0..n` of size at most `k`, smallest first.
+fn subsets_up_to(n: usize, k: usize) -> Vec<Vec<usize>> {
+    let mut out = vec![Vec::new()];
+    let mut frontier = vec![Vec::new()];
+    for _ in 0..k.min(n) {
+        let mut next = Vec::new();
+        for s in &frontier {
+            let start = s.last().map_or(0, |&l| l + 1);
+            for j in start..n {
+                let mut t = s.clone();
+                t.push(j);
+                next.push(t);
+            }
+        }
+        out.extend(next.iter().cloned());
+        frontier = next;
+    }
+    out
+}
+
+/// Exact minimum-norm solution of `eq_rows · u = eq_rhs`, `ineq` by
+/// active-set enumeration; `None` if infeasible.
+fn qp_min_norm(
+    eq_rows: &[Vec<f64>],
+    eq_rhs: &[f64],
+    ineq: &[Ineq],
+    p: usize,
+) -> Option<(Vec<f64>, Vec<ActiveConstraint>)> {
+    let free = p.saturating_sub(eq_rows.len());
+    let feas_tol = |rhs: f64, row: &[f64]| {
+        1e-12 * (1.0 + rhs.abs() + row.iter().fold(0.0_f64, |m, v| m.max(v.abs())))
+    };
+    let mut best: Option<(f64, Vec<f64>)> = None;
+    for set in subsets_up_to(ineq.len(), free) {
+        let mut rows: Vec<&[f64]> = eq_rows.iter().map(Vec::as_slice).collect();
+        let mut rhs = eq_rhs.to_vec();
+        for &k in &set {
+            rows.push(&ineq[k].row);
+            rhs.push(ineq[k].rhs);
+        }
+        let Some(u) = min_norm_solution(&rows, &rhs, p) else {
+            continue;
+        };
+        let eq_ok = eq_rows.iter().zip(eq_rhs).all(|(r, b)| {
+            let v: f64 = r.iter().zip(&u).map(|(a, x)| a * x).sum();
+            (v - b).abs() <= feas_tol(*b, r)
+        });
+        let ineq_ok = ineq.iter().all(|c| {
+            let v: f64 = c.row.iter().zip(&u).map(|(a, x)| a * x).sum();
+            v >= c.rhs - feas_tol(c.rhs, &c.row)
+        });
+        if eq_ok && ineq_ok {
+            let norm: f64 = u.iter().map(|x| x * x).sum();
+            if best.as_ref().is_none_or(|(n, _)| norm < *n) {
+                best = Some((norm, u));
+            }
+        }
+    }
+    best.map(|(_, u)| {
+        let active = ineq
+            .iter()
+            .filter(|c| {
+                let v: f64 = c.row.iter().zip(&u).map(|(a, x)| a * x).sum();
+                (v - c.rhs).abs() <= 1e-8 * (1.0 + c.rhs.abs())
+            })
+            .map(|c| c.tag)
+            .collect();
+        (u, active)
+    })
+}
+
+/// The step QP: maximize `t ∈ [0, 1]`, then the minimum-norm scaled step.
+/// Returns `(Δθ, t, active)`.
+fn constrained_step(
+    jac: &[Vec<f64>],
+    residuals: &[f64],
+    opts: &MultiParamOptions,
+    theta: &[f64],
+    problem_rows: &[StepConstraint],
+) -> (Vec<f64>, f64, Vec<ActiveConstraint>) {
+    let p = theta.len();
+    let s = &opts.scaling;
+    let tau = opts.max_scaled_step;
+    let mut ineq: Vec<Ineq> = Vec::new();
+    for i in 0..p {
+        let (blo, bhi) = opts.theta_bounds[i];
+        let lo_box = (blo - theta[i]) / s[i];
+        let hi_box = (bhi - theta[i]) / s[i];
+        let mut e = vec![0.0; p];
+        e[i] = 1.0;
+        let (lo, lo_tag) = if lo_box >= -tau {
+            (lo_box, ActiveConstraint::LowerBound(i))
+        } else {
+            (-tau, ActiveConstraint::TrustRegion(i))
+        };
+        let (hi, hi_tag) = if hi_box <= tau {
+            (hi_box, ActiveConstraint::UpperBound(i))
+        } else {
+            (tau, ActiveConstraint::TrustRegion(i))
+        };
+        ineq.push(Ineq {
+            row: e.clone(),
+            rhs: lo.min(0.0),
+            tag: lo_tag,
+        });
+        ineq.push(Ineq {
+            row: e.iter().map(|v| -v).collect(),
+            rhs: (-hi).min(0.0),
+            tag: hi_tag,
+        });
+    }
+    for c in problem_rows {
+        ineq.push(Ineq {
+            row: c.grad.iter().zip(s).map(|(g, si)| g * si).collect(),
+            rhs: c.rhs.min(0.0),
+            tag: ActiveConstraint::Problem(c.id),
+        });
+    }
+    // Normalize every row to unit length (rhs with it): the E_C rows are ~1e8
+    // Hz per unit θ, the bound rows 1, and the Gram solves must not mistake
+    // that scale gap for rank deficiency.
+    let norm = |r: &[f64]| r.iter().map(|x| x * x).sum::<f64>().sqrt();
+    for c in &mut ineq {
+        let n = norm(&c.row);
+        if n > 0.0 {
+            c.row.iter_mut().for_each(|x| *x /= n);
+            c.rhs /= n;
+        }
+    }
+    let mut eq_rows: Vec<Vec<f64>> = Vec::with_capacity(jac.len());
+    let mut eq_res: Vec<f64> = Vec::with_capacity(jac.len());
+    for (r, res) in jac.iter().zip(residuals) {
+        let row: Vec<f64> = r.iter().zip(s).map(|(g, si)| g * si).collect();
+        let n = norm(&row);
+        if n > 0.0 {
+            eq_rows.push(row.iter().map(|x| x / n).collect());
+            eq_res.push(res / n);
+        } else {
+            eq_rows.push(row);
+            eq_res.push(*res);
+        }
+    }
+    let solve = |t: f64| {
+        let rhs: Vec<f64> = eq_res.iter().map(|r| -t * r).collect();
+        qp_min_norm(&eq_rows, &rhs, &ineq, p)
+    };
+    // Snap onto the box / trust rows (the feasibility tolerance may leave
+    // the solution a few ulps outside them).
+    let (lo_u, hi_u): (Vec<f64>, Vec<f64>) = (0..p)
+        .map(|i| (ineq[2 * i].rhs, -ineq[2 * i + 1].rhs))
+        .unzip();
+    let unscale = |u: &[f64]| -> Vec<f64> {
+        u.iter()
+            .zip(s)
+            .enumerate()
+            .map(|(i, (x, si))| x.clamp(lo_u[i], hi_u[i]) * si)
+            .collect()
+    };
+    if let Some((u, active)) = solve(1.0) {
+        return (unscale(&u), 1.0, active);
+    }
+    // Largest feasible t by bisection (feasibility in t is an interval that
+    // contains 0, where u = 0 satisfies every row).
+    let (mut good, mut bad) = (0.0_f64, 1.0_f64);
+    for _ in 0..60 {
+        let mid = 0.5 * (good + bad);
+        if solve(mid).is_some() {
+            good = mid;
+        } else {
+            bad = mid;
+        }
+    }
+    match solve(good) {
+        Some((u, active)) => (unscale(&u), good, active),
+        None => {
+            let active = ineq
+                .iter()
+                .filter(|c| c.rhs == 0.0)
+                .map(|c| c.tag)
+                .collect();
+            (vec![0.0; p], 0.0, active)
+        }
+    }
+}
+
+fn weighted_objective(residuals: &[f64], tols: &[f64]) -> f64 {
+    residuals
+        .iter()
+        .zip(tols)
+        .map(|(r, t)| (r / t).powi(2))
+        .sum()
+}
+
+/// **Bounded multi-parameter Gauss-Newton** toward one or more targets, with
+/// box bounds, a scaled trust region, and linearized problem constraints
+/// (issue #1036).
+///
+/// Each iteration:
+///
+/// 1. solves the step QP (module comment above): the largest fraction
+///    `t ≤ 1` of the linearized residual reachable under the box, the trust
+///    region and the problem rows gathered so far, then the minimum-norm
+///    step in the scaling `S`;
+/// 2. checks the trial geometry ([`MultiParamProblem::check_step`], no
+///    solve). If it fails, the violated constraints are added and the QP is
+///    re-solved, up to `max_constraint_rounds`; then the step is halved until
+///    the geometry is valid;
+/// 3. evaluates the trial with a fresh solve and accepts it only if the
+///    objective `Σ (r_j/tol_j)²` decreases (else halves the step);
+/// 4. after accepting, asks the problem for an independent confirmation and
+///    records its agreement.
+///
+/// It stops when every `|r_j| ≤ tol_j` ([`MultiParamOutcome::Converged`]),
+/// when no feasible step makes progress ([`MultiParamOutcome::Stalled`],
+/// with the active constraints: the honest outcome when the target lies
+/// outside the reachable set), or after `max_steps`.
+///
+/// # Panics
+///
+/// Panics if the option vectors do not match the problem's `P` and `M`, a
+/// scaling or tolerance is not positive, `theta0` lies outside the box, or
+/// the problem returns a Jacobian of the wrong shape.
+#[allow(clippy::too_many_lines)]
+pub fn optimize_multiparam_bounded<P: MultiParamProblem>(
+    problem: &mut P,
+    opts: &MultiParamOptions,
+) -> MultiParamResult {
+    let p = problem.n_params();
+    let m = opts.targets.len();
+    assert!(m >= 1, "at least one target");
+    assert_eq!(opts.tolerances.len(), m, "one tolerance per target");
+    assert_eq!(opts.scaling.len(), p, "one scale per parameter");
+    assert_eq!(opts.theta0.len(), p, "theta0 length");
+    assert_eq!(opts.theta_bounds.len(), p, "one bound pair per parameter");
+    assert!(
+        opts.tolerances.iter().all(|t| *t > 0.0),
+        "tolerances must be positive"
+    );
+    assert!(
+        opts.scaling.iter().all(|s| s.is_finite() && *s > 0.0),
+        "scaling must be finite and positive"
+    );
+    assert!(
+        opts.max_scaled_step > 0.0,
+        "max_scaled_step must be positive"
+    );
+    for (i, (&t0, &(lo, hi))) in opts.theta0.iter().zip(&opts.theta_bounds).enumerate() {
+        assert!(
+            lo <= t0 && t0 <= hi,
+            "theta bounds [{lo}, {hi}] of parameter {i} must contain theta0 = {t0}"
+        );
+    }
+    let check_eval = |e: &MultiEval| {
+        assert_eq!(
+            e.values.len(),
+            m,
+            "problem returned {} values",
+            e.values.len()
+        );
+        assert_eq!(e.jacobian.len(), m, "Jacobian rows");
+        assert!(e.jacobian.iter().all(|r| r.len() == p), "Jacobian columns");
+    };
+    let residuals_of = |e: &MultiEval| -> Vec<f64> {
+        e.values
+            .iter()
+            .zip(&opts.targets)
+            .map(|(v, t)| v - t)
+            .collect()
+    };
+    let confirm_rel = |values: &[f64], confirmed: &Option<Vec<f64>>| -> f64 {
+        confirmed.as_ref().map_or(0.0, |c| {
+            values
+                .iter()
+                .zip(c)
+                .map(|(v, x)| (x - v).abs() / v.abs().max(f64::MIN_POSITIVE))
+                .fold(0.0_f64, f64::max)
+        })
+    };
+
+    let mut eval = problem.current();
+    check_eval(&eval);
+    let mut theta = opts.theta0.clone();
+    let mut residuals = residuals_of(&eval);
+    let mut objective = weighted_objective(&residuals, &opts.tolerances);
+    let confirmed0 = problem.confirm();
+    let mut trajectory = vec![MultiParamStep {
+        iter: 0,
+        theta: theta.clone(),
+        dtheta: vec![0.0; p],
+        values: eval.values.clone(),
+        residuals: residuals.clone(),
+        objective,
+        progress: 1.0,
+        active: Vec::new(),
+        min_quality_base: f64::NAN,
+        min_quality_step: f64::NAN,
+        n_geometry_checks: 0,
+        n_backtracks: 0,
+        confirm_rel: confirm_rel(&eval.values, &confirmed0),
+        confirmed: confirmed0,
+    }];
+    let mut n_evaluations = 0usize;
+    let mut n_geometry_checks = 0usize;
+    let converged_now = |r: &[f64]| r.iter().zip(&opts.tolerances).all(|(r, t)| r.abs() <= *t);
+
+    let outcome = 'run: {
+        for iter in 1..=opts.max_steps {
+            if converged_now(&residuals) {
+                break 'run MultiParamOutcome::Converged;
+            }
+            let mut rows: Vec<StepConstraint> = Vec::new();
+            let mut step_checks = 0usize;
+            let mut backtracks = 0usize;
+            let (mut dtheta, progress, active, check) = {
+                let mut round = 0usize;
+                loop {
+                    let (d, t, act) =
+                        constrained_step(&eval.jacobian, &residuals, opts, &theta, &rows);
+                    if t <= opts.min_progress || d.iter().all(|x| *x == 0.0) {
+                        break 'run MultiParamOutcome::Stalled {
+                            active: act,
+                            reason: format!(
+                                "no feasible step makes progress (largest feasible fraction of \
+                                 the linearized residual t = {t:.3e})"
+                            ),
+                        };
+                    }
+                    let chk = problem.check_step(&d);
+                    step_checks += 1;
+                    if chk.feasible {
+                        break (d, t, act, chk);
+                    }
+                    let new: Vec<StepConstraint> = chk
+                        .violated
+                        .iter()
+                        .filter(|c| rows.iter().all(|r| r.id != c.id))
+                        .cloned()
+                        .collect();
+                    round += 1;
+                    if new.is_empty() || round >= opts.max_constraint_rounds {
+                        // Linearization exhausted: halve along d until valid.
+                        let mut h = d;
+                        let mut found = None;
+                        for _ in 0..opts.max_backtracks {
+                            for x in h.iter_mut() {
+                                *x *= 0.5;
+                            }
+                            backtracks += 1;
+                            let c2 = problem.check_step(&h);
+                            step_checks += 1;
+                            if c2.feasible {
+                                found = Some(c2);
+                                break;
+                            }
+                        }
+                        match found {
+                            Some(c2) => break (h, t, act, c2),
+                            None => {
+                                break 'run MultiParamOutcome::Stalled {
+                                    active: act,
+                                    reason: "no geometrically valid step after backtracking"
+                                        .to_string(),
+                                };
+                            }
+                        }
+                    }
+                    rows.extend(new);
+                }
+            };
+            // Fresh solve; accept only on descent.
+            let mut check = check;
+            let new_eval = loop {
+                let e = problem.evaluate_step(&dtheta);
+                n_evaluations += 1;
+                check_eval(&e);
+                let r = residuals_of(&e);
+                if weighted_objective(&r, &opts.tolerances) < objective {
+                    break e;
+                }
+                if backtracks >= opts.max_backtracks {
+                    n_geometry_checks += step_checks;
+                    break 'run MultiParamOutcome::Stalled {
+                        active: active.clone(),
+                        reason: "the fresh solve did not decrease the objective after \
+                                 backtracking"
+                            .to_string(),
+                    };
+                }
+                for x in dtheta.iter_mut() {
+                    *x *= 0.5;
+                }
+                backtracks += 1;
+                check = problem.check_step(&dtheta);
+                step_checks += 1;
+                if !check.feasible {
+                    n_geometry_checks += step_checks;
+                    break 'run MultiParamOutcome::Stalled {
+                        active: active.clone(),
+                        reason: "a halved descent step left the valid geometry".to_string(),
+                    };
+                }
+            };
+            n_geometry_checks += step_checks;
+            problem.accept_step(&dtheta);
+            for (t, d) in theta.iter_mut().zip(&dtheta) {
+                *t += d;
+            }
+            eval = new_eval;
+            residuals = residuals_of(&eval);
+            objective = weighted_objective(&residuals, &opts.tolerances);
+            let confirmed = problem.confirm();
+            trajectory.push(MultiParamStep {
+                iter,
+                theta: theta.clone(),
+                dtheta,
+                values: eval.values.clone(),
+                residuals: residuals.clone(),
+                objective,
+                progress,
+                active,
+                min_quality_base: check.min_quality_base,
+                min_quality_step: check.min_quality_step,
+                n_geometry_checks: step_checks,
+                n_backtracks: backtracks,
+                confirm_rel: confirm_rel(&eval.values, &confirmed),
+                confirmed,
+            });
+        }
+        if converged_now(&residuals) {
+            MultiParamOutcome::Converged
+        } else {
+            MultiParamOutcome::MaxSteps
+        }
+    };
+
+    MultiParamResult {
+        trajectory,
+        outcome,
+        n_evaluations,
+        n_geometry_checks,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,5 +1204,268 @@ mod tests {
             0.0,
             analytic_eval(1.0e9, 100e-15),
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Multi-parameter bounded Gauss-Newton (issue #1036).
+    // ─────────────────────────────────────────────────────────────────────
+
+    type ValueFn = Box<dyn Fn(&[f64]) -> (Vec<f64>, Vec<Vec<f64>>)>;
+    type QualityFn = Box<dyn Fn(&[f64]) -> (f64, Vec<f64>)>;
+
+    /// A closed-form problem: values and Jacobian from `f(θ)`, and an
+    /// optional nonlinear quality `q(θ) ≥ floor` playing the mesh constraint.
+    struct Analytic {
+        theta: Vec<f64>,
+        f: ValueFn,
+        q: Option<QualityFn>,
+        floor: f64,
+        pending: Option<Vec<f64>>,
+        confirms: usize,
+    }
+
+    impl Analytic {
+        fn new(p: usize, f: ValueFn) -> Self {
+            Self {
+                theta: vec![0.0; p],
+                f,
+                q: None,
+                floor: 0.0,
+                pending: None,
+                confirms: 0,
+            }
+        }
+        fn at(&self, d: &[f64]) -> Vec<f64> {
+            self.theta.iter().zip(d).map(|(t, x)| t + x).collect()
+        }
+    }
+
+    impl MultiParamProblem for Analytic {
+        fn n_params(&self) -> usize {
+            self.theta.len()
+        }
+        fn current(&self) -> MultiEval {
+            let (values, jacobian) = (self.f)(&self.theta);
+            MultiEval { values, jacobian }
+        }
+        fn check_step(&mut self, d: &[f64]) -> StepCheck {
+            let Some(q) = &self.q else {
+                return StepCheck {
+                    feasible: true,
+                    min_quality_base: 1.0,
+                    min_quality_step: 1.0,
+                    violated: Vec::new(),
+                };
+            };
+            let (v, _) = q(&self.at(d));
+            let (now, grad) = q(&self.theta);
+            StepCheck {
+                feasible: v >= self.floor,
+                min_quality_base: v,
+                min_quality_step: v / now,
+                violated: if v >= self.floor {
+                    Vec::new()
+                } else {
+                    vec![StepConstraint {
+                        id: 7,
+                        grad,
+                        rhs: self.floor + 0.01 - now,
+                    }]
+                },
+            }
+        }
+        fn evaluate_step(&mut self, d: &[f64]) -> MultiEval {
+            self.pending = Some(d.to_vec());
+            let (values, jacobian) = (self.f)(&self.at(d));
+            MultiEval { values, jacobian }
+        }
+        fn accept_step(&mut self, d: &[f64]) {
+            assert_eq!(self.pending.take().as_deref(), Some(d));
+            self.theta = self.at(d);
+        }
+        fn confirm(&mut self) -> Option<Vec<f64>> {
+            self.confirms += 1;
+            Some((self.f)(&self.theta).0)
+        }
+    }
+
+    /// Parallel plate `C = ε A/d` with gap `d = d0 (1 + θ_0)` and area
+    /// `A = A0 (1 + θ_1)`: `E_C = E0 (1 + θ_0)/(1 + θ_1)`.
+    fn plate(e0: f64) -> ValueFn {
+        Box::new(move |t: &[f64]| {
+            let e = e0 * (1.0 + t[0]) / (1.0 + t[1]);
+            (vec![e], vec![vec![e0 / (1.0 + t[1]), -e / (1.0 + t[1])]])
+        })
+    }
+
+    fn opts(target: f64, p: usize, bounds: (f64, f64)) -> MultiParamOptions {
+        MultiParamOptions {
+            targets: vec![target],
+            tolerances: vec![1.0],
+            scaling: vec![1.0; p],
+            theta0: vec![0.0; p],
+            theta_bounds: vec![bounds; p],
+            max_scaled_step: 0.2,
+            max_steps: 60,
+            max_constraint_rounds: 8,
+            max_backtracks: 30,
+            min_progress: 1e-9,
+        }
+    }
+
+    /// Two parameters, one target inside the box: converges to tolerance,
+    /// every iterate stays in the box and the trust region, every accepted
+    /// step is confirmed, and the residual decreases monotonically.
+    #[test]
+    fn multiparam_plate_converges_inside_the_box() {
+        let e0 = 0.16e9;
+        let target = e0 / 0.7; // C = 0.7 C0
+        let mut prob = Analytic::new(2, plate(e0));
+        let o = opts(target, 2, (-0.5, 1.0));
+        let res = optimize_multiparam_bounded(&mut prob, &o);
+        assert!(res.converged(), "outcome {:?}", res.outcome);
+        let last = res.last();
+        assert!(last.residuals[0].abs() <= 1.0);
+        let (t0, t1) = (last.theta[0], last.theta[1]);
+        let c_ratio = (1.0 + t1) / (1.0 + t0);
+        assert!((c_ratio - 0.7).abs() < 1e-8, "C/C0 = {c_ratio}");
+        // Both parameters move (minimum norm in unit scaling shares the work).
+        assert!(t0 > 0.0 && t1 < 0.0, "θ = {:?}", last.theta);
+        for w in res.trajectory.windows(2) {
+            assert!(w[1].objective < w[0].objective);
+            for d in &w[1].dtheta {
+                assert!(d.abs() <= 0.2 + 1e-12, "trust region violated: {d}");
+            }
+        }
+        for s in &res.trajectory {
+            assert!(s.theta.iter().all(|t| (-0.5..=1.0).contains(t)));
+            assert!(s.confirmed.is_some() && s.confirm_rel <= 1e-15);
+        }
+        assert_eq!(prob.confirms, res.trajectory.len());
+    }
+
+    /// A target outside the box stops on the box corner with an honest
+    /// `Stalled` outcome naming the active bounds, not a fabricated
+    /// convergence.
+    #[test]
+    fn multiparam_plate_stalls_honestly_outside_the_box() {
+        let e0 = 0.16e9;
+        let target = e0 / 0.2; // C = 0.2 C0; the box allows only C ≥ 0.467 C0
+        let mut prob = Analytic::new(2, plate(e0));
+        let mut o = opts(target, 2, (0.0, 0.0));
+        o.theta_bounds = vec![(0.0, 0.5), (-0.3, 0.0)];
+        let res = optimize_multiparam_bounded(&mut prob, &o);
+        assert!(!res.converged());
+        match &res.outcome {
+            MultiParamOutcome::Stalled { active, .. } => {
+                assert!(
+                    active.contains(&ActiveConstraint::UpperBound(0)),
+                    "{active:?}"
+                );
+                assert!(
+                    active.contains(&ActiveConstraint::LowerBound(1)),
+                    "{active:?}"
+                );
+            }
+            other => panic!("expected a stall, got {other:?}"),
+        }
+        let last = res.last();
+        assert!((last.theta[0] - 0.5).abs() < 1e-12 && (last.theta[1] + 0.3).abs() < 1e-12);
+        assert!(last.residuals[0].abs() > 1e6, "the gap must remain");
+        let first = &res.trajectory[0];
+        assert!(last.residuals[0].abs() < first.residuals[0].abs());
+    }
+
+    /// A nonlinear quality constraint on the area parameter
+    /// (`q = (1 + θ_1)³ ≥ 0.25`, i.e. `θ_1 ≥ −0.37`) with a scaling that
+    /// favours area: the optimizer hits the constraint, slides along it onto
+    /// the gap parameter, and still converges; every accepted iterate meets
+    /// the floor.
+    #[test]
+    fn multiparam_slides_along_a_linearized_constraint() {
+        let e0 = 0.16e9;
+        let target = e0 / 0.4; // C = 0.4 C0
+        let mut prob = Analytic::new(2, plate(e0));
+        prob.q = Some(Box::new(|t: &[f64]| {
+            ((1.0 + t[1]).powi(3), vec![0.0, 3.0 * (1.0 + t[1]).powi(2)])
+        }));
+        prob.floor = 0.25;
+        let mut o = opts(target, 2, (-0.9, 3.0));
+        o.scaling = vec![0.1, 1.0];
+        o.max_scaled_step = 2.0;
+        let res = optimize_multiparam_bounded(&mut prob, &o);
+        assert!(res.converged(), "outcome {:?}", res.outcome);
+        let mut hit = false;
+        for s in &res.trajectory[1..] {
+            assert!(
+                s.min_quality_base >= 0.25,
+                "accepted q {}",
+                s.min_quality_base
+            );
+            hit |= s.active.contains(&ActiveConstraint::Problem(7));
+        }
+        assert!(hit, "the quality constraint must become active");
+        let last = res.last();
+        assert!(
+            last.theta[1] < -0.3,
+            "area used up to the constraint: {:?}",
+            last.theta
+        );
+        assert!(last.theta[0] > 0.0, "the gap takes over the rest");
+    }
+
+    /// The Phase C hook: two targets and three parameters (a hold row
+    /// `θ_1 − θ_2 = 0` beside the `E_C` row) converge together.
+    #[test]
+    fn multiparam_two_targets_three_parameters() {
+        let e0 = 0.16e9;
+        let target = e0 / 0.6;
+        let f: ValueFn = Box::new(move |t: &[f64]| {
+            let a = (1.0 + t[1]) * (1.0 + t[2]);
+            let e = e0 * (1.0 + t[0]) / a;
+            (
+                vec![e, t[1] - t[2]],
+                vec![
+                    vec![e0 / a, -e / (1.0 + t[1]), -e / (1.0 + t[2])],
+                    vec![0.0, 1.0, -1.0],
+                ],
+            )
+        });
+        let mut prob = Analytic::new(3, f);
+        let mut o = opts(target, 3, (-0.5, 1.0));
+        o.targets = vec![target, 0.0];
+        o.tolerances = vec![1.0, 1e-9];
+        let res = optimize_multiparam_bounded(&mut prob, &o);
+        assert!(res.converged(), "outcome {:?}", res.outcome);
+        let last = res.last();
+        assert!((last.theta[1] - last.theta[2]).abs() <= 1e-9);
+        assert!(last.residuals[0].abs() <= 1.0);
+    }
+
+    #[test]
+    fn qp_enumeration_finds_the_projected_minimum_norm_point() {
+        // min |u|² s.t. u0 + u1 = 2, u0 ≤ 0.5  →  u = (0.5, 1.5).
+        let ineq = vec![Ineq {
+            row: vec![-1.0, 0.0],
+            rhs: -0.5,
+            tag: ActiveConstraint::UpperBound(0),
+        }];
+        let (u, act) = qp_min_norm(&[vec![1.0, 1.0]], &[2.0], &ineq, 2).unwrap();
+        assert!((u[0] - 0.5).abs() < 1e-14 && (u[1] - 1.5).abs() < 1e-14);
+        assert_eq!(act, vec![ActiveConstraint::UpperBound(0)]);
+        // Infeasible: u0 + u1 = 2 with u0 ≤ 0, u1 ≤ 0.
+        let ineq2 = vec![
+            Ineq {
+                row: vec![-1.0, 0.0],
+                rhs: 0.0,
+                tag: ActiveConstraint::UpperBound(0),
+            },
+            Ineq {
+                row: vec![0.0, -1.0],
+                rhs: 0.0,
+                tag: ActiveConstraint::UpperBound(1),
+            },
+        ];
+        assert!(qp_min_norm(&[vec![1.0, 1.0]], &[2.0], &ineq2, 2).is_none());
     }
 }

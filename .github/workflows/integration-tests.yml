@@ -594,7 +594,11 @@ jobs:
       # transient_sparams likewise needs GEODE_BLESS_TRANSIENT=1, #823),
       # mixed_pencil_fiber_benchmark 20 s,
       # mixed_precision_refinement 18 s, motor_torque_benchmark 14 s,
-      # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests),
+      # mie_driven_scattering 12 s, transmon_diffopt 10 s (two tests; the
+      # #1035 multiparam_gradient_release adds about 7 s locally and the
+      # #1036 multiparam_optimizer_release about 8 s and
+      # multiparam_mesh_refinement_x0_release, a 1.07M-tet refined solve,
+      # about 14 s and 4.8 GB peak RSS),
       # sphere_matched_upml_eigenmode 8 s or less (three tests since #1022;
       # measured locally 7.7 s against 12.9 s for the two before it),
       # the rest 0-5 s.
@@ -602,7 +606,10 @@ jobs:
       # its 288 structured / one-element-across / stepped rows run here; its
       # 527 Gmsh rows run only where gmsh is on PATH (not on this runner).
       # Its tm_guard_p2_long_guide_table (issue #990) is Gmsh-only and
-      # returns at once here; locally it takes about 20 s in release.
+      # returns at once here; locally it takes about 1-2 min in release with
+      # the issue #955 columns. Issue #955 adds the share-free section solves
+      # and the option-1 reproduction to every measurement-table row: the 288
+      # structured rows took 227 s locally (release, loaded Mac, serial).
       - name: geode-core release-only and heavy tests (--ignored tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \

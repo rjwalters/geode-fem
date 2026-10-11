@@ -137,6 +137,21 @@ const D_TRACKING: &str = "issue #692 allowlist — regenerate on an f64 backend 
 const MANIFEST: &[Entry] = &[
     // ---- Bucket A: Burn-backed, f64 provenance trio required ------------
     a(
+        "benchmarks/tm_guard_955/measurement_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_p2_measurement_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
+        "benchmarks/tm_guard_955/long_guide_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_p2_long_guide_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
+        "benchmarks/tm_guard_955/excitation_table.toml",
+        "GEODE_BLESS_955=1 cargo test -p geode-core --release --test wave_port_p2 -- --ignored \
+         tm_guard_excitation_table --nocapture (needs gmsh on PATH)",
+    ),
+    a(
         "benchmarks/periodic/results.toml",
         "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
          -- --ignored regenerate_periodic_results",
@@ -238,6 +253,17 @@ const MANIFEST: &[Entry] = &[
     b(
         "benchmarks/transmon_diffopt/harmonic_results.toml",
         "examples/transmon_pad_harmonic.rs: no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/multiparam_gradient.toml",
+        "examples/transmon_multiparam_diffopt.rs: scalar f64 electrostatic assembly + faer LU \
+         (shape::capacitance_matrix_shape_gradient), no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/multiparam_results.toml",
+        "examples/transmon_multiparam_optimize.rs: scalar/tensor f64 electrostatic assembly + \
+         faer LU (shape::transmon_remorph, quantum::diffopt::optimize_multiparam_bounded), no \
+         Backend generic",
     ),
     b(
         // The #692 curation listed this under bucket D; the generator was

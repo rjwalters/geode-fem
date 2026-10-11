@@ -89,6 +89,9 @@ use crate::assembly::electrostatic::{
 };
 use crate::mesh::TetMesh;
 
+pub mod transmon_morph;
+pub mod transmon_remorph;
+
 // ─────────────────────────────────────────────────────────────────────────
 // Minimal forward-mode dual number for exact differentiation of the P1
 // element-stiffness kernel w.r.t. a single seeded node coordinate.
@@ -846,6 +849,333 @@ pub fn min_tet_volume_ratio(base: &TetMesh, moved: &TetMesh) -> f64 {
     worst
 }
 
+/// [`min_tet_volume_ratio`] together with the index of the tet that attains
+/// it (the first one, on ties), so a distortion budget can name the region
+/// that limits it.
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count or have no tets.
+pub fn worst_tet_volume_ratio(base: &TetMesh, moved: &TetMesh) -> (f64, usize) {
+    assert_eq!(
+        base.n_tets(),
+        moved.n_tets(),
+        "worst_tet_volume_ratio: tet counts differ (fixed-topology maps only)"
+    );
+    assert!(base.n_tets() > 0, "worst_tet_volume_ratio: empty mesh");
+    let mut worst = (f64::INFINITY, 0usize);
+    for t in 0..base.n_tets() {
+        let r = tet_signed_6vol(moved, t) / tet_signed_6vol(base, t);
+        if r < worst.0 {
+            worst = (r, t);
+        }
+    }
+    worst
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Re-morphing support (Epic #569 / umbrella #1034, issue #1036, Phase B).
+//
+// A re-morphing optimizer rebuilds every parameter field `D_i(X_k)` about the
+// current coordinates at each accepted iterate. Three pieces:
+//
+// * `assemble_p1_laplace_weighted`: the P1 Laplace operator with a per-tet
+//   diffusivity, so a volume-stiffened morph (diffusivity `(V₀/V_k)^α`) can
+//   push deformation away from tets that have already been compressed. The
+//   unit-coefficient `assemble_p1_laplace` above is untouched; a unit test
+//   checks the weighted sibling reproduces it bit-for-bit at weights of 1.
+// * `harmonic_dirichlet_velocities`: several fields from ONE factorization.
+//   That is valid only when every column pins the same node set (the
+//   prescribed nodes plus `fixed_zero`), with only the values differing, so
+//   the function rejects columns whose prescribed sets differ.
+// * `tet_volume_ratios` / `tet_volume_ratio_derivatives`: the per-tet ratio
+//   against the base mesh and its exact first derivative along a set of
+//   node-motion fields, which linearize the mesh-quality constraint.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// [`assemble_p1_laplace`] with a per-tet diffusivity: `L_ij = Σ_t w_t ∫_t
+/// ∇λ_i·∇λ_j`. With every weight equal to 1 it reproduces the unit operator
+/// bit-for-bit (the element kernel is the same; `x · 1.0 == x` exactly).
+fn assemble_p1_laplace_weighted(
+    mesh: &TetMesh,
+    weights: &[f64],
+) -> Result<SparseColMat<usize, f64>, ElectrostaticError> {
+    if weights.len() != mesh.n_tets() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "Laplace diffusivity has {} entries, mesh has {} tets",
+            weights.len(),
+            mesh.n_tets()
+        )));
+    }
+    if let Some((t, w)) = weights
+        .iter()
+        .enumerate()
+        .find(|(_, w)| !(w.is_finite() && **w > 0.0))
+    {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "Laplace diffusivity of tet {t} is {w}; it must be finite and positive"
+        )));
+    }
+    let n = mesh.n_nodes();
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    for (tet, &w) in mesh.tets.iter().zip(weights) {
+        let coords = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let (k_local, _m, _v) = tet_p1_local(&coords);
+        for p in 0..4 {
+            let gp = tet[p] as usize;
+            for q in 0..4 {
+                trips.push(Triplet::new(gp, tet[q] as usize, w * k_local[p][q]));
+            }
+        }
+    }
+    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
+        .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))
+}
+
+/// Several **harmonic extensions from one factorization**: column `c` solves
+///
+/// ```text
+///   ∇·(w ∇D_c) = 0 on the free nodes,   D_c = v on `columns[c]`,   D_c = 0 on `fixed_zero`,
+/// ```
+///
+/// with `w` the per-tet `diffusivity` (`None` = unit, the operator of
+/// [`harmonic_dirichlet_velocity`]). As there, a node in both a column and
+/// `fixed_zero` stays fixed.
+///
+/// One LU serves every column only because every column has the same
+/// Dirichlet **set**: the function requires the prescribed node sets of all
+/// columns to be identical (values may differ), and returns an error
+/// otherwise. Fields whose pinned sets differ (on the transmon, `theta_G`
+/// releases a ground band that `theta_L` and `theta_W` pin) must be built by
+/// separate calls, one factorization per distinct set. The single-column,
+/// unit-diffusivity call is the same field as [`harmonic_dirichlet_velocity`]
+/// (to round-off; a unit test checks it).
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] for an out-of-range node, columns
+/// with different prescribed node sets, a node prescribed twice in one
+/// column, or a bad diffusivity; [`ElectrostaticError::Assembly`] /
+/// [`ElectrostaticError::Factorization`] from the Laplace assembly and solve.
+pub fn harmonic_dirichlet_velocities(
+    mesh: &TetMesh,
+    diffusivity: Option<&[f64]>,
+    columns: &[Vec<(u32, [f64; 3])>],
+    fixed_zero: &[u32],
+) -> Result<Vec<Vec<[f64; 3]>>, ElectrostaticError> {
+    let n = mesh.n_nodes();
+    if columns.is_empty() {
+        return Ok(Vec::new());
+    }
+    let node_set = |c: &[(u32, [f64; 3])]| -> Vec<u32> {
+        let mut s: Vec<u32> = c.iter().map(|(g, _)| *g).collect();
+        s.sort_unstable();
+        s
+    };
+    let set0 = node_set(&columns[0]);
+    if set0.windows(2).any(|w| w[0] == w[1]) {
+        return Err(ElectrostaticError::ShapeMismatch(
+            "harmonic_dirichlet_velocities: a node is prescribed twice in column 0".to_string(),
+        ));
+    }
+    if let Some(&g) = set0.iter().find(|g| **g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "prescribed node {g} out of range (n_nodes {n})"
+        )));
+    }
+    for (c, col) in columns.iter().enumerate().skip(1) {
+        if node_set(col) != set0 {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "harmonic_dirichlet_velocities: column {c} prescribes a different node set \
+                 from column 0; one factorization is valid only for identical Dirichlet sets \
+                 (build differing sets with separate calls)"
+            )));
+        }
+    }
+    if let Some(&g) = fixed_zero.iter().find(|g| **g as usize >= n) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "fixed_zero node {g} out of range (n_nodes {n})"
+        )));
+    }
+    let n_cols = columns.len();
+    let mut pinned = vec![false; n];
+    let mut dval = vec![vec![[0.0_f64; 3]; n]; n_cols];
+    for (c, col) in columns.iter().enumerate() {
+        for &(g, v) in col {
+            pinned[g as usize] = true;
+            dval[c][g as usize] = v;
+        }
+    }
+    for &g in fixed_zero {
+        pinned[g as usize] = true;
+        for d in dval.iter_mut() {
+            d[g as usize] = [0.0; 3];
+        }
+    }
+    let mut free_of = vec![None; n];
+    let mut n_free = 0usize;
+    for (g, &p) in pinned.iter().enumerate() {
+        if !p {
+            free_of[g] = Some(n_free);
+            n_free += 1;
+        }
+    }
+    let l_full = match diffusivity {
+        None => assemble_p1_laplace(mesh)?,
+        Some(w) => assemble_p1_laplace_weighted(mesh, w)?,
+    };
+    let mut red_trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(mesh.n_tets() * 16);
+    let mut b: Mat<f64> = Mat::zeros(n_free, 3 * n_cols);
+    {
+        let l_ref = l_full.as_ref();
+        let cp = l_ref.col_ptr();
+        let row_idx = l_ref.row_idx();
+        let vals = l_ref.val();
+        for j in 0..n {
+            for k in cp[j]..cp[j + 1] {
+                let i = row_idx[k];
+                let v = vals[k];
+                match (free_of[i], free_of[j]) {
+                    (Some(fi), Some(fj)) => red_trips.push(Triplet::new(fi, fj, v)),
+                    (Some(fi), None) => {
+                        for (c, d) in dval.iter().enumerate() {
+                            for a in 0..3 {
+                                b[(fi, 3 * c + a)] -= v * d[j][a];
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let mut vels = dval;
+    if n_free > 0 {
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(n_free, n_free, &red_trips)
+            .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
+        let lu = k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        lu.solve_in_place(b.as_mut());
+        for (c, vel) in vels.iter_mut().enumerate() {
+            for (g, slot) in free_of.iter().enumerate() {
+                if let Some(fi) = slot {
+                    vel[g] = [b[(*fi, 3 * c)], b[(*fi, 3 * c + 1)], b[(*fi, 3 * c + 2)]];
+                }
+            }
+        }
+    }
+    Ok(vels)
+}
+
+/// The signed-volume ratio `vol(moved tet) / vol(base tet)` of every tet
+/// (the per-tet values behind [`min_tet_volume_ratio`]).
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count.
+pub fn tet_volume_ratios(base: &TetMesh, moved: &TetMesh) -> Vec<f64> {
+    assert_eq!(
+        base.n_tets(),
+        moved.n_tets(),
+        "tet_volume_ratios: tet counts differ (fixed-topology maps only)"
+    );
+    (0..base.n_tets())
+        .map(|t| tet_signed_6vol(moved, t) / tet_signed_6vol(base, t))
+        .collect()
+}
+
+/// Volume-stiffening diffusivity `w_t = (V₀_t / V_t)^α` for a re-morph about
+/// `current`: tets that `current` has already compressed relative to `base`
+/// get a stiffer Laplace coefficient, so the next field deforms them less.
+/// `α = 0` gives the unit operator.
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] if `alpha` is negative or not
+/// finite, or if any tet of `current` is inverted or degenerate.
+pub fn volume_stiffening_weights(
+    base: &TetMesh,
+    current: &TetMesh,
+    alpha: f64,
+) -> Result<Vec<f64>, ElectrostaticError> {
+    if !(alpha.is_finite() && alpha >= 0.0) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "volume_stiffening_weights: alpha {alpha} must be finite and non-negative"
+        )));
+    }
+    let ratios = tet_volume_ratios(base, current);
+    if let Some((t, r)) = ratios.iter().enumerate().find(|(_, r)| **r <= 0.0) {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "volume_stiffening_weights: tet {t} has volume ratio {r} (inverted)"
+        )));
+    }
+    Ok(ratios.into_iter().map(|r| r.powf(-alpha)).collect())
+}
+
+/// Exact first derivatives of the tet volume ratio `r_t = V_t(X)/V₀_t` at
+/// `current` along node-motion fields: entry `[k][i]` is
+/// `d r_{tets[k]} / dθ_i` for `X = current + Σ_i θ_i fields[i]` at `θ = 0`.
+/// Each derivative is the closed form `d(6V) = Σ_a (∂det/∂e_a)·(D_a − D_0)`
+/// with `∂det/∂e_1 = e_2×e_3` and its cyclic shifts; a unit test checks it
+/// against central differences.
+///
+/// # Panics
+///
+/// Panics if the meshes differ in tet count, a tet index is out of range, or
+/// a field's length differs from the node count.
+pub fn tet_volume_ratio_derivatives(
+    base: &TetMesh,
+    current: &TetMesh,
+    tets: &[usize],
+    fields: &[&[[f64; 3]]],
+) -> Vec<Vec<f64>> {
+    assert_eq!(
+        base.n_tets(),
+        current.n_tets(),
+        "tet_volume_ratio_derivatives: tet counts differ"
+    );
+    for f in fields {
+        assert_eq!(
+            f.len(),
+            current.n_nodes(),
+            "tet_volume_ratio_derivatives: field length != node count"
+        );
+    }
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    tets.iter()
+        .map(|&t| {
+            let tet = current.tets[t];
+            let x = |k: usize| current.nodes[tet[k] as usize];
+            let (e1, e2, e3) = (sub(x(1), x(0)), sub(x(2), x(0)), sub(x(3), x(0)));
+            let (c1, c2, c3) = (cross(e2, e3), cross(e3, e1), cross(e1, e2));
+            let v0 = tet_signed_6vol(base, t);
+            fields
+                .iter()
+                .map(|f| {
+                    let d = |k: usize| f[tet[k] as usize];
+                    (dot(c1, sub(d(1), d(0))) + dot(c2, sub(d(2), d(0))) + dot(c3, sub(d(3), d(0))))
+                        / v0
+                })
+                .collect()
+        })
+        .collect()
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // High-DOF freeform boundary shape parametrization + mesh-morph regularizer
 // (Epic #647 Phase 1, issue #648).
@@ -1431,6 +1761,567 @@ pub fn capacitance_shape_gradient(
         grad_node_c,
         grad_node_c_implicit,
         phi,
+        n_factorizations,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Full Maxwell capacitance-matrix shape gradient (Epic #569 / #1034, issue
+// #1035).
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Every Maxwell entry is `C_ij = φ_iᵀ K φ_j` (`extract_capacitance`), with
+// `φ_i` the unit excitation of conductor i (conductor i at 1 V, every other
+// conductor and the ground at 0 V). Both fields are discrete-harmonic: their
+// free rows satisfy `(K φ)_free = 0`. A geometry change leaves the Dirichlet
+// VALUES fixed (1 or 0), so `dφ_i` is supported on the free rows only, and
+// both implicit terms vanish exactly:
+//
+//   dφ_iᵀ K φ_j = Σ_free dφ_i (K φ_j)_free = 0,   φ_iᵀ K dφ_j = 0  (K symmetric).
+//
+// Hence `dC_ij/dX = φ_iᵀ (∂K/∂X) φ_j` — the explicit term alone, off-diagonal
+// entries included. This extends the #583 stationarity result from `C_ii` to
+// the whole matrix. The unit tests check it against central finite
+// differences rather than assuming it.
+
+/// Which bilinear sweep [`capacitance_matrix_sweep`] performs. Only
+/// [`MatrixSweep::Exact`] is reachable from the public API; the other two are
+/// the mutation-test variants (they must fail the FD check).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MatrixSweep {
+    /// `φ_iᵀ (∂K/∂X) φ_j` — the correct explicit term.
+    Exact,
+    /// Mutation (a): the explicit sweep zeroed (gradient identically 0).
+    #[cfg(test)]
+    DropExplicit,
+    /// Mutation (b): `φ_i` passed where `φ_j` belongs (`φ_iᵀ ∂K φ_i`).
+    #[cfg(test)]
+    PhiIForPhiJ,
+}
+
+impl MatrixSweep {
+    /// Whether the explicit sweep runs at all.
+    fn runs(self) -> bool {
+        match self {
+            Self::Exact => true,
+            #[cfg(test)]
+            Self::DropExplicit => false,
+            #[cfg(test)]
+            Self::PhiIForPhiJ => true,
+        }
+    }
+
+    /// Whether `φ_i` is (wrongly) used in place of `φ_j`.
+    fn swaps_phi(self) -> bool {
+        match self {
+            Self::Exact => false,
+            #[cfg(test)]
+            Self::DropExplicit => false,
+            #[cfg(test)]
+            Self::PhiIForPhiJ => true,
+        }
+    }
+}
+
+/// Which pinned set a node belongs to in a [`CapacitanceMatrixShapeGradient`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinnedOwner {
+    /// A free (unpinned) node.
+    Free,
+    /// A node of conductor `i` (index into the `conductors` slice).
+    Conductor(usize),
+    /// A node of the ground set.
+    Ground,
+}
+
+/// Result of [`capacitance_matrix_shape_gradient`]: the `N × N` Maxwell
+/// capacitance matrix of `N` conductors (plus ground) and the nodal shape
+/// gradient of **every** entry, from one assembly, one LU factorization and
+/// one `N`-column back-substitution.
+#[derive(Debug, Clone)]
+pub struct CapacitanceMatrixShapeGradient {
+    /// Conductor names, in matrix order (the `conductors` order).
+    pub names: Vec<String>,
+    /// The Maxwell matrix `C_ij = φ_iᵀ K φ_j` (F), symmetric by construction.
+    pub c: Vec<Vec<f64>>,
+    /// Unit-excitation potentials `φ_i` (full length, Dirichlet values in
+    /// place), one per conductor.
+    pub phis: Vec<Vec<f64>>,
+    /// Nodal reaction charges `K_full φ_i` (C per volt), one full-length
+    /// vector per excitation. Summed over a node region they give that
+    /// region's partial charge; see
+    /// [`CapacitanceMatrixShapeGradient::reaction_partition`].
+    pub reaction: Vec<Vec<f64>>,
+    /// Pinned-set membership of every node (length `n_nodes`).
+    pub owner: Vec<PinnedOwner>,
+    /// Packed upper triangle of nodal gradients: entry `(i, j)` with
+    /// `i ≤ j` lives at `i·N − i(i−1)/2 + (j − i)`.
+    grad_pairs: Vec<Vec<[f64; 3]>>,
+    /// LU factorizations performed — always `1`.
+    pub n_factorizations: usize,
+}
+
+impl CapacitanceMatrixShapeGradient {
+    /// Number of conductors `N`.
+    pub fn n_conductors(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Matrix index of the conductor named `name`.
+    pub fn index_of(&self, name: &str) -> Option<usize> {
+        self.names.iter().position(|n| n == name)
+    }
+
+    fn pair_index(&self, i: usize, j: usize) -> usize {
+        let n = self.n_conductors();
+        assert!(
+            i < n && j < n,
+            "conductor index ({i}, {j}) out of range (N = {n})"
+        );
+        let (a, b) = if i <= j { (i, j) } else { (j, i) };
+        // Row a of the packed upper triangle starts at Σ_{r<a} (N − r).
+        a * n - a * a.saturating_sub(1) / 2 + (b - a)
+    }
+
+    /// Nodal gradient `∂C_ij/∂X_{n,d}` (F/m), one `[x, y, z]` triple per node.
+    /// Symmetric: `grad_node(i, j)` and `grad_node(j, i)` are the same slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` or `j` is out of range.
+    pub fn grad_node(&self, i: usize, j: usize) -> &[[f64; 3]] {
+        &self.grad_pairs[self.pair_index(i, j)]
+    }
+
+    /// `∂C_ij/∂θ` for a node-motion field `dnode_dtheta` (see
+    /// [`chain_node_motion`]).
+    pub fn dc_dtheta(&self, i: usize, j: usize, dnode_dtheta: &[[f64; 3]]) -> f64 {
+        chain_node_motion(self.grad_node(i, j), dnode_dtheta)
+    }
+
+    /// The **floating-conductor reduction** of conductor `i` and its exact
+    /// nodal gradient.
+    ///
+    /// The conductors in `floating` carry no net charge, so eliminating them
+    /// (a Schur complement) gives the effective self-capacitance
+    ///
+    /// ```text
+    ///   C_Σ = C_ii − C_iF C_FF⁻¹ C_Fi,
+    /// ```
+    ///
+    /// which for one floating feedline `f` is `C_ii − C_if² / C_ff` (the
+    /// transmon `C_Σ` of the #594 pipeline). With `w = C_FF⁻¹ C_Fi` the chain
+    /// rule gives
+    ///
+    /// ```text
+    ///   dC_Σ = dC_ii − 2 Σ_f w_f dC_if + Σ_{f,g} w_f w_g dC_fg,
+    /// ```
+    ///
+    /// i.e. `dC_ii − 2 (C_if/C_ff) dC_if + (C_if/C_ff)² dC_ff` for one feedline.
+    /// An empty `floating` returns `C_ii` and its gradient unchanged.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if an index is out of range, `i`
+    /// is listed as floating, `floating` repeats an index, or `C_FF` is
+    /// singular.
+    pub fn floating_reduction(
+        &self,
+        i: usize,
+        floating: &[usize],
+    ) -> Result<FloatingReduction, ElectrostaticError> {
+        let n = self.n_conductors();
+        if i >= n || floating.iter().any(|&f| f >= n) {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "floating_reduction: index out of range (N = {n})"
+            )));
+        }
+        if floating.contains(&i) {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "floating_reduction: conductor {i} cannot float against itself"
+            )));
+        }
+        for (a, &f) in floating.iter().enumerate() {
+            if floating[a + 1..].contains(&f) {
+                return Err(ElectrostaticError::ShapeMismatch(format!(
+                    "floating_reduction: floating conductor {f} listed twice"
+                )));
+            }
+        }
+        let m = floating.len();
+        // w = C_FF⁻¹ C_Fi by Gaussian elimination with partial pivoting (m is
+        // a handful of conductors).
+        let mut a: Vec<Vec<f64>> = (0..m)
+            .map(|r| {
+                let mut row: Vec<f64> = floating.iter().map(|&g| self.c[floating[r]][g]).collect();
+                row.push(self.c[floating[r]][i]);
+                row
+            })
+            .collect();
+        for col in 0..m {
+            let piv = (col..m)
+                .max_by(|&p, &q| a[p][col].abs().total_cmp(&a[q][col].abs()))
+                .unwrap_or(col);
+            if a[piv][col] == 0.0 || !a[piv][col].is_finite() {
+                return Err(ElectrostaticError::ShapeMismatch(
+                    "floating_reduction: C_FF is singular".to_string(),
+                ));
+            }
+            a.swap(col, piv);
+            for r in 0..m {
+                if r != col {
+                    let factor = a[r][col] / a[col][col];
+                    let pivot_row = a[col].clone();
+                    for (x, pv) in a[r].iter_mut().zip(&pivot_row).skip(col) {
+                        *x -= factor * pv;
+                    }
+                }
+            }
+        }
+        let w: Vec<f64> = (0..m).map(|r| a[r][m] / a[r][r]).collect();
+
+        let mut c_sigma = self.c[i][i];
+        for (k, &f) in floating.iter().enumerate() {
+            c_sigma -= self.c[i][f] * w[k];
+        }
+        let n_nodes = self.owner.len();
+        let mut grad = self.grad_node(i, i).to_vec();
+        debug_assert_eq!(grad.len(), n_nodes);
+        for (k, &f) in floating.iter().enumerate() {
+            let gif = self.grad_node(i, f);
+            for (acc, g) in grad.iter_mut().zip(gif) {
+                for d in 0..3 {
+                    acc[d] -= 2.0 * w[k] * g[d];
+                }
+            }
+            for (l, &g_idx) in floating.iter().enumerate() {
+                let gfg = self.grad_node(f, g_idx);
+                let wk_wl = w[k] * w[l];
+                for (acc, g) in grad.iter_mut().zip(gfg) {
+                    for d in 0..3 {
+                        acc[d] += wk_wl * g[d];
+                    }
+                }
+            }
+        }
+        Ok(FloatingReduction {
+            c_sigma,
+            weights: w,
+            grad_node: grad,
+        })
+    }
+
+    /// **Partial-charge partition** of excitation `i`: the reaction charge
+    /// `(K φ_i)_n` summed over each named node region.
+    ///
+    /// With conductor `i` at 1 V and every other pinned node at 0 V,
+    /// `C_ii = Σ_{n ∈ i} (K φ_i)_n` (plus a free-row round-off term), and the
+    /// columns of the full `K` sum to zero (constants are in its kernel), so
+    /// the charges on the other pinned nodes sum to `−C_ii` up to the
+    /// free-row residual. The `regions` must be a **disjoint, exhaustive**
+    /// partition of the pinned nodes that are NOT conductor `i` (ground plus
+    /// the other conductors): no node in two regions, no conductor-`i` or
+    /// free node in any region, and every such pinned node in exactly one.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if `i` is out of range or the
+    /// regions are not a disjoint, exhaustive partition as above.
+    pub fn reaction_partition(
+        &self,
+        i: usize,
+        regions: &[(String, Vec<u32>)],
+    ) -> Result<ReactionPartition, ElectrostaticError> {
+        let n = self.n_conductors();
+        if i >= n {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "reaction_partition: conductor {i} out of range (N = {n})"
+            )));
+        }
+        let n_nodes = self.owner.len();
+        let mut region_of: Vec<Option<usize>> = vec![None; n_nodes];
+        for (r, (name, nodes)) in regions.iter().enumerate() {
+            for &g in nodes {
+                let gu = g as usize;
+                if gu >= n_nodes {
+                    return Err(ElectrostaticError::ShapeMismatch(format!(
+                        "reaction_partition: region {name:?} node {g} out of range"
+                    )));
+                }
+                match self.owner[gu] {
+                    PinnedOwner::Free => {
+                        return Err(ElectrostaticError::ShapeMismatch(format!(
+                            "reaction_partition: region {name:?} holds free node {g}"
+                        )));
+                    }
+                    PinnedOwner::Conductor(k) if k == i => {
+                        return Err(ElectrostaticError::ShapeMismatch(format!(
+                            "reaction_partition: region {name:?} holds node {g} of the excited \
+                             conductor {i}"
+                        )));
+                    }
+                    _ => {}
+                }
+                if let Some(prev) = region_of[gu] {
+                    return Err(ElectrostaticError::ShapeMismatch(format!(
+                        "reaction_partition: node {g} in both {:?} and {name:?}",
+                        regions[prev].0
+                    )));
+                }
+                region_of[gu] = Some(r);
+            }
+        }
+        let kphi = &self.reaction[i];
+        let mut sums = vec![0.0_f64; regions.len()];
+        let mut self_charge = 0.0_f64;
+        let mut free_residual = 0.0_f64;
+        for g in 0..n_nodes {
+            match (self.owner[g], region_of[g]) {
+                (PinnedOwner::Free, _) => free_residual += kphi[g],
+                (PinnedOwner::Conductor(k), _) if k == i => self_charge += kphi[g],
+                (_, Some(r)) => sums[r] += kphi[g],
+                (_, None) => {
+                    return Err(ElectrostaticError::ShapeMismatch(format!(
+                        "reaction_partition: pinned node {g} is in no region (the partition \
+                         must be exhaustive)"
+                    )));
+                }
+            }
+        }
+        Ok(ReactionPartition {
+            self_charge,
+            regions: regions
+                .iter()
+                .zip(sums)
+                .map(|((name, nodes), q)| (name.clone(), nodes.len(), q))
+                .collect(),
+            free_residual,
+        })
+    }
+}
+
+/// The floating-conductor reduction `C_Σ` of one conductor and its nodal
+/// gradient (see [`CapacitanceMatrixShapeGradient::floating_reduction`]).
+#[derive(Debug, Clone)]
+pub struct FloatingReduction {
+    /// `C_Σ = C_ii − C_iF C_FF⁻¹ C_Fi` (F).
+    pub c_sigma: f64,
+    /// `w = C_FF⁻¹ C_Fi`, one weight per floating conductor (`C_if/C_ff` for
+    /// a single feedline).
+    pub weights: Vec<f64>,
+    /// Exact nodal gradient `∂C_Σ/∂X_{n,d}` (F/m).
+    pub grad_node: Vec<[f64; 3]>,
+}
+
+impl FloatingReduction {
+    /// `∂C_Σ/∂θ` for a node-motion field (see [`chain_node_motion`]).
+    pub fn dc_dtheta(&self, dnode_dtheta: &[[f64; 3]]) -> f64 {
+        chain_node_motion(&self.grad_node, dnode_dtheta)
+    }
+}
+
+/// Partial-charge partition of one unit excitation (see
+/// [`CapacitanceMatrixShapeGradient::reaction_partition`]).
+#[derive(Debug, Clone)]
+pub struct ReactionPartition {
+    /// `Σ (K φ_i)` over the excited conductor's own nodes (≈ `C_ii`).
+    pub self_charge: f64,
+    /// `(name, node count, Σ (K φ_i) over the region)`, in the given order.
+    pub regions: Vec<(String, usize, f64)>,
+    /// `Σ (K φ_i)` over the free nodes — round-off, since the free rows are
+    /// the solved equilibrium.
+    pub free_residual: f64,
+}
+
+impl ReactionPartition {
+    /// Sum of the region charges (≈ `−C_ii`).
+    pub fn regions_total(&self) -> f64 {
+        self.regions.iter().map(|r| r.2).sum()
+    }
+}
+
+/// The **full Maxwell capacitance matrix** of `conductors` (plus `ground`)
+/// and the exact nodal shape gradient of every entry, from **one** assembly,
+/// **one** LU factorization and one `N`-column back-substitution.
+///
+/// Excitation `i` pins conductor `i` at 1 V and every other conductor and
+/// the ground at 0 V, exactly as
+/// [`crate::assembly::electrostatic::extract_capacitance`] does; the
+/// Dirichlet set is the same for every excitation, so the reduced `K_ff` is
+/// shared and the `N` right-hand sides are solved against its single
+/// factorization. Each entry is `C_ij = φ_iᵀ K φ_j` and its gradient is the
+/// explicit term `φ_iᵀ (∂K/∂X) φ_j` alone (see the section comment above:
+/// both implicit terms vanish because `φ_i`, `φ_j` are discrete-harmonic),
+/// evaluated with the exact dual-number element kernel.
+///
+/// The conductors are **arbitrary Dirichlet regions**: any node sets, so a
+/// caller can split a physical conductor into several electrodes (for
+/// instance a claw region carved out of a ground plane) as long as the sets
+/// are disjoint from each other and from `ground`. Their `voltage` fields are
+/// ignored (unit excitations are imposed).
+///
+/// # Errors
+///
+/// [`ElectrostaticError::ShapeMismatch`] if `conductors` is empty, a node is
+/// out of range, or a node belongs to two conductors or to a conductor and
+/// `ground`; otherwise propagates assembly / factorization errors.
+pub fn capacitance_matrix_shape_gradient(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    ground: &[u32],
+) -> Result<CapacitanceMatrixShapeGradient, ElectrostaticError> {
+    capacitance_matrix_sweep(mesh, eps_r, conductors, ground, MatrixSweep::Exact)
+}
+
+fn capacitance_matrix_sweep(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    ground: &[u32],
+    sweep: MatrixSweep,
+) -> Result<CapacitanceMatrixShapeGradient, ElectrostaticError> {
+    let n = conductors.len();
+    let n_nodes = mesh.n_nodes();
+    let n_tets = mesh.n_tets();
+    if n == 0 {
+        return Err(ElectrostaticError::ShapeMismatch(
+            "capacitance_matrix_shape_gradient: at least one conductor required".to_string(),
+        ));
+    }
+
+    // Pinned-set membership; reject overlapping Dirichlet regions.
+    let mut owner = vec![PinnedOwner::Free; n_nodes];
+    for &g in ground {
+        let gu = g as usize;
+        if gu >= n_nodes {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "ground node {g} out of range (n_nodes {n_nodes})"
+            )));
+        }
+        owner[gu] = PinnedOwner::Ground;
+    }
+    for (k, c) in conductors.iter().enumerate() {
+        for &g in &c.nodes {
+            let gu = g as usize;
+            if gu >= n_nodes {
+                return Err(ElectrostaticError::ShapeMismatch(format!(
+                    "conductor {:?} node {g} out of range (n_nodes {n_nodes})",
+                    c.name
+                )));
+            }
+            match owner[gu] {
+                PinnedOwner::Free => owner[gu] = PinnedOwner::Conductor(k),
+                PinnedOwner::Conductor(k2) if k2 == k => {}
+                other => {
+                    return Err(ElectrostaticError::ShapeMismatch(format!(
+                        "conductor {:?} node {g} is already pinned as {other:?}; Dirichlet \
+                         regions must be disjoint",
+                        c.name
+                    )));
+                }
+            }
+        }
+    }
+
+    // --- Assemble once, factor once. ---
+    let rho = vec![0.0_f64; n_tets];
+    let sys = assemble_electrostatic(mesh, eps_r, &rho, conductors, ground)?;
+    let lu = sys
+        .k
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // --- Fold the pinned columns of the full K into an n_free × N RHS:
+    //     b[fi, e] = −Σ_{j ∈ conductor e} K_full[i, j] · 1. ---
+    let mut rhs: Mat<f64> = Mat::zeros(sys.n_free, n);
+    {
+        let k_ref = sys.k_full.as_ref();
+        let cp = k_ref.col_ptr();
+        let row_idx = k_ref.row_idx();
+        let vals = k_ref.val();
+        for j in 0..n_nodes {
+            let PinnedOwner::Conductor(e) = owner[j] else {
+                continue; // free column (LHS) or ground (0 V: no fold-in)
+            };
+            for idx in cp[j]..cp[j + 1] {
+                if let Some(fi) = sys.free_of_global[row_idx[idx]] {
+                    rhs[(fi, e)] -= vals[idx];
+                }
+            }
+        }
+    }
+    lu.solve_in_place(rhs.as_mut());
+
+    let mut phis: Vec<Vec<f64>> = Vec::with_capacity(n);
+    for e in 0..n {
+        let mut phi = vec![0.0_f64; n_nodes];
+        for g in 0..n_nodes {
+            phi[g] = match (owner[g], sys.free_of_global[g]) {
+                (PinnedOwner::Conductor(k), _) => f64::from(u8::from(k == e)),
+                (PinnedOwner::Ground, _) => 0.0,
+                (PinnedOwner::Free, Some(fi)) => rhs[(fi, e)],
+                (PinnedOwner::Free, None) => 0.0,
+            };
+        }
+        phis.push(phi);
+    }
+
+    let reaction: Vec<Vec<f64>> = phis.iter().map(|p| kfull_matvec(&sys.k_full, p)).collect();
+    let mut c = vec![vec![0.0_f64; n]; n];
+    for i in 0..n {
+        for j in i..n {
+            let v: f64 = phis[j].iter().zip(&reaction[i]).map(|(a, b)| a * b).sum();
+            c[i][j] = v;
+            c[j][i] = v;
+        }
+    }
+
+    // --- Geometry sweep: ∂C_ij/∂X = Σ_t ε₀ε_r ∂/∂X (φ_iᵀ K_local φ_j). ---
+    let pairs: Vec<(usize, usize)> = (0..n).flat_map(|i| (i..n).map(move |j| (i, j))).collect();
+    let mut grad_pairs = vec![vec![[0.0_f64; 3]; n_nodes]; pairs.len()];
+    if sweep.runs() {
+        let mut loc = vec![[0.0_f64; 4]; n];
+        for (t, tet) in mesh.tets.iter().enumerate() {
+            let base = [
+                mesh.nodes[tet[0] as usize],
+                mesh.nodes[tet[1] as usize],
+                mesh.nodes[tet[2] as usize],
+                mesh.nodes[tet[3] as usize],
+            ];
+            for (e, l) in loc.iter_mut().enumerate() {
+                *l = [
+                    phis[e][tet[0] as usize],
+                    phis[e][tet[1] as usize],
+                    phis[e][tet[2] as usize],
+                    phis[e][tet[3] as usize],
+                ];
+            }
+            let eps_t = EPS_0 * eps_r[t];
+            for a in 0..4 {
+                let node = tet[a] as usize;
+                for d in 0..3 {
+                    let mut dc = base.map(|v| v.map(Dual::cst));
+                    dc[a][d] = Dual::var(base[a][d]);
+                    for (p, &(i, j)) in pairs.iter().enumerate() {
+                        let right = if sweep.swaps_phi() { &loc[i] } else { &loc[j] };
+                        let du = stiffness_bilinear_dual(&dc, &loc[i], right).du;
+                        grad_pairs[p][node][d] += eps_t * du;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(CapacitanceMatrixShapeGradient {
+        names: conductors.iter().map(|c| c.name.clone()).collect(),
+        c,
+        phis,
+        reaction,
+        owner,
+        grad_pairs,
         n_factorizations,
     })
 }
@@ -2325,5 +3216,472 @@ mod tests {
             found,
             "rigid single-node bump never inverted within the amplitude sweep — widen the range"
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Full Maxwell-matrix shape gradient (issue #1035).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Two electrodes plus ground on the unit cube: ground is the `x = 0`
+    /// face, electrode `"a"` the `x = 1` face below `y = 0.5`, electrode `"b"`
+    /// the `x = 1` face above it (the `y = 0.5` line stays free, so the sets
+    /// are disjoint). `C_ab` is a genuine nonzero off-diagonal entry.
+    fn two_electrode_fixture(n: usize) -> (TetMesh, Vec<f64>, Vec<Electrode>, Vec<u32>) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let eps_r = vec![3.0_f64; mesh.n_tets()];
+        let tol = 1e-9;
+        let pick = |f: &dyn Fn(&[f64; 3]) -> bool| -> Vec<u32> {
+            mesh.nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| f(p))
+                .map(|(i, _)| i as u32)
+                .collect()
+        };
+        let ground = pick(&|p| p[0].abs() < tol);
+        let a = pick(&|p| (p[0] - 1.0).abs() < tol && p[1] < 0.5 - tol);
+        let b = pick(&|p| (p[0] - 1.0).abs() < tol && p[1] > 0.5 + tol);
+        let electrodes = vec![
+            Electrode {
+                name: "a".into(),
+                nodes: a,
+                voltage: 1.0,
+            },
+            Electrode {
+                name: "b".into(),
+                nodes: b,
+                voltage: 0.0,
+            },
+        ];
+        (mesh, eps_r, electrodes, ground)
+    }
+
+    /// Two smooth, generic node-motion fields that move every node
+    /// (boundary and interior) along all three axes.
+    fn generic_fields(mesh: &TetMesh) -> [Vec<[f64; 3]>; 2] {
+        let pi = std::f64::consts::PI;
+        let d1 = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                [
+                    0.05 * (pi * p[1]).sin() * p[0],
+                    0.03 * p[0] * p[2],
+                    0.02 * p[1],
+                ]
+            })
+            .collect();
+        let d2 = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                [
+                    0.04 * p[1] * p[2],
+                    0.06 * (pi * p[0]).sin() * p[2],
+                    -0.03 * p[0] * p[1],
+                ]
+            })
+            .collect();
+        [d1, d2]
+    }
+
+    /// Independent full-pipeline Maxwell matrix at `X⁰ + θ·D`: move, assemble,
+    /// [`crate::assembly::electrostatic::extract_capacitance`] (one solve per
+    /// conductor, its own factorizations).
+    fn extracted_matrix(
+        mesh: &TetMesh,
+        eps_r: &[f64],
+        electrodes: &[Electrode],
+        ground: &[u32],
+        d: &[[f64; 3]],
+        theta: f64,
+    ) -> Vec<Vec<f64>> {
+        let moved = apply_node_motion(mesh, d, theta);
+        let rho = vec![0.0; moved.n_tets()];
+        let sys = assemble_electrostatic(&moved, eps_r, &rho, electrodes, ground).unwrap();
+        let cm = crate::assembly::electrostatic::extract_capacitance(
+            &sys,
+            &moved,
+            eps_r,
+            electrodes,
+            ground,
+            &[],
+        )
+        .unwrap();
+        let n = electrodes.len();
+        (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| cm.get(&electrodes[i].name, &electrodes[j].name).unwrap())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Worst relative mismatch of every `dC_ij/dθ` (both fields) against a
+    /// central FD of the full extraction pipeline.
+    fn worst_matrix_fd_rel(grad: &CapacitanceMatrixShapeGradient, offdiag_only: bool) -> f64 {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let h = 1e-5;
+        let mut worst = 0.0_f64;
+        for d in generic_fields(&mesh) {
+            let cp = extracted_matrix(&mesh, &eps_r, &electrodes, &ground, &d, h);
+            let cm = extracted_matrix(&mesh, &eps_r, &electrodes, &ground, &d, -h);
+            for i in 0..2 {
+                for j in i..2 {
+                    if offdiag_only && i == j {
+                        continue;
+                    }
+                    let fd = (cp[i][j] - cm[i][j]) / (2.0 * h);
+                    assert!(fd.abs() > 1e-15, "FD dC_{i}{j}/dθ = {fd} is degenerate");
+                    let ana = grad.dc_dtheta(i, j, &d);
+                    worst = worst.max((ana - fd).abs() / fd.abs());
+                }
+            }
+        }
+        worst
+    }
+
+    /// **The load-bearing matrix test.** One factorization; `C` equals
+    /// `extract_capacitance` entry by entry; every entry's gradient, the
+    /// off-diagonal `C_ab` included, matches a central FD of the independent
+    /// extraction pipeline to ≤ 1e-6 — which checks (rather than assumes)
+    /// that the implicit terms vanish for off-diagonal entries too.
+    #[test]
+    #[allow(clippy::needless_range_loop)] // entry-by-entry 2×2 matrix comparison
+    fn capacitance_matrix_gradient_matches_extraction_and_fd() {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let grad = capacitance_matrix_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
+        assert_eq!(grad.n_factorizations, 1, "all excitations share one LU");
+        assert_eq!(grad.names, vec!["a".to_string(), "b".to_string()]);
+
+        let zero = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        let c_ref = extracted_matrix(&mesh, &eps_r, &electrodes, &ground, &zero, 0.0);
+        let scale = c_ref[0][0].abs();
+        for i in 0..2 {
+            for j in 0..2 {
+                let rel = (grad.c[i][j] - c_ref[i][j]).abs() / scale;
+                assert!(
+                    rel < 1e-12,
+                    "C[{i}][{j}] = {} vs extract_capacitance {} (rel {rel:.3e})",
+                    grad.c[i][j],
+                    c_ref[i][j]
+                );
+            }
+        }
+        assert!(
+            grad.c[0][1] < 0.0 && grad.c[0][1].abs() > 1e-3 * scale,
+            "C_ab = {} must be a genuine negative coupling",
+            grad.c[0][1]
+        );
+
+        let worst = worst_matrix_fd_rel(&grad, false);
+        assert!(
+            worst <= 1e-6,
+            "matrix gradient vs central FD: worst rel {worst:.3e} > 1e-6"
+        );
+    }
+
+    /// The diagonal `∂C_ii/∂X` equals [`capacitance_shape_gradient`]'s
+    /// `grad_node_c` (which also carries the round-off implicit term) to
+    /// round-off, and the off-diagonal gradient is symmetric bit for bit.
+    #[test]
+    fn capacitance_matrix_diagonal_matches_scalar_gradient_and_is_symmetric() {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let grad = capacitance_matrix_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
+        for i in 0..2 {
+            let excited: Vec<Electrode> = electrodes
+                .iter()
+                .enumerate()
+                .map(|(k, e)| Electrode {
+                    name: e.name.clone(),
+                    nodes: e.nodes.clone(),
+                    voltage: if k == i { 1.0 } else { 0.0 },
+                })
+                .collect();
+            let scalar = capacitance_shape_gradient(&mesh, &eps_r, &excited, &ground).unwrap();
+            let rel_c = (scalar.c_self - grad.c[i][i]).abs() / grad.c[i][i];
+            assert!(
+                rel_c < 1e-12,
+                "C_{i}{i} {} vs scalar {}",
+                grad.c[i][i],
+                scalar.c_self
+            );
+            let gmax = scalar
+                .grad_node_c
+                .iter()
+                .flat_map(|g| g.iter().map(|v| v.abs()))
+                .fold(0.0_f64, f64::max);
+            let diff = scalar
+                .grad_node_c
+                .iter()
+                .zip(grad.grad_node(i, i))
+                .flat_map(|(a, b)| (0..3).map(move |d| (a[d] - b[d]).abs()))
+                .fold(0.0_f64, f64::max);
+            assert!(
+                gmax > 0.0 && diff <= 1e-9 * gmax,
+                "diagonal {i}: max |Δ grad| {diff:.3e} vs max |grad| {gmax:.3e}"
+            );
+        }
+        // Symmetry: (i, j) and (j, i) are the same data, bit for bit.
+        let g01 = grad.grad_node(0, 1);
+        let g10 = grad.grad_node(1, 0);
+        assert!(
+            g01.iter().zip(g10).all(|(a, b)| a == b),
+            "dC_ab and dC_ba must be identical"
+        );
+        assert_eq!(grad.c[0][1].to_bits(), grad.c[1][0].to_bits());
+        // And the packed storage really distinguishes the three pairs.
+        assert!(grad.grad_node(0, 0) != grad.grad_node(0, 1));
+        assert!(grad.grad_node(1, 1) != grad.grad_node(0, 1));
+    }
+
+    /// **Mutation resistance.** (a) zeroing the explicit sweep and (b) passing
+    /// `φ_i` where `φ_j` belongs must both fail the FD check the correct
+    /// sweep passes.
+    #[test]
+    fn capacitance_matrix_gradient_mutations_fail_fd() {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let dropped = capacitance_matrix_sweep(
+            &mesh,
+            &eps_r,
+            &electrodes,
+            &ground,
+            MatrixSweep::DropExplicit,
+        )
+        .unwrap();
+        let worst_a = worst_matrix_fd_rel(&dropped, false);
+        assert!(
+            worst_a > 0.5,
+            "mutation (a) (explicit sweep zeroed) must fail FD, worst rel {worst_a:.3e}"
+        );
+        let swapped = capacitance_matrix_sweep(
+            &mesh,
+            &eps_r,
+            &electrodes,
+            &ground,
+            MatrixSweep::PhiIForPhiJ,
+        )
+        .unwrap();
+        let worst_b = worst_matrix_fd_rel(&swapped, true);
+        assert!(
+            worst_b > 1e-2,
+            "mutation (b) (φ_i for φ_j) must fail the off-diagonal FD, worst rel {worst_b:.3e}"
+        );
+    }
+
+    /// The floating-conductor chain `dC_Σ = dC_ii − 2(C_if/C_ff) dC_if +
+    /// (C_if/C_ff)² dC_ff` matches a central FD of `C_ii − C_if²/C_ff` from
+    /// the independent extraction, and the correction terms are not
+    /// negligible on this fixture (so the test would catch dropping them).
+    #[test]
+    fn floating_reduction_gradient_matches_fd() {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let grad = capacitance_matrix_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
+        let red = grad.floating_reduction(0, &[1]).unwrap();
+        let c = &grad.c;
+        let expect = c[0][0] - c[0][1] * c[0][1] / c[1][1];
+        assert!((red.c_sigma - expect).abs() <= 1e-15 * expect.abs());
+        assert!((red.weights[0] - c[0][1] / c[1][1]).abs() <= 1e-15);
+        let h = 1e-5;
+        for d in generic_fields(&mesh) {
+            let sig = |th: f64| -> f64 {
+                let m = extracted_matrix(&mesh, &eps_r, &electrodes, &ground, &d, th);
+                m[0][0] - m[0][1] * m[0][1] / m[1][1]
+            };
+            let fd = (sig(h) - sig(-h)) / (2.0 * h);
+            let ana = red.dc_dtheta(&d);
+            let rel = (ana - fd).abs() / fd.abs();
+            assert!(rel <= 1e-6, "dC_Σ/dθ {ana} vs FD {fd} (rel {rel:.3e})");
+            let dcii = grad.dc_dtheta(0, 0, &d);
+            assert!(
+                (dcii - fd).abs() / fd.abs() > 1e-4,
+                "the floating correction must be visible on this fixture"
+            );
+        }
+        // Empty floating set is C_ii itself; invalid sets are rejected.
+        let bare = grad.floating_reduction(0, &[]).unwrap();
+        assert_eq!(bare.c_sigma, c[0][0]);
+        assert!(grad.floating_reduction(0, &[0]).is_err());
+        assert!(grad.floating_reduction(0, &[1, 1]).is_err());
+        assert!(grad.floating_reduction(0, &[2]).is_err());
+    }
+
+    /// The reaction-charge partition of excitation `a` over {ground, b} sums
+    /// to `−C_aa` (free-row residual at round-off); overlapping or
+    /// non-exhaustive regions are rejected, and so are overlapping
+    /// Dirichlet regions at construction.
+    #[test]
+    fn reaction_partition_sums_to_minus_c_ii_and_validates() {
+        let (mesh, eps_r, electrodes, ground) = two_electrode_fixture(4);
+        let grad = capacitance_matrix_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
+        let regions = vec![
+            ("ground".to_string(), ground.clone()),
+            ("b".to_string(), electrodes[1].nodes.clone()),
+        ];
+        let part = grad.reaction_partition(0, &regions).unwrap();
+        let c_aa = grad.c[0][0];
+        assert!((part.self_charge - c_aa).abs() <= 1e-12 * c_aa);
+        assert!(
+            (part.regions_total() + c_aa).abs() <= 1e-9 * c_aa,
+            "partition sum {} vs −C_aa {}",
+            part.regions_total(),
+            -c_aa
+        );
+        assert!(part.free_residual.abs() <= 1e-9 * c_aa);
+        // C_ab is the reaction charge on b.
+        assert!((part.regions[1].2 - grad.c[0][1]).abs() <= 1e-12 * c_aa);
+
+        // Not exhaustive.
+        assert!(grad.reaction_partition(0, &regions[..1]).is_err());
+        // Overlapping.
+        let mut overlap = regions.clone();
+        overlap.push(("dup".to_string(), vec![ground[0]]));
+        assert!(grad.reaction_partition(0, &overlap).is_err());
+        // Excited conductor's own nodes are not allowed in a region.
+        let mut own = regions.clone();
+        own.push(("a".to_string(), electrodes[0].nodes.clone()));
+        assert!(grad.reaction_partition(0, &own).is_err());
+
+        // Overlapping Dirichlet regions are rejected outright.
+        let mut bad = electrodes.clone();
+        bad[1].nodes.push(ground[0]);
+        assert!(capacitance_matrix_shape_gradient(&mesh, &eps_r, &bad, &ground).is_err());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Re-morphing support (issue #1036).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// The unit-coefficient path is untouched: the weighted Laplace with every
+    /// weight equal to 1 reproduces `assemble_p1_laplace` bit-for-bit
+    /// (structure and every stored value).
+    #[test]
+    fn weighted_laplace_with_unit_weights_is_bit_identical() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let unit = assemble_p1_laplace(&mesh).unwrap();
+        let w = assemble_p1_laplace_weighted(&mesh, &vec![1.0; mesh.n_tets()]).unwrap();
+        let (a, b) = (unit.as_ref(), w.as_ref());
+        assert_eq!(a.col_ptr(), b.col_ptr());
+        assert_eq!(a.row_idx(), b.row_idx());
+        assert_eq!(a.val().len(), b.val().len());
+        for (x, y) in a.val().iter().zip(b.val()) {
+            assert_eq!(
+                x.to_bits(),
+                y.to_bits(),
+                "unit-weight value differs: {x} vs {y}"
+            );
+        }
+        // A non-unit weight really changes the operator, linearly.
+        let w2 = assemble_p1_laplace_weighted(&mesh, &vec![2.0; mesh.n_tets()]).unwrap();
+        for (x, y) in a.val().iter().zip(w2.as_ref().val()) {
+            assert_eq!(2.0 * x, *y);
+        }
+        assert!(assemble_p1_laplace_weighted(&mesh, &[1.0]).is_err());
+        let mut bad = vec![1.0; mesh.n_tets()];
+        bad[0] = 0.0;
+        assert!(assemble_p1_laplace_weighted(&mesh, &bad).is_err());
+    }
+
+    fn face_data(mesh: &TetMesh, scale: f64) -> (Vec<(u32, [f64; 3])>, Vec<u32>) {
+        let tol = 1e-9;
+        let mut presc = Vec::new();
+        let mut fixed = Vec::new();
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if (p[0] - 1.0).abs() < tol {
+                presc.push((i as u32, [0.0, scale * p[1], scale * p[2] * p[1]]));
+            } else if p[0].abs() < tol {
+                fixed.push(i as u32);
+            }
+        }
+        (presc, fixed)
+    }
+
+    /// One factorization for several columns with the same Dirichlet set
+    /// gives the same fields as one solve each; columns with different sets
+    /// are rejected.
+    #[test]
+    fn multi_column_harmonic_matches_single_solves_and_rejects_mixed_sets() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (c1, fixed) = face_data(&mesh, 0.1);
+        let (c2, _) = face_data(&mesh, -0.3);
+        let multi =
+            harmonic_dirichlet_velocities(&mesh, None, &[c1.clone(), c2.clone()], &fixed).unwrap();
+        for (col, field) in [c1.clone(), c2].iter().zip(&multi) {
+            let single = harmonic_dirichlet_velocity(&mesh, col, &fixed).unwrap();
+            let err = single
+                .iter()
+                .zip(field)
+                .flat_map(|(a, b)| (0..3).map(move |d| (a[d] - b[d]).abs()))
+                .fold(0.0_f64, f64::max);
+            assert!(err <= 1e-14, "shared-factor field differs by {err:e}");
+        }
+        // A different prescribed set cannot share the factorization.
+        let mut c3 = c1.clone();
+        c3.pop();
+        let err = harmonic_dirichlet_velocities(&mesh, None, &[c1.clone(), c3], &fixed);
+        assert!(matches!(err, Err(ElectrostaticError::ShapeMismatch(_))));
+        // Stiffening changes the interior field but not the Dirichlet data.
+        let w: Vec<f64> = (0..mesh.n_tets()).map(|t| 1.0 + (t % 5) as f64).collect();
+        let stiff =
+            harmonic_dirichlet_velocities(&mesh, Some(&w), std::slice::from_ref(&c1), &fixed)
+                .unwrap();
+        let moved_interior = stiff[0]
+            .iter()
+            .zip(&multi[0])
+            .map(|(a, b)| (a[1] - b[1]).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            moved_interior > 1e-6,
+            "a non-uniform diffusivity must change D"
+        );
+        for (n, v) in &c1 {
+            assert_eq!(stiff[0][*n as usize], *v);
+        }
+    }
+
+    /// The closed-form tet-volume-ratio derivative matches central FD, and the
+    /// stiffening weights are `(V0/V)^alpha`.
+    #[test]
+    fn tet_volume_ratio_derivatives_match_fd_and_stiffening_weights() {
+        let base = cube_tet_mesh(3, 1.0);
+        let d1: Vec<[f64; 3]> = base
+            .nodes
+            .iter()
+            .map(|p| [0.1 * p[1] * p[2], -0.05 * p[0], 0.2 * p[0] * p[1]])
+            .collect();
+        let d2: Vec<[f64; 3]> = base
+            .nodes
+            .iter()
+            .map(|p| [0.03 * p[2], 0.07 * p[0] * p[0], -0.04 * p[1]])
+            .collect();
+        let current = apply_node_motion(&base, &d2, 0.3);
+        let tets: Vec<usize> = (0..base.n_tets()).step_by(7).collect();
+        let g = tet_volume_ratio_derivatives(&base, &current, &tets, &[&d1, &d2]);
+        let h = 1e-6;
+        for (k, &t) in tets.iter().enumerate() {
+            for (i, d) in [&d1, &d2].iter().enumerate() {
+                let rp = tet_volume_ratios(&base, &apply_node_motion(&current, d, h))[t];
+                let rm = tet_volume_ratios(&base, &apply_node_motion(&current, d, -h))[t];
+                let fd = (rp - rm) / (2.0 * h);
+                assert!(
+                    (g[k][i] - fd).abs() <= 1e-7 * (1.0 + fd.abs()),
+                    "tet {t} field {i}: {} vs FD {fd}",
+                    g[k][i]
+                );
+            }
+        }
+        let r = tet_volume_ratios(&base, &current);
+        let w = volume_stiffening_weights(&base, &current, 2.0).unwrap();
+        for (ri, wi) in r.iter().zip(&w) {
+            assert!((wi - ri.powf(-2.0)).abs() <= 1e-15 * wi);
+        }
+        assert!(
+            volume_stiffening_weights(&base, &base, 1.5)
+                .unwrap()
+                .iter()
+                .all(|w| *w == 1.0)
+        );
+        assert!(volume_stiffening_weights(&base, &current, -1.0).is_err());
     }
 }

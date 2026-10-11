@@ -55,6 +55,7 @@ mod strip_line;
 mod wave;
 mod wave_face;
 pub(crate) mod wave_p2;
+mod wave_tm_guide;
 
 pub(crate) use hybrid::{ChanAt, ChanOrigin, FaceModeSet, hybrid_port_channel_sweep};
 pub use hybrid::{
@@ -92,13 +93,17 @@ pub use wave::{
 };
 pub use wave_face::{
     CandidateConfirmation, DegenerateCandidate, FaceSolveCounts, GuideAxialMesh, GuideScan,
-    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF, TM_GUARD_MARGIN,
-    TM_GUARD_MEASURED_KH, TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, face_solve_counts,
-    project_port_face, tm_evanescent_leak, tm_guard_axial_reach, tm_guard_margin,
-    wave_port_from_faces,
+    PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF,
+    TM_GUARD_LONG_GUIDE_KH, TM_GUARD_MARGIN, TM_GUARD_MEASURED_KH,
+    TM_GUARD_REACH_CUTOFF_WAVELENGTHS, TmCutoffEstimate, face_solve_counts, project_port_face,
+    tm_evanescent_leak, tm_guard_axial_reach, tm_guard_margin, wave_port_from_faces,
 };
 pub use wave_p2::{
     PortFaceModeP2, solve_mixed_port_spec_sweep_on_space, solve_mixed_port_sweep_on_space,
     solve_wave_port_spec_sweep_on_space, solve_wave_port_sweep_on_space,
     wave_port_from_faces_on_space, waveguide_mode_reduce_on_space,
+};
+pub use wave_tm_guide::{
+    GuideTmGuard, ShareFreeCutoff, ShareFreeError, TM_GUIDE_SHALLOW_FRACTION, TM_LIKE_AXIAL_SHARE,
+    TmCutoffSource, TmMarginLawReason, share_free_tm_cutoff,
 };

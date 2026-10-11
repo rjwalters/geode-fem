@@ -2133,6 +2133,93 @@ fn a_coarse_axial_mesh_at_the_top_sweep_frequency_warns_with_the_refinement() {
     assert!(stderr.contains(&format!("warning: {w}")), "{stderr}");
 }
 
+/// The long-coarse-guide warning of the `i`-th wave port in `v`'s report,
+/// if any (issue #1005): its line of `wave_ports[].tm_warning`.
+fn long_guide_warning(v: &serde_json::Value, i: usize) -> Option<String> {
+    v["wave_ports"][i]["tm_warning"]
+        .as_str()
+        .and_then(|w| w.lines().find(|l| l.contains("long, coarse guide")))
+        .map(str::to_string)
+}
+
+/// Issue #1005 (operator ruling: warn, do not reject): a `2 × 1` guide 6
+/// mesh units long, beyond the guard's window of `3·2π/k_c` ≈ 5.37, in
+/// tet layers of 0.75 (`k_c·h_n` ≈ 2.6 > 2.5), is run by `driven` with a
+/// warning that the TM limit is not a bound there, on stderr and in
+/// `wave_ports[].tm_warning`. The top sweep wavenumber keeps `k·h_n` below
+/// 1.41, so this is the only warning.
+#[test]
+fn a_long_coarse_guide_warns_that_the_tm_limit_is_not_a_bound_and_still_solves() {
+    let k0 = [1.7, 1.8];
+    let spec = (8, 4, 8, 6.0);
+    for cmd in ["check", "driven"] {
+        let file = axial_spec(&format!("long-coarse-1005-{cmd}"), spec, &k0);
+        let out = geode(&[cmd, file.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let v = json(&out);
+        if cmd == "driven" {
+            assert_eq!(v["results"].as_array().unwrap().len(), k0.len(), "{v:#}");
+        }
+        for (i, port) in ["port_in", "port_out"].into_iter().enumerate() {
+            let p = &v["wave_ports"][i];
+            let k_c = f64_at(&p["tm_k_c"]);
+            let h_n = f64_at(&p["tm_axial_spacing"]);
+            assert!((h_n - 0.75).abs() < 1e-12, "{p:#}");
+            assert!(k_c * h_n > 2.5, "{p:#}");
+            // The only warning: no coarse-at-the-top-frequency one.
+            let all = p["tm_warning"].as_str().expect("tm_warning");
+            let w = long_guide_warning(&v, i).expect("long-guide warning");
+            assert_eq!(all, w, "{cmd}: {all}");
+            assert!(stderr.contains(&format!("warning: {w}")), "{stderr}");
+            assert!(
+                w.starts_with(&format!("wave port `{port}`: long, coarse guide")),
+                "{w}"
+            );
+            assert!(w.contains("h_n = 0.75"), "{w}");
+            assert!(w.contains("above 2.5"), "{w}");
+            assert!(w.contains("the TM limit is not a bound"), "{w}");
+            assert!(w.contains("not a predicted failure"), "{w}");
+            assert!(w.contains("re-checked the 2.5 threshold"), "{w}");
+            let far = number_after(&w, "the mesh over the port face extends ");
+            assert!((far - 6.0).abs() < 1e-9, "{w}");
+            let reach = number_after(&w, "the tets of the guide within ");
+            assert!(reach < 6.0, "{w}");
+            let h = number_after(
+                &w,
+                &format!(
+                    "To leave the regime, refine the mesh along the whole guide feeding port \
+                     `{port}` to h ≤ "
+                ),
+            );
+            assert!((h - 2.5 / k_c).abs() < 1e-6, "{w}");
+        }
+    }
+}
+
+/// Issue #1005: the long-coarse-guide warning needs both a coarse window
+/// and a guide beyond it. The same layers of 0.75 on a guide 4.5 long
+/// (inside the window) and a 6-long guide in layers of 0.25 (`k_c·h_n` ≈
+/// 0.9) do not get it.
+#[test]
+fn a_short_or_fine_guide_does_not_get_the_long_guide_warning() {
+    for (name, spec) in [
+        ("short-coarse-1005", (8, 4, 6, 4.5)),
+        ("long-fine-1005", (8, 4, 24, 6.0)),
+    ] {
+        let file = axial_spec(name, spec, &[1.7, 1.8]);
+        let v = json(&geode(&["check", file.to_str().unwrap()]));
+        for i in 0..2 {
+            if name.starts_with("short") {
+                // Coarse enough that only the short guide keeps it quiet.
+                let p = &v["wave_ports"][i];
+                let kh = f64_at(&p["tm_k_c"]) * f64_at(&p["tm_axial_spacing"]);
+                assert!(kh > 2.5, "{name}: {p:#}");
+            }
+            assert!(long_guide_warning(&v, i).is_none(), "{name}: {v:#}");
+        }
+    }
+}
+
 /// Issue #824 (Judge, PR #827 review): a fine tet layer at the port over
 /// a coarse one behind it (16 × 8 face of the `2 × 1` guide, layers 0.15
 /// and 0.6). The 3-D TM₁₁₀ is 3.3019 (`geode-core` `tests/wave_port.rs`,
