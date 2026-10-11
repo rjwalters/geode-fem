@@ -5,6 +5,13 @@
 `reference/fixtures/transmon_palace/results_p1/palace_run_v22.log:12`) · **geode:**
 `origin/main` at `d7c95504`.
 
+**Status (2026-10-11).** The operator retargeted #1003: remove the 17.49 GHz port-sheet
+artifact and keep 3.4528 GHz as the qubit mode (O1). P1 (#1043) confirmed the qubit mode
+(§10). P2 (#1044) ships A2 opt-in as `LumpedPortVoltageShunt` /
+`JunctionPortModel::PortVoltage`, with the §3.3 numbers reproduced by committed code and
+recorded in `benchmarks/transmon_eigen/results.toml` `[port_voltage_a2]`. P3 (#1045) and
+P4 (#1046) are open.
+
 The operator ruling on #1003 asked for a spike toward a port formulation like Palace's
 `LumpedPort`, one that removes the 3.4528 GHz transmon mode without matching against the
 Palace oracle. This note answers the eight questions in the second curation pass. It
@@ -38,7 +45,7 @@ recommends a formulation and splits the build into phases.
 | Palace's own port EPR for its 17.49 GHz mode is `2.49e-08`, which means zero port voltage. That is consistent with the 0.00 % above. | **Committed data** (`results_p1/port-EPR.csv`) | §3.1 |
 | The 3.4528 GHz frequency is within 0.28 % of the lumped-circuit qubit prediction `1/(2π√(L(C_Σ+C_J))) = 3.4625 GHz`, using geode's committed electrostatic `C_Σ = 136.68 fF`. It also obeys the `1/√L` law (0.7081, committed). | **Computed from committed numbers** | §3.2 |
 | That the 3.4528 GHz mode is *the* physical qubit mode. | **Confirmed by P1** (#1043). It was inferred at spike time. Palace at `Target = 2 GHz` returns 3.452749 GHz with port EPR 0.99424, and the mode scales 0.70810 under L doubling. | §3.2, §8, §10 |
-| A2 removes the 17.49 GHz mode and keeps 3.4528 GHz and the cavity modes. Under A2, `Gᵀ b = 0` exactly. With the plain bulk projector, A2 returns six modes at `N = 6` with no oracle filter. | **Measured** (geode probe, local, uncommitted code) | §3.3 |
+| A2 removes the 17.49 GHz mode and keeps 3.4528 GHz and the cavity modes. Under A2, `Gᵀ b = 0` exactly. With the plain bulk projector, A2 returns six modes at `N = 6` with no oracle filter. | **Measured** (geode probe, local); **reproduced by committed code in P2** (#1044, `real_transmon_port_voltage_a2_bulk_projector_n6`) | §3.3 |
 | A1 (directional surface term) does not remove the 17.49 GHz mode. It moves it to 17.3777 GHz. | **Measured** (geode probe) | §3.3 |
 | A3 (Lagrange multiplier) is algebraically A2 after Schur elimination. | **Derived, not run** | §3.4 |
 

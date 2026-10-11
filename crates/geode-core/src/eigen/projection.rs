@@ -1362,6 +1362,76 @@ pub fn solve_transmon_eigenmodes_projected(
     ),
     EigenError,
 > {
+    projected_transmon_impl(
+        pencil,
+        crate::eigen::transmon::JunctionPortModel::DistributedSurface,
+        sigma,
+        n_modes,
+        m_per_unit,
+        false,
+    )
+}
+
+/// [`solve_transmon_eigenmodes_projected`] with an explicit junction
+/// [`crate::eigen::transmon::JunctionPortModel`] (issue #1044).
+///
+/// Unlike [`solve_transmon_eigenmodes_projected`], this entry point drops the
+/// **exact null modes of `K`** before the `n_modes` cut, with the
+/// reference-free filter of
+/// [`ProjectedShiftInvertLanczos::smallest_nonnull_eigenpairs`] (issue #950;
+/// `|λ| ≤ 1e-10 × median(K_ii/M_ii)`, no reference spectrum). On the 133k
+/// fixture the bulk projector leaves one such pair (`λ ≈ −4e-20`, a curl-free
+/// field that `image(d⁰_interior)` cannot reach) under either model, and
+/// without the filter it takes one of the `n_modes` slots.
+///
+/// With `DistributedSurface` the bulk projector `P` is not exact, because
+/// `Gᵀ K_port ≠ 0` for the distributed `S_Γ`: it deflates the 17.49 GHz
+/// port-sheet mode and leaves residuals up to about `5e-3` on the 133k
+/// fixture (issue #509).
+///
+/// With `PortVoltage` (the rank-1 A2 shunt,
+/// [`crate::eigen::transmon::LumpedPortVoltageShunt`]) `Gᵀ b = 0`, so
+/// `Gᵀ K_port = Gᵀ M_port = 0` and `P` is exact: `image(d⁰_interior)` is in
+/// the kernel of `K + K_port`, `P` commutes with the shift-invert operator,
+/// and no port-aware re-admission ([`PortAwareGradientProjector`],
+/// [`PortSubspaceGradientProjector`]) is needed. Those projectors exist only to
+/// keep the zero-voltage bump mode, which A2 does not have.
+///
+/// # Errors
+///
+/// As [`solve_transmon_eigenmodes_projected`].
+pub fn solve_transmon_eigenmodes_projected_with_port_model(
+    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
+    port_model: crate::eigen::transmon::JunctionPortModel,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<
+    (
+        Vec<crate::eigen::transmon::ModeReport>,
+        ProjectionDiagnostics,
+    ),
+    EigenError,
+> {
+    projected_transmon_impl(pencil, port_model, sigma, n_modes, m_per_unit, true)
+}
+
+/// Shared body of the bulk-projected transmon solves; `drop_null` selects
+/// [`ProjectedShiftInvertLanczos::smallest_nonnull_eigenpairs`].
+fn projected_transmon_impl(
+    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
+    port_model: crate::eigen::transmon::JunctionPortModel,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    drop_null: bool,
+) -> Result<
+    (
+        Vec<crate::eigen::transmon::ModeReport>,
+        ProjectionDiagnostics,
+    ),
+    EigenError,
+> {
     use crate::eigen::transmon::{ModeReport, frequency_hz_from_lambda};
 
     let n_edges = pencil.edges.len();
@@ -1390,8 +1460,7 @@ pub fn solve_transmon_eigenmodes_projected(
     assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
     assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
 
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+    let (k_port, m_port) = port_model.port_triplets(&pencil.shunt, pencil.mesh, pencil.edges);
 
     let k_red = assemble_reduced_real(
         &pattern.rows,
@@ -1427,8 +1496,11 @@ pub fn solve_transmon_eigenmodes_projected(
         tol: 1e-8,
         reproject_threshold: 1e-8,
     };
-    let (pairs, diag) =
-        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?;
+    let (pairs, diag) = if drop_null {
+        solver.smallest_nonnull_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?
+    } else {
+        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?
+    };
 
     let modes = pairs
         .iter()

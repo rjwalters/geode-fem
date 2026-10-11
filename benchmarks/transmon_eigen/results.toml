@@ -340,3 +340,80 @@ l_scaling_prediction = 0.70710678  # 1/sqrt(2)
 l2_junction_lc_f_ghz = 12.3673747123
 l2_junction_lc_port_epr = 2.936618860557e-08
 junction_lc_l_scaling_ratio = 0.70711
+
+[port_voltage_a2]
+# Issue #1044 (phase P2 of the #1003 spike): the opt-in rank-1 port-voltage
+# junction shunt A2, K_port = (1/L~) b b^T, M_port = C~ b b^T, with
+# b = assemble_port_flux / w the uniform port-voltage functional
+# (crate::eigen::transmon::LumpedPortVoltageShunt, selected by
+# JunctionPortModel::PortVoltage). Same fixture, element values, PEC and
+# readout ports as [meta]. The default LumpedReactiveShunt (distributed S_Gamma)
+# and every number above are unchanged.
+#
+# MEASURED (committed test, local CPU, no cloud):
+#  - max|G^T b| = 0 exactly, so G^T K_port = G^T M_port = 0 and the plain bulk
+#    MOrthogonalGradientProjector is exact under A2;
+#  - A2 + the plain bulk projector at sigma = 4.5 GHz, N = 6 returns the six
+#    modes below in one factorization, residuals <= 1.74e-9, with NO Palace
+#    frequency filter. The only filter is the reference-free exact-null cut of
+#    smallest_nonnull_eigenpairs (issue #950), which drops one lambda = -4.0e-20
+#    pair (ceiling 1.19e-12);
+#  - A2 ungauged at sigma = 17.5 GHz, N = 8: no mode between 15.464979 and
+#    18.692705 GHz. The shipped shunt has its 17.490109 GHz mode there
+#    ([modes.junction_lc]).
+# Every A2 mode agrees with the shipped shunt to 4 decimals; the qubit mode is
+# 3.452753 GHz against 3.452751 (+6e-5 %).
+#
+# INFERENCE, not measured here: the removed 17.49 GHz mode is the sheet-internal
+# LC resonance of the distributed S_Gamma (zero port voltage, design note §3.1),
+# so A2 cannot shift a mode whose port field is uniform. The synthetic test
+# port_voltage_shunt_removes_zero_voltage_patch_modes_synthetic supports this
+# (one zero-voltage S_Gamma mode per free patch node, each an A2 null vector).
+# The [spurious_mode] / [modes.junction_lc] classification is NOT changed here;
+# that is phase P3 (#1045).
+status = "measured"
+measured_date = "2026-10-11"
+issue = 1044
+test = "crates/geode-core/tests/transmon_eigenmode.rs::real_transmon_port_voltage_a2_bulk_projector_n6"
+command = "cargo test -p geode-core --release --test transmon_eigenmode -- --ignored --exact real_transmon_port_voltage_a2_bulk_projector_n6 --nocapture"
+base_commit = "b4c26c74"  # origin/main the branch started from; code on feature/issue-1044
+host = "Apple M3 Ultra, 28 cores, 96 GiB; local, no cloud"
+test_wall_s = 43.8
+test_peak_rss_gib = 2.99
+solver = "ProjectedShiftInvertLanczos (faer sparse LU, max_iters 96, tol 1e-8) with MOrthogonalGradientProjector"
+port_voltage_nnz = 6
+max_abs_gt_b = 0.0
+max_abs_b = 0.3333333333333333
+
+# A2 + plain bulk projector, sigma = 4.5 GHz, N = 6.
+bulk_sigma_ghz = 4.5
+bulk_n_requested = 6
+bulk_modes_ghz = [3.452753, 5.152825, 15.464979, 18.692705, 20.703377, 26.088287]
+bulk_participation = [0.9942, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000]  # (V^2/L~) / x^T K_tot x
+bulk_residual_rels = [1.74e-9, 1.62e-9, 9.20e-11, 4.90e-10, 8.28e-10, 1.55e-10]
+bulk_divergence_ratios = [4.2e-15, 2.6e-15, 4.8e-15, 7.2e-15, 8.9e-15, 4.7e-15]
+bulk_lanczos_iterations = 96
+bulk_shifted_factorizations = 1
+bulk_readmitted_gradient_directions = 0
+bulk_null_modes_dropped = 1
+bulk_max_dropped_null_lambda = 4.00e-20
+bulk_null_ceiling = 1.19e-12
+probe_modes_ghz = [3.4528, 5.1528, 15.4650, 18.6927, 20.7034, 26.0883]  # design note §3.3
+probe_rel_tol = 1e-4  # the test's gate against probe_modes_ghz
+
+# A2 ungauged, sigma = 17.5 GHz, N = 8 (three near-kernel pairs, then five modes).
+ungauged_sigma_ghz = 17.5
+ungauged_n_requested = 8
+ungauged_modes_ghz = [0.000742, 0.000827, 0.000853, 3.452753, 5.152825, 15.464979, 18.692705, 20.703377]
+ungauged_empty_band_ghz = [15.5, 18.6]  # the test asserts no mode here
+
+# Shipped shunt (distributed S_Gamma) on the same paths, for comparison. These
+# came from an uncommitted scratch harness calling the same entry points with
+# JunctionPortModel::DistributedSurface, on the same host and date. Their
+# non-null frequencies match the committed [issue_950] cells (for example
+# portaware_s4p5_n7) of
+# benchmarks/transmon_bench_cpu/results_like_for_like_local.toml to six decimals.
+shipped_bulk_modes_ghz = [3.452751, 5.152825, 15.464979, 18.692705, 20.703377, 26.088287]
+shipped_bulk_residual_rels = [5.54e-3, 1.18e-4, 7.52e-6, 8.15e-8, 1.41e-7, 2.68e-6]
+shipped_bulk_null_modes_dropped = 1
+shipped_ungauged_sigma17p5_modes_ghz = [0.000814, 0.000852, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377]
