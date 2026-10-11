@@ -45,7 +45,8 @@
 //!     height step, known excited), and the ignored
 //!     `tm_guard_excitation_table` over the long-guide misses
 //!     (`benchmarks/tm_guard_955/excitation_table.toml`). Nearly every
-//!     missed mode is excited.
+//!     missed bracket holds TM-like content under the drive; the
+//!     reference-mode coupling is 10 of 12 at p=1 (bracket verdict 11).
 //!
 //! ```sh
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
@@ -5047,7 +5048,9 @@ fn excitation_rows() -> Vec<(LongGuideRecord, ElementOrder, &'static str)> {
 /// [`EXCITATION_ZOOM_FLOOR`]) and bisects each resonance's width.
 ///
 /// Verdicts ([`Excitation`], thresholds fixed before the run): over the
-/// **bracket** `k_ref·(1 ± 5 %)` (does the drive excite the mode?) and over
+/// **bracket** `k_ref·(1 ± 5 %)` (is there TM-like content in the bracket?
+/// This is not coupling to the reference mode: see the p=1 note under
+/// **Measured**) and over
 /// each missing guard's **band** `[k_ref·(1 − 5 %), guard]` (does a sweep
 /// the guard admits see TM-like content?). Each row also reports the
 /// length-extension check ([`length_change`], one grid step, 0.25,
@@ -5065,7 +5068,13 @@ fn excitation_rows() -> Vec<(LongGuideRecord, ElementOrder, &'static str)> {
 /// **Measured** (Gmsh 4.15.2, pinned; bracket as excited / weak / not):
 /// the interim law's 3 misses 3 / 0 / 0, option 1's 21 misses 20 / 1 / 0,
 /// option 3's 33 probed misses 32 / 1 / 0, the p=1 guard's 12 misses
-/// 11 / 0 / 1. Every sub-TE₁₀ p=1 mode (3) is excited by the evanescent
+/// 11 / 0 / 1. The bracket verdict counts TM-like content within
+/// `k_ref·(1 ± 5 %)`, not coupling to the reference mode. On `3×1×7.25`,
+/// `lc` 0.9, p=1 the only bracket resonance is at 0.953·`k_ref` (1.3045 for
+/// `k_ref` 1.3684) with projection 7.7e-6 on the reference mode, and the
+/// bracket's largest projection is 0.078, below the 0.1 criterion; so the
+/// mode-specific p=1 count is 10 of 12 against the bracket verdict's 11 of
+/// 12. The band verdict (12 of 12) is unaffected. Every sub-TE₁₀ p=1 mode (3) is excited by the evanescent
 /// drive, with the driven field over 98 % on the mode. The exceptions: one
 /// weak bracket (`1.5×1×7.5`, `lc` 0.75: a resonance on the reference mode
 /// whose width bisects below f64 resolution, so no sweep resolves it, and
@@ -5522,6 +5531,10 @@ fn tm_guard_excitation_table() {
             let g = r.guards.iter().find(|g| g.0 == name).expect("guard").1;
             r.res.scan.verdict(r.res.bracket.0, g)
         }));
+        let band_prereg = tally(&mut missed.iter().map(|r| {
+            let g = r.guards.iter().find(|g| g.0 == name).expect("guard").1;
+            r.res.scan.verdict_prereg(r.res.bracket.0, g)
+        }));
         let mut split = Vec::new();
         for cl in ["sub_te10", "single_mode", "multimode"] {
             for bk in ["within", "straddling", "beyond"] {
@@ -5566,7 +5579,7 @@ fn tm_guard_excitation_table() {
             band[2],
             split.join(", ")
         ));
-        per_guard.push((name, missed.len(), bracket, prereg, band));
+        per_guard.push((name, missed.len(), bracket, prereg, band, band_prereg));
     }
 
     for kind in ["non_miss", "control_symmetric", "control_step"] {
@@ -5644,15 +5657,31 @@ fn tm_guard_excitation_table() {
          {mismatch:?}"
     );
     // Pinned at Gmsh 4.15.2 (issue #1032): per guard, (probed misses,
-    // bracket, bracket by the pre-registered rule, band up to the guard),
-    // each as (excited, weak, not excited).
+    // bracket, bracket by the pre-registered rule, band up to the guard,
+    // band by the pre-registered rule), each as (excited, weak, not
+    // excited). The pre-registered rule agrees with the final one on every
+    // band; it differs only on the height-step control's bracket.
     assert_eq!(
         per_guard,
         vec![
-            ("interim", 3, [3, 0, 0], [3, 0, 0], [3, 0, 0]),
-            ("option1", 21, [20, 1, 0], [20, 1, 0], [20, 1, 0]),
-            ("option3", 33, [32, 1, 0], [32, 1, 0], [30, 1, 2]),
-            ("p1", 12, [11, 0, 1], [11, 0, 1], [12, 0, 0]),
+            ("interim", 3, [3, 0, 0], [3, 0, 0], [3, 0, 0], [3, 0, 0]),
+            (
+                "option1",
+                21,
+                [20, 1, 0],
+                [20, 1, 0],
+                [20, 1, 0],
+                [20, 1, 0]
+            ),
+            (
+                "option3",
+                33,
+                [32, 1, 0],
+                [32, 1, 0],
+                [30, 1, 2],
+                [30, 1, 2]
+            ),
+            ("p1", 12, [11, 0, 1], [11, 0, 1], [12, 0, 0], [12, 0, 0]),
         ],
         "per-guard verdicts"
     );

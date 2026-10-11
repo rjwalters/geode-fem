@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Option 1 (reproduced): 20 / 1 / 0 of 21.
     - Option 3: 32 / 1 / 0 of 33 probed.
     - The p=1 guard: 11 / 0 / 1 of 12. The band up to the p=1 guard is excited on all 12.
+    - **What the bracket verdict means (wording correction, #1053).** It counts TM-like content within `k_ref·(1 ± 5 %)`, not coupling to the reference mode. On `3×1×7.25`, `lc` 0.9, p=1 the only bracket resonance is at 0.953·`k_ref` with projection 7.7e-6 on the reference mode (the bracket maximum is 0.078), so the mode-specific p=1 count is 10 of 12 against the bracket verdict's 11 of 12. The band verdict (12 of 12) and the recommendation are unchanged. The band verdicts by the pre-registered rule are now pinned too.
     - All three sub-TE₁₀ p=1 modes are excited by the evanescent drive, with more than 98 % of the driven field on the mode.
     - The one weak row's resonance has a width below f64 resolution, so no sweep would resolve it.
     - Controls: the six non-miss rows are excited; the mirror-symmetric guide's TM-like mode is not (projection 1e-25); the height step is excited.
