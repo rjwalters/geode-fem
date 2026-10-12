@@ -916,7 +916,7 @@ pub fn extract_capacitance_amg_pcg_fields(
 /// The AMG-PCG energy-method Maxwell matrix on any assembled system (P1 or
 /// P2): one unit excitation per conductor DOF set, the reduced `k` solved by
 /// PCG, `C_ij = u⁽ⁱ⁾ᵀ K_full u⁽ʲ⁾`.
-fn amg_pcg_maxwell(
+pub(crate) fn amg_pcg_maxwell(
     k: &SparseColMat<usize, f64>,
     k_full: &SparseColMat<usize, f64>,
     free_of_global: &[Option<usize>],

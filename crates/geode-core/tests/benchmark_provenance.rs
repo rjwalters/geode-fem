@@ -272,6 +272,12 @@ const MANIFEST: &[Entry] = &[
          red_refined_c_sigma_levels, issue #1051), no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/c_sigma_bracket.toml",
+        "examples/transmon_c_sigma_bracket.rs: scalar/tensor f64 P1 and P2 electrostatic \
+         assembly + AMG-PCG on host CSR, f64 Raviart-Thomas patch equilibration (faer dense) and \
+         a Crouzeix-Raviart solve (assembly::electrostatic_dual, issue #1062), no Backend generic",
+    ),
+    b(
         "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml",
         "examples/transmon_refined_optimize.rs: scalar f64 P1/P2 electrostatic assembly + AMG-PCG \
          on host CSR and the f64 energy shape derivative (shape::refined_capacitance, issue \

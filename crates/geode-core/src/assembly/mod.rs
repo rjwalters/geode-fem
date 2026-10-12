@@ -11,6 +11,11 @@
 //!   extraction (energy method + surface-flux cross-check), `E = −∇φ`
 //!   recovery, and field-energy postprocessing (Epic #475, Palace
 //!   `Electrostatic` parity).
+//! - [`electrostatic_dual`]: guaranteed **lower** bounds on a capacitance
+//!   from the complementary (flux, `H(div)`) principle — a certificate for
+//!   any piecewise-polynomial flux, Raviart–Thomas patch equilibration of a
+//!   P1/P2 potential, and a Crouzeix–Raviart (RT0 mixed) dual solve, with
+//!   floating conductors and scalar or tensor ε (issue #1062).
 //! - [`magnetostatic`]: 2-D **scalar** magnetostatic Poisson assembly on a
 //!   [`TriMesh`](crate::analytic::waveguide::TriMesh) — the node-indexed
 //!   ν-weighted stiffness, consistent-mass current RHS, symmetric Dirichlet
@@ -55,6 +60,7 @@
 pub mod current_path;
 mod dense_scatter;
 pub mod electrostatic;
+pub mod electrostatic_dual;
 pub mod fe;
 pub mod hcurl_space;
 pub mod magnetostatic;

@@ -42,7 +42,9 @@ fresh P2 solve each round; none of it feeds the optimizer):
   capacitance is an energy minimum, so every value is an upper bound on the
   converged capacitance of this polygonal geometry. The converged value is
   **below 89.02 fF** (the round-7 value rounded up), which is at least 0.98 %
-  below the anchor (rounded down). There is no rigorous lower bound.
+  below the anchor (rounded down). The certified lower bound of #1062 (see
+  "Two-sided bound" below) puts it **above 88.78 fF**, at most 1.24 % below
+  the anchor.
 - **Estimate, not a bound.** The decrement ratios are 0.8092, 0.7594, 0.7352,
   0.8237, 0.7093 and 0.8062, with no trend toward zero. Method 1, a geometric
   tail `C_7 - d_7 r / (1 - r)` at the largest and the smallest observed ratio,
@@ -54,18 +56,21 @@ fresh P2 solve each round; none of it feeds the optimizer):
   by about 1.1 to 1.3 %** (1.11 to 1.28 %).
 - **The estimate depends on the assumed rate.** The same fit at an assumed
   slower rate gives 88.34 fF (alpha = 1/3) and 88.62 fF (alpha = 1/2), below
-  the band. That is why the band is an estimate and not a lower bound.
+  the band. That is why the band is an estimate and not a lower bound. Both
+  slower rates are now ruled out: they lie below the certified 88.78 fF.
 - **The 1 % working threshold of #1056.** After seven rounds the capacitance is
   0.985 % below its optimization-mesh value and still falling by 0.05 fF per
   round. The rigorous bound alone (at least 0.98 %) does not decide the
-  threshold. The estimate does: 1.10 to 1.26 % below the anchor. We do not
-  claim the threshold is met, and we infer that it is not.
+  threshold, and neither does the two-sided one (0.98 to 1.24 % below the
+  anchor), which straddles 1 %. The estimate does: 1.10 to 1.26 % below the
+  anchor. We do not claim the threshold is met, and we infer that it is not.
 - **Sensitivities.** From round 0 to round 7 the three shape sensitivities move
   by -0.93 %, -0.67 % and -2.26 %. After one round they had moved by -0.18 %,
   -0.16 % and -0.60 %, which is what the first version of this study reported.
 - **X0 and the design increment.** On the same meshes the undeformed geometry
   goes from 78.387918 to 77.609945 fF: its converged value is below 77.61 fF
-  (rigorous), estimated at 77.42 to 77.52 fF. This is inside #1057's
+  and above 77.40 fF (rigorous, #1062), estimated at 77.42 to 77.52 fF. This
+  is inside #1057's
   74.14 to 79.62 fF band and below its 83.02 fF bound. The design *increment*
   is stable: 11.513 fF at round 0 and 11.405 fF at round 7. The meshes are
   adapted to the final design, not to X0.
@@ -102,21 +107,112 @@ series:
 
 - **Rigorous.** The converged value of this geometry is below 90.08 fF, that is
   at most 0.20 % above the anchor (rounded up). The last solved value is still
-  above the anchor, so nothing rigorous places the converged value near it.
+  above the anchor; the certified lower bound of #1062, 89.84 fF, is what
+  places the converged value near it (see "Two-sided bound" below).
 - **Estimate, not a bound.** The geometric tail gives 89.846092 to 89.951431 fF
   (midpoint 89.898762 fF) and the free-rate fits 89.956997, 89.926211 and
   89.952744 fF. The band is **89.84 to 89.96 fF**, within 0.07 % of the anchor
   on either side, and it contains the anchor.
 - **Rate dependence.** At an assumed slower rate the same series extrapolates
   to 89.39 fF (alpha = 1/3) or 89.68 fF (alpha = 1/2), which is 0.57 % or
-  0.25 % below the anchor.
+  0.25 % below the anchor. Both are below the certified 89.84 fF and ruled out.
 
 This design is tuned so that an *extrapolation* lands on the anchor. The
 extrapolation method was chosen on the first run and the second run uses it
 unchanged, but both runs share the same mesh family, marking rule and element
-order, so the agreement is not an independent confirmation. A continuum
-statement needs an error estimator with a guaranteed lower bound, or a
-substantially finer or higher-order solve; neither is here.
+order, so the agreement is not an independent confirmation.
+
+**The band contains the anchor by construction** (#1062). The second run's
+refinement series is the first run's series rescaled: the round-by-round ratio
+of the two capacitances is constant to 8e-5, and the target ratio is 1.011988.
+Any extrapolation of the second series is therefore the first run's
+extrapolation times that ratio, and the 89.84–89.96 fF band contains the
+89.9 fF anchor whatever extrapolation method is used. What the second run does
+establish is:
+
+- a rigorous upper bound: the corrected geometry converges below 90.08 fF;
+- that the relative discretization bias transfers between the two nearby
+  designs to about 1e-4.
+
+The ±0.07 % band is the spread between methods, not an uncertainty. At the
+slower rates the design lands 0.25–0.57 % below the anchor. The guaranteed
+lower bound that the continuum statement needs is now measured separately; see
+the next section.
+
+## Two-sided bound (#1062)
+
+`../c_sigma_bracket.toml` (generator `examples/transmon_c_sigma_bracket.rs`,
+library `assembly::electrostatic_dual`) adds a **certified lower bound** on the
+same meshes. The generator replays the ten preparation cycles and the seven
+held-out rounds of both runs, and asserts that every P2 value reproduces the
+`summary.toml` of its run, so the meshes are the ones above.
+
+- **Certificate.** For any piecewise-polynomial displacement field `D`,
+  Thomson's principle and Cauchy–Schwarz give `C ≥ ε₀ N² / ∫ D·ε⁻¹D`. Here
+  `N` is the island charge of `D` minus `|feedline charge|`, minus the `L¹`
+  norms of the normal jumps across non-sheet faces, of the normal flux
+  through the natural boundary and of `div D`. It uses `0 ≤ φ* ≤ 1` for the
+  exact potential. The floating feedline enters as a charge constraint (zero
+  net charge, free distribution), the dual of its free constant potential,
+  so the bound is a bound on `C_ii − C_if²/C_ff` itself. Every term is
+  integrated exactly. Solver tolerances only lower `N`; the penalty they cost
+  is below 2e-7 of the island charge here.
+- **Flux.** The P2 potential of each round is equilibrated patch by patch
+  (Prager–Synge / Braess–Schöberl) into a Raviart–Thomas `RT_k` field,
+  divergence-free and neutral on the feedline, on the mesh cut along the
+  sheets. RT1 and RT2 are computed at every round and RT3 at round 7. A
+  Crouzeix–Raviart solve (the lowest-order mixed RT0 dual, which needs no
+  primal field) is the independent check.
+
+| Round | Tets | Upper (fF) | RT1 | RT2 | RT3 | CR/RT0 | Width (fF) |
+|---|---|---|---|---|---|---|---|
+| 0 | 448,279 | 90.980104 | 88.647796 | 89.258866 | | 86.011746 | 1.721238 |
+| 1 | 528,677 | 90.736603 | 88.947132 | 89.416769 | | 86.651461 | 1.319835 |
+| 2 | 684,107 | 90.538648 | 89.172815 | 89.533730 | | 87.246482 | 1.004918 |
+| 3 | 905,316 | 90.391038 | 89.341072 | 89.621776 | | 87.717193 | 0.769262 |
+| 4 | 1,247,811 | 90.281357 | 89.472078 | 89.688994 | | 88.146917 | 0.592364 |
+| 5 | 1,708,342 | 90.191606 | 89.580138 | 89.744988 | | 88.479278 | 0.446618 |
+| 6 | 2,398,139 | 90.127900 | 89.652594 | 89.781381 | | 88.755432 | 0.346520 |
+| 7 | 3,331,618 | 90.076692 | 89.717082 | 89.814751 | 89.847345 | 88.980016 | 0.229347 |
+
+The table is the resolution-corrected design. Upper bounds are ceiled and
+lower bounds floored to 6 decimals. Width is the upper bound minus the best
+lower bound on that mesh.
+
+Refinement does not move the polygonal surfaces, so every round bounds the
+same converged value. Each family's bracket is its largest lower bound and its
+smallest upper bound, rounded outward to 0.01 fF:
+
+| Geometry | Bracket (fF) | Width | Against the 89.9 fF anchor |
+|---|---|---|---|
+| Resolution-corrected design | **[89.84, 90.08]** | 0.24 fF (0.27 %) | contains it: −0.06 % to +0.20 % |
+| Primary design | [88.78, 89.02] | 0.24 fF (0.28 %) | below it: 0.98 % to 1.24 % |
+| X0 (adaptive and #1057 uniform meshes) | [77.40, 77.61] | 0.21 fF (0.28 %) | below it |
+
+- **The answer for the corrected design.** Its converged capacitance is
+  certified to lie in [89.84, 90.08] fF, which contains 89.9 fF. The bracket
+  is 0.24 fF wide, so the corrected geometry matches the anchor to within
+  −0.06 % / +0.20 % (from the unrounded bounds, rounded outward). The extrapolation band of the previous section
+  (89.84–89.96 fF) lies inside it. This is a statement about the converged
+  value of this polygonal geometry, not about the anchor's own accuracy or the
+  junction self-capacitance.
+- **The primary design** is certified 0.98–1.24 % below the anchor, which
+  confirms the extrapolated 1.10–1.26 % but does not decide the 1 % threshold.
+- **The design increment** over X0 is certified to lie in [11.17, 11.61] fF.
+- **What limits the width.** At round 7 the bound rises by 0.10 fF from RT1 to
+  RT2 and by 0.03 fF from RT2 to RT3, so the remaining width comes from the
+  P2 field on these meshes, not from the flux order. The Crouzeix–Raviart bound converges like P1 and
+  trails the equilibrated bounds by about 0.9 fF at round 7. At #1057's
+  uniform levels the bracket is wide (X0 at P2 h/2: [74.05, 83.02] fF; the
+  tensor-ε levels, P1 only: [72.96, 89.50] fF). The adapted meshes are what
+  make it tight.
+- **Resources.** The whole generator ran in 102 min with a peak RSS of 35.5 GB
+  (the Crouzeix–Raviart solve on the 8.5M-tet uniform level), locally on
+  28 CPUs shared with another job. RT3 at round 7 takes about 9 min.
+
+The `summary.toml` files predate #1062. Their `bounds` text still says there
+is no rigorous lower bound; this section and `c_sigma_bracket.toml` supersede
+that line. They are generated and were not edited by hand.
 
 ## Cross-solver check (same discretization)
 
