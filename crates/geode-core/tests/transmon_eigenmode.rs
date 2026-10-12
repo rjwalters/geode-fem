@@ -3943,3 +3943,356 @@ fn unit_plumbing_matches_issue_derivation() {
     assert!((lam - 7.03e-9).abs() < 0.1e-9, "λ(4 GHz) = {lam}");
     assert!((frequency_hz_from_lambda(lam, M_PER_UNIT) - 4.0e9).abs() / 4.0e9 < 1e-12);
 }
+
+// -------------------------------------------------------------------------
+// Issue #1078: qubit–resonator coupling from the avoided-crossing L_J sweep.
+// -------------------------------------------------------------------------
+
+/// The committed coupling artifact (generator
+/// `examples/transmon_coupling_g.rs`).
+fn coupling_results() -> toml::Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/transmon_coupling/results.toml"
+    );
+    let text =
+        std::fs::read_to_string(path).expect("read benchmarks/transmon_coupling/results.toml");
+    toml::from_str(&text).expect("parse benchmarks/transmon_coupling/results.toml")
+}
+
+fn tf(v: &toml::Value, path: &str) -> f64 {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur.as_float()
+        .or_else(|| cur.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("{path} is not a number"))
+}
+
+fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur.as_array()
+        .unwrap_or_else(|| panic!("{path} is not an array"))
+        .iter()
+        .map(|x| {
+            x.as_float()
+                .or_else(|| x.as_integer().map(|i| i as f64))
+                .unwrap()
+        })
+        .collect()
+}
+
+fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur.as_str()
+        .unwrap_or_else(|| panic!("{path} is not a string"))
+}
+
+/// Issue #1078 (default tier): the committed coupling artifact matches the
+/// library's bare-qubit anchor and its coupling constants, and was generated
+/// from solved (not reused) sweep data.
+#[test]
+fn coupling_results_match_the_library_anchor() {
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, TransmonAnchor,
+    };
+    let doc = coupling_results();
+    assert_eq!(tstr(&doc, "meta.sweep_source"), "solved");
+    assert_eq!(tstr(&doc, "meta.float_dtype"), "F64");
+    let bare = TransmonAnchor::devicelayout_bare();
+    let dressed = TransmonAnchor::devicelayout();
+    let c = bare.c_sigma_farad * 1e15;
+    assert!(
+        (tf(&doc, "anchor.bare_c_sigma_ff") - c).abs() < 1e-6,
+        "bare C_Sigma {c}"
+    );
+    assert!((tf(&doc, "anchor.bare_f_q_ghz") - bare.frequency_hz / 1e9).abs() < 1e-6);
+    assert!((tf(&doc, "anchor.dressed_c_sigma_ff") - dressed.c_sigma_farad * 1e15).abs() < 1e-6);
+    let shift = (dressed.c_sigma_farad - bare.c_sigma_farad) * 1e15;
+    assert!((tf(&doc, "anchor.shift_ff") - shift).abs() < 1e-6);
+    assert_eq!(tf(&doc, "anchor.k"), DEVICELAYOUT_COUPLING_K);
+    let band = tarr(&doc, "anchor.k_band");
+    assert_eq!((band[0], band[1]), DEVICELAYOUT_COUPLING_K_BAND);
+    // The target band brackets the central bare value and lies below the
+    // dressed anchor.
+    let tb = tarr(&doc, "anchor.bare_c_sigma_band_ff");
+    assert!(tb[0] < c && c < tb[1] && tb[1] < dressed.c_sigma_farad * 1e15);
+    // The same-mesh and h/2 values follow the library inversion.
+    for (k_key, c_key) in [
+        ("anchor.same_mesh_k", "anchor.same_mesh_bare_c_sigma_ff"),
+        ("anchor.k_h2", "anchor.h2_mesh_bare_c_sigma_ff"),
+    ] {
+        let k = tf(&doc, k_key);
+        let want = TransmonAnchor::devicelayout_bare_with_coupling(k).c_sigma_farad * 1e15;
+        assert!((tf(&doc, c_key) - want).abs() < 2e-5, "{c_key}");
+    }
+}
+
+/// Issue #1078 (default tier): `DEVICELAYOUT_COUPLING_K` and its band follow
+/// the committed estimates by the rule recorded in `[anchor].k_rule`.
+#[test]
+fn coupling_constants_follow_the_committed_estimates() {
+    use geode_core::quantum::transmon::{DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND};
+    let doc = coupling_results();
+    let sig3 = |x: f64, mode: i32| {
+        let s = 10f64.powi(3 - 1 - x.log10().floor() as i32);
+        match mode {
+            -1 => (x * s).floor() / s,
+            1 => (x * s).ceil() / s,
+            _ => (x * s).round() / s,
+        }
+    };
+    let est = tarr(&doc, "anchor.k_converged_estimates");
+    assert_eq!(est.len(), 4);
+    let (lo, hi) = (
+        est.iter().copied().fold(f64::INFINITY, f64::min),
+        est.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+    );
+    assert!((sig3(0.5 * (lo + hi), 0) - DEVICELAYOUT_COUPLING_K).abs() < 1e-12);
+    let k_h2 = tf(&doc, "anchor.k_h2");
+    assert!((k_h2 - tf(&doc, "palace_h2.k")).abs() < 1e-6);
+    let geo = tarr(&doc, "static_proxy.k_static_extrapolated")[1];
+    assert!((sig3(k_h2, -1) - DEVICELAYOUT_COUPLING_K_BAND.0).abs() < 1e-12);
+    assert!((sig3(geo, 1) - DEVICELAYOUT_COUPLING_K_BAND.1).abs() < 1e-12);
+    // Every estimate is above the finest measured k and below the band top.
+    assert!(
+        est.iter()
+            .all(|&e| e > k_h2 && e < DEVICELAYOUT_COUPLING_K_BAND.1)
+    );
+}
+
+/// Issue #1078 (default tier): fit quality and the cross-checks behind the
+/// coupling, as committed.
+#[test]
+fn coupling_fit_and_cross_checks() {
+    let doc = coupling_results();
+    // The two-node Maxwell circuit with a series loop inductance fits the
+    // whole 4-30 nH sweep to tens of kHz, and its eigenvectors match the
+    // solved junction participations.
+    assert!(tf(&doc, "fit.maxwell2_all.rms_residual_mhz") < 0.02);
+    assert!(tf(&doc, "fit.maxwell2_all.max_abs_residual_mhz") < 0.05);
+    assert!(tf(&doc, "participation_check.max_abs_deviation") < 1e-3);
+    let k = tf(&doc, "fit.maxwell2_all.k");
+    for w in [
+        "fit.maxwell2_window.k",
+        "fit.maxwell3_all.k",
+        "fit.maxwell3_window.k",
+    ] {
+        assert!((tf(&doc, w) - k).abs() < 2e-5, "{w} vs {k}");
+    }
+    assert!((tf(&doc, "anchor.same_mesh_k") - k).abs() < 1e-6);
+    // RWA g at the crossing equals the circuit's half-splitting to 0.1 %.
+    let g = tf(&doc, "fit.maxwell2_all.g_crossing_mhz");
+    assert!((tf(&doc, "fit.rwa2_all.g_crossing_mhz") - g).abs() < 1e-3 * g);
+    // The 3λ/4 harmonic couples with the fundamental's k (an ideal λ/4 line).
+    assert!((tf(&doc, "anchor.three_mode_k3_over_k") - 1.0).abs() < 0.05);
+    assert!((tf(&doc, "anchor.three_mode_f3_over_fr") - 3.0).abs() < 0.01);
+    // Palace on the same mesh: frequencies to 3e-4, k to 1e-3, and the AMS
+    // solver of the h/2 cells reproduces SuperLU.
+    assert!(tf(&doc, "palace.max_rel_diff_h") < 3e-4);
+    assert!((tf(&doc, "palace.h_fit_k_over_geode") - 1.0).abs() < 1e-3);
+    assert!(tf(&doc, "palace.ams_control_max_rel_diff") < 1e-8);
+    // Palace on h/2: a good fit and a larger k.
+    assert!(tf(&doc, "palace_h2.rms_residual_mhz") < 0.02);
+    assert!(tf(&doc, "palace_h2.k_ratio_h2_over_h") > 1.2);
+    // The static proxy reproduces the #1051 tensor-eps C_Sigma levels, rises
+    // monotonically, and agrees with the eigen k on h to 5 %.
+    let conv: toml::Value = toml::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../benchmarks/transmon_diffopt/c_sigma_convergence.toml"
+        ))
+        .expect("read c_sigma_convergence.toml"),
+    )
+    .expect("parse c_sigma_convergence.toml");
+    let want = tarr(&conv, "tensor_eps.c_sigma_ff");
+    let got = tarr(&doc, "static_proxy.c_sigma_ff");
+    for (a, b) in got.iter().zip(&want) {
+        assert!((a - b).abs() < 1e-5, "static C_Sigma {a} vs #1051 {b}");
+    }
+    let ks = tarr(&doc, "static_proxy.k_static");
+    assert!(ks[0] < ks[1] && ks[1] < ks[2]);
+    assert!((tf(&doc, "static_proxy.k_eigen_over_k_static_h") - 1.0).abs() < 0.05);
+    assert!((tf(&doc, "anchor.k_eigen_over_k_static_h2") - 1.0).abs() < 0.05);
+    // Loop inductance: the fitted L_s matches the participation-based one.
+    let ls = tf(&doc, "loop_inductance.l_s_fit_nh");
+    let lp = tf(&doc, "loop_inductance.l_s_from_participation_median_nh");
+    assert!(
+        (ls - lp).abs() < 0.03 * lp,
+        "L_s fit {ls} vs participation {lp}"
+    );
+}
+
+/// Issue #1078 (default tier): the verdicts follow from the #1077 brackets
+/// and the bare-qubit target band, and the brackets match #1077's artifact
+/// when it is present.
+#[test]
+fn coupling_verdicts_follow_from_the_brackets() {
+    let doc = coupling_results();
+    let band = tarr(&doc, "anchor.bare_c_sigma_band_ff");
+    let verdict = |b: &[f64]| {
+        if b[0] > band[1] {
+            "above"
+        } else if b[1] < band[0] {
+            "below"
+        } else if b[0] <= band[0] && b[1] >= band[1] {
+            "contains"
+        } else {
+            "overlaps"
+        }
+    };
+    for name in ["design_1066", "resolution_corrected"] {
+        let b = tarr(&doc, &format!("verdicts.{name}_bracket_ff"));
+        assert_eq!(
+            tstr(&doc, &format!("verdicts.{name}_vs_bare_target")),
+            verdict(&b),
+            "{name}"
+        );
+    }
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml"
+    );
+    if let Ok(text) = std::fs::read_to_string(path) {
+        let br: toml::Value = toml::from_str(&text).expect("parse bracket artifact");
+        for (table, name) in [
+            ("adaptive_anchor_93p95", "design_1066"),
+            (
+                "adaptive_anchor_93p95_resolution_corrected",
+                "resolution_corrected",
+            ),
+        ] {
+            let rows = br[table].as_array().expect("bracket rows");
+            let mut lower = f64::NEG_INFINITY;
+            let mut upper = f64::INFINITY;
+            for r in rows {
+                for (k, v) in r.as_table().unwrap() {
+                    if let Some(x) = v.as_float() {
+                        if k.starts_with("lower_") {
+                            lower = lower.max(x);
+                        } else if k == "upper_ff" {
+                            upper = upper.min(x);
+                        }
+                    }
+                }
+            }
+            let b = tarr(&doc, &format!("verdicts.{name}_bracket_ff"));
+            assert!(
+                (b[0] - lower).abs() < 1e-9 && (b[1] - upper).abs() < 1e-9,
+                "{name}"
+            );
+        }
+    }
+}
+
+/// RELEASE (issue #1078): one A2 solve of the coupling sweep, at
+/// `L_J` = 6.60 nH next to the avoided crossing, reproduces the committed
+/// `[sweep]` row of `benchmarks/transmon_coupling/results.toml`.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_coupling_sweep_point_reproduces --nocapture
+/// ```
+#[test]
+#[ignore = "one 133k-DOF sparse shift-invert eigensolve — release benchmark only"]
+fn real_transmon_coupling_sweep_point_reproduces() {
+    use geode_core::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model;
+    use geode_core::eigen::transmon::JunctionPortModel;
+
+    const L_NH: f64 = 6.6;
+    let doc = coupling_results();
+    let ls = tarr(&doc, "sweep.l_j_nh");
+    let i = ls
+        .iter()
+        .position(|&l| (l - L_NH).abs() < 1e-9)
+        .expect("6.60 nH sweep point");
+    let want_f = [
+        tarr(&doc, "sweep.f_lower_ghz")[i],
+        tarr(&doc, "sweep.f_upper_ghz")[i],
+        tarr(&doc, "sweep.f_third_ghz")[i],
+    ];
+    let want_p = [
+        tarr(&doc, "sweep.p_lower")[i],
+        tarr(&doc, "sweep.p_upper")[i],
+    ];
+
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(L_NH * 1e-9, JUNCTION_C_F, M_PER_UNIT);
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt: LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        },
+        interior_mask: &interior_mask,
+    };
+    let sigma = lambda_shift_for_frequency_hz(5.0e9, M_PER_UNIT);
+    let (mut modes, diag) = solve_transmon_eigenmodes_projected_with_port_model(
+        &pencil,
+        JunctionPortModel::PortVoltage { e_hat: jport.e_hat },
+        sigma,
+        3,
+        M_PER_UNIT,
+    )
+    .expect("A2 bulk-projected eigensolve");
+    modes.sort_by(|a, b| a.frequency_hz.total_cmp(&b.frequency_hz));
+    for (b, m) in modes.iter().enumerate() {
+        let r = (m.frequency_ghz() - want_f[b]).abs() / want_f[b];
+        eprintln!(
+            "mode {b}: {:.9} GHz (committed {:.9}), p = {:.6}",
+            m.frequency_ghz(),
+            want_f[b],
+            m.participation
+        );
+        assert!(
+            r < 1e-8,
+            "mode {b}: {} vs {} GHz",
+            m.frequency_ghz(),
+            want_f[b]
+        );
+    }
+    for b in 0..2 {
+        assert!(
+            (modes[b].participation - want_p[b]).abs() < 1e-5,
+            "participation {b}"
+        );
+    }
+    assert!(diag.mode_residual_rels.iter().all(|&r| r <= 1e-6));
+    // The splitting at this point is within 2 % of twice the fitted g.
+    let g = tf(&doc, "fit.maxwell2_all.g_crossing_mhz") * 1e-3;
+    let split = modes[1].frequency_ghz() - modes[0].frequency_ghz();
+    assert!(
+        split > 2.0 * g && split < 2.04 * g,
+        "splitting {split} vs 2g {}",
+        2.0 * g
+    );
+}

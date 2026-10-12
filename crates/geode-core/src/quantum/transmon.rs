@@ -63,14 +63,38 @@
 //! treats the resonator as ground, so the pure-LC inversion reads a
 //! hybridized mode as the bare qubit. Level repulsion pushes the Palace mode
 //! down, so the bare-qubit-consistent `C_Σ` target is **below** 93.9537 fF.
-//! First order (an estimate; `g` is not measured here): the shift is
-//! `g² (1/Δ + 1/Σ)` with Δ = 1.451 GHz and Σ = 9.731 GHz, so
-//! `g/2π` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, about 0.10, 0.24,
-//! 0.38 fF in `C_Σ`. #1043's same-mesh Palace-vs-LC offset (0.281 %,
-//! 3.452751 vs 3.462456 GHz) mixes in solver and permittivity-model
-//! differences; read it as a ceiling of about 0.3 % in frequency, about
-//! 0.6 fF in `C_Σ`, not a bound. Anchor-relative figures smaller than that
-//! are not resolved by this anchor.
+//! [`TransmonAnchor::devicelayout`] is kept unchanged as the dressed anchor.
+//!
+//! # The bare-qubit anchor (issue #1078)
+//!
+//! [`TransmonAnchor::devicelayout_bare`] removes the hybridization with a
+//! measured coupling. An avoided-crossing `L_J` sweep on the committed
+//! fixture fits the capacitively coupled two-node circuit
+//! ([`coupled_lc_dressed_pair_hz`]) to 6 kHz RMS over 4–30 nH, with
+//! `k = 0.01787` (`g/2π` = 46.0 MHz at the 5.15 GHz crossing); Palace on the
+//! same mesh gives the same `k` to 3e-5. Palace on one uniform refinement
+//! gives `k = 0.02280`, and a static region-split proxy rises over three
+//! levels, so the coupling is not mesh-converged. The anchor uses the
+//! extrapolated [`DEVICELAYOUT_COUPLING_K`] = 0.0288, with the band
+//! [`DEVICELAYOUT_COUPLING_K_BAND`] = [0.0227, 0.0310]:
+//! - bare qubit frequency about 4.1421 GHz, `C_Σ ≈ 93.853 fF`, 0.100 fF
+//!   below the dressed anchor;
+//! - over the band, with the resonator's odd harmonics, `C_Σ` in
+//!   [93.826, 93.892] fF (shift 0.062–0.128 fF).
+//!
+//! These are inferences resting on two assumptions: the converged-`k`
+//! extrapolation, and that one `k` describes DeviceLayout's own run (whose
+//! mesh is not geode's). Evidence and rules:
+//! `benchmarks/transmon_coupling/results.toml`
+//! (`examples/transmon_coupling_g.rs`).
+//!
+//! The same sweep finds a series loop inductance `L_s ≈ 0.08 nH` in the
+//! qubit mode (`[loop_inductance]` there): about 0.5 % of its inductive
+//! energy lies outside the junction. It predicts a 0.27 % downshift from
+//! the pure-LC frequency, most of #1043's 0.28 % same-mesh Palace-vs-LC
+//! offset, and reading 4.14 GHz through `L_J` alone ignores it. That would move the target down by roughly another 0.5 fF;
+//! it is an inference on unconverged meshes and is **not** applied by any
+//! anchor here (follow-up #1079).
 //!
 //! # Exact oracle: Koch 2007 charge-basis diagonalization
 //!
@@ -317,10 +341,108 @@ pub fn total_capacitance_from_harmonic_frequency(frequency_hz: f64, l_henry: f64
 /// of 2026-10-11 on #1063: the anchor is this published value.
 ///
 /// This is the lower of two coupled, resonator-hybridized eigenmodes, so the
-/// bare-qubit-consistent `C_Σ` is below the one derived from it (see the
-/// module docs: an estimated 0.1–0.4 fF at `g/2π` = 50–100 MHz, with a
-/// ceiling of about 0.6 fF from #1043's 0.281 % offset).
+/// bare-qubit-consistent `C_Σ` is below the one derived from it:
+/// [`TransmonAnchor::devicelayout_bare`] (issue #1078) puts it 0.100 fF
+/// lower, with a band of 0.062–0.128 fF.
 pub const DEVICELAYOUT_QUBIT_FREQUENCY_HZ: f64 = 4.14e9;
+
+/// The published DeviceLayout SingleTransmon readout-resonator frequency
+/// (Hz): the upper mode of the same "[4.14, 5.591] GHz" pair as
+/// [`DEVICELAYOUT_QUBIT_FREQUENCY_HZ`] (issue #1078).
+pub const DEVICELAYOUT_RESONATOR_FREQUENCY_HZ: f64 = 5.591e9;
+
+/// The qubit–resonator coupling `k` used for the bare-qubit anchor
+/// [`TransmonAnchor::devicelayout_bare`] (issue #1078): the normalized
+/// Maxwell coupling `k = C_g / √(C_q C_r)` of the two-node circuit of
+/// [`coupled_lc_dressed_pair_hz`], dimensionless.
+///
+/// An extrapolation, not a measurement: `k` was measured as 0.017866 on the
+/// committed fixture (geode, and Palace to 3e-5) and as 0.022798 on one
+/// uniform refinement (Palace), and a static region-split proxy rises from
+/// 0.0180 to 0.0268 over three levels. This value is the midpoint of four
+/// converged-`k` estimates built from those
+/// (`benchmarks/transmon_coupling/results.toml`, `[anchor].k_rule`; the
+/// generator asserts it).
+pub const DEVICELAYOUT_COUPLING_K: f64 = 0.0288;
+
+/// The band of `k` behind the bare-qubit anchor's uncertainty (issue
+/// #1078), `(low, high)`: the refined-mesh Palace value floored (`k` rises
+/// under refinement at every measured level, so the converged value is
+/// above it; an inference, not a bound) and the static proxy's
+/// geometric-tail limit ceiled.
+pub const DEVICELAYOUT_COUPLING_K_BAND: (f64, f64) = (0.0227, 0.0310);
+
+/// Normal-mode frequencies (Hz, ascending) of two capacitively coupled LC
+/// nodes in **Maxwell form** (issue #1078).
+///
+/// The nodes have capacitance matrix `[[C_q, −C_g], [−C_g, C_r]]` (Maxwell
+/// diagonals: each node's capacitance with the other held at 0 V) and
+/// inductances `L_q`, `L_r`. `f_q_hz = 1/(2π √(L_q C_q))` and
+/// `f_r_hz = 1/(2π √(L_r C_r))` are the node-grounded frequencies, and
+/// `k = C_g / √(C_q C_r)`. The normal modes solve
+///
+/// ```text
+///   (f_q² − f²)(f_r² − f²) = k² f⁴.
+/// ```
+///
+/// The Hamiltonian (rotating-wave) bare frequencies of the same circuit are
+/// `f / √(1 − k²)`; with `g = (k/2) √(f̃_q f̃_r)` in those, the rotating-wave
+/// formula `f = (f̃_q + f̃_r)/2 ± √(((f̃_q − f̃_r)/2)² + g²)` is this
+/// equation to leading order.
+///
+/// # Panics
+///
+/// Panics if a frequency is not strictly positive or `k` is not in `[0, 1)`.
+pub fn coupled_lc_dressed_pair_hz(f_q_hz: f64, f_r_hz: f64, k: f64) -> (f64, f64) {
+    assert!(
+        f_q_hz > 0.0 && f_r_hz > 0.0,
+        "frequencies must be positive, got {f_q_hz}, {f_r_hz}"
+    );
+    assert!((0.0..1.0).contains(&k), "k must be in [0, 1), got {k}");
+    let (a, b) = (f_q_hz * f_q_hz, f_r_hz * f_r_hz);
+    let q = 1.0 - k * k;
+    let disc = ((a + b) * (a + b) - 4.0 * q * a * b).sqrt();
+    (
+        ((a + b - disc) / (2.0 * q)).sqrt(),
+        ((a + b + disc) / (2.0 * q)).sqrt(),
+    )
+}
+
+/// The inverse of [`coupled_lc_dressed_pair_hz`] (issue #1078): the two
+/// node-grounded frequencies (Hz, ascending) of the Maxwell-form circuit
+/// whose normal modes are `f_lo_hz < f_hi_hz` at coupling `k`. Exact for
+/// the two-node circuit:
+///
+/// ```text
+///   f_q² + f_r² = (1 − k²)(f_lo² + f_hi²),   f_q² f_r² = (1 − k²) f_lo² f_hi².
+/// ```
+///
+/// Which root is the qubit is not decided by the circuit. For DeviceLayout's
+/// pair the lower dressed mode is the qubit-like one, so the qubit is the
+/// lower root.
+///
+/// # Panics
+///
+/// Panics if a frequency is not strictly positive, if `f_lo_hz ≥ f_hi_hz`,
+/// if `k` is not in `[0, 1)`, or if no real bare pair exists (the splitting
+/// is too small for `k`).
+pub fn coupled_lc_bare_pair_hz(f_lo_hz: f64, f_hi_hz: f64, k: f64) -> (f64, f64) {
+    assert!(
+        f_lo_hz > 0.0 && f_lo_hz < f_hi_hz,
+        "need 0 < f_lo < f_hi, got {f_lo_hz}, {f_hi_hz}"
+    );
+    assert!((0.0..1.0).contains(&k), "k must be in [0, 1), got {k}");
+    let q = 1.0 - k * k;
+    let (x1, x2) = (f_lo_hz * f_lo_hz, f_hi_hz * f_hi_hz);
+    let (s, p) = (q * (x1 + x2), q * x1 * x2);
+    let disc = s * s - 4.0 * p;
+    assert!(
+        disc >= 0.0,
+        "no real bare pair: the splitting of ({f_lo_hz}, {f_hi_hz}) Hz is below the minimum for k = {k}"
+    );
+    let r = disc.sqrt();
+    (((s - r) / 2.0).sqrt(), ((s + r) / 2.0).sqrt())
+}
 
 /// A transmon design anchor derived from a harmonic qubit frequency and the
 /// junction's lumped `L_J ∥ C_J` (issue #1066). Every field follows from
@@ -383,6 +505,48 @@ impl TransmonAnchor {
     pub fn devicelayout() -> Self {
         Self::from_harmonic(
             DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
+            crate::mesh::transmon::JUNCTION_INDUCTANCE_H,
+            crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
+        )
+    }
+
+    /// The bare-qubit DeviceLayout anchor (issue #1078): the DeviceLayout
+    /// dressed pair ([`DEVICELAYOUT_QUBIT_FREQUENCY_HZ`],
+    /// [`DEVICELAYOUT_RESONATOR_FREQUENCY_HZ`]) un-hybridized with the
+    /// measured coupling [`DEVICELAYOUT_COUPLING_K`]. See
+    /// [`TransmonAnchor::devicelayout_bare_with_coupling`].
+    pub fn devicelayout_bare() -> Self {
+        Self::devicelayout_bare_with_coupling(DEVICELAYOUT_COUPLING_K)
+    }
+
+    /// The bare-qubit DeviceLayout anchor at coupling `k` (issue #1078).
+    ///
+    /// [`coupled_lc_bare_pair_hz`] inverts the dressed pair `[4.14, 5.591]`
+    /// GHz to the node-grounded qubit frequency (the lower root), and
+    /// [`TransmonAnchor::from_harmonic`] reads it with `L_J` and `C_J`.
+    /// That frequency is the one geode's `C_Σ` describes: `C_Σ` is the
+    /// island's Maxwell diagonal with the resonator at 0 V, so
+    /// `1/(2π √(L_J (C_Σ + C_J)))` is the qubit frequency with the resonator
+    /// shorted. The Hamiltonian (rotating-wave) bare frequency of the same
+    /// circuit is higher by a factor `1/√(1 − k²)` and is not the quantity
+    /// `C_Σ` describes.
+    ///
+    /// The bare `C_Σ` is below [`TransmonAnchor::devicelayout`]'s, by an
+    /// amount close to proportional to `k²`. Assumption: one `k` describes
+    /// DeviceLayout's run; it was measured on geode's meshes, not theirs
+    /// (`benchmarks/transmon_coupling/results.toml`).
+    ///
+    /// # Panics
+    ///
+    /// As [`coupled_lc_bare_pair_hz`].
+    pub fn devicelayout_bare_with_coupling(k: f64) -> Self {
+        let (f_q, _) = coupled_lc_bare_pair_hz(
+            DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
+            DEVICELAYOUT_RESONATOR_FREQUENCY_HZ,
+            k,
+        );
+        Self::from_harmonic(
+            f_q,
             crate::mesh::transmon::JUNCTION_INDUCTANCE_H,
             crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
         )
@@ -672,6 +836,64 @@ pub fn minev_participation(junction_inductive: f64, total_inductive: f64) -> f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1078: the Maxwell-form dressed pair and its inverse round-trip,
+    /// `k = 0` is the identity, and the modes satisfy the defining equation.
+    #[test]
+    fn coupled_lc_pair_roundtrip() {
+        for &(fq, fr, k) in &[
+            (4.142e9, 5.59e9, 0.03),
+            (5.1e9, 5.2e9, 0.018),
+            (3.45e9, 5.15e9, 0.05),
+            (6.6e9, 5.15e9, 0.02),
+        ] {
+            let (lo, hi) = coupled_lc_dressed_pair_hz(fq, fr, k);
+            assert!(lo < fq.min(fr) && hi > fq.max(fr), "level repulsion");
+            for f in [lo, hi] {
+                let lhs = (fq * fq - f * f) * (fr * fr - f * f);
+                let rhs = k * k * f.powi(4);
+                assert!((lhs - rhs).abs() <= 1e-10 * rhs.max(1e30), "{lhs} vs {rhs}");
+            }
+            let (a, b) = coupled_lc_bare_pair_hz(lo, hi, k);
+            assert!((a - fq.min(fr)).abs() < 1e-3 && (b - fq.max(fr)).abs() < 1e-3);
+        }
+        let (a, b) = coupled_lc_bare_pair_hz(4.14e9, 5.591e9, 0.0);
+        assert!((a - 4.14e9).abs() < 1e-3 && (b - 5.591e9).abs() < 1e-3);
+    }
+
+    /// Issue #1078: to leading order the Maxwell circuit is the
+    /// rotating-wave formula in its Hamiltonian bare frequencies
+    /// `f / √(1 − k²)` with `g = (k/2) √(f̃_q f̃_r)`. At resonance the
+    /// splitting is `2g` to relative order `k`.
+    #[test]
+    fn coupled_lc_matches_rotating_wave_at_resonance() {
+        let (f0, k) = (5.15e9_f64, 0.02);
+        let (lo, hi) = coupled_lc_dressed_pair_hz(f0, f0, k);
+        let g = 0.5 * k * f0 / (1.0 - k * k).sqrt();
+        let rel = ((hi - lo) - 2.0 * g).abs() / (2.0 * g);
+        assert!(rel < 2.0 * k, "splitting {} vs 2g {}", hi - lo, 2.0 * g);
+    }
+
+    /// Issue #1078: the bare-qubit anchor sits above 4.14 GHz and below the
+    /// dressed anchor's `C_Σ`, its shift grows with `k`, and `k = 0` is the
+    /// dressed anchor.
+    #[test]
+    fn devicelayout_bare_anchor_is_below_the_dressed_one() {
+        let dressed = TransmonAnchor::devicelayout();
+        let at0 = TransmonAnchor::devicelayout_bare_with_coupling(0.0);
+        assert!((at0.c_sigma_farad - dressed.c_sigma_farad).abs() < 1e-24);
+        let bare = TransmonAnchor::devicelayout_bare();
+        assert!(bare.frequency_hz > DEVICELAYOUT_QUBIT_FREQUENCY_HZ);
+        assert!(bare.c_sigma_farad < dressed.c_sigma_farad);
+        let (lo, hi) = DEVICELAYOUT_COUPLING_K_BAND;
+        assert!(lo <= DEVICELAYOUT_COUPLING_K && DEVICELAYOUT_COUPLING_K <= hi);
+        let c = |k: f64| TransmonAnchor::devicelayout_bare_with_coupling(k).c_sigma_farad;
+        assert!(c(hi) < c(DEVICELAYOUT_COUPLING_K) && c(DEVICELAYOUT_COUPLING_K) < c(lo));
+        // The shift is close to proportional to k²: 4x for 2x k, to 1 %.
+        let s = |k: f64| dressed.c_sigma_farad - c(k);
+        let r = s(0.04) / s(0.02);
+        assert!((r - 4.0).abs() < 0.04, "shift ratio {r}");
+    }
 
     /// E_J from the DeviceLayout junction inductance is 11.00 GHz (the
     /// curator-confirmed anchor, E_J/h = 11.0001 GHz).

@@ -26,7 +26,8 @@ inversion above reads a hybridized mode as if it were the bare qubit.
 - **Sign.** Level repulsion from the 5.591 GHz mode pushes the Palace mode
   down. The bare-qubit-consistent `C_Sigma` target is therefore **below**
   93.9537 fF.
-- **First-order size (an estimate; `g` is not measured here).** The shift is
+- **First-order size (the #1066 estimate; `g` is now measured, see
+  [Bare-qubit target](#bare-qubit-target-and-the-certified-brackets-1078)).** The shift is
   `g^2 (1/Delta + 1/Sigma)` with `Delta` = 1.451 GHz and `Sigma` = 9.731 GHz.
   `g / 2 pi` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, which is about 0.10,
   0.24, 0.38 fF in `C_Sigma`.
@@ -41,6 +42,12 @@ inversion above reads a hybridized mode as if it were the bare qubit.
   anchor". The "at least 1.01 % below" figure survives, with its margin
   shrinking to about 0.4 % at the ceiling.
 - Source spread: the Palace tutorial's own 4.0991 GHz would give about 95.95 fF.
+- **Measured (#1078).** The coupling is now measured and the hybridization
+  removed: the bare-qubit target is **93.853 fF**, band 93.826 to 93.892 fF
+  (`TransmonAnchor::devicelayout_bare`). See
+  [Bare-qubit target](#bare-qubit-target-and-the-certified-brackets-1078). The
+  dressed 93.9537 fF anchor above is kept, and every figure in this README
+  that says "anchor" still means it.
 
 The derivation lives in one place,
 `geode_core::quantum::transmon::TransmonAnchor::devicelayout`. The generator
@@ -217,6 +224,95 @@ DeviceLayout publishes 4.14 GHz for X0 on its own mesh. On these meshes:
 `tests/transmon_diffopt.rs` (`committed_bounds_imply_harmonic_frequencies` and
 the two #1066 pin tests) recomputes every entry of this table from the
 committed bounds.
+
+## Bare-qubit target and the certified brackets (#1078)
+
+#1078 measures the qubit-resonator coupling and removes the hybridization from
+the anchor. Artifact: `../../transmon_coupling/results.toml` (generator
+`examples/transmon_coupling_g.rs`; Palace cells in
+`reference/fixtures/transmon_palace/results_coupling_1078/`).
+
+**The coupling, measured.**
+- **Sweep.** `L_J` takes 27 values from 4 to 30 nH on the committed
+  133k-tet fixture, with the A2 port-voltage shunt. The bare qubit crosses the
+  5.15 GHz lambda/4 resonator near 6.6 nH. The smallest sampled splitting is
+  92.15 MHz.
+- **Fit.** The model is two capacitively coupled LC nodes in Maxwell form,
+  `(f_q^2 - f^2)(f_r^2 - f^2) = k^2 f^4`, with `f_q = a / sqrt(L_J + L_s)`.
+  It fits all 54 branch frequencies to 6 kHz RMS (largest residual 28 kHz).
+  The result is `k` = 0.017866, so `g / 2 pi` = 46.02 MHz at the crossing.
+- **Model checks.**
+  - The fitted circuit's eigenvectors match the solved junction
+    participations to 5e-5.
+  - A third node for the 3 lambda/4 harmonic (15.46 GHz) gets the same
+    coupling (`k_3 / k` = 0.988), as an ideal lambda/4 line predicts.
+  - Without `L_s`, a series loop inductance discussed below, the residuals
+    reach 25 MHz.
+- **Palace, same mesh.** At 6.40, 6.60 and 6.80 nH, the frequencies agree to
+  2.5e-4 and `k` agrees to 3e-5 (0.017865).
+- **Not mesh-converged.** On one uniform refinement (h/2), nine Palace cells
+  give `k` = 0.022798 (`g / 2 pi` = 61.70 MHz), 28 % higher than on h.
+- **Static proxy.** The resonator trace is carved out of the ground as its
+  own electrode, and the coupling is computed as
+  `k_s = C_g / sqrt((C_Sigma + C_J) C_rr / 2)` (tensor eps, P1). It rises
+  from 0.01804 (h) to 0.02361 (h/2) to 0.02679 (h/4). The eigen `k` is 0.990
+  of it on h and 0.965 of it on h/2.
+
+**The anchor's coupling.** `k` rises at every measured level, so the anchor
+uses an extrapolation, not a bound:
+- four converged-`k` estimates span 0.0277 to 0.0299;
+- the central value is `k` = 0.0288, with the band [0.0227, 0.0310];
+- the band runs from the h/2 value to the static proxy's geometric-tail
+  limit.
+
+**The bare-qubit target.** The Maxwell-form inversion of DeviceLayout's pair
+(4.14, 5.591) GHz gives the qubit frequency with the resonator held at 0 V.
+That is the frequency `C_Sigma` describes, because `C_Sigma` grounds the
+resonator.
+- At `k` = 0.0288: `f_q` = 4.14209 GHz and **`C_Sigma` = 93.853 fF**,
+  0.100 fF below the dressed anchor.
+- Over the band, with the resonator's odd harmonics: **93.826 to 93.892 fF**,
+  that is 0.062 to 0.128 fF below the anchor.
+- **Transfer assumption.** One `k` describes DeviceLayout's own run, whose
+  mesh is not geode's. The band uses this geometry's converged coupling. If
+  DeviceLayout's 4.14 GHz came from a mesh as coarse as the fixture
+  (`k` = 0.0179), the target would be 93.915 fF instead.
+
+**Verdicts against the #1075 brackets.**
+
+| Geometry | Certified bracket (fF) | Minus the target at `k` = 0.0288 (fF) | Over the whole band (fF) | Verdict |
+|---|---|---|---|---|
+| #1066 design | [92.75, 93.00] | -1.095 to -0.854 | -1.133 to -0.827 | **below** |
+| #1066 resolution-corrected design | [93.89, 94.14] | +0.038 to +0.283 | +0.0002 to +0.310 | **above** |
+
+The differences use the unrounded bounds and are rounded outward.
+- **The resolution-corrected design's certified bracket does not contain the
+  bare-qubit target.** At the central `k` its converged `C_Sigma` is 0.038 to
+  0.283 fF above the target. Through the same linear model, its qubit would
+  sit about 0.8 to 5.9 MHz below 4.14 GHz (an inference).
+- **The margin at the band's low end is not resolved.** There, with `k` at
+  its h/2 value, the bracket's lower bound clears the target by only
+  0.0002 fF. "Above" therefore holds across the band only if the converged
+  `k` exceeds the h/2 value. Every measured level points that way, but that is
+  an inference.
+- **The #1066 design stays below the target**, by at least 0.82 fF.
+- **The two bare-frequency definitions differ here.** The issue's
+  rotating-wave recipe, with this mesh's `g` = 46.02 MHz as an absolute
+  frequency, gives 93.883 fF, also below the corrected design's lower bound.
+  The Maxwell form at the same `k` gives 93.915 fF, inside it. The
+  rotating-wave bare frequency is the Hamiltonian one, higher by
+  `1/sqrt(1 - k^2)`, and is not what `C_Sigma` describes.
+
+**Not applied: a series loop inductance.** The sweep also finds
+`L_s` = 0.079 nH in the qubit mode, from the fit and, independently, from the
+participations. That is about 0.5 % of its inductive energy outside the
+junction (Palace on h/2: 0.093 nH).
+- It predicts a 0.27 % downshift from the pure-LC frequency at 14.86 nH,
+  which is most of #1043's 0.28 % offset.
+- `TransmonAnchor` reads 4.14 GHz through `L_J` alone. Taking `L_s` into
+  account would lower the target by roughly another 0.5 fF. This is an
+  inference on unconverged meshes, and no anchor applies it; see
+  `[loop_inductance]` in the artifact and the follow-up #1079.
 
 ## Cross-solver check at the 93.9537 fF anchor (same discretization)
 

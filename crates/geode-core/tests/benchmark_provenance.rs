@@ -152,6 +152,11 @@ const MANIFEST: &[Entry] = &[
          tm_guard_excitation_table --nocapture (needs gmsh on PATH)",
     ),
     a(
+        "benchmarks/transmon_coupling/results.toml",
+        "cargo run -p geode-core --release --example transmon_coupling_g (issue #1078; reads the \
+         committed Palace cells of reference/fixtures/transmon_palace/results_coupling_1078/)",
+    ),
+    a(
         "benchmarks/periodic/results.toml",
         "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
          -- --ignored regenerate_periodic_results",
