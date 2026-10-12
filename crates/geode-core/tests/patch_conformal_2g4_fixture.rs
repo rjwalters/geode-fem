@@ -371,10 +371,13 @@ fn check_baseline(level: &str, sha: &str, flat_sha: Option<&str>) {
         .iter()
         .map(num)
         .collect();
+    // The artifact stores omega with 10 significant digits (`{:.9e}`), so
+    // compare relatively, as for the sweep rows below.
     for (w, g) in band_w.iter().zip(&band) {
+        let expect = ghz_to_omega_mm(*g);
         assert!(
-            (w - ghz_to_omega_mm(*g)).abs() < 1e-12,
-            "band omega {w} vs {g} GHz"
+            (w - expect).abs() < 1e-9 * expect,
+            "band omega {w} vs {g} GHz ({expect})"
         );
     }
     assert_eq!(num(&meta["port_resistance_ohm"]), 50.0);

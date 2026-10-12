@@ -1,0 +1,4 @@
+# Python generator bend vs Rust PatchFixture::bent_conformal on the committed smoke mesh (#1084)
+# (python3 bend_nodes(R = 40, pml = 8) vs read_patch_smoke_curved_fixture, one-off test, removed after the run)
+python vs rust bend: max |dx| = 0.000e0 mm over 997 nodes (516 moved by the bend)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

@@ -1,0 +1,24 @@
++ gmsh -3 -format msh41 -o crates/geode-core/tests/fixtures/patch_conformal_L0.flat.msh -setnumber patch_w 38.0 -setnumber patch_l 29.0 -setnumber h 1.6 -setnumber sub_pad 12.0 -setnumber probe_w 1.6 -setnumber probe_inset 7.0 -setnumber air_margin 40.0 -setnumber pml_thick 25.0 -setnumber lc_patch 4.5 -setnumber lc_sub 1.6 -setnumber lc_port 1.2 -setnumber lc_far 20.0 -setnumber dist_far 40.0 -setnumber lc_pml 12.5 <repo>/reference/gmsh/patch_antenna.geo
+
+--- mesh quality report ---
+nodes:            6114
+tets:             31225
+tagged triangles: 6694
+unique edges:     38650  (budget 150000)
+inverted tets:    0
+min dihedral:     7.70 deg  (gate 5.0)
+total volume:     4.6239e+06 mm^3
+substrate layers: 1.00  (median h / tet z-extent, flat mesh)
+  (3, 1) substrate           9849 tets
+  (3, 2) air                15485 tets
+  (3, 3) upml                5891 tets
+  (2,11) port                  12 tris
+  (2,12) patch               1042 tris
+  (2,13) ground              3016 tris
+  (2,14) outer_boundary      2624 tris
+bend radius:      100.0 mm (axis x = 0, z = -99.2 mm)
+min vol ratio:    0.4628  (gate 0.2)
+patch on arc:     max |r - R_patch| = 1.421e-14 mm
+ground on arc:    max |r - R_ground| = 1.421e-14 mm
+
+OK — wrote crates/geode-core/tests/fixtures/patch_conformal_L0.msh and crates/geode-core/tests/fixtures/patch_conformal_L0.provenance.txt
