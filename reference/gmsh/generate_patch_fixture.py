@@ -17,12 +17,27 @@ Pipeline:
        - minimum dihedral angle is reported (and gated),
        - unique-edge count stays within the sparse-LU budget,
        - all expected physical groups are present and populated,
-  4. write a ``<output>.provenance.txt`` next to the mesh.
+  4. optionally (YAML ``bend:`` section, issue #1084) wrap the flat mesh
+     into a **curved conformal** patch: the exact node map of
+     ``PatchFixture::bent_conformal`` in ``crates/geode-core/src/mesh/
+     patch.rs`` (cylinder of radius ``bend_radius`` about an axis parallel
+     to y through ``(x = 0, z = h/2 - R)``, windowed to the identity at the
+     UPML inner wall). The bent mesh is written to ``<output>`` and the flat
+     mesh it came from (same topology, node for node) to
+     ``<output stem>.flat.msh``,
+  5. write a ``<output>.provenance.txt`` next to the mesh: sha256 (of both
+     meshes when bent), quality report, edge/node/tet counts, substrate
+     layers, per-region element sizes and elements per wavelength
+     (``band:`` section) in air (lambda_0) and in the substrate (lambda_d).
 
 Usage:
-  python3 reference/gmsh/generate_patch_fixture.py \
+  python3 reference/gmsh/generate_patch_fixture.py [--max-edges N] \
       reference/gmsh/patch_2g4_benchmark.yaml \
       crates/geode-core/tests/fixtures/patch_2g4.msh
+
+``--max-edges`` overrides the default sparse-LU edge budget
+(``MAX_EDGES``) for deliberately large refinement levels that are
+regenerated rather than committed.
 
 Exit status is non-zero if generation or any quality gate fails.
 """
@@ -60,8 +75,27 @@ EXPECTED_GROUPS = [
 GEO_PARAMS = {
     "patch": ["patch_w", "patch_l", "h", "sub_pad", "probe_w", "probe_inset"],
     "domain": ["air_margin", "pml_thick"],
-    "mesh": ["lc_patch", "lc_sub", "lc_port", "lc_far", "dist_far"],
+    "mesh": [
+        "lc_patch",
+        "lc_sub",
+        "lc_port",
+        "lc_far",
+        "dist_far",
+        "lc_air",
+        "lc_pml",
+        "sub_zpad",
+        "sub_box_thick",
+    ],
 }
+
+# Speed of light in mm/s (lengths are in mm; matches
+# geode_core::constants::C_MM_PER_S).
+C_MM_PER_S = 299_792_458.0e3
+
+# Minimum per-tet signed-volume ratio (bent / flat) accepted for a bent
+# mesh — the same floor the Rust bend test asserts
+# (curved_conformal_bend_is_valid_and_actually_curved).
+MIN_BEND_VOL_RATIO = 0.2
 
 
 def parse_simple_yaml(path: Path) -> dict:
@@ -207,6 +241,181 @@ def parse_msh(path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Curved conformal bend (issue #1084) — mirrors PatchFixture::bent_conformal.
+# ---------------------------------------------------------------------------
+
+
+def substrate_box(nodes, tets):
+    """AABB over the nodes of the substrate (tag 1) tets."""
+    lo = [math.inf] * 3
+    hi = [-math.inf] * 3
+    for phys, conn in tets:
+        if phys != 1:
+            continue
+        for tag in conn:
+            p = nodes[tag]
+            for k in range(3):
+                lo[k] = min(lo[k], p[k])
+                hi[k] = max(hi[k], p[k])
+    return lo, hi
+
+
+def air_box(nodes, pml_thick):
+    """Domain AABB shrunk by the UPML thickness (PatchFixture::air_box)."""
+    lo = [math.inf] * 3
+    hi = [-math.inf] * 3
+    for p in nodes.values():
+        for k in range(3):
+            lo[k] = min(lo[k], p[k])
+            hi[k] = max(hi[k], p[k])
+    return [v + pml_thick for v in lo], [v - pml_thick for v in hi]
+
+
+def _smoothstep(t):
+    t = min(1.0, max(0.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _ramp(v, s_lo, s_hi, a_lo, a_hi):
+    if v > s_hi:
+        return _smoothstep((a_hi - v) / max(a_hi - s_hi, 1e-12))
+    if v < s_lo:
+        return _smoothstep((v - a_lo) / max(s_lo - a_lo, 1e-12))
+    return 1.0
+
+
+def bend_nodes(nodes, tets, bend_radius, pml_thick):
+    """Cylindrical conformal bend, node for node identical to
+    ``PatchFixture::bent_conformal(bend_radius, pml_thick)`` in Rust.
+
+    Returns ``(bent_nodes, z0)`` where ``z0`` is the substrate mid-plane (the
+    bend axis sits at ``(x = 0, z = z0 - bend_radius)``)."""
+    sub_lo, sub_hi = substrate_box(nodes, tets)
+    a_lo, a_hi = air_box(nodes, pml_thick)
+    z0 = 0.5 * (sub_lo[2] + sub_hi[2])
+    r_bend = max(bend_radius, 1e-6)
+    bent = {}
+    for tag, (x, y, z) in nodes.items():
+        wx = _ramp(x, sub_lo[0], sub_hi[0], a_lo[0], a_hi[0])
+        wy = _ramp(y, sub_lo[1], sub_hi[1], a_lo[1], a_hi[1])
+        wz = _ramp(z, sub_lo[2], sub_hi[2], a_lo[2], a_hi[2])
+        w = wx * wy * wz
+        if w == 0.0:
+            bent[tag] = (x, y, z)
+            continue
+        phi = x / r_bend
+        r = r_bend + (z - z0)
+        bx = r * math.sin(phi)
+        bz = z0 + r * math.cos(phi) - r_bend
+        bent[tag] = (x + w * (bx - x), y, z + w * (bz - z))
+    return bent, z0
+
+
+def write_msh_with_nodes(src: Path, dst: Path, nodes) -> None:
+    """Copy an MSH 4.1 ASCII file, replacing only the node coordinates."""
+    lines = src.read_text().splitlines(keepends=True)
+    start = next(i for i, l in enumerate(lines) if l.strip() == "$Nodes")
+    end = next(i for i, l in enumerate(lines) if l.strip() == "$EndNodes")
+    out = lines[: start + 2]  # "$Nodes" + header
+    row = start + 2
+    n_blocks = int(lines[start + 1].split()[0])
+    for _ in range(n_blocks):
+        header = lines[row]
+        out.append(header)
+        n_in_block = int(header.split()[3])
+        row += 1
+        tags = [int(lines[row + i]) for i in range(n_in_block)]
+        out.extend(lines[row : row + n_in_block])
+        row += n_in_block
+        for tag in tags:
+            x, y, z = nodes[tag]
+            out.append(f"{x!r} {y!r} {z!r}\n")
+        row += n_in_block
+    assert row == end, "node section parse mismatch"
+    out.extend(lines[end:])
+    dst.write_text("".join(out))
+
+
+def min_volume_ratio(flat_nodes, bent_nodes, tets) -> float:
+    worst = math.inf
+    for _, conn in tets:
+        v0 = signed_volume(*[flat_nodes[t] for t in conn])
+        v1 = signed_volume(*[bent_nodes[t] for t in conn])
+        if v0 != 0.0:
+            worst = min(worst, v1 / v0)
+    return worst
+
+
+def cylinder_residual(bent_nodes, tris, tag, radius, z_axis) -> float:
+    """Max | |(x, z) - axis| - radius | over the nodes of tagged triangles."""
+    worst = 0.0
+    seen = set()
+    for phys, conn in tris:
+        if phys != tag:
+            continue
+        for n in conn:
+            if n in seen:
+                continue
+            seen.add(n)
+            x, _, z = bent_nodes[n]
+            worst = max(worst, abs(math.hypot(x, z - z_axis) - radius))
+    return worst
+
+
+# ---------------------------------------------------------------------------
+# Resolution statistics (issue #1084): per-region element sizes, substrate
+# layers, elements per wavelength.
+# ---------------------------------------------------------------------------
+
+
+def region_edge_stats(nodes, tets) -> dict:
+    """Per-region (tet physical tag) ``(mean, p95, max)`` tet edge length
+    (mm), over the six edges of every tet of the region. gmsh honours size
+    fields only approximately, so a few percent of edges run well past the
+    target; the 95th percentile is the robust "coarsest typical" size."""
+    acc: dict = {}
+    for phys, conn in tets:
+        lst = acc.setdefault(phys, [])
+        for i in range(4):
+            for j in range(i + 1, 4):
+                lst.append(_norm(_sub(nodes[conn[i]], nodes[conn[j]])))
+    out = {}
+    for k, lst in acc.items():
+        lst.sort()
+        out[k] = (sum(lst) / len(lst), lst[int(0.95 * (len(lst) - 1))], lst[-1])
+    return out
+
+
+def patch_edge_stats(nodes, tris, tag=12):
+    """Mean / max edge length (mm) of the tagged surface triangles."""
+    total, count, worst = 0.0, 0, 0.0
+    for phys, conn in tris:
+        if phys != tag:
+            continue
+        for i in range(3):
+            d = _norm(_sub(nodes[conn[i]], nodes[conn[(i + 1) % 3]]))
+            total += d
+            count += 1
+            worst = max(worst, d)
+    return (total / count, worst) if count else (0.0, 0.0)
+
+
+def substrate_layers(nodes, tets, h) -> float:
+    """Median over substrate tets of ``h / (tet z-extent)`` on the FLAT mesh:
+    1.0 for a slab one tet thick, ~2 for two layers, and so on."""
+    ratios = []
+    for phys, conn in tets:
+        if phys != 1:
+            continue
+        zs = [nodes[t][2] for t in conn]
+        ext = max(zs) - min(zs)
+        if ext > 0.0:
+            ratios.append(h / ext)
+    ratios.sort()
+    return ratios[len(ratios) // 2] if ratios else 0.0
+
+
+# ---------------------------------------------------------------------------
 # Quality checks.
 # ---------------------------------------------------------------------------
 
@@ -291,7 +500,7 @@ def quality_report(nodes, tets, tris, group_names) -> dict:
     }
 
 
-def check_quality(report: dict) -> list:
+def check_quality(report: dict, max_edges: int = MAX_EDGES) -> list:
     failures = []
     if report["inverted_tets"]:
         failures.append(f"{report['inverted_tets']} inverted tets (signed volume <= 0)")
@@ -300,8 +509,8 @@ def check_quality(report: dict) -> list:
             f"min dihedral angle {report['min_dihedral_deg']:.2f} deg "
             f"< gate {MIN_DIHEDRAL_DEG} deg"
         )
-    if report["n_edges"] > MAX_EDGES:
-        failures.append(f"{report['n_edges']} edges exceeds budget {MAX_EDGES}")
+    if report["n_edges"] > max_edges:
+        failures.append(f"{report['n_edges']} edges exceeds budget {max_edges}")
     for dim, tag, name in EXPECTED_GROUPS:
         if report["group_names"].get((dim, tag)) != name:
             failures.append(f"missing physical group (dim={dim}, tag={tag}) {name!r}")
@@ -318,32 +527,80 @@ def check_quality(report: dict) -> list:
 
 
 def main(argv: list) -> int:
-    if len(argv) != 3:
+    args = list(argv[1:])
+    max_edges = MAX_EDGES
+    if "--max-edges" in args:
+        k = args.index("--max-edges")
+        max_edges = int(args[k + 1])
+        del args[k : k + 2]
+    if len(args) != 2:
         sys.stderr.write(__doc__ or "")
         return 2
-    yaml_path = Path(argv[1])
-    out_path = Path(argv[2])
+    yaml_path = Path(args[0])
+    out_path = Path(args[1])
 
     params = parse_simple_yaml(yaml_path)
-    gmsh_version = run_gmsh(params, out_path)
+    bend = params.get("bend")
+    flat_path = out_path.with_name(out_path.stem + ".flat.msh") if bend else out_path
+    gmsh_version = run_gmsh(params, flat_path)
 
-    nodes, tets, tris, group_names, _ = parse_msh(out_path)
+    nodes, tets, tris, group_names, _ = parse_msh(flat_path)
     report = quality_report(nodes, tets, tris, group_names)
+    h = float(params["patch"]["h"])
+    layers = substrate_layers(nodes, tets, h)
+
+    bent_info = None
+    if bend:
+        radius = float(bend["bend_radius"])
+        pml_thick = float(params["domain"]["pml_thick"])
+        bent, z0 = bend_nodes(nodes, tets, radius, pml_thick)
+        write_msh_with_nodes(flat_path, out_path, bent)
+        flat_report = report
+        nodes_b, tets_b, tris_b, group_names_b, _ = parse_msh(out_path)
+        report = quality_report(nodes_b, tets_b, tris_b, group_names_b)
+        z_axis = z0 - radius
+        bent_info = {
+            "radius": radius,
+            "z0": z0,
+            "z_axis": z_axis,
+            "flat_report": flat_report,
+            "min_vol_ratio": min_volume_ratio(nodes, nodes_b, tets),
+            "patch_cyl_resid": cylinder_residual(nodes_b, tris_b, 12, radius + (h - z0), z_axis),
+            "ground_cyl_resid": cylinder_residual(nodes_b, tris_b, 13, radius - z0, z_axis),
+        }
+        nodes, tets, tris = nodes_b, tets_b, tris_b
+
+    edge_stats = region_edge_stats(nodes, tets)
+    patch_stats = patch_edge_stats(nodes, tris)
 
     print("\n--- mesh quality report ---")
     print(f"nodes:            {report['n_nodes']}")
     print(f"tets:             {report['n_tets']}")
     print(f"tagged triangles: {report['n_tris']}")
-    print(f"unique edges:     {report['n_edges']}  (budget {MAX_EDGES})")
+    print(f"unique edges:     {report['n_edges']}  (budget {max_edges})")
     print(f"inverted tets:    {report['inverted_tets']}")
     print(f"min dihedral:     {report['min_dihedral_deg']:.2f} deg  (gate {MIN_DIHEDRAL_DEG})")
     print(f"total volume:     {report['total_volume']:.6g} mm^3")
+    print(f"substrate layers: {layers:.2f}  (median h / tet z-extent, flat mesh)")
     for dim, tag, name in EXPECTED_GROUPS:
         counts = report["tet_phys_counts"] if dim == 3 else report["tri_phys_counts"]
         kind = "tets" if dim == 3 else "tris"
         print(f"  ({dim},{tag:>2}) {name:<16} {counts.get(tag, 0):>7} {kind}")
+    if bent_info:
+        print(f"bend radius:      {bent_info['radius']} mm (axis x = 0, z = {bent_info['z_axis']:.6g} mm)")
+        print(f"min vol ratio:    {bent_info['min_vol_ratio']:.4f}  (gate {MIN_BEND_VOL_RATIO})")
+        print(f"patch on arc:     max |r - R_patch| = {bent_info['patch_cyl_resid']:.3e} mm")
+        print(f"ground on arc:    max |r - R_ground| = {bent_info['ground_cyl_resid']:.3e} mm")
 
-    failures = check_quality(report)
+    failures = check_quality(report, max_edges)
+    if bent_info:
+        if bent_info["min_vol_ratio"] < MIN_BEND_VOL_RATIO:
+            failures.append(
+                f"bend min volume ratio {bent_info['min_vol_ratio']:.3f} < {MIN_BEND_VOL_RATIO}"
+            )
+        for key in ("patch_cyl_resid", "ground_cyl_resid"):
+            if bent_info[key] > 1e-9:
+                failures.append(f"{key} = {bent_info[key]:.3e} mm: metal not on its arc")
     if failures:
         print("\nQUALITY GATES FAILED:")
         for f in failures:
@@ -355,6 +612,14 @@ def main(argv: list) -> int:
     prov = [
         f"fixture:        {out_path.name}",
         f"sha256:         {sha}",
+    ]
+    if bent_info:
+        flat_sha = hashlib.sha256(flat_path.read_bytes()).hexdigest()
+        prov += [
+            f"flat fixture:   {flat_path.name}",
+            f"flat sha256:    {flat_sha}",
+        ]
+    prov += [
         f"generated:      {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
         f"gmsh version:   {gmsh_version}",
         f"script:         reference/gmsh/patch_antenna.geo",
@@ -363,7 +628,7 @@ def main(argv: list) -> int:
         "",
         "parameter values:",
     ]
-    for section in ("patch", "domain", "mesh", "materials"):
+    for section in ("patch", "domain", "mesh", "bend", "band", "solver", "materials"):
         if section in params:
             prov.append(f"  {section}:")
             for k, v in params[section].items():
@@ -373,11 +638,64 @@ def main(argv: list) -> int:
         "quality report:",
         f"  nodes: {report['n_nodes']}",
         f"  tets: {report['n_tets']}",
-        f"  unique edges: {report['n_edges']} (budget {MAX_EDGES})",
+        f"  unique edges: {report['n_edges']} (budget {max_edges})",
         f"  inverted tets: {report['inverted_tets']}",
         f"  min dihedral angle: {report['min_dihedral_deg']:.2f} deg",
-        "",
     ]
+    for dim, tag, name in EXPECTED_GROUPS:
+        counts = report["tet_phys_counts"] if dim == 3 else report["tri_phys_counts"]
+        prov.append(f"  {name} {'tets' if dim == 3 else 'tris'}: {counts.get(tag, 0)}")
+    if bent_info:
+        fr = bent_info["flat_report"]
+        prov += [
+            "",
+            "bend (PatchFixture::bent_conformal node map):",
+            f"  bend_radius_mm: {bent_info['radius']}",
+            f"  axis: parallel to y through (x = 0, z = {bent_info['z_axis']!r}) mm",
+            f"  substrate mid-plane z0_mm: {bent_info['z0']!r}",
+            f"  min tet volume ratio (bent / flat): {bent_info['min_vol_ratio']:.4f}",
+            f"  patch max |r - (R + h - z0)| mm: {bent_info['patch_cyl_resid']:.3e}",
+            f"  ground max |r - (R - z0)| mm: {bent_info['ground_cyl_resid']:.3e}",
+            f"  flat min dihedral angle: {fr['min_dihedral_deg']:.2f} deg",
+        ]
+    prov += ["", "resolution (lengths in mm):"]
+    prov.append(f"  substrate layers (median h / tet z-extent, flat mesh): {layers:.2f}")
+    names = {1: "substrate", 2: "air", 3: "upml"}
+    for tag in (1, 2, 3):
+        if tag in edge_stats:
+            mean, p95, mx = edge_stats[tag]
+            prov.append(
+                f"  {names[tag]} tet edge mean / p95 / max: {mean:.3f} / {p95:.3f} / {mx:.3f}"
+            )
+    prov.append(f"  patch triangle edge mean / max: {patch_stats[0]:.3f} / {patch_stats[1]:.3f}")
+    band = params.get("band")
+    eps_r = params.get("materials", {}).get("substrate_eps_r")
+    if band and eps_r:
+        f_ref = float(band["f_ref_ghz"])
+        lam0 = C_MM_PER_S / (f_ref * 1e9)
+        lamd = lam0 / math.sqrt(float(eps_r))
+        prov += [
+            f"  reference frequency: {f_ref} GHz (lambda_0 = {lam0:.3f} mm, "
+            f"lambda_d = lambda_0 / sqrt(eps_r) = {lamd:.3f} mm)",
+            f"  air elements per lambda_0 (mean / p95 / max edge): "
+            f"{lam0 / edge_stats[2][0]:.2f} / {lam0 / edge_stats[2][1]:.2f} / "
+            f"{lam0 / edge_stats[2][2]:.2f}",
+            f"  upml elements per lambda_0 (mean / p95 / max edge): "
+            f"{lam0 / edge_stats[3][0]:.2f} / {lam0 / edge_stats[3][1]:.2f} / "
+            f"{lam0 / edge_stats[3][2]:.2f}",
+            f"  substrate elements per lambda_d (mean / p95 / max edge): "
+            f"{lamd / edge_stats[1][0]:.2f} / {lamd / edge_stats[1][1]:.2f} / "
+            f"{lamd / edge_stats[1][2]:.2f}",
+            f"  patch elements per lambda_d (mean / max edge): "
+            f"{lamd / patch_stats[0]:.2f} / {lamd / patch_stats[1]:.2f}",
+            f"  upml elements through the shell (pml_thick / mean edge): "
+            f"{float(params['domain']['pml_thick']) / edge_stats[3][0]:.2f}",
+        ]
+        if "air_margin" in params.get("domain", {}):
+            prov.append(
+                f"  air margin / lambda_0: {float(params['domain']['air_margin']) / lam0:.3f}"
+            )
+    prov.append("")
     prov_path.write_text("\n".join(prov))
     print(f"\nOK — wrote {out_path} and {prov_path}")
     return 0

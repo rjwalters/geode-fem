@@ -91,6 +91,17 @@ DefineConstant[ lc_sub   = 1.6  ];   // in-slab size (~ substrate thickness h)
 DefineConstant[ lc_port  = 1.0  ];   // target size at the probe gap
 DefineConstant[ lc_far   = 22.0 ];   // far-field size (air/UPML)
 DefineConstant[ dist_far = 35.0 ];   // distance over which size grows to lc_far
+// Optional uniform caps (issue #1084): lc_air bounds the element size
+// everywhere inside the air box, lc_pml everywhere outside it (the UPML
+// shell). The 1e22 defaults disable both, so the committed patch_2g4*
+// fixtures regenerate unchanged.
+DefineConstant[ lc_air = 1e22 ];
+DefineConstant[ lc_pml = 1e22 ];
+// Extent of the lc_sub refinement box (Field[6]) beyond the slab faces in
+// z, and its size-transition thickness. A negative value selects the
+// historical defaults (h and 4 h), so the committed fixtures are unchanged.
+DefineConstant[ sub_zpad = -1 ];
+DefineConstant[ sub_box_thick = -1 ];
 
 // ---------------------------------------------------------------------------
 // Derived geometry.
@@ -239,8 +250,10 @@ Field[6].VIn   = lc_sub;
 Field[6].VOut  = lc_far;
 Field[6].XMin  = sub_x0;  Field[6].XMax  = sub_x0 + sub_w;
 Field[6].YMin  = sub_y0;  Field[6].YMax  = sub_y0 + sub_l;
-Field[6].ZMin  = -h;      Field[6].ZMax  = 2 * h;
-Field[6].Thickness = 4 * h;
+sub_zpad_eff = (sub_zpad < 0) ? h : sub_zpad;
+sub_box_thick_eff = (sub_box_thick < 0) ? 4 * h : sub_box_thick;
+Field[6].ZMin  = -sub_zpad_eff;  Field[6].ZMax  = h + sub_zpad_eff;
+Field[6].Thickness = sub_box_thick_eff;
 
 Field[3] = Distance;
 Field[3].SurfacesList = {surf_port()};
@@ -253,8 +266,16 @@ Field[4].SizeMax  = lc_far;
 Field[4].DistMin  = probe_w;
 Field[4].DistMax  = dist_far;
 
+// Uniform air / UPML caps (inactive at the 1e22 defaults).
+Field[7] = Box;
+Field[7].VIn   = lc_air;
+Field[7].VOut  = lc_pml;
+Field[7].XMin  = air_x0;  Field[7].XMax  = air_x1;
+Field[7].YMin  = air_y0;  Field[7].YMax  = air_y1;
+Field[7].ZMin  = air_z0;  Field[7].ZMax  = air_z1;
+
 Field[5] = Min;
-Field[5].FieldsList = {2, 4, 6};
+Field[5].FieldsList = {2, 4, 6, 7};
 Background Field = 5;
 
 Mesh.MeshSizeExtendFromBoundary = 0;

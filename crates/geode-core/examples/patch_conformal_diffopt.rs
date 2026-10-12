@@ -55,6 +55,21 @@
 //! the root with `$PATCH_DIFFOPT_BENCH_DIR`); consumed by
 //! `tests/patch_conformal_diffopt.rs`.
 //!
+//! # Smoke fixture and units
+//!
+//! This loop runs on the **CI smoke fixture** `curved_smoke`
+//! (`patch_2g4_smoke.msh`, a shrunken 16 × 12 mm patch on a 2.0 mm slab,
+//! bent at R = 40 mm), which is **not** a 2.4 GHz antenna and is not
+//! mesh-converged. The conformal v5 experiments use the curved conformal
+//! 2.4 GHz fixture family instead (`reference/gmsh/patch_conformal_L*.yaml`,
+//! issue #1084; see the `patch_conformal_2g4_baseline` example).
+//!
+//! Lengths are in mm and the solver's `ω = k₀ = 2π f / c` is in rad/mm, so
+//! the design band `ω = 0.30 / 0.35 / 0.40 rad/mm` is **14.31 / 16.70 /
+//! 19.09 GHz** (`geode_util::units::omega_to_ghz_mm`, recorded as
+//! `[meta].band_f_ghz`). The 50 Ω port resistance enters the solver as
+//! `50 / η₀` (`[meta].port_resistance_nat`).
+//!
 //! # HONEST outcome — the project blesses honest-negatives
 //!
 //! The loop reports whichever it finds — a genuine freeform band match to the
@@ -83,20 +98,22 @@ use geode_core::mesh::patch::{
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 use geode_core::testing::TestBackend;
+use geode_util::fixture::BackendInfo;
+use geode_util::units::omega_to_ghz_mm;
 
 type B = TestBackend;
 
-/// Port reference resistance (Ω) → natural units by `η₀`.
+/// Port reference resistance (Ω); the solver takes it as `R / η₀`.
 const R_PORT_OHM: f64 = 50.0;
 
 /// Matched box-UPML conductivity scale (matches the curved-fixture library
 /// tests in `mesh::patch`).
 const SIGMA_0: f64 = 1.0;
 
-/// The v1 design band (natural-unit angular frequencies of the coarse curved
-/// smoke fixture, bracketing the `ω = 0.35` baseline the library forward test
-/// pins). "Bandwidth" = drive `|S₁₁|` down across all of these at once, not a
-/// single frequency.
+/// The v1 design band of the coarse curved smoke fixture: `ω = k₀` in rad/mm
+/// (14.31 / 16.70 / 19.09 GHz), bracketing the `ω = 0.35` rad/mm baseline the
+/// library forward test pins. "Bandwidth" = drive `|S₁₁|` down across all of
+/// these at once, not a single frequency.
 const BAND_OMEGA: [f64; 3] = [0.30, 0.35, 0.40];
 
 /// The v1 impedance-match target: `|S₁₁| ≤ −10 dB` (return loss ≥ 10 dB) across
@@ -128,12 +145,46 @@ const PLATEAU_WINDOW: usize = 6;
 /// Backtracking line-search cap per step.
 const MAX_BACKTRACKS: usize = 50;
 
-/// Per-DOF radial-normal motion length (mm) per unit design value; the design
-/// vector `X` is dimensionless. Set to a fraction of the substrate thickness.
+/// Per-DOF radial-normal motion length per unit design value, as a fraction of
+/// the substrate thickness: a design coefficient `x_p = 1` moves its patch node
+/// `DIR_SCALE_FRAC · h` mm along the outward radial normal.
 const DIR_SCALE_FRAC: f64 = 0.5;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
+}
+
+/// `section.key → value` parameter values of the committed smoke fixture
+/// (`tests/fixtures/patch_2g4_smoke.provenance.txt`), recorded in `[meta]`.
+fn smoke_parameters() -> std::collections::BTreeMap<String, String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/patch_2g4_smoke.provenance.txt");
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let mut out = std::collections::BTreeMap::new();
+    let mut section = String::new();
+    let mut in_params = false;
+    for line in text.lines() {
+        if line.trim() == "parameter values:" {
+            in_params = true;
+            continue;
+        }
+        if !in_params || line.trim().is_empty() {
+            if in_params && line.trim().is_empty() {
+                break;
+            }
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let Some((k, v)) = line.trim().split_once(':') else {
+            continue;
+        };
+        if indent == 2 {
+            section = k.trim().to_string();
+        } else {
+            out.insert(format!("{section}.{}", k.trim()), v.trim().to_string());
+        }
+    }
+    out
 }
 
 /// Six-times the signed tet volume `det[v1−v0, v2−v0, v3−v0]`.
@@ -740,6 +791,52 @@ fn main() {
         t,
         "fixture = \"curved_smoke (read_patch_smoke_fixture + bent_conformal)\""
     );
+    t.push_str(
+        "fixture_role = \"smoke: CI smoke fixture (shrunken 16 x 12 mm patch, not a 2.4 GHz \
+         antenna, not mesh-converged); the conformal v5 experiments use the 2.4 GHz \
+         patch_conformal_L* family (issue #1084)\"\n",
+    );
+    let _ = writeln!(
+        t,
+        "generated_at_commit = \"{}\"",
+        geode_util::repo::current_commit()
+    );
+    BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    t.push_str("length_unit = \"mm\"\n");
+    t.push_str(
+        "omega_convention = \"omega = k0 = 2 pi f / c in rad/mm, c = 299792458e3 mm/s \
+         (geode_util::units::omega_to_ghz_mm)\"\n",
+    );
+    {
+        let ghz: Vec<String> = BAND_OMEGA
+            .iter()
+            .map(|w| format!("{:.6}", omega_to_ghz_mm(*w)))
+            .collect();
+        let _ = writeln!(t, "band_f_ghz = [{}]", ghz.join(", "));
+    }
+    let _ = writeln!(t, "port_resistance_nat = {:.9e}", R_PORT_OHM / ETA_0);
+    let _ = writeln!(t, "eta_0_ohm = {ETA_0:.9e}");
+    let _ = writeln!(t, "eps_r = {}", FR4_MATERIALS.eps_r_substrate);
+    let _ = writeln!(t, "tan_delta = {}", FR4_MATERIALS.tan_delta_substrate);
+    let sp = smoke_parameters();
+    for (k, key) in [
+        ("patch_w_mm", "patch.patch_w"),
+        ("patch_l_mm", "patch.patch_l"),
+        ("substrate_h_mm", "patch.h"),
+        ("sub_pad_mm", "patch.sub_pad"),
+        ("probe_w_mm", "patch.probe_w"),
+        ("probe_inset_mm", "patch.probe_inset"),
+        ("air_margin_mm", "domain.air_margin"),
+    ] {
+        let _ = writeln!(t, "{k} = {}", sp[key]);
+    }
+    {
+        let sizing: Vec<String> = ["lc_patch", "lc_sub", "lc_port", "lc_far", "dist_far"]
+            .iter()
+            .map(|k| format!("{k} = {}", sp[&format!("mesh.{k}")]))
+            .collect();
+        let _ = writeln!(t, "mesh_sizing_mm = {{ {} }}", sizing.join(", "));
+    }
     let _ = writeln!(t, "bend_radius_mm = {CURVED_SMOKE_BEND_RADIUS}");
     let _ = writeln!(t, "pml_thick_mm = {CURVED_SMOKE_PML_THICK}");
     let _ = writeln!(t, "n_edges = {n_edges}");
@@ -750,7 +847,7 @@ fn main() {
     let _ = writeln!(t, "sigma_0 = {SIGMA_0}");
     {
         let band: Vec<String> = BAND_OMEGA.iter().map(|w| format!("{w}")).collect();
-        let _ = writeln!(t, "band_omega = [{}]", band.join(", "));
+        let _ = writeln!(t, "band_omega = [{}]  # rad/mm", band.join(", "));
     }
     let _ = writeln!(t, "target_db = {TARGET_DB}");
     t.push('\n');

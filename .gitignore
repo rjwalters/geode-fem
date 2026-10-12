@@ -26,6 +26,8 @@ Cargo.lock.bak
 !reference/fixtures/transmon_palace/results_coupling_1078/*/palace_run.log
 # #1079 Palace loop-inductance run logs (cited by provenance.txt)
 !reference/fixtures/transmon_palace/results_loop_1079/*/palace_run.log
+# #1084 curved conformal 2.4 GHz fixture: baseline / generator / re-check logs
+!benchmarks/patch_antenna_conformal/logs/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json
@@ -161,3 +163,6 @@ papers/**/*.vision/pages/
 .anvil/
 .squad/
 .claude/skills/squad/.install-local.json
+
+# #1084: flat companions of bent patch fixtures are regenerated, not committed
+crates/geode-core/tests/fixtures/*.flat.msh

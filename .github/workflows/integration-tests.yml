@@ -291,6 +291,7 @@ jobs:
               --test palace_ingestion \
               --test patch_antenna_benchmark \
               --test patch_capstone_diffopt \
+              --test patch_conformal_2g4_fixture \
               --test patch_conformal_diffopt \
               --test patch_diffopt \
               --test patch_mesh \
@@ -361,6 +362,7 @@ jobs:
               --test palace_ingestion \
               --test patch_antenna_benchmark \
               --test patch_capstone_diffopt \
+              --test patch_conformal_2g4_fixture \
               --test patch_conformal_diffopt \
               --test patch_diffopt \
               --test patch_mesh \

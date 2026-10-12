@@ -1,0 +1,58 @@
+# Curved conformal 2.4 GHz patch antenna, level L0 (issue #1084, conformal
+# v5 E1, operator choice (c)). The patch_2g4_matched geometry (38 x 29 mm
+# PEC patch on 1.6 mm FR-4, coax-probe lumped port inset 7.0 mm) wrapped
+# onto a cylinder of radius bend_radius about an axis parallel to y
+# (PatchFixture::bent_conformal node map, applied by
+# generate_patch_fixture.py). L0 is the coarse level committed for CI
+# (crates/geode-core/tests/fixtures/patch_conformal_L0.msh); finer levels
+# (patch_conformal_L1.yaml, ...) are regenerated from YAML and pinned by
+# sha256, not committed.
+#
+# Units: lengths in mm, frequencies in GHz, resistance in ohm. The solver
+# works with omega = k0 = 2 pi f / c in rad/mm (c = 299792458e3 mm/s), so
+# lambda_0 = 120.7 mm at 2.4835 GHz and lambda_d = lambda_0 / sqrt(4.4)
+# = 57.5 mm in the substrate. The port resistance enters the solver as
+# 50 / eta_0.
+
+name: patch_conformal_L0
+
+patch:
+  patch_w: 38.0       # patch width  (x extent, curved by the bend)
+  patch_l: 29.0       # patch length (y extent, resonant TM010 length)
+  h: 1.6              # FR-4 substrate thickness
+  sub_pad: 12.0       # substrate (and finite ground) margin beyond the patch
+  probe_w: 1.6        # coax-probe footprint side
+  probe_inset: 7.0    # feed inset from the +y patch edge (patch_2g4_matched)
+
+domain:
+  air_margin: 40.0    # air gap substrate -> UPML: 0.33 lambda_0 at 2.4835 GHz,
+#                       >= lambda_0 / 4 down to 1.87 GHz
+  pml_thick: 25.0     # matched box-UPML shell thickness (0.21 lambda_0)
+
+mesh:
+  lc_patch: 4.5       # target size on the patch / ground faces
+  lc_sub: 1.6         # in-slab size (= h: one substrate layer at L0)
+  lc_port: 1.2        # target size at the probe gap
+  lc_far: 20.0        # far-field size
+  dist_far: 40.0      # distance over which size grows to lc_far
+  lc_pml: 12.5        # UPML cap: two elements through the 25 mm shell
+
+bend:
+  bend_radius: 100.0  # mm; the 62 mm substrate subtends +-0.31 rad, the
+#                       38 mm patch +-0.19 rad (sagitta 1.8 mm at the patch
+#                       edge, 4.8 mm at the substrate edge)
+
+band:
+  f_lo_ghz: 2.4       # ISM band objective, lower edge
+  f_hi_ghz: 2.4835    # ISM band objective, upper edge
+  f_ref_ghz: 2.4835   # reference frequency for elements-per-wavelength
+
+solver:
+  port_resistance_ohm: 50.0
+  upml_sigma_0: 1.0   # s = 1 - j sigma_0 (d/w)^2 / omega (omega in rad/mm);
+#                       one-way attenuation sigma_0 w / 3 = 8.3 Np
+
+materials:
+  substrate_eps_r: 4.4
+  substrate_tan_delta: 0.02
+  conductor_sigma_s_m: 5.8e7   # copper (conductors are PEC in the solver)

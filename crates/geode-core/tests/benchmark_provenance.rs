@@ -226,6 +226,24 @@ const MANIFEST: &[Entry] = &[
         "benchmarks/patch_antenna/pattern_matched.toml",
         "cargo run -p patch_antenna --release -- pattern-matched",
     ),
+    // Promoted from bucket D in #1084 (regenerated with the trio).
+    a(
+        "benchmarks/patch_antenna_conformal/conformal_results.toml",
+        "cargo run -p geode-core --example patch_conformal_diffopt --release",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/baseline_2g4_L0.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh && cargo run -p geode-core \
+         --release --example patch_conformal_2g4_baseline",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/baseline_2g4_L1.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py --max-edges 200000 \
+         reference/gmsh/patch_conformal_L1.yaml <dir>/patch_conformal_L1.msh && cargo run -p \
+         geode-core --release --example patch_conformal_2g4_baseline -- \
+         <dir>/patch_conformal_L1.msh",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",
@@ -436,11 +454,6 @@ const MANIFEST: &[Entry] = &[
     d(
         "benchmarks/patch_antenna_diffopt/capstone_results.toml",
         "cargo run -p geode-core --example patch_capstone_diffopt --release",
-        D_TRACKING,
-    ),
-    d(
-        "benchmarks/patch_antenna_conformal/conformal_results.toml",
-        "cargo run -p geode-core --example patch_conformal_diffopt --release",
         D_TRACKING,
     ),
     // ---- Bucket E: hand-measured, own provenance shape ------------------

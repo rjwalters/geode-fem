@@ -587,6 +587,58 @@ pub fn read_patch_smoke_curved_fixture() -> Result<PatchFixture, MeshError> {
     )
 }
 
+// ── Curved conformal 2.4 GHz fixture family (issue #1084) ───────────────
+
+/// Bend radius (mm) of the **curved conformal 2.4 GHz** patch fixtures
+/// (`reference/gmsh/patch_conformal_L*.yaml`, issue #1084): the
+/// `patch_2g4_matched` geometry (38 × 29 mm PEC patch on 1.6 mm FR-4,
+/// probe inset 7.0 mm) wrapped about an axis parallel to y. The 62 mm
+/// substrate subtends ±0.31 rad and the 38 mm patch ±0.19 rad.
+///
+/// Unlike the smoke fixture, the bend is baked into the generated mesh by
+/// `reference/gmsh/generate_patch_fixture.py` (the same node map as
+/// [`PatchFixture::bent_conformal`]), so the `.msh` file *is* the curved
+/// geometry; load it with [`read_patch_fixture_path`].
+pub const CONFORMAL_2G4_BEND_RADIUS_MM: f64 = 100.0;
+
+/// FR-4 substrate thickness (mm) of the curved conformal 2.4 GHz fixtures.
+pub const CONFORMAL_2G4_SUBSTRATE_H_MM: f64 = 1.6;
+
+/// UPML shell thickness (mm) of the curved conformal 2.4 GHz fixtures.
+pub const CONFORMAL_2G4_PML_THICK_MM: f64 = 25.0;
+
+/// Air margin (mm) between the substrate and the UPML inner wall:
+/// 0.33 λ₀ at 2.4835 GHz, at least λ₀/4 down to 1.87 GHz.
+pub const CONFORMAL_2G4_AIR_MARGIN_MM: f64 = 40.0;
+
+/// Box-UPML strength σ₀ of the curved conformal 2.4 GHz fixtures, in the
+/// [`box_upml_tensors`] convention `s = 1 − jσ₀(d/w)²/ω` (ω in rad/mm).
+/// The one-way attenuation `σ₀ w / 3` is 8.3 Np through the 25 mm shell.
+pub const CONFORMAL_2G4_UPML_SIGMA_0: f64 = 1.0;
+
+/// The ISM-band design objective of the curved conformal 2.4 GHz
+/// fixtures: `[f_lo, f_hi]` in GHz.
+pub const ISM_2G4_BAND_GHZ: [f64; 2] = [2.4, 2.4835];
+
+/// z-coordinate (mm) of the bend axis of a fixture bent by
+/// [`PatchFixture::bent_conformal`] (or by the generator's identical node
+/// map): the axis is parallel to y through `(x = 0, z = h/2 − R)`, a
+/// distance `R` below the substrate mid-plane of the flat slab `z ∈ [0, h]`.
+pub fn bend_axis_z(substrate_h: f64, bend_radius: f64) -> f64 {
+    0.5 * substrate_h - bend_radius
+}
+
+/// Load a patch-antenna fixture (any [`PatchFixture`]-convention MSH 4.1
+/// ASCII mesh, e.g. a curved conformal level regenerated from
+/// `reference/gmsh/patch_conformal_L*.yaml`) from a file path, through
+/// [`read_patch_fixture_from_bytes`].
+pub fn read_patch_fixture_path(
+    path: impl AsRef<std::path::Path>,
+) -> Result<PatchFixture, MeshError> {
+    let bytes = std::fs::read(path.as_ref())?;
+    read_patch_fixture_from_bytes(&bytes)
+}
+
 /// Load a patch-antenna fixture from arbitrary MSH 4.1 ASCII bytes
 /// following the same physical-group convention as the bundled mesh
 /// (see module docs) — e.g. re-generated meshes from
