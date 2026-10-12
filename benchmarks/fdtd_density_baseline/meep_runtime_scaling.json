@@ -1,20 +1,79 @@
 {
-  "description": "Measured Meep 3D FDTD runtime + memory scaling for the curved conformal open-radiator problem (epic #647 Phase 4 / #651). Establishes the computational-intractability axis of the GEODE-vs-FDTD-density head-to-head: structured-grid density FDTD cannot practically reach this design at the resolution needed to represent the curved conductor.",
+  "description": "Historical single-process Meep timing on the old unmatched smoke scaffold. These measurements do not establish antenna S11 accuracy or a cost-to-accuracy comparison.",
   "provenance": {
     "measured_on": "2026-07-21",
     "host": "AWS m6i.4xlarge (16 vCPU Intel Ice Lake, 61 GB RAM), Ubuntu 22.04",
     "meep_version": "1.34.0 (conda-forge, single-process)",
     "container": "reference/meep/docker/ (meep-baseline:cpu)",
-    "cell_mm": [64, 60, 42],
-    "problem": "box-UPML curved conformal FR-4 + PEC patch radiator, per conformal_baseline_3d.py",
+    "cell_mm": [
+      64,
+      60,
+      42
+    ],
+    "problem": "Historical unmatched smoke scaffold: flat FR-4 slab, infinite flat PEC ground, rectangular PEC patch proxy, point-Ez readout; see meep_runtime_bench.py.",
     "note": "per-step timing = steady-state seconds/timestep over 61 timesteps after warmup; single-tenant (no co-tenant contention)."
   },
   "measured_perstep": [
-    {"resolution_px_per_mm": 4,  "yee": [256, 240, 168], "cells": 10321920,  "dt": 0.125,     "s_per_step": 0.233343, "peak_rss_gb": 1.573},
-    {"resolution_px_per_mm": 6,  "yee": [384, 360, 252], "cells": 34836480,  "dt": 0.083333,  "s_per_step": 0.742044, "peak_rss_gb": 4.918},
-    {"resolution_px_per_mm": 8,  "yee": [512, 480, 336], "cells": 82575360,  "dt": 0.0625,    "s_per_step": 1.714985, "peak_rss_gb": 11.338},
-    {"resolution_px_per_mm": 10, "yee": [640, 600, 420], "cells": 161280000, "dt": 0.05,      "s_per_step": 3.386214, "peak_rss_gb": 21.836},
-    {"resolution_px_per_mm": 12, "yee": [768, 720, 504], "cells": 278691840, "dt": 0.041667,  "s_per_step": 5.761447, "peak_rss_gb": 37.417}
+    {
+      "resolution_px_per_mm": 4,
+      "yee": [
+        256,
+        240,
+        168
+      ],
+      "cells": 10321920,
+      "dt": 0.125,
+      "s_per_step": 0.233343,
+      "peak_rss_gb": 1.573
+    },
+    {
+      "resolution_px_per_mm": 6,
+      "yee": [
+        384,
+        360,
+        252
+      ],
+      "cells": 34836480,
+      "dt": 0.083333,
+      "s_per_step": 0.742044,
+      "peak_rss_gb": 4.918
+    },
+    {
+      "resolution_px_per_mm": 8,
+      "yee": [
+        512,
+        480,
+        336
+      ],
+      "cells": 82575360,
+      "dt": 0.0625,
+      "s_per_step": 1.714985,
+      "peak_rss_gb": 11.338
+    },
+    {
+      "resolution_px_per_mm": 10,
+      "yee": [
+        640,
+        600,
+        420
+      ],
+      "cells": 161280000,
+      "dt": 0.05,
+      "s_per_step": 3.386214,
+      "peak_rss_gb": 21.836
+    },
+    {
+      "resolution_px_per_mm": 12,
+      "yee": [
+        768,
+        720,
+        504
+      ],
+      "cells": 278691840,
+      "dt": 0.041667,
+      "s_per_step": 5.761447,
+      "peak_rss_gb": 37.417
+    }
   ],
   "scaling_law": {
     "cells_vs_R": "exactly 161280 * R^3 (structured Yee grid)",
@@ -38,16 +97,20 @@
     "R16_runnable_on_61GB_box": false,
     "R14_peak_rss_gb": 60,
     "single_gradient_min_at_R8": ">=24",
-    "full_band_optimization_hours_at_R8": ">=14  (3 freqs x >=12 evals x 2 solves, lower bound)",
-    "full_band_optimization_hours_at_R12": ">=70  (~R^3.92 scaling of the R8 lower bound)",
-    "resolution_to_faithfully_represent_curve_px_per_mm": "~250 (from staircasing_results.json: ~6000 cells across the ~24 mm feature for ~1 micron fidelity)",
-    "cells_at_curve_faithful_resolution": "~2.5e15 (utterly infeasible; ~30x the RAM wall even before timestep cost)"
+    "full_band_optimization_hours_at_R8": "WITHDRAWN: multiplying by frequency count ignores Meep broadband/adjoint reuse; no optimized broadband workflow was timed.",
+    "full_band_optimization_hours_at_R12": "WITHDRAWN: extrapolated from the unsupported R8 workflow estimate.",
+    "cells_at_curve_faithful_resolution": "WITHDRAWN: R=250 is not an established accuracy requirement. The corrected illustrative cell count is 2.52e12.",
+    "R250_note": "Illustrative resolution only. The old arbitrary 1 micron conformal-equivalence target is withdrawn; no required EM accuracy is assigned to R=250.",
+    "cells_at_R250": 2520000000000,
+    "cell_ratio_R250_over_R14": 5694.241982507289,
+    "R250_ram_note": "About 5,700 times the R=14 cell-count/RAM wall under cubic storage scaling; this is extrapolation, not measured memory."
   },
   "geode_comparison": {
     "source": "benchmarks/patch_antenna_conformal/conformal_results.toml",
     "method": "unstructured tetrahedral Nedelec H(curl) FEM shape adjoint, single reused factorization",
     "result": "full 73-DOF freeform curved-conformal band match to worst-of-band -12.06 dB",
-    "cost": "6 optimization steps, 1 factorization per band frequency, seconds-to-minutes total; exact at fixed DOF (no staircasing)"
+    "cost": "Historical six-step run; timing boundaries and geometric accuracy were not matched to Meep.",
+    "status": "Historical result on a different discretization/model; not matched-model or same-host cost-to-accuracy evidence."
   },
-  "conclusion": "FDTD-density on a structured Yee grid is not merely less accurate on this curved open radiator: representing the curved conductor requires ~R^3 cells and ~R^4 wall-clock, so a faithful discretization is computationally intractable (RAM wall at R>=14 on a 61 GB box; ~10^15 cells at the curve-faithful resolution). GEODE's conformal shape adjoint reaches the design at fixed DOF in seconds-to-minutes."
+  "conclusion": "The measured historical runtime grows with resolution. A matched-geometry S11 convergence study (#1088), not a perimeter plateau or arbitrary geometric threshold, is required to compare solver cost at equal accuracy."
 }
