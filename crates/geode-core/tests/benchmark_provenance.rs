@@ -290,6 +290,17 @@ const MANIFEST: &[Entry] = &[
          f64 path as p2_cycles10/summary.toml, no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/summary.toml",
+        "examples/transmon_refined_optimize.rs at the DeviceLayout anchor (issue #1066): same f64 \
+         P2 AMG-PCG path as p2_cycles10/summary.toml, no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/refined_optimization/\
+         p2_cycles10_anchor_93p95_resolution_corrected/summary.toml",
+        "examples/transmon_refined_optimize.rs with REFINED_OPT_TARGET set (issue #1066): same \
+         f64 path as p2_cycles10_anchor_93p95/summary.toml, no Backend generic",
+    ),
+    b(
         // The #692 curation listed this under bucket D; the generator was
         // re-audited during implementation: it only uses the scalar
         // `assemble_electrostatic{,_tensor}` + `extract_capacitance` f64

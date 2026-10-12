@@ -1,0 +1,671 @@
+{
+  "anchor_ff": 93.95366031282771,
+  "anchor_issue": 1066,
+  "convergence_threshold_relative": 0.01,
+  "geometry_map": "fixed coarse junction-pinned harmonic fields; exact nested P1 prolongation",
+  "history": [
+    {
+      "c_ff": 137.70675226453807,
+      "cycle": 0,
+      "gradient_ff": [
+        93.42713929124406,
+        44.855961320303244,
+        -61.367366931339916
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 22684,
+      "n_tets": 133314,
+      "relative_shift": null,
+      "solve_s": 0.602149125,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 3.348261488924005e-11
+    },
+    {
+      "c_ff": 120.5172323492468,
+      "cycle": 1,
+      "gradient_ff": [
+        94.67457124378357,
+        37.596366447247036,
+        -41.72103425837812
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 22929,
+      "n_tets": 134561,
+      "relative_shift": -0.12482699383011937,
+      "solve_s": 0.607273958,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 3.342041489697817e-11
+    },
+    {
+      "c_ff": 110.85232632200942,
+      "cycle": 2,
+      "gradient_ff": [
+        93.6767852197216,
+        34.86486927104249,
+        -31.88626833094064
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 23344,
+      "n_tets": 136748,
+      "relative_shift": -0.08019522054098832,
+      "solve_s": 0.578827125,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 3.9233090010869945e-11
+    },
+    {
+      "c_ff": 104.05920152235645,
+      "cycle": 3,
+      "gradient_ff": [
+        89.77006865981973,
+        32.782805697242544,
+        -27.086000238872316
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 24966,
+      "n_tets": 145475,
+      "relative_shift": -0.061280850163847364,
+      "solve_s": 0.70262425,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 4.91020395069925e-11
+    },
+    {
+      "c_ff": 98.03711861238342,
+      "cycle": 4,
+      "gradient_ff": [
+        85.13309715172782,
+        31.573305045342327,
+        -22.952208188595666
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 26985,
+      "n_tets": 156376,
+      "relative_shift": -0.05787170016559484,
+      "solve_s": 0.698283375,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 4.622348903076095e-11
+    },
+    {
+      "c_ff": 93.60899192071592,
+      "cycle": 5,
+      "gradient_ff": [
+        84.20623778425905,
+        30.862792568365123,
+        -20.14257780539334
+      ],
+      "iterations": [
+        11,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 29214,
+      "n_tets": 168852,
+      "relative_shift": -0.045167858402441544,
+      "solve_s": 0.728772916,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 5.086802109175091e-11
+    },
+    {
+      "c_ff": 90.41218853373758,
+      "cycle": 6,
+      "gradient_ff": [
+        83.78357341700537,
+        30.646637499704905,
+        -18.687335556672224
+      ],
+      "iterations": [
+        12,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 32417,
+      "n_tets": 186732,
+      "relative_shift": -0.03415060157560445,
+      "solve_s": 0.810026166,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 5.5070062159557544e-11
+    },
+    {
+      "c_ff": 87.60049606023847,
+      "cycle": 7,
+      "gradient_ff": [
+        82.97135115519397,
+        30.57798782716138,
+        -17.540133255414535
+      ],
+      "iterations": [
+        12,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 37616,
+      "n_tets": 215663,
+      "relative_shift": -0.031098599858025957,
+      "solve_s": 0.939588375,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 7.229237194551027e-11
+    },
+    {
+      "c_ff": 85.43220478186524,
+      "cycle": 8,
+      "gradient_ff": [
+        82.0823496115219,
+        30.436158679283498,
+        -16.68100349094541
+      ],
+      "iterations": [
+        13,
+        10
+      ],
+      "kind": "refinement",
+      "n_nodes": 46595,
+      "n_tets": 265774,
+      "relative_shift": -0.02475204337749648,
+      "solve_s": 1.178603917,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 9.531330240968478e-11
+    },
+    {
+      "c_ff": 83.69208566571373,
+      "cycle": 9,
+      "gradient_ff": [
+        81.22279419422432,
+        30.41255537874478,
+        -16.227176643766263
+      ],
+      "iterations": [
+        14,
+        11
+      ],
+      "kind": "refinement",
+      "n_nodes": 59376,
+      "n_tets": 336823,
+      "relative_shift": -0.020368421025707635,
+      "solve_s": 1.486432542,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 3.125092771482807e-11
+    },
+    {
+      "c_ff": 82.32369661849488,
+      "cycle": 10,
+      "gradient_ff": [
+        80.46529865869462,
+        30.354665184060494,
+        -15.822326280981104
+      ],
+      "iterations": [
+        15,
+        11
+      ],
+      "kind": "refinement",
+      "n_nodes": 79306,
+      "n_tets": 448279,
+      "relative_shift": -0.01635028015294695,
+      "solve_s": 2.104130209,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 6.896343941859582e-11
+    },
+    {
+      "c_ff": 78.38791846057883,
+      "gradient_ff": [
+        77.23889717248946,
+        30.057025667414948,
+        -14.842528703389542
+      ],
+      "iterations": [
+        29,
+        23
+      ],
+      "kind": "optimization",
+      "min_volume_ratio": 1.0,
+      "solve_s": 16.336402917,
+      "step": 0,
+      "theta": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "true_relative_residual": 8.30521108958276e-11
+    },
+    {
+      "c_ff": 86.77697701391006,
+      "gradient_ff": [
+        83.36087384115642,
+        32.886230200735966,
+        -22.36088682051983
+      ],
+      "iterations": [
+        29,
+        22
+      ],
+      "kind": "optimization",
+      "min_volume_ratio": 0.7191188612882532,
+      "solve_s": 15.287114875,
+      "step": 1,
+      "theta": [
+        0.0023386923517015085,
+        0.16590449999999998,
+        -0.16492355933866887
+      ],
+      "true_relative_residual": 8.514310425994198e-11
+    },
+    {
+      "c_ff": 96.54702103629612,
+      "gradient_ff": [
+        88.3389996399533,
+        38.99634729231411,
+        -36.407944705568106
+      ],
+      "iterations": [
+        29,
+        22
+      ],
+      "kind": "optimization",
+      "min_volume_ratio": 0.4391254080746837,
+      "solve_s": 15.058976958,
+      "step": 2,
+      "theta": [
+        0.0041315425677069684,
+        0.29483954450616046,
+        -0.3414088616668508
+      ],
+      "true_relative_residual": 8.689054197231077e-11
+    },
+    {
+      "c_ff": 95.15245579453207,
+      "gradient_ff": [
+        87.82269612071441,
+        37.87485887917287,
+        -33.88914332990106
+      ],
+      "iterations": [
+        29,
+        22
+      ],
+      "kind": "optimization",
+      "min_volume_ratio": 0.4765587455309631,
+      "solve_s": 14.315686708,
+      "step": 3,
+      "theta": [
+        0.003967333646738853,
+        0.2816252697524922,
+        -0.31657305881425435
+      ],
+      "true_relative_residual": 7.199246105521321e-11
+    },
+    {
+      "c_ff": 95.11301642094594,
+      "gradient_ff": [
+        87.80728677704481,
+        37.84436277665941,
+        -33.82062035996142
+      ],
+      "iterations": [
+        29,
+        22
+      ],
+      "kind": "optimization",
+      "min_volume_ratio": 0.4776363821776007,
+      "solve_s": 14.26100175,
+      "step": 4,
+      "theta": [
+        0.003962314896249483,
+        0.2812307079895837,
+        -0.3158623573660296
+      ],
+      "true_relative_residual": 7.514675762304314e-11
+    },
+    {
+      "c_ff": 113.74889008252232,
+      "gradient_ff": [
+        91.27991163539627,
+        50.857690523147554,
+        -67.49060471327887
+      ],
+      "kind": "final_coarse_cross_solver_reference"
+    },
+    {
+      "analytic_ff": 87.80728677704481,
+      "fd_ff": 87.80732392828838,
+      "h": 0.0001,
+      "kind": "final_gradient_check",
+      "parameter": 0,
+      "relative_error": 4.2309959935894604e-7
+    },
+    {
+      "analytic_ff": 37.84436277665941,
+      "fd_ff": 37.84436284803405,
+      "h": 0.0001,
+      "kind": "final_gradient_check",
+      "parameter": 1,
+      "relative_error": 1.8860046176842245e-9
+    },
+    {
+      "analytic_ff": -33.82062035996142,
+      "fd_ff": -33.82062081414006,
+      "h": 0.0001,
+      "kind": "final_gradient_check",
+      "parameter": 2,
+      "relative_error": 1.3429045022032879e-8
+    },
+    {
+      "final_design": {
+        "c_ff": 95.11301642094594,
+        "gradient_ff": [
+          87.80728677704481,
+          37.84436277665941,
+          -33.82062035996142
+        ],
+        "iterations": [
+          29,
+          22
+        ],
+        "solve_s": 14.282813708,
+        "true_relative_residual": 7.514675762304314e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821776007,
+      "n_nodes": 79306,
+      "n_tets": 448279,
+      "relative_shift_from_round_0": null,
+      "round": 0,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.85276629140422,
+        "gradient_ff": [
+          87.64350623990846,
+          37.74718962640269,
+          -33.56956230348633
+        ],
+        "iterations": [
+          30,
+          23
+        ],
+        "solve_s": 17.160305166,
+        "true_relative_residual": 5.864534864479202e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821775867,
+      "n_nodes": 93736,
+      "n_tets": 527565,
+      "relative_shift_from_round_0": -0.00273621991326525,
+      "round": 1,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.6379315740755,
+        "gradient_ff": [
+          87.49501259692661,
+          37.65329842004681,
+          -33.34310827887614
+        ],
+        "iterations": [
+          33,
+          24
+        ],
+        "solve_s": 24.157717709,
+        "true_relative_residual": 7.58571197673103e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821775584,
+      "n_nodes": 121486,
+      "n_tets": 681721,
+      "relative_shift_from_round_0": -0.0049949508989163,
+      "round": 2,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.47774213533381,
+        "gradient_ff": [
+          87.33821225025275,
+          37.592590855223,
+          -33.1999305508136
+        ],
+        "iterations": [
+          32,
+          24
+        ],
+        "solve_s": 33.156908125,
+        "true_relative_residual": 8.172986328225789e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821775629,
+      "n_nodes": 161194,
+      "n_tets": 900507,
+      "relative_shift_from_round_0": -0.0066791519133465906,
+      "round": 3,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.35573240136785,
+        "gradient_ff": [
+          87.20227951586052,
+          37.54591312181668,
+          -33.0940401242555
+        ],
+        "iterations": [
+          35,
+          26
+        ],
+        "solve_s": 49.451761958,
+        "true_relative_residual": 6.954254914632634e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.47763638217755877,
+      "n_nodes": 223811,
+      "n_tets": 1248566,
+      "relative_shift_from_round_0": -0.007961938839438635,
+      "round": 4,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.2596225717549,
+        "gradient_ff": [
+          87.09851277709879,
+          37.505600785831916,
+          -33.00227882645053
+        ],
+        "iterations": [
+          37,
+          28
+        ],
+        "solve_s": 75.503285834,
+        "true_relative_residual": 7.354554435498187e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821775451,
+      "n_nodes": 309930,
+      "n_tets": 1723255,
+      "relative_shift_from_round_0": -0.00897241914202503,
+      "round": 5,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.19126808807819,
+        "gradient_ff": [
+          87.00186468843765,
+          37.48100302623722,
+          -32.94663729751359
+        ],
+        "iterations": [
+          40,
+          29
+        ],
+        "solve_s": 117.284027875,
+        "true_relative_residual": 9.432825096619092e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821775367,
+      "n_nodes": 437406,
+      "n_tets": 2433998,
+      "relative_shift_from_round_0": -0.009691085064407245,
+      "round": 6,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "c_ff": 94.1361033998647,
+        "gradient_ff": [
+          86.93823548167353,
+          37.45701644964697,
+          -32.89371916163402
+        ],
+        "iterations": [
+          43,
+          32
+        ],
+        "solve_s": 186.213522209,
+        "true_relative_residual": 7.656071055778337e-11
+      },
+      "kind": "held_out_round",
+      "min_volume_ratio": 0.4776363821774154,
+      "n_nodes": 612385,
+      "n_tets": 3395664,
+      "relative_shift_from_round_0": -0.010271076008752336,
+      "round": 7,
+      "x0": null
+    },
+    {
+      "final_design": {
+        "decrement_ratios": [
+          0.8254932195693321,
+          0.7456403729038327,
+          0.7616590389752074,
+          0.7877226389146164,
+          0.711212203288616,
+          0.8070383279376199
+        ],
+        "decrements_ff": [
+          0.260250129541717,
+          0.21483471732872772,
+          0.160189438741682,
+          0.12200973396596737,
+          0.09610982961294212,
+          0.06835448367671404,
+          0.05516468821349463
+        ],
+        "estimate_band_ff": [
+          93.87,
+          94.02
+        ],
+        "free_rate_fits": [
+          {
+            "alpha": 1.0085,
+            "c_inf_ff": 94.0165327650558,
+            "first_round": 2,
+            "in_band": true
+          },
+          {
+            "alpha": 0.883,
+            "c_inf_ff": 93.98360401004456,
+            "first_round": 3,
+            "in_band": true
+          },
+          {
+            "alpha": 0.9355,
+            "c_inf_ff": 93.99659806756051,
+            "first_round": 4,
+            "in_band": true
+          }
+        ],
+        "geometric_tail_ff": [
+          93.87515035283975,
+          94.00024655309059
+        ],
+        "geometric_tail_midpoint_ff": 93.93769845296518,
+        "slow_rate_fits": [
+          {
+            "alpha": 0.3333333333333333,
+            "c_inf_ff": 93.40917941975864
+          },
+          {
+            "alpha": 0.5,
+            "c_inf_ff": 93.71214765455348
+          }
+        ],
+        "upper_bound_ff": 94.14
+      },
+      "kind": "held_out_summary",
+      "note": "upper_bound_ff is rigorous (nested conforming spaces, energy minimum, rounded up); every other number is an estimate with the stated method, not a bound",
+      "x0": null
+    }
+  ],
+  "optimization_order": "2",
+  "status": "target_reached_on_optimization_mesh_held_out_series_recorded",
+  "target_scalar_capacitance_ff": 95.112986,
+  "theta": [
+    0.003962314896249483,
+    0.2812307079895837,
+    -0.3158623573660296
+  ]
+}

@@ -75,8 +75,8 @@
 //! `InnerSolver::MatrixFree` is plain preconditioned CG, which requires
 //! `(K − σM)` to be **SPD** — i.e. `σ` must sit **below the entire spectrum**.
 //! On the ungauged transmon pencil that spectrum includes the `image(d⁰)`
-//! gradient nullspace at `λ ≈ 0` **and** a port-localized spurious mode near
-//! 3.45 GHz, so a positive shift such as `σ = 4.5 GHz` makes `(K − σM)`
+//! gradient nullspace at `λ ≈ 0` **and** the junction-localized qubit mode
+//! near 3.45 GHz, so a positive shift such as `σ = 4.5 GHz` makes `(K − σM)`
 //! indefinite and Jacobi-CG stalls (this is exactly the #526 AMS / #531
 //! abs-AMS preconditioner-strength follow-on). The `direct` LU path handles the
 //! indefinite shift directly, which is why it is the default for the local
@@ -104,12 +104,14 @@
 //!     nodes, then one projected Lanczos at `σ`, dropping exact null modes of
 //!     `K` before the `n_modes` cut. One factorization of `K − σM`, no junction
 //!     extract and no reference number. It deflates the gradient cluster and
-//!     keeps the junction mode. It does **not** remove the solenoidal 3.45 GHz
-//!     port-artifact mode (#514), which is a genuine eigenpair of this pencil.
+//!     keeps the 17.49 GHz port-sheet mode, which is the non-physical one (the
+//!     opt-in A2 shunt of #1044 removes it). It also returns the solenoidal
+//!     3.45 GHz mode, the transmon qubit mode (#1043; called a port artifact
+//!     before #1045).
 //!     `direct` inner solver only.
 //!   - `port_aware_extract` → the issue #514 route
 //!     ([`solve_transmon_eigenmodes_port_aware`]): one ungauged extract of the
-//!     junction LC mode near `GEODE_JUNCTION_SIGMA_GHZ` (a second factorization),
+//!     17.49 GHz port-sheet mode near `GEODE_JUNCTION_SIGMA_GHZ` (a second factorization),
 //!     then a projected Lanczos at `σ` re-admitting that one direction. Since
 //!     issue #950 it drops exact null modes too. This was `port_aware` before
 //!     #950; it is kept for before/after measurement. `direct` only.

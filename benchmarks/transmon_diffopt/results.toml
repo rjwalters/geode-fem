@@ -2,6 +2,9 @@
 #   --example transmon_diffopt`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): the E_C target 0.2156 GHz (89.84 fF) below is mis-derived;
+# the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance. This parallel-plate method demonstration (#584) is kept as history and not re-run;
+# the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "Gradient-based optimization of a parallel-plate capacitor geometry parameter theta to a target transmon charging energy E_C, via the analytic d(E_C)/d(theta) from the electrostatic-energy adjoint (issue #583). Each Newton iteration is one forward + one adjoint solve (single LU factorization); the converged theta is confirmed by a fresh, independent forward capacitance solve."

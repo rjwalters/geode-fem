@@ -12,12 +12,12 @@
   },
   "repository_inputs": {
     "crates/geode-core/tests/fixtures/transmon_smoke.msh": "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd",
-    "benchmarks/transmon_eigen/results.toml": "7bfb50fdbef086cf854999996bce29960c349c1d66bc651c127100223e8a1e48",
+    "benchmarks/transmon_eigen/results.toml": "139f58e728f8689e6bf8662ecc7b57ac30b4befe2000d897616727eaeecd833b",
     "benchmarks/transmon_diffopt/c_sigma_convergence.toml": "9dda6172452669ffc8937d3dab976f14f21635bc91f013743fbb25c02d594999",
     "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml": "0c0610e7b3c0777fd3122f6cf301b357fede7da6c7093841636a6f04b3abfd5a",
     "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/design.json": "913cfbcfb25378c438b1455cd72dd85db83f0eec3db6a7fb37103033cb67773c",
     "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_resolution_corrected/summary.toml": "1ba968c238e4d70e56e7456b9ea3b500f7a15d5bc9687b5d05ece737946b227d",
-    "benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml": "70ae9ec5fcd3a82a3682f38e710ca85e44c59be6e4f215c533752f81dc035ea7",
+    "benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml": "11cd743b0ae7c12582affb03be96da541188addc19112e27c1ebef3d43980dea",
     "benchmarks/transmon_diffopt/results.toml": "76ef73d1fa148be02a955f8eef564f8fa7da39e6a97ed94e5ab86814087e2582",
     "benchmarks/transmon_diffopt/pad_results.toml": "cdd7c6e95f4a17c0d369836abf40574ebdc91225803ca475efa56ed842dc2a62"
   }

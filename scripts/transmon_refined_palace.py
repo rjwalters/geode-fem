@@ -11,6 +11,12 @@ solvers agree on that discretization; it says nothing about its error.
 The mesh is the one named by `Model.Mesh` in OUTPUT_DIR/palace_p1.json. The
 recorded command carries OUTPUT_DIR relative to the current directory (run
 from the repository root), not the absolute path Docker is given.
+
+The anchor that `relative_target_error` is measured against is read from the
+`anchor_ff` the generator wrote to the run's `results.json` (OUTPUT_DIR or its
+parent), so it is derived in one place (issue #1066). Runs before #1066 record
+the superseded 89.9 fF there; newer runs record the DeviceLayout 4.14 GHz
+anchor, about 93.9537 fF.
 """
 import argparse
 import csv
@@ -20,6 +26,20 @@ import os
 import pathlib
 import subprocess
 import time
+
+
+def anchor_ff(root):
+    """The anchor recorded by the generator in the run's results.json."""
+    for candidate in (root / 'results.json', root.parent / 'results.json'):
+        if candidate.exists():
+            doc = json.loads(candidate.read_text())
+            # Runs that predate `anchor_ff` (the top-level and cycles16
+            # exploratory results) fall back to the optimizer target, which
+            # for those runs was the superseded 89.9 fF anchor itself. The
+            # fallback would be wrong for a run that offsets the target.
+            value = doc.get('anchor_ff', doc.get('target_scalar_capacitance_ff'))
+            return float(value), os.path.relpath(candidate)
+    raise SystemExit(f'no results.json with anchor_ff next to {root}')
 
 
 def main():
@@ -38,10 +58,11 @@ def main():
     template = json.loads((root / 'palace_p1.json').read_text())
     mesh_name = template['Model']['Mesh']
     recorded_root = os.path.relpath(root)
+    target_ff, target_source = anchor_ff(root)
     report = {'image': args.image, 'image_id': image_id, 'mesh': mesh_name,
               'mesh_sha256': hashlib.sha256((root / mesh_name).read_bytes()).hexdigest(),
               'quantity': 'scalar-epsilon island capacitance with neutral floating feedline; no junction self-capacitance',
-              'target_ff': 89.9, 'amr_steps': args.amr_steps, 'runs': []}
+              'target_ff': target_ff, 'target_source': target_source, 'amr_steps': args.amr_steps, 'runs': []}
     report_path = root / ('palace_validation_amr.json' if args.amr_steps else 'palace_validation.json')
     for order in args.orders:
         cfg = dict(template)
@@ -83,7 +104,7 @@ def main():
         c_sigma = (c11 - c12*c21/c22)*1e15
         run = {'order': order, 'status': 'completed',
                'capacitance_matrix_f': [values[0][1:], values[1][1:]],
-               'c_sigma_ff': c_sigma, 'relative_target_error': c_sigma/89.9-1,
+               'c_sigma_ff': c_sigma, 'relative_target_error': c_sigma/target_ff-1,
                'wall_s': time.monotonic()-start, 'command': recorded}
         if report['runs']:
             run['relative_shift_from_previous'] = c_sigma/report['runs'][-1]['c_sigma_ff']-1

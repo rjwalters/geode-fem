@@ -1,0 +1,17 @@
+{
+  "island_bbox_um": [
+    [
+      -15.374768495875005,
+      6.5,
+      0.0
+    ],
+    [
+      15.374768495875005,
+      634.4249367165047,
+      0.0
+    ]
+  ],
+  "island_length_um": 627.9249367165047,
+  "note": "Written by the generator from the island sheet nodes of the final adapted mesh (the exported polygonal geometry), not from accumulated optimization parameters.",
+  "pad_width_um": 30.74953699175001
+}

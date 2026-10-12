@@ -4,6 +4,10 @@
 //! metal conductors), derive `C_Σ`, `E_C`, and the Koch-exact `ω01`/`α`,
 //! and emit `benchmarks/transmon_quantum/results.toml`.
 //!
+//! `E_C = e²/(2(C_Σ + C_J))` with the junction's lumped `C_J = 5.5 fF`
+//! (issue #1066): the electrostatic `C_Σ` excludes the junction. The
+//! anchors come from `TransmonAnchor::devicelayout`.
+//!
 //! Run with:
 //!
 //! ```text
@@ -27,11 +31,13 @@ use std::path::PathBuf;
 use geode_core::assembly::electrostatic::{
     Electrode, assemble_electrostatic, assemble_electrostatic_tensor, extract_capacitance,
 };
-use geode_core::mesh::transmon::{JUNCTION_INDUCTANCE_H, sapphire_eps_lab, sapphire_eps_scalar};
+use geode_core::mesh::transmon::{
+    JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab, sapphire_eps_scalar,
+};
 use geode_core::mesh::{MetalRole, TetMesh, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
-    capacitance_from_e_c_hz, cross_kerr_from_epr, e_c_hz_from_capacitance, e_j_hz_from_inductance,
-    omega01_asymptotic_hz, self_kerr_from_epr, transmon_spectrum,
+    TransmonAnchor, cross_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
+    harmonic_frequency_hz, omega01_asymptotic_hz, self_kerr_from_epr, transmon_spectrum,
 };
 
 /// Metres per mesh unit (micrometre mesh).
@@ -182,7 +188,10 @@ fn main() {
 
     // ---- Quantum parameters ----
     let e_j = e_j_hz_from_inductance(JUNCTION_INDUCTANCE_H);
-    let e_c = e_c_hz_from_capacitance(c_sigma_phys);
+    // Issue #1066: the junction self-capacitance is in parallel with C_Σ.
+    let e_c = e_c_hz_from_c_sigma(c_sigma_phys, JUNCTION_CAPACITANCE_F);
+    let harmonic =
+        harmonic_frequency_hz(JUNCTION_INDUCTANCE_H, c_sigma_phys + JUNCTION_CAPACITANCE_F);
     let e_j_over_e_c = e_j / e_c;
     let spec = transmon_spectrum(e_j, e_c, 0.0, 40, 3);
     let w01 = spec.omega01_hz();
@@ -197,9 +206,9 @@ fn main() {
     let dw01_from_eps = 0.5 * scalar_tensor_delta;
     let w01_band_frac = dw01_from_c + dw01_from_eps;
 
-    // Back-solved anchors (curator-confirmed EXPECTATIONS, not tuning
-    // targets): E_C ≈ 0.2156 GHz ⇒ C_Σ ≈ 89.9 fF ⇒ E_J/E_C ≈ 51.
-    let c_anchor = capacitance_from_e_c_hz(0.2156e9);
+    // The DeviceLayout anchor (issue #1066; an expectation to compare
+    // against, not a tuning target here): 4.14 GHz harmonic with L_J ∥ C_J.
+    let anchor = TransmonAnchor::devicelayout();
 
     // ---- Emit results.toml ----
     let mut t = String::with_capacity(8192);
@@ -221,6 +230,11 @@ fn main() {
         t,
         "junction_inductance_nh = {}",
         JUNCTION_INDUCTANCE_H * 1e9
+    );
+    let _ = writeln!(
+        t,
+        "junction_capacitance_ff = {}  # lumped C_J in parallel with C_Sigma; included in E_C (issue #1066)",
+        JUNCTION_CAPACITANCE_F * 1e15
     );
     t.push_str("method = \"energy_reaction\"  # C_ij = phi_i^T K phi_j, full K\n");
     t.push_str(
@@ -312,7 +326,7 @@ fn main() {
         "e_c_understated_by_at_least_pct = {:.1}  # E_C ~ 1/C_Sigma: (coarse C / upper bound - 1), floored",
         ((e_c_factor - 1.0) * 1000.0).floor() / 10.0
     );
-    t.push_str("reading = \"measured: the converged C_Sigma of this geometry is below the 89.9 fF anchor, so the 136.7 fF vs about 90 fF gap reported here is coarse-mesh discretization error, not a model difference. Every C_Sigma, E_C, E_J/E_C, omega01 and alpha in this file is a coarse-mesh number. The scalar-vs-tensor delta is one too: it changes sign under refinement. What remains against the anchor is a gap of the opposite sign (converged C_Sigma below 89.9 fF), whose cause is not measured here.\"\n\n");
+    t.push_str("reading = \"measured: the converged C_Sigma of this geometry is below the 93.95 fF anchor of [quantum.anchors] (and below the superseded 89.9 fF anchor), so the 136.7 fF vs about 94 fF gap reported here is coarse-mesh discretization error, not a model difference. Every C_Sigma, E_C, E_J/E_C, omega01, alpha and harmonic frequency in this file is a coarse-mesh number. The scalar-vs-tensor delta is one too: it changes sign under refinement. What remains against the anchor is a gap of the opposite sign (converged C_Sigma below the anchor), whose cause is not measured here.\"\n\n");
 
     t.push_str("[capacitance.bc_sensitivity]\n");
     t.push_str("# Exterior far-field wall grounded (Dirichlet) vs the baseline\n");
@@ -364,6 +378,9 @@ fn main() {
     // Quantum parameters.
     t.push_str("[quantum]\n");
     t.push_str("# h-convention throughout (E/h in Hz; divide by 1e9 for GHz).\n");
+    t.push_str(
+        "# E_C = e^2/(2 (C_Sigma + C_J)), C_J = meta.junction_capacitance_ff (issue #1066).\n",
+    );
     let _ = writeln!(
         t,
         "c_sigma_ff = {:.4}  # tensor reduced (physical)",
@@ -388,6 +405,11 @@ fn main() {
         alpha / 1e9
     );
     let _ = writeln!(t, "alpha_minus_ec_ghz = {:.6}  # -E_C sanity", -e_c / 1e9);
+    let _ = writeln!(
+        t,
+        "harmonic_lc_ghz = {:.6}  # 1/(2 pi sqrt(L_J (C_Sigma + C_J))) = sqrt(8 E_J E_C), what a linear eigensolve reports",
+        harmonic / 1e9
+    );
     let _ = writeln!(t, "spectrum_converged = {}", spec.converged);
     t.push('\n');
 
@@ -413,18 +435,39 @@ fn main() {
         w01 / 1e9 * (1.0 + w01_band_frac)
     );
     t.push_str("terms_not_in_this_c_sigma = \"floating readout feedline (folded out via Schur reduction), junction self-C 5.5 fF (not in this electrostatic C_Sigma), exterior natural-Neumann truncation\"\n");
-    t.push_str("anchor_gap = \"the 136.7 fF vs about 90 fF gap is discretization error (issue #1051, [capacitance.mesh_convergence]), not the model terms above: those are small (the BC term is 6e-5) or, for the junction self-C, of the wrong sign to explain a C_Sigma above the anchor\"\n\n");
+    t.push_str("anchor_gap = \"the 136.7 fF vs about 94 fF gap is discretization error (issue #1051, [capacitance.mesh_convergence]), not the model terms above: the BC term is 6e-5, and the junction self-C is on neither side of the comparison (excluded from this C_Sigma and from the anchor C_Sigma, added to both in E_C, issue #1066)\"\n\n");
 
     t.push_str("[quantum.anchors]\n");
-    t.push_str("# Curator-confirmed EXPECTATIONS to compare against (NOT tuning targets).\n");
-    t.push_str("blog_omega01_ghz = 4.14\n");
-    t.push_str("expected_e_c_ghz = 0.2156\n");
+    t.push_str("# EXPECTATIONS to compare against (NOT tuning targets), issue #1066:\n");
+    t.push_str("# DeviceLayout's published 4.14 GHz is the harmonic frequency of the\n");
+    t.push_str("# linear L_J || (C_Sigma + C_J) eigenproblem Palace solves. Derived in\n");
+    t.push_str("# geode_core::quantum::transmon::TransmonAnchor::devicelayout.\n");
     let _ = writeln!(
         t,
-        "expected_c_sigma_ff = {:.2}  # back-solved from E_C=0.2156 GHz",
-        c_anchor * 1e15
+        "devicelayout_harmonic_ghz = {}  # published DeviceLayout SingleTransmon qubit frequency",
+        anchor.frequency_hz / 1e9
     );
-    t.push_str("expected_e_j_over_e_c = 51.0\n");
+    let _ = writeln!(
+        t,
+        "expected_c_total_ff = {:.4}  # 1/((2 pi f)^2 L_J)",
+        anchor.c_total_farad * 1e15
+    );
+    let _ = writeln!(
+        t,
+        "expected_c_sigma_ff = {:.4}  # c_total - C_J, junction excluded",
+        anchor.c_sigma_farad * 1e15
+    );
+    let _ = writeln!(
+        t,
+        "expected_e_c_ghz = {:.6}  # e^2/(2 C_total h)",
+        anchor.e_c_hz / 1e9
+    );
+    let _ = writeln!(
+        t,
+        "expected_e_j_over_e_c = {:.2}",
+        anchor.e_j_hz / anchor.e_c_hz
+    );
+    t.push_str("superseded = \"the earlier anchor E_C = 0.2156 GHz, C_Sigma = 89.84-89.9 fF, E_J/E_C = 51 inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out C_J (issue #1066); it is not used\"\n");
     t.push_str("phase_b_c_sigma_note_ff = \"80-100\"\n\n");
 
     // Kerr closed forms at the physical E_C (qubit p≈1 example).
@@ -442,10 +485,12 @@ fn main() {
     );
     t.push('\n');
 
-    // ---- Minev p_m 3-way reconciliation over the six committed modes ----
-    // The six Phase-B modes + their stiffness-participation are committed in
-    // benchmarks/transmon_eigen/results.toml. In the reactive-lumped-shunt
-    // formulation the Minev energy-participation p_m = junction inductive /
+    // ---- Minev p_m 3-way reconciliation over the seven committed modes ----
+    // The Phase-B modes + their stiffness-participation are committed in
+    // benchmarks/transmon_eigen/results.toml `[modes.*]`: the qubit mode, five
+    // cavity modes and the 17.49 GHz port-sheet artifact (issue #1045; the
+    // qubit row was absent before, and the artifact was named `junction_lc`).
+    // In the reactive-lumped-shunt formulation the Minev energy-participation p_m = junction inductive /
     // total inductive energy is ALGEBRAICALLY the same quantity as the Phase
     // B stiffness participation p = xᵀ K_port x / xᵀ (K+K_port) x (both are
     // the junction inductive-energy fraction of the same eigenvector). So
@@ -453,29 +498,42 @@ fn main() {
     // reconciliation is against Palace's differently-normalized field
     // port-EPR. (The release test tests/transmon_quantum.rs re-derives p_m
     // from a fresh eigensolve to confirm the identity numerically.)
-    // Committed values (transmon_eigen/results.toml + Palace port-EPR.csv):
-    let modes: [(&str, f64, f64, f64); 6] = [
+    // Committed values (transmon_eigen/results.toml + Palace port-EPR.csv; the
+    // qubit row's Palace value is the Target = 2 GHz re-run of #1043,
+    // reference/fixtures/transmon_palace/results_p1_target2/target2_L1/port-EPR.csv):
+    let modes: [(&str, f64, f64, f64); 7] = [
         // (name, f_ghz, phase_b_participation == minev p_m, palace port-EPR p[1])
+        ("qubit", 3.452751, 0.9942, 9.942420548984e-1),
         ("resonator", 5.153, 0.000, -4.706079891562e-4),
         ("mode_2", 15.465, 0.000, -1.710883210358e-5),
-        ("junction_lc", 17.490, 1.000, 2.494782690465e-8),
+        ("port_sheet_artifact", 17.490, 1.000, 2.494782690465e-8),
         ("mode_4", 18.693, 0.000, -2.975892992981e-9),
         ("mode_5", 20.703, 0.000, -1.172141061263e-8),
         ("mode_6", 26.088, 0.000, -6.038680846706e-6),
     ];
     t.push_str("[epr_reconciliation]\n");
-    t.push_str("# 3-way reconciliation over the six committed Phase-B field modes.\n");
-    t.push_str("# minev_p_m == phase_b_participation ALGEBRAICALLY (reactive-shunt\n");
-    t.push_str("# formulation makes junction-inductive-energy-fraction the same\n");
-    t.push_str("# quantity); Palace port-EPR is a differently-normalized, SIGNED\n");
-    t.push_str("# field diagnostic that ranks modes DIFFERENTLY (junction mode has\n");
-    t.push_str("# the SMALLEST |p[1]|, resonator the LARGEST) — an honest\n");
-    t.push_str("# non-comparability, reconciled by the frequency-agreement mode-ID.\n");
+    t.push_str("# 3-way reconciliation over the seven committed Phase-B field modes:\n");
+    t.push_str("# the qubit mode, five cavity modes and the port-sheet artifact\n");
+    t.push_str("# (issue #1045; the artifact was named junction_lc and the qubit\n");
+    t.push_str("# row was absent). minev_p_m == phase_b_participation ALGEBRAICALLY\n");
+    t.push_str("# (reactive-shunt formulation makes junction-inductive-energy-fraction\n");
+    t.push_str("# the same quantity). Palace port-EPR is a differently-normalized,\n");
+    t.push_str("# SIGNED field diagnostic. It agrees with p on the qubit mode\n");
+    t.push_str("# (0.99424 vs 0.9942, Palace at Target 2 GHz, #1043) and differs on\n");
+    t.push_str("# the port-sheet artifact (2.49e-8 vs 1.000), which stores its energy\n");
+    t.push_str("# in the port sheet without a port voltage. Mode ID is by frequency.\n");
     t.push_str("modes = [\n");
     for (name, f, p_minev, p_palace) in &modes {
+        // Participations at their committed precision: 4 decimals for the
+        // qubit (0.9942), 3 for the others.
+        let p_txt = if *name == "qubit" {
+            format!("{p_minev:.4}")
+        } else {
+            format!("{p_minev:.3}")
+        };
         let _ = writeln!(
             t,
-            "  {{ name = \"{name}\", f_ghz = {f}, minev_p_m = {p_minev:.3}, phase_b_participation = {p_minev:.3}, palace_port_epr = {p_palace:.6e} }},"
+            "  {{ name = \"{name}\", f_ghz = {f}, minev_p_m = {p_txt}, phase_b_participation = {p_txt}, palace_port_epr = {p_palace:.6e} }},"
         );
     }
     t.push_str("]\n");
@@ -483,9 +541,9 @@ fn main() {
         "minev_equals_phase_b = true  # algebraic identity, tested in tests/transmon_quantum.rs\n",
     );
     t.push_str(
-        "palace_ranks_differently = true  # signed field diagnostic, not the energy fraction\n",
+        "palace_ranks_differently = true  # on the port-sheet artifact only; the qubit agrees (0.9942 vs 0.99424)\n",
     );
-    t.push_str("mode_id_basis = \"frequency agreement (17.4901 GHz junction mode in both solvers), NOT participation\"\n\n");
+    t.push_str("mode_id_basis = \"frequency agreement (3.4527 GHz qubit mode and 17.4901 GHz port-sheet artifact in both solvers), NOT participation\"\n\n");
 
     let out_root = std::env::var("TRANSMON_QUANTUM_BENCH_DIR")
         .map(PathBuf::from)
@@ -521,7 +579,13 @@ fn main() {
         alpha / 1e9,
         -e_c / 1e9
     );
-    println!("  anchors: blog omega01 4.14 GHz, E_C 0.2156 GHz, C_Sigma ~89.9 fF, E_J/E_C ~51");
+    println!(
+        "  anchor (#1066): harmonic {:.2} GHz, C_Sigma {:.4} fF, E_C {:.6} GHz; this mesh harmonic {:.4} GHz",
+        anchor.frequency_hz / 1e9,
+        anchor.c_sigma_farad * 1e15,
+        anchor.e_c_hz / 1e9,
+        harmonic / 1e9
+    );
     println!(
         "  NOT mesh-converged (#1051): converged tensor C_Sigma < {MESH_CONV_TENSOR_UPPER_FF} fF"
     );

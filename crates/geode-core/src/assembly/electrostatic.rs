@@ -635,7 +635,8 @@ impl CapacitanceMatrix {
 
     /// Row-based **total self-capacitance to ground** of conductor *i*:
     /// `C_Σ(i) = Σ_j C_ij` (the sum across the Maxwell row). This is the
-    /// quantity Epic #476's transmon `E_C = e²/(2 C_Σ)` consumes directly.
+    /// quantity Epic #476's transmon `E_C = e²/(2 (C_Σ + C_J))` consumes
+    /// (the junction capacitance `C_J` is added there, issue #1066).
     ///
     /// # Panics
     ///

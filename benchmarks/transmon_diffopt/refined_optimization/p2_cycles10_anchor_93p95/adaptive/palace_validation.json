@@ -1,0 +1,50 @@
+{
+  "image": "palace:cpu-1043",
+  "image_id": "sha256:bbe02bf83f5b26bdcf04101640873a82584495a64033ffdf079fb4bff7a83176",
+  "mesh": "final_adapted.msh",
+  "mesh_sha256": "adaf7603e1b0e201c9811e983c6d192ca2b0f5b26839de2c34e89ce9ac3e748f",
+  "quantity": "scalar-epsilon island capacitance with neutral floating feedline; no junction self-capacitance",
+  "target_ff": 93.95366031282771,
+  "target_source": "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/results.json",
+  "amr_steps": 0,
+  "runs": [
+    {
+      "order": 2,
+      "status": "completed",
+      "capacitance_matrix_f": [
+        [
+          9.395343380689e-14,
+          -1.349442339275e-18
+        ],
+        [
+          -1.349442339275e-18,
+          4.884626637927e-13
+        ]
+      ],
+      "c_sigma_ff": 93.95343380316199,
+      "relative_target_error": -2.410865792445982e-06,
+      "wall_s": 59.12820975,
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--cpus",
+        "4",
+        "--memory",
+        "12g",
+        "--ipc=host",
+        "-e",
+        "OMP_NUM_THREADS=1",
+        "-v",
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/adaptive:/work",
+        "-w",
+        "/work",
+        "palace:cpu-1043",
+        "-np",
+        "4",
+        "/work/palace_p2.json"
+      ]
+    }
+  ]
+}

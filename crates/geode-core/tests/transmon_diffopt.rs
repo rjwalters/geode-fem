@@ -40,7 +40,14 @@
 //!   `committed_refined_optimization_artifacts_have_no_host_paths_or_pass_claims`
 //!   (CI-fast) guards the JSON and log artifacts; and
 //!   `refined_optimization_coarse_reference_release` (`#[ignore]`) re-solves
-//!   the committed design on the 133k-tet fixture mesh.
+//!   the committed designs on the 133k-tet fixture mesh.
+//! - **Issue #1066:** the refined optimization re-run at the DeviceLayout
+//!   anchor (`TransmonAnchor::devicelayout`, `C_Σ` ≈ 93.9537 fF).
+//!   `committed_anchor_refined_summary_pins_held_out_series` and
+//!   `committed_anchor_resolution_corrected_summary_pins_extrapolation_target`
+//!   pin `refined_optimization/p2_cycles10_anchor_93p95*/summary.toml`,
+//!   including the anchor derivation and the qubit (E_C, harmonic
+//!   frequency) side of every bound.
 //! - **Issue #1062:** guaranteed lower bounds from the complementary
 //!   (flux, H(div)) principle on the same meshes.
 //!   `committed_c_sigma_bracket_toml_is_a_consistent_two_sided_bound`
@@ -49,6 +56,18 @@
 //!   `resolution_corrected_series_is_the_primary_series_rescaled` (CI-fast)
 //!   pins the "by construction" point; and `c_sigma_bracket_coarse_level_release`
 //!   (`#[ignore]`) re-certifies the h level on the 133k-tet fixture mesh.
+//!   The bracketed designs are the #1056 / #1058 ones aimed at the
+//!   superseded 89.9 fF anchor; the X0 bracket is anchor-independent; the
+//!   `p2_cycles10_anchor_93p95*` designs are not yet bracketed (#1075).
+//!
+//! # Superseded anchor (issue #1066)
+//!
+//! Every artifact pinned here before #1066 (#584, #589, #594, #1035, #1036,
+//! #1051, #1056) was aimed at, or compared with, the mis-derived 89.9 fF /
+//! 0.2156 GHz anchor. Those tests pin history: their 89.9 and 0.2156 are
+//! the values the committed artifacts were generated with, and each
+//! artifact carries a SUPERSEDED ANCHOR note. The current anchor is
+//! `geode_core::quantum::transmon::TransmonAnchor::devicelayout`.
 
 use std::path::PathBuf;
 
@@ -1975,7 +1994,10 @@ fn multiparam_optimizer_release() {
         tf(o, "ratio_floor"),
         tf(o, "ratio_margin"),
     )
-    .unwrap();
+    .unwrap()
+    // Superseded #1036 convention (issue #1066): the committed trajectory
+    // used E_C = e²/(2 C_Σ) without the junction capacitance.
+    .with_junction_capacitance(0.0);
     let opts = MultiParamOptions {
         targets: vec![tf(&doc["anchor"], "e_c_target_hz")],
         tolerances: vec![tf(&doc["anchor"], "tol_hz")],
@@ -2441,7 +2463,10 @@ fn check_held_out_extrapolation(ex: &toml::Value, c: &[f64]) {
     assert!(over[1] >= o_hi && over[1] - o_hi < 1e-4 + 1e-12);
 }
 
-/// Pins `refined_optimization/p2_cycles10/summary.toml` (issue #1056): the
+/// Pins `refined_optimization/p2_cycles10/summary.toml` (issue #1056).
+/// SUPERSEDED (issue #1066): this run targets the mis-derived 89.9 fF anchor;
+/// it is kept for comparison and pinned as history. The current-anchor run is
+/// `p2_cycles10_anchor_93p95`. The
 /// 89.9 fF target is reached on the 448k-tet adapted P2 mesh, and seven
 /// further held-out refinement rounds of the same geometry keep lowering
 /// the capacitance. Rigorous: the converged value is below 89.02 fF.
@@ -2582,7 +2607,8 @@ fn committed_refined_optimization_summary_pins_held_out_series() {
 }
 
 /// Pins `refined_optimization/p2_cycles10_resolution_corrected/summary.toml`
-/// (issue #1056): the same optimization with the 448k-tet target offset by
+/// (issue #1056). SUPERSEDED (issue #1066): aimed at the mis-derived 89.9 fF
+/// anchor and kept as history. The same optimization with the 448k-tet target offset by
 /// the measured discretization bias of the first run, so that the
 /// **extrapolated** value of the new geometry lands on the 89.9 fF anchor.
 /// This is an extrapolation-targeted design, not a continuum certificate:
@@ -2679,6 +2705,423 @@ fn committed_resolution_corrected_summary_pins_extrapolation_target() {
     assert_eq!(over, [0.0113, 0.0127]);
 }
 
+/// Checks the `[*.qubit]` block of one extrapolation table (issue #1066):
+/// `E_C = e²/(2(C_Σ + C_J))` and the harmonic `1/(2π√(L_J(C_Σ + C_J)))`
+/// of the round-0 value, of the rigorous upper bound (rounded DOWN, since
+/// both decrease with `C_Σ`) and of the estimate band (rounded outward).
+fn check_qubit_block(ex: &toml::Value, round_0_ff: f64) {
+    use geode_core::quantum::transmon::TransmonAnchor;
+    let a = TransmonAnchor::devicelayout();
+    let f = |c: f64| a.harmonic_frequency_of_c_sigma_hz(c * 1e-15) / 1e9;
+    let e = |c: f64| a.e_c_hz_of_c_sigma(c * 1e-15) / 1e9;
+    let q = &ex["qubit"];
+    assert!((tf(q, "round_0_e_c_ghz") - e(round_0_ff)).abs() < 5e-7);
+    assert!((tf(q, "round_0_harmonic_ghz") - f(round_0_ff)).abs() < 5e-7);
+    let ub = tf(ex, "upper_bound_ff");
+    let (e_lo, f_lo) = (
+        tf(q, "converged_e_c_at_least_ghz"),
+        tf(q, "converged_harmonic_at_least_ghz"),
+    );
+    assert!(e_lo <= e(ub) && e(ub) - e_lo < 1e-6 + 1e-12, "E_C floor");
+    assert!(
+        f_lo <= f(ub) && f(ub) - f_lo < 1e-4 + 1e-12,
+        "frequency floor"
+    );
+    let band = tf_arr(&ex["estimate"], "band_ff");
+    let eb = tf_arr(q, "estimate_e_c_ghz");
+    assert!(eb[0] <= e(band[1]) && eb[1] >= e(band[0]));
+    assert!(e(band[1]) - eb[0] < 1e-6 + 1e-12 && eb[1] - e(band[0]) < 1e-6 + 1e-12);
+    let fb = tf_arr(q, "estimate_harmonic_ghz");
+    assert!(fb[0] <= f(band[1]) && fb[1] >= f(band[0]));
+    assert!(f(band[1]) - fb[0] < 1e-4 + 1e-12 && fb[1] - f(band[0]) < 1e-4 + 1e-12);
+    // The estimate band of frequencies lies above the rigorous floor.
+    assert!(fb[0] >= f_lo);
+    let slow: Vec<f64> = ex["slow_rate_fit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| f(tf(s, "c_inf_ff")))
+        .collect();
+    for (got, want) in tf_arr(q, "slow_rate_harmonic_ghz").iter().zip(slow) {
+        assert!((got - want).abs() < 5e-5 + 1e-12);
+    }
+}
+
+/// Pins `refined_optimization/p2_cycles10_anchor_93p95/summary.toml` (issue
+/// #1066): the #1056 method re-run at the DeviceLayout anchor. The target,
+/// 93.953660 fF, is the `C_Σ` whose harmonic frequency with `L_J ∥ C_J` is
+/// the published 4.14 GHz, and the summary records that derivation. On the
+/// 448k-tet adapted P2 mesh four accepted steps reach 93.953668 fF (minimum
+/// volume ratio 0.47801, floor 0.25). Seven held-out rounds of the same
+/// geometry keep lowering it. Rigorous: converged below 93.00 fF, at least
+/// 1.01 % below the anchor, so its harmonic frequency is at least 4.1599
+/// GHz. Estimate: 92.74 to 92.88 fF (4.1625 to 4.1655 GHz).
+#[test]
+fn committed_anchor_refined_summary_pins_held_out_series() {
+    use geode_core::quantum::transmon::TransmonAnchor;
+    let a = TransmonAnchor::devicelayout();
+    let anchor = a.c_sigma_farad * 1e15;
+    let doc = refined_summary_toml("p2_cycles10_anchor_93p95");
+    let meta = &doc["meta"];
+    assert_eq!(meta["issue"].as_integer(), Some(1066));
+    assert_eq!(meta["method_issue"].as_integer(), Some(1056));
+    assert_eq!(meta["element_order"].as_integer(), Some(2));
+    assert_eq!(meta["p1_preparation_cycles"].as_integer(), Some(10));
+    assert_eq!(meta["resolution_corrected"].as_bool(), Some(false));
+    // The anchor is the library's, to the last bit, and not the old one.
+    assert_eq!(tf(meta, "anchor_ff"), anchor);
+    assert_eq!(tf(meta, "optimizer_target_ff"), anchor);
+    assert!((anchor - 93.9537).abs() < 5e-5);
+    let an = &doc["anchor"];
+    assert_eq!(tf(an, "frequency_ghz"), 4.14);
+    assert_eq!(tf(an, "c_j_ff"), 5.5);
+    assert!((tf(an, "l_j_nh") - 14.860).abs() < 1e-12);
+    assert_eq!(tf(an, "c_total_ff"), a.c_total_farad * 1e15);
+    assert_eq!(tf(an, "c_sigma_target_ff"), anchor);
+    assert_eq!(tf(an, "e_c_ghz"), a.e_c_hz / 1e9);
+    assert_eq!(tf(an, "superseded_anchor_ff"), 89.9);
+
+    let opt = &doc["optimization"];
+    assert_eq!(opt["n_tets"].as_integer(), Some(448_279));
+    assert_eq!(opt["accepted_steps"].as_integer(), Some(4));
+    assert!((tf(opt, "initial_ff") - 78.387918461).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - 93.953667887).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - anchor).abs() < 0.005);
+    // Mesh validity: the larger move (+15.57 fF against #1056's +11.51 fF)
+    // costs volume ratio, but the worst accepted step stays far above 0.25.
+    assert_eq!(tf(opt, "min_volume_ratio_over_accepted_steps"), 0.47801);
+    assert_eq!(tf(opt, "final_min_volume_ratio"), 0.50657);
+    let steps = opt["step"].as_array().unwrap();
+    assert_eq!(steps.len(), 5);
+    let step_min = steps
+        .iter()
+        .map(|s| tf(s, "min_volume_ratio"))
+        .fold(f64::INFINITY, f64::min);
+    assert_eq!(step_min, tf(opt, "min_volume_ratio_over_accepted_steps"));
+    assert!(step_min > 0.25);
+    assert_eq!(tf_arr(&steps[4], "theta"), tf_arr(opt, "theta"));
+    let design = &doc["design"];
+    assert!((tf(design, "island_length_um") - 627.794327).abs() < 5e-7);
+    assert!((tf(design, "pad_width_um") - 30.394071).abs() < 5e-7);
+
+    let checks = doc["gradient_check"].as_array().unwrap();
+    assert_eq!(checks.len(), 3);
+    for g in checks {
+        let (an, fd) = (tf(g, "analytic_ff"), tf(g, "fd_ff"));
+        assert!(((an - fd) / fd).abs() < 5e-7, "solved FD: {an} vs {fd}");
+        assert!(tf(g, "relative_error") < 5e-7);
+    }
+
+    let want: [(i64, f64, f64); 8] = [
+        (448_279, 93.953667887, 78.387918461),
+        (527_959, 93.698450413, 78.178674518),
+        (683_440, 93.488379452, 78.011681063),
+        (902_171, 93.332105806, 77.882134863),
+        (1_250_525, 93.214010250, 77.784537640),
+        (1_720_753, 93.119307099, 77.707881808),
+        (2_430_808, 93.052517479, 77.651593966),
+        (3_388_197, 92.998560071, 77.607977900),
+    ];
+    let rows = doc["held_out"].as_array().unwrap();
+    assert_eq!(rows.len(), want.len());
+    for (k, (r, (n, c, x0))) in rows.iter().zip(want).enumerate() {
+        assert_eq!(r["round"].as_integer(), Some(k as i64));
+        assert_eq!(r["n_tets"].as_integer(), Some(n));
+        assert!((tf(r, "c_ff") - c).abs() < 5e-9, "round {k} final design");
+        assert!((tf(r, "x0_c_ff") - x0).abs() < 5e-9, "round {k} X0");
+        assert!((tf(r, "design_increment_ff") - (c - x0)).abs() < 5e-9);
+        assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+        assert!(tf(r, "x0_pcg_max_true_rel_residual") <= 1e-9);
+        assert_eq!(tf(r, "min_volume_ratio"), 0.50657);
+    }
+    let c = held_out_series(&doc, "c_ff");
+    let x0 = held_out_series(&doc, "x0_c_ff");
+    let fin = &doc["final_design_extrapolation"];
+    let x0x = &doc["x0_extrapolation"];
+    check_held_out_extrapolation(fin, &c);
+    check_held_out_extrapolation(x0x, &x0);
+    check_qubit_block(fin, c[0]);
+    check_qubit_block(x0x, x0[0]);
+
+    // Rigorous (conservative rounding).
+    assert_eq!(tf(fin, "upper_bound_ff"), 93.00);
+    assert_eq!(tf(x0x, "upper_bound_ff"), 77.61);
+    let res = &doc["held_out_result"];
+    assert_eq!(res["rounds"].as_integer(), Some(7));
+    let below = tf(res, "converged_below_anchor_at_least_relative");
+    assert_eq!(below, 0.0101);
+    assert!(below <= (anchor - c[7]) / anchor);
+    // Seven rounds lower C by 1.017 % and the last decrement is 0.054 fF:
+    // the series has not converged, and the rigorous bound alone already
+    // puts the converged value more than 1 % below the anchor.
+    let shift = tf(res, "last_round_relative_shift_from_round_0");
+    // Printed to seven significant digits.
+    assert!((shift - (c[7] - c[0]) / c[0]).abs() < 5e-9);
+    assert!(c[6] - c[7] > 0.05);
+    assert!(below > 0.01);
+
+    // Estimates (not bounds).
+    assert_eq!(tf_arr(&fin["estimate"], "band_ff"), [92.74, 92.88]);
+    assert_eq!(
+        tf_arr(&fin["estimate"], "round_0_overstates_estimate_relative"),
+        [0.0115, 0.0131]
+    );
+    assert_eq!(
+        tf_arr(res, "estimate_relative_to_anchor"),
+        [-0.0130, -0.0114]
+    );
+    assert_eq!(tf_arr(&x0x["estimate"], "band_ff"), [77.43, 77.52]);
+    let corrected = tf(res, "resolution_corrected_target_ff");
+    assert_eq!(corrected, 95.112986);
+    assert!((corrected - anchor * c[0] / tf(fin, "geometric_tail_midpoint_ff")).abs() < 2e-6);
+
+    // The frequency side (issue #1066 item 7), as observations: the design
+    // that sits on 4.14 GHz on the optimization mesh converges to at least
+    // 4.1599 GHz, estimated 4.1625 to 4.1655 GHz; X0 to at least 4.5288 GHz.
+    let q = &fin["qubit"];
+    assert!((tf(q, "round_0_harmonic_ghz") - 4.14).abs() < 1e-5);
+    assert_eq!(tf(q, "converged_harmonic_at_least_ghz"), 4.1599);
+    assert_eq!(tf_arr(q, "estimate_harmonic_ghz"), [4.1625, 4.1655]);
+    assert_eq!(tf(&x0x["qubit"], "converged_harmonic_at_least_ghz"), 4.5288);
+
+    // The design increment over X0 is stable: 15.566 fF at round 0, 15.391
+    // at round 7; the geometry map is the same, the move is 1.35x #1056's.
+    assert!((tf(&rows[0], "design_increment_ff") - 15.5657).abs() < 1e-4);
+    assert!((tf(&rows[7], "design_increment_ff") - 15.3906).abs() < 1e-4);
+    // X0 is the same geometry as #1056's X0 on its own (differently adapted)
+    // meshes: the same round-0 value and a rigorous bound that agrees.
+    let old = refined_summary_toml("p2_cycles10");
+    assert_eq!(
+        tf(&old["optimization"], "initial_ff"),
+        tf(opt, "initial_ff")
+    );
+    assert_eq!(tf(&old["x0_extrapolation"], "upper_bound_ff"), 77.61);
+
+    // results.json carries the same series and the same anchor.
+    let text = std::fs::read_to_string(
+        refined_optimization_dir().join("p2_cycles10_anchor_93p95/results.json"),
+    )
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    // serde_json's default float parser is not round-trip exact.
+    assert!((json["anchor_ff"].as_f64().unwrap() - anchor).abs() < 1e-12 * anchor);
+    assert_eq!(json["anchor_issue"].as_i64(), Some(1066));
+    assert_eq!(
+        json["status"].as_str(),
+        Some("target_reached_on_optimization_mesh_held_out_series_recorded")
+    );
+    let json_rounds: Vec<&serde_json::Value> = json["history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|h| h["kind"] == "held_out_round")
+        .collect();
+    assert_eq!(json_rounds.len(), 8);
+    for (h, (cf, cx)) in json_rounds.iter().zip(c.iter().zip(&x0)) {
+        assert!((h["final_design"]["c_ff"].as_f64().unwrap() - cf).abs() < 5e-9);
+        assert!((h["x0"]["c_ff"].as_f64().unwrap() - cx).abs() < 5e-9);
+    }
+
+    // Palace on the exported adapted mesh: solver agreement on the same
+    // discretization, not evidence about its error.
+    let text = std::fs::read_to_string(
+        refined_optimization_dir().join("p2_cycles10_anchor_93p95/adaptive/palace_validation.json"),
+    )
+    .unwrap();
+    let pv: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!((pv["target_ff"].as_f64().unwrap() - anchor).abs() < 1e-12 * anchor);
+    let run = &pv["runs"][0];
+    assert_eq!(run["order"].as_i64(), Some(2));
+    let palace = run["c_sigma_ff"].as_f64().unwrap();
+    assert!(
+        ((palace - c[0]) / c[0]).abs() < 3e-6,
+        "Palace {palace} vs {}",
+        c[0]
+    );
+}
+
+/// Pins `refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected/
+/// summary.toml` (issue #1066): the #1056 resolution-corrected method at the
+/// DeviceLayout anchor. The 448k-tet target, 95.112986 fF, was fixed by the
+/// first run (anchor × round-0 value / geometric-tail midpoint) before this
+/// one, so that the **extrapolated** value lands on the anchor. This is an
+/// extrapolation-targeted design, not a continuum certificate: both runs
+/// share the mesh family, the marking rule and the element order, and the
+/// only rigorous statement is the upper bound (below 94.14 fF, at most
+/// 0.20 % above the anchor).
+#[test]
+fn committed_anchor_resolution_corrected_summary_pins_extrapolation_target() {
+    use geode_core::quantum::transmon::TransmonAnchor;
+    let anchor = TransmonAnchor::devicelayout().c_sigma_farad * 1e15;
+    let first = refined_summary_toml("p2_cycles10_anchor_93p95");
+    let doc = refined_summary_toml("p2_cycles10_anchor_93p95_resolution_corrected");
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1066));
+    assert_eq!(doc["meta"]["resolution_corrected"].as_bool(), Some(true));
+    assert_eq!(tf(&doc["meta"], "anchor_ff"), anchor);
+    let target = tf(&doc["meta"], "optimizer_target_ff");
+    assert_eq!(target, 95.112986);
+    assert_eq!(
+        target,
+        tf(&first["held_out_result"], "resolution_corrected_target_ff")
+    );
+    let c_first = held_out_series(&first, "c_ff");
+    let mid = tf(
+        &first["final_design_extrapolation"],
+        "geometric_tail_midpoint_ff",
+    );
+    assert!((target - anchor * c_first[0] / mid).abs() < 2e-6);
+
+    let opt = &doc["optimization"];
+    assert_eq!(opt["n_tets"].as_integer(), Some(448_279));
+    assert_eq!(opt["accepted_steps"].as_integer(), Some(4));
+    assert!((tf(opt, "initial_ff") - 78.387918461).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - 95.113016421).abs() < 5e-9);
+    assert!((tf(opt, "optimized_ff") - target).abs() < 0.005);
+    // The largest move of the four runs (+16.73 fF): still far above 0.25.
+    assert_eq!(tf(opt, "min_volume_ratio_over_accepted_steps"), 0.43912);
+    assert_eq!(tf(opt, "final_min_volume_ratio"), 0.47763);
+    assert!((tf(&doc["design"], "island_length_um") - 627.924937).abs() < 5e-7);
+    assert!((tf(&doc["design"], "pad_width_um") - 30.749537).abs() < 5e-7);
+    for g in doc["gradient_check"].as_array().unwrap() {
+        assert!(tf(g, "relative_error") < 5e-7);
+    }
+
+    let want: [(i64, f64); 8] = [
+        (448_279, 95.113016421),
+        (527_565, 94.852766291),
+        (681_721, 94.637931574),
+        (900_507, 94.477742135),
+        (1_248_566, 94.355732401),
+        (1_723_255, 94.259622572),
+        (2_433_998, 94.191268088),
+        (3_395_664, 94.136103400),
+    ];
+    let rows = doc["held_out"].as_array().unwrap();
+    assert_eq!(rows.len(), want.len());
+    for (k, (r, (n, c))) in rows.iter().zip(want).enumerate() {
+        assert_eq!(r["n_tets"].as_integer(), Some(n));
+        assert!((tf(r, "c_ff") - c).abs() < 5e-9, "round {k}");
+        assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+        assert!(r.get("x0_c_ff").is_none());
+    }
+    let c = held_out_series(&doc, "c_ff");
+    let ex = &doc["final_design_extrapolation"];
+    check_held_out_extrapolation(ex, &c);
+    check_qubit_block(ex, c[0]);
+
+    // Rigorous: only the upper side. The last solved value is still above
+    // the anchor, so nothing rigorous places the converged value near it.
+    assert_eq!(tf(ex, "upper_bound_ff"), 94.14);
+    let res = &doc["held_out_result"];
+    assert!(
+        res.get("converged_below_anchor_at_least_relative")
+            .is_none()
+    );
+    let above = tf(res, "converged_above_anchor_at_most_relative");
+    assert_eq!(above, 0.0020);
+    assert!(above >= (c[7] - anchor) / anchor);
+    // No further corrected target is offered from a corrected run.
+    assert!(res.get("resolution_corrected_target_ff").is_none());
+
+    // Estimate: the band contains the anchor, within 0.09 % of it.
+    let band = tf_arr(&ex["estimate"], "band_ff");
+    assert_eq!(band, [93.87, 94.02]);
+    assert!(band[0] < anchor && anchor < band[1]);
+    assert_eq!(
+        tf_arr(res, "estimate_relative_to_anchor"),
+        [-0.0009, 0.0008]
+    );
+    assert!((tf(ex, "geometric_tail_midpoint_ff") - anchor).abs() < 0.02);
+    // Rate dependence: at the slower rates the series extrapolates below.
+    let slow: Vec<f64> = ex["slow_rate_fit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| tf(f, "c_inf_ff"))
+        .collect();
+    assert!((slow[0] - 93.409179).abs() < 1e-6 && (slow[1] - 93.712148).abs() < 1e-6);
+    assert!(slow.iter().all(|s| *s < anchor));
+    // The frequency side: rigorous floor 4.1361 GHz, estimate 4.1386 to
+    // 4.1418 GHz, which contains the published 4.14 GHz.
+    let q = &ex["qubit"];
+    assert_eq!(tf(q, "converged_harmonic_at_least_ghz"), 4.1361);
+    let fb = tf_arr(q, "estimate_harmonic_ghz");
+    assert_eq!(fb, [4.1386, 4.1418]);
+    assert!(fb[0] < 4.14 && 4.14 < fb[1]);
+    // The discretization bias matches the first run to the printed precision.
+    let over = tf_arr(&ex["estimate"], "round_0_overstates_estimate_relative");
+    assert_eq!(over, [0.0116, 0.0133]);
+
+    // Palace on the exported adapted mesh: solver agreement only.
+    let text = std::fs::read_to_string(
+        refined_optimization_dir()
+            .join("p2_cycles10_anchor_93p95_resolution_corrected/adaptive/palace_validation.json"),
+    )
+    .unwrap();
+    let pv: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let palace = pv["runs"][0]["c_sigma_ff"].as_f64().unwrap();
+    assert!(
+        ((palace - c[0]) / c[0]).abs() < 3e-6,
+        "Palace {palace} vs {}",
+        c[0]
+    );
+}
+
+/// The frequency side of the committed bounds (issue #1066 item 7), as
+/// observations: each rigorous upper bound on `C_Σ` gives a rigorous lower
+/// bound on the harmonic frequency `1/(2π√(L_J(C_Σ + C_J)))` (rounded
+/// down), and each estimate band a frequency band (rounded outward). These
+/// are the numbers the refined-optimization README tabulates.
+#[test]
+fn committed_bounds_imply_harmonic_frequencies() {
+    use geode_core::quantum::transmon::TransmonAnchor;
+    let a = TransmonAnchor::devicelayout();
+    let f = |c: f64| a.harmonic_frequency_of_c_sigma_hz(c * 1e-15) / 1e9;
+    let floor4 = |v: f64| (v * 1e4).floor() / 1e4;
+    let ceil4 = |v: f64| (v * 1e4).ceil() / 1e4;
+    let conv = c_sigma_convergence_toml();
+    let tensor = &conv["tensor_eps"];
+    let x0 = &conv["x0_extrapolation"];
+    let old = refined_summary_toml("p2_cycles10");
+    let old_fin = &old["final_design_extrapolation"];
+    // (label, upper bound, estimate band, frequency floor, frequency band)
+    type Row<'a> = (&'a str, f64, [f64; 2], f64, [f64; 2]);
+    let rows: [Row; 3] = [
+        (
+            "#1051 X0, tensor eps",
+            tf(tensor, "upper_bound_ff"),
+            tf_arr(tensor, "estimate_band_ff").try_into().unwrap(),
+            4.2359,
+            [4.4200, 4.5564],
+        ),
+        (
+            "#1051 X0, scalar eps",
+            tf(x0, "upper_bound_ff"),
+            tf_arr(x0, "estimate_band_ff").try_into().unwrap(),
+            4.3882,
+            [4.4750, 4.6265],
+        ),
+        (
+            "#1056 design (superseded 89.9 fF target)",
+            tf(old_fin, "upper_bound_ff"),
+            tf_arr(&old_fin["estimate"], "band_ff").try_into().unwrap(),
+            4.2466,
+            [4.2491, 4.2524],
+        ),
+    ];
+    for (label, ub, band, f_lo, f_band) in rows {
+        assert_eq!(floor4(f(ub)), f_lo, "{label}: floor");
+        assert_eq!(
+            [floor4(f(band[1])), ceil4(f(band[0]))],
+            f_band,
+            "{label}: band"
+        );
+        // All of them sit above the published 4.14 GHz.
+        assert!(f_lo > 4.14, "{label}");
+    }
+    assert_eq!(tf(tensor, "upper_bound_ff"), 89.50);
+}
+
 /// No committed artifact of the #1056 runs may claim that the design passed
 /// a refinement threshold, and none may carry a host path.
 #[test]
@@ -2718,16 +3161,23 @@ fn committed_refined_optimization_artifacts_have_no_host_paths_or_pass_claims() 
     }
 }
 
-/// Release tier: re-solve the committed design on the committed 133k-tet
+/// Release tier: re-solve the committed designs on the committed 133k-tet
 /// fixture mesh (P2, AMG-PCG) and compare with `[coarse_reference]` of
-/// `p2_cycles10/summary.toml`: the capacitance, the three solved shape
-/// sensitivities, and the island dimensions of `[design]`. About 4 s in
-/// release. The 448k-tet adapted mesh and the held-out series (3.3M tets,
+/// `p2_cycles10/summary.toml` and `p2_cycles10_anchor_93p95/summary.toml`:
+/// the capacitance, the three solved shape sensitivities, and the island
+/// dimensions of `[design]`. About 4 s per design in release. The 448k-tet adapted mesh and the held-out series (3.3M tets,
 /// about 29 GB) are a **manual** run of the generator, documented in
 /// `benchmarks/transmon_diffopt/refined_optimization/README.md`.
 #[test]
-#[ignore = "release-tier: one P2 AMG-PCG electrostatic solve pair on the 133k-tet transmon fixture (~4 s in release)"]
+#[ignore = "release-tier: two P2 AMG-PCG electrostatic solve pairs on the 133k-tet transmon fixture (~8 s in release)"]
 fn refined_optimization_coarse_reference_release() {
+    // The superseded #1056 design and the #1066 design at the current anchor.
+    for run in ["p2_cycles10", "p2_cycles10_anchor_93p95"] {
+        check_refined_coarse_reference(run);
+    }
+}
+
+fn check_refined_coarse_reference(run: &str) {
     use geode_core::assembly::electrostatic::{
         AmgPcgOptions, assemble_electrostatic_p2_sheets, extract_capacitance_p2_amg_pcg_fields,
     };
@@ -2736,7 +3186,7 @@ fn refined_optimization_coarse_reference_release() {
         TransmonMorphRoles, TransmonMorphSpec, parameter_fields,
     };
 
-    let doc = refined_summary_toml("p2_cycles10");
+    let doc = refined_summary_toml(run);
     let theta = tf_arr(&doc["optimization"], "theta");
     let mut fx = read_transmon_smoke_fixture().expect("load transmon fixture");
     fx.mesh = scaled_mesh(&fx.mesh, M_PER_UNIT);
@@ -2911,6 +3361,16 @@ fn check_family(doc: &toml::Value, tables: &[&str], bracket: &str) -> (f64, f64)
 #[test]
 fn committed_c_sigma_bracket_toml_is_a_consistent_two_sided_bound() {
     let doc = c_sigma_bracket_toml();
+    // The anchor comparisons use the superseded 89.9 fF the bracketed
+    // designs were aimed at, and the artifact says so (#1066).
+    assert_eq!(tf(&doc["meta"], "anchor_ff"), 89.9);
+    let text = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../benchmarks/transmon_diffopt/c_sigma_bracket.toml"),
+    )
+    .unwrap();
+    assert!(text.contains("# SUPERSEDED ANCHOR (issue #1066)"));
+    assert!(text.contains("not yet bracketed (#1075)"));
     // Upper bounds are the committed #1057 values (ceiled to 6 decimals).
     let conv = c_sigma_convergence_toml();
     let x0 = &conv["x0"];

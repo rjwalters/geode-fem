@@ -84,9 +84,15 @@
 //!
 //! [`certify_lower_bound`] evaluates every term with quadrature that is exact
 //! for the polynomial degrees involved. The face and volume `L¹` norms are
-//! bounded above by `|F|^½ ‖q_F‖_{L²(F)}` and `|T|^½ ‖div D‖_{L²(T)}`. Only
-//! floating-point rounding is not bounded (relative size about `1e-13` here);
-//! callers round the result down to a much coarser grid.
+//! bounded above by `|F|^½ ‖q_F‖_{L²(F)}` and `|T|^½ ‖div D‖_{L²(T)}`.
+//!
+//! **Rounding is not bounded.** The certificate is evaluated in plain `f64`,
+//! **not interval arithmetic**. A worst-case estimate of the summation error
+//! over the 3.3M-tet transmon meshes is about `1e-10` relative (typically
+//! far less). Callers must round the result down to a much coarser grid: the
+//! transmon study floors each per-mesh bound at `1e-8` relative (6 decimals
+//! in fF) and each family bracket at `1e-4` (2 decimals), so rounding cannot
+//! reach a reported digit.
 //!
 //! # Two admissible fluxes
 //!
@@ -137,6 +143,17 @@
 //! smooth part). The CR flux is kept as the independent check: it needs no
 //! primal field, so the two constructions share nothing but the mesh and the
 //! certificate.
+//!
+//! **What checks what.** Agreement between the CR and the equilibrated
+//! bounds checks how the *flux* is built (equilibration, static
+//! condensation, the RT basis). It does not check the certificate itself,
+//! because both pass through the same [`FaceTopology`] and
+//! [`certify_lower_bound`]. The certificate is checked against known values:
+//! the stacked parallel plate (exact, where every bound collapses onto the
+//! closed form), the coax (the analytic `2πε₀t/ln(b/a)`, bracketed with
+//! certainty by inscribed and circumscribed polygon families), and
+//! single-tet closed forms for each penalty term and for the energy at every
+//! order `k ≤ MAX_K`.
 //!
 //! # Scope
 //!
@@ -2237,6 +2254,278 @@ mod tests {
         }
     }
 
+    // ── Certificate terms against closed forms (#1062 review) ────────────
+    //
+    // Each test builds a flux by `RT_k` interpolation of a known field (exact
+    // for a field in `RT_k`) and checks one term of the certificate against
+    // its analytic value. Together they catch a face `L¹` term taken as
+    // `|F|·|mean q|` or by one-point quadrature, a dropped divergence term,
+    // and an energy evaluated with an inexact rule.
+
+    /// A mesh from explicit nodes and tets.
+    fn tet_mesh(nodes: Vec<[f64; 3]>, tets: Vec<[u32; 4]>) -> TetMesh {
+        TetMesh {
+            nodes,
+            tets,
+            physical_groups: Default::default(),
+        }
+    }
+
+    /// The unit right tetrahedron, `x, y, z ≥ 0`, `x + y + z ≤ 1`.
+    fn unit_tet() -> TetMesh {
+        tet_mesh(
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            vec![[0, 1, 2, 3]],
+        )
+    }
+
+    /// Topology with one driven face and one ground face.
+    fn two_face_topology(mesh: &TetMesh, driven: [u32; 3], ground: [u32; 3]) -> FaceTopology {
+        FaceTopology::new(
+            mesh,
+            &[
+                DualConductor {
+                    name: "driven".into(),
+                    role: ConductorRole::Driven,
+                    triangles: vec![driven],
+                },
+                DualConductor {
+                    name: "ground".into(),
+                    role: ConductorRole::Ground,
+                    triangles: vec![ground],
+                },
+            ],
+        )
+        .unwrap()
+    }
+
+    /// The `RT_k` interpolant of the per-tet field `f(t, x)`: its face and
+    /// interior moments, evaluated with rules finer than the space's own,
+    /// mapped through the nodal basis. Exact when `f(t, ·)` lies in `RT_k`.
+    fn interpolate(mesh: &TetMesh, k: usize, f: impl Fn(usize, &[f64; 3]) -> [f64; 3]) -> RtFlux {
+        let sp = RtSpace::new(k);
+        let (dim, nfm) = (sp.dim, sp.face_mono.len());
+        let tri_q = duffy_tri(MAX_K + 3);
+        let tet_q = duffy_tet(MAX_K + 4);
+        let mut coeffs = Vec::with_capacity(dim * mesh.n_tets());
+        for t in 0..mesh.n_tets() {
+            let geo = TetGeom::new(mesh, t);
+            let b = sp.nodal_basis(mesh, t, &geo);
+            let tet = mesh.tets[t];
+            let mut dofs = vec![0.0; dim];
+            for (fi, lf) in LOCAL_FACES.iter().enumerate() {
+                let p = sorted3(lf.map(|l| tet[l])).map(|v| mesh.nodes[v as usize]);
+                let (n, _) = unit_normal(&p);
+                for (lam, w) in &tri_q {
+                    let x = add3(scale3(p[0], lam[0]), p[1], lam[1], p[2], lam[2]);
+                    let fn_x = dot(f(t, &x), n);
+                    for (i, e) in sp.face_mono.iter().enumerate() {
+                        let mu = lam[0].powi(e[0] as i32)
+                            * lam[1].powi(e[1] as i32)
+                            * lam[2].powi(e[2] as i32);
+                        dofs[fi * nfm + i] += w * mu * fn_x;
+                    }
+                }
+            }
+            for (lam, w) in &tet_q {
+                let x = geo.point(lam);
+                let pw = sp.powers(&geo.xi(&x));
+                let v = f(t, &x);
+                for (i, e) in sp.int_mono.iter().enumerate() {
+                    let q = RtSpace::mono(&pw, e);
+                    for d in 0..3 {
+                        dofs[4 * nfm + 3 * i + d] += w * q * v[d];
+                    }
+                }
+            }
+            for j in 0..dim {
+                coeffs.push((0..dim).map(|r| b[j * dim + r] * dofs[r]).sum());
+            }
+        }
+        RtFlux { k, coeffs }
+    }
+
+    /// A closed-form test field.
+    type Field = fn(&[f64; 3]) -> [f64; 3];
+
+    /// `N` is the driven charge minus every penalty (no floating conductor).
+    fn assert_numerator_identity(b: &DualBound) {
+        let want = b.charges[0] - (b.interior_jump_l1 + b.boundary_flux_l1 + b.divergence_l1);
+        assert!((b.numerator - want).abs() < 1e-12, "{b:?}");
+    }
+
+    /// `|F|^½ ‖x − ⅓‖_{L²(F)}` on the unit right triangle in `z = 0` (area ½;
+    /// there `x` has mean ⅓ and variance 1/18), that is `√(½ · ½/18) = 1/√72`.
+    /// The function has zero mean but a nonzero `L¹` norm.
+    fn zero_mean_face_penalty() -> f64 {
+        1.0 / 72.0_f64.sqrt()
+    }
+
+    /// (a) An interior normal jump with zero mean and nonzero `L¹` norm. Two
+    /// tets share the face `z = 0`; above it `D = (0, 0, x − ⅓)` (divergence
+    /// free, no flux through the upper tet's natural faces), below it
+    /// `D = 0`. The jump penalty must be the Cauchy–Schwarz value
+    /// `|F|^½ ‖q‖_{L²(F)}` exactly: a signed mean gives 0, a one-point rule a
+    /// different number.
+    #[test]
+    fn zero_mean_interior_jump_is_charged_its_l2_upper_bound() {
+        let mesh = tet_mesh(
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, -1.0],
+            ],
+            vec![[0, 1, 2, 3], [0, 1, 2, 4]],
+        );
+        // Driven: the slanted face of the upper tet; ground: y = 0 below.
+        let topo = two_face_topology(&mesh, [1, 2, 3], [0, 1, 4]);
+        for k in 1..=MAX_K {
+            let flux = interpolate(&mesh, k, |t, x| {
+                if t == 0 {
+                    [0.0, 0.0, x[0] - 1.0 / 3.0]
+                } else {
+                    [0.0; 3]
+                }
+            });
+            let b = certify_lower_bound(&mesh, &topo, Permittivity::Scalar(&[1.0, 1.0]), &flux)
+                .unwrap();
+            assert!(
+                (b.interior_jump_l1 - zero_mean_face_penalty()).abs() < 1e-9,
+                "k={k}: jump penalty {} vs {}",
+                b.interior_jump_l1,
+                zero_mean_face_penalty()
+            );
+            assert!(
+                b.boundary_flux_l1 < 1e-9 && b.divergence_l1 < 1e-9,
+                "k={k}: {b:?}"
+            );
+            assert_numerator_identity(&b);
+        }
+    }
+
+    /// (b) A non-solenoidal flux on one tet (driven slanted face, ground
+    /// `z = 0`, natural faces `x = 0` and `y = 0` with zero normal flux).
+    /// `D = (x, 0, 0)` has `div D = 1`, so the penalty is
+    /// `|T|^½ ‖1‖_{L²(T)} = |T| = 1/6`; `D = (x², 0, 0)` has `div D = 2x`,
+    /// penalty `√(|T| · 4∫x²) = √(1/6 · 1/15) = 1/√90`, above the true
+    /// `∫|2x| = 1/12`. Dropping the term gives 0.
+    #[test]
+    fn divergence_penalty_matches_the_closed_form() {
+        let mesh = unit_tet();
+        let topo = two_face_topology(&mesh, [1, 2, 3], [0, 1, 2]);
+        let eps = [1.0];
+        let cases: [(usize, f64, Field); 2] = [
+            (1, 1.0 / 6.0, |x| [x[0], 0.0, 0.0]),
+            (2, 1.0 / 90.0_f64.sqrt(), |x| [x[0] * x[0], 0.0, 0.0]),
+        ];
+        for (k_min, want, field) in cases {
+            for k in k_min..=MAX_K {
+                let flux = interpolate(&mesh, k, |_, x| field(x));
+                let b =
+                    certify_lower_bound(&mesh, &topo, Permittivity::Scalar(&eps), &flux).unwrap();
+                assert!(
+                    (b.divergence_l1 - want).abs() < 1e-9,
+                    "k={k}: divergence penalty {} vs {want}",
+                    b.divergence_l1
+                );
+                assert!(b.boundary_flux_l1 < 1e-9 && b.interior_jump_l1 == 0.0);
+                assert_numerator_identity(&b);
+                // The divergence is paid for: N is below the driven charge.
+                assert!(b.numerator <= b.charges[0] - want + 1e-9);
+            }
+        }
+    }
+
+    /// (c) Flux through the natural boundary of one tet (driven slanted face,
+    /// ground `x = 0`, natural faces `y = 0` and `z = 0`). `D = (0, 0, x − ⅓)`
+    /// is divergence free with zero-mean normal flux on `z = 0`, penalty
+    /// `1/√72`; the constant `D = (0, 0, 1)` has `|D·n| = 1` there, penalty
+    /// `|F| = ½` (Cauchy–Schwarz is an equality for a constant).
+    #[test]
+    fn boundary_flux_penalty_matches_the_closed_form() {
+        let mesh = unit_tet();
+        let topo = two_face_topology(&mesh, [1, 2, 3], [0, 2, 3]);
+        let eps = [1.0];
+        let cases: [(usize, f64, Field); 2] = [
+            (1, zero_mean_face_penalty(), |x| {
+                [0.0, 0.0, x[0] - 1.0 / 3.0]
+            }),
+            (0, 0.5, |_| [0.0, 0.0, 1.0]),
+        ];
+        for (k_min, want, field) in cases {
+            for k in k_min..=MAX_K {
+                let flux = interpolate(&mesh, k, |_, x| field(x));
+                let b =
+                    certify_lower_bound(&mesh, &topo, Permittivity::Scalar(&eps), &flux).unwrap();
+                assert!(
+                    (b.boundary_flux_l1 - want).abs() < 1e-9,
+                    "k={k}: boundary penalty {} vs {want}",
+                    b.boundary_flux_l1
+                );
+                assert!(b.divergence_l1 < 1e-9 && b.interior_jump_l1 == 0.0);
+                assert_numerator_identity(&b);
+            }
+        }
+    }
+
+    /// (d) `W_D = ∫ D·ε⁻¹D` of a degree-`k+1` field of `RT_k`,
+    /// `D = (x, y, z) x^k`, on the tet `(0,0,0), (2,0,0), (0,1,0), (0,0,½)`,
+    /// for every `k ≤ MAX_K`, against the closed form from
+    /// `∫ u^a v^b w^c = a! b! c! / (a+b+c+3)!` on the unit tet (`x = 2u`,
+    /// `y = v`, `z = w/2`, unit Jacobian). The integrand has degree `2k + 2`,
+    /// so an inexact rule shows. Scalar `ε = 2.5` and the tensor
+    /// `diag(2, 4, 8)`.
+    #[test]
+    fn single_tet_energy_matches_the_closed_form_for_every_order() {
+        let mesh = tet_mesh(
+            vec![
+                [0.0, 0.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.5],
+            ],
+            vec![[0, 1, 2, 3]],
+        );
+        let topo = two_face_topology(&mesh, [1, 2, 3], [0, 1, 2]);
+        let tensor = [[[2.0, 0.0, 0.0], [0.0, 4.0, 0.0], [0.0, 0.0, 8.0]]];
+        for k in 0..=MAX_K {
+            let kk = k as u32;
+            let den = factorial(2 * kk + 5);
+            let pow4 = 4f64.powi(k as i32);
+            // ∫ x^{2k+2}, ∫ x^{2k} y², ∫ x^{2k} z² over the stretched tet.
+            let ixx = pow4 * 4.0 * factorial(2 * kk + 2) / den;
+            let iyy = pow4 * 2.0 * factorial(2 * kk) / den;
+            let izz = pow4 * 0.25 * 2.0 * factorial(2 * kk) / den;
+            let flux = interpolate(&mesh, k, |_, x| {
+                let m = x[0].powi(k as i32);
+                [x[0] * m, x[1] * m, x[2] * m]
+            });
+            let scalar =
+                certify_lower_bound(&mesh, &topo, Permittivity::Scalar(&[2.5]), &flux).unwrap();
+            let want = (ixx + iyy + izz) / 2.5;
+            assert!(
+                (scalar.energy / want - 1.0).abs() < 1e-9,
+                "k={k}: scalar W_D {} vs {want}",
+                scalar.energy
+            );
+            let tens =
+                certify_lower_bound(&mesh, &topo, Permittivity::Tensor(&tensor), &flux).unwrap();
+            let want = ixx / 2.0 + iyy / 4.0 + izz / 8.0;
+            assert!(
+                (tens.energy / want - 1.0).abs() < 1e-9,
+                "k={k}: tensor W_D {} vs {want}",
+                tens.energy
+            );
+        }
+    }
+
     /// A stacked two-dielectric parallel plate with a full-width floating
     /// sheet at the interface: the field is piecewise constant, so P1, P2,
     /// Crouzeix–Raviart and both equilibrations are exact, and the bracket
@@ -2367,9 +2656,10 @@ mod tests {
             assert!(cr_bound.c_lower_f < exact);
             widths.push((c_up - bound.c_lower_f) / exact);
         }
-        // Geometry and discretization error are both O(h^2) here.
+        // Geometry and discretization error are both O(h^2) here: halving h
+        // should divide the width by 4 (ratio 0.25). Measured: 0.236, 0.245.
         assert!(
-            widths[1] < 0.35 * widths[0] && widths[2] < 0.35 * widths[1],
+            widths[1] < 0.27 * widths[0] && widths[2] < 0.27 * widths[1],
             "{widths:?}"
         );
     }

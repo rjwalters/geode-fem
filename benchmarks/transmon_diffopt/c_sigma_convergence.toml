@@ -2,6 +2,9 @@
 #   --example transmon_c_sigma_convergence`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): every anchor comparison below (anchor_ff, *_below_anchor_*, the
+# reading strings) uses the mis-derived 89.9 fF; the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance.
+# The X0 values, bounds and estimates are unaffected; the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "Mesh convergence of the scalar-eps transmon C_Sigma on the committed 133k-tet DeviceLayout mesh (issue #1051): P1 at h, h/2, h/4 (two uniform red refinements, 8.5M tets) and P2 at h, h/2, at X0 and at #1050's alpha = 3 design. Every solved value is a conforming energy minimum, hence an upper bound on the converged value of this geometry. At X0 the converged C_Sigma is below 83.02 fF (rigorous) and estimated at 74.14-79.62 fF; the coarse 137.7 fF exceeds it by at least 54.69 fF. The coarse 137.7 vs about 90 fF gap is therefore discretization error, not a model difference: converged, X0 lies below the 89.9 fF anchor."

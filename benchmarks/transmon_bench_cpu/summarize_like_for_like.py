@@ -16,12 +16,23 @@ rejection, every run of every cell is reported.
 With a third argument, the issue #950 before/after sweep in that directory
 (like_for_like_local_950.sh) is appended by summarize_local_950.py.
 
-Classification (issue #927; the rule of benchmarks/transmon_eigen):
-  physical      nearest geode mode to a Palace mode, within PHYSICAL_TOL_PCT
-  near_kernel   f < NEAR_KERNEL_GHZ (the image(d0) gradient cluster at ~0)
-  spurious_port within PHYSICAL_TOL_PCT of the documented 3.4528 GHz mode
-  unclassified  anything else
-Participation is not used: the 3.45 GHz mode has participation 0.994.
+Classification (issue #927, re-baselined by #1045; the rule of
+benchmarks/transmon_eigen). The reference list is the qubit mode (Palace,
+Target 2 GHz, #1043) plus the six modes of the <palace-eig.csv> oracle
+(Palace's fixture request, Target 4.5 GHz): five cavity modes and the
+17.49 GHz port-sheet artifact. A returned mode takes the kind of the
+reference mode it is nearest to, within PHYSICAL_TOL_PCT:
+  qubit                the transmon qubit mode (3.4527 GHz)
+  cavity               a readout-resonator or box/cavity mode
+  port_sheet_artifact  the 17.49 GHz zero-port-voltage mode of the distributed
+                       port term (Palace has it too; the A2 shunt removes it)
+  near_kernel          f < NEAR_KERNEL_GHZ (the image(d0) gradient cluster at ~0)
+  unclassified         anything else
+The six PHYSICAL modes are the qubit and the five cavity modes. The six
+PALACE-REQUEST modes are what Palace's fixture request returns: the five
+cavity modes and the port-sheet artifact. Before #1045 the second set was
+called "physical" and the qubit mode "spurious_port"; see the migration note
+in the generated header. Participation is not used to classify.
 """
 import csv
 import math
@@ -36,9 +47,16 @@ PHYSICAL_TOL_PCT = 1.0
 # Threshold of real_transmon_port_aware_retains_all_six_modes for a gradient
 # near-kernel survivor.
 NEAR_KERNEL_GHZ = 0.5
-# benchmarks/transmon_eigen/results.toml [spurious_mode].f_ghz (#514).
-SPURIOUS_GHZ = 3.4528
-# benchmarks/transmon_eigen/results.toml [spurious_mode].tree_cotree_gradient_dofs
+# benchmarks/transmon_eigen/results.toml [modes.qubit].palace_f_ghz: Palace's
+# qubit mode at Target 2 GHz (#1043), six decimals. Not in the Target 4.5 oracle.
+QUBIT_GHZ = 3.452749
+# benchmarks/transmon_eigen/results.toml [modes.port_sheet_artifact].palace_f_ghz,
+# six decimals: the oracle mode that is the port-sheet artifact, not a cavity mode.
+PORT_SHEET_ARTIFACT_GHZ = 17.490109
+PHYSICAL_KINDS = ("qubit", "cavity")
+PALACE_REQUEST_KINDS = ("cavity", "port_sheet_artifact")
+CLASSES = ("qubit", "cavity", "port_sheet_artifact", "near_kernel", "unclassified")
+# benchmarks/transmon_eigen/results.toml [gauge_history].tree_cotree_gradient_dofs
 # = rank(d0_interior): the dimension of the gradient near-kernel at lambda ~ 0.
 GRADIENT_KERNEL_DIM = 13747
 BASELINE_CELL = "ungauged_s4p5_n6"
@@ -84,31 +102,88 @@ def read_time(path):
     return sec, float(u.group(1)), float(s.group(1)), int(r.group(1)) * 1024
 
 
+def reference(oracle):
+    """[(kind, palace_f_ghz)]: the qubit mode, then each oracle mode as cavity or port_sheet_artifact."""
+    ref = [("qubit", QUBIT_GHZ)]
+    for pf in oracle:
+        art = abs(pf - PORT_SHEET_ARTIFACT_GHZ) / PORT_SHEET_ARTIFACT_GHZ * 100.0 <= PHYSICAL_TOL_PCT
+        ref.append(("port_sheet_artifact" if art else "cavity", pf))
+    return ref
+
+
 def classify(freqs, oracle):
-    """(classes, matches): one class per geode mode; one match row per Palace mode."""
+    """(classes, matches): one class per returned mode; one (kind, palace_f, f, rel_pct) row per reference mode."""
     classes = [None] * len(freqs)
     matches = []
-    for pf in oracle:
+    for kind, pf in reference(oracle):
         if not freqs:
-            matches.append((pf, None, None))
+            matches.append((kind, pf, None, None))
             continue
         i = min(range(len(freqs)), key=lambda k: abs(freqs[k] - pf))
         rel = abs(freqs[i] - pf) / pf * 100.0
         if rel <= PHYSICAL_TOL_PCT:
-            classes[i] = "physical"
-            matches.append((pf, freqs[i], rel))
+            classes[i] = kind
+            matches.append((kind, pf, freqs[i], rel))
         else:
-            matches.append((pf, None, None))
+            matches.append((kind, pf, None, None))
     for i, f in enumerate(freqs):
         if classes[i]:
             continue
-        if f < NEAR_KERNEL_GHZ:
-            classes[i] = "near_kernel"
-        elif abs(f - SPURIOUS_GHZ) / SPURIOUS_GHZ * 100.0 <= PHYSICAL_TOL_PCT:
-            classes[i] = "spurious_port"
-        else:
-            classes[i] = "unclassified"
+        classes[i] = "near_kernel" if f < NEAR_KERNEL_GHZ else "unclassified"
     return classes, matches
+
+
+def tally(classes, matches):
+    """Counts of one classified mode list (see the module docstring for the two six-mode sets)."""
+    phys = [m for m in matches if m[0] in PHYSICAL_KINDS]
+    req = [m for m in matches if m[0] in PALACE_REQUEST_KINDS]
+    out = {k: classes.count(k) for k in CLASSES}
+    out["physical"] = sum(1 for k in classes if k in PHYSICAL_KINDS)
+    out["n_physical_ref"] = len(phys)
+    out["six"] = len(phys) == 6 and all(m[2] is not None for m in phys)
+    out["palace_request"] = sum(1 for k in classes if k in PALACE_REQUEST_KINDS)
+    out["n_request_ref"] = len(req)
+    out["request_six"] = len(req) == 6 and all(m[2] is not None for m in req)
+    found = [m[3] for m in phys if m[2] is not None]
+    out["physical_max_rel_err_pct"] = max(found) if found else None
+    return out
+
+
+def cell_counts(w, c, counts, unclassified_note=""):
+    """The per-cell count lines shared by every generated file."""
+    w(f"n_physical = {counts['physical']}  # of the {counts['n_physical_ref']} physical modes: the qubit and five cavity modes")
+    w(f"n_qubit = {counts['qubit']}")
+    w(f"n_cavity = {counts['cavity']}")
+    w(f"n_port_sheet_artifact = {counts['port_sheet_artifact']}")
+    w(f"n_near_kernel = {counts['near_kernel']}")
+    w(f"n_unclassified = {counts['unclassified']}" + (unclassified_note if counts["unclassified"] else ""))
+    w(f"six_physical_recovered = {'true' if counts['six'] else 'false'}")
+    w(f"n_palace_request_modes = {counts['palace_request']}  # of the {counts['n_request_ref']} modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical")
+    w(f"palace_request_recovered = {'true' if counts['request_six'] else 'false'}  # all {counts['n_request_ref']} returned; the pre-#1045 six_physical_recovered")
+
+
+def migration_note(w):
+    """The #1045 key migration, as TOML comment lines (one copy for every generated file)."""
+    w("# MIGRATION NOTE (issue #1045, 2026-10-11): MODES RE-CLASSIFIED, NO MEASUREMENT")
+    w("# CHANGED. The 3.4528 GHz mode is the transmon qubit mode (Palace confirms it at")
+    w("# 3.452749 GHz, ../transmon_eigen/results.toml [oracles.palace_target2]); the")
+    w("# 17.49 GHz mode is the port-sheet artifact Palace shares (removed by the A2")
+    w("# shunt, [port_voltage_a2]). Old -> new:")
+    w('#   modes_class "spurious_port"              -> "qubit"')
+    w('#   modes_class "physical" (17.49 GHz)       -> "port_sheet_artifact"')
+    w('#   modes_class "physical" (other modes)     -> "cavity"')
+    w("#   n_spurious_port                          -> n_qubit")
+    w("#   n_physical / six_physical_recovered      -> RE-BASELINED: the six physical")
+    w("#                                               modes are now the qubit and the five")
+    w("#                                               cavity modes (old set: Palace's six")
+    w("#                                               Target-4.5 modes, with the artifact)")
+    w("#   (old n_physical, old six_physical_recovered) -> n_palace_request_modes,")
+    w("#                                               palace_request_recovered (unchanged")
+    w("#                                               values, honest names)")
+    w("#   physical_matches                         -> reference_matches (with kind)")
+    w("#   [oracle] spurious_port_f_ghz             -> qubit_f_ghz, port_sheet_artifact_f_ghz")
+    w("# Counts and findings that depend on the physical set were regenerated from the")
+    w("# same run trees; the CHANGELOG entry for #1045 lists the ones that moved.")
 
 
 def fl(xs, nd):
@@ -158,13 +233,14 @@ if __name__ == "__main__":
         c["freqs"] = [f for f, _ in r0["modes"]]
         c["part"] = [p for _, p in r0["modes"]]
         c["classes"], c["matches"] = classify(c["freqs"], oracle)
-        c["n_physical"] = sum(1 for k in c["classes"] if k == "physical")
-        c["six"] = all(g is not None for _, g, _ in c["matches"]) and len(oracle) == 6
+        c["tally"] = tally(c["classes"], c["matches"])
+        c["n_physical"] = c["tally"]["physical"]
+        c["six"] = c["tally"]["six"]
         per_run_phys = []
         for r in c["runs"]:
             fr = [f for f, _ in r["modes"]]
             cl, _ = classify(fr, oracle)
-            per_run_phys.append([round(f, 6) for f, k in zip(fr, cl) if k == "physical"])
+            per_run_phys.append([round(f, 6) for f, k in zip(fr, cl) if k in PHYSICAL_KINDS])
         c["phys_identical"] = all(p == per_run_phys[0] for p in per_run_phys)
         c["all_identical"] = all(
             [round(f, 6) for f, _ in r["modes"]] == [round(f, 6) for f in c["freqs"]] for r in c["runs"]
@@ -191,8 +267,9 @@ if __name__ == "__main__":
 
     out = []
     w = out.append
-    w("# geode-only cost of returning the SAME six physical modes as Palace on the")
-    w("# 133k transmon fixture (issue #927). GENERATED by")
+    w("# geode-only cost of returning the SAME six modes as Palace's fixture request on")
+    w("# the 133k transmon fixture (issue #927), with every mode re-classified by #1045")
+    w("# (qubit / cavity / port-sheet artifact). GENERATED by")
     w("# benchmarks/transmon_bench_cpu/summarize_like_for_like.py from")
     w(f"# {run_dir.as_posix()}/ (do not edit by hand; rerun the script).")
     w("#")
@@ -211,6 +288,8 @@ if __name__ == "__main__":
     w("#     different core count. The only time comparison this file supports is a")
     w("#     RATIO between two of its own cells, measured minutes apart on one host.")
     w("#   * The same-host re-timing against Palace is NOT done. See [deferred].")
+    w("# ---------------------------------------------------------------------------")
+    migration_note(w)
     w("# ---------------------------------------------------------------------------")
     w("")
     w("[meta]")
@@ -243,10 +322,13 @@ if __name__ == "__main__":
     w("[oracle]")
     w(f'source = "{oracle_csv.as_posix()} (Palace fba6a5b, Order 1, same mesh; the 6 modes Palace returns for N = 6, Target = 4.5 GHz)"')
     w(f"palace_f_ghz = {fl(oracle, 6)}")
-    w(f"physical_tol_pct = {PHYSICAL_TOL_PCT}  # a geode mode is physical when it is the nearest mode to a Palace mode and within this")
+    w(f"physical_tol_pct = {PHYSICAL_TOL_PCT}  # a geode mode takes the kind of the reference mode it is nearest to, within this")
     w(f"near_kernel_below_ghz = {NEAR_KERNEL_GHZ}")
-    w(f"spurious_port_f_ghz = {SPURIOUS_GHZ}  # ../transmon_eigen/results.toml [spurious_mode], #514")
-    w('rule = "frequency match against the Palace oracle, as benchmarks/transmon_eigen does; participation cannot identify physical modes (the 3.45 GHz mode has p = 0.994)"')
+    w(f"qubit_f_ghz = {QUBIT_GHZ}  # ../transmon_eigen/results.toml [modes.qubit].palace_f_ghz (Palace, Target 2 GHz, #1043); not in the oracle file")
+    w(f"port_sheet_artifact_f_ghz = {PORT_SHEET_ARTIFACT_GHZ}  # the oracle mode that is [modes.port_sheet_artifact]; the other five oracle modes are cavity modes")
+    w('physical_set = "the qubit mode and the five cavity modes (six)"')
+    w('palace_request_set = "the six oracle modes: five cavity modes and the port-sheet artifact (what Palace returns for N = 6, Target = 4.5 GHz)"')
+    w('rule = "frequency match against the reference list (qubit + oracle), as benchmarks/transmon_eigen does; participation is not used"')
     w("")
 
     for c in cells:
@@ -254,7 +336,7 @@ if __name__ == "__main__":
         walls = [r["wall"] for r in rs]
         wm, wsd = mean_sd(walls)
         sm, ssd = mean_sd([r["solve"] for r in rs])
-        counts = {k: c["classes"].count(k) for k in ("physical", "near_kernel", "spurious_port", "unclassified")}
+        counts = c["tally"]
         w("[[cell]]")
         w(f'name = "{c["name"]}"')
         w(f'gauge = "{c["gauge"]}"')
@@ -265,18 +347,15 @@ if __name__ == "__main__":
         w(f"modes_f_ghz = {fl(c['freqs'], 6)}")
         w(f"modes_participation = {fl(c['part'], 4)}")
         w("modes_class = [" + ", ".join(f'"{k}"' for k in c["classes"]) + "]")
-        w(f"n_physical = {c['n_physical']}  # of Palace's {len(oracle)}")
-        w(f"n_near_kernel = {counts['near_kernel']}")
-        w(f"n_spurious_port = {counts['spurious_port']}")
-        w(f"n_unclassified = {counts['unclassified']}" + ("  # no oracle for these and no residual check on this solver path; not counted as physical" if counts["unclassified"] else ""))
-        w(f"six_physical_recovered = {'true' if c['six'] else 'false'}")
-        matched = [(p, g, e) for p, g, e in c["matches"] if g is not None]
+        cell_counts(w, c, counts, "  # no oracle for these and no residual check on this solver path; not counted as physical")
+        matched = [m for m in c["matches"] if m[2] is not None]
         if matched:
-            w("physical_matches = [")
-            for p, g, e in matched:
-                w(f"  {{ palace_f_ghz = {p:.6f}, geode_f_ghz = {g:.6f}, rel_err_pct = {e:.4f} }},")
+            w("reference_matches = [")
+            for kind, p, g, e in matched:
+                w(f'  {{ kind = "{kind}", palace_f_ghz = {p:.6f}, geode_f_ghz = {g:.6f}, rel_err_pct = {e:.4f} }},')
             w("]")
-            w(f"physical_max_rel_err_pct = {max(e for _, _, e in matched):.4f}")
+        if counts["physical_max_rel_err_pct"] is not None:
+            w(f"physical_max_rel_err_pct = {counts['physical_max_rel_err_pct']:.4f}")
         w(f"modes_identical_across_runs = {'true' if c['all_identical'] else 'false'}")
         w(f"physical_modes_identical_across_runs = {'true' if c['phys_identical'] else 'false'}")
         w(f"wall_s = {fl(walls, 2)}")
@@ -311,8 +390,8 @@ if __name__ == "__main__":
 
 
     def nearer_than_kernel(sigma):
-        """Palace modes nearer the shift than lambda = 0 is, in lambda ~ f^2."""
-        return sum(1 for f in oracle if abs(f * f - sigma * sigma) < sigma * sigma)
+        """Physical reference modes nearer the shift than lambda = 0 is, in lambda ~ f^2."""
+        return sum(1 for k, f in reference(oracle) if k in PHYSICAL_KINDS and abs(f * f - sigma * sigma) < sigma * sigma)
 
 
     w("# ---------------------------------------------------------------------------")
@@ -330,7 +409,7 @@ if __name__ == "__main__":
         w(f"sigma_ghz = {sigma}")
         w("n_modes_tried = [" + ", ".join(str(c["n"]) for c in cs) + "]")
         w("n_physical_returned = [" + ", ".join(str(c["n_physical"]) for c in cs) + "]")
-        w(f"palace_modes_nearer_shift_than_gradient_kernel = {nearer_than_kernel(sigma)}  # |f^2 - sigma^2| < sigma^2, from the oracle alone")
+        w(f"physical_modes_nearer_shift_than_gradient_kernel = {nearer_than_kernel(sigma)}  # |f^2 - sigma^2| < sigma^2, from the reference list alone (was palace_modes_nearer_shift_than_gradient_kernel, over the oracle)")
         m = min_six(cs)
         if m is None:
             w("six_physical_recovered = false")
@@ -345,7 +424,7 @@ if __name__ == "__main__":
                 w(f"largest_n_modes_tried_that_falls_short = {below[-1]['n']}  # returns {below[-1]['n_physical']} physical")
             w(f'cell = "{m["name"]}"')
             w(f"non_physical_modes_returned_alongside = {m['n'] - m['n_physical']}")
-            w(f"physical_max_rel_err_pct = {max(e for _, g, e in m['matches'] if g is not None):.4f}")
+            w(f"physical_max_rel_err_pct = {m['tally']['physical_max_rel_err_pct']:.4f}")
             w(f"wall_s_mean = {wm:.2f}  # dev machine, loaded; n = {len(m['runs'])}")
             w(f"solve_s_mean = {sm:.2f}")
             w(f"peak_rss_gb = {max(r['rss'] for r in m['runs']) / 1e9:.2f}")
@@ -360,21 +439,21 @@ if __name__ == "__main__":
     top = max(oracle)
     w("[finding]")
     w(f"baseline_cell = \"{BASELINE_CELL}\"")
-    w(f"baseline_n_physical = {base['n_physical']}  # the timed configuration returns this many of Palace's {len(oracle)}")
+    w(f"baseline_n_physical = {base['n_physical']}  # the timed configuration returns this many of the six physical modes (the qubit and five cavity modes)")
     w(f"baseline_wall_s_mean = {base_wall:.2f}  # dev machine, loaded, one thread")
     w(f"baseline_cpu_s_mean = {base_cpu:.2f}  # user + sys")
-    w(f"gradient_kernel_dim = {GRADIENT_KERNEL_DIM}  # rank(d0_interior), ../transmon_eigen/results.toml [spurious_mode].tree_cotree_gradient_dofs")
-    w(f"min_shift_ghz_for_six_before_kernel = {top / math.sqrt(2):.2f}  # top Palace mode / sqrt(2): below this shift the kernel is nearer than the top mode")
+    w(f"gradient_kernel_dim = {GRADIENT_KERNEL_DIM}  # rank(d0_interior), ../transmon_eigen/results.toml [gauge_history].tree_cotree_gradient_dofs")
+    w(f"min_shift_ghz_for_six_before_kernel = {top / math.sqrt(2):.2f}  # top physical mode (26.08 GHz) / sqrt(2): below this shift the kernel is nearer than the top mode")
     st = strategy("none", 4.5)
     st_min = min_six(st)
     if st_min is not None:
         nk = st_min["classes"].count("near_kernel")
         w(f"same_target_near_kernel_ritz_values = {nk}  # in the smallest 4.5 GHz request that returns all six ({st_min['name']})")
-    w('same_target_mechanism = "Shift-invert orders eigenvalues by |lambda - sigma|, lambda ~ f^2. At sigma = 4.5 GHz only the 5.15 GHz mode is nearer the shift than lambda = 0, where the gradient near-kernel (dimension gradient_kernel_dim) sits; the other five physical modes are farther than every kernel mode. A converged enumeration would therefore need more than gradient_kernel_dim modes. This solver path (SparseShiftInvertLanczos::smallest_eigenpairs) does not enumerate: it builds a Krylov space of max(96, n_modes + 2) steps from a deterministic start vector and returns the n_modes Ritz values nearest the shift, with no per-pair residual check. In that space the kernel shows up as only same_target_near_kernel_ritz_values Ritz values, so a request large enough to hold them, the 3.45 GHz mode and the six physical modes returns the six. That count belongs to this Krylov size, start vector and mesh. It is not a property of the eigenproblem and was not tested on any other mesh."')
-    w('scope = "One mesh (133,108 interior DOFs, first order), one host, geode only, direct LU. The mode counts and the frequency agreement do not depend on load. The wall clocks do (cpu_percent below 100 marks a descheduled run), so the cost ratios to read are the cpu_ratio_* fields: CPU seconds of single-threaded runs of this file against each other. Nothing here is a geode-vs-Palace time, and a one-thread CPU-second ratio on this machine is not a prediction of the multi-threaded wall-clock ratio on a benchmark host."')
-    w('moved_shift_caveat = "Moving the shift to 20 GHz is a different request from Palace\'s (N = 6, Target = 4.5 GHz). It returns the six physical modes only because 20 GHz was chosen knowing where they are (it must exceed min_shift_ghz_for_six_before_kernel). It is not a general recipe."')
-    w('same_target_caveat = "Raising the mode count at 4.5 GHz returns the six physical modes only buried among near-kernel Ritz values (and, for larger requests, unclassified ones above 26 GHz). The request size that works was found by trial against the oracle; nothing in the solver output says when it is large enough."')
-    w('port_aware_caveat = "The port-aware solve keeps the 4.5 GHz shift and needs no reference-solver number (the junction extract is placed at the analytic f_LC). It still returns two non-physical modes ahead of the top physical ones: one near-zero survivor and the solenoidal 3.45 GHz port mode, which no divergence-free projection removes (#514). A caller needs a rule to drop them; here that rule is the Palace oracle."')
+    w('same_target_mechanism = "Shift-invert orders eigenvalues by |lambda - sigma|, lambda ~ f^2. At sigma = 4.5 GHz only the 3.45 GHz qubit mode and the 5.15 GHz mode are nearer the shift than lambda = 0, where the gradient near-kernel (dimension gradient_kernel_dim) sits; the other four physical modes (and the 17.49 GHz port-sheet artifact) are farther than every kernel mode. A converged enumeration would therefore need more than gradient_kernel_dim modes. This solver path (SparseShiftInvertLanczos::smallest_eigenpairs) does not enumerate: it builds a Krylov space of max(96, n_modes + 2) steps from a deterministic start vector and returns the n_modes Ritz values nearest the shift, with no per-pair residual check. In that space the kernel shows up as only same_target_near_kernel_ritz_values Ritz values, so a request large enough to hold them, the six physical modes and the port-sheet artifact returns the six. That count belongs to this Krylov size, start vector and mesh. It is not a property of the eigenproblem and was not tested on any other mesh."')
+    w('scope = "One mesh (133,108 interior DOFs, first order), one host, geode only, direct LU. The mode counts and the frequency agreement do not depend on load. The wall clocks do (cpu_percent below 100 marks a descheduled run), so the cost ratios to read are the cpu_ratio_* fields: CPU seconds of single-threaded runs of this file against each other. Nothing here is a geode-vs-Palace time, and a one-thread CPU-second ratio on this machine is not a prediction of the multi-threaded wall-clock ratio on a benchmark host. Since #1045 the physical set is the qubit and the five cavity modes; before, it was Palace\'s six Target-4.5 modes, which include the port-sheet artifact and exclude the qubit."')
+    w('moved_shift_caveat = "Moving the shift to 20 GHz is a different request from Palace\'s (N = 6, Target = 4.5 GHz). Six modes at 20 GHz return Palace\'s six Target-4.5 modes (five cavity modes and the port-sheet artifact) but not the qubit mode; seven return all six physical modes and the artifact. That works only because 20 GHz was chosen knowing where the modes are (it must exceed min_shift_ghz_for_six_before_kernel). It is not a general recipe."')
+    w('same_target_caveat = "Raising the mode count at 4.5 GHz returns the six physical modes only buried among near-kernel Ritz values and the port-sheet artifact (and, for larger requests, unclassified ones above 26 GHz). The request size that works was found by trial against the oracle; nothing in the solver output says when it is large enough."')
+    w('port_aware_caveat = "The port-aware solve keeps the 4.5 GHz shift and needs no reference-solver number (the 17.49 GHz extract is placed at the analytic f_LC). It still returns two non-physical modes ahead of the top physical ones: one near-zero survivor and the 17.49 GHz port-sheet artifact, which the port-aware projection re-admits by construction. A caller needs a rule to drop them; here that rule is the Palace oracle. The 3.45 GHz mode it also returns is the qubit mode (#1043), physical since #1045."')
     w("")
     w("[deferred]")
     w("# NOT done in this file. Operator-run, paid hosts (issue #927).")
@@ -384,7 +463,7 @@ if __name__ == "__main__":
     w('  "the 1.16M-DOF cell: no Palace oracle for the refined mesh is committed, so its modes cannot be classified here",')
     w('  "revising the efficiency claim of papers/transmon-benchmark (see #763, #593)",')
     w("]")
-    w('follow_up = "#950: a timed geode configuration that returns the six physical modes at the 4.5 GHz shift with no oracle filter (drop the near-zero survivor, remove or identify the 3.45 GHz port mode, cut the port-aware cost)"')
+    w('follow_up = "#950: a timed geode configuration that returns the six physical modes at the 4.5 GHz shift with no oracle filter (drop the near-zero survivor, remove or identify the 3.45 GHz mode, cut the port-aware cost). #1043 identified the 3.45 GHz mode as the qubit mode; #1044 (A2) removes the 17.49 GHz port-sheet artifact"')
     if len(sys.argv) > 3:
         import importlib.util
 

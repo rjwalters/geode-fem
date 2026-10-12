@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1071",
-  "loom_commit": "dcab8265613676d08b763cddc911b93c7ab7d9d4",
+  "loom_version": "0.19.1081",
+  "loom_commit": "6966a93d1cd1b005f2a6b22bf9691ade8793ed73",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -721,8 +721,15 @@
     ".loom/scripts/tests/test-check-main-clean-build-trees.sh",
     ".loom/scripts/tests/test-resync-installed-payload-fallback.sh",
     ".agents/skills/loom-builder-pr/SKILL.md",
-    ".claude/commands/loom/sweep-doctor-glm-escalation.md"
+    ".claude/commands/loom/sweep-doctor-glm-escalation.md",
+    ".loom/docs/branch-update-strategy.md",
+    ".loom/docs/push-lease-pinning.md",
+    ".loom/scripts/tests/test-merge-pr-required-checks.sh",
+    ".loom/scripts/tests/test-sweep-wave-judge-done-staleness.sh",
+    ".loom/scripts/tests/test-sync-labels-prune-undeclared.sh",
+    ".agents/skills/loom-builder-complexity/SKILL.md",
+    ".agents/skills/loom-builder-worktree/SKILL.md"
   ],
-  "last_resync": "2026-10-11",
-  "requires_daemon": "0.19.772"
+  "last_resync": "2026-10-12",
+  "requires_daemon": "0.19.1081"
 }

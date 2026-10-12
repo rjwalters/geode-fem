@@ -44,7 +44,7 @@ ROUTES = (
         "historical_request",
         "geode_s4p5_n6",
         "6 modes at 4.5 GHz, ungauged: the request every committed geode-vs-Palace transmon time used",
-        "Not a route to the six modes (returns 1 of Palace's 6). Kept for continuity with PR #964.",
+        "Not a route to the six modes (returns 2 of the 6 physical modes; 1 of Palace's 6 fixture-request modes). Kept for continuity with PR #964.",
     ),
     (
         "more_modes",
@@ -56,13 +56,13 @@ ROUTES = (
         "shift",
         "geode_s20_n6",
         "6 modes at 20 GHz, ungauged: a different request from Palace's (N = 6, Target = 4.5 GHz)",
-        "ORACLE-TUNED: 20 GHz was chosen knowing where the modes are.",
+        "ORACLE-TUNED: 20 GHz was chosen knowing where the modes are. It returns Palace's fixture-request set (five cavity modes and the port-sheet artifact), not the qubit mode (#1045).",
     ),
     (
         "port_aware",
         "geode_pa_s4p5_n8",
         "8 modes at 4.5 GHz with GEODE_GAUGE=port_aware",
-        "The only route not tuned against the oracle; it still returns two non-physical modes, dropped here with the oracle (#950).",
+        "The only route not tuned against the oracle; it still returns two non-physical modes (a near-zero survivor and the 17.49 GHz port-sheet artifact), dropped here with the oracle (#950).",
     ),
 )
 PALACE_CELLS = (
@@ -183,8 +183,11 @@ def load(run_dir):
             continue  # a cell the driver was told to skip (runs = 0)
         c["freqs"] = c["runs"][0]["freqs"]
         c["classes"], c["matches"] = rule.classify(c["freqs"], oracle)
-        c["n_physical"] = sum(1 for k in c["classes"] if k == "physical")
-        c["six"] = all(g is not None for _, g, _ in c["matches"]) and len(oracle) == 6
+        c["tally"] = rule.tally(c["classes"], c["matches"])
+        c["n_physical"] = c["tally"]["physical"]
+        c["six"] = c["tally"]["six"]
+        c["n_request"] = c["tally"]["palace_request"]
+        c["request_six"] = c["tally"]["request_six"]
         c["walls"] = [r["wall"] for r in c["runs"]]
         c["cores"] = [r["user"] + r["sys"] for r in c["runs"]]
         cells[name] = c
@@ -277,6 +280,18 @@ w("#   * geode is built for the default x86-64 target CPU (no -C target-cpu), as
 w("#     in PR #964: only Palace was tuned for the host.")
 w("#   * ONE MESH (133,108 interior DOFs, first order). Nothing here extrapolates")
 w("#     to another mesh size.")
+w("#   * PALACE SOLVES MORE UNKNOWNS: same input mesh, but 183,891 ND unknowns after")
+w("#     its internal refinement around the PEC sheets, against geode's 156,863")
+w("#     (about 17% more). The times are not normalized for that.")
+w("#   * NO PALACE CELL RETURNS THE QUBIT MODE (#1045): every Palace request here")
+w("#     has Target = 4.5 GHz and the qubit is at 3.45 GHz. like_for_like now means")
+w("#     all six physical modes (qubit + five cavity); palace_request_recovered")
+w("#     means Palace's fixture-request set (five cavity + the port-sheet artifact).")
+w("# ---------------------------------------------------------------------------")
+rule.migration_note(w)
+w("#   tuned-file only: [route.*] and [palace.*] keep the pre-#1045 counts as")
+w("#   n_palace_request_modes(_returned), modes_outside_palace_request and")
+w("#   palace_request_recovered.")
 w("# ---------------------------------------------------------------------------")
 w("")
 w("[meta]")
@@ -378,6 +393,9 @@ w("[oracle]")
 w(f'source = "{oracle_csv.as_posix()}"')
 w(f"palace_f_ghz = {fl(oracle, 6)}")
 w(f"physical_tol_pct = {rule.PHYSICAL_TOL_PCT}")
+w(f"qubit_f_ghz = {rule.QUBIT_GHZ}  # ../transmon_eigen/results.toml [modes.qubit].palace_f_ghz (Palace, Target 2 GHz, #1043); not in the oracle file")
+w(f"port_sheet_artifact_f_ghz = {rule.PORT_SHEET_ARTIFACT_GHZ}  # the oracle mode that is [modes.port_sheet_artifact]")
+w('rule = "summarize_like_for_like.py: frequency match against the qubit mode and the oracle; physical = the qubit and the five cavity modes"')
 w("")
 
 
@@ -399,12 +417,10 @@ def emit_cell(c, build):
     w(f"exit_codes = [{', '.join(str(r['exit']) for r in rs)}]")
     w(f"modes_f_ghz = {fl(c['freqs'], 6)}  # run 1")
     w("modes_class = [" + ", ".join(f'"{k}"' for k in c["classes"]) + "]")
-    w(f"n_physical = {c['n_physical']}  # of Palace's {len(oracle)}")
-    w("n_physical_per_run = [" + ", ".join(str(sum(1 for k in rule.classify(r["freqs"], oracle)[0] if k == "physical")) for r in rs) + "]")
-    w(f"six_physical_recovered = {'true' if c['six'] else 'false'}")
-    matched = [e for _, g, e in c["matches"] if g is not None]
-    if matched:
-        w(f"physical_max_rel_err_pct = {max(matched):.4f}")
+    rule.cell_counts(w, c, c["tally"])
+    w("n_physical_per_run = [" + ", ".join(str(sum(1 for k in rule.classify(r["freqs"], oracle)[0] if k in rule.PHYSICAL_KINDS)) for r in rs) + "]")
+    if c["tally"]["physical_max_rel_err_pct"] is not None:
+        w(f"physical_max_rel_err_pct = {c['tally']['physical_max_rel_err_pct']:.4f}")
     w(f"wall_s = {fl(c['walls'], 2)}")
     w(f"wall_s_min_median_max = {fl(mmm(c['walls']), 2)}")
     w(f"wall_spread_pct = {spread_pct(c['walls']):.1f}")
@@ -462,7 +478,8 @@ for key, name, what in PALACE_CELLS:
         w(f"{tag}_error_estimator_s_median = {med([estimator_s(r) for r in x['runs']]):.2f}")
     for tag, x in (("tuned", t), ("untuned_same_box", c), ("pr964", u)):
         w(f"{tag}_paraview_s_median = {med([r['phases'].get('Postprocessing / Paraview', 0.0) for r in x['runs']]):.2f}")
-    w(f"n_physical = {{ tuned = {t['n_physical']}, untuned_same_box = {c['n_physical']}, pr964 = {u['n_physical']} }}")
+    w(f"n_physical = {{ tuned = {t['n_physical']}, untuned_same_box = {c['n_physical']}, pr964 = {u['n_physical']} }}  # of the 6 physical modes (the qubit is below Target)")
+    w(f"n_palace_request_modes = {{ tuned = {t['n_request']}, untuned_same_box = {c['n_request']}, pr964 = {u['n_request']} }}  # the pre-#1045 n_physical")
     w("")
 
 w("[geode_session_check]")
@@ -481,9 +498,12 @@ for key, stem, what, caveat in ROUTES:
     w(f"[route.{key}]")
     w(f"what = {q(what)}")
     w(f"caveat = {q(caveat)}")
-    w(f"n_physical_returned = {g1['n_physical']}  # of {len(oracle)}; 8-thread cell: {g8['n_physical']}")
+    w(f"n_physical_returned = {g1['n_physical']}  # of the 6 physical modes; 8-thread cell: {g8['n_physical']}")
     w(f"non_physical_modes_returned = {g1['n'] - g1['n_physical']}")
-    w(f"like_for_like = {'true' if g1['six'] and g8['six'] else 'false'}")
+    w(f"like_for_like = {'true' if g1['six'] and g8['six'] else 'false'}  # all six physical modes returned at both widths")
+    w(f"n_palace_request_modes_returned = {g1['n_request']}  # of Palace's 6 fixture-request modes; the pre-#1045 n_physical_returned")
+    w(f"modes_outside_palace_request = {g1['n'] - g1['n_request']}  # the pre-#1045 non_physical_modes_returned")
+    w(f"palace_request_recovered = {'true' if g1['request_six'] and g8['request_six'] else 'false'}  # the pre-#1045 like_for_like")
     for tag, g in (("1_thread", g1), ("8_threads", g8)):
         w(f"geode_{tag}_wall_s_min_median_max = {fl(mmm(g['walls']), 2)}")
         w(f"geode_{tag}_core_s_median = {med(g['cores']):.2f}")

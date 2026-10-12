@@ -11,9 +11,9 @@
 //! the interior graph. These are non-physical: the physical curl-curl
 //! spectrum lives in the cotree complement. In an *un-projected*
 //! shift-invert Lanczos solve they appear as a near-zero-λ cluster
-//! (λ ≈ 1e-16…1e-17) plus, occasionally, a gradient-adjacent mode that
-//! leaks *into* the physical band (the transmon benchmark's spurious
-//! 3.4528 GHz mode).
+//! (λ ≈ 1e-16…1e-17). (The transmon benchmark's 3.4528 GHz mode, once
+//! thought to be such a leak, is solenoidal and is the transmon qubit mode:
+//! issues #514, #1043, #1045.)
 //!
 //! # Tree-cotree: eliminate the gradient DOFs algebraically
 //!
@@ -56,7 +56,7 @@
 //! This module therefore ships the *structural* tree-cotree machinery (the
 //! spanning forest, the boundary convention, the count identity
 //! `tree_edges == rank(d⁰_interior)`), which is correct and reusable, while
-//! the eigen-path spurious-mode removal remains the documented follow-on.
+//! the spectrum-preserving eigen-path gauge is [`crate::eigen::projection`].
 //!
 //! # The boundary (PEC) convention — get this right
 //!

@@ -49,7 +49,7 @@
 //!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
 //! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
 //!   Nédélec gradient nullspace from the reduced pencil before the solve,
-//!   removing the spurious gradient-adjacent mode (issue #502).
+//!   (issue #502; not spectrum-preserving for the eigenproblem).
 //! - [`hcurl_null`] — the **exact gradient null space** of the
 //!   order-generic H(curl) pencils (issue #871, Epic #836 Phase 2): its
 //!   closed-form dimension at p=1 and p=2 (free P1/P2-Lagrange DOFs plus
@@ -59,7 +59,7 @@
 //! - [`projection`] — spectrum-preserving divergence-free (discrete-
 //!   Helmholtz) projection `P = I − G(GᵀMG)⁻¹GᵀM` for the eigen path: the
 //!   `M`-orthogonal deflation of the gradient subspace that removes the
-//!   spurious mode *without* shifting the physical spectrum (issue #509,
+//!   gradient near-kernel *without* shifting the physical spectrum (issue #509,
 //!   the spectrum-preserving alternative to the DOF-elimination `gauge`).
 //! - [`sensitivity`] — **Hellmann–Feynman eigenvalue sensitivities** `∂λ/∂p`
 //!   (material + geometry) on a converged simple eigenpair (issue #596,
