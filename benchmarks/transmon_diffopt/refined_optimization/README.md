@@ -27,7 +27,7 @@ inversion above reads a hybridized mode as if it were the bare qubit.
   down. The bare-qubit-consistent `C_Sigma` target is therefore **below**
   93.9537 fF.
 - **First-order size (the #1066 estimate; `g` is now measured, see
-  [Bare-qubit target](#bare-qubit-target-and-the-certified-brackets-1078)).** The shift is
+  [Against the bare-qubit target](#against-the-bare-qubit-target-1078)).** The shift is
   `g^2 (1/Delta + 1/Sigma)` with `Delta` = 1.451 GHz and `Sigma` = 9.731 GHz.
   `g / 2 pi` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, which is about 0.10,
   0.24, 0.38 fF in `C_Sigma`.
@@ -45,7 +45,7 @@ inversion above reads a hybridized mode as if it were the bare qubit.
 - **Measured (#1078).** The coupling is now measured and the hybridization
   removed: the bare-qubit target is **93.853 fF**, band 93.826 to 93.892 fF
   (`TransmonAnchor::devicelayout_bare`). See
-  [Bare-qubit target](#bare-qubit-target-and-the-certified-brackets-1078). The
+  [Against the bare-qubit target](#against-the-bare-qubit-target-1078). The
   dressed 93.9537 fF anchor above is kept, and every figure in this README
   that says "anchor" still means it.
 
@@ -173,7 +173,9 @@ The optimizer reaches **95.113016421 fF in four accepted steps**:
 
 - **Rigorous.** The converged value of this geometry is below 94.14 fF, at
   most 0.20 % above the anchor (rounded up). The last solved value is still
-  above the anchor, so nothing rigorous places the converged value near it.
+  above the anchor, so the upper side alone places nothing near it. The
+  #1075 certified lower bound adds the other side; see
+  [Two-sided bound status](#two-sided-bound-status-1062-1075).
 - **Estimate, not a bound.**
   - The geometric tail gives 93.875150 to 94.000247 fF (midpoint 93.937698 fF).
   - The free-rate fits give 94.016533, 93.983604 and 93.996598 fF.
@@ -186,12 +188,14 @@ This design is tuned so that an *extrapolation* lands on the anchor. The
 method was chosen on the #1056 runs and is used here unchanged. But all runs
 share the same mesh family, marking rule and element order, so the agreement
 is not an independent confirmation. A continuum statement needs one of:
-- an error estimator with a guaranteed lower bound (#1062 supplies a dual,
-  equilibrated-flux one, but it has so far been applied only to X0 and the
-  superseded 89.9 fF designs; bracketing this design is #1075);
+- an error estimator with a guaranteed lower bound;
 - a substantially finer or higher-order solve.
 
-Neither is here.
+The first is now supplied (#1075): #1062's equilibrated-flux lower bound,
+applied on these same held-out meshes, certifies the converged value of this
+geometry to lie in [93.89, 94.14] fF. See
+[Two-sided bound status](#two-sided-bound-status-1062-1075), including what
+that does and does not say about the hybridized anchor.
 
 ## Frequency side (observation, #1066)
 
@@ -225,7 +229,141 @@ DeviceLayout publishes 4.14 GHz for X0 on its own mesh. On these meshes:
 the two #1066 pin tests) recomputes every entry of this table from the
 committed bounds.
 
-## Bare-qubit target and the certified brackets (#1078)
+## Cross-solver check at the 93.9537 fF anchor (same discretization)
+
+Independent Palace P2 runs on the exported 448k-tet adapted mesh:
+- primary design: 93.953433803 fF (GEODE 93.953667887, -2.49e-6);
+- resolution-corrected design: 95.112779561 fF (GEODE 95.113016421, -2.49e-6).
+
+The image, the mesh SHA-256 and the commands are recorded in each
+`adaptive/palace_validation.json`. This shows that the two solvers agree on the
+same discretization. **It is not evidence about the discretization error**,
+which the held-out series measures. No Palace P3 or AMR run was attempted at
+the new anchor.
+
+## Two-sided bound status (#1062, #1075)
+
+The certified equilibrated-flux lower bound of #1062 has been applied to five
+geometries. Each bracket is a rigorous statement about the **converged
+electrostatic `C_Sigma` of that polygonal geometry** (scalar eps, feedline
+floating, junction excluded), not about the physical device:
+
+| Geometry | Bracket (fF) | Width | Artifact | Status |
+|---|---|---|---|---|
+| #1066 design (`p2_cycles10_anchor_93p95/`) | **[92.75, 93.00]** | 0.25 fF (0.27 %) | `../c_sigma_bracket_anchor_93p95.toml` | current anchor (#1075) |
+| #1066 resolution-corrected design | **[93.89, 94.14]** | 0.25 fF (0.27 %) | `../c_sigma_bracket_anchor_93p95.toml` | current anchor (#1075) |
+| X0 | [77.40, 77.61] | 0.21 fF (0.28 %) | `../c_sigma_bracket.toml` | anchor-independent, current |
+| #1056 design (`p2_cycles10/`) | [88.78, 89.02] | 0.24 fF | `../c_sigma_bracket.toml` | **superseded** 89.9 fF target |
+| #1058 resolution-corrected (`p2_cycles10_resolution_corrected/`) | [89.84, 90.08] | 0.24 fF | `../c_sigma_bracket.toml` | **superseded** 89.9 fF target |
+
+The superseded-target brackets are described under
+[Two-sided bound of the superseded designs](#two-sided-bound-of-the-superseded-designs-1062).
+Whether they contain or miss 89.9 fF says nothing about the current target.
+
+### The re-anchored designs (#1075)
+
+`BRACKET_PART=anchor_93p95` runs the #1062 generator unchanged on the two
+#1066 runs:
+- it replays the ten P1 preparation cycles and the seven held-out rounds of
+  each design;
+- it asserts that every P2 value reproduces that run's `summary.toml`, so
+  the meshes are the ones in the tables above;
+- it certifies RT1, RT2 and Crouzeix–Raviart/RT0 lower bounds at every round,
+  and RT3 at round 7.
+
+X0 is not re-solved: the design increment is certified against X0's
+committed bracket.
+
+| Round | #1066 design: upper | best lower | width | Resolution-corrected: upper | best lower | width |
+|---|---|---|---|---|---|---|
+| 0 | 93.953668 | 92.123856 (RT2) | 1.829812 | 95.113017 | 93.236576 (RT2) | 1.876441 |
+| 1 | 93.698451 | 92.294361 (RT2) | 1.404091 | 94.852767 | 93.412686 (RT2) | 1.440082 |
+| 2 | 93.488380 | 92.421222 (RT2) | 1.067159 | 94.637932 | 93.543201 (RT2) | 1.094732 |
+| 3 | 93.332106 | 92.516482 (RT2) | 0.815624 | 94.477743 | 93.642129 (RT2) | 0.835615 |
+| 4 | 93.214011 | 92.590720 (RT2) | 0.623291 | 94.355733 | 93.719641 (RT2) | 0.636093 |
+| 5 | 93.119308 | 92.649027 (RT2) | 0.470281 | 94.259623 | 93.778314 (RT2) | 0.481310 |
+| 6 | 93.052518 | 92.689098 (RT2) | 0.363421 | 94.191269 | 93.820248 (RT2) | 0.371021 |
+| 7 | 92.998561 | 92.758828 (RT3) | 0.239734 | 94.136104 | 93.891607 (RT3) | 0.244498 |
+
+All values are in fF. Upper bounds are ceiled and lower bounds floored to 6
+decimals. At round 7 the corrected design's lower bounds are RT1 93.748381,
+RT2 93.856078, RT3 93.891607 and CR/RT0 92.946814 fF. The #1066 design's are
+RT1 92.619465, RT2 92.724168, RT3 92.758828 and CR/RT0 91.837982 fF. Every
+row is in the TOML.
+
+**Anchor comparisons.** The anchor is 93.953660 fF, the pure-LC inversion of
+the published 4.14 GHz. It is a resonator-hybridized mode (see
+[The anchor](#the-anchor-1066)), so the bare-qubit-consistent target lies
+**below** it:
+- by an estimated 0.10 to 0.38 fF, giving a band of 93.574 to 93.854 fF
+  (#1066's estimate, before `g` was measured; #1078 measures it, see
+  [Against the bare-qubit target](#against-the-bare-qubit-target-1078));
+- by at most about 0.6 fF at #1043's ceiling, giving 93.354 to 93.954 fF.
+  The ceiling is not a bound.
+
+What the brackets support, and what the anchor uncertainty prevents:
+- **The #1066 design misses the target, certified.** Its converged
+  capacitance lies 1.01 to 1.28 % below the anchor (from the unrounded
+  bounds, rounded outward), at least 0.95 fF below it. That is more than the
+  0.6 fF ceiling. The design stays below even the lowest plausible bare-qubit
+  target, by at least 0.35 fF at the ceiling. This verdict survives the
+  hybridization caveat. Optimizing to the target on the 448k-tet mesh
+  overstates the converged value by at least 0.95 fF.
+- **The resolution-corrected design contains the pure-LC anchor, certified.**
+  Its bracket [93.89, 94.14] fF is −0.07 % to +0.20 % relative to 93.9537 fF. That is
+  the first rigorous two-sided statement that the converged value of a design
+  lies within 0.2 % of the current pure-LC anchor.
+- **Whether it meets the physical target is not resolved** *(as of #1075;
+  #1078 resolves it at its central coupling, see
+  [Against the bare-qubit target](#against-the-bare-qubit-target-1078)).* The bracket
+  contains the bare-qubit target only if the hybridization shift is below
+  about 0.062 fF, the anchor minus the unrounded lower bound. The estimated
+  shift is 0.10 to 0.38 fF. If that estimate holds, the converged value lies
+  **above** the bare-qubit target: by at least 0.03 fF at a 0.10 fF shift,
+  and by up to 0.57 fF at 0.38 fF. The bracket misses the estimated band
+  (`meets_bare_qubit_estimate_band = false`). But `g` is not measured, and
+  the bracket does overlap the ceiling band. A smaller shift remains
+  possible, so no claim either way is made against the physical target.
+- **The width is no longer the limiting factor.** The bracket is 0.25 fF
+  wide. The estimated shift spans 0.28 fF (0.10 to 0.38), and its ceiling is
+  about 0.6 fF. Tightening the bracket would not settle the anchor
+  comparison; measuring `g`, or an anchor taken from a bare-qubit computation,
+  would. #1078 does both.
+- **The #1066 extrapolations against the certificate.** The free-rate fits
+  and most of each geometric-tail band lie inside the brackets. The lowest
+  geometric-tail values are excluded: 92.747491 fF for the #1066 design and
+  93.875150 fF for the corrected design, both below the certified lower
+  bounds. The slow-rate sensitivities are excluded outright:
+  - #1066 design: 92.29 and 92.58 fF, against a lower bound of 92.75 fF;
+  - corrected design: 93.41 and 93.71 fF, against a lower bound of 93.89 fF.
+
+  The slow rates assumed there (alpha = 1/3 and 1/2) would put the limit
+  below the certified lower bound, so they are ruled out for these series.
+
+**Design increment over X0, certified.** Both designs and X0 are brackets of
+converged values, so `C_design − C_X0` lies in
+`[lower_design − upper_X0, upper_design − lower_X0]`. Here `upper_X0` is
+77.609945 fF and `lower_X0` is 77.409607 fF (the unrounded family bounds of
+`c_sigma_bracket.toml`). Rounded outward:
+
+| Design | Certified increment over X0 (fF) |
+|---|---|
+| #1066 design | **[15.14, 15.59]** |
+| #1066 resolution-corrected design | [16.28, 16.73] |
+
+The #1066 design's held-out increment of 15.391 fF at round 7 lies inside
+its interval.
+
+**Resources.** The `anchor_93p95` part ran in 64.5 min with a peak RSS of
+29.6 GB, locally (28 CPUs), no cloud. RT3 at round 7 took 9 to 10 min per
+design. Standard output is in `validation_logs/anchor_93p95_bracket_run.log`.
+
+**The `summary.toml` files predate #1075.** Their `bounds` text still says
+there is no rigorous lower bound; `c_sigma_bracket_anchor_93p95.toml` and
+this section supersede that line. They are generated and were not edited by
+hand.
+
+### Against the bare-qubit target (#1078)
 
 #1078 measures the qubit-resonator coupling and removes the hybridization from
 the anchor. Artifact: `../../transmon_coupling/results.toml` (generator
@@ -313,36 +451,6 @@ junction (Palace on h/2: 0.093 nH).
   account would lower the target by roughly another 0.5 fF. This is an
   inference on unconverged meshes, and no anchor applies it; see
   `[loop_inductance]` in the artifact and the follow-up #1079.
-
-## Cross-solver check at the 93.9537 fF anchor (same discretization)
-
-Independent Palace P2 runs on the exported 448k-tet adapted mesh:
-- primary design: 93.953433803 fF (GEODE 93.953667887, -2.49e-6);
-- resolution-corrected design: 95.112779561 fF (GEODE 95.113016421, -2.49e-6).
-
-The image, the mesh SHA-256 and the commands are recorded in each
-`adaptive/palace_validation.json`. This shows that the two solvers agree on the
-same discretization. **It is not evidence about the discretization error**,
-which the held-out series measures. No Palace P3 or AMR run was attempted at
-the new anchor.
-
-## Two-sided bound status (#1062)
-
-The certified equilibrated-flux lower bound of #1062
-(`../c_sigma_bracket.toml`) has been applied to three geometries; see
-[the bracket section](#two-sided-bound-of-the-superseded-designs-1062):
-- **X0: [77.40, 77.61] fF.** X0 does not depend on any anchor, so this bracket
-  remains current.
-- **The #1056 / #1058 `p2_cycles10*` designs**, primary [88.78, 89.02] fF and
-  resolution-corrected [89.84, 90.08] fF. These designs were aimed at the
-  **superseded** 89.9 fF anchor (mis-derived; see #1063 and #1066). Whether
-  their brackets contain or miss 89.9 fF says nothing about the current target.
-- **The current `p2_cycles10_anchor_93p95*` designs are not yet bracketed.**
-  That is #1075. When it lands, comparing a bracket with 93.95 fF must carry
-  the resonator-hybridization caveat of [The anchor](#the-anchor-1066): the
-  bare-qubit-consistent target lies below 93.9537 fF by an estimated 0.10 to
-  0.38 fF, with a ceiling of about 0.6 fF. That is comparable to a 0.24 fF
-  bracket width.
 
 ## Superseded runs at the mis-derived 89.9 fF anchor (#1056)
 
@@ -495,9 +603,10 @@ the next section.
 
 **Superseded target.** The two designs bracketed here are the #1056 / #1058
 `p2_cycles10*` designs, aimed at the mis-derived 89.9 fF anchor (#1063,
-#1066). The re-anchored `p2_cycles10_anchor_93p95*` designs are not yet
-bracketed (#1075). The X0 bracket does not depend on any anchor and remains
-current.
+#1066). The re-anchored `p2_cycles10_anchor_93p95*` designs are bracketed
+separately (#1075); see
+[Two-sided bound status](#two-sided-bound-status-1062-1075). The X0 bracket
+does not depend on any anchor and remains current.
 
 `../c_sigma_bracket.toml` (generator `examples/transmon_c_sigma_bracket.rs`,
 library `assembly::electrostatic_dual`) adds a **certified lower bound** on the
@@ -683,6 +792,18 @@ python3 scripts/transmon_refined_palace.py \
 cargo test -p geode-core --release --lib refined_capacitance
 cargo test -p geode-core --release --test transmon_diffopt -- --include-ignored
 ```
+
+The two-sided bounds (#1062, #1075), from the repository root, locally:
+
+```sh
+cargo run -p geode-core --release --example transmon_c_sigma_bracket
+BRACKET_PART=anchor_93p95 \
+cargo run -p geode-core --release --example transmon_c_sigma_bracket
+```
+
+The first writes `../c_sigma_bracket.toml` (X0 and the superseded designs,
+102 min, 35.5 GB). The second writes `../c_sigma_bracket_anchor_93p95.toml`
+(the #1066 designs, 64.5 min, 29.6 GB) and reads X0's bracket from the first.
 
 The held-out series runs seven rounds by default
 (`REFINED_OPT_HELD_OUT_ROUNDS`) and stops before a round above four million
