@@ -220,8 +220,9 @@ What it does not show:
 - Target robustness. Palace's `Target` is a lower bound (it returns the modes above
   it); GEODE's shift returns the modes nearest it on either side. For "12 modes @
   20 GHz" Palace returns twelve modes from 20.70 to 51.54 GHz and GEODE returns the six
-  physical modes from 5.15 to 26.09 GHz plus six non-physical values; two modes are
-  common to both lists (`[off_target_request]`). GEODE's own cost is nearly the same
+  physical modes (the 3.45 GHz qubit and five cavity modes up to 26.09 GHz) plus six
+  non-physical values (the 17.49 GHz port-sheet artifact and five near-kernel
+  values); two modes are common to both lists (`[off_target_request]`). GEODE's own cost is nearly the same
   at both shifts (32.8 s and 33.9 s on one thread). The Palace half of the earlier
   "GEODE is target-insensitive, Palace degrades off-target" reading timed a different
   set of modes, so that reading is not a like-for-like comparison.

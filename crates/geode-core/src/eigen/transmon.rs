@@ -627,8 +627,9 @@ pub fn solve_transmon_eigenmodes(
 /// the inner factorization with matrix-free Jacobi-CG, keeping the working
 /// set `O(N)` so the eigensolve scales to the ~1M-DOF meshes that OOM the
 /// direct path. The matrix-free path requires `(K − σM)` SPD, so place
-/// `sigma` **below** the physical spectrum (e.g. the 4.5 GHz shift below
-/// the lowest ~5 GHz resonator mode); see [`InnerSolver`] for the full
+/// `sigma` **below** the lowest eigenvalue of the pencil. The transmon's
+/// 4.5 GHz request shift does not satisfy this: the 3.45 GHz qubit mode lies
+/// below it, so that shift is indefinite for `(K − σM)`; see [`InnerSolver`] for the full
 /// numerical rationale and the inner-tolerance coupling.
 ///
 /// To target an **interior** band (a shift placed *between* two eigenvalues,

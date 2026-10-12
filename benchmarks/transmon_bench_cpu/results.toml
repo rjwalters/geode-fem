@@ -250,8 +250,8 @@ modes_f_ghz = [0.6215, 0.7479, 0.8627, 2.4890, 3.8938, 5.4136]
 modes_participation = [0.0000, 0.0000, 0.0000, 0.0000, 0.9637, 0.0011]
 n_below_target = 5          # five of the six returned modes lie below the 4.5 GHz target
 n_physical_verified = 0     # no Palace eigenvalue file for the refined mesh is committed, so no mode can be matched to an oracle
-n_physical_at_most = 1      # only 5.4136 GHz lies above the target; whether it is the resonator on this mesh is not established (5.09% from the 133k-mesh Palace 5.1513 GHz)
-like_for_like = false       # inferred, not oracle-checked: Palace's lowest physical mode of this device is 5.15 GHz on the 133k mesh, and five of geode's six modes here are below 4.5 GHz
+n_physical_at_most = 2      # 3.8938 GHz (participation 0.9637, the qubit candidate) and 5.4136 GHz (above the target; whether it is the resonator on this mesh is not established, 5.09% from the 133k-mesh Palace 5.1513 GHz)
+like_for_like = false       # inferred, not oracle-checked: 5.15 GHz is the lowest mode Palace returns at Target 4.5 GHz on the 133k mesh (the lowest physical mode, the 3.45 GHz qubit, is below that Target), and five of geode's six modes here are below 4.5 GHz
 note = "The 3.8938 GHz mode has participation 0.9637, the signature of the transmon qubit mode that sits at 3.4528 GHz on the 133k mesh (../transmon_eigen/results.toml [modes.qubit], confirmed by Palace in #1043; before #1045 this note called it the spurious port mode); that identification is by pattern, not by an oracle, and the qubit frequency is expected to move under refinement (C_Sigma is not mesh-converged, #1036). The four participation-0 modes at 0.62-2.49 GHz are not classified here. So the 565.5 s geode time quoted against Palace's 423 s at this size (docs/research/geode-vs-palace-comparison.md, section 2b) is also a same-request, not a same-answer, comparison; geode was already the slower one there."
 
 # ===========================================================================

@@ -140,7 +140,7 @@ worst_case_rel_err_pct = 0.032
 all_physical_modes_within_bar = true
 physical_modes = ["qubit", "resonator", "mode_2", "mode_4", "mode_5", "mode_6"]
 qubit_rel_err_pct = 0.00005               # against [oracles.palace_target2]
-port_sheet_artifact_rel_err_pct = 0.001   # agrees with Palace too; not gated (not physical)
+port_sheet_artifact_rel_err_pct = 0.001   # agrees with Palace too; asserted to within 1 % by real_transmon_eigenmodes_release, though it is not a physical mode
 
 # Measured values behind the paper's tripwire claims (Epic #476, measured
 # 2026-07-14). Committed here so every paper number traces to a committed

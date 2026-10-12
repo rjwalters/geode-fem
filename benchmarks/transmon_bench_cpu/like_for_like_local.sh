@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# geode-only "cost to return the same six physical modes as Palace" sweep on
+# geode-only "cost to return the modes Palace returns, or all six physical modes" sweep on
 # the committed 133k transmon fixture (issue #927).
 #
 # The timed transmon benchmarks ask both solvers for "6 eigenmodes near
-# 4.5 GHz". Palace returns six physical modes; geode's ungauged shift-invert
-# returns the six eigenvalues nearest the shift, of which one is physical. This
+# 4.5 GHz". Palace returns five cavity modes and the 17.49 GHz port-sheet artifact; geode's ungauged shift-invert
+# returns the six eigenvalues nearest the shift, of which two are physical (the 3.45 GHz qubit and one cavity mode). This
 # script runs crates/geode-core/examples/transmon_bench.rs in the
 # configurations below, each run in its OWN process under /usr/bin/time, so the
 # wall clock, CPU time and peak RSS belong to that configuration alone.
@@ -26,7 +26,7 @@
 # GEODE_GAUGE=port_aware selects, since PR #1002 (#950), the single-factorization
 # port-subspace projection (solve_transmon_eigenmodes_port_subspace): one
 # factorization of K - sigma M, no junction extract. It returns the six physical
-# modes from a 7-mode request, plus one non-physical mode, the 3.45 GHz port mode
+# modes from a 7-mode request, plus one non-physical mode, the 17.49 GHz port-sheet artifact
 # (#1003). Before PR #1002 the same value selected the issue #514 route (junction
 # extract + projected band, two factorizations), which is now
 # GEODE_GAUGE=port_aware_extract. The portaware_* rows of the #927 sweep in
