@@ -140,8 +140,13 @@ def check_content():
     anchor = toml(BASE + 'p2_cycles10_anchor_93p95/summary.toml')['anchor']['c_sigma_target_ff']
     for value in [f'{lo:.2f}–{hi:.2f} fF (not a bound)', '< 83.02 fF (rigorous)', '< 89.50 fF (rigorous)',
                   f"certified {br['lower_ff']:.2f}–{br['upper_ff']:.2f} fF", f'anchor {anchor:.2f} fF',
-                  'Every marker is an upper bound', 'certified two-sided bracket']:
+                  'Every marker is an upper bound', 'certified two-sided bracket',
+                  f"certified bracket ({br['width_ff']:.2f} fF wide)", 'magnified in the inset']:
         assert value in t5, value
+    # v9 Judge nit (PR #1082): the bracket is magnified in an inset, its label sits
+    # above the inset (outside the estimate band), and the inset's ticks are its ends.
+    assert t5.count(f"{br['lower_ff']:.2f}") == 2 and t5.count(f"{br['upper_ff']:.2f}") == 2
+    assert 'certified bracket (' in t5.split('Every marker')[0]
     assert '89.9 fF' not in t5 and 'anchor 89.9' not in t5
 
     # Figure 6: the 93.95 fF runs, both bounds, brackets, estimates, the caveat.
@@ -225,6 +230,7 @@ def check_manuscript():
     assert 'are estimates from the extrapolated coupling and loop inductance, not bounds' in caps['anchor-chain']
     assert 'transfer assumption' in caps['anchor-chain'] and 'certified brackets' in caps['anchor-chain']
     assert 'certified two-sided bracket' in caps['convergence'] and 'superseded' not in caps['convergence']
+    assert 'magnified in the inset' in caps['convergence']
     assert 'superseded anchor value' in caps['legacy']
     assert 'Palace\'s $0.70810$ is computed from its two committed frequencies' in caps['lscaling']
 

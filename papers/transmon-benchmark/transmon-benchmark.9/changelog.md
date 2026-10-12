@@ -14,7 +14,8 @@ independent validation of the Palace/DeviceLayout.jl stack" claim, the
 acknowledgments and the six inherited `TODO(operator)` lines are unchanged
 (the verifier asserts each against v6, v7 and v8). One `TODO(operator)` line is
 added, in §9.5: which target the next re-optimization and the headline should
-use, the ruled dressed 93.9537 fF or the loop-corrected 93.143 fF estimate.
+use, the ruled dressed 93.9537 fF or the loop-corrected 93.143 fF estimate. (Resolved in the Doctor pass below by the
+operator ruling of 2026-10-12; the line is replaced by text.)
 
 ## Headline
 
@@ -73,3 +74,20 @@ single-edit mutations, all caught (see `validation.md`).
 
 The citation set, `refs.bib` and `main.bbl` are unchanged. The PDF is 43
 pages (v8: 38).
+
+## Doctor pass on PR #1082 (2026-10-12)
+
+The Judge approved v9 with four non-blocking nits; the operator asked for
+them, and for the new §9.5 `TODO(operator)`, to be resolved before merge
+(#1063, comment 6131068921).
+
+| Where | Change |
+|---|---|
+| Abstract | "drives C_Σ to the 93.954 fF design anchor **on the optimization mesh** in four accepted steps". |
+| §9.4, increment | [15.14, 15.59] → **[15.15, 15.59]** fF. The lower end is the design's best certified lower bound (92.758828) minus the smallest conforming X⁰ value; this PR's own X⁰ series reaches 77.607978 fF at round 7 (`x0_c_ff` 77.607977900, ceiled). That value is a conforming P2 energy on a refinement of the committed mesh — the design meshes are the moved copy and X⁰ is solved on the unmoved base, so its polygonal surfaces are the committed ones — and therefore a rigorous upper bound on the same converged X⁰ as the bracket artifact's 77.609945. 92.758828 − 77.607978 = 15.150850, floored to 15.15. The upper end is unchanged (92.998561 − 77.409607 = 15.588954, ceiled to 15.59). The sentence names both X⁰ uppers and says the artifact records the wider [15.14, 15.59]; the artifact is not edited. The X⁰ bracket itself stays [77.40, 77.61], and the corrected design's increment stays [16.28, 16.73]. |
+| §9.5, step 1 | "k = 0.022798 (g/2π = 61.70 MHz, 28 % higher)" → "k = 0.022798, 28 % higher (g/2π = 61.70 MHz, 34 % higher)": 28 % is `k_ratio_h2_over_h` = 1.276; g's own ratio is 61.7033/46.0242 = 1.341. No other sentence pairs 28 % with g. |
+| §9.5, end | The new `TODO(operator)` is replaced, per the operator ruling, by a paragraph "Which target the headline uses": the headline stays on the published-value anchor 93.954 fF (`TransmonAnchor::devicelayout`); 93.143 fF (`devicelayout_bare_loop`) is the corrected estimate; a re-optimization at 93.143 fF is not scheduled and remains possible future work. The six inherited `TODO(operator)` lines, the title, the acknowledgments and the validation-claim sentences are unchanged. |
+| Figure 5 | The 0.21 fF certified X⁰ bar is magnified in an inset (upper right, its ends 77.40 and 77.61 as ticks, titled "certified bracket (0.21 fF wide)") with a leader arrow to the bar on the main axes; the old "certified bracket" label inside the grey estimate band is removed. The legend moves below the axes, in two columns, to leave the inset room; the footer says "(magnified in the inset)"; the figure is 6.3 × 4.1 in (was 3.5 in tall) and stays on p. 17. Caption: "drawn at the size of the mesh that sets it and magnified in the inset, since it is 0.21 fF tall on this axis". |
+| Verifiers | `verify_evidence.py` and `verify_figures.py` re-pinned (see `validation.md`). |
+
+The PDF stays 43 pages.

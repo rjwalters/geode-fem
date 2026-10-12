@@ -644,7 +644,21 @@ def check_refined(x0b):
                       ("increment_anchor_93p95_resolution_corrected_over_x0", (16.28, 16.73))]:
         assert (br[key]["lower_ff"], br[key]["upper_ff"]) == want
     assert floor_to(bd["lower_ff"] - x0b["upper_ff"], 2) == 15.14
-    contains("$[15.14, 15.59]$\\,fF")
+    # v9 Judge nit (PR #1082): this series' own X0 round 7 is a conforming value on
+    # refinements of the committed mesh (surfaces not moved), so it bounds the
+    # same converged X0 and tightens the increment's lower end to 15.15.
+    x0_up = ceil_to(min(r["x0_c_ff"] for r in series), 6)
+    assert x0_up == ceil_to(series[-1]["x0_c_ff"], 6) == 77.607978 < br["meta"]["x0_family_upper_ff"] == 77.609945
+    assert ceil_to(x0_up, 2) == x0b["upper_ff"]          # the X0 bracket itself is unchanged
+    d_lo = max(best_lower(r) for r in rows_d)
+    assert floor_to(d_lo - x0_up, 2) == 15.15 and floor_to(d_lo - br["meta"]["x0_family_upper_ff"], 2) == 15.14
+    assert ceil_to(rows_d[-1]["upper_ff"] - br["meta"]["x0_family_lower_ff"], 2) == 15.59
+    phrase("Its certified value lies in $[15.15, 15.59]$\\,fF")
+    phrase("The smallest conforming $X^0$ value is this series' round~7, $77.607978$\\,fF (ceiled)")
+    phrase("as the bracket artifact's family upper of $77.609945$\\,fF, which gives the slightly wider "
+           "$[15.14, 15.59]$\\,fF recorded there.")
+    pin("$[15.15, 15.59]$", 1)
+    pin("$[15.14, 15.59]$", 1)
 
     # --- Resolution-corrected design ----------------------------------------
     target = anchor * opt["optimized_ff"] / fx["geometric_tail_midpoint_ff"]
@@ -747,7 +761,11 @@ def check_anchor_chain(anchor, bd, bc, rows_d, rows_c, loop):
     h2 = cpl_all["palace_h2"]
     assert f"{h2['k']:.6f}" == "0.022798" and f"{h2['g_crossing_mhz']:.2f}" == "61.70"
     assert round((h2["k_ratio_h2_over_h"] - 1) * 100) == 28
-    phrase("Palace on one uniform refinement gives $k = 0.022798$ ($g/2\\pi = 61.70$\\,MHz, $28\\%$ higher)")
+    # v9 Judge nit (PR #1082): 28 % is k's ratio; g's own ratio is 34 %.
+    assert round((h2["g_crossing_mhz"] / fit["g_crossing_mhz"] - 1) * 100) == 34
+    phrase("Palace on one uniform refinement gives $k = 0.022798$, $28\\%$ higher "
+           "($g/2\\pi = 61.70$\\,MHz, $34\\%$ higher)")
+    absent("MHz, $28\\%$ higher")
     ks = cpl_all["static_proxy"]["k_static"]
     assert ks[0] < ks[1] < ks[2]
     est = cpl["k_converged_estimates"]
@@ -876,7 +894,7 @@ def main():
 
     # Headline values recur across the abstract, contributions, body, captions,
     # discussion and conclusion. Pin every occurrence.
-    pinned = {'$83.02$\\,fF': 4, '$89.50$\\,fF': 6, '$47.18$\\,fF': 3, '$54.69$\\,fF': 5, '$74.14$--$79.62$\\,fF': 2, '$[77.40, 77.61]$\\,fF': 7, '$[92.75, 93.00]$\\,fF': 6, '$[93.89, 94.14]$\\,fF': 6, '$93.143$\\,fF': 7, '$93.853$\\,fF': 4, '$17.3\\%$': 2, '$4.7\\%$': 2, '$93.954$\\,fF': 7, '$93.9537$\\,fF': 3, '$52.37$\\,fF': 1, '$92.74$--$92.88$\\,fF': 2, '$47.8$\\,fF': 3, '$0.120$\\,nH': 1}
+    pinned = {'$83.02$\\,fF': 4, '$89.50$\\,fF': 6, '$47.18$\\,fF': 3, '$54.69$\\,fF': 5, '$74.14$--$79.62$\\,fF': 2, '$[77.40, 77.61]$\\,fF': 7, '$[92.75, 93.00]$\\,fF': 6, '$[93.89, 94.14]$\\,fF': 6, '$93.143$\\,fF': 9, '$93.853$\\,fF': 4, '$17.3\\%$': 2, '$4.7\\%$': 2, '$93.954$\\,fF': 8, '$93.9537$\\,fF': 3, '$52.37$\\,fF': 1, '$92.74$--$92.88$\\,fF': 2, '$47.8$\\,fF': 3, '$0.120$\\,nH': 1}
     for value, count in pinned.items():
         assert TEX.count(value) == count, (value, TEX.count(value), count)
     # No other "below N fF" capacitance bound may appear unchecked.
@@ -887,7 +905,7 @@ def main():
         assert hit in known, f"unverified upper bound in the manuscript: {hit}"
     # Every bracket written [a, b] fF is one of the committed families.
     brackets = {"[77.40, 77.61]", "[92.75, 93.00]", "[93.89, 94.14]", "[88.78, 89.02]", "[89.84, 90.08]",
-                "[72.96, 89.50]", "[74.05, 83.02]", "[15.14, 15.59]",
+                "[72.96, 89.50]", "[74.05, 83.02]", "[15.14, 15.59]", "[15.15, 15.59]",
                 "[4.14, 5.591]"}  # the last is DeviceLayout's dressed frequency pair (GHz)
     for hit in re.findall(r"\$(\[\d+\.\d+, \d+\.\d+\])\$", TEX):
         assert hit in brackets, f"unverified bracket in the manuscript: {hit}"
@@ -934,17 +952,22 @@ def main():
     contains("about $15$ minutes locally")
 
     # Operator inputs (#1063): title, the six TODO(operator) lines, the validation
-    # claim and the acknowledgments are unchanged from v6, v7 and v8; v9 adds one
-    # new TODO(operator) line (the target of the next re-optimization).
+    # claim and the acknowledgments are unchanged from v6, v7 and v8. v9's one new
+    # TODO(operator) line (the target of the next re-optimization) is resolved by the
+    # 2026-10-12 operator ruling on #1063 and replaced by text stating it.
     prior = {v: (HERE.parent / f"transmon-benchmark.{v}" / "main.tex").read_text() for v in (6, 7, 8)}
     operator_lines = lambda text: [line for line in text.splitlines() if "TODO(operator)" in line]
     inherited = operator_lines(prior[6])
     assert inherited == operator_lines(prior[7]) == operator_lines(prior[8]) and len(inherited) == 6
     mine = operator_lines(TEX)
-    assert len(mine) == 7 and [l for l in mine if l in inherited] == inherited
-    new = [l for l in mine if l not in inherited]
-    assert new == ["% TODO(operator): which target the next re-optimization and the paper's headline should "
-                   "use, the ruled dressed 93.9537 fF or the loop-corrected 93.143 fF estimate."], new
+    assert mine == inherited and len(mine) == 6, mine
+    absent("which target the next re-optimization")
+    phrase("\\paragraph{Which target the headline uses.} The paper's headline stays on the published-value "
+           "anchor, $93.954$\\,fF (\\path{TransmonAnchor::devicelayout}); the loop-corrected $93.143$\\,fF "
+           "(\\path{devicelayout_bare_loop}) is presented as the corrected \\emph{estimate}. A "
+           "re-optimization aimed at $93.143$\\,fF is not scheduled; it remains possible future work.")
+    phrase("drives the island capacitance $C_\\Sigma$ to the $93.954$\\,fF design anchor on the optimization "
+           "mesh in four accepted steps.")
     title = lambda text: re.search(r"\\title\{.*?\}\n% TODO\(operator\)[^\n]*\n%[^\n]*\n", text, re.S).group(0)
     assert title(TEX) == title(prior[6]) == title(prior[7]) == title(prior[8])
     phrase("\\title{Differentiable transmon design with a tensor-native finite-element electromagnetics "

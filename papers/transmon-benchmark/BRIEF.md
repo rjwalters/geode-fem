@@ -26,7 +26,8 @@ stay immutable. v9 is a DRAFT; no score, review or audit carries over.
 certified two-sided bracket 0.25 fF wide decides design against target; the
 remaining uncertainty is in the physical anchor (whose corrections are
 unconverged estimates), not in the solver. Neither current design meets the
-most corrected target; re-optimizing at 93.143 fF is future work.
+most corrected target; re-optimizing at 93.143 fF is possible future work,
+not scheduled.
 
 CERTIFIED (equilibrated-flux lower bound + conforming upper bound, rounded
 outward; for the discrete polygonal geometry):
@@ -35,7 +36,9 @@ outward; for the discrete polygonal geometry):
 - #1066 design [92.75, 93.00] fF: 1.01–1.28 % below the dressed anchor.
   Resolution-corrected design [93.89, 94.14] fF: contains it
   (`c_sigma_bracket_anchor_93p95.toml`). Increments [15.14, 15.59] and
-  [16.28, 16.73] fF.
+  [16.28, 16.73] fF in the artifact; the paper quotes [15.15, 15.59] for the
+  first, using this series' own X⁰ round-7 conforming value 77.607978 fF
+  (Doctor pass on PR #1082).
 - Superseded 89.9 fF designs: [88.78, 89.02] and [89.84, 90.08] — history only.
 
 PROVEN (measurements):
@@ -74,10 +77,11 @@ re-optimization as done.
 
 **Operator decisions still open (#1063), deliberately untouched:** the title,
 the "first independent validation" claim, the acknowledgments and the six
-inherited `TODO(operator)` lines. v9 adds one `TODO(operator)` (§9.5): which
-target the next re-optimization and the headline should use, the ruled dressed
-93.9537 fF or the loop-corrected 93.143 fF estimate. Next: the Anvil review,
-audit and numeric critics.
+inherited `TODO(operator)` lines. v9's one new `TODO(operator)` (§9.5) is
+resolved by the operator ruling of 2026-10-12 (#1063): the headline stays on
+the published-value anchor 93.954 fF (`devicelayout()`), 93.143 fF
+(`devicelayout_bare_loop()`) is the corrected estimate, and re-optimization at
+93.143 fF is not scheduled. Next: the Anvil review, audit and numeric critics.
 
 ## v8 — figure revision, 2026-10-11 (#1059, PR #1060; tracker #1063)
 

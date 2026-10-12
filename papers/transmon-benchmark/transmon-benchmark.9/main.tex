@@ -63,7 +63,8 @@ to a target $E_C$, confirmed by an independent fresh solve to
 $1.4\times 10^{-15}$. On the real DeviceLayout transmon, a
 finite-difference-validated quadratic-element shape gradient on an
 adaptively refined mesh drives the island capacitance $C_\Sigma$ to the
-$93.954$\,fF design anchor in four accepted steps. The anchor is the
+$93.954$\,fF design anchor on the optimization mesh in four accepted
+steps. The anchor is the
 published $4.14$\,GHz qubit frequency read as the harmonic frequency of
 Palace's linear eigenproblem; it replaces an $89.9$\,fF anchor that was
 mis-derived from the anharmonic formula, and the runs aimed at that value
@@ -1074,7 +1075,8 @@ $10^{-9}$ or better.
   no P2 path: P1 only, converged below $89.50$\,fF. The black bar is the
   certified two-sided bracket $[77.40, 77.61]$\,fF of the scalar value,
   from the equilibrated-flux lower bound on the adapted meshes of
-  Section~\ref{sec:refined}, drawn at the size of the mesh that sets it;
+  Section~\ref{sec:refined}, drawn at the size of the mesh that sets it
+  and magnified in the inset, since it is $0.21$\,fF tall on this axis;
   it rules out every point of the estimate band outside it. The dashed
   line is the $93.95$\,fF anchor. Source:
   \texttt{benchmarks/transmon\_diffopt/c\_sigma\_convergence.toml} and,
@@ -1670,8 +1672,14 @@ On the same meshes the unmodified device goes from $78.387918$ to
 $77.607978$\,fF. The increment the optimizer added moves much less than
 either capacitance: it is $15.565749$\,fF on the optimization mesh and
 $15.390582$\,fF after seven rounds, a change of about $1.1\%$. Its
-certified value, the design bracket minus the $X^0$ bracket, lies in
-$[15.14, 15.59]$\,fF. Most of the discretization error is common to the
+certified value lies in $[15.15, 15.59]$\,fF: the design's best certified
+lower bound minus the smallest conforming $X^0$ value, and the design's
+smallest conforming value minus the certified $X^0$ lower bound, each
+rounded outward. The smallest conforming $X^0$ value is this series'
+round~7, $77.607978$\,fF (ceiled); these meshes refine the committed
+mesh without moving its surfaces, so it bounds the same converged $X^0$
+as the bracket artifact's family upper of $77.609945$\,fF, which gives the
+slightly wider $[15.14, 15.59]$\,fF recorded there. Most of the discretization error is common to the
 two geometries on these meshes, which are adapted to the final design
 and not to $X^0$; that is an observation about this series, not a bound.
 
@@ -1798,8 +1806,8 @@ sampled splitting of $92.15$\,MHz. A two-node Maxwell-form circuit fits
 all $54$ branch frequencies with $6$\,kHz RMS and gives $k = 0.017866$,
 $g/2\pi = 46.02$\,MHz at the crossing; Palace on the same mesh gives
 $k$ in a ratio of $0.99997$ to it. The coupling is not converged:
-Palace on one uniform refinement gives $k = 0.022798$
-($g/2\pi = 61.70$\,MHz, $28\%$ higher), and an electrostatic proxy keeps
+Palace on one uniform refinement gives $k = 0.022798$, $28\%$ higher
+($g/2\pi = 61.70$\,MHz, $34\%$ higher), and an electrostatic proxy keeps
 rising to $h/4$. Four extrapolations put the converged $k$ at
 $0.02773$--$0.02991$; the anchor uses $k = 0.0288$ with a band of
 $0.0227$--$0.0310$, \emph{an extrapolation, not a bound}. Inverting
@@ -1887,7 +1895,13 @@ assumption --- and not in the solver. The loop correction also closes
 most of the frequency-side offset of Section~\ref{sec:qubit-mode}: on
 the fixture, $94\%$ of Palace's $0.28\%$ offset from the lumped estimate
 is $L_s$.
-% TODO(operator): which target the next re-optimization and the paper's headline should use, the ruled dressed 93.9537 fF or the loop-corrected 93.143 fF estimate.
+
+\paragraph{Which target the headline uses.}
+The paper's headline stays on the published-value anchor,
+$93.954$\,fF (\path{TransmonAnchor::devicelayout}); the
+loop-corrected $93.143$\,fF (\path{devicelayout_bare_loop}) is
+presented as the corrected \emph{estimate}. A re-optimization aimed at
+$93.143$\,fF is not scheduled; it remains possible future work.
 
 \section{Roadmap: Differentiating the Eigenmode Branch}
 \label{sec:roadmap}
