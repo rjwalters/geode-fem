@@ -48,6 +48,17 @@
 //!   pin `refined_optimization/p2_cycles10_anchor_93p95*/summary.toml`,
 //!   including the anchor derivation and the qubit (E_C, harmonic
 //!   frequency) side of every bound.
+//! - **Issue #1062:** guaranteed lower bounds from the complementary
+//!   (flux, H(div)) principle on the same meshes.
+//!   `committed_c_sigma_bracket_toml_is_a_consistent_two_sided_bound`
+//!   (CI-fast) pins `c_sigma_bracket.toml` against the #1057 / #1058 primal
+//!   values and re-derives every family bracket with its rounding direction;
+//!   `resolution_corrected_series_is_the_primary_series_rescaled` (CI-fast)
+//!   pins the "by construction" point; and `c_sigma_bracket_coarse_level_release`
+//!   (`#[ignore]`) re-certifies the h level on the 133k-tet fixture mesh.
+//!   The bracketed designs are the #1056 / #1058 ones aimed at the
+//!   superseded 89.9 fF anchor; the X0 bracket is anchor-independent; the
+//!   `p2_cycles10_anchor_93p95*` designs are not yet bracketed (#1075).
 //!
 //! # Superseded anchor (issue #1066)
 //!
@@ -3133,7 +3144,7 @@ fn committed_refined_optimization_artifacts_have_no_host_paths_or_pass_claims() 
     assert!(files.len() > 20, "walked only {} files", files.len());
     for path in files {
         let text = std::fs::read_to_string(&path).unwrap();
-        for needle in ["/Volumes/", "/Users/", "/home/"] {
+        for needle in ["/Volumes/", "/Users/", "/home/", "/private/", "/tmp/"] {
             assert!(
                 !text.contains(needle),
                 "{} contains a host path ({needle})",
@@ -3253,4 +3264,312 @@ fn check_refined_coarse_reference(run: &str) {
     };
     assert!((extent(1) - tf(&doc["design"], "island_length_um")).abs() < 1e-5);
     assert!((extent(0) - tf(&doc["design"], "pad_width_um")).abs() < 1e-5);
+}
+
+// -------------------------------------------------------------------------
+// Issue #1062: the missing lower side. Complementary-energy (flux, H(div))
+// lower bounds on the same meshes as #1057 and #1058.
+// -------------------------------------------------------------------------
+
+fn c_sigma_bracket_toml() -> toml::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/c_sigma_bracket.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse c_sigma_bracket.toml")
+}
+
+fn rows<'a>(doc: &'a toml::Value, table: &str) -> &'a Vec<toml::Value> {
+    doc[table]
+        .as_array()
+        .unwrap_or_else(|| panic!("no [[{table}]]"))
+}
+
+/// Every `lower_*_ff` of a row.
+fn row_lowers(r: &toml::Value) -> Vec<(String, f64)> {
+    r.as_table()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k.starts_with("lower_") && k.ends_with("_ff"))
+        .map(|(k, v)| (k.clone(), v.as_float().unwrap()))
+        .collect()
+}
+
+fn floor_to(x: f64, dp: i32) -> f64 {
+    let p = 10f64.powi(dp);
+    (x * p).floor() / p
+}
+
+fn ceil_to(x: f64, dp: i32) -> f64 {
+    let p = 10f64.powi(dp);
+    (x * p).ceil() / p
+}
+
+/// Check one family: every certified lower bound lies below every
+/// conforming upper bound of the same geometry, per-row widths re-derive, and
+/// the family bracket is `[floor(max lower), ceil(min upper)]` with the
+/// anchor verdict re-derived from it.
+fn check_family(doc: &toml::Value, tables: &[&str], bracket: &str) -> (f64, f64) {
+    let mut max_lower = f64::NEG_INFINITY;
+    let mut min_upper = f64::INFINITY;
+    for table in tables {
+        for r in rows(doc, table) {
+            let upper = tf(r, "upper_ff");
+            let lowers = row_lowers(r);
+            assert!(!lowers.is_empty(), "{table}: a row without a lower bound");
+            let best = lowers.iter().map(|l| l.1).fold(f64::NEG_INFINITY, f64::max);
+            for (k, l) in &lowers {
+                assert!(*l > 0.0 && *l < upper, "{table} {k}: {l} vs upper {upper}");
+            }
+            let w = tf(r, "width_ff");
+            assert!((w - (upper - best)).abs() < 2e-6, "{table}: width {w}");
+            max_lower = max_lower.max(best);
+            min_upper = min_upper.min(upper);
+        }
+    }
+    // The rigorous content: one geometry, one converged value.
+    assert!(
+        max_lower < min_upper,
+        "{bracket}: {max_lower} >= {min_upper}"
+    );
+    let b = &doc[bracket];
+    let (lo, hi) = (tf(b, "lower_ff"), tf(b, "upper_ff"));
+    assert!(
+        (lo - floor_to(max_lower, 2)).abs() < 1e-9,
+        "{bracket} lower floored"
+    );
+    assert!(
+        (hi - ceil_to(min_upper, 2)).abs() < 1e-9,
+        "{bracket} upper ceiled"
+    );
+    assert!(lo <= max_lower && hi >= min_upper);
+    assert!((tf(b, "width_ff") - (hi - lo)).abs() < 1e-9);
+    let anchor = tf(&doc["meta"], "anchor_ff");
+    assert_eq!(
+        b["contains_anchor"].as_bool().unwrap(),
+        lo <= anchor && anchor <= hi,
+        "{bracket}: anchor verdict"
+    );
+    (lo, hi)
+}
+
+/// Default tier: `benchmarks/transmon_diffopt/c_sigma_bracket.toml` (#1062)
+/// is a consistent two-sided bound. Every upper bound reproduces the
+/// committed #1057 / #1058 value of the same mesh (so the meshes are the same
+/// ones), every certified lower bound lies below every upper bound of its
+/// geometry, and each family bracket is rounded outward and re-derives.
+#[test]
+fn committed_c_sigma_bracket_toml_is_a_consistent_two_sided_bound() {
+    let doc = c_sigma_bracket_toml();
+    // The anchor comparisons use the superseded 89.9 fF the bracketed
+    // designs were aimed at, and the artifact says so (#1066).
+    assert_eq!(tf(&doc["meta"], "anchor_ff"), 89.9);
+    let text = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../benchmarks/transmon_diffopt/c_sigma_bracket.toml"),
+    )
+    .unwrap();
+    assert!(text.contains("# SUPERSEDED ANCHOR (issue #1066)"));
+    assert!(text.contains("not yet bracketed (#1075)"));
+    // Upper bounds are the committed #1057 values (ceiled to 6 decimals).
+    let conv = c_sigma_convergence_toml();
+    let x0 = &conv["x0"];
+    for r in rows(&doc, "uniform_x0") {
+        let level = match r["mesh"].as_str().unwrap() {
+            "uniform h/1" => 0,
+            "uniform h/2" => 1,
+            "uniform h/4" => 2,
+            m => panic!("unexpected mesh {m}"),
+        };
+        let want = conv_c(x0, r["order"].as_str().unwrap(), level, "amg_pcg");
+        assert!(
+            (tf(r, "upper_ff") - want).abs() <= 1.5e-6,
+            "uniform {level}"
+        );
+    }
+    let tensor = tf_arr(&conv["tensor_eps"], "c_sigma_ff");
+    for (r, want) in rows(&doc, "uniform_x0_tensor").iter().zip(&tensor) {
+        assert!((tf(r, "upper_ff") - want).abs() <= 1.5e-6);
+    }
+    // Adaptive rows are the committed #1058 held-out values.
+    for (table, run, key) in [
+        ("adaptive_primary", "p2_cycles10", "c_ff"),
+        (
+            "adaptive_resolution_corrected",
+            "p2_cycles10_resolution_corrected",
+            "c_ff",
+        ),
+        ("adaptive_x0", "p2_cycles10", "x0_c_ff"),
+    ] {
+        let series = held_out_series(&refined_summary_toml(run), key);
+        let got = rows(&doc, table);
+        assert_eq!(got.len(), series.len(), "{table}: all held-out rounds");
+        for (r, want) in got.iter().zip(&series) {
+            let up = tf(r, "upper_ff");
+            assert!(up >= *want && up - want < 1.5e-6, "{table}: {up} vs {want}");
+        }
+    }
+    let (x0_lo, x0_hi) = check_family(&doc, &["uniform_x0", "adaptive_x0"], "bracket_x0");
+    check_family(&doc, &["uniform_x0_tensor"], "bracket_x0_tensor");
+    let (p_lo, p_hi) = check_family(&doc, &["adaptive_primary"], "bracket_primary");
+    let (c_lo, c_hi) = check_family(
+        &doc,
+        &["adaptive_resolution_corrected"],
+        "bracket_resolution_corrected",
+    );
+    // The family upper bounds are the ones #1057 / #1058 already state.
+    let up = |run: &str| {
+        tf(
+            &refined_summary_toml(run)["final_design_extrapolation"],
+            "upper_bound_ff",
+        )
+    };
+    assert!((p_hi - up("p2_cycles10")).abs() < 1e-9);
+    assert!((c_hi - up("p2_cycles10_resolution_corrected")).abs() < 1e-9);
+    assert!((x0_hi - 77.61).abs() < 1e-9);
+    // The design increment is positive with certainty: the primary design's
+    // lower bound lies above X0's upper bound.
+    assert!(p_lo > x0_hi);
+    assert!(c_lo > p_lo - 2.0 && x0_lo < x0_hi);
+}
+
+/// Default tier: the resolution-corrected design's held-out series is the
+/// primary series rescaled (the "by construction" point of #1062): the
+/// round-by-round ratio is constant to 8e-5 and sits at the ratio of the two
+/// optimizer targets to the round-0 values (1.011988).
+#[test]
+fn resolution_corrected_series_is_the_primary_series_rescaled() {
+    let a = held_out_series(&refined_summary_toml("p2_cycles10"), "c_ff");
+    let b = held_out_series(
+        &refined_summary_toml("p2_cycles10_resolution_corrected"),
+        "c_ff",
+    );
+    let ratios: Vec<f64> = a.iter().zip(&b).map(|(x, y)| y / x).collect();
+    let lo = ratios.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = ratios.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!(hi - lo < 8.2e-5, "{ratios:?}");
+    assert!(lo > 1.0119 && hi < 1.0121, "{ratios:?}");
+    assert!((90.978253_f64 / 89.900518 - 1.011988).abs() < 1e-6);
+}
+
+/// Release tier: re-certify the h level of `c_sigma_bracket.toml` on the
+/// committed 133k-tet fixture: P1 and P2 at X0, the equilibrated RT1 (and
+/// RT2 from P2) bounds and the Crouzeix-Raviart bound, digit for digit at the
+/// printed (floored) precision. The finer levels and the adaptive series are
+/// a manual generator run
+/// (`cargo run -p geode-core --release --example transmon_c_sigma_bracket`).
+#[test]
+#[ignore = "release-tier: P1 and P2 AMG-PCG solves, three patch equilibrations and a Crouzeix-Raviart solve on the 133k-tet fixture (~30 s in release)"]
+fn c_sigma_bracket_coarse_level_release() {
+    use geode_core::assembly::electrostatic::{
+        AmgPcgOptions, assemble_electrostatic_p2_sheets, extract_capacitance_amg_pcg_fields,
+        extract_capacitance_p2_amg_pcg_fields,
+    };
+    use geode_core::assembly::electrostatic_dual::{
+        ConductorRole, DualConductor, FaceTopology, Permittivity, PrimalPotential,
+        certify_lower_bound, crouzeix_raviart_flux, equilibrated_flux,
+    };
+    let doc = c_sigma_bracket_toml();
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let mesh = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let comps = fx.split_metal_conductors();
+    let part = |role: MetalRole| {
+        let c = comps.iter().find(|c| c.role == role).unwrap();
+        (c.triangles.clone(), c.nodes.clone())
+    };
+    let (ti, ni) = part(MetalRole::Island);
+    let (tfeed, nf) = part(MetalRole::Feedline);
+    let (tg, ng) = part(MetalRole::Ground);
+    let eps = fx.epsilon_r_scalar();
+    let electrodes = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: ni,
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: nf,
+            voltage: 0.0,
+        },
+    ];
+    let rho = vec![0.0; mesh.n_tets()];
+    let reduce = |c: &[Vec<f64>], phis: &[Vec<f64>]| {
+        let vf = -c[1][0] / c[1][1];
+        let phi: Vec<f64> = phis[0]
+            .iter()
+            .zip(&phis[1])
+            .map(|(a, b)| a + vf * b)
+            .collect();
+        (1e15 * (c[0][0] + vf * c[0][1]), phi)
+    };
+    let sys = assemble_electrostatic(&mesh, &eps, &rho, &electrodes, &ng).unwrap();
+    let (cm, _, phis) =
+        extract_capacitance_amg_pcg_fields(&sys, &electrodes, &ng, AmgPcgOptions::default())
+            .unwrap();
+    let (c1, phi1) = reduce(&cm.c, &phis);
+    let (sys2, dofs) =
+        assemble_electrostatic_p2_sheets(&mesh, &eps, &rho, &electrodes, &[&ti, &tfeed], &ng, &tg)
+            .unwrap();
+    let (cm2, _, phis2) =
+        extract_capacitance_p2_amg_pcg_fields(&sys2, &dofs, AmgPcgOptions::default()).unwrap();
+    let (c2, phi2) = reduce(&cm2.c, &phis2);
+    let conductors = [
+        ("island", ConductorRole::Driven, ti),
+        ("feedline", ConductorRole::Floating, tfeed),
+        ("ground", ConductorRole::Ground, tg),
+    ]
+    .map(|(name, role, triangles)| DualConductor {
+        name: name.into(),
+        role,
+        triangles,
+    });
+    let topo = FaceTopology::new(&mesh, &conductors).unwrap();
+    let e = Permittivity::Scalar(&eps);
+    let lower = |primal, k| {
+        let flux = equilibrated_flux(&mesh, &topo, e, primal, k).unwrap();
+        1e15 * certify_lower_bound(&mesh, &topo, e, &flux)
+            .unwrap()
+            .c_lower_f
+    };
+    let (cr_flux, _) = crouzeix_raviart_flux(&mesh, &topo, e, AmgPcgOptions::default()).unwrap();
+    let cr = 1e15
+        * certify_lower_bound(&mesh, &topo, e, &cr_flux)
+            .unwrap()
+            .c_lower_f;
+    let row = |order: &str| {
+        rows(&doc, "uniform_x0")
+            .iter()
+            .find(|r| {
+                r["mesh"].as_str() == Some("uniform h/1") && r["order"].as_str() == Some(order)
+            })
+            .unwrap()
+            .clone()
+    };
+    let (r1, r2) = (row("P1"), row("P2"));
+    let same = |got: f64, want: f64, what: &str| {
+        // Floored to 6 decimals in the TOML; a rerun may differ by roundoff.
+        assert!(
+            (floor_to(got, 6) - want).abs() < 2e-6,
+            "{what}: {got} vs committed {want}"
+        );
+    };
+    assert!((ceil_to(c1, 6) - tf(&r1, "upper_ff")).abs() < 2e-6);
+    assert!((ceil_to(c2, 6) - tf(&r2, "upper_ff")).abs() < 2e-6);
+    same(
+        lower(PrimalPotential::P1(&phi1), 1),
+        tf(&r1, "lower_eq_k1_ff"),
+        "P1 RT1",
+    );
+    same(cr, tf(&r1, "lower_cr_ff"), "CR");
+    same(
+        lower(PrimalPotential::P2(&phi2), 1),
+        tf(&r2, "lower_eq_k1_ff"),
+        "P2 RT1",
+    );
+    same(
+        lower(PrimalPotential::P2(&phi2), 2),
+        tf(&r2, "lower_eq_k2_ff"),
+        "P2 RT2",
+    );
 }

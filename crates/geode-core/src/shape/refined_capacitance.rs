@@ -324,6 +324,14 @@ mod tests {
     /// reduced capacitance `C_00 - C_01^2 / C_11` taken from **fully
     /// re-solved** perturbed meshes. The gradient uses the AMG-PCG fields;
     /// the finite difference uses the independent sparse-LU extraction.
+    ///
+    /// Which assertion catches a kernel mutation (issue #1062): the factor
+    /// `2 -> 1` in `div(v)|grad(u)|^2 - 2 grad(u)^T grad(v) grad(u)` already
+    /// fails the dilation check, before the finite-difference loop runs.
+    /// Replacing the contraction `grad(v) : moment` by
+    /// `div(v) * energy / 3` agrees with it for every isotropic `grad(v)`, so
+    /// it passes the dilation and translation checks and is caught inside the
+    /// finite-difference loop, at the warp field (field 2; checked by hand).
     #[test]
     fn p2_floating_sheet_energy_derivative_matches_solved_fd() {
         use crate::assembly::electrostatic::{
