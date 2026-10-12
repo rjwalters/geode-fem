@@ -12,7 +12,9 @@
 //! show up as a near-zero-λ cluster (λ ≈ 1e-16…1e-17). (The transmon
 //! benchmark's 3.4528 GHz mode is **not** one of them: issue #514 measured
 //! it solenoidal, divergence ratio 6.18e-15, so no gradient projection
-//! touches it. See `docs/research/transmon-lumped-port-formulation.md`.)
+//! touches it. It is the transmon qubit mode, which Palace confirms below its
+//! committed target (issue #1043; `benchmarks/transmon_eigen/results.toml`
+//! `[modes.qubit]`). See `docs/research/transmon-lumped-port-formulation.md`.)
 //!
 //! The tree-cotree **DOF-elimination** gauge ([`crate::eigen::gauge`],
 //! PR #508) removes exactly the right *count* of gradient DOFs, but it is
@@ -37,7 +39,7 @@
 //! as the identity on the divergence-free subspace `{v : Gᵀ M v = 0}`.
 //! Applying `P` after every Lanczos step confines the Krylov space to the
 //! physical (solenoidal) subspace, so the gradient nullspace never enters
-//! the Ritz problem — the spurious mode and the near-zero cluster are gone
+//! the Ritz problem — the gradient near-zero cluster is gone
 //! *by construction*, and the physical spectrum is preserved because `P`
 //! does not touch it (`P v = v` for divergence-free `v`). This is Palace's
 //! approach and the one that composes with future matvec-based iterative
@@ -434,11 +436,17 @@ impl<'m> MOrthogonalGradientProjector<'m> {
 /// The bulk projector `P = I − G(GᵀMG)⁻¹GᵀM`
 /// ([`MOrthogonalGradientProjector`]) annihilates *all* of `image(d⁰)`. That
 /// removes the 13,747-mode gradient cluster and preserves the cavity spectrum,
-/// but it also **deflates the physical junction LC mode**: a lumped inductor is
-/// a quasi-static, curl-free flux path, so the junction eigenvector lives
-/// almost entirely in `image(d⁰)` (measured projected-norm ratio ≈ 1e-4, i.e.
-/// 99.99% gradient). `P` cannot tell that one physical gradient direction from
-/// the 13,746 spurious ones and removes it with the rest (issue #509 negative).
+/// but it also **deflates the 17.49 GHz port-sheet mode** of the distributed
+/// shunt: a lumped inductor is a quasi-static, curl-free flux path, so that
+/// eigenvector lives almost entirely in `image(d⁰)` (measured projected-norm
+/// ratio ≈ 1e-4, i.e. 99.99% gradient). `P` cannot tell that one gradient
+/// direction from the other 13,746 and removes it with the rest (issue #509).
+/// Issue #509 read this mode as the physical junction LC mode. Issue #1045
+/// re-reads it, on the evidence of #1043 and #1044, as the zero-port-voltage
+/// sheet resonance of the distributed `S_Γ` term (Palace has it too); the
+/// rank-1 port-voltage shunt A2 removes it, and with A2 the plain bulk
+/// projector is exact. This projector re-admits it to match the committed
+/// Palace oracle, which lists it.
 ///
 /// # The construction: re-admit `span{û}`
 ///
@@ -462,7 +470,7 @@ impl<'m> MOrthogonalGradientProjector<'m> {
 ///   as under `P`;
 /// - the **identity on `span{û}`** (`P' û = P û + û(ûᵀ M û) = 0 + û`) — so the
 ///   junction-flux direction is RE-ADMITTED to the Krylov space and the
-///   junction LC mode survives;
+///   17.49 GHz port-sheet mode survives;
 /// - the **annihilator of `image(G) ⊖ span{û}`** (any gradient `g` with
 ///   `ûᵀ M g = 0` maps to `P g + û(ûᵀ M g) = 0`) — so the bulk 13,747-mode
 ///   cluster is still gone.
@@ -562,7 +570,7 @@ impl<'m> PortAwareGradientProjector<'m> {
     /// Divergence residual `‖Gᵀ M w‖ / ‖w‖_M` via the bulk projector — a
     /// diagnostic. A `P'`-projected vector is NOT divergence-free in general
     /// (it carries the re-admitted `û` component, which is a gradient), so this
-    /// is expected to be `O(1)` on the junction mode and `≈ 0` on the cavity
+    /// is expected to be `O(1)` on the 17.49 GHz port-sheet mode and `≈ 0` on the cavity
     /// modes.
     pub fn divergence_ratio(&self, w: &[f64]) -> f64 {
         self.bulk.divergence_ratio(w)
@@ -594,7 +602,7 @@ impl<'m> PortAwareGradientProjector<'m> {
 ///
 /// So every eigenvector with `λ ≠ 0` lies in `(divergence-free) ⊕ V`, for
 /// every mode at once and in exact arithmetic. No eigensolve is needed to
-/// find the junction-flux direction, and the junction mode is not
+/// find the junction-flux direction, and the 17.49 GHz port-sheet mode is not
 /// approximated by a single re-admitted vector taken from another solve.
 ///
 /// # The projector
@@ -1016,8 +1024,8 @@ impl ProjectedShiftInvertLanczos {
     /// onto the divergence-free subspace (`w ← P w`) *before* the three-term
     /// recurrence and reorthogonalization. This confines the whole Krylov
     /// space to the solenoidal subspace, so the gradient nullspace never
-    /// enters the tridiagonal Ritz problem — the spurious mode and near-zero
-    /// cluster are absent by construction, while the physical spectrum is
+    /// enters the tridiagonal Ritz problem — the gradient near-zero
+    /// cluster is absent by construction, while the physical spectrum is
     /// preserved (`P` acts as the identity on divergence-free fields).
     ///
     /// Returns the lowest `n_modes` eigenpairs closest to `σ`, plus the
@@ -1516,9 +1524,12 @@ fn projected_transmon_impl(
 
 /// Solve the transmon eigenmodes with the **PORT-AWARE divergence-free
 /// projection** (issue #514) — the composite solver that removes the bulk
-/// gradient nullspace AND retains the physical junction LC mode, which the
+/// gradient nullspace AND retains the 17.49 GHz port-sheet mode, which the
 /// bulk-`d⁰` projection of [`solve_transmon_eigenmodes_projected`] deflated
-/// away (issue #509 negative).
+/// away (issue #509). Issue #509 / #514 called that mode the physical
+/// junction LC mode; issue #1045 re-reads it as the port-sheet artifact of the
+/// distributed shunt (see [`PortAwareGradientProjector`]). Retaining it
+/// reproduces Palace's committed `Target = 4.5 GHz` spectrum, which contains it.
 ///
 /// # Composite construction
 ///
@@ -1527,19 +1538,20 @@ fn projected_transmon_impl(
 ///    projected path does.
 /// 2. Run one **ungauged** shift-invert Lanczos solve near the junction
 ///    frequency (`junction_sigma`) and extract the eigenvector `x_j` with the
-///    largest junction participation — the physical junction LC mode.
+///    largest junction participation — the 17.49 GHz port-sheet mode.
 /// 3. Build the [`PortAwareGradientProjector`] `P' = P + û ûᵀ M`, re-admitting
 ///    the junction-flux gradient direction `û = (I−P)x_j / ‖·‖_M`.
 /// 4. Run projected Lanczos near `sigma` with `P'`. `P'` deflates the whole
 ///    13,747-mode gradient cluster except `span{û}`, so the cavity spectrum is
-///    preserved (as under `P`) AND the junction mode survives.
+///    preserved (as under `P`) AND the port-sheet mode survives.
 ///
-/// The port-localized 3.4528 GHz spurious mode is genuinely solenoidal
+/// The junction-localized 3.4528 GHz mode is genuinely solenoidal
 /// (`M`-orthogonal to `image(d⁰)`), so it is untouched by BOTH `P` and the
-/// rank-1 re-admission — it survives the port-aware projection and remains
-/// filtered by frequency-matching against the Palace oracle (see the issue
-/// #514 characterization: it is a port-formulation artifact, not a
-/// bulk-gradient one).
+/// rank-1 re-admission and survives the port-aware projection. It is the
+/// transmon qubit mode: Palace returns it at 3.452749 GHz when its `Target` is
+/// below it (issue #1043). Before issue #1045 these docs called it a
+/// port-formulation artifact, filtered by frequency-matching against the
+/// Palace oracle; that reading is withdrawn.
 ///
 /// Exact null modes of `K` (`|λ|` at round-off, e.g. the potential of a
 /// port-free floating conductor, which `image(d⁰_interior)` does not
@@ -1552,7 +1564,7 @@ fn projected_transmon_impl(
 ///
 /// Returns the modes (restored frequency + junction participation) and the
 /// [`ProjectionDiagnostics`] for the port-aware run. Note the diagnostics'
-/// divergence ratios are `O(1)` on the junction mode (its re-admitted flux
+/// divergence ratios are `O(1)` on the port-sheet mode (its re-admitted flux
 /// direction is a gradient) and `≈ 0` on the cavity modes — a `P'`-projected
 /// vector is not globally divergence-free by construction.
 ///
@@ -1636,7 +1648,7 @@ pub fn solve_transmon_eigenmodes_port_aware(
 
     // --- Step 1: extract the ungauged junction eigenvector near junction_sigma.
     // Run a small ungauged shift-invert solve and pick the eigenvector with the
-    // largest junction participation — the physical junction LC mode whose
+    // largest junction participation — the 17.49 GHz port-sheet mode whose
     // (near-)gradient flux direction we re-admit.
     let ung = SparseShiftInvertLanczos {
         sigma: junction_sigma,
@@ -1705,10 +1717,13 @@ pub fn solve_transmon_eigenmodes_port_aware(
 ///    before the `n_modes` cut
 ///    ([`ProjectedShiftInvertLanczos::smallest_nonnull_eigenpairs`]).
 ///
-/// It returns the junction LC mode and the cavity modes without a junction
-/// shift, and without the near-zero survivor of the extract route. The
-/// solenoidal 3.45 GHz port mode of the transmon fixture (#514) is a genuine
-/// eigenpair of this pencil and is still returned.
+/// It returns the 17.49 GHz port-sheet mode and the cavity modes without a
+/// junction shift, and without the near-zero survivor of the extract route.
+/// The solenoidal 3.45 GHz mode of the transmon fixture is returned too: it
+/// is the transmon qubit mode (issue #1043), not a port artifact as these docs
+/// said before issue #1045. The port-sheet mode is the non-physical one; the
+/// rank-1 port-voltage shunt A2 (`JunctionPortModel::PortVoltage`, issue
+/// #1044) removes it.
 ///
 /// Returns the modes (frequency + junction participation, ascending `λ`) and
 /// the [`ProjectionDiagnostics`], whose `mode_residual_rels` give each mode's
@@ -1855,7 +1870,7 @@ pub struct UngaugedModeDivergence {
     pub participation: f64,
     /// Divergence residual `‖Gᵀ M x‖ / ‖x‖_M` of the UNGAUGED eigenvector.
     /// A near-gradient (junction-flux) mode is `O(1)` here; a genuinely
-    /// solenoidal (spurious port-localized) mode is `~1e-15`.
+    /// solenoidal mode (the 3.45 GHz qubit mode, the cavity modes) is `~1e-15`.
     pub divergence_ratio: f64,
     /// M-normalized norm of the projected eigenvector, `‖P x‖_M / ‖x‖_M`.
     /// `≈ 0` for a mode that lives almost entirely in `image(d⁰)` (deflated
@@ -1874,7 +1889,7 @@ pub struct UngaugedModeDivergence {
 /// discards), then — using the SAME `G = d⁰_interior` and `M`-orthogonal
 /// projector `P = I − G(GᵀMG)⁻¹GᵀM` the projected path builds — reports, per
 /// mode, the divergence ratio `‖GᵀMx‖/‖x‖_M` and the projected-norm ratio
-/// `‖Px‖_M/‖x‖_M`. This exposes *why* `P` deflates the junction LC mode: the
+/// `‖Px‖_M/‖x‖_M`. This exposes *why* `P` deflates the 17.49 GHz port-sheet mode: the
 /// junction eigenvector is a near-gradient (curl-free lumped-inductor flux
 /// path), so its divergence ratio is `O(1)` and its projected norm ≈ 0 —
 /// directly, on the raw eigenvector, rather than inferred from the mode's
@@ -2459,7 +2474,7 @@ mod tests {
     /// (`e₀ ∈ image(G)`), the bulk projected solve deflates it (returns
     /// {2,3,4}), but the PORT-AWARE solve — handed `e₀` as the "junction"
     /// eigenvector — RE-ADMITS it and returns {1,2,3}. This is the synthetic
-    /// analogue of retaining the transmon junction LC mode.
+    /// analogue of retaining the transmon 17.49 GHz port-sheet mode.
     #[test]
     fn port_aware_solve_retains_the_gradient_mode() {
         let n = 5usize;

@@ -114,34 +114,45 @@ def geode_modes(log):
     return [(float(m.group(2)), float(m.group(3))) for m in GEODE_MODE.finditer(log.read_text(errors="replace"))]
 
 
-# Mode classification (issue #927), the rule of benchmarks/transmon_eigen and
-# of benchmarks/transmon_bench_cpu/summarize_like_for_like.py: a returned mode
-# is "physical" when it is the nearest returned mode to a mode of the committed
-# CPU Palace baseline and within PHYSICAL_TOL_PCT of it. Participation is not
-# used (the spurious 3.45 GHz mode has participation 0.994).
+# Mode classification (issue #927, re-baselined by #1045), the rule of
+# benchmarks/transmon_eigen and of
+# benchmarks/transmon_bench_cpu/summarize_like_for_like.py. The reference list
+# is the qubit mode (Palace at Target 2 GHz, #1043) plus the modes of the
+# committed CPU Palace baseline (Target 4.5 GHz): five cavity modes and the
+# 17.49 GHz port-sheet artifact. A returned mode takes the kind of the
+# reference mode it is nearest to, within PHYSICAL_TOL_PCT: "qubit", "cavity"
+# or "port_sheet_artifact"; otherwise "near_kernel" (below NEAR_KERNEL_GHZ) or
+# "unclassified". The physical modes are the qubit and the cavity modes.
+# Before #1045 the qubit was labelled "spurious_port" and the artifact
+# "physical". Participation is not used.
 PHYSICAL_TOL_PCT = 1.0  # PALACE_BAR_PCT of tests/transmon_eigenmode.rs
 NEAR_KERNEL_GHZ = 0.5  # gradient near-kernel survivor threshold of the same tests
-SPURIOUS_GHZ = 3.4528  # benchmarks/transmon_eigen/results.toml [spurious_mode], #514
+QUBIT_GHZ = 3.452749  # benchmarks/transmon_eigen/results.toml [modes.qubit].palace_f_ghz (#1043)
+PORT_SHEET_ARTIFACT_GHZ = 17.490109  # [modes.port_sheet_artifact].palace_f_ghz
+PHYSICAL_KINDS = ("qubit", "cavity")
+
+
+def reference(oracle):
+    """[(kind, f)]: the qubit mode, then each baseline mode as cavity or port_sheet_artifact."""
+    ref = [("qubit", QUBIT_GHZ)]
+    for pf in oracle:
+        art = abs(pf - PORT_SHEET_ARTIFACT_GHZ) / PORT_SHEET_ARTIFACT_GHZ * 100.0 <= PHYSICAL_TOL_PCT
+        ref.append(("port_sheet_artifact" if art else "cavity", pf))
+    return ref
 
 
 def classify_modes(freqs, oracle):
-    """One class per returned mode: physical / near_kernel / spurious_port / unclassified."""
+    """One class per returned mode: qubit / cavity / port_sheet_artifact / near_kernel / unclassified."""
     classes = [None] * len(freqs)
-    for pf in oracle:
+    for kind, pf in reference(oracle):
         if not freqs:
             break
         i = min(range(len(freqs)), key=lambda k: abs(freqs[k] - pf))
         if abs(freqs[i] - pf) / pf * 100.0 <= PHYSICAL_TOL_PCT:
-            classes[i] = "physical"
+            classes[i] = kind
     for i, f in enumerate(freqs):
-        if classes[i]:
-            continue
-        if f < NEAR_KERNEL_GHZ:
-            classes[i] = "near_kernel"
-        elif abs(f - SPURIOUS_GHZ) / SPURIOUS_GHZ * 100.0 <= PHYSICAL_TOL_PCT:
-            classes[i] = "spurious_port"
-        else:
-            classes[i] = "unclassified"
+        if not classes[i]:
+            classes[i] = "near_kernel" if f < NEAR_KERNEL_GHZ else "unclassified"
     return classes
 
 
@@ -149,7 +160,9 @@ def print_mode_classes(prefix, freqs, oracle):
     classes = classify_modes(freqs, oracle)
     quoted = ", ".join(f'"{c}"' for c in classes)
     print(f"{prefix}_modes_class = [{quoted}]")
-    print(f"{prefix}_n_physical = {classes.count('physical')}  # of the baseline's {len(oracle)}")
+    print(f"{prefix}_n_physical = {sum(1 for c in classes if c in PHYSICAL_KINDS)}  # of the 6 physical modes (the qubit and five cavity modes)")
+    request = sum(1 for c in classes if c in ("cavity", "port_sheet_artifact"))
+    print(f"{prefix}_n_palace_request_modes = {request}  # of the baseline's {len(oracle)} (the pre-#1045 n_physical)")
 
 
 # Phase groups used to attribute the Palace GPU-vs-CPU gap (sums of the

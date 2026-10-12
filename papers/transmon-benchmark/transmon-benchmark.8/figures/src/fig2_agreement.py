@@ -5,22 +5,25 @@ Source: benchmarks/transmon_eigen/results.toml ([modes.*] for the six modes
 Palace returns above its 4.5 GHz target; [oracles.palace_target2] for the qubit
 mode). geode-fem values are used at their committed precision (three decimals
 for the six modes, six for the qubit). Same input mesh, not the same unknowns.
+Key names follow the #1045 rename ([modes.port_sheet_artifact], was
+[modes.junction_lc]; [modes.qubit] is skipped here and drawn from
+[oracles.palace_target2] as before). The output is unchanged.
 """
 from figure_style import *
 
 def main():
     d = eigen_data()
-    rows = [(m, v['f_ghz'], v['palace_f_ghz']) for m, v in d['modes'].items()]
+    rows = [(m, v['f_ghz'], v['palace_f_ghz']) for m, v in d['modes'].items() if v['kind'] != 'qubit']
     rows.append(('qubit', d['oracles']['palace_target2']['geode_qubit_f_ghz'], d['oracles']['palace_target2']['qubit_f_ghz']))
     rows.sort(key=lambda x: x[1])
-    names = {'qubit': 'Qubit mode', 'resonator': 'Readout resonator', 'junction_lc': 'Port-sheet artifact'}
+    names = {'qubit': 'Qubit mode', 'resonator': 'Readout resonator', 'port_sheet_artifact': 'Port-sheet artifact'}
     names.update({f'mode_{k}': f'Box/cavity mode {k}' for k in range(2, 7)})
     fig, axes = plt.subplots(1, 2, figsize=(6.3, 3.4), gridspec_kw={'width_ratios': [1, 1.15]})
     a, b = axes
     a.plot([0, 29], [0, 29], color='#BAC0C5', lw=1, zorder=0)
     for i, (name, g, p) in enumerate(rows):
-        color = BLUE if name == 'qubit' else GRAY if name == 'junction_lc' else TEAL
-        marker = 'D' if name == 'qubit' else 's' if name == 'junction_lc' else 'o'
+        color = BLUE if name == 'qubit' else GRAY if name == 'port_sheet_artifact' else TEAL
+        marker = 'D' if name == 'qubit' else 's' if name == 'port_sheet_artifact' else 'o'
         a.plot(p, g, marker, color=color, ms=5)
         error = 100 * (g / p - 1)
         b.plot(error, i, marker, color=color, ms=5)

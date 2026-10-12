@@ -77,8 +77,13 @@ with `Save = 6`. The tuned build's largest rank peaks at 2.47 GB at 1 rank, agai
 
 ### geode routes and tuned Palace, same box
 
-The rows are the three geode requests that return all six of Palace's modes
-(each within 0.029% of Palace). The ratio columns are the tuned-Palace median
+The rows are the three geode requests that return all six modes of Palace's
+fixture request (each within 0.029% of Palace). That set is five cavity modes and
+the 17.49 GHz port-sheet artifact; it does not contain the 3.45 GHz qubit mode,
+which is below Palace's Target. The "shift" request returns exactly that set and
+not the qubit; the other two also return the qubit (#1045). Palace also solves
+about 17% more unknowns than geode on the same input mesh (183,891 against
+156,863), and the times are not normalized for that. The ratio columns are the tuned-Palace median
 divided by the geode median at the same width (1 rank against 1 thread, 8 ranks
 against 8 threads). Above 1 means the geode cell took less.
 
@@ -95,13 +100,15 @@ The port-aware row is the issue #514 route as it stood at geode `8367ee7b` (and
 `61e8571e` for PR #964), before PR #1002. PR #1002 (#950) renamed that route
 `GEODE_GAUGE=port_aware_extract` and gave the name `port_aware` to a
 single-factorization port-subspace projection. That route returns the six
-physical modes for a 7-mode request, alongside one non-physical mode: the
-3.45 GHz port mode (#1003). It has not been timed on m6i; its local single-thread
+physical modes (the qubit and five cavity modes) for a 7-mode request, alongside
+one non-physical mode: the 17.49 GHz port-sheet artifact. Before #1045 this
+sentence named the 3.45 GHz mode instead; #1043 showed that mode is the qubit. It has not been timed on m6i; its local single-thread
 numbers are `[issue_950]` in
 [`results_like_for_like_local.toml`](results_like_for_like_local.toml). The
 times in this table are not re-run.
 
-The historical request (6 @ 4.5 GHz) returns 1 of the 6 modes. It was re-run for
+The historical request (6 @ 4.5 GHz) returns 1 of Palace's 6 modes (2 of the
+6 physical modes, counting the qubit). It was re-run for
 continuity at 30.9 s and 25.2 s (1 and 8 threads) and is in the TOML, not in
 this table. The TOML also gives every ratio against the same-box untuned build.
 
@@ -121,8 +128,9 @@ fewer core-seconds, by 1.62× to 6.89×.
   the CPU work Palace needs.
 - The two oracle-tuned geode requests need the Palace answer to set them up.
   The port-aware request timed here (the #514 route) returned two non-physical
-  modes. The current `port_aware` route (PR #1002) returns one, the 3.45 GHz
-  port mode, which is tracked in #1003.
+  modes (a near-zero survivor and the 17.49 GHz port-sheet artifact). The
+  current `port_aware` route (PR #1002) returns one, the port-sheet artifact.
+  The opt-in A2 shunt (#1044) removes it; that route was not timed on m6i.
 - `Save = 0` removes Palace's field output, not its error estimator. geode has
   no counterpart for the estimator.
 - One mesh (133k DOFs). Nothing here says anything about other sizes; the

@@ -109,6 +109,8 @@ def check_content():
     assert f'{qubit:+.5f}%' == '+0.00005%' and '+0.00005%' in t2 and 'Qubit mode' in t2
     assert 'Port-sheet artifact' in t2 and 'Same input mesh' in t2
     for key, mode in eigen['modes'].items():
+        if mode['kind'] == 'qubit':
+            continue  # [modes.qubit] (#1045) is drawn from [oracles.palace_target2], checked above
         signed = 100 * (mode['f_ghz'] / mode['palace_f_ghz'] - 1)
         assert f'{abs(signed):.3f}' == f"{mode['rel_err_pct']:.3f}", key  # matches Table 1
         assert f'{signed:+.3f}%' in t2, key

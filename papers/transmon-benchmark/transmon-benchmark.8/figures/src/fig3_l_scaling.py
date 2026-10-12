@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Figure 3: L-doubling checks for the qubit mode and the port-sheet artifact.
 
-Source: benchmarks/transmon_eigen/results.toml, [spurious_mode] (geode-fem
-qubit values under the historical key), [tripwires.junction_l_doubling]
-(port-sheet mode) and [oracles.palace_target2] (Palace qubit values). Values
-are annotated at their stored precision.
+Source: benchmarks/transmon_eigen/results.toml, [tripwires.qubit_l_doubling]
+(geode-fem qubit values; [spurious_mode] before #1045),
+[tripwires.port_sheet_artifact_l_doubling] (port-sheet mode;
+[tripwires.junction_l_doubling] before #1045) and [oracles.palace_target2]
+(Palace qubit values). Values are annotated at their stored precision.
 """
 from figure_style import *
 import numpy as np
 
 def main():
-    d = eigen_data(); trip = d['tripwires']['junction_l_doubling']; q = d['spurious_mode']; p = d['oracles']['palace_target2']
+    d = eigen_data(); trip = d['tripwires']['port_sheet_artifact_l_doubling']; q = d['tripwires']['qubit_l_doubling']; p = d['oracles']['palace_target2']
     fig, axes = plt.subplots(1, 2, figsize=(6.3, 3.3))
-    datasets = [([q['spurious_l_scaling_base_f_ghz'], q['spurious_l_scaling_doubled_f_ghz']], BLUE, 'Qubit mode', 'D'),
+    datasets = [([q['base_f_ghz'], q['doubled_f_ghz']], BLUE, 'Qubit mode', 'D'),
                 ([trip['base_f_ghz'], trip['doubled_f_ghz']], GRAY, 'Port-sheet artifact', 's')]
     for i, (ax, (values, color, name, marker)) in enumerate(zip(axes, datasets)):
         x = np.linspace(.9, 2.1, 100)
@@ -29,7 +30,7 @@ def main():
     ratio = p['l2_qubit_f_ghz'] / p['qubit_f_ghz']
     # Committed ratios (computed from unrounded values in the artifacts).
     fig.text(.5, .025, rf"$L_0=14.860$ nH. Committed ratios: qubit mode {ratio:.5f} (Palace), "
-             rf"{q['spurious_l_scaling_ratio']} (geode-fem);" "\n"
+             rf"{q['ratio']} (geode-fem);" "\n"
              rf"port-sheet artifact {trip['ratio']} (geode-fem); $1/\sqrt{{2}}=0.70711$.",
              ha='center', fontsize=8.5, linespacing=1.4)
     save(fig, 'fig3-lscaling.pdf')

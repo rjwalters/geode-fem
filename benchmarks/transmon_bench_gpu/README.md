@@ -76,13 +76,19 @@ These are summarized from `results.toml`; read the file for the full wording.
   measurement". The CPU cells are comparable only to each other, not to
   `transmon_bench_cpu` or `gpu_driven_scaling`.
 - **The geode and Palace outputs are not like-for-like.** In every geode run
-  the six returned pairs are four gradient near-kernel modes, the known
-  spurious 3.4528 GHz mode (#514) and 5.152825 GHz, so geode recovers 1 of
-  Palace's 6 physical modes while Palace returns all six. In the file's words,
+  the six returned pairs are four gradient near-kernel modes, the 3.4528 GHz
+  transmon qubit mode (confirmed by Palace at Target 2 GHz, #1043) and
+  5.152825 GHz, so geode returns 1 of the six modes Palace returns while
+  Palace returns all six of its request: five cavity modes and the 17.49 GHz
+  port-sheet artifact, not the qubit, which lies below its Target. In the file's words,
   "'geode is faster' here is a statement about wall clock for different
   outputs, not for an equivalent answer", and this run applies no geode
-  eigen-agreement gate. Every cell records `modes_f_ghz`, `modes_class` and
-  `n_physical`; the geode cells carry `like_for_like = false` (#927).
+  eigen-agreement gate. Every cell records `modes_f_ghz`, `modes_class`,
+  `n_physical` and `n_palace_request_modes`; the geode cells carry
+  `like_for_like = false` (#927). Since #1045 the classes are `qubit`,
+  `cavity`, `port_sheet_artifact`, `near_kernel` and `unclassified`
+  (previously `spurious_port` named the qubit and `physical` included the
+  artifact); `n_physical` counts the qubit and the five cavity modes.
 - **No cell here supports "geode is faster than Palace at the transmon
   eigenmode".** Re-timing geode in a configuration that returns Palace's six
   modes, beside Palace on this host, is not done (it needs the paid Lambda

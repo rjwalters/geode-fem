@@ -485,10 +485,12 @@ fn main() {
     );
     t.push('\n');
 
-    // ---- Minev p_m 3-way reconciliation over the six committed modes ----
-    // The six Phase-B modes + their stiffness-participation are committed in
-    // benchmarks/transmon_eigen/results.toml. In the reactive-lumped-shunt
-    // formulation the Minev energy-participation p_m = junction inductive /
+    // ---- Minev p_m 3-way reconciliation over the seven committed modes ----
+    // The Phase-B modes + their stiffness-participation are committed in
+    // benchmarks/transmon_eigen/results.toml `[modes.*]`: the qubit mode, five
+    // cavity modes and the 17.49 GHz port-sheet artifact (issue #1045; the
+    // qubit row was absent before, and the artifact was named `junction_lc`).
+    // In the reactive-lumped-shunt formulation the Minev energy-participation p_m = junction inductive /
     // total inductive energy is ALGEBRAICALLY the same quantity as the Phase
     // B stiffness participation p = xᵀ K_port x / xᵀ (K+K_port) x (both are
     // the junction inductive-energy fraction of the same eigenvector). So
@@ -496,29 +498,42 @@ fn main() {
     // reconciliation is against Palace's differently-normalized field
     // port-EPR. (The release test tests/transmon_quantum.rs re-derives p_m
     // from a fresh eigensolve to confirm the identity numerically.)
-    // Committed values (transmon_eigen/results.toml + Palace port-EPR.csv):
-    let modes: [(&str, f64, f64, f64); 6] = [
+    // Committed values (transmon_eigen/results.toml + Palace port-EPR.csv; the
+    // qubit row's Palace value is the Target = 2 GHz re-run of #1043,
+    // reference/fixtures/transmon_palace/results_p1_target2/target2_L1/port-EPR.csv):
+    let modes: [(&str, f64, f64, f64); 7] = [
         // (name, f_ghz, phase_b_participation == minev p_m, palace port-EPR p[1])
+        ("qubit", 3.452751, 0.9942, 9.942420548984e-1),
         ("resonator", 5.153, 0.000, -4.706079891562e-4),
         ("mode_2", 15.465, 0.000, -1.710883210358e-5),
-        ("junction_lc", 17.490, 1.000, 2.494782690465e-8),
+        ("port_sheet_artifact", 17.490, 1.000, 2.494782690465e-8),
         ("mode_4", 18.693, 0.000, -2.975892992981e-9),
         ("mode_5", 20.703, 0.000, -1.172141061263e-8),
         ("mode_6", 26.088, 0.000, -6.038680846706e-6),
     ];
     t.push_str("[epr_reconciliation]\n");
-    t.push_str("# 3-way reconciliation over the six committed Phase-B field modes.\n");
-    t.push_str("# minev_p_m == phase_b_participation ALGEBRAICALLY (reactive-shunt\n");
-    t.push_str("# formulation makes junction-inductive-energy-fraction the same\n");
-    t.push_str("# quantity); Palace port-EPR is a differently-normalized, SIGNED\n");
-    t.push_str("# field diagnostic that ranks modes DIFFERENTLY (junction mode has\n");
-    t.push_str("# the SMALLEST |p[1]|, resonator the LARGEST) — an honest\n");
-    t.push_str("# non-comparability, reconciled by the frequency-agreement mode-ID.\n");
+    t.push_str("# 3-way reconciliation over the seven committed Phase-B field modes:\n");
+    t.push_str("# the qubit mode, five cavity modes and the port-sheet artifact\n");
+    t.push_str("# (issue #1045; the artifact was named junction_lc and the qubit\n");
+    t.push_str("# row was absent). minev_p_m == phase_b_participation ALGEBRAICALLY\n");
+    t.push_str("# (reactive-shunt formulation makes junction-inductive-energy-fraction\n");
+    t.push_str("# the same quantity). Palace port-EPR is a differently-normalized,\n");
+    t.push_str("# SIGNED field diagnostic. It agrees with p on the qubit mode\n");
+    t.push_str("# (0.99424 vs 0.9942, Palace at Target 2 GHz, #1043) and differs on\n");
+    t.push_str("# the port-sheet artifact (2.49e-8 vs 1.000), which stores its energy\n");
+    t.push_str("# in the port sheet without a port voltage. Mode ID is by frequency.\n");
     t.push_str("modes = [\n");
     for (name, f, p_minev, p_palace) in &modes {
+        // Participations at their committed precision: 4 decimals for the
+        // qubit (0.9942), 3 for the others.
+        let p_txt = if *name == "qubit" {
+            format!("{p_minev:.4}")
+        } else {
+            format!("{p_minev:.3}")
+        };
         let _ = writeln!(
             t,
-            "  {{ name = \"{name}\", f_ghz = {f}, minev_p_m = {p_minev:.3}, phase_b_participation = {p_minev:.3}, palace_port_epr = {p_palace:.6e} }},"
+            "  {{ name = \"{name}\", f_ghz = {f}, minev_p_m = {p_txt}, phase_b_participation = {p_txt}, palace_port_epr = {p_palace:.6e} }},"
         );
     }
     t.push_str("]\n");
@@ -526,9 +541,9 @@ fn main() {
         "minev_equals_phase_b = true  # algebraic identity, tested in tests/transmon_quantum.rs\n",
     );
     t.push_str(
-        "palace_ranks_differently = true  # signed field diagnostic, not the energy fraction\n",
+        "palace_ranks_differently = true  # on the port-sheet artifact only; the qubit agrees (0.9942 vs 0.99424)\n",
     );
-    t.push_str("mode_id_basis = \"frequency agreement (17.4901 GHz junction mode in both solvers), NOT participation\"\n\n");
+    t.push_str("mode_id_basis = \"frequency agreement (3.4527 GHz qubit mode and 17.4901 GHz port-sheet artifact in both solvers), NOT participation\"\n\n");
 
     let out_root = std::env::var("TRANSMON_QUANTUM_BENCH_DIR")
         .map(PathBuf::from)

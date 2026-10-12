@@ -89,7 +89,11 @@ def check_qubit_mode():
     """#1047 / #1055: the 3.45 GHz mode is the qubit mode; Palace has it."""
     eigen = read("benchmarks/transmon_eigen/results.toml")
     pal = eigen["oracles"]["palace_target2"]
-    spur = eigen["spurious_mode"]
+    # #1045 renamed the artifact keys this paper quotes ([spurious_mode],
+    # [modes.junction_lc], junction_lc_*); the values are unchanged. Read them
+    # under the new names. main.tex keeps the old names until v9.
+    spur = eigen["modes"]["qubit"]
+    qtrip = eigen["tripwires"]["qubit_l_doubling"]
     assert pal["status"] == "measured" and pal["target_ghz"] == 2.0
     assert pal["palace_version"] == eigen["oracles"]["palace"]["palace_version"]
     contains(f"{pal['qubit_f_ghz']:.6f}")          # 3.452749
@@ -98,7 +102,7 @@ def check_qubit_mode():
     contains(f"{pal['l2_qubit_f_ghz']:.6f}")       # 2.444899
     contains(f"{pal['lumped_qubit_f_ghz']:.5f}")   # 3.46246
     contains(f"{pal['l2_lumped_qubit_f_ghz']:.5f}")  # 2.44833
-    contains(f"{pal['l2_junction_lc_f_ghz']:.4f}")  # 12.3674
+    contains(f"{pal['l2_port_sheet_artifact_f_ghz']:.4f}")  # 12.3674
     contains(f"${-pal['qubit_palace_vs_lumped_pct']:.3f}\\%$")     # 0.280
     contains(f"${-pal['l2_qubit_palace_vs_lumped_pct']:.3f}\\%$")  # 0.140
     contains(f"${sci(pal['control_target4p5_max_rel_diff'])}$")
@@ -129,23 +133,27 @@ def check_qubit_mode():
                          (f"{pal['l2_qubit_f_ghz']:.6f}", 3), (f"{extra[0]:.3f}", 1),
                          (f"{extra[1]:.3f}", 1)]:
         pin(value, count)
-    sheet_ratio = pal["l2_junction_lc_f_ghz"] / pal["junction_lc_f_ghz"]
+    sheet_ratio = pal["l2_port_sheet_artifact_f_ghz"] / pal["port_sheet_artifact_f_ghz"]
     assert f"{sheet_ratio:.5f}" == "0.70711"
     agree_pct = abs(pal["geode_qubit_f_ghz"] / pal["qubit_f_ghz"] - 1) * 100
     assert 4e-5 < agree_pct < 6e-5 and pal["qubit_geode_vs_palace_pct"] == 5e-5
     contains("$5\\times10^{-5}\\,\\%$")
-    assert f"{pal['junction_lc_port_epr']:.2e}" == "2.49e-08"
-    assert f"{pal['l2_junction_lc_port_epr']:.2e}" == "2.94e-08"
+    assert f"{pal['port_sheet_artifact_port_epr']:.2e}" == "2.49e-08"
+    assert f"{pal['l2_port_sheet_artifact_port_epr']:.2e}" == "2.94e-08"
     contains("$2.49\\times10^{-8}$")
     contains("$2.94\\times10^{-8}$")
     # The Target = 4.5 run also has ~0 port EPR on the 17.49 GHz mode.
     epr_csv = read_text("reference/fixtures/transmon_palace/results_p1/port-EPR.csv")
     assert "+2.49478269" in epr_csv
-    # geode's committed values for the same mode (historical key name).
-    assert spur["f_ghz"] == 3.4528 and spur["participation"] == 0.9942
-    assert spur["spurious_l_scaling_doubled_f_ghz"] == 2.4449
-    assert spur["spurious_l_scaling_ratio"] == 0.7081
-    assert spur["excluded"] is True  # re-baselining (#1045) is not done
+    # geode's committed values for the same mode ([modes.qubit] and
+    # [tripwires.qubit_l_doubling] since #1045; [spurious_mode] before).
+    assert qtrip["base_f_ghz"] == 3.4528 and spur["participation"] == 0.9942
+    assert qtrip["doubled_f_ghz"] == 2.4449
+    assert qtrip["ratio"] == 0.7081
+    # #1045 has re-baselined the artifact: no [spurious_mode], no excluded flag.
+    # v8's text still describes the old keys (it says the rename is pending);
+    # v9 updates it.
+    assert "spurious_mode" not in eigen and spur["kind"] == "qubit" and "excluded" not in spur
     contains("\\texttt{excluded = true}")
     # Lumped estimate from the electrostatic branch on the same mesh.
     quantum = read("benchmarks/transmon_quantum/results.toml")
@@ -196,13 +204,14 @@ def check_unknown_counts(meta, cpu):
     for hit in re.finditer(r"identical\s+mesh", TEX):
         assert "Earlier versions said" in TEX[hit.start() - 80:hit.start()], hit
     absent("the identical discrete problem")
-    # The qubit mode is one of the "extra" modes in two CPU-table rows.
+    # The qubit mode is one of the "extra" modes in two CPU-table rows. Its
+    # class label was "spurious_port" before #1045 and is "qubit" now.
     by_name = {c["name"]: c for c in cpu["cell"]}
     for key in ["more_modes", "port_aware"]:
         for name in cpu["route"][key]["geode_cells"]:
-            assert "spurious_port" in by_name[name]["modes_class"]
+            assert "qubit" in by_name[name]["modes_class"]
     for name in cpu["route"]["shift"]["geode_cells"]:
-        assert "spurious_port" not in by_name[name]["modes_class"]
+        assert "qubit" not in by_name[name]["modes_class"]
     contains("\\texttt{spurious\\_port}")
 
 
@@ -662,19 +671,23 @@ def main():
                        ("shift", r"geode 6 at 20 GHz$^\dagger$"),
                        ("port_aware", "geode port-aware 8 at 4.5 GHz")]:
         row = cpu["route"][key]
-        assert row["n_physical_returned"] == 6
+        # Table 6 counts against Palace's six Target-4.5 modes: since #1045
+        # that count is n_palace_request_modes_returned (n_physical_returned
+        # now counts the qubit and five cavity modes), and the "Extra modes"
+        # column is modes_outside_palace_request.
+        assert row["n_palace_request_modes_returned"] == 6
         values = []
         for width in ["1_thread", "8_threads"]:
             wall = row[f"geode_{width}_wall_s_min_median_max"][1]
             core = row[f"geode_{width}_core_s_min_median_max"][1]
             values.append(f"{wall:.2f} / {core:.2f}")
-        contains(f"{label} & {row['non_physical_modes_returned']} & " + " & ".join(values))
+        contains(f"{label} & {row['modes_outside_palace_request']} & " + " & ".join(values))
     for save, suffix in [(6, ""), (0, "_nosave")]:
         values = []
         for width in [1, 8]:
             base = f"np{width}{suffix}"
             r = cpu["palace_fixture"]
-            assert r[f"{base}_n_physical"] == 6
+            assert r[f"{base}_n_palace_request_modes"] == 6  # was {base}_n_physical before #1045
             values.append(f"{r[f'{base}_wall_s_min_median_max'][1]:.2f} / "
                           f"{r[f'{base}_core_s_min_median_max'][1]:.2f}")
             assert r[f"{base}_n_runs"] == (1 if save == 0 and width == 1 else 3)
@@ -682,7 +695,7 @@ def main():
     for cell in cpu["cell"]:
         if cell["name"] in [n for r in cpu["route"].values() for n in r["geode_cells"]]:
             assert cell["n_runs"] == 3
-    assert cpu["route"]["historical_request"]["n_physical_returned"] == 1
+    assert cpu["route"]["historical_request"]["n_palace_request_modes_returned"] == 1
 
     meta = check_qubit_mode()
     check_unknown_counts(meta, cpu)

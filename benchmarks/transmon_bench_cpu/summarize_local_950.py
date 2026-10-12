@@ -64,7 +64,8 @@ def section(run_dir, oracle, rule):
         r0 = c["runs"][0]
         c["freqs"] = [f for f, _ in r0["modes"]]
         c["classes"], c["matches"] = rule.classify(c["freqs"], oracle)
-        c["six"] = all(g is not None for _, g, _ in c["matches"]) and len(oracle) == 6
+        c["tally"] = rule.tally(c["classes"], c["matches"])
+        c["six"] = c["tally"]["six"]
         c["identical"] = all([round(f, 6) for f, _ in r["modes"]] == [round(f, 6) for f in c["freqs"]] for r in c["runs"])
         cells.append(c)
 
@@ -99,7 +100,7 @@ def section(run_dir, oracle, rule):
     for c in cells:
         rs = c["runs"]
         r0 = rs[0]
-        counts = {k: c["classes"].count(k) for k in ("physical", "near_kernel", "spurious_port", "unclassified")}
+        counts = c["tally"]
         cpus = [r["cpu"] for r in rs]
         w("[[issue_950.cell]]")
         w(f'name = "{c["name"]}"')
@@ -113,14 +114,9 @@ def section(run_dir, oracle, rule):
         w(f"modes_f_ghz = {rule.fl(c['freqs'], 6)}")
         w("modes_lambda = [" + ", ".join(f"{x:.6e}" for x in r0["lambdas"]) + "]  # (1/um)^2")
         w("modes_class = [" + ", ".join(f'"{k}"' for k in c["classes"]) + "]  # labels from the oracle, for this file only")
-        w(f"n_physical = {counts['physical']}  # of Palace's {len(oracle)}")
-        w(f"n_near_kernel = {counts['near_kernel']}")
-        w(f"n_spurious_port = {counts['spurious_port']}")
-        w(f"n_unclassified = {counts['unclassified']}")
-        w(f"six_physical_recovered = {'true' if c['six'] else 'false'}")
-        matched = [(p, g, e) for p, g, e in c["matches"] if g is not None]
-        if matched:
-            w(f"physical_max_rel_err_pct = {max(e for _, _, e in matched):.4f}")
+        rule.cell_counts(w, c, counts)
+        if counts["physical_max_rel_err_pct"] is not None:
+            w(f"physical_max_rel_err_pct = {counts['physical_max_rel_err_pct']:.4f}")
         if r0["resid"]:
             w("modes_residual_rel = [" + ", ".join(f"{x:.2e}" for x in r0["resid"]) + "]  # ||Kx - lambda Mx|| / (|lambda| ||Mx||), printed by the solver")
         if r0["fact"]:
@@ -159,7 +155,8 @@ def section(run_dir, oracle, rule):
         cm = statistics.mean(r["cpu"] for r in c["runs"])
         w(f'{key}_cell = "{c["name"]}"')
         w(f"{key}_min_n_modes_for_six_physical = {c['n']}  # smallest request tried that returns all six")
-        w(f"{key}_non_physical_returned_alongside = {len(c['freqs']) - c['classes'].count('physical')}")
+        w(f"{key}_non_physical_returned_alongside = {len(c['freqs']) - c['tally']['physical']}")
+        w(f"{key}_non_physical_kinds = [" + ", ".join(f'"{k}"' for k in c["classes"] if k not in rule.PHYSICAL_KINDS) + "]")
         w(f"{key}_cpu_s_mean = {cm:.2f}")
         w(f"{key}_cpu_ratio_vs_{BASELINE} = {cm / base_cpu:.2f}")
         w(f"{key}_peak_rss_ratio_vs_{BASELINE} = {max(r['rss'] for r in c['runs']) / base_rss:.2f}")
@@ -168,9 +165,9 @@ def section(run_dir, oracle, rule):
         ac = statistics.mean(r["cpu"] for r in after["runs"])
         w(f"after_over_before_cpu = {ac / bc:.2f}  # geode vs geode, same sweep")
         w(f"after_over_before_peak_rss = {max(r['rss'] for r in after['runs']) / max(r['rss'] for r in before['runs']):.2f}")
-        bp = sorted(round(g, 6) for _, g, _ in before["matches"] if g is not None)
-        ap = sorted(round(g, 6) for _, g, _ in after["matches"] if g is not None)
+        bp = sorted(round(g, 6) for k, _, g, _ in before["matches"] if g is not None and k in rule.PHYSICAL_KINDS)
+        ap = sorted(round(g, 6) for k, _, g, _ in after["matches"] if g is not None and k in rule.PHYSICAL_KINDS)
         w(f"physical_f_ghz_identical_before_after = {'true' if bp == ap else 'false'}  # to the 6 decimals the binary prints")
-    w('remaining_non_physical = "The one non-physical mode left at N = 7 is the solenoidal 3.45 GHz port mode (#514). It is a genuine eigenpair of this port formulation, not a gradient artifact, so neither piece removes it; removing it needs a different port formulation (piece 2 of #950, out of scope here)."')
+    w('remaining_non_physical = "The one non-physical mode left at N = 7 is the 17.49 GHz port-sheet artifact of the distributed port term, which Palace returns too. Before #1045 this field named the 3.45 GHz mode instead; that mode is the transmon qubit mode (#1043) and is now counted as physical. Neither #950 piece removes the artifact; the opt-in rank-1 port-voltage shunt A2 does (#1044, ../transmon_eigen/results.toml [port_voltage_a2]), which is the different port formulation piece 2 of #950 asked for."')
     w('scope = "One mesh (133,108 interior DOFs), one loaded host, geode only, direct LU, one thread. Mode lists and factorization counts do not depend on load; times do. No geode-vs-Palace time is implied."')
     return out

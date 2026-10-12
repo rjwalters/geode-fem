@@ -27,6 +27,37 @@
 #     in PR #964: only Palace was tuned for the host.
 #   * ONE MESH (133,108 interior DOFs, first order). Nothing here extrapolates
 #     to another mesh size.
+#   * PALACE SOLVES MORE UNKNOWNS: same input mesh, but 183,891 ND unknowns after
+#     its internal refinement around the PEC sheets, against geode's 156,863
+#     (about 17% more). The times are not normalized for that.
+#   * NO PALACE CELL RETURNS THE QUBIT MODE (#1045): every Palace request here
+#     has Target = 4.5 GHz and the qubit is at 3.45 GHz. like_for_like now means
+#     all six physical modes (qubit + five cavity); palace_request_recovered
+#     means Palace's fixture-request set (five cavity + the port-sheet artifact).
+# ---------------------------------------------------------------------------
+# MIGRATION NOTE (issue #1045, 2026-10-11): MODES RE-CLASSIFIED, NO MEASUREMENT
+# CHANGED. The 3.4528 GHz mode is the transmon qubit mode (Palace confirms it at
+# 3.452749 GHz, ../transmon_eigen/results.toml [oracles.palace_target2]); the
+# 17.49 GHz mode is the port-sheet artifact Palace shares (removed by the A2
+# shunt, [port_voltage_a2]). Old -> new:
+#   modes_class "spurious_port"              -> "qubit"
+#   modes_class "physical" (17.49 GHz)       -> "port_sheet_artifact"
+#   modes_class "physical" (other modes)     -> "cavity"
+#   n_spurious_port                          -> n_qubit
+#   n_physical / six_physical_recovered      -> RE-BASELINED: the six physical
+#                                               modes are now the qubit and the five
+#                                               cavity modes (old set: Palace's six
+#                                               Target-4.5 modes, with the artifact)
+#   (old n_physical, old six_physical_recovered) -> n_palace_request_modes,
+#                                               palace_request_recovered (unchanged
+#                                               values, honest names)
+#   physical_matches                         -> reference_matches (with kind)
+#   [oracle] spurious_port_f_ghz             -> qubit_f_ghz, port_sheet_artifact_f_ghz
+# Counts and findings that depend on the physical set were regenerated from the
+# same run trees; the CHANGELOG entry for #1045 lists the ones that moved.
+#   tuned-file only: [route.*] and [palace.*] keep the pre-#1045 counts as
+#   n_palace_request_modes(_returned), modes_outside_palace_request and
+#   palace_request_recovered.
 # ---------------------------------------------------------------------------
 
 [meta]
@@ -124,6 +155,9 @@ palace = "docker run --cpuset-cpus <cpuset_1 or cpuset_8>; palace -np N -launche
 source = "reference/fixtures/transmon_palace/results_p1/eig.csv"
 palace_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]
 physical_tol_pct = 1.0
+qubit_f_ghz = 3.452749  # ../transmon_eigen/results.toml [modes.qubit].palace_f_ghz (Palace, Target 2 GHz, #1043); not in the oracle file
+port_sheet_artifact_f_ghz = 17.490109  # the oracle mode that is [modes.port_sheet_artifact]
+rule = "summarize_like_for_like.py: frequency match against the qubit mode and the oracle; physical = the qubit and the five cavity modes"
 
 [[cell]]
 name = "geode_s4p5_n6_t1"
@@ -140,10 +174,17 @@ observed_tasks_max = [5, 5]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]  # run 1
-modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical"]
-n_physical = 1  # of Palace's 6
-n_physical_per_run = [1, 1]
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "qubit", "cavity"]
+n_physical = 2  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 1
+n_port_sheet_artifact = 0
+n_near_kernel = 4
+n_unclassified = 0
 six_physical_recovered = false
+n_palace_request_modes = 1  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = false  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [2, 2]
 physical_max_rel_err_pct = 0.0289
 wall_s = [30.90, 30.87]
 wall_s_min_median_max = [30.87, 30.88, 30.90]
@@ -171,10 +212,17 @@ observed_tasks_max = [12, 12]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825]  # run 1
-modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical"]
-n_physical = 1  # of Palace's 6
-n_physical_per_run = [1, 1]
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "qubit", "cavity"]
+n_physical = 2  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 1
+n_port_sheet_artifact = 0
+n_near_kernel = 4
+n_unclassified = 0
 six_physical_recovered = false
+n_palace_request_modes = 1  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = false  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [2, 2]
 physical_max_rel_err_pct = 0.0289
 wall_s = [25.37, 25.06]
 wall_s_min_median_max = [25.06, 25.21, 25.37]
@@ -202,10 +250,17 @@ observed_tasks_max = [5, 5]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000106, 0.000229, 0.000321, 0.000364, 0.000410, 0.000470, 0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "qubit", "cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 6  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 23
+n_unclassified = 0
 six_physical_recovered = true
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [6, 6]
 physical_max_rel_err_pct = 0.0289
 wall_s = [32.20, 32.23]
 wall_s_min_median_max = [32.20, 32.22, 32.23]
@@ -233,10 +288,17 @@ observed_tasks_max = [12, 12]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000106, 0.000229, 0.000321, 0.000364, 0.000410, 0.000470, 0.000478, 0.000562, 0.000602, 0.000760, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
+modes_class = ["near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "near_kernel", "qubit", "cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 6  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 23
+n_unclassified = 0
 six_physical_recovered = true
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [6, 6]
 physical_max_rel_err_pct = 0.0289
 wall_s = [26.73, 26.68]
 wall_s_min_median_max = [26.68, 26.70, 26.73]
@@ -264,10 +326,17 @@ observed_tasks_max = [5, 5]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5]
 physical_max_rel_err_pct = 0.0289
 wall_s = [30.84, 30.86]
 wall_s_min_median_max = [30.84, 30.85, 30.86]
@@ -295,10 +364,17 @@ observed_tasks_max = [12, 12]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5]
 physical_max_rel_err_pct = 0.0289
 wall_s = [25.34, 24.99]
 wall_s_min_median_max = [24.99, 25.16, 25.34]
@@ -326,10 +402,17 @@ observed_tasks_max = [5, 5]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000000, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
+modes_class = ["near_kernel", "qubit", "cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 6  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 1
+n_unclassified = 0
 six_physical_recovered = true
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [6, 6]
 physical_max_rel_err_pct = 0.0289
 wall_s = [63.06, 63.21]
 wall_s_min_median_max = [63.06, 63.14, 63.21]
@@ -357,10 +440,17 @@ observed_tasks_max = [12, 12]
 n_runs = 2
 exit_codes = [0, 0]
 modes_f_ghz = [0.000000, 3.452751, 5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287]  # run 1
-modes_class = ["near_kernel", "spurious_port", "physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6]
+modes_class = ["near_kernel", "qubit", "cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 6  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 1
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 1
+n_unclassified = 0
 six_physical_recovered = true
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [6, 6]
 physical_max_rel_err_pct = 0.0289
 wall_s = [46.94, 47.28]
 wall_s_min_median_max = [46.94, 47.11, 47.28]
@@ -388,10 +478,17 @@ observed_tasks_max = [1, 1, 1]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [175.30, 175.57, 174.72]
 wall_s_min_median_max = [174.72, 175.30, 175.57]
@@ -446,10 +543,17 @@ observed_tasks_max = [8, 8, 8]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [31.74, 31.56, 31.52]
 wall_s_min_median_max = [31.52, 31.56, 31.74]
@@ -504,10 +608,17 @@ observed_tasks_max = [1, 1, 1]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [102.08, 102.08, 102.12]
 wall_s_min_median_max = [102.08, 102.08, 102.12]
@@ -561,10 +672,17 @@ observed_tasks_max = [8, 8, 8]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [22.09, 22.25, 22.41]
 wall_s_min_median_max = [22.09, 22.25, 22.41]
@@ -618,10 +736,17 @@ observed_tasks_max = [8]
 n_runs = 1
 exit_codes = [0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [22.12]
 wall_s_min_median_max = [22.12, 22.12, 22.12]
@@ -675,10 +800,17 @@ observed_tasks_max = [1, 1, 1]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [178.25, 178.03, 178.41]
 wall_s_min_median_max = [178.03, 178.25, 178.41]
@@ -733,10 +865,17 @@ observed_tasks_max = [8, 8, 8]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [32.16, 31.83, 31.94]
 wall_s_min_median_max = [31.83, 31.94, 32.16]
@@ -791,10 +930,17 @@ observed_tasks_max = [1, 1, 1]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [106.80, 106.63, 106.60]
 wall_s_min_median_max = [106.60, 106.63, 106.80]
@@ -848,10 +994,17 @@ observed_tasks_max = [8, 8, 8]
 n_runs = 3
 exit_codes = [0, 0, 0]
 modes_f_ghz = [5.151336, 15.460521, 17.490109, 18.691658, 20.697557, 26.080899]  # run 1
-modes_class = ["physical", "physical", "physical", "physical", "physical", "physical"]
-n_physical = 6  # of Palace's 6
-n_physical_per_run = [6, 6, 6]
-six_physical_recovered = true
+modes_class = ["cavity", "cavity", "port_sheet_artifact", "cavity", "cavity", "cavity"]
+n_physical = 5  # of the 6 physical modes: the qubit and five cavity modes
+n_qubit = 0
+n_cavity = 5
+n_port_sheet_artifact = 1
+n_near_kernel = 0
+n_unclassified = 0
+six_physical_recovered = false
+n_palace_request_modes = 6  # of the 6 modes Palace's fixture request returns (five cavity + the port-sheet artifact); the pre-#1045 n_physical
+palace_request_recovered = true  # all 6 returned; the pre-#1045 six_physical_recovered
+n_physical_per_run = [5, 5, 5]
 physical_max_rel_err_pct = 0.0000
 wall_s = [22.63, 22.77, 22.79]
 wall_s_min_median_max = [22.63, 22.77, 22.79]
@@ -914,7 +1067,8 @@ pr964_error_estimator_s_median = 39.70
 tuned_paraview_s_median = 73.27
 untuned_same_box_paraview_s_median = 71.62
 pr964_paraview_s_median = 74.47
-n_physical = { tuned = 6, untuned_same_box = 6, pr964 = 6 }
+n_physical = { tuned = 5, untuned_same_box = 5, pr964 = 5 }  # of the 6 physical modes (the qubit is below Target)
+n_palace_request_modes = { tuned = 6, untuned_same_box = 6, pr964 = 6 }  # the pre-#1045 n_physical
 
 [palace.save6_np8]
 what = "fixture config (Save = 6), 8 ranks"
@@ -936,7 +1090,8 @@ pr964_error_estimator_s_median = 5.07
 tuned_paraview_s_median = 9.48
 untuned_same_box_paraview_s_median = 9.26
 pr964_paraview_s_median = 9.49
-n_physical = { tuned = 6, untuned_same_box = 6, pr964 = 6 }
+n_physical = { tuned = 5, untuned_same_box = 5, pr964 = 5 }  # of the 6 physical modes (the qubit is below Target)
+n_palace_request_modes = { tuned = 6, untuned_same_box = 6, pr964 = 6 }  # the pre-#1045 n_physical
 
 [palace.save0_np1]
 what = "Save = 0 (no ParaView output), 1 rank"
@@ -958,7 +1113,8 @@ pr964_error_estimator_s_median = 40.15
 tuned_paraview_s_median = 0.00
 untuned_same_box_paraview_s_median = 0.00
 pr964_paraview_s_median = 0.00
-n_physical = { tuned = 6, untuned_same_box = 6, pr964 = 6 }
+n_physical = { tuned = 5, untuned_same_box = 5, pr964 = 5 }  # of the 6 physical modes (the qubit is below Target)
+n_palace_request_modes = { tuned = 6, untuned_same_box = 6, pr964 = 6 }  # the pre-#1045 n_physical
 
 [palace.save0_np8]
 what = "Save = 0 (no ParaView output), 8 ranks"
@@ -980,7 +1136,8 @@ pr964_error_estimator_s_median = 5.04
 tuned_paraview_s_median = 0.00
 untuned_same_box_paraview_s_median = 0.00
 pr964_paraview_s_median = 0.00
-n_physical = { tuned = 6, untuned_same_box = 6, pr964 = 6 }
+n_physical = { tuned = 5, untuned_same_box = 5, pr964 = 5 }  # of the 6 physical modes (the qubit is below Target)
+n_palace_request_modes = { tuned = 6, untuned_same_box = 6, pr964 = 6 }  # the pre-#1045 n_physical
 
 [geode_session_check]
 # geode medians in the PR #964 session and in this one, same requests. The geode
@@ -998,10 +1155,13 @@ port_aware_t8_wall_s_median = { pr964 = 51.12, this_session = 47.11, pr964_over_
 
 [route.historical_request]
 what = "6 modes at 4.5 GHz, ungauged: the request every committed geode-vs-Palace transmon time used"
-caveat = "Not a route to the six modes (returns 1 of Palace's 6). Kept for continuity with PR #964."
-n_physical_returned = 1  # of 6; 8-thread cell: 1
-non_physical_modes_returned = 5
-like_for_like = false
+caveat = "Not a route to the six modes (returns 2 of the 6 physical modes; 1 of Palace's 6 fixture-request modes). Kept for continuity with PR #964."
+n_physical_returned = 2  # of the 6 physical modes; 8-thread cell: 2
+non_physical_modes_returned = 4
+like_for_like = false  # all six physical modes returned at both widths
+n_palace_request_modes_returned = 1  # of Palace's 6 fixture-request modes; the pre-#1045 n_physical_returned
+modes_outside_palace_request = 5  # the pre-#1045 non_physical_modes_returned
+palace_request_recovered = false  # the pre-#1045 like_for_like
 geode_1_thread_wall_s_min_median_max = [30.87, 30.88, 30.90]
 geode_1_thread_core_s_median = 30.88
 geode_8_threads_wall_s_min_median_max = [25.06, 25.21, 25.37]
@@ -1019,9 +1179,12 @@ untuned_same_box_palace_save0_np8_over_geode_8_threads = { wall = 0.90, core_s =
 [route.more_modes]
 what = "30 modes at 4.5 GHz, ungauged; the six physical modes are picked out of the 30 with the Palace oracle"
 caveat = "ORACLE-TUNED: 30 was found by trial against the Palace eigenvalues; the caller needs the oracle to tell the six from the other 24."
-n_physical_returned = 6  # of 6; 8-thread cell: 6
+n_physical_returned = 6  # of the 6 physical modes; 8-thread cell: 6
 non_physical_modes_returned = 24
-like_for_like = true
+like_for_like = true  # all six physical modes returned at both widths
+n_palace_request_modes_returned = 6  # of Palace's 6 fixture-request modes; the pre-#1045 n_physical_returned
+modes_outside_palace_request = 24  # the pre-#1045 non_physical_modes_returned
+palace_request_recovered = true  # the pre-#1045 like_for_like
 geode_1_thread_wall_s_min_median_max = [32.20, 32.22, 32.23]
 geode_1_thread_core_s_median = 32.21
 geode_8_threads_wall_s_min_median_max = [26.68, 26.70, 26.73]
@@ -1038,10 +1201,13 @@ untuned_same_box_palace_save0_np8_over_geode_8_threads = { wall = 0.85, core_s =
 
 [route.shift]
 what = "6 modes at 20 GHz, ungauged: a different request from Palace's (N = 6, Target = 4.5 GHz)"
-caveat = "ORACLE-TUNED: 20 GHz was chosen knowing where the modes are."
-n_physical_returned = 6  # of 6; 8-thread cell: 6
-non_physical_modes_returned = 0
-like_for_like = true
+caveat = "ORACLE-TUNED: 20 GHz was chosen knowing where the modes are. It returns Palace's fixture-request set (five cavity modes and the port-sheet artifact), not the qubit mode (#1045)."
+n_physical_returned = 5  # of the 6 physical modes; 8-thread cell: 5
+non_physical_modes_returned = 1
+like_for_like = false  # all six physical modes returned at both widths
+n_palace_request_modes_returned = 6  # of Palace's 6 fixture-request modes; the pre-#1045 n_physical_returned
+modes_outside_palace_request = 0  # the pre-#1045 non_physical_modes_returned
+palace_request_recovered = true  # the pre-#1045 like_for_like
 geode_1_thread_wall_s_min_median_max = [30.84, 30.85, 30.86]
 geode_1_thread_core_s_median = 30.84
 geode_8_threads_wall_s_min_median_max = [24.99, 25.16, 25.34]
@@ -1058,10 +1224,13 @@ untuned_same_box_palace_save0_np8_over_geode_8_threads = { wall = 0.90, core_s =
 
 [route.port_aware]
 what = "8 modes at 4.5 GHz with GEODE_GAUGE=port_aware"
-caveat = "The only route not tuned against the oracle; it still returns two non-physical modes, dropped here with the oracle (#950)."
-n_physical_returned = 6  # of 6; 8-thread cell: 6
+caveat = "The only route not tuned against the oracle; it still returns two non-physical modes (a near-zero survivor and the 17.49 GHz port-sheet artifact), dropped here with the oracle (#950)."
+n_physical_returned = 6  # of the 6 physical modes; 8-thread cell: 6
 non_physical_modes_returned = 2
-like_for_like = true
+like_for_like = true  # all six physical modes returned at both widths
+n_palace_request_modes_returned = 6  # of Palace's 6 fixture-request modes; the pre-#1045 n_physical_returned
+modes_outside_palace_request = 2  # the pre-#1045 non_physical_modes_returned
+palace_request_recovered = true  # the pre-#1045 like_for_like
 geode_1_thread_wall_s_min_median_max = [63.06, 63.14, 63.21]
 geode_1_thread_core_s_median = 63.13
 geode_8_threads_wall_s_min_median_max = [46.94, 47.11, 47.28]
