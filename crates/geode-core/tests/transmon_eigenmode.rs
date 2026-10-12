@@ -4137,8 +4137,8 @@ fn coupling_fit_and_cross_checks() {
 }
 
 /// Issue #1078 (default tier): the verdicts follow from the #1077 brackets
-/// and the bare-qubit target band, and the brackets match #1077's artifact
-/// when it is present.
+/// and the bare-qubit target band, the `*_minus_bare_*_ff` intervals follow
+/// from the brackets, and the brackets match #1077's artifact.
 #[test]
 fn coupling_verdicts_follow_from_the_brackets() {
     let doc = coupling_results();
@@ -4162,11 +4162,44 @@ fn coupling_verdicts_follow_from_the_brackets() {
             "{name}"
         );
     }
+
+    // The headline `*_minus_bare_*_ff` intervals: the bracket minus the
+    // central bare C_Sigma, and minus the whole target band (from its
+    // unrounded lower end to its outward-rounded upper end), each rounded
+    // outward to 4 decimals.
+    let bare = tf(&doc, "anchor.bare_c_sigma_ff");
+    let band_lo = tf(&doc, "anchor.odd_harmonics_bare_c_sigma_at_k_high_ff");
+    let floor4 = |x: f64| (x * 1e4).floor() / 1e4;
+    let ceil4 = |x: f64| (x * 1e4).ceil() / 1e4;
+    for name in ["design_1066", "resolution_corrected"] {
+        let b = tarr(&doc, &format!("verdicts.{name}_bracket_ff"));
+        let central = tarr(&doc, &format!("verdicts.{name}_minus_bare_central_ff"));
+        let against_band = tarr(&doc, &format!("verdicts.{name}_minus_bare_band_ff"));
+        let want_central = [floor4(b[0] - bare), ceil4(b[1] - bare)];
+        let want_band = [floor4(b[0] - band[1]), ceil4(b[1] - band_lo)];
+        for j in 0..2 {
+            assert!(
+                (central[j] - want_central[j]).abs() < 1e-9,
+                "{name}_minus_bare_central_ff[{j}] = {} vs recomputed {}",
+                central[j],
+                want_central[j]
+            );
+            assert!(
+                (against_band[j] - want_band[j]).abs() < 1e-9,
+                "{name}_minus_bare_band_ff[{j}] = {} vs recomputed {}",
+                against_band[j],
+                want_band[j]
+            );
+        }
+    }
+
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml"
     );
-    if let Ok(text) = std::fs::read_to_string(path) {
+    {
+        let text = std::fs::read_to_string(path)
+            .expect("#1077 bracket artifact c_sigma_bracket_anchor_93p95.toml (on main)");
         let br: toml::Value = toml::from_str(&text).expect("parse bracket artifact");
         for (table, name) in [
             ("adaptive_anchor_93p95", "design_1066"),

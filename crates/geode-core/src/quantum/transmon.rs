@@ -92,9 +92,10 @@
 //! qubit mode (`[loop_inductance]` there): about 0.5 % of its inductive
 //! energy lies outside the junction. It predicts a 0.27 % downshift from
 //! the pure-LC frequency, most of #1043's 0.28 % same-mesh Palace-vs-LC
-//! offset, and reading 4.14 GHz through `L_J` alone ignores it. That would move the target down by roughly another 0.5 fF;
-//! it is an inference on unconverged meshes and is **not** applied by any
-//! anchor here (follow-up #1079).
+//! offset, and reading 4.14 GHz through `L_J` alone ignores it. That
+//! would move the target down by roughly another 0.5 fF; it is an
+//! inference on unconverged meshes and is **not** applied by any anchor
+//! here (follow-up #1079).
 //!
 //! # Exact oracle: Koch 2007 charge-basis diagonalization
 //!
