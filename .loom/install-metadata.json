@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1137",
-  "loom_commit": "240bb1a888bb79770ecc3acbc19c6425468fedca",
+  "loom_version": "0.19.1144",
+  "loom_commit": "9e4381cbbd2386393e44c7a979583252948a3998",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -749,7 +749,9 @@
     ".agents/skills/loom-loom/SKILL.md",
     ".loom/docs/promotion-throughput.md",
     ".loom/scripts/tests/test-champion-needs-revision-routing.sh",
-    ".loom/scripts/tests/test-champion-promotion-throughput.sh"
+    ".loom/scripts/tests/test-champion-promotion-throughput.sh",
+    ".loom/scripts/tests/test-resync-installed-retired-migrate.sh",
+    ".loom/scripts/tests/test-sync-labels-migrate-retired.sh"
   ],
   "last_resync": "2026-10-12",
   "requires_daemon": "0.19.1081"
