@@ -157,6 +157,12 @@ const MANIFEST: &[Entry] = &[
          committed Palace cells of reference/fixtures/transmon_palace/results_coupling_1078/)",
     ),
     a(
+        "benchmarks/transmon_loop_inductance/results.toml",
+        "cargo run -p geode-core --release --example transmon_loop_inductance (issue #1079; reads \
+         the committed Palace cells of reference/fixtures/transmon_palace/results_loop_1079/ and \
+         results_coupling_1078/h2_L14p86)",
+    ),
+    a(
         "benchmarks/periodic/results.toml",
         "GEODE_BLESS_PERIODIC=1 cargo test -p geode-core --release --test periodic_cavity \
          -- --ignored regenerate_periodic_results",

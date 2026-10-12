@@ -4329,3 +4329,404 @@ fn real_transmon_coupling_sweep_point_reproduces() {
         2.0 * g
     );
 }
+
+// -------------------------------------------------------------------------
+// Issue #1079: the qubit mode's series loop inductance L_s.
+// -------------------------------------------------------------------------
+
+/// The committed loop-inductance artifact (generator
+/// `examples/transmon_loop_inductance.rs`).
+fn loop_results() -> toml::Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/transmon_loop_inductance/results.toml"
+    );
+    let text = std::fs::read_to_string(path)
+        .expect("read benchmarks/transmon_loop_inductance/results.toml");
+    toml::from_str(&text).expect("parse benchmarks/transmon_loop_inductance/results.toml")
+}
+
+fn tstrs<'a>(v: &'a toml::Value, path: &str) -> Vec<&'a str> {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur.as_array()
+        .unwrap_or_else(|| panic!("{path} is not an array"))
+        .iter()
+        .map(|x| x.as_str().expect("string"))
+        .collect()
+}
+
+/// Series `L_s` (nH) of a committed Palace cell, recomputed from its raw
+/// `eig.csv`, `port-EPR.csv` and the LumpedPort C of its config.
+fn palace_cell_l_s_nh(dir: &str, cell: &str) -> f64 {
+    use geode_core::quantum::transmon::series_loop_inductance_from_participations;
+    let base = format!("{}/../../{dir}/{cell}", env!("CARGO_MANIFEST_DIR"));
+    let col1 = |f: &str| -> Vec<f64> {
+        std::fs::read_to_string(format!("{base}/{f}"))
+            .unwrap_or_else(|e| panic!("{base}/{f}: {e}"))
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.split(',').nth(1))
+            .map(|s| s.trim().parse::<f64>().unwrap())
+            .collect()
+    };
+    let (f, p) = (col1("eig.csv"), col1("port-EPR.csv"));
+    let cfg: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(format!("{base}/palace_config.json")).expect("config"),
+    )
+    .expect("parse config");
+    let port = &cfg["Boundaries"]["LumpedPort"][0];
+    let l_j = port["L"].as_f64().unwrap();
+    let c_j = port["C"].as_f64().unwrap();
+    // The first three modes, without the port-sheet artifact (|p| < 1e-6).
+    let modes: Vec<(f64, f64)> = f
+        .iter()
+        .zip(&p)
+        .filter(|(_, p)| p.abs() >= 1e-6)
+        .take(3)
+        .map(|(&f, &p)| (f * 1e9, p.abs()))
+        .collect();
+    series_loop_inductance_from_participations(l_j, c_j, &modes) * 1e9
+}
+
+/// Issue #1079 (default tier): the committed artifact matches the library's
+/// loop-corrected anchor and its constants, the older anchors are unchanged,
+/// and the geode solves were run, not reused.
+#[test]
+fn loop_results_match_the_library_anchor() {
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
+        DEVICELAYOUT_LOOP_INDUCTANCE_H, TransmonAnchor,
+    };
+    let doc = loop_results();
+    assert_eq!(tstr(&doc, "meta.geode_source"), "solved");
+    assert_eq!(tstr(&doc, "meta.float_dtype"), "F64");
+    let a = TransmonAnchor::devicelayout_bare_loop();
+    let bare = TransmonAnchor::devicelayout_bare();
+    let dressed = TransmonAnchor::devicelayout();
+    let c = a.c_sigma_farad * 1e15;
+    assert!(
+        (tf(&doc, "anchor.c_sigma_ff") - c).abs() < 1e-6,
+        "C_Sigma {c}"
+    );
+    assert!((tf(&doc, "anchor.c_total_ff") - a.c_total_farad * 1e15).abs() < 1e-6);
+    assert!((tf(&doc, "anchor.e_c_ghz") - a.e_c_hz / 1e9).abs() < 1e-6);
+    assert!((tf(&doc, "anchor.bare_f_q_ghz") - a.frequency_hz / 1e9).abs() < 1e-6);
+    assert!((tf(&doc, "anchor.bare_c_sigma_ff") - bare.c_sigma_farad * 1e15).abs() < 1e-6);
+    assert!((tf(&doc, "anchor.dressed_c_sigma_ff") - dressed.c_sigma_farad * 1e15).abs() < 1e-6);
+    assert!(
+        (tf(&doc, "anchor.shift_from_bare_ff") - (bare.c_sigma_farad - a.c_sigma_farad) * 1e15)
+            .abs()
+            < 1e-6
+    );
+    assert_eq!(tf(&doc, "anchor.k"), DEVICELAYOUT_COUPLING_K);
+    assert!((tf(&doc, "anchor.l_s_nh") * 1e-9 - DEVICELAYOUT_LOOP_INDUCTANCE_H).abs() < 1e-18);
+    let band = tarr(&doc, "anchor.l_s_band_nh");
+    assert!((band[0] * 1e-9 - DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0).abs() < 1e-18);
+    assert!((band[1] * 1e-9 - DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1).abs() < 1e-18);
+    // The loop target band brackets the central value and lies below the
+    // bare-qubit anchor.
+    let tb = tarr(&doc, "anchor.c_sigma_band_ff");
+    assert!(tb[0] < c && c < tb[1] && tb[1] < bare.c_sigma_farad * 1e15);
+    // The same-mesh, h/2 and order-2 alternatives follow the library (the
+    // L_s are printed to 1e-5 nH, and C_Sigma moves 5.9 fF per nH).
+    let ls = tarr(&doc, "convergence.global_l_s_nh");
+    assert_eq!(tf(&doc, "anchor.same_mesh_l_s_nh"), ls[0]);
+    for (l, c_key) in [
+        (ls[0], "anchor.same_mesh_c_sigma_ff"),
+        (ls[1], "anchor.h2_mesh_c_sigma_ff"),
+        (ls[3], "anchor.p2_c_sigma_ff"),
+    ] {
+        let want = TransmonAnchor::devicelayout_bare_loop_with(DEVICELAYOUT_COUPLING_K, l * 1e-9)
+            .c_sigma_farad
+            * 1e15;
+        assert!((tf(&doc, c_key) - want).abs() < 5e-5, "{c_key}");
+    }
+    // devicelayout() and devicelayout_bare() are unchanged by #1079: the
+    // values #1078 committed.
+    let coup = coupling_results();
+    assert!((tf(&coup, "anchor.dressed_c_sigma_ff") - dressed.c_sigma_farad * 1e15).abs() < 1e-6);
+    assert!((tf(&coup, "anchor.bare_c_sigma_ff") - bare.c_sigma_farad * 1e15).abs() < 1e-6);
+    assert_eq!(dressed.loop_inductance_henry, 0.0);
+    assert_eq!(bare.loop_inductance_henry, 0.0);
+}
+
+/// Issue #1079 (default tier): `DEVICELAYOUT_LOOP_INDUCTANCE_H` and its band
+/// follow the committed resolution study by the rule in
+/// `[convergence].rule`, and `L_s` rises at every measured level.
+#[test]
+fn loop_constants_follow_the_convergence_rule() {
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H, DEVICELAYOUT_LOOP_INDUCTANCE_H,
+    };
+    let doc = loop_results();
+    let sig3 = |x: f64, mode: i32| {
+        let s = 10f64.powi(3 - 1 - x.log10().floor() as i32);
+        match mode {
+            -1 => (x * s).floor() / s,
+            1 => (x * s).ceil() / s,
+            _ => (x * s).round() / s,
+        }
+    };
+    assert_eq!(
+        tstrs(&doc, "convergence.global_labels"),
+        ["h", "h2", "h2_gmsh", "h_p2"]
+    );
+    let ls = tarr(&doc, "convergence.global_l_s_nh");
+    // Each global value is the committed Palace cell's, recomputed from the
+    // raw CSVs.
+    let cells = tstrs(&doc, "convergence.global_cells");
+    let dirs = tstrs(&doc, "convergence.global_dirs");
+    for i in 0..4 {
+        let got = palace_cell_l_s_nh(dirs[i], cells[i]);
+        assert!(
+            (got - ls[i]).abs() < 1e-5,
+            "{}: {got} vs {}",
+            cells[i],
+            ls[i]
+        );
+    }
+    assert!(ls[0] < ls[1] && ls[1] < ls[3] && ls[0] < ls[2], "{ls:?}");
+    // The two uniform h/2 refinements (Palace's, gmsh's) agree to 1 %.
+    assert!((ls[1] / ls[2] - 1.0).abs() < 0.01);
+    let conv: toml::Value = toml::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../benchmarks/transmon_diffopt/c_sigma_convergence.toml"
+        ))
+        .expect("read c_sigma_convergence.toml"),
+    )
+    .expect("parse c_sigma_convergence.toml");
+    let cs = tarr(&conv, "tensor_eps.c_sigma_ff");
+    let q = ((cs[0] - cs[1]) / (cs[1] - cs[2])).log2();
+    assert!((tf(&doc, "convergence.static_c_sigma_order") - q).abs() < 1e-4);
+    let rich = |order: f64| ls[1] + (ls[1] - ls[0]) / (2f64.powf(order) - 1.0);
+    let (e1, eq) = (rich(1.0), rich(q));
+    assert!((tf(&doc, "convergence.estimate_order1_nh") - e1).abs() < 1e-5);
+    assert!((tf(&doc, "convergence.estimate_static_order_nh") - eq).abs() < 1e-5);
+    let finest = ls.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!((tf(&doc, "convergence.finest_measured_nh") - finest).abs() < 1e-5);
+    // Both estimates sit above the finest measured value (L_s rises).
+    assert!(e1 > finest && eq > finest);
+    let central = sig3(0.5 * (e1 + eq), 0);
+    assert!((central * 1e-9 - DEVICELAYOUT_LOOP_INDUCTANCE_H).abs() < 1e-18);
+    let (lo, hi) = DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H;
+    assert!((sig3(finest, -1) * 1e-9 - lo).abs() < 1e-18);
+    assert!((sig3(e1, 1) * 1e-9 - hi).abs() < 1e-18);
+    assert!(lo < DEVICELAYOUT_LOOP_INDUCTANCE_H && DEVICELAYOUT_LOOP_INDUCTANCE_H < hi);
+}
+
+/// Issue #1079 (default tier): `L_s` is physical, not a port-model artifact
+/// (it does not follow the port patch), and `C_J` sits across the junction
+/// with `L_s` outside it (the series circuit); geode and Palace agree.
+#[test]
+fn loop_inductance_is_physical_and_series() {
+    let doc = loop_results();
+    assert_eq!(tstr(&doc, "patch.verdict"), "physical");
+    assert!(tf(&doc, "patch.length_ratio") >= 12.0 - 1e-9);
+    for k in [
+        "patch.spread_geode",
+        "patch.spread_palace",
+        "patch.spread_palace_p2",
+    ] {
+        assert!(tf(&doc, k) < 0.02, "{k}");
+    }
+    // geode's A2 shunt and Palace's lumped port agree on every variant.
+    for d in tarr(&doc, "patch.geode_over_palace_minus_1") {
+        assert!(d.abs() < 1e-3, "geode vs Palace {d}");
+    }
+    // The committed patch is the fixture's; the others moved triangles.
+    let moved = tarr(&doc, "patch.retagged_triangles");
+    assert_eq!(moved[0], 0.0);
+    assert!(moved[1..].iter().all(|&n| n > 0.0));
+    // The Palace patch cells, recomputed from the raw CSVs.
+    let cells = tstrs(&doc, "patch.palace_cells");
+    let ls = tarr(&doc, "patch.palace_l_s_nh");
+    for (c, l) in cells.iter().zip(&ls) {
+        let got = palace_cell_l_s_nh("reference/fixtures/transmon_palace/results_loop_1079", c);
+        assert!((got - l).abs() < 1e-5, "{c}: {got} vs {l}");
+    }
+
+    assert_eq!(tstr(&doc, "topology.verdict"), "series");
+    assert!(tf(&doc, "topology.series_spread") < 2e-3);
+    assert!(tf(&doc, "topology.parallel_spread") > 0.1);
+    // L_J (1 - p) falls with C_J (the series signature) in both solvers.
+    for k in [
+        "topology.geode_l_parallel_nh",
+        "topology.palace_l_parallel_nh",
+    ] {
+        let v = tarr(&doc, k);
+        assert!(v[0] > v[1] && v[1] > v[2], "{k}: {v:?}");
+    }
+    let cells = tstrs(&doc, "topology.palace_cells");
+    let ls = tarr(&doc, "topology.palace_l_s_nh");
+    for (c, l) in cells.iter().zip(&ls) {
+        let got = palace_cell_l_s_nh("reference/fixtures/transmon_palace/results_loop_1079", c);
+        assert!((got - l).abs() < 1e-5, "{c}: {got} vs {l}");
+    }
+    let (g, p) = (
+        tarr(&doc, "topology.geode_l_s_nh"),
+        tarr(&doc, "topology.palace_l_s_nh"),
+    );
+    for i in 0..3 {
+        assert!((g[i] / p[i] - 1.0).abs() < 1e-3, "C_J variant {i}");
+    }
+}
+
+/// Issue #1079 (default tier): the verdicts follow from the #1077 brackets
+/// and the loop target band, the intervals follow from the brackets, and the
+/// brackets are #1078's.
+#[test]
+fn loop_verdicts_follow_from_the_brackets() {
+    let doc = loop_results();
+    let lo = tf(&doc, "anchor.c_sigma_band_low_unrounded_ff");
+    let hi = tf(&doc, "anchor.c_sigma_band_high_unrounded_ff");
+    let band = tarr(&doc, "anchor.c_sigma_band_ff");
+    assert!(band[0] <= lo && lo - band[0] < 1e-4 && band[1] >= hi && band[1] - hi < 1e-4);
+    let verdict = |b: &[f64]| {
+        if b[0] > hi {
+            "above"
+        } else if b[1] < lo {
+            "below"
+        } else if b[0] <= lo && b[1] >= hi {
+            "contains"
+        } else {
+            "overlaps"
+        }
+    };
+    let central = tf(&doc, "anchor.c_sigma_ff");
+    let floor4 = |x: f64| (x * 1e4).floor() / 1e4;
+    let ceil4 = |x: f64| (x * 1e4).ceil() / 1e4;
+    let coup = coupling_results();
+    for name in ["design_1066", "resolution_corrected"] {
+        let b = tarr(&doc, &format!("verdicts.{name}_bracket_ff"));
+        assert_eq!(
+            b,
+            tarr(&coup, &format!("verdicts.{name}_bracket_ff")),
+            "{name}"
+        );
+        assert_eq!(
+            tstr(&doc, &format!("verdicts.{name}_vs_loop_target")),
+            verdict(&b),
+            "{name}"
+        );
+        let c = tarr(&doc, &format!("verdicts.{name}_minus_loop_central_ff"));
+        let w = tarr(&doc, &format!("verdicts.{name}_minus_loop_band_ff"));
+        let want_c = [floor4(b[0] - central), ceil4(b[1] - central)];
+        let want_w = [floor4(b[0] - hi), ceil4(b[1] - lo)];
+        for j in 0..2 {
+            assert!((c[j] - want_c[j]).abs() < 1e-9, "{name} central {j}");
+            assert!((w[j] - want_w[j]).abs() < 1e-9, "{name} band {j}");
+        }
+    }
+}
+
+/// Issue #1079 (default tier): the #1043 offset accounting. The recomputed
+/// same-mesh offsets are #1043's, the three factors multiply to the offset,
+/// and the loop share is the committed one.
+#[test]
+fn loop_accounts_for_the_1043_offset() {
+    let doc = loop_results();
+    let eig: toml::Value = toml::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../benchmarks/transmon_eigen/results.toml"
+        ))
+        .expect("read transmon_eigen results"),
+    )
+    .expect("parse transmon_eigen results");
+    for (tag, key) in [
+        ("", "oracles.palace_target2.qubit_palace_vs_lumped_pct"),
+        (
+            "_2lj",
+            "oracles.palace_target2.l2_qubit_palace_vs_lumped_pct",
+        ),
+    ] {
+        let off = tf(&doc, &format!("offset_1043.offset_pct{tag}"));
+        assert!((off - tf(&eig, key)).abs() < 5e-3, "{tag}: {off}");
+        let parts = ["loop_pct", "hybridization_pct", "residual_pct"]
+            .map(|p| tf(&doc, &format!("offset_1043.{p}{tag}")) / 100.0);
+        let prod = parts.iter().fold(1.0, |a, x| a * (1.0 + x)) - 1.0;
+        assert!((prod * 100.0 - off).abs() < 2e-4, "{tag}: {prod} vs {off}");
+        // The lumped frequency is the static C_Sigma's.
+        let f_lc = tf(&doc, &format!("offset_1043.lumped_f_ghz{tag}"));
+        let series = tf(&doc, &format!("offset_1043.series_f_ghz{tag}"));
+        let dressed = tf(&doc, &format!("offset_1043.dressed_f_ghz{tag}"));
+        assert!(series < f_lc && dressed < series);
+    }
+    let share = tf(&doc, "offset_1043.loop_share");
+    let want = tf(&doc, "offset_1043.loop_pct") / tf(&doc, "offset_1043.offset_pct");
+    assert!((share - want).abs() < 1e-3);
+    // L_s at 2 L_J moves the frequency about half as much as at L_J.
+    let r = tf(&doc, "offset_1043.loop_pct_2lj") / tf(&doc, "offset_1043.loop_pct");
+    assert!((r - 0.5).abs() < 0.02, "loop share ratio {r}");
+}
+
+/// RELEASE (issue #1079): the `C_J` = 0 solve of the topology test
+/// reproduces the committed `[topology]` value.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigenmode \
+///     -- --ignored --exact real_transmon_loop_inductance_cj0_reproduces --nocapture
+/// ```
+#[test]
+#[ignore = "one 133k-DOF sparse shift-invert eigensolve — release benchmark only"]
+fn real_transmon_loop_inductance_cj0_reproduces() {
+    use geode_core::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model;
+    use geode_core::eigen::transmon::JunctionPortModel;
+    use geode_core::quantum::transmon::series_loop_inductance_from_participations;
+
+    let doc = loop_results();
+    let want_par = tarr(&doc, "topology.geode_l_parallel_nh")[0];
+    let want_ser = tarr(&doc, "topology.geode_l_s_nh")[0];
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let epsilon_tensor = f.epsilon_tensor_r();
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_real_pencil(&f.mesh, &tet_edge_sign, &scatter, &epsilon_tensor);
+    let jport = f.lumped_element_port();
+    let element = ReactiveElementNatural::from_si(14.86e-9, 0.0, M_PER_UNIT);
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt: LumpedReactiveShunt {
+            faces: &jport.faces,
+            length: jport.length,
+            width: jport.width,
+            element,
+        },
+        interior_mask: &interior_mask,
+    };
+    let sigma = lambda_shift_for_frequency_hz(5.0e9, M_PER_UNIT);
+    let (modes, diag) = solve_transmon_eigenmodes_projected_with_port_model(
+        &pencil,
+        JunctionPortModel::PortVoltage { e_hat: jport.e_hat },
+        sigma,
+        3,
+        M_PER_UNIT,
+    )
+    .expect("A2 bulk-projected eigensolve");
+    assert!(diag.mode_residual_rels.iter().all(|&r| r <= 1e-6));
+    let p_sum: f64 = modes.iter().map(|m| m.participation).sum();
+    let par = 14.86 * (1.0 - p_sum);
+    let fp: Vec<(f64, f64)> = modes
+        .iter()
+        .map(|m| (m.frequency_hz, m.participation))
+        .collect();
+    let ser = series_loop_inductance_from_participations(14.86e-9, 0.0, &fp) * 1e9;
+    eprintln!("C_J = 0: L_J(1-p) = {par:.6} nH (committed {want_par}), L_s = {ser:.6} nH");
+    assert!((par - want_par).abs() < 2e-5, "{par} vs {want_par}");
+    assert!((ser - want_ser).abs() < 2e-5, "{ser} vs {want_ser}");
+}

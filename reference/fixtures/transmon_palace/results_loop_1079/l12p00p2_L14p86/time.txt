@@ -1,0 +1,23 @@
+	Command being timed: "palace -np 8 /work/palace_config_l12p00p2_L14p86.json"
+	User time (seconds): 8243.15
+	System time (seconds): 81.13
+	Percent of CPU this job got: 798%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 17:22.81
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 812460
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 164
+	Minor (reclaiming a frame) page faults: 1830471
+	Voluntary context switches: 2382
+	Involuntary context switches: 226279
+	Swaps: 0
+	File system inputs: 71984
+	File system outputs: 79
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
