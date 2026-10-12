@@ -74,7 +74,7 @@ use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
 pub use crate::assembly::p1::SparsityPattern;
-use crate::elements::p2::{TET_P2_DOFS, tet_p2_local};
+use crate::elements::p2::{TET_P2_DOFS, tet_p2_local, tet_p2_local_tensor};
 use crate::mesh::TetMesh;
 
 /// Vacuum permittivity `ε₀` (F/m, CODATA). The electrostatic operator is
@@ -1515,14 +1515,22 @@ pub fn assemble_electrostatic_p2(
     for e in electrodes {
         pins.push((dof_map.electrode_dofs(&e.nodes), e.voltage));
     }
-    assemble_p2_pinned(mesh, eps_r, rho, dof_map, &pins)
+    assemble_p2_pinned(mesh, P2Eps::Scalar(eps_r), rho, dof_map, &pins)
+}
+
+/// Per-tet relative permittivity of the P2 assembly: scalar, or a constant
+/// tensor per tet (issue #1091).
+#[derive(Clone, Copy)]
+enum P2Eps<'a> {
+    Scalar(&'a [f64]),
+    Tensor(&'a [[[f64; 3]; 3]]),
 }
 
 /// The P2 assembly with explicit pinned DOF sets `(dofs, value)`, applied
 /// in order (later wins); `eps_r` / `rho` lengths are already checked.
 fn assemble_p2_pinned(
     mesh: &TetMesh,
-    eps_r: &[f64],
+    eps_r: P2Eps<'_>,
     rho: &[f64],
     dof_map: P2DofMap,
     pins: &[(Vec<usize>, f64)],
@@ -1544,8 +1552,18 @@ fn assemble_p2_pinned(
             mesh.nodes[tet[2] as usize],
             mesh.nodes[tet[3] as usize],
         ];
-        let (k_local, load, _vol) = tet_p2_local(&coords);
-        let eps_t = EPS_0 * eps_r[t];
+        // The tensor kernel carries ε_r in the local matrix; the scalar one
+        // is scaled here, exactly as before #1091.
+        let (k_local, load, eps_t) = match eps_r {
+            P2Eps::Scalar(e) => {
+                let (k, load, _vol) = tet_p2_local(&coords);
+                (k, load, EPS_0 * e[t])
+            }
+            P2Eps::Tensor(e) => {
+                let (k, load, _vol) = tet_p2_local_tensor(&coords, &e[t]);
+                (k, load, EPS_0)
+            }
+        };
         let rho_t = rho[t];
         let te = &tet_edges[t];
         // Local P2 DOF (0..10) → global DOF. The edge sign is deliberately
@@ -1666,11 +1684,79 @@ pub fn assemble_electrostatic_p2_sheets(
     ground: &[u32],
     ground_triangles: &[[u32; 3]],
 ) -> Result<(ElectrostaticP2System, P2SheetDofs), ElectrostaticError> {
-    let n_tets = mesh.n_tets();
-    if eps_r.len() != n_tets || rho.len() != n_tets {
+    if eps_r.len() != mesh.n_tets() {
         return Err(ElectrostaticError::ShapeMismatch(format!(
-            "eps_r / rho lengths {} / {} != tet count {n_tets}",
+            "eps_r / rho lengths {} / {} != tet count {}",
             eps_r.len(),
+            rho.len(),
+            mesh.n_tets()
+        )));
+    }
+    p2_sheets_impl(
+        mesh,
+        P2Eps::Scalar(eps_r),
+        rho,
+        electrodes,
+        electrode_triangles,
+        ground,
+        ground_triangles,
+    )
+}
+
+/// [`assemble_electrostatic_p2_sheets`] with a **constant SPD permittivity
+/// tensor per tetrahedron** (issue #1091), the P2 sibling of
+/// [`assemble_electrostatic_tensor`]. The local stiffness is
+/// [`tet_p2_local_tensor`]'s `∫ ∇N_iᵀ ε_r ∇N_j` (exact with the degree-2
+/// rule), so an isotropic tensor `s·I` reproduces the scalar system with
+/// `ε_r = s` to rounding. The pinned DOF sets are the scalar ones.
+///
+/// # Errors
+///
+/// As [`assemble_electrostatic_p2_sheets`].
+///
+/// # Panics
+///
+/// If a triangle edge is not an edge of `mesh`.
+pub fn assemble_electrostatic_p2_sheets_tensor(
+    mesh: &TetMesh,
+    eps_r_tensor: &[[[f64; 3]; 3]],
+    rho: &[f64],
+    electrodes: &[Electrode],
+    electrode_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+) -> Result<(ElectrostaticP2System, P2SheetDofs), ElectrostaticError> {
+    if eps_r_tensor.len() != mesh.n_tets() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "eps_r_tensor length {} != tet count {}",
+            eps_r_tensor.len(),
+            mesh.n_tets()
+        )));
+    }
+    p2_sheets_impl(
+        mesh,
+        P2Eps::Tensor(eps_r_tensor),
+        rho,
+        electrodes,
+        electrode_triangles,
+        ground,
+        ground_triangles,
+    )
+}
+
+fn p2_sheets_impl(
+    mesh: &TetMesh,
+    eps_r: P2Eps<'_>,
+    rho: &[f64],
+    electrodes: &[Electrode],
+    electrode_triangles: &[&[[u32; 3]]],
+    ground: &[u32],
+    ground_triangles: &[[u32; 3]],
+) -> Result<(ElectrostaticP2System, P2SheetDofs), ElectrostaticError> {
+    let n_tets = mesh.n_tets();
+    if rho.len() != n_tets {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "rho length {} != tet count {n_tets}",
             rho.len()
         )));
     }

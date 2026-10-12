@@ -100,9 +100,65 @@ pub fn tet_p2_grads(lam: &[f64; 4], bary: &[[f64; 3]; 4]) -> [[f64; 3]; TET_P2_D
 pub fn tet_p2_local(
     coords: &[[f64; 3]; 4],
 ) -> ([[f64; TET_P2_DOFS]; TET_P2_DOFS], [f64; TET_P2_DOFS], f64) {
-    // Barycentric gradients from the cofactor construction, matching the
-    // host-side P1 kernel: e_i = v_i − v₀, g₁ = e₂×e₃, g₂ = e₃×e₁,
-    // g₃ = e₁×e₂, det = e₁·g₁ = 6V, ∇λ_i = g_i/det, ∇λ₀ = −Σ ∇λ_i.
+    let (bary, vol) = p2_bary_grads(coords);
+
+    // Degree-2 symmetric 4-point rule: point q has λ_q = A, λ_{p≠q} = B,
+    // weight V/4. Exact for the quadratic ∇N_i·∇N_j integrand.
+    let w = vol / 4.0;
+    let mut k = [[0.0_f64; TET_P2_DOFS]; TET_P2_DOFS];
+    for q in 0..4 {
+        let mut lam = [TET_QUAD4_B; 4];
+        lam[q] = TET_QUAD4_A;
+        let g = tet_p2_grads(&lam, &bary);
+        for i in 0..TET_P2_DOFS {
+            for j in 0..TET_P2_DOFS {
+                k[i][j] += w * dot(g[i], g[j]);
+            }
+        }
+    }
+
+    (k, p2_load(vol), vol)
+}
+
+/// Local P2 tet stiffness for a constant **anisotropic** permittivity
+/// tensor `ε` on the tet (issue #1091), with the same load vector and
+/// volume as [`tet_p2_local`].
+///
+/// `K_ij = ∫_T ∇N_iᵀ ε ∇N_j dV`. With `ε` constant on the tet the
+/// integrand is still quadratic in the barycentrics, so the same degree-2
+/// 4-point rule is exact. With `ε = s·I₃` this is `s` times
+/// [`tet_p2_local`]'s stiffness. `ε` need not be symmetric for the
+/// assembly; a physical permittivity is symmetric positive definite, and
+/// then `K` is symmetric.
+pub fn tet_p2_local_tensor(
+    coords: &[[f64; 3]; 4],
+    eps: &[[f64; 3]; 3],
+) -> ([[f64; TET_P2_DOFS]; TET_P2_DOFS], [f64; TET_P2_DOFS], f64) {
+    let (bary, vol) = p2_bary_grads(coords);
+    let w = vol / 4.0;
+    let mut k = [[0.0_f64; TET_P2_DOFS]; TET_P2_DOFS];
+    for q in 0..4 {
+        let mut lam = [TET_QUAD4_B; 4];
+        lam[q] = TET_QUAD4_A;
+        let g = tet_p2_grads(&lam, &bary);
+        for i in 0..TET_P2_DOFS {
+            // (∇N_i)ᵀ ε = (εᵀ ∇N_i)ᵀ, reused across j.
+            let gi = g[i];
+            let row: [f64; 3] =
+                std::array::from_fn(|d| gi[0] * eps[0][d] + gi[1] * eps[1][d] + gi[2] * eps[2][d]);
+            for j in 0..TET_P2_DOFS {
+                k[i][j] += w * dot(row, g[j]);
+            }
+        }
+    }
+    (k, p2_load(vol), vol)
+}
+
+/// Barycentric gradients and unsigned volume of an affine tet, from the
+/// cofactor construction of the host-side P1 kernel: `e_i = v_i − v₀`,
+/// `g₁ = e₂×e₃`, `g₂ = e₃×e₁`, `g₃ = e₁×e₂`, `det = e₁·g₁ = 6V`,
+/// `∇λ_i = g_i/det`, `∇λ₀ = −Σ ∇λ_i`.
+fn p2_bary_grads(coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64) {
     let v0 = coords[0];
     let e1 = sub(coords[1], v0);
     let e2 = sub(coords[2], v0);
@@ -121,31 +177,17 @@ pub fn tet_p2_local(
         -(gl1[1] + gl2[1] + gl3[1]),
         -(gl1[2] + gl2[2] + gl3[2]),
     ];
-    let bary = [gl0, gl1, gl2, gl3];
+    ([gl0, gl1, gl2, gl3], vol)
+}
 
-    // Degree-2 symmetric 4-point rule: point q has λ_q = A, λ_{p≠q} = B,
-    // weight V/4. Exact for the quadratic ∇N_i·∇N_j integrand.
-    let w = vol / 4.0;
-    let mut k = [[0.0_f64; TET_P2_DOFS]; TET_P2_DOFS];
-    for q in 0..4 {
-        let mut lam = [TET_QUAD4_B; 4];
-        lam[q] = TET_QUAD4_A;
-        let g = tet_p2_grads(&lam, &bary);
-        for i in 0..TET_P2_DOFS {
-            for j in 0..TET_P2_DOFS {
-                k[i][j] += w * dot(g[i], g[j]);
-            }
-        }
-    }
-
-    // Exact load integrals ∫ N_p dV (barycentric monomial formula):
-    //   vertex: ∫ λ(2λ−1) = 2·V/10 − V/4 = −V/20;  edge: 4·∫ λ_a λ_b = V/5.
+/// Exact load integrals `∫ N_p dV` (barycentric monomial formula):
+/// vertex `∫ λ(2λ−1) = 2·V/10 − V/4 = −V/20`; edge `4·∫ λ_a λ_b = V/5`.
+fn p2_load(vol: f64) -> [f64; TET_P2_DOFS] {
     let mut load = [vol / 5.0; TET_P2_DOFS];
     for l in load.iter_mut().take(4) {
         *l = -vol / 20.0;
     }
-
-    (k, load, vol)
+    load
 }
 
 #[inline]
@@ -320,5 +362,65 @@ mod tests {
             "quadratic Dirichlet energy {e} != {want} (P1 would give {})",
             1.0 / 12.0
         );
+    }
+
+    /// An isotropic tensor `s·I` reproduces `s` times the scalar stiffness
+    /// (issue #1091).
+    #[test]
+    fn tensor_stiffness_isotropic_matches_scalar() {
+        let s = 10.0333;
+        let iso = [[s, 0.0, 0.0], [0.0, s, 0.0], [0.0, 0.0, s]];
+        for coords in [&REF_TET, &SKEW_TET] {
+            let (k, load, vol) = tet_p2_local(coords);
+            let (kt, load_t, vol_t) = tet_p2_local_tensor(coords, &iso);
+            assert_eq!((load, vol), (load_t, vol_t));
+            let scale = k.iter().flatten().fold(0.0_f64, |a, x| a.max(x.abs()));
+            for i in 0..TET_P2_DOFS {
+                for j in 0..TET_P2_DOFS {
+                    assert!((kt[i][j] - s * k[i][j]).abs() < 1e-14 * s * scale);
+                }
+            }
+        }
+    }
+
+    /// The tensor stiffness is the scalar stiffness of the mapped tet: with
+    /// `ε = L Lᵀ` and `x' = L⁻¹ x`, `∇u·ε∇v dx = ∇'u·∇'v √(det ε) dx'`,
+    /// so `K(T, ε) = √(det ε) K(L⁻¹T)` exactly (issue #1091). A fully
+    /// anisotropic `ε` with off-diagonal terms makes every entry count.
+    #[test]
+    fn tensor_stiffness_is_the_scalar_stiffness_of_the_mapped_tet() {
+        let eps: [[f64; 3]; 3] = [[9.3, 0.7, -0.4], [0.7, 11.5, 0.9], [-0.4, 0.9, 8.1]];
+        // Cholesky ε = L Lᵀ.
+        let l00 = eps[0][0].sqrt();
+        let l10 = eps[1][0] / l00;
+        let l20 = eps[2][0] / l00;
+        let l11 = (eps[1][1] - l10 * l10).sqrt();
+        let l21 = (eps[2][1] - l20 * l10) / l11;
+        let l22 = (eps[2][2] - l20 * l20 - l21 * l21).sqrt();
+        let det_sqrt = l00 * l11 * l22;
+        // x' = L⁻¹ x by forward substitution.
+        let map = |x: &[f64; 3]| {
+            let y0 = x[0] / l00;
+            let y1 = (x[1] - l10 * y0) / l11;
+            let y2 = (x[2] - l20 * y0 - l21 * y1) / l22;
+            [y0, y1, y2]
+        };
+        for coords in [&REF_TET, &SKEW_TET] {
+            let (kt, _, _) = tet_p2_local_tensor(coords, &eps);
+            let mapped = coords.map(|x| map(&x));
+            let (k, _, _) = tet_p2_local(&mapped);
+            let scale = kt.iter().flatten().fold(0.0_f64, |a, x| a.max(x.abs()));
+            for i in 0..TET_P2_DOFS {
+                for j in 0..TET_P2_DOFS {
+                    let want = det_sqrt * k[i][j];
+                    assert!(
+                        (kt[i][j] - want).abs() < 1e-12 * scale,
+                        "({i},{j}): {} vs {want}",
+                        kt[i][j]
+                    );
+                    assert!((kt[i][j] - kt[j][i]).abs() < 1e-12 * scale);
+                }
+            }
+        }
     }
 }

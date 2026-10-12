@@ -73,8 +73,9 @@ use std::time::Instant;
 use geode_core::adapt::refine::{BisectionMesh, RefineOpts};
 use geode_core::assembly::electrostatic::{
     AmgPcgOptions, AmgPcgReport, CapacitanceMatrix, EPS_0, Electrode, assemble_electrostatic,
-    assemble_electrostatic_p2_sheets, assemble_electrostatic_tensor,
-    extract_capacitance_amg_pcg_fields, extract_capacitance_p2_amg_pcg_fields, tet_bary_grads,
+    assemble_electrostatic_p2_sheets, assemble_electrostatic_p2_sheets_tensor,
+    assemble_electrostatic_tensor, extract_capacitance_amg_pcg_fields,
+    extract_capacitance_p2_amg_pcg_fields, tet_bary_grads,
 };
 use geode_core::assembly::electrostatic_dual::{
     ConductorRole, DualBound, DualConductor, FaceTopology, Permittivity, PrimalPotential,
@@ -129,6 +130,7 @@ const HYBRIDIZATION_SHIFT_ESTIMATE_FF: [f64; 2] = [0.10, 0.38];
 const HYBRIDIZATION_SHIFT_CEILING_FF: f64 = 0.6;
 const BRACKET_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket.toml";
 const BRACKET_93P95_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml";
+const BRACKET_TENSOR_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml";
 
 fn env_list(name: &str, default: &str) -> Vec<usize> {
     std::env::var(name)
@@ -284,7 +286,20 @@ fn primal(mesh: &TetMesh, eps: Eps<'_>, sheets: &Sheets, order: usize) -> Primal
             .unwrap();
             extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, opts).unwrap()
         }
-        _ => panic!("no tensor P2 path"),
+        (2, Eps::Tensor(e)) => {
+            let (sys, dofs) = assemble_electrostatic_p2_sheets_tensor(
+                mesh,
+                e,
+                &rho,
+                &electrodes,
+                &[&sheets.tris[0], &sheets.tris[1]],
+                ground,
+                &sheets.tris[2],
+            )
+            .unwrap();
+            extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, opts).unwrap()
+        }
+        _ => panic!("orders 1 and 2 only"),
     };
     let res = rep.rel_residual.iter().copied().fold(0.0, f64::max);
     assert!(res <= 1e-9, "PCG true residual {res}");
@@ -380,6 +395,8 @@ struct Row {
     iters: Vec<usize>,
     res: f64,
     lowers: Vec<Lower>,
+    /// Scalar-`ε` conforming value on the same mesh (tensor rows, #1091).
+    scalar_upper: Option<f64>,
 }
 
 impl Row {
@@ -417,6 +434,17 @@ fn row_toml(t: &mut String, table: &str, r: &Row) {
             t,
             "width_ff = {}  # upper (ceiled) minus best lower on this mesh (floored)",
             ceil_fmt(ceil_to(r.upper_ff, 6) - floor_to(b.c_ff, 6), 6)
+        );
+    }
+    if let Some(su) = r.scalar_upper {
+        let _ = writeln!(
+            t,
+            "scalar_upper_ff = {su:.9}  # scalar trace-averaged eps, same mesh and order (asserted against the committed value)"
+        );
+        let _ = writeln!(
+            t,
+            "scalar_minus_tensor_ff = {:.9}  # conforming scalar minus conforming tensor, same mesh: a discretization-level difference, not a bound",
+            su - r.upper_ff
         );
     }
 }
@@ -790,6 +818,7 @@ fn uniform(fx: &TransmonFixture, ks: &[usize]) -> (Vec<Row>, Vec<Row>) {
                 iters: p.iters.clone(),
                 res: p.res,
                 lowers: l,
+                scalar_upper: None,
             });
         }
         let t = Instant::now();
@@ -812,14 +841,37 @@ fn uniform(fx: &TransmonFixture, ks: &[usize]) -> (Vec<Row>, Vec<Row>) {
             iters: p.iters.clone(),
             res: p.res,
             lowers: l,
+            scalar_upper: None,
         });
     }
     (scalar, tensor)
 }
 
+/// The per-tet sapphire lab tensor (substrate) and the identity (vacuum).
+fn tensor_eps(fx: &TransmonFixture) -> Vec<[[f64; 3]; 3]> {
+    let lab = sapphire_eps_lab();
+    let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    fx.tet_physical_tags
+        .iter()
+        .map(|&t| {
+            if t == fx.tags.substrate {
+                lab
+            } else {
+                identity
+            }
+        })
+        .collect()
+}
+
 /// Rows per design, plus X⁰ rows on the meshes of every design whose
 /// `summary.toml` has X⁰ values (when `with_x0`).
-#[allow(clippy::too_many_lines)]
+///
+/// With `tensor` (issue #1091) the meshes are still built from the scalar
+/// solves (the scalar P2 value of every round is asserted against the
+/// committed one, and the marking uses it), and each row then carries the
+/// **sapphire-tensor** P2 primal and its certified lower bounds, with the
+/// scalar value of the same mesh in `scalar_upper`.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn adaptive(
     fx_um: &TransmonFixture,
     design_list: &[(&str, &str)],
@@ -827,6 +879,7 @@ fn adaptive(
     ks: &[usize],
     k_last: &[usize],
     max_rounds: usize,
+    tensor: bool,
 ) -> (Vec<(String, Vec<Row>)>, Vec<Row>) {
     let mut fx = fx_um.clone();
     for p in &mut fx.mesh.nodes {
@@ -902,18 +955,46 @@ fn adaptive(
             if round == rounds {
                 kk.extend(k_last.iter().filter(|k| !ks.contains(k)));
             }
-            let l = lowers(&at_final.mesh, Eps::Scalar(&eps), &sheets, &p, &kk, true);
             let marked = (round < rounds).then(|| dorfler(&indicators(&at_final, &p.phi)));
-            rows.push(Row {
-                label: format!("{name} round {round}"),
-                order: 2,
-                n_tets: base.n_tets(),
-                upper_ff: p.c_ff,
-                iters: p.iters.clone(),
-                res: p.res,
-                lowers: l,
-            });
-            drop(p);
+            let row = if tensor {
+                let scalar_c = p.c_ff;
+                drop(p);
+                let et = tensor_eps(&at_final);
+                let t = Instant::now();
+                let pt = primal(&at_final.mesh, Eps::Tensor(&et), &sheets, 2);
+                println!(
+                    "  {name} round {round} TENSOR: upper {:.9} fF (scalar - tensor {:+.6} fF, {:.1}s)",
+                    pt.c_ff,
+                    scalar_c - pt.c_ff,
+                    t.elapsed().as_secs_f64()
+                );
+                let l = lowers(&at_final.mesh, Eps::Tensor(&et), &sheets, &pt, &kk, true);
+                Row {
+                    label: format!("{name} round {round}"),
+                    order: 2,
+                    n_tets: base.n_tets(),
+                    upper_ff: pt.c_ff,
+                    iters: pt.iters.clone(),
+                    res: pt.res,
+                    lowers: l,
+                    scalar_upper: Some(scalar_c),
+                }
+            } else {
+                let l = lowers(&at_final.mesh, Eps::Scalar(&eps), &sheets, &p, &kk, true);
+                let row = Row {
+                    label: format!("{name} round {round}"),
+                    order: 2,
+                    n_tets: base.n_tets(),
+                    upper_ff: p.c_ff,
+                    iters: p.iters.clone(),
+                    res: p.res,
+                    lowers: l,
+                    scalar_upper: None,
+                };
+                drop(p);
+                row
+            };
+            rows.push(row);
             if let Some(x0) = want.x0_c_ff[round].filter(|_| with_x0) {
                 let at_x0 = fixture(state.mesh(), &fx);
                 let s0 = Sheets::of(&at_x0);
@@ -925,16 +1006,41 @@ fn adaptive(
                 if round == rounds {
                     kk0.extend(k_last.iter().filter(|k| !ks.contains(k)));
                 }
-                let l0 = lowers(&at_x0.mesh, Eps::Scalar(&e0), &s0, &p0, &kk0, false);
-                x0_rows.push(Row {
-                    label: format!("{name} round {round}"),
-                    order: 2,
-                    n_tets: at_x0.mesh.n_tets(),
-                    upper_ff: p0.c_ff,
-                    iters: p0.iters.clone(),
-                    res: p0.res,
-                    lowers: l0,
-                });
+                let row0 = if tensor {
+                    let scalar_c = p0.c_ff;
+                    drop(p0);
+                    let et0 = tensor_eps(&at_x0);
+                    let pt0 = primal(&at_x0.mesh, Eps::Tensor(&et0), &s0, 2);
+                    println!(
+                        "  X0 on {name} round {round} TENSOR: upper {:.9} fF (scalar - tensor {:+.6} fF)",
+                        pt0.c_ff,
+                        scalar_c - pt0.c_ff
+                    );
+                    let l0 = lowers(&at_x0.mesh, Eps::Tensor(&et0), &s0, &pt0, &kk0, false);
+                    Row {
+                        label: format!("{name} round {round}"),
+                        order: 2,
+                        n_tets: at_x0.mesh.n_tets(),
+                        upper_ff: pt0.c_ff,
+                        iters: pt0.iters.clone(),
+                        res: pt0.res,
+                        lowers: l0,
+                        scalar_upper: Some(scalar_c),
+                    }
+                } else {
+                    let l0 = lowers(&at_x0.mesh, Eps::Scalar(&e0), &s0, &p0, &kk0, false);
+                    Row {
+                        label: format!("{name} round {round}"),
+                        order: 2,
+                        n_tets: at_x0.mesh.n_tets(),
+                        upper_ff: p0.c_ff,
+                        iters: p0.iters.clone(),
+                        res: p0.res,
+                        lowers: l0,
+                        scalar_upper: None,
+                    }
+                };
+                x0_rows.push(row0);
             }
             let Some(marked) = marked else { break };
             drop(at_final);
@@ -944,6 +1050,385 @@ fn adaptive(
         designs.push((name.to_string(), rows));
     }
     (designs, x0_rows)
+}
+
+/// Issue #1091: X⁰ with the sapphire tensor at P2 on the uniform h and h/2
+/// levels (the scalar P2 values are the committed #1057 ones).
+fn uniform_tensor_p2(fx: &TransmonFixture, ks: &[usize]) -> Vec<Row> {
+    let mut mesh = fx.mesh.clone();
+    let mut sheets = Sheets::of(fx);
+    let mut eps_t = tensor_eps(fx);
+    let mut rows = Vec::new();
+    for (level, &scalar_p2) in X0_P2_FF.iter().enumerate() {
+        if level > 0 {
+            let r = red_refine(&mesh);
+            assert_eq!(r.n_flipped, 0);
+            sheets = sheets.red_refined(&r);
+            eps_t = r.lift_per_tet(&eps_t);
+            mesh = r.mesh;
+        }
+        let label = format!("uniform h/{}", 1 << level);
+        let t = Instant::now();
+        let p = primal(&mesh, Eps::Tensor(&eps_t), &sheets, 2);
+        println!(
+            "  X0 tensor {label} P2: {} tets, upper {:.6} fF (scalar - tensor {:+.6} fF, {:.1}s)",
+            mesh.n_tets(),
+            p.c_ff,
+            scalar_p2 - p.c_ff,
+            t.elapsed().as_secs_f64()
+        );
+        let l = lowers(&mesh, Eps::Tensor(&eps_t), &sheets, &p, ks, false);
+        rows.push(Row {
+            label,
+            order: 2,
+            n_tets: mesh.n_tets(),
+            upper_ff: p.c_ff,
+            iters: p.iters.clone(),
+            res: p.res,
+            lowers: l,
+            scalar_upper: Some(scalar_p2),
+        });
+    }
+    rows
+}
+
+/// The unrounded scalar family bounds `(max lower, min upper)` of the rows
+/// of `tables` in a committed bracket artifact.
+fn committed_family(path: &str, tables: &[&str]) -> (f64, f64) {
+    let text = fs::read_to_string(path).unwrap();
+    let v: toml::Value = text.parse().unwrap();
+    let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
+    for table in tables {
+        for r in v[*table].as_array().unwrap() {
+            hi = hi.min(r["upper_ff"].as_float().unwrap());
+            for (k, x) in r.as_table().unwrap() {
+                if k.starts_with("lower_") && k.ends_with("_ff") {
+                    lo = lo.max(x.as_float().unwrap());
+                }
+            }
+        }
+    }
+    (lo, hi)
+}
+
+/// Least-squares fit `g(N) = g_inf + a N^-p` over `(N, g)` (grid in `p`,
+/// linear in `(g_inf, a)`); returns `(p, g_inf, a, rms)`. An estimate.
+fn power_fit(pts: &[(f64, f64)]) -> (f64, f64, f64, f64) {
+    let mut best = (f64::NAN, f64::NAN, f64::NAN, f64::INFINITY);
+    for i in 1..=4000 {
+        let p = f64::from(i) * 1e-3;
+        let (mut sx, mut sy, mut sxx, mut sxy) = (0.0, 0.0, 0.0, 0.0);
+        let n = pts.len() as f64;
+        for &(nn, g) in pts {
+            let x = nn.powf(-p);
+            sx += x;
+            sy += g;
+            sxx += x * x;
+            sxy += x * g;
+        }
+        let a = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+        let g_inf = (sy - a * sx) / n;
+        let rms = (pts
+            .iter()
+            .map(|&(nn, g)| (g_inf + a * nn.powf(-p) - g).powi(2))
+            .sum::<f64>()
+            / n)
+            .sqrt();
+        if rms < best.3 {
+            best = (p, g_inf, a, rms);
+        }
+    }
+    best
+}
+
+/// One reference `C_Σ` for the verdicts: a point and a band, fF.
+struct Target {
+    key: &'static str,
+    point: f64,
+    band: (f64, f64),
+    note: &'static str,
+}
+
+fn targets() -> Vec<Target> {
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
+    };
+    let ff = |a: TransmonAnchor| a.c_sigma_farad * 1e15;
+    let dressed = ff(TransmonAnchor::devicelayout());
+    let (k_lo, k_hi) = DEVICELAYOUT_COUPLING_K_BAND;
+    let bare = [
+        ff(TransmonAnchor::devicelayout_bare_with_coupling(k_lo)),
+        ff(TransmonAnchor::devicelayout_bare_with_coupling(k_hi)),
+    ];
+    let (l_lo, l_hi) = DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H;
+    let mut loops = Vec::new();
+    for k in [k_lo, k_hi] {
+        for l in [l_lo, l_hi] {
+            loops.push(ff(TransmonAnchor::devicelayout_bare_loop_with(k, l)));
+        }
+    }
+    let span = |v: &[f64]| {
+        (
+            v.iter().copied().fold(f64::INFINITY, f64::min),
+            v.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    vec![
+        Target {
+            key: "devicelayout",
+            point: dressed,
+            band: (dressed, dressed),
+            note: "pure-LC C_Sigma of the published 4.14 GHz (#1066)",
+        },
+        Target {
+            key: "devicelayout_bare",
+            point: ff(TransmonAnchor::devicelayout_bare()),
+            band: span(&bare),
+            note: "bare-qubit, coupling k band (#1078)",
+        },
+        Target {
+            key: "devicelayout_bare_loop",
+            point: ff(TransmonAnchor::devicelayout_bare_loop()),
+            band: span(&loops),
+            note: "bare-qubit and loop inductance, k and L_s bands (#1079)",
+        },
+    ]
+}
+
+/// Verdict lines of a rounded bracket `[lo, hi]` against one target.
+fn verdict_toml(t: &mut String, lo: f64, hi: f64, g: &Target) {
+    let (b_lo, b_hi) = g.band;
+    let v = if hi < b_lo {
+        format!("below by at least {}", floor_fmt(b_lo - hi, 2))
+    } else if lo > b_hi {
+        format!("above by at least {}", floor_fmt(lo - b_hi, 2))
+    } else if lo <= g.point && g.point <= hi {
+        "contains the point".to_string()
+    } else {
+        "meets the band, not the point".to_string()
+    };
+    let _ = writeln!(
+        t,
+        "vs_{} = \"{v} fF\"  # point {:.4} fF, band [{:.4}, {:.4}] fF: {}",
+        g.key, g.point, b_lo, b_hi, g.note
+    );
+}
+
+/// `c_sigma_bracket_tensor.toml` (#1091): the sapphire-tensor brackets of X⁰
+/// and both re-anchored designs, the scalar-vs-tensor gap and the restated
+/// verdicts.
+#[allow(clippy::too_many_lines)]
+fn write_tensor(
+    out: &Path,
+    uni: &[Row],
+    x0_rows: &[Row],
+    designs: &[(String, Vec<Row>)],
+    ks: &[usize],
+    k_last: &[usize],
+    max_rounds: usize,
+) {
+    let lab = sapphire_eps_lab();
+    let diag_sapphire = [[9.3, 0.0, 0.0], [0.0, 9.3, 0.0], [0.0, 0.0, 11.5]];
+    let rot_dev = (0..3)
+        .flat_map(|i| (0..3).map(move |j| (i, j)))
+        .map(|(i, j)| (lab[i][j] - diag_sapphire[i][j]).abs())
+        .fold(0.0_f64, f64::max);
+    let mut t = String::new();
+    let _ = writeln!(
+        t,
+        "# Auto-generated by `BRACKET_PART=tensor cargo run -p geode-core --release --example transmon_c_sigma_bracket`.\n\
+         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible.\n\
+         # Issue #1091: the SAPPHIRE-TENSOR C_Sigma (the permittivity model of the Palace/DeviceLayout anchor), certified on both\n\
+         # sides on the meshes of c_sigma_bracket_anchor_93p95.toml (the meshes are rebuilt from the scalar solves, which are\n\
+         # asserted against the committed values), with the scalar-minus-tensor gap per mesh and per family.\n\
+         # TARGET STATUS (#1063, 2026-10-12): 4.14 GHz is DeviceLayout's INITIAL-geometry frequency, not a design target; the\n\
+         # anchor verdicts below are against that misread target and are supporting material only.\n"
+    );
+    let _ = writeln!(t, "[meta]");
+    let _ = writeln!(t, "issue = 1091");
+    let _ = writeln!(t, "method_issue = 1062");
+    let _ = writeln!(
+        t,
+        "generator = \"crates/geode-core/examples/transmon_c_sigma_bracket.rs\""
+    );
+    let _ = writeln!(t, "part = \"tensor\"");
+    let _ = writeln!(
+        t,
+        "fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\""
+    );
+    let _ = writeln!(
+        t,
+        "quantity = \"island C_Sigma with the feedline floating and neutral (C_ii - C_if^2/C_ff), SAPPHIRE LAB TENSOR on the substrate, 1 in vacuum; the meshed polygonal geometry\""
+    );
+    let _ = writeln!(
+        t,
+        "tensor = \"R diag(9.3, 9.3, 11.5) R^T with R = MaterialAxes [[0.8,0.6,0],[-0.6,0.8,0],[0,0,1]] (geode_core::mesh::transmon::sapphire_eps_lab)\""
+    );
+    let _ = writeln!(
+        t,
+        "sapphire_rotation_is_identity = true  # R is a rotation about z and the in-plane principal values are equal, so R diag(a,a,b) R^T = diag(a,a,b) exactly"
+    );
+    let _ = writeln!(
+        t,
+        "sapphire_lab_max_abs_deviation_from_diag = {rot_dev:.3e}  # |sapphire_eps_lab - diag(9.3, 9.3, 11.5)| in f64: rounding only"
+    );
+    for (name, dir) in DESIGNS_93P95 {
+        let _ = writeln!(t, "primal_{name} = \"{dir}/summary.toml\"");
+    }
+    let _ = writeln!(
+        t,
+        "scalar_bracket_source = \"c_sigma_bracket.toml [uniform_x0, adaptive_x0] for X0; c_sigma_bracket_anchor_93p95.toml for the designs (unrounded family bounds)\""
+    );
+    let _ = writeln!(
+        t,
+        "equilibration_orders_from_p2 = {ks:?}\nextra_order_at_last_round = {k_last:?}\nheld_out_rounds = {max_rounds}"
+    );
+    let _ = writeln!(t, "eps0 = {EPS_0:e}  # F/m; coordinates in metres");
+    method_toml(&mut t);
+    let _ = writeln!(
+        t,
+        "tensor_method = \"P2 tensor stiffness int grad N_i . eps grad N_j (exact 4-point rule, assembly::electrostatic::assemble_electrostatic_p2_sheets_tensor), AMG-PCG with the #1061/#1064 guards; the certificate and the equilibration are those of #1062 with eps a constant SPD tensor per tet (assembly::electrostatic_dual module docs, 'Anisotropic permittivity')\"\n"
+    );
+    for r in uni {
+        row_toml(&mut t, "uniform_x0_tensor_p2", r);
+    }
+    for r in x0_rows {
+        row_toml(&mut t, "adaptive_x0_tensor", r);
+    }
+    for (name, rows) in designs {
+        for r in rows {
+            row_toml(&mut t, &format!("adaptive_{name}_tensor"), r);
+        }
+    }
+    // Family brackets.
+    let x0_all: Vec<&Row> = uni.iter().chain(x0_rows).collect();
+    let bx0 = bracket(&x0_all);
+    bracket_core_toml(
+        &mut t,
+        "bracket_x0_tensor",
+        &bx0,
+        "X0, sapphire tensor: uniform P2 levels and the anchor_93p95 adaptive meshes (one geometry)",
+    );
+    let x0_s = committed_family(BRACKET_TOML, &["uniform_x0", "adaptive_x0"]);
+    let gap_toml = |t: &mut String, table: &str, b: &Bracket, s: (f64, f64), note: &str| {
+        // tensor - scalar of the converged values, certified (positive:
+        // the tensor C_Sigma is the larger).
+        let lo = floor_to(b.lower - s.1, 2);
+        let hi = ceil_to(b.upper - s.0, 2);
+        let _ = writeln!(t, "\n[{table}]  # {note}");
+        let _ = writeln!(
+            t,
+            "scalar_lower_ff = {}\nscalar_upper_ff = {}",
+            floor_fmt(s.0, 6),
+            ceil_fmt(s.1, 6)
+        );
+        let _ = writeln!(
+            t,
+            "tensor_minus_scalar_lower_ff = {lo:.2}  # RIGOROUS: tensor family lower minus scalar family upper, floored"
+        );
+        let _ = writeln!(
+            t,
+            "tensor_minus_scalar_upper_ff = {hi:.2}  # RIGOROUS: tensor family upper minus scalar family lower, ceiled"
+        );
+        let _ = writeln!(
+            t,
+            "tensor_minus_scalar_relative = [{}, {}]  # of the scalar value, rounded outward",
+            floor_fmt((b.lower - s.1) / s.1, 4),
+            ceil_fmt((b.upper - s.0) / s.0, 4)
+        );
+    };
+    gap_toml(&mut t, "gap_x0", &bx0, x0_s, "certified converged gap, X0");
+    for (name, rows) in designs {
+        let rr: Vec<&Row> = rows.iter().collect();
+        let b = bracket(&rr);
+        let (lo, hi) = bracket_core_toml(
+            &mut t,
+            &format!("bracket_{name}_tensor"),
+            &b,
+            "the re-anchored #1066 design, sapphire tensor, its held-out meshes",
+        );
+        for g in targets() {
+            verdict_toml(&mut t, lo, hi, &g);
+        }
+        let s = committed_family(BRACKET_93P95_TOML, &[&format!("adaptive_{name}")]);
+        gap_toml(
+            &mut t,
+            &format!("gap_{name}"),
+            &b,
+            s,
+            "certified converged gap, this design",
+        );
+        let ilo = floor_to(b.lower - bx0.upper, 2);
+        let ihi = ceil_to(b.upper - bx0.lower, 2);
+        let _ = writeln!(
+            t,
+            "\n[increment_{name}_over_x0_tensor]  # certified C_design - C_X0, both sapphire tensor"
+        );
+        let _ = writeln!(
+            t,
+            "lower_ff = {ilo:.2}  # RIGOROUS: design tensor family lower minus X0 tensor family upper, floored"
+        );
+        let _ = writeln!(
+            t,
+            "upper_ff = {ihi:.2}  # RIGOROUS: design tensor family upper minus X0 tensor family lower, ceiled"
+        );
+        let _ = writeln!(t, "width_ff = {:.2}", ihi - ilo);
+    }
+    // Observed order of the same-mesh gap (an estimate, not a bound).
+    let mut series: Vec<(&str, Vec<&Row>)> = vec![("x0", x0_rows.iter().collect())];
+    for (name, rows) in designs {
+        series.push((name.as_str(), rows.iter().collect()));
+    }
+    for (name, rows) in series {
+        let pts: Vec<(f64, f64)> = rows
+            .iter()
+            .skip(2)
+            .map(|r| (r.n_tets as f64, r.scalar_upper.unwrap() - r.upper_ff))
+            .collect();
+        let (p, g_inf, a, rms) = power_fit(&pts);
+        let last = rows.last().unwrap();
+        let s_last = last.scalar_upper.unwrap();
+        let _ = writeln!(
+            t,
+            "\n[gap_order_{name}]  # ESTIMATE: least-squares g(N) = g_inf + a N^-p of the same-mesh scalar-minus-tensor conforming values, rounds 2-{max_rounds}, N = tets"
+        );
+        let _ = writeln!(
+            t,
+            "n_tets = {:?}",
+            rows.iter().map(|r| r.n_tets).collect::<Vec<_>>()
+        );
+        let _ = writeln!(
+            t,
+            "same_mesh_gap_ff = [{}]  # scalar minus tensor (the Table 3 sign), rounds 0-{max_rounds}",
+            rows.iter()
+                .map(|r| format!("{:.6}", r.scalar_upper.unwrap() - r.upper_ff))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let _ = writeln!(
+            t,
+            "same_mesh_gap_relative = [{}]  # of the scalar value",
+            rows.iter()
+                .map(|r| format!(
+                    "{:.6}",
+                    (r.scalar_upper.unwrap() - r.upper_ff) / r.scalar_upper.unwrap()
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let _ = writeln!(
+            t,
+            "observed_order_p = {p:.3}  # in N = tets (multiply by 3 for the order in h)"
+        );
+        let _ = writeln!(t, "extrapolated_gap_ff = {g_inf:.4}");
+        let _ = writeln!(
+            t,
+            "extrapolated_gap_relative = {:.5}  # of the last scalar value",
+            g_inf / s_last
+        );
+        let _ = writeln!(t, "fit_coefficient_a = {a:.6e}\nfit_rms_ff = {rms:.3e}");
+    }
+    fs::write(out, t).unwrap();
 }
 
 /// `c_sigma_bracket_anchor_93p95.toml` (#1075): the re-anchored #1066
@@ -1100,11 +1585,28 @@ fn main() {
     let (mut designs, mut x0_adapt) = (Vec::new(), Vec::new());
     if part == "adaptive" || part == "all" {
         println!("adaptive (#1058) families:");
-        (designs, x0_adapt) = adaptive(&fx, &DESIGNS, true, &ks, &k_last, max_rounds);
+        (designs, x0_adapt) = adaptive(&fx, &DESIGNS, true, &ks, &k_last, max_rounds, false);
+    }
+    if part == "tensor" {
+        println!("sapphire-tensor X0 uniform P2 (#1091):");
+        let uni = uniform_tensor_p2(&scaled, &ks);
+        println!("sapphire-tensor adaptive families (#1091), meshes of #1066:");
+        let (designs, x0_rows) =
+            adaptive(&fx, &DESIGNS_93P95, true, &ks, &k_last, max_rounds, true);
+        let out = PathBuf::from(
+            std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_TENSOR_TOML.into()),
+        );
+        write_tensor(&out, &uni, &x0_rows, &designs, &ks, &k_last, max_rounds);
+        println!(
+            "wrote {} ({:.1} s total)",
+            out.display(),
+            t0.elapsed().as_secs_f64()
+        );
+        return;
     }
     if part == "anchor_93p95" {
         println!("adaptive (#1066) families at the current anchor (#1075):");
-        let (designs, _) = adaptive(&fx, &DESIGNS_93P95, false, &ks, &k_last, max_rounds);
+        let (designs, _) = adaptive(&fx, &DESIGNS_93P95, false, &ks, &k_last, max_rounds, false);
         let out = PathBuf::from(
             std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_93P95_TOML.into()),
         );

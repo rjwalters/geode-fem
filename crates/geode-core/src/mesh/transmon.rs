@@ -44,14 +44,23 @@
 //! `reference/julia/generate_transmon_fixture.jl`; the tag numbers are
 //! informational only (they track `transmon_smoke.provenance.txt`).
 //!
-//! # Sapphire material model (rotated anisotropic tensor)
+//! # Sapphire material model (uniaxial tensor; the rotation is the identity)
 //!
-//! The substrate is **sapphire, anisotropic AND rotated**: the Palace
-//! config sets `Permittivity = [9.3, 9.3, 11.5]` with
+//! The substrate is **anisotropic (uniaxial) sapphire**: the Palace config
+//! sets `Permittivity = [9.3, 9.3, 11.5]` with
 //! `MaterialAxes = [[0.8,0.6,0.0], [-0.6,0.8,0.0], [0.0,0.0,1.0]]`, a
-//! ~36.87° in-plane rotation. The lab-frame tensor is therefore
-//! `R · diag(9.3, 9.3, 11.5) · Rᵀ` with off-diagonal xy-coupling — NOT
-//! the diagonal tensor. [`sapphire_eps_lab`] returns that rotated tensor;
+//! ~36.87° rotation about `z`. **For this tensor the rotation is the
+//! identity** (issue #1091): `R` is a rotation about `z` and the two
+//! in-plane principal values are equal, so the in-plane block is `9.3·I₂`,
+//! which every rotation about `z` leaves unchanged, and
+//! `R · diag(9.3, 9.3, 11.5) · Rᵀ = diag(9.3, 9.3, 11.5)` exactly, with no
+//! `xy` coupling (an earlier version of this note claimed one). The
+//! rotation would matter only if `ε₁ ≠ ε₂`. It is kept, so that the code
+//! mirrors the Palace configuration term by term; in `f64` the result
+//! differs from the diagonal tensor by rounding only (pinned by
+//! `sapphire_rotation_is_the_identity_for_the_uniaxial_tensor_1091`).
+//! The anisotropy that does matter is `ε_zz = 11.5` against `9.3` in plane.
+//! [`sapphire_eps_lab`] returns the lab-frame tensor;
 //! [`TransmonFixture::epsilon_tensor_r`] emits the per-tet 3×3 ε map
 //! (rotated tensor on substrate tets, identity on vacuum) ready for
 //! [`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors`]
@@ -156,9 +165,9 @@ pub const PORT_E_HAT: [f64; 3] = [1.0, 0.0, 0.0];
 pub const JUNCTION_E_HAT: [f64; 3] = [0.0, 1.0, 0.0];
 
 /// Lab-frame sapphire permittivity tensor `R · diag(ε) · Rᵀ`, computed
-/// from [`SAPPHIRE_EPS_DIAG`] and [`SAPPHIRE_MATERIAL_AXES`]. The in-plane
-/// rotation produces off-diagonal `xy` coupling; the `zz` entry is
-/// unchanged (11.5) because the rotation is about `z`.
+/// from [`SAPPHIRE_EPS_DIAG`] and [`SAPPHIRE_MATERIAL_AXES`]. Because the
+/// rotation is about `z` and `ε₁ = ε₂`, this is `diag(9.3, 9.3, 11.5)` up to
+/// `f64` rounding: no `xy` coupling (see the module docs, issue #1091).
 pub fn sapphire_eps_lab() -> [[f64; 3]; 3] {
     let r = SAPPHIRE_MATERIAL_AXES;
     let d = SAPPHIRE_EPS_DIAG;
@@ -342,8 +351,9 @@ impl TransmonFixture {
 
     /// Per-tet **full 3×3** relative-permittivity tensor for Phase B: the
     /// rotated lab-frame sapphire tensor [`sapphire_eps_lab`] on substrate
-    /// tets, the identity on vacuum tets. Real diagonal + off-diagonal
-    /// `xy` coupling; imaginary part zero (lossless — the loss tangent is
+    /// tets, the identity on vacuum tets. Real and diagonal up to rounding
+    /// (the rotation is the identity for this tensor, see the module docs);
+    /// imaginary part zero (lossless — the loss tangent is
     /// applied separately for Q-factor work). Shape matches
     /// [`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors`]'s
     /// `epsilon_tensor` argument.
@@ -689,6 +699,37 @@ mod tests {
         // Trace is rotation-invariant.
         let trace = lab[0][0] + lab[1][1] + lab[2][2];
         assert!((trace - (9.3 + 9.3 + 11.5)).abs() < 1e-12);
+    }
+
+    /// Issue #1091 ruling: the 36.87° `MaterialAxes` rotation is the
+    /// identity for the uniaxial sapphire tensor. The lab tensor equals the
+    /// crystal-frame diagonal to `f64` rounding, and so does the tensor for
+    /// any rotation angle about `z`, while the same rotation of a tensor
+    /// with `ε₁ ≠ ε₂` does couple `xy` (so the check has teeth).
+    #[test]
+    fn sapphire_rotation_is_the_identity_for_the_uniaxial_tensor_1091() {
+        let rotate = |r: &[[f64; 3]; 3], d: [f64; 3]| -> [[f64; 3]; 3] {
+            std::array::from_fn(|i| {
+                std::array::from_fn(|j| (0..3).map(|k| r[i][k] * d[k] * r[j][k]).sum())
+            })
+        };
+        let lab = sapphire_eps_lab();
+        let max_dev = |m: &[[f64; 3]; 3], d: [f64; 3]| {
+            (0..3)
+                .flat_map(|i| (0..3).map(move |j| (i, j)))
+                .map(|(i, j)| (m[i][j] - if i == j { d[i] } else { 0.0 }).abs())
+                .fold(0.0_f64, f64::max)
+        };
+        assert!(max_dev(&lab, SAPPHIRE_EPS_DIAG) < 1e-14, "{lab:?}");
+        assert_eq!(rotate(&SAPPHIRE_MATERIAL_AXES, SAPPHIRE_EPS_DIAG), lab);
+        for deg in [10.0_f64, 36.869_897_645_844_02, 75.0, 133.0] {
+            let (s, c) = deg.to_radians().sin_cos();
+            let r = [[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]];
+            assert!(max_dev(&rotate(&r, SAPPHIRE_EPS_DIAG), SAPPHIRE_EPS_DIAG) < 1e-13);
+        }
+        // Teeth: a biaxial tensor under the same rotation is NOT diagonal.
+        let biaxial = rotate(&SAPPHIRE_MATERIAL_AXES, [9.3, 10.0, 11.5]);
+        assert!((biaxial[0][1] - 0.48 * (10.0 - 9.3)).abs() < 1e-12);
     }
 
     #[test]
