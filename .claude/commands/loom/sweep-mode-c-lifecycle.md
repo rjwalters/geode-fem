@@ -54,7 +54,7 @@ Apply the following skip rules (each "skip" logs the reason; the PR does NOT con
 
 **`loom:reviewing`/`loom:treating` are claim *overlays*, not one of the three state labels the "two or more" conflict-skip row above counts (Issue #6167).** A PR carrying `loom:review-requested` **and** `loom:reviewing` together (a Judge has claimed it and is mid-review — or died mid-review) still has exactly **one** of `{loom:review-requested, loom:changes-requested, loom:pr}`, so it does not hit the conflict-skip row and routes normally to **C1a**. A *stale* `loom:reviewing` next to an actionable state label is therefore **recoverable, not a human-attention case**:
 
-- judge.md's own "Stale `loom:reviewing` Claim Check" (Step 2, before claiming in C1a) reclaims it inline the moment a Judge is actually dispatched for that PR.
+- judge.md's Step 2 claim (stale check, then a role-keyed PR lease, #9401) reclaims it inline once a Judge is dispatched; a peer's live lease makes it stand down.
 - The sweep-start orphan-recovery pass (`recover-orphaned-shepherds.sh --recover` under the `all` sentinel — see "Build-everything sentinel" below) now also reclaims stale `loom:reviewing`/`loom:treating` claims proactively, across the whole PR set, before any Judge/Doctor is dispatched — so a dead Judge's claim on a PR nobody re-visits cannot sit unrecovered (kicad-tools #4791/#4792, ~36h stale). Doctor's `loom:treating` is the identical overlay for `loom:changes-requested`/C1b, handled the same way.
 
 Determine the **closing issue number** (used for checkpoint scope below) from `closingIssuesReferences`. This is the GitHub-native `Closes/Fixes/Resolves #N` parser (matching the issue-side pre-flight's `closedByPullRequestsReferences`). Record up to one closing issue number per PR:
@@ -145,7 +145,7 @@ LOOM_AUTO_MERGE_TIMEOUT=420 ./.loom/scripts/merge-pr.sh P --auto
 
 **Give that call a 600000 ms Bash-tool timeout (#9395)**: the 420s pin must stay strictly under its caller's, or the tool kills the script and no exit code reaches the branches below. Raise neither alone. Why the pin but no `CHAMPION-MERGE-OUTCOME` sentinel (#9096): [exit codes](../../../.loom/docs/merge-pr-exit-code-exceptions.md).
 
-It merges via the forge API and cleans up the worktree. `--auto` waits for the head's check-runs to settle, re-validates `loom:pr` and the head SHA against fresh state, then merges **in this process** — never via the server-side queue, which is gated on REQUIRED checks alone and re-reads neither label nor non-required suites once armed (#8410). An already-settled head merges at once, so `--auto` is always safe to pass (#3820); a repo with no workflows (Checks API 404s everywhere) merges straight off, not polling out (#6389). CI outlasting the wait exits non-zero rather than queueing — retry next pass, not a failure.
+It merges via the forge API and cleans up the worktree. `--auto` waits for the head's check-runs to settle, re-validates `loom:pr` and the head SHA against fresh state, then merges **in this process** — never via the server-side queue, which re-reads neither label nor non-required suites once armed (#8410). An already-settled head merges at once, so `--auto` is always safe to pass (#3820); a repo with no workflows (Checks API 404s everywhere) merges straight off, not polling out (#6389). CI outlasting the wait exits 5 — retry next pass.
 
 **On successful merge** (script returns 0):
 - If a closing-issue checkpoint is in scope, delete it:
@@ -154,7 +154,7 @@ It merges via the forge API and cleans up the worktree. `--auto` waits for the h
   ```
 - Advance to the next PR in the candidate list.
 
-**On merge failure** (non-zero; exit **6**: log `PR #P held by chain lock`, #10448):
+**On merge failure** (non-zero; exits **3-7** are re-queues, not failures: log `PR #P not merged (exit N)`, skip diagnosis, keep the checkpoint, #10448/#11330):
 - Classify `<reason>` through "Forge write failure diagnosis (#6425)" above **before** writing the log line — do not assert a permission/credential diagnosis without running `forge_write_permission_confirmed` and getting positive evidence. Log `PR #P merge failed: <reason>` using that section's vocabulary (`forge-transient: …`, `permission fault not confirmed — will retry`, or the confirmed-and-cited form).
 - Do **NOT** delete the checkpoint (leave at `judge-done` or earlier) so the next sweep retries.
 - **Approved but conflicting (#9265).** If the refusal was for merge conflicts and `gh pr view P --json mergeable` confirms `CONFLICTING`, `main` moved under an approved PR — do not consult the Doctor-cycle cap. Run a **rebase pass** → re-Judge (**C1a**) → **C2**; procedure, rebase budget (3 per PR per run) and park reason: "Doctor-cycle cap" in the Execution Model.

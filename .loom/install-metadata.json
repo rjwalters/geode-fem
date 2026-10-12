@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1081",
-  "loom_commit": "6966a93d1cd1b005f2a6b22bf9691ade8793ed73",
+  "loom_version": "0.19.1127",
+  "loom_commit": "8279ae55971d200a6d077f99ea5d147e5b44283d",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -728,7 +728,19 @@
     ".loom/scripts/tests/test-sweep-wave-judge-done-staleness.sh",
     ".loom/scripts/tests/test-sync-labels-prune-undeclared.sh",
     ".agents/skills/loom-builder-complexity/SKILL.md",
-    ".agents/skills/loom-builder-worktree/SKILL.md"
+    ".agents/skills/loom-builder-worktree/SKILL.md",
+    ".agents/skills/loom-curator-estimate/SKILL.md",
+    ".claude/commands/loom/curator-estimate.md",
+    ".loom/docs/unnamed-block-review.md",
+    ".loom/hooks/guard-uncommitted-work.sh",
+    ".loom/hooks/presence-beat.sh",
+    ".loom/roles/curator-estimate.md",
+    ".loom/scripts/tests/test-loom-daemon-update-otlp-probe.sh",
+    ".loom/scripts/tests/test-merge-pr-pr-state.sh",
+    ".loom/scripts/tests/test-spawn-claude-memory-max.sh",
+    ".loom/hooks/guard-loom-workflow.sh",
+    ".loom/hooks/guard-worktree-paths.sh",
+    ".loom/scripts/tests/test-create-pr-priority-labels.sh"
   ],
   "last_resync": "2026-10-12",
   "requires_daemon": "0.19.1081"
