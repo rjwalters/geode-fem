@@ -1,429 +1,253 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Staircasing error of a Yee/Cartesian density grid vs GEODE's conformal mesh.
+"""Geometric diagnostics for the R=40 mm, h=2 mm historical smoke fixture.
 
-Epic #647 Phase 4 (issue #651). PRIMARY runnable deliverable.
+This is NOT an electromagnetic solve or a comparison with conformal FDTD.
+A cell-centred occupancy model is only one possible Cartesian representation.
+The perimeter plateau is the taxicab-length paradox, not a resonance error.
+The displacement/arc-length proxy is dimensionless and has no calibrated EM
+coefficient. Linear FEM facets also approximate the cylinder between nodes.
 
-WHAT THIS SHOWS
----------------
-GEODE reached a freeform curved-metal conformal radiator design that drives the
-whole band below -10 dB (`benchmarks/patch_antenna_conformal/conformal_results.toml`,
-paper `papers/conformal-antenna-diffopt/`). It does so on an *unstructured
-tetrahedral* mesh whose nodes lie exactly on the curved metal surface. A
-structured Yee/Cartesian density (FDTD / FDFD topology-optimization) method is
-forced to represent that same curved conductor by *voxel occupancy* on a fixed
-grid — it STAIRCASES the arc.
-
-This script quantifies the resulting geometric error as a function of grid
-resolution and shows it does NOT vanish at achievable resolutions the way a
-conformal mesh does (which represents the arc to machine precision at *any*
-resolution). It is deliberately self-contained (numpy/scipy only, no ceviche) so
-it always runs and is bit-deterministic.
-
-THE GEOMETRY (faithful to the committed `bent_conformal` fixture)
------------------------------------------------------------------
-Source: `crates/geode-core/src/mesh/patch.rs`, `PatchFixture::bent_conformal`
-(commit eac4e85, branch feature/issue-650, "Part of #647"). The flat FR-4
-patch/ground slab is wrapped around a cylinder about the y-axis. The exact
-node-coordinate map used there, in the plane of curvature (x, z), is:
-
-    phi     = x / R_bend
-    r       = R_bend + (z - z0)
-    x_bent  = r * sin(phi)
-    z_bent  = z0 + r * cos(phi) - R_bend
-
-with z0 the substrate mid-plane. Under this map a horizontal metal line
-z = const wraps onto a *circular arc* of radius (R_bend + (z - z0)) centered at
-(0, z0 - R_bend). So the curved conductor is EXACTLY a circular arc — a clean,
-analytically known smooth boundary to rasterize against.
-
-Committed parameters (documented, so the mapping is reproducible):
-  R_bend       = 40.0 mm   (CURVED_SMOKE_BEND_RADIUS in patch.rs)
-  h_sub        = 1.6 mm    (FR-4 thickness `h`, reference/gmsh/patch_2g4_benchmark.yaml)
-  x_halfwidth  = 12.0 mm   (smoke substrate half-width; patch.rs doc:
-                            "half-width (~12 mm) subtends ~0.3 rad of arc")
-  => phi_max   = x_halfwidth / R_bend = 0.30 rad  (~17 deg), matching the doc.
-
-We center the substrate at z0 = 0, so the metal patch (substrate top) rides the
-arc of radius R_top = R_bend + h_sub/2 and the ground (substrate bottom) the arc
-of radius R_bot = R_bend - h_sub/2. The curved substrate cross-section is thus an
-annular sector (thickness h_sub, angular span 2*phi_max) — the "feature" the
-FDTD grid must voxelize.
-
-METRICS (per grid resolution N cells across the in-plane feature width)
------------------------------------------------------------------------
-  * boundary-position error  — RMS/max vertical distance from the true top arc
-    to the staircased (cell-snapped) surface. O(h): shrinks with h but its
-    ratio to h is a scale-invariant constant (staircasing never improves in
-    relative terms). A conformal tet mesh: 0 at machine precision, any N.
-  * perimeter (arc-length) error — Manhattan boundary length of the voxel mask
-    vs true annular-sector perimeter. The classic "staircase paradox": the
-    digitized length does NOT converge to the true arc length; it converges to
-    a strictly larger constant. This is the length that sets a resonant
-    radiator's electrical size.
-  * enclosed-area error — voxel area vs true sector area. O(h): DOES converge
-    (contrast with perimeter — a diagnostic that the code is measuring real
-    staircasing, not a bug).
-  * resonance/impedance proxy — a first-order cavity boundary-perturbation
-    estimate |Δf/f| ~ δ_rms / L_arc of the fractional resonant-frequency shift
-    a boundary displacement of RMS δ_rms induces. CLEARLY A PROXY (order of
-    magnitude), NOT a solved eigenvalue or S11 — see ceviche_fdfd_baseline.py
-    (2D) and the Meep-3D runbook (README) for the actual field solves.
-
-Emits `staircasing_results.json` (deterministic, committed artifact) and, if
-matplotlib is importable, `staircasing.png`; otherwise `staircasing_results.csv`.
+L0 is the committed smoke surface; L1–L3 subdivide its flat triangles before
+bending. These are surface-only geometric ladders, not solved volume meshes.
+The physical 2.4 GHz fixture under #1084 is a different antenna.
 """
-
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
-import math
-import os
-import sys
+from pathlib import Path
 
 import numpy as np
 
-# --------------------------------------------------------------------------
-# Geometry — committed parameters (mm). See module docstring for provenance.
-# --------------------------------------------------------------------------
-R_BEND = 40.0        # cylinder bend radius (CURVED_SMOKE_BEND_RADIUS)
-H_SUB = 1.6          # FR-4 substrate thickness `h`
-X_HALFWIDTH = 12.0   # substrate half-width in the flat x coordinate
-PHI_MAX = X_HALFWIDTH / R_BEND  # = 0.30 rad, matches patch.rs doc "~0.3 rad"
-
-Z0 = 0.0                       # substrate mid-plane (centered)
-R_TOP = R_BEND + H_SUB / 2.0   # metal patch arc radius
-R_BOT = R_BEND - H_SUB / 2.0   # ground arc radius
-ARC_CENTER_Z = Z0 - R_BEND     # both arcs share this center: (0, -R_BEND)
-
-# Resolutions: cells across the in-plane feature width (Yee/Cartesian).
-RESOLUTIONS = [20, 40, 80, 160]
-
-# Dense analytic-arc sampling for the boundary-position metric (independent of
-# N, so it is a fair "truth"). Fixed => deterministic.
-N_ARC_SAMPLES = 20001
-
-# A "conformal-equivalent" geometric fidelity target for the how-many-cells /
-# 3D-cost blow-up estimate: a curved tet mesh places surface nodes on the arc
-# to ~machine precision; we conservatively call 1e-3 mm "as good as conformal".
-CONFORMAL_TARGET_MM = 1.0e-3
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+MESH = REPO / 'crates/geode-core/tests/fixtures/patch_2g4_smoke.msh'
+R_BEND = 40.0
+H_SUB = 2.0
+R_TOP = R_BEND + H_SUB / 2
+R_BOT = R_BEND - H_SUB / 2
+ARC_CENTER_Z = H_SUB / 2 - R_BEND
+RESOLUTIONS = [1, 2, 4, 8, 16]  # cells/mm
+N_ARC_SAMPLES = 40001
 
 
-def arc_top_z(x):
-    """True top-metal-arc height z(x) over horizontal (bent) coordinate x.
+def slope(x, y):
+    return float(np.polyfit(np.log(x), np.log(y), 1)[0])
 
-    The top arc is a circle of radius R_TOP centered at (0, ARC_CENTER_Z):
-        z(x) = ARC_CENTER_Z + sqrt(R_TOP^2 - x^2).
-    Valid for |x| <= R_TOP * sin(PHI_MAX) (the in-plane feature half-width).
+
+def rasterize(resolution, half_angle):
+    """Full-cell occupancy and a columnwise, nearest-grid-face top profile.
+
+    The height profile evaluates the analytic arc at each column centre,
+    then rounds to a GRID FACE (not a cell centre). End-column centres are
+    clipped to the arc endpoints; this explicit endpoint convention avoids
+    silently dropping samples. RMS is uniformly weighted in projected x.
+    Occupancy area/perimeter are separate diagnostics of the entire sector.
     """
-    return ARC_CENTER_Z + np.sqrt(np.maximum(R_TOP ** 2 - x ** 2, 0.0))
-
-
-def in_curved_slab(x, z):
-    """True occupancy: point (x, z) inside the curved substrate annular sector.
-
-    Inside iff R_BOT <= dist-to-arc-center <= R_TOP and angle within +/-PHI_MAX.
-    """
-    dx = x
-    dz = z - ARC_CENTER_Z
-    r = np.hypot(dx, dz)
-    phi = np.arctan2(dx, dz)  # angle from +z axis toward +x, matches x=r sin phi
-    return (r >= R_BOT) & (r <= R_TOP) & (np.abs(phi) <= PHI_MAX)
-
-
-# In-plane feature footprint (bent x extent of the top arc).
-X_FEAT = R_TOP * math.sin(PHI_MAX)      # half-width of the feature in bent x
-FEATURE_WIDTH = 2.0 * X_FEAT            # cells span this
-
-
-def true_metrics():
-    """Analytic truth for the annular-sector cross-section."""
-    arc_len_top = R_TOP * (2.0 * PHI_MAX)
-    arc_len_bot = R_BOT * (2.0 * PHI_MAX)
-    # Annular sector: area = 0.5 (R_top^2 - R_bot^2)(2 phi) = 2 R_bend h phi.
-    area = 0.5 * (R_TOP ** 2 - R_BOT ** 2) * (2.0 * PHI_MAX)
-    # Perimeter = outer arc + inner arc + two radial end caps (length h each).
-    perimeter = arc_len_top + arc_len_bot + 2.0 * H_SUB
+    h = 1.0 / resolution
+    xmax = R_TOP * np.sin(half_angle)
+    zmin = ARC_CENTER_Z + R_BOT * np.cos(half_angle)
+    # Fixed physical grid origin; grid faces lie on integer multiples of h.
+    ix = np.arange(np.floor(-xmax / h) - 2, np.ceil(xmax / h) + 2)
+    iz = np.arange(np.floor(zmin / h) - 2, np.ceil(H_SUB / h) + 2)
+    x, z = np.meshgrid((ix + .5) * h, (iz + .5) * h, indexing='ij')
+    radius = np.hypot(x, z - ARC_CENTER_Z)
+    mask = ((radius >= R_BOT) & (radius <= R_TOP)
+            & (np.abs(np.arctan2(x, z - ARC_CENTER_Z)) <= half_angle))
+    padded = np.pad(mask.astype(int), 1)
+    perimeter = float(np.abs(np.diff(padded, axis=0)).sum()
+                      + np.abs(np.diff(padded, axis=1)).sum()) * h
+    area = float(mask.sum()) * h*h
+    xs = np.linspace(-xmax, xmax, N_ARC_SAMPLES)
+    centres = np.clip((np.floor(xs / h) + .5) * h, -xmax, xmax)
+    true_z = ARC_CENTER_Z + np.sqrt(R_TOP**2 - xs**2)
+    column_z = ARC_CENTER_Z + np.sqrt(R_TOP**2 - centres**2)
+    snapped_z = np.round(column_z / h) * h
+    error = snapped_z - true_z
+    rms = float(np.sqrt(np.mean(error**2)))
+    true_area = half_angle * (R_TOP**2 - R_BOT**2)
+    true_perimeter = 2*half_angle*(R_TOP + R_BOT) + 2*H_SUB
+    # Total variation of both circular arcs plus the radial end caps.
+    taxicab = (2*(R_TOP+R_BOT)*(np.sin(half_angle)+1-np.cos(half_angle))
+               + 2*H_SUB*(np.sin(half_angle)+np.cos(half_angle)))
     return {
-        "top_arc_length_mm": arc_len_top,
-        "area_mm2": area,
-        "perimeter_mm": perimeter,
+        'resolution_cells_per_mm': resolution, 'cell_size_mm': h,
+        'boundary_pos_rms_mm': rms, 'boundary_pos_max_mm': float(np.max(np.abs(error))),
+        'resonance_shift_proxy_abs': rms / (2*R_TOP*half_angle),
+        'area_mm2': area, 'area_rel_error': (area-true_area)/true_area,
+        'perimeter_mm': perimeter, 'perimeter_rel_error': (perimeter-true_perimeter)/true_perimeter,
+        'taxicab_perimeter_limit_mm': float(taxicab),
+        'taxicab_perimeter_rel_error_limit': float(taxicab/true_perimeter-1),
     }
 
 
-def rasterize(N):
-    """Voxelize the curved slab onto a Yee/Cartesian grid; return staircase metrics.
+def mesh_surfaces(path):
+    """Read physical 12/13 linear surface triangles from ASCII MSH 4.1."""
+    lines = path.read_text().splitlines()
+    i = lines.index('$Entities') + 1
+    np_, nc, ns, _ = map(int, lines[i].split())
+    i += 1 + np_ + nc
+    groups = {}
+    for line in lines[i:i+ns]:
+        row = line.split(); n = int(row[7])
+        groups[int(row[0])] = set(map(int, row[8:8+n]))
+    i = lines.index('$Nodes') + 1
+    blocks = int(lines[i].split()[0]); i += 1
+    nodes = {}
+    for _ in range(blocks):
+        _, _, parametric, count = map(int, lines[i].split()); i += 1
+        assert parametric == 0, 'Only non-parametric fixture nodes are supported'
+        tags = []
+        while len(tags) < count:
+            tags.extend(map(int, lines[i].split())); i += 1
+        for tag in tags:
+            nodes[tag] = list(map(float, lines[i].split())); i += 1
+    i = lines.index('$Elements') + 1
+    blocks = int(lines[i].split()[0]); i += 1
+    surfaces = {12: [], 13: []}
+    for _ in range(blocks):
+        dim, entity, kind, count = map(int, lines[i].split()); i += 1
+        if dim == 2 and kind == 2:
+            for group in surfaces:
+                if group in groups[entity]:
+                    for line in lines[i:i+count]:
+                        surfaces[group].append([nodes[tag] for tag in map(int, line.split()[1:])])
+        i += count
+    assert all(surfaces.values())
+    return {k: np.array(v) for k, v in surfaces.items()}
 
-    Cell size h = FEATURE_WIDTH / N. A cell is 'metal/substrate' iff its CENTER
-    lies inside the true curved slab (the density/occupancy an FDTD-density
-    method is forced to use). Grid is padded so the whole sector fits.
+
+def subdivide(tri):
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    ab, bc, ca = (a+b)/2, (b+c)/2, (c+a)/2
+    return np.concatenate([np.stack(t, axis=1) for t in
+                           [(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)]])
+
+
+def bent(flat):
+    radius = R_BEND + flat[..., 2] - H_SUB/2
+    phi = flat[..., 0] / R_BEND
+    return np.stack([radius*np.sin(phi), flat[..., 1],
+                     ARC_CENTER_Z+radius*np.cos(phi)], axis=-1)
+
+
+def facet_error(flat, order=12):
+    """Area-weighted RMS radial distance to cylinder, and exact maximum.
+
+    The maximum deficit is the nearest point to the origin in each triangle's
+    x-z projection (vertices and edges suffice for these small-angle arcs).
+    RMS uses tensor Gauss quadrature under the Duffy triangle map; a higher
+    order is used independently by the verification script.
     """
-    h = FEATURE_WIDTH / N
-
-    # Grid bounds with a one-cell pad around the sector's bounding box.
-    x_min, x_max = -X_FEAT, X_FEAT
-    z_min = ARC_CENTER_Z + R_BOT * math.cos(PHI_MAX)  # lowest point of inner arc ends
-    z_max = ARC_CENTER_Z + R_TOP                       # apex of outer arc
-    pad = 2.0 * h
-    x0, x1 = x_min - pad, x_max + pad
-    z0b, z1b = z_min - pad, z_max + pad
-
-    nx = int(math.ceil((x1 - x0) / h))
-    nz = int(math.ceil((z1b - z0b) / h))
-
-    # Cell-center coordinates.
-    xc = x0 + (np.arange(nx) + 0.5) * h
-    zc = z0b + (np.arange(nz) + 0.5) * h
-    XX, ZZ = np.meshgrid(xc, zc, indexing="ij")  # (nx, nz)
-
-    mask = in_curved_slab(XX, ZZ)  # boolean occupancy grid
-
-    # --- area ---
-    area_pixel = float(mask.sum()) * h * h
-
-    # --- Manhattan perimeter: count occupied/empty cell interfaces (incl. grid
-    #     border) times the cell edge length h. This is the boundary length a
-    #     voxel representation actually presents. ---
-    padded = np.pad(mask, 1, mode="constant", constant_values=False)
-    # Horizontal neighbor differences -> vertical edges; vertical -> horizontal.
-    diff_x = np.abs(padded[1:, :].astype(np.int8) - padded[:-1, :].astype(np.int8)).sum()
-    diff_z = np.abs(padded[:, 1:].astype(np.int8) - padded[:, :-1].astype(np.int8)).sum()
-    perimeter_pixel = float(diff_x + diff_z) * h
-
-    # --- boundary-position (staircase) error on the TOP arc ---
-    # For a dense set of true-arc samples, the FDTD surface is the top edge of
-    # the occupied column: snap the true z to the nearest cell-center grid line
-    # in that column (the metal fills whole cells; its top face sits on a Yee
-    # grid line). Vertical distance = staircasing error.
-    xs = np.linspace(-X_FEAT, X_FEAT, N_ARC_SAMPLES)
-    zs_true = arc_top_z(xs)
-    # Nearest grid line (cell center) in z for each true point.
-    zs_snapped = z0b + (np.round((zs_true - z0b) / h - 0.5) + 0.5) * h
-    err = np.abs(zs_true - zs_snapped)
-    rms = float(np.sqrt(np.mean(err ** 2)))
-    emax = float(np.max(err))
-
-    return {
-        "N": int(N),
-        "cell_size_mm": h,
-        "grid_nx": int(nx),
-        "grid_nz": int(nz),
-        "area_pixel_mm2": area_pixel,
-        "perimeter_pixel_mm": perimeter_pixel,
-        "boundary_pos_rms_mm": rms,
-        "boundary_pos_max_mm": emax,
-    }
+    tri = bent(flat)
+    radius = R_BEND + float(flat[0, 0, 2]) - H_SUB/2
+    assert np.allclose(flat[..., 2], flat[0, 0, 2])
+    xz = tri[..., [0, 2]] - np.array([0., ARC_CENTER_Z])
+    min_r = np.full(len(tri), np.inf)
+    for j in range(3):
+        a, b = xz[:, j], xz[:, (j+1) % 3]
+        delta = b-a
+        den = np.sum(delta*delta, axis=1)
+        t = np.divide(-np.sum(a*delta, axis=1), den, out=np.zeros_like(den), where=den>0)
+        point = a + np.clip(t, 0, 1)[:, None]*delta
+        min_r = np.minimum(min_r, np.linalg.norm(point, axis=1))
+    jac = np.linalg.norm(np.cross(tri[:, 1]-tri[:, 0], tri[:, 2]-tri[:, 0]), axis=1)
+    if np.any(jac <= 0):
+        raise ValueError('Degenerate surface triangle')
+    q, w = np.polynomial.legendre.leggauss(order); q=(q+1)/2; w=w/2
+    integral = 0.
+    for u, wu in zip(q, w):
+        for v, wv in zip(q, w):
+            point = (1-u)*xz[:, 0] + u*(1-v)*xz[:, 1] + u*v*xz[:, 2]
+            error = radius - np.linalg.norm(point, axis=1)
+            integral += float(np.sum(jac * error**2)) * u * wu * wv
+    return {'triangles': len(tri), 'radius_mm': radius,
+            'facet_max_radial_error_mm': float(np.max(radius-min_r)),
+            'facet_rms_radial_error_mm': float(np.sqrt(integral/(jac.sum()/2))),
+            'max_flat_x_span_mm': float(np.ptp(flat[..., 0], axis=1).max())}
 
 
 def build_results():
-    truth = true_metrics()
-    L_arc = truth["top_arc_length_mm"]
-
-    rows = []
-    for N in RESOLUTIONS:
-        m = rasterize(N)
-        h = m["cell_size_mm"]
-        area_err = abs(m["area_pixel_mm2"] - truth["area_mm2"]) / truth["area_mm2"]
-        perim_err = (m["perimeter_pixel_mm"] - truth["perimeter_mm"]) / truth["perimeter_mm"]
-        # First-order cavity boundary-perturbation proxy for the fractional
-        # resonant-frequency shift induced by an RMS boundary displacement.
-        # |Δf/f| ~ δ_rms / L_arc  (order of magnitude; NOT a solved eigenvalue).
-        df_over_f = m["boundary_pos_rms_mm"] / L_arc
-        rows.append({
-            **m,
-            "area_rel_err": area_err,
-            "perimeter_rel_err": perim_err,          # -> staircase-paradox constant, NOT 0
-            "boundary_pos_rms_over_h": m["boundary_pos_rms_mm"] / h,  # scale-invariant
-            "resonance_shift_proxy_abs": df_over_f,
-        })
-
-    # O(h) scaling slopes (log-log least squares) as a machine-checkable summary.
-    hs = np.array([r["cell_size_mm"] for r in rows])
-
-    def slope(vals):
-        v = np.array(vals)
-        good = v > 0
-        if good.sum() < 2:
-            return None
-        return float(np.polyfit(np.log(hs[good]), np.log(v[good]), 1)[0])
-
-    scaling = {
-        "boundary_pos_rms_slope_vs_h": slope([r["boundary_pos_rms_mm"] for r in rows]),
-        "area_rel_err_slope_vs_h": slope([r["area_rel_err"] for r in rows]),
-        "perimeter_rel_err_slope_vs_h": slope([abs(r["perimeter_rel_err"]) for r in rows]),
-        "resonance_proxy_slope_vs_h": slope([r["resonance_shift_proxy_abs"] for r in rows]),
-    }
-
-    # Cost to reach conformal-equivalent geometric fidelity by refining the grid.
-    # Position error ~ h/4 (uniform snap), so target N ~ FEATURE_WIDTH / (4*target).
-    n_for_conformal = FEATURE_WIDTH / (4.0 * CONFORMAL_TARGET_MM)
-    finest = RESOLUTIONS[-1]
-    cells_blowup_3d = (n_for_conformal / finest) ** 3  # 3D FDTD cell-count factor
-
-    results = {
-        "_schema": "geode-fdtd-staircasing/1",
-        "description": (
-            "Staircasing error of a Yee/Cartesian density grid representing the "
-            "GEODE bent_conformal curved-metal radiator (a circular arc). "
-            "Conformal-tet reference error is 0 to machine precision at any N."
-        ),
-        "geometry": {
-            "source": "crates/geode-core/src/mesh/patch.rs::PatchFixture::bent_conformal (commit eac4e85)",
-            "bend_map": "phi=x/R; r=R+(z-z0); x'=r sin phi; z'=z0+r cos phi - R",
-            "R_bend_mm": R_BEND,
-            "h_sub_mm": H_SUB,
-            "x_halfwidth_mm": X_HALFWIDTH,
-            "phi_max_rad": PHI_MAX,
-            "R_top_mm": R_TOP,
-            "R_bot_mm": R_BOT,
-            "feature_width_mm": FEATURE_WIDTH,
-        },
-        "true_metrics": truth,
-        "conformal_reference": {
-            "boundary_pos_rms_mm": 0.0,
-            "note": (
-                "Unstructured-tet nodes lie ON the arc; geometric error is 0 to "
-                "machine precision independent of resolution — the whole point."
-            ),
-        },
-        "resolutions": rows,
-        "scaling_slopes_loglog": scaling,
-        "refinement_cost": {
-            "conformal_target_mm": CONFORMAL_TARGET_MM,
-            "cells_across_feature_needed": n_for_conformal,
-            "finest_tested_N": finest,
-            "cells_needed_over_finest": n_for_conformal / finest,
-            "equivalent_3d_fdtd_cell_blowup_factor": cells_blowup_3d,
-            "note": (
-                "To make the staircased boundary as faithful as the conformal "
-                "tet mesh you must refine to ~%d cells across the feature; in 3D "
-                "that is ~%.2e x the Yee cells of the finest grid tested — "
-                "infeasible. The conformal mesh is exact at fixed DOF."
-                % (int(round(n_for_conformal)), cells_blowup_3d)
-            ),
-        },
-    }
-    return results
+    arcs = {}
+    for name, phi in [('patch', .2), ('substrate', .3)]:
+        rows = [rasterize(r, phi) for r in RESOLUTIONS]
+        arcs[name] = {'half_angle_rad': phi, 'top_arc_length_mm': 2*R_TOP*phi,
+                      'resolutions': rows, 'resonance_proxy_slope_vs_cell_size': slope(
+                          [r['cell_size_mm'] for r in rows],
+                          [r['resonance_shift_proxy_abs'] for r in rows])}
+    facets = []
+    surfaces = mesh_surfaces(MESH)
+    for level in range(4):
+        facets.append({'level': f'L{level}', 'patch': facet_error(surfaces[12]),
+                       'ground': facet_error(surfaces[13])})
+        if level < 3:
+            surfaces = {k: subdivide(v) for k, v in surfaces.items()}
+    return {'_schema': 'geode-fdtd-staircasing/2',
+            'scope': 'Historical smoke geometry only; geometric proxy, no EM solve or cost-to-accuracy claim.',
+            'geometry': {'bend_radius_mm': R_BEND, 'substrate_thickness_mm': H_SUB,
+                         'top_radius_mm': R_TOP, 'bottom_radius_mm': R_BOT,
+                         'patch_width_mm': 16., 'substrate_width_mm': 24.},
+            'provenance': {'mesh': str(MESH.relative_to(REPO)),
+                           'mesh_sha256': hashlib.sha256(MESH.read_bytes()).hexdigest(),
+                           'generator_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
+            'metric_notes': {'proxy': 'RMS vertical height displacement / top arc length; not solved resonance or S11.',
+                             'perimeter': 'Taxicab staircase paradox; not an electromagnetic error.',
+                             'fem': 'Area-weighted radial facet error; vertices on the arc do not make facets exact.',
+                             'ladder': 'L0 committed smoke surface; L1-L3 flat midpoint surface subdivision then exact cylindrical nodal bend. No refined volume solves.',
+                             'comparison': 'Cartesian vertical RMS and facet radial RMS use different measures; no equal-error solver cost is inferred.'},
+            'arcs': arcs, 'fem_surface_ladder': facets}
 
 
-def round_floats(obj, ndigits=10):
-    """Round all floats for bit-identical JSON across runs/platforms."""
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return obj
-        return round(obj, ndigits)
-    if isinstance(obj, dict):
-        return {k: round_floats(v, ndigits) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [round_floats(v, ndigits) for v in obj]
-    return obj
-
-
-def write_json(results, path):
-    with open(path, "w") as f:
-        json.dump(round_floats(results), f, indent=2, sort_keys=True)
-        f.write("\n")
-
-
-def write_csv(rows, path):
-    import csv
-    keys = list(rows[0].keys())
-    with open(path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(keys)
-        for r in rows:
-            w.writerow([r[k] for k in keys])
-
-
-def try_plot(results, path):
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except Exception as e:  # pragma: no cover - environment dependent
-        print("matplotlib unavailable (%s); skipping PNG, emitting CSV instead" % e)
-        return False
-
-    rows = results["resolutions"]
-    hs = [r["cell_size_mm"] for r in rows]
-    pos = [r["boundary_pos_rms_mm"] for r in rows]
-    area = [r["area_rel_err"] for r in rows]
-    perim = [abs(r["perimeter_rel_err"]) for r in rows]
-    res = [r["resonance_shift_proxy_abs"] for r in rows]
-    Ns = [r["N"] for r in rows]
-
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4))
-
-    ax = axes[0]
-    ax.loglog(hs, pos, "o-", label="boundary-position RMS (mm)")
-    ax.loglog(hs, [h / 4.0 for h in hs], "k--", lw=1, label="~h/4 (staircase)")
-    # Conformal reference: exact (draw a floor far below).
-    ax.axhline(1e-12, color="C2", ls=":", label="conformal tet (~0, machine eps)")
-    ax.set_xlabel("cell size h (mm)")
-    ax.set_ylabel("boundary-position error (mm)")
-    ax.set_title("Staircasing position error is O(h), never 0")
-    ax.legend(fontsize=8)
-    ax.grid(True, which="both", alpha=0.3)
-
-    ax = axes[1]
-    ax.semilogx(Ns, [p * 100 for p in perim], "s-", label="perimeter rel-err (%)")
-    ax.semilogx(Ns, [a * 100 for a in area], "^-", label="area rel-err (%)")
-    ax.semilogx(Ns, [r * 100 for r in res], "d-", label="resonance-shift proxy (%)")
-    ax.set_xlabel("N cells across feature")
-    ax.set_ylabel("relative error (%)")
-    ax.set_title("Perimeter error -> staircase-paradox constant (not 0)")
-    ax.legend(fontsize=8)
-    ax.grid(True, which="both", alpha=0.3)
-
-    fig.suptitle(
-        "Yee/Cartesian density staircasing of the GEODE bent_conformal arc "
-        "(R=%.0f mm, %.2f rad)" % (R_BEND, 2 * PHI_MAX),
-        fontsize=10,
-    )
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(path, dpi=130)
+def plot(results, path):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({'font.size': 10, 'axes.spines.top': False, 'axes.spines.right': False})
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), layout='constrained')
+    for name, color in [('patch', '#23679A'), ('substrate', '#16847B')]:
+        arc = results['arcs'][name]; rows = arc['resolutions']
+        x = [r['resolution_cells_per_mm'] for r in rows]
+        axes[0, 0].loglog(x, [r['resonance_shift_proxy_abs'] for r in rows], 'o-', color=color,
+                         label=f"{name}; slope vs cell size {arc['resonance_proxy_slope_vs_cell_size']:.2f}")
+        axes[0, 1].loglog(x, [r['boundary_pos_rms_mm']*1000 for r in rows], 'o-', color=color, label=name)
+        axes[1, 1].semilogx(x, [r['perimeter_rel_error']*100 for r in rows], 'o-', color=color, label=name+' footprint')
+        axes[1, 1].axhline(rows[0]['taxicab_perimeter_rel_error_limit']*100, color=color, ls='--', lw=1)
+    for name, color in [('patch', '#23679A'), ('ground', '#72777D')]:
+        rows = [r[name] for r in results['fem_surface_ladder']]
+        axes[1, 0].semilogy(range(4), [r['facet_max_radial_error_mm']*1000 for r in rows], 'o-', color=color, label=f'{name} max')
+        axes[1, 0].semilogy(range(4), [r['facet_rms_radial_error_mm']*1000 for r in rows], 's--', color=color, label=f'{name} RMS')
+    axes[0, 0].set(title='(a) Displacement / arc-length proxy converges', ylabel='Dimensionless geometric proxy')
+    axes[0, 1].set(title='(b) Cartesian top-profile error', ylabel='Vertical RMS displacement (µm)')
+    axes[1, 0].set(title='(c) Linear FEM facets are not exact arcs', ylabel='Radial distance to cylinder (µm)',
+                   xlabel='Surface-only midpoint refinement level', xticks=range(4), xticklabels=['L0', 'L1', 'L2', 'L3'])
+    axes[1, 1].set(title='(d) Perimeter: staircase paradox, not EM error', ylabel='Perimeter error (%)')
+    for ax in [axes[0, 0], axes[0, 1], axes[1, 1]]:
+        ax.set_xlabel('Cartesian resolution (cells/mm)')
+        ax.set_xticks(RESOLUTIONS, labels=RESOLUTIONS)
+    for ax in axes.flat:
+        ax.legend(fontsize=9); ax.grid(alpha=.2, which='both')
+    fig.suptitle('Historical smoke fixture: R = 40 mm, h = 2 mm; patch ±0.2 rad, substrate ±0.3 rad\nGeometry diagnostics only — no solved frequency, S11, or solver-cost claim', fontsize=12)
+    fig.savefig(path, dpi=160)
     plt.close(fig)
-    return True
 
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-dir', type=Path, default=HERE)
+    parser.add_argument('--no-plot', action='store_true')
+    args = parser.parse_args()
     results = build_results()
-
-    json_path = os.path.join(here, "staircasing_results.json")
-    write_json(results, json_path)
-    print("wrote", json_path)
-
-    png_path = os.path.join(here, "staircasing.png")
-    if try_plot(results, png_path):
-        print("wrote", png_path)
-    else:
-        csv_path = os.path.join(here, "staircasing_results.csv")
-        write_csv(results["resolutions"], csv_path)
-        print("wrote", csv_path)
-
-    # Console summary.
-    print("\n=== Staircasing vs conformal (bent_conformal arc, R=%.0f mm) ===" % R_BEND)
-    print("feature width = %.4f mm, true top-arc length = %.4f mm"
-          % (FEATURE_WIDTH, results["true_metrics"]["top_arc_length_mm"]))
-    hdr = ("  N    h(mm)   pos_rms(mm)  pos/h   perim_err%   area_err%   dfreq_proxy%")
-    print(hdr)
-    for r in results["resolutions"]:
-        print("  %-4d %7.4f  %10.5f  %5.3f  %10.4f  %10.4f  %11.4f" % (
-            r["N"], r["cell_size_mm"], r["boundary_pos_rms_mm"],
-            r["boundary_pos_rms_over_h"], r["perimeter_rel_err"] * 100,
-            r["area_rel_err"] * 100, r["resonance_shift_proxy_abs"] * 100))
-    s = results["scaling_slopes_loglog"]
-    print("\nlog-log slopes vs h:  pos_rms=%.3f  area=%.3f  perimeter=%.3f (should be ~0)"
-          % (s["boundary_pos_rms_slope_vs_h"], s["area_rel_err_slope_vs_h"],
-             s["perimeter_rel_err_slope_vs_h"]))
-    rc = results["refinement_cost"]
-    print("conformal reference boundary error: 0 (machine eps) at EVERY N.")
-    print("to match it by refinement: ~%d cells across feature => ~%.2e x 3D Yee cells."
-          % (int(round(rc["cells_across_feature_needed"])),
-             rc["equivalent_3d_fdtd_cell_blowup_factor"]))
-    return 0
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir/'staircasing_results.json').write_text(json.dumps(results, indent=2, sort_keys=True, allow_nan=False)+'\n')
+    if not args.no_plot:
+        plot(results, args.output_dir/'staircasing.png')
+    for name, arc in results['arcs'].items():
+        vals = [r['resonance_shift_proxy_abs'] for r in arc['resolutions']]
+        print(f"{name}: proxy {vals[0]:.6g} -> {vals[-1]:.6g}; slope {arc['resonance_proxy_slope_vs_cell_size']:.4f}")
+    for row in results['fem_surface_ladder']:
+        print(row)
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__':
+    main()
