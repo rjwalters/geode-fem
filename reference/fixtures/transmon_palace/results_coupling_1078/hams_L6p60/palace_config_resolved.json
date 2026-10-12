@@ -1,0 +1,178 @@
+{
+  "Boundaries": {
+    "LumpedPort": [
+      {
+        "Active": true,
+        "Attributes": [
+          4
+        ],
+        "C": 5.5e-15,
+        "Cs": 0.0,
+        "Direction": "+Y",
+        "Excitation": 0,
+        "IncludeInSynthesis": true,
+        "Index": 1,
+        "L": 6.6e-09,
+        "Ls": 0.0,
+        "R": 0.0,
+        "Rs": 0.0
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        5,
+        3
+      ]
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "Conductivity": 0.0,
+        "LondonDepth": 0.0,
+        "LossTan": 0.0,
+        "MaterialAxes": [
+          [
+            0.8,
+            0.6,
+            0.0
+          ],
+          [
+            -0.6,
+            0.8,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "Permeability": 1.0,
+        "Permittivity": [
+          9.3,
+          9.3,
+          11.5
+        ]
+      },
+      {
+        "Attributes": [
+          2
+        ],
+        "Conductivity": 0.0,
+        "LondonDepth": 0.0,
+        "LossTan": 0.0,
+        "Permeability": 1.0,
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Model": {
+    "AddInterfaceBoundaryElements": true,
+    "CleanUnusedElements": true,
+    "CrackDisplacementFactor": 1e-12,
+    "CrackInternalBoundaryElements": true,
+    "ExportPrerefinedMesh": false,
+    "L0": 1e-06,
+    "MakeHexahedral": false,
+    "MakeSimplex": false,
+    "Mesh": "/work/transmon_smoke_v22.msh",
+    "RefineCrackElements": true,
+    "Refinement": {
+      "MaxIts": 0,
+      "MaxNCLevels": 1,
+      "MaxSize": 0,
+      "MaximumImbalance": 1.1,
+      "Nonconformal": true,
+      "SaveAdaptIterations": true,
+      "SaveAdaptMesh": false,
+      "SerialUniformLevels": 0,
+      "Tol": 0.01,
+      "UniformLevels": 0,
+      "UpdateFraction": 0.7
+    },
+    "RemoveCurvature": false,
+    "ReorderElements": false,
+    "ReorientTetMesh": false
+  },
+  "Problem": {
+    "Output": "/work/postpro/hams_L6p60",
+    "OutputFormats": {
+      "GridFunction": false,
+      "Paraview": true
+    },
+    "Type": "Eigenmode",
+    "Verbose": 2
+  },
+  "Solver": {
+    "Device": "CPU",
+    "Eigenmode": {
+      "LinearTol": 0.001,
+      "MassOrthogonal": false,
+      "MaxIts": 200,
+      "MaxRestart": 2,
+      "MaxSize": 19,
+      "N": 4,
+      "NonlinearType": "Hybrid",
+      "PEPLinear": true,
+      "PreconditionerLag": 10,
+      "PreconditionerLagTol": 0.0001,
+      "RefineNonlinear": true,
+      "Save": 0,
+      "Scaling": true,
+      "StartVector": true,
+      "StartVectorConstant": false,
+      "Target": 4.5,
+      "TargetUpper": 13.5,
+      "Tol": 1e-08,
+      "Type": "SLEPc"
+    },
+    "Linear": {
+      "AMGAggressiveCoarsening": false,
+      "AMSMaxIts": 1,
+      "AMSSingularOperator": false,
+      "AMSVectorInterpolation": false,
+      "ColumnOrdering": "Default",
+      "ComplexCoarseSolve": false,
+      "DivFreeMaxIts": 1000,
+      "DivFreeTol": 1e-12,
+      "DropSmallEntries": false,
+      "EstimatorMG": false,
+      "EstimatorMaxIts": 10000,
+      "EstimatorTol": 1e-06,
+      "GSOrthogonalization": "MGS",
+      "InitialGuess": false,
+      "KSPType": "GMRES",
+      "MGAuxiliarySmoother": true,
+      "MGCoarsenType": "Logarithmic",
+      "MGCycleIts": 2,
+      "MGMaxLevels": 100,
+      "MGSmoothChebyshev4th": true,
+      "MGSmoothEigScaleMax": 1.0,
+      "MGSmoothEigScaleMin": 0.0,
+      "MGSmoothIts": 1,
+      "MGSmoothOrder": 4,
+      "MGUseMesh": true,
+      "MaxIts": 500,
+      "MaxSize": 500,
+      "PCMatReal": false,
+      "PCMatShifted": false,
+      "PCSide": "Default",
+      "ReorderingReuse": true,
+      "STRUMPACKButterflyLevels": 1,
+      "STRUMPACKCompressionTol": 0.001,
+      "STRUMPACKCompressionType": "None",
+      "STRUMPACKLossyPrecision": 16,
+      "SuperLU3DCommunicator": false,
+      "Tol": 1e-09,
+      "Type": "AMS"
+    },
+    "Order": 1,
+    "PartialAssemblyOrder": 1,
+    "QuadratureOrderExtra": 0,
+    "QuadratureOrderJacobian": false
+  }
+}
