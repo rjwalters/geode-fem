@@ -1,0 +1,20 @@
+{
+  "note": "Inputs of the v9 figure scripts. Every figure reads committed repository artifacts directly; v9 has no snapshot (v8's optimized-outline snapshot of the superseded 89.9 fF design is removed, and Figure 6 draws the current designs by their committed design.json extents). verify_figures.py checks every hash.",
+  "files": {},
+  "repository_inputs": {
+    "crates/geode-core/tests/fixtures/transmon_smoke.msh": "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd",
+    "benchmarks/transmon_eigen/results.toml": "8b6d73268ce8d386c22b61d6d2c5514b9a57e70734edaf2e7e68c978c824749a",
+    "benchmarks/transmon_diffopt/c_sigma_convergence.toml": "c3b4d1807823dd0ebbcef8c6d0b290b324817e0ac038679dc292e048246c6d22",
+    "benchmarks/transmon_diffopt/c_sigma_bracket.toml": "3dec6e801b61a8f386a47aecd3d66a589b752bc4f8ec6a103e0b28b344069833",
+    "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/summary.toml": "148150e957778abe0221a592b3eacb5ad5aad02d9045e11d6cf699980b010016",
+    "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/design.json": "3fe4c8f07439b5f37a336a12a70a9a7c5e6feeb180bc8e69988b140fbd2e2356",
+    "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected/summary.toml": "71a9a581bcb2856ad79288816fadb6796f0cdbbf3011185c8576d8b9db3279b5",
+    "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected/design.json": "fcebb03a483ea701db13b70dad8afbe85fd74d7766744a2932c04dd65e7f0c3f",
+    "benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml": "f0148ed739ba9ede92ba95e363e2646ffbf25a1336967104351fef4cfa2e631e",
+    "benchmarks/transmon_coupling/results.toml": "87eb2faac7150f2fbe83e0e646a5c0c14fb64676b282d554e643a75994a45899",
+    "benchmarks/transmon_loop_inductance/results.toml": "7117b0f6c4ec6c16347e13c00389ffd614dbd84d6aae7f02c9a1692aa99d7b68",
+    "benchmarks/transmon_bench_cpu/results_like_for_like_m6i.toml": "11cd743b0ae7c12582affb03be96da541188addc19112e27c1ebef3d43980dea",
+    "benchmarks/transmon_diffopt/results.toml": "1a7e58b06fca0820d131e87c72794726f697d3a95ee9c38f35eae8702d7718f5",
+    "benchmarks/transmon_diffopt/pad_results.toml": "ff4c7b95906d7134088ef5708a2f1d80176705b2210b2e262c706afddf43f9f0"
+  }
+}
