@@ -4,7 +4,7 @@ author: "Robb Walters"
 venue: neurips
 documentclass: anvil-paper
 anonymous: false
-web_search: false
+web_search: true
 ---
 
 # Brief — freeform conformal-radiator differentiable inverse design
