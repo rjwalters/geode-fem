@@ -90,12 +90,45 @@
 //!
 //! The same sweep finds a series loop inductance `L_s ≈ 0.08 nH` in the
 //! qubit mode (`[loop_inductance]` there): about 0.5 % of its inductive
-//! energy lies outside the junction. It predicts a 0.27 % downshift from
-//! the pure-LC frequency, most of #1043's 0.28 % same-mesh Palace-vs-LC
-//! offset, and reading 4.14 GHz through `L_J` alone ignores it. That
-//! would move the target down by roughly another 0.5 fF; it is an
-//! inference on unconverged meshes and is **not** applied by any anchor
-//! here (follow-up #1079).
+//! energy lies outside the junction. [`TransmonAnchor::devicelayout_bare`]
+//! does not apply it; [`TransmonAnchor::devicelayout_bare_loop`] (below)
+//! does.
+//!
+//! # The loop-corrected anchor (issue #1079)
+//!
+//! [`TransmonAnchor::devicelayout_bare_loop`] reads the same
+//! resonator-grounded qubit frequency (about 4.1421 GHz) through a circuit
+//! with the loop inductance: the island capacitance `C_Σ` in series with
+//! `L_s` and the junction `L_J ∥ C_J`
+//! ([`TransmonAnchor::from_harmonic_with_loop_inductance`]). The evidence
+//! (`benchmarks/transmon_loop_inductance/results.toml`,
+//! `examples/transmon_loop_inductance.rs`):
+//! - **Physical, not a port artifact.** Moving the port sheet along the
+//!   junction wire (patch length 1 to 12 µm, or moved to the ground end)
+//!   changes `L_s` by at most 1.3 %, in geode's A2 shunt and in Palace's
+//!   lumped port, at first and second order. `L_s` is the geometric
+//!   inductance of the qubit's current path: the 1 µm wire and the 620 µm
+//!   island finger with its ground return (a coplanar-line estimate gives
+//!   0.12 nH).
+//! - **Series topology.** With `C_J` at 0, 5.5 and 20 fF the series
+//!   estimator [`series_loop_inductance_from_participations`] returns the
+//!   same `L_s` to 3e-4, while #1078's `L_J (1 − p)` changes by 26 %. `C_J`
+//!   sits across the junction and `L_s` outside it.
+//! - **Not converged.** Palace gives 0.0852 nH on the fixture, 0.1047 nH
+//!   on one uniform refinement and 0.1132 nH at second order; `h/4` does
+//!   not fit locally. The anchor uses the extrapolated
+//!   [`DEVICELAYOUT_LOOP_INDUCTANCE_H`] = 0.120 nH, band
+//!   [`DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H`] = [0.113, 0.125] nH: an
+//!   estimate, not a bound.
+//!
+//! The result is `C_Σ ≈ 93.143 fF`, 0.711 fF below the bare anchor, with a
+//! band of [93.087, 93.222] fF over the `k` and `L_s` bands. On the
+//! fixture itself, `L_s` accounts for 94 % of #1043's −0.28 % same-mesh
+//! Palace-vs-LC qubit offset and the hybridization for 5 %, leaving
+//! −0.004 % for solver and permittivity-model differences.
+//! [`TransmonAnchor::devicelayout`] and [`TransmonAnchor::devicelayout_bare`]
+//! are unchanged. Same transfer assumption as the coupling: one `L_s`
+//! describes DeviceLayout's own run.
 //!
 //! # Exact oracle: Koch 2007 charge-basis diagonalization
 //!
@@ -344,7 +377,9 @@ pub fn total_capacitance_from_harmonic_frequency(frequency_hz: f64, l_henry: f64
 /// This is the lower of two coupled, resonator-hybridized eigenmodes, so the
 /// bare-qubit-consistent `C_Σ` is below the one derived from it:
 /// [`TransmonAnchor::devicelayout_bare`] (issue #1078) puts it 0.100 fF
-/// lower, with a band of 0.062–0.128 fF.
+/// lower, with a band of 0.062–0.128 fF, and
+/// [`TransmonAnchor::devicelayout_bare_loop`] (issue #1079) another
+/// 0.711 fF lower with the qubit's loop inductance.
 pub const DEVICELAYOUT_QUBIT_FREQUENCY_HZ: f64 = 4.14e9;
 
 /// The published DeviceLayout SingleTransmon readout-resonator frequency
@@ -372,6 +407,82 @@ pub const DEVICELAYOUT_COUPLING_K: f64 = 0.0288;
 /// above it; an inference, not a bound) and the static proxy's
 /// geometric-tail limit ceiled.
 pub const DEVICELAYOUT_COUPLING_K_BAND: (f64, f64) = (0.0227, 0.0310);
+
+/// The qubit mode's series loop inductance `L_s` (H) used by the
+/// loop-corrected anchor [`TransmonAnchor::devicelayout_bare_loop`] (issue
+/// #1079): the inductance of the island and its feed between the junction
+/// port and the island capacitance, in the series circuit of
+/// [`TransmonAnchor::from_harmonic_with_loop_inductance`].
+///
+/// An extrapolation, not a measurement. Palace's port EPRs, read through
+/// [`series_loop_inductance_from_participations`], give 0.0852 nH on the
+/// committed fixture (geode's A2 shunt agrees to 2e-4), 0.1047 nH on one
+/// uniform refinement and 0.1132 nH at second order on the fixture; `L_s`
+/// rises at every level. This value is the midpoint of two Richardson
+/// estimates from the uniform pair, 0.1242 nH at order 1 and 0.1164 nH at
+/// the static `C_Σ`'s observed order 1.41
+/// (`benchmarks/transmon_loop_inductance/results.toml`, `[convergence].rule`;
+/// the generator asserts it).
+pub const DEVICELAYOUT_LOOP_INDUCTANCE_H: f64 = 0.120e-9;
+
+/// The band of `L_s` (H) behind the loop-corrected anchor (issue #1079),
+/// `(low, high)`: the largest measured value floored (an inference: `L_s`
+/// rises under every measured refinement) and the order-1 Richardson
+/// estimate ceiled. An estimate, not a bound.
+pub const DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H: (f64, f64) = (0.113e-9, 0.125e-9);
+
+/// The series loop inductance `L_s` (H) from the junction participations
+/// of solved modes (issue #1079).
+///
+/// In the circuit of [`TransmonAnchor::from_harmonic_with_loop_inductance`]
+/// the junction current `I_J` and the loop current `I_s` differ by the
+/// current through `C_J`: `I_s = I_J (1 − x)`, `x = (2π f)² L_J C_J`. In a
+/// mode at `f`, the qubit branch's inductive energy therefore splits as
+/// `L_J : L_s (1 − x)²` between the junction and the loop. If the branch's
+/// energy share `s_m` in mode `m` sums to 1 over the given modes (the
+/// qubit-like mode and the modes it hybridizes with), the junction
+/// participations `p_m = s_m L_J / (L_J + L_s (1 − x_m)²)` give
+///
+/// ```text
+///   L_s = L_J (1 − Σ p_m) / Σ p_m (1 − x_m)².
+/// ```
+///
+/// For one mode this is `L_J (1 − p) / (p (1 − x)²)`. `modes` holds
+/// `(f_hz, p)` per mode. `L_J (1 − Σ p)` alone (the #1078
+/// `[loop_inductance]` estimator) is the inductance of the parallel reading
+/// `(L_J + L_s) ∥ (C_Σ + C_J)`; it varies with `C_J` and the series form
+/// does not (measured, `[topology]` of
+/// `benchmarks/transmon_loop_inductance/results.toml`).
+///
+/// # Panics
+///
+/// Panics if `modes` is empty, `Σ p` is not in `(0, 1]`, `l_j_henry` is not
+/// positive or `c_j_farad` is negative.
+pub fn series_loop_inductance_from_participations(
+    l_j_henry: f64,
+    c_j_farad: f64,
+    modes: &[(f64, f64)],
+) -> f64 {
+    assert!(!modes.is_empty(), "need at least one mode");
+    assert!(
+        l_j_henry > 0.0 && c_j_farad >= 0.0,
+        "need L_J > 0 and C_J >= 0, got {l_j_henry}, {c_j_farad}"
+    );
+    let mut p_sum = 0.0;
+    let mut weighted = 0.0;
+    for &(f_hz, p) in modes {
+        // x > 1 (a mode above the junction's own L_J C_J resonance) is
+        // allowed: the current relation, and so the split, still hold.
+        let x = (2.0 * std::f64::consts::PI * f_hz).powi(2) * l_j_henry * c_j_farad;
+        p_sum += p;
+        weighted += p * (1.0 - x).powi(2);
+    }
+    assert!(
+        p_sum > 0.0 && p_sum <= 1.0,
+        "participation sum must be in (0, 1], got {p_sum}"
+    );
+    l_j_henry * (1.0 - p_sum) / weighted
+}
 
 /// Normal-mode frequencies (Hz, ascending) of two capacitively coupled LC
 /// nodes in **Maxwell form** (issue #1078).
@@ -457,7 +568,12 @@ pub struct TransmonAnchor {
     pub l_j_henry: f64,
     /// Junction self-capacitance `C_J` (F).
     pub c_j_farad: f64,
-    /// `C_total = C_Σ + C_J = 1/((2π f)² L_J)` (F).
+    /// Series loop inductance `L_s` (H) between the junction port and the
+    /// island capacitance (issue #1079). Zero for every anchor except
+    /// [`TransmonAnchor::devicelayout_bare_loop`]; see
+    /// [`TransmonAnchor::from_harmonic_with_loop_inductance`].
+    pub loop_inductance_henry: f64,
+    /// `C_total = C_Σ + C_J` (F); `1/((2π f)² L_J)` when `L_s = 0`.
     pub c_total_farad: f64,
     /// Electrostatic target `C_Σ = C_total − C_J` (F), junction excluded:
     /// the quantity geode's capacitance extraction and optimizers report.
@@ -490,8 +606,66 @@ impl TransmonAnchor {
             frequency_hz,
             l_j_henry,
             c_j_farad,
+            loop_inductance_henry: 0.0,
             c_total_farad,
             c_sigma_farad: c_total_farad - c_j_farad,
+            e_c_hz: e_c_hz_from_capacitance(c_total_farad),
+            e_j_hz: e_j_hz_from_inductance(l_j_henry),
+        }
+    }
+
+    /// Derive the anchor from a harmonic frequency with a series loop
+    /// inductance `L_s` (issue #1079).
+    ///
+    /// The qubit circuit is the island capacitance `C_Σ` to ground, in
+    /// series with `L_s` and the junction `L_J ∥ C_J`:
+    ///
+    /// ```text
+    ///   (2π f)² C_Σ (L_s + L_J / (1 − (2π f)² L_J C_J)) = 1,
+    /// ```
+    ///
+    /// so `C_Σ = 1 / ((2π f)² (L_s + L_J / (1 − (2π f)² L_J C_J)))` and
+    /// `C_total = C_Σ + C_J`. `C_J` sits across the junction port and `L_s`
+    /// is the inductance of the island and its feed outside the port,
+    /// which is where the field model puts them. With `L_s = 0` this is
+    /// [`TransmonAnchor::from_harmonic`] (to rounding).
+    /// [`TransmonAnchor::harmonic_frequency_of_c_sigma_hz`] is its exact
+    /// inverse, and `E_J` stays the junction's alone.
+    ///
+    /// # Panics
+    ///
+    /// As [`TransmonAnchor::from_harmonic`], and if `loop_inductance_henry`
+    /// is negative or `(2π f)² L_J C_J ≥ 1` (`f` at or above the junction's
+    /// own `L_J C_J` resonance).
+    pub fn from_harmonic_with_loop_inductance(
+        frequency_hz: f64,
+        l_j_henry: f64,
+        loop_inductance_henry: f64,
+        c_j_farad: f64,
+    ) -> Self {
+        assert!(
+            frequency_hz > 0.0 && l_j_henry > 0.0,
+            "f and L_J must be positive, got {frequency_hz}, {l_j_henry}"
+        );
+        assert!(
+            loop_inductance_henry >= 0.0 && c_j_farad >= 0.0,
+            "L_s and C_J must be non-negative, got {loop_inductance_henry}, {c_j_farad}"
+        );
+        let w2 = (2.0 * std::f64::consts::PI * frequency_hz).powi(2);
+        let x = w2 * l_j_henry * c_j_farad;
+        assert!(
+            x < 1.0,
+            "f = {frequency_hz} Hz is at or above the junction's L_J C_J resonance"
+        );
+        let c_sigma_farad = 1.0 / (w2 * (loop_inductance_henry + l_j_henry / (1.0 - x)));
+        let c_total_farad = c_sigma_farad + c_j_farad;
+        Self {
+            frequency_hz,
+            l_j_henry,
+            c_j_farad,
+            loop_inductance_henry,
+            c_total_farad,
+            c_sigma_farad,
             e_c_hz: e_c_hz_from_capacitance(c_total_farad),
             e_j_hz: e_j_hz_from_inductance(l_j_henry),
         }
@@ -553,10 +727,67 @@ impl TransmonAnchor {
         )
     }
 
+    /// The loop-corrected bare-qubit DeviceLayout anchor (issue #1079): the
+    /// resonator-grounded qubit frequency of
+    /// [`TransmonAnchor::devicelayout_bare`] read through the series circuit
+    /// of [`TransmonAnchor::from_harmonic_with_loop_inductance`] with the
+    /// extrapolated loop inductance [`DEVICELAYOUT_LOOP_INDUCTANCE_H`]. See
+    /// [`TransmonAnchor::devicelayout_bare_loop_with`].
+    pub fn devicelayout_bare_loop() -> Self {
+        Self::devicelayout_bare_loop_with(DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_LOOP_INDUCTANCE_H)
+    }
+
+    /// The loop-corrected bare-qubit DeviceLayout anchor at coupling `k` and
+    /// loop inductance `L_s` (H) (issue #1079).
+    ///
+    /// [`coupled_lc_bare_pair_hz`] inverts DeviceLayout's dressed pair to the
+    /// resonator-grounded qubit frequency (as
+    /// [`TransmonAnchor::devicelayout_bare_with_coupling`]), and
+    /// [`TransmonAnchor::from_harmonic_with_loop_inductance`] reads it with
+    /// `L_J`, `L_s` and `C_J`. `L_s = 0` is
+    /// [`TransmonAnchor::devicelayout_bare_with_coupling`] (to rounding).
+    ///
+    /// Same transfer assumption as the coupling: one `L_s` describes
+    /// DeviceLayout's run. It was measured on geode's meshes, not theirs, and
+    /// the anchor uses the extrapolated (converged) value
+    /// (`benchmarks/transmon_loop_inductance/results.toml`).
+    ///
+    /// # Panics
+    ///
+    /// As [`coupled_lc_bare_pair_hz`] and
+    /// [`TransmonAnchor::from_harmonic_with_loop_inductance`].
+    pub fn devicelayout_bare_loop_with(k: f64, loop_inductance_henry: f64) -> Self {
+        let (f_q, _) = coupled_lc_bare_pair_hz(
+            DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
+            DEVICELAYOUT_RESONATOR_FREQUENCY_HZ,
+            k,
+        );
+        Self::from_harmonic_with_loop_inductance(
+            f_q,
+            crate::mesh::transmon::JUNCTION_INDUCTANCE_H,
+            loop_inductance_henry,
+            crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
+        )
+    }
+
     /// The harmonic frequency (Hz) of an electrostatic `C_Σ` (F, junction
-    /// excluded) with this anchor's `L_J` and `C_J`.
+    /// excluded) with this anchor's `L_J`, `C_J` and loop inductance `L_s`.
+    ///
+    /// With `L_s = 0` this is `1/(2π √(L_J (C_Σ + C_J)))`. Otherwise it is
+    /// the lower root of the circuit of
+    /// [`TransmonAnchor::from_harmonic_with_loop_inductance`]: with
+    /// `u = (2π f)²`, `a u² − b u + 1 = 0`, `a = C_Σ L_s L_J C_J`,
+    /// `b = C_Σ (L_J + L_s) + L_J C_J`.
     pub fn harmonic_frequency_of_c_sigma_hz(&self, c_sigma_farad: f64) -> f64 {
-        harmonic_frequency_hz(self.l_j_henry, c_sigma_farad + self.c_j_farad)
+        let l_s = self.loop_inductance_henry;
+        if l_s == 0.0 {
+            return harmonic_frequency_hz(self.l_j_henry, c_sigma_farad + self.c_j_farad);
+        }
+        let (l_j, c_j) = (self.l_j_henry, self.c_j_farad);
+        let a = c_sigma_farad * l_s * l_j * c_j;
+        let b = c_sigma_farad * (l_j + l_s) + l_j * c_j;
+        let u = 2.0 / (b + (b * b - 4.0 * a).sqrt());
+        u.sqrt() / (2.0 * std::f64::consts::PI)
     }
 
     /// `E_C/h` (Hz) of an electrostatic `C_Σ` (F) with this anchor's `C_J`.
@@ -894,6 +1125,112 @@ mod tests {
         let s = |k: f64| dressed.c_sigma_farad - c(k);
         let r = s(0.04) / s(0.02);
         assert!((r - 4.0).abs() < 0.04, "shift ratio {r}");
+    }
+
+    /// Issue #1079: with `L_s = 0` the loop constructor is
+    /// [`TransmonAnchor::from_harmonic`] to rounding, and the loop anchor at
+    /// `L_s = 0` is the bare one.
+    #[test]
+    fn loop_anchor_without_loop_is_the_harmonic_one() {
+        for &f in &[3.45e9_f64, 4.14e9, 4.142092e9, 5.2e9] {
+            let a = TransmonAnchor::from_harmonic(f, 14.86e-9, 5.5e-15);
+            let b = TransmonAnchor::from_harmonic_with_loop_inductance(f, 14.86e-9, 0.0, 5.5e-15);
+            assert!((a.c_sigma_farad - b.c_sigma_farad).abs() / a.c_sigma_farad < 1e-13);
+            assert!((a.c_total_farad - b.c_total_farad).abs() / a.c_total_farad < 1e-13);
+            assert_eq!(a.e_j_hz, b.e_j_hz);
+            assert_eq!(b.loop_inductance_henry, 0.0);
+        }
+        let bare = TransmonAnchor::devicelayout_bare();
+        let at0 = TransmonAnchor::devicelayout_bare_loop_with(DEVICELAYOUT_COUPLING_K, 0.0);
+        assert!((at0.c_sigma_farad - bare.c_sigma_farad).abs() < 1e-28);
+        assert_eq!(bare.loop_inductance_henry, 0.0);
+        assert_eq!(TransmonAnchor::devicelayout().loop_inductance_henry, 0.0);
+    }
+
+    /// Issue #1079: the series circuit against an independent nodal solve.
+    /// Island node `a` (`C_Σ` to ground), junction node `b` (`C_J`, `L_J`
+    /// to ground), `L_s` between them: the lower root of
+    /// `det(Γ − ω² C) = 0` is the anchor's frequency, and
+    /// [`TransmonAnchor::harmonic_frequency_of_c_sigma_hz`] inverts the
+    /// constructor.
+    #[test]
+    fn loop_anchor_matches_a_nodal_two_node_solve() {
+        let (l_j, c_j) = (14.86e-9_f64, 5.5e-15_f64);
+        for &(f, l_s) in &[
+            (4.142e9_f64, 0.12e-9_f64),
+            (3.45e9, 0.085e-9),
+            (5.0e9, 1.0e-9),
+        ] {
+            let a = TransmonAnchor::from_harmonic_with_loop_inductance(f, l_j, l_s, c_j);
+            let c_s = a.c_sigma_farad;
+            // Γ = [[1/L_s, -1/L_s], [-1/L_s, 1/L_s + 1/L_J]], C = diag(C_Σ, C_J):
+            // det = (g_aa - u C_Σ)(g_bb - u C_J) - g_ab^2 = 0, u = ω².
+            let (gaa, gbb, gab) = (1.0 / l_s, 1.0 / l_s + 1.0 / l_j, -1.0 / l_s);
+            let qa = c_s * c_j;
+            let qb = -(gaa * c_j + gbb * c_s);
+            let qc = gaa * gbb - gab * gab;
+            let u = (-qb - (qb * qb - 4.0 * qa * qc).sqrt()) / (2.0 * qa);
+            let f_nodal = u.sqrt() / (2.0 * std::f64::consts::PI);
+            assert!((f_nodal - f).abs() / f < 1e-10, "{f_nodal} vs {f}");
+            let back = a.harmonic_frequency_of_c_sigma_hz(c_s);
+            assert!((back - f).abs() / f < 1e-12, "{back} vs {f}");
+            assert_eq!(a.c_total_farad, a.c_sigma_farad + c_j);
+            assert_eq!(a.e_j_hz, e_j_hz_from_inductance(l_j));
+        }
+    }
+
+    /// Issue #1079: the loop-corrected anchor is below the bare one, its
+    /// `C_Σ` falls with `L_s`, and the constants are ordered.
+    #[test]
+    fn devicelayout_bare_loop_anchor_is_below_the_bare_one() {
+        let bare = TransmonAnchor::devicelayout_bare();
+        let a = TransmonAnchor::devicelayout_bare_loop();
+        assert_eq!(a.frequency_hz, bare.frequency_hz);
+        assert!(a.c_sigma_farad < bare.c_sigma_farad);
+        let (lo, hi) = DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H;
+        assert!(
+            0.0 < lo && lo < DEVICELAYOUT_LOOP_INDUCTANCE_H && DEVICELAYOUT_LOOP_INDUCTANCE_H < hi
+        );
+        let c = |l: f64| {
+            TransmonAnchor::devicelayout_bare_loop_with(DEVICELAYOUT_COUPLING_K, l).c_sigma_farad
+        };
+        assert!(
+            c(hi) < c(DEVICELAYOUT_LOOP_INDUCTANCE_H) && c(DEVICELAYOUT_LOOP_INDUCTANCE_H) < c(lo)
+        );
+        // To first order the shift is C_Σ² (2π f)² L_s (the series circuit:
+        // C_Σ = 1/(ω² (L_s + L_J/(1 - x)))).
+        let w2 = (2.0 * std::f64::consts::PI * bare.frequency_hz).powi(2);
+        let first = bare.c_sigma_farad.powi(2) * w2 * DEVICELAYOUT_LOOP_INDUCTANCE_H;
+        let shift = bare.c_sigma_farad - a.c_sigma_farad;
+        assert!(
+            (shift / first - 1.0).abs() < 0.02,
+            "shift {shift} vs first-order {first}"
+        );
+    }
+
+    /// Issue #1079: the participation estimator inverts the series-circuit
+    /// energy split, for one mode and for a set sharing the branch energy.
+    #[test]
+    fn series_loop_inductance_inverts_the_energy_split() {
+        let (l_j, c_j, l_s) = (14.86e-9_f64, 5.5e-15_f64, 0.1e-9_f64);
+        let x = |f: f64| (2.0 * std::f64::consts::PI * f).powi(2) * l_j * c_j;
+        let p_of = |f: f64, share: f64| share * l_j / (l_j + l_s * (1.0 - x(f)).powi(2));
+        // One mode.
+        let f = 4.1e9;
+        let got = series_loop_inductance_from_participations(l_j, c_j, &[(f, p_of(f, 1.0))]);
+        assert!((got - l_s).abs() / l_s < 1e-12, "{got}");
+        // Three modes sharing the branch energy 0.97 / 0.029 / 0.001.
+        let modes = [
+            (4.1e9, p_of(4.1e9, 0.97)),
+            (5.6e9, p_of(5.6e9, 0.029)),
+            (16.9e9, p_of(16.9e9, 0.001)),
+        ];
+        let got = series_loop_inductance_from_participations(l_j, c_j, &modes);
+        assert!((got - l_s).abs() / l_s < 1e-12, "{got}");
+        // C_J = 0: the parallel estimator L_J (1 - p) / p.
+        let p = 0.994;
+        let got = series_loop_inductance_from_participations(l_j, 0.0, &[(f, p)]);
+        assert!((got - l_j * (1.0 - p) / p).abs() < 1e-24);
     }
 
     /// E_J from the DeviceLayout junction inductance is 11.00 GHz (the
