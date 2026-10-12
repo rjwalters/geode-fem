@@ -30,14 +30,24 @@
 //! conforming value over a whole family bracket the same number. X⁰'s
 //! uniform and adaptive families are the same geometry.
 //!
-//! **Superseded anchor (issue #1066).** The two designs bracketed here are the
-//! #1056 / #1058 `p2_cycles10*` designs, aimed at the mis-derived 89.9 fF
-//! anchor (#1063, #1066); every anchor comparison in the artifact
-//! (`anchor_ff`, `contains_anchor`, `*_anchor_at_least_ff`) uses that
-//! superseded value. The current anchor is `TransmonAnchor::devicelayout`
-//! (`C_Σ` ≈ 93.9537 fF, junction excluded); the re-anchored
-//! `p2_cycles10_anchor_93p95*` designs are not yet bracketed (#1075). The X⁰
-//! brackets do not depend on any anchor and remain current.
+//! **Superseded anchor (issue #1066).** The two designs bracketed by the
+//! default parts are the #1056 / #1058 `p2_cycles10*` designs, aimed at the
+//! mis-derived 89.9 fF anchor (#1063, #1066); every anchor comparison in
+//! `c_sigma_bracket.toml` (`anchor_ff`, `contains_anchor`,
+//! `*_anchor_at_least_ff`) uses that superseded value. The X⁰ brackets do not
+//! depend on any anchor and remain current.
+//!
+//! **Current anchor (issue #1075).** `BRACKET_PART=anchor_93p95` replays the
+//! same ten preparation cycles and the seven held-out rounds of the two
+//! re-anchored #1066 designs (`p2_cycles10_anchor_93p95*`, aimed at
+//! `TransmonAnchor::devicelayout`, `C_Σ` ≈ 93.9537 fF, junction excluded),
+//! asserts every P2 value against their `summary.toml`, certifies the same
+//! lower bounds and writes `c_sigma_bracket_anchor_93p95.toml`. X⁰ is not
+//! re-solved: the design increment is certified against X⁰'s committed
+//! bracket in `c_sigma_bracket.toml`. Every comparison with the anchor there
+//! carries #1066's resonator-hybridization caveat: the bare-qubit-consistent
+//! target is below 93.9537 fF by an estimated 0.10–0.38 fF, ceiling about
+//! 0.6 fF, so the anchor itself is uncertain at the width of the bracket.
 //!
 //! Run with (local, no cloud):
 //!
@@ -45,13 +55,15 @@
 //!   cargo run -p geode-core --release --example transmon_c_sigma_bracket
 //! ```
 //!
-//! Environment: `BRACKET_PART` (`uniform`, `adaptive` or `all`, default
-//! `all`), `BRACKET_KS` (RT orders equilibrated from P2, default `1,2`),
+//! Environment: `BRACKET_PART` (`uniform`, `adaptive`, `all` or
+//! `anchor_93p95`, default `all`), `BRACKET_KS` (RT orders equilibrated from P2, default `1,2`),
 //! `BRACKET_K_LAST` (an extra order at each design's last held-out round,
 //! default `3`; empty for none), `BRACKET_ROUNDS` (held-out rounds, default
 //! 7), `BRACKET_OUT` (output TOML, default
-//! `benchmarks/transmon_diffopt/c_sigma_bracket.toml`). The TOML carries no
-//! timings and is bit-reproducible; timings go to standard output.
+//! `benchmarks/transmon_diffopt/c_sigma_bracket.toml`, or
+//! `benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml` for
+//! `anchor_93p95`). The TOML carries no timings and is bit-reproducible;
+//! timings go to standard output.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -87,6 +99,7 @@ const X0_TENSOR_FF: [f64; 3] = [136.684731, 102.375301, 89.493342];
 /// #1058's preparation settings (both runs).
 const PREP_CYCLES: usize = 10;
 const PREP_MAX_TETS: usize = 1_000_000;
+/// The #1056 / #1058 designs (SUPERSEDED 89.9 fF anchor).
 const DESIGNS: [(&str, &str); 2] = [
     (
         "primary",
@@ -97,6 +110,25 @@ const DESIGNS: [(&str, &str); 2] = [
         "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_resolution_corrected",
     ),
 ];
+/// The re-anchored #1066 designs (current 93.9537 fF anchor), issue #1075.
+const DESIGNS_93P95: [(&str, &str); 2] = [
+    (
+        "anchor_93p95",
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95",
+    ),
+    (
+        "anchor_93p95_resolution_corrected",
+        "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected",
+    ),
+];
+/// #1066's estimate of how far the bare-qubit-consistent `C_Σ` target lies
+/// BELOW the pure-LC anchor (g/2π = 50–100 MHz, first order), fF. Not
+/// measured; quoted from the `[anchor]` caveat of the #1066 `summary.toml`.
+const HYBRIDIZATION_SHIFT_ESTIMATE_FF: [f64; 2] = [0.10, 0.38];
+/// #1043's same-mesh Palace-vs-LC offset read as a ceiling on that shift, fF.
+const HYBRIDIZATION_SHIFT_CEILING_FF: f64 = 0.6;
+const BRACKET_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket.toml";
+const BRACKET_93P95_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml";
 
 fn env_list(name: &str, default: &str) -> Vec<usize> {
     std::env::var(name)
@@ -421,7 +453,9 @@ fn bracket(rows: &[&Row]) -> Bracket {
     }
 }
 
-fn bracket_toml(t: &mut String, table: &str, b: &Bracket, note: &str) {
+/// The anchor-independent part of a family bracket; returns the rounded
+/// `(lower, upper)`.
+fn bracket_core_toml(t: &mut String, table: &str, b: &Bracket, note: &str) -> (f64, f64) {
     let (lo, hi) = (floor_to(b.lower, 2), ceil_to(b.upper, 2));
     let _ = writeln!(t, "\n[{table}]  # {note}");
     let _ = writeln!(
@@ -440,6 +474,12 @@ fn bracket_toml(t: &mut String, table: &str, b: &Bracket, note: &str) {
         "width_relative_to_lower = {}",
         ceil_fmt((hi - lo) / lo, 4)
     );
+    (lo, hi)
+}
+
+/// A family bracket compared with the SUPERSEDED 89.9 fF anchor.
+fn bracket_toml(t: &mut String, table: &str, b: &Bracket, note: &str) {
+    let (lo, hi) = bracket_core_toml(t, table, b, note);
     let _ = writeln!(
         t,
         "contains_anchor = {}  # SUPERSEDED {ANCHOR_FF} fF anchor (#1066) inside [lower_ff, upper_ff]; not the current target",
@@ -458,6 +498,89 @@ fn bracket_toml(t: &mut String, table: &str, b: &Bracket, note: &str) {
             floor_fmt(lo - ANCHOR_FF, 2)
         );
     }
+}
+
+/// A family bracket compared with the CURRENT anchor (#1066), with the
+/// resonator-hybridization caveat attached to every comparison (#1075).
+fn bracket_toml_current(t: &mut String, table: &str, b: &Bracket, anchor: f64, note: &str) {
+    let (lo, hi) = bracket_core_toml(t, table, b, note);
+    let _ = writeln!(
+        t,
+        "contains_anchor = {}  # current {anchor:.4} fF pure-LC anchor inside [lower_ff, upper_ff]; NOT resolved at the hybridization shift (see [meta])",
+        lo <= anchor && anchor <= hi
+    );
+    let _ = writeln!(
+        t,
+        "anchor_relative = [{}, {}]  # (family bound / anchor - 1) from the unrounded bounds, rounded outward",
+        floor_fmt(b.lower / anchor - 1.0, 4),
+        ceil_fmt(b.upper / anchor - 1.0, 4)
+    );
+    if hi < anchor {
+        let _ = writeln!(
+            t,
+            "below_anchor_at_least_ff = {}",
+            floor_fmt(anchor - hi, 2)
+        );
+    } else if lo > anchor {
+        let _ = writeln!(
+            t,
+            "above_anchor_at_least_ff = {}",
+            floor_fmt(lo - anchor, 2)
+        );
+    }
+    let [s_lo, s_hi] = HYBRIDIZATION_SHIFT_ESTIMATE_FF;
+    let meets = |a: f64, z: f64| lo <= z && a <= hi;
+    let _ = writeln!(
+        t,
+        "meets_bare_qubit_estimate_band = {}  # [lower_ff, upper_ff] intersects [anchor - {s_hi:.2}, anchor - {s_lo:.2}]: an ESTIMATE band, g not measured",
+        meets(anchor - s_hi, anchor - s_lo)
+    );
+    let _ = writeln!(
+        t,
+        "meets_bare_qubit_ceiling_band = {}  # [lower_ff, upper_ff] intersects [anchor - {HYBRIDIZATION_SHIFT_CEILING_FF:.1}, anchor]: the #1043 ceiling, not a bound",
+        meets(anchor - HYBRIDIZATION_SHIFT_CEILING_FF, anchor)
+    );
+}
+
+/// The design increment over X⁰: both are certified brackets of converged
+/// values, so `C_design - C_X0` lies in
+/// `[lower_design - upper_X0, upper_design - lower_X0]`, rounded outward.
+fn increment_toml(t: &mut String, table: &str, b: &Bracket, x0: (f64, f64), note: &str) {
+    let lo = floor_to(b.lower - x0.1, 2);
+    let hi = ceil_to(b.upper - x0.0, 2);
+    let _ = writeln!(t, "\n[{table}]  # {note}");
+    let _ = writeln!(
+        t,
+        "lower_ff = {lo:.2}  # RIGOROUS: design family lower bound minus X0 family upper bound, floored"
+    );
+    let _ = writeln!(
+        t,
+        "upper_ff = {hi:.2}  # RIGOROUS: design family upper bound minus X0 family lower bound, ceiled"
+    );
+    let _ = writeln!(t, "width_ff = {:.2}", hi - lo);
+}
+
+/// X⁰'s family bounds from the committed `c_sigma_bracket.toml`: the largest
+/// floored lower bound and the smallest ceiled upper bound over its uniform
+/// and adaptive rows, checked against its `[bracket_x0]`.
+fn committed_x0_bounds() -> (f64, f64) {
+    let text = fs::read_to_string(BRACKET_TOML).unwrap();
+    let v: toml::Value = text.parse().unwrap();
+    let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
+    for table in ["uniform_x0", "adaptive_x0"] {
+        for r in v[table].as_array().unwrap() {
+            hi = hi.min(r["upper_ff"].as_float().unwrap());
+            for (k, x) in r.as_table().unwrap() {
+                if k.starts_with("lower_") && k.ends_with("_ff") {
+                    lo = lo.max(x.as_float().unwrap());
+                }
+            }
+        }
+    }
+    let b = &v["bracket_x0"];
+    assert!((floor_to(lo, 2) - b["lower_ff"].as_float().unwrap()).abs() < 1e-9);
+    assert!((ceil_to(hi, 2) - b["upper_ff"].as_float().unwrap()).abs() < 1e-9);
+    (lo, hi)
 }
 
 // ─── #1058 replay (verbatim from examples/transmon_refined_optimize.rs) ───
@@ -694,10 +817,13 @@ fn uniform(fx: &TransmonFixture, ks: &[usize]) -> (Vec<Row>, Vec<Row>) {
     (scalar, tensor)
 }
 
-/// Rows per design, plus X⁰ rows on the primary design's meshes.
+/// Rows per design, plus X⁰ rows on the meshes of every design whose
+/// `summary.toml` has X⁰ values (when `with_x0`).
 #[allow(clippy::too_many_lines)]
 fn adaptive(
     fx_um: &TransmonFixture,
+    design_list: &[(&str, &str)],
+    with_x0: bool,
     ks: &[usize],
     k_last: &[usize],
     max_rounds: usize,
@@ -747,7 +873,7 @@ fn adaptive(
     let (prep_state, prep_fields) = (state, fields);
     let mut designs = Vec::new();
     let mut x0_rows = Vec::new();
-    for (name, dir) in DESIGNS {
+    for &(name, dir) in design_list {
         let want = committed(Path::new(dir));
         let (mut state, mut fields) = (prep_state.clone(), prep_fields.clone());
         let mut rows = Vec::new();
@@ -788,7 +914,7 @@ fn adaptive(
                 lowers: l,
             });
             drop(p);
-            if let Some(x0) = want.x0_c_ff[round] {
+            if let Some(x0) = want.x0_c_ff[round].filter(|_| with_x0) {
                 let at_x0 = fixture(state.mesh(), &fx);
                 let s0 = Sheets::of(&at_x0);
                 let e0 = at_x0.epsilon_r_scalar();
@@ -820,72 +946,110 @@ fn adaptive(
     (designs, x0_rows)
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() {
-    let t0 = Instant::now();
-    let part = std::env::var("BRACKET_PART").unwrap_or_else(|_| "all".into());
-    let ks = env_list("BRACKET_KS", "1,2");
-    let k_last = env_list("BRACKET_K_LAST", "3");
-    let max_rounds = env_list("BRACKET_ROUNDS", "7")[0];
-    let out = PathBuf::from(
-        std::env::var("BRACKET_OUT")
-            .unwrap_or_else(|_| "benchmarks/transmon_diffopt/c_sigma_bracket.toml".into()),
-    );
-    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
-    let mut scaled = fx.clone();
-    for p in &mut scaled.mesh.nodes {
-        for x in p {
-            *x *= 1e-6;
-        }
-    }
-    let (mut uni_s, mut uni_t) = (Vec::new(), Vec::new());
-    if part == "uniform" || part == "all" {
-        println!("uniform (#1057) family, X0:");
-        (uni_s, uni_t) = uniform(&scaled, &ks);
-    }
-    let (mut designs, mut x0_adapt) = (Vec::new(), Vec::new());
-    if part == "adaptive" || part == "all" {
-        println!("adaptive (#1058) families:");
-        (designs, x0_adapt) = adaptive(&fx, &ks, &k_last, max_rounds);
-    }
-
+/// `c_sigma_bracket_anchor_93p95.toml` (#1075): the re-anchored #1066
+/// designs, compared with the current anchor under the hybridization caveat,
+/// and their certified increment over X⁰'s committed bracket.
+fn write_anchor_93p95(
+    out: &Path,
+    designs: &[(String, Vec<Row>)],
+    ks: &[usize],
+    k_last: &[usize],
+    max_rounds: usize,
+) {
+    let anchor = TransmonAnchor::devicelayout().c_sigma_farad * 1e15;
+    let x0 = committed_x0_bounds();
+    let [s_lo, s_hi] = HYBRIDIZATION_SHIFT_ESTIMATE_FF;
     let mut t = String::new();
     let _ = writeln!(
         t,
-        "# Auto-generated by `cargo run -p geode-core --release --example transmon_c_sigma_bracket`.\n\
-         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible."
-    );
-    let _ = writeln!(
-        t,
-        "# SUPERSEDED ANCHOR (issue #1066): every anchor comparison below (anchor_ff, contains_anchor, *_anchor_at_least_ff)\n\
-         # uses the mis-derived {ANCHOR_FF} fF that the bracketed #1056/#1058 p2_cycles10* designs were aimed at (#1063, #1066).\n\
-         # The X0 brackets are anchor-independent and current. The current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout:\n\
-         # C_Sigma {:.4} fF (junction excluded); its re-anchored p2_cycles10_anchor_93p95* designs are not yet bracketed (#1075).\n",
-        TransmonAnchor::devicelayout().c_sigma_farad * 1e15
+        "# Auto-generated by `BRACKET_PART=anchor_93p95 cargo run -p geode-core --release --example transmon_c_sigma_bracket`.\n\
+         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible.\n\
+         # CURRENT ANCHOR (#1066): the bracketed designs are the re-anchored p2_cycles10_anchor_93p95* runs, aimed at\n\
+         # geode_core::quantum::transmon::TransmonAnchor::devicelayout, C_Sigma {anchor:.4} fF (junction excluded).\n\
+         # HYBRIDIZATION CAVEAT: that anchor is the pure-LC inversion of a resonator-hybridized 4.14 GHz mode; the bare-qubit-consistent\n\
+         # target is BELOW it by an estimated {s_lo:.2}-{s_hi:.2} fF (ceiling about {HYBRIDIZATION_SHIFT_CEILING_FF} fF). Each bracket is a certified statement about the\n\
+         # converged electrostatic C_Sigma of its polygonal geometry; an anchor comparison finer than that shift is not resolved.\n"
     );
     let _ = writeln!(t, "[meta]");
-    let _ = writeln!(t, "issue = 1062");
+    let _ = writeln!(t, "issue = 1075");
+    let _ = writeln!(t, "method_issue = 1062");
     let _ = writeln!(
         t,
         "generator = \"crates/geode-core/examples/transmon_c_sigma_bracket.rs\""
     );
+    let _ = writeln!(t, "part = \"anchor_93p95\"");
     let _ = writeln!(
         t,
         "fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\""
     );
     let _ = writeln!(
         t,
-        "quantity = \"island C_Sigma with the feedline floating and neutral (C_ii - C_if^2/C_ff), scalar trace-averaged sapphire eps unless the table says tensor; the meshed polygonal geometry\""
+        "quantity = \"island C_Sigma with the feedline floating and neutral (C_ii - C_if^2/C_ff), scalar trace-averaged sapphire eps; the meshed polygonal geometry\""
+    );
+    for (name, dir) in DESIGNS_93P95 {
+        let _ = writeln!(t, "primal_{name} = \"{dir}/summary.toml\"");
+    }
+    let _ = writeln!(
+        t,
+        "anchor_ff = {anchor:?}  # CURRENT (#1066): pure-LC C_Sigma of the published 4.14 GHz, junction excluded"
     );
     let _ = writeln!(
         t,
-        "anchor_ff = {ANCHOR_FF}  # SUPERSEDED (#1066): the target of the bracketed designs, not the current anchor"
+        "hybridization_shift_estimate_ff = [{s_lo:.2}, {s_hi:.2}]  # ESTIMATE (#1066, g/2pi = 50-100 MHz, g not measured): the bare-qubit target lies BELOW anchor_ff by this much"
     );
-    let _ = writeln!(t, "part = \"{part}\"");
+    let _ = writeln!(
+        t,
+        "hybridization_shift_ceiling_ff = {HYBRIDIZATION_SHIFT_CEILING_FF}  # #1043 same-mesh Palace-vs-LC offset (0.281 %): a ceiling, not a bound"
+    );
+    let _ = writeln!(
+        t,
+        "x0_bracket_source = \"benchmarks/transmon_diffopt/c_sigma_bracket.toml [bracket_x0] (anchor-independent; not re-solved here)\""
+    );
+    let _ = writeln!(
+        t,
+        "x0_family_lower_ff = {}  # largest certified X0 lower bound of that artifact (floored there)",
+        floor_fmt(x0.0, 6)
+    );
+    let _ = writeln!(
+        t,
+        "x0_family_upper_ff = {}  # smallest X0 conforming value of that artifact (ceiled there)",
+        ceil_fmt(x0.1, 6)
+    );
     let _ = writeln!(t, "equilibration_orders_from_p2 = {ks:?}");
     let _ = writeln!(t, "extra_order_at_last_round = {k_last:?}");
     let _ = writeln!(t, "held_out_rounds = {max_rounds}");
     let _ = writeln!(t, "eps0 = {EPS_0:e}  # F/m; coordinates in metres\n");
+    method_toml(&mut t);
+    for (name, rows) in designs {
+        for r in rows {
+            row_toml(&mut t, &format!("adaptive_{name}"), r);
+        }
+    }
+    for (name, rows) in designs {
+        let rows: Vec<&Row> = rows.iter().collect();
+        bracket_toml_current(
+            &mut t,
+            &format!("bracket_{name}"),
+            &bracket(&rows),
+            anchor,
+            "the optimized geometry of this #1066 run (aimed at the CURRENT anchor), its held-out meshes",
+        );
+    }
+    for (name, rows) in designs {
+        let rows: Vec<&Row> = rows.iter().collect();
+        increment_toml(
+            &mut t,
+            &format!("increment_{name}_over_x0"),
+            &bracket(&rows),
+            x0,
+            "certified C_design - C_X0 of the converged values; X0 from c_sigma_bracket.toml",
+        );
+    }
+    fs::write(out, t).unwrap();
+}
+
+/// The `[method]` table, shared by both artifacts.
+fn method_toml(t: &mut String) {
     let _ = writeln!(t, "[method]");
     let _ = writeln!(
         t,
@@ -911,6 +1075,86 @@ fn main() {
         t,
         "family = \"refinement does not move the polygonal surfaces, so every mesh of one geometry bounds the same converged value; the family bracket is [max lower, min upper]\"\n"
     );
+}
+
+#[allow(clippy::too_many_lines)]
+fn main() {
+    let t0 = Instant::now();
+    let part = std::env::var("BRACKET_PART").unwrap_or_else(|_| "all".into());
+    let ks = env_list("BRACKET_KS", "1,2");
+    let k_last = env_list("BRACKET_K_LAST", "3");
+    let max_rounds = env_list("BRACKET_ROUNDS", "7")[0];
+    let out = PathBuf::from(std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_TOML.into()));
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let mut scaled = fx.clone();
+    for p in &mut scaled.mesh.nodes {
+        for x in p {
+            *x *= 1e-6;
+        }
+    }
+    let (mut uni_s, mut uni_t) = (Vec::new(), Vec::new());
+    if part == "uniform" || part == "all" {
+        println!("uniform (#1057) family, X0:");
+        (uni_s, uni_t) = uniform(&scaled, &ks);
+    }
+    let (mut designs, mut x0_adapt) = (Vec::new(), Vec::new());
+    if part == "adaptive" || part == "all" {
+        println!("adaptive (#1058) families:");
+        (designs, x0_adapt) = adaptive(&fx, &DESIGNS, true, &ks, &k_last, max_rounds);
+    }
+    if part == "anchor_93p95" {
+        println!("adaptive (#1066) families at the current anchor (#1075):");
+        let (designs, _) = adaptive(&fx, &DESIGNS_93P95, false, &ks, &k_last, max_rounds);
+        let out = PathBuf::from(
+            std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_93P95_TOML.into()),
+        );
+        write_anchor_93p95(&out, &designs, &ks, &k_last, max_rounds);
+        println!(
+            "wrote {} ({:.1} s total)",
+            out.display(),
+            t0.elapsed().as_secs_f64()
+        );
+        return;
+    }
+
+    let mut t = String::new();
+    let _ = writeln!(
+        t,
+        "# Auto-generated by `cargo run -p geode-core --release --example transmon_c_sigma_bracket`.\n\
+         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible."
+    );
+    let _ = writeln!(
+        t,
+        "# SUPERSEDED ANCHOR (issue #1066): every anchor comparison below (anchor_ff, contains_anchor, *_anchor_at_least_ff)\n\
+         # uses the mis-derived {ANCHOR_FF} fF that the bracketed #1056/#1058 p2_cycles10* designs were aimed at (#1063, #1066).\n\
+         # The X0 brackets are anchor-independent and current. The current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout:\n\
+         # C_Sigma {:.4} fF (junction excluded); its re-anchored p2_cycles10_anchor_93p95* designs are bracketed in c_sigma_bracket_anchor_93p95.toml (#1075).\n",
+        TransmonAnchor::devicelayout().c_sigma_farad * 1e15
+    );
+    let _ = writeln!(t, "[meta]");
+    let _ = writeln!(t, "issue = 1062");
+    let _ = writeln!(
+        t,
+        "generator = \"crates/geode-core/examples/transmon_c_sigma_bracket.rs\""
+    );
+    let _ = writeln!(
+        t,
+        "fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\""
+    );
+    let _ = writeln!(
+        t,
+        "quantity = \"island C_Sigma with the feedline floating and neutral (C_ii - C_if^2/C_ff), scalar trace-averaged sapphire eps unless the table says tensor; the meshed polygonal geometry\""
+    );
+    let _ = writeln!(
+        t,
+        "anchor_ff = {ANCHOR_FF}  # SUPERSEDED (#1066): the target of the bracketed designs, not the current anchor"
+    );
+    let _ = writeln!(t, "part = \"{part}\"");
+    let _ = writeln!(t, "equilibration_orders_from_p2 = {ks:?}");
+    let _ = writeln!(t, "extra_order_at_last_round = {k_last:?}");
+    let _ = writeln!(t, "held_out_rounds = {max_rounds}");
+    let _ = writeln!(t, "eps0 = {EPS_0:e}  # F/m; coordinates in metres\n");
+    method_toml(&mut t);
     for r in &uni_s {
         row_toml(&mut t, "uniform_x0", r);
     }

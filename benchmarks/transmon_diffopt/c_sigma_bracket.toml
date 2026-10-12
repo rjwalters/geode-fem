@@ -3,7 +3,7 @@
 # SUPERSEDED ANCHOR (issue #1066): every anchor comparison below (anchor_ff, contains_anchor, *_anchor_at_least_ff)
 # uses the mis-derived 89.9 fF that the bracketed #1056/#1058 p2_cycles10* designs were aimed at (#1063, #1066).
 # The X0 brackets are anchor-independent and current. The current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout:
-# C_Sigma 93.9537 fF (junction excluded); its re-anchored p2_cycles10_anchor_93p95* designs are not yet bracketed (#1075).
+# C_Sigma 93.9537 fF (junction excluded); its re-anchored p2_cycles10_anchor_93p95* designs are bracketed in c_sigma_bracket_anchor_93p95.toml (#1075).
 
 [meta]
 issue = 1062

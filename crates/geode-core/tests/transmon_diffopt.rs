@@ -57,8 +57,14 @@
 //!   pins the "by construction" point; and `c_sigma_bracket_coarse_level_release`
 //!   (`#[ignore]`) re-certifies the h level on the 133k-tet fixture mesh.
 //!   The bracketed designs are the #1056 / #1058 ones aimed at the
-//!   superseded 89.9 fF anchor; the X0 bracket is anchor-independent; the
-//!   `p2_cycles10_anchor_93p95*` designs are not yet bracketed (#1075).
+//!   superseded 89.9 fF anchor; the X0 bracket is anchor-independent.
+//! - **Issue #1075:** the same certificate on the re-anchored
+//!   `p2_cycles10_anchor_93p95*` designs.
+//!   `committed_anchor_c_sigma_bracket_toml_is_a_consistent_two_sided_bound`
+//!   (CI-fast) pins `c_sigma_bracket_anchor_93p95.toml` against their
+//!   `summary.toml` values, re-derives both family brackets, the
+//!   current-anchor and hybridization-band verdicts and the certified design
+//!   increment over the committed X0 bracket, each with its rounding direction.
 //!
 //! # Superseded anchor (issue #1066)
 //!
@@ -3370,7 +3376,7 @@ fn committed_c_sigma_bracket_toml_is_a_consistent_two_sided_bound() {
     )
     .unwrap();
     assert!(text.contains("# SUPERSEDED ANCHOR (issue #1066)"));
-    assert!(text.contains("not yet bracketed (#1075)"));
+    assert!(text.contains("bracketed in c_sigma_bracket_anchor_93p95.toml (#1075)"));
     // Upper bounds are the committed #1057 values (ceiled to 6 decimals).
     let conv = c_sigma_convergence_toml();
     let x0 = &conv["x0"];
@@ -3450,6 +3456,179 @@ fn resolution_corrected_series_is_the_primary_series_rescaled() {
     assert!(hi - lo < 8.2e-5, "{ratios:?}");
     assert!(lo > 1.0119 && hi < 1.0121, "{ratios:?}");
     assert!((90.978253_f64 / 89.900518 - 1.011988).abs() < 1e-6);
+}
+
+fn c_sigma_bracket_93p95_text() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// Default tier: `benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml`
+/// (#1075) brackets the re-anchored #1066 designs. Every upper bound
+/// reproduces the committed `summary.toml` value of the same round (so the
+/// meshes are the #1066 ones), every certified lower bound lies below every
+/// upper bound of its geometry, each family bracket is rounded outward and
+/// re-derives, the anchor comparisons re-derive against the current anchor
+/// with the hybridization caveat attached, and the design increment over X⁰
+/// re-derives from `c_sigma_bracket.toml` with outward rounding.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn committed_anchor_c_sigma_bracket_toml_is_a_consistent_two_sided_bound() {
+    use geode_core::quantum::transmon::TransmonAnchor;
+    let text = c_sigma_bracket_93p95_text();
+    let doc: toml::Value = toml::from_str(&text).expect("parse c_sigma_bracket_anchor_93p95.toml");
+    let meta = &doc["meta"];
+    // The current anchor, with the hybridization caveat of #1066.
+    let anchor = TransmonAnchor::devicelayout().c_sigma_farad * 1e15;
+    assert_eq!(tf(meta, "anchor_ff"), anchor);
+    assert!((anchor - 93.9537).abs() < 5e-5);
+    assert_eq!(meta["issue"].as_integer(), Some(1075));
+    assert!(text.contains("# HYBRIDIZATION CAVEAT"));
+    let shift = tf_arr(meta, "hybridization_shift_estimate_ff");
+    assert_eq!(shift, vec![0.10, 0.38]);
+    let ceiling = tf(meta, "hybridization_shift_ceiling_ff");
+    assert_eq!(ceiling, 0.6);
+    // Same method as #1062: RT1 and RT2 plus CR at every round, RT3 at the last.
+    assert_eq!(
+        meta["equilibration_orders_from_p2"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(meta["held_out_rounds"].as_integer(), Some(7));
+    // X0 is not re-solved: its bounds are the committed #1062 ones.
+    let old = c_sigma_bracket_toml();
+    let (mut x0_lo, mut x0_hi) = (f64::NEG_INFINITY, f64::INFINITY);
+    for table in ["uniform_x0", "adaptive_x0"] {
+        for r in rows(&old, table) {
+            x0_hi = x0_hi.min(tf(r, "upper_ff"));
+            for (_, l) in row_lowers(r) {
+                x0_lo = x0_lo.max(l);
+            }
+        }
+    }
+    assert_eq!(tf(meta, "x0_family_lower_ff"), x0_lo);
+    assert_eq!(tf(meta, "x0_family_upper_ff"), x0_hi);
+    assert!((floor_to(x0_lo, 2) - tf(&old["bracket_x0"], "lower_ff")).abs() < 1e-9);
+    assert!((ceil_to(x0_hi, 2) - tf(&old["bracket_x0"], "upper_ff")).abs() < 1e-9);
+
+    let mut brackets = Vec::new();
+    for (name, run) in [
+        ("anchor_93p95", "p2_cycles10_anchor_93p95"),
+        (
+            "anchor_93p95_resolution_corrected",
+            "p2_cycles10_anchor_93p95_resolution_corrected",
+        ),
+    ] {
+        let table = format!("adaptive_{name}");
+        let summary = refined_summary_toml(run);
+        let series = held_out_series(&summary, "c_ff");
+        let got = rows(&doc, &table);
+        assert_eq!(got.len(), series.len(), "{table}: all held-out rounds");
+        assert_eq!(got.len(), 8, "{table}: rounds 0-7");
+        let held = summary["held_out"].as_array().unwrap();
+        for (i, (r, want)) in got.iter().zip(&series).enumerate() {
+            assert_eq!(r["mesh"].as_str().unwrap(), format!("{name} round {i}"));
+            assert_eq!(r["order"].as_str(), Some("P2"));
+            assert_eq!(r["n_tets"].as_integer(), held[i]["n_tets"].as_integer());
+            let up = tf(r, "upper_ff");
+            assert!(up >= *want && up - want < 1.5e-6, "{table}: {up} vs {want}");
+            let keys: Vec<String> = row_lowers(r).into_iter().map(|l| l.0).collect();
+            let mut expect = vec!["lower_cr_ff", "lower_eq_k1_ff", "lower_eq_k2_ff"];
+            if i == 7 {
+                expect.push("lower_eq_k3_ff");
+            }
+            let mut keys_sorted = keys.clone();
+            keys_sorted.sort();
+            assert_eq!(keys_sorted, expect, "{table} round {i}: certificates");
+        }
+        let bracket = format!("bracket_{name}");
+        let (lo, hi) = check_family(&doc, &[table.as_str()], &bracket);
+        let b = &doc[bracket.as_str()];
+        // The family upper bound is the one #1066 already states.
+        assert!(
+            (hi - tf(&summary["final_design_extrapolation"], "upper_bound_ff")).abs() < 1e-9,
+            "{bracket}: upper vs summary"
+        );
+        // Unrounded (6-decimal) family bounds, for the derived figures.
+        let max_lower = got
+            .iter()
+            .flat_map(row_lowers)
+            .map(|l| l.1)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let min_upper = got
+            .iter()
+            .map(|r| tf(r, "upper_ff"))
+            .fold(f64::INFINITY, f64::min);
+        // Anchor-relative position, rounded outward (the TOML values come
+        // from the unrounded bounds, which lie within 1e-6 fF of these).
+        let rel = tf_arr(b, "anchor_relative");
+        assert!(rel[0] <= max_lower / anchor - 1.0 + 1e-7);
+        assert!(rel[0] > max_lower / anchor - 1.0 - 1e-4 - 1e-7);
+        assert!(rel[1] >= min_upper / anchor - 1.0 - 1e-7);
+        assert!(rel[1] < min_upper / anchor - 1.0 + 1e-4 + 1e-7);
+        if hi < anchor {
+            let d = tf(b, "below_anchor_at_least_ff");
+            assert!((d - floor_to(anchor - hi, 2)).abs() < 1e-9);
+        } else if lo > anchor {
+            let d = tf(b, "above_anchor_at_least_ff");
+            assert!((d - floor_to(lo - anchor, 2)).abs() < 1e-9);
+        } else {
+            assert!(b.get("below_anchor_at_least_ff").is_none());
+            assert!(b.get("above_anchor_at_least_ff").is_none());
+        }
+        let meets = |a: f64, z: f64| lo <= z && a <= hi;
+        assert_eq!(
+            b["meets_bare_qubit_estimate_band"].as_bool().unwrap(),
+            meets(anchor - shift[1], anchor - shift[0]),
+            "{bracket}: estimate band"
+        );
+        assert_eq!(
+            b["meets_bare_qubit_ceiling_band"].as_bool().unwrap(),
+            meets(anchor - ceiling, anchor),
+            "{bracket}: ceiling band"
+        );
+        // The certified increment over X0, rounded outward.
+        let inc = &doc[format!("increment_{name}_over_x0").as_str()];
+        let (ilo, ihi) = (tf(inc, "lower_ff"), tf(inc, "upper_ff"));
+        assert!(ilo <= max_lower - x0_hi + 1e-6 && ilo > max_lower - x0_hi - 0.01 - 1e-6);
+        assert!(ihi >= min_upper - x0_lo - 1e-6 && ihi < min_upper - x0_lo + 0.01 + 1e-6);
+        assert!((tf(inc, "width_ff") - (ihi - ilo)).abs() < 1e-9);
+        // The design increment is positive with certainty.
+        assert!(ilo > 0.0 && lo > x0_hi);
+        brackets.push((lo, hi, ilo, ihi));
+    }
+    let [(p_lo, p_hi, p_ilo, p_ihi), (c_lo, c_hi, c_ilo, c_ihi)] = brackets[..] else {
+        panic!("two designs")
+    };
+    // The committed outcome (#1075).
+    assert_eq!((p_lo, p_hi), (92.75, 93.00));
+    assert_eq!((c_lo, c_hi), (93.89, 94.14));
+    assert_eq!((p_ilo, p_ihi), (15.14, 15.59));
+    assert_eq!((c_ilo, c_ihi), (16.28, 16.73));
+    // Primary design: certified below the anchor, and below it by more than
+    // the 0.6 fF hybridization ceiling, so that verdict survives the caveat.
+    assert!(p_hi < anchor - ceiling);
+    // Resolution-corrected design: the bracket contains the pure-LC anchor
+    // but lies above the whole estimated bare-qubit band [anchor - 0.38,
+    // anchor - 0.10]; it contains the bare-qubit target only if the shift is
+    // below anchor - lower (about 0.06 fF). Not resolved by this anchor.
+    assert!(c_lo <= anchor && anchor <= c_hi);
+    assert!(c_lo > anchor - shift[0]);
+    assert!(c_lo < anchor && c_lo > anchor - ceiling);
+    // The #1066 extrapolation bands, and the slow-rate sensitivities, against
+    // the certified lower bounds: the slow-rate fits are excluded.
+    for (run, lo) in [
+        ("p2_cycles10_anchor_93p95", p_lo),
+        ("p2_cycles10_anchor_93p95_resolution_corrected", c_lo),
+    ] {
+        let ex = &refined_summary_toml(run)["final_design_extrapolation"];
+        for f in ex["slow_rate_fit"].as_array().unwrap() {
+            assert!(tf(f, "c_inf_ff") < lo, "{run}: slow-rate fit not excluded");
+        }
+    }
 }
 
 /// Release tier: re-certify the h level of `c_sigma_bracket.toml` on the
