@@ -420,9 +420,12 @@ the domain-specific-JIT foil.
 ## The hard numbers (all FINAL unless marked TBD)
 
 ### Agreement (correctness cell) — FINAL
-Same mesh (22,684 nodes / 133,314 tets / 156,863 Nédélec DOFs, 133,108
-interior after PEC), Order 1 both solvers, junction as lumped reactive shunt
-(L=14.860 nH, C=5.5 fF on the 4-triangle lumped_element group):
+Same input mesh (22,684 nodes / 133,314 tets; geode-fem 156,863 Nédélec DOFs,
+133,108 interior after PEC; Palace 183,891 ND unknowns after its internal
+refinement around the PEC sheets, #1045), Order 1 both solvers, junction as
+lumped reactive shunt (L=14.860 nH, C=5.5 fF on the 4-triangle lumped_element
+group). Since #1045 the artifact keys are renamed (`[modes.qubit]`,
+`[modes.port_sheet_artifact]`; migration note in the results.toml header):
 
 SOURCE OF TRUTH: benchmarks/transmon_eigen/results.toml (committed) — use these
 verbatim; the headline is "all six modes agree to ≤0.033% (worst 0.032%)":

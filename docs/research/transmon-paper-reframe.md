@@ -83,17 +83,22 @@ Source: [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eig
 
 | mode | GEODE (GHz) | Palace (GHz) | rel-err |
 |------|------------:|-------------:|--------:|
+| qubit (p = 0.9942) | 3.452751 | 3.452749306805 (Target 2 GHz, #1043) | 0.00005% |
 | resonator | 5.153 | 5.151335830348 | 0.032% |
-| junction LC (p ≈ 1) | 17.490 | 17.49010903536 | 0.001% |
+| port-sheet artifact (p ≈ 1; was "junction LC") | 17.490 | 17.49010903536 | 0.001% |
 
-Worst-case per-mode agreement **0.032%** — the ≤1% same-mesh bar met with ~25× margin. Two
-honesty caveats travel with this credential and must survive into the paper: (a) a **spurious
-3.4528 GHz** junction-surface mode with no Palace counterpart, filtered by frequency-matching
-(a `K_port`-driven surface-operator LC resonance; the port-aware divergence-free projection,
-#514, retains all six physical modes and collapses the gradient cluster); (b) GEODE's
-stiffness-participation `p` and Palace's field port-EPR are **complementary, differently-
-normalized** diagnostics that rank modes differently, so cross-solver mode-ID rests on
-*frequency* agreement, not participation.
+Worst-case per-mode agreement **0.032%** — the ≤1% same-input-mesh bar met with ~25× margin.
+Corrected 2026-10-11 (#1045): an earlier version of this paragraph called the 3.4528 GHz mode
+"spurious ... with no Palace counterpart". It is the transmon qubit mode; Palace returns it
+at 3.452749 GHz once its `Target` is below it (#1043), and the committed Palace table lacked
+it only because SLEPc searches above `Target` = 4.5 GHz. The caveats that travel with this
+credential: (a) the 17.49 GHz mode is a port-sheet artifact of the distributed port term
+that both solvers share, removed by GEODE's opt-in A2 port-voltage shunt (#1044); (b) the
+solvers start from the same input mesh but Palace solves 183,891 unknowns against GEODE's
+156,863, which matters for timings, not for the frequency agreement; (c) GEODE's
+stiffness-participation `p` and Palace's field port-EPR are different diagnostics (they
+agree on the qubit, 0.9942 vs 0.99424, and differ on the artifact), so cross-solver mode-ID
+rests on *frequency* agreement, not participation.
 
 **This is a credential, not the contribution.** Palace already has eigenmode parity against
 commercial tools; matching Palace is the price of entry. The paper must state this explicitly

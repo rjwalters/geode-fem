@@ -1,14 +1,18 @@
 # GEODE-FEM vs Palace — an honest, measured comparison
 
 **Date:** 2026-07-16 · **updated 2026-07-18** (§3/§4 now reflect the complete, FD-validated
-2×2 sensitivity matrix + eigenmode/inductance extensions shipped on `main`; §1–§2 unchanged)
+2×2 sensitivity matrix + eigenmode/inductance extensions shipped on `main`) · **corrected
+2026-10-11** ([#1045](https://github.com/rjwalters/geode-fem/issues/1045): §1 and §2 no
+longer call the 3.4528 GHz mode spurious; it is the transmon qubit mode, confirmed in both
+solvers. The 17.49 GHz mode is the port-sheet artifact. Both solvers start from the same
+input mesh but do not solve the same number of unknowns.)
 **Purpose:** outreach to the Palace authors. This is a *complement* document, not a
 competitor pitch. It states plainly where Palace wins, where the two solvers match,
 and the one capability GEODE is being built to add. Every performance number below
 cites the committed file it came from.
 
-> **One-line thesis.** GEODE reproduces Palace's eigenmode spectrum to ~0.03% (table
-> stakes), does **not** clearly beat Palace on raw solve performance in *any* corner we
+> **One-line thesis.** GEODE reproduces Palace's eigenmode spectrum to ~0.03%, the
+> transmon qubit mode included (table stakes), does **not** clearly beat Palace on raw solve performance in *any* corner we
 > have measured, and is repositioning around the one thing its Rust + Burn (reverse-mode
 > autodiff) substrate can do that Palace structurally cannot: **solver-derived design
 > sensitivities**. See [`2026-07-16-strategic-direction.md`](./2026-07-16-strategic-direction.md)
@@ -18,34 +22,78 @@ cites the committed file it came from.
 
 ## 1. Correctness parity — table stakes, met
 
-GEODE and Palace were run on the **identical** sha-pinned transmon mesh
+GEODE and Palace were run on the **same** sha-pinned input mesh
 (`transmon_smoke.msh`, 22 684 nodes / 133 314 tets / 133 108 interior DOF) at matched
 first-order Nédélec / Palace Order 1, junction modeled as a reactive `LumpedPort`
 (L = 14.860 nH ∥ C = 5.5 fF), PEC on metal + exterior, readout ports open. Palace commit
 `fba6a5b`, 8 MPI ranks.
 
+**Same input mesh, not the same unknowns.** Palace refines the mesh around the PEC sheets
+internally. Its run logs record 4 913 elements added by local bisection and 6 014
+duplicated vertices where it cracks the metal sheets, and it solves **183 891** Nédélec
+unknowns against GEODE's **156 863** (about 17% more). The frequency agreement below is a
+same-input-mesh cross-check and is unaffected. Every timing comparison in §2 needs this
+caveat: the two solvers solve discrete problems of different sizes, and the difference
+favours GEODE. (`reference/fixtures/transmon_palace/results_p1/palace_run_v22.log`; the
+same counts appear in every timed Palace log of §2a-i.)
+
 Source: [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eigen/results.toml)
+(`[modes.*]`, `[oracles.palace]`, `[oracles.palace_target2]`)
 
-| mode | GEODE (GHz) | Palace (GHz) | rel-err |
-|------|------------:|-------------:|--------:|
-| resonator | 5.153 | 5.151335830348 | 0.032% |
-| mode 2 | 15.465 | 15.46052107794 | 0.029% |
-| junction LC (p ≈ 1) | 17.490 | 17.49010903536 | 0.001% |
-| mode 4 | 18.693 | 18.69165792915 | 0.007% |
-| mode 5 | 20.703 | 20.69755679425 | 0.026% |
-| mode 6 | 26.088 | 26.08089940472 | 0.027% |
+| mode | kind | GEODE (GHz) | Palace (GHz) | rel-err |
+|------|------|------------:|-------------:|--------:|
+| qubit (p = 0.9942) | **transmon qubit** | 3.452751 | 3.452749306805 † | 0.00005% |
+| resonator | cavity | 5.153 | 5.151335830348 | 0.032% |
+| mode 2 | cavity | 15.465 | 15.46052107794 | 0.029% |
+| port sheet (p = 1.000) | **port-sheet artifact** ‡ | 17.490 | 17.49010903536 | 0.001% |
+| mode 4 | cavity | 18.693 | 18.69165792915 | 0.007% |
+| mode 5 | cavity | 20.703 | 20.69755679425 | 0.026% |
+| mode 6 | cavity | 26.088 | 26.08089940472 | 0.027% |
 
-**Worst-case per-mode agreement: 0.032%** — the ≤1% same-mesh bar is met with ~25×
-margin (`comparison.worst_case_rel_err_pct = 0.032`). Cross-solver mode identification
-rests on **frequency** agreement, not participation: GEODE's stiffness-participation `p`
-and Palace's field port-EPR are complementary, differently-normalized diagnostics that
-rank modes differently (documented in the `[oracles.palace]` note).
+† From Palace's re-run with `Target` = 2.0 GHz (issue
+[#1043](https://github.com/rjwalters/geode-fem/issues/1043), `[oracles.palace_target2]`).
+Palace's committed run used `Target` = 4.5 GHz, and its SLEPc eigensolver returns only
+modes **above** `Target`. That run therefore could not return the qubit mode, and its
+table has no qubit row for that reason only. Asked to search below the mode, with
+nothing else changed, Palace returns it at 3.452749 GHz with port EPR 0.99424. GEODE's
+stiffness participation on the same mode is 0.9942. Doubling the junction inductance
+moves it to 2.444899 GHz in Palace (ratio 0.70810) and to 2.4449 GHz in GEODE (ratio
+0.7081). A control cell with the committed request reproduces the committed Palace
+spectrum to 6.5e-13. Both solvers sit 0.28% below the lumped estimate
+`1/(2π√(L(C_Σ + C_J)))` = 3.46246 GHz.
 
-Two honesty caveats, both already documented in the benchmark:
-- GEODE's real Lanczos path admits a **spurious 3.4528 GHz** junction-surface mode with
-  no Palace counterpart (a `K_port`-driven surface-operator LC resonance); it is filtered
-  by frequency-matching against the committed Palace oracle. Removing it in-solver is a
-  divergence-free / port-aware projection follow-on.
+‡ The 17.49 GHz mode is not a physical mode of the device. It is the sheet-internal LC
+resonance of the distributed port term that both solvers use (Palace's `LumpedPort` adds
+the same distributed surface term as GEODE's default shunt). It carries no port voltage:
+Palace's port EPR on it is 2.49e-8. GEODE's opt-in rank-1 port-voltage shunt (A2,
+`JunctionPortModel::PortVoltage`, issue
+[#1044](https://github.com/rjwalters/geode-fem/issues/1044), `[port_voltage_a2]`) removes
+it: measured on the same mesh, A2 has no mode between 15.465 and 18.693 GHz, and every
+other mode agrees with the default shunt to four decimals, the qubit included
+(3.452753 GHz under A2). That A2 removes it because the mode carries no port voltage is
+the design note's reading, supported by a synthetic test but not measured on this mesh. Earlier versions of this document called this row the
+"junction LC" mode.
+
+**Worst-case per-mode agreement: 0.032%** over the six physical modes (the qubit and the
+five cavity modes) — the ≤1% bar is met with ~25× margin
+(`comparison.worst_case_rel_err_pct = 0.032`). On the qubit mode the two solvers agree to
+5e-5%. Cross-solver mode identification rests on **frequency** agreement. GEODE's
+stiffness participation `p` and Palace's port EPR are different diagnostics: they agree on
+the qubit mode (0.9942 against 0.99424) and differ on the port-sheet artifact (1.000
+against 2.49e-8).
+
+Neither value is the converged physical qubit frequency. This is a same-input-mesh
+comparison on a coarse mesh whose island capacitance `C_Σ` drops about 26% under one
+uniform refinement (issue [#1036](https://github.com/rjwalters/geode-fem/issues/1036)),
+and the qubit frequency goes as `1/√(C_Σ + C_J)`.
+
+Two honesty caveats:
+- **Earlier versions of this document were wrong about the qubit.** They said GEODE's
+  real Lanczos path admits a "spurious 3.4528 GHz junction-surface mode with no Palace
+  counterpart" that is filtered against the Palace oracle. That mode is the transmon
+  qubit mode, and Palace has it (above). Palace's committed table lacked it only because
+  of where its `Target` was set. The mode that is an artifact of the port formulation is
+  the 17.49 GHz one, and Palace shares it.
 - The cross-backend conformance ledger records that the *independent* solver pair (LAPACK
   ZGGEV vs Burn's faer QZ) agrees to 8.2e-7 on the physical band, while the ~1e-13
   figures are shared-LAPACK-lineage assembly-agreement comparisons, not independent-solver
@@ -81,6 +129,14 @@ Every run's mode list is committed. "1 thread" is one CPU enforced with `taskset
 "8" is one hardware thread on each of the eight cores. Wall is min / median / max over
 three runs unless marked; core-seconds are user + sys of the whole process tree (median).
 
+Two caveats apply to every row. **Palace solves about 17% more unknowns** (183 891
+against 156 863, §1), and the table does not correct for it. **The reference set is
+Palace's six modes above `Target` = 4.5 GHz**: five cavity modes and the 17.49 GHz
+port-sheet artifact. It excludes the qubit mode, which no Palace request here returns
+(every one starts at or above 4.5 GHz). The more-modes and port-aware GEODE requests
+return the qubit as well, and it is counted among their "other modes"; the shift request
+does not return it.
+
 | request | solver, width | of Palace's 6 modes | other modes returned | wall (s) | core-s | peak RSS |
 |---|---|---:|---:|---:|---:|---:|
 | 6 modes @ 4.5 GHz (the historical request) | GEODE, 1 thread | **1** | 5 | 32.6 / 32.8 / 33.7 | 32.8 | 3.16 GB |
@@ -97,23 +153,30 @@ three runs unless marked; core-seconds are user + sys of the whole process tree 
 | | Palace, 8 ranks | 6 | 0 | 23.6 / 23.6 / 23.8 | 188.9 | 0.54 GB/rank (3.8 GB all ranks) |
 
 The three GEODE requests that return Palace's six modes agree with Palace to 0.029% on
-every mode. They are reported side by side; **none is declared the one to compare
+every mode. Counted over the six *physical* modes (the qubit and the five cavity modes),
+the more-modes and port-aware requests return all six, the shift request five, and every
+Palace cell five (`n_physical_returned` in the source file, re-baselined in #1045). They are reported side by side; **none is declared the one to compare
 against Palace.** Each has a caveat:
 
 - **More modes (30 @ 4.5 GHz).** The 30 was found by trial against the Palace
   eigenvalues. It is a property of this mesh, Krylov size and start vector, not a
   recipe, and the caller still needs the oracle to pick the six out of the thirty.
 - **Shift (6 @ 20 GHz).** A different request from Palace's, with the shift chosen
-  knowing where the modes are. It returns exactly the six.
+  knowing where the modes are. It returns exactly Palace's six, and not the qubit mode.
 - **Port-aware (8 @ 4.5 GHz).** The only request not tuned against the oracle. It keeps
-  Palace's target and still returns two non-physical modes (a near-zero survivor and
-  the 3.45 GHz port mode), so eight are requested to get six, at about twice the cost
-  ([#950](https://github.com/rjwalters/geode-fem/issues/950)).
+  Palace's target and returns two non-physical modes (a near-zero survivor and the
+  17.49 GHz port-sheet artifact) beside the qubit and the five cavity modes, at about
+  twice the cost ([#950](https://github.com/rjwalters/geode-fem/issues/950)). Earlier
+  versions of this document named the 3.45 GHz mode as the second non-physical mode; it
+  is the qubit mode.
 
 What the table shows, on this mesh and host:
 
 - **The historical request is not like-for-like on the m6i either:** it returns one
-  of the six modes, as it did on the Lambda host and the developer machine.
+  of Palace's six modes (and the qubit mode), as it did on the Lambda host and the
+  developer machine.
+- **The unknown counts differ.** Every timed Palace run assembles 183 891 unknowns
+  and GEODE 156 863. None of the times below is normalized for that.
 - **Wall clock at eight wide.** GEODE's two oracle-tuned requests take 27.3 s and
   29.1 s, and the port-aware one 51.1 s. Palace takes 33.4 s with its fixture config
   and 23.6 s when it writes no ParaView fields. GEODE's benchmark binary writes no
@@ -157,8 +220,9 @@ What it does not show:
 - Target robustness. Palace's `Target` is a lower bound (it returns the modes above
   it); GEODE's shift returns the modes nearest it on either side. For "12 modes @
   20 GHz" Palace returns twelve modes from 20.70 to 51.54 GHz and GEODE returns the six
-  physical modes from 5.15 to 26.09 GHz plus six non-physical values; two modes are
-  common to both lists (`[off_target_request]`). GEODE's own cost is nearly the same
+  physical modes (the 3.45 GHz qubit and five cavity modes up to 26.09 GHz) plus six
+  non-physical values (the 17.49 GHz port-sheet artifact and five near-kernel
+  values); two modes are common to both lists (`[off_target_request]`). GEODE's own cost is nearly the same
   at both shifts (32.8 s and 33.9 s on one thread). The Palace half of the earlier
   "GEODE is target-insensitive, Palace degrades off-target" reading timed a different
   set of modes, so that reading is not a like-for-like comparison.
@@ -372,7 +436,10 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 ## 4. The honest bottom line for the Palace authors
 
 - **Correctness:** GEODE independently reproduces Palace's transmon spectrum to 0.03% on
-  the identical mesh. Treat this as a cross-check credential.
+  the same input mesh, and the transmon qubit mode to 5e-5% once Palace is asked to
+  search below it. The two solvers share the 17.49 GHz port-sheet artifact of the
+  distributed port term, which GEODE's opt-in A2 shunt removes. Palace solves about 17%
+  more unknowns on that mesh. Treat this as a cross-check credential.
 - **Performance:** Palace wins where it counts — scale, memory, the interior eigensolve,
   and raw wall clock at production sizes. On one 133k-DOF mesh GEODE measured ahead in
   core-seconds and one-core wall clock when it is asked in a way that returns Palace's
@@ -395,7 +462,8 @@ result or a roadmap promise, and still not a claim of raw-speed superiority.
 
 ### Sources cited
 
-- [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eigen/results.toml) — eigenmode agreement (0.032% worst-case)
+- [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eigen/results.toml) — eigenmode agreement (0.032% worst-case), the Palace re-run below the qubit (`[oracles.palace_target2]`, #1043) and the A2 port-voltage shunt (`[port_voltage_a2]`, #1044)
+- [`docs/research/transmon-lumped-port-formulation.md`](./transmon-lumped-port-formulation.md) — why the 3.4528 GHz mode is the qubit and the 17.49 GHz mode is the port-sheet artifact (§3, §10)
 - [`benchmarks/transmon_bench_cpu/results.toml`](../../benchmarks/transmon_bench_cpu/results.toml) — matched CPU head-to-head (133k + 1.16M)
 - [`benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log`](../../benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log) — 1.16M-DOF run (565.5 s / 92.2 GB; AMD OOM at 128.5 GB)
 - [`benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md`](../../benchmarks/transmon_bench_cpu/sigma4p5_deepshift_characterization.md) — σ=4.5 interior-eigensolve plateau

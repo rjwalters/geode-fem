@@ -1509,10 +1509,13 @@ const JUNCTION_C_F: f64 = 5.5e-15;
 /// Blog band [4.14, 5.591] GHz (non-gating sanity, ±5%).
 const BLOG_BAND_GHZ: [f64; 2] = [4.14, 5.591];
 
-/// Palace oracle: lowest 6 eigenmode Re{f} (GHz) on the IDENTICAL mesh at
-/// matched first order, from a real run committed under
+/// Palace oracle: the 6 eigenmode Re{f} (GHz) ABOVE `Target = 4.5 GHz` on the
+/// same input mesh at matched first order, from a real run committed under
 /// `reference/fixtures/transmon_palace/results_p1/eig.csv` (Palace
-/// changeset `fba6a5b`). See `benchmarks/transmon_eigen/results.toml`.
+/// changeset `fba6a5b`). Five are cavity modes; 17.49 GHz is the port-sheet
+/// artifact ([`PALACE_PORT_SHEET_MODE_GHZ`]). The qubit mode is below the
+/// Target and so not in this list ([`PALACE_QUBIT_MODE_GHZ`]). See
+/// `benchmarks/transmon_eigen/results.toml`.
 const PALACE_MODES_GHZ: [f64; 6] = [
     5.151335830348,
     15.46052107794,
@@ -1522,13 +1525,22 @@ const PALACE_MODES_GHZ: [f64; 6] = [
     26.08089940472,
 ];
 
-/// Palace's junction LC mode: the physical Josephson-junction resonance
-/// `f_LC = 1/(2π√(LC)) ≈ 17.60 GHz`. Cross-solver identification is by
-/// FREQUENCY (17.4901 GHz in both solvers), not by participation — geode-fem's
-/// stiffness-participation p and Palace's field port-EPR are complementary,
-/// differently-normalized diagnostics that rank the modes differently (see
-/// `benchmarks/transmon_eigen/results.toml`).
-const PALACE_JUNCTION_MODE_GHZ: f64 = 17.49010903536;
+/// Palace's 17.49 GHz port-sheet mode (`[modes.port_sheet_artifact]` of
+/// `benchmarks/transmon_eigen/results.toml`; it was named `junction_lc` and
+/// this constant `PALACE_PORT_SHEET_MODE_GHZ` before issue #1045). It is the
+/// sheet-internal LC resonance of the distributed `S_Γ` port term, near
+/// `f_LC = 1/(2π√(LC)) ≈ 17.60 GHz`, with zero port voltage: Palace's port EPR
+/// on it is 2.49e-8. Palace has it because it uses the same distributed
+/// `LumpedPort` term; it is not a physical mode of the device, and the opt-in
+/// rank-1 port-voltage shunt A2 removes it (#1044). Cross-solver
+/// identification is by FREQUENCY (17.4901 GHz in both solvers).
+const PALACE_PORT_SHEET_MODE_GHZ: f64 = 17.49010903536;
+
+/// Palace's transmon qubit mode, from the re-run below it (`Target = 2 GHz`,
+/// issue #1043, `reference/fixtures/transmon_palace/results_p1_target2/`,
+/// `[oracles.palace_target2]`). The committed Target = 4.5 GHz run cannot
+/// return it: SLEPc returns only modes above Target.
+const PALACE_QUBIT_MODE_GHZ: f64 = 3.452749306805;
 
 /// The ≤1% same-mesh cross-validation bar.
 const PALACE_BAR_PCT: f64 = 1.0;
@@ -1537,20 +1549,19 @@ const PALACE_BAR_PCT: f64 = 1.0;
 ///
 /// The junction is `L = 14.860 nH ∥ C = 5.5 fF` on the `lumped_element`
 /// patch (`ê = +Y`); PEC on metal + exterior; readout ports open
-/// (lossless v1). The physical modes span ~5–26 GHz (the junction LC mode
-/// is at `f_LC = 1/(2π√(LC)) ≈ 17.6 GHz`, NOT in the blog's default
-/// [4.14, 5.591] GHz band — that band is the blog's *optimization start*,
-/// far from these unoptimized default L/C values). The shift is placed at
-/// 18 GHz to bracket the physical band.
+/// (lossless v1). The physical modes are the 3.45 GHz qubit mode and five
+/// cavity modes from ~5 to 26 GHz; the 17.49 GHz port-sheet artifact
+/// ([`PALACE_PORT_SHEET_MODE_GHZ`]) sits among them. The blog's
+/// [4.14, 5.591] GHz band is the blog's *optimization start*, far from these
+/// unoptimized default L/C values. The shift is placed at 20 GHz to bracket
+/// the band.
 ///
-/// **Spurious-mode note:** a junction-surface-localized mode near 3.45 GHz
-/// appears below the physical band. geode-fem's real Lanczos lacks the
-/// divergence-free projection Palace applies, so a gradient-nullspace-
-/// adjacent mode leaks in. It is filtered here by matching each computed
-/// mode to the committed Palace spectrum — the spurious mode has no Palace
-/// counterpart and is excluded from the ≤1% gate. Removing it at the
-/// source (a tree-cotree / div-free gauge on the eigen path) is a
-/// documented follow-on.
+/// **Qubit-mode note (issue #1045):** the junction-localized mode at
+/// 3.4528 GHz is the transmon qubit mode. Palace finds it at 3.452749 GHz
+/// when asked to search below it (#1043, [`PALACE_QUBIT_MODE_GHZ`]); the
+/// committed Target = 4.5 GHz oracle cannot contain it. It was called a
+/// spurious mode and excluded from the gate before #1045; it is gated here
+/// now, against the Target = 2 GHz Palace value.
 ///
 /// Gated behind `--ignored` (release): sparse LU on 133k interior DOFs.
 ///
@@ -1578,10 +1589,10 @@ fn real_transmon_eigenmodes_release() {
         f.mesh.n_tets()
     );
 
-    // Target the physical band (junction LC ≈ 17.6 GHz + neighboring cavity
+    // Target the band (the 17.49 GHz port-sheet mode + neighboring cavity
     // modes). Request enough modes that the shift-invert window reaches the
-    // top Palace mode (26 GHz) past the spurious low mode + nullspace
-    // leakage. Shift at 20 GHz centers the physical band.
+    // top Palace mode (26 GHz) and the 3.45 GHz qubit mode past the
+    // nullspace leakage. Shift at 20 GHz centers the band.
     let modes = solve_real_fixture(&f, 20.0e9, 12);
 
     eprintln!("computed modes (sorted by λ):");
@@ -1623,36 +1634,62 @@ fn real_transmon_eigenmodes_release() {
             rel * 100.0
         );
     }
+    // ---- Gate (issue #1045): the qubit mode against Palace at Target 2 GHz. ----
+    let (qubit, qrel) = modes
+        .iter()
+        .map(|m| {
+            (
+                m,
+                (m.frequency_ghz() - PALACE_QUBIT_MODE_GHZ).abs() / PALACE_QUBIT_MODE_GHZ,
+            )
+        })
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap();
     eprintln!(
-        "Palace same-mesh cross-validation: worst-case per-mode Δ = {worst:.4}% (bar {PALACE_BAR_PCT}%)"
+        "  Palace qubit {PALACE_QUBIT_MODE_GHZ:.6} GHz ↔ geode {:.6} GHz (p = {:.4}) → {:.5}%",
+        qubit.frequency_ghz(),
+        qubit.participation,
+        qrel * 100.0
+    );
+    assert!(
+        qrel * 100.0 <= PALACE_BAR_PCT,
+        "the qubit mode (Palace {PALACE_QUBIT_MODE_GHZ:.4} GHz) has no geode-fem mode within \
+         {PALACE_BAR_PCT}% (nearest {:.4} GHz, {:.4}%)",
+        qubit.frequency_ghz(),
+        qrel * 100.0
+    );
+    worst = worst.max(qrel * 100.0);
+    eprintln!(
+        "Palace same-input-mesh cross-validation: worst-case per-mode Δ = {worst:.4}% (bar {PALACE_BAR_PCT}%)"
     );
 
-    // ---- Mode ID: the junction LC mode has p ≈ 1; cavity modes p ≈ 0. ----
+    // ---- Mode ID: the port-sheet mode has p ≈ 1; cavity modes p ≈ 0. ----
     let junction = modes
         .iter()
         .max_by(|a, b| a.participation.partial_cmp(&b.participation).unwrap())
         .unwrap();
     eprintln!(
-        "mode-ID: junction LC mode f = {:.4} GHz, participation p = {:.4}",
+        "mode-ID: port-sheet mode f = {:.4} GHz, participation p = {:.4}",
         junction.frequency_ghz(),
         junction.participation
     );
     assert!(
         junction.participation > 0.5,
-        "junction mode participation {} not dominant",
+        "port-sheet mode participation {} not dominant",
         junction.participation
     );
-    // The high-participation mode IS Palace's junction LC mode (≤1%).
+    // The highest-participation mode IS Palace's port-sheet mode (≤1%); the
+    // qubit mode comes second (p = 0.9942).
     let jrel =
-        (junction.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ;
+        (junction.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ).abs() / PALACE_PORT_SHEET_MODE_GHZ;
     assert!(
         jrel * 100.0 <= PALACE_BAR_PCT,
-        "junction mode {:.4} GHz vs Palace {PALACE_JUNCTION_MODE_GHZ:.4} GHz = {:.4}% > {PALACE_BAR_PCT}%",
+        "port-sheet mode {:.4} GHz vs Palace {PALACE_PORT_SHEET_MODE_GHZ:.4} GHz = {:.4}% > {PALACE_BAR_PCT}%",
         junction.frequency_ghz(),
         jrel * 100.0
     );
     // Cavity (low-participation) modes vastly outnumber and separate from
-    // the junction mode — the qubit-vs-resonator discriminator.
+    // the port-coupled modes — the qubit-vs-resonator discriminator.
     let n_cavity = modes.iter().filter(|m| m.participation < 0.1).count();
     assert!(
         n_cavity >= 3,
@@ -1660,9 +1697,9 @@ fn real_transmon_eigenmodes_release() {
     );
 
     // ---- Blog sanity band (non-gating). ----
-    // The resonator is the lowest PHYSICAL mode — i.e. the lowest mode that
-    // has a Palace counterpart (this excludes the spurious ~3.45 GHz mode,
-    // which has none). Compared against the blog's [4.14, 5.591] GHz
+    // The resonator is the lowest CAVITY mode — the lowest mode with a
+    // counterpart in the Target = 4.5 GHz oracle (this excludes the 3.45 GHz
+    // qubit mode, which lies below that Target). Compared against the blog's [4.14, 5.591] GHz
     // optimization-START band (these default L/C are pre-optimization, so a
     // miss here is expected and non-gating).
     if let Some(res) = modes
@@ -1691,9 +1728,14 @@ fn real_transmon_eigenmodes_release() {
 }
 
 /// Real-mesh tripwire: doubling the junction inductance `L` shifts the
-/// junction LC mode DOWN by the √L scaling (`f ∝ 1/√(LC)`, so `2L` → factor
-/// `1/√2 ≈ 0.707`), since that mode has participation p ≈ 1. This is the
-/// physical Josephson-frequency dependence, measured directly.
+/// 17.49 GHz port-sheet mode DOWN by the √L scaling (`f ∝ 1/√(LC)`, so `2L` →
+/// factor `1/√2 ≈ 0.707`), since that mode has participation p ≈ 1.
+/// `benchmarks/transmon_eigen/results.toml`
+/// `[tripwires.port_sheet_artifact_l_doubling]` (was `junction_l_doubling`).
+/// Issue #1045: before, this mode was read as the physical junction LC mode;
+/// #1043 / #1044 showed it is the zero-port-voltage sheet resonance of the
+/// distributed port term. The qubit-mode L-doubling (ratio 0.7081) is
+/// [`characterize_qubit_mode_3p45`].
 ///
 /// ```sh
 /// cargo test -p geode-core --release --test transmon_eigenmode \
@@ -1704,7 +1746,7 @@ fn real_transmon_eigenmodes_release() {
 fn tripwire_real_junction_l_doubling() {
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
 
-    // Base and doubled-L junction LC modes (target the LC band).
+    // Base and doubled-L port-sheet modes (target the LC band).
     let base = solve_real_fixture_with_l(&f, JUNCTION_L_H, 18.0e9, 8);
     let doubled = solve_real_fixture_with_l(&f, 2.0 * JUNCTION_L_H, 14.0e9, 8);
 
@@ -1718,7 +1760,7 @@ fn tripwire_real_junction_l_doubling() {
     let jd = jmode(&doubled);
     let ratio = jd.frequency_ghz() / jb.frequency_ghz();
     eprintln!(
-        "L-doubling tripwire: junction mode {:.4} GHz (p={:.3}) → {:.4} GHz (p={:.3}); \
+        "L-doubling tripwire: port-sheet mode {:.4} GHz (p={:.3}) → {:.4} GHz (p={:.3}); \
          ratio {:.4} (√L prediction 1/√2 = {:.4})",
         jb.frequency_ghz(),
         jb.participation,
@@ -1731,11 +1773,11 @@ fn tripwire_real_junction_l_doubling() {
     // for the finite step and the p slightly below 1).
     assert!(
         jd.frequency_ghz() < jb.frequency_ghz(),
-        "doubling L must lower the junction mode"
+        "doubling L must lower the port-sheet mode"
     );
     assert!(
         (ratio - 1.0 / 2.0_f64.sqrt()).abs() < 0.05,
-        "junction mode did not follow √L scaling: ratio {ratio}, want ≈ {:.4}",
+        "port-sheet mode did not follow √L scaling: ratio {ratio}, want ≈ {:.4}",
         1.0 / 2.0_f64.sqrt()
     );
 }
@@ -1775,7 +1817,8 @@ fn tripwire_real_junction_l_doubling() {
 ///   across k=4/12/24 Krylov vectors — NOT a budget artifact) — a **1.64%
 ///   shift, OUTSIDE the ≤1% bar.** The gauged pencil also retains a dense
 ///   low cluster (0.0, 1.21, 2.02, 2.74, 3.11, 3.24, 4.18, 4.86 GHz at
-///   k=24), so the spurious mode is **not** removed by this construction.
+///   k=24), so the 3.4528 GHz mode (the qubit mode, #1043; then read as a
+///   spurious mode) is **not** removed by this construction either.
 ///
 /// ```sh
 /// cargo test -p geode-core --release --test transmon_eigenmode \
@@ -1865,12 +1908,21 @@ fn tree_cotree_dof_elimination_shifts_eigen_spectrum() {
 /// HONEST NEGATIVE (issue #509, release-gated): the bulk divergence-free
 /// projection `P = I − G(GᵀMG)⁻¹GᵀM` with `G = d⁰_interior` is
 /// spectrum-preserving on the **cavity** modes — where the DOF-elimination
-/// gauge failed — but it is **incompatible with the lumped-inductor
-/// eigenmode formulation**: it deflates the physical junction LC mode along
-/// with the gradient nullspace, and it does NOT remove the port-localized
-/// spurious 3.4528 GHz mode (which is genuinely solenoidal). This test PINS
-/// that finding with measured data, keeping the (correct, reusable)
-/// projection machinery.
+/// gauge failed — but on the shipped distributed-surface shunt it deflates
+/// the 17.49 GHz port-sheet mode along with the gradient nullspace, and it
+/// does NOT remove the 3.4528 GHz mode (which is genuinely solenoidal). This
+/// test PINS that finding with measured data, keeping the (correct,
+/// reusable) projection machinery.
+///
+/// **Re-read (issue #1045).** When this test was written the 17.49 GHz mode
+/// was taken to be the physical junction LC mode and the 3.4528 GHz mode a
+/// spurious port mode. #1043 showed the reverse: Palace finds the 3.4528 GHz
+/// mode below its committed Target (it is the transmon qubit mode), and the
+/// 17.49 GHz mode is the zero-port-voltage sheet resonance of the distributed
+/// port term, which the opt-in A2 shunt removes (#1044). So both "negatives"
+/// below are what a correct gauge should do. The assertions are unchanged;
+/// they pin the measured behaviour, not a classification. The prose below
+/// keeps the original wording where it records what was believed then.
 ///
 /// # What the projection DOES achieve (the positive half)
 ///
@@ -1888,29 +1940,30 @@ fn tree_cotree_dof_elimination_shifts_eigen_spectrum() {
 ///
 /// # What it does NOT achieve (the negative half, root-caused)
 ///
-/// - **The spurious 3.4528 GHz mode survives.** Its eigenvector is
+/// - **The 3.4528 GHz (qubit) mode survives.** Its eigenvector is
 ///   divergence-free (`‖Gᵀ M x‖/‖x‖_M ≈ 6e-15`) — it is NOT a bulk-gradient
 ///   artifact but a genuine port-localized near-nullspace mode of the
 ///   `(K + K_port, M + M_port)` pencil (participation p ≈ 0.994). Being
 ///   `M`-orthogonal to `image(d⁰_interior)`, it is untouched by the
-///   projection. (It remains filtered by frequency-matching against Palace,
-///   exactly as on the committed ungauged path.)
-/// - **The junction LC mode (17.4901 GHz, p = 1) is DEFLATED away.** A
-///   lumped inductor is a quasi-static, curl-free flux path, so the physical
-///   junction LC eigenmode is itself a (near-)gradient field — it lives
-///   largely in `image(d⁰_interior)`. The bulk `d⁰` projection cannot tell
-///   the physical junction gradient mode from a spurious one, so it removes
-///   both: targeting σ AT 17.49 GHz, the ungauged solve returns the junction
-///   mode at 17.4901 GHz (p = 1.0000) while the projected solve does not
+///   projection. (Since #1045 it is classified as the qubit mode on every
+///   path, against Palace at Target 2 GHz.)
+/// - **The 17.49 GHz port-sheet mode (17.4901 GHz, p = 1) is DEFLATED away.** A
+///   lumped inductor is a quasi-static, curl-free flux path, so this
+///   sheet-internal eigenmode is itself a (near-)gradient field — it lives
+///   largely in `image(d⁰_interior)`. The bulk `d⁰` projection removes it
+///   with the gradient cluster (the #509 wording was "cannot tell the
+///   physical junction gradient mode from a spurious one"; #1045 re-reads it
+///   as the port-sheet artifact): targeting σ AT 17.49 GHz, the ungauged
+///   solve returns it at 17.4901 GHz (p = 1.0000) while the projected solve does not
 ///   return it at all (its nearest mode is the 18.6927 GHz cavity mode, 6.9%
-///   off). Retaining the junction mode requires a **port-aware** projection
+///   off). Retaining it requires a **port-aware** projection
 ///   that excludes the junction-surface gradient directions from `G` — a
 ///   larger formulation change (matching Palace's LumpedPort handling) than
 ///   this issue's bulk-`d⁰` scope. Filed as the follow-on, **issue #514**
 ///   ("Port-aware divergence-free projection — eigen-gauge saga, chapter 3").
 ///
 /// If the port-aware projection of issue #514 lands and both negatives flip
-/// (spurious gone AND junction mode retained ≤1%), promote this to the
+/// (3.45 GHz mode gone AND 17.49 GHz mode retained ≤1%), promote this to the
 /// positive acceptance test and update
 /// `benchmarks/transmon_eigen/results.toml`.
 ///
@@ -2000,9 +2053,10 @@ fn real_transmon_projection_deflates_junction_mode() {
         );
     }
 
-    // ---- NEGATIVE 1: the spurious 3.4528 GHz mode SURVIVES and is
-    //      divergence-free (not a bulk-gradient artifact). ----
-    let spurious = projected
+    // ---- NEGATIVE 1: the 3.4528 GHz qubit mode SURVIVES and is
+    //      divergence-free (not a bulk-gradient artifact; #1045: surviving is
+    //      correct for the qubit mode). ----
+    let qubit = projected
         .iter()
         .enumerate()
         .filter(|(_, m)| (3.0..4.0).contains(&m.frequency_ghz()))
@@ -2013,13 +2067,13 @@ fn real_transmon_projection_deflates_junction_mode() {
             )
         })
         .next();
-    let (spur, spur_div) = spurious.expect(
-        "the port-localized 3.4528 GHz spurious mode is expected to SURVIVE the bulk \
-         divergence-free projection (it is solenoidal); its disappearance would be the \
-         SUCCESS signal — promote this test and update results.toml",
+    let (spur, spur_div) = qubit.expect(
+        "the 3.4528 GHz qubit mode is expected to SURVIVE the bulk divergence-free \
+         projection (it is solenoidal); a projection that removes it would remove the \
+         transmon qubit mode (#1043, #1045)",
     );
     eprintln!(
-        "spurious mode: {:.4} GHz, p = {:.4}, div-ratio = {spur_div:.3e} (SURVIVES — solenoidal)",
+        "qubit mode: {:.4} GHz, p = {:.4}, div-ratio = {spur_div:.3e} (SURVIVES — solenoidal)",
         spur.frequency_ghz(),
         spur.participation
     );
@@ -2029,37 +2083,41 @@ fn real_transmon_projection_deflates_junction_mode() {
     );
     assert!(
         spur_div < 1e-6,
-        "the surviving spurious mode should be divergence-free (proving it is NOT a bulk \
+        "the surviving qubit mode should be divergence-free (proving it is NOT a bulk \
          gradient artifact the projection could remove): div-ratio {spur_div:.3e}"
     );
 
-    // ---- NEGATIVE 2: the junction LC mode is DEFLATED. Targeting σ AT the
-    //      17.49 GHz junction mode, the ungauged path finds it (p = 1), the
-    //      projected path does NOT. ----
+    // ---- NEGATIVE 2: the 17.49 GHz port-sheet mode is DEFLATED. Targeting σ
+    //      AT it, the ungauged path finds it (p = 1), the projected path does
+    //      NOT. (#1045: it is the port-sheet artifact, not the junction LC.) ----
     let ung_junction = ungauged
         .iter()
-        .map(|m| (m.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ)
+        .map(|m| {
+            (m.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ).abs() / PALACE_PORT_SHEET_MODE_GHZ
+        })
         .fold(f64::INFINITY, f64::min);
     let proj_junction = projected
         .iter()
-        .map(|m| (m.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ)
+        .map(|m| {
+            (m.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ).abs() / PALACE_PORT_SHEET_MODE_GHZ
+        })
         .fold(f64::INFINITY, f64::min);
     eprintln!(
-        "junction LC mode ({PALACE_JUNCTION_MODE_GHZ:.4} GHz): ungauged nearest {:.4}%, \
+        "port-sheet mode ({PALACE_PORT_SHEET_MODE_GHZ:.4} GHz): ungauged nearest {:.4}%, \
          projected nearest {:.4}%",
         ung_junction * 100.0,
         proj_junction * 100.0
     );
-    // The ungauged committed path DOES resolve the junction mode (≤1%).
+    // The ungauged committed path DOES resolve the port-sheet mode (≤1%).
     assert!(
         ung_junction * 100.0 <= PALACE_BAR_PCT,
-        "ungauged path should resolve the junction mode within {PALACE_BAR_PCT}% (got {:.4}%)",
+        "ungauged path should resolve the port-sheet mode within {PALACE_BAR_PCT}% (got {:.4}%)",
         ung_junction * 100.0
     );
     // The bulk-`d⁰` projection deflates it — the pinned negative. (Flip = success.)
     assert!(
         proj_junction * 100.0 > PALACE_BAR_PCT,
-        "the bulk divergence-free projection now RETAINS the junction LC mode \
+        "the bulk divergence-free projection now RETAINS the 17.49 GHz port-sheet mode \
          (projected nearest {:.4}% ≤ {PALACE_BAR_PCT}%) — the negative no longer holds; \
          promote this to the positive acceptance test and update results.toml",
         proj_junction * 100.0
@@ -2067,17 +2125,17 @@ fn real_transmon_projection_deflates_junction_mode() {
 
     // ---- MECHANISM: MEASURE the deflation directly on the raw UNGAUGED
     //      junction eigenvector (issue #509 review). Rather than infer the
-    //      deflation from the junction mode's disappearance in the projected
+    //      deflation from the port-sheet mode's disappearance in the projected
     //      spectrum, obtain the UNGAUGED junction eigenvector (the ModeReport
     //      path drops EigenPair.vector, so we call the ungauged-core +
     //      projector measurement helper directly) and show its near-gradient
     //      character with the two scalar diagnostics `P` acts on:
     //        · divergence-ratio ‖GᵀMx‖/‖x‖_M  — O(1) for a near-gradient mode
-    //          (contrast the spurious mode's solenoidal 6.18e-15),
+    //          (contrast the qubit mode's solenoidal 6.18e-15),
     //        · projected-norm  ‖Px‖_M/‖x‖_M    — ≈ 0 (P deflates it away).
-    //      Targeting σ AT 17.49 GHz isolates the junction mode as the nearest
+    //      Targeting σ AT 17.49 GHz isolates the port-sheet mode as the nearest
     //      eigenpair. ------------------------------------------------------
-    let jsigma = lambda_shift_for_frequency_hz(PALACE_JUNCTION_MODE_GHZ * 1e9, M_PER_UNIT);
+    let jsigma = lambda_shift_for_frequency_hz(PALACE_PORT_SHEET_MODE_GHZ * 1e9, M_PER_UNIT);
     let ung_div = {
         let edges = f.mesh.edges();
         let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
@@ -2114,9 +2172,9 @@ fn real_transmon_projection_deflates_junction_mode() {
     let x_junction = ung_div
         .iter()
         .min_by(|a, b| {
-            (a.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ)
+            (a.frequency_hz / 1e9 - PALACE_PORT_SHEET_MODE_GHZ)
                 .abs()
-                .partial_cmp(&(b.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs())
+                .partial_cmp(&(b.frequency_hz / 1e9 - PALACE_PORT_SHEET_MODE_GHZ).abs())
                 .unwrap()
         })
         .expect("no ungauged modes near the junction frequency");
@@ -2129,12 +2187,12 @@ fn real_transmon_projection_deflates_junction_mode() {
         x_junction.projected_norm_ratio,
     );
 
-    // Sanity: we actually grabbed the junction mode (≤1% + p ≈ 1).
-    let j_rel =
-        (x_junction.frequency_hz / 1e9 - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ;
+    // Sanity: we actually grabbed the port-sheet mode (≤1% + p ≈ 1).
+    let j_rel = (x_junction.frequency_hz / 1e9 - PALACE_PORT_SHEET_MODE_GHZ).abs()
+        / PALACE_PORT_SHEET_MODE_GHZ;
     assert!(
         j_rel * 100.0 <= PALACE_BAR_PCT && x_junction.participation > 0.5,
-        "measured eigenvector is not the junction LC mode: f = {:.4} GHz ({:.4}%), p = {:.4}",
+        "measured eigenvector is not the 17.49 GHz port-sheet mode: f = {:.4} GHz ({:.4}%), p = {:.4}",
         x_junction.frequency_hz / 1e9,
         j_rel * 100.0,
         x_junction.participation
@@ -2142,7 +2200,7 @@ fn real_transmon_projection_deflates_junction_mode() {
 
     // MEASURE 1: the junction eigenvector is a NEAR-GRADIENT field — its
     // divergence ratio is macroscopic, measured 5.0173e1 on the real 133k-DOF
-    // fixture (2026-07-14), in stark contrast to the spurious mode's
+    // fixture (2026-07-14), in stark contrast to the qubit mode's
     // solenoidal 6.18e-15. Threshold pinned at 1e-2 (≈3500× margin below the
     // measured value; a machine-zero here would mean the mode became
     // solenoidal and the deflation story changed).
@@ -2159,7 +2217,7 @@ fn real_transmon_projection_deflates_junction_mode() {
     // measured value; ≈1 would mean P now leaves the mode in place).
     assert!(
         x_junction.projected_norm_ratio < 0.1,
-        "P should deflate the near-gradient junction mode (‖Px‖_M/‖x‖_M ≈ 0), got {:.4e} — \
+        "P should deflate the near-gradient port-sheet mode (‖Px‖_M/‖x‖_M ≈ 0), got {:.4e} — \
          if P now leaves it in place the deflation no longer holds; re-measure and update \
          results.toml",
         x_junction.projected_norm_ratio
@@ -2167,15 +2225,23 @@ fn real_transmon_projection_deflates_junction_mode() {
 }
 
 /// POSITIVE ACCEPTANCE (issue #514, release-gated): the PORT-AWARE
-/// divergence-free composite projection retains ALL SIX physical modes ≤1%
-/// (INCLUDING the 17.4901 GHz junction LC mode the bulk-`d⁰` projection of
-/// issue #509 deflated) AND keeps the 13,747-mode gradient cluster gone. This
-/// is the SUCCESS landing of the eigen-gauge saga, chapter 3.
+/// divergence-free composite projection retains ALL SIX modes of Palace's
+/// Target = 4.5 GHz oracle ≤1% (INCLUDING the 17.4901 GHz port-sheet mode the
+/// bulk-`d⁰` projection of issue #509 deflated) AND keeps the 13,747-mode
+/// gradient cluster gone. This was the landing of the eigen-gauge saga,
+/// chapter 3.
+///
+/// **Re-read (issue #1045).** Five of those six are cavity modes; the
+/// 17.49 GHz one is the port-sheet artifact (zero port voltage, shared with
+/// Palace, removed by the opt-in A2 shunt of #1044), so "retaining" it
+/// matches the oracle rather than the device. The 3.4528 GHz mode this solve
+/// also returns is the transmon qubit mode (#1043). The assertions are
+/// unchanged: they gate agreement with the committed oracle.
 ///
 /// # Construction (b2): deflate `image(d⁰) ⊖ span{û}`
 ///
 /// The bulk projector `P = I − G(GᵀMG)⁻¹GᵀM` annihilates all of `image(d⁰)`,
-/// removing the gradient cluster but also deflating the junction LC mode (which
+/// removing the gradient cluster but also deflating the 17.49 GHz port-sheet mode (which
 /// is 99.99% gradient — a quasi-static curl-free flux path). The port-aware
 /// projector re-admits exactly one direction:
 ///
@@ -2193,8 +2259,8 @@ fn real_transmon_projection_deflates_junction_mode() {
 ///
 /// # What this test asserts (the acceptance bars)
 ///
-/// 1. All six Palace modes (5.15 / 15.46 / **17.49 junction** / 18.69 / 20.70 /
-///    26.08 GHz) reproduced ≤1% by the port-aware solve.
+/// 1. All six Palace Target-4.5 modes (5.15 / 15.46 / **17.49 port sheet** /
+///    18.69 / 20.70 / 26.08 GHz) reproduced ≤1% by the port-aware solve.
 /// 2. The bulk gradient cluster stays gone (≤1 near-zero survivor).
 ///
 /// The two prior-negative pin tests
@@ -2219,10 +2285,10 @@ fn real_transmon_port_aware_retains_all_six_modes() {
 
     // Port-aware composite solve: ungauged extract near 17.49 GHz (junction),
     // then port-aware band solve at σ = 18 GHz (brackets 5.15–26 GHz with 14
-    // modes past the surviving solenoidal 3.45 GHz mode).
+    // modes past the solenoidal 3.45 GHz qubit mode).
     let t0 = std::time::Instant::now();
     let (modes, diag) =
-        solve_real_fixture_port_aware(&f, 18.0e9, PALACE_JUNCTION_MODE_GHZ * 1e9, 14);
+        solve_real_fixture_port_aware(&f, 18.0e9, PALACE_PORT_SHEET_MODE_GHZ * 1e9, 14);
     let elapsed = t0.elapsed();
     eprintln!(
         "port-aware solve: {:.1}s, {} Lanczos iters, {} extra re-projections",
@@ -2266,33 +2332,33 @@ fn real_transmon_port_aware_retains_all_six_modes() {
     }
     eprintln!("  worst-case per-mode Δ = {worst:.4}% (bar {PALACE_BAR_PCT}%)");
 
-    // The junction mode specifically (the one #509 deflated) is now retained.
+    // The port-sheet mode specifically (the one #509 deflated) is now retained.
     let junction = modes
         .iter()
         .min_by(|a, b| {
-            (a.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ)
+            (a.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ)
                 .abs()
-                .partial_cmp(&(b.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs())
+                .partial_cmp(&(b.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ).abs())
                 .unwrap()
         })
         .expect("no modes");
     let j_rel =
-        (junction.frequency_ghz() - PALACE_JUNCTION_MODE_GHZ).abs() / PALACE_JUNCTION_MODE_GHZ;
+        (junction.frequency_ghz() - PALACE_PORT_SHEET_MODE_GHZ).abs() / PALACE_PORT_SHEET_MODE_GHZ;
     eprintln!(
-        "junction LC mode RETAINED: {:.4} GHz (p={:.3}), {:.4}% vs Palace {PALACE_JUNCTION_MODE_GHZ:.4} GHz",
+        "port-sheet mode RETAINED: {:.4} GHz (p={:.3}), {:.4}% vs Palace {PALACE_PORT_SHEET_MODE_GHZ:.4} GHz",
         junction.frequency_ghz(),
         junction.participation,
         j_rel * 100.0
     );
     assert!(
         j_rel * 100.0 <= PALACE_BAR_PCT,
-        "port-aware projection must RETAIN the junction LC mode within {PALACE_BAR_PCT}% \
+        "port-aware projection must RETAIN the 17.49 GHz port-sheet mode within {PALACE_BAR_PCT}% \
          (got {:.4}%) — this is the #509 negative flipped to positive",
         j_rel * 100.0
     );
     assert!(
         junction.participation > 0.5,
-        "the retained junction mode must carry the junction participation signature (p={:.3})",
+        "the retained port-sheet mode must carry the junction participation signature (p={:.3})",
         junction.participation
     );
 
@@ -2306,18 +2372,24 @@ fn real_transmon_port_aware_retains_all_six_modes() {
     );
 }
 
-/// The six physical modes (GHz) the issue #950 port-subspace route returns for
-/// a 7-mode request at σ = 4.5 GHz on the committed 133k fixture, copied from
+/// The six modes of Palace's Target = 4.5 GHz oracle (five cavity modes and
+/// the 17.49 GHz port-sheet artifact) as the issue #950 port-subspace route
+/// returns them for a 7-mode request at σ = 4.5 GHz on the committed 133k
+/// fixture, copied from
 /// `benchmarks/transmon_bench_cpu/results_like_for_like_local.toml`, table
 /// `[[issue_950.cell]]` `name = "portaware_s4p5_n7"`, `modes_f_ghz` (entries 2
-/// to 7; the first is the port mode below). That file prints six decimals.
-const PORT_SUBSPACE_N7_PHYSICAL_GHZ: [f64; 6] = [
+/// to 7; the first is the qubit mode below). That file prints six decimals.
+/// Named `PORT_SUBSPACE_N7_PHYSICAL_GHZ` before issue #1045, when the
+/// artifact was counted as physical.
+const PORT_SUBSPACE_N7_PALACE_REQUEST_GHZ: [f64; 6] = [
     5.152825, 15.464979, 17.490109, 18.692705, 20.703377, 26.088287,
 ];
 
-/// The solenoidal port-artifact mode (#514, #1003) that the same request
-/// returns as its one non-physical mode (same TOML cell, `modes_f_ghz[0]`).
-const PORT_SUBSPACE_N7_PORT_MODE_GHZ: f64 = 3.452751;
+/// The 3.45 GHz transmon qubit mode (confirmed by Palace at Target 2 GHz,
+/// #1043) that the same request returns (same TOML cell, `modes_f_ghz[0]`).
+/// Named `PORT_SUBSPACE_N7_PORT_MODE_GHZ` before issue #1045, when it was read
+/// as a port artifact.
+const PORT_SUBSPACE_N7_QUBIT_GHZ: f64 = 3.452751;
 
 /// Relative tolerance against the committed values above (issue #1014).
 const PORT_SUBSPACE_N7_REL_TOL: f64 = 1e-4;
@@ -2325,18 +2397,21 @@ const PORT_SUBSPACE_N7_REL_TOL: f64 = 1e-4;
 /// REGRESSION PIN (issue #1014, release-gated): the issue #950
 /// **port-subspace** route (`solve_transmon_eigenmodes_port_subspace`, which
 /// `transmon_bench` runs for `GEODE_GAUGE=port_aware` since PR #1002) returns
-/// all six physical modes for a **7**-mode request at the Palace fixture's
-/// own target, σ = 4.5 GHz, with exactly **one** factorization of `K − σM`.
+/// all six physical modes (the qubit and five cavity modes; issue #1045) for a
+/// **7**-mode request at the Palace fixture's own target, σ = 4.5 GHz, with
+/// exactly **one** factorization of `K − σM`. The seventh mode is the
+/// 17.49 GHz port-sheet artifact.
 ///
 /// What it asserts:
 ///
 /// 1. `diag.shifted_factorizations == 1` (no junction extract; the #514 route
 ///    `port_aware_extract` reports 2).
-/// 2. Exactly 7 modes come back: the 3.45 GHz port mode (#1003, a genuine
-///    eigenpair of this port formulation, not a gradient artifact) and the six
-///    physical modes, each within 1e-4 relative of the committed
-///    `[issue_950]` values ([`PORT_SUBSPACE_N7_PHYSICAL_GHZ`]). So no
-///    near-zero gradient mode is returned either.
+/// 2. Exactly 7 modes come back: the 3.45 GHz qubit mode
+///    ([`PORT_SUBSPACE_N7_QUBIT_GHZ`]) and the six modes of Palace's
+///    Target = 4.5 GHz oracle ([`PORT_SUBSPACE_N7_PALACE_REQUEST_GHZ`]: five
+///    cavity modes and the port-sheet artifact), each within 1e-4 relative of
+///    the committed `[issue_950]` values. So no near-zero gradient mode is
+///    returned either.
 ///
 /// The committed values come from the `transmon_bench` example, which builds
 /// the pencil exactly as [`solve_real_fixture_port_subspace`] does.
@@ -2376,7 +2451,7 @@ fn real_transmon_port_subspace_returns_six_physical_at_n7() {
         "the port-subspace route must factor K − σM exactly once (no junction extract)"
     );
 
-    // ---- 2: seven modes = the port mode + the six physical modes. ----
+    // ---- 2: seven modes = the qubit mode + Palace's six Target-4.5 modes. ----
     assert_eq!(
         modes.len(),
         7,
@@ -2388,17 +2463,20 @@ fn real_transmon_port_subspace_returns_six_physical_at_n7() {
     got.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let rel = |a: f64, b: f64| (a - b).abs() / b;
     assert!(
-        rel(got[0], PORT_SUBSPACE_N7_PORT_MODE_GHZ) <= PORT_SUBSPACE_N7_REL_TOL,
-        "lowest mode {:.6} GHz is not the committed {PORT_SUBSPACE_N7_PORT_MODE_GHZ} GHz \
-         port mode (#1003) within {PORT_SUBSPACE_N7_REL_TOL:e}",
+        rel(got[0], PORT_SUBSPACE_N7_QUBIT_GHZ) <= PORT_SUBSPACE_N7_REL_TOL,
+        "lowest mode {:.6} GHz is not the committed {PORT_SUBSPACE_N7_QUBIT_GHZ} GHz \
+         qubit mode (#1043) within {PORT_SUBSPACE_N7_REL_TOL:e}",
         got[0]
     );
-    for (g, &want) in got[1..].iter().zip(PORT_SUBSPACE_N7_PHYSICAL_GHZ.iter()) {
+    for (g, &want) in got[1..]
+        .iter()
+        .zip(PORT_SUBSPACE_N7_PALACE_REQUEST_GHZ.iter())
+    {
         let r = rel(*g, want);
         eprintln!("  committed {want:.6} GHz ↔ geode {g:.6} GHz: rel {r:.2e}");
         assert!(
             r <= PORT_SUBSPACE_N7_REL_TOL,
-            "physical mode {g:.6} GHz differs from the committed {want:.6} GHz \
+            "mode {g:.6} GHz differs from the committed {want:.6} GHz \
              ([issue_950] portaware_s4p5_n7) by {r:.2e} > {PORT_SUBSPACE_N7_REL_TOL:e}"
         );
     }
@@ -2695,13 +2773,23 @@ fn real_transmon_shipped_shunt_bulk_projector_n6() {
     );
 }
 
-/// CHARACTERIZATION (issue #514, release-gated): the 3.4528 GHz spurious mode
-/// is a **port/junction artifact, NOT a box/mesh mode**. Two discriminating
-/// measurements, both recorded in `benchmarks/transmon_eigen/results.toml`:
+/// CHARACTERIZATION (issue #514, release-gated): the 3.4528 GHz mode is
+/// **junction-localized and L-sensitive, NOT a box/mesh mode**. Two
+/// discriminating measurements, both recorded in
+/// `benchmarks/transmon_eigen/results.toml` `[tripwires.qubit_l_doubling]`.
 ///
-/// 1. **L-scaling (the port-artifact discriminator).** Applying the
+/// **Re-read (issue #1045).** This test was `characterize_spurious_3p45_mode`.
+/// It was written when the mode was taken to be a port artifact. #1043 re-ran
+/// Palace below the mode (`Target = 2 GHz`) and found it at 3.452749 GHz with
+/// port EPR 0.99424 and the same L-doubling ratio (0.70810): it is the
+/// transmon qubit mode. Both measurements below are what a qubit mode should
+/// show (it is the junction's LC resonance with the island capacitance). The
+/// assertion (port localization) is unchanged; the prose keeps the original
+/// hypothesis where it records what was believed in #514, marked as such.
+///
+/// 1. **L-scaling.** Applying the
 ///    `tripwire_real_junction_l_doubling` harness (`solve_real_fixture_with_l`)
-///    to the SPURIOUS mode instead of the junction LC mode: if the mode's
+///    to this mode instead of the 17.49 GHz port-sheet mode: if the mode's
 ///    frequency shifts when the junction inductance `L` is doubled, it is
 ///    coupled to the reactive port term `K_port = (ℓ/(w·L̃))·S_Γ` (a port
 ///    artifact); if it stays fixed, it is a box/mesh mode independent of the
@@ -2712,52 +2800,53 @@ fn real_transmon_shipped_shunt_bulk_projector_n6() {
 ///    stiffness energy sits in the `K_port` surface term — near-total
 ///    localization to the junction patch.
 ///
-/// The narrowed hypothesis (recorded honestly): the 3.4528 GHz mode is a
-/// near-nullspace eigenmode of the `S_Γ` port surface operator convolved with
-/// the local mesh discretization — a `K_port`-driven, junction-localized mode
-/// with no cavity/box counterpart, which is why Palace's LumpedPort
-/// formulation (which eliminates/represents the port DOFs differently) does not
-/// produce it. It is genuinely solenoidal (issue #509: div-ratio ≈ 6e-15), so
-/// NO divergence-free projection — bulk or port-aware — removes it; it stays
-/// filtered by frequency-matching against Palace, exactly as on the committed
-/// path.
+/// The #514 hypothesis, now withdrawn: "a near-nullspace eigenmode of the
+/// `S_Γ` port surface operator ... which is why Palace's LumpedPort
+/// formulation (which eliminates/represents the port DOFs differently) does
+/// not produce it". #1003 found Palace adds the same distributed `S_Γ` term,
+/// and #1043 found Palace does produce the mode; it was absent only because
+/// Palace's committed run searched above `Target = 4.5 GHz`. It is genuinely
+/// solenoidal (issue #509: div-ratio ≈ 6e-15), so no divergence-free
+/// projection removes it, as none should.
 ///
 /// ```sh
 /// cargo test -p geode-core --release --test transmon_eigenmode \
-///     -- --ignored characterize_spurious_3p45_mode --nocapture
+///     -- --ignored characterize_qubit_mode_3p45 --nocapture
 /// ```
 #[test]
 #[ignore = "two 133k-DOF sparse shift-invert eigensolves — release benchmark only"]
-fn characterize_spurious_3p45_mode() {
+fn characterize_qubit_mode_3p45() {
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
 
-    // The spurious mode: near 3.45 GHz, high participation, NO Palace
-    // counterpart. Extract it at base L and doubled L (target the low band).
-    const SPURIOUS_GHZ: f64 = 3.4528;
+    // The qubit mode: near 3.45 GHz, high participation, no counterpart in
+    // the Target = 4.5 GHz Palace oracle (it is below that Target). Extract it
+    // at base L and doubled L (target the low band).
+    const QUBIT_GHZ: f64 = 3.4528;
     let has_palace = |fg: f64| {
         PALACE_MODES_GHZ
             .iter()
             .any(|&p| (fg - p).abs() / p <= PALACE_BAR_PCT / 100.0)
     };
-    let pick_spurious = |ms: &[ModeReport]| -> ModeReport {
-        // The below-band (< 4 GHz), high-participation mode with no Palace match.
+    let pick_qubit = |ms: &[ModeReport]| -> ModeReport {
+        // The below-band (< 4.5 GHz), high-participation mode with no match in
+        // the Target = 4.5 GHz oracle.
         ms.iter()
             .filter(|m| {
                 m.frequency_ghz() > 0.5 && m.frequency_ghz() < 4.5 && !has_palace(m.frequency_ghz())
             })
             .max_by(|a, b| a.participation.partial_cmp(&b.participation).unwrap())
             .cloned()
-            .expect("no below-band spurious mode found")
+            .expect("no below-band qubit mode found")
     };
 
-    let base = solve_real_fixture_with_l(&f, JUNCTION_L_H, SPURIOUS_GHZ * 1e9, 8);
-    let doubled = solve_real_fixture_with_l(&f, 2.0 * JUNCTION_L_H, SPURIOUS_GHZ * 1e9, 8);
-    let sb = pick_spurious(&base);
-    let sd = pick_spurious(&doubled);
+    let base = solve_real_fixture_with_l(&f, JUNCTION_L_H, QUBIT_GHZ * 1e9, 8);
+    let doubled = solve_real_fixture_with_l(&f, 2.0 * JUNCTION_L_H, QUBIT_GHZ * 1e9, 8);
+    let sb = pick_qubit(&base);
+    let sd = pick_qubit(&doubled);
 
     let ratio = sd.frequency_ghz() / sb.frequency_ghz();
     eprintln!(
-        "SPURIOUS-MODE L-SCALING: {:.4} GHz (p={:.4}) @ L → {:.4} GHz (p={:.4}) @ 2L; \
+        "QUBIT-MODE L-SCALING: {:.4} GHz (p={:.4}) @ L → {:.4} GHz (p={:.4}) @ 2L; \
          ratio {:.4} (junction √L law = 1/√2 = {:.4}, box-mode = 1.0000)",
         sb.frequency_ghz(),
         sb.participation,
@@ -2767,32 +2856,33 @@ fn characterize_spurious_3p45_mode() {
         1.0 / 2.0_f64.sqrt(),
     );
     eprintln!(
-        "SPURIOUS-MODE LOCALIZATION: junction stiffness-participation p = {:.4} \
+        "QUBIT-MODE LOCALIZATION: junction stiffness-participation p = {:.4} \
          (fraction of stiffness energy in the K_port surface term)",
         sb.participation
     );
 
     // ---- The discriminating verdict. ----
     // A box/mesh mode (independent of the lumped element) has ratio ≈ 1.0000.
-    // A port/junction artifact shifts with L. We assert the mode is
+    // A junction-coupled mode (the qubit mode) shifts with L. We assert the mode is
     // port-localized (p high) and record which way L-scaling breaks — the
     // characterization is the deliverable, so we pin the localization (robust)
     // and REPORT the L-scaling ratio without over-constraining its exact law.
     assert!(
         sb.participation > 0.5,
-        "the 3.45 GHz spurious mode must be junction-surface localized \
-         (p={:.4}) — it is a port artifact, not a box mode",
+        "the 3.45 GHz qubit mode must be junction-surface localized \
+         (p={:.4}) — it is junction-coupled, not a box mode",
         sb.participation
     );
     let l_sensitive = (ratio - 1.0).abs() > 0.02;
     let verdict = if l_sensitive {
-        "L-SENSITIVE (port/junction artifact, shifts with the reactive element)"
+        "L-SENSITIVE (junction-coupled: the qubit mode shifts with the reactive element)"
     } else {
         "L-INSENSITIVE (fixed vs L: a K_port-geometry / mesh-discretization artifact of the port patch, not the reactive value)"
     };
     eprintln!(
         "VERDICT: the 3.45 GHz mode is {verdict} — in either case it is \
-         junction-surface localized (p≈0.99) with no Palace counterpart"
+         junction-surface localized (p≈0.99); Palace has it at 3.452749 GHz below \
+         its committed Target (#1043)"
     );
 }
 
@@ -3076,7 +3166,7 @@ fn solve_real_fixture_with_l_lambda(
 /// 1. the curl-free `image(d⁰)` gradient subspace has `K v = 0`, so
 ///    `vᵀ(K − σM)v = −σ vᵀMv < 0` for any `σ > 0` — a negative subspace of
 ///    dimension ≈ the number of interior nodes; and
-/// 2. the ~3.45 GHz junction-participation mode sits below 4.5 GHz as well.
+/// 2. the ~3.45 GHz qubit mode (junction participation 0.994) sits below 4.5 GHz as well.
 ///
 /// (Both facts are recorded at [`real_transmon_minres_ams_converges_at_sigma_4p5`]
 /// and in `synthetic_three_space_vs_gradient_only_inner_iterations`.) CG on that
@@ -3110,7 +3200,7 @@ fn real_fixture_spd_shift() -> f64 {
 
 /// `|λ|` at or below which a real-fixture mode is the `image(d⁰)` gradient
 /// near-kernel (numerically ~1e-16) rather than a physical mode (λ ≳ 5e-9 in
-/// `(1/μm)²` for the ~3.45 GHz junction mode and above).
+/// `(1/μm)²` for the ~3.45 GHz qubit mode and above).
 const REAL_NEAR_KERNEL_FLOOR: f64 = 1e-12;
 
 /// Cross-check two real-fixture spectra mode by mode (issue #960). Every
@@ -3183,7 +3273,7 @@ fn assert_spectra_match(
 /// `(K − σM)` is SPD so the inner CG is valid, and the matrix-free inner CG is
 /// AMS-preconditioned. Until issue #960 this test ran Jacobi-CG at
 /// `σ = +4.5 GHz` on the false premise that the operator is SPD there; it is
-/// indefinite (gradient kernel + the ~3.45 GHz junction mode), so the
+/// indefinite (gradient kernel + the ~3.45 GHz qubit mode), so the
 /// matrix-free leg stagnated at `‖r‖/‖b‖ ≈ 0.69` and never converged. At the SPD
 /// shift Jacobi-CG still cannot reach the inner tolerance within its `2·N`
 /// budget on this mesh (see [`real_fixture_spd_shift`]), which is why the
@@ -3315,7 +3405,7 @@ fn solve_real_fixture_matrix_free_indefinite(
 /// RELEASE gate + documented tripwire (issue #535): the **indefinite**
 /// matrix-free path (MINRES + absolute-value Jacobi) on the committed 133k-DOF
 /// real transmon fixture at an **interior** shift (σ = 20 GHz, inside the
-/// ~5–26 GHz physical band, bracketing the ~17.6 GHz junction LC mode, so
+/// ~5–26 GHz band, bracketing the 17.49 GHz port-sheet mode, so
 /// `(K − σM)` is symmetric-indefinite and the SPD CG path is invalid).
 ///
 /// # Measured first-cut outcome (2026-07-15, local, 133_108 interior DOFs)
@@ -3462,7 +3552,7 @@ fn solve_real_fixture_indefinite_inner_iters(
 
 /// RELEASE **aspirational** gate (issues #531/#559): on the committed 133k-DOF
 /// real transmon fixture at the **physical σ = 4.5 GHz** operating point — where
-/// `(K − σM)` is symmetric-**indefinite** (the ~3.45 GHz junction-participation
+/// `(K − σM)` is symmetric-**indefinite** (the ~3.45 GHz qubit
 /// mode and the `image(d⁰)` gradient near-kernel sit below the shift, the
 /// ~5.15 GHz resonator above) — this test *targets* the three-space AMS driving
 /// the **indefinite MINRES** inner solve to convergence, matching the direct
@@ -3541,7 +3631,7 @@ fn real_transmon_minres_ams_converges_at_sigma_4p5() {
     // `image(d⁰)` gradient near-kernel modes sit at λ ≈ 0 (numerically ~1e-16),
     // where a relative test is meaningless, so gate those with an absolute λ
     // floor and apply the ≤1% Palace bar to the physical modes (λ well above the
-    // floor: the ~3.45 GHz junction mode and the ~5.15 GHz resonator).
+    // floor: the ~3.45 GHz qubit mode and the ~5.15 GHz resonator).
     assert_eq!(
         direct.len(),
         ams_modes.len(),
@@ -3745,7 +3835,7 @@ fn real_fixture_short_lanczos_inner_iters(
 /// both preconditioned CGs are valid — the same below-the-spectrum placement
 /// the synthetic twin uses (`σ = −0.5`). Until issue #960 this test ran at
 /// `σ = +4.5 GHz` on the false premise that the operator is SPD there; it is
-/// indefinite (gradient kernel + the ~3.45 GHz junction mode), so the Jacobi
+/// indefinite (gradient kernel + the ~3.45 GHz qubit mode), so the Jacobi
 /// leg stagnated at `‖r‖/‖b‖ ≈ 0.69` after 266_216 inner iterations and the 5×
 /// gate never ran.
 ///

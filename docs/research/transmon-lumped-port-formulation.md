@@ -9,8 +9,12 @@
 artifact and keep 3.4528 GHz as the qubit mode (O1). P1 (#1043) confirmed the qubit mode
 (§10). P2 (#1044) ships A2 opt-in as `LumpedPortVoltageShunt` /
 `JunctionPortModel::PortVoltage`, with the §3.3 numbers reproduced by committed code and
-recorded in `benchmarks/transmon_eigen/results.toml` `[port_voltage_a2]`. P3 (#1045) and
-P4 (#1046) are open.
+recorded in `benchmarks/transmon_eigen/results.toml` `[port_voltage_a2]`. P3 (#1045) re-baselined the committed classification: the
+3.4528 GHz mode is `[modes.qubit]`, the 17.49 GHz mode `[modes.port_sheet_artifact]`, and
+the CPU timing artifacts label modes `qubit` / `cavity` / `port_sheet_artifact` (migration
+note at the top of `benchmarks/transmon_eigen/results.toml`). P4 (#1046) is open. Section
+and key names quoted below (`[spurious_mode]`, `[modes.junction_lc]`, `spurious_port`) are
+the pre-#1045 names.
 
 The operator ruling on #1003 asked for a spike toward a port formulation like Palace's
 `LumpedPort`, one that removes the 3.4528 GHz transmon mode without matching against the
@@ -470,5 +474,7 @@ fire.
   converged value is unmeasured. The qubit frequency goes as `1/√(C_Σ + C_J)`, so it is
   not converged on this mesh either.
 - The classification in `results.toml` (`[spurious_mode]`, `excluded = true`,
-  `[modes.junction_lc]`) is unchanged. That is phase P3 (#1045).
+  `[modes.junction_lc]`) was unchanged by P1. P3 (#1045) then renamed it to
+  `[modes.qubit]` and `[modes.port_sheet_artifact]`, and re-baselined the CPU timing
+  artifacts' mode sets to include the qubit.
 - O1–O4 remain operator decisions. P1 supplies the evidence O1 and O4 were waiting on.

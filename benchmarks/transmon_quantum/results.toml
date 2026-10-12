@@ -104,22 +104,26 @@ self_kerr_p1_ghz = -0.068116  # -(E_C/2) p^2 at p=1
 cross_kerr_p1_p001_ghz = -0.002725  # -2 E_C p_m p_n, p_m=1 p_n=0.01
 
 [epr_reconciliation]
-# 3-way reconciliation over the six committed Phase-B field modes.
-# minev_p_m == phase_b_participation ALGEBRAICALLY (reactive-shunt
-# formulation makes junction-inductive-energy-fraction the same
-# quantity); Palace port-EPR is a differently-normalized, SIGNED
-# field diagnostic that ranks modes DIFFERENTLY (junction mode has
-# the SMALLEST |p[1]|, resonator the LARGEST) — an honest
-# non-comparability, reconciled by the frequency-agreement mode-ID.
+# 3-way reconciliation over the seven committed Phase-B field modes:
+# the qubit mode, five cavity modes and the port-sheet artifact
+# (issue #1045; the artifact was named junction_lc and the qubit
+# row was absent). minev_p_m == phase_b_participation ALGEBRAICALLY
+# (reactive-shunt formulation makes junction-inductive-energy-fraction
+# the same quantity). Palace port-EPR is a differently-normalized,
+# SIGNED field diagnostic. It agrees with p on the qubit mode
+# (0.99424 vs 0.9942, Palace at Target 2 GHz, #1043) and differs on
+# the port-sheet artifact (2.49e-8 vs 1.000), which stores its energy
+# in the port sheet without a port voltage. Mode ID is by frequency.
 modes = [
+  { name = "qubit", f_ghz = 3.452751, minev_p_m = 0.9942, phase_b_participation = 0.9942, palace_port_epr = 9.942421e-1 },
   { name = "resonator", f_ghz = 5.153, minev_p_m = 0.000, phase_b_participation = 0.000, palace_port_epr = -4.706080e-4 },
   { name = "mode_2", f_ghz = 15.465, minev_p_m = 0.000, phase_b_participation = 0.000, palace_port_epr = -1.710883e-5 },
-  { name = "junction_lc", f_ghz = 17.49, minev_p_m = 1.000, phase_b_participation = 1.000, palace_port_epr = 2.494783e-8 },
+  { name = "port_sheet_artifact", f_ghz = 17.49, minev_p_m = 1.000, phase_b_participation = 1.000, palace_port_epr = 2.494783e-8 },
   { name = "mode_4", f_ghz = 18.693, minev_p_m = 0.000, phase_b_participation = 0.000, palace_port_epr = -2.975893e-9 },
   { name = "mode_5", f_ghz = 20.703, minev_p_m = 0.000, phase_b_participation = 0.000, palace_port_epr = -1.172141e-8 },
   { name = "mode_6", f_ghz = 26.088, minev_p_m = 0.000, phase_b_participation = 0.000, palace_port_epr = -6.038681e-6 },
 ]
 minev_equals_phase_b = true  # algebraic identity, tested in tests/transmon_quantum.rs
-palace_ranks_differently = true  # signed field diagnostic, not the energy fraction
-mode_id_basis = "frequency agreement (17.4901 GHz junction mode in both solvers), NOT participation"
+palace_ranks_differently = true  # on the port-sheet artifact only; the qubit agrees (0.9942 vs 0.99424)
+mode_id_basis = "frequency agreement (3.4527 GHz qubit mode and 17.4901 GHz port-sheet artifact in both solvers), NOT participation"
 

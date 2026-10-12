@@ -27,7 +27,8 @@
 # Route "port-aware": GEODE_GAUGE=port_aware selects, since PR #1002 (#950),
 # the single-factorization port-subspace projection (one factorization of
 # K - sigma M, no junction extract; six physical modes from a 7-mode request,
-# plus the 3.45 GHz port mode, #1003). The #927 tuned sweep ran this driver at
+# plus the 17.49 GHz port-sheet artifact, #1003; the 3.45 GHz mode is
+# the qubit, #1043). The #927 tuned sweep ran this driver at
 # geode 8367ee7b, before PR #1002, when port_aware selected the issue #514 route
 # (junction extract + projected band, two factorizations; 8 modes for all six
 # physical, plus two non-physical). That route is now
