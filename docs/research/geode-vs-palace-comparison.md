@@ -348,7 +348,8 @@ points:
     solves per step — **no wall-clock speedup is claimed**.
   - **DeviceLayout island-pad shape gradient on the real 133k-tet mesh** — the analytic
     `∂C_Σ/∂θ` for the actual SingleTransmon island conductor, FD-validated on the production
-    mesh to **1.154e-4**. **Honest outcome:** the 89.9 fF anchor is *not* reachable under the
+    mesh to **1.154e-4**. **Honest outcome:** the 89.9 fF anchor (superseded by the 93.9537 fF DeviceLayout anchor, issue
+    #1066; this run is history and was not re-run) is *not* reachable under the
     fixed-topology node-motion map (the island's junction-attachment nodes sit ~225 µm from
     its centroid, so the prescribed scale inverts ~0.7 µm junction-region tets at
     θ ≈ −0.0097 while the anchor needs θ ≈ −0.24); the bounded Newton run stalls honestly at

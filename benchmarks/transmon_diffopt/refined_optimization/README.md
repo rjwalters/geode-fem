@@ -1,12 +1,251 @@
-# Refined transmon optimization (#1056)
+# Refined transmon optimization (#1056, re-anchored in #1066)
 
 This experiment optimizes the **scalar-permittivity electrostatic capacitance**
-of the DeviceLayout transmon, with a neutral floating feedline, toward the
-89.9 fF anchor. The junction's 5.5 fF lumped self-capacitance is excluded. This
-is not an optimization of the full-wave eigenfrequency or of the nonlinear
-Hamiltonian.
+of the DeviceLayout transmon, with a neutral floating feedline, toward an
+anchor. The junction's 5.5 fF lumped self-capacitance is excluded from this
+capacitance. This is not an optimization of the full-wave eigenfrequency or of
+the nonlinear Hamiltonian.
 
-## Result
+## The anchor (#1066)
+
+The anchor is **93.953660 fF** (93.9537 fF). DeviceLayout publishes 4.14 GHz
+for this qubit. Palace computes that number as a linear eigenmode, with the
+junction as a lumped `L_J = 14.860 nH` in parallel with `C_J = 5.5 fF`, so it
+is the harmonic frequency `f = 1/(2 pi sqrt(L_J (C_Sigma + C_J)))`:
+
+| Quantity | Value |
+|---|---|
+| `C_total = 1/((2 pi f)^2 L_J)` | 99.453660 fF |
+| `C_Sigma = C_total - C_J` (junction excluded) | **93.953660 fF** |
+| `E_C = e^2/(2 C_total)` | 0.194766 GHz |
+
+**Caveat: the anchor is a resonator-hybridized mode.** DeviceLayout's 4.14 GHz
+is the lower of two coupled Palace eigenmodes (`[4.14, 5.591] GHz`, N = 2).
+geode's `C_Sigma` treats the resonator as part of ground, so the pure-LC
+inversion above reads a hybridized mode as if it were the bare qubit.
+- **Sign.** Level repulsion from the 5.591 GHz mode pushes the Palace mode
+  down. The bare-qubit-consistent `C_Sigma` target is therefore **below**
+  93.9537 fF.
+- **First-order size (an estimate; `g` is not measured here).** The shift is
+  `g^2 (1/Delta + 1/Sigma)` with `Delta` = 1.451 GHz and `Sigma` = 9.731 GHz.
+  `g / 2 pi` = 50, 80, 100 MHz gives 2.0, 5.1, 7.9 MHz, which is about 0.10,
+  0.24, 0.38 fF in `C_Sigma`.
+- **Ceiling.** #1043's same-mesh Palace-vs-LC offset is 0.281 %
+  (3.452751 vs 3.462456 GHz). It mixes in solver and permittivity-model
+  differences, so it is a ceiling of about 0.3 % in frequency, about 0.6 fF in
+  `C_Sigma`, not a bound.
+- **Consequence.** Every "relative to the anchor" figure below is measured
+  against this ruled pure-LC anchor, not a hybridization-corrected one. Figures
+  smaller than the possible offset are **not resolved by this anchor**: "at most
+  0.20 % above", the -0.09 % / +0.08 % band, and "the band contains the
+  anchor". The "at least 1.01 % below" figure survives, with its margin
+  shrinking to about 0.4 % at the ceiling.
+- Source spread: the Palace tutorial's own 4.0991 GHz would give about 95.95 fF.
+
+The derivation lives in one place,
+`geode_core::quantum::transmon::TransmonAnchor::devicelayout`. The generator
+reads the anchor from there and records it in each `summary.toml` (`[anchor]`)
+and `results.json` (`anchor_ff`). `scripts/transmon_refined_palace.py` reads it
+back from `results.json`.
+
+**Superseded anchor.** The 89.9 fF used by the runs of #1056 is mis-derived.
+The #505 review inverted the anharmonic `sqrt(8 E_J E_C) - E_C` at 4.14 GHz
+and left out `C_J`. Those runs are kept below, unchanged, under
+[Superseded runs](#superseded-runs-at-the-mis-derived-899-ff-anchor-1056).
+
+| Run directory | Anchor | Status |
+|---|---|---|
+| `p2_cycles10_anchor_93p95/` | 93.9537 fF | **current** (#1066) |
+| `p2_cycles10_anchor_93p95_resolution_corrected/` | 93.9537 fF | **current** (#1066), extrapolation target |
+| `p2_cycles10/` | 89.9 fF | superseded: wrong anchor |
+| `p2_cycles10_resolution_corrected/` | 89.9 fF | superseded: wrong anchor |
+| `results.json`, `cycles16/` (exploratory) | 89.9 fF | superseded: wrong anchor |
+
+## Result at the 93.9537 fF anchor (#1066)
+
+`p2_cycles10_anchor_93p95/` repeats the #1056 method unchanged with the new
+target:
+
+- the same ten P1 flux-jump cycles to the same 448,279-tet mesh;
+- P2 fields, exact solved shape derivatives and AMG-PCG;
+- the same seven held-out rounds at the final design and at X0;
+- the same rounding rules and the same extrapolation methods.
+
+**The target is reached on that discretization, and only there.** The
+capacitance goes from 78.387918461 to 93.953667887 fF in four accepted steps.
+That is a move of +15.566 fF, against the +11.513 fF of #1056.
+
+**Final design.**
+- Island length 627.794327 um, pad width 30.394071 um (initially 625.5 and
+  24 um).
+- theta = [0.0037489, 0.2664196, -0.2980496] in the three parameter fields
+  (length, width, gap).
+
+**Mesh validity.** The minimum element-volume ratio over the accepted steps is
+0.47801 (step 2), and the final ratio is 0.50657. Both are rounded down; the
+floor is 0.25. The larger move costs volume ratio (#1056 had 0.61413 and
+0.61948), but every accepted step stays far above the floor.
+
+**Gradient checks.** All three solved finite-difference checks agree with the
+analytic gradient. The largest relative discrepancy is 4.15e-7.
+
+| Round | Tets | Final design C (fF) | Decrement (fF) | X0 C (fF) | Increment (fF) |
+|---|---|---|---|---|---|
+| 0 (optimization mesh) | 448,279 | 93.953667887 | | 78.387918461 | 15.565749426 |
+| 1 | 527,959 | 93.698450413 | 0.255217 | 78.178674518 | 15.519775895 |
+| 2 | 683,440 | 93.488379452 | 0.210071 | 78.011681063 | 15.476698390 |
+| 3 | 902,171 | 93.332105806 | 0.156274 | 77.882134863 | 15.449970944 |
+| 4 | 1,250,525 | 93.214010250 | 0.118096 | 77.784537640 | 15.429472610 |
+| 5 | 1,720,753 | 93.119307099 | 0.094703 | 77.707881808 | 15.411425291 |
+| 6 | 2,430,808 | 93.052517479 | 0.066790 | 77.651593966 | 15.400923513 |
+| 7 | 3,388,197 | 92.998560071 | 0.053957 | 77.607977900 | 15.390582171 |
+
+**Rigorous.**
+- The held-out spaces are nested and conforming, and the capacitance is an
+  energy minimum. Every value is therefore an upper bound on the converged
+  capacitance of this polygonal geometry.
+- The converged value is **below 93.00 fF** (round 7 rounded up). That is at
+  least 1.01 % below the anchor (rounded down).
+- There is no rigorous lower bound.
+
+**Estimate, not a bound.** The decrement ratios are 0.8231, 0.7439, 0.7557,
+0.8019, 0.7053 and 0.8079, with no trend toward zero.
+- Geometric tail `C_7 - d_7 r / (1 - r)`, at the largest and the smallest
+  observed ratio: 92.747491 to 92.869454 fF.
+- Least-squares fit `C_inf + a N^-alpha` with a free rate:
+  - rounds 2 to 7: 92.879735 fF (alpha = 1.004);
+  - rounds 3 to 7: 92.846467 fF (alpha = 0.876);
+  - rounds 4 to 7: 92.867953 fF (alpha = 0.967).
+- The outward-rounded union of these is **92.74 to 92.88 fF**. The optimized
+  93.9537 fF therefore overstates the estimate by 1.15 to 1.31 %. The estimate
+  is 1.14 to 1.30 % below the anchor.
+
+**The estimate depends on the assumed rate.** The same fit at a slower assumed
+rate gives 92.29 fF (alpha = 1/3) and 92.58 fF (alpha = 1/2), both below the
+band. That is why the band is an estimate and not a lower bound.
+
+**Sensitivities.** From round 0 to round 7 the three shape sensitivities move by
+-0.98 %, -0.94 % and -2.63 %.
+
+**X0.**
+- On these meshes, which are adapted to the final design, the undeformed
+  geometry goes from 78.387918 to 77.607978 fF.
+- Rigorous: below 77.61 fF.
+- Estimate: 77.43 to 77.52 fF. The #1056 run gives the same bound, 77.61 fF,
+  and an estimate of 77.42 to 77.52 fF, on its own meshes.
+- The design increment is stable: 15.566 fF at round 0 and 15.391 fF at
+  round 7.
+
+## Resolution-corrected design at the 93.9537 fF anchor (an extrapolation target, not a certificate)
+
+`p2_cycles10_anchor_93p95_resolution_corrected/` repeats the optimization on
+the same 448,279-tet P2 discretization. Its target, **95.112986 fF**, is offset
+by the bias measured above: the anchor times the round-0 value over the
+geometric-tail midpoint, `93.953660 * 93.953668 / 92.808473`.
+
+The first run's `summary.toml` records that target
+(`resolution_corrected_target_ff`). The generator computed it, and it was fixed
+before the second run.
+
+The optimizer reaches **95.113016421 fF in four accepted steps**:
+- island 627.924937 x 30.749537 um;
+- minimum volume ratio 0.43912 over the accepted steps, 0.47763 at the end
+  (both rounded down; the floor is 0.25);
+- worst solved finite-difference error 4.23e-7.
+
+| Round | Tets | C (fF) | Decrement (fF) |
+|---|---|---|---|
+| 0 (optimization mesh) | 448,279 | 95.113016421 | |
+| 1 | 527,565 | 94.852766291 | 0.260250 |
+| 2 | 681,721 | 94.637931574 | 0.214835 |
+| 3 | 900,507 | 94.477742135 | 0.160189 |
+| 4 | 1,248,566 | 94.355732401 | 0.122010 |
+| 5 | 1,723,255 | 94.259622572 | 0.096110 |
+| 6 | 2,433,998 | 94.191268088 | 0.068354 |
+| 7 | 3,395,664 | 94.136103400 | 0.055165 |
+
+- **Rigorous.** The converged value of this geometry is below 94.14 fF, at
+  most 0.20 % above the anchor (rounded up). The last solved value is still
+  above the anchor, so nothing rigorous places the converged value near it.
+- **Estimate, not a bound.**
+  - The geometric tail gives 93.875150 to 94.000247 fF (midpoint 93.937698 fF).
+  - The free-rate fits give 94.016533, 93.983604 and 93.996598 fF.
+  - The band is **93.87 to 94.02 fF**. It contains the anchor and is within
+    0.09 % of it on either side.
+- **Rate dependence.** At a slower assumed rate the series extrapolates to
+  93.41 fF (alpha = 1/3) or 93.71 fF (alpha = 1/2), both below the anchor.
+
+This design is tuned so that an *extrapolation* lands on the anchor. The
+method was chosen on the #1056 runs and is used here unchanged. But all runs
+share the same mesh family, marking rule and element order, so the agreement
+is not an independent confirmation. A continuum statement needs one of:
+- an error estimator with a guaranteed lower bound (#1062 is building a dual,
+  equilibrated-flux one; it has not landed);
+- a substantially finer or higher-order solve.
+
+Neither is here.
+
+## Frequency side (observation, #1066)
+
+What each number implies for the harmonic qubit frequency
+`1/(2 pi sqrt(L_J (C_Sigma + C_J)))`. The frequency falls as `C_Sigma` rises,
+so:
+- a rigorous upper bound on `C_Sigma` is a rigorous lower bound on the
+  frequency (rounded down);
+- estimate bands are rounded outward.
+
+Each `summary.toml` carries these numbers in a `[*.qubit]` table, together
+with `E_C = e^2/(2 (C_Sigma + C_J))`. They are reported as observations; the
+gap is not explained here.
+
+| Geometry | `C_Sigma` upper bound (fF) | Frequency at least (GHz) | Estimate band (fF) | Frequency estimate (GHz) |
+|---|---|---|---|---|
+| #1066 design (4.14 GHz on the optimization mesh) | 93.00 | 4.1599 | 92.74 to 92.88 | 4.1625 to 4.1655 |
+| #1066 resolution-corrected design | 94.14 | 4.1361 | 93.87 to 94.02 | 4.1386 to 4.1418 |
+| X0 (#1066 meshes) | 77.61 | 4.5288 | 77.43 to 77.52 | 4.5312 to 4.5338 |
+| X0, tensor eps (#1051, uniform refinement) | 89.50 | 4.2359 | 76.61 to 81.75 | 4.4200 to 4.5564 |
+| X0, scalar eps (#1051, uniform refinement) | 83.02 | 4.3882 | 74.14 to 79.62 | 4.4750 to 4.6265 |
+| #1056 design (superseded 89.9 fF target) | 89.02 | 4.2466 | 88.77 to 88.91 | 4.2491 to 4.2524 |
+
+DeviceLayout publishes 4.14 GHz for X0 on its own mesh. On these meshes:
+- the converged X0 geometry has a harmonic frequency of at least 4.2359 GHz
+  (tensor eps) or 4.5288 GHz (scalar eps);
+- the #1066 design, which sits on 4.14 GHz on the optimization mesh, converges
+  to at least 4.1599 GHz.
+
+`tests/transmon_diffopt.rs` (`committed_bounds_imply_harmonic_frequencies` and
+the two #1066 pin tests) recomputes every entry of this table from the
+committed bounds.
+
+## Cross-solver check at the 93.9537 fF anchor (same discretization)
+
+Independent Palace P2 runs on the exported 448k-tet adapted mesh:
+- primary design: 93.953433803 fF (GEODE 93.953667887, -2.49e-6);
+- resolution-corrected design: 95.112779561 fF (GEODE 95.113016421, -2.49e-6).
+
+The image, the mesh SHA-256 and the commands are recorded in each
+`adaptive/palace_validation.json`. This shows that the two solvers agree on the
+same discretization. **It is not evidence about the discretization error**,
+which the held-out series measures. No Palace P3 or AMR run was attempted at
+the new anchor.
+
+The two-sided bound of #1066 item 6 needs #1062's dual lower bound. #1062 has
+not landed, so it is left as a follow-up there.
+
+## Superseded runs at the mis-derived 89.9 fF anchor (#1056)
+
+**Superseded (#1066): wrong anchor.** Everything in this section was aimed at
+89.9 fF, which is not the DeviceLayout anchor (see [The anchor](#the-anchor-1066)).
+The runs are kept unchanged for comparison and are not regenerated. Their
+`summary.toml` files were written by the pre-#1066 generator (commit
+13d4a8e8). With the current generator, `REFINED_OPT_TARGET=89.9` reproduces
+their numbers, but not the layout of their summaries. The method findings
+still hold, and the #1066 runs repeat them at the new anchor:
+- one held-out round is not enough;
+- the optimization mesh overstates the converged value by about 1.1 to 1.3 %;
+- the X0 bound and estimate.
+
+### Result (superseded)
 
 The primary run is `p2_cycles10/` (`summary.toml` is the headline artifact,
 `results.json` the full history). Ten P1 flux-jump refinement cycles prepare a
@@ -75,7 +314,7 @@ and reported that the design "passes" the 1 % threshold. That was an artifact
 of stopping after a round that adds 18 % more tetrahedra, and the claim is
 withdrawn. Round 1 of the table is that solve, digit for digit.
 
-## Resolution-corrected design (an extrapolation target, not a certificate)
+### Resolution-corrected design at 89.9 fF (superseded)
 
 `p2_cycles10_resolution_corrected/` repeats the optimization on the same
 448,279-tet P2 discretization with the target offset by the bias measured
@@ -118,7 +357,7 @@ order, so the agreement is not an independent confirmation. A continuum
 statement needs an error estimator with a guaranteed lower bound, or a
 substantially finer or higher-order solve; neither is here.
 
-## Cross-solver check (same discretization)
+### Cross-solver check of the superseded runs (same discretization)
 
 - Independent Palace P2 on the exported 448k-tet adapted mesh of the primary
   design gives 89.900294115 fF, 0.000249 % from GEODE. Palace adds 3,777
@@ -175,8 +414,34 @@ final checks also re-solve both perturbed geometries for every parameter.
 
 ## Reproduction
 
-From the repository root (about 20 min and up to 29.4 GB peak RSS for the first
-command, about 10 min and 26.0 GB for the second; local, no cloud):
+The #1066 runs, from the repository root. The first command took 29 min and
+24.6 GB peak RSS, the second 12 min and 22.5 GB; both ran locally, with no
+cloud. Their standard output is in
+`validation_logs/anchor_93p95_*_run.log`.
+
+```sh
+REFINED_OPT_ORDER=2 REFINED_OPT_CYCLES=10 REFINED_OPT_MAX_TETS=1000000 \
+REFINED_OPT_DIR=benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95 \
+cargo run -p geode-core --release --example transmon_refined_optimize
+
+REFINED_OPT_TARGET=95.112986 REFINED_OPT_HELD_OUT_X0=0 \
+REFINED_OPT_ORDER=2 REFINED_OPT_CYCLES=10 REFINED_OPT_MAX_TETS=1000000 \
+REFINED_OPT_DIR=benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected \
+cargo run -p geode-core --release --example transmon_refined_optimize
+
+python3 scripts/transmon_refined_palace.py \
+  benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95/adaptive --orders 2
+python3 scripts/transmon_refined_palace.py \
+  benchmarks/transmon_diffopt/refined_optimization/p2_cycles10_anchor_93p95_resolution_corrected/adaptive \
+  --orders 2
+```
+
+The superseded #1056 runs were produced by the commands below with the
+pre-#1066 generator (about 20 min and up to 29.4 GB peak RSS for the first
+command, about 10 min and 26.0 GB for the second). The current generator
+defaults to the new anchor, so reproducing the first of them now also needs
+`REFINED_OPT_TARGET=89.9`. The second sets its own target. Either way, the
+current generator compares the results with the new anchor:
 
 ```sh
 REFINED_OPT_ORDER=2 REFINED_OPT_CYCLES=10 REFINED_OPT_MAX_TETS=1000000 \
@@ -205,8 +470,8 @@ The held-out series runs seven rounds by default
 (`REFINED_OPT_HELD_OUT_ROUNDS`) and stops before a round above four million
 tetrahedra (`REFINED_OPT_HELD_OUT_MAX_TETS`). `summary.toml` carries no timings
 and is bit-reproducible; `results.json` differs between runs only in `solve_s`.
-`tests/transmon_diffopt.rs` pins both `summary.toml` files and re-derives every
-bound and estimate with its rounding direction; its release tier re-solves the
+`tests/transmon_diffopt.rs` pins all four `summary.toml` files and re-derives
+every bound, estimate and qubit-side number with its rounding direction; its release tier re-solves the
 committed design on the 133k-tet fixture mesh.
 
 Palace uses the existing local image `palace:cpu-1043` (source fba6a5b9d).
@@ -239,6 +504,8 @@ and after the rename. The completed P2 and AMR runs were repeated under the new
 name and reproduce the earlier capacitances to every digit.
 
 ## Exploratory runs retained
+
+**Superseded (#1066): wrong anchor.** These targeted 89.9 fF.
 
 These were written by an earlier version of the generator, which ran a single
 held-out round, and were not regenerated. They have no `summary.toml`.

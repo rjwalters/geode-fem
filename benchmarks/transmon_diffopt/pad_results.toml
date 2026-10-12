@@ -2,6 +2,9 @@
 #   --example transmon_pad_diffopt`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): coarse-mesh history (#589) aimed at the mis-derived 89.9 fF anchor;
+# the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance. Kept, not re-run. E_C here is e^2/(2 C_Sigma) without C_J;
+# the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "Gradient-based shape optimization of the REAL DeviceLayout SingleTransmon island conductor (in-plane scale 1+theta about its centroid, island nodes only, fixed topology) on the committed 133k-tet mesh, targeting the 89.9 fF C_Sigma anchor. HONEST OUTCOME: the analytic dC/dtheta from the electrostatic-energy adjoint (one forward + one adjoint solve per iteration, issue #583) is FD-validated on the real mesh to ~1e-4, but the anchor itself is NOT reachable under the fixed-topology map — the island's junction-attachment nodes sit ~225 um from the island centroid, so the prescribed scale moves them against ~0.7 um junction-region tets and the mesh inverts at theta ~ -0.0097, while the anchor needs theta ~ -0.24. The bounded Newton run stalls honestly at the bisected distortion boundary; a clearly-labeled demonstration target within the budget (C_Sigma -> 137.0 fF) converges and is confirmed by a fresh, independent multi-conductor extraction."

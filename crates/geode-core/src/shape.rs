@@ -1620,8 +1620,10 @@ impl CapacitanceShapeGradient {
     /// `∂(E_C/h)/∂θ` (Hz per unit θ) for a node-motion map, composing the
     /// capacitance gradient with the analytic charging-energy chain factor
     /// `∂E_C/∂C_Σ = −e²/(2 C_Σ² h)` and treating `C_Σ = c_self` (single
-    /// island). This is the transmon-Hamiltonian design gradient the
-    /// reframed paper consumes.
+    /// island) as the **total** capacitance, with no junction capacitance.
+    /// For a transmon whose junction `C_J` is in parallel (issue #1066),
+    /// compose [`crate::quantum::transmon::d_e_c_hz_from_c_sigma_d_c_sigma`]
+    /// with [`Self::dc_dtheta`] instead.
     pub fn de_c_hz_dtheta(&self, dnode_dtheta: &[[f64; 3]]) -> f64 {
         crate::quantum::transmon::d_e_c_hz_d_c_sigma(self.c_self) * self.dc_dtheta(dnode_dtheta)
     }

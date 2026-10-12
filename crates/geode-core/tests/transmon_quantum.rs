@@ -9,7 +9,7 @@
 //! - **Release / `#[ignore]`:** the full E_C extraction on the real 133k-tet
 //!   DeviceLayout fixture (split into its three metal conductors), pinning
 //!   the committed `benchmarks/transmon_quantum/results.toml` numbers and
-//!   the coarse-mesh finding (extracted C_Σ above the ~90 fF anchor, with
+//!   the coarse-mesh finding (extracted C_Σ above the ~94 fF anchor, with
 //!   the BC-insensitivity diagnosis). Issue #1051 measured that gap to be
 //!   discretization error, not a model difference: converged, C_Σ is below
 //!   the anchor (`benchmarks/transmon_diffopt/c_sigma_convergence.toml`).
@@ -33,11 +33,11 @@ use geode_core::eigen::transmon::{
     LumpedReactiveShunt, ReactiveElementNatural, TransmonPencil, solve_transmon_eigenmodes,
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
-use geode_core::mesh::transmon::{JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
+use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
 use geode_core::mesh::{MetalRole, TetMesh, cube_tet_mesh, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
-    duffing_kerr_from_epr, e_c_hz_from_capacitance, e_j_hz_from_inductance, minev_participation,
-    self_kerr_from_epr, transmon_spectrum,
+    TransmonAnchor, duffing_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
+    harmonic_frequency_hz, minev_participation, self_kerr_from_epr, transmon_spectrum,
 };
 use geode_core::testing::TestBackend;
 
@@ -54,9 +54,10 @@ const M_PER_UNIT: f64 = 1e-6;
 // -------------------------------------------------------------------------
 
 /// The full analytic chain from the merged FEM ingredients to qubit
-/// parameters, using the curator-confirmed anchor C_Σ = 89.9 fF: E_J from
-/// L_J, E_C from C_Σ, Koch ω01 in the blog band, α < 0, and the
-/// correspondence-limit tripwire.
+/// parameters at the DeviceLayout anchor (issue #1066, C_Σ ≈ 93.9537 fF):
+/// E_J from L_J, E_C = e²/(2(C_Σ + C_J)), the harmonic frequency equal to
+/// the published 4.14 GHz, the Koch ω01 below it by about E_C, α < 0, and
+/// the correspondence-limit tripwire.
 #[test]
 fn analytic_quantum_layer_end_to_end() {
     let e_j = e_j_hz_from_inductance(JUNCTION_INDUCTANCE_H);
@@ -66,16 +67,27 @@ fn analytic_quantum_layer_end_to_end() {
         e_j / 1e9
     );
 
-    // Anchor capacitance → E_C.
-    let e_c = e_c_hz_from_capacitance(89.9e-15);
-    assert!((e_c / 1e9 - 0.2156).abs() < 5e-3, "E_C = {} GHz", e_c / 1e9);
+    // Anchor capacitance → E_C, junction capacitance included.
+    let anchor = TransmonAnchor::devicelayout();
+    let e_c = e_c_hz_from_c_sigma(anchor.c_sigma_farad, JUNCTION_CAPACITANCE_F);
+    assert!(
+        (e_c / 1e9 - 0.194766).abs() < 1e-6,
+        "E_C = {} GHz",
+        e_c / 1e9
+    );
+    let f_lc = harmonic_frequency_hz(
+        JUNCTION_INDUCTANCE_H,
+        anchor.c_sigma_farad + JUNCTION_CAPACITANCE_F,
+    ) / 1e9;
+    assert!((f_lc - 4.14).abs() < 1e-9, "harmonic = {f_lc} GHz");
 
     let spec = transmon_spectrum(e_j, e_c, 0.0, 40, 3);
     assert!(spec.converged);
     let w01 = spec.omega01_hz() / 1e9;
+    // The anharmonic ω01 is NOT 4.14 GHz: it sits about E_C below it.
     assert!(
-        (w01 - 4.14).abs() < 0.15,
-        "ω01 = {w01} GHz, want ≈ 4.14 (blog anchor)"
+        (w01 - (4.14 - e_c / 1e9)).abs() < 0.03,
+        "ω01 = {w01} GHz, want ≈ 4.14 − E_C"
     );
     assert!(spec.anharmonicity_hz() < 0.0, "α must be negative");
 
@@ -226,7 +238,7 @@ fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
 /// This is the RELEASE counterpart of the `transmon_quantum` example: it
 /// splits the metal into the three conductors, solves the tensor-ε
 /// electrostatic capacitance, derives C_Σ / E_C / ω01, and asserts the
-/// documented coarse-mesh results (C_Σ ≈ 137 fF, larger than the ~90 fF
+/// documented coarse-mesh results (C_Σ ≈ 137 fF, larger than the ~94 fF
 /// anchor, with the BC-insensitivity check). The gap is discretization
 /// error on this 133k-tet mesh (issue #1051), so these pins are regression
 /// pins of the coarse-mesh numbers, not accuracy claims.
@@ -288,11 +300,11 @@ fn real_fixture_e_c_extraction_release() {
         (c_sigma_ff - 136.7).abs() / 136.7 < 0.01,
         "C_Σ = {c_sigma_ff} fF, committed ≈ 136.7"
     );
-    // On this coarse mesh C_Σ is LARGER than the ~90 fF anchor
+    // On this coarse mesh C_Σ is LARGER than the ~94 fF anchor
     // (discretization error, issue #1051; not a model difference).
     assert!(
-        c_sigma_ff > 100.0,
-        "expected the coarse-mesh C_Σ above the ~90 fF anchor, got {c_sigma_ff}"
+        c_sigma_ff > 100.0 && c_sigma_ff > TransmonAnchor::devicelayout().c_sigma_farad * 1e15,
+        "expected the coarse-mesh C_Σ above the ~94 fF anchor, got {c_sigma_ff}"
     );
 
     // Scalar-ε run for the anisotropy delta (~0.75%).
@@ -319,20 +331,26 @@ fn real_fixture_e_c_extraction_release() {
 
     // Quantum parameters from the extracted E_C.
     let e_j = e_j_hz_from_inductance(JUNCTION_INDUCTANCE_H);
-    let e_c = e_c_hz_from_capacitance(c_sigma);
+    // Issue #1066: E_C includes the junction's 5.5 fF.
+    let e_c = e_c_hz_from_c_sigma(c_sigma, JUNCTION_CAPACITANCE_F);
     let e_j_over_e_c = e_j / e_c;
-    // Still deep in the transmon regime (E_J/E_C ≫ 1), just larger than 51.
+    // Still deep in the transmon regime (E_J/E_C ≫ 1).
     assert!(
-        e_j_over_e_c > 60.0 && e_j_over_e_c < 90.0,
-        "E_J/E_C = {e_j_over_e_c}, committed ≈ 77.6"
+        (e_j_over_e_c - 80.745).abs() < 0.05,
+        "E_J/E_C = {e_j_over_e_c}, committed ≈ 80.745"
     );
     let spec = transmon_spectrum(e_j, e_c, 0.0, 40, 3);
     assert!(spec.converged);
     let w01 = spec.omega01_hz() / 1e9;
-    // ω01 ≈ 3.38 GHz — a real qubit frequency below the blog's 4.14.
+    // A coarse-mesh qubit frequency below the anchor (C_Σ too large here).
     assert!(
-        (w01 - 3.383).abs() < 0.05,
-        "ω01 = {w01} GHz, committed ≈ 3.383"
+        (w01 - 3.3202).abs() < 0.002,
+        "ω01 = {w01} GHz, committed ≈ 3.3202"
+    );
+    let f_lc = harmonic_frequency_hz(JUNCTION_INDUCTANCE_H, c_sigma + JUNCTION_CAPACITANCE_F) / 1e9;
+    assert!(
+        (f_lc - 3.4625).abs() < 0.002 && f_lc < 4.14,
+        "harmonic = {f_lc} GHz, committed ≈ 3.4625"
     );
     assert!(spec.anharmonicity_hz() < 0.0);
 }

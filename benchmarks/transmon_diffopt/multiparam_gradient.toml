@@ -2,6 +2,9 @@
 #   --example transmon_multiparam_diffopt`.
 # Do NOT edit by hand — regenerate after any intentional change.
 # Consumed by `tests/transmon_diffopt.rs`.
+# SUPERSEDED ANCHOR (issue #1066): coarse-mesh history (#1035) aimed at the mis-derived 89.9 fF anchor;
+# the #505 review inverted the anharmonic sqrt(8 E_J E_C) - E_C at 4.14 GHz and left out the 5.5 fF junction capacitance. Kept, not re-run;
+# the current anchor is geode_core::quantum::transmon::TransmonAnchor::devicelayout: C_Sigma 93.9537 fF (junction excluded), E_C 0.194766 GHz with C_J.
 
 [meta]
 description = "Junction-pinned multi-parameter C_Sigma gradient on the REAL DeviceLayout SingleTransmon 133k-tet mesh (issue #1035, Phase A of #1034). Three harmonic morph fields that are exactly zero on the junction neighborhood (island length theta_L, island width theta_W, cutout gap theta_G), the exact C_Sigma = C_ii - C_if^2/C_ff gradient from one assembly + one LU (all Maxwell entries, dC_ij = phi_i^T dK phi_j), FD-validated per parameter on the full independent pipeline; per-parameter and joint-direction mesh budgets in both signs; the partial-charge decomposition of C_ii; and a first-order reachability ESTIMATE for the 89.9 fF anchor. Measures only; no optimization (that is #1036)."
