@@ -14,6 +14,75 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
+## v9 — evidence revision, 2026-10-12 (tracker #1063)
+
+**v9 = v8 re-anchored and extended.** It starts from `main`'s v8 and folds in
+#1064 (#1061), #1068 (#1066), #1067 (#1044), #1071 (#1045), #1072 (#1062),
+#1077 (#1075), #1080 (#1078) and #1081 (#1079). Where this section conflicts
+with the v8 or v7 sections below, this section wins. v1–v8 and their critics
+stay immutable. v9 is a DRAFT; no score, review or audit carries over.
+
+**Headline.** The optimizer converges to whatever target it is given; a
+certified two-sided bracket 0.25 fF wide decides design against target; the
+remaining uncertainty is in the physical anchor (whose corrections are
+unconverged estimates), not in the solver. Neither current design meets the
+most corrected target; re-optimizing at 93.143 fF is possible future work,
+not scheduled.
+
+CERTIFIED (equilibrated-flux lower bound + conforming upper bound, rounded
+outward; for the discrete polygonal geometry):
+- X⁰ scalar C_Σ in [77.40, 77.61] fF (`c_sigma_bracket.toml`); tensor
+  [72.96, 89.50] (P1 uniform only). All four #1057 estimates are ruled out.
+- #1066 design [92.75, 93.00] fF: 1.01–1.28 % below the dressed anchor.
+  Resolution-corrected design [93.89, 94.14] fF: contains it
+  (`c_sigma_bracket_anchor_93p95.toml`). Increments [15.14, 15.59] and
+  [16.28, 16.73] fF in the artifact; the paper quotes [15.15, 15.59] for the
+  first, using this series' own X⁰ round-7 conforming value 77.607978 fF
+  (Doctor pass on PR #1082).
+- Superseded 89.9 fF designs: [88.78, 89.02] and [89.84, 90.08] — history only.
+
+PROVEN (measurements):
+- The anchor is the published 4.14 GHz read as the harmonic frequency of
+  Palace's linear L_J ∥ (C_Σ + C_J) eigenproblem: C_total 99.4537 fF, C_Σ
+  target 93.9537 fF, E_C 0.194766 GHz (operator ruling, #1063). The 89.9 fF /
+  0.2156 GHz anchor was mis-derived (#505 inverted the anharmonic formula and
+  dropped C_J); every run against it is superseded. E_C now includes C_J
+  (coarse E_C 0.136 GHz). The "junction C closes part of the gap" inference is
+  withdrawn.
+- Refined run at 93.9537 fF: four steps, held-out to 92.998560 fF at 3.39M
+  tets; corrected run target 95.112986 fF.
+- Coupling on the fixture: k 0.017866, g/2π 46.02 MHz; Palace h/2 k 0.022798.
+  Series loop inductance: physical (patch test), series topology; 0.0852 /
+  0.1047 / 0.1132 nH (h, h/2, p2). It explains 94 % of #1043's 0.28 % offset
+  (hybridization 5 %, residual 1 %), same mesh.
+- A2 rank-1 port shunt (opt-in) removes the 17.49 GHz artifact; default
+  unchanged (#1046). Artifact keys re-baselined (#1045).
+
+ESTIMATES (must be called estimates, with the transfer assumption — that the
+converged k and L_s describe DeviceLayout's own run — stated wherever used):
+- k = 0.0288 (band 0.0227–0.0310) → bare anchor 93.853 fF (93.826–93.892).
+- L_s = 0.120 nH (band 0.113–0.125) → bare + loop anchor 93.143 fF
+  (93.087–93.222). Same-mesh alternatives 93.915 and 93.348 fF.
+- The coplanar 0.117 nH is order-of-magnitude only, not corroboration; the
+  ~1 % patch drift is an observation, not a bound (#1081 Judge nits).
+- Verdicts: #1066 design below all three targets (≥ 0.088 fF below the loop
+  band); corrected design contains the dressed anchor, is above the bare band
+  (by 0.0002 fF at its edge — unresolved) and above the loop band by
+  ≥ 0.669 fF.
+
+Rules: certified brackets and estimates never share a sentence without their
+labels; the corrected design's *estimate band* contains the anchor by
+construction, its *bracket* does not. Do not present the 93.143 fF
+re-optimization as done.
+
+**Operator decisions still open (#1063), deliberately untouched:** the title,
+the "first independent validation" claim, the acknowledgments and the six
+inherited `TODO(operator)` lines. v9's one new `TODO(operator)` (§9.5) is
+resolved by the operator ruling of 2026-10-12 (#1063): the headline stays on
+the published-value anchor 93.954 fF (`devicelayout()`), 93.143 fF
+(`devicelayout_bare_loop()`) is the corrected estimate, and re-optimization at
+93.143 fF is not scheduled. Next: the Anvil review, audit and numeric critics.
+
 ## v8 — figure revision, 2026-10-11 (#1059, PR #1060; tracker #1063)
 
 **v8 = the merged v7 + a figure revision.** Its text is v7 as merged to

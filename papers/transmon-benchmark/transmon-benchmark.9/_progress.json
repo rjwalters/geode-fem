@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "completed": "2026-10-12T18:23:31.315402+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-12T18:23:31.315402+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 9,
+    "max_iterations": 12,
+    "revised_from": 8,
+    "status": "DRAFT",
+    "authorization": "Tracked in #1063 (referenced, not closed). Evidence revision of the merged v8. The operator's standing permission to revise this paper past the cap (\"we can continue revising the paper as many times as we want\", recorded on PR #1040) covers it; there is no iteration gate. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "9081d1f6 (transmon-benchmark.8 as on main)",
+    "scope": "v9 = v8 re-anchored to the published 4.14 GHz (93.9537 fF, #1066; 89.9 fF runs superseded) + certified equilibrated-flux brackets (#1062, #1075) + the anchor chain from the measured coupling and loop inductance (#1078, #1079; estimates) + the opt-in A2 shunt (#1044) + re-baselined keys (#1045) + re-pinned verifiers (#1061); new Figure 7, Figures 8-9 renumbered",
+    "pending_dependencies": [
+      "re-optimization at the loop-corrected 93.143 fF target: future work, not run",
+      "#1037 Phase C two-target (C_g / beta) experiment: roadmap, not built",
+      "#1046 whether the A2 rank-1 shunt becomes the eigen default (operator decision)",
+      "#1063 operator decisions, not resolved here: the title; the 'first independent validation' claim; acknowledgments and the other TODO(operator) lines; plus the new v9 TODO(operator): which target the next re-optimization and the headline should use",
+      "independent v9 paper review, audit and numeric critic (Anvil), then the Zenodo deposit",
+      "existing TODO(operator) submission inputs"
+    ],
+    "evidence_snapshot": {
+      "main_commit": "9081d1f6",
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}
