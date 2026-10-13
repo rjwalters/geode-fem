@@ -12,7 +12,7 @@
 #   scripts/aws/geode-worker.sh start|stop|terminate <name>
 #   scripts/aws/geode-worker.sh list | cost | allow-ip | ami [type]
 #
-# Identity: AWS_PROFILE defaults to geode-fem-bench (never botho-deploy),
+# Identity: AWS_PROFILE defaults to geode-fem-bench (never another project's profile),
 # region defaults to us-east-1. Every resource is tagged project=geode-fem,
 # which is the only tag the IAM user may start/stop/terminate/connect to.
 # shellcheck disable=SC2016  # JMESPath backticks inside single quotes are intended
@@ -134,13 +134,16 @@ allow_ip_on() {
 
 # Instance id for a worker name (any state but terminated).
 instance_id() {
-  local id
+  local id n
+  [[ "$1" =~ ^[a-z0-9-]+$ ]] || die "worker name must be [a-z0-9-] (got '$1')"
   id=$(aws ec2 describe-instances \
          --filters "Name=tag:Name,Values=${NAME_PREFIX}$1" "Name=tag:project,Values=geode-fem" \
                    Name=instance-state-name,Values=pending,running,stopping,stopped \
          --query 'Reservations[].Instances[].InstanceId' --output text)
   [[ -n "$id" && "$id" != None ]] || die "no worker named '$1' (see: $0 list)"
-  echo "$id" | awk '{print $1}'
+  n=$(wc -w <<<"$id")
+  (( n == 1 )) || die "worker name '$1' matches ${n} instances (${id}); refusing to guess"
+  echo "$id"
 }
 
 instance_field() { # id jmespath
@@ -255,9 +258,12 @@ cmd_ssh() {
     # CARGO_INCREMENTAL=0); Ubuntu's ~/.bashrc returns early when
     # non-interactive, so a bare remote command would not see them.
     local remote_cmd; remote_cmd=$(printf '%q' "$*")
-    exec ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -lc $remote_cmd"
+    # Plain ssh, not exec: exec would skip the EXIT trap that deletes the
+    # ephemeral key. Client-side expansion is intended (already %q-quoted).
+    # shellcheck disable=SC2029
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "bash -lc $remote_cmd" || exit $?
   else
-    exec ssh "${SSH_OPTS[@]}" -t "$SSH_TARGET"
+    ssh "${SSH_OPTS[@]}" -t "$SSH_TARGET" || exit $?
   fi
 }
 
@@ -392,7 +398,7 @@ cmd_cost() {
            Name=instance-state-name,Values=running \
            --query 'Reservations[].Instances[].[InstanceId,InstanceType,Tags[?Key==`Name`]|[0].Value,LaunchTime]' \
            --output text)
-  echo "On-demand Linux us-east-1 prices as of ${PRICE_DATE} (pricing API not permitted for this user)."
+  echo "ESTIMATE ONLY, not a bill: on-demand Linux us-east-1 prices as of ${PRICE_DATE} (pricing API not permitted for this user)."
   printf '%-22s %-20s %-14s %8s %10s %10s\n' NAME ID TYPE HOURS USD/H USD
   if [[ -n "$rows" ]]; then
     while read -r id type name launched; do

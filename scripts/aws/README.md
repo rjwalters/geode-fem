@@ -15,7 +15,7 @@ Meep (#1088).
 
 | Setting | Value |
 |---|---|
-| Profile | `AWS_PROFILE=geode-fem-bench` (the script defaults to it; never `botho-deploy`) |
+| Profile | `AWS_PROFILE=geode-fem-bench` (the script defaults to it; never another project's profile) |
 | Region | `us-east-1` (`AWS_REGION`; change it only if capacity forces you to, and say so) |
 | Tag | `project=geode-fem` on every instance, volume and security group — the IAM user can only start/stop/terminate/connect to instances carrying it |
 | Security group | `geode-fem-worker`, ssh (tcp/22) from the operator's current public IP only |
@@ -55,6 +55,8 @@ $W ami r8g.4xlarge                 # which AMI launch would use
 
 Tunables (environment): `GEODE_WORKER_ROOT_GB` (200), `GEODE_WORKER_IDLE_MINUTES`
 (30), `GEODE_WORKER_IDLE_CPU_PCT` (5).
+
+**Idle-alarm caveat:** the threshold is average CPU across *all* vCPUs. A serial step (gmsh meshing, Python post-processing) shows about 6 % on r8g.4xlarge, about 3 % on r8g.8xlarge and about 0.5 % on r8g.48xlarge. On the larger types the alarm can therefore stop the box in the middle of a long serial step. For those, launch with a lower threshold (for example `GEODE_WORKER_IDLE_CPU_PCT=0.3`), or keep the job parallel.
 
 ### Working pattern
 
