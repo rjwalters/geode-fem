@@ -13,6 +13,7 @@
 //! ```text
 //!   patch_conformal_convergence dip  <bent.msh> [--p2] [--out <toml>]
 //!   patch_conformal_convergence fd   <bent.msh> [--out <toml>]
+//!   patch_conformal_convergence merge <flat-dip.toml> <bent-dip.toml> [--out <toml>]
 //!   patch_conformal_convergence ladder <run-dir> [--out <toml>]
 //!   patch_conformal_convergence aggregate [--dir <benchmarks dir>] [--out <toml>]
 //! ```
@@ -33,6 +34,12 @@
 //!   adjoint gradient (one LU per frequency), and a central difference
 //!   along `N` seeded random unit directions (default 3). Forward and
 //!   gradient wall-clock and RSS are the per-level gradient cost.
+//! * **`merge`** — joins a flat-only and a bent-only `dip` artifact of one
+//!   level and order (`PATCH_CONFORMAL_GEOMS=flat` / `bent`, run separately
+//!   when one geometry at a time is what a host can hold) into the
+//!   two-geometry artifact `dip` writes in one go; `[meta]` must agree
+//!   apart from `geometries` and `host`, and `[detune]` / `[cost]` are
+//!   re-derived.
 //! * **`ladder`** — aggregates the σ₀ × shell ladder: the
 //!   `patch_conformal_2g4_baseline` runs in `<run-dir>` named
 //!   `<shell>_sigma<σ₀>.toml` (shells `patch_conformal_L1`,
@@ -793,6 +800,231 @@ fn run_dip(bent_path: &Path, p2: bool, out: Option<PathBuf>) {
         fs::create_dir_all(p).expect("create output dir");
     }
     fs::write(&out, &t).expect("write dip toml");
+    println!("wrote {}", out.display());
+}
+
+// ---------------------------------------------------------------------------
+// `merge`
+// ---------------------------------------------------------------------------
+
+/// Splits a generated artifact into its leading comment block and its
+/// top-level TOML tables, each as `(header line, full text)`.
+fn split_tables(text: &str) -> (String, Vec<(String, String)>) {
+    let mut preamble = String::new();
+    let mut tables: Vec<(String, String)> = Vec::new();
+    for line in text.lines() {
+        if line.starts_with('[') {
+            tables.push((line.to_string(), format!("{line}\n")));
+        } else if let Some(last) = tables.last_mut() {
+            last.1.push_str(line);
+            last.1.push('\n');
+        } else {
+            preamble.push_str(line);
+            preamble.push('\n');
+        }
+    }
+    (preamble, tables)
+}
+
+/// `(f, solve_s, peak_rss_gib)` of every solve recorded in a one-geometry
+/// dip artifact (dip-search points and fixed frequencies).
+fn dip_solves(doc: &toml::Value, g: &str) -> Vec<(f64, f64, f64)> {
+    doc["points"][g]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(doc["fixed"][g].as_array().unwrap())
+        .map(|r| {
+            (
+                num(&r["f_ghz"]),
+                num(&r["solve_s"]),
+                num(&r["peak_rss_gib"]),
+            )
+        })
+        .collect()
+}
+
+/// Merges a flat-only and a bent-only `dip` artifact of the same level and
+/// order (run separately, possibly on different hosts) into the
+/// two-geometry artifact `dip` writes in one go: identical `[meta]` apart
+/// from `geometries` and `host`, the two `[dip.*]` tables, the re-derived
+/// `[detune]` and `[cost]`, then the flat and the bent point tables. The
+/// text of every table is carried over verbatim.
+fn run_merge(flat_path: &Path, bent_path: &Path, out: Option<PathBuf>) {
+    let flat_text = fs::read_to_string(flat_path).expect("read flat dip toml");
+    let bent_text = fs::read_to_string(bent_path).expect("read bent dip toml");
+    let flat = toml::from_str::<toml::Value>(&flat_text).expect("flat dip toml");
+    let bent = toml::from_str::<toml::Value>(&bent_text).expect("bent dip toml");
+    let geoms_of = |d: &toml::Value| -> Vec<String> {
+        d["meta"]["geometries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g.as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        geoms_of(&flat),
+        ["flat"],
+        "{}: not flat-only",
+        flat_path.display()
+    );
+    assert_eq!(
+        geoms_of(&bent),
+        ["bent"],
+        "{}: not bent-only",
+        bent_path.display()
+    );
+    // Everything in [meta] but the geometry list and the host must agree:
+    // fixture sha256s, order, DOF counts, scan, tolerance, fixed list, σ₀.
+    let strip = |d: &toml::Value| -> toml::Value {
+        let mut m = d["meta"].clone();
+        let t = m.as_table_mut().unwrap();
+        t.remove("geometries");
+        t.remove("host");
+        toml::Value::Table(t.clone())
+    };
+    assert_eq!(
+        strip(&flat),
+        strip(&bent),
+        "{} and {}: [meta] differ beyond geometries / host",
+        flat_path.display(),
+        bent_path.display()
+    );
+    let host_of = |d: &toml::Value| {
+        d["meta"]["host"]
+            .as_str()
+            .unwrap_or("unrecorded")
+            .to_string()
+    };
+    let (host_f, host_b) = (host_of(&flat), host_of(&bent));
+    for h in [&host_f, &host_b] {
+        assert!(
+            !h.contains('"') && !h.contains('\\'),
+            "host string needs escaping: {h}"
+        );
+    }
+
+    let (preamble_f, tables_f) = split_tables(&flat_text);
+    let (_, tables_b) = split_tables(&bent_text);
+    let table = |tables: &[(String, String)], header: &str| -> String {
+        tables
+            .iter()
+            .find(|(h, _)| h == header)
+            .unwrap_or_else(|| panic!("no {header} table"))
+            .1
+            .clone()
+    };
+    let name = |p: &Path| p.file_name().unwrap().to_string_lossy().into_owned();
+
+    let mut t = String::with_capacity(flat_text.len() + bent_text.len());
+    for line in preamble_f.lines() {
+        if line.starts_with("# Do NOT edit") {
+            let _ = writeln!(
+                t,
+                "# Merged by `patch_conformal_convergence merge` from {} (flat) and {} (bent), \
+                 run separately (hosts in [meta]); every table is carried over verbatim, \
+                 [detune] and [cost] are re-derived.",
+                name(flat_path),
+                name(bent_path)
+            );
+        }
+        t.push_str(line);
+        t.push('\n');
+    }
+    for line in table(&tables_f, "[meta]").lines() {
+        if line.starts_with("geometries = ") {
+            t.push_str("geometries = [\"flat\", \"bent\"]\n");
+        } else if line.starts_with("host = ") && host_f != host_b {
+            let _ = writeln!(t, "host = \"flat: {host_f}; bent: {host_b}\"");
+        } else {
+            t.push_str(line);
+            t.push('\n');
+        }
+    }
+    t.push_str(&table(&tables_f, "[meta.mesh_sizing_mm]"));
+    t.push_str(&table(&tables_f, "[meta.resolution]"));
+    t.push_str(&table(&tables_f, "[dip.flat]"));
+    t.push_str(&table(&tables_b, "[dip.bent]"));
+
+    let (df, db) = (&flat["dip"]["flat"], &bent["dip"]["bent"]);
+    t.push_str("[detune]\n# bent minus flat, same mesh topology.\n");
+    let _ = writeln!(
+        t,
+        "dip_shift_mhz = {:.3}",
+        (num(&db["f_ghz"]) - num(&df["f_ghz"])) * 1e3
+    );
+    let _ = writeln!(
+        t,
+        "dip_depth_change_db = {:.4}",
+        num(&db["s11_db"]) - num(&df["s11_db"])
+    );
+    t.push('\n');
+
+    let mut all = dip_solves(&flat, "flat");
+    all.extend(dip_solves(&bent, "bent"));
+    let n = all.len() as f64;
+    t.push_str("[cost]\n");
+    t.push_str(
+        "# Per solve = per-frequency UPML tensor build + assembly (host-side faer at p=2) + sparse LU \
+         + solve + port readback. RSS = max of ps -o rss= samples every 50 ms during the solve.\n",
+    );
+    let _ = writeln!(t, "n_solves = {}", all.len());
+    let _ = writeln!(
+        t,
+        "solve_s_mean = {:.3}",
+        all.iter().map(|p| p.1).sum::<f64>() / n
+    );
+    let _ = writeln!(
+        t,
+        "solve_s_max = {:.3}",
+        all.iter().map(|p| p.1).fold(0.0, f64::max)
+    );
+    let _ = writeln!(
+        t,
+        "first_solve_peak_rss_gib = {:.3}",
+        num(&flat["cost"]["first_solve_peak_rss_gib"])
+    );
+    let _ = writeln!(
+        t,
+        "peak_rss_gib = {:.3}",
+        all.iter().map(|p| p.2).fold(0.0, f64::max)
+    );
+    let _ = writeln!(
+        t,
+        "total_s = {:.1}",
+        num(&flat["cost"]["total_s"]) + num(&bent["cost"]["total_s"])
+    );
+    t.push('\n');
+
+    for (tables, g) in [(&tables_f, "flat"), (&tables_b, "bent")] {
+        for (h, text) in tables {
+            if h == &format!("[[fixed.{g}]]") || h == &format!("[[points.{g}]]") {
+                t.push_str(text);
+            }
+        }
+    }
+
+    let out = out.unwrap_or_else(|| {
+        let meta = &flat["meta"];
+        flat_path.parent().unwrap().join(format!(
+            "dip_{}{}.toml",
+            meta["level"].as_str().unwrap(),
+            if meta["element_order"].as_str() == Some("p2") {
+                "_p2"
+            } else {
+                ""
+            }
+        ))
+    });
+    fs::write(&out, &t).expect("write merged dip toml");
+    // The merged artifact must parse and carry both geometries.
+    let merged = toml::from_str::<toml::Value>(&t).expect("merged dip toml parses");
+    assert_eq!(geoms_of(&merged), ["flat", "bent"]);
+    assert_eq!(
+        merged["cost"]["n_solves"].as_integer(),
+        Some(all.len() as i64)
+    );
     println!("wrote {}", out.display());
 }
 
@@ -1985,29 +2217,41 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
             None => t.push_str("# dip_db_order: not fittable\n"),
         }
         for &f in &fixed_ghz {
-            let ss: Vec<c64> = levels
+            // Only the levels that sampled this frequency (the finest level
+            // and the p=2 rows may carry a shorter fixed list).
+            let (hs_f, ss): (Vec<f64>, Vec<c64>) = levels
                 .iter()
-                .map(|l| {
+                .filter_map(|l| {
                     l.geoms[g]
                         .2
                         .iter()
                         .find(|p| (p.0 - f).abs() < 1e-6)
-                        .unwrap()
-                        .1
+                        .map(|p| (l.h, p.1))
                 })
+                .unzip();
+            let key = format!("{f:.4}").replace('.', "p");
+            if ss.len() < 2 {
+                let _ = writeln!(t, "# s11_{key}_ghz: sampled on fewer than two levels");
+                continue;
+            }
+            let m_lv = ss.len();
+            let sampled: Vec<String> = levels
+                .iter()
+                .filter(|l| l.geoms[g].2.iter().any(|p| (p.0 - f).abs() < 1e-6))
+                .map(|l| format!("\"{}\"", l.name))
                 .collect();
+            let _ = writeln!(t, "s11_{key}_ghz_levels = [{}]", sampled.join(", "));
             // Order of the complex S11 from the consecutive complex differences.
             let mut xs = Vec::new();
             let mut ys = Vec::new();
-            for i in 0..n - 1 {
+            for i in 0..m_lv - 1 {
                 let e = (ss[i] - ss[i + 1]).norm();
                 if e > 0.0 {
-                    xs.push(hs[i].ln());
+                    xs.push(hs_f[i].ln());
                     ys.push(e.ln());
                 }
             }
-            let key = format!("{f:.4}").replace('.', "p");
-            let diffs: Vec<f64> = (0..n - 1).map(|i| (ss[i + 1] - ss[i]).norm()).collect();
+            let diffs: Vec<f64> = (0..m_lv - 1).map(|i| (ss[i + 1] - ss[i]).norm()).collect();
             let _ = writeln!(
                 t,
                 "s11_{key}_ghz_consecutive_change = [{}]",
@@ -2050,11 +2294,22 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
             if let (Some(a), Some(b)) = (r.geoms.get(g), p1.geoms.get(g)) {
                 let _ = writeln!(t, "{g}_dip_f_shift_mhz = {:.3}", (a.0 - b.0) * 1e3);
                 let _ = writeln!(t, "{g}_dip_db_change = {:.3}", a.1 - b.1);
+                // Matched by frequency: the p=2 row may carry a shorter
+                // fixed list than its p=1 level.
                 let mut worst = 0.0_f64;
-                for ((fa, sa), (fb, sb)) in a.2.iter().zip(&b.2) {
-                    assert!((fa - fb).abs() < 1e-9);
-                    worst = worst.max((sa - sb).norm());
+                let mut shared: Vec<f64> = Vec::new();
+                for (fa, sa) in &a.2 {
+                    if let Some((_, sb)) = b.2.iter().find(|(fb, _)| (fa - fb).abs() < 1e-9) {
+                        worst = worst.max((sa - sb).norm());
+                        shared.push(*fa);
+                    }
                 }
+                assert!(
+                    !shared.is_empty(),
+                    "{}: p=2 and p=1 share no fixed frequency",
+                    r.name
+                );
+                let _ = writeln!(t, "{g}_fixed_ghz_compared = [{}]", fmt_list(&shared, 4));
                 let _ = writeln!(t, "{g}_max_fixed_s11_change = {worst:.6e}");
             }
         }
@@ -2216,7 +2471,8 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let usage = "usage: patch_conformal_convergence (dip <bent.msh> [--p2] | fd <bent.msh> | \
-                 ladder <run-dir> | aggregate [--dir <dir>]) [--out <toml>]";
+                 merge <flat-dip.toml> <bent-dip.toml> | ladder <run-dir> | \
+                 aggregate [--dir <dir>]) [--out <toml>]";
     let mode = args.first().unwrap_or_else(|| panic!("{usage}")).clone();
     let mut out: Option<PathBuf> = None;
     let mut dir: Option<PathBuf> = None;
@@ -2248,6 +2504,10 @@ fn main() {
             Path::new(positional.first().unwrap_or_else(|| panic!("{usage}"))),
             out,
         ),
+        "merge" => {
+            assert_eq!(positional.len(), 2, "{usage}");
+            run_merge(Path::new(&positional[0]), Path::new(&positional[1]), out);
+        }
         "ladder" => run_ladder(
             Path::new(positional.first().unwrap_or_else(|| panic!("{usage}"))),
             out,
