@@ -22,7 +22,7 @@ runnable 2D representative (ceviche) plus an operator-gated definitive 3D run
 
 | Method | Geometry representation | Curved conductor | Status |
 | --- | --- | --- | --- |
-| **GEODE** shape adjoint (the −10 dB result) | Unstructured tets; boundary nodes **on** the curve; node-motion (moving-boundary) adjoint, single factorization | Exact to machine precision at fixed DOF | **Done** — committed artifact |
+| **GEODE** shape adjoint (the −10 dB result) | Unstructured tets; boundary nodes **on** the curve; node-motion (moving-boundary) adjoint, single factorization | Nodes on the curve (~1e-14 mm); linear facets 4.4 µm max on L0, 1.1 µm on L1 (`staircasing_demo.py`) | **Done** — committed artifact |
 | **FDTD-density** (Meep-adjoint / ceviche) | Fixed Yee/Cartesian grid; permittivity/density field, later binarized | **Staircased** — O(h) boundary error, cubic 3D refinement cost | 2D **runnable now** (ceviche); 3D **operator-gated** (Meep) |
 | **Low-DOF parametric** | A handful of shape scalars swept / FD-optimized | Can be conformal but cannot reach freeform | Planned (not in this dir) |
 
@@ -42,44 +42,66 @@ python -m pip install -r requirements.txt
 
 ### 1. `staircasing_demo.py` — deterministic geometric floor (PRIMARY)
 
-Self-contained (numpy/scipy only — always runs, no ceviche). Rasterizes the
-committed `bent_conformal` arc (see below) onto Yee grids at N = 20/40/80/160
-cells across the feature and quantifies the staircasing error.
+Self-contained (numpy + matplotlib; no ceviche, no field solve). Takes the
+physical 2.4 GHz bent-patch geometry (R = 100 mm, h = 1.6 mm, patch 38 mm,
+ground 62 mm), rasterizes the patch (top) and ground (bottom) arc profiles onto
+Yee grids at 1–16 cells/mm, and measures the facet error of the actual L0/L1
+conformal volume meshes against the same cylinders. Reproduction steps, the
+environment record and the citation pin are in `staircasing_notes.md`.
 
 ```bash
+export PATCH_CONFORMAL_L1=/path/to/patch_conformal_L1.msh   # see the notes
 python staircasing_demo.py
-# -> staircasing_results.json  (committed artifact, bit-deterministic)
-# -> staircasing.png           (or staircasing_results.csv if no matplotlib)
+# -> staircasing_results.json    (committed artifact; host-independent)
+# -> staircasing_results.sha256  (citation pin for the JSON)
+# -> staircasing.png             (byte-identical only at the recorded matplotlib)
+python staircasing_verify.py      # also passes under python -O
 ```
 
-Measured floor (top-metal-arc, R = 40 mm, 0.6 rad span; re-run is bit-identical):
+Measured Cartesian floor (patch top arc 38.304 mm; ground bottom arc 61.504 mm;
+proxy = RMS vertical displacement / arc length):
 
-| N | cell h (mm) | boundary-pos RMS (mm) | RMS/h | perimeter rel-err | area rel-err | Δf/f proxy |
-| --- | --- | --- | --- | --- | --- | --- |
-| 20 | 1.206 | 0.291 | 0.241 | +13.0 % | 13.6 % | 1.19 % |
-| 40 | 0.603 | 0.157 | 0.260 | +15.4 % | 0.33 % | 0.64 % |
-| 80 | 0.301 | 0.095 | 0.314 | +14.2 % | 0.33 % | 0.39 % |
-| 160 | 0.151 | 0.045 | 0.299 | +14.2 % | 0.15 % | 0.18 % |
+| cells/mm | h (mm) | patch RMS (mm) | patch RMS/h | patch proxy | ground RMS (mm) | ground RMS/h | ground proxy |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.0 | 0.333 | 0.33 | 8.68e-3 | 0.278 | 0.28 | 4.52e-3 |
+| 2 | 0.5 | 0.128 | 0.26 | 3.35e-3 | 0.140 | 0.28 | 2.28e-3 |
+| 4 | 0.25 | 0.0727 | 0.29 | 1.90e-3 | 0.0715 | 0.29 | 1.16e-3 |
+| 8 | 0.125 | 0.0371 | 0.30 | 9.68e-4 | 0.0359 | 0.29 | 5.84e-4 |
+| 16 | 0.0625 | 0.0189 | 0.30 | 4.94e-4 | 0.0181 | 0.29 | 2.94e-4 |
+
+Facet error of the actual conformal meshes against the same cylinders
+(vertices sit on the circles to ~1.4e-14 mm; the straight facets between them
+do not):
+
+| Volume mesh | Surface | Triangles | Max radial error (µm) | Area-weighted RMS (µm) |
+| --- | --- | ---: | ---: | ---: |
+| L0 | patch | 1042 | 4.358 | 1.752 |
+| L0 | ground | 3016 | 4.774 | 1.722 |
+| L1 | patch | 4074 | 1.128 | 0.441 |
+| L1 | ground | 12032 | 1.251 | 0.434 |
 
 Key readings:
-- **Boundary-position error is O(h)** (log-log slope ≈ 0.88) — it *shrinks* but
-  its ratio to the cell size is a scale-invariant constant (~0.25–0.3): a
-  staircase never improves in relative terms. The **conformal tet mesh error is
-  0 to machine precision at every N** — the whole point.
-- **Perimeter error → a staircase-paradox constant ≈ +14 %** (slope ≈ 0): the
-  digitized arc length does *not* converge to the true length. This is the
-  length that sets a resonant radiator's electrical size.
-- **Area error converges** (slope ≈ 2) — the diagnostic contrast proving the
-  code measures real staircasing, not a bug (Jordan-measurable area converges;
-  perimeter does not).
-- To make the staircased boundary as faithful as the conformal mesh (≈1 µm) you
-  need **~6000 cells across the feature** ⇒ **~5.3×10⁴×** the Yee cells of the
-  finest grid tested, in 3D. The conformal mesh is exact at fixed DOF.
+- **Cartesian boundary-position error is O(h)**: the fitted proxy-vs-cell-size
+  powers are 1.0064 (patch) and 0.9850 (ground), and RMS/h stays at 0.26–0.33
+  at every resolution, so the staircase never improves relative to its own
+  cell.
+- **The conformal mesh is not exact.** Nodes lie on the curve, but linear
+  facets have a sagitta: 4.4–4.8 µm max (1.7 µm RMS) on L0 and 1.1–1.3 µm max
+  (0.43 µm RMS) on L1, i.e. ~4× smaller for ~4× the triangles (second order in
+  facet size). At 16 cells/mm the Cartesian RMS (18 µm) is still ~10× the L0
+  facet RMS, but the two use different measures (vertical vs radial), so no
+  equal-error cell count or cost ratio is inferred from them.
+- **Slab-sector perimeter does not converge** (taxicab staircase paradox:
+  +7–14 % at every grid, against limits of +9.2 % patch / +14.1 % ground) while
+  **its area does**. That contrast is the diagnostic check that the code
+  measures staircasing rather than a bug. The perimeter is of the slab sector,
+  not the metal patch, and is not an electromagnetic error.
 
-The `resonance_shift_proxy` column is a **first-order cavity boundary-
-perturbation estimate** |Δf/f| ~ δ_rms / L_arc — an order-of-magnitude proxy,
-**not** a solved eigenvalue or S11. The field-solve baselines below are where
-actual resonance/impedance error would come from.
+The `resonance_shift_proxy_abs` column is RMS profile displacement / arc
+length — a dimensionless geometric proxy with an uncalibrated coefficient,
+**not** a solved eigenvalue or S11. Whether these geometric floors translate
+into electromagnetic accuracy or solver cost is the open question of
+#1085/#1088; nothing in this directory answers it.
 
 ### 2. `ceviche_fdfd_baseline.py` — 2D FDFD density inverse-design (representative)
 
