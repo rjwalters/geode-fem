@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1144",
-  "loom_commit": "9e4381cbbd2386393e44c7a979583252948a3998",
+  "loom_version": "0.19.1148",
+  "loom_commit": "1448fdfa79ac2dcab7fad6b95b72697b450f2a4a",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -357,7 +357,6 @@
     ".loom/scripts/reconcile-stack.sh",
     ".loom/scripts/record-noop-release.sh",
     ".loom/scripts/recover-orphaned-shepherds.sh",
-    ".loom/scripts/require-complexity-marker.sh",
     ".loom/scripts/resolve-model.sh",
     ".loom/scripts/resolve-tier-model.sh",
     ".loom/scripts/resync-installed.sh",
@@ -601,7 +600,6 @@
     ".loom/scripts/tests/test-record-noop-release.sh",
     ".loom/scripts/tests/test-recover-orphaned-shepherds-diagnostics.sh",
     ".loom/scripts/tests/test-repo-mismatch-fallback.sh",
-    ".loom/scripts/tests/test-require-complexity-marker.sh",
     ".loom/scripts/tests/test-require-daemon-bin.sh",
     ".loom/scripts/tests/test-resolve-tier-model.sh",
     ".loom/scripts/tests/test-resync-installed-agent-skills-guard.sh",
@@ -753,6 +751,6 @@
     ".loom/scripts/tests/test-resync-installed-retired-migrate.sh",
     ".loom/scripts/tests/test-sync-labels-migrate-retired.sh"
   ],
-  "last_resync": "2026-10-12",
+  "last_resync": "2026-10-13",
   "requires_daemon": "0.19.1081"
 }
