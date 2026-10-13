@@ -244,6 +244,79 @@ const MANIFEST: &[Entry] = &[
          geode-core --release --example patch_conformal_2g4_baseline -- \
          <dir>/patch_conformal_L1.msh",
     ),
+    // Nested-DOF ladder of the curved conformal 2.4 GHz patch (#1087).
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 1x1 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_1 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_4.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 2x2 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_4 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 4x4 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_48.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 8x6 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_48 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_outline_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 0 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label outline_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_combined_64.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 8x6 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label combined_64 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label gap_1 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_4.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 2x2 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label gap_4 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 4x4 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label gap_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label gap_48 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_outline_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 0 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label outline_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 40 --label combined_64 (issue #1087 nested-DOF ladder)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",

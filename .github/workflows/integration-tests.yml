@@ -293,6 +293,7 @@ jobs:
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
               --test patch_conformal_diffopt \
+              --test patch_conformal_nested_dof \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \
@@ -364,6 +365,7 @@ jobs:
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
               --test patch_conformal_diffopt \
+              --test patch_conformal_nested_dof \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \
