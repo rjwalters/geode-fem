@@ -25,7 +25,12 @@
 //!   tangentially instead of shearing between a moving top and a pinned
 //!   ground, and decays to zero over the substrate margin. A metal node
 //!   sliding inside its own sheet does not change the conductor, so only
-//!   the patch outline (and the feed inset) changes physically.
+//!   the patch outline (and the feed inset) changes physically. The morph
+//!   is linear in the coefficients, so a tangential step `d` along the
+//!   base-point tangent leaves the cylinder by the chord error
+//!   `d² / 2R` (0.18 mm at `d = 6` mm, `R = 100` mm); the whole slab
+//!   column shares it, so the patch–ground gap is preserved and only the
+//!   shell radius bulges locally.
 //!
 //! Both bases are functions of the chart coordinates `(s, y)` alone, so the
 //! same coefficient vector describes the same surface on every mesh level
@@ -333,7 +338,9 @@ impl RadialBasis {
 /// −s edge (n)]`; the `±y` splines run along `s`, the `±s` splines along
 /// `y`. The edge value is carried into the interior by a smoothstep ramp
 /// from the pinned feed band to the edge, and decays over the margin
-/// outside the rectangle.
+/// outside the rectangle. Being linear, the motion follows the base-point
+/// tangent, not the arc: a step `d` lifts the whole slab column off the
+/// cylinder by the chord error `d² / 2R` (see the module docs).
 #[derive(Clone, Debug)]
 pub struct OutlineBasis {
     along_s: BSpline1D,
