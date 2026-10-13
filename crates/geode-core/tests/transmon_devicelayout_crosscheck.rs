@@ -292,16 +292,17 @@ fn convergence_block_re_derives_from_the_levels() {
             OBSERVED_ORDER_TOL,
             tag,
         );
-        // Order-1 (asymptotic) two-level extrapolations: f + (f - f_prev).
+        // Order-1 (asymptotic) two-level extrapolations: f + (f - f_prev);
+        // 2 f - f_prev triples the 5e-7 rounding of the levels.
         assert_eq!(tf(&d, &c("asymptotic_order")), 1.0, "{tag}");
         let q1 = p1q[2] + (p1q[2] - p1q[1]);
         let r1 = p1r[2] + (p1r[2] - p1r[1]);
         let q2 = p2q[1] + (p2q[1] - p2q[0]);
         let r2 = p2r[1] + (p2r[1] - p2r[0]);
-        close(tf(&d, &c("p1_order1_f_q_ghz")), q1, 1e-6, tag);
-        close(tf(&d, &c("p1_order1_f_r_ghz")), r1, 1e-6, tag);
-        close(tf(&d, &c("p2_order1_f_q_ghz")), q2, 1e-6, tag);
-        close(tf(&d, &c("p2_order1_f_r_ghz")), r2, 1e-6, tag);
+        close(tf(&d, &c("p1_order1_f_q_ghz")), q1, 3e-6, tag);
+        close(tf(&d, &c("p1_order1_f_r_ghz")), r1, 3e-6, tag);
+        close(tf(&d, &c("p2_order1_f_q_ghz")), q2, 3e-6, tag);
+        close(tf(&d, &c("p2_order1_f_r_ghz")), r2, 3e-6, tag);
         let est_q = 0.5 * (q1 + q2);
         let est_r = 0.5 * (r1 + r2);
         close(tf(&d, &c("f_q_ghz")), est_q, 5e-5, tag);
