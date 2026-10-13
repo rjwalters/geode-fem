@@ -2192,6 +2192,9 @@ fn main() {
         geode_util::repo::current_commit()
     );
     BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    if let Ok(host) = std::env::var("PATCH_CONFORMAL_HOST") {
+        let _ = writeln!(t, "host = {}", toml_str(&host));
+    }
     t.push_str("length_unit = \"mm\"\n");
     t.push_str("frequency_unit = \"GHz\"\n");
     t.push_str(
