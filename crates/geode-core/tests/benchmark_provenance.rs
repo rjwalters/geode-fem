@@ -172,7 +172,7 @@ const MANIFEST: &[Entry] = &[
         "benchmarks/transmon_devicelayout_crosscheck/geode_runs/initial_h2.toml",
         "GEODE_SOLVE_MESH=<initial_r1.msh> GEODE_SOLVE_LABEL=initial_h2 GEODE_SIGMA_GHZ=5.0 \
          cargo run -p geode-core --release --example transmon_devicelayout_crosscheck (issue \
-         #1092; about 100 GB, run on an AWS r8g.8xlarge)",
+         #1092; 94 GB peak, run on an AWS r8g.8xlarge)",
     ),
     a(
         "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h.toml",
@@ -182,7 +182,7 @@ const MANIFEST: &[Entry] = &[
     a(
         "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h2.toml",
         "GEODE_SOLVE_MESH=<final_r1.msh> GEODE_SOLVE_LABEL=final_h2 GEODE_SIGMA_GHZ=4.0 cargo run \
-         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; about \
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; X
          120 GB, run on an AWS r8g.8xlarge)",
     ),
     a(

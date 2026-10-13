@@ -40,7 +40,45 @@ its uniform gmsh refinements), Palace order 2 on `h` and `h/2`, geode A2 on
 `h` and `h/2` (same meshes, same-mesh agreement with Palace order 1), and
 Palace on DeviceLayout's second-order mesh twice: the blog's exact config
 (`dl_<tag>`: absorbing far field, 50 Ω readout ports) and the PEC-box model
-(`dlpec_<tag>`). The converged estimate is the mean of the Richardson
-extrapolations of the order-1 and order-2 series, with a band spanning both
-extrapolations and both finest measured values. The numbers are in
-`results.toml` and in the PR that landed them.
+(`dlpec_<tag>`).
+
+## Rule
+
+Every level rises under refinement: the conforming discretization
+over-estimates the island capacitance, so each series approaches from
+below. The thin-sheet edge singularity (E ~ r^-1/2) limits the asymptotic
+eigenvalue rate to O(h) on uniform meshes at any element order. The
+order-1 ladder still shows a pre-asymptotic 0.61 (qubit) and 0.70–0.73
+(resonator).
+
+- **Estimate:** the mean of the order-1 series (`h/2`, `h/4`) and the
+  order-2 series (`h`, `h/2`), each extrapolated at order 1.
+- **Band:** spans those two values and the same two series extrapolated at
+  the observed order, which extrapolates further.
+
+This is an extrapolation with a band, not a bound.
+
+**Independent static route (initial geometry).** The certified tensor C_Σ
+of X⁰ (`../transmon_diffopt/c_sigma_bracket_tensor.toml`, #1091), read
+through the two-node circuit of #1078/#1079 (L_J + L_s, C_Σ + C_J,
+coupling k to the resonator) over every corner of the C_Σ, L_s and k bands.
+
+## Results
+
+| | published | Palace at DeviceLayout's discretization | converged estimate | band |
+|---|---|---|---|---|
+| initial qubit | 4.14 | 4.1683 (+0.68 %) | **4.444** (+7.3 %) | [4.432, 4.677] |
+| initial resonator | 5.591 | 5.6132 (+0.40 %) | **5.740** (+2.7 %) | [5.727, 5.817] |
+| final qubit | 3.005 | 3.0164 (+0.38 %) | **3.265** (+8.7 %) | [3.254, 3.471] |
+| final resonator | 3.982 | 3.9956 (+0.34 %) | **4.088** (+2.7 %) | [4.080, 4.139] |
+
+All frequencies are in GHz.
+
+- **Reproduction.** Palace reproduces both published pairs at DeviceLayout's
+  own discretization to under 0.7 %.
+- **Published values are under-resolved.** Both published pairs lie below
+  every band, so DeviceLayout's published values are not converged values.
+- **Static route.** It gives an initial qubit of [4.449, 4.458] GHz. That is
+  inside the eigen band and 0.22 % above the estimate.
+- **Same-mesh agreement.** geode A2 and Palace order 1 agree to 1e-4 % on the
+  qubit and 0.03 % on the resonator, on every mesh where both ran.
