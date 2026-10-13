@@ -346,7 +346,11 @@ fn converged_target_step_and_ladder_re_derive() {
                 "{tag} mode {m}: estimate outside its band"
             );
             let inside = bands[m][0] <= TARGETS[m] && TARGETS[m] <= bands[m][1];
-            assert_eq!(in_band[m].as_bool(), Some(inside), "{tag} targets_in_band[{m}]");
+            assert_eq!(
+                in_band[m].as_bool(),
+                Some(inside),
+                "{tag} targets_in_band[{m}]"
+            );
         }
         fconv = [(q * 1e4).round() / 1e4, (r * 1e4).round() / 1e4];
         // The driver rounds every design to 1 nm.
