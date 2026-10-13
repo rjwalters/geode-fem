@@ -139,7 +139,7 @@ tempfile = { workspace = true }
 # Pencil / mesh fingerprint (`pattern_sha256`, `mesh_sha256`) in the
 # dense-oracle fixture of `tests/sparse_complex_eigensolver.rs` (issue #710).
 # Same version geode-cli already pins (already in the lockfile).
-sha2 = "0.10"
+sha2 = "0.11"
 
 # SPIKE-ONLY (issue #451): probes f64 precision on the burn-flex CPU backend.
 # Gated behind the `flex` feature so it is skipped for the default build and
