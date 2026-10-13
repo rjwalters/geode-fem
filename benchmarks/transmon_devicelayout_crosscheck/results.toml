@@ -7,7 +7,7 @@ description = "DeviceLayout.jl SingleTransmon cross-check: converged qubit and r
 issue = 1092
 backend = "ndarray"  # of the geode solve records
 float_dtype = "F64"
-generated_at_commit = "f0bc781e"
+generated_at_commit = "bb123f59"
 geometry_generator = "reference/julia/generate_transmon_param.jl (DeviceLayout.jl v1.15.0, gmsh_jll 4.15.2, Julia 1.10.11, macOS arm64); refinements and MSH 2.2 conversions with gmsh 4.15.2-git on the same host"
 palace_results_dir = "reference/fixtures/transmon_palace/results_crosscheck_1092"
 geode_runs_dir = "benchmarks/transmon_devicelayout_crosscheck/geode_runs"
@@ -56,6 +56,7 @@ p2_peak_gb = [7.50, 45.60]
 levels = ["initial_h", "initial_h2"]
 geode_over_palace_f_q_pct = [0.0001, 0.0001]
 geode_over_palace_f_r_pct = [0.0297, 0.0000]
+note = "on the DeviceLayout h meshes Palace adds elements by local bisection of under-resolved interior boundaries (its log: 4946 initial, 5944 final), so its h mesh is slightly finer than geode's and the resonator differs by about 0.03 %; the refined meshes need no bisection and both codes solve the same discrete problem (0.0000 %). Rerunning the initial h cell with AMS instead of SuperLU gives the same 5.176055 GHz"
 
 [devicelayout_run.initial]
 cell = "dl_initial"
@@ -97,17 +98,24 @@ p2_richardson_f_r_ghz = 5.794301
 p2_order1_f_q_ghz = 4.455368  # at the asymptotic order 1
 p2_order1_f_r_ghz = 5.753698
 asymptotic_order = 1.0  # thin-sheet edge singularity, E ~ r^-1/2: eigenvalue error O(h) on uniform meshes at any element order
-rule = "every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound"
+p1_order1_lambda_f_q_ghz = 4.414783  # order 1 in the eigenvalue variable: sqrt(2 f(h/4)^2 - f(h/2)^2)
+p1_order1_lambda_f_r_ghz = 5.723048
+p2_order1_lambda_f_q_ghz = 4.450742  # order 1 in the eigenvalue variable: sqrt(2 f(h/2)^2 - f(h)^2)
+p2_order1_lambda_f_r_ghz = 5.752876
+extrapolated_variable = "the frequency f for the estimate (p1_order1_*, p2_order1_*, *_richardson_*); the eigenvalue variable lambda ~ f^2 at order 1 (*_order1_lambda_*) is also in the band and sets its low side"
+rule = "every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series, the frequency extrapolated at the asymptotic order 1; band = [min, max] over those two, the same two series in the eigenvalue variable at order 1 (lower), and the same two series in f at the order-1 ladder's observed (pre-asymptotic, lower) order (higher): an extrapolation with a band, not a bound"
+rule_history = "#1092 part 1 replaced the work-in-progress rule (Richardson at the observed order only, band down to the finest measured levels, initial-qubit estimate 4.63 GHz) by this one, after the independent static route ([static_cross_check.initial]) put the initial qubit at 4.45 GHz and capped it at 4.477 GHz; the band's low side gained the eigenvalue-variable extrapolations in the #1106 review"
+band_upper_side = "kept wide on purpose: the observed-order values are an extrapolation-only upper scenario and are not capped by the circuit model; for the initial geometry [static_cross_check.initial] gives the capped band"
 f_q_ghz = 4.4438
-f_q_band_ghz = [4.4322, 4.6768]
+f_q_band_ghz = [4.4148, 4.6768]
 f_r_ghz = 5.7404
-f_r_band_ghz = [5.7271, 5.8167]
+f_r_band_ghz = [5.7230, 5.8167]
 published_f_q_ghz = 4.14
 published_f_r_ghz = 5.591
 f_q_over_published_pct = 7.338
 f_r_over_published_pct = 2.672
-f_q_band_over_published_pct = [7.058, 12.966]
-f_r_band_over_published_pct = [2.434, 4.037]
+f_q_band_over_published_pct = [6.637, 12.966]
+f_r_band_over_published_pct = [2.362, 4.037]
 published_below_band = [true, true]
 devicelayout_run_over_published_pct = [0.684, 0.397]
 devicelayout_run_under_converged_pct = [-6.199, -2.216]  # DeviceLayout's discretization against the estimate
@@ -122,6 +130,9 @@ lc_only_f_q_band_ghz = [4.4713, 4.4766]  # L_J alone, k = 0
 dressed_f_q_band_ghz = [4.4494, 4.4579]
 resonator_f_r_ghz = 5.7404  # the convergence estimate
 inside_eigen_band = true
+circuit_cap_f_q_ghz = 4.4766  # 1/(2 pi sqrt(L_J (C_Sigma_lower + C_J))): k > 0 and L_s >= 0 only lower the qubit, so the circuit model caps it here
+f_q_band_capped_ghz = [4.4148, 4.4766]  # the eigen band with its upper side capped by the circuit
+geometry_caveat = "the C_Sigma bracket is certified on transmon_smoke.msh, the earlier generator's mesh of the same initial geometry, not on this PR's DeviceLayout mesh; the two agree on Palace at h (3.4527 vs 3.4520 GHz) but their h/2 levels differ (3.9528 GHz from Palace's own refinement of the fixture, #1081, vs 3.8771 GHz from gmsh's refinement here), because the two refinements are different meshes"
 eigen_estimate_minus_static_mid_pct = -0.222
 
 [geode.final]
@@ -154,6 +165,7 @@ p2_peak_gb = [8.90, 56.20]
 levels = ["final_h", "final_h2"]
 geode_over_palace_f_q_pct = [0.0001, 0.0001]
 geode_over_palace_f_r_pct = [0.0266, 0.0000]
+note = "on the DeviceLayout h meshes Palace adds elements by local bisection of under-resolved interior boundaries (its log: 4946 initial, 5944 final), so its h mesh is slightly finer than geode's and the resonator differs by about 0.03 %; the refined meshes need no bisection and both codes solve the same discrete problem (0.0000 %). Rerunning the initial h cell with AMS instead of SuperLU gives the same 5.176055 GHz"
 
 [devicelayout_run.final]
 cell = "dl_final"
@@ -195,17 +207,24 @@ p2_richardson_f_r_ghz = 4.120948
 p2_order1_f_q_ghz = 3.276460  # at the asymptotic order 1
 p2_order1_f_r_ghz = 4.095397
 asymptotic_order = 1.0  # thin-sheet edge singularity, E ~ r^-1/2: eigenvalue error O(h) on uniform meshes at any element order
-rule = "every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound"
+p1_order1_lambda_f_q_ghz = 3.235572  # order 1 in the eigenvalue variable: sqrt(2 f(h/4)^2 - f(h/2)^2)
+p1_order1_lambda_f_r_ghz = 4.077437
+p2_order1_lambda_f_q_ghz = 3.271294  # order 1 in the eigenvalue variable: sqrt(2 f(h/2)^2 - f(h)^2)
+p2_order1_lambda_f_r_ghz = 4.094808
+extrapolated_variable = "the frequency f for the estimate (p1_order1_*, p2_order1_*, *_richardson_*); the eigenvalue variable lambda ~ f^2 at order 1 (*_order1_lambda_*) is also in the band and sets its low side"
+rule = "every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series, the frequency extrapolated at the asymptotic order 1; band = [min, max] over those two, the same two series in the eigenvalue variable at order 1 (lower), and the same two series in f at the order-1 ladder's observed (pre-asymptotic, lower) order (higher): an extrapolation with a band, not a bound"
+rule_history = "#1092 part 1 replaced the work-in-progress rule (Richardson at the observed order only, band down to the finest measured levels, initial-qubit estimate 4.63 GHz) by this one, after the independent static route ([static_cross_check.initial]) put the initial qubit at 4.45 GHz and capped it at 4.477 GHz; the band's low side gained the eigenvalue-variable extrapolations in the #1106 review"
+band_upper_side = "kept wide on purpose: the observed-order values are an extrapolation-only upper scenario and are not capped by the circuit model; for the initial geometry [static_cross_check.initial] gives the capped band"
 f_q_ghz = 3.2652
-f_q_band_ghz = [3.2539, 3.4710]
+f_q_band_ghz = [3.2356, 3.4710]
 f_r_ghz = 4.0880
-f_r_band_ghz = [4.0805, 4.1387]
+f_r_band_ghz = [4.0774, 4.1387]
 published_f_q_ghz = 3.005
 published_f_r_ghz = 3.982
 f_q_over_published_pct = 8.659
 f_r_over_published_pct = 2.661
-f_q_band_over_published_pct = [8.284, 15.508]
-f_r_band_over_published_pct = [2.474, 3.935]
+f_q_band_over_published_pct = [7.673, 15.508]
+f_r_band_over_published_pct = [2.397, 3.935]
 published_below_band = [true, true]
 devicelayout_run_over_published_pct = [0.378, 0.342]
 devicelayout_run_under_converged_pct = [-7.621, -2.259]  # DeviceLayout's discretization against the estimate
