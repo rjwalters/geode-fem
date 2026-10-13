@@ -340,8 +340,8 @@ fn solve_a2(fx: &TransmonFixture, sigma_ghz: f64, n_modes: usize) -> Solved {
 fn moved(fx: &TransmonFixture, vel: &[[f64; 3]], h: f64) -> TransmonFixture {
     let mut m = fx.clone();
     for (p, v) in m.mesh.nodes.iter_mut().zip(vel) {
-        for c in 0..3 {
-            p[c] += h * v[c];
+        for (x, vc) in p.iter_mut().zip(v) {
+            *x += h * vc;
         }
     }
     m

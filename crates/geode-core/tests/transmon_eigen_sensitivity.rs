@@ -1197,8 +1197,8 @@ fn tensor_eps_geometry_sensitivity_matches_fd_1092() {
     let lam_at = |sign: f64| -> f64 {
         let mut m = fx.mesh.clone();
         for (n, v) in vel.iter().enumerate() {
-            for c in 0..3 {
-                m.nodes[n][c] += sign * h * v[c];
+            for (x, vc) in m.nodes[n].iter_mut().zip(v) {
+                *x += sign * h * vc;
             }
         }
         solve_cavity_tensor(&m, &fx, &eps, sigma, n_modes)
