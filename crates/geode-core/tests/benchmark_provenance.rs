@@ -290,12 +290,40 @@ const MANIFEST: &[Entry] = &[
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/dip_L1_p2.toml",
-        "for g in flat bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 \
+        "for g in flat bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 \
          PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p \
          geode-core --release --example patch_conformal_convergence -- dip \
          <dir>/patch_conformal_L1.msh --p2 --out <dir>/dip_L1_p2_$g.toml; done && cargo run -p \
          geode-core --release --example patch_conformal_convergence -- merge \
          <dir>/dip_L1_p2_flat.toml <dir>/dip_L1_p2_bent.toml (about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/fd_L0.toml",

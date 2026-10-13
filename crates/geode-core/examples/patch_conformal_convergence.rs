@@ -2102,11 +2102,7 @@ fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
         let mut finest = fs[n - 1];
         let mut extraps = vec![p1_rich];
         let _ = writeln!(t, "[gate_g1.{g}]");
-        let _ = writeln!(
-            t,
-            "converged = {}",
-            finest_change.abs() < G1_CONVERGED_MHZ
-        );
+        let _ = writeln!(t, "converged = {}", finest_change.abs() < G1_CONVERGED_MHZ);
         let _ = writeln!(t, "finest_p1_level = \"{}\"", levels[n - 1].name);
         let _ = writeln!(t, "finest_p1_dip_f_ghz = {:.6}", fs[n - 1]);
         let _ = writeln!(t, "finest_pair_dip_f_change_mhz = {finest_change:.3}");
@@ -2142,8 +2138,10 @@ fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
         let mut names = Vec::new();
         let mut dbs = Vec::new();
         for r in levels.iter().chain(p2.iter().copied()) {
-            if let Some((_, s)) =
-                r.geoms[g].2.iter().find(|(f, _)| (f - G1_BAND_EDGE_GHZ).abs() < 1e-9)
+            if let Some((_, s)) = r.geoms[g]
+                .2
+                .iter()
+                .find(|(f, _)| (f - G1_BAND_EDGE_GHZ).abs() < 1e-9)
             {
                 names.push(format!("\"{}_{}\"", r.name, r.order));
                 dbs.push(20.0 * s.norm().log10());
