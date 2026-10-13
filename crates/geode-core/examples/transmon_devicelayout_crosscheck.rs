@@ -216,7 +216,7 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
     let _ = writeln!(t, "mesh_file = \"{}\"", mesh_path.file_name().unwrap().to_string_lossy());
     let _ = writeln!(t, "host = \"{}\"", host_string());
     let _ = writeln!(t, "backend = \"{}\"", backend.name);
-    let _ = writeln!(t, "float_dtype = \"{:?}\"", backend.float_dtype);
+    let _ = writeln!(t, "float_dtype = \"{}\"", backend.float_dtype);
     let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
     let _ = writeln!(t, "\n[run]");
     let _ = writeln!(t, "n_nodes = {n_nodes}");
@@ -274,6 +274,7 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
 fn git_head() -> String {
     std::process::Command::new("git")
         .args(["rev-parse", "--short=8", "HEAD"])
+        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output()
         .ok()
         .filter(|o| o.status.success())
