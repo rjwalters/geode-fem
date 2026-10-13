@@ -20,8 +20,10 @@
 //!   and their geometry JSON dumps: units, FD gate, passivity, monotone
 //!   descent, internal consistency, agreement of the initial band points
 //!   with the #1084 baseline sweep, and the nested-DOF ladder's scientific
-//!   outcome (gap-only never reaches −10 dB; the outline runs do or do not,
-//!   as recorded).
+//!   outcome (the uniform gap change P = 1 and P = 4 stay near −2 dB; a
+//!   spatially varying gap reaches −10 dB from P = 16 on L1 and P = 48 on
+//!   L0; the outline alone lands just short; the combined 64 DOFs are
+//!   best).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -856,5 +858,61 @@ fn nested_dof_initial_band_points_match_the_baseline_sweep() {
                 "{level}/{label}: only {n_matched} shared frequencies"
             );
         }
+    }
+}
+
+/// Worst-of-band |S11| (dB, 9-point verification sweep) of every committed
+/// run, as `(level, label, dB, reached −10 dB)`.
+const LADDER_OUTCOME: [(&str, &str, f64, bool); 12] = [
+    ("L0", "gap_1", -1.675668, false),
+    ("L0", "gap_4", -1.302528, false),
+    ("L0", "gap_16", -9.334367, false),
+    ("L0", "gap_48", -11.74091, true),
+    ("L0", "outline_16", -9.628807, false),
+    ("L0", "combined_64", -13.78494, true),
+    ("L1", "gap_1", -1.992026, false),
+    ("L1", "gap_4", -1.926474, false),
+    ("L1", "gap_16", -11.29462, true),
+    ("L1", "gap_48", -13.15249, true),
+    ("L1", "outline_16", -9.98374, false),
+    ("L1", "combined_64", -14.11728, true),
+];
+
+/// The scientific outcome of the nested-DOF ladder (issue #1087).
+///
+/// * The uniform gap change (P = 1) and the 2 × 2 gap spline stay far
+///   from −10 dB on both levels (better than −2.0 dB at best): a global
+///   lift of the patch cannot re-tune it into the band before the
+///   non-inversion guard binds, so the band match is not a one-parameter
+///   result.
+/// * A spatially varying gap alone (P = 16 on L1, P = 48 on both levels)
+///   does reach −10 dB without moving the outline.
+/// * The outline alone (16 DOFs) lands just short of −10 dB on both levels.
+/// * The combined 64-DOF freedom is the best run on each level.
+#[test]
+fn nested_dof_ladder_outcome_is_pinned() {
+    for level in LEVELS {
+        let runs = ladder(level);
+        let worst = |label: &str| num(&runs[label]["optimization"]["verify_worst_s11_db"]);
+        for &(lv, label, db, reached) in LADDER_OUTCOME.iter().filter(|r| r.0 == level) {
+            let o = &runs[label]["optimization"];
+            assert!(
+                (worst(label) - db).abs() < 0.01,
+                "{lv}/{label}: worst-of-band {} dB, pinned {db} dB",
+                worst(label)
+            );
+            assert_eq!(o["reached_target"].as_bool().unwrap(), reached, "{lv}/{label}");
+        }
+        for low in ["gap_1", "gap_4"] {
+            assert!(worst(low) > -2.5, "{level}/{low}: a global gap change matched the band");
+        }
+        let best = LABELS
+            .iter()
+            .min_by(|a, b| worst(a).total_cmp(&worst(b)))
+            .unwrap();
+        assert_eq!(*best, "combined_64", "{level}: best run");
+        assert!(worst("combined_64") <= worst("gap_48"));
+        assert!(worst("gap_48") <= worst("gap_16"));
+        assert!(worst("gap_16") < worst("gap_4") - 5.0, "{level}: P = 16 vs P = 4");
     }
 }
