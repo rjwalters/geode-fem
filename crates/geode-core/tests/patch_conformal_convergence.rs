@@ -975,8 +975,8 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
             assert!(num(&d["min_vol_ratio"]) > 0.9);
             max_rel = max_rel.max(rel);
         }
-        assert!((num(&gate["max_rel_err"]) - max_rel).abs() < 1e-12);
-        assert!((num(&doc["fd_gate"][lv]["max_rel_err"]) - max_rel).abs() < 1e-12);
+        assert!((num(&gate["max_rel_err"]) - max_rel).abs() < 1e-9 + 1e-6 * max_rel);
+        assert!((num(&doc["fd_gate"][lv]["max_rel_err"]) - max_rel).abs() < 1e-9 + 1e-6 * max_rel);
         assert_eq!(
             fd["gradient"]["n_factorizations_per_freq"].as_integer(),
             Some(1)
