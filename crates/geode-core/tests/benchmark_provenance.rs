@@ -157,6 +157,35 @@ const MANIFEST: &[Entry] = &[
          committed Palace cells of reference/fixtures/transmon_palace/results_coupling_1078/)",
     ),
     a(
+        "benchmarks/transmon_devicelayout_crosscheck/results.toml",
+        "cargo run -p geode-core --release --example transmon_devicelayout_crosscheck (issue \
+         #1092, assemble mode; reads the geode_runs/ records and the committed Palace cells of \
+         reference/fixtures/transmon_palace/results_crosscheck_1092/)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/initial_h.toml",
+        "GEODE_SOLVE_MESH=<initial_o1.msh> GEODE_SOLVE_LABEL=initial_h GEODE_SIGMA_GHZ=5.0 cargo \
+         run -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; \
+         mesh from reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/initial_h2.toml",
+        "GEODE_SOLVE_MESH=<initial_r1.msh> GEODE_SOLVE_LABEL=initial_h2 GEODE_SIGMA_GHZ=5.0 \
+         cargo run -p geode-core --release --example transmon_devicelayout_crosscheck (issue \
+         #1092; about 100 GB, run on an AWS r8g.8xlarge)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h.toml",
+        "GEODE_SOLVE_MESH=<final_o1.msh> GEODE_SOLVE_LABEL=final_h GEODE_SIGMA_GHZ=4.0 cargo run \
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h2.toml",
+        "GEODE_SOLVE_MESH=<final_r1.msh> GEODE_SOLVE_LABEL=final_h2 GEODE_SIGMA_GHZ=4.0 cargo run \
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; about \
+         120 GB, run on an AWS r8g.8xlarge)",
+    ),
+    a(
         "benchmarks/transmon_loop_inductance/results.toml",
         "cargo run -p geode-core --release --example transmon_loop_inductance (issue #1079; reads \
          the committed Palace cells of reference/fixtures/transmon_palace/results_loop_1079/ and \

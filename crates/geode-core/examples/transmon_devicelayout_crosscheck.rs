@@ -613,21 +613,31 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let p1q: Vec<f64> = fq(&l.palace_p1);
     let p1r: Vec<f64> = fr(&l.palace_p1);
     assert_eq!(p1q.len(), 3, "{tag}: three order-1 Palace levels");
-    let (oq, fq_inf) = richardson3([p1q[0], p1q[1], p1q[2]]);
-    let (or_, fr_inf) = richardson3([p1r[0], p1r[1], p1r[2]]);
+    let (oq, fq_obs) = richardson3([p1q[0], p1q[1], p1q[2]]);
+    let (or_, fr_obs) = richardson3([p1r[0], p1r[1], p1r[2]]);
     let p2q = fq(&l.palace_p2);
     let p2r = fr(&l.palace_p2);
     assert_eq!(p2q.len(), 2, "{tag}: two order-2 Palace levels");
-    // Order-2 series extrapolated at the order the order-1 ladder shows
-    // (the sheet-edge singularity limits both to the same rate).
-    let fq_inf_p2 = richardson2([p2q[0], p2q[1]], oq);
-    let fr_inf_p2 = richardson2([p2r[0], p2r[1]], or_);
-    let q_lo = fq_inf.min(fq_inf_p2).min(p2q[1]).min(p1q[2]);
-    let q_hi = fq_inf.max(fq_inf_p2).max(p2q[1]).max(p1q[2]);
-    let r_lo = fr_inf.min(fr_inf_p2).min(p2r[1]).min(p1r[2]);
-    let r_hi = fr_inf.max(fr_inf_p2).max(p2r[1]).max(p1r[2]);
-    let fq_est = 0.5 * (fq_inf + fq_inf_p2);
-    let fr_est = 0.5 * (fr_inf + fr_inf_p2);
+    // Every level rises under refinement (the conforming discretization
+    // over-estimates the island capacitance, #1062), so each series
+    // approaches from below. The thin-sheet edge singularity (E ~ r^-1/2)
+    // limits the asymptotic eigenvalue rate to O(h) at any order on
+    // uniform meshes; the order-1 ladder still shows a pre-asymptotic
+    // 0.6. The two rates give the two ends of the band.
+    let fq_p2_obs = richardson2([p2q[0], p2q[1]], oq);
+    let fr_p2_obs = richardson2([p2r[0], p2r[1]], or_);
+    let fq_p1_o1 = richardson2([p1q[1], p1q[2]], ASYMPTOTIC_ORDER);
+    let fr_p1_o1 = richardson2([p1r[1], p1r[2]], ASYMPTOTIC_ORDER);
+    let fq_p2_o1 = richardson2([p2q[0], p2q[1]], ASYMPTOTIC_ORDER);
+    let fr_p2_o1 = richardson2([p2r[0], p2r[1]], ASYMPTOTIC_ORDER);
+    let all_q = [fq_p1_o1, fq_p2_o1, fq_obs, fq_p2_obs];
+    let all_r = [fr_p1_o1, fr_p2_o1, fr_obs, fr_p2_obs];
+    let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let (q_lo, q_hi) = (lo(&all_q), hi(&all_q));
+    let (r_lo, r_hi) = (lo(&all_r), hi(&all_r));
+    let fq_est = 0.5 * (fq_p1_o1 + fq_p2_o1);
+    let fr_est = 0.5 * (fr_p1_o1 + fr_p2_o1);
     let _ = writeln!(t, "\n[convergence.{tag}]");
     let _ = writeln!(t, "model = \"PEC box (exterior boundary PEC, readout ports omitted), junction L || C, sapphire tensor; first-order meshes h, h/2, h/4 are the DeviceLayout mesh and its uniform gmsh refinements\"");
     let _ = writeln!(t, "p1_levels = [\"h\", \"h/2\", \"h/4\"]");
@@ -635,14 +645,19 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let _ = writeln!(t, "p1_f_r_ghz = {}", arr(&p1r, 6));
     let _ = writeln!(t, "p1_observed_order_q = {oq:.4}");
     let _ = writeln!(t, "p1_observed_order_r = {or_:.4}");
-    let _ = writeln!(t, "p1_richardson_f_q_ghz = {fq_inf:.6}");
-    let _ = writeln!(t, "p1_richardson_f_r_ghz = {fr_inf:.6}");
+    let _ = writeln!(t, "p1_richardson_f_q_ghz = {fq_obs:.6}  # three-level, at the observed order");
+    let _ = writeln!(t, "p1_richardson_f_r_ghz = {fr_obs:.6}");
+    let _ = writeln!(t, "p1_order1_f_q_ghz = {fq_p1_o1:.6}  # h/2, h/4 at the asymptotic order 1");
+    let _ = writeln!(t, "p1_order1_f_r_ghz = {fr_p1_o1:.6}");
     let _ = writeln!(t, "p2_levels = [\"h\", \"h/2\"]");
     let _ = writeln!(t, "p2_f_q_ghz = {}", arr(&p2q, 6));
     let _ = writeln!(t, "p2_f_r_ghz = {}", arr(&p2r, 6));
-    let _ = writeln!(t, "p2_richardson_f_q_ghz = {fq_inf_p2:.6}  # at the order-1 ladder's observed order");
-    let _ = writeln!(t, "p2_richardson_f_r_ghz = {fr_inf_p2:.6}");
-    let _ = writeln!(t, "rule = \"estimate = mean of the two Richardson values; band = [min, max] over both Richardson values and both finest measured values (h/4 order 1, h/2 order 2): an extrapolation with a band, not a bound\"");
+    let _ = writeln!(t, "p2_richardson_f_q_ghz = {fq_p2_obs:.6}  # at the order-1 ladder's observed order");
+    let _ = writeln!(t, "p2_richardson_f_r_ghz = {fr_p2_obs:.6}");
+    let _ = writeln!(t, "p2_order1_f_q_ghz = {fq_p2_o1:.6}  # at the asymptotic order 1");
+    let _ = writeln!(t, "p2_order1_f_r_ghz = {fr_p2_o1:.6}");
+    let _ = writeln!(t, "asymptotic_order = {ASYMPTOTIC_ORDER:.1}  # thin-sheet edge singularity, E ~ r^-1/2: eigenvalue error O(h) on uniform meshes at any element order");
+    let _ = writeln!(t, "rule = \"every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound\"");
     let _ = writeln!(t, "f_q_ghz = {fq_est:.4}");
     let _ = writeln!(t, "f_q_band_ghz = [{q_lo:.4}, {q_hi:.4}]");
     let _ = writeln!(t, "f_r_ghz = {fr_est:.4}");
@@ -653,9 +668,63 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let _ = writeln!(t, "f_r_over_published_pct = {:.3}", pct(fr_est, pub_r));
     let _ = writeln!(t, "f_q_band_over_published_pct = [{:.3}, {:.3}]", pct(q_lo, pub_q), pct(q_hi, pub_q));
     let _ = writeln!(t, "f_r_band_over_published_pct = [{:.3}, {:.3}]", pct(r_lo, pub_r), pct(r_hi, pub_r));
+    let _ = writeln!(t, "published_below_band = [{}, {}]", pub_q < q_lo, pub_r < r_lo);
     let _ = writeln!(t, "devicelayout_run_over_published_pct = [{:.3}, {:.3}]", pct(l.dl.f_q, pub_q), pct(l.dl.f_r, pub_r));
+    let _ = writeln!(t, "devicelayout_run_under_converged_pct = [{:.3}, {:.3}]  # DeviceLayout's discretization against the estimate", pct(l.dl.f_q, fq_est), pct(l.dl.f_r, fr_est));
     let _ = writeln!(t, "h_over_converged_pct = [{:.3}, {:.3}]  # the DeviceLayout mesh at order 1 against the estimate", pct(p1q[0], fq_est), pct(p1r[0], fr_est));
     let _ = writeln!(t, "geode_h2_over_converged_pct = [{:.3}, {:.3}]", pct(l.geode[1].f_q, fq_est), pct(l.geode[1].f_r, fr_est));
+
+    if tag == "initial" {
+        write_static_check(t, fq_est, fr_est, q_lo, q_hi);
+    }
+}
+
+/// Order of the asymptotic eigenvalue rate used for the lower band edge.
+const ASYMPTOTIC_ORDER: f64 = 1.0;
+
+/// The certified sapphire-tensor `C_Σ` of the initial geometry (#1091).
+const C_SIGMA_BRACKET: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml";
+
+/// An independent static route to the initial geometry's qubit frequency:
+/// the certified tensor `C_Σ` bracket of X⁰ (#1091; the same DeviceLayout
+/// initial geometry, meshed by the earlier generator) read through the
+/// two-node circuit of #1078/#1079 (`L_J + L_s`, `C_Σ + C_J`, coupling `k`
+/// to a resonator at the converged estimate), over every corner of the
+/// `C_Σ`, `L_s` and `k` bands.
+fn write_static_check(t: &mut String, fq_est: f64, fr_est: f64, q_lo: f64, q_hi: f64) {
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
+        coupled_lc_dressed_pair_hz, harmonic_frequency_hz,
+    };
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let b = toml_doc(&repo.join(C_SIGMA_BRACKET));
+    let c_lo = tf(&b, "bracket_x0_tensor.lower_ff");
+    let c_hi = tf(&b, "bracket_x0_tensor.upper_ff");
+    let lc = |c_ff: f64, l_s: f64| {
+        harmonic_frequency_hz(JUNCTION_INDUCTANCE_H + l_s, c_ff * 1e-15 + JUNCTION_CAPACITANCE_F)
+            / 1e9
+    };
+    let lc_only = [lc(c_hi, 0.0), lc(c_lo, 0.0)];
+    let mut dressed = Vec::new();
+    for c in [c_lo, c_hi] {
+        for l_s in [DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1] {
+            for k in [DEVICELAYOUT_COUPLING_K_BAND.0, DEVICELAYOUT_COUPLING_K_BAND.1] {
+                let (f_lo, _) = coupled_lc_dressed_pair_hz(lc(c, l_s) * 1e9, fr_est * 1e9, k);
+                dressed.push(f_lo / 1e9);
+            }
+        }
+    }
+    let d_lo = dressed.iter().copied().fold(f64::INFINITY, f64::min);
+    let d_hi = dressed.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let _ = writeln!(t, "\n[static_cross_check.initial]");
+    let _ = writeln!(t, "source = \"{C_SIGMA_BRACKET} [bracket_x0_tensor]: certified sapphire-tensor C_Sigma of X0, the DeviceLayout initial geometry meshed by the earlier generator (crates/geode-core/tests/fixtures/transmon_smoke.msh)\"");
+    let _ = writeln!(t, "c_sigma_bracket_ff = [{c_lo}, {c_hi}]  # RIGOROUS for that meshed geometry");
+    let _ = writeln!(t, "model = \"two-node Maxwell circuit (quantum::transmon::coupled_lc_dressed_pair_hz): bare qubit 1/(2 pi sqrt((L_J + L_s)(C_Sigma + C_J))), coupling k to a resonator at this geometry's converged f_r estimate; every corner of the C_Sigma, L_s (DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H) and k (DEVICELAYOUT_COUPLING_K_BAND) bands. The circuit terms are estimates (#1078, #1079), so this is an estimate, not a bound\"");
+    let _ = writeln!(t, "lc_only_f_q_band_ghz = [{:.4}, {:.4}]  # L_J alone, k = 0", lc_only[0], lc_only[1]);
+    let _ = writeln!(t, "dressed_f_q_band_ghz = [{d_lo:.4}, {d_hi:.4}]");
+    let _ = writeln!(t, "resonator_f_r_ghz = {fr_est:.4}  # the convergence estimate");
+    let _ = writeln!(t, "inside_eigen_band = {}", d_lo >= q_lo && d_hi <= q_hi);
+    let _ = writeln!(t, "eigen_estimate_minus_static_mid_pct = {:.3}", pct(fq_est, 0.5 * (d_lo + d_hi)));
 }
 
 fn assemble_mode(repo: &Path, out_dir: &Path) {
