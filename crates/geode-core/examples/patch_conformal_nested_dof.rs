@@ -303,7 +303,10 @@ fn with_peak_rss<T>(f: impl FnOnce() -> T) -> (T, f64) {
     let out = f();
     stop.store(true, Ordering::Relaxed);
     sampler.join().expect("rss sampler");
-    (out, peak_kib.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0))
+    (
+        out,
+        peak_kib.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0),
+    )
 }
 
 /// xorshift64* for the random FD directions (reproducible, no dependency).
@@ -318,7 +321,13 @@ impl Rng {
     }
     fn unit_direction(&mut self, n: usize, mask: impl Fn(usize) -> bool) -> Vec<f64> {
         let mut d: Vec<f64> = (0..n)
-            .map(|i| if mask(i) { 2.0 * self.next_f64() - 1.0 } else { 0.0 })
+            .map(|i| {
+                if mask(i) {
+                    2.0 * self.next_f64() - 1.0
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let norm = d.iter().map(|v| v * v).sum::<f64>().sqrt().max(1e-300);
         for v in d.iter_mut() {
@@ -691,8 +700,8 @@ fn main() {
         )
     });
     if let Some(rb) = &radial_basis {
-        let mut cols = radial_columns(&base.mesh, &chart, rb, &nodes, radial_scale)
-            .expect("radial columns");
+        let mut cols =
+            radial_columns(&base.mesh, &chart, rb, &nodes, radial_scale).expect("radial columns");
         let (ns, ny) = rb.shape();
         radial_spec = format!(
             "{ns}x{ny} clamped uniform B-splines (degree {}/{}) in (s, y) over the patch, \
@@ -772,8 +781,14 @@ fn main() {
         .iter()
         .map(|&f| {
             let omega = ghz_to_omega_mm(f);
-            let (eps, nu) =
-                base.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, sigma0, omega);
+            let (eps, nu) = base.matched_upml_materials(
+                &FR4_MATERIALS,
+                air_lo,
+                air_hi,
+                pml_thick,
+                sigma0,
+                omega,
+            );
             (f, omega, eps, nu)
         })
         .collect();
@@ -921,7 +936,11 @@ fn main() {
         }
         // Cap the step in the max norm.
         let dmax = d.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
-        let mut a = if dmax > MAX_STEP_INF { MAX_STEP_INF / dmax } else { 1.0 };
+        let mut a = if dmax > MAX_STEP_INF {
+            MAX_STEP_INF / dmax
+        } else {
+            1.0
+        };
 
         let mut backtracks = 0;
         let mut guard_binding = false;
@@ -1029,7 +1048,14 @@ fn main() {
     let gnorm_final = norm(&grad_final);
     if n_dofs > 0 && !cli.fd_only && steps.len() > 1 {
         let d = rng.unit_direction(n_dofs, |_| true);
-        fd_checks.push(fd_check(&model, &x_final, &grad_final, &d, "random_all", "x_final"));
+        fd_checks.push(fd_check(
+            &model,
+            &x_final,
+            &grad_final,
+            &d,
+            "random_all",
+            "x_final",
+        ));
     }
 
     // ── Verification sweeps at the final design (fresh forwards) ──
@@ -1199,24 +1225,31 @@ fn main() {
         let js = |s: &str| serde_json::Value::String(s.to_string()).to_string();
         field(
             "description",
-            js("Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved \
+            js(
+                "Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved \
                 coordinates of the substrate-top surface nodes (the patch nodes among them, \
                 is_patch) with the patch and substrate-top triangles, bent frame. The ground \
                 plane is physically unchanged (its mesh nodes slide tangentially under outline \
                 DOFs only) and is not dumped. Consumed by the Meep matched-geometry work \
-                (#1088) and benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py."),
+                (#1088) and benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.",
+            ),
         );
         field("units", js("mm"));
         field(
             "frame",
-            js("bent fixture coordinates (x, y, z); bend axis parallel to y through (x = 0, z = \
-                z_axis_mm); chart s = R*atan2(x, z - z_axis), y"),
+            js(
+                "bent fixture coordinates (x, y, z); bend axis parallel to y through (x = 0, z = \
+                z_axis_mm); chart s = R*atan2(x, z - z_axis), y",
+            ),
         );
         field("fixture", js(&stem));
         field("level", js(&level));
         field("fixture_sha256", js(&fixture_sha));
         field("design_label", js(&cli.label));
-        field("generated_at_commit", js(&geode_util::repo::current_commit()));
+        field(
+            "generated_at_commit",
+            js(&geode_util::repo::current_commit()),
+        );
         field("bend_radius_mm", format!("{bend_radius}"));
         field("z_axis_mm", format!("{}", chart.z_axis));
         field("substrate_h_mm", format!("{h}"));
@@ -1247,7 +1280,10 @@ fn main() {
             "node_ids",
             format!(
                 "[{}]",
-                ids.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",")
+                ids.iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
         );
         field(
@@ -1348,7 +1384,8 @@ fn main() {
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
              <dir>/{stem}.msh --radial {} --outline {} --filter-radius {} --n-band {} --beta {} \
              --max-steps {} --verify-n {} --label {}",
-            cli.radial.map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
+            cli.radial
+                .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
             cli.outline,
             cli.filter_radius,
             cli.n_band,
@@ -1498,7 +1535,10 @@ fn main() {
     let _ = writeln!(t, "dip_db_final = {dip_db:.4}");
     let _ = writeln!(t, "max_nodal_disp_mm = {max_disp:.6e}");
     let _ = writeln!(t, "mean_patch_radial_lift_mm = {mean_patch_radial:.6e}");
-    let _ = writeln!(t, "edge_mean_outward_mm = {{ y_plus = {yp:.6e}, y_minus = {ym:.6e}, s_plus = {sp:.6e}, s_minus = {sm:.6e} }}");
+    let _ = writeln!(
+        t,
+        "edge_mean_outward_mm = {{ y_plus = {yp:.6e}, y_minus = {ym:.6e}, s_plus = {sp:.6e}, s_minus = {sm:.6e} }}"
+    );
     let _ = writeln!(t, "n_driven_solves = {}", model.n_solves.get());
     let _ = writeln!(t, "first_gradient_eval_s = {eval_s:.3}");
     let _ = writeln!(t, "first_gradient_eval_peak_rss_gib = {rss0:.3}");

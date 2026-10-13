@@ -709,8 +709,7 @@ pub fn harmonic_columns_from_fields(
     fields: impl Fn(u32) -> Vec<[f64; 3]>,
     fixed_zero: &[u32],
 ) -> Result<Vec<Vec<[f64; 3]>>, ElectrostaticError> {
-    let mut columns: Vec<Vec<(u32, [f64; 3])>> =
-        vec![Vec::with_capacity(prescribed.len()); n_cols];
+    let mut columns: Vec<Vec<(u32, [f64; 3])>> = vec![Vec::with_capacity(prescribed.len()); n_cols];
     for &n in prescribed {
         let v = fields(n);
         assert_eq!(v.len(), n_cols, "field at node {n} has {} entries", v.len());
@@ -902,7 +901,10 @@ mod tests {
         assert_eq!(basis.n_dofs(), 16);
         // Port band: nothing moves.
         for (s, y) in [(0.0, 7.5), (0.5, 8.2), (-0.7, 6.8)] {
-            assert!(basis.eval(s, y).iter().all(|d| d == &[0.0, 0.0]), "({s},{y})");
+            assert!(
+                basis.eval(s, y).iter().all(|d| d == &[0.0, 0.0]),
+                "({s},{y})"
+            );
         }
         // On the +y edge the ramp is 1 and the splines sum to 1 in Δy.
         let v = basis.eval(5.0, 14.5);
@@ -927,7 +929,12 @@ mod tests {
             last = dy;
         }
         // Beyond the margin: zero.
-        assert!(basis.eval(0.0, 14.5 + 12.0).iter().all(|d| d == &[0.0, 0.0]));
+        assert!(
+            basis
+                .eval(0.0, 14.5 + 12.0)
+                .iter()
+                .all(|d| d == &[0.0, 0.0])
+        );
     }
 
     #[test]
@@ -936,7 +943,11 @@ mod tests {
             bend_radius: 100.0,
             z_axis: 0.8 - 100.0,
         };
-        for (x_flat, y, z_flat) in [(-19.0_f64, 3.0_f64, 1.6_f64), (7.5, -14.5, 0.0), (31.0, 1.0, 0.8)] {
+        for (x_flat, y, z_flat) in [
+            (-19.0_f64, 3.0_f64, 1.6_f64),
+            (7.5, -14.5, 0.0),
+            (31.0, 1.0, 0.8),
+        ] {
             let r: f64 = 100.0 + (z_flat - 0.8);
             let phi: f64 = x_flat / 100.0;
             let p = [r * phi.sin(), y, chart.z_axis + r * phi.cos()];

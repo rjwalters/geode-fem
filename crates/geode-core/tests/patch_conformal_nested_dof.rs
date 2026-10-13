@@ -203,7 +203,11 @@ fn smooth_radial_columns_equal_the_weighted_sum_of_hat_columns() {
             let r = ch.radial_dir(fixture.mesh.nodes[n as usize]);
             BoundaryMotionDof {
                 node: n,
-                dir: [RADIAL_SCALE * r[0], RADIAL_SCALE * r[1], RADIAL_SCALE * r[2]],
+                dir: [
+                    RADIAL_SCALE * r[0],
+                    RADIAL_SCALE * r[1],
+                    RADIAL_SCALE * r[2],
+                ],
             }
         })
         .collect();
@@ -232,7 +236,9 @@ fn smooth_radial_columns_equal_the_weighted_sum_of_hat_columns() {
             max_val = max_val.max(len3(*a));
         }
     }
-    eprintln!("hat-sum identity: max |D_q - sum_p B_q D_p| = {max_err:.3e} (max |D_q| {max_val:.3e})");
+    eprintln!(
+        "hat-sum identity: max |D_q - sum_p B_q D_p| = {max_err:.3e} (max |D_q| {max_val:.3e})"
+    );
     assert!(max_val > 0.1);
     assert!(max_err <= 1e-9 * max_val, "columns differ: {max_err:.3e}");
 }
@@ -280,7 +286,11 @@ fn l0_prescribed_nodes_follow_the_analytic_chart_field() {
         // radial columns (inside a homogeneous material, so not part of the
         // geometry) and are not checked.
         let want = if on_top[n as usize] {
-            [radial[0] + tang[0], radial[1] + tang[1], radial[2] + tang[2]]
+            [
+                radial[0] + tang[0],
+                radial[1] + tang[1],
+                radial[2] + tang[2],
+            ]
         } else if is_ground[n as usize] || is_side[n as usize] {
             tang
         } else {
@@ -289,13 +299,17 @@ fn l0_prescribed_nodes_follow_the_analytic_chart_field() {
         };
         max_err = max_err.max(len3(sub(disp[n as usize], want)));
     }
-    eprintln!("analytic-field check on L0: max error {max_err:.3e} mm ({n_interior} interior slab nodes skipped)");
-    assert!(max_err < 1e-12, "prescribed nodes deviate from the chart field");
+    eprintln!(
+        "analytic-field check on L0: max error {max_err:.3e} mm ({n_interior} interior slab nodes skipped)"
+    );
+    assert!(
+        max_err < 1e-12,
+        "prescribed nodes deviate from the chart field"
+    );
     // Substrate side faces (at the margin) do not move.
     for &n in &nodes.slab {
         let (s, y) = ch.s_y(fixture.mesh.nodes[n as usize]);
-        if s.abs() >= 0.5 * PATCH_W + SUB_PAD - 1e-6 || y.abs() >= 0.5 * PATCH_L + SUB_PAD - 1e-6
-        {
+        if s.abs() >= 0.5 * PATCH_W + SUB_PAD - 1e-6 || y.abs() >= 0.5 * PATCH_L + SUB_PAD - 1e-6 {
             assert!(
                 len3(disp[n as usize]) < 1e-12,
                 "substrate edge node {n} at (s={s:.2}, y={y:.2}) moved"
@@ -316,8 +330,14 @@ fn single_radial_dof_is_the_uniform_gap_change() {
     let fixture = l0();
     let ch = chart();
     let nodes = ConformalPatchNodes::identify(&fixture, &ch, 1e-6);
-    let cols = radial_columns(&fixture.mesh, &ch, &radial_basis(1, 1), &nodes, RADIAL_SCALE)
-        .unwrap();
+    let cols = radial_columns(
+        &fixture.mesh,
+        &ch,
+        &radial_basis(1, 1),
+        &nodes,
+        RADIAL_SCALE,
+    )
+    .unwrap();
     assert_eq!(cols.len(), 1);
     let (fs, fy) = feed();
     let mut n_checked = 0;
@@ -344,8 +364,8 @@ fn outline_morph_keeps_the_slab_valid_and_the_patch_on_its_arc() {
     let fixture = l0();
     let ch = chart();
     let nodes = ConformalPatchNodes::identify(&fixture, &ch, 1e-6);
-    let cols = outline_columns(&fixture.mesh, &ch, &outline_basis(4), &nodes, OUTLINE_SCALE)
-        .unwrap();
+    let cols =
+        outline_columns(&fixture.mesh, &ch, &outline_basis(4), &nodes, OUTLINE_SCALE).unwrap();
     let morph = FreeformBoundaryMorph::from_columns(cols).unwrap();
     assert_eq!(morph.n_dofs(), 16);
     for sign in [1.0, -1.0] {
@@ -367,7 +387,8 @@ fn outline_morph_keeps_the_slab_valid_and_the_patch_on_its_arc() {
             (
                 Box::new(|s: f64, y: f64| (y - r.y[1]).abs() < 1e-6 && s.abs() < 15.0)
                     as Box<dyn Fn(f64, f64) -> bool>,
-                Box::new(|_p: [f64; 3], d: [f64; 3]| d[1]) as Box<dyn Fn([f64; 3], [f64; 3]) -> f64>,
+                Box::new(|_p: [f64; 3], d: [f64; 3]| d[1])
+                    as Box<dyn Fn([f64; 3], [f64; 3]) -> f64>,
             ),
             (
                 Box::new(|s: f64, y: f64| (y - r.y[0]).abs() < 1e-6 && s.abs() < 15.0),
@@ -421,15 +442,25 @@ fn helmholtz_filter_composes_with_the_radial_columns() {
     let ones = vec![1.0; 16];
     let a = plain.combined_velocity(&ones);
     let b = smooth.combined_velocity(&ones);
-    let err = a.iter().zip(&b).map(|(u, v)| len3(sub(*u, *v))).fold(0.0, f64::max);
-    assert!(err < 1e-10, "uniform design changed by the filter: {err:.3e}");
+    let err = a
+        .iter()
+        .zip(&b)
+        .map(|(u, v)| len3(sub(*u, *v)))
+        .fold(0.0, f64::max);
+    assert!(
+        err < 1e-10,
+        "uniform design changed by the filter: {err:.3e}"
+    );
     let mut spike = vec![0.0; 16];
     spike[5] = 1.0;
     let a = plain.combined_velocity(&spike);
     let b = smooth.combined_velocity(&spike);
     let amax = a.iter().map(|d| len3(*d)).fold(0.0, f64::max);
     let bmax = b.iter().map(|d| len3(*d)).fold(0.0, f64::max);
-    assert!(bmax < 0.9 * amax, "filter did not spread the spike: {bmax} vs {amax}");
+    assert!(
+        bmax < 0.9 * amax,
+        "filter did not spread the spike: {bmax} vs {amax}"
+    );
 }
 
 /// P1 interpolation of a per-node field of `fixture` (in the chart) at the
@@ -473,7 +504,9 @@ fn interp_p1(
 #[test]
 fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
     let Ok(path) = std::env::var("PATCH_CONFORMAL_L1") else {
-        eprintln!("PATCH_CONFORMAL_L1 unset: L0-vs-L1 geometry check skipped (L0 analytic check runs)");
+        eprintln!(
+            "PATCH_CONFORMAL_L1 unset: L0-vs-L1 geometry check skipped (L0 analytic check runs)"
+        );
         return;
     };
     let fix0 = l0();
@@ -490,7 +523,11 @@ fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
         let mut lift = 0.0;
         for &n in &nodes.patch {
             let (radial, tang) = analytic_field(fix, &rb, &ob, &x, n);
-            let want = [radial[0] + tang[0], radial[1] + tang[1], radial[2] + tang[2]];
+            let want = [
+                radial[0] + tang[0],
+                radial[1] + tang[1],
+                radial[2] + tang[2],
+            ];
             if !nodes.port.contains(&n) {
                 max_err = max_err.max(len3(sub(disp[n as usize], want)));
             }
@@ -505,7 +542,10 @@ fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
              min vol ratio {vr:.3}",
             nodes.patch.len()
         );
-        assert!(max_err < 1e-12, "{name}: prescribed nodes off the chart field");
+        assert!(
+            max_err < 1e-12,
+            "{name}: prescribed nodes off the chart field"
+        );
         assert!(vr > 0.25);
         stats.push((nodes, disp, lift));
     }
@@ -542,7 +582,10 @@ fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
     assert!(n_cmp > 1000);
     // The P1 interpolation error of a cubic-spline field on the 4.5 mm L0
     // patch triangles (knot spacing 7.6 x 9.7 mm, feed cutoff over 3.2 mm).
-    assert!(max_cross <= 0.12 * max_amp, "L0 and L1 disagree beyond interpolation error");
+    assert!(
+        max_cross <= 0.12 * max_amp,
+        "L0 and L1 disagree beyond interpolation error"
+    );
 }
 
 // ── Artifact pins ───────────────────────────────────────────────────────
@@ -612,7 +655,11 @@ fn nested_dof_artifacts_state_units_fixture_and_absorber() {
                 "{level}/{label}: not the pinned fixture"
             );
             assert_eq!(num(&m["upml_sigma_0"]), num(&base["meta"]["upml_sigma_0"]));
-            assert_eq!(num(&m["upml_sigma_0"]), 1.0, "sigma_0 recorded and equal to the fixture's");
+            assert_eq!(
+                num(&m["upml_sigma_0"]),
+                1.0,
+                "sigma_0 recorded and equal to the fixture's"
+            );
             assert_eq!(num(&m["bend_radius_mm"]), CONFORMAL_2G4_BEND_RADIUS_MM);
             assert_eq!(num(&m["substrate_h_mm"]), CONFORMAL_2G4_SUBSTRATE_H_MM);
             assert_eq!(num(&m["port_resistance_ohm"]), 50.0);
@@ -692,7 +739,10 @@ fn nested_dof_artifacts_pass_the_fd_gate_and_are_internally_consistent() {
                 .iter()
                 .map(|p| num(&p["s11_db"]))
                 .fold(f64::INFINITY, f64::min);
-            assert!((worst - num(&o["verify_worst_s11_db"])).abs() < 1e-5, "{ctx}");
+            assert!(
+                (worst - num(&o["verify_worst_s11_db"])).abs() < 1e-5,
+                "{ctx}"
+            );
             assert!((best - num(&o["verify_best_s11_db"])).abs() < 1e-5, "{ctx}");
             assert_eq!(
                 o["reached_target"].as_bool().unwrap(),
@@ -701,9 +751,16 @@ fn nested_dof_artifacts_pass_the_fd_gate_and_are_internally_consistent() {
             );
             assert_eq!(
                 o["outcome"].as_str().unwrap(),
-                if worst <= -10.0 { "band_match_-10dB" } else { "honest_negative" }
+                if worst <= -10.0 {
+                    "band_match_-10dB"
+                } else {
+                    "honest_negative"
+                }
             );
-            for p in verify.iter().chain(doc["s11_band"]["point"].as_array().unwrap()) {
+            for p in verify
+                .iter()
+                .chain(doc["s11_band"]["point"].as_array().unwrap())
+            {
                 let mag = num(&p["s11_mag"]);
                 assert!(mag <= 1.0 + 1e-9, "{ctx}: passivity");
                 assert!((20.0 * mag.log10() - num(&p["s11_db"])).abs() < 1e-4);
@@ -723,7 +780,8 @@ fn nested_dof_artifacts_pass_the_fd_gate_and_are_internally_consistent() {
             }
             // Geometry JSON tied by sha256 and consistent with the design.
             let gpath = repo().join(doc["shape"]["geometry_json"].as_str().unwrap());
-            let gbytes = std::fs::read(&gpath).unwrap_or_else(|e| panic!("{}: {e}", gpath.display()));
+            let gbytes =
+                std::fs::read(&gpath).unwrap_or_else(|e| panic!("{}: {e}", gpath.display()));
             assert_eq!(
                 sha256_hex(&gbytes),
                 doc["shape"]["geometry_json_sha256"].as_str().unwrap(),
@@ -740,7 +798,12 @@ fn nested_dof_artifacts_pass_the_fd_gate_and_are_internally_consistent() {
             assert_eq!(g["moved"].as_array().unwrap().len(), n);
             assert_eq!(g["is_patch"].as_array().unwrap().len(), n);
             assert_eq!(
-                g["is_patch"].as_array().unwrap().iter().filter(|v| v.as_i64() == Some(1)).count(),
+                g["is_patch"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|v| v.as_i64() == Some(1))
+                    .count(),
                 num(&doc["meta"]["n_patch_nodes"]) as usize
             );
             assert_eq!(n, num(&doc["meta"]["n_substrate_top_nodes"]) as usize);
@@ -788,7 +851,10 @@ fn nested_dof_initial_band_points_match_the_baseline_sweep() {
                     n_matched += 1;
                 }
             }
-            assert!(n_matched >= 2, "{level}/{label}: only {n_matched} shared frequencies");
+            assert!(
+                n_matched >= 2,
+                "{level}/{label}: only {n_matched} shared frequencies"
+            );
         }
     }
 }
