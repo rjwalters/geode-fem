@@ -849,7 +849,10 @@ fn dip_solves(doc: &toml::Value, g: &str) -> Vec<(f64, f64, f64)> {
 /// two-geometry artifact `dip` writes in one go: identical `[meta]` apart
 /// from `geometries` and `host`, the two `[dip.*]` tables, the re-derived
 /// `[detune]` and `[cost]`, then the flat and the bent point tables. The
-/// text of every table is carried over verbatim.
+/// text of every table is carried over verbatim; `[detune]` is re-derived
+/// from the written (4-decimal) dip values, so its last digit can differ
+/// from a single two-geometry run (checked on L0: everything else is
+/// byte-identical apart from timing and host).
 fn run_merge(flat_path: &Path, bent_path: &Path, out: Option<PathBuf>) {
     let flat_text = fs::read_to_string(flat_path).expect("read flat dip toml");
     let bent_text = fs::read_to_string(bent_path).expect("read bent dip toml");
