@@ -147,7 +147,11 @@ def parse_toml_floats(text):
 
 
 def geode_eval(args, c, L, tag, fd_h=None):
-    o1, t_gen = gen(args, c, L, tag)
+    o1 = os.path.join(args.scratch, f"{tag}_o1.msh")
+    if os.path.exists(o1):
+        t_gen = 0.0  # written by palace_dl_eval for the same (c, L); generation is deterministic
+    else:
+        o1, t_gen = gen(args, c, L, tag)
     upload(args, o1, f"{tag}_o1.msh")
     envs = (
         f"GEODE_SOLVE_MESH=$HOME/{REMOTE}/{tag}_o1.msh GEODE_SOLVE_LABEL={tag} "
@@ -269,6 +273,9 @@ def main():
     ap.add_argument("--scratch", required=True)
     ap.add_argument("--worker", default="tq1092")
     ap.add_argument("--delta", type=float, default=None)
+    ap.add_argument("--step", type=int, default=1)
+    ap.add_argument("--start", type=float, nargs=2, default=None)
+    ap.add_argument("--start-conv", type=float, nargs=2, default=None)
     a = ap.parse_args()
     os.makedirs(a.scratch, exist_ok=True)
 
@@ -282,39 +289,81 @@ def main():
         f0, f1 = g0["f"][1], g1["f"][1]
         delta = (f1 * 5250.0 - f0 * 5000.0) / (f0 - f1)
         log(a, {"kind": "calib_L", "delta_um": delta, "dfq_dL": (g1["f"][0] - g0["f"][0]) / 250.0})
+        # Remesh check of the shape gradient: DeviceLayout's own
+        # parametrization, c = 620 -> 650 um, against the mean of the
+        # Hellmann-Feynman gradients at the two ends.
+        g2 = geode_eval(a, 650.0, 5000.0, "calibC_650")
+        fd = [(g2["f"][i] - g0["f"][i]) / 30.0 for i in range(2)]
+        hf = [0.5 * (g0["dfdc"][i] + g2["dfdc"][i]) for i in range(2)]
+        log(a, {"kind": "remesh_check_c", "fd_remesh": fd, "hf_mean": hf})
         return
     assert a.delta is not None, "--delta from calib-L"
 
     if a.phase == "dl":
-        # Outer point 0: the committed part-1 runs at the initial geometry.
-        s = [PART1["initial"]["dl"][i] / PART1["initial"]["h"][i] for i in range(2)]
+        # Newton on DeviceLayout's own discretization F(theta) (Palace on its
+        # mesh_order 2 mesh, solver_order 2). The Jacobian's c column is
+        # geode's Hellmann-Feynman gradient at h scaled by the measured
+        # fidelity ratio S = F / f_h at the same point; its L column is the
+        # transmission line, dF_r/dL = -F_r / (L + delta), dF_q/dL = 0.
+        # One geode solve and one Palace run per step; point 0 reuses the
+        # committed part-1 Palace run at the initial geometry (DeviceLayout's
+        # count includes its initial run too).
         theta = INITIAL
-        n_palace = 1  # the initial-geometry Palace run, as DeviceLayout counts it
-        hist = [{"outer": 0, "theta": theta, "f_dl": PART1["initial"]["dl"], "err": dl_error(PART1["initial"]["dl"])}]
-        for outer in range(1, 6):
-            theta, evals, _ = newton(a, theta, lambda _c, s=s: s, lambda _c: (0.0, 0.0), a.delta, f"dl{outer}_")
-            p = palace_dl_eval(a, *theta, f"dlo{outer}")
-            n_palace += 1
-            err = dl_error(p["f"])
-            hist.append({"outer": outer, "theta": theta, "f_dl": p["f"], "err": err, "n_palace": n_palace})
-            log(a, {"kind": "outer_dl", **hist[-1]})
+        F = list(PART1["initial"]["dl"])
+        n_palace = 1
+        g = geode_eval(a, *theta, "dl0")
+        for k in range(1, 9):
+            err = dl_error(F)
+            log(a, {"kind": "newton_dl", "k": k - 1, "theta": theta, "F": F, "f_h": g["f"],
+                    "dfdc_h": g["dfdc"], "err": err, "n_palace": n_palace})
             if err < 1e-6:
                 break
-            gh = evals[-1]["f"]
-            s = [p["f"][i] / gh[i] for i in range(2)]
+            c, L = theta
+            # Newton in DeviceLayout's own optimizer variables,
+            # x1 = sqrt(620 / c), x2 = 5000 / L, in which F is close to
+            # linear (the example's comment), with its box [0.6, 1.4].
+            x1, x2 = math.sqrt(620.0 / c), 5000.0 / L
+            dc_dx1 = -2.0 * 620.0 / x1**3
+            dL_dx2 = -5000.0 / x2**2
+            S = [F[i] / g["f"][i] for i in range(2)]
+            jq_1 = S[0] * g["dfdc"][0] * dc_dx1
+            jr_1 = S[1] * g["dfdc"][1] * dc_dx1
+            jr_2 = -F[1] / (L + a.delta) * dL_dx2
+            dx1 = -(F[0] - TARGETS[0]) / jq_1
+            dx2 = -((F[1] - TARGETS[1]) + jr_1 * dx1) / jr_2
+            x1 = min(max(x1 + dx1, 0.6), 1.4)
+            x2 = min(max(x2 + dx2, 0.6), 1.4)
+            theta = (round(620.0 / x1**2, 3), round(5000.0 / x2, 3))
+            p = palace_dl_eval(a, *theta, f"dl{k}")
+            n_palace += 1
+            F = p["f"]
+            g = geode_eval(a, *theta, f"dl{k}")
         return
 
     if a.phase == "conv":
-        ci, cf = INITIAL[0], FINAL[0]
-        ri = [PART1["initial"]["conv"][i] / PART1["initial"]["h"][i] for i in range(2)]
-        rf = [PART1["final"]["conv"][i] / PART1["final"]["h"][i] for i in range(2)]
-        slope = [(rf[i] - ri[i]) / (cf - ci) for i in range(2)]
-        scale = lambda c: [ri[i] + slope[i] * (c - ci) for i in range(2)]
-        dscale = lambda c: slope
-        theta, evals, F = newton(a, INITIAL, scale, dscale, a.delta, "cv_")
-        log(a, {"kind": "conv_optimum", "theta": theta, "surrogate_f": F, "ratio_initial": ri, "ratio_final": rf})
+        # One Newton step toward the targets on the CONVERGED frequencies,
+        # from the published final geometry, whose converged pair the part-1
+        # ladder measured. Same Jacobian model as the dl phase, scaled by
+        # R = F_conv / f_h at that point. The step's prediction is verified
+        # by a full resolution ladder (ladder.sh), which also gives the
+        # converged pair for a second step if one is needed.
+        start = FINAL if a.start is None else tuple(a.start)
+        F = list(PART1["final"]["conv"]) if a.start is None else list(a.start_conv)
+        g = geode_eval(a, *start, f"cv{a.step}_at")
+        c, L = start
+        x1, x2 = math.sqrt(620.0 / c), 5000.0 / L
+        dc_dx1 = -2.0 * 620.0 / x1**3
+        dL_dx2 = -5000.0 / x2**2
+        S = [F[i] / g["f"][i] for i in range(2)]
+        jq_1 = S[0] * g["dfdc"][0] * dc_dx1
+        jr_1 = S[1] * g["dfdc"][1] * dc_dx1
+        jr_2 = -F[1] / (L + a.delta) * dL_dx2
+        dx1 = -(F[0] - TARGETS[0]) / jq_1
+        dx2 = -((F[1] - TARGETS[1]) + jr_1 * dx1) / jr_2
+        theta = (round(620.0 / (x1 + dx1) ** 2, 3), round(5000.0 / (x2 + dx2), 3))
+        log(a, {"kind": "conv_step", "step": a.step, "from": start, "F_conv_from": F, "f_h_from": g["f"],
+                "dfdc_h": g["dfdc"], "S": S, "theta": theta})
         return
-
 
 if __name__ == "__main__":
     sys.exit(main())
