@@ -2055,6 +2055,106 @@ fn extrapolate(h_c: f64, h_f: f64, q_c: f64, q_f: f64, p: f64) -> f64 {
     q_f + (q_f - q_c) / ((h_c / h_f).powf(p) - 1.0)
 }
 
+/// A dip-frequency change below this (MHz) on the finest pair counts as
+/// converged for gate G1 (a fifth of the 0.5 % of 2.4 GHz the ISM band
+/// edge leaves, and above the 0.2–0.5 MHz search tolerance).
+const G1_CONVERGED_MHZ: f64 = 1.0;
+
+/// The S11 frequency gate G1 reads at the lower ISM band edge.
+const G1_BAND_EDGE_GHZ: f64 = 2.40;
+
+/// Gate G1 of the conformal v5 umbrella (#1083): where the initial-geometry
+/// S11 converges. Per geometry: whether the finest p=1 pair is within
+/// [`G1_CONVERGED_MHZ`], the finest computed dip (the largest of the finest
+/// p=1 and p=2 levels: every consecutive pair moves the dip up, so the
+/// finest computed value is a lower estimate), two extrapolations (p=1
+/// Richardson from the finest pair at the fitted order; p=2 from its two
+/// levels at the p=1 order and at order 2), the resulting estimate bracket,
+/// its distance below the band, and S11 at the band edge per level.
+fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
+    let n = levels.len();
+    let hs: Vec<f64> = levels.iter().map(|l| l.h).collect();
+    let _ = writeln!(t, "[gate_g1]");
+    t.push_str(
+        "# Gate G1 (#1083): where does the initial S11 converge? converged = finest p=1 pair \
+         moves the dip by less than converged_tol_mhz. The estimate bracket spans the finest \
+         computed dip (a lower estimate: every consecutive refinement moves the dip up) to the \
+         largest extrapolation (p=1 Richardson at the fitted order; p=2 from its two levels at \
+         the p=1 order and at order 2).\n",
+    );
+    let _ = writeln!(t, "converged_tol_mhz = {G1_CONVERGED_MHZ}");
+    let _ = writeln!(t, "band_edge_ghz = {G1_BAND_EDGE_GHZ:.4}");
+    t.push_str(
+        "smoke_design_transfer = \"not applicable: the -12 dB smoke design (conformal_results.toml) \
+         was optimized on curved_smoke, a 16 x 12 mm patch on 2.0 mm FR-4 bent at R = 40 mm with \
+         a 14.3-19.1 GHz band (the 2.4 GHz family: 38 x 29 mm on 1.6 mm at R = 100 mm); it has \
+         no displacement field on the patch_conformal family to interpolate. The question moves to E4 (re-optimize on L2, \
+         verify at L3 and p=2).\"\n\n",
+    );
+    for g in ["flat", "bent"] {
+        if !levels.iter().all(|l| l.geoms.contains_key(g)) {
+            continue;
+        }
+        let fs: Vec<f64> = levels.iter().map(|l| l.geoms[g].0).collect();
+        let finest_change = (fs[n - 1] - fs[n - 2]) * 1e3;
+        let p1_order = observed_order(&hs, &fs).unwrap_or(1.0).max(0.5);
+        let p1_rich = extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], p1_order);
+        let mut finest = fs[n - 1];
+        let mut extraps = vec![p1_rich];
+        let _ = writeln!(t, "[gate_g1.{g}]");
+        let _ = writeln!(
+            t,
+            "converged = {}",
+            finest_change.abs() < G1_CONVERGED_MHZ
+        );
+        let _ = writeln!(t, "finest_p1_level = \"{}\"", levels[n - 1].name);
+        let _ = writeln!(t, "finest_p1_dip_f_ghz = {:.6}", fs[n - 1]);
+        let _ = writeln!(t, "finest_pair_dip_f_change_mhz = {finest_change:.3}");
+        let _ = writeln!(t, "p1_order = {p1_order:.3}");
+        let _ = writeln!(t, "p1_richardson_dip_f_ghz = {p1_rich:.6}");
+        let p2: Vec<&LevelRow> = p2_rows.iter().filter(|r| r.geoms.contains_key(g)).collect();
+        if let Some(last) = p2.last() {
+            finest = finest.max(last.geoms[g].0);
+            let _ = writeln!(t, "finest_p2_level = \"{}\"", last.name);
+            let _ = writeln!(t, "finest_p2_dip_f_ghz = {:.6}", last.geoms[g].0);
+        }
+        if p2.len() >= 2 {
+            let (c, f) = (p2[p2.len() - 2], p2[p2.len() - 1]);
+            let (qc, qf) = (c.geoms[g].0, f.geoms[g].0);
+            let e1 = extrapolate(c.h, f.h, qc, qf, p1_order);
+            let e2 = extrapolate(c.h, f.h, qc, qf, 2.0);
+            extraps.push(e1);
+            extraps.push(e2);
+            let _ = writeln!(t, "p2_change_mhz = {:.3}", (qf - qc) * 1e3);
+            let _ = writeln!(t, "p2_extrapolated_dip_f_ghz_p1_order = {e1:.6}");
+            let _ = writeln!(t, "p2_extrapolated_dip_f_ghz_order_2 = {e2:.6}");
+        }
+        let hi = extraps.iter().copied().fold(finest, f64::max);
+        let _ = writeln!(t, "finest_computed_dip_f_ghz = {finest:.6}");
+        let _ = writeln!(t, "estimate_bracket_ghz = [{finest:.6}, {hi:.6}]");
+        let _ = writeln!(
+            t,
+            "estimate_below_band_mhz = [{:.3}, {:.3}]",
+            (ISM_2G4_BAND_GHZ[0] - hi) * 1e3,
+            (ISM_2G4_BAND_GHZ[0] - finest) * 1e3
+        );
+        // S11 at the lower band edge, per level that sampled it.
+        let mut names = Vec::new();
+        let mut dbs = Vec::new();
+        for r in levels.iter().chain(p2.iter().copied()) {
+            if let Some((_, s)) =
+                r.geoms[g].2.iter().find(|(f, _)| (f - G1_BAND_EDGE_GHZ).abs() < 1e-9)
+            {
+                names.push(format!("\"{}_{}\"", r.name, r.order));
+                dbs.push(20.0 * s.norm().log10());
+            }
+        }
+        let _ = writeln!(t, "band_edge_s11_levels = [{}]", names.join(", "));
+        let _ = writeln!(t, "band_edge_s11_db = [{}]", fmt_list(&dbs, 4));
+        t.push('\n');
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
     let conv = dir.join("convergence");
@@ -2359,6 +2459,8 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
         }
         t.push('\n');
     }
+
+    write_gate_g1(&mut t, &levels, &p2_rows);
 
     // Detune per level.
     t.push_str("[detune]\n# bent minus flat dip, per level (MHz) and depth change (dB).\n");

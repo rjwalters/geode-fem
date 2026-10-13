@@ -13,14 +13,21 @@
 //!   provenance files (`benchmarks/patch_antenna_conformal/provenance/`),
 //!   whose parameter values equal the YAMLs;
 //! * `benchmarks/patch_antenna_conformal/upml_ladder_L1.toml` is consistent
-//!   with the 36 per-run sweeps under `upml_ladder/`, its σ₀ choice follows
+//!   with the 16 per-run sweeps under `upml_ladder/`, its σ₀ choice follows
 //!   the stated rule, and the absorber finding of the #1097 Judge (σ₀ = 1 →
-//!   25 moves the flat dip by about 12 dB) is on record;
+//!   25 moves the flat dip by several dB; 6.7 dB on L1) is on record, and
+//!   the chosen absorber's residual sensitivity is well below the mesh
+//!   error it is compared with;
 //! * `benchmarks/patch_antenna_conformal/convergence.toml` is consistent
 //!   with the per-level `convergence/dip_*.toml` and `fd_*.toml` artifacts,
 //!   its observed orders are re-derived here, the FD gate passes, every level
 //!   ran at the chosen σ₀, and the finest pair of the h-ladder brackets the
-//!   bent dip to the stated tolerance (gate G1).
+//!   bent dip to the stated tolerance;
+//! * gate G1 (`[gate_g1]`) re-derives from the S11 table, and the study's
+//!   answer is pinned: the dip is not converged to 1 MHz at L3, it rises
+//!   monotonically under h- and p-refinement, every extrapolation puts it
+//!   20-45 MHz below the ISM band, and the band-edge S11 the coarse levels
+//!   report is too pessimistic (it improves with every refinement).
 //!
 //! The regenerated meshes themselves are not committed; set
 //! `PATCH_CONFORMAL_L2=/path/to/patch_conformal_L2.msh` (likewise `_L3`,
@@ -971,10 +978,10 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
     );
 }
 
-/// Gate G1 on record: along the bent h-ladder the dip frequency settles —
-/// the finest-pair change is below the band-level tolerance stated here, the
-/// changes shrink level over level, and the p=2 rows sit within the
-/// finest-pair bracket of their p=1 level pair.
+/// Along the bent h-ladder the dip frequency settles: the finest-pair change
+/// is below the band-level tolerance stated here and the changes shrink
+/// level over level. (The p=2 rows and the G1 answer are pinned by
+/// `gate_g1_rederives_and_pins_where_the_initial_s11_converges`.)
 #[test]
 fn bent_dip_converges_along_the_ladder() {
     let doc = read_toml("convergence.toml");
@@ -1008,5 +1015,186 @@ fn bent_dip_converges_along_the_ladder() {
         if lv > 0 {
             assert!(*db < -10.0, "level {lv}: dip {db} dB is not matched");
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gate G1
+// ---------------------------------------------------------------------------
+
+/// Richardson extrapolation from a pair at order `p` (as in the example).
+fn extrapolate(h_c: f64, h_f: f64, q_c: f64, q_f: f64, p: f64) -> f64 {
+    q_f + (q_f - q_c) / ((h_c / h_f).powf(p) - 1.0)
+}
+
+/// One `[[s11.<g>]]` row of `convergence.toml`.
+fn s11_row<'a>(doc: &'a toml::Value, g: &str, level: &str, order: &str) -> &'a toml::Value {
+    doc["s11"][g]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["level"].as_str() == Some(level) && r["element_order"].as_str() == Some(order))
+        .unwrap_or_else(|| panic!("no s11.{g} row for {level} {order}"))
+}
+
+/// `[gate_g1]` re-derives from the S11 table and the level h-proxies, and
+/// the study's answer to G1 is pinned (both geometries).
+#[test]
+fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
+    let doc = read_toml("convergence.toml");
+    let g1 = &doc["gate_g1"];
+    let tol_mhz = num(&g1["converged_tol_mhz"]);
+    assert_eq!(tol_mhz, 1.0);
+    let edge = num(&g1["band_edge_ghz"]);
+    assert_eq!(edge, ISM_2G4_BAND_GHZ[0]);
+    assert!(
+        g1["smoke_design_transfer"]
+            .as_str()
+            .unwrap()
+            .starts_with("not applicable"),
+        "the smoke-design transfer verdict is not on record"
+    );
+    let strs = |v: &toml::Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect()
+    };
+    let p1 = strs(&doc["meta"]["levels_p1"]);
+    let p2 = strs(&doc["meta"]["levels_p2"]);
+    assert_eq!(p1, ["L0", "L1", "L2", "L3"]);
+    assert_eq!(p2, ["L0", "L1"]);
+    let h = |lv: &str, o: &str| num(&doc["levels"][format!("{lv}_{o}")]["h_proxy"]);
+    for g in ["flat", "bent"] {
+        let r = &g1[g];
+        let fs: Vec<f64> = p1
+            .iter()
+            .map(|lv| num(&s11_row(&doc, g, lv, "p1")["dip_f_ghz"]))
+            .collect();
+        let f2: Vec<f64> = p2
+            .iter()
+            .map(|lv| num(&s11_row(&doc, g, lv, "p2")["dip_f_ghz"]))
+            .collect();
+        let hs: Vec<f64> = p1.iter().map(|lv| h(lv, "p1")).collect();
+        let n = fs.len();
+        // Re-derivation.
+        let change = (fs[n - 1] - fs[n - 2]) * 1e3;
+        assert!((num(&r["finest_pair_dip_f_change_mhz"]) - change).abs() < 1e-3);
+        let order = num(&r["p1_order"]);
+        assert!((order - num(&doc["order"][g]["dip_f_order"]).max(0.5)).abs() < 1e-3);
+        let rich = extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], order);
+        assert!((num(&r["p1_richardson_dip_f_ghz"]) - rich).abs() < 2e-6, "{g}: p1 Richardson");
+        let (hc, hf) = (h("L0", "p2"), h("L1", "p2"));
+        let e1 = extrapolate(hc, hf, f2[0], f2[1], order);
+        let e2 = extrapolate(hc, hf, f2[0], f2[1], 2.0);
+        assert!((num(&r["p2_extrapolated_dip_f_ghz_p1_order"]) - e1).abs() < 2e-6);
+        assert!((num(&r["p2_extrapolated_dip_f_ghz_order_2"]) - e2).abs() < 2e-6);
+        let finest = fs[n - 1].max(f2[1]);
+        assert!((num(&r["finest_computed_dip_f_ghz"]) - finest).abs() < 1e-6);
+        let br: Vec<f64> = r["estimate_bracket_ghz"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(num)
+            .collect();
+        let hi = [rich, e1, e2].into_iter().fold(finest, f64::max);
+        assert!((br[0] - finest).abs() < 1e-6 && (br[1] - hi).abs() < 1e-6, "{g}: bracket");
+        assert_eq!(r["converged"].as_bool(), Some(change.abs() < tol_mhz));
+
+        // The study's answer, pinned.
+        // (1) Not converged to 1 MHz on the h-ladder: the L2 -> L3 step still
+        //     moves the dip by 13-14 MHz.
+        assert_eq!(r["converged"].as_bool(), Some(false), "{g}: G1 answer changed");
+        assert!((13.0..14.0).contains(&change), "{g}: finest-pair change {change} MHz");
+        // (2) Monotone from below under h- and p-refinement, and p=2 on L1
+        //     already lies past the finest p=1 level.
+        for w in fs.windows(2) {
+            assert!(w[1] > w[0], "{g}: p=1 dip not rising: {fs:?}");
+        }
+        assert!(f2[1] > f2[0] && f2[1] > fs[n - 1], "{g}: p=2 {f2:?} vs p=1 {fs:?}");
+        // (3) The independent extrapolations agree to 10 MHz and put the
+        //     converged dip 20-45 MHz below the lower band edge.
+        let ex = [rich, e1, e2];
+        let spread = ex.iter().copied().fold(f64::MIN, f64::max)
+            - ex.iter().copied().fold(f64::MAX, f64::min);
+        assert!(spread * 1e3 < 10.0, "{g}: extrapolations spread {} MHz", spread * 1e3);
+        assert!(br[1] < edge, "{g}: estimate reaches the band");
+        let below: Vec<f64> = r["estimate_below_band_mhz"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(num)
+            .collect();
+        assert!((below[0] - (edge - br[1]) * 1e3).abs() < 1e-3);
+        assert!((below[1] - (edge - br[0]) * 1e3).abs() < 1e-3);
+        assert!(below[0] > 20.0 && below[1] < 45.0, "{g}: below band {below:?} MHz");
+        // (4) |S11| at the band edge improves with every refinement step,
+        //     from about -1.9 dB on L0 to below -8 dB with p=2 on L1.
+        let names = strs(&r["band_edge_s11_levels"]);
+        assert_eq!(names, ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]);
+        let dbs: Vec<f64> = r["band_edge_s11_db"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(num)
+            .collect();
+        for (name, db) in names.iter().zip(&dbs) {
+            let (lv, o) = name.split_once('_').unwrap();
+            let want = num(&s11_row(&doc, g, lv, o)["s11_2p4000_ghz"]["db"]);
+            assert!((db - want).abs() < 1e-3, "{g} {name}: band-edge S11");
+        }
+        for w in dbs[..4].windows(2) {
+            assert!(w[1] < w[0], "{g}: band-edge S11 not improving on p=1: {dbs:?}");
+        }
+        assert!(dbs[5] < dbs[4] && dbs[5] < dbs[3], "{g}: p=2 band-edge S11 {dbs:?}");
+        assert!(dbs[0] > -2.5 && dbs[5] < -8.0, "{g}: band-edge S11 span {dbs:?}");
+    }
+}
+
+/// The chosen absorber is not what limits the study: its residual
+/// sensitivity (the largest complex-S11 change to a neighbouring σ₀ or the
+/// finer shell) is below half the mesh change of S11 at the band edge on the
+/// finest h-pair, and it moves the L1 dip frequency by under 2 MHz against
+/// the 17 MHz the L1 -> L2 refinement moves it.
+#[test]
+fn absorber_sensitivity_is_subdominant_to_the_mesh_error() {
+    let doc = read_toml("convergence.toml");
+    let ladder = read_toml("upml_ladder_L1.toml");
+    let residual = num(&doc["upml"]["residual_sensitivity_s11"]);
+    assert!((residual - num(&ladder["choice"]["residual_sensitivity_s11"])).abs() < 1e-9);
+    assert!(residual < 0.025, "residual {residual}");
+    for g in ["flat", "bent"] {
+        let mesh: Vec<f64> = doc["order"][g]["s11_2p4000_ghz_consecutive_change"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(num)
+            .collect();
+        let finest_mesh = *mesh.last().unwrap();
+        assert!(
+            residual < 0.5 * finest_mesh,
+            "{g}: absorber residual {residual} vs mesh change {finest_mesh}"
+        );
+        // Dip frequency spread over the plateau, base shell and lc_pml 5.
+        let plateau: Vec<f64> = ladder["choice"]["plateau_sigma_0"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(num)
+            .collect();
+        let mut fs = Vec::new();
+        for row in ladder["sensitivity"].as_array().unwrap() {
+            if plateau.contains(&num(&row["sigma_0"])) {
+                let v = row[format!("{g}_dip_f_ghz_base_lcpml5_40mm")].as_array().unwrap();
+                fs.extend(v.iter().map(num));
+            }
+        }
+        let spread = (fs.iter().copied().fold(f64::MIN, f64::max)
+            - fs.iter().copied().fold(f64::MAX, f64::min))
+            * 1e3;
+        let l1_l2 = num(&doc["order"][g]["dip_f_consecutive_change_mhz"][1]);
+        assert!(spread < 2.0, "{g}: plateau dip spread {spread} MHz");
+        assert!(spread < 0.2 * l1_l2, "{g}: {spread} MHz vs mesh {l1_l2} MHz");
     }
 }
