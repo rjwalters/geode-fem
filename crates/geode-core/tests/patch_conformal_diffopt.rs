@@ -20,6 +20,15 @@
 //! guard binding, or a true plateau — never the bare step cap), and the recorded
 //! outcome (a freeform band match to −10 dB, or a genuinely-diagnosed negative)
 //! is internally consistent with its terminal flags.
+//!
+//! # SMOKE test
+//!
+//! This is the **CI smoke test** of the freeform loop. It runs on the
+//! `curved_smoke` fixture (`patch_2g4_smoke.msh` bent at R = 40 mm), a
+//! shrunken 16 × 12 mm patch that is **not** a 2.4 GHz antenna and is not
+//! mesh-converged. It checks the pipeline, not antenna performance. The
+//! conformal v5 experiments run on the curved conformal 2.4 GHz fixture
+//! family, pinned in `tests/patch_conformal_2g4_fixture.rs` (issue #1084).
 
 use std::path::PathBuf;
 
@@ -288,5 +297,64 @@ fn committed_conformal_results_meet_acceptance_criteria() {
     assert!(
         fresh_rel < 1e-6,
         "fresh forward vs optimizer band objective disagree: rel {fresh_rel}"
+    );
+}
+
+/// The committed smoke artifact states its units explicitly (issue #1084): the
+/// band in GHz consistent with `ω = k₀` in rad/mm, lengths in mm, the port
+/// resistance in Ω and in solver form `R / η₀`, the FR-4 parameters and the
+/// smoke-fixture dimensions, and it is labelled as the smoke fixture.
+#[test]
+fn committed_smoke_artifact_states_physical_units() {
+    let doc = committed();
+    let meta = &doc["meta"];
+    assert!(
+        meta["fixture_role"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("smoke")),
+        "the conformal_results.toml artifact must be labelled as the smoke fixture"
+    );
+    assert_eq!(meta["length_unit"].as_str(), Some("mm"));
+    let omegas: Vec<f64> = meta["band_omega"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(num)
+        .collect();
+    let ghz: Vec<f64> = meta["band_f_ghz"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(num)
+        .collect();
+    assert_eq!(omegas.len(), ghz.len());
+    for (w, f) in omegas.iter().zip(&ghz) {
+        let want = geode_util::units::omega_to_ghz_mm(*w);
+        assert!(
+            (f - want).abs() < 1e-5,
+            "band_f_ghz {f} != omega_to_ghz_mm({w}) = {want}"
+        );
+    }
+    // 0.30 / 0.35 / 0.40 rad/mm = 14.31 / 16.70 / 19.09 GHz.
+    assert!((ghz[0] - 14.314).abs() < 1e-3 && (ghz[2] - 19.085).abs() < 1e-3);
+    let r_ohm = num(&meta["port_resistance_ohm"]);
+    let r_nat = num(&meta["port_resistance_nat"]);
+    assert!(
+        (r_nat - r_ohm / geode_core::constants::ETA_0_OHM).abs() < 1e-12,
+        "port_resistance_nat {r_nat} != {r_ohm} / eta_0"
+    );
+    assert_eq!(num(&meta["eps_r"]), 4.4);
+    assert_eq!(num(&meta["tan_delta"]), 0.02);
+    for (k, want) in [
+        ("patch_w_mm", 16.0),
+        ("patch_l_mm", 12.0),
+        ("substrate_h_mm", 2.0),
+        ("air_margin_mm", 12.0),
+    ] {
+        assert_eq!(num(&meta[k]), want, "[meta].{k}");
+    }
+    assert!(
+        meta["mesh_sizing_mm"].get("lc_sub").is_some(),
+        "[meta].mesh_sizing_mm must record the smoke mesh sizing"
     );
 }

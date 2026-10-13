@@ -1,0 +1,50 @@
+# Flat 2.4 GHz matched-patch benchmark re-check (#1084): `patch_antenna matched` at 4c95242a
+# (unmodified pipeline, patch_2g4_matched.msh, sigma_0 = 25, air margin 60 mm). The regenerated
+# results_matched.toml matched the committed one to 1.4e-13 relative in every point
+# (f_res 2.267494 GHz, dip -15.186 dB at 2.270 GHz, -10 dB band 2.2536-2.2923 GHz), so it was not re-committed.
+patch sweep: 31317 edges, 26055 tets, 12 port faces, 2144 UPML tets; air box [-91.0,-86.5,-60.0]–[91.0,86.5,61.6] mm
+  f = 2.15 GHz: Z =     4.78 +    29.70i ohm, |S11| = 0.8683, P_in = 9.270e-1, P_rad = 3.545e-1, eta = 0.382, res = 1.6e-13
+  f = 2.16 GHz: Z =     5.59 +    31.33i ohm, |S11| = 0.8518, P_in = 1.034e0, P_rad = 3.812e-1, eta = 0.369, res = 2.0e-13
+  f = 2.17 GHz: Z =     6.66 +    33.22i ohm, |S11| = 0.8314, P_in = 1.163e0, P_rad = 4.147e-1, eta = 0.357, res = 1.7e-13
+  f = 2.18 GHz: Z =     8.11 +    35.41i ohm, |S11| = 0.8061, P_in = 1.319e0, P_rad = 4.564e-1, eta = 0.346, res = 1.6e-13
+  f = 2.19 GHz: Z =    10.12 +    37.97i ohm, |S11| = 0.7744, P_in = 1.508e0, P_rad = 5.074e-1, eta = 0.336, res = 7.1e-14
+  f = 2.20 GHz: Z =    12.98 +    40.94i ohm, |S11| = 0.7348, P_in = 1.733e0, P_rad = 5.689e-1, eta = 0.328, res = 6.9e-14
+  f = 2.21 GHz: Z =    17.16 +    44.30i ohm, |S11| = 0.6854, P_in = 1.998e0, P_rad = 6.413e-1, eta = 0.321, res = 7.6e-14
+  f = 2.22 GHz: Z =    23.45 +    47.78i ohm, |S11| = 0.6239, P_in = 2.301e0, P_rad = 7.239e-1, eta = 0.315, res = 7.8e-14
+  f = 2.23 GHz: Z =    33.00 +    50.47i ohm, |S11| = 0.5483, P_in = 2.635e0, P_rad = 8.133e-1, eta = 0.309, res = 8.8e-14
+  f = 2.24 GHz: Z =    46.97 +    49.81i ohm, |S11| = 0.4578, P_in = 2.978e0, P_rad = 9.027e-1, eta = 0.303, res = 9.3e-14
+  f = 2.25 GHz: Z =    64.02 +    40.53i ohm, |S11| = 0.3544, P_in = 3.294e0, P_rad = 9.809e-1, eta = 0.298, res = 9.5e-14
+  f = 2.26 GHz: Z =    75.22 +    18.74i ohm, |S11| = 0.2482, P_in = 3.535e0, P_rad = 1.034e0, eta = 0.293, res = 9.8e-14
+  f = 2.27 GHz: Z =    69.95 +    -6.27i ohm, |S11| = 0.1741, P_in = 3.653e0, P_rad = 1.050e0, eta = 0.287, res = 1.0e-13
+  f = 2.28 GHz: Z =    53.73 +   -20.50i ohm, |S11| = 0.1971, P_in = 3.621e0, P_rad = 1.023e0, eta = 0.283, res = 1.0e-13
+  f = 2.29 GHz: Z =    38.16 +   -23.86i ohm, |S11| = 0.2916, P_in = 3.447e0, P_rad = 9.585e-1, eta = 0.278, res = 9.5e-14
+  f = 2.30 GHz: Z =    27.00 +   -22.11i ohm, |S11| = 0.3983, P_in = 3.170e0, P_rad = 8.686e-1, eta = 0.274, res = 8.9e-14
+  f = 2.31 GHz: Z =    19.59 +   -18.84i ohm, |S11| = 0.4961, P_in = 2.840e0, P_rad = 7.685e-1, eta = 0.271, res = 8.4e-14
+  f = 2.32 GHz: Z =    14.68 +   -15.44i ohm, |S11| = 0.5796, P_in = 2.502e0, P_rad = 6.701e-1, eta = 0.268, res = 8.5e-14
+  f = 2.33 GHz: Z =    11.35 +   -12.35i ohm, |S11| = 0.6484, P_in = 2.184e0, P_rad = 5.807e-1, eta = 0.266, res = 7.9e-14
+  f = 2.34 GHz: Z =     9.02 +    -9.65i ohm, |S11| = 0.7040, P_in = 1.900e0, P_rad = 5.033e-1, eta = 0.265, res = 7.1e-14
+  f = 2.35 GHz: Z =     7.34 +    -7.34i ohm, |S11| = 0.7487, P_in = 1.655e0, P_rad = 4.382e-1, eta = 0.265, res = 6.8e-14
+sweep of 21 points done in 26.5 s
+
+cavity-model f_res (Balanis): 2.4332 GHz
+S11 dip: -15.19 dB at 2.270 GHz
+-10 dB bandwidth: 2.254-2.292 GHz (0.039 GHz)
+wrote <repo>/examples/patch_antenna/../../benchmarks/patch_antenna/results_matched.toml
+       26.61 real        66.97 user       164.92 sys
+          3991207936  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              435808  page reclaims
+                 238  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   8  voluntary context switches
+             5887732  involuntary context switches
+        781682278160  instructions retired
+        793005932904  cycles elapsed
+          3989803112  peak memory footprint

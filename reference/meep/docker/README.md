@@ -139,14 +139,17 @@ differentiate end-to-end). A dielectric-clad / coax feed that MPB *can*
 mode-solve — enabling a true mode-decomposed S11 — is a documented
 production refinement.
 
-### Natural-units convention (must match GEODE)
+### Units convention (must match GEODE)
 
-GEODE runs in `c = μ₀ = ε₀ = 1`, so `ω ≡ k₀` and the band is recorded
-**dimensionless** (do NOT convert to GHz — paper honesty constraint). Meep
-also uses `c = 1` but parameterizes by frequency `f` with `ω = 2πf` and a
-length unit `a`. We set **a = 1 mm** (all mm dimensions used as-is) and
-**f = ω / (2π)**, so Meep's angular frequency reproduces GEODE's band:
-`f = [0.30, 0.35, 0.40] / (2π) ≈ [0.04775, 0.05570, 0.06366]`.
+GEODE meshes are in **millimetres** and the solver works with `ω ≡ k₀` in
+**rad/mm** (`k₀ = 2π f / c`, `c = 299 792 458 000 mm/s`). The smoke band
+`ω = [0.30, 0.35, 0.40] rad/mm` is therefore **f = [14.31, 16.70, 19.09] GHz**
+(`geode_util::units::omega_to_ghz_mm`), and the 50 Ω port resistance enters
+as `50 / η₀`. Meep also uses `c = 1` but parameterizes by frequency `f` with
+`ω = 2πf` and a length unit `a`. We set **a = 1 mm** (all mm dimensions used
+as-is) and **f = ω / (2π)** in units of `c / a`, so Meep's angular frequency
+reproduces GEODE's band: `f = [0.30, 0.35, 0.40] / (2π) ≈ [0.04775, 0.05570,
+0.06366] c/mm`, i.e. the same 14.31 / 16.70 / 19.09 GHz.
 
 ## The three-way comparison (honest framing)
 

@@ -6,6 +6,25 @@
 [meta]
 description = "Epic #647 headline artifact (issue #650): the first MANY-DOF freeform shape-optimization loop on genuinely CURVED conformal metal, over a BAND of frequencies (v1 spec = impedance match + bandwidth). Composes Phase 1 (FreeformBoundaryMorph, #648: many radial-normal patch DOFs + harmonic mesh-morph regularizer) with Phase 2 (PatchFixture::bent_conformal, #649: curved conformal radiator + box-UPML) and the composed open-radiator shape adjoint driven_shape_gradient_matched_upml_ports (one forward + one adjoint solve per band frequency, single complex LU each). The band gradient is FD-validated on the curved mesh; |S11| <= 1 passivity and the per-tet non-inversion guard are asserted at every evaluation."
 fixture = "curved_smoke (read_patch_smoke_fixture + bent_conformal)"
+fixture_role = "smoke: CI smoke fixture (shrunken 16 x 12 mm patch, not a 2.4 GHz antenna, not mesh-converged); the conformal v5 experiments use the 2.4 GHz patch_conformal_L* family (issue #1084)"
+generated_at_commit = "571feba337e3f8bc77393277d5018a7d5d6a56aa"
+backend = "ndarray"
+float_dtype = "F64"
+length_unit = "mm"
+omega_convention = "omega = k0 = 2 pi f / c in rad/mm, c = 299792458e3 mm/s (geode_util::units::omega_to_ghz_mm)"
+band_f_ghz = [14.314035, 16.699708, 19.085381]
+port_resistance_nat = 1.327209364e-1
+eta_0_ohm = 3.767303137e2
+eps_r = 4.4
+tan_delta = 0.02
+patch_w_mm = 16.0
+patch_l_mm = 12.0
+substrate_h_mm = 2.0
+sub_pad_mm = 4.0
+probe_w_mm = 2.0
+probe_inset_mm = 4.0
+air_margin_mm = 12.0
+mesh_sizing_mm = { lc_patch = 4.0, lc_sub = 2.0, lc_port = 2.0, lc_far = 9.0, dist_far = 10.0 }
 bend_radius_mm = 40
 pml_thick_mm = 8
 n_edges = 6173
@@ -14,7 +33,7 @@ n_tets = 4875
 n_freeform_dofs = 73
 port_resistance_ohm = 50
 sigma_0 = 1
-band_omega = [0.3, 0.35, 0.4]
+band_omega = [0.3, 0.35, 0.4]  # rad/mm
 target_db = -10
 
 [model]
@@ -31,9 +50,9 @@ non_obvious = true  # many independent DOFs; not one parametric knob
 [fd_validation]
 # The load-bearing gate: the full multi-DOF, multi-frequency band gradient (analytic directional derivative ∇G·d̂) vs a central finite difference of the entire port + UPML + lossy pipeline through the PUBLIC driven_solve_with_ports(MatchedUpml) path, on the CURVED mesh, along the steepest-descent direction at X=0.
 analytic_dir_deriv = 1.751288204e-1
-central_fd_dir_deriv = 1.751288204e-1
+central_fd_dir_deriv = 1.751288203e-1
 fd_step_h = 1.0e-6
-rel_err = 1.166263e-10
+rel_err = 9.090552e-10
 tolerance = 5.0e-3
 n_factorizations_per_freq = 1
 
@@ -71,21 +90,21 @@ omega = 0.300000
 s11_mag = 2.493841209e-1
 s11_db = -1.206262e1
 objective = 6.219243975e-2
-residual_rel = 9.309993e-15
+residual_rel = 1.027619e-14
 
 [[s11_band.point]]
 omega = 0.350000
 s11_mag = 6.366188709e-2
 s11_db = -2.392241e1
 objective = 4.052835868e-3
-residual_rel = 9.063050e-15
+residual_rel = 9.698191e-15
 
 [[s11_band.point]]
 omega = 0.400000
 s11_mag = 1.900141779e-1
 s11_db = -1.442428e1
 objective = 3.610538781e-2
-residual_rel = 9.390529e-15
+residual_rel = 8.932582e-15
 
 [[trajectory.step]]
 iter = 0

@@ -61,18 +61,21 @@ Conformal bend (patch.rs bent_conformal / read_patch_smoke_curved_fixture):
   into the design grid's z-layers -> the staircase. See `arc_sheet_z`.
 
 ------------------------------------------------------------------------
-NATURAL-UNITS CONVENTION
+UNITS CONVENTION
 ------------------------------------------------------------------------
-GEODE runs in natural units c = mu0 = eps0 = 1, so omega == k0 and the
-band is recorded DIMENSIONLESS: band_omega = [0.30, 0.35, 0.40], target
-= -10 dB (conformal_results.toml). Per the paper's honesty constraint we
-KEEP these dimensionless (do NOT invent GHz).
+GEODE meshes are in millimetres and the solver works with omega == k0 in
+rad/mm (k0 = 2*pi*f/c, c = 299792458000 mm/s). The smoke band
+band_omega = [0.30, 0.35, 0.40] rad/mm (conformal_results.toml, target
+-10 dB) is therefore f = [14.31, 16.70, 19.09] GHz
+(geode_util::units::omega_to_ghz_mm); the 50 ohm port resistance enters
+GEODE as 50 / eta0.
 
 Meep also uses c = 1 but parameterizes by FREQUENCY f (with omega = 2*pi*f)
 and a chosen length unit `a`. We set:
       a = 1 mm            (so all the mm dimensions above are used as-is)
       f = omega / (2*pi)  (so Meep's angular frequency reproduces GEODE's)
-Hence band_f = [0.30, 0.35, 0.40] / (2*pi) = [0.04775, 0.05570, 0.06366],
+Hence band_f = [0.30, 0.35, 0.40] / (2*pi) = [0.04775, 0.05570, 0.06366] c/mm
+(= 14.31 / 16.70 / 19.09 GHz),
 and a free-space wavelength lambda = 1/f = 2*pi/omega ~= 16-21 mm, i.e. the
 ~16 mm patch is ~a wavelength across — consistent with the GEODE model.
 
@@ -139,7 +142,7 @@ TAN_DELTA = 0.02  # lossy FR-4; folded into a Meep D_conductivity below.
 
 BEND_RADIUS = 40.0 * MM  # CURVED_SMOKE_BEND_RADIUS
 
-# Band (dimensionless natural-units omega, as recorded).
+# Band: omega = k0 in rad/mm, as recorded (14.31 / 16.70 / 19.09 GHz).
 BAND_OMEGA = np.array([0.30, 0.35, 0.40])
 BAND_F = [float(w / (2.0 * np.pi)) for w in BAND_OMEGA]  # -> Meep freq
 FCEN = float(np.mean(BAND_F))
