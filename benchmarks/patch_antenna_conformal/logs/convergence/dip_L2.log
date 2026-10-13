@@ -57,4 +57,4 @@ bent: fixed frequencies
   f = 2.31000 GHz: Z =    47.15   +19.11i ohm, |S11| = 0.19513 (-14.193 dB), res = 4.8e-13, 110.8 s, 19.05 GiB
   f = 2.40000 GHz: Z =    14.11    -5.63i ohm, |S11| = 0.56455 ( -4.966 dB), res = 3.6e-13, 117.7 s, 19.05 GiB
   f = 2.48350 GHz: Z =     5.04    +2.58i ohm, |S11| = 0.81730 ( -1.752 dB), res = 2.5e-13, 126.3 s, 19.05 GiB
-wrote /home/ubuntu/results-1085/dip_L2.toml
+wrote <out>/dip_L2.toml

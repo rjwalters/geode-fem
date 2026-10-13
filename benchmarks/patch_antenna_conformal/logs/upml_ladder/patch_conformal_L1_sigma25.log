@@ -26,4 +26,4 @@ bent sweep:
   f = 2.4000 GHz: Z =     9.80    -4.80i ohm, |S11| = 0.6748 ( -3.42 dB), eta = 0.507, res = 2.0e-13, 32.6 s, 5.95 GiB
   f = 2.4835 GHz: Z =     3.74    +3.53i ohm, |S11| = 0.8614 ( -1.30 dB), eta = 0.498, res = 1.2e-13, 26.7 s, 5.95 GiB
 flat: dip -23.28 dB at 2.3136 GHz, ISM worst -1.21 dB | bent: dip -33.29 dB at 2.3106 GHz, ISM worst -1.30 dB | detune -2.97 MHz
-wrote /home/ubuntu/results-1085/ladder/patch_conformal_L1_sigma25.toml
+wrote <out>/upml_ladder/patch_conformal_L1_sigma25.toml

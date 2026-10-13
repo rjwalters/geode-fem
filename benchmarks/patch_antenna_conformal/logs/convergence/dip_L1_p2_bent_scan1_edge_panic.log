@@ -1,0 +1,13 @@
+patch_conformal_convergence dip: patch_conformal_L1 (p2): 150561 edges, 23246 nodes, 124353 tets; UPML 25 mm / sigma_0 = 1; scan [2.26, 2.28, 2.3, 2.32, 2.34, 2.36], tol 0.5 MHz, fixed [2.4, 2.4835], geometries ["bent"]
+bent (p2): 804460 DOFs, 693840 interior
+bent: dip search
+  f = 2.26000 GHz: Z =    14.07   +36.80i ohm, |S11| = 0.69607 ( -3.147 dB), res = 1.4e-12, 899.4 s, 131.80 GiB
+  f = 2.28000 GHz: Z =    20.53   +39.09i ohm, |S11| = 0.60710 ( -4.335 dB), res = 1.6e-12, 872.3 s, 132.05 GiB
+  f = 2.30000 GHz: Z =    30.31   +39.04i ohm, |S11| = 0.48967 ( -6.202 dB), res = 1.7e-12, 840.2 s, 131.88 GiB
+  f = 2.32000 GHz: Z =    42.37   +32.51i ohm, |S11| = 0.34104 ( -9.344 dB), res = 1.7e-12, 838.0 s, 131.90 GiB
+  f = 2.34000 GHz: Z =    49.39   +16.89i ohm, |S11| = 0.16768 (-15.510 dB), res = 1.8e-12, 834.0 s, 131.95 GiB
+  f = 2.36000 GHz: Z =    44.22    +0.52i ohm, |S11| = 0.06158 (-24.211 dB), res = 1.8e-12, 834.7 s, 131.92 GiB
+
+thread 'main' (15186) panicked at crates/geode-core/examples/patch_conformal_convergence.rs:524:5:
+the |S11| minimum of the pre-scan is at its edge (2.36 GHz): widen PATCH_CONFORMAL_DIP_SCAN
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
