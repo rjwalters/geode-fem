@@ -20,7 +20,9 @@
 //!
 //! * **`dip`** — the |S₁₁| dip of the flat and the bent geometry located
 //!   by a coarse pre-scan followed by a golden-section search in frequency
-//!   (default: 7 points over 2.20–2.38 GHz, then to 0.2 MHz), plus S₁₁ at a
+//!   (default: 7 points over 2.20–2.38 GHz, then to 0.2 MHz; a pre-scan whose
+//!   minimum lies on an edge is extended outward by its own spacing, up to
+//!   8 points, and the count is recorded as `scan_extensions`), plus S₁₁ at a
 //!   list of fixed frequencies (default 2.28, 2.31, 2.40, 2.4835 GHz). At
 //!   p = 1 the solve is [`DrivenOperator::assemble_with_space`]'s p = 1 arm
 //!   (bit-identical to `driven_solve_with_ports`); with `--p2` it is the
@@ -519,20 +521,53 @@ struct Dip {
     sampled_z_ohm: c64,
     bracket: (f64, f64),
     n_solves: usize,
+    /// Pre-scan points added beyond the requested scan because its minimum
+    /// was on an edge.
+    n_scan_extensions: usize,
 }
+
+/// The most pre-scan extensions `find_dip` makes before giving up.
+const MAX_SCAN_EXTENSIONS: usize = 8;
 
 /// Pre-scan + golden-section search of the |S₁₁| minimum; returns the dip
 /// and every evaluated point (sorted by frequency).
 fn find_dip(solver: &Solver<'_>, scan: &[f64], tol_ghz: f64) -> (Dip, Vec<Point>) {
     let mut pts: Vec<Point> = scan.iter().map(|&f| solver.solve(f)).collect();
-    let i = (0..pts.len())
-        .min_by(|&a, &b| pts[a].s11.norm().partial_cmp(&pts[b].s11.norm()).unwrap())
-        .unwrap();
-    assert!(
-        i > 0 && i + 1 < pts.len(),
-        "the |S11| minimum of the pre-scan is at its edge ({} GHz): widen PATCH_CONFORMAL_DIP_SCAN",
-        pts[i].f_ghz
-    );
+    // A minimum on an edge of the pre-scan is not bracketed: extend the scan
+    // outward by its own spacing until it is (the p = 2 dip on L1 sits
+    // ~45 MHz above the p = 1 dip, past a scan laid out for p = 1).
+    let step = scan[1] - scan[0];
+    let mut n_scan_extensions = 0;
+    let i = loop {
+        let i = (0..pts.len())
+            .min_by(|&a, &b| pts[a].s11.norm().partial_cmp(&pts[b].s11.norm()).unwrap())
+            .unwrap();
+        if i > 0 && i + 1 < pts.len() {
+            break i;
+        }
+        assert!(
+            n_scan_extensions < MAX_SCAN_EXTENSIONS,
+            "the |S11| minimum is still at the scan edge ({} GHz) after {MAX_SCAN_EXTENSIONS} \
+             extensions: widen PATCH_CONFORMAL_DIP_SCAN",
+            pts[i].f_ghz
+        );
+        let f = if i == 0 {
+            pts[0].f_ghz - step
+        } else {
+            pts[pts.len() - 1].f_ghz + step
+        };
+        eprintln!(
+            "  pre-scan minimum at its edge ({:.4} GHz): extending the scan to {f:.4} GHz",
+            pts[i].f_ghz
+        );
+        let p = solver.solve(f);
+        if i == 0 {
+            pts.insert(0, p);
+        } else {
+            pts.push(p);
+        }
+        n_scan_extensions += 1;
+    };
     let (mut a, mut b) = (pts[i - 1].f_ghz, pts[i + 1].f_ghz);
     let bracket = (a, b);
     let phi = 0.5 * (5.0_f64.sqrt() - 1.0);
@@ -593,6 +628,7 @@ fn find_dip(solver: &Solver<'_>, scan: &[f64], tol_ghz: f64) -> (Dip, Vec<Point>
             sampled_z_ohm,
             bracket,
             n_solves,
+            n_scan_extensions,
         },
         pts,
     )
@@ -734,6 +770,7 @@ fn run_dip(bent_path: &Path, p2: bool, out: Option<PathBuf>) {
             dip.bracket.0, dip.bracket.1
         );
         let _ = writeln!(t, "n_solves = {}", dip.n_solves);
+        let _ = writeln!(t, "scan_extensions = {}", dip.n_scan_extensions);
         t.push('\n');
     }
     if results.len() == 2 {
