@@ -301,8 +301,11 @@ impl RadialBasis {
         (self.bs.n(), self.by.n())
     }
 
-    /// Knot spacings `(Δs, Δy)` of the coefficient lattice (the rectangle
-    /// side over `max(n − 1, 1)`), used by the Helmholtz filter.
+    /// Control-lattice spacings `(Δs, Δy)`: the rectangle side over
+    /// `max(n − 1, 1)`, the spacing of `n` coefficients placed uniformly
+    /// over the side (not the B-spline knot spacing, which is
+    /// `side / (n − degree)`). Used by the Helmholtz filter, which only
+    /// needs a consistent length per lattice direction.
     pub fn lattice_spacing(&self) -> (f64, f64) {
         let (ns, ny) = self.shape();
         (
@@ -954,6 +957,7 @@ mod tests {
             (-19.0_f64, 3.0_f64, 1.6_f64),
             (7.5, -14.5, 0.0),
             (31.0, 1.0, 0.8),
+            (0.0, 2.0, 1.2),
         ] {
             let r: f64 = 100.0 + (z_flat - 0.8);
             let phi: f64 = x_flat / 100.0;
@@ -967,7 +971,13 @@ mod tests {
             assert!(dot.abs() < 1e-12);
             assert!((rd[0] * rd[0] + rd[2] * rd[2] - 1.0).abs() < 1e-12);
             assert!((ts[0] * ts[0] + ts[2] * ts[2] - 1.0).abs() < 1e-12);
-            // +s tangent points toward increasing phi (increasing x at phi = 0).
+            // +s tangent points along increasing flat x at every phi:
+            // ∂p/∂x_flat = (r / R)(cos phi, 0, -sin phi), so ŝ · ∂p/∂x_flat
+            // must equal r / R > 0.
+            let dp = [r / 100.0 * phi.cos(), 0.0, -r / 100.0 * phi.sin()];
+            let along = ts[0] * dp[0] + ts[1] * dp[1] + ts[2] * dp[2];
+            assert!((along - r / 100.0).abs() < 1e-12, "tangent_s sign at phi = {phi}");
+            // At phi = 0 (the (0.0, 2.0, 1.2) sample) it is +x.
             if phi.abs() < 1e-12 {
                 assert!(ts[0] > 0.0);
             }

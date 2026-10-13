@@ -491,5 +491,5 @@ n_radial_dofs = 1
 n_outline_dofs = 0
 design_vector = [3.747403163e0]
 geometry_json = "benchmarks/patch_antenna_conformal/geometry/L1_gap_1.json"
-geometry_json_sha256 = "ece4dff2405a848ea04017a2a1f5273ba5921c74d223cd9a30f9b4a7aa3170f3"
+geometry_json_sha256 = "ac8caa2cdc9252158b9961dcd4cfcfc95fcc39dccc8240b8961ca3b48ed8fb6e"
 

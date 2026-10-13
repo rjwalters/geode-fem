@@ -1,5 +1,7 @@
 {
-  "description": "Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved coordinates of the substrate-top surface nodes (the patch nodes among them, is_patch) with the patch and substrate-top triangles, bent frame. The ground plane is physically unchanged (its mesh nodes slide tangentially under outline DOFs only) and is not dumped. Consumed by the Meep matched-geometry work (#1088) and benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.",
+  "description": "Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved coordinates of the substrate-top surface nodes (the patch nodes among them, is_patch) with the patch and substrate-top triangles, bent frame. The ground plane is not dumped: it does not move radially, and its mesh nodes slide only tangentially under outline DOFs, which leaves it on the cylinder up to the chord error d^2/2R. Consumed by the Meep matched-geometry work (#1088) and benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.",
+  "index_base": 0,
+  "format": "node_ids, is_patch, base and moved are parallel arrays, one entry per dumped node; node_ids holds the 0-based node index in the fixture mesh. patch_triangles, substrate_top_triangles and patch_outline_loop hold 0-based indices into these local arrays, not mesh node ids (map through node_ids).",
   "units": "mm",
   "frame": "bent fixture coordinates (x, y, z); bend axis parallel to y through (x = 0, z = z_axis_mm); chart s = R*atan2(x, z - z_axis), y",
   "fixture": "patch_conformal_L1",
