@@ -87,10 +87,28 @@ def main():
         check(all(math.isfinite(run[key]) and run[key] > 0 for key in
                   ['initialization_seconds', 'stepping_seconds', 'sum_rank_peak_rss_bytes']),
               'Invalid probe measurements')
+    check((args.results / 'initial_R2.json').is_file(), 'Missing required R2 antenna record')
     for path in sorted(args.results.glob('initial_R*.json')):
         run = json.loads(path.read_text())
         validate_spectrum(run)
         check(run['configuration'] == config and not run['rc_oracle'], 'Antenna configuration drift')
+    env = json.loads((args.results / 'environment.json').read_text())
+    for key, name in [('source_sha256', 'matched_antenna.py'),
+                      ('dockerfile_sha256', 'Dockerfile.matched'),
+                      ('conda_lock_sha256', 'matched-conda-linux-aarch64.txt')]:
+        check(env[key] == digest(ROOT / 'reference/meep/docker' / name), 'Environment provenance drift')
+    def package_urls(path):
+        return {line for line in path.read_text().splitlines() if line.startswith('https:')}
+    expected_packages = package_urls(ROOT / 'reference/meep/docker/matched-conda-linux-aarch64.txt')
+    check(package_urls(args.results / 'conda-explicit.txt') == expected_packages,
+          'Installed environment differs from the package lock')
+    check(len(expected_packages) == env['explicit_package_urls_replayed'], 'Package count mismatch')
+    plot = json.loads((args.results / 'spectra.provenance.json').read_text())
+    check(plot['initial_R1.json'] == digest(Path(__file__).resolve().parent / 'meep_runs/initial_R1.json'),
+          'Plot historical input drift')
+    check(plot['initial_R2.json'] == digest(args.results / 'initial_R2.json'), 'Plot R2 input drift')
+    check(plot['generator_sha256'] == digest(Path(__file__).with_name('meep_pilot_plot.py')),
+          'Plot generator drift')
     print('PASS: independent RC volume/sheet calibration; full-domain probe provenance; recorded antenna spectra')
 
 

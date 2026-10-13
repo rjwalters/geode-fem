@@ -48,5 +48,10 @@
   "cost_estimate_rate_source": "scripts/aws/README.md on-demand us-east-1 table; not an AWS billing receipt",
   "retained_root_volume_gb": 200,
   "retained_storage_estimate_usd_per_month": 16,
-  "budget_total_usd": 250
+  "budget_total_usd": 250,
+  "worker_final_state": "stopped",
+  "stopped_verified_utc": "2026-10-13T15:53:26.960682+00:00",
+  "launch_to_stop_verification_seconds": 2761.960682,
+  "compute_cost_upper_elapsed_estimate_usd": 1.4463,
+  "cost_note": "Conservative elapsed-time estimate through stop verification, not metered billing; retained gp3 storage continues separately."
 }

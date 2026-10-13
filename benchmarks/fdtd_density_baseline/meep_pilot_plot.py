@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ def main():
     fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.8), layout='constrained')
     paths = [HERE / 'meep_runs/initial_R1.json', args.results / 'initial_R2.json']
     provenance = {}
+    stopped = []
     for path, color in zip(paths, ['#64748b', '#0072b2']):
         run = json.loads(path.read_text())
         f = np.array(run['frequency_ghz'])
@@ -33,19 +35,24 @@ def main():
         axes[0].plot(f, 20*np.log10(np.abs(gamma)), color=color, label=label, lw=2)
         axes[1].plot(f, z.imag, color=color, label=label, lw=2)
         provenance[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        stopped.append(run['temporal_tolerance_met'])
     for ax in axes:
         ax.set_xlabel('Frequency (GHz)')
         ax.set_xlim(2.2, 2.7)
         ax.grid(alpha=.18)
         ax.axvspan(2.4, 2.4835, color='#e69f00', alpha=.12, zorder=0)
     axes[0].set_ylabel(r'$20\log_{10}|S_{11}|$ (dB)')
-    axes[0].legend(frameon=False, loc='best')
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles.append(Patch(facecolor='#e69f00', alpha=.12))
+    labels.append('2.4–2.4835 GHz band')
+    axes[0].legend(handles, labels, frameon=False, loc='best', fontsize=9)
     axes[0].set_title('(a) Reflection magnitude', loc='left')
     axes[1].set_ylabel(r'Im($Z$), Meep convention (Ω)')
     axes[1].axhline(0, color='#333333', lw=.8, ls='--')
     axes[1].set_title('(b) Port reactance', loc='left')
+    status = 'Temporal stopping met' if all(stopped) else 'Temporal stopping NOT met in all runs'
     fig.suptitle('Initial bent patch: coarse FDTD refinement\n'
-                 'Spatial convergence unestablished · shading: 2.4–2.4835 GHz', fontsize=11)
+                 + status + '; spatial convergence unestablished', fontsize=11)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.output, dpi=200)
     fig.savefig(args.output.with_suffix('.pdf'))

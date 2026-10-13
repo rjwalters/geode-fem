@@ -114,3 +114,56 @@ timeout 2100 docker run --rm --name meep-production \
   --resolution 2 --after-source 1200 --check-interval 600 --max-checks 4 \
   --output /results/initial_R2.json
 ```
+
+## Larger-grid budget constraint
+
+The measured R2 stepping rate changes the planning outlook. If cells scale as
+R³, the CFL step as 1/R, the physical duration stays at t=4433.5, and a 192-core
+r8g.48xlarge gives ideal sixfold throughput relative to this 32-core worker,
+R8 field updates alone would take about 20.8 hours. At the worker README's
+2026-10-12 listed rate of $11.31072/hour, that is about $235 before initialization,
+other resolutions, or the optimized geometry. R6 would add roughly 6.6 hours.
+
+These are conditional planning projections, not measurements of the larger
+worker, not convergence requirements, and not a solver comparison. They show
+why the full proposed ladder cannot be assumed to fit the $250 total cap.
+Measure short allocation/stepping probes on the larger worker before launching
+production. Revisit temporal stopping, material/port matching and efficient
+FDTD formulations first. Symmetry or real fields would need separate validation
+and must remain applicable to the actual optimized geometry; changing the
+geometry or accuracy target merely to fit the budget is not a matched study.
+
+## R2 result and interpretation
+
+The R2 run takes **1,829.24 s (30.49 min)** on 32 ranks, with **14.457 GiB**
+summed rank peak RSS. It reaches t=4433.5 and passes the 0.001 temporal-change
+criterion only on the fourth check. Successive maximum complex-S11 changes are
+0.0171341, 0.00631395, 0.00186282, and **0.000659911**. Independent verification
+recomputes these differences from the recorded complex spectra.
+
+Its minimum sampled |S11| is at the **2.20 GHz lower band edge: −2.7145 dB**.
+There is no interior minimum on the sampled grid. At 2.45 GHz,
+Z = 3.581 − 8.423j Ω (Meep convention). The maximum complex-S11 change from the
+historical R1 result is **0.47094** over the 51 frequencies. Temporal stability
+therefore does not establish spatial/model accuracy: these coarse grids do not
+resolve a stable in-window resonance or reproduce the GEODE fixture's spectrum.
+This is a diagnostic observation, not an attribution of the discrepancy to one
+specific source. Localized port/gap discretization, material matching and
+boundary checks must be resolved before interpreting a solver comparison.
+
+The [diagnostic figure](../../../benchmarks/fdtd_density_baseline/meep_runs/aws_pilot/spectra.png)
+shows both reflection magnitude and port reactance, with the temporal/spatial
+status on the figure. It includes no cross-host timing comparison. Generate it
+with `meep_pilot_plot.py --results <results-dir> --output <plot.png>` in the
+locked environment; a vector PDF and input/generator hashes are emitted too.
+PNG rendering is tied to the recorded Matplotlib version; PDF metadata can vary.
+
+Compressed original probe/production logs and the negative-check logs are kept
+in `meep_runs/aws_pilot/logs/`; use `gzip -dc <file.log.gz>` to inspect them.
+The committed spectrum figure was rendered with Matplotlib 3.11.2.
+
+The dedicated worker was confirmed **stopped** within 46.0 minutes of
+launch, inside the 60-minute cap. A conservative elapsed-time estimate through
+that verification is **$1.45** at the recorded rate; this is not an
+AWS billing receipt. The retained 200 GB gp3 volume is estimated at $16/month
+until removed; no compute job remains running.
