@@ -17,8 +17,9 @@ The locally built image is `meep-matched:mpi`, image ID
 `sha256:d33a3da4e24e6fc0e54ff1e7b93217d0f02fc8408504a80e8054ebff1fc564a0`.
 `matched-conda-linux-aarch64.txt` records every resolved package; recreate that
 environment with `conda create -n meep --file matched-conda-linux-aarch64.txt`.
-The Dockerfile pins the base digest and Meep release; rebuilding its solve can
-select newer dependencies, so use the explicit export for exact package replay.
+The Dockerfile pins the base digest and installs the explicit package export
+directly, without solving for newer dependencies. This pins package versions and builds;
+it does not promise a byte-identical Docker image filesystem.
 
 Run from the repository root:
 
@@ -26,15 +27,16 @@ Run from the repository root:
 docker build --platform linux/arm64 -t meep-matched:mpi \
   -f reference/meep/docker/Dockerfile.matched reference/meep/docker
 
+# Historical records use the archived v1 source so their provenance remains intact.
 for r in 2 4 8; do
   docker run --rm --cpus 2 --memory 2g -v "$PWD:/work" meep-matched:mpi \
-    mpirun -np 2 python reference/meep/docker/matched_antenna.py \
+    mpirun -np 2 python benchmarks/fdtd_density_baseline/meep_runs/source_v1.py \
     --rc-oracle --resolution "$r" --after-source 100 --check-interval 100 \
     --output "benchmarks/fdtd_density_baseline/meep_runs/rc_R$r.json"
 done
 
 docker run --rm --cpus 4 --memory 12g -v "$PWD:/work" meep-matched:mpi \
-  mpirun -np 4 python reference/meep/docker/matched_antenna.py \
+  mpirun -np 4 python benchmarks/fdtd_density_baseline/meep_runs/source_v1.py \
   --config reference/meep/docker/matched_initial_2g4.json \
   --resolution 1 --after-source 1200 --check-interval 600 --max-checks 5 \
   --output benchmarks/fdtd_density_baseline/meep_runs/initial_R1.json
@@ -162,3 +164,21 @@ The final change 0.000941977 meets the 0.001 stopping criterion.
 Elapsed solve/measurement time was 309.89 seconds on four MPI ranks, with summed
 rank peak RSS 1.837 GiB. This establishes only the recorded temporal stopping
 diagnostic at R1. It does not establish spatial accuracy or a solver ranking.
+
+The R1 minimum |S11| is 0.44149 (−7.10 dB) at the 2.70 GHz upper band edge.
+At 2.45 GHz, Z = 4.323 − 12.030j Ω (Meep convention). There is no resolved
+resonance minimum inside this sampled window at R1. Temporal stability alone
+does not make this a spatially accurate antenna result.
+
+## Follow-up calibration and AWS pilot
+
+The current harness adds `--rc-oracle --rc-sheet`, with a source of size
+`(0,2,2)` and integrated current 2 instead of the volume source current 4.
+The cell-average Ampere identity gives the same analytic capacitor impedance
+even though the sheet excites nonuniform fields. This exercises the delta
+normalization used by the antenna. It still does not certify the localized
+antenna port discretization. Historical records retain their exact generating
+source in `meep_runs/source_v1.py`; their source hashes have not been rewritten.
+
+See [AWS_PILOT.md](AWS_PILOT.md) for the follow-up calibration, measured
+resource probes, production settings, and interpretation of the R2 pilot.

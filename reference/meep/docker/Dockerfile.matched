@@ -3,9 +3,8 @@
 #          -f reference/meep/docker/Dockerfile.matched reference/meep/docker
 # Package versions and exact builds are exported inside the image.
 FROM condaforge/miniforge3@sha256:f752860f77bd417aa4db35be3d2e906fdb740fb80f40755ed651fff9e8873aad
-RUN mamba create -y -n meep -c conda-forge --strict-channel-priority \
-    python=3.11 'pymeep=1.34.0=mpi_mpich_*' mpi4py numpy scipy matplotlib \
-    autograd nlopt pyyaml h5py psutil \
+COPY matched-conda-linux-aarch64.txt /opt/meep-lock.txt
+RUN mamba create -y -n meep --file /opt/meep-lock.txt \
     && conda list -n meep --explicit > /opt/meep-explicit.txt \
     && mamba clean -a -y
 ENV PATH=/opt/conda/envs/meep/bin:$PATH

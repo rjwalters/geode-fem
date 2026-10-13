@@ -1,0 +1,7 @@
+final_h2: <work>/final_r1.msh (220073 nodes, 1307448 tets)
+  assembled 1531492 edges in 26.3 s
+  f = 2.765864 GHz  p = 0.987777
+  f = 3.856791 GHz  p = 0.000425
+  f = 11.534787 GHz  p = 0.000014
+  solve 509.2 s, peak RSS Some(136.36998) GB, total 536.2 s
+wrote <work>/geode_runs/final_h2.toml

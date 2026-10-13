@@ -37,9 +37,11 @@
 //! * `<stem>.provenance.txt` next to the bent mesh (written by the
 //!   generator): the sha256 of both meshes is checked against it, and the
 //!   bend radius, UPML thickness and σ₀ are read from it.
-//! * `PATCH_CONFORMAL_SWEEP_GHZ="lo,hi,n"` overrides the default grid
-//!   (2.10–2.70 GHz, 10 MHz steps over 2.30–2.60 GHz plus the 2.4835 GHz
-//!   ISM band edge).
+//! * `PATCH_CONFORMAL_SWEEP_GHZ="lo,hi,n"` (uniform) or
+//!   `"list:f1,f2,..."` (explicit) overrides the default grid (2.10–2.70
+//!   GHz, 10 MHz steps over 2.20–2.60 GHz plus the 2.4835 GHz ISM band
+//!   edge). A grid with no point in the ISM band leaves the `ism_*_s11_db`
+//!   summary keys out instead of writing `inf`.
 //! * `PATCH_CONFORMAL_SIGMA_0`: overrides the fixture's UPML σ₀ (for
 //!   absorber-sensitivity runs; recorded in `[meta]`).
 //! * `PATCH_CONFORMAL_OUT`: output path. Default:
@@ -58,7 +60,6 @@
 //! is the maximum of `ps -o rss=` samples taken every 50 ms during the
 //! solve (the factorization peak), not a kernel high-water mark.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,7 +80,8 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
 };
 use geode_core::mesh::patch::{
-    FR4_MATERIALS, ISM_2G4_BAND_GHZ, PHYS_PATCH, bend_axis_z, read_patch_fixture_path,
+    FR4_MATERIALS, FixtureProvenance, ISM_2G4_BAND_GHZ, PHYS_PATCH, bend_axis_z,
+    read_patch_fixture_path,
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles};
 use geode_core::testing::TestBackend;
@@ -102,16 +104,18 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-/// Default sweep grid (GHz): 20 MHz steps over 2.10–2.28 and 2.62–2.70,
-/// 10 MHz steps over 2.30–2.60 (31 points), plus the 2.4835 GHz upper ISM
-/// band edge.
+/// Default sweep grid (GHz): 20 MHz steps over 2.10–2.18 and 2.62–2.70,
+/// 10 MHz steps over 2.20–2.60 (41 points), plus the 2.4835 GHz upper ISM
+/// band edge. The dense window starts at 2.20 GHz (issue #1085: the L0
+/// resonance near 2.27 GHz fell below the old 2.30 GHz start, so its dip
+/// was grid-limited).
 fn default_grid() -> Vec<f64> {
     let mut f: Vec<f64> = Vec::new();
-    for i in 0..10 {
+    for i in 0..5 {
         f.push(2.10 + 0.02 * i as f64);
     }
-    for i in 0..=30 {
-        f.push(2.30 + 0.01 * i as f64);
+    for i in 0..=40 {
+        f.push(2.20 + 0.01 * i as f64);
     }
     f.push(ISM_2G4_BAND_GHZ[1]);
     for i in 1..=5 {
@@ -124,87 +128,45 @@ fn default_grid() -> Vec<f64> {
     f
 }
 
+/// The sweep grid: `PATCH_CONFORMAL_SWEEP_GHZ` as `"lo,hi,n"` (uniform) or
+/// `"list:f1,f2,..."` (explicit, sorted and deduplicated), else
+/// [`default_grid`].
 fn sweep_grid() -> Vec<f64> {
     match std::env::var("PATCH_CONFORMAL_SWEEP_GHZ") {
-        Ok(s) => {
-            let v: Vec<f64> = s
-                .split(',')
-                .map(|t| t.trim().parse::<f64>().expect("PATCH_CONFORMAL_SWEEP_GHZ"))
-                .collect();
-            assert_eq!(v.len(), 3, "PATCH_CONFORMAL_SWEEP_GHZ = \"lo,hi,n\"");
-            let n = v[2] as usize;
-            assert!(n >= 2);
-            (0..n)
-                .map(|i| v[0] + (v[1] - v[0]) * i as f64 / (n - 1) as f64)
-                .collect()
-        }
+        Ok(s) => parse_grid(&s),
         Err(_) => default_grid(),
     }
+}
+
+fn parse_grid(spec: &str) -> Vec<f64> {
+    let parse = |t: &str| {
+        t.trim()
+            .parse::<f64>()
+            .unwrap_or_else(|e| panic!("PATCH_CONFORMAL_SWEEP_GHZ: {t:?}: {e}"))
+    };
+    if let Some(list) = spec.strip_prefix("list:") {
+        let mut f: Vec<f64> = list.split(',').map(parse).collect();
+        assert!(!f.is_empty(), "PATCH_CONFORMAL_SWEEP_GHZ list is empty");
+        f.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        f.dedup();
+        return f;
+    }
+    let v: Vec<f64> = spec.split(',').map(parse).collect();
+    assert_eq!(
+        v.len(),
+        3,
+        "PATCH_CONFORMAL_SWEEP_GHZ = \"lo,hi,n\" or \"list:f1,f2,...\""
+    );
+    let n = v[2] as usize;
+    assert!(n >= 2);
+    (0..n)
+        .map(|i| v[0] + (v[1] - v[0]) * i as f64 / (n - 1) as f64)
+        .collect()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The generator's `<stem>.provenance.txt`, parsed into top-level
-/// `key: value` lines, `section.key` parameter values, and the resolution
-/// block.
-struct Provenance {
-    top: BTreeMap<String, String>,
-    params: BTreeMap<String, String>,
-    resolution: Vec<(String, String)>,
-}
-
-impl Provenance {
-    fn read(path: &Path) -> Self {
-        let text = fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read provenance {}: {e}", path.display()));
-        let mut top = BTreeMap::new();
-        let mut params = BTreeMap::new();
-        let mut resolution = Vec::new();
-        let mut block = String::new();
-        let mut section = String::new();
-        for line in text.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let indent = line.len() - line.trim_start().len();
-            let (k, v) = match line.trim().split_once(':') {
-                Some((k, v)) => (k.trim().to_string(), v.trim().to_string()),
-                None => continue,
-            };
-            match indent {
-                0 => {
-                    if v.is_empty() {
-                        block = k;
-                    } else {
-                        block.clear();
-                        top.insert(k, v);
-                    }
-                }
-                2 if block == "parameter values" => section = k,
-                2 if block.starts_with("resolution") => resolution.push((k, v)),
-                4 if block == "parameter values" => {
-                    params.insert(format!("{section}.{k}"), v);
-                }
-                _ => {}
-            }
-        }
-        Provenance {
-            top,
-            params,
-            resolution,
-        }
-    }
-
-    fn param(&self, key: &str) -> f64 {
-        self.params
-            .get(key)
-            .unwrap_or_else(|| panic!("provenance lacks parameter {key}"))
-            .parse()
-            .unwrap_or_else(|e| panic!("provenance parameter {key}: {e}"))
-    }
 }
 
 /// Max of `ps -o rss=` samples (GiB) while `f` runs.
@@ -461,8 +423,14 @@ fn push_summary(t: &mut String, name: &str, s: &Summary) {
         None => t.push_str("# bw_10db_*: the dip does not reach -10 dB or is not bracketed\n"),
     }
     let _ = writeln!(t, "ism_band_points = {}", s.ism_n_points);
-    let _ = writeln!(t, "ism_worst_s11_db = {:.4}", s.ism_worst_db);
-    let _ = writeln!(t, "ism_best_s11_db = {:.4}", s.ism_best_db);
+    if s.ism_n_points == 0 {
+        // A custom grid with no ISM point: the fold identities are ±inf,
+        // which would print as `inf` / `-inf` (invalid TOML).
+        t.push_str("# ism_worst_s11_db / ism_best_s11_db: no sweep point in the ISM band\n");
+    } else {
+        let _ = writeln!(t, "ism_worst_s11_db = {:.4}", s.ism_worst_db);
+        let _ = writeln!(t, "ism_best_s11_db = {:.4}", s.ism_best_db);
+    }
     t.push('\n');
 }
 
@@ -513,7 +481,8 @@ fn main() {
         .unwrap_or_else(|_| dir.join(format!("{stem}.flat.msh")));
     let prov_path = dir.join(format!("{stem}.provenance.txt"));
 
-    let prov = Provenance::read(&prov_path);
+    let prov = FixtureProvenance::read(&prov_path)
+        .unwrap_or_else(|e| panic!("read provenance {}: {e}", prov_path.display()));
     let bent_bytes = fs::read(&bent_path)
         .unwrap_or_else(|e| panic!("read bent fixture {}: {e}", bent_path.display()));
     let flat_bytes = fs::read(&flat_path).unwrap_or_else(|e| {
@@ -526,14 +495,14 @@ fn main() {
     let bent_sha = sha256_hex(&bent_bytes);
     let flat_sha = sha256_hex(&flat_bytes);
     assert_eq!(
-        Some(&bent_sha),
-        prov.top.get("sha256"),
+        Some(bent_sha.as_str()),
+        prov.top("sha256"),
         "bent mesh sha256 does not match {}",
         prov_path.display()
     );
     assert_eq!(
-        Some(&flat_sha),
-        prov.top.get("flat sha256"),
+        Some(flat_sha.as_str()),
+        prov.top("flat sha256"),
         "flat mesh sha256 does not match {}",
         prov_path.display()
     );
@@ -613,17 +582,15 @@ fn main() {
     );
     let _ = writeln!(t, "fixture = \"{stem}\"");
     let _ = writeln!(t, "fixture_yaml = \"reference/gmsh/{}\"", {
-        prov.top
-            .get("parameters")
-            .cloned()
-            .unwrap_or_else(|| format!("{stem}.yaml"))
+        prov.top("parameters")
+            .map_or_else(|| format!("{stem}.yaml"), str::to_string)
     });
     let _ = writeln!(t, "fixture_sha256 = \"{bent_sha}\"");
     let _ = writeln!(t, "flat_fixture_sha256 = \"{flat_sha}\"");
     let _ = writeln!(
         t,
         "gmsh_version = \"{}\"",
-        prov.top.get("gmsh version").cloned().unwrap_or_default()
+        prov.top("gmsh version").unwrap_or_default()
     );
     let _ = writeln!(t, "generated_at_commit = \"{commit}\"");
     backend.push_meta(&mut t);
@@ -682,14 +649,14 @@ fn main() {
     for key in [
         "lc_patch", "lc_sub", "lc_port", "lc_far", "dist_far", "lc_air", "lc_pml",
     ] {
-        if let Some(v) = prov.params.get(&format!("mesh.{key}")) {
+        if let Some(v) = prov.param_str(&format!("mesh.{key}")) {
             let _ = writeln!(t, "{key} = {v}");
         }
     }
     t.push('\n');
     t.push_str("[meta.resolution]\n");
     t.push_str("# Copied from the generator provenance (lengths in mm).\n");
-    for (k, v) in &prov.resolution {
+    for (k, v) in prov.resolution() {
         let _ = writeln!(t, "\"{k}\" = \"{v}\"");
     }
     t.push('\n');
@@ -714,11 +681,16 @@ fn main() {
     if let (Some(a), Some(b)) = (flat_sum.f_res_imz0_ghz, bent_sum.f_res_imz0_ghz) {
         let _ = writeln!(t, "f_res_imz0_shift_mhz = {:.3}", (b - a) * 1e3);
     }
-    let _ = writeln!(
-        t,
-        "ism_worst_s11_change_db = {:.4}",
-        bent_sum.ism_worst_db - flat_sum.ism_worst_db
-    );
+    if flat_sum.ism_n_points > 0 && bent_sum.ism_n_points > 0 {
+        let _ = writeln!(
+            t,
+            "ism_worst_s11_change_db = {:.4}",
+            bent_sum.ism_worst_db - flat_sum.ism_worst_db
+        );
+    } else {
+        // ±inf − ±inf would print `NaN` here (issue #1085 nit).
+        t.push_str("# ism_worst_s11_change_db: no sweep point in the ISM band\n");
+    }
     t.push('\n');
 
     let cost = |rows: &[Row]| {
@@ -782,15 +754,22 @@ fn main() {
         fs::create_dir_all(p).expect("create output dir");
     }
     fs::write(&out, &t).expect("write baseline toml");
+    // No ISM point on a custom grid: say so instead of printing -inf.
+    let ism = |s: &Summary| {
+        if s.ism_n_points == 0 {
+            "no ISM point".to_string()
+        } else {
+            format!("ISM worst {:.2} dB", s.ism_worst_db)
+        }
+    };
     eprintln!(
-        "flat: dip {:.2} dB at {:.4} GHz, ISM worst {:.2} dB | bent: dip {:.2} dB at {:.4} GHz, \
-         ISM worst {:.2} dB | detune {:+.2} MHz",
+        "flat: dip {:.2} dB at {:.4} GHz, {} | bent: dip {:.2} dB at {:.4} GHz, {} | detune {:+.2} MHz",
         flat_sum.dip_db,
         flat_sum.dip_f_ghz,
-        flat_sum.ism_worst_db,
+        ism(&flat_sum),
         bent_sum.dip_db,
         bent_sum.dip_f_ghz,
-        bent_sum.ism_worst_db,
+        ism(&bent_sum),
         dip_shift * 1e3
     );
     println!("wrote {}", out.display());
