@@ -195,7 +195,11 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
         .iter()
         .copied()
         .fold(0.0_f64, f64::max);
-    assert!(max_res <= 1e-6, "{label}: residuals {:?}", diag.mode_residual_rels);
+    assert!(
+        max_res <= 1e-6,
+        "{label}: residuals {:?}",
+        diag.mode_residual_rels
+    );
     modes.sort_by(|a, b| a.frequency_hz.total_cmp(&b.frequency_hz));
     for m in &modes {
         println!(
@@ -205,15 +209,28 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
         );
     }
     let rss = peak_rss_gb();
-    println!("  solve {solve_s:.1} s, peak RSS {rss:?} GB, total {:.1} s", t_all.elapsed().as_secs_f64());
+    println!(
+        "  solve {solve_s:.1} s, peak RSS {rss:?} GB, total {:.1} s",
+        t_all.elapsed().as_secs_f64()
+    );
 
     let backend = BackendInfo::of::<B>(&device());
     let mut t = String::new();
-    let _ = writeln!(t, "# geode A2 tensor-eps eigensolve record (issue #1092), written by");
-    let _ = writeln!(t, "# examples/transmon_devicelayout_crosscheck.rs in solve mode. Do NOT edit.");
+    let _ = writeln!(
+        t,
+        "# geode A2 tensor-eps eigensolve record (issue #1092), written by"
+    );
+    let _ = writeln!(
+        t,
+        "# examples/transmon_devicelayout_crosscheck.rs in solve mode. Do NOT edit."
+    );
     let _ = writeln!(t, "\n[meta]");
     let _ = writeln!(t, "label = \"{label}\"");
-    let _ = writeln!(t, "mesh_file = \"{}\"", mesh_path.file_name().unwrap().to_string_lossy());
+    let _ = writeln!(
+        t,
+        "mesh_file = \"{}\"",
+        mesh_path.file_name().unwrap().to_string_lossy()
+    );
     let _ = writeln!(t, "host = \"{}\"", host_string());
     let _ = writeln!(t, "backend = \"{}\"", backend.name);
     let _ = writeln!(t, "float_dtype = \"{}\"", backend.float_dtype);
@@ -222,7 +239,11 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
     let _ = writeln!(t, "n_nodes = {n_nodes}");
     let _ = writeln!(t, "n_tets = {n_tets}");
     let _ = writeln!(t, "n_edges = {}", edges.len());
-    let _ = writeln!(t, "n_interior_edges = {}", mask.iter().filter(|&&m| m).count());
+    let _ = writeln!(
+        t,
+        "n_interior_edges = {}",
+        mask.iter().filter(|&&m| m).count()
+    );
     let _ = writeln!(t, "sigma_ghz = {sigma_ghz}");
     let _ = writeln!(t, "n_modes = {n_modes}");
     let _ = writeln!(t, "port_faces = {}", jport.faces.len());
@@ -402,7 +423,6 @@ struct Cell {
     n_unknowns: usize,
     wall_s: f64,
     peak_gb: f64,
-    extra: Vec<f64>,
 }
 
 fn geode_cell(runs: &Path, label: &str) -> Cell {
@@ -424,7 +444,6 @@ fn geode_cell(runs: &Path, label: &str) -> Cell {
         n_unknowns: ti(&d, "run.n_interior_edges") as usize,
         wall_s: tf(&d, "run.wall_s"),
         peak_gb: tf(&d, "run.peak_rss_gb"),
-        extra: f[2..].to_vec(),
     }
 }
 
@@ -455,7 +474,6 @@ fn palace_cell(repo: &Path, name: &str) -> Cell {
         n_unknowns: palace_nd(&d.join("palace_run.log")),
         wall_s: time_wall_s(&d.join("time.txt")),
         peak_gb: palace_peak_gb(&d.join("palace_run.log")),
-        extra: f[2..].to_vec(),
     }
 }
 
@@ -578,18 +596,17 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
         .map(|(g, p)| pct(g.f_r, p.f_r))
         .collect();
     let _ = writeln!(t, "\n[same_mesh.{tag}]");
-    let _ = writeln!(
-        t,
-        "levels = {}",
-        strs(&names(&l.geode))
-    );
+    let _ = writeln!(t, "levels = {}", strs(&names(&l.geode)));
     let _ = writeln!(t, "geode_over_palace_f_q_pct = {}", arr(&same, 4));
     let _ = writeln!(t, "geode_over_palace_f_r_pct = {}", arr(&same_r, 4));
 
     // DeviceLayout's own discretization and the same-mesh PEC-box control.
     let _ = writeln!(t, "\n[devicelayout_run.{tag}]");
     let _ = writeln!(t, "cell = \"{}\"", l.dl.name);
-    let _ = writeln!(t, "model = \"DeviceLayout's configfile: mesh_order 2, solver_order 2, first-order absorbing far field, two 50 ohm readout lumped ports, the junction L || C, sapphire tensor with loss tangent\"");
+    let _ = writeln!(
+        t,
+        "model = \"DeviceLayout's configfile: mesh_order 2, solver_order 2, first-order absorbing far field, two 50 ohm readout lumped ports, the junction L || C, sapphire tensor with loss tangent\""
+    );
     let _ = writeln!(t, "nd = {}", l.dl.n_unknowns);
     let _ = writeln!(t, "f_q_ghz = {:.6}", l.dl.f_q);
     let _ = writeln!(t, "f_r_ghz = {:.6}", l.dl.f_r);
@@ -600,13 +617,28 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let _ = writeln!(t, "f_q_over_published_pct = {:.4}", pct(l.dl.f_q, pub_q));
     let _ = writeln!(t, "f_r_over_published_pct = {:.4}", pct(l.dl.f_r, pub_r));
     let _ = writeln!(t, "pec_box_cell = \"{}\"", l.dlpec.name);
-    let _ = writeln!(t, "pec_box_model = \"the same second-order mesh and solver order with the PEC-box model of every other cell: exterior boundary PEC, readout ports omitted\"");
+    let _ = writeln!(
+        t,
+        "pec_box_model = \"the same second-order mesh and solver order with the PEC-box model of every other cell: exterior boundary PEC, readout ports omitted\""
+    );
     let _ = writeln!(t, "pec_box_f_q_ghz = {:.6}", l.dlpec.f_q);
     let _ = writeln!(t, "pec_box_f_r_ghz = {:.6}", l.dlpec.f_r);
-    let _ = writeln!(t, "boundary_model_f_q_pct = {:.4}  # DeviceLayout model over PEC box, same mesh and order", pct(l.dl.f_q, l.dlpec.f_q));
-    let _ = writeln!(t, "boundary_model_f_r_pct = {:.4}", pct(l.dl.f_r, l.dlpec.f_r));
+    let _ = writeln!(
+        t,
+        "boundary_model_f_q_pct = {:.4}  # DeviceLayout model over PEC box, same mesh and order",
+        pct(l.dl.f_q, l.dlpec.f_q)
+    );
+    let _ = writeln!(
+        t,
+        "boundary_model_f_r_pct = {:.4}",
+        pct(l.dl.f_r, l.dlpec.f_r)
+    );
     let p2h = &l.palace_p2[0];
-    let _ = writeln!(t, "mesh_order_f_q_pct = {:.4}  # PEC box on DeviceLayout's second-order mesh over PEC box on the first-order mesh, both solver order 2", pct(l.dlpec.f_q, p2h.f_q));
+    let _ = writeln!(
+        t,
+        "mesh_order_f_q_pct = {:.4}  # PEC box on DeviceLayout's second-order mesh over PEC box on the first-order mesh, both solver order 2",
+        pct(l.dlpec.f_q, p2h.f_q)
+    );
     let _ = writeln!(t, "mesh_order_f_r_pct = {:.4}", pct(l.dlpec.f_r, p2h.f_r));
 
     // Convergence.
@@ -639,25 +671,46 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let fq_est = 0.5 * (fq_p1_o1 + fq_p2_o1);
     let fr_est = 0.5 * (fr_p1_o1 + fr_p2_o1);
     let _ = writeln!(t, "\n[convergence.{tag}]");
-    let _ = writeln!(t, "model = \"PEC box (exterior boundary PEC, readout ports omitted), junction L || C, sapphire tensor; first-order meshes h, h/2, h/4 are the DeviceLayout mesh and its uniform gmsh refinements\"");
+    let _ = writeln!(
+        t,
+        "model = \"PEC box (exterior boundary PEC, readout ports omitted), junction L || C, sapphire tensor; first-order meshes h, h/2, h/4 are the DeviceLayout mesh and its uniform gmsh refinements\""
+    );
     let _ = writeln!(t, "p1_levels = [\"h\", \"h/2\", \"h/4\"]");
     let _ = writeln!(t, "p1_f_q_ghz = {}", arr(&p1q, 6));
     let _ = writeln!(t, "p1_f_r_ghz = {}", arr(&p1r, 6));
     let _ = writeln!(t, "p1_observed_order_q = {oq:.4}");
     let _ = writeln!(t, "p1_observed_order_r = {or_:.4}");
-    let _ = writeln!(t, "p1_richardson_f_q_ghz = {fq_obs:.6}  # three-level, at the observed order");
+    let _ = writeln!(
+        t,
+        "p1_richardson_f_q_ghz = {fq_obs:.6}  # three-level, at the observed order"
+    );
     let _ = writeln!(t, "p1_richardson_f_r_ghz = {fr_obs:.6}");
-    let _ = writeln!(t, "p1_order1_f_q_ghz = {fq_p1_o1:.6}  # h/2, h/4 at the asymptotic order 1");
+    let _ = writeln!(
+        t,
+        "p1_order1_f_q_ghz = {fq_p1_o1:.6}  # h/2, h/4 at the asymptotic order 1"
+    );
     let _ = writeln!(t, "p1_order1_f_r_ghz = {fr_p1_o1:.6}");
     let _ = writeln!(t, "p2_levels = [\"h\", \"h/2\"]");
     let _ = writeln!(t, "p2_f_q_ghz = {}", arr(&p2q, 6));
     let _ = writeln!(t, "p2_f_r_ghz = {}", arr(&p2r, 6));
-    let _ = writeln!(t, "p2_richardson_f_q_ghz = {fq_p2_obs:.6}  # at the order-1 ladder's observed order");
+    let _ = writeln!(
+        t,
+        "p2_richardson_f_q_ghz = {fq_p2_obs:.6}  # at the order-1 ladder's observed order"
+    );
     let _ = writeln!(t, "p2_richardson_f_r_ghz = {fr_p2_obs:.6}");
-    let _ = writeln!(t, "p2_order1_f_q_ghz = {fq_p2_o1:.6}  # at the asymptotic order 1");
+    let _ = writeln!(
+        t,
+        "p2_order1_f_q_ghz = {fq_p2_o1:.6}  # at the asymptotic order 1"
+    );
     let _ = writeln!(t, "p2_order1_f_r_ghz = {fr_p2_o1:.6}");
-    let _ = writeln!(t, "asymptotic_order = {ASYMPTOTIC_ORDER:.1}  # thin-sheet edge singularity, E ~ r^-1/2: eigenvalue error O(h) on uniform meshes at any element order");
-    let _ = writeln!(t, "rule = \"every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound\"");
+    let _ = writeln!(
+        t,
+        "asymptotic_order = {ASYMPTOTIC_ORDER:.1}  # thin-sheet edge singularity, E ~ r^-1/2: eigenvalue error O(h) on uniform meshes at any element order"
+    );
+    let _ = writeln!(
+        t,
+        "rule = \"every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound\""
+    );
     let _ = writeln!(t, "f_q_ghz = {fq_est:.4}");
     let _ = writeln!(t, "f_q_band_ghz = [{q_lo:.4}, {q_hi:.4}]");
     let _ = writeln!(t, "f_r_ghz = {fr_est:.4}");
@@ -666,13 +719,48 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let _ = writeln!(t, "published_f_r_ghz = {pub_r}");
     let _ = writeln!(t, "f_q_over_published_pct = {:.3}", pct(fq_est, pub_q));
     let _ = writeln!(t, "f_r_over_published_pct = {:.3}", pct(fr_est, pub_r));
-    let _ = writeln!(t, "f_q_band_over_published_pct = [{:.3}, {:.3}]", pct(q_lo, pub_q), pct(q_hi, pub_q));
-    let _ = writeln!(t, "f_r_band_over_published_pct = [{:.3}, {:.3}]", pct(r_lo, pub_r), pct(r_hi, pub_r));
-    let _ = writeln!(t, "published_below_band = [{}, {}]", pub_q < q_lo, pub_r < r_lo);
-    let _ = writeln!(t, "devicelayout_run_over_published_pct = [{:.3}, {:.3}]", pct(l.dl.f_q, pub_q), pct(l.dl.f_r, pub_r));
-    let _ = writeln!(t, "devicelayout_run_under_converged_pct = [{:.3}, {:.3}]  # DeviceLayout's discretization against the estimate", pct(l.dl.f_q, fq_est), pct(l.dl.f_r, fr_est));
-    let _ = writeln!(t, "h_over_converged_pct = [{:.3}, {:.3}]  # the DeviceLayout mesh at order 1 against the estimate", pct(p1q[0], fq_est), pct(p1r[0], fr_est));
-    let _ = writeln!(t, "geode_h2_over_converged_pct = [{:.3}, {:.3}]", pct(l.geode[1].f_q, fq_est), pct(l.geode[1].f_r, fr_est));
+    let _ = writeln!(
+        t,
+        "f_q_band_over_published_pct = [{:.3}, {:.3}]",
+        pct(q_lo, pub_q),
+        pct(q_hi, pub_q)
+    );
+    let _ = writeln!(
+        t,
+        "f_r_band_over_published_pct = [{:.3}, {:.3}]",
+        pct(r_lo, pub_r),
+        pct(r_hi, pub_r)
+    );
+    let _ = writeln!(
+        t,
+        "published_below_band = [{}, {}]",
+        pub_q < q_lo,
+        pub_r < r_lo
+    );
+    let _ = writeln!(
+        t,
+        "devicelayout_run_over_published_pct = [{:.3}, {:.3}]",
+        pct(l.dl.f_q, pub_q),
+        pct(l.dl.f_r, pub_r)
+    );
+    let _ = writeln!(
+        t,
+        "devicelayout_run_under_converged_pct = [{:.3}, {:.3}]  # DeviceLayout's discretization against the estimate",
+        pct(l.dl.f_q, fq_est),
+        pct(l.dl.f_r, fr_est)
+    );
+    let _ = writeln!(
+        t,
+        "h_over_converged_pct = [{:.3}, {:.3}]  # the DeviceLayout mesh at order 1 against the estimate",
+        pct(p1q[0], fq_est),
+        pct(p1r[0], fr_est)
+    );
+    let _ = writeln!(
+        t,
+        "geode_h2_over_converged_pct = [{:.3}, {:.3}]",
+        pct(l.geode[1].f_q, fq_est),
+        pct(l.geode[1].f_r, fr_est)
+    );
 
     if tag == "initial" {
         write_static_check(t, fq_est, fr_est, q_lo, q_hi);
@@ -701,14 +789,22 @@ fn write_static_check(t: &mut String, fq_est: f64, fr_est: f64, q_lo: f64, q_hi:
     let c_lo = tf(&b, "bracket_x0_tensor.lower_ff");
     let c_hi = tf(&b, "bracket_x0_tensor.upper_ff");
     let lc = |c_ff: f64, l_s: f64| {
-        harmonic_frequency_hz(JUNCTION_INDUCTANCE_H + l_s, c_ff * 1e-15 + JUNCTION_CAPACITANCE_F)
-            / 1e9
+        harmonic_frequency_hz(
+            JUNCTION_INDUCTANCE_H + l_s,
+            c_ff * 1e-15 + JUNCTION_CAPACITANCE_F,
+        ) / 1e9
     };
     let lc_only = [lc(c_hi, 0.0), lc(c_lo, 0.0)];
     let mut dressed = Vec::new();
     for c in [c_lo, c_hi] {
-        for l_s in [DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1] {
-            for k in [DEVICELAYOUT_COUPLING_K_BAND.0, DEVICELAYOUT_COUPLING_K_BAND.1] {
+        for l_s in [
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0,
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1,
+        ] {
+            for k in [
+                DEVICELAYOUT_COUPLING_K_BAND.0,
+                DEVICELAYOUT_COUPLING_K_BAND.1,
+            ] {
                 let (f_lo, _) = coupled_lc_dressed_pair_hz(lc(c, l_s) * 1e9, fr_est * 1e9, k);
                 dressed.push(f_lo / 1e9);
             }
@@ -717,14 +813,34 @@ fn write_static_check(t: &mut String, fq_est: f64, fr_est: f64, q_lo: f64, q_hi:
     let d_lo = dressed.iter().copied().fold(f64::INFINITY, f64::min);
     let d_hi = dressed.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let _ = writeln!(t, "\n[static_cross_check.initial]");
-    let _ = writeln!(t, "source = \"{C_SIGMA_BRACKET} [bracket_x0_tensor]: certified sapphire-tensor C_Sigma of X0, the DeviceLayout initial geometry meshed by the earlier generator (crates/geode-core/tests/fixtures/transmon_smoke.msh)\"");
-    let _ = writeln!(t, "c_sigma_bracket_ff = [{c_lo}, {c_hi}]  # RIGOROUS for that meshed geometry");
-    let _ = writeln!(t, "model = \"two-node Maxwell circuit (quantum::transmon::coupled_lc_dressed_pair_hz): bare qubit 1/(2 pi sqrt((L_J + L_s)(C_Sigma + C_J))), coupling k to a resonator at this geometry's converged f_r estimate; every corner of the C_Sigma, L_s (DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H) and k (DEVICELAYOUT_COUPLING_K_BAND) bands. The circuit terms are estimates (#1078, #1079), so this is an estimate, not a bound\"");
-    let _ = writeln!(t, "lc_only_f_q_band_ghz = [{:.4}, {:.4}]  # L_J alone, k = 0", lc_only[0], lc_only[1]);
+    let _ = writeln!(
+        t,
+        "source = \"{C_SIGMA_BRACKET} [bracket_x0_tensor]: certified sapphire-tensor C_Sigma of X0, the DeviceLayout initial geometry meshed by the earlier generator (crates/geode-core/tests/fixtures/transmon_smoke.msh)\""
+    );
+    let _ = writeln!(
+        t,
+        "c_sigma_bracket_ff = [{c_lo}, {c_hi}]  # RIGOROUS for that meshed geometry"
+    );
+    let _ = writeln!(
+        t,
+        "model = \"two-node Maxwell circuit (quantum::transmon::coupled_lc_dressed_pair_hz): bare qubit 1/(2 pi sqrt((L_J + L_s)(C_Sigma + C_J))), coupling k to a resonator at this geometry's converged f_r estimate; every corner of the C_Sigma, L_s (DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H) and k (DEVICELAYOUT_COUPLING_K_BAND) bands. The circuit terms are estimates (#1078, #1079), so this is an estimate, not a bound\""
+    );
+    let _ = writeln!(
+        t,
+        "lc_only_f_q_band_ghz = [{:.4}, {:.4}]  # L_J alone, k = 0",
+        lc_only[0], lc_only[1]
+    );
     let _ = writeln!(t, "dressed_f_q_band_ghz = [{d_lo:.4}, {d_hi:.4}]");
-    let _ = writeln!(t, "resonator_f_r_ghz = {fr_est:.4}  # the convergence estimate");
+    let _ = writeln!(
+        t,
+        "resonator_f_r_ghz = {fr_est:.4}  # the convergence estimate"
+    );
     let _ = writeln!(t, "inside_eigen_band = {}", d_lo >= q_lo && d_hi <= q_hi);
-    let _ = writeln!(t, "eigen_estimate_minus_static_mid_pct = {:.3}", pct(fq_est, 0.5 * (d_lo + d_hi)));
+    let _ = writeln!(
+        t,
+        "eigen_estimate_minus_static_mid_pct = {:.3}",
+        pct(fq_est, 0.5 * (d_lo + d_hi))
+    );
 }
 
 fn assemble_mode(repo: &Path, out_dir: &Path) {
@@ -752,7 +868,9 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
     t.push_str("issue = 1092\n");
     let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
     t.push_str("geometry_generator = \"reference/julia/generate_transmon_param.jl (DeviceLayout.jl v1.15.0, gmsh_jll 4.15.2, Julia 1.10.11, macOS arm64); refinements and MSH 2.2 conversions with gmsh 4.15.2-git on the same host\"\n");
-    t.push_str("palace_results_dir = \"reference/fixtures/transmon_palace/results_crosscheck_1092\"\n");
+    t.push_str(
+        "palace_results_dir = \"reference/fixtures/transmon_palace/results_crosscheck_1092\"\n",
+    );
     t.push_str("geode_runs_dir = \"benchmarks/transmon_devicelayout_crosscheck/geode_runs\"\n");
     t.push_str("compute_host = \"AWS r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04 arm64; Palace fba6a5b (v0.17.0-99) built from reference/palace/docker/Dockerfile on the worker; geode ndarray f64\"\n");
     t.push_str("geode_model = \"A2 port-voltage shunt (#1044) with the bulk gradient projector, L_J = 14.86 nH || C_J = 5.5 fF, PEC on metal and on the exterior boundary, readout ports omitted (open), sapphire tensor diag(9.3, 9.3, 11.5)\"\n");

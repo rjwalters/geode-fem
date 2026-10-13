@@ -66,7 +66,9 @@ fn tstrs<'a>(v: &'a toml::Value, path: &str) -> Vec<&'a str> {
 }
 
 fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
-    tget(v, path).as_str().unwrap_or_else(|| panic!("{path} is not a string"))
+    tget(v, path)
+        .as_str()
+        .unwrap_or_else(|| panic!("{path} is not a string"))
 }
 
 const TAGS: [&str; 2] = ["initial", "final"];
@@ -78,8 +80,12 @@ const PUBLISHED_PARAMS_UM: [[f64; 2]; 2] = [[620.0, 5000.0], [1217.678, 7243.955
 /// the last port-EPR column) is dropped, then the modes are in frequency
 /// order as Palace writes them.
 fn palace_raw(cell: &str) -> ((f64, f64), (f64, f64)) {
-    let base = repo().join("reference/fixtures/transmon_palace/results_crosscheck_1092").join(cell);
-    let read = |f: &str| std::fs::read_to_string(base.join(f)).unwrap_or_else(|e| panic!("{cell}/{f}: {e}"));
+    let base = repo()
+        .join("reference/fixtures/transmon_palace/results_crosscheck_1092")
+        .join(cell);
+    let read = |f: &str| {
+        std::fs::read_to_string(base.join(f)).unwrap_or_else(|e| panic!("{cell}/{f}: {e}"))
+    };
     let eig = read("eig.csv");
     let epr = read("port-EPR.csv");
     let f: Vec<f64> = eig
@@ -91,7 +97,15 @@ fn palace_raw(cell: &str) -> ((f64, f64), (f64, f64)) {
     let p: Vec<f64> = epr
         .lines()
         .skip(1)
-        .map(|l| l.split(',').nth(ncol - 1).unwrap().trim().parse::<f64>().unwrap().abs())
+        .map(|l| {
+            l.split(',')
+                .nth(ncol - 1)
+                .unwrap()
+                .trim()
+                .parse::<f64>()
+                .unwrap()
+                .abs()
+        })
         .collect();
     assert_eq!(f.len(), p.len(), "{cell}");
     let kept: Vec<(f64, f64)> = f.into_iter().zip(p).filter(|(_, p)| *p >= 1e-6).collect();
@@ -123,10 +137,30 @@ fn published_values_are_the_blog_values() {
     for (i, tag) in TAGS.iter().enumerate() {
         let f = tarr(&d, &format!("published.{tag}_f_ghz"));
         assert_eq!(f, PUBLISHED_F_GHZ[i], "{tag}");
-        close(tf(&d, &format!("published.{tag}_capacitor_length_um")), PUBLISHED_PARAMS_UM[i][0], 0.0, tag);
-        close(tf(&d, &format!("published.{tag}_total_length_um")), PUBLISHED_PARAMS_UM[i][1], 0.0, tag);
-        close(tf(&d, &format!("convergence.{tag}.published_f_q_ghz")), PUBLISHED_F_GHZ[i][0], 0.0, tag);
-        close(tf(&d, &format!("convergence.{tag}.published_f_r_ghz")), PUBLISHED_F_GHZ[i][1], 0.0, tag);
+        close(
+            tf(&d, &format!("published.{tag}_capacitor_length_um")),
+            PUBLISHED_PARAMS_UM[i][0],
+            0.0,
+            tag,
+        );
+        close(
+            tf(&d, &format!("published.{tag}_total_length_um")),
+            PUBLISHED_PARAMS_UM[i][1],
+            0.0,
+            tag,
+        );
+        close(
+            tf(&d, &format!("convergence.{tag}.published_f_q_ghz")),
+            PUBLISHED_F_GHZ[i][0],
+            0.0,
+            tag,
+        );
+        close(
+            tf(&d, &format!("convergence.{tag}.published_f_r_ghz")),
+            PUBLISHED_F_GHZ[i][1],
+            0.0,
+            tag,
+        );
     }
     assert!(tstr(&d, "published.discretization").contains("mesh_order 2, solver_order 2"));
 }
@@ -153,13 +187,33 @@ fn palace_cells_re_read_from_their_raw_outputs() {
         let dl = tstr(&d, &format!("devicelayout_run.{tag}.cell"));
         assert_eq!(dl, format!("dl_{tag}"));
         let ((f0, _), (f1, _)) = palace_raw(dl);
-        close(tf(&d, &format!("devicelayout_run.{tag}.f_q_ghz")), f0, 1e-6, dl);
-        close(tf(&d, &format!("devicelayout_run.{tag}.f_r_ghz")), f1, 1e-6, dl);
+        close(
+            tf(&d, &format!("devicelayout_run.{tag}.f_q_ghz")),
+            f0,
+            1e-6,
+            dl,
+        );
+        close(
+            tf(&d, &format!("devicelayout_run.{tag}.f_r_ghz")),
+            f1,
+            1e-6,
+            dl,
+        );
         let pec = tstr(&d, &format!("devicelayout_run.{tag}.pec_box_cell"));
         assert_eq!(pec, format!("dlpec_{tag}"));
         let ((f0, _), (f1, _)) = palace_raw(pec);
-        close(tf(&d, &format!("devicelayout_run.{tag}.pec_box_f_q_ghz")), f0, 1e-6, pec);
-        close(tf(&d, &format!("devicelayout_run.{tag}.pec_box_f_r_ghz")), f1, 1e-6, pec);
+        close(
+            tf(&d, &format!("devicelayout_run.{tag}.pec_box_f_q_ghz")),
+            f0,
+            1e-6,
+            pec,
+        );
+        close(
+            tf(&d, &format!("devicelayout_run.{tag}.pec_box_f_r_ghz")),
+            f1,
+            1e-6,
+            pec,
+        );
     }
 }
 
@@ -178,7 +232,10 @@ fn geode_runs_re_read_from_their_records() {
             close(fq[i], f[0], 1e-6, label);
             close(fr[i], f[1], 1e-6, label);
             close(pq[i], p[0], 1e-6, label);
-            assert!(p[0] > 0.9 && p[1] < 0.1, "{label}: qubit first, resonator second: {p:?}");
+            assert!(
+                p[0] > 0.9 && p[1] < 0.1,
+                "{label}: qubit first, resonator second: {p:?}"
+            );
         }
     }
 }
@@ -239,8 +296,18 @@ fn convergence_block_re_derives_from_the_levels() {
         close(band_r[1], hi(&all_r), 5e-5, tag);
         let pubq = PUBLISHED_F_GHZ[i][0];
         let pubr = PUBLISHED_F_GHZ[i][1];
-        close(tf(&d, &c("f_q_over_published_pct")), 100.0 * (est_q / pubq - 1.0), 2e-3, tag);
-        close(tf(&d, &c("f_r_over_published_pct")), 100.0 * (est_r / pubr - 1.0), 2e-3, tag);
+        close(
+            tf(&d, &c("f_q_over_published_pct")),
+            100.0 * (est_q / pubq - 1.0),
+            2e-3,
+            tag,
+        );
+        close(
+            tf(&d, &c("f_r_over_published_pct")),
+            100.0 * (est_r / pubr - 1.0),
+            2e-3,
+            tag,
+        );
         let dl = tarr(&d, &c("devicelayout_run_over_published_pct"));
         let dlq = tf(&d, &format!("devicelayout_run.{tag}.f_q_ghz"));
         let dlr = tf(&d, &format!("devicelayout_run.{tag}.f_r_ghz"));
@@ -259,12 +326,21 @@ fn same_mesh_agreement_and_published_reproduction() {
         let gq = tarr(&d, &format!("same_mesh.{tag}.geode_over_palace_f_q_pct"));
         let gr = tarr(&d, &format!("same_mesh.{tag}.geode_over_palace_f_r_pct"));
         for (k, x) in gq.iter().chain(&gr).enumerate() {
-            assert!(x.abs() <= SAME_MESH_MAX_PCT, "{tag} same-mesh entry {k}: {x} %");
+            assert!(
+                x.abs() <= SAME_MESH_MAX_PCT,
+                "{tag} same-mesh entry {k}: {x} %"
+            );
         }
         // Palace at DeviceLayout's own discretization reproduces the blog.
-        let dl = tarr(&d, &format!("convergence.{tag}.devicelayout_run_over_published_pct"));
+        let dl = tarr(
+            &d,
+            &format!("convergence.{tag}.devicelayout_run_over_published_pct"),
+        );
         for x in &dl {
-            assert!(x.abs() <= DL_RUN_MAX_PCT, "{tag}: DeviceLayout run vs published {x} %");
+            assert!(
+                x.abs() <= DL_RUN_MAX_PCT,
+                "{tag}: DeviceLayout run vs published {x} %"
+            );
         }
         // The converged estimate sits above the published pair: the
         // published values are DeviceLayout's discretization, which is
@@ -272,18 +348,31 @@ fn same_mesh_agreement_and_published_reproduction() {
         // margins (rounded inward).
         let q = tf(&d, &format!("convergence.{tag}.f_q_over_published_pct"));
         let r = tf(&d, &format!("convergence.{tag}.f_r_over_published_pct"));
-        assert!(q >= CONVERGED_ABOVE_PUBLISHED_MIN_PCT[i][0], "{tag}: converged f_q vs published {q} %");
-        assert!(r >= CONVERGED_ABOVE_PUBLISHED_MIN_PCT[i][1], "{tag}: converged f_r vs published {r} %");
+        assert!(
+            q >= CONVERGED_ABOVE_PUBLISHED_MIN_PCT[i][0],
+            "{tag}: converged f_q vs published {q} %"
+        );
+        assert!(
+            r >= CONVERGED_ABOVE_PUBLISHED_MIN_PCT[i][1],
+            "{tag}: converged f_r vs published {r} %"
+        );
         let below = tget(&d, &format!("convergence.{tag}.published_below_band"))
             .as_array()
             .unwrap()
             .iter()
             .map(|x| x.as_bool().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(below, vec![true, true], "{tag}: the published pair lies below the band");
+        assert_eq!(
+            below,
+            vec![true, true],
+            "{tag}: the published pair lies below the band"
+        );
         let bq = tarr(&d, &format!("convergence.{tag}.f_q_band_ghz"));
         let br = tarr(&d, &format!("convergence.{tag}.f_r_band_ghz"));
-        assert!(PUBLISHED_F_GHZ[i][0] < bq[0] && PUBLISHED_F_GHZ[i][1] < br[0], "{tag}");
+        assert!(
+            PUBLISHED_F_GHZ[i][0] < bq[0] && PUBLISHED_F_GHZ[i][1] < br[0],
+            "{tag}"
+        );
         // The ladders contract monotonically toward the estimate.
         for key in ["p1_f_q_ghz", "p1_f_r_ghz", "p2_f_q_ghz", "p2_f_r_ghz"] {
             let v = tarr(&d, &format!("convergence.{tag}.{key}"));
@@ -319,20 +408,40 @@ fn static_c_sigma_route_agrees_with_the_eigen_estimate() {
     )
     .unwrap();
     let b: toml::Value = toml::from_str(&text).unwrap();
-    let c = [tf(&b, "bracket_x0_tensor.lower_ff"), tf(&b, "bracket_x0_tensor.upper_ff")];
-    assert_eq!(tarr(&d, "static_cross_check.initial.c_sigma_bracket_ff"), c.to_vec());
+    let c = [
+        tf(&b, "bracket_x0_tensor.lower_ff"),
+        tf(&b, "bracket_x0_tensor.upper_ff"),
+    ];
+    assert_eq!(
+        tarr(&d, "static_cross_check.initial.c_sigma_bracket_ff"),
+        c.to_vec()
+    );
     let fr = tf(&d, "convergence.initial.f_r_ghz");
-    close(tf(&d, "static_cross_check.initial.resonator_f_r_ghz"), fr, 0.0, "f_r");
+    close(
+        tf(&d, "static_cross_check.initial.resonator_f_r_ghz"),
+        fr,
+        0.0,
+        "f_r",
+    );
     let lc = |c_ff: f64, l_s: f64| {
-        harmonic_frequency_hz(JUNCTION_INDUCTANCE_H + l_s, c_ff * 1e-15 + JUNCTION_CAPACITANCE_F)
+        harmonic_frequency_hz(
+            JUNCTION_INDUCTANCE_H + l_s,
+            c_ff * 1e-15 + JUNCTION_CAPACITANCE_F,
+        )
     };
     let lc_only = tarr(&d, "static_cross_check.initial.lc_only_f_q_band_ghz");
     close(lc_only[0], lc(c[1], 0.0) / 1e9, 5e-5, "lc lo");
     close(lc_only[1], lc(c[0], 0.0) / 1e9, 5e-5, "lc hi");
     let mut v = Vec::new();
     for cc in c {
-        for l_s in [DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1] {
-            for k in [DEVICELAYOUT_COUPLING_K_BAND.0, DEVICELAYOUT_COUPLING_K_BAND.1] {
+        for l_s in [
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0,
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1,
+        ] {
+            for k in [
+                DEVICELAYOUT_COUPLING_K_BAND.0,
+                DEVICELAYOUT_COUPLING_K_BAND.1,
+            ] {
                 v.push(coupled_lc_dressed_pair_hz(lc(cc, l_s), fr * 1e9, k).0 / 1e9);
             }
         }
@@ -343,12 +452,29 @@ fn static_c_sigma_route_agrees_with_the_eigen_estimate() {
     close(band[0], lo, 5e-5, "dressed lo");
     close(band[1], hi, 5e-5, "dressed hi");
     let eig = tarr(&d, "convergence.initial.f_q_band_ghz");
-    assert!(eig[0] <= lo && hi <= eig[1], "static {lo}..{hi} inside eigen {eig:?}");
-    assert_eq!(tget(&d, "static_cross_check.initial.inside_eigen_band").as_bool(), Some(true));
+    assert!(
+        eig[0] <= lo && hi <= eig[1],
+        "static {lo}..{hi} inside eigen {eig:?}"
+    );
+    assert_eq!(
+        tget(&d, "static_cross_check.initial.inside_eigen_band").as_bool(),
+        Some(true)
+    );
     let est = tf(&d, "convergence.initial.f_q_ghz");
     let off = 100.0 * (est / (0.5 * (lo + hi)) - 1.0);
-    close(tf(&d, "static_cross_check.initial.eigen_estimate_minus_static_mid_pct"), off, 2e-3, "off");
-    assert!(off.abs() <= STATIC_MAX_PCT, "eigen estimate vs static midpoint {off} %");
+    close(
+        tf(
+            &d,
+            "static_cross_check.initial.eigen_estimate_minus_static_mid_pct",
+        ),
+        off,
+        2e-3,
+        "off",
+    );
+    assert!(
+        off.abs() <= STATIC_MAX_PCT,
+        "eigen estimate vs static midpoint {off} %"
+    );
 }
 
 /// Release tier: one A2 solve of the committed initial order-1 mesh
@@ -374,8 +500,9 @@ fn initial_h_record_reproduces_release() {
     use geode_core::testing::TestBackend as B;
 
     let (f_rec, p_rec) = geode_raw("initial_h");
-    let bytes = std::fs::read(repo().join("reference/fixtures/transmon_devicelayout/initial_o1.msh"))
-        .expect("committed initial order-1 mesh");
+    let bytes =
+        std::fs::read(repo().join("reference/fixtures/transmon_devicelayout/initial_o1.msh"))
+            .expect("committed initial order-1 mesh");
     let fx = read_transmon_fixture_from_bytes(&bytes).expect("mesh");
     let device = <B as BackendTypes>::Device::default();
     let edges = fx.mesh.edges();
@@ -398,7 +525,8 @@ fn initial_h_record_reproduces_release() {
     let exterior = fx.exterior_boundary_triangles();
     let mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
     let jport = fx.lumped_element_port();
-    let element = ReactiveElementNatural::from_si(JUNCTION_INDUCTANCE_H, JUNCTION_CAPACITANCE_F, 1e-6);
+    let element =
+        ReactiveElementNatural::from_si(JUNCTION_INDUCTANCE_H, JUNCTION_CAPACITANCE_F, 1e-6);
     let pencil = TransmonPencil {
         scatter: &scatter,
         k_vals: &k_vals,
