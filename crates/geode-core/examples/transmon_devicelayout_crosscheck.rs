@@ -392,8 +392,7 @@ fn palace_peak_gb(log: &Path) -> f64 {
     let text = fs::read_to_string(log).unwrap_or_else(|e| panic!("{}: {e}", log.display()));
     let line = match text
         .lines()
-        .filter(|l| l.contains("Estimated peak per-node memory usage"))
-        .next_back()
+        .rfind(|l| l.contains("Estimated peak per-node memory usage"))
     {
         Some(l) => l,
         None => return -1.0,

@@ -843,7 +843,7 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
     let _ = writeln!(
         t,
         "err = {}  # sum((f - t)^2 / t^2) / 2",
-        arr(&errs.iter().map(|e| *e).collect::<Vec<_>>(), 9)
+        arr(&errs.to_vec(), 9)
     );
     let _ = writeln!(t, "geode_f_h_q_ghz = {}", col(&|i| geo[i].f[0], 6));
     let _ = writeln!(t, "geode_f_h_r_ghz = {}", col(&|i| geo[i].f[1], 6));
