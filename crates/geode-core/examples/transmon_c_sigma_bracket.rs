@@ -1149,6 +1149,14 @@ struct Target {
     note: &'static str,
 }
 
+/// The three anchors of #1066, #1078 and #1079, each with the band spanned
+/// by the corners of the `k` (and `L_s`) bands through the two-node
+/// `TransmonAnchor` constructors. The bands committed by #1078 / #1079
+/// (`benchmarks/transmon_coupling/results.toml`, `.../transmon_loop_inductance/
+/// results.toml`) also carry the resonator's odd harmonics, which only lower
+/// the band's LOWER edge (to 93.826 / 93.087 fF); the upper edges agree to
+/// 1e-4 fF. An "above" verdict reads only the upper edge, so it is the same
+/// against either band (`tests/transmon_diffopt.rs` checks this).
 fn targets() -> Vec<Target> {
     use geode_core::quantum::transmon::{
         DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
@@ -1199,9 +1207,9 @@ fn targets() -> Vec<Target> {
 fn verdict_toml(t: &mut String, lo: f64, hi: f64, g: &Target) {
     let (b_lo, b_hi) = g.band;
     let v = if hi < b_lo {
-        format!("below by at least {}", floor_fmt(b_lo - hi, 2))
+        format!("below by at least {} fF", floor_fmt(b_lo - hi, 2))
     } else if lo > b_hi {
-        format!("above by at least {}", floor_fmt(lo - b_hi, 2))
+        format!("above by at least {} fF", floor_fmt(lo - b_hi, 2))
     } else if lo <= g.point && g.point <= hi {
         "contains the point".to_string()
     } else {
@@ -1209,7 +1217,7 @@ fn verdict_toml(t: &mut String, lo: f64, hi: f64, g: &Target) {
     };
     let _ = writeln!(
         t,
-        "vs_{} = \"{v} fF\"  # point {:.4} fF, band [{:.4}, {:.4}] fF: {}",
+        "vs_{} = \"{v}\"  # point {:.4} fF, band [{:.4}, {:.4}] fF: {}",
         g.key, g.point, b_lo, b_hi, g.note
     );
 }

@@ -260,6 +260,12 @@ The superseded-target brackets are described under
 [Two-sided bound of the superseded designs](#two-sided-bound-of-the-superseded-designs-1062).
 Whether they contain or miss 89.9 fF says nothing about the current target.
 
+**Permittivity model.** Every bracket in this table uses the scalar,
+trace-averaged sapphire. The anchor comes from Palace with the full tensor.
+The sapphire-tensor brackets of the same three current geometries are in
+[Sapphire tensor (#1091)](#sapphire-tensor-1091): they lie 2.5 to 3.0 % higher,
+and the anchor verdicts change.
+
 ### The re-anchored designs (#1075)
 
 `BRACKET_PART=anchor_93p95` runs the #1062 generator unchanged on the two
@@ -451,6 +457,84 @@ junction (Palace on h/2: 0.093 nH).
   account would lower the target by roughly another 0.5 fF. This is an
   inference on unconverged meshes, and no anchor applies it; see
   `[loop_inductance]` in the artifact and the follow-up #1079.
+
+### Sapphire tensor (#1091)
+
+Every bracket above uses the scalar sapphire `eps = (9.3 + 9.3 + 11.5)/3`.
+DeviceLayout's anchor, and every Palace run, uses the tensor
+`R diag(9.3, 9.3, 11.5) R^T`. A design-against-target verdict needs both on
+the same model.
+
+`BRACKET_PART=tensor` (artifact `../c_sigma_bracket_tensor.toml`) does the
+following:
+- It rebuilds the #1066 meshes from the scalar solves. Every scalar P2 value
+  is asserted against `summary.toml`, so the meshes are the same.
+- It solves the tensor P2 problem on each mesh, with AMG-PCG and the
+  #1061/#1064 guards.
+- It certifies the result with the same equilibrated-flux bound (RT1, RT2
+  and CR at every round, RT3 at round 7).
+- It adds X0 at P2 on the uniform h and h/2 levels.
+
+The certificate carries over to a constant SPD tensor per tetrahedron
+unchanged: the flux norm is `int D.eps^-1 D`. The full derivation is in
+`assembly::electrostatic_dual`, section "Anisotropic permittivity".
+
+**Rotation.** The 36.87 deg `MaterialAxes` rotation is the identity for this
+tensor. It is a rotation about `z`, and the in-plane principal values are
+equal. In `f64`, `sapphire_eps_lab()` equals `diag(9.3, 9.3, 11.5)` exactly.
+The anisotropy that matters is `eps_zz = 11.5` against 9.3 in plane.
+
+**Certified tensor brackets** (rounded outward):
+
+| Geometry | Scalar bracket (fF) | Tensor bracket (fF) | Tensor minus scalar, certified (fF) |
+|---|---|---|---|
+| X0 | [77.40, 77.61] | **[79.56, 79.76]** | [1.95, 2.35] (2.52-3.04 %) |
+| #1066 design | [92.75, 93.00] | **[95.34, 95.58]** | [2.34, 2.82] (2.52-3.04 %) |
+| #1066 resolution-corrected design | [93.89, 94.14] | **[96.51, 96.75]** | [2.37, 2.86] (2.52-3.04 %) |
+
+The certified increments over X0 under the tensor model are [15.58, 16.01] fF
+for the #1066 design and [16.75, 17.18] fF for the corrected one. The scalar
+increments were [15.14, 15.59] and [16.28, 16.73].
+
+**The gap converges.** On every adaptive mesh the tensor value is the larger
+one. The same-mesh relative gap, scalar minus tensor, moves only from -2.70 to
+-2.72 % (round 0) to -2.77 % (round 7) on all three geometries. A fit
+`g_inf + a N^-p` gives `p` = 0.98 to 1.00 in the tet count, with
+`g_inf` = -2.776 % for all three, inside every certified gap. This is an
+estimate.
+
+The drift in the uniform P1 levels of `../c_sigma_convergence.toml`
+(+0.75 / -0.99 / -1.94 %) is a pre-asymptotic effect, not a growing model
+difference. Those meshes are far from converged: the scalar P1 value at h/4
+is 87.75 fF against a converged 77.5 fF. Uniform P2 gives -1.86 % (h) and
+-2.40 % (h/2), approaching the adaptive value.
+
+**Verdicts with the tensor.** Each verdict compares a tensor bracket with the
+whole band of each target, using the bands committed by #1078 and #1079:
+
+| Geometry | Published value 93.954 fF | Bare qubit [93.826, 93.892] | Bare + loop [93.087, 93.222] |
+|---|---|---|---|
+| #1066 design | above by at least 1.38 fF | above by at least 1.44 fF | above by at least 2.11 fF |
+| #1066 resolution-corrected design | above by at least 2.55 fF | above by at least 2.61 fF | above by at least 3.28 fF |
+
+- **The scalar verdicts do not survive.** Under the scalar model, the #1066
+  design was certified below the published-value anchor, and the corrected
+  design contained it.
+- **Under the tensor model, both designs lie above every target band.** The
+  margin is larger than the whole anchor chain (0.100 + 0.711 fF).
+- **Hitting the target with the tensor** would need about 2.6 % less `C_Sigma`
+  than the scalar optimization aimed at.
+- **Band edges.** The artifact quotes narrower bands, built from the corners of
+  the `k` and `L_s` bands without the resonator's odd harmonics. Only their
+  lower edges differ, and an "above" verdict reads only the upper edge, so the
+  margins are the same. The pin test checks this against both committed bands.
+- **These targets read 4.14 GHz as a design target.** #1063 established that
+  4.14 GHz is DeviceLayout's initial-geometry frequency. The verdicts are
+  therefore supporting material, not a headline.
+
+Run: 183 min wall, 31.2 GB peak RSS, local, no cloud. The run shared the host
+with other jobs, at a load average of 40 to 400 on 28 cores. Log:
+`../c_sigma_bracket_tensor.log`.
 
 ## Superseded runs at the mis-derived 89.9 fF anchor (#1056)
 
@@ -799,11 +883,16 @@ The two-sided bounds (#1062, #1075), from the repository root, locally:
 cargo run -p geode-core --release --example transmon_c_sigma_bracket
 BRACKET_PART=anchor_93p95 \
 cargo run -p geode-core --release --example transmon_c_sigma_bracket
+BRACKET_PART=tensor \
+cargo run -p geode-core --release --example transmon_c_sigma_bracket
 ```
 
 The first writes `../c_sigma_bracket.toml` (X0 and the superseded designs,
 102 min, 35.5 GB). The second writes `../c_sigma_bracket_anchor_93p95.toml`
 (the #1066 designs, 64.5 min, 29.6 GB) and reads X0's bracket from the first.
+The third writes `../c_sigma_bracket_tensor.toml` (X0 and the #1066 designs
+with the sapphire tensor, 183 min on a loaded host, 31.2 GB) and reads the
+scalar brackets from the first two.
 
 The held-out series runs seven rounds by default
 (`REFINED_OPT_HELD_OUT_ROUNDS`) and stops before a round above four million

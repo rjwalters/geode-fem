@@ -1,0 +1,156 @@
+# generator commit: e52a6ba9 before the rebase onto main, f17c4e1c after (same generator source)
+# command: BRACKET_PART=tensor RAYON_NUM_THREADS=16 /usr/bin/time -l target/release/examples/transmon_c_sigma_bracket host Mac15,14 28 cores 96 GiB, local, no cloud
+sapphire-tensor X0 uniform P2 (#1091):
+  X0 tensor uniform h/1 P2: 133314 tets, upper 91.717845 fF (scalar - tensor -1.673704 fF, 7.3s)
+    lower eq RT1: 68.797417 fF (penalty 4.58e-10, 4.1s)
+    lower eq RT2: 73.802064 fF (penalty 4.58e-10, 5.7s)
+  X0 tensor uniform h/2 P2: 1066512 tets, upper 85.008425 fF (scalar - tensor -1.993140 fF, 196.0s)
+    lower eq RT1: 73.759463 fF (penalty 8.72e-10, 17.3s)
+    lower eq RT2: 76.309549 fF (penalty 8.72e-10, 89.7s)
+sapphire-tensor adaptive families (#1091), meshes of #1066:
+  prep cycle 0: 133314 tets, P1 137.706752265 fF
+  prep cycle 1: 134561 tets, P1 120.517232349 fF
+  prep cycle 2: 136748 tets, P1 110.852326322 fF
+  prep cycle 3: 145475 tets, P1 104.059201522 fF
+  prep cycle 4: 156376 tets, P1 98.037118612 fF
+  prep cycle 5: 168852 tets, P1 93.608991921 fF
+  prep cycle 6: 186732 tets, P1 90.412188534 fF
+  prep cycle 7: 215663 tets, P1 87.600496060 fF
+  prep cycle 8: 265774 tets, P1 85.432204782 fF
+  prep cycle 9: 336823 tets, P1 83.692085666 fF
+  prep cycle 10: 448279 tets, P1 82.323696618 fF
+  anchor_93p95 round 0: 448279 tets, upper 93.953667887 fF (22.1s)
+  anchor_93p95 round 0 TENSOR: upper 96.495523931 fF (scalar - tensor -2.541856 fF, 23.7s)
+    lower eq RT1: 94.074528 fF (penalty 1.83e-9, 3.4s)
+    lower eq RT2: 94.728639 fF (penalty 1.83e-9, 18.6s)
+    lower CR/RT0: 91.252071 fF (CR energy 91.252073 fF, 877408 free faces, PCG [36, 26], penalty 8.99e-9, 10.0s)
+  X0 on anchor_93p95 round 0: upper 78.387918461 fF
+  X0 on anchor_93p95 round 0 TENSOR: upper 80.516225668 fF (scalar - tensor -2.128307 fF)
+    lower eq RT1: 78.634986 fF (penalty 3.08e-9, 3.3s)
+    lower eq RT2: 79.098345 fF (penalty 3.08e-9, 17.6s)
+  anchor_93p95 round 1: 527959 tets, upper 93.698450413 fF (18.3s)
+  anchor_93p95 round 1 TENSOR: upper 96.249864822 fF (scalar - tensor -2.551414 fF, 18.1s)
+    lower eq RT1: 94.394955 fF (penalty 1.71e-9, 3.9s)
+    lower eq RT2: 94.894806 fF (penalty 1.71e-9, 21.5s)
+    lower CR/RT0: 91.938705 fF (CR energy 91.938706 fF, 1034262 free faces, PCG [40, 29], penalty 8.96e-9, 13.7s)
+  X0 on anchor_93p95 round 1: upper 78.178674518 fF
+  X0 on anchor_93p95 round 1 TENSOR: upper 80.313043904 fF (scalar - tensor -2.134369 fF)
+    lower eq RT1: 78.859570 fF (penalty 2.11e-9, 3.9s)
+    lower eq RT2: 79.221111 fF (penalty 2.11e-9, 22.5s)
+  anchor_93p95 round 2: 683440 tets, upper 93.488379452 fF (25.4s)
+  anchor_93p95 round 2 TENSOR: upper 96.047804323 fF (scalar - tensor -2.559425 fF, 24.8s)
+    lower eq RT1: 94.633972 fF (penalty 3.03e-9, 5.2s)
+    lower eq RT2: 95.017971 fF (penalty 3.03e-9, 27.3s)
+    lower CR/RT0: 92.572704 fF (CR energy 92.572706 fF, 1341233 free faces, PCG [42, 27], penalty 8.65e-9, 18.5s)
+  X0 on anchor_93p95 round 2: upper 78.011681063 fF
+  X0 on anchor_93p95 round 2 TENSOR: upper 80.150814180 fF (scalar - tensor -2.139133 fF)
+    lower eq RT1: 79.034281 fF (penalty 2.15e-9, 5.4s)
+    lower eq RT2: 79.312978 fF (penalty 2.15e-9, 29.1s)
+  anchor_93p95 round 3: 902171 tets, upper 93.332105806 fF (99.0s)
+  anchor_93p95 round 3 TENSOR: upper 95.897505730 fF (scalar - tensor -2.565400 fF, 49.5s)
+    lower eq RT1: 94.812252 fF (penalty 2.28e-9, 8.0s)
+    lower eq RT2: 95.109936 fF (penalty 2.28e-9, 44.3s)
+    lower CR/RT0: 93.076745 fF (CR energy 93.076746 fF, 1773537 free faces, PCG [42, 28], penalty 8.37e-9, 26.2s)
+  X0 on anchor_93p95 round 3: upper 77.882134863 fF
+  X0 on anchor_93p95 round 3 TENSOR: upper 80.024874706 fF (scalar - tensor -2.142740 fF)
+    lower eq RT1: 79.170361 fF (penalty 2.31e-9, 9.8s)
+    lower eq RT2: 79.386970 fF (penalty 2.31e-9, 51.2s)
+  anchor_93p95 round 4: 1250525 tets, upper 93.214010250 fF (69.6s)
+  anchor_93p95 round 4 TENSOR: upper 95.783413689 fF (scalar - tensor -2.569403 fF, 134.4s)
+    lower eq RT1: 94.955397 fF (penalty 4.07e-9, 22.5s)
+    lower eq RT2: 95.182619 fF (penalty 4.07e-9, 100.0s)
+    lower CR/RT0: 93.542678 fF (CR energy 93.542680 fF, 2461991 free faces, PCG [42, 29], penalty 1.30e-8, 56.3s)
+  X0 on anchor_93p95 round 4: upper 77.784537640 fF
+  X0 on anchor_93p95 round 4 TENSOR: upper 79.929824491 fF (scalar - tensor -2.145287 fF)
+    lower eq RT1: 79.274399 fF (penalty 5.32e-9, 24.5s)
+    lower eq RT2: 79.440764 fF (penalty 5.32e-9, 166.9s)
+  anchor_93p95 round 5: 1720753 tets, upper 93.119307099 fF (369.3s)
+  anchor_93p95 round 5 TENSOR: upper 95.692324380 fF (scalar - tensor -2.573017 fF, 87.3s)
+    lower eq RT1: 95.064423 fF (penalty 4.73e-9, 31.3s)
+    lower eq RT2: 95.238640 fF (penalty 4.73e-9, 122.1s)
+    lower CR/RT0: 93.897370 fF (CR energy 93.897372 fF, 3392571 free faces, PCG [44, 29], penalty 1.18e-8, 68.9s)
+  X0 on anchor_93p95 round 5: upper 77.707881808 fF
+  X0 on anchor_93p95 round 5 TENSOR: upper 79.855307884 fF (scalar - tensor -2.147426 fF)
+    lower eq RT1: 79.358202 fF (penalty 3.74e-9, 15.1s)
+    lower eq RT2: 79.485404 fF (penalty 3.74e-9, 86.2s)
+  anchor_93p95 round 6: 2430808 tets, upper 93.052517479 fF (276.2s)
+  anchor_93p95 round 6 TENSOR: upper 95.627938034 fF (scalar - tensor -2.575421 fF, 115.1s)
+    lower eq RT1: 95.142957 fF (penalty 5.77e-9, 16.7s)
+    lower eq RT2: 95.277742 fF (penalty 5.77e-9, 89.3s)
+    lower CR/RT0: 94.192710 fF (CR energy 94.192713 fF, 4797145 free faces, PCG [43, 29], penalty 1.46e-8, 86.1s)
+  X0 on anchor_93p95 round 6: upper 77.651593966 fF
+  X0 on anchor_93p95 round 6 TENSOR: upper 79.800545359 fF (scalar - tensor -2.148951 fF)
+    lower eq RT1: 79.416605 fF (penalty 5.29e-9, 18.1s)
+    lower eq RT2: 79.515529 fF (penalty 5.29e-9, 96.2s)
+  anchor_93p95 round 7: 3388197 tets, upper 92.998560071 fF (194.0s)
+  anchor_93p95 round 7 TENSOR: upper 95.576056689 fF (scalar - tensor -2.577497 fF, 193.7s)
+    lower eq RT1: 95.209242 fF (penalty 5.17e-8, 24.6s)
+    lower eq RT2: 95.311660 fF (penalty 5.17e-8, 123.4s)
+    lower eq RT3: 95.345510 fF (penalty 6.18e-8, 819.8s)
+    lower CR/RT0: 94.430182 fF (CR energy 94.430222 fF, 6692860 free faces, PCG [42, 29], penalty 2.14e-7, 113.2s)
+  X0 on anchor_93p95 round 7: upper 77.607977900 fF
+  X0 on anchor_93p95 round 7 TENSOR: upper 79.758229578 fF (scalar - tensor -2.150252 fF)
+    lower eq RT1: 79.465962 fF (penalty 4.56e-8, 25.4s)
+    lower eq RT2: 79.541449 fF (penalty 4.56e-8, 132.8s)
+    lower eq RT3: 79.566813 fF (penalty 6.27e-8, 722.9s)
+  anchor_93p95_resolution_corrected round 0: 448279 tets, upper 95.113016421 fF (15.8s)
+  anchor_93p95_resolution_corrected round 0 TENSOR: upper 97.685021109 fF (scalar - tensor -2.572005 fF, 18.0s)
+    lower eq RT1: 95.197257 fF (penalty 1.94e-9, 4.1s)
+    lower eq RT2: 95.873820 fF (penalty 1.94e-9, 24.1s)
+    lower CR/RT0: 92.296745 fF (CR energy 92.296746 fF, 877408 free faces, PCG [39, 26], penalty 7.50e-9, 11.9s)
+  anchor_93p95_resolution_corrected round 1: 527565 tets, upper 94.852766291 fF (25.3s)
+  anchor_93p95_resolution_corrected round 1 TENSOR: upper 97.434664698 fF (scalar - tensor -2.581898 fF, 22.3s)
+    lower eq RT1: 95.529062 fF (penalty 2.10e-9, 4.6s)
+    lower eq RT2: 96.045487 fF (penalty 2.10e-9, 26.9s)
+    lower CR/RT0: 93.006302 fF (CR energy 93.006304 fF, 1033516 free faces, PCG [43, 29], penalty 7.75e-9, 15.2s)
+  anchor_93p95_resolution_corrected round 2: 681721 tets, upper 94.637931574 fF (30.2s)
+  anchor_93p95_resolution_corrected round 2 TENSOR: upper 97.228150665 fF (scalar - tensor -2.590219 fF, 26.7s)
+    lower eq RT1: 95.774963 fF (penalty 1.67e-9, 5.2s)
+    lower eq RT2: 96.172132 fF (penalty 1.67e-9, 35.7s)
+    lower CR/RT0: 93.656809 fF (CR energy 93.656810 fF, 1337817 free faces, PCG [44, 29], penalty 6.98e-9, 21.5s)
+  anchor_93p95_resolution_corrected round 3: 900507 tets, upper 94.477742135 fF (44.4s)
+  anchor_93p95_resolution_corrected round 3 TENSOR: upper 97.074129134 fF (scalar - tensor -2.596387 fF, 36.2s)
+    lower eq RT1: 95.960584 fF (penalty 3.84e-9, 6.9s)
+    lower eq RT2: 96.267670 fF (penalty 3.84e-9, 40.1s)
+    lower CR/RT0: 94.179105 fF (CR energy 94.179106 fF, 1770309 free faces, PCG [44, 29], penalty 1.03e-8, 27.3s)
+  anchor_93p95_resolution_corrected round 4: 1248566 tets, upper 94.355732401 fF (59.6s)
+  anchor_93p95_resolution_corrected round 4 TENSOR: upper 96.956387387 fF (scalar - tensor -2.600655 fF, 63.1s)
+    lower eq RT1: 96.109873 fF (penalty 3.16e-9, 9.8s)
+    lower eq RT2: 96.343429 fF (penalty 3.16e-9, 56.6s)
+    lower CR/RT0: 94.658199 fF (CR energy 94.658201 fF, 2458205 free faces, PCG [44, 29], penalty 1.00e-8, 59.7s)
+  anchor_93p95_resolution_corrected round 5: 1723255 tets, upper 94.259622572 fF (125.0s)
+  anchor_93p95_resolution_corrected round 5 TENSOR: upper 96.863982080 fF (scalar - tensor -2.604360 fF, 104.2s)
+    lower eq RT1: 96.220125 fF (penalty 3.20e-9, 15.1s)
+    lower eq RT2: 96.399879 fF (penalty 3.20e-9, 86.9s)
+    lower CR/RT0: 95.023063 fF (CR energy 95.023065 fF, 3397637 free faces, PCG [45, 29], penalty 1.23e-8, 116.3s)
+  anchor_93p95_resolution_corrected round 6: 2433998 tets, upper 94.191268088 fF (322.2s)
+  anchor_93p95_resolution_corrected round 6 TENSOR: upper 96.798124299 fF (scalar - tensor -2.606856 fF, 172.8s)
+    lower eq RT1: 96.302270 fF (penalty 5.52e-9, 28.6s)
+    lower eq RT2: 96.440820 fF (penalty 5.52e-9, 146.6s)
+    lower CR/RT0: 95.327996 fF (CR energy 95.327999 fF, 4803353 free faces, PCG [46, 30], penalty 1.50e-8, 148.3s)
+  anchor_93p95_resolution_corrected round 7: 3395664 tets, upper 94.136103400 fF (360.0s)
+  anchor_93p95_resolution_corrected round 7 TENSOR: upper 96.745109616 fF (scalar - tensor -2.609006 fF, 279.7s)
+    lower eq RT1: 96.370130 fF (penalty 5.29e-8, 32.6s)
+    lower eq RT2: 96.475418 fF (penalty 5.29e-8, 197.4s)
+    lower eq RT3: 96.510119 fF (penalty 6.46e-8, 1106.2s)
+    lower CR/RT0: 95.571412 fF (CR energy 95.571450 fF, 6707731 free faces, PCG [43, 30], penalty 2.00e-7, 191.8s)
+wrote benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml (10986.7 s total)
+    10987.00 real     58639.61 user       883.62 sys
+         31210897408  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            57100111  page reclaims
+                 430  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  37  voluntary context switches
+            54220257  involuntary context switches
+    1056314659842022  instructions retired
+     203793680515144  cycles elapsed
+         27081582512  peak memory footprint
+rc=0
