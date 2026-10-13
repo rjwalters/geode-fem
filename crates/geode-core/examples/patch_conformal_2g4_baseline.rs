@@ -754,15 +754,22 @@ fn main() {
         fs::create_dir_all(p).expect("create output dir");
     }
     fs::write(&out, &t).expect("write baseline toml");
+    // No ISM point on a custom grid: say so instead of printing -inf.
+    let ism = |s: &Summary| {
+        if s.ism_n_points == 0 {
+            "no ISM point".to_string()
+        } else {
+            format!("ISM worst {:.2} dB", s.ism_worst_db)
+        }
+    };
     eprintln!(
-        "flat: dip {:.2} dB at {:.4} GHz, ISM worst {:.2} dB | bent: dip {:.2} dB at {:.4} GHz, \
-         ISM worst {:.2} dB | detune {:+.2} MHz",
+        "flat: dip {:.2} dB at {:.4} GHz, {} | bent: dip {:.2} dB at {:.4} GHz, {} | detune {:+.2} MHz",
         flat_sum.dip_db,
         flat_sum.dip_f_ghz,
-        flat_sum.ism_worst_db,
+        ism(&flat_sum),
         bent_sum.dip_db,
         bent_sum.dip_f_ghz,
-        bent_sum.ism_worst_db,
+        ism(&bent_sum),
         dip_shift * 1e3
     );
     println!("wrote {}", out.display());

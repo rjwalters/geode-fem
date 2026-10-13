@@ -6,7 +6,7 @@
 
 [meta]
 description = "Curved conformal 2.4 GHz patch (issue #1085, conformal v5 E2): mesh-refinement study of the initial (pre-optimization) S11, flat and bent, over the h-ladder L0-L3 at p=1 and p=2 over the coarse levels, at the UPML setting chosen by the sigma_0 x shell ladder; observed convergence order of the |S11| dip frequency and depth, Richardson extrapolation from the finest pair, per-level forward / gradient cost and peak RSS, and the finite-difference gate of the shape gradient."
-generated_at_commit = "9dc5e47219c354c75e9cdc938a9ec71365872b9d"
+generated_at_commit = "d3a5b98e3650a505fa45ff83d96a6c071527dc8e"
 length_unit = "mm"
 frequency_unit = "GHz"
 impedance_unit = "ohm"
@@ -296,6 +296,48 @@ bent_dip_f_shift_mhz = 44.828
 bent_dip_db_change = -2.495
 bent_fixed_ghz_compared = [2.4000, 2.4835]
 bent_max_fixed_s11_change = 2.947923e-1
+
+[gate_g1]
+# Gate G1 (#1083): where does the initial S11 converge? converged = finest p=1 pair moves the dip by less than converged_tol_mhz. The estimate bracket spans the finest computed dip (a lower estimate: every consecutive refinement moves the dip up) to the largest extrapolation (p=1 Richardson at the fitted order; p=2 from its two levels at the p=1 order and at order 2).
+converged_tol_mhz = 1
+band_edge_ghz = 2.4000
+smoke_design_transfer = "not applicable: the -12 dB smoke design (conformal_results.toml) was optimized on curved_smoke, a 16 x 12 mm patch on 2.0 mm FR-4 bent at R = 40 mm with a 14.3-19.1 GHz band (the 2.4 GHz family: 38 x 29 mm on 1.6 mm at R = 100 mm); it has no displacement field on the patch_conformal family to interpolate. The question moves to E4 (re-optimize on L2, verify at L3 and p=2)."
+
+[gate_g1.flat]
+converged = false
+finest_p1_level = "L3"
+finest_p1_dip_f_ghz = 2.343357
+finest_pair_dip_f_change_mhz = 13.517
+p1_order = 1.478
+p1_richardson_dip_f_ghz = 2.370399
+finest_p2_level = "L1"
+finest_p2_dip_f_ghz = 2.358023
+p2_change_mhz = 12.105
+p2_extrapolated_dip_f_ghz_p1_order = 2.370606
+p2_extrapolated_dip_f_ghz_order_2 = 2.366151
+finest_computed_dip_f_ghz = 2.358023
+estimate_bracket_ghz = [2.358023, 2.370606]
+estimate_below_band_mhz = [29.394, 41.977]
+band_edge_s11_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
+band_edge_s11_db = [-1.7930, -3.5495, -4.7327, -6.0740, -6.3101, -8.1998]
+
+[gate_g1.bent]
+converged = false
+finest_p1_level = "L3"
+finest_p1_dip_f_ghz = 2.342186
+finest_pair_dip_f_change_mhz = 13.417
+p1_order = 1.489
+p1_richardson_dip_f_ghz = 2.368792
+finest_p2_level = "L1"
+finest_p2_dip_f_ghz = 2.356643
+p2_change_mhz = 12.307
+p2_extrapolated_dip_f_ghz_p1_order = 2.369309
+p2_extrapolated_dip_f_ghz_order_2 = 2.364906
+finest_computed_dip_f_ghz = 2.356643
+estimate_bracket_ghz = [2.356643, 2.369309]
+estimate_below_band_mhz = [30.691, 43.357]
+band_edge_s11_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
+band_edge_s11_db = [-1.9233, -3.7749, -4.9660, -6.2925, -6.4892, -8.3402]
 
 [detune]
 # bent minus flat dip, per level (MHz) and depth change (dB).

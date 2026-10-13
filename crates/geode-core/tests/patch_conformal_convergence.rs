@@ -677,10 +677,29 @@ fn upml_ladder_is_consistent_and_its_choice_follows_the_rule() {
     let rec = choice["flat_dip_db_sigma_1_vs_25"].as_array().unwrap();
     assert!((num(&rec[0]) - r1.geoms["flat"].2).abs() < 1e-3);
     assert!((num(&rec[1]) - r25.geoms["flat"].2).abs() < 1e-3);
-    // The chosen setting is stationary: well inside the ladder's full span.
+    // The chosen setting is stationary. Its σ₀ part (the change to the
+    // neighbouring σ₀ on the same shell) is a small fraction of the ladder's
+    // full span; the rest of its residual is the shell resolution
+    // (lc_pml 5 mm), which no σ₀ removes. And it is at least twice as
+    // stationary as the large-σ₀ end of the ladder (σ₀ = 8, 25).
+    let span = num(&choice["ladder_span_s11"]);
+    let chosen_row = sens.iter().find(|r| num(&r["sigma_0"]) == expect).unwrap();
+    let sigma_part = ["d_s11_lower_sigma", "d_s11_upper_sigma"]
+        .iter()
+        .filter_map(|k| chosen_row.get(*k).map(num))
+        .fold(0.0_f64, f64::max);
     assert!(
-        num(&choice["residual_sensitivity_s11"]) < 0.25 * num(&choice["ladder_span_s11"]),
-        "chosen sigma_0 is not clearly more stationary than the ladder span"
+        sigma_part < 0.1 * span,
+        "chosen sigma_0: neighbour change {sigma_part} vs ladder span {span}"
+    );
+    let large = scores
+        .iter()
+        .filter(|s| s.0 >= 8.0)
+        .map(|s| s.1)
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        chosen_score < 0.5 * large,
+        "chosen sigma_0 is not clearly more stationary than sigma_0 >= 8 ({chosen_score} vs {large})"
     );
 }
 
@@ -801,10 +820,11 @@ fn per_level_dip_artifacts_are_consistent() {
                 min_db = min_db.min(num(&r["s11_db"]));
             }
             assert!(
-                db_dip <= min_db + 1e-6 && db_dip > min_db - 1.0,
+                db_dip <= min_db + 1e-4 && db_dip > min_db - 1.0,
                 "{lv}/{g}: dip {db_dip} dB vs sampled minimum {min_db}"
             );
-            assert!((num(&dip["sampled_s11_db"]) - min_db).abs() < 1e-6);
+            // sampled_s11_db is written to 4 decimals.
+            assert!((num(&dip["sampled_s11_db"]) - min_db).abs() < 1e-4);
             // The golden-section search converged to its tolerance.
             let tol = num(&meta["dip_tol_mhz"]) * 1e-3;
             let pts: Vec<f64> = d["points"][g]
@@ -851,7 +871,8 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
         let n_dofs = d["meta"]["n_dofs"].as_integer().unwrap() as f64;
         let h = n_dofs.powf(-1.0 / 3.0);
         let key = format!("{lv}_p1");
-        assert!((num(&doc["levels"][&key]["h_proxy"]) - h).abs() < 1e-9 * h);
+        // h_proxy is written to 7 significant digits.
+        assert!((num(&doc["levels"][&key]["h_proxy"]) - h).abs() < 1e-6 * h);
         hs.push(h);
         for g in ["flat", "bent"] {
             if d["dip"].get(g).is_none() {
@@ -1081,7 +1102,10 @@ fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
         // Re-derivation.
         let change = (fs[n - 1] - fs[n - 2]) * 1e3;
         assert!((num(&r["finest_pair_dip_f_change_mhz"]) - change).abs() < 1e-3);
-        let order = num(&r["p1_order"]);
+        // The order is re-fitted here (the artifact rounds it to 3 decimals,
+        // which the extrapolation amplifies past the comparison tolerance).
+        let order = observed_order(&hs, &fs).max(0.5);
+        assert!((num(&r["p1_order"]) - order).abs() < 1e-3);
         assert!((order - num(&doc["order"][g]["dip_f_order"]).max(0.5)).abs() < 1e-3);
         let rich = extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], order);
         assert!(
