@@ -971,7 +971,13 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
             // rounding (it dominates once the FD agreement reaches 1e-6).
             assert!((rel - num(&d["rel_err"])).abs() < 1e-9 + 1e-6 * rel);
             assert!(rel < tol, "{lv}: direction rel {rel} >= {tol}");
-            assert!((num(&d["g_plus"]) - num(&d["g_minus"])) / (2.0 * num(&d["step"])) - c < 1e-12);
+            // g± are written to 13 significant digits: the central difference
+            // re-derives to ~5e-10 absolute at step 1e-4.
+            let central = (num(&d["g_plus"]) - num(&d["g_minus"])) / (2.0 * num(&d["step"]));
+            assert!(
+                (central - c).abs() < 1e-9,
+                "{lv}: central difference {central} vs {c}"
+            );
             assert!(num(&d["min_vol_ratio"]) > 0.9);
             max_rel = max_rel.max(rel);
         }
