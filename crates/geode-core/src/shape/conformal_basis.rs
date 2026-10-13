@@ -976,7 +976,10 @@ mod tests {
             // must equal r / R > 0.
             let dp = [r / 100.0 * phi.cos(), 0.0, -r / 100.0 * phi.sin()];
             let along = ts[0] * dp[0] + ts[1] * dp[1] + ts[2] * dp[2];
-            assert!((along - r / 100.0).abs() < 1e-12, "tangent_s sign at phi = {phi}");
+            assert!(
+                (along - r / 100.0).abs() < 1e-12,
+                "tangent_s sign at phi = {phi}"
+            );
             // At phi = 0 (the (0.0, 2.0, 1.2) sample) it is +x.
             if phi.abs() < 1e-12 {
                 assert!(ts[0] > 0.0);
