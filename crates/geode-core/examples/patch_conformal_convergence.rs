@@ -1930,6 +1930,9 @@ struct LevelRow {
     solve_s_mean: f64,
     first_rss: f64,
     peak_rss: f64,
+    /// The level artifact's `[meta].host` (the levels of one study may be
+    /// run on different machines).
+    host: String,
 }
 
 fn load_level(path: &Path) -> LevelRow {
@@ -1980,6 +1983,7 @@ fn load_level(path: &Path) -> LevelRow {
         solve_s_mean: num(&doc["cost"]["solve_s_mean"]),
         first_rss: num(&doc["cost"]["first_solve_peak_rss_gib"]),
         peak_rss: num(&doc["cost"]["peak_rss_gib"]),
+        host: meta["host"].as_str().unwrap_or("unrecorded").to_string(),
     }
 }
 
@@ -2370,15 +2374,16 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
          gradient_s: one band gradient = per band frequency one forward + one adjoint on a single LU \
          (3 frequencies). total_s = forward_solve_s + gradient_s. RSS: max of ps -o rss= samples.\n",
     );
-    let _ = writeln!(
-        t,
-        "host = \"{}\"",
-        std::env::var("PATCH_CONFORMAL_HOST").unwrap_or_else(|_| "unrecorded".into())
+    t.push_str(
+        "# host: per level, from the level artifact (the study's levels may be run on different \
+         machines; the FD/gradient host is the fd_*.toml's). Wall-clock is comparable within a \
+         host only.\n",
     );
     t.push('\n');
     for r in levels.iter().chain(p2_rows.iter()) {
         let key = format!("{}_{}", r.name, r.order);
         let _ = writeln!(t, "[cost.{key}]");
+        let _ = writeln!(t, "host = \"{}\"", r.host.replace('"', "'"));
         let _ = writeln!(t, "n_dofs = {}", r.n_dofs);
         let _ = writeln!(t, "forward_solve_s = {:.3}", r.solve_s_mean);
         let _ = writeln!(t, "first_solve_peak_rss_gib = {:.3}", r.first_rss);
@@ -2388,6 +2393,14 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
             .find(|(lv, _)| *lv == r.name && r.order == "p1")
         {
             let gs = num(&fd["gradient"]["wall_s"]);
+            let _ = writeln!(
+                t,
+                "gradient_host = \"{}\"",
+                fd["meta"]["host"]
+                    .as_str()
+                    .unwrap_or("unrecorded")
+                    .replace('"', "'")
+            );
             let _ = writeln!(t, "gradient_s = {gs:.3}");
             let _ = writeln!(
                 t,
