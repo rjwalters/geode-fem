@@ -20,14 +20,19 @@
 //!   error it is compared with;
 //! * `benchmarks/patch_antenna_conformal/convergence.toml` is consistent
 //!   with the per-level `convergence/dip_*.toml` and `fd_*.toml` artifacts,
-//!   its observed orders are re-derived here, the FD gate passes, every level
-//!   ran at the chosen σ₀, and the finest pair of the h-ladder brackets the
-//!   bent dip to the stated tolerance;
+//!   its local three-level orders (and reference least-squares slopes) are
+//!   re-derived here, the FD gate passes, every level ran at the chosen σ₀,
+//!   and the finest pair of the h-ladder moves the bent dip by less than
+//!   the stated tolerance;
 //! * gate G1 (`[gate_g1]`) re-derives from the S11 table, and the study's
-//!   answer is pinned: the dip is not converged to 1 MHz at L3, it rises
-//!   monotonically under h- and p-refinement, every extrapolation puts it
-//!   20-45 MHz below the ISM band, and the band-edge S11 the coarse levels
-//!   report is too pessimistic (it improves with every refinement).
+//!   answer is pinned: the dip is not converged to 1 MHz at L3; it rises
+//!   monotonically under h- and p-refinement, so the finest computed dip
+//!   (p = 2 on L1) is a lower bound; the local order falls along the ladder,
+//!   so the upper end is order-dependent and undetermined (the order-1
+//!   extrapolations stay below the band, the finest-triple one reaches it);
+//!   L0 / L1 sit at least 85 / 44 MHz below the converged dip; and the
+//!   band-edge S11 the coarse levels report is too pessimistic (it improves
+//!   with every refinement).
 //!
 //! The regenerated meshes themselves are not committed; set
 //! `PATCH_CONFORMAL_L2=/path/to/patch_conformal_L2.msh` (likewise `_L3`,
@@ -680,8 +685,11 @@ fn upml_ladder_is_consistent_and_its_choice_follows_the_rule() {
     // The chosen setting is stationary. Its σ₀ part (the change to the
     // neighbouring σ₀ on the same shell) is a small fraction of the ladder's
     // full span; the rest of its residual is the shell resolution
-    // (lc_pml 5 mm), which no σ₀ removes. And it is at least twice as
-    // stationary as the large-σ₀ end of the ladder (σ₀ = 8, 25).
+    // (lc_pml 5 mm), which no σ₀ removes. And its score is under half the
+    // best score at the large-σ₀ end (σ₀ = 8, 25). Those two scores are
+    // identical: both are set by the same σ₀ = 8 ↔ 25 neighbour change, so
+    // this compares against that one step (against the finer shell alone,
+    // σ₀ = 8 and 25 are 1.5× and 1.9× the chosen score).
     let span = num(&choice["ladder_span_s11"]);
     let chosen_row = sens.iter().find(|r| num(&r["sigma_0"]) == expect).unwrap();
     let sigma_part = ["d_s11_lower_sigma", "d_s11_upper_sigma"]
@@ -714,7 +722,9 @@ fn level_doc(level: &str, p2: bool) -> toml::Value {
     ))
 }
 
-fn observed_order(h: &[f64], q: &[f64]) -> f64 {
+/// Least-squares slope of log|q_L − q_(L+1)| against log h_L (the
+/// artifact's `*_ls_slope`, reference only).
+fn ls_slope(h: &[f64], q: &[f64]) -> f64 {
     let mut xs = Vec::new();
     let mut ys = Vec::new();
     for i in 0..h.len() - 1 {
@@ -727,6 +737,75 @@ fn observed_order(h: &[f64], q: &[f64]) -> f64 {
     let sxx: f64 = xs.iter().map(|x| (x - mx) * (x - mx)).sum();
     let sxy: f64 = xs.iter().zip(&ys).map(|(x, y)| (x - mx) * (y - my)).sum();
     sxy / sxx
+}
+
+/// Local order of a level triple `h0 > h1 > h2` from its consecutive
+/// differences: the `p` with `d0 / d1 = (h0^p − h1^p) / (h1^p − h2^p)`,
+/// re-derived here by bisection on [1e-6, 20]; `None` when the differences
+/// change sign or no positive order fits.
+fn local_order(h: [f64; 3], d0: f64, d1: f64) -> Option<f64> {
+    if d0 == 0.0 || d1 == 0.0 || (d0 > 0.0) != (d1 > 0.0) {
+        return None;
+    }
+    let g = |p: f64| (h[0].powf(p) - h[1].powf(p)) / (h[1].powf(p) - h[2].powf(p)) - d0 / d1;
+    let (mut lo, mut hi) = (1e-6_f64, 20.0_f64);
+    if g(lo) >= 0.0 || g(hi) <= 0.0 {
+        return None;
+    }
+    for _ in 0..200 {
+        let m = 0.5 * (lo + hi);
+        if g(m) < 0.0 {
+            lo = m;
+        } else {
+            hi = m;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
+/// Re-derive `<key>_local_order` (one entry per consecutive triple of
+/// `names`, or the triple listed in `<key>_local_order_undetermined`) from
+/// the consecutive differences `d`, and return the re-derived orders.
+fn check_local_orders(
+    o: &toml::Value,
+    key: &str,
+    names: &[String],
+    h: &[f64],
+    d: &[f64],
+) -> Vec<Option<f64>> {
+    let table = o[format!("{key}_local_order")].as_table().unwrap();
+    let und: Vec<String> = o
+        .get(format!("{key}_local_order_undetermined"))
+        .map(|v| {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for i in 0..names.len().saturating_sub(2) {
+        let tri = names[i..i + 3].join("_");
+        let p = local_order([h[i], h[i + 1], h[i + 2]], d[i], d[i + 1]);
+        match p {
+            Some(p) => {
+                let got = num(table.get(&tri).unwrap_or_else(|| panic!("{key}: no {tri}")));
+                assert!((got - p).abs() < 1e-3, "{key} {tri}: {got} vs {p}");
+                assert!(!und.contains(&tri));
+            }
+            None => {
+                assert!(
+                    table.get(&tri).is_none(),
+                    "{key} {tri}: order where none fits"
+                );
+                assert!(und.contains(&tri), "{key} {tri}: not listed undetermined");
+            }
+        }
+        out.push(p);
+    }
+    assert_eq!(table.len() + und.len(), out.len(), "{key}: extra triples");
+    out
 }
 
 /// Every per-level `dip_*.toml` is internally consistent: S11 against Z_in,
@@ -906,32 +985,38 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
         assert!((num(&cost["forward_solve_s"]) - num(&d["cost"]["solve_s_mean"])).abs() < 1e-6);
         assert!(num(&cost["forward_peak_rss_gib"]) > 0.0);
     }
-    // Monotone h and the re-derived orders.
+    // Monotone h, the refinement ratios and the re-derived orders.
     for w in hs.windows(2) {
         assert!(w[1] < w[0], "h not decreasing: {hs:?}");
     }
+    let ratios: Vec<f64> = doc["order"]["h_ratios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(num)
+        .collect();
+    assert_eq!(ratios.len(), hs.len() - 1);
+    for (r, w) in ratios.iter().zip(hs.windows(2)) {
+        assert!((r - w[0] / w[1]).abs() < 1e-4, "h ratio {r}");
+    }
+    let diffs = |q: &[f64]| -> Vec<f64> { q.windows(2).map(|w| w[0] - w[1]).collect() };
     for (g, (fs, dbs)) in &dips {
         if fs.len() != hs.len() {
             continue; // a geometry not run on every level has no order row
         }
         let o = &doc["order"][g];
-        let p_f = observed_order(&hs, fs);
-        let p_db = observed_order(&hs, dbs);
+        check_local_orders(o, "dip_f", &p1, &hs, &diffs(fs));
+        check_local_orders(o, "dip_db", &p1, &hs, &diffs(dbs));
         assert!(
-            (num(&o["dip_f_order"]) - p_f).abs() < 1e-3,
-            "{g}: dip_f_order"
+            (num(&o["dip_f_ls_slope"]) - ls_slope(&hs, fs)).abs() < 1e-3,
+            "{g}: dip_f_ls_slope"
         );
         assert!(
-            (num(&o["dip_db_order"]) - p_db).abs() < 1e-3,
-            "{g}: dip_db_order"
+            (num(&o["dip_db_ls_slope"]) - ls_slope(&hs, dbs)).abs() < 1e-3,
+            "{g}: dip_db_ls_slope"
         );
+        assert!(o.get("dip_f_extrapolated_ghz").is_none());
         let n = hs.len();
-        let p = p_f.max(0.5);
-        let ext = fs[n - 1] + (fs[n - 1] - fs[n - 2]) / ((hs[n - 2] / hs[n - 1]).powf(p) - 1.0);
-        assert!(
-            (num(&o["dip_f_extrapolated_ghz"]) - ext).abs() < 1e-6,
-            "{g}: extrapolation"
-        );
         assert!(
             (num(&o["finest_pair_dip_f_change_mhz"]) - (fs[n - 1] - fs[n - 2]) * 1e3).abs() < 1e-3
         );
@@ -1031,10 +1116,11 @@ fn bent_dip_converges_along_the_ladder() {
     // E2 tolerance: the finest pair moves the dip by less than a quarter of
     // the 83.5 MHz ISM band width.
     assert!(finest < 0.25 * 83.5, "finest-pair dip change {finest} MHz");
-    assert!(
-        num(&o["dip_f_order"]) > 0.0,
-        "no convergence in the dip frequency"
-    );
+    // Every level triple has a positive local order (the changes keep
+    // one sign and shrink faster than h^0+ would allow).
+    let lo = o["dip_f_local_order"].as_table().unwrap();
+    assert_eq!(lo.len(), fs.len() - 2, "undetermined dip_f triple: {lo:?}");
+    assert!(lo.values().all(|p| num(p) > 0.0), "{lo:?}");
     // The dip stays below the band on every level, and its depth is in the
     // matched regime on every level finer than L0.
     for (lv, (f, db)) in fs.iter().zip(&dbs).enumerate() {
@@ -1095,7 +1181,16 @@ fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
     let p2 = strs(&doc["meta"]["levels_p2"]);
     assert_eq!(p1, ["L0", "L1", "L2", "L3"]);
     assert_eq!(p2, ["L0", "L1"]);
-    let h = |lv: &str, o: &str| num(&doc["levels"][format!("{lv}_{o}")]["h_proxy"]);
+    // h from the DOF count, unrounded: at the finest-triple order (~0.5)
+    // the extrapolation amplifies the 7-digit rounding of h_proxy past the
+    // comparison tolerance. (h_proxy itself is checked against n_dofs in
+    // `convergence_table_is_consistent_with_level_artifacts_and_gates_pass`.)
+    let h = |lv: &str, o: &str| {
+        let n = doc["levels"][format!("{lv}_{o}")]["n_dofs"]
+            .as_integer()
+            .unwrap() as f64;
+        n.powf(-1.0 / 3.0)
+    };
     for g in ["flat", "bent"] {
         let r = &g1[g];
         let fs: Vec<f64> = p1
@@ -1111,34 +1206,84 @@ fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
         // Re-derivation.
         let change = (fs[n - 1] - fs[n - 2]) * 1e3;
         assert!((num(&r["finest_pair_dip_f_change_mhz"]) - change).abs() < 1e-3);
-        // The order is re-fitted here (the artifact rounds it to 3 decimals,
-        // which the extrapolation amplifies past the comparison tolerance).
-        let order = observed_order(&hs, &fs).max(0.5);
-        assert!((num(&r["p1_order"]) - order).abs() < 1e-3);
-        assert!((order - num(&doc["order"][g]["dip_f_order"]).max(0.5)).abs() < 1e-3);
-        let rich = extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], order);
-        assert!(
-            (num(&r["p1_richardson_dip_f_ghz"]) - rich).abs() < 2e-6,
-            "{g}: p1 Richardson"
+        let d: Vec<f64> = fs.windows(2).map(|w| w[0] - w[1]).collect();
+        let orders = check_local_orders(r, "p1", &p1, &hs, &d);
+        let slope = ls_slope(&hs, &fs);
+        assert!((num(&r["p1_ls_slope"]) - slope).abs() < 1e-3);
+        assert!((num(&doc["order"][g]["dip_f_ls_slope"]) - slope).abs() < 1e-3);
+        let finest_local = orders
+            .last()
+            .copied()
+            .flatten()
+            .expect("finest-triple order");
+        // The extrapolation orders are 1, the finest-triple local order and
+        // the LS slope, in that order. They are re-derived here unrounded
+        // (the artifact writes them to 3 decimals, which the extrapolation
+        // amplifies past the comparison tolerance).
+        assert_eq!(
+            strs(&r["extrapolation_order_labels"]),
+            ["order_1", "finest_triple_local_order", "ls_slope"]
         );
-        let (hc, hf) = (h("L0", "p2"), h("L1", "p2"));
-        let e1 = extrapolate(hc, hf, f2[0], f2[1], order);
-        let e2 = extrapolate(hc, hf, f2[0], f2[1], 2.0);
-        assert!((num(&r["p2_extrapolated_dip_f_ghz_p1_order"]) - e1).abs() < 2e-6);
-        assert!((num(&r["p2_extrapolated_dip_f_ghz_order_2"]) - e2).abs() < 2e-6);
-        let finest = fs[n - 1].max(f2[1]);
-        assert!((num(&r["finest_computed_dip_f_ghz"]) - finest).abs() < 1e-6);
-        let br: Vec<f64> = r["estimate_bracket_ghz"]
+        let ps = [1.0, finest_local, slope];
+        let ps_rec: Vec<f64> = r["extrapolation_orders"]
             .as_array()
             .unwrap()
             .iter()
             .map(num)
             .collect();
-        let hi = [rich, e1, e2].into_iter().fold(finest, f64::max);
-        assert!(
-            (br[0] - finest).abs() < 1e-6 && (br[1] - hi).abs() < 1e-6,
-            "{g}: bracket"
+        for (a, b) in ps_rec.iter().zip(&ps) {
+            assert!((a - b).abs() < 1e-3, "{g}: extrapolation order {a} vs {b}");
+        }
+        let (hc, hf) = (h("L0", "p2"), h("L1", "p2"));
+        let p1_ex: Vec<f64> = ps
+            .iter()
+            .map(|&p| extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], p))
+            .collect();
+        let p2_ex: Vec<f64> = ps
+            .iter()
+            .map(|&p| extrapolate(hc, hf, f2[0], f2[1], p))
+            .collect();
+        let rec = |k: &str| -> Vec<f64> { r[k].as_array().unwrap().iter().map(num).collect() };
+        for (k, want) in [
+            ("p1_extrapolated_dip_f_ghz", &p1_ex),
+            ("p2_extrapolated_dip_f_ghz", &p2_ex),
+        ] {
+            let got = rec(k);
+            assert_eq!(got.len(), 3, "{g}: {k}");
+            for (a, b) in got.iter().zip(want.iter()) {
+                assert!((a - b).abs() < 2e-6, "{g}: {k} {a} vs {b}");
+            }
+        }
+        let finest = fs[n - 1].max(f2[1]);
+        assert!((num(&r["lower_bound_dip_f_ghz"]) - finest).abs() < 1e-6);
+        let below = num(&r["lower_bound_below_band_mhz"]);
+        assert!((below - (edge - finest) * 1e3).abs() < 1e-3);
+        let all_ex: Vec<f64> = p1_ex.iter().chain(&p2_ex).copied().collect();
+        let (lo_ex, hi_ex) = (
+            all_ex.iter().copied().fold(f64::INFINITY, f64::min),
+            all_ex.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         );
+        let range = rec("extrapolation_range_ghz");
+        assert!(
+            (range[0] - lo_ex).abs() < 2e-6 && (range[1] - hi_ex).abs() < 2e-6,
+            "{g}: extrapolation range {range:?}"
+        );
+        assert_eq!(
+            r["extrapolation_reaches_band"].as_bool(),
+            Some(hi_ex >= edge)
+        );
+        assert_eq!(r["upper_end_determined"].as_bool(), Some(false));
+        assert_eq!(
+            strs(&r["level_dip_levels"]),
+            ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
+        );
+        let short = rec("level_dip_below_lower_bound_mhz");
+        for (s, f) in short.iter().zip(fs.iter().chain(&f2)) {
+            assert!(
+                (s - (finest - f) * 1e3).abs() < 1e-3,
+                "{g}: level shortfall"
+            );
+        }
         assert_eq!(r["converged"].as_bool(), Some(change.abs() < tol_mhz));
 
         // The study's answer, pinned.
@@ -1154,7 +1299,9 @@ fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
             "{g}: finest-pair change {change} MHz"
         );
         // (2) Monotone from below under h- and p-refinement, and p=2 on L1
-        //     already lies past the finest p=1 level.
+        //     already lies past the finest p=1 level: p=2 on L1 is the lower
+        //     bound, 40-45 MHz below the band, and L0 / L1 at p=1 sit at
+        //     least 84 / 44 MHz below the converged dip.
         for w in fs.windows(2) {
             assert!(w[1] > w[0], "{g}: p=1 dip not rising: {fs:?}");
         }
@@ -1162,28 +1309,44 @@ fn gate_g1_rederives_and_pins_where_the_initial_s11_converges() {
             f2[1] > f2[0] && f2[1] > fs[n - 1],
             "{g}: p=2 {f2:?} vs p=1 {fs:?}"
         );
-        // (3) The independent extrapolations agree to 10 MHz and put the
-        //     converged dip 20-45 MHz below the lower band edge.
-        let ex = [rich, e1, e2];
-        let spread = ex.iter().copied().fold(f64::MIN, f64::max)
-            - ex.iter().copied().fold(f64::MAX, f64::min);
+        assert_eq!(finest, f2[1]);
         assert!(
-            spread * 1e3 < 10.0,
-            "{g}: extrapolations spread {} MHz",
-            spread * 1e3
+            (40.0..45.0).contains(&below),
+            "{g}: lower bound {below} MHz below the band"
         );
-        assert!(br[1] < edge, "{g}: estimate reaches the band");
-        let below: Vec<f64> = r["estimate_below_band_mhz"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(num)
-            .collect();
-        assert!((below[0] - (edge - br[1]) * 1e3).abs() < 1e-3);
-        assert!((below[1] - (edge - br[0]) * 1e3).abs() < 1e-3);
         assert!(
-            below[0] > 20.0 && below[1] < 45.0,
-            "{g}: below band {below:?} MHz"
+            short[0] > 84.0 && short[1] > 44.0,
+            "{g}: L0 / L1 shortfall {short:?} MHz"
+        );
+        // (3) The ladder is not asymptotic: the local order falls from
+        //     L0-L1-L2 (about 1.2) to L1-L2-L3 (about 0.5), so the upper end
+        //     depends on the order assumed. At order 1 (the patch-edge
+        //     singularity rate) both extrapolations stay below the band, 10-25
+        //     MHz under it; at the finest-triple order the p=1 extrapolation
+        //     reaches the band. The extrapolations disagree by more than 40
+        //     MHz, so their spread is no convergence evidence.
+        let o0 = orders[0].expect("L0-L1-L2 order");
+        assert!(
+            o0 > 1.0 && finest_local < 0.6,
+            "{g}: local orders {orders:?}"
+        );
+        assert_eq!(r["p1_local_order_falling"].as_bool(), Some(true));
+        for e in [p1_ex[0], p2_ex[0]] {
+            let gap = (edge - e) * 1e3;
+            assert!(
+                e > finest && (10.0..25.0).contains(&gap),
+                "{g}: order-1 extrapolation {e} GHz ({gap} MHz below the band)"
+            );
+        }
+        assert!(
+            p1_ex[1] >= edge && hi_ex >= edge,
+            "{g}: finest-triple extrapolation {} GHz",
+            p1_ex[1]
+        );
+        assert!(
+            (hi_ex - lo_ex) * 1e3 > 40.0,
+            "{g}: extrapolations agree to {} MHz",
+            (hi_ex - lo_ex) * 1e3
         );
         // (4) |S11| at the band edge improves with every refinement step,
         //     from about -1.9 dB on L0 to below -8 dB with p=2 on L1.

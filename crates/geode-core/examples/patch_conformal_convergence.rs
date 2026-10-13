@@ -51,10 +51,13 @@
 //!   chosen (most stationary) σ₀ with its residual sensitivity.
 //! * **`aggregate`** — collects the `dip_*.toml` / `fd_*.toml` level
 //!   artifacts, the dense baselines and the ladder into `convergence.toml`:
-//!   the S₁₁ convergence table, the observed convergence order of the dip
-//!   frequency and depth (least-squares slope of consecutive differences
-//!   against the DOF-based `h ∝ N⁻¹ᐟ³`), the Richardson extrapolation from
-//!   the finest pair, the per-level cost table and the FD gate.
+//!   the S₁₁ convergence table, the local three-level convergence orders of
+//!   the dip frequency and depth (each consecutive level triple solved
+//!   exactly for its order against the DOF-based `h ∝ N⁻¹ᐟ³`, which allows
+//!   the unequal refinement ratios of the ladder; the least-squares log-log
+//!   slope is kept for reference only), gate G1 with its lower bound and
+//!   order-dependent Richardson extrapolations, the per-level cost table and
+//!   the FD gate.
 //!
 //! # Units
 //!
@@ -242,8 +245,13 @@ fn load(bent_path: &Path) -> Loaded {
         .unwrap_or_else(|e| panic!("read provenance {}: {e}", prov_path.display()));
     let bent_bytes =
         fs::read(bent_path).unwrap_or_else(|e| panic!("read {}: {e}", bent_path.display()));
-    let flat_bytes =
-        fs::read(&flat_path).unwrap_or_else(|e| panic!("read {}: {e}", flat_path.display()));
+    let flat_bytes = fs::read(&flat_path).unwrap_or_else(|e| {
+        panic!(
+            "read {}: {e} (the flat companion is not committed; regenerate the level from its \
+             YAML with reference/gmsh/generate_patch_fixture.py, which writes both meshes)",
+            flat_path.display()
+        )
+    });
     let bent_sha = sha256_hex(&bent_bytes);
     let flat_sha = sha256_hex(&flat_bytes);
     assert_eq!(
@@ -2027,7 +2035,12 @@ fn load_level(path: &Path) -> LevelRow {
 /// Least-squares slope of `log|q_i − q_{i+1}|` against `log h_i` over the
 /// consecutive pairs of an h-sequence (finest last); `None` with fewer than
 /// two pairs or a vanishing difference.
-fn observed_order(h: &[f64], q: &[f64]) -> Option<f64> {
+///
+/// Reference only. The slope is an order estimate when the refinement
+/// ratio is constant; the ladder's h ratios (1.57, 1.35, 1.32) are not, and
+/// the large first ratio inflates it. [`local_order`] is the estimate the
+/// study uses.
+fn ls_slope(h: &[f64], q: &[f64]) -> Option<f64> {
     if h.len() < 3 {
         return None;
     }
@@ -2049,6 +2062,91 @@ fn observed_order(h: &[f64], q: &[f64]) -> Option<f64> {
     Some(sxy / sxx)
 }
 
+/// Local convergence order of one level triple `h0 > h1 > h2` from its two
+/// consecutive differences `d0 = q0 − q1`, `d1 = q1 − q2`: the `p` solving
+/// `d0 / d1 = (h0^p − h1^p) / (h1^p − h2^p)`, i.e. the order at which
+/// `q = q* + C h^p` passes through all three levels. Unlike a log-log
+/// slope this holds for unequal refinement ratios. `None` when the
+/// differences vanish or change sign, or when their ratio is at or below
+/// the `p → 0` limit `ln(h0/h1) / ln(h1/h2)` (no positive order fits).
+fn local_order_from_diffs(h: [f64; 3], d0: f64, d1: f64) -> Option<f64> {
+    if d0 == 0.0 || d1 == 0.0 || d0.signum() != d1.signum() {
+        return None;
+    }
+    let r = d0 / d1;
+    let g = |p: f64| (h[0].powf(p) - h[1].powf(p)) / (h[1].powf(p) - h[2].powf(p)) - r;
+    let (mut lo, mut hi) = (1e-6_f64, 20.0_f64);
+    if g(lo) >= 0.0 || g(hi) <= 0.0 {
+        return None;
+    }
+    for _ in 0..200 {
+        let m = 0.5 * (lo + hi);
+        if g(m) < 0.0 {
+            lo = m;
+        } else {
+            hi = m;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
+/// [`local_order_from_diffs`] of every consecutive level triple of a
+/// scalar sequence (coarsest first).
+fn local_orders(h: &[f64], q: &[f64]) -> Vec<Option<f64>> {
+    (0..h.len().saturating_sub(2))
+        .map(|i| {
+            local_order_from_diffs(
+                [h[i], h[i + 1], h[i + 2]],
+                q[i] - q[i + 1],
+                q[i + 1] - q[i + 2],
+            )
+        })
+        .collect()
+}
+
+/// `{ L0_L1_L2 = p, ... }` for the triples whose local order is determined
+/// (the others are listed by [`undetermined_triples`]).
+fn fmt_local_orders(names: &[String], orders: &[Option<f64>]) -> String {
+    let parts: Vec<String> = orders
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| o.map(|p| format!("{} = {p:.3}", names[i..i + 3].join("_"))))
+        .collect();
+    if parts.is_empty() {
+        "{}".to_string()
+    } else {
+        format!("{{ {} }}", parts.join(", "))
+    }
+}
+
+fn undetermined_triples(names: &[String], orders: &[Option<f64>]) -> Vec<String> {
+    orders
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.is_none())
+        .map(|(i, _)| format!("\"{}\"", names[i..i + 3].join("_")))
+        .collect()
+}
+
+/// Write `<key>_local_order` (and `<key>_local_order_undetermined` if any
+/// triple has no positive order) and `<key>_ls_slope`.
+fn write_orders(
+    t: &mut String,
+    key: &str,
+    names: &[String],
+    orders: &[Option<f64>],
+    slope: Option<f64>,
+) {
+    let _ = writeln!(t, "{key}_local_order = {}", fmt_local_orders(names, orders));
+    let und = undetermined_triples(names, orders);
+    if !und.is_empty() {
+        let _ = writeln!(t, "{key}_local_order_undetermined = [{}]", und.join(", "));
+    }
+    if let Some(p) = slope {
+        let _ = writeln!(t, "{key}_ls_slope = {p:.3}");
+    }
+}
+
 /// Richardson extrapolation from the finest pair at order `p`:
 /// `q* = q_f + (q_f − q_c) / ((h_c/h_f)^p − 1)`.
 fn extrapolate(h_c: f64, h_f: f64, q_c: f64, q_f: f64, p: f64) -> f64 {
@@ -2065,22 +2163,33 @@ const G1_BAND_EDGE_GHZ: f64 = 2.40;
 
 /// Gate G1 of the conformal v5 umbrella (#1083): where the initial-geometry
 /// S11 converges. Per geometry: whether the finest p=1 pair is within
-/// [`G1_CONVERGED_MHZ`], the finest computed dip (the largest of the finest
-/// p=1 and p=2 levels: every consecutive pair moves the dip up, so the
-/// finest computed value is a lower estimate), two extrapolations (p=1
-/// Richardson from the finest pair at the fitted order; p=2 from its two
-/// levels at the p=1 order and at order 2), the resulting estimate bracket,
-/// its distance below the band, and S11 at the band edge per level.
+/// [`G1_CONVERGED_MHZ`]; the local three-level orders of the p=1 dip
+/// frequency (and the least-squares slope, for reference); the lower bound
+/// (the finest computed dip, the larger of the finest p=1 and p=2 levels:
+/// every refinement step moves the dip up, so the converged dip lies at or
+/// above it) and how far each level sits below it; Richardson
+/// extrapolations from the finest p=1 pair and from the two p=2 levels at
+/// order 1, at the finest-triple local order and at the least-squares
+/// slope; their range and whether it reaches the band; and S11 at the band
+/// edge per level. The upper end is not a bound: the local order falls
+/// along the ladder, so the levels are not in the asymptotic range and the
+/// extrapolation depends on the order assumed.
 fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
     let n = levels.len();
     let hs: Vec<f64> = levels.iter().map(|l| l.h).collect();
+    let names: Vec<String> = levels.iter().map(|l| l.name.clone()).collect();
     let _ = writeln!(t, "[gate_g1]");
     t.push_str(
         "# Gate G1 (#1083): where does the initial S11 converge? converged = finest p=1 pair \
-         moves the dip by less than converged_tol_mhz. The estimate bracket spans the finest \
-         computed dip (a lower estimate: every consecutive refinement moves the dip up) to the \
-         largest extrapolation (p=1 Richardson at the fitted order; p=2 from its two levels at \
-         the p=1 order and at order 2).\n",
+         moves the dip by less than converged_tol_mhz. Every h- and p-refinement step moves the \
+         dip up, so the finest computed dip is a lower bound on the converged dip. The upper end \
+         is NOT determined by these levels: the local three-level order of the dip frequency \
+         falls along the ladder (p1_local_order), so the levels are not in the asymptotic range, \
+         and the Richardson extrapolations depend on the order assumed. They are reported at \
+         order 1 (the rate expected for the r^(-1/2) field singularity at the PEC patch edge, \
+         for p=1 and p=2 alike), at the finest-triple local order, and at the least-squares \
+         slope (reference only: the refinement ratios are unequal). Once converged, the initial \
+         bent antenna may resonate within or just below the ISM band; this is unresolved.\n",
     );
     let _ = writeln!(t, "converged_tol_mhz = {G1_CONVERGED_MHZ}");
     let _ = writeln!(t, "band_edge_ghz = {G1_BAND_EDGE_GHZ:.4}");
@@ -2097,17 +2206,47 @@ fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
         }
         let fs: Vec<f64> = levels.iter().map(|l| l.geoms[g].0).collect();
         let finest_change = (fs[n - 1] - fs[n - 2]) * 1e3;
-        let p1_order = observed_order(&hs, &fs).unwrap_or(1.0).max(0.5);
-        let p1_rich = extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], p1_order);
-        let mut finest = fs[n - 1];
-        let mut extraps = vec![p1_rich];
+        let orders = local_orders(&hs, &fs);
+        let slope = ls_slope(&hs, &fs);
+        // The extrapolation orders: 1, the finest-triple local order, the
+        // LS slope (each only when determined and positive).
+        let mut ex_orders: Vec<(&str, f64)> = vec![("order_1", 1.0)];
+        if let Some(Some(p)) = orders.last() {
+            ex_orders.push(("finest_triple_local_order", *p));
+        }
+        if let Some(p) = slope.filter(|p| *p > 0.0) {
+            ex_orders.push(("ls_slope", p));
+        }
         let _ = writeln!(t, "[gate_g1.{g}]");
         let _ = writeln!(t, "converged = {}", finest_change.abs() < G1_CONVERGED_MHZ);
         let _ = writeln!(t, "finest_p1_level = \"{}\"", levels[n - 1].name);
         let _ = writeln!(t, "finest_p1_dip_f_ghz = {:.6}", fs[n - 1]);
         let _ = writeln!(t, "finest_pair_dip_f_change_mhz = {finest_change:.3}");
-        let _ = writeln!(t, "p1_order = {p1_order:.3}");
-        let _ = writeln!(t, "p1_richardson_dip_f_ghz = {p1_rich:.6}");
+        write_orders(t, "p1", &names, &orders, slope);
+        let det: Vec<f64> = orders.iter().flatten().copied().collect();
+        let _ = writeln!(
+            t,
+            "p1_local_order_falling = {}",
+            det.len() >= 2 && det.windows(2).all(|w| w[1] < w[0])
+        );
+        let _ = writeln!(
+            t,
+            "extrapolation_order_labels = [{}]",
+            ex_orders
+                .iter()
+                .map(|(l, _)| format!("\"{l}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let ps: Vec<f64> = ex_orders.iter().map(|(_, p)| *p).collect();
+        let _ = writeln!(t, "extrapolation_orders = [{}]", fmt_list(&ps, 3));
+        let p1_ex: Vec<f64> = ps
+            .iter()
+            .map(|&p| extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], p))
+            .collect();
+        let _ = writeln!(t, "p1_extrapolated_dip_f_ghz = [{}]", fmt_list(&p1_ex, 6));
+        let mut extraps = p1_ex.clone();
+        let mut finest = fs[n - 1];
         let p2: Vec<&LevelRow> = p2_rows.iter().filter(|r| r.geoms.contains_key(g)).collect();
         if let Some(last) = p2.last() {
             finest = finest.max(last.geoms[g].0);
@@ -2117,22 +2256,42 @@ fn write_gate_g1(t: &mut String, levels: &[LevelRow], p2_rows: &[LevelRow]) {
         if p2.len() >= 2 {
             let (c, f) = (p2[p2.len() - 2], p2[p2.len() - 1]);
             let (qc, qf) = (c.geoms[g].0, f.geoms[g].0);
-            let e1 = extrapolate(c.h, f.h, qc, qf, p1_order);
-            let e2 = extrapolate(c.h, f.h, qc, qf, 2.0);
-            extraps.push(e1);
-            extraps.push(e2);
+            let p2_ex: Vec<f64> = ps
+                .iter()
+                .map(|&p| extrapolate(c.h, f.h, qc, qf, p))
+                .collect();
             let _ = writeln!(t, "p2_change_mhz = {:.3}", (qf - qc) * 1e3);
-            let _ = writeln!(t, "p2_extrapolated_dip_f_ghz_p1_order = {e1:.6}");
-            let _ = writeln!(t, "p2_extrapolated_dip_f_ghz_order_2 = {e2:.6}");
+            let _ = writeln!(t, "p2_extrapolated_dip_f_ghz = [{}]", fmt_list(&p2_ex, 6));
+            extraps.extend(p2_ex);
         }
-        let hi = extraps.iter().copied().fold(finest, f64::max);
-        let _ = writeln!(t, "finest_computed_dip_f_ghz = {finest:.6}");
-        let _ = writeln!(t, "estimate_bracket_ghz = [{finest:.6}, {hi:.6}]");
+        let lo_ex = extraps.iter().copied().fold(f64::INFINITY, f64::min);
+        let hi_ex = extraps.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let _ = writeln!(t, "lower_bound_dip_f_ghz = {finest:.6}");
         let _ = writeln!(
             t,
-            "estimate_below_band_mhz = [{:.3}, {:.3}]",
-            (ISM_2G4_BAND_GHZ[0] - hi) * 1e3,
-            (ISM_2G4_BAND_GHZ[0] - finest) * 1e3
+            "lower_bound_below_band_mhz = {:.3}",
+            (G1_BAND_EDGE_GHZ - finest) * 1e3
+        );
+        // How far each level's dip sits below the lower bound (so at least
+        // this far below the converged dip).
+        let mut lv_names = Vec::new();
+        let mut short = Vec::new();
+        for r in levels.iter().chain(p2.iter().copied()) {
+            lv_names.push(format!("\"{}_{}\"", r.name, r.order));
+            short.push((finest - r.geoms[g].0) * 1e3);
+        }
+        let _ = writeln!(t, "level_dip_levels = [{}]", lv_names.join(", "));
+        let _ = writeln!(
+            t,
+            "level_dip_below_lower_bound_mhz = [{}]",
+            fmt_list(&short, 3)
+        );
+        let _ = writeln!(t, "extrapolation_range_ghz = [{lo_ex:.6}, {hi_ex:.6}]");
+        let _ = writeln!(t, "upper_end_determined = false");
+        let _ = writeln!(
+            t,
+            "extrapolation_reaches_band = {}",
+            hi_ex >= G1_BAND_EDGE_GHZ
         );
         // S11 at the lower band edge, per level that sampled it.
         let mut names = Vec::new();
@@ -2215,10 +2374,11 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
     t.push_str(
         "description = \"Curved conformal 2.4 GHz patch (issue #1085, conformal v5 E2): mesh-refinement \
          study of the initial (pre-optimization) S11, flat and bent, over the h-ladder L0-L3 at p=1 and \
-         p=2 over the coarse levels, at the UPML setting chosen by the sigma_0 x shell ladder; observed \
-         convergence order of the |S11| dip frequency and depth, Richardson extrapolation from the \
-         finest pair, per-level forward / gradient cost and peak RSS, and the finite-difference gate \
-         of the shape gradient.\"\n",
+         p=2 over the coarse levels, at the UPML setting chosen by the sigma_0 x shell ladder; local \
+         three-level convergence orders of the |S11| dip frequency and depth, gate G1 (a lower \
+         bound on the converged dip and order-dependent Richardson extrapolations), per-level \
+         forward / gradient cost and peak RSS, and the finite-difference gate of the shape \
+         gradient.\"\n",
     );
     let _ = writeln!(
         t,
@@ -2297,18 +2457,27 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
         }
     }
 
-    // Observed orders and extrapolation over the p=1 h-ladder.
+    // Local orders over the p=1 h-ladder.
     let hs: Vec<f64> = levels.iter().map(|l| l.h).collect();
+    let names: Vec<String> = levels.iter().map(|l| l.name.clone()).collect();
+    t.push_str("[order]\n");
+    t.push_str(
+        "# Local order of each consecutive level triple: the p solving (q0 - q1)/(q1 - q2) = \
+         (h0^p - h1^p)/(h1^p - h2^p) with h = n_dofs^(-1/3), which allows the unequal refinement \
+         ratios below (q = dip frequency, dip depth, Re Z_in at the dip, |complex S11 change| at a \
+         fixed frequency). A triple whose differences change sign, or whose ratio admits no \
+         positive order, is listed as undetermined. *_ls_slope is the least-squares slope of \
+         log|q_L - q_(L+1)| against log h_L, kept for reference only: it is an order estimate \
+         only for a constant refinement ratio, and the large L0 -> L1 ratio inflates it.\n",
+    );
+    let ratios: Vec<f64> = hs.windows(2).map(|w| w[0] / w[1]).collect();
+    let _ = writeln!(t, "h_ratios = [{}]", fmt_list(&ratios, 4));
+    t.push('\n');
     for g in ["flat", "bent"] {
         if !levels.iter().all(|l| l.geoms.contains_key(g)) {
             continue;
         }
         let _ = writeln!(t, "[order.{g}]");
-        t.push_str(
-            "# Observed order p: least-squares slope of log|q_L - q_(L+1)| against log h_L over the \
-             consecutive level pairs (q = dip frequency, dip depth, complex S11 at a fixed frequency). \
-             Extrapolated values use the finest pair at the fitted order.\n",
-        );
         let fs: Vec<f64> = levels.iter().map(|l| l.geoms[g].0).collect();
         let dbs: Vec<f64> = levels.iter().map(|l| l.geoms[g].1).collect();
         let zr: Vec<f64> = levels.iter().map(|l| l.geoms[g].3.re).collect();
@@ -2316,13 +2485,18 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
         let _ = writeln!(t, "dip_db = [{}]", fmt_list(&dbs, 4));
         t.push_str(
             "# dip_z_re_ohm: Re Z_in at the sampled dip. The dip depth in dB is set by how closely \
-             Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; Re Z_in at the dip \
-             and the dip frequency are the robust ones.\n",
+             Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; the dip frequency \
+             is the robust one (Re Z_in at the dip stays within a few ohm of 50 but is not monotone \
+             over the ladder).\n",
         );
         let _ = writeln!(t, "dip_z_re_ohm = [{}]", fmt_list(&zr, 4));
-        if let Some(p) = observed_order(&hs, &zr) {
-            let _ = writeln!(t, "dip_z_re_order = {p:.3}");
-        }
+        write_orders(
+            &mut t,
+            "dip_z_re",
+            &names,
+            &local_orders(&hs, &zr),
+            ls_slope(&hs, &zr),
+        );
         let n = levels.len();
         let diffs_f: Vec<f64> = (0..n - 1).map(|i| (fs[i + 1] - fs[i]) * 1e3).collect();
         let diffs_db: Vec<f64> = (0..n - 1).map(|i| dbs[i + 1] - dbs[i]).collect();
@@ -2336,28 +2510,20 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
             "dip_db_consecutive_change = [{}]",
             fmt_list(&diffs_db, 3)
         );
-        match observed_order(&hs, &fs) {
-            Some(p) => {
-                let _ = writeln!(t, "dip_f_order = {p:.3}");
-                let _ = writeln!(
-                    t,
-                    "dip_f_extrapolated_ghz = {:.6}",
-                    extrapolate(hs[n - 2], hs[n - 1], fs[n - 2], fs[n - 1], p.max(0.5))
-                );
-            }
-            None => t.push_str("# dip_f_order: not fittable\n"),
-        }
-        match observed_order(&hs, &dbs) {
-            Some(p) => {
-                let _ = writeln!(t, "dip_db_order = {p:.3}");
-                let _ = writeln!(
-                    t,
-                    "dip_db_extrapolated = {:.4}",
-                    extrapolate(hs[n - 2], hs[n - 1], dbs[n - 2], dbs[n - 1], p.max(0.5))
-                );
-            }
-            None => t.push_str("# dip_db_order: not fittable\n"),
-        }
+        write_orders(
+            &mut t,
+            "dip_f",
+            &names,
+            &local_orders(&hs, &fs),
+            ls_slope(&hs, &fs),
+        );
+        write_orders(
+            &mut t,
+            "dip_db",
+            &names,
+            &local_orders(&hs, &dbs),
+            ls_slope(&hs, &dbs),
+        );
         for &f in &fixed_ghz {
             // Only the levels that sampled this frequency (the finest level
             // and the p=2 rows may carry a shorter fixed list).
@@ -2380,33 +2546,46 @@ fn run_aggregate(dir: &Path, out: Option<PathBuf>) {
             let sampled: Vec<String> = levels
                 .iter()
                 .filter(|l| l.geoms[g].2.iter().any(|p| (p.0 - f).abs() < 1e-6))
-                .map(|l| format!("\"{}\"", l.name))
+                .map(|l| l.name.clone())
                 .collect();
-            let _ = writeln!(t, "s11_{key}_ghz_levels = [{}]", sampled.join(", "));
-            // Order of the complex S11 from the consecutive complex differences.
-            let mut xs = Vec::new();
-            let mut ys = Vec::new();
-            for i in 0..m_lv - 1 {
-                let e = (ss[i] - ss[i + 1]).norm();
-                if e > 0.0 {
-                    xs.push(hs_f[i].ln());
-                    ys.push(e.ln());
-                }
-            }
+            let _ = writeln!(
+                t,
+                "s11_{key}_ghz_levels = [{}]",
+                sampled
+                    .iter()
+                    .map(|s| format!("\"{s}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             let diffs: Vec<f64> = (0..m_lv - 1).map(|i| (ss[i + 1] - ss[i]).norm()).collect();
             let _ = writeln!(
                 t,
                 "s11_{key}_ghz_consecutive_change = [{}]",
                 fmt_list(&diffs, 6)
             );
-            if xs.len() >= 2 {
+            // Local orders from the magnitudes of the consecutive complex
+            // differences (q = q* + C h^p with a complex C), and the LS
+            // slope of their logarithms.
+            let orders: Vec<Option<f64>> = (0..m_lv.saturating_sub(2))
+                .map(|i| {
+                    local_order_from_diffs(
+                        [hs_f[i], hs_f[i + 1], hs_f[i + 2]],
+                        diffs[i],
+                        diffs[i + 1],
+                    )
+                })
+                .collect();
+            let slope = (m_lv >= 3 && diffs.iter().all(|d| *d > 0.0)).then(|| {
+                let xs: Vec<f64> = hs_f[..m_lv - 1].iter().map(|h| h.ln()).collect();
+                let ys: Vec<f64> = diffs.iter().map(|d| d.ln()).collect();
                 let m = xs.len() as f64;
                 let mx = xs.iter().sum::<f64>() / m;
                 let my = ys.iter().sum::<f64>() / m;
                 let sxx: f64 = xs.iter().map(|x| (x - mx) * (x - mx)).sum();
                 let sxy: f64 = xs.iter().zip(&ys).map(|(x, y)| (x - mx) * (y - my)).sum();
-                let _ = writeln!(t, "s11_{key}_ghz_order = {:.3}", sxy / sxx);
-            }
+                sxy / sxx
+            });
+            write_orders(&mut t, &format!("s11_{key}_ghz"), &sampled, &orders, slope);
         }
         // Finest-pair statement for gate G1.
         let _ = writeln!(

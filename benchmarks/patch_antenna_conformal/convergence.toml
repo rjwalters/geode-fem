@@ -5,8 +5,8 @@
 # Consumed by `tests/patch_conformal_convergence.rs`.
 
 [meta]
-description = "Curved conformal 2.4 GHz patch (issue #1085, conformal v5 E2): mesh-refinement study of the initial (pre-optimization) S11, flat and bent, over the h-ladder L0-L3 at p=1 and p=2 over the coarse levels, at the UPML setting chosen by the sigma_0 x shell ladder; observed convergence order of the |S11| dip frequency and depth, Richardson extrapolation from the finest pair, per-level forward / gradient cost and peak RSS, and the finite-difference gate of the shape gradient."
-generated_at_commit = "d3a5b98e3650a505fa45ff83d96a6c071527dc8e"
+description = "Curved conformal 2.4 GHz patch (issue #1085, conformal v5 E2): mesh-refinement study of the initial (pre-optimization) S11, flat and bent, over the h-ladder L0-L3 at p=1 and p=2 over the coarse levels, at the UPML setting chosen by the sigma_0 x shell ladder; local three-level convergence orders of the |S11| dip frequency and depth, gate G1 (a lower bound on the converged dip and order-dependent Richardson extrapolations), per-level forward / gradient cost and peak RSS, and the finite-difference gate of the shape gradient."
+generated_at_commit = "35a37e521db47b7802dc56e9af6331a74ec3af01"
 length_unit = "mm"
 frequency_unit = "GHz"
 impedance_unit = "ohm"
@@ -219,60 +219,80 @@ dip_z_im_ohm = 2.7456
 s11_2p4000_ghz = { re = -3.495721e-1, im = -1.560394e-1, db = -8.3402 }
 s11_2p4835_ghz = { re = -7.566694e-1, im = 5.123596e-3, db = -2.4217 }
 
+[order]
+# Local order of each consecutive level triple: the p solving (q0 - q1)/(q1 - q2) = (h0^p - h1^p)/(h1^p - h2^p) with h = n_dofs^(-1/3), which allows the unequal refinement ratios below (q = dip frequency, dip depth, Re Z_in at the dip, |complex S11 change| at a fixed frequency). A triple whose differences change sign, or whose ratio admits no positive order, is listed as undetermined. *_ls_slope is the least-squares slope of log|q_L - q_(L+1)| against log h_L, kept for reference only: it is an order estimate only for a constant refinement ratio, and the large L0 -> L1 ratio inflates it.
+h_ratios = [1.5735, 1.3504, 1.3156]
+
 [order.flat]
-# Observed order p: least-squares slope of log|q_L - q_(L+1)| against log h_L over the consecutive level pairs (q = dip frequency, dip depth, complex S11 at a fixed frequency). Extrapolated values use the finest pair at the fitted order.
 dip_f_ghz = [2.272698, 2.312786, 2.329840, 2.343357]
 dip_db = [-36.0458, -38.3077, -38.2011, -47.5615]
-# dip_z_re_ohm: Re Z_in at the sampled dip. The dip depth in dB is set by how closely Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; Re Z_in at the dip and the dip frequency are the robust ones.
+# dip_z_re_ohm: Re Z_in at the sampled dip. The dip depth in dB is set by how closely Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; the dip frequency is the robust one (Re Z_in at the dip stays within a few ohm of 50 but is not monotone over the ladder).
 dip_z_re_ohm = [51.3555, 48.9866, 48.9993, 49.6643]
-dip_z_re_order = 2.476
+dip_z_re_local_order = {}
+dip_z_re_local_order_undetermined = ["L0_L1_L2", "L1_L2_L3"]
+dip_z_re_ls_slope = 2.476
 dip_f_consecutive_change_mhz = [40.088, 17.054, 13.517]
 dip_db_consecutive_change = [-2.262, 0.107, -9.360]
-dip_f_order = 1.478
-dip_f_extrapolated_ghz = 2.370399
-dip_db_order = -1.193
-dip_db_extrapolated = -111.2438
+dip_f_local_order = { L0_L1_L2 = 1.159, L1_L2_L3 = 0.492 }
+dip_f_ls_slope = 1.478
+dip_db_local_order = {}
+dip_db_local_order_undetermined = ["L0_L1_L2", "L1_L2_L3"]
+dip_db_ls_slope = -1.193
 s11_2p2800_ghz_levels = ["L0", "L1", "L2"]
 s11_2p2800_ghz_consecutive_change = [0.418327, 0.147261]
-s11_2p2800_ghz_order = 2.303
+s11_2p2800_ghz_local_order = { L0_L1_L2 = 1.645 }
+s11_2p2800_ghz_ls_slope = 2.303
 s11_2p3100_ghz_levels = ["L0", "L1", "L2"]
 s11_2p3100_ghz_consecutive_change = [0.418934, 0.174139]
-s11_2p3100_ghz_order = 1.937
+s11_2p3100_ghz_local_order = { L0_L1_L2 = 1.219 }
+s11_2p3100_ghz_ls_slope = 1.937
 s11_2p4000_ghz_levels = ["L0", "L1", "L2", "L3"]
 s11_2p4000_ghz_consecutive_change = [0.207119, 0.106406, 0.101565]
-s11_2p4000_ghz_order = 0.988
+s11_2p4000_ghz_local_order = { L0_L1_L2 = 0.670 }
+s11_2p4000_ghz_local_order_undetermined = ["L1_L2_L3"]
+s11_2p4000_ghz_ls_slope = 0.988
 s11_2p4835_ghz_levels = ["L0", "L1", "L2", "L3"]
 s11_2p4835_ghz_consecutive_change = [0.103638, 0.047444, 0.048399]
-s11_2p4835_ghz_order = 1.068
+s11_2p4835_ghz_local_order = { L0_L1_L2 = 0.970 }
+s11_2p4835_ghz_local_order_undetermined = ["L1_L2_L3"]
+s11_2p4835_ghz_ls_slope = 1.068
 finest_pair = ["L2", "L3"]
 finest_pair_dip_f_change_mhz = 13.517
 finest_pair_dip_db_change = -9.360
 
 [order.bent]
-# Observed order p: least-squares slope of log|q_L - q_(L+1)| against log h_L over the consecutive level pairs (q = dip frequency, dip depth, complex S11 at a fixed frequency). Extrapolated values use the finest pair at the fitted order.
 dip_f_ghz = [2.271708, 2.311815, 2.328769, 2.342186]
 dip_db = [-28.8168, -23.1087, -23.1687, -24.3773]
-# dip_z_re_ohm: Re Z_in at the sampled dip. The dip depth in dB is set by how closely Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; Re Z_in at the dip and the dip frequency are the robust ones.
+# dip_z_re_ohm: Re Z_in at the sampled dip. The dip depth in dB is set by how closely Z_in passes 50 ohm, so it is an ill-conditioned convergence metric; the dip frequency is the robust one (Re Z_in at the dip stays within a few ohm of 50 but is not monotone over the ladder).
 dip_z_re_ohm = [46.9952, 44.3665, 44.4343, 45.1625]
-dip_z_re_order = 2.214
+dip_z_re_local_order = {}
+dip_z_re_local_order_undetermined = ["L0_L1_L2", "L1_L2_L3"]
+dip_z_re_ls_slope = 2.214
 dip_f_consecutive_change_mhz = [40.107, 16.954, 13.417]
 dip_db_consecutive_change = [5.708, -0.060, -1.209]
-dip_f_order = 1.489
-dip_f_extrapolated_ghz = 2.368792
-dip_db_order = 2.701
-dip_db_extrapolated = -25.4786
+dip_f_local_order = { L0_L1_L2 = 1.176, L1_L2_L3 = 0.497 }
+dip_f_ls_slope = 1.489
+dip_db_local_order = {}
+dip_db_local_order_undetermined = ["L0_L1_L2", "L1_L2_L3"]
+dip_db_ls_slope = 2.701
 s11_2p2800_ghz_levels = ["L0", "L1", "L2"]
 s11_2p2800_ghz_consecutive_change = [0.376625, 0.132667]
-s11_2p2800_ghz_order = 2.302
+s11_2p2800_ghz_local_order = { L0_L1_L2 = 1.643 }
+s11_2p2800_ghz_ls_slope = 2.302
 s11_2p3100_ghz_levels = ["L0", "L1", "L2"]
 s11_2p3100_ghz_consecutive_change = [0.376807, 0.153515]
-s11_2p3100_ghz_order = 1.981
+s11_2p3100_ghz_local_order = { L0_L1_L2 = 1.271 }
+s11_2p3100_ghz_ls_slope = 1.981
 s11_2p4000_ghz_levels = ["L0", "L1", "L2", "L3"]
 s11_2p4000_ghz_consecutive_change = [0.197221, 0.097540, 0.091915]
-s11_2p4000_ghz_order = 1.056
+s11_2p4000_ghz_local_order = { L0_L1_L2 = 0.769 }
+s11_2p4000_ghz_local_order_undetermined = ["L1_L2_L3"]
+s11_2p4000_ghz_ls_slope = 1.056
 s11_2p4835_ghz_levels = ["L0", "L1", "L2", "L3"]
 s11_2p4835_ghz_consecutive_change = [0.101997, 0.045400, 0.045950]
-s11_2p4835_ghz_order = 1.116
+s11_2p4835_ghz_local_order = { L0_L1_L2 = 1.043 }
+s11_2p4835_ghz_local_order_undetermined = ["L1_L2_L3"]
+s11_2p4835_ghz_ls_slope = 1.116
 finest_pair = ["L2", "L3"]
 finest_pair_dip_f_change_mhz = 13.417
 finest_pair_dip_db_change = -1.209
@@ -298,7 +318,7 @@ bent_fixed_ghz_compared = [2.4000, 2.4835]
 bent_max_fixed_s11_change = 2.947923e-1
 
 [gate_g1]
-# Gate G1 (#1083): where does the initial S11 converge? converged = finest p=1 pair moves the dip by less than converged_tol_mhz. The estimate bracket spans the finest computed dip (a lower estimate: every consecutive refinement moves the dip up) to the largest extrapolation (p=1 Richardson at the fitted order; p=2 from its two levels at the p=1 order and at order 2).
+# Gate G1 (#1083): where does the initial S11 converge? converged = finest p=1 pair moves the dip by less than converged_tol_mhz. Every h- and p-refinement step moves the dip up, so the finest computed dip is a lower bound on the converged dip. The upper end is NOT determined by these levels: the local three-level order of the dip frequency falls along the ladder (p1_local_order), so the levels are not in the asymptotic range, and the Richardson extrapolations depend on the order assumed. They are reported at order 1 (the rate expected for the r^(-1/2) field singularity at the PEC patch edge, for p=1 and p=2 alike), at the finest-triple local order, and at the least-squares slope (reference only: the refinement ratios are unequal). Once converged, the initial bent antenna may resonate within or just below the ISM band; this is unresolved.
 converged_tol_mhz = 1
 band_edge_ghz = 2.4000
 smoke_design_transfer = "not applicable: the -12 dB smoke design (conformal_results.toml) was optimized on curved_smoke, a 16 x 12 mm patch on 2.0 mm FR-4 bent at R = 40 mm with a 14.3-19.1 GHz band (the 2.4 GHz family: 38 x 29 mm on 1.6 mm at R = 100 mm); it has no displacement field on the patch_conformal family to interpolate. The question moves to E4 (re-optimize on L2, verify at L3 and p=2)."
@@ -308,16 +328,23 @@ converged = false
 finest_p1_level = "L3"
 finest_p1_dip_f_ghz = 2.343357
 finest_pair_dip_f_change_mhz = 13.517
-p1_order = 1.478
-p1_richardson_dip_f_ghz = 2.370399
+p1_local_order = { L0_L1_L2 = 1.159, L1_L2_L3 = 0.492 }
+p1_ls_slope = 1.478
+p1_local_order_falling = true
+extrapolation_order_labels = ["order_1", "finest_triple_local_order", "ls_slope"]
+extrapolation_orders = [1.000, 0.492, 1.478]
+p1_extrapolated_dip_f_ghz = [2.386190, 2.437001, 2.370399]
 finest_p2_level = "L1"
 finest_p2_dip_f_ghz = 2.358023
 p2_change_mhz = 12.105
-p2_extrapolated_dip_f_ghz_p1_order = 2.370606
-p2_extrapolated_dip_f_ghz_order_2 = 2.366151
-finest_computed_dip_f_ghz = 2.358023
-estimate_bracket_ghz = [2.358023, 2.370606]
-estimate_below_band_mhz = [29.394, 41.977]
+p2_extrapolated_dip_f_ghz = [2.378975, 2.406195, 2.370606]
+lower_bound_dip_f_ghz = 2.358023
+lower_bound_below_band_mhz = 41.977
+level_dip_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
+level_dip_below_lower_bound_mhz = [85.325, 45.237, 28.183, 14.666, 12.105, 0.000]
+extrapolation_range_ghz = [2.370399, 2.437001]
+upper_end_determined = false
+extrapolation_reaches_band = true
 band_edge_s11_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
 band_edge_s11_db = [-1.7930, -3.5495, -4.7327, -6.0740, -6.3101, -8.1998]
 
@@ -326,16 +353,23 @@ converged = false
 finest_p1_level = "L3"
 finest_p1_dip_f_ghz = 2.342186
 finest_pair_dip_f_change_mhz = 13.417
-p1_order = 1.489
-p1_richardson_dip_f_ghz = 2.368792
+p1_local_order = { L0_L1_L2 = 1.176, L1_L2_L3 = 0.497 }
+p1_ls_slope = 1.489
+p1_local_order_falling = true
+extrapolation_order_labels = ["order_1", "finest_triple_local_order", "ls_slope"]
+extrapolation_orders = [1.000, 0.497, 1.489]
+p1_extrapolated_dip_f_ghz = [2.384702, 2.434064, 2.368792]
 finest_p2_level = "L1"
 finest_p2_dip_f_ghz = 2.356643
 p2_change_mhz = 12.307
-p2_extrapolated_dip_f_ghz_p1_order = 2.369309
-p2_extrapolated_dip_f_ghz_order_2 = 2.364906
-finest_computed_dip_f_ghz = 2.356643
-estimate_bracket_ghz = [2.356643, 2.369309]
-estimate_below_band_mhz = [30.691, 43.357]
+p2_extrapolated_dip_f_ghz = [2.377944, 2.405029, 2.369309]
+lower_bound_dip_f_ghz = 2.356643
+lower_bound_below_band_mhz = 43.357
+level_dip_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
+level_dip_below_lower_bound_mhz = [84.935, 44.828, 27.874, 14.457, 12.307, 0.000]
+extrapolation_range_ghz = [2.368792, 2.434064]
+upper_end_determined = false
+extrapolation_reaches_band = true
 band_edge_s11_levels = ["L0_p1", "L1_p1", "L2_p1", "L3_p1", "L0_p2", "L1_p2"]
 band_edge_s11_db = [-1.9233, -3.7749, -4.9660, -6.2925, -6.4892, -8.3402]
 

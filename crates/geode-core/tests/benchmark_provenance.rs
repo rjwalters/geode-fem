@@ -255,10 +255,13 @@ const MANIFEST: &[Entry] = &[
     // #1085 (conformal v5 E2): per-level dip / FD artifacts of the mesh-refinement study.
     // L2 / L3 are regenerated from YAML (sha256 pinned in tests/patch_conformal_convergence.rs);
     // L3 and p = 2 on L1 were run one geometry at a time (PATCH_CONFORMAL_GEOMS) and merged.
+    // L0 is regenerated too (gmsh 4.15; reproduces the committed L0 sha256): the loader needs the
+    // `<stem>.flat.msh` companion, which is not committed (.gitignore, #1084).
     a(
         "benchmarks/patch_antenna_conformal/convergence/dip_L0.toml",
-        "cargo run -p geode-core --release --example patch_conformal_convergence -- dip \
-         crates/geode-core/tests/fixtures/patch_conformal_L0.msh",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh",
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/dip_L1.toml",
@@ -285,8 +288,9 @@ const MANIFEST: &[Entry] = &[
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/dip_L0_p2.toml",
-        "cargo run -p geode-core --release --example patch_conformal_convergence -- dip \
-         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --p2",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh --p2",
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/dip_L1_p2.toml",
@@ -327,8 +331,9 @@ const MANIFEST: &[Entry] = &[
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/fd_L0.toml",
-        "cargo run -p geode-core --release --example patch_conformal_convergence -- fd \
-         crates/geode-core/tests/fixtures/patch_conformal_L0.msh",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- fd <dir>/patch_conformal_L0.msh",
     ),
     a(
         "benchmarks/patch_antenna_conformal/convergence/fd_L1.toml",
