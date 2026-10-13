@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1151",
-  "loom_commit": "08ee0f8708464aa8e0768640d56955d7f4fcbc98",
+  "loom_version": "0.19.1152",
+  "loom_commit": "2d5fe17958dca799058f16bdd74a12336990bec0",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -358,7 +358,6 @@
     ".loom/scripts/record-noop-release.sh",
     ".loom/scripts/recover-orphaned-shepherds.sh",
     ".loom/scripts/resolve-model.sh",
-    ".loom/scripts/resolve-tier-model.sh",
     ".loom/scripts/resync-installed.sh",
     ".loom/scripts/run-job.sh",
     ".loom/scripts/run-tests.sh",
@@ -553,7 +552,6 @@
     ".loom/scripts/tests/test-merge-pr-auto-merge-disabled-fallback.sh",
     ".loom/scripts/tests/test-merge-pr-auto-queued-stacked-children.sh",
     ".loom/scripts/tests/test-merge-pr-auto-reconcile.sh",
-    ".loom/scripts/tests/test-merge-pr-chain-lock.sh",
     ".loom/scripts/tests/test-merge-pr-check-runs-404-fallback.sh",
     ".loom/scripts/tests/test-merge-pr-ci-result.sh",
     ".loom/scripts/tests/test-merge-pr-closed-issue-cleanup.sh",
@@ -601,7 +599,6 @@
     ".loom/scripts/tests/test-recover-orphaned-shepherds-diagnostics.sh",
     ".loom/scripts/tests/test-repo-mismatch-fallback.sh",
     ".loom/scripts/tests/test-require-daemon-bin.sh",
-    ".loom/scripts/tests/test-resolve-tier-model.sh",
     ".loom/scripts/tests/test-resync-installed-agent-skills-guard.sh",
     ".loom/scripts/tests/test-resync-installed-dogfood-symlink.sh",
     ".loom/scripts/tests/test-resync-installed-egress-doctor.sh",
@@ -753,7 +750,11 @@
     ".loom/scripts/tests/fixtures/classify_error/vectors.tsv",
     ".loom/scripts/tests/test-champion-pr-merge-hold-release.sh",
     ".agents/skills/loom-driver/SKILL.md",
-    ".loom/docs/llm-gateway.md"
+    ".loom/docs/llm-gateway.md",
+    ".loom/docs/network-inputs.md",
+    ".loom/docs/operator-presence.md",
+    ".loom/scripts/tests/test-approval-history-per-issue-events.sh",
+    ".agents/skills/loom-judge-reference/SKILL.md"
   ],
   "last_resync": "2026-10-13",
   "requires_daemon": "0.19.1081"
