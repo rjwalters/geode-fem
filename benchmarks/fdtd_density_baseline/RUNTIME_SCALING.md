@@ -1,44 +1,55 @@
-# FDTD-density runtime scaling — the computational-intractability axis
+# Historical Meep timing observations
 
-Measured 2026-07-21 on AWS `m6i.4xlarge` (16 vCPU, 61 GB) with the vendored
-`meep-baseline:cpu` container (Meep 1.34.0), on the curved conformal open-radiator
-problem from `reference/meep/docker/conformal_baseline_3d.py`. Full data +
-projections in `meep_runtime_scaling.json`.
+These measurements describe the **old unmatched smoke scaffold**, measured on
+2026-07-21 with Meep 1.34.0 on AWS `m6i.4xlarge` (16 vCPU, 61 GB).
+The model has a flat FR-4 slab, infinite flat PEC ground, rectangular patch
+proxy and Ez readout. It is not the physical bent patch or a validated S11
+comparison. Machine-readable observations and labelled projections are in
+`meep_runtime_scaling.json`; the historical probe is `meep_runtime_bench.py`.
 
-## Measured (single-tenant, seconds/timestep over 61 steps after warmup)
+## Measured per-step cost
 
-| R (px/mm) | Yee cells | s/step | peak RAM |
-|-----------|-----------|--------|----------|
-| 4  | 10.3 M  | 0.233 s | 1.6 GB |
-| 6  | 34.8 M  | 0.742 s | 4.9 GB |
-| 8  | 82.6 M  | 1.715 s | 11.3 GB |
-| 10 | 161.3 M | 3.386 s | 21.8 GB |
-| 12 | 278.7 M | 5.761 s | 37.4 GB |
+Single-tenant seconds/timestep over 61 steps after warmup:
 
-Clean power laws: cells `= 161280·R³`; `s/step ∝ R^2.92`; `RAM ∝ R^2.89`;
-`dt ∝ 1/R` (CFL/Courant, measured 0.125→0.0417). Steps to a fixed physical
-field-decay time therefore scale `∝ R`, so **one forward solve scales `∝ R⁴`**.
+| R (cells/mm) | Yee cells | s/step | peak RAM (GiB) |
+|---|---:|---:|---:|
+| 4 | 10.3 M | 0.233 | 1.573 |
+| 6 | 34.8 M | 0.742 | 4.918 |
+| 8 | 82.6 M | 1.715 | 11.338 |
+| 10 | 161.3 M | 3.386 | 21.836 |
+| 12 | 278.7 M | 5.761 | 37.417 |
 
-## Why this is intractable for a curved conductor
+The historical JSON reports fitted powers of about R^2.92 for per-step time
+and R^2.89 for RAM. Cells are exactly `161280*R^3` for this 64×60×42 mm box.
+The measured time step decreases as 1/R. If a fixed physical duration is
+required, this suggests roughly R^4 total runtime for this implementation;
+it does not determine the resolution or duration required for an S11 tolerance.
+A separate historical R8 run did not reach field decay in its 15-minute window.
+That incomplete run is not a converged broadband optimization benchmark.
 
-- **Absolute anchor (measured):** at R=8 a single forward solve ran **≥421 steps
-  and did not reach field decay within 15 min** → ≥12 min/solve, ≥24 min/gradient.
-  A 3-frequency, ≥12-eval band optimization is **≥14 hours at R=8** (a resolution
-  that still badly staircases the curve), **≥70 hours at R=12**.
-- **RAM wall:** R=14 ≈ 60 GB, R=16 ≈ 83 GB — **R≥14 does not fit** on this 61 GB box.
-- **Curve-faithful resolution** (from `staircasing_results.json`: ~6000 cells across
-  the ~24 mm feature for ~1 µm fidelity) is **~250 px/mm ⇒ ~10¹⁵ cells** — absurd,
-  ~30× beyond the RAM wall before any timestep cost.
+## Arithmetic and limits of extrapolation
 
-## The head-to-head
+The earlier R250 cell count was wrong. The corrected illustrative count is
+`64*60*42*250^3 = 2.52e12`, about `(250/14)^3 = 5694` times the R14 cell count.
+The historical R14/R16 memory estimates (~60/~83 GB in the JSON) are
+extrapolations, not measured points. No required EM accuracy is assigned to
+R250. The arbitrary 1 µm geometric target has been withdrawn.
 
-GEODE's unstructured-tet Nédélec shape adjoint solved the **full 73-DOF freeform
-curved-conformal band match to −12.06 dB in 6 steps, one reused factorization,
-seconds-to-minutes**, exact at fixed DOF (no staircasing) — see
-`../patch_antenna_conformal/conformal_results.toml`.
+The earlier optimization-hour estimates multiplied separate solves by the
+frequency count without measuring a broadband/adjoint workflow. They have been
+withdrawn from the JSON. Geometric perimeter bias and per-step timing alone do
+not establish whether FDTD can solve or optimize this antenna at useful accuracy.
 
-So the paper's comparative claim rests on **two measured axes**: geometric fidelity
-(structured grids staircase the conductor — `staircasing_results.json`) and compute
-(structured grids can't practically *run* it at faithful resolution — this file).
-A converged FDTD-density optimization is not required to substantiate the claim; it
-would only re-confirm the intractability, so it is left as documented future work.
+## Physical-antenna comparison
+
+The current [geometry diagnostic](staircasing_notes.md) uses R=100 mm, h=1.6 mm
+and the actual L0/L1 surfaces. Its displacement proxy and facet errors do not
+supply a conversion to S11 accuracy. Linear FEM facets also have finite error.
+The old 73-DOF optimization used a different model and is not an equal-accuracy
+cost reference for these historical Meep timings.
+
+The [matched Meep experiment](../../reference/meep/docker/MATCHED.md) records a
+calibrated impedance extraction and a physical R1 pilot. Its 192×183×131.6 mm
+box is about 28.7 times larger than the historical box. Spatial, material, port
+and boundary convergence, plus controlled same-host timing, remain required
+under #1085/#1088 before the paper can claim a solver cost advantage.

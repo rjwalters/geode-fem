@@ -8,6 +8,7 @@ Repository maintenance scripts used by CI and by the release flow.
 | [`ci-test-coverage.py`](ci-test-coverage.py) | CI guard (issue #785): lists every Cargo integration-test target and fails if no enforced `cargo test` step in `.github/workflows/*.yml` runs it, unless it is allowlisted |
 | [`ci-test-coverage-allowlist.txt`](ci-test-coverage-allowlist.txt) | Integration-test targets that intentionally run in no CI workflow, each with a reason |
 | [`ci-test-coverage-ignored-allowlist.txt`](ci-test-coverage-ignored-allowlist.txt) | `#[ignore]`d tests that intentionally run in no CI workflow (issue #793) |
+| [`aws/geode-worker.sh`](aws/geode-worker.sh) | The AWS worker pool: launch, bootstrap, ssh into, sync results from, stop and cost tagged EC2 workers (`project=geode-fem`) that stop themselves when idle, so heavy builds and solver runs leave the local Mac. Guide: [`aws/README.md`](aws/README.md) |
 
 Usage, from the repository root:
 

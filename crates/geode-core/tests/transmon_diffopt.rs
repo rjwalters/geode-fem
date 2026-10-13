@@ -65,6 +65,15 @@
 //!   `summary.toml` values, re-derives both family brackets, the
 //!   current-anchor and hybridization-band verdicts and the certified design
 //!   increment over the committed X0 bracket, each with its rounding direction.
+//! - **Issue #1091:** the same certificate with the sapphire **tensor** (the
+//!   permittivity model of the Palace anchor) on the same meshes.
+//!   `committed_tensor_c_sigma_bracket_toml_is_a_consistent_two_sided_bound`
+//!   (CI-fast) pins `c_sigma_bracket_tensor.toml`: the scalar value of every
+//!   mesh against the committed one (so the meshes are the #1066 ones), the
+//!   tensor family brackets, the certified scalar-vs-tensor gaps against the
+//!   committed scalar brackets, the increments, the anchor verdicts and the
+//!   rotation ruling; `c_sigma_bracket_tensor_coarse_level_release`
+//!   (`#[ignore]`) re-certifies the tensor h level on the fixture mesh.
 //!
 //! # Superseded anchor (issue #1066)
 //!
@@ -3316,6 +3325,20 @@ fn ceil_to(x: f64, dp: i32) -> f64 {
 /// the family bracket is `[floor(max lower), ceil(min upper)]` with the
 /// anchor verdict re-derived from it.
 fn check_family(doc: &toml::Value, tables: &[&str], bracket: &str) -> (f64, f64) {
+    let (lo, hi) = check_family_bounds(doc, tables, bracket);
+    let b = &doc[bracket];
+    let anchor = tf(&doc["meta"], "anchor_ff");
+    assert_eq!(
+        b["contains_anchor"].as_bool().unwrap(),
+        lo <= anchor && anchor <= hi,
+        "{bracket}: anchor verdict"
+    );
+    (lo, hi)
+}
+
+/// The anchor-free part of [`check_family`]: per-row consistency and the
+/// outward-rounded family bracket.
+fn check_family_bounds(doc: &toml::Value, tables: &[&str], bracket: &str) -> (f64, f64) {
     let mut max_lower = f64::NEG_INFINITY;
     let mut min_upper = f64::INFINITY;
     for table in tables {
@@ -3350,12 +3373,6 @@ fn check_family(doc: &toml::Value, tables: &[&str], bracket: &str) -> (f64, f64)
     );
     assert!(lo <= max_lower && hi >= min_upper);
     assert!((tf(b, "width_ff") - (hi - lo)).abs() < 1e-9);
-    let anchor = tf(&doc["meta"], "anchor_ff");
-    assert_eq!(
-        b["contains_anchor"].as_bool().unwrap(),
-        lo <= anchor && anchor <= hi,
-        "{bracket}: anchor verdict"
-    );
     (lo, hi)
 }
 
@@ -3751,4 +3768,425 @@ fn c_sigma_bracket_coarse_level_release() {
         tf(&r2, "lower_eq_k2_ff"),
         "P2 RT2",
     );
+}
+
+fn c_sigma_bracket_tensor_text() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// Unrounded `(max lower, min upper)` over the rows of `tables`.
+fn family_extremes(doc: &toml::Value, tables: &[&str]) -> (f64, f64) {
+    let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
+    for table in tables {
+        for r in rows(doc, table) {
+            hi = hi.min(tf(r, "upper_ff"));
+            for (_, l) in row_lowers(r) {
+                lo = lo.max(l);
+            }
+        }
+    }
+    (lo, hi)
+}
+
+/// Default tier: `benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml`
+/// (#1091) certifies the **sapphire-tensor** `C_Σ` of X⁰ and of both
+/// re-anchored #1066 designs on the #1066 meshes. Every row's scalar value
+/// reproduces the committed `summary.toml` (or #1057) value of the same
+/// mesh, every tensor lower bound lies below every tensor upper bound of its
+/// geometry, each family bracket, certified gap and increment re-derives
+/// with its rounding direction, the anchor verdicts re-derive from
+/// `TransmonAnchor`, and the rotation ruling matches `sapphire_eps_lab`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn committed_tensor_c_sigma_bracket_toml_is_a_consistent_two_sided_bound() {
+    use geode_core::mesh::transmon::sapphire_eps_lab;
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H, TransmonAnchor,
+    };
+    let text = c_sigma_bracket_tensor_text();
+    let doc: toml::Value = toml::from_str(&text).expect("parse c_sigma_bracket_tensor.toml");
+    let meta = &doc["meta"];
+    assert_eq!(meta["issue"].as_integer(), Some(1091));
+    assert_eq!(meta["part"].as_str(), Some("tensor"));
+    assert!(text.contains("# TARGET STATUS (#1063"));
+    assert_eq!(meta["held_out_rounds"].as_integer(), Some(7));
+    let orders: Vec<i64> = meta["equilibration_orders_from_p2"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_integer().unwrap())
+        .collect();
+    assert_eq!(orders, vec![1, 2]);
+    // Rotation ruling: the 36.87 deg MaterialAxes rotation is the identity.
+    assert_eq!(meta["sapphire_rotation_is_identity"].as_bool(), Some(true));
+    let lab = sapphire_eps_lab();
+    let diag = [9.3, 9.3, 11.5];
+    let dev = (0..3)
+        .flat_map(|i| (0..3).map(move |j| (i, j)))
+        .map(|(i, j)| (lab[i][j] - if i == j { diag[i] } else { 0.0 }).abs())
+        .fold(0.0_f64, f64::max);
+    assert_eq!(tf(meta, "sapphire_lab_max_abs_deviation_from_diag"), dev);
+    assert!(dev < 1e-14);
+
+    // Uniform P2 levels: the scalar values are #1057's.
+    let conv = c_sigma_convergence_toml();
+    let uni = rows(&doc, "uniform_x0_tensor_p2");
+    assert_eq!(uni.len(), 2);
+    for (level, r) in uni.iter().enumerate() {
+        let want = conv_c(&conv["x0"], "P2", level as i64, "amg_pcg");
+        assert!(
+            (tf(r, "scalar_upper_ff") - want).abs() < 1.5e-6,
+            "uniform {level}"
+        );
+    }
+    // Adaptive rows: the scalar values are #1066's, so the meshes are too.
+    for (table, run, key, with_cr) in [
+        (
+            "adaptive_x0_tensor",
+            "p2_cycles10_anchor_93p95",
+            "x0_c_ff",
+            false,
+        ),
+        (
+            "adaptive_anchor_93p95_tensor",
+            "p2_cycles10_anchor_93p95",
+            "c_ff",
+            true,
+        ),
+        (
+            "adaptive_anchor_93p95_resolution_corrected_tensor",
+            "p2_cycles10_anchor_93p95_resolution_corrected",
+            "c_ff",
+            true,
+        ),
+    ] {
+        let sm = refined_summary_toml(run);
+        let series = held_out_series(&sm, key);
+        let hs = sm["held_out"].as_array().unwrap();
+        let got = rows(&doc, table);
+        assert_eq!(got.len(), 8, "{table}: rounds 0-7");
+        assert_eq!(series.len(), 8);
+        for (i, (r, want)) in got.iter().zip(&series).enumerate() {
+            assert_eq!(r["order"].as_str(), Some("P2"));
+            assert_eq!(r["n_tets"].as_integer(), hs[i]["n_tets"].as_integer());
+            let su = tf(r, "scalar_upper_ff");
+            assert!(
+                (su - want).abs() < 2e-6,
+                "{table} round {i}: {su} vs {want}"
+            );
+            let up = tf(r, "upper_ff");
+            let gap = tf(r, "scalar_minus_tensor_ff");
+            assert!((gap - (su - up)).abs() < 2e-6, "{table} round {i}: gap");
+            // The tensor value is the larger on every mesh, by 2.5-3 %.
+            assert!(
+                gap / su < -0.025 && gap / su > -0.03,
+                "{table} round {i}: {gap}"
+            );
+            let mut keys: Vec<String> = row_lowers(r).into_iter().map(|l| l.0).collect();
+            keys.sort();
+            let mut expect = vec!["lower_eq_k1_ff", "lower_eq_k2_ff"];
+            if with_cr {
+                expect.insert(0, "lower_cr_ff");
+            }
+            if i == 7 {
+                expect.push("lower_eq_k3_ff");
+            }
+            assert_eq!(keys, expect, "{table} round {i}: certificates");
+        }
+    }
+
+    // Family brackets (anchor-free core of check_family).
+    let (x0_lo, x0_hi) = check_family_bounds(
+        &doc,
+        &["uniform_x0_tensor_p2", "adaptive_x0_tensor"],
+        "bracket_x0_tensor",
+    );
+    let x0_t = family_extremes(&doc, &["uniform_x0_tensor_p2", "adaptive_x0_tensor"]);
+    // Certified converged gaps against the committed scalar brackets.
+    let check_gap = |table: &str, t: (f64, f64), s: (f64, f64)| {
+        let g = &doc[table];
+        assert!(
+            (tf(g, "scalar_lower_ff") - floor_to(s.0, 6)).abs() < 1e-9,
+            "{table}"
+        );
+        assert!(
+            (tf(g, "scalar_upper_ff") - ceil_to(s.1, 6)).abs() < 1e-9,
+            "{table}"
+        );
+        let (lo, hi) = (
+            tf(g, "tensor_minus_scalar_lower_ff"),
+            tf(g, "tensor_minus_scalar_upper_ff"),
+        );
+        assert!((lo - floor_to(t.0 - s.1, 2)).abs() < 1e-9, "{table} lower");
+        assert!((hi - ceil_to(t.1 - s.0, 2)).abs() < 1e-9, "{table} upper");
+        let rel = tf_arr(g, "tensor_minus_scalar_relative");
+        assert!(rel[0] <= (t.0 - s.1) / s.1 && rel[0] > (t.0 - s.1) / s.1 - 1e-4);
+        assert!(rel[1] >= (t.1 - s.0) / s.0 && rel[1] < (t.1 - s.0) / s.0 + 1e-4);
+        // The tensor C_Sigma is larger than the scalar one, with certainty.
+        assert!(lo > 0.0, "{table}: gap not certified positive");
+        (lo, hi)
+    };
+    let scalar_old = c_sigma_bracket_toml();
+    let x0_s = family_extremes(&scalar_old, &["uniform_x0", "adaptive_x0"]);
+    let x0_gap = check_gap("gap_x0", x0_t, x0_s);
+
+    // Anchor targets.
+    let ff = |a: TransmonAnchor| a.c_sigma_farad * 1e15;
+    let dressed = ff(TransmonAnchor::devicelayout());
+    let (k_lo, k_hi) = DEVICELAYOUT_COUPLING_K_BAND;
+    let bare = [k_lo, k_hi].map(|k| ff(TransmonAnchor::devicelayout_bare_with_coupling(k)));
+    let (l_lo, l_hi) = DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H;
+    let mut loops = Vec::new();
+    for k in [k_lo, k_hi] {
+        for l in [l_lo, l_hi] {
+            loops.push(ff(TransmonAnchor::devicelayout_bare_loop_with(k, l)));
+        }
+    }
+    let span = |v: &[f64]| {
+        (
+            v.iter().copied().fold(f64::INFINITY, f64::min),
+            v.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let targets = [
+        ("devicelayout", dressed, (dressed, dressed)),
+        (
+            "devicelayout_bare",
+            ff(TransmonAnchor::devicelayout_bare()),
+            span(&bare),
+        ),
+        (
+            "devicelayout_bare_loop",
+            ff(TransmonAnchor::devicelayout_bare_loop()),
+            span(&loops),
+        ),
+    ];
+    let scalar_93p95: toml::Value =
+        toml::from_str(&c_sigma_bracket_93p95_text()).expect("parse 93p95 bracket");
+    let mut out = Vec::new();
+    for name in ["anchor_93p95", "anchor_93p95_resolution_corrected"] {
+        let table = format!("adaptive_{name}_tensor");
+        let bracket = format!("bracket_{name}_tensor");
+        let (lo, hi) = check_family_bounds(&doc, &[table.as_str()], &bracket);
+        let t = family_extremes(&doc, &[table.as_str()]);
+        let s = family_extremes(&scalar_93p95, &[&format!("adaptive_{name}")]);
+        let gap = check_gap(&format!("gap_{name}"), t, s);
+        let b = &doc[bracket.as_str()];
+        for (key, point, (b_lo, b_hi)) in targets {
+            let v = if hi < b_lo {
+                format!("below by at least {:.2} fF", floor_to(b_lo - hi, 2))
+            } else if lo > b_hi {
+                format!("above by at least {:.2} fF", floor_to(lo - b_hi, 2))
+            } else if lo <= point && point <= hi {
+                "contains the point".to_string()
+            } else {
+                "meets the band, not the point".to_string()
+            };
+            assert_eq!(
+                b[format!("vs_{key}").as_str()].as_str(),
+                Some(v.as_str()),
+                "{bracket} {key}"
+            );
+        }
+        let inc = &doc[format!("increment_{name}_over_x0_tensor").as_str()];
+        let (ilo, ihi) = (tf(inc, "lower_ff"), tf(inc, "upper_ff"));
+        assert!((ilo - floor_to(t.0 - x0_t.1, 2)).abs() < 1e-9);
+        assert!((ihi - ceil_to(t.1 - x0_t.0, 2)).abs() < 1e-9);
+        assert!((tf(inc, "width_ff") - (ihi - ilo)).abs() < 1e-9);
+        assert!(ilo > 0.0 && lo > x0_hi);
+        out.push((lo, hi, ilo, ihi, gap));
+    }
+    // The same-mesh gap series and its fitted order (an estimate).
+    for (name, table) in [
+        ("x0", "adaptive_x0_tensor"),
+        ("anchor_93p95", "adaptive_anchor_93p95_tensor"),
+        (
+            "anchor_93p95_resolution_corrected",
+            "adaptive_anchor_93p95_resolution_corrected_tensor",
+        ),
+    ] {
+        let g = &doc[format!("gap_order_{name}").as_str()];
+        let series = tf_arr(g, "same_mesh_gap_ff");
+        for (r, x) in rows(&doc, table).iter().zip(&series) {
+            assert!((tf(r, "scalar_minus_tensor_ff") - x).abs() < 2e-6);
+        }
+        let p = tf(g, "observed_order_p");
+        assert!(p > 0.0 && p < 4.0, "{name}: p = {p}");
+        let rel = tf(g, "extrapolated_gap_relative");
+        assert!(rel < -0.025 && rel > -0.031, "{name}: {rel}");
+    }
+    // The committed outcome (#1091).
+    assert_eq!((x0_lo, x0_hi), (79.56, 79.76));
+    assert_eq!(x0_gap, (1.95, 2.35));
+    let [
+        (p_lo, p_hi, p_ilo, p_ihi, p_gap),
+        (c_lo, c_hi, c_ilo, c_ihi, c_gap),
+    ] = out[..]
+    else {
+        panic!("two designs")
+    };
+    assert_eq!((p_lo, p_hi), (95.34, 95.58));
+    assert_eq!((c_lo, c_hi), (96.51, 96.75));
+    assert_eq!((p_ilo, p_ihi), (15.58, 16.01));
+    assert_eq!((c_ilo, c_ihi), (16.75, 17.18));
+    assert_eq!(p_gap, (2.34, 2.82));
+    assert_eq!(c_gap, (2.37, 2.86));
+    // The verdicts the scalar brackets gave do not survive the tensor: the
+    // #1066 design was certified BELOW the published-value anchor and the
+    // corrected design CONTAINED it; with the tensor both lie above every
+    // target band, by more than the whole anchor chain (0.100 + 0.711 fF).
+    let s_p = (
+        tf(&scalar_93p95["bracket_anchor_93p95"], "lower_ff"),
+        tf(&scalar_93p95["bracket_anchor_93p95"], "upper_ff"),
+    );
+    assert!(s_p.1 < dressed && p_lo > dressed);
+    for (_, _, (_, b_hi)) in targets {
+        assert!(p_lo > b_hi && c_lo > b_hi);
+    }
+    assert!(p_lo - dressed > 0.100 + 0.711);
+    // The committed #1078 / #1079 target bands (which add the resonator's
+    // odd harmonics at their lower edge) share the upper edges of the
+    // artifact's corner bands, so every "above" verdict is the same against
+    // them.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks");
+    let read = |rel: &str| -> toml::Value {
+        toml::from_str(&std::fs::read_to_string(root.join(rel)).unwrap()).unwrap()
+    };
+    let bare_doc = tf_arr(
+        &read("transmon_coupling/results.toml")["anchor"],
+        "bare_c_sigma_band_ff",
+    );
+    let loop_doc = tf_arr(
+        &read("transmon_loop_inductance/results.toml")["anchor"],
+        "c_sigma_band_ff",
+    );
+    for (doc_band, (_, _, (b_lo, b_hi))) in [(bare_doc, targets[1]), (loop_doc, targets[2])] {
+        assert!((doc_band[1] - b_hi).abs() < 2e-4, "{doc_band:?} vs {b_hi}");
+        assert!(doc_band[0] <= b_lo + 1e-9);
+        for lo in [p_lo, c_lo] {
+            assert!(lo > doc_band[1]);
+            assert_eq!(floor_to(lo - doc_band[1], 2), floor_to(lo - b_hi, 2));
+        }
+    }
+    // The extrapolated same-mesh gap lies inside every certified gap.
+    for (name, (lo, hi), s) in [
+        ("x0", x0_gap, x0_s),
+        (
+            "anchor_93p95",
+            p_gap,
+            family_extremes(&scalar_93p95, &["adaptive_anchor_93p95"]),
+        ),
+    ] {
+        let g = -tf(
+            &doc[format!("gap_order_{name}").as_str()],
+            "extrapolated_gap_ff",
+        );
+        assert!(lo <= g && g <= hi, "{name}: {g} outside [{lo}, {hi}]");
+        assert!(s.0 > 0.0);
+    }
+}
+
+/// Release tier: re-certify the tensor h level of `c_sigma_bracket_tensor.toml`
+/// on the committed 133k-tet fixture: the sapphire-tensor P2 value and its
+/// equilibrated RT1 and RT2 bounds, digit for digit at the printed (floored)
+/// precision. The finer levels and the adaptive series are a manual
+/// generator run (`BRACKET_PART=tensor cargo run -p geode-core --release
+/// --example transmon_c_sigma_bracket`).
+#[test]
+#[ignore = "release-tier: a tensor P2 AMG-PCG solve and two patch equilibrations on the 133k-tet fixture (~20 s in release)"]
+fn c_sigma_bracket_tensor_coarse_level_release() {
+    use geode_core::assembly::electrostatic::{
+        AmgPcgOptions, assemble_electrostatic_p2_sheets_tensor,
+        extract_capacitance_p2_amg_pcg_fields,
+    };
+    use geode_core::assembly::electrostatic_dual::{
+        ConductorRole, DualConductor, FaceTopology, Permittivity, PrimalPotential,
+        certify_lower_bound, equilibrated_flux,
+    };
+    use geode_core::mesh::transmon::sapphire_eps_lab;
+    let doc: toml::Value = toml::from_str(&c_sigma_bracket_tensor_text()).unwrap();
+    let r = rows(&doc, "uniform_x0_tensor_p2")[0].clone();
+    assert_eq!(r["mesh"].as_str(), Some("uniform h/1"));
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let mesh = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let comps = fx.split_metal_conductors();
+    let part = |role: MetalRole| {
+        let c = comps.iter().find(|c| c.role == role).unwrap();
+        (c.triangles.clone(), c.nodes.clone())
+    };
+    let (ti, ni) = part(MetalRole::Island);
+    let (tfeed, nf) = part(MetalRole::Feedline);
+    let (tg, ng) = part(MetalRole::Ground);
+    let lab = sapphire_eps_lab();
+    let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let eps: Vec<[[f64; 3]; 3]> = fx
+        .tet_physical_tags
+        .iter()
+        .map(|&t| {
+            if t == fx.tags.substrate {
+                lab
+            } else {
+                identity
+            }
+        })
+        .collect();
+    let electrodes = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: ni,
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: nf,
+            voltage: 0.0,
+        },
+    ];
+    let rho = vec![0.0; mesh.n_tets()];
+    let (sys, dofs) = assemble_electrostatic_p2_sheets_tensor(
+        &mesh,
+        &eps,
+        &rho,
+        &electrodes,
+        &[&ti, &tfeed],
+        &ng,
+        &tg,
+    )
+    .unwrap();
+    let (cm, _, phis) =
+        extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, AmgPcgOptions::default()).unwrap();
+    let vf = -cm.c[1][0] / cm.c[1][1];
+    let phi: Vec<f64> = phis[0]
+        .iter()
+        .zip(&phis[1])
+        .map(|(a, b)| a + vf * b)
+        .collect();
+    let c = 1e15 * (cm.c[0][0] + vf * cm.c[0][1]);
+    assert!((ceil_to(c, 6) - tf(&r, "upper_ff")).abs() < 2e-6, "{c}");
+    let conductors = [
+        ("island", ConductorRole::Driven, ti),
+        ("feedline", ConductorRole::Floating, tfeed),
+        ("ground", ConductorRole::Ground, tg),
+    ]
+    .map(|(name, role, triangles)| DualConductor {
+        name: name.into(),
+        role,
+        triangles,
+    });
+    let topo = FaceTopology::new(&mesh, &conductors).unwrap();
+    let e = Permittivity::Tensor(&eps);
+    for k in [1, 2] {
+        let flux = equilibrated_flux(&mesh, &topo, e, PrimalPotential::P2(&phi), k).unwrap();
+        let lower = 1e15
+            * certify_lower_bound(&mesh, &topo, e, &flux)
+                .unwrap()
+                .c_lower_f;
+        let want = tf(&r, &format!("lower_eq_k{k}_ff"));
+        assert!(
+            (floor_to(lower, 6) - want).abs() < 2e-6,
+            "RT{k}: {lower} vs committed {want}"
+        );
+    }
 }

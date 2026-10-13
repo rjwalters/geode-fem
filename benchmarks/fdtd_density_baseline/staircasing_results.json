@@ -1,240 +1,219 @@
 {
-  "_schema": "geode-fdtd-staircasing/2",
+  "_schema": "geode-fdtd-staircasing/3",
   "arcs": {
-    "patch": {
-      "half_angle_rad": 0.2,
+    "ground": {
+      "half_angle_rad": 0.31,
+      "profile_arc_length_mm": 61.504,
+      "profile_radius_mm": 99.2,
       "resolutions": [
         {
-          "area_mm2": 32.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.558549243277561,
-          "boundary_pos_rms_mm": 0.2642763490885972,
+          "area_mm2": 96.0,
+          "area_rel_error": -0.032258064516123515,
+          "boundary_pos_max_mm": 0.6445788857684391,
+          "boundary_pos_rms_mm": 0.27821425570946756,
           "cell_size_mm": 1.0,
-          "perimeter_mm": 40.0,
-          "perimeter_rel_error": 0.1111111111111111,
+          "perimeter_mm": 144.0,
+          "perimeter_rel_error": 0.13207547169811318,
           "resolution_cells_per_mm": 1,
-          "resonance_shift_proxy_abs": 0.01611441152979251,
-          "taxicab_perimeter_limit_mm": 39.69138410715637,
-          "taxicab_perimeter_rel_error_limit": 0.10253844742101026
+          "resonance_shift_proxy_abs": 0.004523514823580053,
+          "taxicab_perimeter_limit_mm": 145.11368168334536,
+          "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         },
         {
-          "area_mm2": 32.5,
-          "area_rel_error": 0.015625,
-          "boundary_pos_max_mm": 0.28798968444690587,
-          "boundary_pos_rms_mm": 0.13414779249658992,
+          "area_mm2": 99.5,
+          "area_rel_error": 0.0030241935483928156,
+          "boundary_pos_max_mm": 0.31766676043076814,
+          "boundary_pos_rms_mm": 0.14026341950926324,
           "cell_size_mm": 0.5,
-          "perimeter_mm": 40.0,
-          "perimeter_rel_error": 0.1111111111111111,
+          "perimeter_mm": 143.0,
+          "perimeter_rel_error": 0.1242138364779874,
           "resolution_cells_per_mm": 2,
-          "resonance_shift_proxy_abs": 0.008179743444914019,
-          "taxicab_perimeter_limit_mm": 39.69138410715637,
-          "taxicab_perimeter_rel_error_limit": 0.10253844742101026
+          "resonance_shift_proxy_abs": 0.0022805576793259504,
+          "taxicab_perimeter_limit_mm": 145.11368168334536,
+          "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         },
         {
-          "area_mm2": 32.125,
-          "area_rel_error": 0.00390625,
-          "boundary_pos_max_mm": 0.1460701013932777,
-          "boundary_pos_rms_mm": 0.06619202443287414,
+          "area_mm2": 98.25,
+          "area_rel_error": -0.00957661290322016,
+          "boundary_pos_max_mm": 0.16021521108018533,
+          "boundary_pos_rms_mm": 0.07146663804609153,
           "cell_size_mm": 0.25,
-          "perimeter_mm": 40.0,
-          "perimeter_rel_error": 0.1111111111111111,
+          "perimeter_mm": 145.0,
+          "perimeter_rel_error": 0.13993710691823896,
           "resolution_cells_per_mm": 4,
-          "resonance_shift_proxy_abs": 0.004036099050785008,
-          "taxicab_perimeter_limit_mm": 39.69138410715637,
-          "taxicab_perimeter_rel_error_limit": 0.10253844742101026
+          "resonance_shift_proxy_abs": 0.0011619835790532573,
+          "taxicab_perimeter_limit_mm": 145.11368168334536,
+          "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         },
         {
-          "area_mm2": 32.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.06897007940007427,
-          "boundary_pos_rms_mm": 0.03443267537285858,
+          "area_mm2": 99.125,
+          "area_rel_error": -0.000756048387091077,
+          "boundary_pos_max_mm": 0.07930285311115881,
+          "boundary_pos_rms_mm": 0.03593003613964978,
           "cell_size_mm": 0.125,
-          "perimeter_mm": 39.5,
-          "perimeter_rel_error": 0.09722222222222222,
+          "perimeter_mm": 145.25,
+          "perimeter_rel_error": 0.14190251572327042,
           "resolution_cells_per_mm": 8,
-          "resonance_shift_proxy_abs": 0.0020995533763938155,
-          "taxicab_perimeter_limit_mm": 39.69138410715637,
-          "taxicab_perimeter_rel_error_limit": 0.10253844742101026
+          "resonance_shift_proxy_abs": 0.0005841902338002371,
+          "taxicab_perimeter_limit_mm": 145.11368168334536,
+          "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         },
         {
-          "area_mm2": 31.9921875,
-          "area_rel_error": -0.000244140625,
-          "boundary_pos_max_mm": 0.03677603427418319,
-          "boundary_pos_rms_mm": 0.01745219875969984,
+          "area_mm2": 99.1953125,
+          "area_rel_error": -4.725302418784712e-05,
+          "boundary_pos_max_mm": 0.04002299995649139,
+          "boundary_pos_rms_mm": 0.018096020462627444,
           "cell_size_mm": 0.0625,
-          "perimeter_mm": 39.5,
-          "perimeter_rel_error": 0.09722222222222222,
+          "perimeter_mm": 145.0,
+          "perimeter_rel_error": 0.13993710691823896,
           "resolution_cells_per_mm": 16,
-          "resonance_shift_proxy_abs": 0.0010641584609573072,
-          "taxicab_perimeter_limit_mm": 39.69138410715637,
-          "taxicab_perimeter_rel_error_limit": 0.10253844742101026
+          "resonance_shift_proxy_abs": 0.0002942250985728968,
+          "taxicab_perimeter_limit_mm": 145.11368168334536,
+          "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         }
       ],
-      "resonance_proxy_slope_vs_cell_size": 0.9803106338081509,
-      "top_arc_length_mm": 16.400000000000002
+      "resonance_proxy_slope_vs_cell_size": 0.984978046293,
+      "top_arc_length_mm": 62.496
     },
-    "substrate": {
-      "half_angle_rad": 0.3,
+    "patch": {
+      "half_angle_rad": 0.19,
+      "profile_arc_length_mm": 38.304,
+      "profile_radius_mm": 100.8,
       "resolutions": [
         {
-          "area_mm2": 48.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.5585987144690137,
-          "boundary_pos_rms_mm": 0.2686539241450229,
+          "area_mm2": 60.0,
+          "area_rel_error": -0.013157894736836524,
+          "boundary_pos_max_mm": 0.5222041616256092,
+          "boundary_pos_rms_mm": 0.33264923134109525,
           "cell_size_mm": 1.0,
-          "perimeter_mm": 60.0,
-          "perimeter_rel_error": 0.15384615384615385,
+          "perimeter_mm": 88.0,
+          "perimeter_rel_error": 0.11111111111111108,
           "resolution_cells_per_mm": 1,
-          "resonance_shift_proxy_abs": 0.010920891225407438,
-          "taxicab_perimeter_limit_mm": 59.43282158886516,
-          "taxicab_perimeter_rel_error_limit": 0.14293887670894545
+          "resonance_shift_proxy_abs": 0.00868445152832851,
+          "taxicab_perimeter_limit_mm": 86.4886259599922,
+          "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         },
         {
-          "area_mm2": 48.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.29522659207600555,
-          "boundary_pos_rms_mm": 0.13798347384179924,
+          "area_mm2": 60.5,
+          "area_rel_error": -0.004934210526310161,
+          "boundary_pos_max_mm": 0.25950760504910875,
+          "boundary_pos_rms_mm": 0.12815484386651071,
           "cell_size_mm": 0.5,
-          "perimeter_mm": 58.0,
-          "perimeter_rel_error": 0.11538461538461539,
+          "perimeter_mm": 85.0,
+          "perimeter_rel_error": 0.07323232323232319,
           "resolution_cells_per_mm": 2,
-          "resonance_shift_proxy_abs": 0.005609084302512165,
-          "taxicab_perimeter_limit_mm": 59.43282158886516,
-          "taxicab_perimeter_rel_error_limit": 0.14293887670894545
+          "resonance_shift_proxy_abs": 0.0033457300508174265,
+          "taxicab_perimeter_limit_mm": 86.4886259599922,
+          "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         },
         {
-          "area_mm2": 48.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.1460618352477283,
-          "boundary_pos_rms_mm": 0.06895787442895267,
+          "area_mm2": 60.0,
+          "area_rel_error": -0.013157894736836524,
+          "boundary_pos_max_mm": 0.13795984013501084,
+          "boundary_pos_rms_mm": 0.07272500905870839,
           "cell_size_mm": 0.25,
-          "perimeter_mm": 59.0,
-          "perimeter_rel_error": 0.1346153846153846,
+          "perimeter_mm": 86.0,
+          "perimeter_rel_error": 0.08585858585858581,
           "resolution_cells_per_mm": 4,
-          "resonance_shift_proxy_abs": 0.0028031656271931982,
-          "taxicab_perimeter_limit_mm": 59.43282158886516,
-          "taxicab_perimeter_rel_error_limit": 0.14293887670894545
+          "resonance_shift_proxy_abs": 0.0018986270117666141,
+          "taxicab_perimeter_limit_mm": 86.4886259599922,
+          "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         },
         {
-          "area_mm2": 48.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.07958798055796734,
-          "boundary_pos_rms_mm": 0.03544402418733227,
+          "area_mm2": 60.84375,
+          "area_rel_error": 0.000719572368426713,
+          "boundary_pos_max_mm": 0.07246012182974937,
+          "boundary_pos_rms_mm": 0.03706160570372562,
           "cell_size_mm": 0.125,
-          "perimeter_mm": 59.5,
-          "perimeter_rel_error": 0.14423076923076922,
+          "perimeter_mm": 86.25,
+          "perimeter_rel_error": 0.08901515151515148,
           "resolution_cells_per_mm": 8,
-          "resonance_shift_proxy_abs": 0.0014408139913549705,
-          "taxicab_perimeter_limit_mm": 59.43282158886516,
-          "taxicab_perimeter_rel_error_limit": 0.14293887670894545
+          "resonance_shift_proxy_abs": 0.0009675648941031124,
+          "taxicab_perimeter_limit_mm": 86.4886259599922,
+          "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         },
         {
-          "area_mm2": 48.0,
-          "area_rel_error": 0.0,
-          "boundary_pos_max_mm": 0.03901130065608527,
-          "boundary_pos_rms_mm": 0.017850246843697706,
+          "area_mm2": 60.7890625,
+          "area_rel_error": -0.00017989309209960787,
+          "boundary_pos_max_mm": 0.035963789081463915,
+          "boundary_pos_rms_mm": 0.018903533134768457,
           "cell_size_mm": 0.0625,
-          "perimeter_mm": 59.5,
-          "perimeter_rel_error": 0.14423076923076922,
+          "perimeter_mm": 86.75,
+          "perimeter_rel_error": 0.09532828282828279,
           "resolution_cells_per_mm": 16,
-          "resonance_shift_proxy_abs": 0.0007256197903942157,
-          "taxicab_perimeter_limit_mm": 59.43282158886516,
-          "taxicab_perimeter_rel_error_limit": 0.14293887670894545
+          "resonance_shift_proxy_abs": 0.0004935132919477981,
+          "taxicab_perimeter_limit_mm": 86.4886259599922,
+          "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         }
       ],
-      "resonance_proxy_slope_vs_cell_size": 0.9784347132844419,
-      "top_arc_length_mm": 24.599999999999998
+      "resonance_proxy_slope_vs_cell_size": 1.006443849757,
+      "top_arc_length_mm": 38.304
     }
   },
   "fem_surface_ladder": [
     {
       "ground": {
-        "facet_max_radial_error_mm": 0.015089269939039696,
-        "facet_rms_radial_error_mm": 0.006559401931097543,
-        "max_flat_x_span_mm": 2.2254651552228752,
-        "radius_mm": 39.0,
-        "triangles": 290
+        "facet_max_radial_error_mm": 0.004774091373988654,
+        "facet_rms_radial_error_mm": 0.001722249153610247,
+        "max_angular_span_rad": 0.019621683338810814,
+        "max_node_radial_residual_mm": 1.4210854715202004e-14,
+        "radius_mm": 99.2,
+        "triangles": 3016
       },
       "level": "L0",
+      "mesh": "patch_conformal_L0.msh",
+      "mesh_sha256": "6550124b067a06d9e4dec05b86d7394771524fb04c0791d30215bb46c9fc7c56",
       "patch": {
-        "facet_max_radial_error_mm": 0.01686589139757899,
-        "facet_rms_radial_error_mm": 0.006922661492221274,
-        "max_flat_x_span_mm": 2.2947352926397997,
-        "radius_mm": 41.0,
-        "triangles": 120
+        "facet_max_radial_error_mm": 0.004358097478814216,
+        "facet_rms_radial_error_mm": 0.0017523093326466323,
+        "max_angular_span_rad": 0.018597936570499282,
+        "max_node_radial_residual_mm": 1.4210854715202004e-14,
+        "radius_mm": 100.8,
+        "triangles": 1042
       }
     },
     {
       "ground": {
-        "facet_max_radial_error_mm": 0.003772499943174523,
-        "facet_rms_radial_error_mm": 0.0016399219426291918,
-        "max_flat_x_span_mm": 1.1127325776114376,
-        "radius_mm": 39.0,
-        "triangles": 1160
+        "facet_max_radial_error_mm": 0.0012512858777000702,
+        "facet_rms_radial_error_mm": 0.000433558371777457,
+        "max_angular_span_rad": 0.01004541505218644,
+        "max_node_radial_residual_mm": 1.4210854715202004e-14,
+        "radius_mm": 99.2,
+        "triangles": 12032
       },
       "level": "L1",
+      "mesh": "patch_conformal_L1.msh",
+      "mesh_sha256": "b811910151dea09d65e6e056add3203a6df71d90903d24e8ff0ae3401c3b7dab",
       "patch": {
-        "facet_max_radial_error_mm": 0.00421668968441935,
-        "facet_rms_radial_error_mm": 0.0017307483841325893,
-        "max_flat_x_span_mm": 1.1473676463198998,
-        "radius_mm": 41.0,
-        "triangles": 480
-      }
-    },
-    {
-      "ground": {
-        "facet_max_radial_error_mm": 0.000943136389722099,
-        "facet_rms_radial_error_mm": 0.00040998495187594624,
-        "max_flat_x_span_mm": 0.5563662888057188,
-        "radius_mm": 39.0,
-        "triangles": 4640
-      },
-      "level": "L2",
-      "patch": {
-        "facet_max_radial_error_mm": 0.0010541859736434844,
-        "facet_rms_radial_error_mm": 0.00043269228422218424,
-        "max_flat_x_span_mm": 0.5736838231599499,
-        "radius_mm": 41.0,
-        "triangles": 1920
-      }
-    },
-    {
-      "ground": {
-        "facet_max_radial_error_mm": 0.0002357848101794957,
-        "facet_rms_radial_error_mm": 0.00010249651710780951,
-        "max_flat_x_span_mm": 0.2781831444028595,
-        "radius_mm": 39.0,
-        "triangles": 18560
-      },
-      "level": "L3",
-      "patch": {
-        "facet_max_radial_error_mm": 0.00026354734045952455,
-        "facet_rms_radial_error_mm": 0.00010817339531789285,
-        "max_flat_x_span_mm": 0.28684191157997496,
-        "radius_mm": 41.0,
-        "triangles": 7680
+        "facet_max_radial_error_mm": 0.0011275994834818448,
+        "facet_rms_radial_error_mm": 0.0004406945663061248,
+        "max_angular_span_rad": 0.009460031149521098,
+        "max_node_radial_residual_mm": 1.4210854715202004e-14,
+        "radius_mm": 100.8,
+        "triangles": 4074
       }
     }
   ],
   "geometry": {
-    "bend_radius_mm": 40.0,
-    "bottom_radius_mm": 39.0,
-    "patch_width_mm": 16.0,
-    "substrate_thickness_mm": 2.0,
-    "substrate_width_mm": 24.0,
-    "top_radius_mm": 41.0
+    "bend_radius_mm": 100.0,
+    "ground_tag": 13,
+    "patch_tag": 12,
+    "patch_width_mm": 38.0,
+    "substrate_thickness_mm": 1.6,
+    "substrate_width_mm": 62.0
   },
   "metric_notes": {
     "comparison": "Cartesian vertical RMS and facet radial RMS use different measures; no equal-error solver cost is inferred.",
-    "fem": "Area-weighted radial facet error; vertices on the arc do not make facets exact.",
-    "ladder": "L0 committed smoke surface; L1-L3 flat midpoint surface subdivision then exact cylindrical nodal bend. No refined volume solves.",
-    "perimeter": "Taxicab staircase paradox; not an electromagnetic error.",
-    "proxy": "RMS vertical height displacement / top arc length; not solved resonance or S11."
+    "fem": "Area-weighted radial facet error on actual mesh surfaces; vertices on the arc do not make facets exact.",
+    "ladder": "Independent actual volume meshes; no surface-only midpoint refinement.",
+    "perimeter": "Slab sector under each footprint; taxicab paradox, not an electromagnetic error or metal-patch perimeter.",
+    "profiles": "Patch uses the top radius and patch width; ground uses the bottom radius and full substrate width.",
+    "proxy": "RMS vertical profile displacement / corresponding arc length; not solved resonance or S11."
   },
   "provenance": {
-    "generator_sha256": "8fac4bafbbdd935add57b3fd9f61146fa66f1b709518065a2e81887ac5395258",
-    "mesh": "crates/geode-core/tests/fixtures/patch_2g4_smoke.msh",
-    "mesh_sha256": "e8f0920288922642178a9ee345a60207bb2932e089e2f8cf24e3888b524ce578"
+    "generator_sha256": "73507660e9a08e59f44612cac0e6f1974e6414be46490d1caf66c7d217a098cf",
+    "historical_smoke": "Retired from current outputs; preserved in PR #1095 / commit 7baa2e16.",
+    "mesh_coordinates": "Already bent; no second bend or synthetic subdivision."
   },
-  "scope": "Historical smoke geometry only; geometric proxy, no EM solve or cost-to-accuracy claim."
+  "scope": "Physical bent-patch geometry; no EM solve or cost-to-accuracy claim."
 }
