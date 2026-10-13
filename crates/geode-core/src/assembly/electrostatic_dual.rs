@@ -155,6 +155,63 @@
 //! single-tet closed forms for each penalty term and for the energy at every
 //! order `k ≤ MAX_K`.
 //!
+//! # Anisotropic permittivity (issue #1091)
+//!
+//! Nothing above needs `ε` to be a scalar. Re-derived step by step for `ε`
+//! a **constant symmetric positive-definite tensor on each tetrahedron**
+//! (the sapphire substrate of the transmon studies):
+//!
+//! 1. **Primal minimum and the floating reduction.** `a(φ, ψ) = ∫ ∇φ·ε∇ψ`
+//!    is symmetric and coercive on the admissible potentials, so `C` is the
+//!    minimum above and the conforming P1/P2 values are upper bounds.
+//!    Eliminating the floating constant is minimisation over one more free
+//!    scalar of a positive quadratic form, so `C_ii − C_if²/C_ff` is that
+//!    minimum for any SPD `ε`; no property of a scalar coefficient enters.
+//! 2. **`0 ≤ φ* ≤ 1`.** For the truncation `φ̃ = min(max(φ, 0), 1)`,
+//!    `∇φ̃ = 1_{0<φ<1} ∇φ` almost everywhere, so pointwise
+//!    `∇φ̃·ε∇φ̃ ≤ ∇φ·ε∇φ` for every positive semi-definite `ε`. A floating
+//!    constant is truncated to a constant and the Dirichlet data already
+//!    lie in `[0, 1]`, so `φ̃` is admissible with no larger energy, and by
+//!    uniqueness of the minimiser `φ* = φ̃`.
+//! 3. **The integration by parts** `∫ D·E* = Σ_T ∫ φ* div D + Σ_F ∫ φ* q_F`
+//!    does not involve `ε` at all, so the numerator `N` and its penalty
+//!    terms are unchanged.
+//! 4. **Cauchy–Schwarz** in the inner product `(u, v)_ε = ∫ u·εv`:
+//!    `∫ D·E* = ∫ (ε^{-½}D)·(ε^{½}E*) ≤ (∫ D·ε⁻¹D)^½ (∫ E*·εE*)^½`, and
+//!    `∫ E*·εE* = C/ε₀` for the unit-potential minimiser. `ε^{½}` exists
+//!    because `ε` is SPD; this is the only place where symmetry is used.
+//!    Hence `C ≥ ε₀ N²/W_D` with `W_D = ∫ D·ε⁻¹D`, exactly as above, with
+//!    equality for `D = Q εE*`.
+//! 5. **Equilibration.** The patch target is `ψ_a σ_h` with
+//!    `σ_h = −ε∇φ_h`. Its `ε⁻¹`-weighted misfit has the mass matrix
+//!    `∫ s_i·ε⁻¹s_j` (assembled with the Cholesky factor of `ε⁻¹`) and the
+//!    linear term `∫ ψ_a s_i·ε⁻¹σ_h = −∫ ψ_a s_i·∇φ_h`: `ε⁻¹ε` cancels, so
+//!    the load needs no tensor. The divergence data `∇ψ_a·σ_h =
+//!    −∇ψ_a·ε∇φ_h` is a polynomial of the same degree as for a scalar
+//!    (constant `ε`, linear `∇φ_h` at P2), so `RT_k` with `k ≥ 1`
+//!    represents it exactly. Compatibility is Galerkin orthogonality of the
+//!    **tensor** form, `∫ ∇ψ_a·ε∇φ_h = a(φ_h, ψ_a) = 0` for a free hat
+//!    function: it holds when `φ_h` was solved with the same tensor, which
+//!    is why the primal of a tensor bracket must be the tensor primal
+//!    ([`crate::assembly::electrostatic::assemble_electrostatic_tensor`],
+//!    [`crate::assembly::electrostatic::assemble_electrostatic_p2_sheets_tensor`]).
+//!    A conductor patch deposits `a(φ_h, ψ_a)` on its conductor faces, and a
+//!    floating conductor receives `Σ_{a∈f} a(φ_h, ψ_a) = 0` when `φ_h`
+//!    satisfies the tensor floating constraint, as for a scalar.
+//! 6. **Crouzeix–Raviart.** `−ε∇_h u` is constant per tetrahedron, so it
+//!    lies in `RT0` and is divergence-free there. The CR equation of a free
+//!    face `F` is `Σ_T ∫_T ε∇_h u·∇ψ_F = −Σ_T ∫_{∂T} ψ_F σ·n = −∫_F [σ·n]`
+//!    (the CR basis function has mean 1 on `F` and 0 on the other faces),
+//!    so the CR solution is normal-continuous for any constant tensor.
+//!
+//! The certificate is therefore unchanged and only reads `ε⁻¹`. The tests
+//! check the tensor path three ways. A full SPD tensor `s(x)·L Lᵀ` is the
+//! scalar problem on the mapped mesh `L⁻¹M` scaled by `det L`, for the P2
+//! primal and for the certified bound. The anisotropic stacked plate
+//! collapses onto its closed form, which depends on `ε_zz` only. And the
+//! uniaxial bracket is ordered between the scalar brackets at the two
+//! principal values.
+//!
 //! # Scope
 //!
 //! Volume conductors (tetrahedra inside a metal) are not supported: every
@@ -2016,6 +2073,7 @@ mod tests {
     use super::*;
     use crate::assembly::electrostatic::{
         Electrode, assemble_electrostatic, assemble_electrostatic_p2_sheets,
+        assemble_electrostatic_p2_sheets_tensor, assemble_electrostatic_tensor,
         extract_capacitance_amg_pcg_fields, extract_capacitance_p2_amg_pcg_fields,
     };
     use crate::mesh::cube_tet_mesh;
@@ -2093,6 +2151,12 @@ mod tests {
 
         /// Conforming primal `C` (F) and its floating-reduced potential.
         fn primal(&self, order: usize) -> (f64, Vec<f64>) {
+            self.primal_with(order, None)
+        }
+
+        /// [`Self::primal`] with an optional per-tet `ε_r` tensor in place
+        /// of the scalar `eps` (issue #1091).
+        fn primal_with(&self, order: usize, tensor: Option<&[[[f64; 3]; 3]]>) -> (f64, Vec<f64>) {
             let mut electrodes = vec![Electrode {
                 name: "driven".into(),
                 nodes: nodes_of(&self.driven),
@@ -2108,21 +2172,39 @@ mod tests {
             let ground = nodes_of(&self.ground);
             let rho = vec![0.0; self.mesh.n_tets()];
             let (cm, rep, phis) = if order == 1 {
-                let sys = assemble_electrostatic(&self.mesh, &self.eps, &rho, &electrodes, &ground)
-                    .unwrap();
+                let sys = match tensor {
+                    None => {
+                        assemble_electrostatic(&self.mesh, &self.eps, &rho, &electrodes, &ground)
+                    }
+                    Some(t) => {
+                        assemble_electrostatic_tensor(&self.mesh, t, &rho, &electrodes, &ground)
+                    }
+                }
+                .unwrap();
                 extract_capacitance_amg_pcg_fields(&sys, &electrodes, &ground, tight()).unwrap()
             } else {
                 let mut tris: Vec<&[[u32; 3]]> = vec![&self.driven];
                 tris.extend(self.floating.iter().map(Vec::as_slice));
-                let (sys, dofs) = assemble_electrostatic_p2_sheets(
-                    &self.mesh,
-                    &self.eps,
-                    &rho,
-                    &electrodes,
-                    &tris,
-                    &ground,
-                    &self.ground,
-                )
+                let (sys, dofs) = match tensor {
+                    None => assemble_electrostatic_p2_sheets(
+                        &self.mesh,
+                        &self.eps,
+                        &rho,
+                        &electrodes,
+                        &tris,
+                        &ground,
+                        &self.ground,
+                    ),
+                    Some(t) => assemble_electrostatic_p2_sheets_tensor(
+                        &self.mesh,
+                        t,
+                        &rho,
+                        &electrodes,
+                        &tris,
+                        &ground,
+                        &self.ground,
+                    ),
+                }
                 .unwrap();
                 extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, tight()).unwrap()
             };
@@ -2143,14 +2225,27 @@ mod tests {
         }
 
         fn equilibrated(&self, order: usize, k: usize) -> (f64, DualBound) {
+            self.equilibrated_with(order, k, None)
+        }
+
+        /// [`Self::equilibrated`] with an optional per-tet `ε_r` tensor.
+        fn equilibrated_with(
+            &self,
+            order: usize,
+            k: usize,
+            tensor: Option<&[[[f64; 3]; 3]]>,
+        ) -> (f64, DualBound) {
             let topo = self.topology();
-            let (c, phi) = self.primal(order);
+            let (c, phi) = self.primal_with(order, tensor);
             let primal = if order == 1 {
                 PrimalPotential::P1(&phi)
             } else {
                 PrimalPotential::P2(&phi)
             };
-            let eps = Permittivity::Scalar(&self.eps);
+            let eps = match tensor {
+                None => Permittivity::Scalar(&self.eps),
+                Some(t) => Permittivity::Tensor(t),
+            };
             let flux = equilibrated_flux(&self.mesh, &topo, eps, primal, k).unwrap();
             (
                 c,
@@ -2912,6 +3007,167 @@ mod tests {
         assert!(b.c_lower_f < c && bc.c_lower_f < c);
         assert!(b.c_lower_f > 0.4 * c);
         assert!(b.charges[1].abs() < 1e-8 * b.charges[0]);
+    }
+
+    /// Issue #1091: the tensor P2 bracket on the stacked parallel plate
+    /// collapses onto the closed form. The field is normal to the plates, so
+    /// only `ε_zz` enters, `C = ε₀ / (½/ε_zz,lower + ½/ε_zz,upper)`; in-plane
+    /// anisotropy and `xy` coupling must drop out exactly, and the floating
+    /// middle plate must stay neutral.
+    #[test]
+    fn tensor_p2_stacked_plate_bracket_collapses_on_the_closed_form_1091() {
+        let pb = stacked_plate();
+        for (lower_zz, upper_zz) in [(4.0, 1.0), (11.5, 1.0), (11.5, 2.5)] {
+            let tensor: Vec<[[f64; 3]; 3]> = pb
+                .eps
+                .iter()
+                .map(|&e| {
+                    if e > 1.0 {
+                        [[9.3, 0.8, 0.0], [0.8, 9.7, 0.0], [0.0, 0.0, lower_zz]]
+                    } else {
+                        [[1.0, 0.2, 0.0], [0.2, 1.3, 0.0], [0.0, 0.0, upper_zz]]
+                    }
+                })
+                .collect();
+            let exact = EPS_0 / (0.5 / lower_zz + 0.5 / upper_zz);
+            for k in [1, 2] {
+                let (c, b) = pb.equilibrated_with(2, k, Some(&tensor));
+                assert!((c / exact - 1.0).abs() < 1e-9, "P2 {c} vs {exact}");
+                assert!(
+                    (b.c_lower_f / exact - 1.0).abs() < 1e-8,
+                    "RT{k}: {} vs {exact}",
+                    b.c_lower_f
+                );
+                assert!(b.c_lower_f <= c * (1.0 + 1e-12));
+                assert!(b.charges[1].abs() < 1e-8 * b.charges[0]);
+            }
+        }
+    }
+
+    /// Issue #1091: a full SPD tensor `ε = s(x)·L Lᵀ` (`s` the scalar
+    /// substrate/vacuum map, `L` lower triangular with every off-diagonal
+    /// set) on a mesh `M` is the scalar problem `s(x)` on the mapped mesh
+    /// `L⁻¹M`, scaled by `det L`: with `x' = L⁻¹x`,
+    /// `∇φ·ε∇φ dx = s |∇'φ|² det L dx'`. The map preserves the P2 space,
+    /// the sheets and the natural boundary, so the tensor P2 capacitance
+    /// matches to solver precision, and so does the certified lower bound
+    /// (the Raviart–Thomas patch problems are equivariant under the Piola
+    /// map; only the `L¹` penalty estimates, about `1e-9` of the charge, are
+    /// not). Every tensor entry of the P2 kernel, of the patch weights and
+    /// divergence data, and of the certificate's `ε⁻¹` is exercised.
+    #[test]
+    fn tensor_bracket_is_the_scalar_bracket_of_the_mapped_mesh_1091() {
+        let pb = coplanar();
+        let l = [[1.1, 0.0, 0.0], [0.3, 0.9, 0.0], [-0.2, 0.25, 1.2]];
+        let llt: [[f64; 3]; 3] = std::array::from_fn(|i| {
+            std::array::from_fn(|j| (0..3).map(|k| l[i][k] * l[j][k]).sum())
+        });
+        let det_l = l[0][0] * l[1][1] * l[2][2];
+        let tensor: Vec<[[f64; 3]; 3]> = pb
+            .eps
+            .iter()
+            .map(|&s| llt.map(|row| row.map(|x| s * x)))
+            .collect();
+        let map = |x: &[f64; 3]| {
+            let y0 = x[0] / l[0][0];
+            let y1 = (x[1] - l[1][0] * y0) / l[1][1];
+            let y2 = (x[2] - l[2][0] * y0 - l[2][1] * y1) / l[2][2];
+            [y0, y1, y2]
+        };
+        let mut mesh = pb.mesh.clone();
+        mesh.nodes = pb.mesh.nodes.iter().map(map).collect();
+        let mapped = Problem {
+            mesh,
+            eps: pb.eps.clone(),
+            driven: pb.driven.clone(),
+            floating: pb.floating.clone(),
+            ground: pb.ground.clone(),
+        };
+        for k in [1, 2] {
+            let (ct, bt) = pb.equilibrated_with(2, k, Some(&tensor));
+            let (cs, bs) = mapped.equilibrated(2, k);
+            assert!(
+                (ct / (det_l * cs) - 1.0).abs() < 1e-9,
+                "P2: tensor {ct} vs mapped scalar {}",
+                det_l * cs
+            );
+            assert!(
+                (bt.c_lower_f / (det_l * bs.c_lower_f) - 1.0).abs() < 1e-6,
+                "RT{k}: tensor {} vs mapped scalar {}",
+                bt.c_lower_f,
+                det_l * bs.c_lower_f
+            );
+            assert!(
+                bt.c_lower_f < ct && bt.c_lower_f > 0.4 * ct,
+                "{} vs {ct}",
+                bt.c_lower_f
+            );
+        }
+        // The P1 tensor path and the CR dual map the same way.
+        let (c1t, _) = pb.primal_with(1, Some(&tensor));
+        let (c1s, _) = mapped.primal(1);
+        assert!((c1t / (det_l * c1s) - 1.0).abs() < 1e-9);
+        let topo = pb.topology();
+        let (fc, _) =
+            crouzeix_raviart_flux(&pb.mesh, &topo, Permittivity::Tensor(&tensor), tight()).unwrap();
+        let bc = certify_lower_bound(&pb.mesh, &topo, Permittivity::Tensor(&tensor), &fc).unwrap();
+        let (_, bcs) = mapped.crouzeix_raviart();
+        assert!((bc.c_lower_f / (det_l * bcs.c_lower_f) - 1.0).abs() < 1e-6);
+    }
+
+    /// Issue #1091: the uniaxial sapphire-like substrate `diag(9.3, 9.3,
+    /// 11.5)` lies between `9.3·I` and `11.5·I` in the Loewner order, and the
+    /// capacitance is monotone in `ε`, so its certified tensor bracket must
+    /// be consistent with the scalar brackets at 9.3 and 11.5; it must also
+    /// stay a bracket under refinement and shrink. An isotropic tensor
+    /// reproduces the scalar P2 bracket.
+    #[test]
+    fn tensor_p2_bracket_is_ordered_between_the_scalar_extremes_1091() {
+        let coarse = coplanar();
+        let iso: Vec<[[f64; 3]; 3]> = coarse.eps.iter().map(|&e| diag(e)).collect();
+        let (cs, bs) = coarse.equilibrated(2, 1);
+        let (ci, bi) = coarse.equilibrated_with(2, 1, Some(&iso));
+        assert!((ci / cs - 1.0).abs() < 1e-12, "{ci} vs {cs}");
+        assert!((bi.c_lower_f / bs.c_lower_f - 1.0).abs() < 1e-10);
+        let with_sub = |pb: &Problem, sub: f64| Problem {
+            mesh: pb.mesh.clone(),
+            eps: pb
+                .eps
+                .iter()
+                .map(|&e| if e > 1.0 { sub } else { 1.0 })
+                .collect(),
+            driven: pb.driven.clone(),
+            floating: pb.floating.clone(),
+            ground: pb.ground.clone(),
+        };
+        let mut widths = Vec::new();
+        for pb in [coarse.red_refined(), coarse] {
+            let sapphire: Vec<[[f64; 3]; 3]> = pb
+                .eps
+                .iter()
+                .map(|&e| {
+                    if e > 1.0 {
+                        [[9.3, 0.0, 0.0], [0.0, 9.3, 0.0], [0.0, 0.0, 11.5]]
+                    } else {
+                        diag(1.0)
+                    }
+                })
+                .collect();
+            let (ct, b1) = pb.equilibrated_with(2, 1, Some(&sapphire));
+            let (_, b2) = pb.equilibrated_with(2, 2, Some(&sapphire));
+            let lt = b1.c_lower_f.max(b2.c_lower_f);
+            assert!(lt < ct, "{lt} vs {ct}");
+            let (c_lo, b_lo) = with_sub(&pb, 9.3).equilibrated(2, 2);
+            let (c_hi, b_hi) = with_sub(&pb, 11.5).equilibrated(2, 2);
+            // C(9.3) <= C_tensor <= C(11.5), checked on certified sides,
+            // and on the conforming values of one space (the discrete
+            // minimum is monotone in ε as well).
+            assert!(b_lo.c_lower_f < ct && lt < c_hi, "ordering");
+            assert!(c_lo < ct && ct < c_hi, "{c_lo} {ct} {c_hi}");
+            assert!(b_hi.c_lower_f < c_hi);
+            widths.push(ct - lt);
+        }
+        assert!(widths[0] < 0.75 * widths[1], "{widths:?}");
     }
 
     #[test]

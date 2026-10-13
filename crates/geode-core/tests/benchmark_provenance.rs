@@ -314,6 +314,13 @@ const MANIFEST: &[Entry] = &[
          no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml",
+        "examples/transmon_c_sigma_bracket.rs (BRACKET_PART=tensor, issue #1091): scalar and \
+         sapphire-tensor f64 P1 and P2 electrostatic assembly + AMG-PCG on host CSR, f64 \
+         Raviart-Thomas patch equilibration (faer dense) and a Crouzeix-Raviart solve \
+         (assembly::electrostatic_dual), no Backend generic",
+    ),
+    b(
         "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml",
         "examples/transmon_refined_optimize.rs: scalar f64 P1/P2 electrostatic assembly + AMG-PCG \
          on host CSR and the f64 energy shape derivative (shape::refined_capacitance, issue \

@@ -64,7 +64,9 @@
 # Substrate is SAPPHIRE, anisotropic AND ROTATED: the lab-frame ε tensor
 # is  R · diag(9.3, 9.3, 11.5) · Rᵀ  with
 #   R = [[0.8, 0.6, 0.0], [-0.6, 0.8, 0.0], [0.0, 0.0, 1.0]]
-# (a ~36.87° in-plane rotation → off-diagonal xy-coupling). Also upstream
+# (a ~36.87° rotation about z). Because the in-plane values are equal
+# (9.3, 9.3), the rotation is the identity for this tensor: no xy coupling
+# (geode-fem issue #1091). Also upstream
 # (Phase B, not used here): μ_r = [0.99999975, 0.99999975, 0.99999979]
 # (≈1) and LossTan = [3.0e-5, 3.0e-5, 8.6e-5]. See
 # `mesh::transmon::SAPPHIRE_*` for the mirrored constants.
