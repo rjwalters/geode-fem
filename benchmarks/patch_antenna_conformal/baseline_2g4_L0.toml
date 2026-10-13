@@ -10,7 +10,7 @@ fixture_yaml = "reference/gmsh/patch_conformal_L0.yaml"
 fixture_sha256 = "6550124b067a06d9e4dec05b86d7394771524fb04c0791d30215bb46c9fc7c56"
 flat_fixture_sha256 = "30705c1e1749533124e5a1732c04a7021d6d6e4083b36235a69f8679074dbec1"
 gmsh_version = "4.15.2-git"
-generated_at_commit = "571feba337e3f8bc77393277d5018a7d5d6a56aa"
+generated_at_commit = "eb3f23d1741a701db4cee0a1ff1497aa4f070227"
 backend = "ndarray"
 float_dtype = "F64"
 length_unit = "mm"
@@ -66,49 +66,49 @@ lc_pml = 12.5
 "air margin / lambda_0" = "0.331"
 
 [summary.flat]
-s11_dip_f_ghz = 2.276054
-s11_dip_db = -21.5628
-f_res_imz0_ghz = 2.273516
-bw_10db_lo_ghz = 2.244319
+s11_dip_f_ghz = 2.271164
+s11_dip_db = -29.1655
+f_res_imz0_ghz = 2.272240
+bw_10db_lo_ghz = 2.244498
 bw_10db_hi_ghz = 2.301516
-bw_10db_mhz = 57.197
+bw_10db_mhz = 57.018
 ism_band_points = 10
 ism_worst_s11_db = -0.8264
 ism_best_s11_db = -1.7930
 
 [summary.bent]
-s11_dip_f_ghz = 2.274398
-s11_dip_db = -20.6341
-f_res_imz0_ghz = 2.275230
-bw_10db_lo_ghz = 2.242098
+s11_dip_f_ghz = 2.270758
+s11_dip_db = -27.8157
+f_res_imz0_ghz = 2.274401
+bw_10db_lo_ghz = 2.242160
 bw_10db_hi_ghz = 2.301970
-bw_10db_mhz = 59.872
+bw_10db_mhz = 59.810
 ism_band_points = 10
 ism_worst_s11_db = -0.8951
 ism_best_s11_db = -1.9233
 
 [detune]
 # bent minus flat, same mesh topology.
-s11_dip_shift_mhz = -1.656
-s11_dip_shift_rel = -7.275267e-4
-s11_dip_depth_change_db = 0.9287
-f_res_imz0_shift_mhz = 1.714
+s11_dip_shift_mhz = -0.406
+s11_dip_shift_rel = -1.788100e-4
+s11_dip_depth_change_db = 1.3497
+f_res_imz0_shift_mhz = 2.162
 ism_worst_s11_change_db = -0.0687
 
 [cost]
 # Per solve = per-frequency UPML tensor build + assembly + sparse LU + solve. RSS = max of ps -o rss= samples every 50 ms during the solve.
 host = "Apple M3 Ultra, 28 cores, 96 GB; shared host with other agents (load average recorded in the log)"
-n_solves = 94
-first_solve_peak_rss_gib = 0.768
+n_solves = 104
+first_solve_peak_rss_gib = 0.747
 # first_solve_peak_rss_gib is the single-solve footprint. Later per-point peaks include heap the allocator retains between solves (it plateaus and falls back; not a leak), so the *_peak_rss_gib maxima below bound the whole sweep, not one solve.
-flat_solve_s_mean = 8.052
-flat_solve_s_max = 23.322
-flat_peak_rss_gib = 3.896
-bent_solve_s_mean = 3.068
-bent_solve_s_max = 12.996
-bent_peak_rss_gib = 4.891
-post_s_mean = 0.054  # port readback + flux_power_box, outside solve_s
-total_s = 527.8
+flat_solve_s_mean = 14.707
+flat_solve_s_max = 22.273
+flat_peak_rss_gib = 1.725
+bent_solve_s_mean = 17.149
+bent_solve_s_max = 26.710
+bent_peak_rss_gib = 2.116
+post_s_mean = 0.051  # port readback + flux_power_box, outside solve_s
+total_s = 1662.0
 
 [[sweep.flat]]
 f_ghz = 2.1000
@@ -123,9 +123,9 @@ p_in = 6.792290e-1
 p_rad = 3.114009e-1
 efficiency = 4.584622e-1
 solve_residual_rel = 4.449e-14
-solve_s = 1.629
+solve_s = 12.778
 post_s = 0.034
-peak_rss_gib = 0.768
+peak_rss_gib = 0.747
 
 [[sweep.flat]]
 f_ghz = 2.1200
@@ -140,9 +140,9 @@ p_in = 8.324580e-1
 p_rad = 3.836025e-1
 efficiency = 4.608070e-1
 solve_residual_rel = 4.773e-14
-solve_s = 1.726
-post_s = 0.033
-peak_rss_gib = 1.130
+solve_s = 9.817
+post_s = 0.036
+peak_rss_gib = 1.055
 
 [[sweep.flat]]
 f_ghz = 2.1400
@@ -157,9 +157,9 @@ p_in = 1.035393e0
 p_rad = 4.792111e-1
 efficiency = 4.628303e-1
 solve_residual_rel = 5.282e-14
-solve_s = 1.587
-post_s = 0.031
-peak_rss_gib = 1.463
+solve_s = 9.712
+post_s = 0.035
+peak_rss_gib = 1.248
 
 [[sweep.flat]]
 f_ghz = 2.1600
@@ -174,9 +174,9 @@ p_in = 1.306151e0
 p_rad = 6.067534e-1
 efficiency = 4.645355e-1
 solve_residual_rel = 5.968e-14
-solve_s = 2.571
-post_s = 0.033
-peak_rss_gib = 1.826
+solve_s = 9.864
+post_s = 0.041
+peak_rss_gib = 1.093
 
 [[sweep.flat]]
 f_ghz = 2.1800
@@ -191,9 +191,9 @@ p_in = 1.666185e0
 p_rad = 7.763173e-1
 efficiency = 4.659251e-1
 solve_residual_rel = 6.389e-14
-solve_s = 1.879
+solve_s = 9.397
 post_s = 0.033
-peak_rss_gib = 2.171
+peak_rss_gib = 1.006
 
 [[sweep.flat]]
 f_ghz = 2.2000
@@ -208,9 +208,26 @@ p_in = 2.132668e0
 p_rad = 9.959574e-1
 efficiency = 4.670007e-1
 solve_residual_rel = 7.163e-14
-solve_s = 1.785
-post_s = 0.033
-peak_rss_gib = 2.474
+solve_s = 11.288
+post_s = 0.034
+peak_rss_gib = 0.983
+
+[[sweep.flat]]
+f_ghz = 2.2100
+omega_rad_per_mm = 4.631817499e-2
+z_re_ohm = 2.172878e1
+z_im_ohm = 4.077837e1
+s11_re = -5.361200554e-2
+s11_im = 5.989866696e-1
+s11_mag = 6.013811416e-1
+s11_db = -4.417004
+p_in = 2.404823e0
+p_rad = 1.124065e0
+efficiency = 4.674212e-1
+solve_residual_rel = 7.472e-14
+solve_s = 9.843
+post_s = 0.035
+peak_rss_gib = 1.078
 
 [[sweep.flat]]
 f_ghz = 2.2200
@@ -225,9 +242,26 @@ p_in = 2.695402e0
 p_rad = 1.260811e0
 efficiency = 4.677636e-1
 solve_residual_rel = 7.751e-14
-solve_s = 1.761
+solve_s = 11.414
 post_s = 0.034
-peak_rss_gib = 2.819
+peak_rss_gib = 1.082
+
+[[sweep.flat]]
+f_ghz = 2.2300
+omega_rad_per_mm = 4.673734399e-2
+z_re_ohm = 3.572497e1
+z_im_ohm = 4.061248e1
+s11_re = 4.730384657e-2
+s11_im = 4.513428944e-1
+s11_mag = 4.538150088e-1
+s11_db = -6.862423
+p_in = 2.991434e0
+p_rad = 1.400075e0
+efficiency = 4.680281e-1
+solve_residual_rel = 8.312e-14
+solve_s = 10.970
+post_s = 0.034
+peak_rss_gib = 0.678
 
 [[sweep.flat]]
 f_ghz = 2.2400
@@ -242,9 +276,26 @@ p_in = 3.272729e0
 p_rad = 1.532340e0
 efficiency = 4.682146e-1
 solve_residual_rel = 8.507e-14
-solve_s = 1.661
-post_s = 0.033
-peak_rss_gib = 3.208
+solve_s = 9.872
+post_s = 0.039
+peak_rss_gib = 0.921
+
+[[sweep.flat]]
+f_ghz = 2.2500
+omega_rad_per_mm = 4.715651299e-2
+z_re_ohm = 5.242680e1
+z_im_ohm = 2.744735e1
+s11_re = 8.910287553e-2
+s11_im = 2.440934653e-1
+s11_mag = 2.598479214e-1
+s11_db = -11.705615
+p_in = 3.512931e0
+p_rad = 1.645188e0
+efficiency = 4.683234e-1
+solve_residual_rel = 8.624e-14
+solve_s = 9.171
+post_s = 0.035
+peak_rss_gib = 0.969
 
 [[sweep.flat]]
 f_ghz = 2.2600
@@ -259,9 +310,26 @@ p_in = 3.683832e0
 p_rad = 1.725339e0
 efficiency = 4.683544e-1
 solve_residual_rel = 9.128e-14
-solve_s = 1.492
+solve_s = 8.759
 post_s = 0.034
-peak_rss_gib = 3.454
+peak_rss_gib = 1.112
+
+[[sweep.flat]]
+f_ghz = 2.2700
+omega_rad_per_mm = 4.757568200e-2
+z_re_ohm = 5.301333e1
+z_im_ohm = 2.048864e0
+s11_re = 2.963567746e-2
+s11_im = 1.929987765e-2
+s11_mag = 3.536606644e-2
+s11_db = -29.028265
+p_in = 3.762591e0
+p_rad = 1.762051e0
+efficiency = 4.683078e-1
+solve_residual_rel = 8.886e-14
+solve_s = 8.171
+post_s = 0.034
+peak_rss_gib = 1.345
 
 [[sweep.flat]]
 f_ghz = 2.2800
@@ -276,9 +344,26 @@ p_in = 3.739115e0
 p_rad = 1.750592e0
 efficiency = 4.681835e-1
 solve_residual_rel = 8.981e-14
-solve_s = 2.272
-post_s = 0.170
-peak_rss_gib = 3.866
+solve_s = 7.850
+post_s = 0.035
+peak_rss_gib = 1.260
+
+[[sweep.flat]]
+f_ghz = 2.2900
+omega_rad_per_mm = 4.799485100e-2
+z_re_ohm = 3.716607e1
+z_im_ohm = -1.178054e1
+s11_re = -1.266562991e-1
+s11_im = -1.522681993e-1
+s11_mag = 1.980591392e-1
+s11_db = -14.064102
+p_in = 3.619522e0
+p_rad = 1.693870e0
+efficiency = 4.679818e-1
+solve_residual_rel = 9.012e-14
+solve_s = 11.619
+post_s = 0.035
+peak_rss_gib = 1.091
 
 [[sweep.flat]]
 f_ghz = 2.3000
@@ -293,9 +378,9 @@ p_in = 3.423587e0
 p_rad = 1.601221e0
 efficiency = 4.677026e-1
 solve_residual_rel = 8.351e-14
-solve_s = 15.176
-post_s = 0.131
-peak_rss_gib = 3.896
+solve_s = 14.744
+post_s = 0.063
+peak_rss_gib = 0.820
 
 [[sweep.flat]]
 f_ghz = 2.3100
@@ -310,9 +395,9 @@ p_in = 3.177877e0
 p_rad = 1.485169e0
 efficiency = 4.673462e-1
 solve_residual_rel = 8.286e-14
-solve_s = 11.451
-post_s = 0.033
-peak_rss_gib = 2.149
+solve_s = 17.228
+post_s = 0.037
+peak_rss_gib = 0.882
 
 [[sweep.flat]]
 f_ghz = 2.3200
@@ -327,9 +412,9 @@ p_in = 2.908496e0
 p_rad = 1.358014e0
 efficiency = 4.669128e-1
 solve_residual_rel = 7.551e-14
-solve_s = 3.484
-post_s = 0.047
-peak_rss_gib = 1.646
+solve_s = 16.454
+post_s = 0.042
+peak_rss_gib = 0.923
 
 [[sweep.flat]]
 f_ghz = 2.3300
@@ -344,9 +429,9 @@ p_in = 2.636407e0
 p_rad = 1.229627e0
 efficiency = 4.664025e-1
 solve_residual_rel = 7.200e-14
-solve_s = 2.598
+solve_s = 12.639
 post_s = 0.035
-peak_rss_gib = 1.686
+peak_rss_gib = 1.011
 
 [[sweep.flat]]
 f_ghz = 2.3400
@@ -361,9 +446,9 @@ p_in = 2.375879e0
 p_rad = 1.106722e0
 efficiency = 4.658156e-1
 solve_residual_rel = 6.800e-14
-solve_s = 8.137
-post_s = 0.078
-peak_rss_gib = 1.987
+solve_s = 10.075
+post_s = 0.035
+peak_rss_gib = 1.195
 
 [[sweep.flat]]
 f_ghz = 2.3500
@@ -378,9 +463,9 @@ p_in = 2.135114e0
 p_rad = 9.931535e-1
 efficiency = 4.651524e-1
 solve_residual_rel = 6.388e-14
-solve_s = 3.708
+solve_s = 8.941
 post_s = 0.035
-peak_rss_gib = 2.020
+peak_rss_gib = 1.281
 
 [[sweep.flat]]
 f_ghz = 2.3600
@@ -395,9 +480,9 @@ p_in = 1.917754e0
 p_rad = 8.906307e-1
 efficiency = 4.644133e-1
 solve_residual_rel = 6.134e-14
-solve_s = 1.962
-post_s = 0.033
-peak_rss_gib = 1.869
+solve_s = 13.372
+post_s = 0.034
+peak_rss_gib = 1.254
 
 [[sweep.flat]]
 f_ghz = 2.3700
@@ -412,9 +497,9 @@ p_in = 1.724454e0
 p_rad = 7.994548e-1
 efficiency = 4.635987e-1
 solve_residual_rel = 5.897e-14
-solve_s = 1.660
-post_s = 0.033
-peak_rss_gib = 2.310
+solve_s = 12.424
+post_s = 0.034
+peak_rss_gib = 1.208
 
 [[sweep.flat]]
 f_ghz = 2.3800
@@ -429,9 +514,9 @@ p_in = 1.554131e0
 p_rad = 7.191104e-1
 efficiency = 4.627091e-1
 solve_residual_rel = 5.590e-14
-solve_s = 1.623
-post_s = 0.035
-peak_rss_gib = 2.595
+solve_s = 10.698
+post_s = 0.039
+peak_rss_gib = 1.114
 
 [[sweep.flat]]
 f_ghz = 2.3900
@@ -446,9 +531,9 @@ p_in = 1.404827e0
 p_rad = 6.486722e-1
 efficiency = 4.617451e-1
 solve_residual_rel = 5.075e-14
-solve_s = 1.648
-post_s = 0.036
-peak_rss_gib = 2.715
+solve_s = 8.999
+post_s = 0.033
+peak_rss_gib = 1.100
 
 [[sweep.flat]]
 f_ghz = 2.4000
@@ -463,9 +548,9 @@ p_in = 1.274259e0
 p_rad = 5.870606e-1
 efficiency = 4.607073e-1
 solve_residual_rel = 4.818e-14
-solve_s = 1.758
-post_s = 0.040
-peak_rss_gib = 2.332
+solve_s = 9.041
+post_s = 0.035
+peak_rss_gib = 1.467
 
 [[sweep.flat]]
 f_ghz = 2.4100
@@ -480,9 +565,9 @@ p_in = 1.160123e0
 p_rad = 5.331887e-1
 efficiency = 4.595966e-1
 solve_residual_rel = 4.566e-14
-solve_s = 20.413
-post_s = 0.056
-peak_rss_gib = 2.536
+solve_s = 11.295
+post_s = 0.036
+peak_rss_gib = 1.475
 
 [[sweep.flat]]
 f_ghz = 2.4200
@@ -497,9 +582,9 @@ p_in = 1.060261e0
 p_rad = 4.860382e-1
 efficiency = 4.584136e-1
 solve_residual_rel = 4.603e-14
-solve_s = 15.165
-post_s = 0.033
-peak_rss_gib = 1.378
+solve_s = 18.826
+post_s = 0.082
+peak_rss_gib = 1.441
 
 [[sweep.flat]]
 f_ghz = 2.4300
@@ -514,9 +599,9 @@ p_in = 9.727317e-1
 p_rad = 4.446934e-1
 efficiency = 4.571594e-1
 solve_residual_rel = 4.209e-14
-solve_s = 9.712
-post_s = 0.366
-peak_rss_gib = 1.451
+solve_s = 15.552
+post_s = 0.044
+peak_rss_gib = 1.507
 
 [[sweep.flat]]
 f_ghz = 2.4400
@@ -531,9 +616,9 @@ p_in = 8.958299e-1
 p_rad = 4.083506e-1
 efficiency = 4.558350e-1
 solve_residual_rel = 3.888e-14
-solve_s = 15.394
-post_s = 0.035
-peak_rss_gib = 1.320
+solve_s = 20.222
+post_s = 0.044
+peak_rss_gib = 1.427
 
 [[sweep.flat]]
 f_ghz = 2.4500
@@ -548,9 +633,9 @@ p_in = 8.280821e-1
 p_rad = 3.763149e-1
 efficiency = 4.544416e-1
 solve_residual_rel = 3.662e-14
-solve_s = 13.780
-post_s = 0.250
-peak_rss_gib = 1.394
+solve_s = 18.506
+post_s = 0.037
+peak_rss_gib = 0.960
 
 [[sweep.flat]]
 f_ghz = 2.4600
@@ -565,9 +650,9 @@ p_in = 7.682246e-1
 p_rad = 3.479907e-1
 efficiency = 4.529804e-1
 solve_residual_rel = 3.819e-14
-solve_s = 15.493
-post_s = 0.157
-peak_rss_gib = 1.394
+solve_s = 20.316
+post_s = 0.040
+peak_rss_gib = 0.902
 
 [[sweep.flat]]
 f_ghz = 2.4700
@@ -582,9 +667,9 @@ p_in = 7.151803e-1
 p_rad = 3.228701e-1
 efficiency = 4.514528e-1
 solve_residual_rel = 3.311e-14
-solve_s = 23.322
-post_s = 0.228
-peak_rss_gib = 1.337
+solve_s = 21.410
+post_s = 0.037
+peak_rss_gib = 1.026
 
 [[sweep.flat]]
 f_ghz = 2.4800
@@ -599,9 +684,9 @@ p_in = 6.680326e-1
 p_rad = 3.005214e-1
 efficiency = 4.498604e-1
 solve_residual_rel = 3.458e-14
-solve_s = 20.322
-post_s = 0.083
-peak_rss_gib = 1.236
+solve_s = 21.963
+post_s = 0.057
+peak_rss_gib = 1.241
 
 [[sweep.flat]]
 f_ghz = 2.4835
@@ -616,9 +701,9 @@ p_in = 6.527761e-1
 p_rad = 2.932845e-1
 efficiency = 4.492880e-1
 solve_residual_rel = 3.183e-14
-solve_s = 17.560
-post_s = 0.050
-peak_rss_gib = 1.306
+solve_s = 20.779
+post_s = 0.034
+peak_rss_gib = 1.361
 
 [[sweep.flat]]
 f_ghz = 2.4900
@@ -633,9 +718,9 @@ p_in = 6.260027e-1
 p_rad = 2.805774e-1
 efficiency = 4.482047e-1
 solve_residual_rel = 3.128e-14
-solve_s = 13.601
-post_s = 0.047
-peak_rss_gib = 1.442
+solve_s = 21.395
+post_s = 0.042
+peak_rss_gib = 1.181
 
 [[sweep.flat]]
 f_ghz = 2.5000
@@ -650,9 +735,9 @@ p_in = 5.884283e-1
 p_rad = 2.627260e-1
 efficiency = 4.464877e-1
 solve_residual_rel = 3.140e-14
-solve_s = 11.985
-post_s = 0.036
-peak_rss_gib = 1.506
+solve_s = 14.870
+post_s = 0.040
+peak_rss_gib = 0.852
 
 [[sweep.flat]]
 f_ghz = 2.5100
@@ -667,9 +752,9 @@ p_in = 5.547453e-1
 p_rad = 2.467014e-1
 efficiency = 4.447111e-1
 solve_residual_rel = 3.032e-14
-solve_s = 9.575
+solve_s = 12.539
 post_s = 0.045
-peak_rss_gib = 1.496
+peak_rss_gib = 1.103
 
 [[sweep.flat]]
 f_ghz = 2.5200
@@ -684,9 +769,9 @@ p_in = 5.244727e-1
 p_rad = 2.322770e-1
 efficiency = 4.428772e-1
 solve_residual_rel = 2.978e-14
-solve_s = 6.789
-post_s = 0.161
-peak_rss_gib = 1.511
+solve_s = 15.924
+post_s = 0.033
+peak_rss_gib = 1.131
 
 [[sweep.flat]]
 f_ghz = 2.5300
@@ -701,9 +786,9 @@ p_in = 4.971991e-1
 p_rad = 2.192588e-1
 efficiency = 4.409880e-1
 solve_residual_rel = 2.894e-14
-solve_s = 11.396
-post_s = 0.066
-peak_rss_gib = 1.459
+solve_s = 21.444
+post_s = 0.036
+peak_rss_gib = 0.964
 
 [[sweep.flat]]
 f_ghz = 2.5400
@@ -718,9 +803,9 @@ p_in = 4.725718e-1
 p_rad = 2.074807e-1
 efficiency = 4.390460e-1
 solve_residual_rel = 2.837e-14
-solve_s = 10.582
-post_s = 0.074
-peak_rss_gib = 1.347
+solve_s = 22.273
+post_s = 0.036
+peak_rss_gib = 1.052
 
 [[sweep.flat]]
 f_ghz = 2.5500
@@ -735,9 +820,9 @@ p_in = 4.502876e-1
 p_rad = 1.967998e-1
 efficiency = 4.370536e-1
 solve_residual_rel = 2.663e-14
-solve_s = 9.621
-post_s = 0.060
-peak_rss_gib = 1.338
+solve_s = 21.817
+post_s = 0.037
+peak_rss_gib = 0.964
 
 [[sweep.flat]]
 f_ghz = 2.5600
@@ -752,9 +837,9 @@ p_in = 4.300852e-1
 p_rad = 1.870929e-1
 efficiency = 4.350136e-1
 solve_residual_rel = 2.614e-14
-solve_s = 13.628
-post_s = 0.063
-peak_rss_gib = 1.353
+solve_s = 18.950
+post_s = 0.039
+peak_rss_gib = 0.968
 
 [[sweep.flat]]
 f_ghz = 2.5700
@@ -769,9 +854,9 @@ p_in = 4.117387e-1
 p_rad = 1.782535e-1
 efficiency = 4.329288e-1
 solve_residual_rel = 2.592e-14
-solve_s = 12.933
-post_s = 0.320
-peak_rss_gib = 1.501
+solve_s = 13.946
+post_s = 0.051
+peak_rss_gib = 0.985
 
 [[sweep.flat]]
 f_ghz = 2.5800
@@ -786,9 +871,9 @@ p_in = 3.950524e-1
 p_rad = 1.701894e-1
 efficiency = 4.308020e-1
 solve_residual_rel = 2.605e-14
-solve_s = 17.561
-post_s = 0.063
-peak_rss_gib = 1.514
+solve_s = 18.757
+post_s = 0.046
+peak_rss_gib = 1.223
 
 [[sweep.flat]]
 f_ghz = 2.5900
@@ -803,9 +888,9 @@ p_in = 3.798560e-1
 p_rad = 1.628202e-1
 efficiency = 4.286366e-1
 solve_residual_rel = 2.459e-14
-solve_s = 11.996
-post_s = 0.034
-peak_rss_gib = 1.400
+solve_s = 19.520
+post_s = 0.045
+peak_rss_gib = 1.036
 
 [[sweep.flat]]
 f_ghz = 2.6000
@@ -820,9 +905,9 @@ p_in = 3.660014e-1
 p_rad = 1.560760e-1
 efficiency = 4.264356e-1
 solve_residual_rel = 2.403e-14
-solve_s = 7.941
-post_s = 0.045
-peak_rss_gib = 1.566
+solve_s = 18.178
+post_s = 0.034
+peak_rss_gib = 0.997
 
 [[sweep.flat]]
 f_ghz = 2.6200
@@ -837,9 +922,9 @@ p_in = 3.418152e-1
 p_rad = 1.442259e-1
 efficiency = 4.219411e-1
 solve_residual_rel = 2.370e-14
-solve_s = 6.732
-post_s = 0.034
-peak_rss_gib = 1.508
+solve_s = 17.137
+post_s = 0.036
+peak_rss_gib = 1.215
 
 [[sweep.flat]]
 f_ghz = 2.6400
@@ -854,9 +939,9 @@ p_in = 3.216380e-1
 p_rad = 1.342349e-1
 efficiency = 4.173476e-1
 solve_residual_rel = 2.194e-14
-solve_s = 2.561
-post_s = 0.034
-peak_rss_gib = 1.834
+solve_s = 16.103
+post_s = 0.037
+peak_rss_gib = 1.250
 
 [[sweep.flat]]
 f_ghz = 2.6600
@@ -871,9 +956,9 @@ p_in = 3.048083e-1
 p_rad = 1.257903e-1
 efficiency = 4.126866e-1
 solve_residual_rel = 2.147e-14
-solve_s = 2.444
-post_s = 0.037
-peak_rss_gib = 2.203
+solve_s = 18.880
+post_s = 0.038
+peak_rss_gib = 1.512
 
 [[sweep.flat]]
 f_ghz = 2.6800
@@ -888,9 +973,9 @@ p_in = 2.908115e-1
 p_rad = 1.186485e-1
 efficiency = 4.079912e-1
 solve_residual_rel = 2.060e-14
-solve_s = 3.251
-post_s = 0.035
-peak_rss_gib = 2.509
+solve_s = 20.223
+post_s = 0.039
+peak_rss_gib = 1.725
 
 [[sweep.flat]]
 f_ghz = 2.7000
@@ -905,9 +990,9 @@ p_in = 2.792455e-1
 p_rad = 1.126187e-1
 efficiency = 4.032966e-1
 solve_residual_rel = 1.967e-14
-solve_s = 3.098
-post_s = 0.033
-peak_rss_gib = 2.629
+solve_s = 18.797
+post_s = 0.034
+peak_rss_gib = 1.570
 
 [[sweep.bent]]
 f_ghz = 2.1000
@@ -922,9 +1007,9 @@ p_in = 7.501869e-1
 p_rad = 3.789560e-1
 efficiency = 5.051488e-1
 solve_residual_rel = 4.392e-14
-solve_s = 7.289
-post_s = 0.034
-peak_rss_gib = 2.624
+solve_s = 17.017
+post_s = 0.048
+peak_rss_gib = 0.880
 
 [[sweep.bent]]
 f_ghz = 2.1200
@@ -939,9 +1024,9 @@ p_in = 9.155471e-1
 p_rad = 4.640999e-1
 efficiency = 5.069099e-1
 solve_residual_rel = 4.774e-14
-solve_s = 9.183
+solve_s = 11.291
 post_s = 0.038
-peak_rss_gib = 2.795
+peak_rss_gib = 1.195
 
 [[sweep.bent]]
 f_ghz = 2.1400
@@ -956,9 +1041,9 @@ p_in = 1.132195e0
 p_rad = 5.755637e-1
 efficiency = 5.083610e-1
 solve_residual_rel = 5.303e-14
-solve_s = 3.979
-post_s = 0.042
-peak_rss_gib = 2.465
+solve_s = 10.366
+post_s = 0.038
+peak_rss_gib = 1.209
 
 [[sweep.bent]]
 f_ghz = 2.1600
@@ -973,9 +1058,9 @@ p_in = 1.417062e0
 p_rad = 7.220027e-1
 efficiency = 5.095068e-1
 solve_residual_rel = 5.813e-14
-solve_s = 3.191
-post_s = 0.047
-peak_rss_gib = 1.955
+solve_s = 14.325
+post_s = 0.039
+peak_rss_gib = 1.148
 
 [[sweep.bent]]
 f_ghz = 2.1800
@@ -990,9 +1075,9 @@ p_in = 1.788412e0
 p_rad = 9.127182e-1
 efficiency = 5.103511e-1
 solve_residual_rel = 6.428e-14
-solve_s = 3.201
-post_s = 0.046
-peak_rss_gib = 2.327
+solve_s = 18.279
+post_s = 0.038
+peak_rss_gib = 1.005
 
 [[sweep.bent]]
 f_ghz = 2.2000
@@ -1007,9 +1092,26 @@ p_in = 2.256823e0
 p_rad = 1.153003e0
 efficiency = 5.108968e-1
 solve_residual_rel = 6.902e-14
-solve_s = 6.067
+solve_s = 19.031
 post_s = 0.036
-peak_rss_gib = 2.367
+peak_rss_gib = 1.014
+
+[[sweep.bent]]
+f_ghz = 2.2100
+omega_rad_per_mm = 4.631817499e-2
+z_re_ohm = 2.265757e1
+z_im_ohm = 3.855213e1
+s11_re = -7.395984695e-2
+s11_im = 5.698434681e-1
+s11_mag = 5.746230391e-1
+s11_db = -4.812339
+p_in = 2.523371e0
+p_rad = 1.289590e0
+efficiency = 5.110583e-1
+solve_residual_rel = 7.203e-14
+solve_s = 15.972
+post_s = 0.055
+peak_rss_gib = 1.122
 
 [[sweep.bent]]
 f_ghz = 2.2200
@@ -1024,9 +1126,26 @@ p_in = 2.802347e0
 p_rad = 1.432408e0
 efficiency = 5.111459e-1
 solve_residual_rel = 7.396e-14
-solve_s = 12.996
-post_s = 0.034
-peak_rss_gib = 2.019
+solve_s = 22.835
+post_s = 0.098
+peak_rss_gib = 1.152
+
+[[sweep.bent]]
+f_ghz = 2.2300
+omega_rad_per_mm = 4.673734399e-2
+z_re_ohm = 3.525137e1
+z_im_ohm = 3.680788e1
+s11_re = 1.130506602e-2
+s11_im = 4.268760522e-1
+s11_mag = 4.270257234e-1
+s11_db = -7.390919
+p_in = 3.080332e0
+p_rad = 1.574542e0
+efficiency = 5.111598e-1
+solve_residual_rel = 8.163e-14
+solve_s = 20.552
+post_s = 0.051
+peak_rss_gib = 0.912
 
 [[sweep.bent]]
 f_ghz = 2.2400
@@ -1041,9 +1160,26 @@ p_in = 3.338112e0
 p_rad = 1.706110e0
 efficiency = 5.111002e-1
 solve_residual_rel = 8.394e-14
-solve_s = 2.680
-post_s = 0.033
-peak_rss_gib = 1.838
+solve_s = 16.971
+post_s = 0.037
+peak_rss_gib = 0.993
+
+[[sweep.bent]]
+f_ghz = 2.2500
+omega_rad_per_mm = 4.715651299e-2
+z_re_ohm = 4.820284e1
+z_im_ohm = 2.409122e1
+s11_re = 3.950445673e-2
+s11_im = 2.356297167e-1
+s11_mag = 2.389183239e-1
+s11_db = -12.435011
+p_in = 3.552258e0
+p_rad = 1.815087e0
+efficiency = 5.109671e-1
+solve_residual_rel = 8.791e-14
+solve_s = 19.293
+post_s = 0.036
+peak_rss_gib = 0.981
 
 [[sweep.bent]]
 f_ghz = 2.2600
@@ -1058,9 +1194,26 @@ p_in = 3.699182e0
 p_rad = 1.889397e0
 efficiency = 5.107608e-1
 solve_residual_rel = 8.608e-14
-solve_s = 2.145
-post_s = 0.033
-peak_rss_gib = 1.838
+solve_s = 16.808
+post_s = 0.037
+peak_rss_gib = 0.998
+
+[[sweep.bent]]
+f_ghz = 2.2700
+omega_rad_per_mm = 4.757568200e-2
+z_re_ohm = 4.780912e1
+z_im_ohm = 3.350674e0
+s11_re = -2.120106169e-2
+s11_im = 3.498356820e-2
+s11_mag = 4.090641834e-2
+s11_db = -27.764171
+p_in = 3.760999e0
+p_rad = 1.919920e0
+efficiency = 5.104812e-1
+solve_residual_rel = 8.573e-14
+solve_s = 20.899
+post_s = 0.050
+peak_rss_gib = 1.192
 
 [[sweep.bent]]
 f_ghz = 2.2800
@@ -1075,9 +1228,26 @@ p_in = 3.730898e0
 p_rad = 1.903238e0
 efficiency = 5.101287e-1
 solve_residual_rel = 8.297e-14
-solve_s = 1.869
-post_s = 0.034
-peak_rss_gib = 2.055
+solve_s = 19.271
+post_s = 0.035
+peak_rss_gib = 1.260
+
+[[sweep.bent]]
+f_ghz = 2.2900
+omega_rad_per_mm = 4.799485100e-2
+z_re_ohm = 3.510240e1
+z_im_ohm = -8.566169e0
+s11_re = -1.632689510e-1
+s11_im = -1.170913991e-1
+s11_mag = 2.009157687e-1
+s11_db = -13.939720
+p_in = 3.615228e0
+p_rad = 1.842693e0
+efficiency = 5.097032e-1
+solve_residual_rel = 8.043e-14
+solve_s = 17.145
+post_s = 0.168
+peak_rss_gib = 1.517
 
 [[sweep.bent]]
 f_ghz = 2.3000
@@ -1092,9 +1262,9 @@ p_in = 3.431150e0
 p_rad = 1.747159e0
 efficiency = 5.092049e-1
 solve_residual_rel = 8.007e-14
-solve_s = 1.939
-post_s = 0.034
-peak_rss_gib = 2.307
+solve_s = 18.639
+post_s = 0.038
+peak_rss_gib = 1.835
 
 [[sweep.bent]]
 f_ghz = 2.3100
@@ -1109,9 +1279,9 @@ p_in = 3.201269e0
 p_rad = 1.628274e0
 efficiency = 5.086339e-1
 solve_residual_rel = 7.739e-14
-solve_s = 3.614
-post_s = 0.042
-peak_rss_gib = 2.730
+solve_s = 18.573
+post_s = 0.049
+peak_rss_gib = 2.108
 
 [[sweep.bent]]
 f_ghz = 2.3200
@@ -1126,9 +1296,9 @@ p_in = 2.948023e0
 p_rad = 1.497568e0
 efficiency = 5.079905e-1
 solve_residual_rel = 7.455e-14
-solve_s = 7.863
-post_s = 0.036
-peak_rss_gib = 2.741
+solve_s = 16.755
+post_s = 0.035
+peak_rss_gib = 2.116
 
 [[sweep.bent]]
 f_ghz = 2.3300
@@ -1143,9 +1313,9 @@ p_in = 2.689916e0
 p_rad = 1.364527e0
 efficiency = 5.072748e-1
 solve_residual_rel = 7.035e-14
-solve_s = 4.238
-post_s = 0.040
-peak_rss_gib = 2.471
+solve_s = 18.022
+post_s = 0.034
+peak_rss_gib = 1.370
 
 [[sweep.bent]]
 f_ghz = 2.3400
@@ -1160,9 +1330,9 @@ p_in = 2.440086e0
 p_rad = 1.235872e0
 efficiency = 5.064870e-1
 solve_residual_rel = 6.764e-14
-solve_s = 6.514
-post_s = 0.036
-peak_rss_gib = 1.893
+solve_s = 18.541
+post_s = 0.034
+peak_rss_gib = 0.952
 
 [[sweep.bent]]
 f_ghz = 2.3500
@@ -1177,9 +1347,9 @@ p_in = 2.206572e0
 p_rad = 1.115704e0
 efficiency = 5.056275e-1
 solve_residual_rel = 6.412e-14
-solve_s = 2.057
-post_s = 0.033
-peak_rss_gib = 2.162
+solve_s = 16.303
+post_s = 0.035
+peak_rss_gib = 1.111
 
 [[sweep.bent]]
 f_ghz = 2.3600
@@ -1194,9 +1364,9 @@ p_in = 1.993407e0
 p_rad = 1.006065e0
 efficiency = 5.046965e-1
 solve_residual_rel = 5.974e-14
-solve_s = 1.825
-post_s = 0.034
-peak_rss_gib = 2.006
+solve_s = 19.678
+post_s = 0.033
+peak_rss_gib = 1.120
 
 [[sweep.bent]]
 f_ghz = 2.3700
@@ -1211,9 +1381,9 @@ p_in = 1.801849e0
 p_rad = 9.075811e-1
 efficiency = 5.036944e-1
 solve_residual_rel = 5.564e-14
-solve_s = 1.678
-post_s = 0.033
-peak_rss_gib = 2.290
+solve_s = 21.034
+post_s = 0.041
+peak_rss_gib = 0.870
 
 [[sweep.bent]]
 f_ghz = 2.3800
@@ -1228,9 +1398,9 @@ p_in = 1.631434e0
 p_rad = 8.199938e-1
 efficiency = 5.026216e-1
 solve_residual_rel = 5.289e-14
-solve_s = 1.709
-post_s = 0.034
-peak_rss_gib = 2.666
+solve_s = 18.974
+post_s = 0.047
+peak_rss_gib = 1.213
 
 [[sweep.bent]]
 f_ghz = 2.3900
@@ -1245,9 +1415,9 @@ p_in = 1.480748e0
 p_rad = 7.425637e-1
 efficiency = 5.014787e-1
 solve_residual_rel = 5.012e-14
-solve_s = 1.628
-post_s = 0.032
-peak_rss_gib = 2.993
+solve_s = 14.692
+post_s = 0.034
+peak_rss_gib = 1.347
 
 [[sweep.bent]]
 f_ghz = 2.4000
@@ -1262,9 +1432,9 @@ p_in = 1.347941e0
 p_rad = 6.743292e-1
 efficiency = 5.002661e-1
 solve_residual_rel = 4.881e-14
-solve_s = 1.936
-post_s = 0.033
-peak_rss_gib = 3.357
+solve_s = 20.175
+post_s = 0.042
+peak_rss_gib = 1.516
 
 [[sweep.bent]]
 f_ghz = 2.4100
@@ -1279,9 +1449,9 @@ p_in = 1.231037e0
 p_rad = 6.142685e-1
 efficiency = 4.989845e-1
 solve_residual_rel = 4.408e-14
-solve_s = 1.593
-post_s = 0.034
-peak_rss_gib = 3.424
+solve_s = 15.560
+post_s = 0.303
+peak_rss_gib = 1.769
 
 [[sweep.bent]]
 f_ghz = 2.4200
@@ -1296,9 +1466,9 @@ p_in = 1.128118e0
 p_rad = 5.613904e-1
 efficiency = 4.976346e-1
 solve_residual_rel = 4.431e-14
-solve_s = 1.554
-post_s = 0.033
-peak_rss_gib = 3.002
+solve_s = 17.451
+post_s = 0.124
+peak_rss_gib = 1.813
 
 [[sweep.bent]]
 f_ghz = 2.4300
@@ -1313,9 +1483,9 @@ p_in = 1.037409e0
 p_rad = 5.147800e-1
 efficiency = 4.962173e-1
 solve_residual_rel = 4.219e-14
-solve_s = 1.538
-post_s = 0.034
-peak_rss_gib = 3.226
+solve_s = 16.036
+post_s = 0.080
+peak_rss_gib = 1.465
 
 [[sweep.bent]]
 f_ghz = 2.4400
@@ -1330,9 +1500,9 @@ p_in = 9.573201e-1
 p_rad = 4.736182e-1
 efficiency = 4.947334e-1
 solve_residual_rel = 3.858e-14
-solve_s = 1.596
-post_s = 0.034
-peak_rss_gib = 3.645
+solve_s = 19.630
+post_s = 0.154
+peak_rss_gib = 1.218
 
 [[sweep.bent]]
 f_ghz = 2.4500
@@ -1347,9 +1517,9 @@ p_in = 8.864541e-1
 p_rad = 4.371849e-1
 efficiency = 4.931839e-1
 solve_residual_rel = 3.767e-14
-solve_s = 1.477
-post_s = 0.033
-peak_rss_gib = 3.880
+solve_s = 24.374
+post_s = 0.215
+peak_rss_gib = 0.851
 
 [[sweep.bent]]
 f_ghz = 2.4600
@@ -1364,9 +1534,9 @@ p_in = 8.235947e-1
 p_rad = 4.048544e-1
 efficiency = 4.915700e-1
 solve_residual_rel = 3.603e-14
-solve_s = 1.529
-post_s = 0.034
-peak_rss_gib = 4.303
+solve_s = 15.420
+post_s = 0.042
+peak_rss_gib = 1.110
 
 [[sweep.bent]]
 f_ghz = 2.4700
@@ -1381,9 +1551,9 @@ p_in = 7.676927e-1
 p_rad = 3.760871e-1
 efficiency = 4.898927e-1
 solve_residual_rel = 3.513e-14
-solve_s = 1.656
-post_s = 0.034
-peak_rss_gib = 4.267
+solve_s = 14.392
+post_s = 0.047
+peak_rss_gib = 1.132
 
 [[sweep.bent]]
 f_ghz = 2.4800
@@ -1398,9 +1568,9 @@ p_in = 7.178463e-1
 p_rad = 3.504192e-1
 efficiency = 4.881535e-1
 solve_residual_rel = 3.328e-14
-solve_s = 1.766
-post_s = 0.033
-peak_rss_gib = 3.623
+solve_s = 11.999
+post_s = 0.045
+peak_rss_gib = 1.213
 
 [[sweep.bent]]
 f_ghz = 2.4835
@@ -1415,9 +1585,9 @@ p_in = 7.016841e-1
 p_rad = 3.420924e-1
 efficiency = 4.875305e-1
 solve_residual_rel = 3.381e-14
-solve_s = 1.551
-post_s = 0.032
-peak_rss_gib = 3.967
+solve_s = 17.291
+post_s = 0.034
+peak_rss_gib = 1.283
 
 [[sweep.bent]]
 f_ghz = 2.4900
@@ -1432,9 +1602,9 @@ p_in = 6.732822e-1
 p_rad = 3.274534e-1
 efficiency = 4.863538e-1
 solve_residual_rel = 3.151e-14
-solve_s = 1.602
-post_s = 0.033
-peak_rss_gib = 4.255
+solve_s = 17.787
+post_s = 0.040
+peak_rss_gib = 1.006
 
 [[sweep.bent]]
 f_ghz = 2.5000
@@ -1449,9 +1619,9 @@ p_in = 6.333373e-1
 p_rad = 3.068489e-1
 efficiency = 4.844952e-1
 solve_residual_rel = 3.152e-14
-solve_s = 1.649
-post_s = 0.035
-peak_rss_gib = 4.583
+solve_s = 16.383
+post_s = 0.068
+peak_rss_gib = 1.217
 
 [[sweep.bent]]
 f_ghz = 2.5100
@@ -1466,9 +1636,9 @@ p_in = 5.974432e-1
 p_rad = 2.883137e-1
 efficiency = 4.825793e-1
 solve_residual_rel = 2.993e-14
-solve_s = 1.778
-post_s = 0.033
-peak_rss_gib = 4.891
+solve_s = 18.692
+post_s = 0.063
+peak_rss_gib = 1.247
 
 [[sweep.bent]]
 f_ghz = 2.5200
@@ -1483,9 +1653,9 @@ p_in = 5.651120e-1
 p_rad = 2.715974e-1
 efficiency = 4.806081e-1
 solve_residual_rel = 2.964e-14
-solve_s = 1.710
-post_s = 0.034
-peak_rss_gib = 4.822
+solve_s = 22.066
+post_s = 0.224
+peak_rss_gib = 0.931
 
 [[sweep.bent]]
 f_ghz = 2.5300
@@ -1500,9 +1670,9 @@ p_in = 5.359240e-1
 p_rad = 2.564843e-1
 efficiency = 4.785833e-1
 solve_residual_rel = 2.825e-14
-solve_s = 1.594
-post_s = 0.034
-peak_rss_gib = 3.640
+solve_s = 26.710
+post_s = 0.064
+peak_rss_gib = 0.917
 
 [[sweep.bent]]
 f_ghz = 2.5400
@@ -1517,9 +1687,9 @@ p_in = 5.095178e-1
 p_rad = 2.427889e-1
 efficiency = 4.765072e-1
 solve_residual_rel = 2.875e-14
-solve_s = 1.668
-post_s = 0.033
-peak_rss_gib = 4.029
+solve_s = 24.917
+post_s = 0.037
+peak_rss_gib = 1.002
 
 [[sweep.bent]]
 f_ghz = 2.5500
@@ -1534,9 +1704,9 @@ p_in = 4.855811e-1
 p_rad = 2.303509e-1
 efficiency = 4.743819e-1
 solve_residual_rel = 2.601e-14
-solve_s = 1.603
-post_s = 0.033
-peak_rss_gib = 4.224
+solve_s = 16.718
+post_s = 0.037
+peak_rss_gib = 1.014
 
 [[sweep.bent]]
 f_ghz = 2.5600
@@ -1551,9 +1721,9 @@ p_in = 4.638437e-1
 p_rad = 2.190316e-1
 efficiency = 4.722100e-1
 solve_residual_rel = 2.586e-14
-solve_s = 1.673
-post_s = 0.033
-peak_rss_gib = 4.593
+solve_s = 17.741
+post_s = 0.055
+peak_rss_gib = 1.003
 
 [[sweep.bent]]
 f_ghz = 2.5700
@@ -1568,9 +1738,9 @@ p_in = 4.440713e-1
 p_rad = 2.087108e-1
 efficiency = 4.699938e-1
 solve_residual_rel = 2.659e-14
-solve_s = 3.632
-post_s = 0.033
-peak_rss_gib = 4.603
+solve_s = 17.163
+post_s = 0.051
+peak_rss_gib = 1.074
 
 [[sweep.bent]]
 f_ghz = 2.5800
@@ -1585,9 +1755,9 @@ p_in = 4.260599e-1
 p_rad = 1.992836e-1
 efficiency = 4.677361e-1
 solve_residual_rel = 2.498e-14
-solve_s = 8.098
-post_s = 0.034
-peak_rss_gib = 3.370
+solve_s = 18.004
+post_s = 0.046
+peak_rss_gib = 1.139
 
 [[sweep.bent]]
 f_ghz = 2.5900
@@ -1602,9 +1772,9 @@ p_in = 4.096318e-1
 p_rad = 1.906589e-1
 efficiency = 4.654396e-1
 solve_residual_rel = 2.403e-14
-solve_s = 2.490
-post_s = 0.038
-peak_rss_gib = 3.456
+solve_s = 18.348
+post_s = 0.047
+peak_rss_gib = 1.173
 
 [[sweep.bent]]
 f_ghz = 2.6000
@@ -1619,9 +1789,9 @@ p_in = 3.946315e-1
 p_rad = 1.827568e-1
 efficiency = 4.631074e-1
 solve_residual_rel = 2.460e-14
-solve_s = 6.374
-post_s = 0.033
-peak_rss_gib = 2.053
+solve_s = 19.660
+post_s = 0.074
+peak_rss_gib = 0.929
 
 [[sweep.bent]]
 f_ghz = 2.6200
@@ -1636,9 +1806,9 @@ p_in = 3.683870e-1
 p_rad = 1.688496e-1
 efficiency = 4.583483e-1
 solve_residual_rel = 2.278e-14
-solve_s = 1.957
+solve_s = 12.937
 post_s = 0.034
-peak_rss_gib = 2.396
+peak_rss_gib = 1.135
 
 [[sweep.bent]]
 f_ghz = 2.6400
@@ -1653,9 +1823,9 @@ p_in = 3.464242e-1
 p_rad = 1.570983e-1
 efficiency = 4.534854e-1
 solve_residual_rel = 2.125e-14
-solve_s = 1.715
-post_s = 0.034
-peak_rss_gib = 2.478
+solve_s = 9.301
+post_s = 0.037
+peak_rss_gib = 1.454
 
 [[sweep.bent]]
 f_ghz = 2.6600
@@ -1670,9 +1840,9 @@ p_in = 3.280425e-1
 p_rad = 1.471426e-1
 efficiency = 4.485473e-1
 solve_residual_rel = 2.073e-14
-solve_s = 1.720
-post_s = 0.031
-peak_rss_gib = 2.393
+solve_s = 6.820
+post_s = 0.036
+peak_rss_gib = 1.507
 
 [[sweep.bent]]
 f_ghz = 2.6800
@@ -1687,9 +1857,9 @@ p_in = 3.126949e-1
 p_rad = 1.387005e-1
 efficiency = 4.435649e-1
 solve_residual_rel = 2.059e-14
-solve_s = 1.556
-post_s = 0.032
-peak_rss_gib = 2.676
+solve_s = 6.039
+post_s = 0.036
+peak_rss_gib = 1.704
 
 [[sweep.bent]]
 f_ghz = 2.7000
@@ -1704,7 +1874,7 @@ p_in = 2.999519e-1
 p_rad = 1.315501e-1
 efficiency = 4.385707e-1
 solve_residual_rel = 2.008e-14
-solve_s = 1.537
-post_s = 0.033
-peak_rss_gib = 2.902
+solve_s = 8.873
+post_s = 0.054
+peak_rss_gib = 1.721
 
