@@ -966,7 +966,10 @@ fn convergence_table_is_consistent_with_level_artifacts_and_gates_pass() {
                 num(&d["central_fd_dir_deriv"]),
             );
             let rel = (a - c).abs() / c.abs();
-            assert!((rel - num(&d["rel_err"])).abs() < 1e-9 * rel.max(1e-12));
+            // The derivatives are written to 10 significant digits, so the
+            // re-derived relative error carries up to ~1e-9 absolute
+            // rounding (it dominates once the FD agreement reaches 1e-6).
+            assert!((rel - num(&d["rel_err"])).abs() < 1e-9 + 1e-6 * rel);
             assert!(rel < tol, "{lv}: direction rel {rel} >= {tol}");
             assert!((num(&d["g_plus"]) - num(&d["g_minus"])) / (2.0 * num(&d["step"])) - c < 1e-12);
             assert!(num(&d["min_vol_ratio"]) > 0.9);
