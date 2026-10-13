@@ -1059,8 +1059,26 @@ fn ladder(repo: &Path, out_dir: &Path, tag: &str) -> Ladder {
     let r2 = 2.0 * p2r[1] - p2r[0];
     let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
     let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let all_q = [q1, q2, q_obs, q2_obs];
-    let all_r = [r1, r2, r_obs, r2_obs];
+    // The part-1 rule: the frequency at order 1 for the estimate; the band
+    // also spans the eigenvalue variable (lambda ~ f^2) at order 1 and the
+    // frequency at the observed order.
+    let lam = |a: f64, b: f64| (2.0 * b * b - a * a).sqrt();
+    let all_q = [
+        q1,
+        q2,
+        q_obs,
+        q2_obs,
+        lam(p1q[1], p1q[2]),
+        lam(p2q[0], p2q[1]),
+    ];
+    let all_r = [
+        r1,
+        r2,
+        r_obs,
+        r2_obs,
+        lam(p1r[1], p1r[2]),
+        lam(p2r[0], p2r[1]),
+    ];
     Ladder {
         f_q: 0.5 * (q1 + q2),
         f_r: 0.5 * (r1 + r2),
