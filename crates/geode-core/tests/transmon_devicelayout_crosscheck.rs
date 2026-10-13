@@ -163,6 +163,7 @@ fn published_values_are_the_blog_values() {
         );
     }
     assert!(tstr(&d, "published.discretization").contains("mesh_order 2, solver_order 2"));
+    assert_eq!(tarr(&d, "published.targets_ghz"), vec![3.0, 4.0]);
 }
 
 /// Every Palace number in the artifact re-reads from its committed cell.

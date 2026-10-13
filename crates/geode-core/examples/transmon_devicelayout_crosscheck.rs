@@ -904,7 +904,8 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
         let _ = writeln!(t, "{tag}_total_length_um = {tot}");
         let _ = writeln!(t, "{tag}_f_ghz = [{fq}, {fr}]");
     }
-    t.push_str("optimizer = \"PRIMA (derivative-free), 9 Palace runs, targets unstated, 'within 1% of our target frequencies'; the final pair is consistent with targets of 3.0 and 4.0 GHz\"\n");
+    t.push_str("optimizer = \"PRIMA (derivative-free), 9 Palace runs, 'within 1% of our target frequencies' (blog); the targets are in the example source, not the blog: run_optimization(targets_GHz = [3.0, 4.0], reltol = 1e-2), PRIMA from x = [1, 1] with cap_length = 620 um / x1^2 and total_length = 5000 um / x2, bounds [0.6, 1.4], rhobeg 0.2, stopping when the mean squared relative error is below reltol^2 (DeviceLayout.jl v1.15.0 examples/SingleTransmon/SingleTransmon.jl)\"\n");
+    t.push_str("targets_ghz = [3.0, 4.0]  # from the example source\n");
 
     for (l, &(_, _, _, fq, fr)) in ladders.iter().zip(&PUBLISHED) {
         write_ladder(&mut t, l, fq, fr);
