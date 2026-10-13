@@ -182,8 +182,8 @@ const MANIFEST: &[Entry] = &[
     a(
         "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h2.toml",
         "GEODE_SOLVE_MESH=<final_r1.msh> GEODE_SOLVE_LABEL=final_h2 GEODE_SIGMA_GHZ=4.0 cargo run \
-         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; X
-         120 GB, run on an AWS r8g.8xlarge)",
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; 136 GB \
+         peak, run on an AWS r8g.8xlarge)",
     ),
     a(
         "benchmarks/transmon_loop_inductance/results.toml",
