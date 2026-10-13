@@ -926,3 +926,315 @@ fn nested_dof_ladder_outcome_is_pinned() {
         );
     }
 }
+
+// ── Gate G2: the L2 re-optimization and its L3 / P2 verification (#1103) ──
+
+const ND_DIR: &str = "benchmarks/patch_antenna_conformal/nested_dof";
+
+/// The L2 optimizations: `(file stem, start kind, n_radial, n_outline)`.
+const L2_RUNS: [(&str, &str, f64, f64); 3] = [
+    ("L2_combined_64_cold", "cold", 48.0, 16.0),
+    ("L2_combined_64_warm", "warm", 48.0, 16.0),
+    ("L2_gap_48_warm", "warm", 48.0, 0.0),
+];
+
+fn read_toml(rel: &str) -> toml::Value {
+    let path = repo().join(rel);
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).unwrap_or_else(|e| panic!("parse {rel}: {e}"))
+}
+
+fn l2_run(stem: &str) -> toml::Value {
+    read_toml(&format!("{ND_DIR}/{stem}.toml"))
+}
+
+/// Every committed verification artifact, keyed by file stem.
+fn verifications() -> BTreeMap<String, toml::Value> {
+    let dir = repo().join(ND_DIR).join("verify");
+    let mut out = BTreeMap::new();
+    for e in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display())) {
+        let p = e.unwrap().path();
+        if p.extension().and_then(|x| x.to_str()) == Some("toml") {
+            let stem = p.file_stem().unwrap().to_str().unwrap().to_string();
+            let text = std::fs::read_to_string(&p).unwrap();
+            out.insert(stem, toml::from_str(&text).expect("parse verify toml"));
+        }
+    }
+    out
+}
+
+/// `(target level, order)` from a verification stem `<design>_on_<L>[_p2]`.
+fn verify_target(stem: &str) -> (String, &'static str) {
+    let t = stem.rsplit_once("_on_").expect("<design>_on_<level>").1;
+    match t.strip_suffix("_p2") {
+        Some(l) => (l.to_string(), "p2"),
+        None => (t.to_string(), "p1"),
+    }
+}
+
+/// The pinned fixture sha256 of a level: the #1084 baselines (L0, L1) and
+/// the #1085 convergence runs (L2, L3).
+fn pinned_fixture_sha(level: &str) -> String {
+    let doc = match level {
+        "L0" | "L1" => baseline(level),
+        _ => read_toml(&format!(
+            "benchmarks/patch_antenna_conformal/convergence/dip_{level}.toml"
+        )),
+    };
+    doc["meta"]["fixture_sha256"].as_str().unwrap().to_string()
+}
+
+fn verify_worst(doc: &toml::Value) -> f64 {
+    doc["s11_verify"]["point"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| num(&p["s11_db"]))
+        .fold(f64::NEG_INFINITY, f64::max)
+}
+
+fn design_vector(v: &toml::Value) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(num).collect()
+}
+
+/// Every verification states its units, fixture, absorber and order; its
+/// sweep is the 9-point in-band grid, passive and healthy; and the design it
+/// verifies is the committed artifact it names, coefficient for coefficient.
+#[test]
+fn g2_verifications_state_fixture_order_and_design_provenance() {
+    let all = verifications();
+    assert!(!all.is_empty(), "no verification artifacts");
+    for (stem, doc) in &all {
+        let m = &doc["meta"];
+        let (level, order) = verify_target(stem);
+        assert_eq!(m["mode"].as_str().unwrap(), "verify", "{stem}");
+        assert_eq!(m["level"].as_str().unwrap(), level, "{stem}");
+        assert_eq!(m["element_order"].as_str().unwrap(), order, "{stem}");
+        assert_eq!(m["length_unit"].as_str().unwrap(), "mm");
+        assert_eq!(m["frequency_unit"].as_str().unwrap(), "GHz");
+        assert_eq!(m["float_dtype"].as_str().unwrap(), "F64");
+        assert_eq!(num(&m["upml_sigma_0"]), 1.0, "{stem}: sigma_0");
+        assert_eq!(num(&m["upml_sigma_0_fixture"]), 1.0, "{stem}: fixture sigma_0");
+        assert_eq!(num(&m["target_db"]), -10.0);
+        assert_eq!(num(&m["substrate_h_mm"]), CONFORMAL_2G4_SUBSTRATE_H_MM);
+        assert_eq!(
+            m["fixture_sha256"].as_str().unwrap(),
+            pinned_fixture_sha(&level),
+            "{stem}: not the pinned {level} fixture"
+        );
+        let pts = doc["s11_verify"]["point"].as_array().unwrap();
+        assert_eq!(pts.len(), 9, "{stem}: 9 in-band points");
+        assert_eq!(num(&doc["verify"]["verify_n_points"]), 9.0);
+        for (k, p) in pts.iter().enumerate() {
+            let want = ISM_2G4_BAND_GHZ[0] + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * k as f64 / 8.0;
+            assert!((num(&p["f_ghz"]) - want).abs() < 1e-6, "{stem}: grid");
+            let mag = num(&p["s11_mag"]);
+            assert!(mag <= 1.0 + 1e-6, "{stem}: passivity");
+            assert!(
+                (20.0 * mag.log10() - num(&p["s11_db"])).abs() < 1e-5,
+                "{stem}: dB readback"
+            );
+            assert!(
+                (num(&p["s11_re"]).hypot(num(&p["s11_im"])) - mag).abs() < 1e-8,
+                "{stem}: |S11| readback"
+            );
+            assert!(num(&p["solve_residual_rel"]) < 1e-6, "{stem}: residual");
+        }
+        let v = &doc["verify"];
+        assert!(
+            (num(&v["verify_worst_s11_db"]) - verify_worst(doc)).abs() < 1e-5,
+            "{stem}: worst readback"
+        );
+        assert_eq!(
+            v["reached_target"].as_bool().unwrap(),
+            verify_worst(doc) <= -10.0,
+            "{stem}: reached flag"
+        );
+        if let Some(w) = doc.get("s11_wide") {
+            let w = w["point"].as_array().unwrap();
+            let (f, db) = w
+                .iter()
+                .map(|p| (num(&p["f_ghz"]), num(&p["s11_db"])))
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .unwrap();
+            assert!((num(&v["wide_dip_f_ghz"]) - f).abs() < 1e-4, "{stem}: dip f");
+            assert!((num(&v["wide_dip_db"]) - db).abs() < 1e-3, "{stem}: dip dB");
+            assert!((num(&w[0]["f_ghz"]) - 2.20).abs() < 1e-9);
+            assert!((num(&w[w.len() - 1]["f_ghz"]) - 2.70).abs() < 1e-9);
+        }
+        let d = &doc["design"];
+        let x = design_vector(&d["design_vector"]);
+        if stem.starts_with("initial_on_") {
+            assert_eq!(d["source"].as_str().unwrap(), "initial");
+            assert!(x.iter().all(|&c| c == 0.0), "{stem}: x = 0");
+            assert!((num(&v["min_vol_ratio"]) - 1.0).abs() < 1e-12);
+            assert!(num(&doc["crater"]["mean_lift_mm"]).abs() < 1e-12);
+        } else {
+            let src = d["source"].as_str().unwrap();
+            let text = std::fs::read_to_string(repo().join(src))
+                .unwrap_or_else(|e| panic!("{stem}: read design source {src}: {e}"));
+            assert_eq!(
+                d["source_sha256"].as_str().unwrap(),
+                sha256_hex(text.as_bytes()),
+                "{stem}: design source changed since the verification"
+            );
+            let sdoc: toml::Value = toml::from_str(&text).unwrap();
+            assert_eq!(
+                x,
+                design_vector(&sdoc["shape"]["design_vector"]),
+                "{stem}: design vector differs from {src}"
+            );
+            assert_eq!(
+                d["optimized_on_level"].as_str().unwrap(),
+                sdoc["meta"]["level"].as_str().unwrap()
+            );
+            assert_eq!(
+                format!(
+                    "{}_{}",
+                    sdoc["meta"]["level"].as_str().unwrap(),
+                    sdoc["meta"]["label"].as_str().unwrap()
+                ),
+                stem.rsplit_once("_on_").unwrap().0,
+                "{stem}: file name names the design"
+            );
+            assert_eq!(d["radial"].as_str(), sdoc["basis"]["radial"].as_str());
+            assert_eq!(d["outline"].as_str(), sdoc["basis"]["outline"].as_str());
+            assert!(num(&v["min_vol_ratio"]) > 0.0, "{stem}: inverted tet");
+        }
+    }
+}
+
+/// The initial patch (x = 0) on L1, L2, L3 and P2/L1 reproduces the S11 of
+/// the #1085 convergence runs at the frequencies they share (2.40 and
+/// 2.4835 GHz): same mesh, same absorber, same order, a fresh solve.
+#[test]
+fn g2_initial_patch_matches_the_convergence_study() {
+    let all = verifications();
+    for (stem, conv) in [
+        ("initial_on_L1", "dip_L1"),
+        ("initial_on_L2", "dip_L2"),
+        ("initial_on_L3", "dip_L3"),
+        ("initial_on_L1_p2", "dip_L1_p2"),
+    ] {
+        let doc = all.get(stem).unwrap_or_else(|| panic!("missing verify/{stem}.toml"));
+        let c = read_toml(&format!(
+            "benchmarks/patch_antenna_conformal/convergence/{conv}.toml"
+        ));
+        let fixed = c["fixed"]["bent"].as_array().unwrap();
+        let mut n = 0;
+        for p in doc["s11_verify"]["point"].as_array().unwrap() {
+            let f = num(&p["f_ghz"]);
+            if let Some(r) = fixed.iter().find(|r| (num(&r["f_ghz"]) - f).abs() < 1e-6) {
+                for k in ["s11_re", "s11_im"] {
+                    assert!(
+                        (num(&r[k]) - num(&p[k])).abs() < 1e-6,
+                        "{stem}: {k} at {f} GHz differs from {conv}"
+                    );
+                }
+                n += 1;
+            }
+        }
+        assert_eq!(n, 2, "{stem}: shared frequencies with {conv}");
+    }
+}
+
+/// The L2 optimizations pass the FD gate, respect the volume guard, record
+/// where it binds, and start where they say they start: the cold start at the
+/// initial patch, the warm starts at the scaled L1 optimum.
+#[test]
+fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
+    let all = verifications();
+    let init_l2 = &all["initial_on_L2"];
+    for (stem, kind, nr, no) in L2_RUNS {
+        let doc = l2_run(stem);
+        let m = &doc["meta"];
+        assert_eq!(m["level"].as_str().unwrap(), "L2", "{stem}");
+        assert_eq!(m["fixture_sha256"].as_str().unwrap(), pinned_fixture_sha("L2"));
+        assert_eq!(num(&m["upml_sigma_0"]), 1.0, "{stem}: sigma_0");
+        assert_eq!(
+            (num(&doc["basis"]["n_radial_dofs"]), num(&doc["basis"]["n_outline_dofs"])),
+            (nr, no),
+            "{stem}: DOFs"
+        );
+        let fd = &doc["fd_validation"];
+        assert!(num(&fd["n_checks"]) >= 3.0, "{stem}: FD checks");
+        assert!(num(&fd["max_rel_err"]) < 5e-3, "{stem}: FD gate");
+        let ats: Vec<&str> = fd["check"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["at"].as_str().unwrap())
+            .collect();
+        assert!(ats.contains(&"x0") && ats.contains(&"x_final"), "{stem}: FD at both ends");
+        let o = &doc["optimization"];
+        let term = o["terminal_condition"].as_str().unwrap();
+        assert!(
+            ["distortion_limited", "plateau", "converged_grad_norm", "max_steps"].contains(&term),
+            "{stem}: terminal {term}"
+        );
+        assert!(num(&o["worst_vol_ratio_final"]) >= 0.25 - 1e-9, "{stem}: guard");
+        let g = &doc["guard"];
+        assert!(
+            (num(&g["final_worst"]["ratio"]) - num(&o["worst_vol_ratio_final"])).abs() < 1e-5,
+            "{stem}: final worst tet readback"
+        );
+        assert_eq!(
+            num(&g["final_worst"]["tet"]),
+            num(&o["worst_tet_final"]),
+            "{stem}: worst tet id"
+        );
+        let events = g.get("event").and_then(|e| e.as_array()).cloned().unwrap_or_default();
+        assert_eq!(num(&g["n_events"]) as usize, events.len());
+        for e in &events {
+            assert!(num(&e["site"]["ratio"]) < 0.25, "{stem}: a guard event above the budget");
+        }
+        if term == "distortion_limited" {
+            assert!(!events.is_empty(), "{stem}: distortion_limited with no guard event");
+        }
+        // The trajectory descends.
+        let steps = doc["trajectory"]["step"].as_array().unwrap();
+        for w in steps.windows(2) {
+            assert!(num(&w[1]["objective"]) <= num(&w[0]["objective"]) + 1e-12, "{stem}: ascent");
+        }
+        // Start.
+        let s = &doc["start"];
+        assert_eq!(s["kind"].as_str().unwrap(), kind, "{stem}: start");
+        let x0 = design_vector(&s["x_start"]);
+        if kind == "cold" {
+            assert!(x0.iter().all(|&c| c == 0.0));
+            // The band points are a subset of the 9-point grid: the initial
+            // S11 equals the initial-patch verification on L2.
+            let ver = init_l2["s11_verify"]["point"].as_array().unwrap();
+            for p in doc["s11_initial"]["point"].as_array().unwrap() {
+                let f = num(&p["f_ghz"]);
+                let r = ver
+                    .iter()
+                    .find(|r| (num(&r["f_ghz"]) - f).abs() < 1e-6)
+                    .expect("shared frequency");
+                assert!((num(&r["s11_mag"]) - num(&p["s11_mag"])).abs() < 1e-8, "{stem}: {f} GHz");
+            }
+        } else {
+            let src = s["design_toml"].as_str().unwrap();
+            let text = std::fs::read_to_string(repo().join(src)).unwrap();
+            assert_eq!(s["design_toml_sha256"].as_str().unwrap(), sha256_hex(text.as_bytes()));
+            let sdoc: toml::Value = toml::from_str(&text).unwrap();
+            assert_eq!(sdoc["meta"]["level"].as_str().unwrap(), "L1");
+            let scale = num(&s["scale"]);
+            let want: Vec<f64> = design_vector(&sdoc["shape"]["design_vector"])
+                .iter()
+                .map(|v| v * scale)
+                .collect();
+            for (a, b) in x0.iter().zip(&want) {
+                assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{stem}: warm start");
+            }
+        }
+        // The crater metrics are consistent with the thickness readback.
+        let c = &doc["crater"];
+        assert!(
+            (num(&c["mean_thickness_mm"]) - CONFORMAL_2G4_SUBSTRATE_H_MM - num(&c["mean_lift_mm"]))
+                .abs()
+                < 1e-5
+        );
+    }
+}
