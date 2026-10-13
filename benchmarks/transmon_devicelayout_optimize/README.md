@@ -35,9 +35,17 @@ objectives:
     moved mesh to every printed digit.
 - **`total_length`: transmission line.** DeviceLayout re-lays the meander when
   L changes, so no fixed-topology node motion represents it.
-  - f_r (L + δ) is constant, with δ from one finite difference of two
-    DeviceLayout meshes (L = 5000 → 5250 µm).
-  - ∂f_q/∂L = 0, because the physical dressing shift is about 1e-6 GHz/µm.
+  - f_r (L + δ) is constant, with δ = 216 µm from one finite difference of
+    two DeviceLayout meshes (L = 5000 → 5250 µm).
+  - δ is weakly determined. Remesh noise in f_r is about 0.15 %, which is
+    roughly ±150 µm in δ from one 250 µm step. A second point, Palace
+    dl1 → dl2 corrected for the change in c, gives about 363 µm (about 2 %
+    in L + δ).
+  - ∂f_q/∂L = 0. The dressing shift through the detuning is not measured
+    here; it is small next to the remesh noise.
+  - δ and ∂f_q/∂L enter only the L column of the Newton Jacobian. Every
+    design is evaluated on the true objective, so neither enters the
+    designs themselves; a poorer Jacobian can only cost extra steps.
 - **Why Newton runs on the high-fidelity objective.** DeviceLayout re-meshes
   every design, so the order-1 objective is not smooth in the parameters. A
   30 µm change of c moves f_q by more than twice what the fixed-topology
@@ -46,8 +54,11 @@ objectives:
   - Newton runs directly on the high-fidelity objective, in DeviceLayout's
     variables x1, x2. Its Jacobian is geode's gradient scaled by the
     measured fidelity ratio S = F / f_h at the same design.
-  - Each step costs one geode order-1 solve with its gradient (about 35 s)
-    and one high-fidelity evaluation.
+  - Each step costs one geode order-1 solve with its gradient (19–25 s in
+    the records) and one high-fidelity evaluation.
+  - A one-time δ calibration (one extra DeviceLayout mesh at L = 5250 µm and
+    its geode solve, `runs/calibL_5250.toml`) is setup cost and is not
+    counted in the per-step cost below.
 
 ## Files
 
@@ -79,8 +90,9 @@ objectives:
 
 - **Cost.** The run meets DeviceLayout's criterion (err < 1e-4) at step 2.
   That took **3 Palace runs**, counting the initial one as DeviceLayout does,
-  against PRIMA's 9, plus 3 geode order-1 solves with gradients at about
-  25 s each. Each Palace run took about 4 min on 32 ranks.
+  against PRIMA's 9, plus 3 geode order-1 solves with gradients at 19–25 s
+  each. Each Palace run took about 4 min on 32 ranks. The one-time δ
+  calibration (one extra mesh and geode solve) is excluded from that count.
 - **The optimum.** Step 3 reaches err 1.4e-7 at (1236.360, 7224.900) µm,
   which is +18.7 / −19.1 µm from DeviceLayout's published
   (1217.678, 7243.955).
@@ -94,18 +106,35 @@ objectives:
 
 Part 1 puts DeviceLayout's published final design at 3.265 / 4.088 GHz
 converged. Newton steps from that design use the part-1 ladder and the geode
-gradient there. Each new design is verified by a full ladder: Palace order 1
-at h, h/2, h/4 and order 2 at h, h/2, plus geode at h, h/2.
+gradient there. Each new design is evaluated by a full ladder: Palace order 1
+at h, h/2, h/4 and order 2 at h, h/2, plus geode at h, h/2. The converged
+values are part-1 estimates with their band: the point estimate is the
+order-1 extrapolation, and the band spans the eigenvalue-variable and
+observed-order extrapolations of the same cells. The band does not include
+mesh-family spread: every ladder is one DeviceLayout mesh family refined.
 
-| design | capacitor_length (µm) | total_length (µm) | converged (GHz) | vs targets |
+| design | capacitor_length (µm) | total_length (µm) | converged estimate [band] (GHz) | estimate vs targets |
 |---|---|---|---|---|
-| published final | 1217.678 | 7243.955 | 3.2652, 4.0880 | +8.8 %, +2.2 % |
-| cv1 | 1481.657 | 7407.945 | 2.9672, 4.0044 | −1.09 %, +0.11 % |
-| **cv2** | **1446.078** | **7416.352** | **3.0047, 3.9984** | **+0.16 %, −0.04 %** |
+| published final | 1217.678 | 7243.955 | 3.2652 [3.236, 3.471], 4.0880 [4.077, 4.139] | +8.8 %, +2.2 % |
+| cv1 | 1481.657 | 7407.945 | 2.9672 [2.938, 3.188], 4.0044 [3.993, 4.055] | −1.09 %, +0.11 % |
+| cv2 | 1446.078 | 7416.352 | 3.0047 [2.979, 3.221], 3.9984 [3.987, 4.067] | +0.16 %, −0.04 % |
 
-- **The result.** A design that hits 3.0 / 4.0 GHz *converged* needs a
-  capacitor about 19 % longer (+228 µm) and a resonator 2.4 % longer
-  (+172 µm) than DeviceLayout's published final design.
+- **The result.** The converged design needs a substantially longer
+  capacitor than DeviceLayout's published final design: about +16 % to
+  +38 % (point estimate +19 %, +228 µm), with a resonator about 2.4 % longer
+  (+172 µm).
+  - **The band.** At cv2 both targets lie inside the band: qubit
+    [2.979, 3.221] GHz (−0.9 % / +7.4 % around the estimate), resonator
+    [3.987, 4.067] GHz. With dF/dc ≈ S·∂f_h/∂c ≈ −9e-4 GHz/µm there, the
+    qubit band maps to roughly c ∈ [1418, 1685] µm.
+  - **The estimate leans low.** The order-1 (h/2, h/4) and order-2
+    (h, h/2) series share a limit at order 0.87 (qubit) and 0.84
+    (resonator). That shared limit puts cv2 at 3.039 / 4.019 GHz, +1.3 % /
+    +0.5 % over the targets, so the qubit is outside DeviceLayout's 1 %
+    reading on that check. The converged design is therefore probably at or
+    above the point-estimate c.
+  - So cv2 lands on the targets within the part-1 band; it is not a
+    verified hit of 3.0 / 4.0 GHz converged.
 - **Cost.** Two Newton steps, each with one geode gradient solve at h and one
   verification ladder (about 1.7 h of worker time per ladder, dominated by
   the order-2 h/2 cell).

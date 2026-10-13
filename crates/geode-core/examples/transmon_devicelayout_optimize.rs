@@ -25,8 +25,10 @@
 //!   turns are re-laid by DeviceLayout when `L` changes, so no fixed-topology
 //!   node motion represents it. It is handled through the transmission-line
 //!   relation `f_r ∝ 1/(L + δ)`, with `δ` measured once by a finite
-//!   difference of two DeviceLayout meshes, and `∂f_q/∂L = 0` (the dressing
-//!   shift through the detuning is below 0.1 %).
+//!   difference of two DeviceLayout meshes, and `∂f_q/∂L = 0`. The dressing
+//!   shift through the detuning is not measured here; it is small next to
+//!   the remesh noise, and `δ` and `∂f_q/∂L` enter only the Newton Jacobian,
+//!   not the designs, which are evaluated on the true objective.
 //!
 //! # Modes
 //!
@@ -725,7 +727,7 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
 
     let backend = tget(&fd0.doc, "meta.backend").as_str().unwrap().to_string();
     t.push_str("[meta]\n");
-    t.push_str("description = \"Two-parameter re-optimization of DeviceLayout.jl's SingleTransmon (capacitor_length, resonator total_length) toward the example's targets [3.0, 4.0] GHz: Newton in DeviceLayout's own optimizer variables with geode's A2 tensor-eps solve and Hellmann-Feynman capacitor_length shape gradient on DeviceLayout's order-1 mesh, the resonator length through the transmission line; against DeviceLayout's discretization (Palace on its mesh_order 2 mesh, solver_order 2, its configfile) and against the converged frequencies (one step, verified by a resolution ladder)\"\n");
+    t.push_str("description = \"Two-parameter re-optimization of DeviceLayout.jl's SingleTransmon (capacitor_length, resonator total_length) toward the example's targets [3.0, 4.0] GHz: Newton in DeviceLayout's own optimizer variables with geode's A2 tensor-eps solve and Hellmann-Feynman capacitor_length shape gradient on DeviceLayout's order-1 mesh, the resonator length through the transmission line; against DeviceLayout's discretization (Palace on its mesh_order 2 mesh, solver_order 2, its configfile) and against the converged frequencies (Newton steps, each evaluated by a resolution ladder: an estimate with its extrapolation band)\"\n");
     t.push_str("issue = 1092\n");
     let _ = writeln!(t, "backend = \"{backend}\"  # of the geode solve records");
     t.push_str("float_dtype = \"F64\"\n");
@@ -773,7 +775,7 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
     );
     let _ = writeln!(
         t,
-        "l_5000_to_5250_remesh_dfq_dl_ghz_per_um = {dfq_dl_remesh:.9}  # physical dressing shift about 1e-6"
+        "l_5000_to_5250_remesh_dfq_dl_ghz_per_um = {dfq_dl_remesh:.9}  # remesh noise; d f_q / d L enters only the Jacobian"
     );
     t.push_str("\n[transmission_line]\n");
     t.push_str("model = \"f_r (L + delta) = const at fixed capacitor_length: delta from the two order-1 solves at L = 5000 and 5250 um (c = 620 um); d f_q / d L = 0\"\n");
@@ -952,7 +954,7 @@ fn assemble_mode(repo: &Path, out_dir: &Path) {
     println!("wrote {}", path.display());
 }
 
-/// The converged-target step(s) and their verification ladders.
+/// The converged-target step(s) and their evaluation ladders.
 fn write_conv(t: &mut String, repo: &Path, out_dir: &Path, delta: f64) {
     let runs = out_dir.join("runs");
     let x = toml_doc(&repo.join("benchmarks/transmon_devicelayout_crosscheck/results.toml"));

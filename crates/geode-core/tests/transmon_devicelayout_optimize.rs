@@ -9,7 +9,8 @@
 //! physics gates hold: the Hellmann–Feynman gradient matches the
 //! fixed-topology finite difference, the iteration meets DeviceLayout's own
 //! criterion in fewer Palace runs than PRIMA, and the converged-target
-//! design's ladder lands on the targets.
+//! design's ladder estimate is within 1 % of the targets with both targets
+//! inside its re-derived extrapolation band.
 //!
 //! Release tier (`--ignored`): one A2 solve of the committed initial mesh
 //! reproduces the `fd_initial` frequencies and Hellmann–Feynman gradient.
@@ -259,8 +260,8 @@ fn newton_on_devicelayout_discretization_re_derives() {
 }
 
 /// The converged-target step re-derives from the part-1 ladder at the
-/// published final design and its gradient record; its ladder re-reads
-/// from the raw cells and lands on the targets.
+/// published final design and its gradient record; its ladder, its
+/// extrapolation band and `targets_in_band` re-derive from the raw cells.
 #[test]
 fn converged_target_step_and_ladder_re_derive() {
     let d = results();
@@ -304,13 +305,57 @@ fn converged_target_step_and_ladder_re_derive() {
         close(tf(&d, &format!("{lad}.f_r_ghz")), r, 5e-5, "f_r");
         // Every level rises under refinement.
         assert!(p1[0][0] < p1[1][0] && p1[1][0] < p1[2][0] && p2[0][0] < p2[1][0]);
+        // The part-1 band from the raw cells: the frequency at order 1, the
+        // eigenvalue variable (lambda ~ f^2) at order 1, and the frequency at
+        // the observed order of the order-1 series, for both series.
+        let band = |m: usize| -> [f64; 2] {
+            let a = [p1[0][m], p1[1][m], p1[2][m]];
+            let b = [p2[0][m], p2[1][m]];
+            let ratio = (a[0] - a[1]) / (a[1] - a[2]);
+            assert!(ratio > 1.0, "{tag} mode {m}: not contracting {a:?}");
+            // 2^p - 1 at the observed order p = log2(ratio).
+            let den = ratio - 1.0;
+            let lam = |u: f64, v: f64| (2.0 * v * v - u * u).sqrt();
+            let all = [
+                2.0 * a[2] - a[1],
+                2.0 * b[1] - b[0],
+                a[2] + (a[2] - a[1]) / den,
+                b[1] + (b[1] - b[0]) / den,
+                lam(a[1], a[2]),
+                lam(b[0], b[1]),
+            ];
+            [
+                all.iter().copied().fold(f64::INFINITY, f64::min),
+                all.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            ]
+        };
+        let bands = [band(0), band(1)];
+        let rec_bands = [
+            tarr(&d, &format!("{lad}.f_q_band_ghz")),
+            tarr(&d, &format!("{lad}.f_r_band_ghz")),
+        ];
+        let in_band = tget(&d, &format!("{lad}.targets_in_band"))
+            .as_array()
+            .expect("targets_in_band is an array");
+        let est = [q, r];
+        for m in 0..2 {
+            close(rec_bands[m][0], bands[m][0], 6e-5, "band lo");
+            close(rec_bands[m][1], bands[m][1], 6e-5, "band hi");
+            assert!(
+                bands[m][0] <= est[m] && est[m] <= bands[m][1],
+                "{tag} mode {m}: estimate outside its band"
+            );
+            let inside = bands[m][0] <= TARGETS[m] && TARGETS[m] <= bands[m][1];
+            assert_eq!(in_band[m].as_bool(), Some(inside), "{tag} targets_in_band[{m}]");
+        }
         fconv = [(q * 1e4).round() / 1e4, (r * 1e4).round() / 1e4];
         // The driver rounds every design to 1 nm.
         from = to.map(|v| (v * 1e3).round() / 1e3);
         k += 1;
     }
     assert!(k > 1, "at least one converged-target step");
-    // Physics gate: the last converged-target design lands on the targets.
+    // Physics gate: the point estimate of the last converged-target design
+    // is within 1 % of the targets (the band is checked above).
     for i in 0..2 {
         let pct = 100.0 * (fconv[i] / TARGETS[i] - 1.0);
         assert!(pct.abs() <= CONVERGED_TARGET_MAX_PCT, "mode {i}: {pct} %");

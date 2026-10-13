@@ -33,17 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
-- **DeviceLayout.jl SingleTransmon re-optimization with geode's shape gradient: DeviceLayout's own criterion met in 3 Palace runs (PRIMA: 9), and a design that hits 3.0 / 4.0 GHz converged at capacitor_length 1446.078 µm, total_length 7416.352 µm** (#1092, part 2).
+- **DeviceLayout.jl SingleTransmon re-optimization with geode's shape gradient: DeviceLayout's own criterion met in 3 Palace runs (PRIMA: 9); against the converged frequencies the design needs a substantially longer capacitor, about +16 % to +38 % (point estimate +19 %, capacitor_length 1446.078 µm, total_length 7416.352 µm)** (#1092, part 2).
   - **New library API.**
     - `eigen::sensitivity::EigenSensitivity::deigenvalue_dtheta_tensor_eps`: the adjoint-free Hellmann–Feynman geometry gradient with a per-tet real permittivity tensor, as one forward-mode directional pass through the full-tensor element JVP. The isotropic `eps_r` field is not read.
     - `eigen::projection::solve_transmon_eigenmodes_projected_with_port_model_full`: the A2 bulk-projected solve, now also returning the eigenvectors. Its reports are identical to the vector-free entry point.
   - **The two parameters.**
     - `capacitor_length` uses a node velocity that reproduces DeviceLayout's parametrization exactly. The island stretches and everything above it translates by Δc. The box re-centers by Δc/2, and the example checks this against the metal outline.
-    - `total_length` re-lays the meander, so it is handled through the transmission line f_r (L + δ) = const, with δ = 216 µm from one finite difference.
+    - `total_length` re-lays the meander, so it is handled through the transmission line f_r (L + δ) = const, with δ = 216 µm from one finite difference. δ is weakly determined (a second point, Palace dl1 → dl2 corrected for the c change, gives about 363 µm), but it enters only the Jacobian, not the designs, which are evaluated on the true objective.
     - On the real mesh the HF gradient matches a central difference of two re-solves to every printed digit, in 0.44 s.
   - **Method.** DeviceLayout re-meshes every design, and the order-1 objective is not smooth: a 30 µm remesh moves f_q by more than twice the derivative. So Newton runs on the high-fidelity objective, in DeviceLayout's variables x1 = √(620/c), x2 = 5000/L. Its Jacobian is geode's gradient scaled by the measured fidelity ratio.
-  - **Against DeviceLayout's discretization.** Step 2 reaches (1225.346, 7223.250) µm at [3.0120, 4.0009] GHz, err 8.0e-6. Step 3 reaches (1236.360, 7224.900) µm at err 1.4e-7, which is +18.7 / −19.1 µm from the published 1217.678 / 7243.955. About +10 µm of that comes from this Palace build's 0.38 % offset at the published final.
-  - **Against the converged frequencies.** Two Newton steps from the published final design, each verified by a full Palace/geode ladder: cv1 at [2.967, 4.004] GHz, then cv2 at **[3.0047, 3.9984] GHz** (+0.16 % / −0.04 %).
+  - **Against DeviceLayout's discretization.** Step 2 reaches (1225.346, 7223.250) µm at [3.0120, 4.0009] GHz, err 8.0e-6. Step 3 reaches (1236.360, 7224.900) µm at err 1.4e-7, which is +18.7 / −19.1 µm from the published 1217.678 / 7243.955. About +10 µm of that comes from this Palace build's 0.38 % offset at the published final. Each Newton point costs one Palace run and one geode solve with its gradient (19–25 s); the one-time δ calibration (one extra DeviceLayout mesh and geode solve) is not counted.
+  - **Against the converged frequencies.** Two Newton steps from the published final design, each evaluated by a full Palace/geode ladder. These are part-1 estimates with their band, which does not include mesh-family spread.
+    - cv1: estimate 2.967 / 4.004 GHz.
+    - cv2 (1446.078, 7416.352) µm: estimate 3.0047 / 3.9984 GHz, qubit band [2.979, 3.221] GHz (−0.9 % / +7.4 %), resonator band [3.987, 4.067] GHz. Both targets lie inside, so cv2 lands on the targets within the part-1 band.
+    - The estimate leans low: the order-1 and order-2 series share a limit at order 0.87 / 0.84, which puts cv2 at 3.039 / 4.019 GHz (+1.3 % on the qubit, outside DeviceLayout's 1 % reading).
+    - The qubit band maps to roughly c ∈ [1418, 1685] µm, so the converged design needs a capacitor about +16 % to +38 % longer than the published 1217.678 µm (point estimate +19 %), probably at or above the point estimate. The pin re-derives the band and `targets_in_band` from the raw Palace cells.
   - **Artifacts.** `benchmarks/transmon_devicelayout_optimize/` holds `results.toml` (MANIFEST bucket A), 10 geode records, two ladders, `driver.py`, `ladder.sh`, `worker_ladder.sh` and the driver log. The Palace cells are in `reference/fixtures/transmon_palace/results_optimize_1092/`. Pins are in `tests/transmon_devicelayout_optimize.rs`, and three new tensor-ε sensitivity tests are in `tests/transmon_eigen_sensitivity.rs`.
   - **#1106 review.** The part-1 cross-check now:
     - names the extrapolated variable and adds eigenvalue-variable extrapolations to the band;

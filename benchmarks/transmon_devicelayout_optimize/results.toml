@@ -3,7 +3,7 @@
 # Issue #1092 part 2. Checked by tests/transmon_devicelayout_optimize.rs.
 
 [meta]
-description = "Two-parameter re-optimization of DeviceLayout.jl's SingleTransmon (capacitor_length, resonator total_length) toward the example's targets [3.0, 4.0] GHz: Newton in DeviceLayout's own optimizer variables with geode's A2 tensor-eps solve and Hellmann-Feynman capacitor_length shape gradient on DeviceLayout's order-1 mesh, the resonator length through the transmission line; against DeviceLayout's discretization (Palace on its mesh_order 2 mesh, solver_order 2, its configfile) and against the converged frequencies (one step, verified by a resolution ladder)"
+description = "Two-parameter re-optimization of DeviceLayout.jl's SingleTransmon (capacitor_length, resonator total_length) toward the example's targets [3.0, 4.0] GHz: Newton in DeviceLayout's own optimizer variables with geode's A2 tensor-eps solve and Hellmann-Feynman capacitor_length shape gradient on DeviceLayout's order-1 mesh, the resonator length through the transmission line; against DeviceLayout's discretization (Palace on its mesh_order 2 mesh, solver_order 2, its configfile) and against the converged frequencies (Newton steps, each evaluated by a resolution ladder: an estimate with its extrapolation band)"
 issue = 1092
 backend = "ndarray"  # of the geode solve records
 float_dtype = "F64"
@@ -26,7 +26,7 @@ velocity_outline_nodes_checked = 3146
 note = "DeviceLayout re-meshes every design, so the order-1 objective is not a smooth function of the parameters: the remeshed finite difference differs from the fixed-topology (Hellmann-Feynman) derivative by more than the derivative itself. This is why the iteration runs Newton on the high-fidelity objective with the geode gradient as its Jacobian model, rather than an inner optimization on the order-1 solves"
 c_620_to_650_remesh_fd_ghz_per_um = [-0.005229200, -0.000593333]
 c_620_to_650_hf_mean_ghz_per_um = [-0.002280328, -0.000003424]
-l_5000_to_5250_remesh_dfq_dl_ghz_per_um = -0.000195328  # physical dressing shift about 1e-6
+l_5000_to_5250_remesh_dfq_dl_ghz_per_um = -0.000195328  # remesh noise; d f_q / d L enters only the Jacobian
 
 [transmission_line]
 model = "f_r (L + delta) = const at fixed capacitor_length: delta from the two order-1 solves at L = 5000 and 5250 um (c = 620 um); d f_q / d L = 0"
