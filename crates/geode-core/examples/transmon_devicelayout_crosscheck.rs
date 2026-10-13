@@ -215,7 +215,7 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
     let _ = writeln!(t, "label = \"{label}\"");
     let _ = writeln!(t, "mesh_file = \"{}\"", mesh_path.file_name().unwrap().to_string_lossy());
     let _ = writeln!(t, "host = \"{}\"", host_string());
-    let _ = writeln!(t, "backend = \"{}\"", backend.backend);
+    let _ = writeln!(t, "backend = \"{}\"", backend.name);
     let _ = writeln!(t, "float_dtype = \"{:?}\"", backend.float_dtype);
     let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
     let _ = writeln!(t, "\n[run]");
@@ -511,6 +511,10 @@ fn strs(v: &[&str]) -> String {
     )
 }
 
+fn names(v: &[Cell]) -> Vec<&str> {
+    v.iter().map(|c| c.name.as_str()).collect()
+}
+
 /// Everything the assemble mode derives for one geometry.
 struct Ladder {
     tag: &'static str,
@@ -523,7 +527,6 @@ struct Ladder {
 
 fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let tag = l.tag;
-    let names = |v: &[Cell]| v.iter().map(|c| c.name.as_str()).collect::<Vec<_>>();
     let fq = |v: &[Cell]| v.iter().map(|c| c.f_q).collect::<Vec<_>>();
     let fr = |v: &[Cell]| v.iter().map(|c| c.f_r).collect::<Vec<_>>();
     let pq = |v: &[Cell]| v.iter().map(|c| c.p_q).collect::<Vec<_>>();
