@@ -901,10 +901,17 @@ fn nested_dof_ladder_outcome_is_pinned() {
                 "{lv}/{label}: worst-of-band {} dB, pinned {db} dB",
                 worst(label)
             );
-            assert_eq!(o["reached_target"].as_bool().unwrap(), reached, "{lv}/{label}");
+            assert_eq!(
+                o["reached_target"].as_bool().unwrap(),
+                reached,
+                "{lv}/{label}"
+            );
         }
         for low in ["gap_1", "gap_4"] {
-            assert!(worst(low) > -2.5, "{level}/{low}: a global gap change matched the band");
+            assert!(
+                worst(low) > -2.5,
+                "{level}/{low}: a global gap change matched the band"
+            );
         }
         let best = LABELS
             .iter()
@@ -913,6 +920,9 @@ fn nested_dof_ladder_outcome_is_pinned() {
         assert_eq!(*best, "combined_64", "{level}: best run");
         assert!(worst("combined_64") <= worst("gap_48"));
         assert!(worst("gap_48") <= worst("gap_16"));
-        assert!(worst("gap_16") < worst("gap_4") - 5.0, "{level}: P = 16 vs P = 4");
+        assert!(
+            worst("gap_16") < worst("gap_4") - 5.0,
+            "{level}: P = 16 vs P = 4"
+        );
     }
 }
