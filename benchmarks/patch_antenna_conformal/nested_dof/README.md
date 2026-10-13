@@ -10,8 +10,8 @@ The artifacts in this directory are `L{0,1}_<label>.toml`, one per design freedo
 
 - The #1084 baseline already shows a 35 MHz L0 → L1 shift of the initial bent dip.
 - The #1085 refinement study (PR #1107, in flight when this was written) shows the initial bent dip still rising with every refinement step: 2.312 GHz on L1, 2.342 GHz on L3, 2.357 GHz with p = 2 on L1. It has not converged by L3.
-- Its extrapolations bracket the converged initial dip at about 2.357–2.369 GHz. Where it lands depends on the convergence order assumed.
-- L1 sits about 55 MHz below that estimate, and L0 about 95 MHz below it. These offsets are comparable to the 83.5 MHz ISM band width.
+- Because the dip rises under every h- and p-refinement, the converged initial bent dip is at least 2.3566 GHz. That is at most 43 MHz below the ISM band. The upper end is undetermined: the local convergence order falls along the ladder (1.18, then 0.50), and the extrapolations span about 2.37–2.43 GHz. The finest-triple estimate lies in band, so once converged the initial antenna may already resonate in band.
+- L1 sits at least 45 MHz below the converged dip, and L0 at least 85 MHz below it. The detune the optimizer has to correct may therefore be much smaller than L1 suggests. On L1 it looks like about 88 MHz, while the real gap is at most 43 MHz and may be zero.
 
 ### The optimized designs do not transfer across levels
 
