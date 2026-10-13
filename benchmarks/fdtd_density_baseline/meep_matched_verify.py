@@ -14,7 +14,8 @@ HERE = Path(__file__).resolve().parent
 
 
 def main():
-    source = ROOT / 'reference/meep/docker/matched_antenna.py'
+    # Historical records retain their original executable source, not a rewritten hash.
+    source = HERE / 'meep_runs/source_v1.py'
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     errors = []
     for resolution in (2, 4, 8):
