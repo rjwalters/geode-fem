@@ -133,6 +133,14 @@ const fn e(path: &'static str, required: &'static [&'static str], how: &'static 
 const D_TRACKING: &str = "issue #692 allowlist — regenerate on an f64 backend via \
      geode_util::fixture::BackendInfo, then promote this entry to bucket A";
 
+/// Regeneration of one #1085 UPML-ladder run (`<shell>_sigma<s>.toml`): the
+/// shell mesh from its YAML, then the dense sweep with σ₀ overridden.
+const LADDER_REGEN: &str = "python3 reference/gmsh/generate_patch_fixture.py --max-edges 200000 \
+     reference/gmsh/<shell>.yaml <dir>/<shell>.msh && PATCH_CONFORMAL_SIGMA_0=<s> \
+     PATCH_CONFORMAL_SWEEP_GHZ=list:2.24,2.26,2.27,2.28,2.29,2.30,2.31,2.32,2.33,2.36,2.40,2.4835 \
+     PATCH_CONFORMAL_OUT=benchmarks/patch_antenna_conformal/upml_ladder/<shell>_sigma<s>.toml \
+     cargo run -p geode-core --release --example patch_conformal_2g4_baseline -- <dir>/<shell>.msh";
+
 /// Classification of every committed `benchmarks/**/*.toml` (issue #692).
 const MANIFEST: &[Entry] = &[
     // ---- Bucket A: Burn-backed, f64 provenance trio required ------------
@@ -273,10 +281,179 @@ const MANIFEST: &[Entry] = &[
          geode-core --release --example patch_conformal_2g4_baseline -- \
          <dir>/patch_conformal_L1.msh",
     ),
+    // #1085 (conformal v5 E2): per-level dip / FD artifacts of the mesh-refinement study.
+    // L2 / L3 are regenerated from YAML (sha256 pinned in tests/patch_conformal_convergence.rs);
+    // L3 and p = 2 on L1 were run one geometry at a time (PATCH_CONFORMAL_GEOMS) and merged.
+    // L0 is regenerated too (gmsh 4.15; reproduces the committed L0 sha256): the loader needs the
+    // `<stem>.flat.msh` companion, which is not committed (.gitignore, #1084).
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L0.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L1.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L2.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py --max-edges 500000 \
+         reference/gmsh/patch_conformal_L2.yaml <dir>/patch_conformal_L2.msh && cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L2.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L3.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py --max-edges 1000000 \
+         reference/gmsh/patch_conformal_L3.yaml <dir>/patch_conformal_L3.msh && for g in flat \
+         bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 \
+         PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L3.msh --out <dir>/dip_L3_$g.toml; done && cargo run -p geode-core \
+         --release --example patch_conformal_convergence -- merge <dir>/dip_L3_flat.toml \
+         <dir>/dip_L3_bent.toml (about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L0_p2.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh --p2",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L1_p2.toml",
+        "for g in flat bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 \
+         PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L1.msh --p2 --out <dir>/dip_L1_p2_$g.toml; done && cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- merge \
+         <dir>/dip_L1_p2_flat.toml <dir>/dip_L1_p2_bent.toml (about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L0.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- fd <dir>/patch_conformal_L0.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- fd \
+         <dir>/patch_conformal_L1.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- fd \
+         <dir>/patch_conformal_L2.msh",
+    ),
+    // #1085: the UPML sigma_0 x shell ladder on L1 — one dense flat / bent sweep of
+    // patch_conformal_2g4_baseline per (shell, sigma_0) on the 12-point list grid.
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma4.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma8.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma25.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma4.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma8.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma25.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma4.toml",
+        LADDER_REGEN,
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",
         "examples/soi_waveguide has no burn dependency (#687 audit)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/upml_ladder_L1.toml",
+        "patch_conformal_convergence ladder: post-processing of the bucket-A upml_ladder/*.toml \
+         runs (no solve; carries generated_at_commit)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/convergence.toml",
+        "patch_conformal_convergence aggregate: post-processing of the bucket-A convergence/*.toml \
+         and baseline artifacts (no solve; carries generated_at_commit)",
     ),
     b(
         "benchmarks/step_index_fiber/results.toml",
