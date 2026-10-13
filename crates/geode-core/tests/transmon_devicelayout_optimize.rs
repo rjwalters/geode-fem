@@ -304,7 +304,7 @@ fn converged_target_step_and_ladder_re_derive() {
         close(tf(&d, &format!("{lad}.f_r_ghz")), r, 5e-5, "f_r");
         // Every level rises under refinement.
         assert!(p1[0][0] < p1[1][0] && p1[1][0] < p1[2][0] && p2[0][0] < p2[1][0]);
-        fconv = [q, r];
+        fconv = [(q * 1e4).round() / 1e4, (r * 1e4).round() / 1e4];
         from = to;
         k += 1;
     }

@@ -7,7 +7,7 @@ mesh_file = "final_r1.msh"
 host = "AWS r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04 arm64"
 backend = "ndarray"
 float_dtype = "F64"
-generated_at_commit = "b61fb044"
+generated_at_commit = "02038b40"  # run at b61fb044, its pre-rebase twin: crates/geode-core/src, this example and Cargo.lock are identical (#1106 review)
 
 [run]
 n_nodes = 220073

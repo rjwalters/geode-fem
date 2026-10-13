@@ -40,10 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - geode and Palace agree on the same mesh to 1e-4 % for the qubit and 0.03 % for the resonator.
     - Palace at DeviceLayout's discretization gives 4.168 / 5.613 GHz (+0.68 / +0.40 %) and 3.016 / 3.996 GHz (+0.38 / +0.34 %).
     - On the same mesh, the far-field model (absorbing boundary plus 50 Ω ports) moves the pair by at most 0.0003 % on the qubit and 0.0024 % on the resonator. The second-order mesh moves it by at most 0.0001 % on the qubit and 0.051 % on the resonator.
-  - **Convergence.** Every level rises under refinement. The thin-sheet edge singularity limits the eigenvalue rate to O(h). The estimate extrapolates the order-1 and order-2 series at order 1. Its band reaches up to the same series at the observed, pre-asymptotic order 0.61.
-    - Initial: qubit [4.432, 4.677] GHz, resonator [5.727, 5.817] GHz.
-    - Final: qubit [3.254, 3.471] GHz, resonator [4.080, 4.139] GHz.
-    - The published values lie below every band, so DeviceLayout's discretization is 6.2 % (initial) and 7.6 % (final) low on the qubit.
+  - **Convergence.** Every level rises under refinement. The thin-sheet edge singularity limits the eigenvalue rate to O(h). The estimate extrapolates the frequency of the order-1 and order-2 series at order 1. Its band reaches down to the same series at order 1 in the eigenvalue variable λ ∝ f², and up to the same series at the observed, pre-asymptotic order 0.61. The upper side is kept wide on purpose; for the initial qubit the circuit caps it at 4.477 GHz (#1106 review).
+    - Initial: qubit [4.415, 4.677] GHz, resonator [5.723, 5.817] GHz.
+    - Final: qubit [3.236, 3.471] GHz, resonator [4.077, 4.139] GHz.
+    - The published values lie below every band, so DeviceLayout's qubit lies below the converged estimate (by 6.2 % initial and 7.6 % final).
   - **Independent static route.** The certified tensor `C_Σ` of X⁰ (#1091, [79.56, 79.76] fF), read through the #1078/#1079 two-node circuit, gives a dressed qubit of [4.449, 4.458] GHz. That is inside the eigen band and 0.22 % above the eigen estimate.
   - **Pins.** `tests/transmon_devicelayout_crosscheck.rs` has 6 default-tier tests and a release-tier A2 re-solve of the committed initial mesh. The `MANIFEST` has five bucket-A entries.
   - **Scope.** The two-parameter re-optimization toward 3.0 / 4.0 GHz is part 2 of #1092.

@@ -224,6 +224,12 @@ const MANIFEST: &[Entry] = &[
          reference/julia/generate_transmon_param.jl)",
     ),
     a(
+        "benchmarks/transmon_devicelayout_optimize/runs/cv2_at.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
         "benchmarks/transmon_devicelayout_optimize/runs/dl0.toml",
         "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
          examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
@@ -261,6 +267,16 @@ const MANIFEST: &[Entry] = &[
     a(
         "benchmarks/transmon_devicelayout_optimize/ladder_cv1/geode_runs/cv1_h2.toml",
         "benchmarks/transmon_devicelayout_optimize/ladder.sh cv1 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv2/geode_runs/cv2_h.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv2 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv2/geode_runs/cv2_h2.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv2 (issue #1092 part 2; \
          examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
     ),
     a(

@@ -993,7 +993,10 @@ fn write_conv(t: &mut String, repo: &Path, out_dir: &Path, delta: f64) {
             to[1] - PUBLISHED_FINAL_UM[1]
         );
         lad.write(t, &tag, to);
-        f_conv = [lad.f_q, lad.f_r];
+        // The next step starts from the estimate as written (4 decimals),
+        // as step 1 starts from the part-1 artifact's 4-decimal values.
+        let r4 = |v: f64| (v * 1e4).round() / 1e4;
+        f_conv = [r4(lad.f_q), r4(lad.f_r)];
         from = to;
         step += 1;
     }
