@@ -240,7 +240,7 @@ fn newton_on_devicelayout_discretization_re_derives() {
     // Physics gates: fewer Palace runs than PRIMA to DeviceLayout's own
     // criterion, and the optimum near the published final design.
     assert!(
-        met + 1 <= MAX_PALACE_RUNS_AT_CRITERION,
+        met < MAX_PALACE_RUNS_AT_CRITERION,
         "{} Palace runs",
         met + 1
     );
