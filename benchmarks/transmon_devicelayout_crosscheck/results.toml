@@ -7,7 +7,7 @@ description = "DeviceLayout.jl SingleTransmon cross-check: converged qubit and r
 issue = 1092
 backend = "ndarray"  # of the geode solve records
 float_dtype = "F64"
-generated_at_commit = "4f53bf74"
+generated_at_commit = "f0bc781e"
 geometry_generator = "reference/julia/generate_transmon_param.jl (DeviceLayout.jl v1.15.0, gmsh_jll 4.15.2, Julia 1.10.11, macOS arm64); refinements and MSH 2.2 conversions with gmsh 4.15.2-git on the same host"
 palace_results_dir = "reference/fixtures/transmon_palace/results_crosscheck_1092"
 geode_runs_dir = "benchmarks/transmon_devicelayout_crosscheck/geode_runs"
@@ -23,7 +23,8 @@ initial_f_ghz = [4.14, 5.591]
 final_capacitor_length_um = 1217.678
 final_total_length_um = 7243.955
 final_f_ghz = [3.005, 3.982]
-optimizer = "PRIMA (derivative-free), 9 Palace runs, targets unstated, 'within 1% of our target frequencies'; the final pair is consistent with targets of 3.0 and 4.0 GHz"
+optimizer = "PRIMA (derivative-free), 9 Palace runs, 'within 1% of our target frequencies' (blog); the targets are in the example source, not the blog: run_optimization(targets_GHz = [3.0, 4.0], reltol = 1e-2), PRIMA from x = [1, 1] with cap_length = 620 um / x1^2 and total_length = 5000 um / x2, bounds [0.6, 1.4], rhobeg 0.2, stopping when the mean squared relative error is below reltol^2 (DeviceLayout.jl v1.15.0 examples/SingleTransmon/SingleTransmon.jl)"
+targets_ghz = [3.0, 4.0]  # from the example source
 
 [geode.initial]
 labels = ["initial_h", "initial_h2"]
