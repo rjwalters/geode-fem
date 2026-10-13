@@ -211,8 +211,14 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
     let mut t = String::new();
     let _ = writeln!(t, "# geode A2 tensor-eps eigensolve record (issue #1092), written by");
     let _ = writeln!(t, "# examples/transmon_devicelayout_crosscheck.rs in solve mode. Do NOT edit.");
+    let _ = writeln!(t, "\n[meta]");
     let _ = writeln!(t, "label = \"{label}\"");
     let _ = writeln!(t, "mesh_file = \"{}\"", mesh_path.file_name().unwrap().to_string_lossy());
+    let _ = writeln!(t, "host = \"{}\"", host_string());
+    let _ = writeln!(t, "backend = \"{}\"", backend.backend);
+    let _ = writeln!(t, "float_dtype = \"{:?}\"", backend.float_dtype);
+    let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
+    let _ = writeln!(t, "\n[run]");
     let _ = writeln!(t, "n_nodes = {n_nodes}");
     let _ = writeln!(t, "n_tets = {n_tets}");
     let _ = writeln!(t, "n_edges = {}", edges.len());
@@ -255,10 +261,6 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
             let _ = writeln!(t, "peak_rss_gb = -1.0  # not available on this host");
         }
     }
-    let _ = writeln!(t, "host = \"{}\"", host_string());
-    let _ = writeln!(t, "backend = \"{}\"", backend.backend);
-    let _ = writeln!(t, "float_dtype = \"{:?}\"", backend.float_dtype);
-    let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
     fs::create_dir_all(runs_dir).expect("runs dir");
     let path = runs_dir.join(format!("{label}.toml"));
     fs::write(&path, t).expect("write run record");
@@ -404,18 +406,23 @@ struct Cell {
 
 fn geode_cell(runs: &Path, label: &str) -> Cell {
     let d = toml_doc(&runs.join(format!("{label}.toml")));
-    let f = tarr(&d, "f_ghz");
-    let p = tarr(&d, "p");
+    let f = tarr(&d, "run.f_ghz");
+    let p = tarr(&d, "run.p");
     assert!(f.len() >= 2, "{label}: {f:?}");
+    assert_eq!(
+        tget(&d, "meta.float_dtype").as_str(),
+        Some("F64"),
+        "{label}: f64 record"
+    );
     Cell {
         name: label.to_string(),
         f_q: f[0],
         f_r: f[1],
         p_q: p[0],
         p_r: p[1],
-        n_unknowns: ti(&d, "n_interior_edges") as usize,
-        wall_s: tf(&d, "wall_s"),
-        peak_gb: tf(&d, "peak_rss_gb"),
+        n_unknowns: ti(&d, "run.n_interior_edges") as usize,
+        wall_s: tf(&d, "run.wall_s"),
+        peak_gb: tf(&d, "run.peak_rss_gb"),
         extra: f[2..].to_vec(),
     }
 }
