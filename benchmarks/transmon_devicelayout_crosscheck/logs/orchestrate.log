@@ -1,0 +1,40 @@
+orchestrate start 2026-10-13T04:13:21Z commit 84d8a928
+binary ready 2026-10-13T04:17:21Z
+geode initial_h start 2026-10-13T04:17:21Z
+geode initial_h end exit=0 2026-10-13T04:17:40Z
+geode final_h start 2026-10-13T04:17:40Z
+geode final_h end exit=0 2026-10-13T04:18:05Z
+geode initial_h2 start 2026-10-13T04:18:05Z
+geode initial_h2 end exit=0 2026-10-13T04:25:26Z
+geode final_h2 start 2026-10-13T04:25:26Z
+geode final_h2 end exit=0 2026-10-13T04:34:54Z
+palace image ready 2026-10-13T04:34:54Z
+start initial_h_p1 np=16 2026-10-13T04:34:55Z
+end initial_h_p1 exit=0 2026-10-13T04:35:05Z
+start final_h_p1 np=16 2026-10-13T04:35:05Z
+end final_h_p1 exit=0 2026-10-13T04:35:20Z
+start dl_initial np=32 2026-10-13T04:35:20Z
+end dl_initial exit=0 2026-10-13T04:39:01Z
+start dlpec_initial np=32 2026-10-13T04:39:01Z
+end dlpec_initial exit=0 2026-10-13T04:41:01Z
+start dl_final np=32 2026-10-13T04:41:01Z
+end dl_final exit=0 2026-10-13T04:45:06Z
+start dlpec_final np=32 2026-10-13T04:45:06Z
+end dlpec_final exit=0 2026-10-13T04:47:25Z
+start initial_h_p2 np=32 2026-10-13T04:47:25Z
+end initial_h_p2 exit=0 2026-10-13T04:54:05Z
+start final_h_p2 np=32 2026-10-13T04:54:05Z
+end final_h_p2 exit=0 2026-10-13T05:01:00Z
+start initial_r1_p1 np=32 2026-10-13T05:01:00Z
+end initial_r1_p1 exit=0 2026-10-13T05:02:40Z
+start final_r1_p1 np=32 2026-10-13T05:02:40Z
+end final_r1_p1 exit=0 2026-10-13T05:04:22Z
+start initial_r1_p2 np=32 2026-10-13T05:04:22Z
+end initial_r1_p2 exit=0 2026-10-13T06:12:33Z
+start final_r1_p2 np=32 2026-10-13T06:12:33Z
+end final_r1_p2 exit=0 2026-10-13T07:22:23Z
+start initial_r2_p1 np=32 2026-10-13T07:22:23Z
+end initial_r2_p1 exit=0 2026-10-13T07:40:53Z
+start final_r2_p1 np=32 2026-10-13T07:40:53Z
+end final_r2_p1 exit=0 2026-10-13T07:59:37Z
+orchestrate end 2026-10-13T07:59:37Z
