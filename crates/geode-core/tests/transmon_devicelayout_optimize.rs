@@ -305,7 +305,8 @@ fn converged_target_step_and_ladder_re_derive() {
         // Every level rises under refinement.
         assert!(p1[0][0] < p1[1][0] && p1[1][0] < p1[2][0] && p2[0][0] < p2[1][0]);
         fconv = [(q * 1e4).round() / 1e4, (r * 1e4).round() / 1e4];
-        from = to;
+        // The driver rounds every design to 1 nm.
+        from = to.map(|v| (v * 1e3).round() / 1e3);
         k += 1;
     }
     assert!(k > 1, "at least one converged-target step");
