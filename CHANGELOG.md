@@ -33,6 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **DeviceLayout.jl SingleTransmon re-optimization with geode's shape gradient: DeviceLayout's own criterion met in 3 Palace runs (PRIMA: 9), and a design that hits 3.0 / 4.0 GHz converged at capacitor_length 1446.078 µm, total_length 7416.352 µm** (#1092, part 2).
+  - **New library API.**
+    - `eigen::sensitivity::EigenSensitivity::deigenvalue_dtheta_tensor_eps`: the adjoint-free Hellmann–Feynman geometry gradient with a per-tet real permittivity tensor, as one forward-mode directional pass through the full-tensor element JVP. The isotropic `eps_r` field is not read.
+    - `eigen::projection::solve_transmon_eigenmodes_projected_with_port_model_full`: the A2 bulk-projected solve, now also returning the eigenvectors. Its reports are identical to the vector-free entry point.
+  - **The two parameters.**
+    - `capacitor_length` uses a node velocity that reproduces DeviceLayout's parametrization exactly. The island stretches and everything above it translates by Δc. The box re-centers by Δc/2, and the example checks this against the metal outline.
+    - `total_length` re-lays the meander, so it is handled through the transmission line f_r (L + δ) = const, with δ = 216 µm from one finite difference.
+    - On the real mesh the HF gradient matches a central difference of two re-solves to every printed digit, in 0.44 s.
+  - **Method.** DeviceLayout re-meshes every design, and the order-1 objective is not smooth: a 30 µm remesh moves f_q by more than twice the derivative. So Newton runs on the high-fidelity objective, in DeviceLayout's variables x1 = √(620/c), x2 = 5000/L. Its Jacobian is geode's gradient scaled by the measured fidelity ratio.
+  - **Against DeviceLayout's discretization.** Step 2 reaches (1225.346, 7223.250) µm at [3.0120, 4.0009] GHz, err 8.0e-6. Step 3 reaches (1236.360, 7224.900) µm at err 1.4e-7, which is +18.7 / −19.1 µm from the published 1217.678 / 7243.955. About +10 µm of that comes from this Palace build's 0.38 % offset at the published final.
+  - **Against the converged frequencies.** Two Newton steps from the published final design, each verified by a full Palace/geode ladder: cv1 at [2.967, 4.004] GHz, then cv2 at **[3.0047, 3.9984] GHz** (+0.16 % / −0.04 %).
+  - **Artifacts.** `benchmarks/transmon_devicelayout_optimize/` holds `results.toml` (MANIFEST bucket A), 10 geode records, two ladders, `driver.py`, `ladder.sh`, `worker_ladder.sh` and the driver log. The Palace cells are in `reference/fixtures/transmon_palace/results_optimize_1092/`. Pins are in `tests/transmon_devicelayout_optimize.rs`, and three new tensor-ε sensitivity tests are in `tests/transmon_eigen_sensitivity.rs`.
+  - **#1106 review.** The part-1 cross-check now:
+    - names the extrapolated variable and adds eigenvalue-variable extrapolations to the band;
+    - records the rule change and the 4.477 GHz circuit cap, with a capped band;
+    - gives the smoke-mesh caveat;
+    - explains the 0.0000 % same-mesh resonator agreement at h/2 by Palace's local bisection of the h mesh, with an AMS control cell;
+    - prints peak RSS as a number;
+    - names commit 02038b40 in its run records.
 - **DeviceLayout.jl SingleTransmon cross-check: both stacks reproduce the published pairs at DeviceLayout's own discretization, and the converged pairs lie above them: initial 4.444 / 5.740 GHz (published 4.14 / 5.591), final 3.265 / 4.088 GHz (published 3.005 / 3.982)** (#1092, part 1).
   - **Geometry.** `reference/julia/generate_transmon_param.jl` drives DeviceLayout.jl v1.15.0's own `single_transmon()` builder with the two parameters the blog optimizes, `capacitor_length` and the resonator `total_length`. It writes the order-1 mesh, DeviceLayout's second-order mesh and the example's Palace config. The two order-1 meshes are committed under `reference/fixtures/transmon_devicelayout/`.
   - **Runs.** On each geometry: Palace order 1 on `h`, `h/2`, `h/4`; order 2 on `h`, `h/2`; the blog's exact model on DeviceLayout's second-order mesh; and the same mesh with the PEC box. geode A2 with the sapphire tensor runs on `h` and `h/2`. Palace cells are in `reference/fixtures/transmon_palace/results_crosscheck_1092/`. The artifact is `benchmarks/transmon_devicelayout_crosscheck/results.toml`, written by `examples/transmon_devicelayout_crosscheck.rs`.

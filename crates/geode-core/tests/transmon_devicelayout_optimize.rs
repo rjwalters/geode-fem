@@ -348,16 +348,22 @@ const CONVERGED_TARGET_MAX_PCT: f64 = 1.0;
 #[test]
 #[ignore = "release tier: one 133k-tet A2 eigensolve and gradient"]
 fn fd_initial_record_reproduces_release() {
+    // Build the example with this test's feature set, so the nested run
+    // reuses the already-built library instead of rebuilding it.
+    let mut args = vec![
+        "run",
+        "-q",
+        "-p",
+        "geode-core",
+        "--release",
+        "--example",
+        "transmon_devicelayout_optimize",
+    ];
+    if cfg!(feature = "spade-mesh") {
+        args.extend(["--features", "spade-mesh"]);
+    }
     let out = std::process::Command::new(env!("CARGO"))
-        .args([
-            "run",
-            "-q",
-            "-p",
-            "geode-core",
-            "--release",
-            "--example",
-            "transmon_devicelayout_optimize",
-        ])
+        .args(&args)
         .env(
             "GEODE_SOLVE_MESH",
             repo().join("reference/fixtures/transmon_devicelayout/initial_o1.msh"),

@@ -68,4 +68,59 @@ objectives:
 
 ## Results
 
-See `results.toml` and the PR that landed it.
+### Against DeviceLayout's discretization (the comparison with PRIMA)
+
+| step | capacitor_length (µm) | total_length (µm) | Palace at DL discretization (GHz) | err |
+|---|---|---|---|---|
+| 0 (initial, part-1 run) | 620.000 | 5000.000 | 4.1683, 5.6132 | 1.6e-1 |
+| 1 | 1338.338 | 7137.638 | 2.8859, 4.0465 | 7.9e-4 |
+| 2 | 1225.346 | 7223.250 | 3.0120, 4.0009 | 8.0e-6 |
+| 3 | 1236.360 | 7224.900 | 3.0013, 4.0011 | 1.4e-7 |
+
+- **Cost.** The run meets DeviceLayout's criterion (err < 1e-4) at step 2.
+  That took **3 Palace runs**, counting the initial one as DeviceLayout does,
+  against PRIMA's 9, plus 3 geode order-1 solves with gradients at about
+  25 s each. Each Palace run took about 4 min on 32 ranks.
+- **The optimum.** Step 3 reaches err 1.4e-7 at (1236.360, 7224.900) µm,
+  which is +18.7 / −19.1 µm from DeviceLayout's published
+  (1217.678, 7243.955).
+  - Part of the c offset is the Palace build. This build gives
+    3.0164 / 3.9956 GHz at the published final, against the published
+    3.005 / 3.982, which explains about +10 µm of c.
+  - The rest is where PRIMA stopped. Its published pair sits 0.17 % / 0.45 %
+    off the targets, inside its 1 % stopping rule.
+
+### Against the converged frequencies
+
+Part 1 puts DeviceLayout's published final design at 3.265 / 4.088 GHz
+converged. Newton steps from that design use the part-1 ladder and the geode
+gradient there. Each new design is verified by a full ladder: Palace order 1
+at h, h/2, h/4 and order 2 at h, h/2, plus geode at h, h/2.
+
+| design | capacitor_length (µm) | total_length (µm) | converged (GHz) | vs targets |
+|---|---|---|---|---|
+| published final | 1217.678 | 7243.955 | 3.2652, 4.0880 | +8.8 %, +2.2 % |
+| cv1 | 1481.657 | 7407.945 | 2.9672, 4.0044 | −1.09 %, +0.11 % |
+| **cv2** | **1446.078** | **7416.352** | **3.0047, 3.9984** | **+0.16 %, −0.04 %** |
+
+- **The result.** A design that hits 3.0 / 4.0 GHz *converged* needs a
+  capacitor about 19 % longer (+228 µm) and a resonator 2.4 % longer
+  (+172 µm) than DeviceLayout's published final design.
+- **Cost.** Two Newton steps, each with one geode gradient solve at h and one
+  verification ladder (about 1.7 h of worker time per ladder, dominated by
+  the order-2 h/2 cell).
+- **Same-mesh agreement.** geode and Palace agree to 2e-4 % on the qubit at
+  both levels of each ladder. The resonator agrees to 0.027 % at h and
+  0.0000 % at h/2, for the reason given in the part-1 README: Palace
+  bisects the h mesh.
+
+## Notes
+
+- **An aborted first attempt.** The first DeviceLayout-discretization run
+  took Newton steps in c and L directly. It was stopped before its first
+  Palace run finished, and restarted in DeviceLayout's variables x1, x2, in
+  which the frequencies are close to linear. Its single geode record was
+  discarded.
+- **Ladder wall times are records, not benchmarks.** The worker ran one
+  cell at a time, but mesh uploads and the other phase's geode solves
+  sometimes overlapped.
