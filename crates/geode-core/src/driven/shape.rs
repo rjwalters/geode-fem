@@ -386,7 +386,7 @@ fn dweighted3(a: [Dual; 3], w: &[[f64; 3]; 3], b: [Dual; 3]) -> Dual {
 /// exactly the Re/Im split the forward assembler uses; the caller recombines
 /// `∂K = ∂K_re + i·∂K_im`, `∂M = ∂M_re + i·∂M_im`.
 #[allow(clippy::type_complexity)]
-fn nedelec_local_dual_tensor(
+pub(crate) fn nedelec_local_dual_tensor(
     coords: &[[Dual; 3]; 4],
     w_k: &[[f64; 3]; 3],
     w_m: &[[f64; 3]; 3],
