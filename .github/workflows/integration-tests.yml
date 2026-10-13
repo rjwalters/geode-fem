@@ -319,6 +319,7 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_crosscheck \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -391,6 +392,7 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_crosscheck \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -570,6 +572,7 @@ jobs:
               --test sphere_matched_upml_eigenmode \
               --test step_index_fiber_benchmark \
               --test transient_sparams \
+              --test transmon_devicelayout_crosscheck \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -658,6 +661,10 @@ jobs:
           cargo test -p geode-core --release --features spade-mesh \
               --test transmon_eigen_sensitivity -- --ignored --exact \
               real_eigen_sensitivity_release
+          # Issue #1092: one A2 solve of the committed DeviceLayout initial
+          # mesh reproduces its run record (about 20 s, 3.2 GB).
+          cargo test -p geode-core --release --features spade-mesh \
+              --test transmon_devicelayout_crosscheck -- --ignored
 
   validation-tests:
     name: cargo test -p geode-validation --release (reference fixtures, linux)

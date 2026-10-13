@@ -1,0 +1,91 @@
+issue:          #1092: DeviceLayout.jl SingleTransmon cross-check. Palace on
+                DeviceLayout-generated meshes of the published initial
+                (capacitor_length 620 um, total_length 5000 um) and final
+                (1217.678 um, 7243.955 um) geometries: a resolution ladder
+                with the PEC-box model geode uses, and two runs on
+                DeviceLayout's own second-order mesh (the blog's exact
+                discretization and the PEC-box control).
+results:        benchmarks/transmon_devicelayout_crosscheck/results.toml
+                ([palace.*], [devicelayout_run.*], [convergence.*]); generator
+                crates/geode-core/examples/transmon_devicelayout_crosscheck.rs
+                reads <cell>/eig.csv, port-EPR.csv, palace_run.log, time.txt.
+
+geometry:       reference/julia/generate_transmon_param.jl (DeviceLayout.jl
+                v1.15.0, gmsh_jll 4.15.2, Julia 1.10.11, macOS arm64, project
+                reference/julia/devicelayout/). Each geometry: the order-1
+                MSH 4.1 mesh (<tag>_o1.msh, committed under
+                reference/fixtures/transmon_devicelayout/) and DeviceLayout's
+                own second-order mesh (<tag>_o2.msh2, MSH 2.2, not committed;
+                regenerate with --order2-msh2 --dl-config). The <tag>_report.txt
+                of each run is in reference/fixtures/transmon_devicelayout/.
+
+meshes (gmsh 4.15.2-git on the generating host; sha256):
+  initial_o1.msh      1ddf952897eba94e4dd85af4f5d7fd503210bd53e24d366d9a96f139940cdef3
+                      22,699 nodes, 133,355 tets (64,452 substrate + 68,903 vacuum)
+  initial_o1_v22.msh  e23770f48f69057ff8c91c9a93bbf432128147da771baa1a54c1310dfa492fd7
+                      gmsh initial_o1.msh -0 -save -format msh2 -o initial_o1_v22.msh
+  initial_r1.msh      f24dfd36a95bfb0e14adb71cd31dab2ade841237b63d6fc65d814b3656211ef7
+                      gmsh initial_o1.msh -refine -format msh41 -o initial_r1.msh (1,066,840 tets)
+  initial_r1_v22.msh  5d648685f136493bc52d496b3592b05fce6fc341b5cb5369b2587d85e543bbef
+                      gmsh initial_r1.msh -0 -save -format msh2 -o initial_r1_v22.msh
+  initial_r2_v22.msh  edacb4eae310c0765775f8087ddc2f7f80941623117d8467c5f8af78234a9ab2
+                      gmsh initial_r1.msh -refine -format msh2 -o initial_r2_v22.msh (8,534,720 tets)
+  initial_o2.msh2     0d0b4799ccc42226dfb1d7c2ed3c1b8cb0f4347b5ab864e99127418b76683918
+                      DeviceLayout mesh_order(2), 179,617 nodes, the same 133,355 tets
+  final_o1.msh        15a58f90eacea184159d02fcd52125a461110b2f84a76839f194d54c7378313e
+                      27,825 nodes, 163,431 tets (79,225 substrate + 84,206 vacuum)
+  final_o1_v22.msh    2a7158b092638cf34ea35f2758a77bcb44333b26c6d9bf01b11eb7d4df1c907d
+  final_r1.msh        b1f57450b0005bc773b90679c455f52e275e79494310d23573273a8fc801b3f5 (1,307,448 tets)
+  final_r1_v22.msh    3c08a5564086307f6e75df8d9886b8d9a05eba3b89c0f5fd95dd5a949928c4e1
+  final_r2_v22.msh    05bc55e3462314d60aa9f6dead9fd69e2a41a6cdc99fe24a1160ced23463926a (10,459,584 tets)
+  final_o2.msh2       e0c3ecb1ed607dd6871e2adb34c7261dcb343f75a8a1f8a3179e3a9a76f764b5
+                      DeviceLayout mesh_order(2), 220,073 nodes, the same 163,431 tets
+                The MSH 2.2 conversion is physics-neutral (same nodes and
+                groups; MFEM rejects the multi-block MSH 4.1 file). The gmsh
+                uniform refinement splits every tet into 8.
+
+palace:         fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 (log: "Git changeset ID:
+                v0.17.0-99-gfba6a5b9d"), built on the worker from
+                reference/palace/docker/Dockerfile (image palace:cpu-1043,
+                arm64; build info in palace-build-info.txt).
+host:           AWS EC2 r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu
+                24.04 arm64, docker 29.1.3. 2026-10-13 UTC.
+launch:         run.sh (one cell at a time, OMP_NUM_THREADS=1, MPI ranks per
+                cell in cells.txt: 16 for the SuperLU cells, 32 otherwise).
+
+configs:        <cell>/palace_config.json.
+  PEC-box cells (mkcfg.py from reference/fixtures/transmon_palace/palace_config.json;
+  attributes resolved by name from each mesh's $PhysicalNames):
+    <tag>_h_p1    <tag>_o1_v22.msh  Order 1  Default (SuperLU)  Target TARGET, N 3
+    <tag>_h_p2    <tag>_o1_v22.msh  Order 2  AMS/GMRES
+    <tag>_r1_p1   <tag>_r1_v22.msh  Order 1  AMS/GMRES
+    <tag>_r1_p2   <tag>_r1_v22.msh  Order 2  AMS/GMRES
+    <tag>_r2_p1   <tag>_r2_v22.msh  Order 1  AMS/GMRES
+    TARGET = 3.0 GHz (initial), 2.0 GHz (final): below the lowest physical
+    mode at every level (Palace returns modes above the target, #1043).
+    Model as every earlier transmon cell: PEC on metal and on the exterior
+    boundary, the readout ports omitted (open), the junction as Palace's
+    distributed LumpedPort L = 14.86 nH || C = 5.5 fF, sapphire
+    Permittivity [9.3, 9.3, 11.5] with the MaterialAxes rotation, no loss.
+  DeviceLayout cells:
+    dl_<tag>      <tag>_o2.msh2  the example's configfile(sm; solver_order=2)
+                  verbatim (reference/julia/generate_transmon_param.jl
+                  --dl-config): first-order Absorbing on exterior_boundary,
+                  LumpedPort 1 and 2 R = 50 ohm (+X) on port_1 / port_2,
+                  LumpedPort 3 L || C on lumped_element, Permeability
+                  [0.99999975, 0.99999975, 0.99999979], LossTan
+                  [3e-5, 3e-5, 8.6e-5], Eigenmode N 2 Target 2.5 Tol 1e-6,
+                  Linear Default Tol 1e-7, Order 2. Only Model.Mesh,
+                  Problem.Output and Save (0, no ParaView) are changed.
+    dlpec_<tag>   the same file with the Absorbing block removed and its
+                  attribute added to PEC, the two R ports removed and the
+                  junction port re-indexed 1 (mkcfg.py --dlpec): the PEC-box
+                  model on DeviceLayout's second-order mesh at solver order 2.
+
+outputs:        <cell>/eig.csv, port-EPR.csv, port-V.csv, port-I.csv,
+                domain-E.csv, error-indicators.csv, palace_run.log, time.txt,
+                palace_config.json, palace_config_resolved.json (as Palace
+                writes it). No ParaView output.
+
+unknowns / run times / peak memory: see results.toml [palace.<tag>] and
+                the per-cell palace_run.log and time.txt.

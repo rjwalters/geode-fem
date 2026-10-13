@@ -1,0 +1,31 @@
+# geode A2 tensor-eps eigensolve record (issue #1092), written by
+# examples/transmon_devicelayout_crosscheck.rs in solve mode. Do NOT edit.
+
+[meta]
+label = "initial_h"
+mesh_file = "initial_o1.msh"
+host = "AWS r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04 arm64"
+backend = "ndarray"
+float_dtype = "F64"
+generated_at_commit = "b61fb044"
+
+[run]
+n_nodes = 22699
+n_tets = 133355
+n_edges = 156918
+n_interior_edges = 133163
+sigma_ghz = 5
+n_modes = 3
+port_faces = 4
+port_length_um = 1.000000
+port_width_um = 1.000000
+l_j_nh = 14.860
+c_j_ff = 5.500
+f_ghz = [3.452049, 5.177592, 15.504293]
+p = [0.994231, 0.000460, 0.000018]
+max_residual_rel = 3.489e-9
+lanczos_iterations = 96
+assembly_s = 2.6
+solve_s = 16.4
+wall_s = 19.1
+peak_rss_gb = 3.16

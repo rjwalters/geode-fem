@@ -70,7 +70,7 @@ def antenna_setup(config, resolution, frequencies):
                 reference_z=config['port_resistance_ohm'], shell_thickness_mm=dx)
 
 
-def rc_setup(resolution, frequencies):
+def rc_setup(resolution, frequencies, sheet=False):
     """Spatially uniform periodic RC oracle, analytic capacitor impedance.
 
     Full-volume current drives a homogeneous periodic cell. No curl fields:
@@ -81,7 +81,7 @@ def rc_setup(resolution, frequencies):
     sigma=ETA0*length/(resistance*area)
     return dict(cell=mp.Vector3(2,2,length), geometry=[], boundary=[],
                 default_material=mp.Medium(epsilon=eps,D_conductivity_diag=mp.Vector3(0,0,sigma/eps)),
-                port=mp.Vector3(), source_size=mp.Vector3(2,2,length),
+                port=mp.Vector3(), source_size=mp.Vector3(0 if sheet else 2,2,length),
                 monitor_size=mp.Vector3(2,2,length), voltage_factor=1/area,
                 current_factor=1/length, sigma=sigma, epsilon=eps, loss=0.,
                 reference_z=resistance, analytic_capacitance_natural=eps*area/length)
@@ -114,11 +114,15 @@ def main():
     parser.add_argument('--after-source',type=float,default=600)
     parser.add_argument('--check-interval',type=float,default=300)
     parser.add_argument('--rc-oracle',action='store_true')
+    parser.add_argument('--rc-sheet',action='store_true',
+                        help='Use a zero-thickness source in the periodic RC oracle')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--max-estimated-gib',type=float,default=48)
     parser.add_argument('--max-checks',type=int,default=1)
     parser.add_argument('--temporal-tolerance',type=float,default=.001)
     args=parser.parse_args()
+    if args.rc_sheet and not args.rc_oracle:
+        parser.error('--rc-sheet requires --rc-oracle')
     for name in ['resolution','check_interval','max_estimated_gib','temporal_tolerance']:
         if not math.isfinite(getattr(args,name)) or getattr(args,name)<=0:
             parser.error(f'--{name.replace(chr(95),chr(45))} must be finite and positive')
@@ -131,7 +135,7 @@ def main():
     config=json.loads(args.config.read_text()) if args.config else None
     if not args.rc_oracle and config is None: parser.error('--config required for antenna')
     frequencies=np.linspace(2.2,2.7,51)/C_MM_NS
-    setup=rc_setup(args.resolution,frequencies) if args.rc_oracle else antenna_setup(config,args.resolution,frequencies)
+    setup=rc_setup(args.resolution,frequencies,sheet=args.rc_sheet) if args.rc_oracle else antenna_setup(config,args.resolution,frequencies)
     cells=int(np.prod([math.ceil(s*args.resolution) for s in setup['cell']]))
     # Conservative preflight only, not a measurement. Includes monitor overhead allowance.
     estimated_gib=cells*400/2**30
@@ -149,7 +153,7 @@ def main():
     sim.init_sim()
     # Meep normalizes spatial source weights to their geometric integral.
     # Interpolating get_source onto a monitor grid loses endpoint weights.
-    spatial_current=(4. if args.rc_oracle else config['patch']['probe_w'])
+    spatial_current=((2. if args.rc_sheet else 4.) if args.rc_oracle else config['patch']['probe_w'])
     snapshots=[]
     sim.run(until_after_sources=args.after_source)
     previous_reflection=None
@@ -175,7 +179,7 @@ def main():
             'resolution_cells_per_mm':args.resolution,'cell_mm':list(setup['cell']),
             'estimated_cells':cells,'wall_seconds':wall,'sum_rank_peak_rss_bytes':rss,
             'rss_note':'Sum of per-rank high-water marks; conservative, not simultaneous aggregate RSS.',
-            'configuration':config,'rc_oracle':args.rc_oracle,
+            'configuration':config,'rc_oracle':args.rc_oracle,'rc_sheet':args.rc_sheet,
             'frequency_ghz':list(frequencies*C_MM_NS),'snapshots':snapshots,
             'max_complex_s11_temporal_change':drift,'spatially_converged':False,
             'source_spatial_current':[float(spatial_current.real),float(spatial_current.imag)],
