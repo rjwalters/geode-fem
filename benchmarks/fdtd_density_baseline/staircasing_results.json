@@ -72,7 +72,7 @@
           "taxicab_perimeter_rel_error_limit": 0.14083083084391013
         }
       ],
-      "resonance_proxy_slope_vs_cell_size": 0.9849780462930494,
+      "resonance_proxy_slope_vs_cell_size": 0.984978046293,
       "top_arc_length_mm": 62.496
     },
     "patch": {
@@ -146,7 +146,7 @@
           "taxicab_perimeter_rel_error_limit": 0.09202810555545704
         }
       ],
-      "resonance_proxy_slope_vs_cell_size": 1.0064438497570378,
+      "resonance_proxy_slope_vs_cell_size": 1.006443849757,
       "top_arc_length_mm": 38.304
     }
   },
@@ -211,7 +211,7 @@
     "proxy": "RMS vertical profile displacement / corresponding arc length; not solved resonance or S11."
   },
   "provenance": {
-    "generator_sha256": "a90ae3116a84058d6900243eb24ee13b70ced9a1e874581cbecf28b1ebebfe97",
+    "generator_sha256": "73507660e9a08e59f44612cac0e6f1974e6414be46490d1caf66c7d217a098cf",
     "historical_smoke": "Retired from current outputs; preserved in PR #1095 / commit 7baa2e16.",
     "mesh_coordinates": "Already bent; no second bend or synthetic subdivision."
   },

@@ -216,9 +216,9 @@ def build_results(geometry, meshes):
         arcs[name] = {'half_angle_rad': phi, 'profile_radius_mm': radius,
                       'profile_arc_length_mm': round(2*radius*phi, 12),
                       'top_arc_length_mm': round(2*g.r_top*phi, 12),
-                      'resolutions': rows, 'resonance_proxy_slope_vs_cell_size': slope(
+                      'resolutions': rows, 'resonance_proxy_slope_vs_cell_size': round(slope(
                           [r['cell_size_mm'] for r in rows],
-                          [r['resonance_shift_proxy_abs'] for r in rows])}
+                          [r['resonance_shift_proxy_abs'] for r in rows]), 12)}
     facets = []
     for label, path in meshes:
         surfaces = mesh_surfaces(path, [g.patch_tag, g.ground_tag])

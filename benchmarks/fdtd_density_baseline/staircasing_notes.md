@@ -34,12 +34,27 @@ No machine-specific path is stored in the outputs. The already-bent coordinates
 are used directly, with radial and arc-width checks to reject an inconsistent
 geometry configuration.
 
-For this run, Python/NumPy/Matplotlib came from the native arm64
-`meep-matched:mpi` image documented in
-[the environment manifest](../../reference/meep/docker/MATCHED.md), whose
-explicit conda export fixes dependency versions. The diagnostic itself does
-not import Meep or run a field solve. To reproduce in that image, mount the
-repository at `/work` and the directory containing L1 at `/meshes`:
+The committed JSON, `.sha256` sidecar and PNG were generated together, from
+the same script revision, on the project's macOS dev host with Python 3.14,
+NumPy 2.4.1 and Matplotlib 3.10.8. The JSON is host-independent: every
+measured quantity is an exact floating-point reduction of the mesh and grid
+data, and the one fitted quantity that is not
+(`resonance_proxy_slope_vs_cell_size`, from `np.polyfit`) is rounded to 12
+decimal places so that last-bit differences between LAPACK builds do not
+change the file. The PNG is **not** host-independent: Matplotlib embeds its
+version in the file and its text/antialiasing output changes between
+releases, so byte-identity of `staircasing.png` is only expected with
+Matplotlib 3.10.8. A differing PNG from another Matplotlib release is a
+render-version difference, not data drift; the JSON and its hash are the
+citation artifact.
+
+The same scripts also run in the native arm64 `meep-matched:mpi` image
+documented in [the environment manifest](../../reference/meep/docker/MATCHED.md),
+whose explicit conda export fixes dependency versions (Matplotlib 3.11.2
+there, so its PNG differs from the committed one while the JSON and hash do
+not). The diagnostic itself does not import Meep or run a field solve. To
+reproduce in that image, mount the repository at `/work` and the directory
+containing L1 at `/meshes`:
 
 ```sh
 docker run --rm --cpus 2 --memory 2g \
@@ -53,7 +68,8 @@ Replace the final script with `staircasing_verify.py` to verify; add `-O` after
 exceptions, not removable `assert` statements. It tests analytic chord
 sagitta, doubled-order quadrature on both meshes, configurable physical tags,
 invalid inputs, Cartesian displacement bounds, and byte-identical JSON
-regeneration. PNG regeneration is deterministic in the recorded environment.
+regeneration. PNG regeneration is deterministic for a fixed Matplotlib
+release (3.10.8 for the committed file) and is not checked by the verifier.
 
 All geometry inputs and physical tags can be overridden. For example, this
 explicit command selects the same physical geometry and mesh levels:
@@ -75,8 +91,9 @@ with an L0-only default; pass an explicit mesh list for a smaller study.
 
 The patch profile follows the upper cylinder surface; the ground profile
 follows the lower surface across the full ground width. Their arc lengths
-are **38.304 mm** and **61.504 mm**. Arc-length metadata is rounded to 12
-decimal places to avoid floating-point noise in citations. The field
+are **38.304 mm** and **61.504 mm**. Arc-length metadata and the fitted
+proxy slopes are rounded to 12 decimal places to avoid floating-point noise
+in citations. The field
 `top_arc_length_mm` gives the top of each slab sector (38.304/62.496 mm);
 `profile_arc_length_mm` is the actual denominator of that surface's proxy.
 
@@ -116,7 +133,9 @@ RMS and FEM radial RMS have different measures, so no equal-error cost ratio
 is inferred from the plots.
 
 `staircasing_results.sha256` pins the exact current JSON for the v5 paper's
-citation. Regeneration writes both together; verification checks the hash.
+citation; the current value is
+`6cfc90b6065d7593a1d981cd2b7955a87191097d8b35cc5577a82237bc1a4bf2`.
+Regeneration writes both together; verification checks the hash.
 The generator itself and both source meshes are hashed inside the JSON.
 The v5 author should use this pin and the current physical-geometry values,
 not the retired smoke results. This change does not edit the paper version.
