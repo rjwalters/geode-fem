@@ -4,8 +4,8 @@
 
 Purpose: measure, honestly and cheaply, how the per-timestep cost of a
 structured-grid (Yee) FDTD solve of the GEODE open-radiator conformal-patch
-cell scales with grid resolution R (pixels/mm) — the quantity that makes a
-faithful curved-conductor FDTD run computationally intractable.
+cell scales with grid resolution R (pixels/mm). This historical unmatched
+scaffold does not establish antenna accuracy or cost at equal accuracy.
 
 This does NOT run any optimization or DFT-to-convergence in the default
 (per-step) mode. It builds the SAME 64x60x42 mm open-radiator cell as
@@ -33,7 +33,7 @@ import time
 import numpy as np
 import meep as mp
 
-# ----- geometry (mirrors conformal_baseline_3d.py / patch.rs) -----
+# ----- historical scaffold (not the matched GEODE physical antenna) -----
 MM = 1.0
 PATCH_W = 16.0 * MM
 PATCH_L = 12.0 * MM

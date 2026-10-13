@@ -1,0 +1,29 @@
+{
+  "recorded_utc": "2026-10-12T23:25:57.931812+00:00",
+  "host_os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "host_cpu": "Apple M3 Ultra",
+  "host_memory_bytes": 103079215104,
+  "docker_resources": {
+    "memory_bytes": 67300700160,
+    "cpus": 24
+  },
+  "image": {
+    "id": "sha256:d33a3da4e24e6fc0e54ff1e7b93217d0f02fc8408504a80e8054ebff1fc564a0",
+    "architecture": "arm64"
+  },
+  "main_pilot_limits": {
+    "cpus": 4,
+    "memory_bytes": 12884901888,
+    "mpi_ranks": 4
+  },
+  "oracle_limits": {
+    "cpus": 2,
+    "memory_bytes": 2147483648,
+    "mpi_ranks": 2
+  },
+  "threads_per_rank": {
+    "OMP_NUM_THREADS": 1,
+    "OPENBLAS_NUM_THREADS": 1
+  },
+  "contention_note": "Other repository work may share the host. Calibration/preflight containers briefly overlapped the pilot. These timings are pilot diagnostics, not a controlled same-host solver ranking."
+}
