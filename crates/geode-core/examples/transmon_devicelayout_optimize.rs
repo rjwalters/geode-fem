@@ -522,6 +522,620 @@ fn main() {
             &runs,
         );
     } else {
-        panic!("assemble mode lands with the optimization records");
+        assemble_mode(&repo, &out_dir);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Assemble mode.
+// ---------------------------------------------------------------------------
+
+/// The targets of DeviceLayout's `run_optimization` (example source).
+const TARGETS_GHZ: [f64; 2] = [3.0, 4.0];
+/// The published designs and the PRIMA run's cost.
+const INITIAL_UM: [f64; 2] = [620.0, 5000.0];
+const PUBLISHED_FINAL_UM: [f64; 2] = [1217.678, 7243.955];
+const PUBLISHED_FINAL_GHZ: [f64; 2] = [3.005, 3.982];
+const PRIMA_PALACE_RUNS: usize = 9;
+/// DeviceLayout's stopping rule: `sum((f - t)^2 / t^2) / 2 < reltol^2`.
+const DL_RELTOL: f64 = 1e-2;
+/// The Newton loop's own stopping rule.
+const NEWTON_ERR_STOP: f64 = 1e-6;
+
+const PALACE_OPT_DIR: &str = "reference/fixtures/transmon_palace/results_optimize_1092";
+const PALACE_XCHECK_DIR: &str = "reference/fixtures/transmon_palace/results_crosscheck_1092";
+
+fn toml_doc(path: &Path) -> toml::Value {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur
+}
+
+fn tf(v: &toml::Value, path: &str) -> f64 {
+    let x = tget(v, path);
+    x.as_float()
+        .or_else(|| x.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("{path} is not a number"))
+}
+
+fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
+    tget(v, path)
+        .as_array()
+        .unwrap_or_else(|| panic!("{path} is not an array"))
+        .iter()
+        .map(|x| {
+            x.as_float()
+                .or_else(|| x.as_integer().map(|i| i as f64))
+                .unwrap()
+        })
+        .collect()
+}
+
+fn csv_col(path: &Path, col: usize) -> Vec<f64> {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    text.lines()
+        .skip(1)
+        .filter_map(|l| l.split(',').nth(col))
+        .map(|s| s.trim().parse::<f64>().expect("csv column"))
+        .collect()
+}
+
+/// The two lowest physical modes of a Palace cell: junction port EPR (the
+/// last port-EPR column) at least 1e-6, in frequency order.
+fn palace_pair(dir: &Path) -> [f64; 2] {
+    let f = csv_col(&dir.join("eig.csv"), 1);
+    let epr = dir.join("port-EPR.csv");
+    let text = fs::read_to_string(&epr).unwrap_or_else(|e| panic!("{}: {e}", epr.display()));
+    let ncol = text.lines().next().unwrap().split(',').count();
+    let p = csv_col(&epr, ncol - 1);
+    let kept: Vec<f64> = f
+        .iter()
+        .zip(&p)
+        .filter(|(_, p)| p.abs() >= 1e-6)
+        .map(|(&f, _)| f)
+        .collect();
+    assert!(
+        kept.len() >= 2 && kept[0] < kept[1],
+        "{}: {kept:?}",
+        dir.display()
+    );
+    [kept[0], kept[1]]
+}
+
+fn time_wall_s(path: &Path) -> f64 {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let line = text
+        .lines()
+        .find(|l| l.contains("Elapsed (wall clock) time"))
+        .expect("wall clock line");
+    let v = line.rsplit(' ').next().unwrap();
+    let parts: Vec<f64> = v.split(':').map(|s| s.parse().unwrap()).collect();
+    match parts.len() {
+        3 => parts[0] * 3600.0 + parts[1] * 60.0 + parts[2],
+        2 => parts[0] * 60.0 + parts[1],
+        _ => parts[0],
+    }
+}
+
+fn dl_error(f: [f64; 2]) -> f64 {
+    (0..2)
+        .map(|i| (f[i] - TARGETS_GHZ[i]).powi(2) / TARGETS_GHZ[i].powi(2))
+        .sum::<f64>()
+        / 2.0
+}
+
+/// One step of the Newton iteration of `driver.py` (the same arithmetic):
+/// in DeviceLayout's variables `x1 = √(620/c)`, `x2 = 5000/L`, with the
+/// Jacobian `[[S_q ∂f_q/∂c · dc/dx1, 0], [S_r ∂f_r/∂c · dc/dx1,
+/// −F_r/(L + δ) · dL/dx2]]`, `S = F / f_h`, clamped to the box
+/// `[0.6, 1.4]²` and rounded to 1 nm.
+fn newton_step(
+    theta: [f64; 2],
+    big_f: [f64; 2],
+    f_h: [f64; 2],
+    dfdc: [f64; 2],
+    delta: f64,
+) -> [f64; 2] {
+    let [c, l] = theta;
+    let (x1, x2) = ((620.0 / c).sqrt(), 5000.0 / l);
+    let dc_dx1 = -2.0 * 620.0 / x1.powi(3);
+    let dl_dx2 = -5000.0 / x2.powi(2);
+    let s = [big_f[0] / f_h[0], big_f[1] / f_h[1]];
+    let jq_1 = s[0] * dfdc[0] * dc_dx1;
+    let jr_1 = s[1] * dfdc[1] * dc_dx1;
+    let jr_2 = -big_f[1] / (l + delta) * dl_dx2;
+    let dx1 = -(big_f[0] - TARGETS_GHZ[0]) / jq_1;
+    let dx2 = -((big_f[1] - TARGETS_GHZ[1]) + jr_1 * dx1) / jr_2;
+    let x1n = (x1 + dx1).clamp(0.6, 1.4);
+    let x2n = (x2 + dx2).clamp(0.6, 1.4);
+    let r = |v: f64| (v * 1e3).round() / 1e3;
+    [r(620.0 / (x1n * x1n)), r(5000.0 / x2n)]
+}
+
+struct Rec {
+    theta: [f64; 2],
+    f: [f64; 2],
+    dfdc: [f64; 2],
+    wall_s: f64,
+    doc: toml::Value,
+}
+
+fn rec(runs: &Path, label: &str) -> Rec {
+    let d = toml_doc(&runs.join(format!("{label}.toml")));
+    assert_eq!(
+        tget(&d, "meta.float_dtype").as_str(),
+        Some("F64"),
+        "{label}"
+    );
+    let f = tarr(&d, "run.f_ghz");
+    let g = tarr(&d, "run.df_dc_ghz_per_um");
+    Rec {
+        theta: [
+            tf(&d, "run.capacitor_length_um"),
+            tf(&d, "run.total_length_um"),
+        ],
+        f: [f[0], f[1]],
+        dfdc: [g[0], g[1]],
+        wall_s: tf(&d, "run.wall_s"),
+        doc: d,
+    }
+}
+
+fn pct(x: f64, r: f64) -> f64 {
+    100.0 * (x / r - 1.0)
+}
+
+fn assemble_mode(repo: &Path, out_dir: &Path) {
+    let runs = out_dir.join("runs");
+    let mut t = String::new();
+    t.push_str("# Auto-generated by `cargo run -p geode-core --release --example transmon_devicelayout_optimize`.\n");
+    t.push_str("# Do NOT edit by hand; regenerate after any intentional change.\n");
+    t.push_str("# Issue #1092 part 2. Checked by tests/transmon_devicelayout_optimize.rs.\n\n");
+
+    // --- Gradient checks and the transmission-line calibration.
+    let fd0 = rec(&runs, "fd_initial");
+    let fd_h = tf(&fd0.doc, "run.fd_h_um");
+    let fd = tarr(&fd0.doc, "run.fd_df_dc_ghz_per_um");
+    let l0 = rec(&runs, "calibL_5000");
+    let l1 = rec(&runs, "calibL_5250");
+    let c1 = rec(&runs, "calibC_650");
+    assert_eq!(
+        l0.f, fd0.f,
+        "the two initial-geometry solves are the same mesh"
+    );
+    let delta = (l1.f[1] * l1.theta[1] - l0.f[1] * l0.theta[1]) / (l0.f[1] - l1.f[1]);
+    let remesh_fd = [
+        (c1.f[0] - l0.f[0]) / (c1.theta[0] - l0.theta[0]),
+        (c1.f[1] - l0.f[1]) / (c1.theta[0] - l0.theta[0]),
+    ];
+    let hf_mean = [
+        0.5 * (l0.dfdc[0] + c1.dfdc[0]),
+        0.5 * (l0.dfdc[1] + c1.dfdc[1]),
+    ];
+    let dfq_dl_remesh = (l1.f[0] - l0.f[0]) / (l1.theta[1] - l0.theta[1]);
+
+    let backend = tget(&fd0.doc, "meta.backend").as_str().unwrap().to_string();
+    t.push_str("[meta]\n");
+    t.push_str("description = \"Two-parameter re-optimization of DeviceLayout.jl's SingleTransmon (capacitor_length, resonator total_length) toward the example's targets [3.0, 4.0] GHz: Newton in DeviceLayout's own optimizer variables with geode's A2 tensor-eps solve and Hellmann-Feynman capacitor_length shape gradient on DeviceLayout's order-1 mesh, the resonator length through the transmission line; against DeviceLayout's discretization (Palace on its mesh_order 2 mesh, solver_order 2, its configfile) and against the converged frequencies (one step, verified by a resolution ladder)\"\n");
+    t.push_str("issue = 1092\n");
+    let _ = writeln!(t, "backend = \"{backend}\"  # of the geode solve records");
+    t.push_str("float_dtype = \"F64\"\n");
+    let _ = writeln!(t, "generated_at_commit = \"{}\"", git_head());
+    t.push_str("targets_ghz = [3.0, 4.0]  # DeviceLayout.jl v1.15.0 examples/SingleTransmon/SingleTransmon.jl run_optimization(targets_GHz)\n");
+    t.push_str("geometry_generator = \"reference/julia/generate_transmon_param.jl (DeviceLayout.jl v1.15.0, gmsh_jll 4.15.2, Julia 1.10.11, macOS arm64); every iterate meshed by DeviceLayout itself\"\n");
+    t.push_str("compute_host = \"AWS r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04 arm64; Palace fba6a5b (v0.17.0-99), 32 MPI ranks; geode ndarray f64\"\n");
+
+    t.push_str("\n[gradient_check]\n");
+    t.push_str("method = \"Hellmann-Feynman d f / d c along the capacitor_length node velocity (eigen::sensitivity::EigenSensitivity::deigenvalue_dtheta_tensor_eps, sapphire tensor), against a central difference of two A2 re-solves of the same mesh moved by +-h along the same velocity\"\n");
+    let _ = writeln!(t, "mesh = \"initial geometry, DeviceLayout order-1 mesh\"");
+    let _ = writeln!(
+        t,
+        "hf_df_dc_ghz_per_um = [{:.9}, {:.9}]",
+        fd0.dfdc[0], fd0.dfdc[1]
+    );
+    let _ = writeln!(t, "fd_h_um = {fd_h}");
+    let _ = writeln!(t, "fd_df_dc_ghz_per_um = [{:.9}, {:.9}]", fd[0], fd[1]);
+    let _ = writeln!(
+        t,
+        "qubit_rel_diff = {:.3e}",
+        (fd0.dfdc[0] - fd[0]).abs() / fd[0].abs()
+    );
+    let _ = writeln!(
+        t,
+        "gradient_s = {:.2}  # one contraction; the FD needs two more solves",
+        tf(&fd0.doc, "run.gradient_s")
+    );
+    let _ = writeln!(
+        t,
+        "velocity_outline_nodes_checked = {}",
+        tf(&fd0.doc, "run.velocity_outline_nodes_checked") as i64
+    );
+    t.push_str("\n[remesh_noise]\n");
+    t.push_str("note = \"DeviceLayout re-meshes every design, so the order-1 objective is not a smooth function of the parameters: the remeshed finite difference differs from the fixed-topology (Hellmann-Feynman) derivative by more than the derivative itself. This is why the iteration runs Newton on the high-fidelity objective with the geode gradient as its Jacobian model, rather than an inner optimization on the order-1 solves\"\n");
+    let _ = writeln!(
+        t,
+        "c_620_to_650_remesh_fd_ghz_per_um = [{:.9}, {:.9}]",
+        remesh_fd[0], remesh_fd[1]
+    );
+    let _ = writeln!(
+        t,
+        "c_620_to_650_hf_mean_ghz_per_um = [{:.9}, {:.9}]",
+        hf_mean[0], hf_mean[1]
+    );
+    let _ = writeln!(
+        t,
+        "l_5000_to_5250_remesh_dfq_dl_ghz_per_um = {dfq_dl_remesh:.9}  # physical dressing shift about 1e-6"
+    );
+    t.push_str("\n[transmission_line]\n");
+    t.push_str("model = \"f_r (L + delta) = const at fixed capacitor_length: delta from the two order-1 solves at L = 5000 and 5250 um (c = 620 um); d f_q / d L = 0\"\n");
+    let _ = writeln!(t, "f_r_ghz = [{:.6}, {:.6}]", l0.f[1], l1.f[1]);
+    let _ = writeln!(t, "delta_um = {delta:.3}");
+
+    // --- Newton on DeviceLayout's discretization.
+    let pal = repo.join(PALACE_OPT_DIR);
+    let mut thetas = vec![INITIAL_UM];
+    let mut big = vec![palace_pair(
+        &repo.join(PALACE_XCHECK_DIR).join("dl_initial"),
+    )];
+    let mut cells = vec!["dl_initial (part 1)".to_string()];
+    let mut pwall = vec![time_wall_s(
+        &repo.join(PALACE_XCHECK_DIR).join("dl_initial/time.txt"),
+    )];
+    let mut geo = vec![rec(&runs, "dl0")];
+    let mut k = 1;
+    while runs.join(format!("dl{k}.toml")).exists() {
+        let cell = pal.join(format!("dl_dl{k}"));
+        thetas.push(rec(&runs, &format!("dl{k}")).theta);
+        big.push(palace_pair(&cell));
+        cells.push(format!("dl_dl{k}"));
+        pwall.push(time_wall_s(&cell.join("time.txt")));
+        geo.push(rec(&runs, &format!("dl{k}")));
+        k += 1;
+    }
+    let n = thetas.len();
+    for i in 0..n - 1 {
+        assert_eq!(
+            geo[i].theta, thetas[i],
+            "geode record {i} at the step's design"
+        );
+        let next = newton_step(thetas[i], big[i], geo[i].f, geo[i].dfdc, delta);
+        for j in 0..2 {
+            assert!(
+                (next[j] - thetas[i + 1][j]).abs() <= 1.5e-3,
+                "step {i} -> {}: re-derived {next:?} vs recorded {:?}",
+                i + 1,
+                thetas[i + 1]
+            );
+        }
+    }
+    let errs: Vec<f64> = big.iter().map(|&f| dl_error(f)).collect();
+    let met = errs
+        .iter()
+        .position(|&e| e < DL_RELTOL * DL_RELTOL)
+        .expect("criterion met");
+    assert!(
+        errs[n - 1] < NEWTON_ERR_STOP,
+        "the loop ran to its own stop"
+    );
+    let col = |f: &dyn Fn(usize) -> f64, prec: usize| arr(&(0..n).map(f).collect::<Vec<_>>(), prec);
+    t.push_str("\n[newton_devicelayout]\n");
+    t.push_str("objective = \"DeviceLayout's discretization: Palace on its mesh_order 2 mesh at solver_order 2 with its configfile verbatim (absorbing far field, 50 ohm readout ports, junction L || C, sapphire tensor with loss tangent); the two lowest modes\"\n");
+    t.push_str("jacobian = \"c column: geode's Hellmann-Feynman d f_h / d c on the order-1 mesh of the same design, scaled by S = F / f_h; L column: the transmission line. Step 0 reuses the part-1 Palace run at the initial geometry\"\n");
+    let _ = writeln!(t, "capacitor_length_um = {}", col(&|i| thetas[i][0], 3));
+    let _ = writeln!(t, "total_length_um = {}", col(&|i| thetas[i][1], 3));
+    let _ = writeln!(
+        t,
+        "x1 = {}  # sqrt(620 / c)",
+        col(&|i| (620.0 / thetas[i][0]).sqrt(), 6)
+    );
+    let _ = writeln!(t, "x2 = {}  # 5000 / L", col(&|i| 5000.0 / thetas[i][1], 6));
+    let _ = writeln!(t, "f_q_ghz = {}", col(&|i| big[i][0], 6));
+    let _ = writeln!(t, "f_r_ghz = {}", col(&|i| big[i][1], 6));
+    let _ = writeln!(
+        t,
+        "err = {}  # sum((f - t)^2 / t^2) / 2",
+        arr(&errs.iter().map(|e| *e).collect::<Vec<_>>(), 9)
+    );
+    let _ = writeln!(t, "geode_f_h_q_ghz = {}", col(&|i| geo[i].f[0], 6));
+    let _ = writeln!(t, "geode_f_h_r_ghz = {}", col(&|i| geo[i].f[1], 6));
+    let _ = writeln!(
+        t,
+        "geode_df_dc_q_ghz_per_um = {}",
+        col(&|i| geo[i].dfdc[0], 9)
+    );
+    let _ = writeln!(
+        t,
+        "geode_df_dc_r_ghz_per_um = {}",
+        col(&|i| geo[i].dfdc[1], 9)
+    );
+    let _ = writeln!(
+        t,
+        "palace_cells = [{}]",
+        cells
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let _ = writeln!(t, "palace_wall_s = {}", arr(&pwall, 1));
+    let _ = writeln!(t, "geode_wall_s = {}", col(&|i| geo[i].wall_s, 1));
+    let _ = writeln!(
+        t,
+        "devicelayout_criterion = {:.0e}  # reltol^2 of run_optimization",
+        DL_RELTOL * DL_RELTOL
+    );
+    let _ = writeln!(t, "criterion_met_at_step = {met}");
+    let _ = writeln!(
+        t,
+        "palace_runs_at_criterion = {}  # including the initial-geometry run, as DeviceLayout counts",
+        met + 1
+    );
+    let _ = writeln!(
+        t,
+        "geode_solves_at_criterion = {}  # one order-1 solve + gradient per Newton point",
+        met + 1
+    );
+    let _ = writeln!(
+        t,
+        "palace_runs_total = {n}  # to err < {NEWTON_ERR_STOP:.0e}"
+    );
+    let _ = writeln!(t, "prima_palace_runs = {PRIMA_PALACE_RUNS}");
+    let at = thetas[met];
+    let last = thetas[n - 1];
+    let _ = writeln!(
+        t,
+        "published_final_um = [{}, {}]",
+        PUBLISHED_FINAL_UM[0], PUBLISHED_FINAL_UM[1]
+    );
+    let _ = writeln!(
+        t,
+        "published_final_f_ghz = [{}, {}]  # DeviceLayout's own Palace run",
+        PUBLISHED_FINAL_GHZ[0], PUBLISHED_FINAL_GHZ[1]
+    );
+    let dlf = palace_pair(&repo.join(PALACE_XCHECK_DIR).join("dl_final"));
+    let _ = writeln!(
+        t,
+        "this_palace_at_published_final_ghz = [{:.6}, {:.6}]  # part-1 dl_final: same discretization, this Palace build",
+        dlf[0], dlf[1]
+    );
+    let _ = writeln!(
+        t,
+        "this_palace_at_published_final_err = {:.3e}",
+        dl_error(dlf)
+    );
+    let _ = writeln!(
+        t,
+        "at_criterion_minus_published_um = [{:.3}, {:.3}]",
+        at[0] - PUBLISHED_FINAL_UM[0],
+        at[1] - PUBLISHED_FINAL_UM[1]
+    );
+    let _ = writeln!(
+        t,
+        "at_criterion_over_published_pct = [{:.3}, {:.3}]",
+        pct(at[0], PUBLISHED_FINAL_UM[0]),
+        pct(at[1], PUBLISHED_FINAL_UM[1])
+    );
+    let _ = writeln!(
+        t,
+        "optimum_minus_published_um = [{:.3}, {:.3}]",
+        last[0] - PUBLISHED_FINAL_UM[0],
+        last[1] - PUBLISHED_FINAL_UM[1]
+    );
+    let _ = writeln!(
+        t,
+        "optimum_over_published_pct = [{:.3}, {:.3}]",
+        pct(last[0], PUBLISHED_FINAL_UM[0]),
+        pct(last[1], PUBLISHED_FINAL_UM[1])
+    );
+    // The c offset the Palace-build difference at the published final explains:
+    // (F_this - F_published) / (dF/dc) with dF/dc = S * HF at the optimum.
+    let s_last = big[n - 1][0] / geo[n - 1].f[0];
+    let dc_build = (dlf[0] - PUBLISHED_FINAL_GHZ[0]) / (-(s_last * geo[n - 1].dfdc[0]));
+    let _ = writeln!(
+        t,
+        "palace_build_offset_explains_dc_um = {dc_build:.1}  # (this Palace - published) at the published final, over S d f_h / d c at the optimum"
+    );
+
+    let _ = fs::create_dir_all(out_dir);
+    write_conv(&mut t, repo, out_dir, delta);
+    let path = out_dir.join("results.toml");
+    fs::write(&path, t).expect("write results");
+    println!("wrote {}", path.display());
+}
+
+/// The converged-target step(s) and their verification ladders.
+fn write_conv(t: &mut String, repo: &Path, out_dir: &Path, delta: f64) {
+    let runs = out_dir.join("runs");
+    let x = toml_doc(&repo.join("benchmarks/transmon_devicelayout_crosscheck/results.toml"));
+    let mut from = PUBLISHED_FINAL_UM;
+    let mut f_conv = [
+        tf(&x, "convergence.final.f_q_ghz"),
+        tf(&x, "convergence.final.f_r_ghz"),
+    ];
+    let mut step = 1;
+    while runs.join(format!("cv{step}_at.toml")).exists() {
+        let g = rec(&runs, &format!("cv{step}_at"));
+        assert_eq!(
+            g.theta, from,
+            "cv{step}: gradient solve at the step's start"
+        );
+        let to = newton_step(from, f_conv, g.f, g.dfdc, delta);
+        let tag = format!("cv{step}");
+        let lad = ladder(repo, out_dir, &tag);
+        let _ = writeln!(t, "\n[conv.{tag}]");
+        t.push_str("objective = \"the converged eigenfrequencies (PEC box, the part-1 rule: order-1 and order-2 Palace series extrapolated at the asymptotic order 1)\"\n");
+        let _ = writeln!(t, "from_um = [{:.3}, {:.3}]", from[0], from[1]);
+        let _ = writeln!(
+            t,
+            "from_converged_ghz = [{:.4}, {:.4}]",
+            f_conv[0], f_conv[1]
+        );
+        let _ = writeln!(t, "from_geode_f_h_ghz = [{:.6}, {:.6}]", g.f[0], g.f[1]);
+        let _ = writeln!(
+            t,
+            "from_geode_df_dc_ghz_per_um = [{:.9}, {:.9}]",
+            g.dfdc[0], g.dfdc[1]
+        );
+        let _ = writeln!(t, "to_um = [{:.3}, {:.3}]", to[0], to[1]);
+        let _ = writeln!(
+            t,
+            "to_minus_published_final_um = [{:.3}, {:.3}]",
+            to[0] - PUBLISHED_FINAL_UM[0],
+            to[1] - PUBLISHED_FINAL_UM[1]
+        );
+        lad.write(t, &tag, to);
+        f_conv = [lad.f_q, lad.f_r];
+        from = to;
+        step += 1;
+    }
+}
+
+struct Ladder {
+    p1q: Vec<f64>,
+    p1r: Vec<f64>,
+    p2q: Vec<f64>,
+    p2r: Vec<f64>,
+    geode: Vec<[f64; 2]>,
+    f_q: f64,
+    f_r: f64,
+    band_q: [f64; 2],
+    band_r: [f64; 2],
+    walls: Vec<f64>,
+}
+
+fn ladder(repo: &Path, out_dir: &Path, tag: &str) -> Ladder {
+    let pal = repo.join(PALACE_OPT_DIR);
+    let cell = |s: &str| pal.join(format!("{tag}_{s}"));
+    let p1: Vec<[f64; 2]> = ["h_p1", "r1_p1", "r2_p1"]
+        .iter()
+        .map(|s| palace_pair(&cell(s)))
+        .collect();
+    let p2: Vec<[f64; 2]> = ["h_p2", "r1_p2"]
+        .iter()
+        .map(|s| palace_pair(&cell(s)))
+        .collect();
+    let walls: Vec<f64> = ["h_p1", "r1_p1", "r2_p1", "h_p2", "r1_p2"]
+        .iter()
+        .map(|s| time_wall_s(&cell(s).join("time.txt")))
+        .collect();
+    let gruns = out_dir.join(format!("ladder_{tag}/geode_runs"));
+    let geode: Vec<[f64; 2]> = ["h", "h2"]
+        .iter()
+        .map(|s| {
+            let d = toml_doc(&gruns.join(format!("{tag}_{s}.toml")));
+            let f = tarr(&d, "run.f_ghz");
+            [f[0], f[1]]
+        })
+        .collect();
+    let p1q: Vec<f64> = p1.iter().map(|v| v[0]).collect();
+    let p1r: Vec<f64> = p1.iter().map(|v| v[1]).collect();
+    let p2q: Vec<f64> = p2.iter().map(|v| v[0]).collect();
+    let p2r: Vec<f64> = p2.iter().map(|v| v[1]).collect();
+    let obs = |f: &[f64]| {
+        let r = (f[0] - f[1]) / (f[1] - f[2]);
+        assert!(r > 1.0, "{tag}: not contracting {f:?}");
+        let p = r.log2();
+        (p, f[2] + (f[2] - f[1]) / (2f64.powf(p) - 1.0))
+    };
+    let (oq, q_obs) = obs(&p1q);
+    let (or_, r_obs) = obs(&p1r);
+    let q2_obs = p2q[1] + (p2q[1] - p2q[0]) / (2f64.powf(oq) - 1.0);
+    let r2_obs = p2r[1] + (p2r[1] - p2r[0]) / (2f64.powf(or_) - 1.0);
+    let q1 = 2.0 * p1q[2] - p1q[1];
+    let r1 = 2.0 * p1r[2] - p1r[1];
+    let q2 = 2.0 * p2q[1] - p2q[0];
+    let r2 = 2.0 * p2r[1] - p2r[0];
+    let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let all_q = [q1, q2, q_obs, q2_obs];
+    let all_r = [r1, r2, r_obs, r2_obs];
+    Ladder {
+        f_q: 0.5 * (q1 + q2),
+        f_r: 0.5 * (r1 + r2),
+        band_q: [lo(&all_q), hi(&all_q)],
+        band_r: [lo(&all_r), hi(&all_r)],
+        p1q,
+        p1r,
+        p2q,
+        p2r,
+        geode,
+        walls,
+    }
+}
+
+impl Ladder {
+    fn write(&self, t: &mut String, tag: &str, at: [f64; 2]) {
+        let _ = writeln!(t, "\n[conv.{tag}.ladder]");
+        let _ = writeln!(t, "design_um = [{:.3}, {:.3}]", at[0], at[1]);
+        let _ = writeln!(t, "p1_f_q_ghz = {}  # h, h/2, h/4", arr(&self.p1q, 6));
+        let _ = writeln!(t, "p1_f_r_ghz = {}", arr(&self.p1r, 6));
+        let _ = writeln!(t, "p2_f_q_ghz = {}  # h, h/2", arr(&self.p2q, 6));
+        let _ = writeln!(t, "p2_f_r_ghz = {}", arr(&self.p2r, 6));
+        let _ = writeln!(
+            t,
+            "geode_f_q_ghz = [{:.6}, {:.6}]  # h, h/2",
+            self.geode[0][0], self.geode[1][0]
+        );
+        let _ = writeln!(
+            t,
+            "geode_f_r_ghz = [{:.6}, {:.6}]",
+            self.geode[0][1], self.geode[1][1]
+        );
+        let same: Vec<f64> = (0..2)
+            .flat_map(|i| {
+                [
+                    pct(self.geode[i][0], [self.p1q[0], self.p1q[1]][i]),
+                    pct(self.geode[i][1], [self.p1r[0], self.p1r[1]][i]),
+                ]
+            })
+            .collect();
+        let _ = writeln!(
+            t,
+            "geode_over_palace_pct = {}  # q h, r h, q h/2, r h/2",
+            arr(&same, 4)
+        );
+        let _ = writeln!(
+            t,
+            "palace_wall_s = {}  # h_p1, r1_p1, r2_p1, h_p2, r1_p2",
+            arr(&self.walls, 1)
+        );
+        let _ = writeln!(t, "f_q_ghz = {:.4}", self.f_q);
+        let _ = writeln!(
+            t,
+            "f_q_band_ghz = [{:.4}, {:.4}]",
+            self.band_q[0], self.band_q[1]
+        );
+        let _ = writeln!(t, "f_r_ghz = {:.4}", self.f_r);
+        let _ = writeln!(
+            t,
+            "f_r_band_ghz = [{:.4}, {:.4}]",
+            self.band_r[0], self.band_r[1]
+        );
+        let _ = writeln!(
+            t,
+            "over_target_pct = [{:.3}, {:.3}]",
+            pct(self.f_q, TARGETS_GHZ[0]),
+            pct(self.f_r, TARGETS_GHZ[1])
+        );
+        let _ = writeln!(
+            t,
+            "err = {:.3e}  # DeviceLayout's measure on the converged pair",
+            dl_error([self.f_q, self.f_r])
+        );
+        let _ = writeln!(
+            t,
+            "targets_in_band = [{}, {}]",
+            self.band_q[0] <= TARGETS_GHZ[0] && TARGETS_GHZ[0] <= self.band_q[1],
+            self.band_r[0] <= TARGETS_GHZ[1] && TARGETS_GHZ[1] <= self.band_r[1]
+        );
     }
 }

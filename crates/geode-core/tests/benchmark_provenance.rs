@@ -194,6 +194,76 @@ const MANIFEST: &[Entry] = &[
          peak, run on an AWS r8g.8xlarge)",
     ),
     a(
+        "benchmarks/transmon_devicelayout_optimize/results.toml",
+        "cargo run -p geode-core --release --example transmon_devicelayout_optimize (issue #1092 \
+         part 2, assemble mode; reads runs/, ladder_<tag>/geode_runs/ and the Palace cells of \
+         reference/fixtures/transmon_palace/results_optimize_1092/)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibC_650.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibL_5000.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibL_5250.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/cv1_at.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl0.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl1.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl2.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl3.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/fd_initial.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv1/geode_runs/cv1_h.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv1 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv1/geode_runs/cv1_h2.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv1 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
         "benchmarks/transmon_loop_inductance/results.toml",
         "cargo run -p geode-core --release --example transmon_loop_inductance (issue #1079; reads \
          the committed Palace cells of reference/fixtures/transmon_palace/results_loop_1079/ and \
