@@ -264,12 +264,34 @@ fn convergence_block_re_derives_from_the_levels() {
         let (or_, fr_inf) = rich3(&p1r);
         close(tf(&d, &c("p1_observed_order_q")), oq, 1e-4, tag);
         close(tf(&d, &c("p1_observed_order_r")), or_, 1e-4, tag);
-        close(tf(&d, &c("p1_richardson_f_q_ghz")), fq_inf, 1e-6, tag);
-        close(tf(&d, &c("p1_richardson_f_r_ghz")), fr_inf, 1e-6, tag);
+        // The observed-order extrapolations amplify the 6-decimal rounding
+        // of the committed levels by about 1/(2^p - 1) and through p itself.
+        close(
+            tf(&d, &c("p1_richardson_f_q_ghz")),
+            fq_inf,
+            OBSERVED_ORDER_TOL,
+            tag,
+        );
+        close(
+            tf(&d, &c("p1_richardson_f_r_ghz")),
+            fr_inf,
+            OBSERVED_ORDER_TOL,
+            tag,
+        );
         let fq2 = p2q[1] + (p2q[1] - p2q[0]) / (2f64.powf(oq) - 1.0);
         let fr2 = p2r[1] + (p2r[1] - p2r[0]) / (2f64.powf(or_) - 1.0);
-        close(tf(&d, &c("p2_richardson_f_q_ghz")), fq2, 1e-6, tag);
-        close(tf(&d, &c("p2_richardson_f_r_ghz")), fr2, 1e-6, tag);
+        close(
+            tf(&d, &c("p2_richardson_f_q_ghz")),
+            fq2,
+            OBSERVED_ORDER_TOL,
+            tag,
+        );
+        close(
+            tf(&d, &c("p2_richardson_f_r_ghz")),
+            fr2,
+            OBSERVED_ORDER_TOL,
+            tag,
+        );
         // Order-1 (asymptotic) two-level extrapolations: f + (f - f_prev).
         assert_eq!(tf(&d, &c("asymptotic_order")), 1.0, "{tag}");
         let q1 = p1q[2] + (p1q[2] - p1q[1]);
@@ -290,10 +312,10 @@ fn convergence_block_re_derives_from_the_levels() {
         let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let all_q = [q1, q2, fq_inf, fq2];
         let all_r = [r1, r2, fr_inf, fr2];
-        close(band_q[0], lo(&all_q), 5e-5, tag);
-        close(band_q[1], hi(&all_q), 5e-5, tag);
-        close(band_r[0], lo(&all_r), 5e-5, tag);
-        close(band_r[1], hi(&all_r), 5e-5, tag);
+        close(band_q[0], lo(&all_q), 5e-5 + OBSERVED_ORDER_TOL, tag);
+        close(band_q[1], hi(&all_q), 5e-5 + OBSERVED_ORDER_TOL, tag);
+        close(band_r[0], lo(&all_r), 5e-5 + OBSERVED_ORDER_TOL, tag);
+        close(band_r[1], hi(&all_r), 5e-5 + OBSERVED_ORDER_TOL, tag);
         let pubq = PUBLISHED_F_GHZ[i][0];
         let pubr = PUBLISHED_F_GHZ[i][1];
         close(
@@ -380,6 +402,10 @@ fn same_mesh_agreement_and_published_reproduction() {
         }
     }
 }
+
+/// Re-derivation tolerance (GHz) of the observed-order extrapolations from
+/// the rounded levels.
+const OBSERVED_ORDER_TOL: f64 = 5e-5;
 
 /// Same-mesh geode-vs-Palace tolerance (%), both modes, both levels.
 const SAME_MESH_MAX_PCT: f64 = 0.05;
