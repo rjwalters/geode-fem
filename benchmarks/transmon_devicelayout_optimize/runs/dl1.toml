@@ -1,0 +1,31 @@
+# geode A2 tensor-eps solve + Hellmann-Feynman capacitor_length gradient (issue #1092 part 2),
+# written by examples/transmon_devicelayout_optimize.rs in solve mode. Do NOT edit.
+
+[meta]
+label = "dl1"
+mesh_file = "dl1_o1.msh"
+host = "AWS r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04 arm64"
+backend = "ndarray"
+float_dtype = "F64"
+generated_at_commit = "b47b068a"
+
+[run]
+capacitor_length_um = 1338.338
+total_length_um = 7137.638
+n_nodes = 27665
+n_tets = 162464
+n_edges = 191156
+n_interior_edges = 162078
+sigma_ghz = 4
+f_ghz = [2.312518, 3.716135, 11.158429]
+p = [0.989990, 0.000111, 0.000006]
+max_residual_rel = 6.867e-9
+lanczos_iterations = 96
+df_dc_ghz_per_um = [-0.000757855, -0.000000376]  # Hellmann-Feynman, qubit and resonator
+velocity_bands_um = [-347.831, 12.000, 1218.338, 3038.338, 3352.169]  # y_min, y0, y1, yt, y_max
+velocity_moving_nodes = 27457
+velocity_outline_nodes_checked = 3939
+solve_s = 24.1
+gradient_s = 0.55
+wall_s = 24.7
+peak_rss_gb = 4.64

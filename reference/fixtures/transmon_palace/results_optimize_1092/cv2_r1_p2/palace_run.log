@@ -1,0 +1,647 @@
+>> /usr/lib64/mpich/bin/mpirun -n 32 /opt/palace/bin/palace-arm64.bin /work/palace_config_cv2_r1_p2.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 32 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+Added 28745 duplicate vertices for interior boundaries in the mesh
+Added 65324 duplicate boundary elements for interior boundaries in the mesh
+Added 30588 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 4.000e-03 m, tc = 1.334e-02 ns
+Finished partitioning mesh into 32 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-2.000e-03, -2.940e-04, -1.000e-03) m
+ (Xmax, Ymax, Zmax) = (+2.000e-03, +3.406e-03, +1.000e-03) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          7074        7888        8764      252417
+ edges            49354       51580       54142     1650572
+ faces            82774       85207       87716     2726648
+ elements         40385       41515       42459     1328496
+ neighbors            2           9          20
+
+            minimum     maximum
+ h      0.000128978   0.0670692
+ kappa      1.00678      26.278
+
+Estimated current per-rank memory usage is: Min. 50.6M, Max. 836.8M, Avg. 76.7M, Total 2.4G
+Estimated current per-node memory usage is: Min. 2.4G, Max. 2.4G, Avg. 2.4G, Total 2.4G
+
+Configuring Robin impedance BC for lumped ports at attributes:
+ 4: Ls = 1.486e-08 H/sq, Cs = 5.500e-15 F/sq, n = (+0.0,+0.0,+1.0)
+
+Configuring lumped port circuit properties:
+ Index = 1: L = 1.486e-08 H, C = 5.500e-15 F
+
+Configuring Dirichlet PEC BC at attributes:
+ 3, 5
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 1902989, ND (p = 2): 8754440, RT (p = 2): 12165432
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Configuring SLEPc eigenvalue solver:
+ Scaling γ = 5.853e+05, δ = 3.895e-06
+ Configuring divergence-free projection
+ Using random starting vector
+ Shift-and-invert σ = 2.000e+00 GHz (1.677e-01)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 1650572 unknowns
+ Level 1 (p = 2): 8754440 unknowns
+ Level 0 (auxiliary) (p = 1): 252417 unknowns
+ Level 1 (auxiliary) (p = 2): 1902989 unknowns
+
+#PETSc Option Table entries:
+-eps_monitor # (source: code)
+#End of PETSc Option Table entries
+
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.544738e+00
+  1 (restart 0) KSP residual norm 4.121548e-01
+  2 (restart 0) KSP residual norm 1.544473e-01
+  3 (restart 0) KSP residual norm 1.977277e-02
+  4 (restart 0) KSP residual norm 2.594028e-03
+  5 (restart 0) KSP residual norm 1.001304e-03
+  6 (restart 0) KSP residual norm 2.506154e-04
+  7 (restart 0) KSP residual norm 1.504527e-04
+  8 (restart 0) KSP residual norm 9.686934e-05
+  9 (restart 0) KSP residual norm 5.931474e-05
+ 10 (restart 0) KSP residual norm 3.754240e-05
+ 11 (restart 0) KSP residual norm 1.568957e-05
+ 12 (restart 0) KSP residual norm 6.811088e-06
+ 13 (restart 0) KSP residual norm 4.150874e-06
+ 14 (restart 0) KSP residual norm 2.191625e-06
+ 15 (restart 0) KSP residual norm 1.302102e-06
+ 16 (restart 0) KSP residual norm 4.056441e-07
+ 17 (restart 0) KSP residual norm 1.955857e-07
+ 18 (restart 0) KSP residual norm 1.277599e-07
+ 19 (restart 0) KSP residual norm 6.256179e-08
+ 20 (restart 0) KSP residual norm 3.324782e-08
+ 21 (restart 0) KSP residual norm 1.477284e-08
+ 22 (restart 0) KSP residual norm 4.965028e-09
+ 23 (restart 0) KSP residual norm 1.940094e-09
+GMRES solver converged in 23 iterations (avg. reduction factor: 3.957e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 6.695240e+01
+  1 (restart 0) KSP residual norm 5.045846e+00
+  2 (restart 0) KSP residual norm 1.179899e+00
+  3 (restart 0) KSP residual norm 3.165341e-01
+  4 (restart 0) KSP residual norm 3.229775e-02
+  5 (restart 0) KSP residual norm 7.306193e-03
+  6 (restart 0) KSP residual norm 2.564996e-03
+  7 (restart 0) KSP residual norm 8.132855e-04
+  8 (restart 0) KSP residual norm 5.579133e-04
+  9 (restart 0) KSP residual norm 2.885778e-04
+ 10 (restart 0) KSP residual norm 1.605962e-04
+ 11 (restart 0) KSP residual norm 8.921022e-05
+ 12 (restart 0) KSP residual norm 3.589613e-05
+ 13 (restart 0) KSP residual norm 1.651453e-05
+ 14 (restart 0) KSP residual norm 7.397428e-06
+ 15 (restart 0) KSP residual norm 2.298552e-06
+ 16 (restart 0) KSP residual norm 1.416122e-06
+ 17 (restart 0) KSP residual norm 7.447436e-07
+ 18 (restart 0) KSP residual norm 3.561988e-07
+ 19 (restart 0) KSP residual norm 1.953869e-07
+ 20 (restart 0) KSP residual norm 9.745307e-08
+ 21 (restart 0) KSP residual norm 4.617382e-08
+GMRES solver converged in 21 iterations (avg. reduction factor: 3.662e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 5.849713e+01
+  1 (restart 0) KSP residual norm 5.735239e+00
+  2 (restart 0) KSP residual norm 1.790397e+00
+  3 (restart 0) KSP residual norm 3.094021e-01
+  4 (restart 0) KSP residual norm 3.594282e-02
+  5 (restart 0) KSP residual norm 1.095397e-02
+  6 (restart 0) KSP residual norm 2.779417e-03
+  7 (restart 0) KSP residual norm 1.194859e-03
+  8 (restart 0) KSP residual norm 8.282858e-04
+  9 (restart 0) KSP residual norm 4.310241e-04
+ 10 (restart 0) KSP residual norm 2.419734e-04
+ 11 (restart 0) KSP residual norm 1.242568e-04
+ 12 (restart 0) KSP residual norm 4.815361e-05
+ 13 (restart 0) KSP residual norm 2.451899e-05
+ 14 (restart 0) KSP residual norm 8.862661e-06
+ 15 (restart 0) KSP residual norm 2.895467e-06
+ 16 (restart 0) KSP residual norm 1.618618e-06
+ 17 (restart 0) KSP residual norm 7.746876e-07
+ 18 (restart 0) KSP residual norm 3.793088e-07
+ 19 (restart 0) KSP residual norm 2.090697e-07
+ 20 (restart 0) KSP residual norm 1.278195e-07
+ 21 (restart 0) KSP residual norm 6.338624e-08
+ 22 (restart 0) KSP residual norm 3.608623e-08
+GMRES solver converged in 22 iterations (avg. reduction factor: 3.814e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 5.236744e+01
+  1 (restart 0) KSP residual norm 5.630713e+00
+  2 (restart 0) KSP residual norm 1.998628e+00
+  3 (restart 0) KSP residual norm 2.252819e-01
+  4 (restart 0) KSP residual norm 3.215386e-02
+  5 (restart 0) KSP residual norm 1.236014e-02
+  6 (restart 0) KSP residual norm 2.223724e-03
+  7 (restart 0) KSP residual norm 1.243731e-03
+  8 (restart 0) KSP residual norm 7.688171e-04
+  9 (restart 0) KSP residual norm 4.145506e-04
+ 10 (restart 0) KSP residual norm 2.670828e-04
+ 11 (restart 0) KSP residual norm 1.126781e-04
+ 12 (restart 0) KSP residual norm 5.367362e-05
+ 13 (restart 0) KSP residual norm 2.743481e-05
+ 14 (restart 0) KSP residual norm 1.225774e-05
+ 15 (restart 0) KSP residual norm 7.334904e-06
+ 16 (restart 0) KSP residual norm 3.721428e-06
+ 17 (restart 0) KSP residual norm 1.565009e-06
+ 18 (restart 0) KSP residual norm 7.780074e-07
+ 19 (restart 0) KSP residual norm 3.846512e-07
+ 20 (restart 0) KSP residual norm 2.050233e-07
+ 21 (restart 0) KSP residual norm 1.278986e-07
+ 22 (restart 0) KSP residual norm 7.003484e-08
+ 23 (restart 0) KSP residual norm 4.123224e-08
+GMRES solver converged in 23 iterations (avg. reduction factor: 4.020e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.658792e+00
+  1 (restart 0) KSP residual norm 4.594293e-01
+  2 (restart 0) KSP residual norm 1.164778e-01
+  3 (restart 0) KSP residual norm 5.132730e-02
+  4 (restart 0) KSP residual norm 1.177966e-02
+  5 (restart 0) KSP residual norm 6.487199e-03
+  6 (restart 0) KSP residual norm 4.580732e-03
+  7 (restart 0) KSP residual norm 2.124191e-03
+  8 (restart 0) KSP residual norm 9.030488e-04
+  9 (restart 0) KSP residual norm 5.148808e-04
+ 10 (restart 0) KSP residual norm 1.410191e-04
+ 11 (restart 0) KSP residual norm 9.147246e-05
+ 12 (restart 0) KSP residual norm 4.693671e-05
+ 13 (restart 0) KSP residual norm 2.224133e-05
+ 14 (restart 0) KSP residual norm 1.061921e-05
+ 15 (restart 0) KSP residual norm 4.571449e-06
+ 16 (restart 0) KSP residual norm 1.960273e-06
+ 17 (restart 0) KSP residual norm 9.697639e-07
+ 18 (restart 0) KSP residual norm 5.175578e-07
+ 19 (restart 0) KSP residual norm 2.716742e-07
+ 20 (restart 0) KSP residual norm 1.256861e-07
+ 21 (restart 0) KSP residual norm 4.867007e-08
+ 22 (restart 0) KSP residual norm 2.532332e-08
+ 23 (restart 0) KSP residual norm 1.261224e-08
+ 24 (restart 0) KSP residual norm 5.812891e-09
+ 25 (restart 0) KSP residual norm 3.449066e-09
+ 26 (restart 0) KSP residual norm 1.853580e-09
+ 27 (restart 0) KSP residual norm 1.037966e-09
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.562e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 2.277996e+00
+  1 (restart 0) KSP residual norm 3.494100e-01
+  2 (restart 0) KSP residual norm 1.003150e-01
+  3 (restart 0) KSP residual norm 1.288856e-02
+  4 (restart 0) KSP residual norm 7.085075e-03
+  5 (restart 0) KSP residual norm 4.110055e-03
+  6 (restart 0) KSP residual norm 2.331922e-03
+  7 (restart 0) KSP residual norm 1.521165e-03
+  8 (restart 0) KSP residual norm 7.940395e-04
+  9 (restart 0) KSP residual norm 3.224316e-04
+ 10 (restart 0) KSP residual norm 1.872571e-04
+ 11 (restart 0) KSP residual norm 1.001705e-04
+ 12 (restart 0) KSP residual norm 4.761151e-05
+ 13 (restart 0) KSP residual norm 1.991081e-05
+ 14 (restart 0) KSP residual norm 1.052117e-05
+ 15 (restart 0) KSP residual norm 5.783487e-06
+ 16 (restart 0) KSP residual norm 3.146963e-06
+ 17 (restart 0) KSP residual norm 1.723742e-06
+ 18 (restart 0) KSP residual norm 8.130605e-07
+ 19 (restart 0) KSP residual norm 3.782795e-07
+ 20 (restart 0) KSP residual norm 1.878916e-07
+ 21 (restart 0) KSP residual norm 7.798882e-08
+ 22 (restart 0) KSP residual norm 4.414270e-08
+ 23 (restart 0) KSP residual norm 2.276266e-08
+ 24 (restart 0) KSP residual norm 1.328566e-08
+ 25 (restart 0) KSP residual norm 7.730246e-09
+ 26 (restart 0) KSP residual norm 3.214429e-09
+ 27 (restart 0) KSP residual norm 1.496812e-09
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.570e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 2.105429e+00
+  1 (restart 0) KSP residual norm 3.962741e-01
+  2 (restart 0) KSP residual norm 1.274707e-01
+  3 (restart 0) KSP residual norm 3.062582e-02
+  4 (restart 0) KSP residual norm 2.279374e-02
+  5 (restart 0) KSP residual norm 8.444456e-03
+  6 (restart 0) KSP residual norm 3.815333e-03
+  7 (restart 0) KSP residual norm 1.961576e-03
+  8 (restart 0) KSP residual norm 8.949056e-04
+  9 (restart 0) KSP residual norm 4.163607e-04
+ 10 (restart 0) KSP residual norm 2.123644e-04
+ 11 (restart 0) KSP residual norm 7.998343e-05
+ 12 (restart 0) KSP residual norm 4.060863e-05
+ 13 (restart 0) KSP residual norm 1.912551e-05
+ 14 (restart 0) KSP residual norm 9.828141e-06
+ 15 (restart 0) KSP residual norm 4.785951e-06
+ 16 (restart 0) KSP residual norm 2.729697e-06
+ 17 (restart 0) KSP residual norm 1.514809e-06
+ 18 (restart 0) KSP residual norm 5.384091e-07
+ 19 (restart 0) KSP residual norm 2.439377e-07
+ 20 (restart 0) KSP residual norm 1.132410e-07
+ 21 (restart 0) KSP residual norm 5.820805e-08
+ 22 (restart 0) KSP residual norm 3.536175e-08
+ 23 (restart 0) KSP residual norm 1.595545e-08
+ 24 (restart 0) KSP residual norm 9.490440e-09
+ 25 (restart 0) KSP residual norm 5.460325e-09
+ 26 (restart 0) KSP residual norm 2.261694e-09
+ 27 (restart 0) KSP residual norm 1.150384e-09
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.539e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 2.125297e+00
+  1 (restart 0) KSP residual norm 3.085455e-01
+  2 (restart 0) KSP residual norm 1.480439e-01
+  3 (restart 0) KSP residual norm 8.701670e-02
+  4 (restart 0) KSP residual norm 5.041289e-02
+  5 (restart 0) KSP residual norm 8.105634e-03
+  6 (restart 0) KSP residual norm 3.795303e-03
+  7 (restart 0) KSP residual norm 1.809426e-03
+  8 (restart 0) KSP residual norm 8.667648e-04
+  9 (restart 0) KSP residual norm 3.454013e-04
+ 10 (restart 0) KSP residual norm 2.131936e-04
+ 11 (restart 0) KSP residual norm 1.197105e-04
+ 12 (restart 0) KSP residual norm 6.651411e-05
+ 13 (restart 0) KSP residual norm 3.516833e-05
+ 14 (restart 0) KSP residual norm 1.497371e-05
+ 15 (restart 0) KSP residual norm 7.217216e-06
+ 16 (restart 0) KSP residual norm 4.038716e-06
+ 17 (restart 0) KSP residual norm 1.876413e-06
+ 18 (restart 0) KSP residual norm 7.575708e-07
+ 19 (restart 0) KSP residual norm 4.053789e-07
+ 20 (restart 0) KSP residual norm 2.217014e-07
+ 21 (restart 0) KSP residual norm 1.130437e-07
+ 22 (restart 0) KSP residual norm 6.832118e-08
+ 23 (restart 0) KSP residual norm 3.337164e-08
+ 24 (restart 0) KSP residual norm 1.961442e-08
+ 25 (restart 0) KSP residual norm 8.055338e-09
+ 26 (restart 0) KSP residual norm 3.509477e-09
+ 27 (restart 0) KSP residual norm 1.556864e-09
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.588e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.715318e+00
+  1 (restart 0) KSP residual norm 4.017370e-01
+  2 (restart 0) KSP residual norm 1.564553e-01
+  3 (restart 0) KSP residual norm 4.957670e-02
+  4 (restart 0) KSP residual norm 3.714488e-02
+  5 (restart 0) KSP residual norm 1.235439e-02
+  6 (restart 0) KSP residual norm 5.036232e-03
+  7 (restart 0) KSP residual norm 1.802943e-03
+  8 (restart 0) KSP residual norm 1.024263e-03
+  9 (restart 0) KSP residual norm 3.429074e-04
+ 10 (restart 0) KSP residual norm 1.631348e-04
+ 11 (restart 0) KSP residual norm 9.174682e-05
+ 12 (restart 0) KSP residual norm 4.871496e-05
+ 13 (restart 0) KSP residual norm 2.196054e-05
+ 14 (restart 0) KSP residual norm 1.169935e-05
+ 15 (restart 0) KSP residual norm 4.231649e-06
+ 16 (restart 0) KSP residual norm 1.888338e-06
+ 17 (restart 0) KSP residual norm 1.109080e-06
+ 18 (restart 0) KSP residual norm 5.186650e-07
+ 19 (restart 0) KSP residual norm 2.313708e-07
+ 20 (restart 0) KSP residual norm 1.115520e-07
+ 21 (restart 0) KSP residual norm 4.277416e-08
+ 22 (restart 0) KSP residual norm 1.621918e-08
+ 23 (restart 0) KSP residual norm 8.058385e-09
+ 24 (restart 0) KSP residual norm 4.487541e-09
+ 25 (restart 0) KSP residual norm 2.819429e-09
+GMRES solver converged in 25 iterations (avg. reduction factor: 4.317e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.562613e+00
+  1 (restart 0) KSP residual norm 3.493127e-01
+  2 (restart 0) KSP residual norm 1.247749e-01
+  3 (restart 0) KSP residual norm 2.696692e-02
+  4 (restart 0) KSP residual norm 1.620705e-02
+  5 (restart 0) KSP residual norm 8.754649e-03
+  6 (restart 0) KSP residual norm 3.630565e-03
+  7 (restart 0) KSP residual norm 1.265176e-03
+  8 (restart 0) KSP residual norm 8.949664e-04
+  9 (restart 0) KSP residual norm 4.553646e-04
+ 10 (restart 0) KSP residual norm 2.441424e-04
+ 11 (restart 0) KSP residual norm 1.211605e-04
+ 12 (restart 0) KSP residual norm 4.743255e-05
+ 13 (restart 0) KSP residual norm 1.955284e-05
+ 14 (restart 0) KSP residual norm 1.074562e-05
+ 15 (restart 0) KSP residual norm 5.706264e-06
+ 16 (restart 0) KSP residual norm 2.869921e-06
+ 17 (restart 0) KSP residual norm 1.328694e-06
+ 18 (restart 0) KSP residual norm 5.259021e-07
+ 19 (restart 0) KSP residual norm 2.496659e-07
+ 20 (restart 0) KSP residual norm 1.481327e-07
+ 21 (restart 0) KSP residual norm 1.023125e-07
+ 22 (restart 0) KSP residual norm 5.695132e-08
+ 23 (restart 0) KSP residual norm 2.593414e-08
+ 24 (restart 0) KSP residual norm 9.907567e-09
+ 25 (restart 0) KSP residual norm 4.625592e-09
+ 26 (restart 0) KSP residual norm 2.273624e-09
+GMRES solver converged in 26 iterations (avg. reduction factor: 4.429e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.584184e+00
+  1 (restart 0) KSP residual norm 4.311161e-01
+  2 (restart 0) KSP residual norm 1.500667e-01
+  3 (restart 0) KSP residual norm 2.117010e-02
+  4 (restart 0) KSP residual norm 9.759082e-03
+  5 (restart 0) KSP residual norm 6.286063e-03
+  6 (restart 0) KSP residual norm 2.972499e-03
+  7 (restart 0) KSP residual norm 1.122328e-03
+  8 (restart 0) KSP residual norm 6.744764e-04
+  9 (restart 0) KSP residual norm 3.255800e-04
+ 10 (restart 0) KSP residual norm 1.750479e-04
+ 11 (restart 0) KSP residual norm 9.603202e-05
+ 12 (restart 0) KSP residual norm 4.967250e-05
+ 13 (restart 0) KSP residual norm 1.730165e-05
+ 14 (restart 0) KSP residual norm 7.180766e-06
+ 15 (restart 0) KSP residual norm 4.327929e-06
+ 16 (restart 0) KSP residual norm 2.489826e-06
+ 17 (restart 0) KSP residual norm 1.449233e-06
+ 18 (restart 0) KSP residual norm 7.435220e-07
+ 19 (restart 0) KSP residual norm 3.072892e-07
+ 20 (restart 0) KSP residual norm 1.633842e-07
+ 21 (restart 0) KSP residual norm 1.040147e-07
+ 22 (restart 0) KSP residual norm 5.836714e-08
+ 23 (restart 0) KSP residual norm 3.162666e-08
+ 24 (restart 0) KSP residual norm 9.172938e-09
+ 25 (restart 0) KSP residual norm 3.776618e-09
+ 26 (restart 0) KSP residual norm 1.909960e-09
+GMRES solver converged in 26 iterations (avg. reduction factor: 4.399e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 4.343718e+00
+  1 (restart 0) KSP residual norm 4.334264e-01
+  2 (restart 0) KSP residual norm 1.340694e-01
+  3 (restart 0) KSP residual norm 3.417363e-02
+  4 (restart 0) KSP residual norm 2.064973e-02
+  5 (restart 0) KSP residual norm 1.063490e-02
+  6 (restart 0) KSP residual norm 3.402035e-03
+  7 (restart 0) KSP residual norm 1.211967e-03
+  8 (restart 0) KSP residual norm 5.866779e-04
+  9 (restart 0) KSP residual norm 3.059350e-04
+ 10 (restart 0) KSP residual norm 1.629791e-04
+ 11 (restart 0) KSP residual norm 9.323810e-05
+ 12 (restart 0) KSP residual norm 5.268200e-05
+ 13 (restart 0) KSP residual norm 3.045942e-05
+ 14 (restart 0) KSP residual norm 1.509215e-05
+ 15 (restart 0) KSP residual norm 8.292734e-06
+ 16 (restart 0) KSP residual norm 5.225677e-06
+ 17 (restart 0) KSP residual norm 2.515373e-06
+ 18 (restart 0) KSP residual norm 1.002339e-06
+ 19 (restart 0) KSP residual norm 4.880237e-07
+ 20 (restart 0) KSP residual norm 2.767509e-07
+ 21 (restart 0) KSP residual norm 1.701314e-07
+ 22 (restart 0) KSP residual norm 8.848840e-08
+ 23 (restart 0) KSP residual norm 3.520654e-08
+ 24 (restart 0) KSP residual norm 1.296112e-08
+ 25 (restart 0) KSP residual norm 7.212240e-09
+ 26 (restart 0) KSP residual norm 3.520915e-09
+GMRES solver converged in 26 iterations (avg. reduction factor: 4.470e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.453590e+00
+  1 (restart 0) KSP residual norm 3.746945e-01
+  2 (restart 0) KSP residual norm 1.117506e-01
+  3 (restart 0) KSP residual norm 2.276129e-02
+  4 (restart 0) KSP residual norm 1.387368e-02
+  5 (restart 0) KSP residual norm 6.881905e-03
+  6 (restart 0) KSP residual norm 2.405990e-03
+  7 (restart 0) KSP residual norm 1.260484e-03
+  8 (restart 0) KSP residual norm 6.959526e-04
+  9 (restart 0) KSP residual norm 2.432078e-04
+ 10 (restart 0) KSP residual norm 1.358997e-04
+ 11 (restart 0) KSP residual norm 7.418763e-05
+ 12 (restart 0) KSP residual norm 4.953509e-05
+ 13 (restart 0) KSP residual norm 2.439517e-05
+ 14 (restart 0) KSP residual norm 1.354266e-05
+ 15 (restart 0) KSP residual norm 6.406706e-06
+ 16 (restart 0) KSP residual norm 2.577935e-06
+ 17 (restart 0) KSP residual norm 1.513994e-06
+ 18 (restart 0) KSP residual norm 8.551153e-07
+ 19 (restart 0) KSP residual norm 3.896251e-07
+ 20 (restart 0) KSP residual norm 2.080558e-07
+ 21 (restart 0) KSP residual norm 1.072287e-07
+ 22 (restart 0) KSP residual norm 6.409921e-08
+ 23 (restart 0) KSP residual norm 3.490132e-08
+ 24 (restart 0) KSP residual norm 1.753709e-08
+ 25 (restart 0) KSP residual norm 9.145337e-09
+ 26 (restart 0) KSP residual norm 2.990520e-09
+GMRES solver converged in 26 iterations (avg. reduction factor: 4.482e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.844143e+00
+  1 (restart 0) KSP residual norm 2.759938e-01
+  2 (restart 0) KSP residual norm 9.878489e-02
+  3 (restart 0) KSP residual norm 1.189004e-02
+  4 (restart 0) KSP residual norm 3.499676e-03
+  5 (restart 0) KSP residual norm 1.355588e-03
+  6 (restart 0) KSP residual norm 8.370750e-04
+  7 (restart 0) KSP residual norm 5.061803e-04
+  8 (restart 0) KSP residual norm 3.379883e-04
+  9 (restart 0) KSP residual norm 1.560361e-04
+ 10 (restart 0) KSP residual norm 6.688887e-05
+ 11 (restart 0) KSP residual norm 2.779702e-05
+ 12 (restart 0) KSP residual norm 1.586518e-05
+ 13 (restart 0) KSP residual norm 8.670541e-06
+ 14 (restart 0) KSP residual norm 5.068760e-06
+ 15 (restart 0) KSP residual norm 1.692315e-06
+ 16 (restart 0) KSP residual norm 8.358650e-07
+ 17 (restart 0) KSP residual norm 5.119296e-07
+ 18 (restart 0) KSP residual norm 2.899011e-07
+ 19 (restart 0) KSP residual norm 1.424090e-07
+ 20 (restart 0) KSP residual norm 7.663882e-08
+ 21 (restart 0) KSP residual norm 4.628696e-08
+ 22 (restart 0) KSP residual norm 2.935667e-08
+ 23 (restart 0) KSP residual norm 1.454825e-08
+ 24 (restart 0) KSP residual norm 5.709206e-09
+ 25 (restart 0) KSP residual norm 2.662781e-09
+ 26 (restart 0) KSP residual norm 9.620348e-10
+GMRES solver converged in 26 iterations (avg. reduction factor: 4.395e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.119498e+00
+  1 (restart 0) KSP residual norm 2.388102e-01
+  2 (restart 0) KSP residual norm 7.772334e-02
+  3 (restart 0) KSP residual norm 1.311559e-02
+  4 (restart 0) KSP residual norm 6.680069e-03
+  5 (restart 0) KSP residual norm 4.330878e-03
+  6 (restart 0) KSP residual norm 2.003038e-03
+  7 (restart 0) KSP residual norm 5.857913e-04
+  8 (restart 0) KSP residual norm 3.355599e-04
+  9 (restart 0) KSP residual norm 1.097809e-04
+ 10 (restart 0) KSP residual norm 5.755244e-05
+ 11 (restart 0) KSP residual norm 3.247049e-05
+ 12 (restart 0) KSP residual norm 1.566033e-05
+ 13 (restart 0) KSP residual norm 9.584771e-06
+ 14 (restart 0) KSP residual norm 4.531389e-06
+ 15 (restart 0) KSP residual norm 2.179598e-06
+ 16 (restart 0) KSP residual norm 1.291789e-06
+ 17 (restart 0) KSP residual norm 6.157128e-07
+ 18 (restart 0) KSP residual norm 2.927770e-07
+ 19 (restart 0) KSP residual norm 1.505537e-07
+ 20 (restart 0) KSP residual norm 8.352538e-08
+ 21 (restart 0) KSP residual norm 4.761651e-08
+ 22 (restart 0) KSP residual norm 2.401860e-08
+ 23 (restart 0) KSP residual norm 9.328979e-09
+ 24 (restart 0) KSP residual norm 4.901931e-09
+ 25 (restart 0) KSP residual norm 3.187386e-09
+ 26 (restart 0) KSP residual norm 1.611708e-09
+ 27 (restart 0) KSP residual norm 7.620703e-10
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.576e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.090487e+00
+  1 (restart 0) KSP residual norm 2.479180e-01
+  2 (restart 0) KSP residual norm 6.154606e-02
+  3 (restart 0) KSP residual norm 1.242760e-02
+  4 (restart 0) KSP residual norm 7.768378e-03
+  5 (restart 0) KSP residual norm 3.838425e-03
+  6 (restart 0) KSP residual norm 2.112260e-03
+  7 (restart 0) KSP residual norm 1.117703e-03
+  8 (restart 0) KSP residual norm 4.875192e-04
+  9 (restart 0) KSP residual norm 2.327301e-04
+ 10 (restart 0) KSP residual norm 1.354082e-04
+ 11 (restart 0) KSP residual norm 7.398310e-05
+ 12 (restart 0) KSP residual norm 2.604150e-05
+ 13 (restart 0) KSP residual norm 1.344358e-05
+ 14 (restart 0) KSP residual norm 7.689847e-06
+ 15 (restart 0) KSP residual norm 2.362786e-06
+ 16 (restart 0) KSP residual norm 1.155644e-06
+ 17 (restart 0) KSP residual norm 6.466292e-07
+ 18 (restart 0) KSP residual norm 3.640917e-07
+ 19 (restart 0) KSP residual norm 2.570154e-07
+ 20 (restart 0) KSP residual norm 1.097428e-07
+ 21 (restart 0) KSP residual norm 5.473262e-08
+ 22 (restart 0) KSP residual norm 3.223705e-08
+ 23 (restart 0) KSP residual norm 1.518012e-08
+ 24 (restart 0) KSP residual norm 7.592505e-09
+ 25 (restart 0) KSP residual norm 3.711895e-09
+ 26 (restart 0) KSP residual norm 1.777204e-09
+ 27 (restart 0) KSP residual norm 8.218011e-10
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.593e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 7.599595e-01
+  1 (restart 0) KSP residual norm 1.359625e-01
+  2 (restart 0) KSP residual norm 3.899459e-02
+  3 (restart 0) KSP residual norm 1.092726e-02
+  4 (restart 0) KSP residual norm 7.720903e-03
+  5 (restart 0) KSP residual norm 2.733647e-03
+  6 (restart 0) KSP residual norm 1.405992e-03
+  7 (restart 0) KSP residual norm 7.356352e-04
+  8 (restart 0) KSP residual norm 2.557355e-04
+  9 (restart 0) KSP residual norm 1.184695e-04
+ 10 (restart 0) KSP residual norm 7.384300e-05
+ 11 (restart 0) KSP residual norm 4.079663e-05
+ 12 (restart 0) KSP residual norm 2.049653e-05
+ 13 (restart 0) KSP residual norm 1.299645e-05
+ 14 (restart 0) KSP residual norm 5.273903e-06
+ 15 (restart 0) KSP residual norm 3.109389e-06
+ 16 (restart 0) KSP residual norm 2.108010e-06
+ 17 (restart 0) KSP residual norm 1.114629e-06
+ 18 (restart 0) KSP residual norm 6.107418e-07
+ 19 (restart 0) KSP residual norm 2.291492e-07
+ 20 (restart 0) KSP residual norm 1.054921e-07
+ 21 (restart 0) KSP residual norm 5.726740e-08
+ 22 (restart 0) KSP residual norm 3.024578e-08
+ 23 (restart 0) KSP residual norm 1.454922e-08
+ 24 (restart 0) KSP residual norm 7.201810e-09
+ 25 (restart 0) KSP residual norm 3.300318e-09
+ 26 (restart 0) KSP residual norm 1.175848e-09
+ 27 (restart 0) KSP residual norm 5.644517e-10
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.591e-01)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 8.438594e-01
+  1 (restart 0) KSP residual norm 6.878564e-02
+  2 (restart 0) KSP residual norm 2.652559e-02
+  3 (restart 0) KSP residual norm 9.157701e-03
+  4 (restart 0) KSP residual norm 5.136070e-03
+  5 (restart 0) KSP residual norm 1.459007e-03
+  6 (restart 0) KSP residual norm 8.791367e-04
+  7 (restart 0) KSP residual norm 5.061406e-04
+  8 (restart 0) KSP residual norm 2.826718e-04
+  9 (restart 0) KSP residual norm 1.441555e-04
+ 10 (restart 0) KSP residual norm 7.306200e-05
+ 11 (restart 0) KSP residual norm 3.210651e-05
+ 12 (restart 0) KSP residual norm 1.808638e-05
+ 13 (restart 0) KSP residual norm 1.081650e-05
+ 14 (restart 0) KSP residual norm 5.352471e-06
+ 15 (restart 0) KSP residual norm 2.694157e-06
+ 16 (restart 0) KSP residual norm 1.443282e-06
+ 17 (restart 0) KSP residual norm 8.104009e-07
+ 18 (restart 0) KSP residual norm 3.743323e-07
+ 19 (restart 0) KSP residual norm 2.138246e-07
+ 20 (restart 0) KSP residual norm 1.029701e-07
+ 21 (restart 0) KSP residual norm 4.228052e-08
+ 22 (restart 0) KSP residual norm 2.537743e-08
+ 23 (restart 0) KSP residual norm 1.198229e-08
+ 24 (restart 0) KSP residual norm 6.678043e-09
+ 25 (restart 0) KSP residual norm 3.289809e-09
+ 26 (restart 0) KSP residual norm 1.565162e-09
+ 27 (restart 0) KSP residual norm 6.850258e-10
+GMRES solver converged in 27 iterations (avg. reduction factor: 4.606e-01)
+  1 EPS nconv=3 first unconverged value (error) 2.14308e-06-1.27335e-16i (1.75154728e-08)
+
+ Linear eigensolve converged (3 eigenpairs) due to CONVERGED_TOL; iterations 1
+ Total number of linear systems solved: 18
+ Total number of linear solver iterations: 460
+ Found 3 converged eigenvalues (first = 5.897e-02-1.488e-15i)
+
+Computing solution error estimates and performing postprocessing
+
+     m,        Re{f} (GHz),        Im{f} (GHz),                  Q,      Error (Bkwd.),       Error (Abs.)
+     1,      +2.896597e+00,      -3.653771e-14,      +3.963846e+13,      +3.012320e-15,      +1.546762e-09
+     2,      +3.956789e+00,      -2.185822e-11,      +9.051032e+10,      +5.126544e-15,      +2.632371e-09
+     3,      +1.186805e+01,      -5.788538e-10,      +1.025133e+10,      +9.467400e-15,      +4.861314e-09
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 2.967e-01, global unknowns = 8754440
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 1.7G, Max. 1.8G, Avg. 1.8G, Total 57.1G
+Estimated peak per-node memory usage is: Min. 57.1G, Max. 57.1G, Avg. 57.1G, Total 57.1G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   2.412       9.525       9.302
+  Mesh Preprocessing             5.223      12.337       5.446
+Operator Construction            7.277       7.630       7.604
+Linear Solve                   100.593     103.284     101.514
+  Setup                         37.175      37.200      37.198
+  Preconditioner              3816.990    3826.042    3823.010
+  Coarse Solve                  73.072      79.875      75.304
+Eigenvalue Solve                 2.655       2.758       2.717
+Div.-Free Projection           128.433     128.630     128.499
+Estimation                       0.523       0.555       0.538
+  Construction                  20.793      20.834      20.807
+  Solve                         73.668      73.687      73.678
+Postprocessing                   1.549       1.566       1.557
+Disk IO                          6.536       6.542       6.539
+--------------------------------------------------------------
+Total                         4293.806    4293.809    4293.809
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   99.3M       99.3M       99.3M
+  Mesh Preprocessing              1.2G        1.2G        1.2G
+Operator Construction            11.1G       11.1G       12.3G
+Linear Solve                    237.9M      237.9M       12.6G
+  Setup                          12.9G       12.9G       25.4G
+  Preconditioner                  4.7G        4.7G       30.2G
+  Coarse Solve                    1.1G        1.1G       31.3G
+Eigenvalue Solve                611.1M      611.1M       31.9G
+Div.-Free Projection              4.1G        4.1G       36.0G
+Estimation                        4.3G        4.3G       40.3G
+  Construction                    6.0G        6.0G       46.3G
+  Solve                           4.5G        4.5G       50.9G
+Postprocessing                    4.9G        4.9G       55.8G
+Disk IO                         432.3M      432.3M       56.2G
+--------------------------------------------------------------
+Total                            56.5G       56.5G       56.5G
+

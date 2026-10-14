@@ -210,7 +210,8 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
     }
     let rss = peak_rss_gb();
     println!(
-        "  solve {solve_s:.1} s, peak RSS {rss:?} GB, total {:.1} s",
+        "  solve {solve_s:.1} s, peak RSS {} GB, total {:.1} s",
+        rss.map_or_else(|| "n/a".to_string(), |r| format!("{r:.2}")),
         t_all.elapsed().as_secs_f64()
     );
 
@@ -391,8 +392,7 @@ fn palace_peak_gb(log: &Path) -> f64 {
     let text = fs::read_to_string(log).unwrap_or_else(|e| panic!("{}: {e}", log.display()));
     let line = match text
         .lines()
-        .filter(|l| l.contains("Estimated peak per-node memory usage"))
-        .next_back()
+        .rfind(|l| l.contains("Estimated peak per-node memory usage"))
     {
         Some(l) => l,
         None => return -1.0,
@@ -599,6 +599,10 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let _ = writeln!(t, "levels = {}", strs(&names(&l.geode)));
     let _ = writeln!(t, "geode_over_palace_f_q_pct = {}", arr(&same, 4));
     let _ = writeln!(t, "geode_over_palace_f_r_pct = {}", arr(&same_r, 4));
+    let _ = writeln!(
+        t,
+        "note = \"on the DeviceLayout h meshes Palace adds elements by local bisection of under-resolved interior boundaries (its log: 4946 initial, 5944 final), so its h mesh is slightly finer than geode's and the resonator differs by about 0.03 %; the refined meshes need no bisection and both codes solve the same discrete problem (0.0000 %). Rerunning the initial h cell with AMS instead of SuperLU gives the same 5.176055 GHz\""
+    );
 
     // DeviceLayout's own discretization and the same-mesh PEC-box control.
     let _ = writeln!(t, "\n[devicelayout_run.{tag}]");
@@ -662,8 +666,16 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     let fr_p1_o1 = richardson2([p1r[1], p1r[2]], ASYMPTOTIC_ORDER);
     let fq_p2_o1 = richardson2([p2q[0], p2q[1]], ASYMPTOTIC_ORDER);
     let fr_p2_o1 = richardson2([p2r[0], p2r[1]], ASYMPTOTIC_ORDER);
-    let all_q = [fq_p1_o1, fq_p2_o1, fq_obs, fq_p2_obs];
-    let all_r = [fr_p1_o1, fr_p2_o1, fr_obs, fr_p2_obs];
+    // The same order-1 extrapolation of the eigenvalue variable λ ∝ f²
+    // instead of f: sqrt(2 f₂² − f₁²), lower than the frequency one for a
+    // rising series. It widens the band's low side (#1106 review).
+    let lam1 = |f: [f64; 2]| (2.0 * f[1] * f[1] - f[0] * f[0]).sqrt();
+    let fq_p1_lam = lam1([p1q[1], p1q[2]]);
+    let fr_p1_lam = lam1([p1r[1], p1r[2]]);
+    let fq_p2_lam = lam1([p2q[0], p2q[1]]);
+    let fr_p2_lam = lam1([p2r[0], p2r[1]]);
+    let all_q = [fq_p1_o1, fq_p2_o1, fq_obs, fq_p2_obs, fq_p1_lam, fq_p2_lam];
+    let all_r = [fr_p1_o1, fr_p2_o1, fr_obs, fr_p2_obs, fr_p1_lam, fr_p2_lam];
     let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
     let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let (q_lo, q_hi) = (lo(&all_q), hi(&all_q));
@@ -709,7 +721,29 @@ fn write_ladder(t: &mut String, l: &Ladder, pub_q: f64, pub_r: f64) {
     );
     let _ = writeln!(
         t,
-        "rule = \"every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series extrapolated at the asymptotic order 1; band = [min, max] over those two and the same two series extrapolated at the order-1 ladder's observed (pre-asymptotic, lower) order, which extrapolates further: an extrapolation with a band, not a bound\""
+        "p1_order1_lambda_f_q_ghz = {fq_p1_lam:.6}  # order 1 in the eigenvalue variable: sqrt(2 f(h/4)^2 - f(h/2)^2)"
+    );
+    let _ = writeln!(t, "p1_order1_lambda_f_r_ghz = {fr_p1_lam:.6}");
+    let _ = writeln!(
+        t,
+        "p2_order1_lambda_f_q_ghz = {fq_p2_lam:.6}  # order 1 in the eigenvalue variable: sqrt(2 f(h/2)^2 - f(h)^2)"
+    );
+    let _ = writeln!(t, "p2_order1_lambda_f_r_ghz = {fr_p2_lam:.6}");
+    let _ = writeln!(
+        t,
+        "extrapolated_variable = \"the frequency f for the estimate (p1_order1_*, p2_order1_*, *_richardson_*); the eigenvalue variable lambda ~ f^2 at order 1 (*_order1_lambda_*) is also in the band and sets its low side\""
+    );
+    let _ = writeln!(
+        t,
+        "rule = \"every level rises under refinement, so each series approaches from below; estimate = mean of the order-1 and order-2 series, the frequency extrapolated at the asymptotic order 1; band = [min, max] over those two, the same two series in the eigenvalue variable at order 1 (lower), and the same two series in f at the order-1 ladder's observed (pre-asymptotic, lower) order (higher): an extrapolation with a band, not a bound\""
+    );
+    let _ = writeln!(
+        t,
+        "rule_history = \"#1092 part 1 replaced the work-in-progress rule (Richardson at the observed order only, band down to the finest measured levels, initial-qubit estimate 4.63 GHz) by this one, after the independent static route ([static_cross_check.initial]) put the initial qubit at 4.45 GHz and capped it at 4.477 GHz; the band's low side gained the eigenvalue-variable extrapolations in the #1106 review\""
+    );
+    let _ = writeln!(
+        t,
+        "band_upper_side = \"kept wide on purpose: the observed-order values are an extrapolation-only upper scenario and are not capped by the circuit model; for the initial geometry [static_cross_check.initial] gives the capped band\""
     );
     let _ = writeln!(t, "f_q_ghz = {fq_est:.4}");
     let _ = writeln!(t, "f_q_band_ghz = [{q_lo:.4}, {q_hi:.4}]");
@@ -836,6 +870,24 @@ fn write_static_check(t: &mut String, fq_est: f64, fr_est: f64, q_lo: f64, q_hi:
         "resonator_f_r_ghz = {fr_est:.4}  # the convergence estimate"
     );
     let _ = writeln!(t, "inside_eigen_band = {}", d_lo >= q_lo && d_hi <= q_hi);
+    // Sign argument: the dressed qubit is the lower root, so k > 0 only
+    // lowers it, and L_s >= 0 only lowers the bare frequency; with the
+    // certified lower bound on C_Sigma the circuit caps the qubit at the
+    // L_J-only value of c_lo.
+    let cap = lc_only[1];
+    let _ = writeln!(
+        t,
+        "circuit_cap_f_q_ghz = {cap:.4}  # 1/(2 pi sqrt(L_J (C_Sigma_lower + C_J))): k > 0 and L_s >= 0 only lower the qubit, so the circuit model caps it here"
+    );
+    let _ = writeln!(
+        t,
+        "f_q_band_capped_ghz = [{q_lo:.4}, {:.4}]  # the eigen band with its upper side capped by the circuit",
+        q_hi.min(cap)
+    );
+    let _ = writeln!(
+        t,
+        "geometry_caveat = \"the C_Sigma bracket is certified on transmon_smoke.msh, the earlier generator's mesh of the same initial geometry, not on this PR's DeviceLayout mesh; the two agree on Palace at h (3.4527 vs 3.4520 GHz) but their h/2 levels differ (3.9528 GHz from Palace's own refinement of the fixture, #1081, vs 3.8771 GHz from gmsh's refinement here), because the two refinements are different meshes\""
+    );
     let _ = writeln!(
         t,
         "eigen_estimate_minus_static_mid_pct = {:.3}",

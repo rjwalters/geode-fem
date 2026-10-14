@@ -321,6 +321,7 @@ jobs:
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -395,6 +396,7 @@ jobs:
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -575,6 +577,7 @@ jobs:
               --test step_index_fiber_benchmark \
               --test transient_sparams \
               --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -667,6 +670,11 @@ jobs:
           # mesh reproduces its run record (about 20 s, 3.2 GB).
           cargo test -p geode-core --release --features spade-mesh \
               --test transmon_devicelayout_crosscheck -- --ignored
+          # Issue #1092 part 2: one A2 solve and Hellmann-Feynman gradient of
+          # the committed initial mesh reproduce the fd_initial record (about
+          # 25 s, 3.2 GB; the test runs the example).
+          cargo test -p geode-core --release --features spade-mesh \
+              --test transmon_devicelayout_optimize -- --ignored
 
   validation-tests:
     name: cargo test -p geode-validation --release (reference fixtures, linux)

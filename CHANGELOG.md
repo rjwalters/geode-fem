@@ -33,6 +33,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
+- **DeviceLayout.jl SingleTransmon re-optimization with geode's shape gradient: DeviceLayout's own criterion met in 3 Palace runs (PRIMA: 9); against the converged frequencies the design needs a substantially longer capacitor, about +16 % to +38 % (point estimate +19 %, capacitor_length 1446.078 µm, total_length 7416.352 µm)** (#1092, part 2).
+  - **New library API.**
+    - `eigen::sensitivity::EigenSensitivity::deigenvalue_dtheta_tensor_eps`: the adjoint-free Hellmann–Feynman geometry gradient with a per-tet real permittivity tensor, as one forward-mode directional pass through the full-tensor element JVP. The isotropic `eps_r` field is not read.
+    - `eigen::projection::solve_transmon_eigenmodes_projected_with_port_model_full`: the A2 bulk-projected solve, now also returning the eigenvectors. Its reports are identical to the vector-free entry point.
+  - **The two parameters.**
+    - `capacitor_length` uses a node velocity that reproduces DeviceLayout's parametrization exactly. The island stretches and everything above it translates by Δc. The box re-centers by Δc/2, and the example checks this against the metal outline.
+    - `total_length` re-lays the meander, so it is handled through the transmission line f_r (L + δ) = const, with δ = 216 µm from one finite difference. δ is weakly determined (a second point, Palace dl1 → dl2 corrected for the c change, gives about 363 µm), but it enters only the Jacobian, not the designs, which are evaluated on the true objective.
+    - On the real mesh the HF gradient matches a central difference of two re-solves to every printed digit, in 0.44 s.
+  - **Method.** DeviceLayout re-meshes every design, and the order-1 objective is not smooth: a 30 µm remesh moves f_q by more than twice the derivative. So Newton runs on the high-fidelity objective, in DeviceLayout's variables x1 = √(620/c), x2 = 5000/L. Its Jacobian is geode's gradient scaled by the measured fidelity ratio.
+  - **Against DeviceLayout's discretization.** Step 2 reaches (1225.346, 7223.250) µm at [3.0120, 4.0009] GHz, err 8.0e-6. Step 3 reaches (1236.360, 7224.900) µm at err 1.4e-7, which is +18.7 / −19.1 µm from the published 1217.678 / 7243.955. About +10 µm of that comes from this Palace build's 0.38 % offset at the published final. Each Newton point costs one Palace run and one geode solve with its gradient (19–25 s); the one-time δ calibration (one extra DeviceLayout mesh and geode solve) is not counted.
+  - **Against the converged frequencies.** Two Newton steps from the published final design, each evaluated by a full Palace/geode ladder. These are part-1 estimates with their band, which does not include mesh-family spread.
+    - cv1: estimate 2.967 / 4.004 GHz.
+    - cv2 (1446.078, 7416.352) µm: estimate 3.0047 / 3.9984 GHz, qubit band [2.979, 3.221] GHz (−0.9 % / +7.4 %), resonator band [3.987, 4.067] GHz. Both targets lie inside, so cv2 lands on the targets within the part-1 band.
+    - The estimate leans low: the order-1 and order-2 series share a limit at order 0.87 / 0.84, which puts cv2 at 3.039 / 4.019 GHz (+1.3 % on the qubit, outside DeviceLayout's 1 % reading).
+    - The qubit band maps to roughly c ∈ [1418, 1685] µm, so the converged design needs a capacitor about +16 % to +38 % longer than the published 1217.678 µm (point estimate +19 %), probably at or above the point estimate. The pin re-derives the band and `targets_in_band` from the raw Palace cells.
+  - **Artifacts.** `benchmarks/transmon_devicelayout_optimize/` holds `results.toml` (MANIFEST bucket A), 10 geode records, two ladders, `driver.py`, `ladder.sh`, `worker_ladder.sh` and the driver log. The Palace cells are in `reference/fixtures/transmon_palace/results_optimize_1092/`. Pins are in `tests/transmon_devicelayout_optimize.rs`, and three new tensor-ε sensitivity tests are in `tests/transmon_eigen_sensitivity.rs`.
+  - **#1106 review.** The part-1 cross-check now:
+    - names the extrapolated variable and adds eigenvalue-variable extrapolations to the band;
+    - records the rule change and the 4.477 GHz circuit cap, with a capped band;
+    - gives the smoke-mesh caveat;
+    - explains the 0.0000 % same-mesh resonator agreement at h/2 by Palace's local bisection of the h mesh, with an AMS control cell;
+    - prints peak RSS as a number;
+    - names commit 02038b40 in its run records.
 - **DeviceLayout.jl SingleTransmon cross-check: both stacks reproduce the published pairs at DeviceLayout's own discretization, and the converged pairs lie above them: initial 4.444 / 5.740 GHz (published 4.14 / 5.591), final 3.265 / 4.088 GHz (published 3.005 / 3.982)** (#1092, part 1).
   - **Geometry.** `reference/julia/generate_transmon_param.jl` drives DeviceLayout.jl v1.15.0's own `single_transmon()` builder with the two parameters the blog optimizes, `capacitor_length` and the resonator `total_length`. It writes the order-1 mesh, DeviceLayout's second-order mesh and the example's Palace config. The two order-1 meshes are committed under `reference/fixtures/transmon_devicelayout/`.
   - **Runs.** On each geometry: Palace order 1 on `h`, `h/2`, `h/4`; order 2 on `h`, `h/2`; the blog's exact model on DeviceLayout's second-order mesh; and the same mesh with the PEC box. geode A2 with the sapphire tensor runs on `h` and `h/2`. Palace cells are in `reference/fixtures/transmon_palace/results_crosscheck_1092/`. The artifact is `benchmarks/transmon_devicelayout_crosscheck/results.toml`, written by `examples/transmon_devicelayout_crosscheck.rs`.
@@ -40,10 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - geode and Palace agree on the same mesh to 1e-4 % for the qubit and 0.03 % for the resonator.
     - Palace at DeviceLayout's discretization gives 4.168 / 5.613 GHz (+0.68 / +0.40 %) and 3.016 / 3.996 GHz (+0.38 / +0.34 %).
     - On the same mesh, the far-field model (absorbing boundary plus 50 Ω ports) moves the pair by at most 0.0003 % on the qubit and 0.0024 % on the resonator. The second-order mesh moves it by at most 0.0001 % on the qubit and 0.051 % on the resonator.
-  - **Convergence.** Every level rises under refinement. The thin-sheet edge singularity limits the eigenvalue rate to O(h). The estimate extrapolates the order-1 and order-2 series at order 1. Its band reaches up to the same series at the observed, pre-asymptotic order 0.61.
-    - Initial: qubit [4.432, 4.677] GHz, resonator [5.727, 5.817] GHz.
-    - Final: qubit [3.254, 3.471] GHz, resonator [4.080, 4.139] GHz.
-    - The published values lie below every band, so DeviceLayout's discretization is 6.2 % (initial) and 7.6 % (final) low on the qubit.
+  - **Convergence.** Every level rises under refinement. The thin-sheet edge singularity limits the eigenvalue rate to O(h). The estimate extrapolates the frequency of the order-1 and order-2 series at order 1. Its band reaches down to the same series at order 1 in the eigenvalue variable λ ∝ f², and up to the same series at the observed, pre-asymptotic order 0.61. The upper side is kept wide on purpose; for the initial qubit the circuit caps it at 4.477 GHz (#1106 review).
+    - Initial: qubit [4.415, 4.677] GHz, resonator [5.723, 5.817] GHz.
+    - Final: qubit [3.236, 3.471] GHz, resonator [4.077, 4.139] GHz.
+    - The published values lie below every band, so DeviceLayout's qubit lies below the converged estimate (by 6.2 % initial and 7.6 % final).
   - **Independent static route.** The certified tensor `C_Σ` of X⁰ (#1091, [79.56, 79.76] fF), read through the #1078/#1079 two-node circuit, gives a dressed qubit of [4.449, 4.458] GHz. That is inside the eigen band and 0.22 % above the eigen estimate.
   - **Pins.** `tests/transmon_devicelayout_crosscheck.rs` has 6 default-tier tests and a release-tier A2 re-solve of the committed initial mesh. The `MANIFEST` has five bucket-A entries.
   - **Scope.** The two-parameter re-optimization toward 3.0 / 4.0 GHz is part 2 of #1092.

@@ -1059,3 +1059,206 @@ fn real_eigen_sensitivity_release() {
         "geometry ∂λ/∂θ analytic {analytic_g:.6e} vs FD {fd_g:.6e} (rel {rel_g:.2e})"
     );
 }
+
+// -------------------------------------------------------------------------
+// CI-fast: tensor-ε geometry sensitivity (issue #1092).
+// -------------------------------------------------------------------------
+
+/// The sapphire principal values the tensor tests use (#1091).
+const SAPPHIRE_DIAG: [f64; 3] = [9.3, 9.3, 11.5];
+
+fn diag_tensor(d: [f64; 3]) -> [[f64; 3]; 3] {
+    [[d[0], 0.0, 0.0], [0.0, d[1], 0.0], [0.0, 0.0, d[2]]]
+}
+
+/// [`solve_cavity`] with a per-tet real permittivity TENSOR (curl weight `I`).
+fn solve_cavity_tensor(
+    mesh: &TetMesh,
+    fx: &CavityFixture,
+    eps: &[[[f64; 3]; 3]],
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<TransmonMode> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
+    let identity: [[c64; 3]; 3] = std::array::from_fn(|i| {
+        std::array::from_fn(|j| c64::new(if i == j { 1.0 } else { 0.0 }, 0.0))
+    });
+    let nu = vec![identity; mesh.n_tets()];
+    let eps_c: Vec<[[c64; 3]; 3]> = eps
+        .iter()
+        .map(|e| std::array::from_fn(|i| std::array::from_fn(|j| c64::new(e[i][j], 0.0))))
+        .collect();
+    let sys = assemble_global_nedelec_with_full_tensors_sparse::<B>(
+        nodes_t,
+        tets_t,
+        &fx.tet_edge_sign,
+        &scatter,
+        &eps_c,
+        &nu,
+    );
+    let (k_vals, m_vals) = (vals_to_host(sys.k_re_vals), vals_to_host(sys.m_re_vals));
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &fx.interior_mask,
+    };
+    solve_transmon_eigenmodes_full(&pencil, sigma, n_modes, M_PER_UNIT, InnerSolver::Direct)
+        .expect("tensor cavity eigensolve")
+}
+
+/// A smooth velocity field on every node (boundary nodes included): each
+/// node moves along a fixed direction scaled by a bump of the unit cube.
+fn bump_velocity(mesh: &TetMesh) -> Vec<[f64; 3]> {
+    use std::f64::consts::PI;
+    mesh.nodes
+        .iter()
+        .map(|p| {
+            let s = (PI * p[0]).sin() * (PI * p[1]).sin() * (0.5 * PI * p[2]).cos() + 0.25 * p[0];
+            [s, -0.5 * s, 0.3 * s]
+        })
+        .collect()
+}
+
+/// With an isotropic tensor `s·I` the tensor-ε geometry gradient equals the
+/// isotropic [`EigenSensitivity::deigenvalue_dtheta`] with `ε_r = s`.
+#[test]
+fn tensor_eps_geometry_sensitivity_reduces_to_isotropic_1092() {
+    let fx = cavity_fixture(3);
+    let s = 4.0_f64;
+    let eps_r = vec![s; fx.mesh.n_tets()];
+    let sigma = 5.0;
+    let modes = solve_cavity(&fx, &eps_r, sigma, 6);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let vel = bump_velocity(&fx.mesh);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let iso = sens.deigenvalue_dtheta(&vel).expect("isotropic");
+    let tensor = sens
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([s; 3]); fx.mesh.n_tets()], &vel)
+        .expect("tensor");
+    let rel = (iso - tensor).abs() / iso.abs();
+    eprintln!("isotropic {iso:.12e}, tensor {tensor:.12e} (rel {rel:.2e})");
+    assert!(rel < 1e-12, "isotropic {iso} vs tensor {tensor}");
+    // The eps_r field is not read: a different scalar leaves the tensor value unchanged.
+    let other = vec![1.0; fx.mesh.n_tets()];
+    let sens2 = EigenSensitivity {
+        eps_r: &other,
+        ..sens
+    };
+    let tensor2 = sens2
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([s; 3]); fx.mesh.n_tets()], &vel)
+        .expect("tensor");
+    assert_eq!(tensor, tensor2);
+}
+
+/// The tensor-ε geometry gradient on an anisotropic (sapphire) cavity
+/// matches a central finite difference of the re-solved eigenvalue under
+/// the same node motion.
+#[test]
+fn tensor_eps_geometry_sensitivity_matches_fd_1092() {
+    let fx = cavity_fixture(3);
+    let eps = vec![diag_tensor(SAPPHIRE_DIAG); fx.mesh.n_tets()];
+    let eps_r_unused = vec![f64::NAN; fx.mesh.n_tets()];
+    let sigma = 2.0;
+    let n_modes = 6;
+    let modes = solve_cavity_tensor(&fx.mesh, &fx, &eps, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    let vel = bump_velocity(&fx.mesh);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r_unused,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let analytic = sens
+        .deigenvalue_dtheta_tensor_eps(&eps, &vel)
+        .expect("tensor geometry gradient");
+
+    let h = 1e-5;
+    let lam_at = |sign: f64| -> f64 {
+        let mut m = fx.mesh.clone();
+        for (n, v) in vel.iter().enumerate() {
+            for (x, vc) in m.nodes[n].iter_mut().zip(v) {
+                *x += sign * h * vc;
+            }
+        }
+        solve_cavity_tensor(&m, &fx, &eps, sigma, n_modes)
+            .iter()
+            .map(|md| md.report.lambda)
+            .min_by(|a, b| (a - lambda).abs().total_cmp(&(b - lambda).abs()))
+            .unwrap()
+    };
+    let fd = (lam_at(1.0) - lam_at(-1.0)) / (2.0 * h);
+    let rel = (analytic - fd).abs() / fd.abs();
+    eprintln!("tensor geometry: analytic {analytic:.6e}, FD {fd:.6e} (rel {rel:.2e})");
+    assert!(
+        rel < 1e-4,
+        "analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+
+    // The anisotropy matters: the trace-averaged scalar gives a different gradient.
+    let mean = (SAPPHIRE_DIAG[0] + SAPPHIRE_DIAG[1] + SAPPHIRE_DIAG[2]) / 3.0;
+    let wrong = sens
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([mean; 3]); fx.mesh.n_tets()], &vel)
+        .unwrap();
+    assert!(
+        (wrong - analytic).abs() > 100.0 * rel * analytic.abs(),
+        "the trace scalar must not reproduce the tensor gradient: {wrong} vs {analytic}"
+    );
+}
+
+/// Length guards of the tensor entry point.
+#[test]
+fn tensor_eps_geometry_sensitivity_dim_guards_1092() {
+    let fx = cavity_fixture(2);
+    let eps_r = vec![1.0; fx.mesh.n_tets()];
+    let modes = solve_cavity(&fx, &eps_r, 5.0, 4);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, 5.0);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 0.0,
+    };
+    let vel = vec![[0.0; 3]; fx.mesh.n_nodes()];
+    let short = vec![diag_tensor([1.0; 3]); fx.mesh.n_tets() - 1];
+    assert!(matches!(
+        sens.deigenvalue_dtheta_tensor_eps(&short, &vel),
+        Err(EigenSensitivityError::DimMismatch {
+            what: "eps_tensor",
+            ..
+        })
+    ));
+    let eps = vec![diag_tensor([1.0; 3]); fx.mesh.n_tets()];
+    assert!(matches!(
+        sens.deigenvalue_dtheta_tensor_eps(&eps, &vel[1..]),
+        Err(EigenSensitivityError::DimMismatch {
+            what: "dnode_dtheta",
+            ..
+        })
+    ));
+    assert_eq!(sens.deigenvalue_dtheta_tensor_eps(&eps, &vel).unwrap(), 0.0);
+}

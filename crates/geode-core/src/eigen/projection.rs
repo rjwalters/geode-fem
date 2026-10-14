@@ -1378,6 +1378,7 @@ pub fn solve_transmon_eigenmodes_projected(
         m_per_unit,
         false,
     )
+    .map(|(modes, diag)| (modes.into_iter().map(|m| m.report).collect(), diag))
 }
 
 /// [`solve_transmon_eigenmodes_projected`] with an explicit junction
@@ -1423,6 +1424,37 @@ pub fn solve_transmon_eigenmodes_projected_with_port_model(
     EigenError,
 > {
     projected_transmon_impl(pencil, port_model, sigma, n_modes, m_per_unit, true)
+        .map(|(modes, diag)| (modes.into_iter().map(|m| m.report).collect(), diag))
+}
+
+/// [`solve_transmon_eigenmodes_projected_with_port_model`] that also returns
+/// each mode's reduced interior-DOF eigenvector (issue #1092), for the
+/// Hellmann–Feynman geometry gradient of an eigenfrequency.
+///
+/// Each [`crate::eigen::transmon::TransmonMode::vector`] is in the plain
+/// PEC-interior DOF ordering of the pencil (the same reduction as
+/// [`solve_transmon_eigenmodes_projected_with_port_model`]) and is
+/// `M`-orthonormalized against the reduced `M + M_port` by the projected
+/// Lanczos Ritz step. The reports are bit-identical to the
+/// vector-free entry point.
+///
+/// # Errors
+///
+/// As [`solve_transmon_eigenmodes_projected`].
+pub fn solve_transmon_eigenmodes_projected_with_port_model_full(
+    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
+    port_model: crate::eigen::transmon::JunctionPortModel,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<
+    (
+        Vec<crate::eigen::transmon::TransmonMode>,
+        ProjectionDiagnostics,
+    ),
+    EigenError,
+> {
+    projected_transmon_impl(pencil, port_model, sigma, n_modes, m_per_unit, true)
 }
 
 /// Shared body of the bulk-projected transmon solves; `drop_null` selects
@@ -1436,12 +1468,12 @@ fn projected_transmon_impl(
     drop_null: bool,
 ) -> Result<
     (
-        Vec<crate::eigen::transmon::ModeReport>,
+        Vec<crate::eigen::transmon::TransmonMode>,
         ProjectionDiagnostics,
     ),
     EigenError,
 > {
-    use crate::eigen::transmon::{ModeReport, frequency_hz_from_lambda};
+    use crate::eigen::transmon::{ModeReport, TransmonMode, frequency_hz_from_lambda};
 
     let n_edges = pencil.edges.len();
     assert_eq!(
@@ -1512,11 +1544,14 @@ fn projected_transmon_impl(
     };
 
     let modes = pairs
-        .iter()
-        .map(|pair| ModeReport {
-            lambda: pair.lambda,
-            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+        .into_iter()
+        .map(|pair| TransmonMode {
+            report: ModeReport {
+                lambda: pair.lambda,
+                frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+                participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+            },
+            vector: pair.vector,
         })
         .collect();
     Ok((modes, diag))

@@ -89,3 +89,12 @@ outputs:        <cell>/eig.csv, port-EPR.csv, port-V.csv, port-I.csv,
 
 unknowns / run times / peak memory: see results.toml [palace.<tag>] and
                 the per-cell palace_run.log and time.txt.
+
+initial_h_p1_ams (#1106 review, 2026-10-13 18:31 UTC, same worker and image):
+                initial_h_p1 with Solver.Linear Type AMS / KSPType GMRES
+                instead of Default (SuperLU), 16 ranks. Gives 5.176055 GHz for
+                the resonator again, so the 0.03 % same-mesh gap at h is not the
+                linear solver; it comes from Palace's local bisection of the h
+                mesh ("Added 4946 elements ... for under-resolved interior
+                boundaries" in every h-mesh log), which the refined meshes do
+                not need. Not read by the artifact.

@@ -312,8 +312,21 @@ fn convergence_block_re_derives_from_the_levels() {
         let band_r = tarr(&d, &c("f_r_band_ghz"));
         let lo = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
         let hi = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let all_q = [q1, q2, fq_inf, fq2];
-        let all_r = [r1, r2, fr_inf, fr2];
+        // Order 1 in the eigenvalue variable lambda ~ f^2.
+        let lam = |a: f64, b: f64| (2.0 * b * b - a * a).sqrt();
+        let (lq1, lr1) = (lam(p1q[1], p1q[2]), lam(p1r[1], p1r[2]));
+        let (lq2, lr2) = (lam(p2q[0], p2q[1]), lam(p2r[0], p2r[1]));
+        close(tf(&d, &c("p1_order1_lambda_f_q_ghz")), lq1, 5e-6, tag);
+        close(tf(&d, &c("p1_order1_lambda_f_r_ghz")), lr1, 5e-6, tag);
+        close(tf(&d, &c("p2_order1_lambda_f_q_ghz")), lq2, 5e-6, tag);
+        close(tf(&d, &c("p2_order1_lambda_f_r_ghz")), lr2, 5e-6, tag);
+        assert!(
+            lq1 < q1 && lq2 < q2,
+            "{tag}: the eigenvalue variable extrapolates lower"
+        );
+        assert!(tstr(&d, &c("extrapolated_variable")).contains("frequency f"));
+        let all_q = [q1, q2, fq_inf, fq2, lq1, lq2];
+        let all_r = [r1, r2, fr_inf, fr2, lr1, lr2];
         close(band_q[0], lo(&all_q), 5e-5 + OBSERVED_ORDER_TOL, tag);
         close(band_q[1], hi(&all_q), 5e-5 + OBSERVED_ORDER_TOL, tag);
         close(band_r[0], lo(&all_r), 5e-5 + OBSERVED_ORDER_TOL, tag);
@@ -503,6 +516,16 @@ fn static_c_sigma_route_agrees_with_the_eigen_estimate() {
         off.abs() <= STATIC_MAX_PCT,
         "eigen estimate vs static midpoint {off} %"
     );
+    // The circuit cap: the L_J-only frequency of the certified lower bound.
+    let cap = tf(&d, "static_cross_check.initial.circuit_cap_f_q_ghz");
+    close(cap, lc(c[0], 0.0) / 1e9, 5e-5, "cap");
+    assert!(
+        hi <= cap && est <= cap,
+        "the dressed band and the estimate respect the cap"
+    );
+    let capped = tarr(&d, "static_cross_check.initial.f_q_band_capped_ghz");
+    close(capped[0], eig[0], 0.0, "capped lo");
+    close(capped[1], eig[1].min(cap), 5e-5, "capped hi");
 }
 
 /// Release tier: one A2 solve of the committed initial order-1 mesh

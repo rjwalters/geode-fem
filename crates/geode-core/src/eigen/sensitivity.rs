@@ -87,7 +87,7 @@
 //! - **Lossless `R = 0`.** Inherited from [`crate::eigen::transmon`]'s v1 fence:
 //!   a resistive `R` makes the pencil complex (out of scope).
 
-use crate::driven::shape::{Dual, nedelec_local_dual};
+use crate::driven::shape::{Dual, nedelec_local_dual, nedelec_local_dual_tensor};
 use crate::mesh::TetMesh;
 
 /// Error returned by the Hellmann–Feynman sensitivity entry points.
@@ -515,6 +515,92 @@ impl EigenSensitivity<'_> {
     ) -> Result<f64, EigenSensitivityError> {
         let grad_node = self.deigenvalue_dx()?;
         Ok(crate::shape::chain_node_motion(&grad_node, dnode_dtheta))
+    }
+
+    /// **Geometry** sensitivity `∂λ/∂θ` for a node-motion velocity field
+    /// `dnode_dtheta[n] = ∂X_n/∂θ` with a per-tet **real 3×3 relative
+    /// permittivity tensor** (issue #1092: the sapphire substrate
+    /// `diag(9.3, 9.3, 11.5)`), `μ_r = 1`.
+    ///
+    /// The same adjoint-free Hellmann–Feynman contraction as
+    /// [`deigenvalue_dtheta`](Self::deigenvalue_dtheta),
+    ///
+    /// ```text
+    ///   ∂λ/∂θ = Σ_t x_locᵀ (∂_θ K_local(t) − λ ∂_θ M_local(t; ε_t)) x_loc,
+    /// ```
+    ///
+    /// evaluated as one forward-mode directional pass per tet: every vertex
+    /// coordinate is seeded with its velocity, so the `.du` of the
+    /// full-tensor `Dual` element (the twin of the kernels
+    /// [`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors_sparse`]
+    /// uses, curl weight `I`, mass weight `ε_t`) is the exact derivative
+    /// along the motion. Tets whose four vertices do not move contribute
+    /// nothing and are skipped.
+    ///
+    /// The isotropic [`eps_r`](Self::eps_r) field is **not read** by this
+    /// method; `eps_tensor` replaces it. The eigenvector precondition is
+    /// unchanged (M-normalized against the pencil's full mass, port terms
+    /// included). The lumped-port surface terms are not differentiated:
+    /// `dnode_dtheta` must vanish on the port faces' nodes.
+    ///
+    /// # Errors
+    ///
+    /// [`EigenSensitivityError::DegenerateEigenvalue`] if the target fails
+    /// the simple-mode gap check; [`EigenSensitivityError::DimMismatch`] if
+    /// `eps_tensor` is not one tensor per tet, `dnode_dtheta` not one
+    /// triple per node, or the eigenvector / mask lengths disagree.
+    pub fn deigenvalue_dtheta_tensor_eps(
+        &self,
+        eps_tensor: &[[[f64; 3]; 3]],
+        dnode_dtheta: &[[f64; 3]],
+    ) -> Result<f64, EigenSensitivityError> {
+        let lambda = self.checked_simple_lambda()?;
+        let n_tets = self.mesh.n_tets();
+        if eps_tensor.len() != n_tets {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "eps_tensor",
+                got: eps_tensor.len(),
+                want: n_tets,
+            });
+        }
+        if dnode_dtheta.len() != self.mesh.n_nodes() {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "dnode_dtheta",
+                got: dnode_dtheta.len(),
+                want: self.mesh.n_nodes(),
+            });
+        }
+        let xf = self.full_edge_vector()?;
+        let (tet_idx, tet_sign) = self.tet_edge_tables();
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        let mut total = 0.0_f64;
+        for (t, tet) in self.mesh.tets.iter().enumerate() {
+            let vel = tet.map(|n| dnode_dtheta[n as usize]);
+            if vel.iter().all(|v| v.iter().all(|&c| c == 0.0)) {
+                continue;
+            }
+            let gidx = &tet_idx[t];
+            let gsign = &tet_sign[t];
+            let x_loc: [f64; 6] = std::array::from_fn(|i| xf[gidx[i] as usize] * (gsign[i] as f64));
+            if x_loc.iter().all(|&v| v == 0.0) {
+                continue;
+            }
+            let coords: [[Dual; 3]; 4] = std::array::from_fn(|a| {
+                let x = self.mesh.nodes[tet[a] as usize];
+                std::array::from_fn(|c| Dual {
+                    re: x[c],
+                    du: vel[a][c],
+                })
+            });
+            let (dk, dm) = nedelec_local_dual_tensor(&coords, &identity, &eps_tensor[t]);
+            for i in 0..6 {
+                for j in 0..6 {
+                    total += x_loc[i] * x_loc[j] * (dk[i][j].du - lambda * dm[i][j].du);
+                }
+            }
+        }
+        Ok(total)
     }
 
     /// The ε = 1 Whitney element mass `M_local(t)` (`6×6`, sign-unaware) via the

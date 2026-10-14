@@ -31,6 +31,10 @@ Cargo.lock.bak
 # #1092 DeviceLayout cross-check: Palace run logs (cited by provenance.txt) and geode solve logs
 !reference/fixtures/transmon_palace/results_crosscheck_1092/*/palace_run.log
 !benchmarks/transmon_devicelayout_crosscheck/logs/*.log
+# #1092 part 2 re-optimization: Palace run logs, geode solve and ladder logs
+!reference/fixtures/transmon_palace/results_optimize_1092/*/palace_run.log
+!benchmarks/transmon_devicelayout_optimize/logs/*.log
+!benchmarks/transmon_devicelayout_optimize/ladder_*/logs/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json
