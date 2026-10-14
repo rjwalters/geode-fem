@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.9/` (draft, not reviewed: v8 re-anchored to the published 4.14 GHz (93.9537 fF; the 89.9 fF runs are superseded), with certified two-sided C_Σ brackets, the anchor chain from the measured coupling and loop inductance as estimates, the opt-in rank-1 port shunt and re-baselined mode labels; v8 was the figure revision of v7; v6 is the last audited version) |
+| `transmon-benchmark` | `transmon-benchmark.10/` (draft, not reviewed: restructured around the converged DeviceLayout.jl SingleTransmon cross-check, with certified sapphire-tensor C_Σ brackets, a static route to the qubit frequency and a gradient-assisted re-optimization toward the published final design; v9 was the re-anchored evidence revision; v6 is the last audited version) |
 
 ## Building a paper
 

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Figure 3: mesh convergence of C_Sigma for the unmodified device X^0, scalar and tensor.
+
+Sources:
+- benchmarks/transmon_diffopt/c_sigma_convergence.toml: [[x0]] (scalar eps, P1
+  at h, h/2, h/4 and P2 at h, h/2) and [tensor_eps] (P1 at h, h/2, h/4);
+- benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml: [[uniform_x0_tensor_p2]]
+  (tensor P2 at h, h/2), [bracket_x0_tensor] and [gap_x0] (certified tensor
+  bracket and the certified scalar-tensor gap);
+- benchmarks/transmon_diffopt/c_sigma_bracket.toml: [bracket_x0] (certified
+  scalar bracket).
+
+Every marker is a conforming value and therefore an upper bound on the
+converged C_Sigma of the committed polygonal geometry. The two bars are
+certified two-sided brackets from adapted meshes, drawn at the size of the
+mesh that sets them; an inset magnifies them (each is about 0.2 fF tall). No
+design target is drawn. No data value is hard-coded here.
+"""
+from figure_style import *
+
+
+def main():
+    conv = toml('benchmarks/transmon_diffopt/c_sigma_convergence.toml')
+    scal = toml('benchmarks/transmon_diffopt/c_sigma_bracket.toml')
+    tens = toml('benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml')
+    assert tens['meta']['sapphire_rotation_is_identity'] is True
+    sb, tb = scal['bracket_x0'], tens['bracket_x0_tensor']
+    n_sb = {r['mesh']: r['n_tets'] for r in scal['adaptive_x0']}[sb['lower_from'].rsplit(' P2', 1)[0]]
+    n_tb = {r['mesh']: r['n_tets'] for r in tens['adaptive_x0_tensor']}[tb['lower_from'].rsplit(' P2', 1)[0]]
+    series = {}
+    for row in conv['x0']:
+        # Direct LU and AMG-PCG rows repeat some levels; they agree, keep one.
+        series.setdefault(row['order'], {})[row['level']] = (row['n_tets'], row['c_sigma_ff'])
+    t1 = conv['tensor_eps']
+    t2 = sorted((r['n_tets'], r['upper_ff']) for r in tens['uniform_x0_tensor_p2'])
+    fig, ax = plt.subplots(figsize=(6.3, 4.2))
+    pts = {}
+    for order, color, marker, label in [('P1', BLUE, 'o', r'P1, scalar $\bar\varepsilon$'),
+                                        ('P2', GREEN, 's', r'P2, scalar $\bar\varepsilon$')]:
+        pts[order] = [series[order][k] for k in sorted(series[order])]
+        ax.plot([p[0] for p in pts[order]], [p[1] for p in pts[order]], color=color, marker=marker, ms=5,
+                label=label)
+    ax.plot(t1['n_tets'], t1['c_sigma_ff'], color=GRAY, marker='^', ms=5, mfc='white', ls='--', lw=1,
+            label=r'P1, sapphire tensor')
+    ax.plot([p[0] for p in t2], [p[1] for p in t2], color=ORANGE, marker='v', ms=5, mfc='white', ls='--',
+            lw=1, label=r'P2, sapphire tensor')
+    first_p1 = pts['P1'][0]
+    ax.annotate(f'{first_p1[1]:.1f} fF', first_p1, textcoords='offset points', xytext=(7, 2), ha='left',
+                va='bottom', fontsize=8, color=BLUE)
+    bar = dict(lw=4, solid_capstyle='butt')
+    ax.plot([n_sb, n_sb], [sb['lower_ff'], sb['upper_ff']], color='black', **bar,
+            label=f"certified, scalar: {sb['lower_ff']:.2f}–{sb['upper_ff']:.2f} fF")
+    ax.plot([n_tb * 1.25] * 2, [tb['lower_ff'], tb['upper_ff']], color=ORANGE, **bar,
+            label=f"certified, tensor: {tb['lower_ff']:.2f}–{tb['upper_ff']:.2f} fF")
+    ax.set_xscale('log')
+    ax.set(xlim=(1e5, 2.4e7), ylim=(70, 145), ylabel=r'$C_\Sigma$ of $X^0$ (fF)',
+           xlabel=r'Tetrahedra (uniform: $h$, $h/2$, $h/4$; bars: adapted meshes)')
+    ins = ax.inset_axes([0.56, 0.45, 0.26, 0.45])
+    for x, b, color in [(-0.55, sb, 'black'), (0.15, tb, ORANGE)]:
+        ins.plot([x, x], [b['lower_ff'], b['upper_ff']], color=color, lw=7, solid_capstyle='butt')
+        ins.text(x + .12, (b['lower_ff'] + b['upper_ff']) / 2, f"{b['lower_ff']:.2f}–\n{b['upper_ff']:.2f}",
+                 fontsize=8, va='center', ha='left', color=color, linespacing=1.1)
+    ins.set(xlim=(-1, 1), ylim=(sb['lower_ff'] - .8, tb['upper_ff'] + .8), xticks=[-0.55, 0.15], yticks=[])
+    ins.set_xticklabels(['scalar', 'tensor'], fontsize=8)
+    gap = tens['gap_x0']
+    ins.set_title(f"certified brackets\ngap {100 * gap['tensor_minus_scalar_relative'][0]:.1f}–"
+                  f"{100 * gap['tensor_minus_scalar_relative'][1]:.1f}%", fontsize=8, linespacing=1.2)
+    for side in ['top', 'right']:
+        ins.spines[side].set_visible(True)
+    fig.legend(*ax.get_legend_handles_labels(), loc='lower center', bbox_to_anchor=(.5, .07), ncol=2,
+               frameon=False, handlelength=2.4, columnspacing=1.6)
+    fig.subplots_adjust(left=.10, right=.98, bottom=.40, top=.97)
+    fig.text(.5, .015, 'Every marker is an upper bound on the converged value of the committed polygonal geometry;\n'
+             'the bars (magnified in the inset) are certified two-sided brackets (equilibrated-flux lower bound).',
+             ha='center', fontsize=8.5, linespacing=1.3)
+    save(fig, 'fig3-convergence.pdf')
+
+
+if __name__ == '__main__':
+    main()
