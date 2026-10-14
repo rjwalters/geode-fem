@@ -15,8 +15,11 @@
 //!   outline columns of #1087 do not: they leave the cylinder by the chord
 //!   error, which this test shows the check catches); `x = 0` is the fixture
 //!   bit for bit; the design gradient is the exact Jacobian of the nonlinear
-//!   morph; the feed DOFs translate / resize the probe and nothing else, and
-//!   the outline / corner DOFs never move the probe.
+//!   morph; on L0 the feed DOFs translate / resize the probe and leave the
+//!   outline fixed, and the outline / corner DOFs never move the probe.
+//!   With the capped feed support that holds on every re-based probe
+//!   geometry too; the uncapped support of the committed re-based runs drags
+//!   the `+y` edge, and the resulting re-base drift is pinned.
 
 use std::path::PathBuf;
 
@@ -86,13 +89,10 @@ fn copper_morph_with(fixture: &PatchFixture, air: AirMotion) -> (ChartMorph, Con
     let (fs, fy) = feed();
     let ob = outline();
     let cb = CornerBasis::new(rect(), CORNER_RADIUS);
-    let fb = FeedBasis {
-        s: fs,
-        y: fy,
-        half_width: 0.5 * PROBE_W,
-        r_inner: FEED_CORE,
-        r_outer: FEED_SUPPORT,
-    };
+    // The example's capped support; inactive on L0 (6.4 mm < the 7 mm inset).
+    let fb = FeedBasis::capped(&rect(), fs, fy, 0.5 * PROBE_W, FEED_CORE, FEED_SUPPORT)
+        .expect("feed basis");
+    assert_eq!(fb.r_outer, FEED_SUPPORT);
     let m = ChartMorph::build_with(
         &fixture.mesh,
         &ch,
@@ -1111,17 +1111,19 @@ const ISM: [f64; 2] = [2.4, 2.4835];
 ///   band from 2.3938 to 2.4887 GHz (94.9 MHz), covering 100 % of
 ///   2.4–2.4835 GHz, centred on the band to 0.5 MHz (sampled dip 2.4425 GHz);
 /// * on an independent L1 mesh regenerated at its probe (rbF): worst −10.35 dB
-///   (the response sits about 3 MHz higher: 0.4–0.7 dB of remesh sensitivity
-///   at the band edges);
+///   (the response sits about 3 MHz higher, 0.4–0.7 dB at the band edges; this
+///   mixes remesh noise with the 0.09 mm re-base drift of the copper, see
+///   [`feed_rebase_copper_drift_is_the_dropped_edge_drag`]);
 ///
-/// On L3 (p = 1) the same design resonates about 14 MHz lower, so its top
+/// On L3 (p = 1) the same design sits 14.4 MHz low, so its top
 /// edge misses there: −8.80 dB on the 9 points (−8.81 dB with the default air
 /// motion, whose L3 mesh is at volume ratio 0.10, against 0.24 on cylinders);
 /// its dense L3 −10 dB band is as wide (94.6 MHz) but covers 74.6 MHz of the
-/// ISM band. The L2-chain design's 21-point p = 2 sweep has a 94.3 MHz −10 dB
-/// band covering the whole ISM band. The L2-chain design
-/// `rbC_L2_copper_38_sm29` independently meets G2 at the 9 points with p = 2
-/// (−10.10 dB).
+/// ISM band. The L2 chain's verification is of a related design (the L2
+/// optimum `rbC_L2_copper_38_sm29` re-based onto rbE, 0.47 mm shorter at the
+/// feed): −10.10 dB at the 9 points with p = 2, and a 21-point p = 2 sweep
+/// with a 94.3 MHz −10 dB band covering the whole ISM band. It is not the L2
+/// optimum itself, so the #1120 L2 protocol is not met by a verified design.
 #[test]
 fn gate_g2_is_met_with_p2_on_l1() {
     let w = |n: &str| {
@@ -1213,4 +1215,216 @@ fn g2_summary_matches_the_shards() {
     assert!((num(&row["bw_mhz"]) - 1e3 * (hi - lo)).abs() < 1e-3);
     assert!((num(&row["ism_cover_mhz"]) - 83.5).abs() < 1e-9);
     assert!((num(&row["ism_cover_pct"]) - 100.0).abs() < 1e-9);
+    // The margins beyond the band edges: 6.2 MHz at 2.400 GHz (less than every
+    // #1107 extrapolated P2/L1-to-converged rise, 12.7-48.4 MHz) and 5.2 MHz at
+    // 2.4835 GHz.
+    let m_lo = num(&row["margin_lo_mhz"]);
+    assert!((m_lo - 1e3 * (2.4 - lo)).abs() < 1e-3 && (m_lo - 6.2).abs() < 0.05);
+    assert!((num(&row["margin_hi_mhz"]) - 1e3 * (hi - 2.4835)).abs() < 1e-3);
+    assert!((num(&row["margin_hi_mhz"]) - 5.2).abs() < 0.05);
+    assert_eq!(num(&row["copper_shorter_than_design_mm"]), 0.0);
+    let by_name = |n: &str| {
+        v["verification"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"].as_str() == Some(n))
+            .unwrap_or_else(|| panic!("row {n}"))
+            .clone()
+    };
+    // The L2-chain related design: 0.7 MHz lower-edge margin, 0.47 mm drift.
+    let l2 = by_name("rbC_L2_copper_38_sm29_on_rbE_L1_p2");
+    assert!((num(&l2["margin_lo_mhz"]) - 0.7).abs() < 0.05);
+    assert!((num(&l2["copper_shorter_than_design_mm"]) - 0.468).abs() < 2e-3);
+    let sib = by_name("rbD_L1_copper_38_sm45_on_rbF_L1_p2");
+    assert!((num(&sib["copper_shorter_than_design_mm"]) - 0.09).abs() < 2e-3);
+    let note = v["meta"]["note"].as_str().expect("[meta].note");
+    assert!(note.contains("likely misses at the lower band edge"));
+}
+
+/// **Every stored dB value is the stored complex S11.** Every `[[*.point]]`
+/// of every copper artifact (optimizations, FD gates, verifications, dense
+/// shards) that stores `s11_re` / `s11_im` has `s11_db = 20 log10 |S11|`
+/// (and `s11_mag = |S11|`) to the printed precision, points storing only
+/// `s11_mag` have `s11_db = 20 log10 s11_mag`, and every headline worst-of-band
+/// (`verify.verify_worst_s11_db`, `optimization.worst_s11_db_final`) is the
+/// worst of its points recomputed from the complex values. The G2 pins read the
+/// stored dB values, so a hand edit of re / im alone would otherwise pass.
+#[test]
+fn every_stored_s11_db_is_the_complex_s11() {
+    let db = |m: f64| 20.0 * m.log10();
+    let mut n_complex = 0;
+    for (name, v) in tomls("").into_iter().chain(tomls("verify")) {
+        let mut worst: std::collections::BTreeMap<String, f64> = Default::default();
+        for (table, tv) in v.as_table().unwrap() {
+            let Some(pts) = tv.get("point").and_then(|p| p.as_array()) else {
+                continue;
+            };
+            for p in pts {
+                let num = |k: &str| p.get(k).and_then(|x| x.as_float());
+                let fq = num("f_ghz").unwrap_or(f64::NAN);
+                let (Some(sdb), mag) = (num("s11_db"), num("s11_mag")) else {
+                    continue;
+                };
+                let m = match (num("s11_re"), num("s11_im")) {
+                    (Some(re), Some(im)) => {
+                        n_complex += 1;
+                        let m = re.hypot(im);
+                        if let Some(sm) = mag {
+                            assert!(
+                                (sm - m).abs() <= 1e-6 * m.max(1e-3),
+                                "{name} [{table}] {fq} GHz: s11_mag {sm} vs |re + i im| {m}"
+                            );
+                        }
+                        m
+                    }
+                    _ => mag.unwrap_or_else(|| panic!("{name} [{table}]: no |S11| at {fq}")),
+                };
+                assert!(
+                    (sdb - db(m)).abs() < 1e-5,
+                    "{name} [{table}] {fq} GHz: s11_db {sdb} vs {} from the stored S11",
+                    db(m)
+                );
+                let w = worst.entry(table.clone()).or_insert(f64::NEG_INFINITY);
+                *w = w.max(db(m));
+            }
+        }
+        for (key, table) in [
+            ("verify.verify_worst_s11_db", "s11_verify"),
+            ("optimization.worst_s11_db_final", "s11_band"),
+        ] {
+            let (sect, k) = key.split_once('.').unwrap();
+            if let Some(stored) = v
+                .get(sect)
+                .and_then(|t| t.get(k))
+                .and_then(|x| x.as_float())
+            {
+                let w = worst
+                    .get(table)
+                    .unwrap_or_else(|| panic!("{name}: {key} without [{table}] points"));
+                assert!(
+                    (stored - w).abs() < 1e-5,
+                    "{name}: {key} = {stored} but its points give {w}"
+                );
+            }
+        }
+    }
+    assert!(n_complex >= 500, "only {n_complex} complex points checked");
+}
+
+/// Edge drag of the feed DOFs at the `+y` edge on the feed's `s` (mm of
+/// patch length): `Δy = (−x_inset + ½ x_width) · g(inset)` for the feed basis
+/// of a fixture with that probe, uncapped (`4 · probe_w`, the committed
+/// artifacts) or capped at the outline (the example's default).
+fn feed_edge_drag(inset: f64, probe_w: f64, x_inset: f64, x_width: f64, capped: bool) -> f64 {
+    let (fs, fy) = (0.0, 0.5 * PATCH_L - inset);
+    let fb = if capped {
+        FeedBasis::capped(
+            &rect(),
+            fs,
+            fy,
+            0.5 * probe_w,
+            0.75 * probe_w,
+            4.0 * probe_w,
+        )
+        .expect("capped feed basis")
+    } else {
+        FeedBasis {
+            s: fs,
+            y: fy,
+            half_width: 0.5 * probe_w,
+            r_inner: 0.75 * probe_w,
+            r_outer: 4.0 * probe_w,
+        }
+    };
+    let v = fb.eval(0.0, 0.5 * PATCH_L);
+    v[0][1] * x_inset + v[1][1] * x_width
+}
+
+/// **What a feed re-base carries over (issue #1120 Judge).** A design carried
+/// to another fixture with `--rebase-feed` keeps its probe exactly, but with the
+/// uncapped `4 · probe_w` feed support of the committed artifacts its copper
+/// outline is carried only where that support stays inside the outline: on
+/// the re-based fixtures (probe 2.1–4.5 mm, 4.9–5.7 mm from the `+y` edge) the
+/// feed DOFs drag the `+y` edge, and the re-base drops that drag. Pinned here,
+/// from the as-built `[copper]` sections:
+///
+/// * the L2-chain design `rbC_L2_copper_38_sm29` (L = 28.887 mm on rbC_L2) is
+///   **0.47 mm shorter** on its rbE verifications (L = 28.418): its rbE
+///   P2/L1 and L3 results are for a related design, not the L2 optimum;
+/// * the final design `rbD_L1_copper_38_sm45` is **0.09 mm shorter** on the
+///   sibling rbF_L1 (−10.35 dB mixes remesh noise with that design change);
+///   on rbD_L1 at p = 2 and on rbD_L3 (zero re-base, same probe) it is the
+///   same copper to the 3e-3 mm the as-built length is read to;
+/// * every other re-base (from the original fixtures, whose 6.4 mm support is
+///   inside the 7 mm inset) is exact to the same precision.
+///
+/// Each measured change equals the drag the basis predicts (source fixture
+/// minus target fixture), and with the capped support (the example's default
+/// since this fix) the predicted drag is zero on every fixture, so future
+/// re-bases carry the outline exactly.
+#[test]
+fn feed_rebase_copper_drift_is_the_dropped_edge_drag() {
+    let k = N_OUTLINE + 4;
+    let coeffs = |v: &toml::Value, table: &str| -> (f64, f64) {
+        let x = v[table]["design_vector"].as_array().unwrap();
+        (x[k].as_float().unwrap(), x[k + 1].as_float().unwrap())
+    };
+    let mut drift: Vec<(String, f64)> = Vec::new();
+    for (name, v) in tomls("verify") {
+        let src_name = s(&v, "design.source");
+        let src = load(
+            design_source(src_name)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        );
+        let (si, sw) = (f(&src, "meta.probe_inset_mm"), f(&src, "meta.probe_w_mm"));
+        let (sa, sb) = coeffs(&src, "shape");
+        let (ti, tw) = yaml_probe(s(&v, "meta.fixture"));
+        let (ta, tb) = coeffs(&v, "design");
+        let measured = f(&src, "copper.patch_length_mm") - f(&v, "copper.patch_length_mm");
+        let d_inset = f(&src, "copper.inset_mm") - f(&v, "copper.inset_mm");
+        let predicted =
+            feed_edge_drag(si, sw, sa, sb, false) - feed_edge_drag(ti, tw, ta, tb, false);
+        assert!(
+            (measured - predicted).abs() < 4e-3,
+            "{name}: patch length change {measured:.4} mm vs predicted drag {predicted:.4}"
+        );
+        assert!(
+            (d_inset - measured).abs() < 4e-3,
+            "{name}: inset change {d_inset:.4} != length change {measured:.4} (probe moved)"
+        );
+        let capped = feed_edge_drag(si, sw, sa, sb, true) - feed_edge_drag(ti, tw, ta, tb, true);
+        assert_eq!(capped, 0.0, "{name}: capped feed support drags the edge");
+        // The as-built length is read off the mesh at s ~ 0: 2–3e-3 mm of
+        // sampling noise between meshes (rbD_L1 vs rbD_L3).
+        if measured.abs() >= 1e-2 {
+            drift.push((name.clone(), measured));
+        }
+    }
+    let got: Vec<&str> = drift.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        got,
+        [
+            "rbC_L2_copper_38_sm29_on_rbE_L1_p2",
+            "rbC_L2_copper_38_sm29_on_rbE_L1_p2_dense0of2",
+            "rbC_L2_copper_38_sm29_on_rbE_L1_p2_dense1of2",
+            "rbC_L2_copper_38_sm29_on_rbE_L3",
+            "rbD_L1_copper_38_sm45_on_rbF_L1_p2",
+        ],
+        "verifications whose copper differs from the design's"
+    );
+    for (name, d) in &drift {
+        let want = if name.starts_with("rbC") {
+            0.469
+        } else {
+            0.090
+        };
+        assert!(
+            (d - want).abs() < 3e-3,
+            "{name}: drift {d:.4} mm, pinned {want}"
+        );
+    }
 }

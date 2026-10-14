@@ -5,9 +5,11 @@
 band_f_ghz = [2.4, 2.4835]
 target_db = -10.0
 bandwidth_rule = "contiguous run of the dense grid around the dip with |S11| <= -10 dB; crossings linearly interpolated in dB; open-ended if the run reaches the grid edge"
+note = "G2 is met on the finest computed model (P2/L1, rbD_L1_copper_38_sm45_on_rbD_L1_p2: margins 6.2 MHz at 2.400 GHz and 5.2 MHz at 2.4835 GHz). #1107 extrapolates the converged dip a further 12.7-48.4 MHz above P2/L1, more than the 6.2 MHz lower-edge margin, so on the converged estimate the design likely misses at the lower band edge. Rows with a non-zero copper_shorter_than_design_mm verify a related design (feed re-base drift), not the design as optimized: the L2 chain on rbE (0.47 mm, lower-edge margin 0.7 MHz on P2/L1) and the final design on the sibling rbF (0.09 mm). The feed is an idealized lumped-port strip."
 
 [[verification]]
 name = "L0_copper_38_on_rbA_L0"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/L0_copper_38_on_rbA_L0.toml"
 verify_worst_db = -9.70118
 verify_best_db = -21.4815
@@ -15,6 +17,7 @@ min_vol_ratio = 0.56133
 
 [[verification]]
 name = "L1_copper_38_on_L1"
+copper_shorter_than_design_mm = 0
 dense_shards = ["copper/verify/L1_copper_38_on_L1_dense0of1.toml"]
 dense_grid = [2.3, 2.6, 61]
 dense_missing = []
@@ -28,10 +31,13 @@ bw_open_ended = false
 bw_mhz = 84.341
 ism_cover_mhz = 83.5
 centring_mhz = -0.175389
+margin_lo_mhz = 0.245112
+margin_hi_mhz = 0.595889
 ism_cover_pct = 100
 
 [[verification]]
 name = "L1_copper_38_on_L1_p2"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/L1_copper_38_on_L1_p2.toml"
 verify_worst_db = -4.75836
 verify_best_db = -18.2997
@@ -39,6 +45,7 @@ min_vol_ratio = 0.353318
 
 [[verification]]
 name = "L2_copper_38_s30_on_L1_p2"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/L2_copper_38_s30_on_L1_p2.toml"
 verify_worst_db = -9.91752
 verify_best_db = -17.7103
@@ -46,6 +53,7 @@ min_vol_ratio = 0.243529
 
 [[verification]]
 name = "L2_copper_38_s30_on_L2"
+copper_shorter_than_design_mm = 0
 dense_shards = ["copper/verify/L2_copper_38_s30_on_L2_dense0of1.toml"]
 dense_grid = [2.3, 2.6, 31]
 dense_missing = []
@@ -59,10 +67,13 @@ bw_open_ended = false
 bw_mhz = 83.8904
 ism_cover_mhz = 53.6115
 centring_mhz = 30.0837
+margin_lo_mhz = 30.2789
+margin_hi_mhz = -29.8885
 ism_cover_pct = 64.2054
 
 [[verification]]
 name = "L2_copper_38_s30_on_L3"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/L2_copper_38_s30_on_L3.toml"
 verify_worst_db = -7.86953
 verify_best_db = -17.956
@@ -70,6 +81,7 @@ min_vol_ratio = 0.309613
 
 [[verification]]
 name = "L2_copper_38_s30_on_rbC_L1_p2"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/L2_copper_38_s30_on_rbC_L1_p2.toml"
 verify_worst_db = -10.0009
 verify_best_db = -17.8172
@@ -77,6 +89,7 @@ min_vol_ratio = 0.748069
 
 [[verification]]
 name = "rbB_L1_copper_38_sm48_on_rbB_L1"
+copper_shorter_than_design_mm = 0
 dense_shards = ["copper/verify/rbB_L1_copper_38_sm48_on_rbB_L1_dense0of1.toml"]
 dense_grid = [2.3, 2.6, 61]
 dense_missing = []
@@ -90,10 +103,13 @@ bw_open_ended = false
 bw_mhz = 91.7257
 ism_cover_mhz = 37.2722
 centring_mhz = 50.3406
+margin_lo_mhz = 54.4535
+margin_hi_mhz = -46.2278
 ism_cover_pct = 44.6373
 
 [[verification]]
 name = "rbB_L1_copper_38_sm48_on_rbB_L1_p2"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/rbB_L1_copper_38_sm48_on_rbB_L1_p2.toml"
 verify_worst_db = -9.9632
 verify_best_db = -20.4284
@@ -101,6 +117,7 @@ min_vol_ratio = 0.250002
 
 [[verification]]
 name = "rbC_L2_copper_38_sm29_on_rbE_L1_p2"
+copper_shorter_than_design_mm = 0.468
 verify_toml = "copper/verify/rbC_L2_copper_38_sm29_on_rbE_L1_p2.toml"
 verify_worst_db = -10.1045
 verify_best_db = -23.7217
@@ -118,10 +135,13 @@ bw_open_ended = false
 bw_mhz = 94.3284
 ism_cover_mhz = 83.5
 centring_mhz = -4.72401
+margin_lo_mhz = 0.690194
+margin_hi_mhz = 10.1382
 ism_cover_pct = 100
 
 [[verification]]
 name = "rbC_L2_copper_38_sm29_on_rbE_L3"
+copper_shorter_than_design_mm = 0.47
 verify_toml = "copper/verify/rbC_L2_copper_38_sm29_on_rbE_L3.toml"
 verify_worst_db = -9.24962
 verify_best_db = -25.4711
@@ -129,6 +149,7 @@ min_vol_ratio = 0.227943
 
 [[verification]]
 name = "rbD_L1_copper_38_sm45_on_rbD_L1_p2"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2.toml"
 verify_worst_db = -10.7826
 verify_best_db = -20.2181
@@ -146,10 +167,13 @@ bw_open_ended = false
 bw_mhz = 94.8661
 ism_cover_mhz = 83.5
 centring_mhz = 0.479046
+margin_lo_mhz = 6.16208
+margin_hi_mhz = 5.20399
 ism_cover_pct = 100
 
 [[verification]]
 name = "rbD_L1_copper_38_sm45_on_rbD_L3"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3.toml"
 verify_worst_db = -8.80579
 verify_best_db = -20.3153
@@ -157,6 +181,7 @@ min_vol_ratio = 0.0996356
 
 [[verification]]
 name = "rbD_L1_copper_38_sm45_on_rbD_L3_cyl"
+copper_shorter_than_design_mm = 0
 verify_toml = "copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3_cyl.toml"
 verify_worst_db = -8.80226
 verify_best_db = -20.3082
@@ -174,10 +199,13 @@ bw_open_ended = false
 bw_mhz = 94.5811
 ism_cover_mhz = 74.6301
 centring_mhz = 14.4104
+margin_lo_mhz = 19.951
+margin_hi_mhz = -8.86986
 ism_cover_pct = 89.3774
 
 [[verification]]
 name = "rbD_L1_copper_38_sm45_on_rbF_L1_p2"
+copper_shorter_than_design_mm = 0.09
 verify_toml = "copper/verify/rbD_L1_copper_38_sm45_on_rbF_L1_p2.toml"
 verify_worst_db = -10.3475
 verify_best_db = -20.2983

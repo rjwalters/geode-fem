@@ -872,7 +872,16 @@ impl CornerBasis {
 ///   `r_inner`.
 ///
 /// `r_inner` must cover the port (`> half_width`) and `r_outer` must stay
-/// inside the patch edges so the outline does not move.
+/// inside the patch edges so the outline does not move. Build it with
+/// [`FeedBasis::capped`], which clips `r_outer` to the distance from the feed
+/// centre to the nearest point of the patch outline: the fields are then
+/// exactly zero on the whole outline, so the feed DOFs move the probe and the
+/// copper interior around it but never the copper edge, and a design carried
+/// to a fixture with another probe (a feed re-base) keeps its outline. A
+/// support reaching past the outline (the uncapped `4 · probe_w` of the
+/// re-based #1120 fixtures, whose probe is 2.1–4.5 mm wide and 4.9–5.7 mm from
+/// the `+y` edge) drags the `+y` edge by `g` at the edge, which a re-base then
+/// drops: that is a different copper on the target fixture.
 #[derive(Clone, Copy, Debug)]
 pub struct FeedBasis {
     /// Feed centre in the chart (mm).
@@ -888,6 +897,59 @@ pub struct FeedBasis {
 }
 
 impl FeedBasis {
+    /// The distance (mm) from the chart point `(s, y)` inside `rect` to the
+    /// nearest point of the rectangle's outline.
+    pub fn outline_clearance(rect: &PatchRect, s: f64, y: f64) -> f64 {
+        (s - rect.s[0])
+            .min(rect.s[1] - s)
+            .min(y - rect.y[0])
+            .min(rect.y[1] - y)
+    }
+
+    /// A feed basis whose support never reaches the patch outline:
+    /// `r_outer = min(r_outer_max, clearance)`, with `clearance` the
+    /// [`FeedBasis::outline_clearance`] of the feed centre. Every outline
+    /// point is at least `clearance` from the centre, where the smoothstep
+    /// is exactly 1, so both fields are exactly zero there.
+    ///
+    /// # Errors
+    ///
+    /// When the feed centre is not inside `rect`, or the capped `r_outer` does
+    /// not exceed `r_inner` (no room for the decay between the rigid core and
+    /// the edge), or `r_inner` does not cover the port (`<= half_width`).
+    pub fn capped(
+        rect: &PatchRect,
+        s: f64,
+        y: f64,
+        half_width: f64,
+        r_inner: f64,
+        r_outer_max: f64,
+    ) -> Result<Self, String> {
+        let clearance = Self::outline_clearance(rect, s, y);
+        if clearance <= 0.0 {
+            return Err(format!("feed centre ({s}, {y}) is not inside the patch"));
+        }
+        if r_inner <= half_width {
+            return Err(format!(
+                "feed core radius {r_inner} mm does not cover the port (half width {half_width} mm)"
+            ));
+        }
+        let r_outer = r_outer_max.min(clearance);
+        if r_outer <= r_inner {
+            return Err(format!(
+                "feed support capped at the outline ({r_outer} mm) does not exceed the core \
+                 radius {r_inner} mm"
+            ));
+        }
+        Ok(Self {
+            s,
+            y,
+            half_width,
+            r_inner,
+            r_outer,
+        })
+    }
+
     /// Number of DOFs (2: inset, width).
     pub fn n_dofs(&self) -> usize {
         2
@@ -1460,5 +1522,81 @@ mod tests {
         // Both vanish at r_outer, short of the +y edge (7 mm from the feed).
         assert!(fb.eval(0.0, 7.5 + 6.4).iter().all(|d| d == &[0.0, 0.0]));
         assert!(fb.eval(0.0, 14.5).iter().all(|d| d == &[0.0, 0.0]));
+    }
+
+    /// Every point of the patch outline, sampled every `step` mm.
+    fn outline_points(rect: &PatchRect, step: f64) -> Vec<(f64, f64)> {
+        let mut v = Vec::new();
+        let ns = ((rect.s[1] - rect.s[0]) / step).ceil() as usize;
+        let ny = ((rect.y[1] - rect.y[0]) / step).ceil() as usize;
+        for i in 0..=ns {
+            let s = rect.s[0] + (rect.s[1] - rect.s[0]) * i as f64 / ns as f64;
+            v.push((s, rect.y[0]));
+            v.push((s, rect.y[1]));
+        }
+        for j in 0..=ny {
+            let y = rect.y[0] + (rect.y[1] - rect.y[0]) * j as f64 / ny as f64;
+            v.push((rect.s[0], y));
+            v.push((rect.s[1], y));
+        }
+        v
+    }
+
+    /// **The capped feed support leaves the patch outline fixed** (#1120
+    /// Judge, re-base drift): on the original fixture (1.6 mm probe 7 mm from
+    /// the `+y` edge) the cap is inactive (`4 · probe_w = 6.4 < 7`); on the
+    /// probe geometries of the re-based fixtures (`reference/gmsh/
+    /// patch_conformal_rb*_L*.yaml`: the patch is the same 38 x 29 mm, the
+    /// probe 2.1–4.5 mm wide, 4.9–5.7 mm from the edge) the uncapped
+    /// `4 · probe_w` support moves the `+y` edge (the biting control), and the
+    /// capped one moves no outline point at all, for both DOFs.
+    #[test]
+    fn capped_feed_support_leaves_the_outline_fixed() {
+        let rect = PatchRect {
+            s: [-19.0, 19.0],
+            y: [-14.5, 14.5],
+        };
+        let pts = outline_points(&rect, 0.05);
+        // (probe inset from the +y edge, probe width), mm: L0 and the
+        // extremes of the re-based fixtures (rbA..rbF).
+        for (inset, w, cap_active) in [
+            (7.0, 1.6, false),
+            (5.682_475_854, 2.831_870_743, true), // rbA
+            (5.675_408_085, 1.688_404_537, true), // rbB
+            (5.285_414_977, 2.094_015_962, true), // rbC
+            (5.123_104_893, 4.185_270_329, true), // rbD
+            (5.392_709_675, 4.486_028_109, true), // rbE
+            (5.068_246_706, 4.267_542_030, true), // rbF
+        ] {
+            let y_f = rect.y[1] - inset;
+            let core = 0.75 * w;
+            let uncapped = FeedBasis {
+                s: 0.0,
+                y: y_f,
+                half_width: 0.5 * w,
+                r_inner: core,
+                r_outer: 4.0 * w,
+            };
+            let fb = FeedBasis::capped(&rect, 0.0, y_f, 0.5 * w, core, 4.0 * w).expect("capped");
+            assert!(fb.r_outer <= inset + 1e-12 && fb.r_outer > fb.r_inner);
+            assert_eq!(fb.r_outer < 4.0 * w, cap_active, "inset {inset}, width {w}");
+            let drag = pts
+                .iter()
+                .map(|&(s, y)| uncapped.eval(s, y)[0][1].abs())
+                .fold(0.0, f64::max);
+            assert_eq!(drag > 0.0, cap_active, "uncapped drag {drag}");
+            for &(s, y) in &pts {
+                assert!(
+                    fb.eval(s, y).iter().all(|d| d == &[0.0, 0.0]),
+                    "capped feed DOF moves outline point ({s}, {y}) (inset {inset}, width {w})"
+                );
+            }
+            // The port itself still moves rigidly.
+            assert_eq!(fb.eval(0.0, y_f)[0], [0.0, -1.0]);
+        }
+        // No room between the core and the edge: an error, not a silent basis.
+        assert!(FeedBasis::capped(&rect, 0.0, 14.0, 0.8, 1.2, 6.4).is_err());
+        assert!(FeedBasis::capped(&rect, 0.0, 15.0, 0.8, 1.2, 6.4).is_err());
+        assert!(FeedBasis::capped(&rect, 0.0, 7.5, 0.8, 0.7, 6.4).is_err());
     }
 }

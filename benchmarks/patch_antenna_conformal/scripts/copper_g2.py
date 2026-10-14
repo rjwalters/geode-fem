@@ -12,8 +12,13 @@ verification:
   sampled minimum), the -10 dB bandwidth (the contiguous run of the dense grid
   around the dip with |S11| <= -10 dB, crossings linearly interpolated in dB),
   its coverage of the 2.4-2.4835 GHz ISM band (MHz and %), the dense-sweep
-  worst point inside the band, and the centring (band centre minus the centre
-  of the -10 dB interval, MHz).
+  worst point inside the band, the centring (band centre minus the centre
+  of the -10 dB interval, MHz) and the margins of the -10 dB interval beyond
+  each band edge (MHz; negative = the band edge is not covered);
+* the as-built copper change against the design as optimized (patch length at
+  the feed, mm, from the `[copper]` sections): non-zero where a feed re-base
+  between two re-based fixtures dropped the feed DOFs' drag of the +y edge, so
+  the verified copper is a related design, not the optimum itself.
 
 `--write` regenerates `copper/g2_summary.toml` (consumed by
 `tests/patch_conformal_copper.rs`, which recomputes every number from the
@@ -34,6 +39,17 @@ COPPER = os.path.join(ROOT, "copper")
 BAND = (2.4, 2.4835)
 TARGET = -10.0
 SHARD = re.compile(r"^(?P<stem>.+?)_dense(?P<k>\d+)of(?P<n>\d+)\.toml$")
+
+
+NOTE = (
+    "G2 is met on the finest computed model (P2/L1, rbD_L1_copper_38_sm45_on_rbD_L1_p2: "
+    "margins 6.2 MHz at 2.400 GHz and 5.2 MHz at 2.4835 GHz). #1107 extrapolates the converged "
+    "dip a further 12.7-48.4 MHz above P2/L1, more than the 6.2 MHz lower-edge margin, so on the "
+    "converged estimate the design likely misses at the lower band edge. Rows with a non-zero "
+    "copper_shorter_than_design_mm verify a related design (feed re-base drift), not the design "
+    "as optimized: the L2 chain on rbE (0.47 mm, lower-edge margin 0.7 MHz on P2/L1) and the "
+    "final design on the sibling rbF (0.09 mm). The feed is an idealized lumped-port strip."
+)
 
 
 def load(p):
@@ -107,6 +123,8 @@ def bandwidth(pts):
             bw_mhz=1e3 * (b - a),
             ism_cover_mhz=1e3 * cover,
             centring_mhz=1e3 * (0.5 * (BAND[0] + BAND[1]) - 0.5 * (a + b)),
+            margin_lo_mhz=1e3 * (BAND[0] - a),
+            margin_hi_mhz=1e3 * (b - BAND[1]),
         )
     out["ism_cover_pct"] = 100.0 * out["ism_cover_mhz"] / (1e3 * (BAND[1] - BAND[0]))
     return out
@@ -133,6 +151,11 @@ def summarize():
     rows = []
     for key, g in sorted(verifications().items()):
         row = {"name": key}
+        first = load(g["verify"] or g["dense"][0])
+        src = load(os.path.join(COPPER, first["design"]["source"].replace(".design.toml", ".toml")))
+        drift = src["copper"]["patch_length_mm"] - first["copper"]["patch_length_mm"]
+        # The as-built length is read off the mesh to ~3e-3 mm.
+        row["copper_shorter_than_design_mm"] = round(drift, 3) if abs(drift) >= 1e-2 else 0.0
         if g["verify"]:
             v = load(g["verify"])["verify"]
             row["verify_toml"] = os.path.relpath(g["verify"], ROOT)
@@ -178,8 +201,9 @@ def main():
             f.write(
                 'bandwidth_rule = "contiguous run of the dense grid around the dip with |S11| <= '
                 '-10 dB; crossings linearly interpolated in dB; open-ended if the run reaches the '
-                'grid edge"\n\n'
+                'grid edge"\n'
             )
+            f.write(f'note = "{NOTE}"\n\n')
             for r in rows:
                 f.write("[[verification]]\n")
                 for k, v in r.items():

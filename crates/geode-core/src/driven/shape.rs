@@ -5175,8 +5175,25 @@ mod tests {
     }
 
     /// Empty `ports` reproduces the port-less box-UPML gradient
-    /// ([`driven_shape_gradient_matched_upml`]) bit-for-bit — the composed
-    /// capstone entry point is a strict superset (issue #636).
+    /// ([`driven_shape_gradient_matched_upml`]) — the composed capstone entry
+    /// point is a strict superset (issue #636).
+    ///
+    /// **Tolerance, not bit identity (issue #1108).** The port-less entry point
+    /// delegates to the ports entry point with `&[]`, so the two calls below run
+    /// the same code on the same inputs, and the comparison checks that the
+    /// delegation and the empty-ports path add nothing. It does not check
+    /// determinism. Two calls of the same
+    /// sparse factorization + solve in one process are not bit-reproducible
+    /// on every target: on x86_64 the CI arpack job saw the objective differ
+    /// by 11 ulps (≈ 2.4e-15 relative) on PRs that touch no Rust (#1107,
+    /// #1119), and a rerun passed. The likely cause is floating-point
+    /// summation order that depends on run-time state (SIMD kernels whose
+    /// head / tail split follows the buffer alignment, or thread scheduling).
+    /// So the objective and every gradient component must agree to a
+    /// relative `1e-12` (the gradient scaled by its largest component, since
+    /// single components can be near zero). That is about 400× the observed
+    /// spread and still far below what any real change of the code path
+    /// (a stray port term, a different material or right-hand side) produces.
     #[test]
     fn empty_ports_equals_portless_matched_upml_gradient() {
         use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
@@ -5235,16 +5252,36 @@ mod tests {
         .expect("empty-ports composed gradient");
 
         assert_eq!(portless.n_factorizations, empty.n_factorizations);
-        assert_eq!(portless.objective.to_bits(), empty.objective.to_bits());
-        for (a, b) in portless.grad_node.iter().zip(empty.grad_node.iter()) {
-            for k in 0..3 {
-                assert_eq!(
-                    a[k].to_bits(),
-                    b[k].to_bits(),
-                    "grad_node differs on empty ports"
-                );
-            }
-        }
+        assert_eq!(portless.grad_node.len(), empty.grad_node.len());
+        const REL_TOL: f64 = 1e-12;
+        let obj_rel = (portless.objective - empty.objective).abs()
+            / portless.objective.abs().max(f64::MIN_POSITIVE);
+        let scale = portless
+            .grad_node
+            .iter()
+            .flatten()
+            .fold(0.0_f64, |m, v| m.max(v.abs()));
+        assert!(scale > 0.0, "zero gradient");
+        let grad_rel = portless
+            .grad_node
+            .iter()
+            .zip(empty.grad_node.iter())
+            .flat_map(|(a, b)| (0..3).map(move |k| (a[k] - b[k]).abs()))
+            .fold(0.0_f64, f64::max)
+            / scale;
+        println!(
+            "empty ports vs port-less: objective rel {obj_rel:.3e}, gradient rel {grad_rel:.3e}"
+        );
+        assert!(
+            obj_rel <= REL_TOL,
+            "objective differs on empty ports: {} vs {} (rel {obj_rel:.3e})",
+            portless.objective,
+            empty.objective
+        );
+        assert!(
+            grad_rel <= REL_TOL,
+            "grad_node differs on empty ports: max |diff| / max |grad| = {grad_rel:.3e}"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────

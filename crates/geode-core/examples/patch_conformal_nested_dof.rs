@@ -161,7 +161,10 @@ const FD_TOL: f64 = 5e-3;
 const WIDE_GHZ: [f64; 2] = [2.20, 2.70];
 /// Copper mode (issue #1120): feed rigid-core radius and support radius, as
 /// multiples of the probe width (1.2 mm and 6.4 mm for the 1.6 mm probe; the
-/// +y edge is 7 mm from the feed, so the outline never moves).
+/// +y edge is 7 mm from the feed, so the outline never moves). The support is
+/// capped at the feed's distance to the patch outline ([`FeedBasis::capped`])
+/// unless `--feed-support-legacy`: on the re-based fixtures (probe 2.1–4.5 mm,
+/// 4.9–5.7 mm from the +y edge) the uncapped `4 · probe_w` reaches the edge.
 const FEED_CORE_FRAC: f64 = 0.75;
 const FEED_SUPPORT_FRAC: f64 = 4.0;
 /// RSS sampling period.
@@ -213,9 +216,16 @@ struct Cli {
     shard: Option<(usize, usize)>,
     /// Carry `--design` onto a fixture regenerated at another probe inset /
     /// width (copper mode): the feed coefficients are shifted by the change of
-    /// the fixture's `probe_inset` / `probe_w`, so the physical design (probe
-    /// position and width, outline, corners) is unchanged.
+    /// the fixture's `probe_inset` / `probe_w`, so the probe position and width
+    /// are carried exactly. The outline and corners are carried exactly only
+    /// when the feed support stays inside the outline on both fixtures (the
+    /// default capped support); a feed support reaching the +y edge drags it,
+    /// and that drag is not carried (refused unless `--feed-support-legacy`).
     rebase_feed: bool,
+    /// Copper mode: the uncapped `4 · probe_w` feed support that produced the
+    /// committed #1120 artifacts (reproduces them on the re-based fixtures,
+    /// where it reaches the +y edge).
+    feed_support_legacy: bool,
     /// Copper mode: move the air on the cylinders too ([`AirMotion::OnCylinder`]).
     air_on_cylinder: bool,
 }
@@ -247,6 +257,7 @@ fn parse_cli() -> Cli {
         dense: None,
         shard: None,
         rebase_feed: false,
+        feed_support_legacy: false,
         air_on_cylinder: false,
     };
     let mut radial_given = false;
@@ -288,6 +299,7 @@ fn parse_cli() -> Cli {
             "--wide-step" => cli.wide_step = next(&mut i).parse().expect("--wide-step GHz"),
             "--copper" => cli.copper = true,
             "--rebase-feed" => cli.rebase_feed = true,
+            "--feed-support-legacy" => cli.feed_support_legacy = true,
             "--air-on-cylinder" => cli.air_on_cylinder = true,
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
@@ -1574,6 +1586,9 @@ fn basis_flags(cli: &Cli) -> String {
         if cli.rebase_feed {
             f.push_str(" --rebase-feed");
         }
+        if cli.feed_support_legacy {
+            f.push_str(" --feed-support-legacy");
+        }
         if cli.air_on_cylinder {
             f.push_str(" --air-on-cylinder");
         }
@@ -2065,13 +2080,37 @@ fn main() {
     let morph = if cli.copper {
         let corner_basis =
             (cli.corner_radius > 0.0).then(|| CornerBasis::new(rect, cli.corner_radius));
-        let feed_basis = cli.feed.then_some(FeedBasis {
-            s: feed.0,
-            y: feed.1,
-            half_width: 0.5 * probe_w,
-            r_inner: FEED_CORE_FRAC * probe_w,
-            r_outer: FEED_SUPPORT_FRAC * probe_w,
+        let feed_basis = cli.feed.then(|| {
+            if cli.feed_support_legacy {
+                FeedBasis {
+                    s: feed.0,
+                    y: feed.1,
+                    half_width: 0.5 * probe_w,
+                    r_inner: FEED_CORE_FRAC * probe_w,
+                    r_outer: FEED_SUPPORT_FRAC * probe_w,
+                }
+            } else {
+                FeedBasis::capped(
+                    &rect,
+                    feed.0,
+                    feed.1,
+                    0.5 * probe_w,
+                    FEED_CORE_FRAC * probe_w,
+                    FEED_SUPPORT_FRAC * probe_w,
+                )
+                .expect("feed basis")
+            }
         });
+        if let Some(fb) = &feed_basis
+            && fb.r_outer > FeedBasis::outline_clearance(&rect, feed.0, feed.1)
+        {
+            eprintln!(
+                "  WARNING: --feed-support-legacy: the feed support ({:.2} mm) reaches the patch \
+                 outline ({:.2} mm from the feed): the feed DOFs also move the copper edge",
+                fb.r_outer,
+                FeedBasis::outline_clearance(&rect, feed.0, feed.1)
+            );
+        }
         if let Some(cb) = &corner_basis {
             n_corner = cb.n_dofs();
             corner_spec = format!(
@@ -2084,12 +2123,19 @@ fn main() {
         }
         if let Some(fb) = &feed_basis {
             n_feed = fb.n_dofs();
+            // The spec string is unchanged where the cap is inactive (the
+            // original fixtures), so their committed designs still match.
+            let capped = if fb.r_outer < FEED_SUPPORT_FRAC * probe_w {
+                " (capped at the patch outline)"
+            } else {
+                ""
+            };
             feed_spec = format!(
                 "2 feed DOFs along y (the bend axis): [inset: probe moves 1 mm away from the +y \
                  edge per unit; width: probe (port) width +1 mm per unit, uniform y scaling of the \
                  port faces]; rigid within {:.2} mm of the feed centre, smoothstep to 0 at {:.2} \
-                 mm (the +y edge is {probe_inset} mm away), on every substrate node; moving-feed \
-                 adjoint (port width / length / flux re-derived on every moved mesh)",
+                 mm{capped} (the +y edge is {probe_inset} mm away), on every substrate node; \
+                 moving-feed adjoint (port width / length / flux re-derived on every moved mesh)",
                 fb.r_inner, fb.r_outer
             );
         }
@@ -2156,7 +2202,13 @@ fn main() {
             // the bases are otherwise the same (same DOF layout). The edge motion
             // of the outline DOFs does not depend on the feed band, so only the
             // two feed coefficients change: x_inset' = x_inset - (inset' - inset),
-            // x_width' = x_width - (w' - w).
+            // x_width' = x_width - (w' - w). That carries the probe exactly. It
+            // carries the copper outline exactly only if the feed DOFs leave the
+            // outline fixed on BOTH fixtures: a feed support reaching the +y edge
+            // drags it by g(edge) per unit, and that drag is lost on re-base
+            // (#1120 Judge: 0.47 mm for rbC -> rbE, 0.09 mm for rbD -> rbF with
+            // the uncapped 4 · probe_w support). So refuse it unless
+            // --feed-support-legacy (which reproduces the committed artifacts).
             assert_eq!(
                 (d.n_outline, d.n_corner, d.n_feed),
                 (n_outline, n_corner, n_feed),
@@ -2166,6 +2218,27 @@ fn main() {
                 d.probe_inset.expect("design lacks [meta].probe_inset_mm"),
                 d.probe_w.expect("design lacks [meta].probe_w_mm"),
             );
+            // The design's support reached its outline if it was built uncapped
+            // (no "capped" marker) with 4 · probe_w beyond its inset.
+            let src_drags = !d.feed.contains("capped at the patch outline")
+                && FEED_SUPPORT_FRAC * pw > pi.min(0.5 * patch_w);
+            let here_drags = cli.feed_support_legacy
+                && FEED_SUPPORT_FRAC * probe_w
+                    > FeedBasis::outline_clearance(&rect, feed.0, feed.1);
+            if src_drags || here_drags {
+                assert!(
+                    cli.feed_support_legacy,
+                    "--rebase-feed is not exact here: the design's feed support reaches its \
+                     patch outline, so its copper edge carries a feed-DOF drag this re-base \
+                     drops (pass --feed-support-legacy to reproduce the committed #1120 \
+                     artifacts anyway)"
+                );
+                eprintln!(
+                    "  WARNING: rebase-feed is NOT exact: a feed support reaches the +y edge \
+                     (design fixture: {src_drags}, this fixture: {here_drags}), so the copper \
+                     outline differs from the design's; compare the [copper] sections"
+                );
+            }
             rebase = (probe_inset - pi, probe_w - pw);
             let k = n_outline + n_corner;
             d.x[k] -= rebase.0;
