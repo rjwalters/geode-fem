@@ -1,0 +1,1134 @@
+%% transmon-benchmark.10 -- restructured revision of v9, 2026-10-13.
+%% Headline: the converged DeviceLayout.jl SingleTransmon cross-check and the
+%% gradient-assisted re-optimization. See changelog.md, provenance.md and
+%% validation.md. v1-v9 and their critic siblings are unchanged.
+
+\documentclass{anvil-paper}
+\usepackage{xurl}
+\usepackage{array}
+
+%% --- URL line-breaking: the AWS-blog and documentation references carry long
+%% hyphenated URLs; allow breaks at hyphens and add stretch so the
+%% bibliography stays inside the measure (render-gate overfull check).
+\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-}
+\Urlmuskip=0mu plus 1mu
+%% Compact bibliography.
+\renewcommand{\bibfont}{\small}
+\setlength{\bibsep}{2pt plus 1pt}
+
+%% --- Draft-phase helper macros -------------------------------------------
+%% Figure placeholder: uses the rendered figure if pub-figures has produced
+%% it, otherwise a framed placeholder naming the source script.
+\newcommand{\anvilfig}[3][0.98]{%
+  \IfFileExists{figures/#2}%
+    {\includegraphics[width=#1\linewidth]{figures/#2}}%
+    {\fbox{\parbox{#1\linewidth}{\centering\vspace{5em}%
+      \texttt{figures/#2}\\[0.5em]%
+      {\small placeholder --- render via \texttt{figures/src/#3}}%
+      \vspace{5em}}}}}
+
+\title{Differentiable transmon design with a tensor-native finite-element
+electromagnetics solver: gradient-based optimization of charging energy,
+cross-validated against Palace}
+% TODO(operator): final title wording is operator-approved per BRIEF.md
+% ⭐ REFRAME (2026-07-16); this is the BRIEF's suggested title class.
+\author{Robb Walters\thanks{These authors contributed equally.}
+  \and Crutcher Dunnavant\thanks{These authors contributed equally.}}
+% TODO(operator): affiliations (author order and equal-contribution
+% footnote are operator-resolved per BRIEF.md, 2026-07-14).
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The SingleTransmon example of DeviceLayout.jl publishes the qubit and
+resonator frequencies of an initial and an optimized transmon design,
+computed with Palace at DeviceLayout's own second-order discretization. We
+cross-check those numbers with two independently implemented
+finite-element solvers, GEODE-FEM and Palace. Palace at DeviceLayout's
+discretization reproduces both published pairs to within $0.7\%$, and on
+shared meshes the two solvers agree on the qubit mode to $10^{-4}\%$.
+Under refinement both converge to qubit frequencies $7.3\%$ and $8.7\%$
+above the published $4.14$ and $3.005$\,GHz, and to resonator frequencies
+$2.7\%$ above, so the published values are limited by discretization;
+the finest computed levels already lie $4.1\%$ and $4.7\%$ above the
+published qubit values. A static route is consistent with this: a
+certified two-sided bracket on the converged island capacitance with the
+sapphire tensor, $[79.56, 79.76]$\,fF, read through a two-node circuit of
+junction and resonator, puts the initial qubit at $4.45$\,GHz and caps it
+at $4.477$\,GHz. We then repeat DeviceLayout's
+two-parameter optimization with Newton steps whose Jacobian comes from
+GEODE-FEM's shape derivative of the eigenfrequencies. At DeviceLayout's
+discretization it meets the published stopping criterion in 3 Palace runs,
+where the derivative-free optimizer used 9. Aimed at converged frequencies,
+it finds that the $3.0$/$4.0$\,GHz design needs a capacitor about $19\%$
+longer than the published one ($16$--$38\%$ within the extrapolation band)
+and a resonator $2.4\%$ longer. Converged frequencies are extrapolations
+with stated bands, not bounds; the capacitance brackets are certified for
+the meshed polygonal geometry.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Superconducting-qubit layouts are designed by iterating field solves: a
+designer parameterizes a geometry, simulates it, compares the extracted
+frequencies or Hamiltonian parameters with targets, and adjusts. The
+state-of-practice automated workflow, QDesignOptimizer
+\citep{eriksson2025automated}, makes the loop explicit and steers it with
+analytic models because its field solver returns observables but no
+derivatives of them. Open tools now cover the whole loop.
+DeviceLayout.jl \citep{devicelayout} builds the layout and its mesh, and
+Palace \citep{palace}, an MFEM-based solver \citep{mfem,andrej2024high},
+computes the eigenmodes. DeviceLayout's SingleTransmon example
+\citep{devicelayout-blog,devicelayout-example} runs the loop end to end.
+It publishes an initial transmon-plus-resonator design at $4.14$ and
+$5.591$\,GHz and a design optimized to targets of $3.0$ and $4.0$\,GHz, at
+$3.005$ and $3.982$\,GHz, found with a derivative-free optimizer in nine
+Palace runs.
+
+Those frequencies come from one discretization, and the example itself
+warns that they are sensitive to it. This paper measures how sensitive.
+Our main result is that the published frequencies are
+discretization-limited: two independently implemented solvers converge to
+qubit frequencies $7$--$9\%$ above them, a certified bound on the island
+capacitance, read through a circuit model, is consistent with that shift
+and caps the initial qubit, and a gradient-assisted re-optimization at
+converged resolution estimates that the optimized design needs a capacitor
+about $19\%$ longer (an extrapolated estimate, $16$--$38\%$).
+
+The second solver is GEODE-FEM (``geode-fem''), a Rust finite-element code
+on the Burn tensor framework \citep{burn}. It solves the same
+$H(\mathrm{curl})$ eigenproblem as Palace with an independent
+implementation, and it computes design derivatives: shape and material
+sensitivities of its electrostatic and driven operators, and the
+Hellmann--Feynman shape derivative of an eigenfrequency. On the
+committed DeviceLayout mesh, given as the same input file to both codes,
+geode-fem reproduces Palace's six eigenmodes above $4.5$\,GHz to
+$\leq 0.033\%$ and the qubit mode to $5\times10^{-5}\,\%$
+(Section~\ref{sec:agreement}).
+This parity is \emph{a credential, not the contribution} --- matching Palace is the price of entry --- and it is, incidentally, the first independent third-party validation of the Palace/DeviceLayout.jl transmon stack, which has no publication of its own.
+% TODO(operator): the v9 reviews and the litsearch recommend dropping "first" and "validation" in this sentence and in the last contribution (SQDMetal and Ye et al. checked Palace earlier); the wording is left for the operator.
+
+Our contributions are:
+\begin{itemize}
+  \item \textbf{A converged cross-check of a published design example.}
+    Both published geometries are meshed by DeviceLayout itself and solved
+    by both codes on a resolution ladder with first- and second-order
+    elements. Palace at DeviceLayout's discretization reproduces the
+    published pairs to under $0.7\%$; the converged estimates lie
+    $7.3\%$ and $8.7\%$ above the published qubit frequencies and $2.7\%$
+    above the resonators, outside every extrapolation band
+    (Section~\ref{sec:crosscheck}).
+  \item \textbf{Certified capacitance brackets with the sapphire tensor.}
+    A conforming upper bound and an equilibrated-flux lower bound, a
+    classical pairing applied here to an island capacitance with a
+    floating feedline, bracket the converged island capacitance of the
+    unmodified device in $[79.56, 79.76]$\,fF. Read through the junction
+    and resonator circuit they give the initial qubit at $4.45$\,GHz,
+    inside the eigenmode band, and a cap of $4.477$\,GHz. The certified
+    difference between the sapphire tensor and its scalar average is
+    $2.5$--$3.1\%$ (Section~\ref{sec:static}).
+  \item \textbf{A gradient-assisted re-optimization.} Newton steps in
+    DeviceLayout's own variables, with a Jacobian from geode-fem's
+    eigenfrequency shape derivative and a transmission-line model,
+    meet DeviceLayout's criterion in 3 Palace runs against the published
+    9, and at converged resolution move the optimized capacitor from
+    $1217.678$ to about $1446\,\mu$m, an extrapolated estimate whose band
+    spans $16$--$38\%$ over the published length
+    (Section~\ref{sec:reopt}).
+  \item \textbf{A validated sensitivity layer.} Material and geometry
+    derivatives of the electrostatic and driven $H(\mathrm{curl})$
+    operators, each checked against finite differences of the full
+    pipeline with mutation tests (Section~\ref{sec:adjoint}).
+  \item \textbf{The correctness credential.} Same-input-mesh agreement
+    with Palace on six eigenmodes and the qubit mode, with the
+    $17.49$\,GHz mode both codes share identified as an artifact of the
+    distributed port model, doubling as the first independent validation of the
+    Palace/DeviceLayout.jl stack.
+\end{itemize}
+
+Section~\ref{sec:related} places the work. Section~\ref{sec:setup}
+describes the solvers, the device and the models;
+Section~\ref{sec:agreement} the same-mesh agreement;
+Sections~\ref{sec:crosscheck}--\ref{sec:reopt} the cross-check, the
+certified capacitance and the re-optimization;
+Section~\ref{sec:adjoint} the sensitivity layer; and
+Section~\ref{sec:discussion} what is and is not established.
+Appendix~\ref{sec:appendix-supporting} reports an electrostatic design
+loop with a certified acceptance test, and
+Appendix~\ref{sec:appendix-perf} the performance context.
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Design sensitivities in finite-element electromagnetics.}
+Adjoint and direct sensitivity analysis of frequency-domain
+electromagnetic solvers is an established field. \citet{nikolova2004adjoint}
+review adjoint-variable methods for high-frequency structures across FEM,
+MoM, TLM and FDTD. On tetrahedral vector elements, Webb and coworkers
+derived design sensitivities with high-order vector elements and of the
+frequency response, and used them to optimize microwave devices
+\citep{webb2001design,webb2002design,nair2003optimization}, and continuum
+shape sensitivity for high-frequency devices has been formulated as well
+\citep{choi2011generalized}. Shape adjoints for Maxwell cavity eigenvalues
+were developed for accelerator cavities, for shape optimization
+\citep{akcelik2005adjoint} and for inverse shape determination of
+deformed cavities \citep{akcelik2008shape}, and a recent study
+optimizes Maxwell eigenvalues by shape variations with hand-derived
+adjoint gradients \citep{herter2026numerical}. Commercial solvers expose
+derivatives: HFSS computes analytic S-parameter derivatives with respect
+to geometric and material variables by reusing the forward LU factors
+\citep{ansys_hfss_derivatives,vardapetyan2008sensitivity}, and COMSOL
+offers forward and adjoint sensitivities and electromagnetic shape
+optimization \citep{comsol_sensitivity_method,jensen2022comsolshape}.
+Automated shape differentiation for general FEM exists in UFL/Firedrake
+\citep{ham2019automated} and NGSolve \citep{gangl2021fully}. Palace exposes
+no derivatives. For capacitance, adjoint sensitivities are standard in
+interconnect extraction \citep{elmoselhy2008efficient} and FEM
+\citep{ren2012computation}, and the result that the shape derivative of a
+stored-energy capacitance reduces to its explicit term is the classical
+self-adjoint case \citep{park2019continuum}. What geode-fem adds is an
+open implementation in which these derivatives come from the same element
+kernels as the solve, applied here to a qubit design loop; the methods
+are not new.
+
+\paragraph{Superconducting-qubit design optimization.}
+QDesignOptimizer \citep{eriksson2025automated} wraps
+non-differentiable simulation with physics-guided updates. The SQcircuit
+line \citep{rajabzadeh2023analysis,rajabzadeh2024general} and SuperGrad
+\citep{wang2025supergrad} differentiate at the circuit-Hamiltonian level,
+so the map from geometry to circuit parameters still runs through field
+simulation. SQuADDS \citep{shanto2024squadds} replaces simulation by
+lookup in a validated design database, and \citet{eun2023shape}
+shape-optimize transmon pads with FEM and a derivative-free global
+optimizer. Qiskit Metal's quasi-lumped methods \citep{minev2021circuit} and
+energy-participation and black-box quantization
+\citep{koch2007,nigg2012,minev2021} supply the parameter extraction. To our
+knowledge, within qubit EM design no prior work drives a layout with
+gradients from the field solve.
+
+\paragraph{Certified two-sided capacitance bounds.}
+Bracketing a capacitance between complementary energy principles is
+classical, from the analytic variational bounds of
+\citet{polya1951isoperimetric} to finite-element dual formulations
+\citep{hammond1976calculation,penman1983dual}, and in three dimensions
+\citet{specogna2011complementary} gives complementary formulations that
+bound capacitance from both sides. Our lower bound uses the hypercircle
+idea of \citet{prager1947approximations} with Raviart--Thomas fluxes
+\citep{raviart1977mixed} equilibrated patch by patch
+\citep{braess2007equilibrated,braess2009equilibrated,ern2015polynomial},
+the route of guaranteed goal-oriented bounds such as
+\citet{pares2021posteriori}. The method is not new. What we add is its
+application to an island capacitance with a floating conductor on a
+production qubit layout, used as a design-acceptance test; we found no
+certified capacitance bound in the qubit-design literature.
+
+\paragraph{Cross-checks of Palace.}
+SQDMetal \citep{sommers2025open} cross-checks a Palace workflow against
+COMSOL and Ansys with mesh-convergence studies, and
+\citet{ye2025electromagnetic} compare a Palace workflow with cryogenic
+measurement at the ${\sim}0.3\%$ level. Both use models built
+independently for each tool. Our comparison instead holds the input mesh
+and the junction model fixed and changes the solver implementation, and it
+adds a converged reference for a published design. In V\&V terms
+\citep{roache1997quantification,oberkampf2010verification} it is code
+verification and code-to-code comparison, not validation against
+measurement. Code-to-code benchmarking on precisely specified problems is
+a long tradition in computational electromagnetics
+\citep{hoffmann2009comparison}. Palace and DeviceLayout.jl have no methods
+publication \citep{palace,palace-blog,devicelayout,devicelayout-blog,devicelayout-juliacon}.
+
+\paragraph{Differentiable FEM on general tensor stacks.}
+Differentiable electromagnetics is most developed in photonics, on
+structured grids and integral methods
+\citep{molesky2018inverse,hughes2019forward,hammond2022high,schubert2022inverse,mahlau2026fdtdx,ponomareva2025torchgdm,kim2024meent}.
+Differentiable FEM on autodiff tensor stacks exists outside EM
+\citep{xue2023jax,liang2023pytorch} and for general Galerkin assembly
+\citep{wen2026learning,chi2026torch}. FEM kernel generation is a long
+tradition \citep{kirby2006compiler,alnaes2014unified,rathgeber2017firedrake,homolya2018tsfc},
+and its GPU form is libCEED \citep{brown2021libceed}, on which Palace
+runs. geode-fem phrases assembly as batched tensor algebra on a
+general-purpose ML stack \citep{ragankelley2013halide,chen2018tvm} so
+that element-level derivatives are available by construction.
+
+\section{Solvers, Device and Models}
+\label{sec:setup}
+
+\subsection{geode-fem}
+\label{sec:architecture}
+
+geode-fem assembles first-order N\'ed\'elec \citep{nedelec1980} and
+scalar P1/P2 element operators as batched $[n_{\mathrm{elem}},k,k]$ tensor
+operations on Burn, whose cubecl compiler targets CPU, CUDA and WebGPU
+from one source. Its eigensolver is shift-invert Lanczos \citep{arpack} on
+a real symmetric pencil, factorized with faer \citep{kazdadi2026faer};
+large electrostatic solves use conjugate gradients with an
+algebraic-multigrid preconditioner in native f64. Autodiff reaches
+everything up to the linear solve. The sparse factorization is outside
+the tape, so a discrete-adjoint layer supplies the missing derivative with
+one transpose solve on the same factorization
+(Section~\ref{sec:adjoint}). The eigenfrequency derivative used in
+Section~\ref{sec:reopt} needs no adjoint solve, because the pencil is
+symmetric: for a simple eigenpair $(\lambda, x)$ with $x^{\mathsf T}Mx =
+1$,
+\begin{equation}
+  \frac{d\lambda}{d\theta} \;=\;
+  x^{\mathsf T}\Bigl(\frac{\partial K}{\partial\theta}
+  - \lambda\,\frac{\partial M}{\partial\theta}\Bigr)x ,
+  \label{eq:hf-eig}
+\end{equation}
+the Hellmann--Feynman (Nelson) formula \citep{nelson1976simplified}. geode-fem
+evaluates the element derivatives $\partial K/\partial\theta$ and
+$\partial M/\partial\theta$ by forward-mode dual numbers through the same
+tensor-permittivity element kernels it assembles, along a node velocity
+$\partial X/\partial\theta$.
+
+\subsection{Device, mesh and materials}
+\label{sec:geometry}
+
+The device is DeviceLayout.jl v1.15.0's SingleTransmon example
+\citep{devicelayout}: a transmon with a meander readout resonator and a
+feedline on sapphire, in a vacuum box (Figure~\ref{fig:geometry}). Its two
+design parameters are the transmon's \texttt{capacitor\_length} $c$ and the
+resonator's \texttt{total\_length} $L$; the published initial design has
+$c = 620\,\mu$m and $L = 5000\,\mu$m. The sapphire permittivity is
+$\mathrm{diag}(9.3, 9.3, 11.5)$ with the optic axis normal to the chip.
+The configuration rotates the material axes about the chip normal by
+about $36.87^\circ$; for a uniaxial tensor whose optic axis is that normal
+the rotation is the identity, so the lab tensor is diagonal. Where a
+scalar model is used it is the trace average $\bar\varepsilon = 10.03$.
+
+Two mesh families appear. The committed fixture is DeviceLayout's mesh of
+the initial design (22{,}684 nodes, 133{,}314 tetrahedra), pinned by
+SHA-256; Section~\ref{sec:agreement} and the capacitance brackets of
+Section~\ref{sec:static} use it and its refinements, which leave its
+polygonal surfaces unchanged. For the cross-check and the
+re-optimization, DeviceLayout itself meshes each geometry with the two
+parameters exposed, at first order for the ladders and at its own second
+order for the runs that reproduce its discretization. On the initial
+geometry the two families give the same Palace qubit at $h$ ($3.4527$
+against $3.4520$\,GHz). PEC is applied on the metal sheets and the box;
+the readout ports are left open in every eigenproblem except the
+DeviceLayout-configuration runs of Section~\ref{sec:crosscheck}.
+
+\begin{figure}[tbp]
+  \centering
+  \anvilfig{fig1-geometry.pdf}{fig1\_geometry.py}
+  \caption{Benchmark geometry, drawn from the committed SHA-256-pinned
+  MSH~4.1 input mesh of the DeviceLayout.jl v1.15.0
+  \texttt{SingleTransmon} device. (a) Top view of the three node-disjoint
+  metal conductors of Section~\ref{sec:static}: the feedline (teal), the
+  qubit island (blue), and the ground plane together with the meander
+  readout resonator (gray), whose etched gaps are drawn as dark
+  outlines. Squares mark the two readout ports; the dashed line is the
+  exterior-boundary outline. (b) The $1\times1\,\mu$m junction
+  \texttt{lumped\_element} sheet with its four-triangle triangulation.
+  (c) Material cross-section, schematic and not to scale; the
+  \texttt{substrate} and \texttt{vacuum} volume groups fill the enclosing
+  box. Both solvers read this file (22{,}684 nodes; 133{,}314
+  tetrahedra); Palace then refines it internally around the metal sheets
+  (Section~\ref{sec:agreement}).}
+  \label{fig:geometry}
+\end{figure}
+
+\subsection{Junction and circuit models}
+\label{sec:junction}
+
+The Josephson junction is a linear lumped element, $L_J = 14.860$\,nH in
+parallel with $C_J = 5.5$\,fF, on the four-triangle sheet $\Gamma$ of
+Figure~\ref{fig:geometry}b, exactly as in DeviceLayout's Palace
+configuration. With port length $\ell$ and width $w$ the uniform
+lumped-port construction adds
+\begin{equation}
+  K_{\mathrm{port}} = \frac{\ell}{w\,L_J}\, S_\Gamma
+  \qquad\text{and}\qquad
+  M_{\mathrm{port}} = \frac{C_J\,\ell}{w}\, S_\Gamma
+  \label{eq:port}
+\end{equation}
+to the pencil $(K + K_{\mathrm{port}})x = \omega^2(M + M_{\mathrm{port}})x$,
+where $S_\Gamma$ is the isotropic surface matrix on $\Gamma$. Palace's
+\texttt{LumpedPort} adds the same terms with the same scalings, so the
+default models of the two codes coincide. The isotropic sheet also stores
+energy in a zero-voltage field pattern confined to the patch, which
+produces a mode at $17.49$\,GHz in both codes
+(Section~\ref{sec:agreement}). geode-fem's rank-1 port-voltage shunt
+replaces $S_\Gamma$ by $b\,b^{\mathsf T}$, with $b_i = (1/w)\int_\Gamma
+N_i\cdot\hat e\,dS$ the port-voltage functional. It removes that mode and
+keeps the others to four decimals on the fixture, and it is the junction
+model of every geode-fem eigensolve in Sections~\ref{sec:crosscheck}
+and~\ref{sec:reopt}.
+
+The electrostatic model splits the metal into three conductors: ground
+with the resonator, the floating feedline, and the island. Its island
+capacitance with the feedline floating and neutral,
+$C_\Sigma = C_{ii} - C_{if}^2/C_{ff}$, excludes $C_J$. A two-node circuit
+connects it to the eigenproblem: a bare qubit
+$1/(2\pi\sqrt{(L_J + L_s)(C_\Sigma + C_J)})$, with $L_s$ the series
+inductance of the junction's current path, coupled with coefficient $k$
+to the resonator. On the fixture $L_s$ and $k$ were measured on three and
+two discretizations; extrapolated, they give bands of
+$0.113$--$0.125$\,nH and $0.0227$--$0.0310$, which are estimates, not
+bounds.
+
+\section{Same-Input-Mesh Agreement With Palace}
+\label{sec:agreement}
+
+Both codes read the committed fixture with the same materials and
+junction model at first order. Table~\ref{tab:agreement} gives the
+result. Palace returns the qubit mode only when its search target lies
+below it, because its eigensolver searches above the target (read from
+Palace's source and configuration schema); the six
+modes above $4.5$\,GHz come from a run with \texttt{Target}~$=4.5$\,GHz
+and the qubit from one with \texttt{Target}~$=2$\,GHz. All six agree to
+$\leq 0.033\%$ (worst case $0.032\%$), and the qubit mode to
+$5\times10^{-5}\,\%$, with port participation $0.9942$ in geode-fem and
+port EPR $0.99424$ in Palace. Doubling $L_J$ moves the qubit by a ratio of
+$0.70810$ in Palace and $0.7081$ in geode-fem, close to $1/\sqrt2$, and a
+Palace rerun from the committed configuration reproduces its
+\texttt{eig.csv} bit for bit.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Eigenmode agreement from the identical input mesh (22{,}684
+  nodes, 133{,}314 tetrahedra), first order in both solvers, junction as
+  the lumped $L_J \parallel C_J$ shunt. geode-fem solves $156{,}863$
+  N\'ed\'elec unknowns ($133{,}108$ interior); Palace refines the mesh
+  internally around the metal sheets and solves $183{,}891$. geode-fem
+  frequencies are the committed three decimals (six for the qubit), and
+  $\Delta$ is the committed relative difference. These are same-mesh
+  values, not converged frequencies. Source:
+  \texttt{benchmarks/transmon\_eigen/results.toml}.}
+  \label{tab:agreement}
+  \small
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Mode & & geode-fem (GHz) & Palace (GHz) & $\Delta$ (\%) \\
+    \midrule
+    qubit & transmon qubit & 3.452751 & 3.452749306805 & 0.00005 \\
+    resonator & readout resonator & 5.153 & 5.151335830348 & 0.032 \\
+    mode 2 & box/cavity & 15.465 & 15.46052107794 & 0.029 \\
+    port sheet & port-sheet artifact & 17.490 & 17.49010903536 & 0.001 \\
+    mode 4 & box/cavity & 18.693 & 18.69165792915 & 0.007 \\
+    mode 5 & box/cavity & 20.703 & 20.69755679425 & 0.026 \\
+    mode 6 & box/cavity & 26.088 & 26.08089940472 & 0.027 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The $17.49$\,GHz mode needs care, and its explanation below is an
+inference that a synthetic test supports. In geode-fem all its stiffness energy is
+in the port term ($p = 1.000$), while Palace, which builds its port EPR
+from the port voltage, gives it $2.49\times10^{-8}$; its energy sits in a
+surface pattern with zero net voltage. The junction patch has one free
+node, whose hat-function gradient carries no port voltage but still
+stores energy in the isotropic sheet term, with Rayleigh quotient
+$1/(L_JC_J)$, or $f_{LC} = 17.60$\,GHz, lowered to $17.49$\,GHz by the
+adjacent volume mass. A two-terminal junction cannot carry that pattern.
+Its $0.001\%$ agreement therefore tests that the two codes assemble the
+same port operator and nothing more, and the rank-1 shunt of
+Section~\ref{sec:junction} removes the mode.
+
+The fixture is coarse. Palace's own refinements of it move the qubit from
+$3.4527$\,GHz to $3.9528$\,GHz at $h/2$ ($+14.5\%$) and to $4.1721$\,GHz
+at second order on $h$ ($+20.8\%$), and the resonator by $+6.1\%$ at
+$h/2$. The agreement above is code verification on one discretization;
+Section~\ref{sec:crosscheck} supplies the converged numbers.
+
+\section{The DeviceLayout Cross-Check}
+\label{sec:crosscheck}
+
+\paragraph{The published designs.}
+The DeviceLayout.jl blog \citep{devicelayout-blog} reports the initial
+design ($c = 620\,\mu$m, $L = 5000\,\mu$m) at $[4.14, 5.591]$\,GHz and
+the final design ($c = 1217.678\,\mu$m, $L = 7243.955\,\mu$m) at
+$[3.005, 3.982]$\,GHz, reached by the derivative-free PRIMA optimizer in
+nine Palace runs ``within 1\% of our target frequencies''. The example
+source \citep{devicelayout-example} sets the targets to $[3.0, 4.0]$\,GHz,
+works in the variables $x_1 = \sqrt{620\,\mu\mathrm{m}/c}$ and $x_2 =
+5000\,\mu\mathrm{m}/L$, and stops when $\mathrm{err} = \frac12\sum_m
+(f_m - t_m)^2/t_m^2 < 10^{-4}$. Its frequencies are computed with Palace
+on DeviceLayout's mesh at mesh order 2 and solver order 2, with a
+first-order absorbing far field and two $50\,\Omega$ readout ports.
+
+\paragraph{Reproduction at DeviceLayout's discretization.}
+Palace, run on DeviceLayout's second-order mesh with the example's
+configuration file, gives $[4.1683, 5.6132]$\,GHz for the initial design
+and $[3.0164, 3.9956]$\,GHz for the final one, $0.68\%$ and $0.40\%$
+above the published initial pair and $0.38\%$ and $0.34\%$ above the
+final pair. The same cells with the PEC-box model used everywhere else
+differ from the configuration-file runs by at most $0.003\%$, so the
+boundary model does not matter here.
+
+\paragraph{The ladder.}
+For each geometry, Palace runs at order 1 on DeviceLayout's first-order
+mesh $h$ and its uniform refinements $h/2$ and $h/4$ (up to
+$12.6$ million unknowns), and at order 2 on $h$ and $h/2$; geode-fem runs
+at order 1 on $h$ and $h/2$, on the same meshes. Every series rises
+under refinement (Figure~\ref{fig:crosscheck}). The sheet-edge
+singularity of the field, $E \sim r^{-1/2}$, limits the asymptotic
+eigenvalue rate on uniform meshes to $O(h)$ at any element order; the
+order-1 ladders show pre-asymptotic orders of $0.61$ (qubit) and
+$0.70$--$0.73$ (resonator).
+
+\paragraph{Extrapolation rule.}
+The \emph{estimate} is the mean of two extrapolations at the asymptotic
+order 1 in the frequency, $2f_2 - f_1$: one from the order-1 pair
+($h/2$, $h/4$) and one from the order-2 pair ($h$, $h/2$). The
+\emph{band} spans six values: those two; the same pairs extrapolated at
+order 1 in the eigenvalue variable $\lambda\propto f^2$,
+$\sqrt{2f_2^2 - f_1^2}$, which set the low side; and the same pairs at the
+observed order, which set the high side. The band is an extrapolation
+range, not a bound, and its high side is kept wide on purpose. For the
+initial qubit, the static route of Section~\ref{sec:static} caps the
+band at $4.477$\,GHz. The rule was fixed after the static route had been
+computed: extrapolation at the observed order alone, the rule used
+before, puts the initial qubit at $4.63$\,GHz, above the certified cap,
+and the observed-order values are kept only as the band's high side. The
+agreement of the two routes is therefore a consistency check, not a blind
+prediction.
+
+\begin{figure}[tbp]
+  \centering
+  \anvilfig{fig2-crosscheck.pdf}{fig2\_crosscheck.py}
+  \caption{Resolution ladders of the two published DeviceLayout.jl
+  SingleTransmon designs. Palace at order 1 on DeviceLayout's mesh $h$
+  and its uniform refinements, Palace at order 2, and geode-fem at order 1
+  on the same meshes (crosses, on top of Palace's order-1 points); the
+  open diamond is Palace on DeviceLayout's own second-order mesh with its
+  configuration file, the discretization of the published values (dashed).
+  At the right, the converged estimate with its extrapolation band, which
+  is not a bound. In (a), the static route of Section~\ref{sec:static}
+  (certified capacitance bracket read through the junction--resonator
+  circuit) and the circuit cap from the certified lower bound. Source:
+  \texttt{benchmarks/transmon\_devicelayout\_crosscheck/results.toml}.}
+  \label{fig:crosscheck}
+\end{figure}
+
+\begin{table}[tbp]
+  \centering
+  \caption{Published frequencies, Palace at DeviceLayout's discretization,
+  and the converged estimates with their extrapolation bands, in GHz.
+  Percentages are relative to the published value. The estimates and bands
+  are extrapolations, not bounds. Source:
+  \texttt{benchmarks/transmon\_devicelayout\_crosscheck/results.toml}.}
+  \label{tab:crosscheck}
+  \small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & Published & At DeviceLayout's discretization & Converged estimate & Band \\
+    \midrule
+    Initial qubit & 4.14 & 4.1683 ($+0.68\%$) & 4.444 ($+7.3\%$) & $[4.415, 4.677]^{\ast}$ \\
+    Initial resonator & 5.591 & 5.6132 ($+0.40\%$) & 5.740 ($+2.7\%$) & $[5.723, 5.817]$ \\
+    Final qubit & 3.005 & 3.0164 ($+0.38\%$) & 3.265 ($+8.7\%$) & $[3.236, 3.471]$ \\
+    Final resonator & 3.982 & 3.9956 ($+0.34\%$) & 4.088 ($+2.7\%$) & $[4.077, 4.139]$ \\
+    \bottomrule
+  \end{tabular}
+
+  \smallskip
+  {\footnotesize $^{\ast}$Capped at $4.477$\,GHz by the static route of
+  Section~\ref{sec:static}: $[4.415, 4.477]$.}
+\end{table}
+
+\paragraph{Result.}
+Table~\ref{tab:crosscheck} gives the converged estimates. The initial
+qubit converges to $4.444$\,GHz and the final qubit to $3.265$\,GHz,
+$7.3\%$ and $8.7\%$ above the published values; both resonators converge
+$2.7\%$ above theirs. Every published value lies below its band. Measured
+against the estimates, DeviceLayout's discretization sits $6.2\%$ and
+$7.6\%$ low on the two qubits and $2.2\%$ and $2.3\%$ low on the
+resonators, and the first-order mesh $h$ alone sits $22.3\%$ and $26.7\%$
+low on the qubits.
+
+\paragraph{Same-mesh agreement on the ladder.}
+geode-fem and Palace agree on the qubit to $10^{-4}\,\%$ at every shared
+level of both geometries. On the resonator they differ by $0.03\%$ at
+$h$, where Palace adds $4{,}946$ (initial) and $5{,}944$ (final) elements
+by local bisection of interior boundary tetrahedra, and by $0.0000\%$ at
+$h/2$, where no bisection occurs and both codes solve the same discrete
+problem. Rerunning one cell with AMS in place of SuperLU, or feeding
+geode-fem a format round-trip of the mesh, reproduces the same values.
+
+\paragraph{Scope.}
+The converged values are estimates for DeviceLayout's geometry under the
+PEC-box, linear-junction model, from one mesh family per geometry refined
+uniformly; the band does not include mesh-family spread. They are not a
+statement about a fabricated device.
+
+\section{A Static Route: Certified Island Capacitance}
+\label{sec:static}
+
+\paragraph{The certificate.}
+For the reduced electrostatic problem (island at potential 1, ground and
+resonator at 0, feedline floating with zero net charge), the potential
+$\phi$ satisfies $0 \le \phi \le 1$ by the maximum principle, and
+$C_\Sigma = \int \varepsilon\,\nabla\phi\cdot\nabla\phi$ with $\varepsilon
+= \varepsilon_0\varepsilon_r$. Every conforming finite-element energy is an
+upper bound on $C_\Sigma$, because $C_\Sigma$ is the minimum of the energy
+over admissible potentials. For the lower bound, take any piecewise
+polynomial field $D$ on the mesh cut along the zero-thickness sheets.
+Integrating by parts and using $0\le\phi\le1$ on every term gives
+\begin{equation}
+  \int D\cdot\nabla\phi \;\ge\; N(D) \;=\; Q_{\mathrm{island}}(D)
+  - \lvert Q_{\mathrm{feed}}(D)\rvert
+  - \lVert \operatorname{div} D\rVert_{L^1}
+  - \lVert [D\cdot n]\rVert_{L^1(\mathcal F)},
+  \label{eq:cert-n}
+\end{equation}
+where $Q$ are the fluxes of $D$ into the two conductors and
+$[D\cdot n]$ is the normal jump on the interior faces $\mathcal F$ off
+the sheets. Cauchy--Schwarz, $\bigl(\int D\cdot\nabla\phi\bigr)^2 \le
+\int D\cdot\varepsilon^{-1}D \int\varepsilon\nabla\phi\cdot\nabla\phi$,
+then gives, whenever $N(D) > 0$,
+\begin{equation}
+  C_\Sigma \;\ge\; \frac{N(D)^2}{\int D\cdot\varepsilon^{-1}D}.
+  \label{eq:cert}
+\end{equation}
+The bound holds for any $D$, so solver tolerance can only weaken it. We
+take $D$ from the P2 potential, equilibrated patch by patch into
+Raviart--Thomas fluxes of order one to three, with an independent
+Crouzeix--Raviart flux as a check. The construction is validated against
+an exact parallel plate, an analytic coaxial bracket and closed-form
+checks of each term, with mutation tests that reject a grounded-feedline
+or jump-free certificate. \emph{Certified} in this paper means rigorous
+for the discrete polygonal geometry of the mesh, with lower bounds
+floored and upper bounds ceiled. The certificate is evaluated in plain
+f64, not interval arithmetic; the worst-case summation error is about
+$10^{-10}$ relative, far below the rounding. Refinement does not move the
+polygonal surfaces, so all meshes of one geometry bound the same
+converged value, and a family bracket is the largest lower bound and the
+smallest upper bound.
+
+\paragraph{The unmodified device.}
+Uniform refinement of the fixture with P1 and P2 elements gives the upper
+bounds of Table~\ref{tab:convergence}. On adaptively refined meshes the
+certificate closes the gap: the converged island capacitance of the
+unmodified initial design $X^0$ lies in $[77.40, 77.61]$\,fF with the
+scalar $\bar\varepsilon$ and in $[79.56, 79.76]$\,fF with the sapphire
+tensor (Figure~\ref{fig:convergence}). The certified tensor-minus-scalar
+difference is $1.95$--$2.35$\,fF, or $2.5$--$3.1\%$ of the scalar value,
+and the same relative range holds for the two designs of
+Appendix~\ref{sec:appendix-supporting}. The committed mesh overstates the
+tensor $C_\Sigma$ by at least $56.92$\,fF, which is at least $71.3\%$ of
+the converged value, and the scalar one by at least $77.4\%$.
+
+\begin{table}[tbp]
+  \centering
+  \caption{The island capacitance $C_\Sigma$ (fF) of the unmodified device
+  $X^0$ on uniform refinements of the committed mesh, and the certified
+  brackets of its converged value from adapted meshes. Each uniform entry is
+  a conforming energy and therefore an upper bound. Sources:
+  \texttt{c\_sigma\_convergence.toml}, \texttt{c\_sigma\_bracket.toml} and
+  \texttt{c\_sigma\_bracket\_tensor.toml} in
+  \texttt{benchmarks/transmon\_diffopt/}.}
+  \label{tab:convergence}
+  \small
+  \begin{tabular}{@{}lrrrrr@{}}
+    \toprule
+    Level & Tetrahedra & P1, scalar & P2, scalar & P1, tensor & P2, tensor \\
+    \midrule
+    $h$   & $133{,}314$     & $137.706752$ & $90.044141$ & $136.684731$ & $91.717846$ \\
+    $h/2$ & $1{,}066{,}512$ & $101.359397$ & $83.015285$ & $102.375301$ & $85.008425$ \\
+    $h/4$ & $8{,}532{,}096$ & $87.753422$  & n/a         & $89.493342$  & n/a \\
+    \midrule
+    \multicolumn{2}{@{}l}{Certified converged value} & \multicolumn{2}{c}{$[77.40, 77.61]$} & \multicolumn{2}{c}{$[79.56, 79.76]$} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[tbp]
+  \centering
+  \anvilfig{fig3-convergence.pdf}{fig3\_convergence.py}
+  \caption{Mesh convergence of the island capacitance $C_\Sigma$ of the
+  unmodified device under uniform refinement of the committed mesh
+  (Table~\ref{tab:convergence}), with the scalar trace-averaged
+  permittivity and with the sapphire tensor. Every marker is a conforming
+  upper bound on the converged value of the committed polygonal geometry.
+  The bars are the certified two-sided brackets from adapted meshes, drawn
+  at the size of the mesh that sets them and magnified in the inset; the
+  inset title gives the certified tensor-minus-scalar gap. Sources:
+  \texttt{c\_sigma\_convergence.toml}, \texttt{c\_sigma\_bracket.toml}
+  and \texttt{c\_sigma\_bracket\_tensor.toml}.}
+  \label{fig:convergence}
+\end{figure}
+
+\paragraph{From capacitance to the qubit frequency.}
+Reading the certified tensor bracket through the two-node circuit of
+Section~\ref{sec:junction}, over every corner of the $C_\Sigma$, $L_s$ and
+$k$ bands, with the resonator at its converged estimate, gives the
+initial dressed qubit in $[4.449, 4.458]$\,GHz. That range lies inside the
+eigenmode band of Section~\ref{sec:crosscheck}, and the eigenmode estimate
+is $0.22\%$ below its midpoint. Because the extrapolation rule was chosen
+after this range was known (Section~\ref{sec:crosscheck}), the $0.22\%$
+is a consistency check, not an independent prediction. The range is an estimate, because $L_s$ and
+$k$ are. One statement is sharper. A series inductance and a coupling to
+a higher mode can only lower the qubit, so under the circuit model the
+certified lower bound $C_\Sigma \ge 79.56$\,fF caps it at
+$1/(2\pi\sqrt{L_J(C_\Sigma + C_J)}) = 4.477$\,GHz. The cap trims the high side of the
+eigenmode band, which comes from extrapolation at the observed
+pre-asymptotic order ($4.677$\,GHz). The cap does not depend on the
+extrapolation rule, and the finest computed levels, Palace at order 2
+on $h/2$, already lie $4.1\%$ and $4.7\%$ above the published initial
+and final qubit values. Two
+caveats apply: the bracket is certified on the fixture, which an
+earlier generator produced from the same DeviceLayout geometry, not on
+the meshes of the ladder; and the circuit is a model of the full-wave
+problem.
+
+\section{Gradient-Assisted Re-Optimization}
+\label{sec:reopt}
+
+The cross-check says that the published final design does not meet its
+targets at converged resolution. We repeat DeviceLayout's optimization
+twice: once against its own discretization, to compare cost with the
+published run, and once against converged frequencies.
+
+\paragraph{The capacitor\_length gradient.}
+DeviceLayout keeps the junction fixed and builds the island upward from
+it, so a change of $c$ translates every node above the island rigidly,
+stretches the island band and re-centres the box. geode-fem turns this
+motion into a node velocity $\partial X/\partial c$, checks on the mesh
+that every metal outline node in a stretched or blended band lies on an
+edge the motion maps onto itself ($3{,}146$ nodes on the initial mesh),
+and evaluates Eq.~\eqref{eq:hf-eig} with the sapphire tensor for both
+modes. The contraction takes $0.44$\,s. On the initial mesh it matches a
+central difference of two re-solves of the moved mesh ($\pm0.5\,\mu$m) to
+every printed digit: $-2.443227\times10^{-3}$\,GHz/$\mu$m for the qubit
+and $-3.964\times10^{-6}$\,GHz/$\mu$m for the resonator.
+
+\paragraph{The total\_length column.}
+DeviceLayout re-lays the meander when $L$ changes, so no fixed-topology
+node motion represents it. A transmission-line model holds
+$f_r(L+\delta)$ constant, with $\delta = 216\,\mu$m from one finite
+difference of two DeviceLayout meshes ($L = 5000$ and $5250\,\mu$m), and
+takes $\partial f_q/\partial L = 0$. $\delta$ is weakly determined:
+remesh noise of about $0.15\%$ in either $f_r$ moves it by about
+$\pm175\,\mu$m (recomputed from the two committed frequencies), and a
+second estimate gives about $363\,\mu$m. The model enters
+only the Jacobian, and every iterate is evaluated on the true objective,
+so a poorer Jacobian costs steps, not accuracy.
+
+\paragraph{Newton on the high-fidelity objective.}
+DeviceLayout re-meshes every design, so the first-order objective is not
+smooth in the parameters: from $c = 620$ to $650\,\mu$m the remeshed finite
+difference of the qubit frequency is $-5.23\times10^{-3}$\,GHz/$\mu$m,
+against a fixed-topology derivative of $-2.28\times10^{-3}$. The iteration
+therefore runs Newton directly on the high-fidelity objective $F$, in
+DeviceLayout's variables $(x_1, x_2)$, in which the frequencies are close
+to linear. The $c$ column of its Jacobian is geode-fem's first-order
+derivative scaled by the measured fidelity ratio $S = F/f_h$ at the same
+design. Each step costs one geode-fem first-order solve with its
+gradient ($19$--$25$\,s) and one high-fidelity evaluation; the one-time
+$\delta$ calibration is setup and is not counted.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Newton iterates against DeviceLayout's discretization (Palace on
+  its second-order mesh with its configuration file). Step~0 is the
+  initial design. err is DeviceLayout's measure against $[3.0, 4.0]$\,GHz;
+  its criterion is $10^{-4}$. Source:
+  \texttt{benchmarks/transmon\_devicelayout\_optimize/results.toml}.}
+  \label{tab:newton-dl}
+  \small
+  \begin{tabular}{@{}rccccc@{}}
+    \toprule
+    Step & $c$ ($\mu$m) & $L$ ($\mu$m) & $f_q$ (GHz) & $f_r$ (GHz) & err \\
+    \midrule
+    0 & 620.000 & 5000.000 & 4.1683 & 5.6132 & $1.6\times10^{-1}$ \\
+    1 & 1338.338 & 7137.638 & 2.8859 & 4.0465 & $7.9\times10^{-4}$ \\
+    2 & 1225.346 & 7223.250 & 3.0120 & 4.0009 & $8.0\times10^{-6}$ \\
+    3 & 1236.360 & 7224.900 & 3.0013 & 4.0011 & $1.4\times10^{-7}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Against DeviceLayout's discretization.}
+Table~\ref{tab:newton-dl} lists the iterates. The run meets DeviceLayout's
+criterion at step~2, after 3 Palace runs counting the initial one as
+DeviceLayout does, against PRIMA's 9; the three geode-fem solves add about
+$70$\,s, against about $4$\,min per Palace run on 32 ranks
+(Figure~\ref{fig:reopt}b). Step~3 reaches $\mathrm{err} =
+1.4\times10^{-7}$ at $(1236.360, 7224.900)\,\mu$m, $+18.7$ and
+$-19.1\,\mu$m from the published $(1217.678, 7243.955)\,\mu$m. About
+$+10\,\mu$m of the $c$ offset is the Palace build: ours gives
+$[3.0164, 3.9956]$\,GHz at the published final design, against the
+published $[3.005, 3.982]$\,GHz. The rest is where PRIMA stopped; its
+published pair sits $0.17\%$ and $0.45\%$ from the targets, inside its
+$1\%$ rule. The comparison is with PRIMA's published run count, not with
+its trajectory, which is not published.
+
+\paragraph{Against the converged frequencies.}
+Starting from the published final design, whose converged estimate is
+$3.265$ and $4.088$\,GHz, each Newton step uses the converged estimate and the geode-fem
+gradient at the current design, and each new design is evaluated by a
+full ladder (Palace at order 1 on $h$, $h/2$, $h/4$ and order 2 on $h$,
+$h/2$, geode-fem at order 1 on $h$, $h/2$) with the rule of
+Section~\ref{sec:crosscheck}. Table~\ref{tab:newton-conv} gives the two
+steps. The first overshoots the qubit by $-1.09\%$; the second lands at
+$+0.16\%$ and $-0.04\%$ of the targets, with both targets inside the
+bands. On both ladders geode-fem and Palace agree on the qubit to
+$2\times10^{-4}\,\%$.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Newton steps against the converged frequencies. Each design is
+  evaluated by a full resolution ladder; the converged values are
+  estimates with extrapolation bands, not bounds. Source:
+  \texttt{benchmarks/transmon\_devicelayout\_optimize/results.toml}
+  and, for the published final design,
+  \texttt{benchmarks/transmon\_devicelayout\_crosscheck/results.toml}.}
+  \label{tab:newton-conv}
+  \small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    Design & $c$ ($\mu$m) & $L$ ($\mu$m) & $f_q$ [band] (GHz) & $f_r$ [band] (GHz) \\
+    \midrule
+    Published final & 1217.678 & 7243.955 & 3.265 $[3.236, 3.471]$ & 4.088 $[4.077, 4.139]$ \\
+    Step 1 & 1481.657 & 7407.945 & 2.967 $[2.938, 3.188]$ & 4.004 $[3.993, 4.055]$ \\
+    Step 2 & 1446.078 & 7416.352 & 3.005 $[2.979, 3.221]$ & 3.998 $[3.987, 4.067]$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{The converged design.}
+At converged resolution the $3.0$/$4.0$\,GHz design needs a substantially
+longer capacitor than the published one: the point estimate is
+$c \approx 1446\,\mu$m, $+19\%$ ($+228\,\mu$m), with a resonator $2.4\%$
+longer ($+172\,\mu$m). Mapped linearly through $dF/dc \approx
+S\,\partial f_h/\partial c = -9.05\times10^{-4}$\,GHz/$\mu$m, the
+slope at the step-1 design where step~2 started, and centred on the
+step-2 estimate of $3.005$\,GHz, the step-2 qubit band corresponds to
+$c$ between about $1418$ and $1685\,\mu$m, $+16\%$ to $+38\%$. The point estimate probably leans low:
+the order-1 and order-2 series share a limit at order $0.87$ (qubit) and
+$0.84$ (resonator), which puts step~2 at $3.039$ and $4.019$\,GHz,
+$+1.3\%$ and $+0.5\%$ over the targets, so the converged design is
+probably at or above the point-estimate $c$. Step~2 therefore lands on
+the targets within the band; it is not a verified hit of $3.0$/$4.0$\,GHz
+at convergence. Each ladder took $1.4$ and $1.6$\,h of Palace wall time,
+dominated by the order-2 $h/2$ cell.
+
+\begin{figure}[tbp]
+  \centering
+  \anvilfig{fig4-reoptimization.pdf}{fig4\_reoptimization.py}
+  \caption{The gradient-assisted re-optimization. (a) The design plane near
+  the optimum: the published final design, the Newton iterates against
+  DeviceLayout's discretization (numbered; the first step starts from the
+  initial design, off the plot), and the two steps against the converged
+  frequencies, with the step-2 qubit band mapped linearly to
+  capacitor\_length (an estimate). (b) DeviceLayout's err against the
+  number of Palace runs at its discretization; PRIMA's published end point
+  is plotted at its 9 runs, with err computed from the published
+  frequencies, since its trajectory is not published. (c, d) Converged
+  estimates and extrapolation bands of the published final design and the
+  two converged-target steps, against the targets. Sources:
+  \texttt{benchmarks/transmon\_devicelayout\_optimize/} and
+  \texttt{benchmarks/transmon\_devicelayout\_crosscheck/results.toml}.}
+  \label{fig:reopt}
+\end{figure}
+
+\section{The Sensitivity Layer}
+\label{sec:adjoint}
+
+For a solve $A(\varepsilon, X)\,x = b(X)$ and an observable $g(x)$, the
+discrete adjoint $A^{\mathsf T}\lambda = \partial g/\partial x$ gives
+\begin{equation}
+  \frac{dg}{d\varepsilon_k}
+    = -\lambda^{\mathsf T}\frac{\partial A}{\partial \varepsilon_k}x,
+  \qquad
+  \frac{dg}{dX}
+    = \lambda^{\mathsf T}\frac{\partial b}{\partial X}
+      - \lambda^{\mathsf T}\frac{\partial A}{\partial X}x ,
+  \label{eq:adjoint}
+\end{equation}
+and in the complex driven case $2\,\mathrm{Re}[\cdot]$ of the same
+contractions with the transpose solve, since the pencil is
+complex-symmetric. The element Jacobians are exact, computed by
+forward-mode dual numbers through the production kernels, and each
+gradient costs one forward and one adjoint solve on one factorization.
+Table~\ref{tab:adjoint-matrix} lists the four modules. Each has a test
+against a central difference of the full pipeline (perturb, re-assemble,
+re-solve, re-extract) and mutation tests: the conjugation error
+$A^{\mathsf H}$ for $A^{\mathsf T}$ and a dropped term both fail. In the
+driven shape case the source $b = \mathrm{i}\omega\mu_0\int N\cdot J$
+depends on the geometry, and omitting $\partial b/\partial X$ fails the
+check.
+
+\begin{table}[tbp]
+  \centering
+  \caption{The discrete-adjoint sensitivity layer. Each cell: one forward
+  and one adjoint solve on one factorization, exact element Jacobians, and
+  the observed agreement with a central finite difference of the full
+  pipeline. Modules in \texttt{crates/geode-core/src/}.}
+  \label{tab:adjoint-matrix}
+  \footnotesize
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    Operator & Parameter & Module & FD rel-err \\
+    \midrule
+    scalar electrostatic (SPD) & material $\partial/\partial\varepsilon$ &
+      \texttt{adjoint} & ${\sim}3\times10^{-8}$ \\
+    scalar electrostatic (P1) & geometry $\partial/\partial X$ &
+      \texttt{shape} & ${\sim}1\times10^{-9}$ \\
+    driven $H(\mathrm{curl})$ & material $\partial/\partial\varepsilon$ &
+      \texttt{driven::adjoint} & $2.3\times10^{-5}$ (worst region) \\
+    driven $H(\mathrm{curl})$ & geometry $\partial/\partial X$ &
+      \texttt{driven::shape} & $2.2\times10^{-9}$, $1.2\times10^{-8}$ (two maps) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+For the capacitance $C = \phi^{\mathsf T}K(X)\phi$ the stored energy is
+stationary in the solved potential, so the implicit term vanishes and
+$dC/dX = \phi^{\mathsf T}(\partial K/\partial X)\phi$, the classical
+self-adjoint result \citep{park2019continuum}. The implementation keeps
+the general adjoint form, and its test measures the implicit part below
+$10^{-8}$ of the total. Composed with $E_C = e^2/(2(C_\Sigma + C_J))$,
+this gives $\partial E_C/\partial X$. On a parallel-plate fixture Newton
+reaches a target $E_C$ in one step, as expected for its affine
+parameterization, and a fresh solve reproduces the target to
+$1.4\times10^{-15}$. Appendix~\ref{sec:appendix-supporting} applies the
+same identity, in a native-f64 P2 implementation outside the Burn tape,
+to a three-parameter electrostatic optimization of the real device. The
+eigenfrequency derivative of Section~\ref{sec:reopt} is the analogous
+stationarity result for the eigenproblem.
+
+\section{Reproducibility}
+\label{sec:repro}
+
+Every result in this paper is read from a committed, scripted
+artifact.\footnote{Repository URL and archival DOI for the geode-fem
+source to be added at submission. TODO(operator).}
+Table~\ref{tab:artifacts} lists them. The versions are geode-fem commit
+\texttt{3174015} for the same-mesh credential and later commits named in
+each artifact, Palace \texttt{fba6a5b}, DeviceLayout.jl v1.15.0 and
+Burn 0.21. The DeviceLayout ladders ran on an AWS \texttt{r8g.8xlarge}
+(Graviton4, 32 vCPU); the capacitance brackets ran on a local 28-core,
+96\,GiB workstation. The Palace runs consume an MSH~2.2 conversion of each mesh,
+because MFEM rejects DeviceLayout's multi-block MSH~4.1 file; the
+conversion keeps every node and physical group and reproduces the
+eigenvalues bit for bit. The figure scripts in \path{figures/src/} read
+the artifacts directly.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Artifacts behind each result, relative to the repository root.
+  The generated artifacts are pinned by regression tests.}
+  \label{tab:artifacts}
+  \footnotesize
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.64\linewidth}@{}}
+    \toprule
+    Result & Artifact \\
+    \midrule
+    Same-mesh agreement (Table~\ref{tab:agreement}) & \path{benchmarks/transmon_eigen/results.toml}; Palace cells under \path{reference/fixtures/transmon_palace/} \\
+    Cross-check (Table~\ref{tab:crosscheck}, Figure~\ref{fig:crosscheck}) & \path{benchmarks/transmon_devicelayout_crosscheck/}; Palace cells under \path{reference/fixtures/transmon_palace/results_crosscheck_1092/}; meshes from \path{reference/julia/generate_transmon_param.jl} \\
+    Capacitance convergence and brackets (Table~\ref{tab:convergence}, Figure~\ref{fig:convergence}) & \path{benchmarks/transmon_diffopt/c_sigma_convergence.toml}, \path{c_sigma_bracket.toml}, \path{c_sigma_bracket_tensor.toml}, \path{c_sigma_bracket_anchor_93p95.toml} \\
+    Circuit terms $L_s$ and $k$ & \path{benchmarks/transmon_loop_inductance/results.toml}, \path{benchmarks/transmon_coupling/results.toml} \\
+    Re-optimization (Tables~\ref{tab:newton-dl}--\ref{tab:newton-conv}, Figure~\ref{fig:reopt}) & \path{benchmarks/transmon_devicelayout_optimize/}; Palace cells under \path{reference/fixtures/transmon_palace/results_optimize_1092/} \\
+    Electrostatic design loop (Appendix~\ref{sec:appendix-supporting}) & \path{benchmarks/transmon_diffopt/refined_optimization/} \\
+    Performance (Appendix~\ref{sec:appendix-perf}) & \path{benchmarks/transmon_bench_cpu/}, \path{benchmarks/gpu_driven_scaling/} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{What is established, and how.}
+Table~\ref{tab:tiers} sorts the results by the kind of evidence behind
+them. The brackets are the only bounds. The converged frequencies and the
+re-optimized design are extrapolations with stated rules and bands, and
+the static route rests on circuit terms that are themselves
+extrapolated. What stands without any extrapolation rule is the
+certified cap and the finest computed levels, already $4.1\%$ and
+$4.7\%$ above the published qubit values.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Evidence tiers. Certified: a guaranteed bound for the meshed
+  polygonal geometry. Measured: a committed solve on a stated
+  discretization. Estimated: an extrapolation with a stated rule, not a
+  bound. Consistency: an agreement that is not independent evidence.}
+  \label{tab:tiers}
+  \footnotesize
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.79\linewidth}@{}}
+    \toprule
+    Tier & Results \\
+    \midrule
+    Certified & $C_\Sigma$ of $X^0$: $[77.40, 77.61]$\,fF (scalar), $[79.56, 79.76]$\,fF (tensor); tensor-minus-scalar gap $2.5$--$3.1\%$; the qubit cap of $4.477$\,GHz, conditional on the circuit model and certified on the fixture's polygonal geometry, not on the ladder meshes \\
+    Measured & Same-mesh agreement (Table~\ref{tab:agreement}); Palace at DeviceLayout's discretization within $0.7\%$ of the published pairs; every ladder level, the finest already $4.1\%$ and $4.7\%$ above the published qubit values; same-mesh agreement on the ladders; the gradient check; 3 Palace runs to DeviceLayout's criterion \\
+    Estimated & Converged frequencies and bands (Table~\ref{tab:crosscheck}); the static-route qubit range; $L_s$ and $k$; the converged design $c \approx 1446\,\mu$m and its $+16$ to $+38\%$ range \\
+    Consistency & The two routes agree to $0.22\%$ on the initial qubit; the extrapolation rule was fixed after the static route was known, so this is not a blind prediction \\
+    Not claimed & Agreement with measurement; a converged hit of $3.0$/$4.0$\,GHz; a global optimum; eigenmode-participation (EPR) derivatives; a speed advantage over Palace \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Threats and limitations.}
+Agreement between two codes bounds implementation error, not shared
+modeling choices, and the $17.49$\,GHz port-sheet mode is an example of
+a shared artifact; the rank-1 shunt removes it in geode-fem, and Palace
+still has it. The extrapolations assume a rate the sheet-edge singularity
+sets and do not include mesh-family spread, and their high sides are
+wide. The circuit route uses a bracket certified on a different mesh of
+the same initial geometry, and $L_s$ and $k$ were extrapolated from two or
+three discretizations. The re-optimization's transmission-line model
+rests on one weakly determined $\delta$; it affects the step count, not
+the iterates' evaluation. The PRIMA comparison counts runs only. The
+electrostatic certificate is evaluated in f64 and its code is validated
+by tests, not formally verified. The model is lossless and linear: the
+junction is $L_J \parallel C_J$, the readout ports are open in the ladders,
+and the metal is a set of zero-thickness sheets. Only one device is
+studied. The eigenmode branch is not yet differentiated with respect to
+participation ratios or Kerr couplings; an interior eigensolve that is
+robust at the physical shift is the missing piece, and a projected
+Jacobi--Davidson iteration \citep{liang2026adaptive} with the eigenpair
+derivatives of \citet{nelson1976simplified} is the planned route.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+The published frequencies of the DeviceLayout.jl SingleTransmon example
+are reproduced by Palace at the example's own discretization and are
+$7$--$9\%$ below the converged qubit frequencies that two independently
+implemented solvers reach under refinement. A certified bracket on the
+island capacitance, read through a circuit model, is consistent with that
+shift and caps the initial qubit. A Newton iteration with a geode-fem eigenfrequency
+gradient in its Jacobian reaches DeviceLayout's criterion in a third of
+the published Palace runs, and at converged resolution it moves the
+optimized design to a capacitor about $19\%$ longer, within a band of
+$16$--$38\%$. For design examples that are meant to be copied, the
+discretization is part of the result, and a solver that supplies
+gradients and certified bounds makes it cheap to report converged values.
+
+\paragraph{Acknowledgments.}
+geode-fem's development was AI-orchestrated (agent-driven implementation
+with human direction and review); this benchmark program and paper
+follow the same discipline: results are traced to committed,
+human-auditable artifacts, and statements that rest on a scratch probe,
+on a reading of Palace's source, or on inference are labelled as such.
+% TODO(operator): finalize acknowledgment wording before submission.
+% TODO(operator): whiteroom L1-L4 operator specification — decide
+% public/citable (repo/DOI) vs acknowledged-not-cited (BRIEF coauthor note).
+
+\clearpage
+\appendix
+\section{Supporting Material: An Electrostatic Design Loop With a Certified Acceptance Test}
+\label{sec:appendix-supporting}
+
+This appendix reports an electrostatic optimization of the real device
+whose interest is its acceptance test, not its target. The target, an
+island capacitance of $93.954$\,fF, was obtained by reading the published
+initial-geometry frequency of $4.14$\,GHz as a design target through the
+linear junction circuit. Since $4.14$\,GHz is the frequency of the
+unmodified initial design, the target has no design meaning; the runs
+remain a measured example of how much a target reached on an
+optimization mesh is worth after refinement.
+
+\paragraph{Method.}
+Ten cycles of adaptive refinement turn the committed mesh into a
+$448{,}279$-tetrahedron optimization mesh. Three junction-pinned harmonic
+morph fields change the island length, the pad width and the cutout gap.
+The gradient is the stationary-energy shape derivative of
+Section~\ref{sec:adjoint} for the floating-feedline $C_\Sigma$, evaluated
+with P2 fields and exact quadrature on each affine tetrahedron, in native
+f64 outside the Burn tape. The problem is underdetermined (three
+parameters, one target), and the accepted steps are those that reduce the
+freshly solved residual and keep the minimum element-volume ratio above
+$0.25$. The design is scalar-$\bar\varepsilon$.
+
+\paragraph{Result.}
+The optimizer raises $C_\Sigma$ from $78.387918$ to $93.953668$\,fF in four
+accepted steps; at the final design all three sensitivities agree with
+central differences of fully re-solved geometries to $4.16\times10^{-7}$
+(rounded up). Seven held-out refinement rounds, none of which feed the
+optimizer, lower the conforming value to $92.998560$\,fF at
+$3{,}388{,}197$ tetrahedra, and the certificate of
+Section~\ref{sec:static} on the same meshes brackets the converged
+capacitance of the design in $[92.75, 93.00]$\,fF with the scalar model
+and $[95.34, 95.58]$\,fF with the sapphire tensor. The target reached on
+the optimization mesh is lost by about $1\%$ under refinement, and the
+certificate bounds the loss. A second run aimed past that bias
+(target $95.112986$\,fF) gives $[93.89, 94.14]$\,fF scalar and
+$[96.51, 96.75]$\,fF tensor. Palace with second-order elements on the
+exported adapted mesh agrees with geode-fem's $C_\Sigma$ to
+$2.5\times10^{-6}$, which tests the two assemblers on one discretization
+and says nothing about the discretization error.
+
+\paragraph{What it shows.}
+A gradient loop converges to the target it is given on the mesh it is
+given, and a finite-difference check or a fresh solve on that mesh says
+nothing about the discretization error. The held-out conforming series
+and the equilibrated-flux certificate together give a two-sided
+acceptance test about $0.25$\,fF wide, independent of the optimizer. The
+same certificate, with the tensor, supplies the bracket of
+Section~\ref{sec:static}.
+
+\section{Performance Context}
+\label{sec:appendix-perf}
+
+The timings below qualify the cost of the solvers; none measures the
+re-optimization or ranks the two codes. The CUDA
+backend (burn-cuda 0.21) is f32-only today: the underlying cubecl runtime
+currently disables f64\footnote{Upstream constraint of the burn/cubecl
+stack at version 0.21 \citep{burn}; tracking-issue URL to be added at
+revision. TODO(operator).} --- so every GPU result is
+mixed-precision-qualified.
+
+\paragraph{CPU eigenmodes.}
+On one otherwise idle EC2 \texttt{m6i.4xlarge}, with every request
+verified to return the six reference modes of Table~\ref{tab:agreement},
+Table~\ref{tab:cpu} gives median wall seconds and measured core-seconds.
+Two of the geode-fem requests are tuned using the reference spectrum, and
+Palace solves about $17\%$ more unknowns from the same input mesh, so
+these are workload comparisons, not kernel speedups. At eight wide Palace
+without field output is fastest; at one wide the geode-fem routes take
+less time, but geode-fem writes no fields and has no counterpart to
+Palace's error estimator.
+
+\begin{table}[tbp]
+  \centering
+  \caption{Mode-verified CPU timings on one m6i.4xlarge: median wall
+  seconds / measured core-seconds. All rows contain the six reference
+  modes of Table~\ref{tab:agreement}. Three repeats per cell except Palace
+  one-rank Save=0 (one run). The two requests tuned on the reference
+  spectrum are marked $\dagger$. Palace always requests six modes above
+  $4.5$\,GHz. Source:
+  \texttt{benchmarks/transmon\_bench\_cpu/results\_like\_for\_like\_m6i.toml}.}
+  \label{tab:cpu}
+  \small
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    Request & Extra modes & 1 wide & 8 wide \\
+    \midrule
+    geode 30 at 4.5 GHz$^\dagger$ & 24 & 34.45 / 34.44 & 29.08 / 40.71 \\
+    geode 6 at 20 GHz$^\dagger$ & 0 & 33.21 / 33.20 & 27.26 / 38.87 \\
+    geode port-aware 8 at 4.5 GHz & 2 & 67.26 / 67.25 & 51.12 / 91.72 \\
+    Palace, Save=6 & 0 & 186.84 / 186.82 & 33.35 / 266.66 \\
+    Palace, Save=0 & 0 & 113.00 / 112.98 & 23.64 / 188.89 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Driven solves and memory.}
+On assembled first-order driven problems, geode-fem's AMS preconditioner
+\citep{hiptmair-xu,tzaniovkolevpanayotsvassilevski2018parallel} reduces
+one-core solve time relative to Jacobi by $3.4$--$4.2\times$ across
+$25{,}695$--$897{,}650$ edges, but Palace's AMS is faster at scale
+($53.3$ against $181.3$\,s at the largest size). On a lumped-port cube
+family up to $25{,}695$ edges, geode-fem's GPU-f32 matrix-free solve is
+slower than both assembled CPU configurations at every measured size and
+reaches parity with CPU matrix-free only at the largest. A geode-fem
+direct eigensolve at $1{,}157{,}564$ unknowns completed in $565.5$\,s at
+$92.2$\,GB peak memory, on a different host from Palace's $423.12$\,s run;
+the direct factorization's memory, not a controlled crossover, is what
+that shows. The DeviceLayout ladders of Section~\ref{sec:crosscheck}
+used Palace for the largest cells (up to $12.6$ million unknowns), and
+geode-fem's direct solves at $h/2$ peaked at $94$ and $136$\,GB.
+
+\clearpage
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

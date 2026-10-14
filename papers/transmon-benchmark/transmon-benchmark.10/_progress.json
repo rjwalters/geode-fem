@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-13T19:00:00+00:00",
+      "completed": "2026-10-13T23:30:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-13T23:30:00+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 10,
+    "max_iterations": 12,
+    "revised_from": 9,
+    "status": "DRAFT",
+    "authorization": "Tracked in #1063 (referenced, not closed). Restructured revision per the operator's 2026-10-12 Q5 ruling (option 1). The operator's standing permission to revise this paper (recorded on PR #1040) covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "264b99b8 (transmon-benchmark.9 as on main)",
+    "scope": "v10 = the converged DeviceLayout.jl SingleTransmon cross-check (#1106) + certified sapphire-tensor C_Sigma brackets and the static route (#1101) + the gradient-assisted re-optimization (#1111) + the verified literature re-scan (#1094); the 93.95 fF design loop kept as Appendix A; anchor chain cut; new Figures 2 and 4, Figure 3 redrawn",
+    "pending_dependencies": [
+      "#1063 operator decisions, not resolved here: the title; the 'first independent validation' claim (TODO(operator) added with the reviewers' recommendation); acknowledgments; the six inherited TODO(operator) lines",
+      "repository URL and archival DOI (inherited TODO(operator))",
+      "independent v10 paper review, audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "main_commit": "264b99b8",
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

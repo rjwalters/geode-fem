@@ -14,6 +14,66 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
+## v10 — restructured revision, 2026-10-13 (tracker #1063)
+
+**v10 = the operator's Q5 ruling (2026-10-12, option 1) applied.** The paper is
+reframed around the converged DeviceLayout.jl SingleTransmon cross-check and the
+re-optimization toward the published final design. It folds in #1101 (#1091),
+#1106 (#1092 part 1), #1111 (#1092 part 2) and #1094 (#1093, the verified
+litsearch in `transmon-benchmark.9.litsearch/`). Where this section conflicts
+with the v9 or earlier sections below, this section wins. v1–v9 and their
+critics stay immutable. v10 is a DRAFT; no score, review or audit carries over.
+
+**Headline (one sentence).** The published SingleTransmon frequencies are
+discretization-limited: geode-fem and Palace converge to qubit frequencies
+7.3 % and 8.7 % above them (resonators 2.7 %), a certified tensor-ε C_Σ bracket
+read through a circuit model is consistent with that shift and caps the
+initial qubit (the extrapolation rule was fixed after the static route was
+known, so the 0.22 % agreement is a consistency check, not a blind
+prediction), and a gradient-assisted Newton
+iteration reproduces DeviceLayout's optimization in 3 Palace runs (PRIMA: 9)
+and finds that the converged 3.0/4.0 GHz design needs c ≈ 1446 µm (+19 %;
++16 % to +38 % within the band).
+
+CERTIFIED (for the meshed polygonal geometry; lower floored, upper ceiled):
+- X⁰ C_Σ: scalar [77.40, 77.61] fF, sapphire tensor [79.56, 79.76] fF; certified
+  tensor-minus-scalar gap 2.5–3.1 %, rounded outward (X⁰ and both 93.95 fF designs). The 36.87°
+  rotation is the identity.
+- Under the two-node circuit model, the certified lower bound caps the initial
+  qubit at 4.477 GHz.
+
+MEASURED:
+- Palace at DeviceLayout's discretization: [4.1683, 5.6132] and
+  [3.0164, 3.9956] GHz, < 0.7 % above the published pairs.
+- geode-fem vs Palace on shared ladder meshes: qubit 1e-4 %; resonator 0.03 %
+  at h (Palace bisects), 0.0000 % at h/2.
+- Newton against DeviceLayout's discretization: criterion at step 2 = 3 Palace
+  runs; optimum (1236.360, 7224.900) µm, +18.7 / −19.1 µm from the published
+  final (≈ +10 µm is the Palace build).
+- HF capacitor_length gradient = central FD to every printed digit.
+
+ESTIMATES (extrapolations with bands, never "bounds"):
+- Converged: initial 4.444 [4.415, 4.677] (capped 4.477) / 5.740 GHz; final
+  3.265 [3.236, 3.471] / 4.088 GHz. Static route 4.449–4.458 GHz.
+- Converged design cv2 (1446.078, 7416.352) µm: qubit 3.005 [2.979, 3.221] GHz,
+  resonator 3.998 GHz; not a verified hit; the shared-limit check says the
+  point estimate leans low.
+- L_s and k bands (circuit terms).
+
+Supporting only: the 93.95 fF electrostatic design loop (Appendix A), aimed at a
+misread target (4.14 GHz is the initial-geometry frequency). The anchor chain
+93.954 → 93.853 → 93.143 fF is cut from the paper.
+
+Rules: no revision narrative, no issue/PR numbers or code identifiers in the
+body, no virtue labels; em-dashes only in inherited operator text; certified
+and estimated results keep their labels; about 20 pages.
+
+**Operator decisions still open (#1063), deliberately untouched:** the title;
+the "first independent validation" claim (both sentences verbatim, with one new
+`TODO(operator)` comment recording the recommendation to drop "first" and
+"validation"); the acknowledgments; the six inherited `TODO(operator)` lines.
+Next: the Anvil review, audit and numeric critics on v10.
+
 ## v9 — evidence revision, 2026-10-12 (tracker #1063)
 
 **v9 = v8 re-anchored and extended.** It starts from `main`'s v8 and folds in
