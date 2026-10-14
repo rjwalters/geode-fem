@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1159",
-  "loom_commit": "eda4f971db62b88c66ab797cd0f24f525ffc377a",
+  "loom_version": "0.19.1160",
+  "loom_commit": "57eb4ca19ae4a3124f3d162a1130df2c9036ce5e",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -262,7 +262,6 @@
     ".loom/scripts/checkpoint.sh",
     ".loom/scripts/claim-staleness.sh",
     ".loom/scripts/classify-ac-verification.sh",
-    ".loom/scripts/classify-capacity-defer.sh",
     ".loom/scripts/classify-dependency-block.sh",
     ".loom/scripts/claude-wrapper.sh",
     ".loom/scripts/clean-stale-building-labels.sh",
@@ -447,7 +446,6 @@
     ".loom/scripts/tests/test-check-verified-corrections-preserved.sh",
     ".loom/scripts/tests/test-claim-staleness.sh",
     ".loom/scripts/tests/test-classify-ac-verification.sh",
-    ".loom/scripts/tests/test-classify-capacity-defer.sh",
     ".loom/scripts/tests/test-classify-dependency-block-premise-false.sh",
     ".loom/scripts/tests/test-classify-dependency-block.sh",
     ".loom/scripts/tests/test-classify-error.sh",
@@ -768,7 +766,12 @@
     ".loom/scripts/tests/test-guide-work-plan-operator-hold-exclude.sh",
     ".loom/scripts/tests/test-merge-pr-expected-head.sh",
     ".loom/scripts/tests/test-operator-hold-routing.sh",
-    ".loom/scripts/tests/test-targeted-role-invocation.sh"
+    ".loom/scripts/tests/test-targeted-role-invocation.sh",
+    ".loom/scripts/tests/test-champion-evaluating-reclaim-trust.sh",
+    ".loom/scripts/tests/test-champion-markerless-park.sh",
+    ".loom/scripts/tests/test-loom-daemon-start-work-finder.sh",
+    ".loom/scripts/tests/test-loom-daemon-update-relaunch-config.sh",
+    ".loom/scripts/tests/test-champion-merge-queue-step-no-fallthrough.sh"
   ],
   "last_resync": "2026-10-14",
   "requires_daemon": "0.19.1081"
