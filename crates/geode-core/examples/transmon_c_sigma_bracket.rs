@@ -1340,7 +1340,7 @@ fn write_tensor(
         );
         let _ = writeln!(
             t,
-            "tensor_minus_scalar_relative = [{}, {}]  # of the scalar value, rounded outward",
+            "tensor_minus_scalar_relative = [{}, {}]  # of the scalar value: [(tensor lower - scalar upper) / scalar upper, (tensor upper - scalar lower) / scalar lower] from the UNROUNDED family bounds, rounded outward; not outward against the rounded fF values above",
             floor_fmt((b.lower - s.1) / s.1, 4),
             ceil_fmt((b.upper - s.0) / s.0, 4)
         );
