@@ -1,0 +1,5 @@
+patch_conformal_nested_dof [combined_48_16]: patch_conformal_L3 (844238 edges, 123372 nodes, 712863 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 48 radial + 16 outline = 64; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 2.7 s
+  verify-only: design L2_combined_64_cold on L3 at p1
+    worst tet: tet 604823 ratio 0.266 in air at (s, y) = (+21.40, +0.93) mm, dr +0.08 mm from the substrate top, 22.39 mm from the feed, 13.78 mm from a corner, 2.40 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.00 mm from the feed), mean lift +2.130 mm (thickness 3.730 mm, max 4.699), steepest |grad lift| 0.704 at 2.52 mm from the feed
+  in-band verification sweep:
