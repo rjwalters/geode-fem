@@ -1292,111 +1292,36 @@ where
     })
 }
 
-/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **moving-feed**
-/// lumped-port-terminated pencil with a `|S₁₁(f₀)|²` objective — Epic #628
-/// **Phase A2** (issue #633), the sibling of the pinned-feed
-/// [`driven_shape_gradient_ports_complex`] that additionally differentiates the
-/// port through a moving feed.
-///
-/// Phase A1 assumes the port faces/nodes are geometry-constant, so `∂S_p/∂X = 0`
-/// and `∂b_port/∂X = 0`. When a design node **touches a port face** those
-/// assumptions break and three port terms plus one objective term appear, all of
-/// which this entry point accumulates on top of the A1 volume contraction:
-///
-/// ```text
-///   ∂S_p/∂X   — tangential surface-mass geometry derivative (face area + ∇λ),
-///   ∂f/∂X     — port-flux moment geometry derivative,
-///   ∂Z_s/∂X   — Z_s = R·w/l with w = area/l, l = extent along ê both geometric,
-///   ∂g/∂X|_x  — the |S₁₁|² covector's EXPLICIT dependence on the moving feed
-///               (V = (l/area)·Σ f_i x_i reads geometry through f and 1/w).
-/// ```
-///
-/// # Geometry model for the scalar port dims (matches `mesh/patch.rs`)
-///
-/// The forward solve uses the port's supplied `width` (`w`) and `length` (`l`);
-/// this gradient treats them as the **geometry-derived** quantities the patch
-/// fixture builds ([`crate::mesh::patch`]): `l = hi − lo` is the extent of the
-/// port nodes along `ê` and `w = area/l` with `area = Σ face areas`, so
-/// `Z_s = R·w/l = R·area/l²`. The caller must therefore pass a port whose
-/// `width`/`length` equal those geometric values at the current mesh (as
-/// `PatchFixture::port` does). `∂l/∂X` uses the symmetric subgradient of the
-/// non-smooth `max`/`min`: each of the `K` nodes tied at the extremum receives
-/// `±ê/K` (the derivative for a coherent extremum motion, e.g. a feed-height
-/// design DOF), which is what the FD gate exercises.
-///
-/// # Single factorization preserved
-///
-/// The port admittance is still a scalar (`jω/Z_s`) times the real-symmetric
-/// `S_p`, so `A(ω)ᵀ = A(ω)` and the forward + adjoint share one LU. The extra
-/// A2 terms are a post-solve geometry contraction against the SAME `λ` the core
-/// already computed, so `n_factorizations == 1` is preserved.
-///
-/// # Arguments
-///
-/// Matches [`driven_shape_gradient_ports_complex`] but takes a **single** moving
-/// [`LumpedPort`] and the S-parameter reference impedance `z0` (for the
-/// Palace-style uniform port, `z0 = R`). The objective is fixed to `|S₁₁(f₀)|²`.
-///
-/// # Errors
-///
-/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
-/// interior, or factorization / solve failure.
+/// Accumulate the **moving-feed** lumped-port terms of an `|S₁₁|²` objective
+/// into a nodal-coordinate gradient (Epic #628 Phase A2, issue #633): the port
+/// admittance `∂S_p/∂X` (with `∂Z_s/∂X`), the port drive `∂b_port/∂X`, and the
+/// explicit objective geometry term `∂g/∂X|_x` (the port voltage reads the
+/// geometry through the flux moments `f` and `1/w`). `e_edges` and
+/// `lambda_full` are the forward field and the adjoint of the port-loaded
+/// pencil (full edge length, zero on PEC edges); `flux` is
+/// [`assemble_port_flux`] of `port` on `mesh`. The terms are a post-solve
+/// contraction against the same `λ`, so the caller's single factorization is
+/// preserved. Shared by [`driven_shape_gradient_moving_port_s11`] (scalar
+/// complex `ε`) and [`driven_shape_gradient_matched_upml_moving_port_s11`]
+/// (matched box-UPML tensors, issue #1120): the port terms do not depend on
+/// the volume material.
 #[allow(clippy::too_many_arguments)]
-pub fn driven_shape_gradient_moving_port_s11<B>(
+fn accumulate_moving_port_terms(
     mesh: &TetMesh,
-    eps_r: &[c64],
-    bcs: &DrivenBcs<'_>,
-    omega: f64,
-    source: &CurrentSource,
     port: &LumpedPort<'_>,
     z0: f64,
-    device: &B::Device,
-) -> Result<DrivenShapeGradient, DrivenError>
-where
-    B: Backend,
-{
-    use crate::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
+    omega: f64,
+    edges: &[[u32; 2]],
+    flux: &[f64],
+    e_edges: &[c64],
+    lambda_full: &[c64],
+    grad_node: &mut [[f64; 3]],
+) {
+    use crate::driven::extraction::s11_sq_and_dg_dv;
     use crate::elements::whitney::{edge_lookup, face_geometry};
 
     let n_nodes = mesh.n_nodes();
-    let edges = mesh.edges();
-    let n_edges = edges.len();
-
-    // The moving port's faces feed the Whitney port kernels (and the direct
-    // `face_geometry` call of the dual twin below) BEFORE the core's own port
-    // validation runs, so check them here first (issue #725): a triangle that
-    // is not a tet face is an error, not a panic.
-    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
-
-    // The |S₁₁|² objective closure over the (geometry-fixed-at-base) port-flux
-    // covector — identical to what a caller would build for the A1 path. This
-    // supplies the field cotangent ∂g/∂x that the core adjoint solve uses; the
-    // EXPLICIT geometry term ∂g/∂X|_x is added separately below.
-    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
-    if flux.len() != n_edges {
-        return Err(DrivenError::SparseAssembly(format!(
-            "port flux length {} != edge count {n_edges}",
-            flux.len()
-        )));
-    }
     let inv_width = 1.0 / port.width;
-    let objective = s11_sq_objective(flux.clone(), inv_width, port.v_inc, port.resistance, z0);
-
-    // ONE forward + ONE adjoint solve on the port-loaded pencil; also returns λ.
-    let core = driven_shape_gradient_ports_complex_core::<B, _>(
-        mesh,
-        eps_r,
-        bcs,
-        omega,
-        source,
-        std::slice::from_ref(port),
-        objective,
-        device,
-    )?;
-
-    let mut grad_node = core.grad_node;
-    let e_edges = &core.e_edges;
-    let lambda_full = &core.lambda_full;
 
     // --- Base scalars (all expressed through geometric `area`, `l`, `f`, S_p) --
     let l = port.length;
@@ -1421,7 +1346,7 @@ where
     // Geometry-independent scalar functionals contracted against λ / x:
     //   Q_S = λᵀ S_p x,   Q_f = λᵀ f   (S_p triplets already carry the signs).
     let mut q_s = c64::new(0.0, 0.0);
-    for (r, c, val) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+    for (r, c, val) in assemble_port_surface_mass(mesh, port.faces, edges) {
         q_s += lambda_full[r] * val * e_edges[c];
     }
     let mut q_f = c64::new(0.0, 0.0);
@@ -1439,7 +1364,7 @@ where
     let mut df_l = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
     let mut dp_c = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
 
-    let lookup = edge_lookup(&edges);
+    let lookup = edge_lookup(edges);
     for tri in port.faces {
         let v_real: [[f64; 3]; 3] = [
             mesh.nodes[tri[0] as usize],
@@ -1561,6 +1486,120 @@ where
             grad_node[node][c] += 2.0 * term_b.re - 2.0 * term_a.re + 2.0 * term_obj.re;
         }
     }
+}
+
+/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **moving-feed**
+/// lumped-port-terminated pencil with a `|S₁₁(f₀)|²` objective — Epic #628
+/// **Phase A2** (issue #633), the sibling of the pinned-feed
+/// [`driven_shape_gradient_ports_complex`] that additionally differentiates the
+/// port through a moving feed.
+///
+/// Phase A1 assumes the port faces/nodes are geometry-constant, so `∂S_p/∂X = 0`
+/// and `∂b_port/∂X = 0`. When a design node **touches a port face** those
+/// assumptions break and three port terms plus one objective term appear, all of
+/// which this entry point accumulates on top of the A1 volume contraction:
+///
+/// ```text
+///   ∂S_p/∂X   — tangential surface-mass geometry derivative (face area + ∇λ),
+///   ∂f/∂X     — port-flux moment geometry derivative,
+///   ∂Z_s/∂X   — Z_s = R·w/l with w = area/l, l = extent along ê both geometric,
+///   ∂g/∂X|_x  — the |S₁₁|² covector's EXPLICIT dependence on the moving feed
+///               (V = (l/area)·Σ f_i x_i reads geometry through f and 1/w).
+/// ```
+///
+/// # Geometry model for the scalar port dims (matches `mesh/patch.rs`)
+///
+/// The forward solve uses the port's supplied `width` (`w`) and `length` (`l`);
+/// this gradient treats them as the **geometry-derived** quantities the patch
+/// fixture builds ([`crate::mesh::patch`]): `l = hi − lo` is the extent of the
+/// port nodes along `ê` and `w = area/l` with `area = Σ face areas`, so
+/// `Z_s = R·w/l = R·area/l²`. The caller must therefore pass a port whose
+/// `width`/`length` equal those geometric values at the current mesh (as
+/// `PatchFixture::port` does). `∂l/∂X` uses the symmetric subgradient of the
+/// non-smooth `max`/`min`: each of the `K` nodes tied at the extremum receives
+/// `±ê/K` (the derivative for a coherent extremum motion, e.g. a feed-height
+/// design DOF), which is what the FD gate exercises.
+///
+/// # Single factorization preserved
+///
+/// The port admittance is still a scalar (`jω/Z_s`) times the real-symmetric
+/// `S_p`, so `A(ω)ᵀ = A(ω)` and the forward + adjoint share one LU. The extra
+/// A2 terms are a post-solve geometry contraction against the SAME `λ` the core
+/// already computed, so `n_factorizations == 1` is preserved.
+///
+/// # Arguments
+///
+/// Matches [`driven_shape_gradient_ports_complex`] but takes a **single** moving
+/// [`LumpedPort`] and the S-parameter reference impedance `z0` (for the
+/// Palace-style uniform port, `z0 = R`). The objective is fixed to `|S₁₁(f₀)|²`.
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
+/// interior, or factorization / solve failure.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_moving_port_s11<B>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    port: &LumpedPort<'_>,
+    z0: f64,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+{
+    use crate::driven::extraction::s11_sq_objective;
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // The moving port's faces feed the Whitney port kernels (and the direct
+    // `face_geometry` call of the dual twin below) BEFORE the core's own port
+    // validation runs, so check them here first (issue #725): a triangle that
+    // is not a tet face is an error, not a panic.
+    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
+
+    // The |S₁₁|² objective closure over the (geometry-fixed-at-base) port-flux
+    // covector — identical to what a caller would build for the A1 path. This
+    // supplies the field cotangent ∂g/∂x that the core adjoint solve uses; the
+    // EXPLICIT geometry term ∂g/∂X|_x is added separately below.
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+    if flux.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "port flux length {} != edge count {n_edges}",
+            flux.len()
+        )));
+    }
+    let inv_width = 1.0 / port.width;
+    let objective = s11_sq_objective(flux.clone(), inv_width, port.v_inc, port.resistance, z0);
+
+    // ONE forward + ONE adjoint solve on the port-loaded pencil; also returns λ.
+    let core = driven_shape_gradient_ports_complex_core::<B, _>(
+        mesh,
+        eps_r,
+        bcs,
+        omega,
+        source,
+        std::slice::from_ref(port),
+        objective,
+        device,
+    )?;
+
+    let mut grad_node = core.grad_node;
+    accumulate_moving_port_terms(
+        mesh,
+        port,
+        z0,
+        omega,
+        &edges,
+        &flux,
+        &core.e_edges,
+        &core.lambda_full,
+        &mut grad_node,
+    );
 
     Ok(DrivenShapeGradient {
         objective: core.objective,
@@ -1790,6 +1829,124 @@ pub fn driven_shape_gradient_matched_upml_ports<B, G>(
     objective: G,
     device: &B::Device,
 ) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let core = matched_upml_ports_core::<B, G>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        ports,
+        omega,
+        source,
+        objective,
+        device,
+    )?;
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node: core.grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// Matched box-UPML **moving-feed** `|S₁₁|²` shape gradient (issue #1120): the
+/// tensor-material sibling of [`driven_shape_gradient_moving_port_s11`].
+///
+/// One forward + one adjoint solve on the same port-loaded matched-UPML pencil
+/// as [`driven_shape_gradient_matched_upml_ports`] (single LU), then the
+/// moving-feed port terms `∂S_p/∂X` (with `∂Z_s/∂X`), `∂b_port/∂X` and the
+/// explicit objective term `∂g/∂X|_x` are contracted against the same `λ`
+/// (the shared `accumulate_moving_port_terms`). The PML shell must stay pinned
+/// (`∂Λ/∂X = 0`, the Phase C2 non-goal), exactly as for the pinned-feed path;
+/// the port-face nodes may move.
+///
+/// As for the scalar sibling, the caller must pass a port whose `width` and
+/// `length` are the **geometric** values at `mesh` (`l` = the extent of the
+/// port nodes along `ê`, `w` = face area / `l`, as
+/// [`crate::mesh::patch::PatchFixture::port`] builds them), and the
+/// S-parameter reference impedance `z0` (`= R` for the uniform port).
+///
+/// # Errors
+///
+/// As [`driven_shape_gradient_matched_upml_ports`].
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml_moving_port_s11<B>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    port: &LumpedPort<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    z0: f64,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+{
+    use crate::driven::extraction::s11_sq_objective;
+
+    let edges = mesh.edges();
+    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+    let objective = s11_sq_objective(
+        flux.clone(),
+        1.0 / port.width,
+        port.v_inc,
+        port.resistance,
+        z0,
+    );
+    let core = matched_upml_ports_core::<B, _>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        std::slice::from_ref(port),
+        omega,
+        source,
+        objective,
+        device,
+    )?;
+    let mut grad_node = core.grad_node;
+    accumulate_moving_port_terms(
+        mesh,
+        port,
+        z0,
+        omega,
+        &edges,
+        &flux,
+        &core.e_edges,
+        &core.lambda_full,
+        &mut grad_node,
+    );
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// The shared core of [`driven_shape_gradient_matched_upml_ports`] and
+/// [`driven_shape_gradient_matched_upml_moving_port_s11`]: the single forward +
+/// adjoint solve and the fixed-Λ volume contraction, also returning `λ`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn matched_upml_ports_core<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<PortShapeCore, DrivenError>
 where
     B: Backend,
     G: Fn(&[c64]) -> (f64, Vec<c64>),
@@ -2150,10 +2307,11 @@ where
         }
     }
 
-    Ok(DrivenShapeGradient {
+    Ok(PortShapeCore {
         objective: objective_value,
         grad_node,
         e_edges,
+        lambda_full,
         residual_rel,
         n_factorizations,
     })
@@ -5017,8 +5175,25 @@ mod tests {
     }
 
     /// Empty `ports` reproduces the port-less box-UPML gradient
-    /// ([`driven_shape_gradient_matched_upml`]) bit-for-bit — the composed
-    /// capstone entry point is a strict superset (issue #636).
+    /// ([`driven_shape_gradient_matched_upml`]) — the composed capstone entry
+    /// point is a strict superset (issue #636).
+    ///
+    /// **Tolerance, not bit identity (issue #1108).** The port-less entry point
+    /// delegates to the ports entry point with `&[]`, so the two calls below run
+    /// the same code on the same inputs, and the comparison checks that the
+    /// delegation and the empty-ports path add nothing. It does not check
+    /// determinism. Two calls of the same
+    /// sparse factorization + solve in one process are not bit-reproducible
+    /// on every target: on x86_64 the CI arpack job saw the objective differ
+    /// by 11 ulps (≈ 2.4e-15 relative) on PRs that touch no Rust (#1107,
+    /// #1119), and a rerun passed. The likely cause is floating-point
+    /// summation order that depends on run-time state (SIMD kernels whose
+    /// head / tail split follows the buffer alignment, or thread scheduling).
+    /// So the objective and every gradient component must agree to a
+    /// relative `1e-12` (the gradient scaled by its largest component, since
+    /// single components can be near zero). That is about 400× the observed
+    /// spread and still far below what any real change of the code path
+    /// (a stray port term, a different material or right-hand side) produces.
     #[test]
     fn empty_ports_equals_portless_matched_upml_gradient() {
         use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
@@ -5077,16 +5252,36 @@ mod tests {
         .expect("empty-ports composed gradient");
 
         assert_eq!(portless.n_factorizations, empty.n_factorizations);
-        assert_eq!(portless.objective.to_bits(), empty.objective.to_bits());
-        for (a, b) in portless.grad_node.iter().zip(empty.grad_node.iter()) {
-            for k in 0..3 {
-                assert_eq!(
-                    a[k].to_bits(),
-                    b[k].to_bits(),
-                    "grad_node differs on empty ports"
-                );
-            }
-        }
+        assert_eq!(portless.grad_node.len(), empty.grad_node.len());
+        const REL_TOL: f64 = 1e-12;
+        let obj_rel = (portless.objective - empty.objective).abs()
+            / portless.objective.abs().max(f64::MIN_POSITIVE);
+        let scale = portless
+            .grad_node
+            .iter()
+            .flatten()
+            .fold(0.0_f64, |m, v| m.max(v.abs()));
+        assert!(scale > 0.0, "zero gradient");
+        let grad_rel = portless
+            .grad_node
+            .iter()
+            .zip(empty.grad_node.iter())
+            .flat_map(|(a, b)| (0..3).map(move |k| (a[k] - b[k]).abs()))
+            .fold(0.0_f64, f64::max)
+            / scale;
+        println!(
+            "empty ports vs port-less: objective rel {obj_rel:.3e}, gradient rel {grad_rel:.3e}"
+        );
+        assert!(
+            obj_rel <= REL_TOL,
+            "objective differs on empty ports: {} vs {} (rel {obj_rel:.3e})",
+            portless.objective,
+            empty.objective
+        );
+        assert!(
+            grad_rel <= REL_TOL,
+            "grad_node differs on empty ports: max |diff| / max |grad| = {grad_rel:.3e}"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────

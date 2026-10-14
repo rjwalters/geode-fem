@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-14T20:10:00Z",
+      "completed": "2026-10-14T19:48:52Z"
+    }
+  },
+  "metadata": {
+    "iteration": 5,
+    "max_iterations": 4,
+    "revised_from": 4,
+    "operator_override": true,
+    "operator_note": "Operator-requested rewrite onto the merged 2.4 GHz copper-only results; no Anvil max_iterations gate on paper revisions (operator ruling).",
+    "evidence_snapshot": {
+      "brief_mtime": 1792007419.675652,
+      "refs_mtime": null
+    }
+  }
+}

@@ -75,6 +75,7 @@ cat > "$TMP/bin/loom-daemon" <<S
 #!/usr/bin/env bash
 case "\$*" in
   "forge merge-queue step "*) printf '%s\n' "\$*" >> "$TMP/queue-argv"; echo LOOM-MERGE-QUEUE-DIRECT; exit 0 ;;
+  "champion-hold classify "*) echo "LOOM-CHAMPION-HOLD state=clear pr=42 detail=-"; exit 0 ;;
 esac
 exit 99
 S
@@ -120,8 +121,10 @@ printf '%s\n' "$EVAL_SHA" > "$PIN_FILE"
 run_step3
 check "pin file + NO EXPECTED_HEAD (the env var was lost between calls): no merge, no queue call" \
   eval '[[ ! -e "$TMP/merge-argv" && ! -e "$TMP/queue-argv" ]]'
-check "pin file + no EXPECTED_HEAD: CHAMPION-PIN-MISSING names the SHA to write, outcome rc=1 (failed)" \
-  eval 'has "CHAMPION-PIN-MISSING pr=42: set EXPECTED_HEAD=$EVAL_SHA" && has "CHAMPION-MERGE-OUTCOME pr=42 rc=1"'
+check "pin file + no EXPECTED_HEAD: CHAMPION-PIN-MISSING names the SHA to write, outcome rc=9 (re-queued, #11861)" \
+  eval 'has "CHAMPION-PIN-MISSING pr=42: set EXPECTED_HEAD=$EVAL_SHA" && has "CHAMPION-MERGE-OUTCOME pr=42 rc=9"'
+check "a lost pin is a re-queue, never 'Merge failed' (#11861)" \
+  eval 'has "not merged this pass (exit 9)" && hasnt "Merge failed"'
 run_step3 1111111111111111111111111111111111111111
 check "pin file + a DIFFERENT EXPECTED_HEAD: no merge" eval '[[ ! -e "$TMP/merge-argv" ]] && has CHAMPION-PIN-MISSING'
 run_step3 "$EVAL_SHA"
@@ -131,6 +134,31 @@ touch -t 202001010000 "$PIN_FILE"
 run_step3
 check "a pin file over 60 minutes old (a crashed step) no longer blocks the batch merge" \
   eval '[[ "$MARGV" == "42 --auto --redate-stale-checks" ]] && hasnt CHAMPION-PIN-MISSING'
+# #11902: the pin records its step's agent process ($PPID); while that runs, a
+# step longer than 60 minutes keeps its backstop (up to 24h).
+sleep 600 & LIVE_PID=$!
+( exit 0 ) & DEAD_PID=$!; wait "$DEAD_PID"
+two_hours_ago() { touch -t "$(date -r $(( $(date +%s) - 7200 )) +%Y%m%d%H%M 2>/dev/null || date -d @$(( $(date +%s) - 7200 )) +%Y%m%d%H%M)" "$PIN_FILE"; }
+printf '%s %s\n' "$EVAL_SHA" "$LIVE_PID" > "$PIN_FILE"; two_hours_ago
+run_step3
+check "a 2h-old pin whose step process still runs (a long --pr step) still refuses an unpinned merge" \
+  eval '[[ ! -e "$TMP/merge-argv" ]] && has "CHAMPION-PIN-MISSING pr=42: set EXPECTED_HEAD=$EVAL_SHA"'
+run_step3 "$EVAL_SHA"
+check "the long step's literal pin still merges pinned" \
+  eval '[[ "$MARGV" == "42 --auto --redate-stale-checks --expected-head $EVAL_SHA" ]]'
+printf '%s %s\n' "$EVAL_SHA" "$DEAD_PID" > "$PIN_FILE"; two_hours_ago
+run_step3
+check "a 2h-old pin whose step process is gone (a crashed step) does not block the batch merge" \
+  eval '[[ "$MARGV" == "42 --auto --redate-stale-checks" ]] && hasnt CHAMPION-PIN-MISSING'
+printf '%s %s\n' "$EVAL_SHA" "$LIVE_PID" > "$PIN_FILE"; touch -t 202001010000 "$PIN_FILE"
+run_step3
+check "a live process cannot hold a pin past 24h (pid reuse)" \
+  eval '[[ "$MARGV" == "42 --auto --redate-stale-checks" ]] && hasnt CHAMPION-PIN-MISSING'
+printf '%s %s\n' "$EVAL_SHA" "$LIVE_PID" > "$PIN_FILE"
+run_step3
+check "a fresh pin with a recorded pid reads the SHA alone" \
+  eval 'has "CHAMPION-PIN-MISSING pr=42: set EXPECTED_HEAD=$EVAL_SHA in this block"'
+kill "$LIVE_PID" 2>/dev/null; wait "$LIVE_PID" 2>/dev/null
 rm -f "$PIN_FILE"
 
 # ---------------------------------------------------------------------------
@@ -154,12 +182,13 @@ check "an unknown or doubled argument refuses and touches nothing" \
   doc_has "$TARGETED_MD" 'Error: /loom:champion takes --pr N, --issue N or --non-item'
 # --pr N
 check "--pr: writes the pin file only for an eligible PR" doc_has "$TARGETED_MD" '[ -n "$EVALUATED_SHA" ] && printf'
+check "--pr: the pin records the step's agent process (#11902)" doc_has "$TARGETED_MD" '"$EVALUATED_SHA" "$PPID" > "$PIN_FILE"'
 check "--pr: Step 3 must carry the SHA literally (env does not survive tool calls)" \
   doc_has "$TARGETED_MD" 'first line must be `EXPECTED_HEAD=<that SHA, written out literally>`'
-check "--pr: a lost pin is outcome failed, never merged" doc_has "$TARGETED_MD" 'Also `CHAMPION-PIN-MISSING`: nothing merged'
-check "--pr: the pin file is removed at the end of every step" doc_has "$TARGETED_MD" '**Remove the pin file (`rm -f`) as the step'\''s last action'
+check "--pr: a lost pin is outcome requeued, never merged" doc_has "$TARGETED_MD" '9 (`CHAMPION-PIN-MISSING`): not merged, still approved, no "Merge Failed"'
+check "--pr: the pin file is removed at the end of every step, by a literal command" doc_has "$TARGETED_MD" '`rm -f "$(git rev-parse --git-common-dir)/loom-champion-pin-pr-N"`'
 check "batch Step 3 never reads a pin it was not given: the guard is a no-op without a pin file" \
-  doc_has "$PR_MERGE_MD" 'if [ -n "$PIN" ] && [ "${EXPECTED_HEAD:-}" != "$PIN" ]; then MERGE_RC=1'
+  doc_has "$PR_MERGE_MD" 'if [ -n "$PIN" ] && [ "${EXPECTED_HEAD:-}" != "$PIN" ]; then MERGE_RC=9'
 check "--pr: full criteria, sticky holds, merge-risk axes, health pass" \
   doc_has "$TARGETED_MD" 'all 6 Safety Criteria with the merge-risk'
 check "--pr: exit 8 is outcome head-moved, not a failure" \
@@ -181,7 +210,7 @@ check "--issue: a blocked issue is re-evaluated only once its blocker has closed
 NONITEM="$(awk '/^## `--non-item`/{on=1} on' "$TARGETED_MD")"
 out="$NONITEM"
 check "--non-item: names the role-runner knob that launches it" has 'autonomous.roleRunner.championMode: "non-item"'
-for q in "Pass 0, Pass 0b, Pass 0c" "Priority 3: architect, hermit and auditor proposals" "Priority 4: epic proposals" \
+for q in "Pass 0b, Pass 0c" "Priority 3: architect, hermit and auditor proposals" "Priority 4: epic proposals" \
          "Priority 5: Doctor-cycle-capped PRs" "Rollout Check Pass" "Held-PR Census and Per-PR Digest"; do
   check "--non-item runs: $q" has "$q"
 done

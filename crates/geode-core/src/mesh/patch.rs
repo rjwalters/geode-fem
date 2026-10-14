@@ -233,6 +233,21 @@ impl PatchFixture {
     /// derived from the tagged triangles, so they track the generation
     /// parameters without duplicating them here.
     pub fn port(&self) -> PatchPort {
+        self.port_on_mesh(&self.mesh)
+    }
+
+    /// [`Self::port`] evaluated on a **moved** copy of the fixture mesh (same
+    /// topology, e.g. a shape-morphed design): the port faces are the
+    /// fixture's port triangles, and the width / gap length are recomputed from
+    /// `mesh`'s node positions, so a design that moves or resizes the probe
+    /// (issue #1120) gets the geometric port the moving-feed shape gradient
+    /// assumes. `port_on_mesh(&self.mesh)` is [`Self::port`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the fixture has no port triangles or `mesh` has fewer nodes
+    /// than the port references.
+    pub fn port_on_mesh(&self, mesh: &TetMesh) -> PatchPort {
         let faces = self.port_triangles();
         assert!(
             !faces.is_empty(),
@@ -242,7 +257,7 @@ impl PatchFixture {
         let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
         let mut area = 0.0_f64;
         for tri in &faces {
-            let v: [[f64; 3]; 3] = std::array::from_fn(|k| self.mesh.nodes[tri[k] as usize]);
+            let v: [[f64; 3]; 3] = std::array::from_fn(|k| mesh.nodes[tri[k] as usize]);
             for p in &v {
                 let along = p[0] * PORT_E_HAT[0] + p[1] * PORT_E_HAT[1] + p[2] * PORT_E_HAT[2];
                 lo = lo.min(along);
@@ -1200,6 +1215,294 @@ mod tests {
             rel_wrong > 1e-2,
             "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
              rel-err {rel_wrong:.3e} (gate not biting)"
+        );
+    }
+
+    /// **Moving feed on the matched-UPML open radiator (issue #1120).** The
+    /// tensor-material moving-feed shape gradient
+    /// [`crate::driven::shape::driven_shape_gradient_matched_upml_moving_port_s11`]
+    /// matches a central finite difference of `|S₁₁|²` through the public
+    /// forward on the curved conformal mesh, for a motion that **resizes and
+    /// translates the probe** along the bend axis (the port is re-derived on
+    /// each moved mesh with [`PatchFixture::port_on_mesh`]) to `1e-6`. The
+    /// pinned-feed path, which drops the port geometry terms (about 0.2 % of
+    /// this derivative), must miss the same FD by more than `1e-4` (the gate
+    /// bites), and for a **rigid translation** of the port the two paths
+    /// agree (the port terms are translation invariant, so the inset DOF of
+    /// the copper design is exact even through the pinned-feed terms).
+    ///
+    /// Two more directions change the port **footprint** non-uniformly and
+    /// must also match the FD to `1e-6`: a cubic `y` stretch of the port faces
+    /// (edges ±½ as for the width field, the interior compressed towards the
+    /// centre) and an `x` bulge of the port plane (the port centre moves out
+    /// of `x = 0`, the port edges stay).
+    ///
+    /// The explicit objective term `∂g/∂X|_x` (the port voltage
+    /// `V = (l/area)·Σ f_i x_i` reading the geometry) is ~0 for every motion
+    /// while the port is the only drive: the field across the narrow port is
+    /// then close to uniform, and for a uniform field `V` is a line integral
+    /// of the field DOFs, independent of the geometry. (The smoke port is four
+    /// triangles fanned about one centre node, which the cubic stretch does
+    /// not move, so on the port it equals the width field.) So the last check
+    /// adds a current source that varies strongly across the port and moves
+    /// the port's interior node along `y`, which re-partitions the port faces
+    /// without changing the port rectangle: with the non-uniform port field
+    /// that moves `V` at fixed DOFs, and dropping `term_obj` in
+    /// `accumulate_moving_port_terms` fails the FD gate (issue #1120 Judge
+    /// mutation gap).
+    #[test]
+    fn curved_conformal_moving_feed_gradient_matches_central_finite_difference() {
+        use crate::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
+        use crate::driven::ports::assemble_port_flux;
+        use crate::driven::shape::driven_shape_gradient_matched_upml_moving_port_s11;
+
+        let fixture = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                fixture.patch_triangles().as_slice(),
+                fixture.ground_triangles().as_slice(),
+                fixture.outer_boundary_triangles().as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let pml_thick = CURVED_SMOKE_PML_THICK;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps, nu) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+        let r_nat = 50.0 / ETA_0_OHM;
+        let v_inc = c64::new(1.0, 0.0);
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+
+        // Port centre and half-width along y (the port plane is x = 0).
+        let port0 = fixture.port();
+        let mut port_nodes: Vec<u32> = port0.faces.iter().flatten().copied().collect();
+        port_nodes.sort_unstable();
+        port_nodes.dedup();
+        let ys: Vec<f64> = port_nodes
+            .iter()
+            .map(|&n| mesh.nodes[n as usize][1])
+            .collect();
+        let (y_lo, y_hi) = ys.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |a, &y| {
+            (a.0.min(y), a.1.max(y))
+        });
+        let (yc, hw) = (0.5 * (y_lo + y_hi), 0.5 * (y_hi - y_lo));
+        let smooth = |t: f64| {
+            let t = t.clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        // Motion field `shape(t) · g`, `t` the clamped normalized y offset from
+        // the port centre, rigid within 1.5 hw of the feed axis, smoothstep to
+        // 0 at 4 hw.
+        let field_with = |shape: &dyn Fn(f64) -> [f64; 3]| -> Vec<[f64; 3]> {
+            mesh.nodes
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if pinned[i] {
+                        return [0.0; 3];
+                    }
+                    let d = p[0].hypot(p[1] - yc);
+                    let g = 1.0 - smooth((d - 1.5 * hw) / (2.5 * hw));
+                    let t = ((p[1] - yc) / hw).clamp(-1.0, 1.0);
+                    shape(t).map(|c| c * g)
+                })
+                .collect()
+        };
+        // y-motion: `scale` · width field + `shift` · translation.
+        let field = |scale: f64, shift: f64| -> Vec<[f64; 3]> {
+            field_with(&|t| [0.0, scale * 0.5 * t + shift, 0.0])
+        };
+
+        let s11_sq_with = |m: &TetMesh, source: &CurrentSource| -> f64 {
+            let port = fixture.port_on_mesh(m);
+            let lp = port.lumped_port(r_nat, v_inc);
+            let sol = driven_solve_with_ports::<B>(
+                m,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps,
+                    nu_tensor: &nu,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&lp),
+                omega,
+                source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            let flux = assemble_port_flux(m, &port.faces, port.e_hat, &m.edges());
+            let v = flux
+                .iter()
+                .zip(&sol.e_edges)
+                .fold(c64::new(0.0, 0.0), |a, (f, e)| a + *e * *f)
+                * (1.0 / port.width);
+            s11_sq_and_dg_dv(v, v_inc, r_nat, r_nat).0
+        };
+        let s11_sq_on = |m: &TetMesh| s11_sq_with(m, &source);
+        let moved = |d: &[[f64; 3]], theta: f64| {
+            let mut m = mesh.clone();
+            for (node, dn) in m.nodes.iter_mut().zip(d) {
+                for c in 0..3 {
+                    node[c] += theta * dn[c];
+                }
+            }
+            m
+        };
+
+        let lp0 = port0.lumped_port(r_nat, v_inc);
+        let moving = driven_shape_gradient_matched_upml_moving_port_s11::<B>(
+            &mesh,
+            &eps,
+            &nu,
+            &bcs,
+            &lp0,
+            omega,
+            &source,
+            r_nat,
+            &device(),
+        )
+        .expect("moving-feed matched-UPML gradient");
+        assert_eq!(moving.n_factorizations, 1);
+        let g0 = s11_sq_on(&mesh);
+        assert!(
+            (g0 - moving.objective).abs() <= 1e-9 * g0.max(1.0),
+            "objective mismatch: {} vs {g0}",
+            moving.objective
+        );
+        let flux0 = assemble_port_flux(&mesh, &port0.faces, port0.e_hat, &edges);
+        let pinned_sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps,
+            &nu,
+            &bcs,
+            std::slice::from_ref(&lp0),
+            omega,
+            &source,
+            s11_sq_objective(flux0, 1.0 / port0.width, v_inc, r_nat, r_nat),
+            &device(),
+        )
+        .expect("pinned-feed gradient");
+
+        // Probe width: the moving-feed terms are load-bearing.
+        let d = field(1.0, 0.0);
+        let h = 1e-6;
+        let fd = (s11_sq_on(&moved(&d, h)) - s11_sq_on(&moved(&d, -h))) / (2.0 * h);
+        let ana = chain_node_motion_pml_pinned(&moving.grad_node, &d, &pinned);
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        println!("moving-feed matched-UPML FD gate: rel {rel:.3e} (ana {ana:.6e}, fd {fd:.6e})");
+        assert!(fd.abs() > 1e-8, "FD derivative ~0");
+        // The FD is clean to ~1e-9 here, so the gate is tight: the port geometry
+        // terms are only ~0.2 % of this derivative, and the pinned-feed path
+        // (which drops them) must miss by more than 1e-4.
+        assert!(
+            rel < 1e-6,
+            "moving-feed adjoint {ana} vs FD {fd}: rel {rel:.3e}"
+        );
+        let ana_pinned = chain_node_motion_pml_pinned(&pinned_sg.grad_node, &d, &pinned);
+        let rel_pinned = (ana_pinned - fd).abs() / fd.abs();
+        assert!(
+            rel_pinned > 1e-4,
+            "pinned-feed path passes a resized-probe FD (rel {rel_pinned:.3e}): gate not biting"
+        );
+        println!("pinned-feed path on the resized probe: rel {rel_pinned:.3e}");
+
+        // Rigid translation of the port: both paths agree, and match FD.
+        let d = field(0.0, 1.0);
+        let ana_t = chain_node_motion_pml_pinned(&moving.grad_node, &d, &pinned);
+        let ana_tp = chain_node_motion_pml_pinned(&pinned_sg.grad_node, &d, &pinned);
+        let fd_t = (s11_sq_on(&moved(&d, h)) - s11_sq_on(&moved(&d, -h))) / (2.0 * h);
+        assert!(
+            (ana_t - ana_tp).abs() <= 1e-8 * ana_t.abs().max(1e-12),
+            "translation: moving {ana_t:.9e} vs pinned {ana_tp:.9e}"
+        );
+        let rel_t = (ana_t - fd_t).abs() / fd_t.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_t < 1e-6,
+            "translation adjoint {ana_t} vs FD {fd_t}: rel {rel_t:.3e}"
+        );
+
+        // Non-uniform footprint changes of the port alone.
+        let cubic = field_with(&|t| [0.0, 0.5 * t * t * t, 0.0]);
+        let bulge = field_with(&|t| [0.5 * (1.0 - t * t), 0.0, 0.0]);
+        for (what, d) in [("cubic y stretch", &cubic), ("x bulge", &bulge)] {
+            let fd = (s11_sq_on(&moved(d, h)) - s11_sq_on(&moved(d, -h))) / (2.0 * h);
+            let ana = chain_node_motion_pml_pinned(&moving.grad_node, d, &pinned);
+            let ana_p = chain_node_motion_pml_pinned(&pinned_sg.grad_node, d, &pinned);
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            println!("{what}: rel {rel:.3e} (ana {ana:.6e}, fd {fd:.6e}, pinned-feed {ana_p:.6e})");
+            assert!(fd.abs() > 1e-8, "{what}: FD derivative ~0");
+            assert!(
+                rel < 1e-6,
+                "{what}: adjoint {ana} vs FD {fd}: rel {rel:.3e}"
+            );
+        }
+
+        // **The explicit objective term.** With the port as the only drive the
+        // field across the narrow port is close to uniform, and then the port
+        // voltage (l/area)·Σ f_i x_i does not depend on the geometry at fixed
+        // field DOFs, so `term_obj` contributes ~nothing to any of the motions
+        // above and dropping it survives them. A current source that varies
+        // strongly across the port (and is zero far away) makes the port field
+        // non-uniform, and a motion of the port's interior nodes then moves V
+        // at fixed DOFs: the moving-feed gradient must still match the FD, and
+        // that FD gate fails without `term_obj` (issue #1120 Judge mutation
+        // gap).
+        let src = CurrentSource::from_centroids(&mesh, |c| {
+            let d = c[0].hypot(c[1] - yc);
+            if d > 3.0 * hw {
+                return [c64::new(0.0, 0.0); 3];
+            }
+            let u = (c[1] - yc) / hw;
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.2 * u, 0.0),
+                c64::new(0.0, 0.6 * u * u * u + 0.3 * u),
+            ]
+        });
+        let moving_src = driven_shape_gradient_matched_upml_moving_port_s11::<B>(
+            &mesh,
+            &eps,
+            &nu,
+            &bcs,
+            &lp0,
+            omega,
+            &src,
+            r_nat,
+            &device(),
+        )
+        .expect("moving-feed gradient with a source");
+        // Move the port's interior nodes along y (the port edges stay): the
+        // port rectangle is unchanged but its faces are re-partitioned, so
+        // their areas and flux moments change non-uniformly.
+        let bump = field_with(&|t| [0.0, 0.5 * (1.0 - t * t), 0.0]);
+        let port_interior_moves = port_nodes.iter().any(|&n| bump[n as usize][1].abs() > 0.1);
+        assert!(port_interior_moves, "the port has no interior node to move");
+        let fd = (s11_sq_with(&moved(&bump, h), &src) - s11_sq_with(&moved(&bump, -h), &src))
+            / (2.0 * h);
+        let ana = chain_node_motion_pml_pinned(&moving_src.grad_node, &bump, &pinned);
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        println!(
+            "port-interior y shift, non-uniform port field: rel {rel:.3e} (ana {ana:.6e}, fd \
+             {fd:.6e})"
+        );
+        assert!(fd.abs() > 1e-8, "non-uniform port field: FD derivative ~0");
+        assert!(
+            rel < 1e-6,
+            "non-uniform port field: adjoint {ana} vs FD {fd}: rel {rel:.3e}"
         );
     }
 }
