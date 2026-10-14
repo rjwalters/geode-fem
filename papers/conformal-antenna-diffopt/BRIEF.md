@@ -1,11 +1,25 @@
 ---
-title: "Differentiable-by-Construction FEM for Freeform Open-Radiator Design: A Curved Conformal Antenna Structured-Grid Inverse Design Cannot Reach"
+title: "Shape-Adjoint Design of a Curved Conformal 2.4 GHz Patch Antenna on a Fixed 1.6 mm Board with a Differentiable Open-Radiator FEM"
 author: "Robb Walters"
 venue: neurips
 documentclass: anvil-paper
 anonymous: false
 web_search: true
 ---
+
+# Amendment for v5 (operator rulings, 2026-10-13/14)
+
+This section supersedes the original brief below wherever they conflict.
+
+- **Evidence base.** The paper is about the physical 2.4 GHz probe-fed patch bent on R = 100 mm (`benchmarks/patch_antenna_conformal/`): fixture, refinement study, copper-only design and thickness ablation. Units are mm and GHz. The natural-unit smoke design (`conformal_results.toml`) is no longer used.
+- **Manufacturability.** The board is a fixed, uniform 1.6 mm FR-4 shell; only the copper (outline, corners, feed inset and width) is designed. Radial / thickness designs are an idealized ablation only.
+- **Headline.** `rbD_L1_copper_38_sm45`: −10.78 dB worst in band and a 94.9 MHz −10 dB band covering the ISM band with p = 2 on L1; L3 not met (−8.80 dB, 89 %). State plainly that on the converged estimate (12.7–48.4 MHz further upshift vs a 6.2 MHz margin) the design likely misses at 2.400 GHz. The feed is an idealized 4.3 mm port strip. The L2-chain design is a related design, not a verified L2 result.
+- **Method.** Coarse-model optimization plus a fitted frequency shift (frequency space mapping).
+- **Comparison.** No FEM-vs-FDTD cost-to-accuracy claim. The Meep harness is unconverged; the comparative framing is a stated hypothesis and future work. The "Cannot Reach" title is dropped.
+- **Provenance.** Solo author; a "How geode-fem Was Designed and Built" section and acknowledgment as in transmon-benchmark v11.
+- **Publication.** Not to be published; any Zenodo deposit stays an unpublished draft.
+
+# Original brief
 
 # Brief — freeform conformal-radiator differentiable inverse design
 
