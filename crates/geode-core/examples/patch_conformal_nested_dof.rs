@@ -114,7 +114,9 @@ use geode_core::driven::solve::{
     driven_solve_with_ports,
 };
 use geode_core::elements::ElementOrder;
-use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, bend_axis_z};
+use geode_core::driven::scattering::{e_norm_sq_integral, flux_power_box};
+use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, PHYS_SUBSTRATE, bend_axis_z};
+use geode_core::postproc::ntff::{broadside_directivity, directivity, ntff_far_field};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
 use geode_core::shape::conformal_basis::{
     AirMotion, ChartMorph, ConformalPatchNodes, CornerBasis, CylinderChart, FeedBasis, FeedCutoff,
@@ -228,6 +230,25 @@ struct Cli {
     feed_support_legacy: bool,
     /// Copper mode: move the air on the cylinders too ([`AirMotion::OnCylinder`]).
     air_on_cylinder: bool,
+    /// Copper mode (issue #1126, X4): the 4-parameter rectangle baseline. The
+    /// outline DOFs collapse to two, `ΔW` and `ΔL` (mm, total width / length
+    /// change): each moves both opposite edges outward by half its value,
+    /// the sum of that edge's B-splines (a partition of unity, so the edges
+    /// translate uniformly). With `--feed` the design is (W, L, inset, width).
+    rect4: bool,
+    /// Copper mode with `--feed` (issue #1126, X5): pin the probe width DOF at
+    /// 0, so the port keeps the fixture's `probe_w` (a realizable 1.27–1.6 mm
+    /// feed on the rbG / rbH fixtures). The width coefficient is zeroed in the
+    /// start and in every gradient.
+    freeze_feed_width: bool,
+    /// `--verify-only` at P1 (issue #1126, X3): power balance and broadside
+    /// gain at these frequencies (GHz): port power, box Poynting flux,
+    /// substrate dielectric loss, radiation efficiency, NTFF directivity and
+    /// realized gain.
+    radiation: Vec<f64>,
+    /// `--verify-only` (issue #1126, X1): write the moved mesh (with the
+    /// fixture's physical tags) as MSH 2.2 ASCII for the Palace reference.
+    write_mesh: Option<PathBuf>,
 }
 
 fn parse_cli() -> Cli {
@@ -259,6 +280,10 @@ fn parse_cli() -> Cli {
         rebase_feed: false,
         feed_support_legacy: false,
         air_on_cylinder: false,
+        rect4: false,
+        freeze_feed_width: false,
+        radiation: Vec::new(),
+        write_mesh: None,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -301,6 +326,15 @@ fn parse_cli() -> Cli {
             "--rebase-feed" => cli.rebase_feed = true,
             "--feed-support-legacy" => cli.feed_support_legacy = true,
             "--air-on-cylinder" => cli.air_on_cylinder = true,
+            "--rect4" => cli.rect4 = true,
+            "--freeze-feed-width" => cli.freeze_feed_width = true,
+            "--radiation" => {
+                cli.radiation = next(&mut i)
+                    .split(',')
+                    .map(|v| v.trim().parse().expect("--radiation f1,f2,... (GHz)"))
+                    .collect();
+            }
+            "--write-mesh" => cli.write_mesh = Some(PathBuf::from(next(&mut i))),
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -358,6 +392,22 @@ fn parse_cli() -> Cli {
         "--dense is a verification sweep: give it with --verify-only"
     );
     assert!(
+        !cli.rect4 || (cli.copper && cli.outline > 0 && cli.corner_radius == 0.0),
+        "--rect4 needs --copper --outline N (the splines it sums) and no --corners"
+    );
+    assert!(
+        !cli.freeze_feed_width || (cli.copper && cli.feed),
+        "--freeze-feed-width needs --copper --feed"
+    );
+    assert!(
+        cli.radiation.is_empty() || (cli.verify_only && !cli.p2),
+        "--radiation is a P1 verification: give it with --verify-only, without --p2"
+    );
+    assert!(
+        cli.write_mesh.is_none() || cli.verify_only,
+        "--write-mesh needs --verify-only"
+    );
+    assert!(
         !cli.rebase_feed || (cli.copper && cli.feed && cli.design.is_some()),
         "--rebase-feed needs --copper --feed and --design"
     );
@@ -374,7 +424,7 @@ fn parse_cli() -> Cli {
     if cli.label.is_empty() && cli.copper {
         cli.label = format!(
             "copper_{}",
-            4 * cli.outline
+            if cli.rect4 { 2 } else { 4 * cli.outline }
                 + if cli.corner_radius > 0.0 { 4 } else { 0 }
                 + if cli.feed { 2 } else { 0 }
         );
@@ -570,6 +620,9 @@ struct Model {
     sigma0: f64,
     /// Total driven solves (forward or forward+adjoint) so far.
     n_solves: std::cell::Cell<usize>,
+    /// Design DOFs pinned at 0 (`--freeze-feed-width`): their gradient entry
+    /// is zeroed, so the descent never moves them.
+    frozen: Vec<usize>,
 }
 
 /// One band evaluation: per-point `|S₁₁|²`, `S₁₁`, the soft-max objective
@@ -733,7 +786,11 @@ impl Model {
                     a[2] += wf * g[2];
                 }
             }
-            self.morph.design_gradient(x, &acc)
+            let mut g = self.morph.design_gradient(x, &acc);
+            for &k in &self.frozen {
+                g[k] = 0.0;
+            }
+            g
         });
         Eval {
             g_f,
@@ -880,6 +937,202 @@ impl Model {
             })
             .collect()
     }
+}
+
+/// One `--radiation` point (issue #1126, X3), powers in the solver's natural
+/// units (`η₀ = 1`; only ratios are reported).
+struct RadRow {
+    f_ghz: f64,
+    s11: c64,
+    z_ohm: c64,
+    /// Accepted power `½ Re(V I*)` and available power `|V_inc|² / (2R)`.
+    p_in: f64,
+    p_avail: f64,
+    /// Poynting flux through the air box shrunk by [`FLUX_SHRINK`].
+    p_rad: f64,
+    /// Substrate dielectric loss `½ ω ε_r tan δ ∫_sub |E|²`.
+    p_diel: f64,
+    /// NTFF directivity, broadside (`θ = 0`, the patch normal at `s = 0`) and maximum.
+    d_broadside: f64,
+    d_max: f64,
+}
+
+impl RadRow {
+    fn eta_rad(&self) -> f64 {
+        self.p_rad / self.p_in
+    }
+    /// `(P_in − P_rad − P_diel) / P_in`: what neither the flux surface nor the
+    /// substrate accounts for (discretization of the flux quadrature).
+    fn balance_residual(&self) -> f64 {
+        (self.p_in - self.p_rad - self.p_diel) / self.p_in
+    }
+    /// Gain `D η_rad` and realized gain `D P_rad / P_avail` at broadside (dBi).
+    fn gain_dbi(&self) -> f64 {
+        10.0 * (self.d_broadside * self.eta_rad()).log10()
+    }
+    fn realized_gain_dbi(&self) -> f64 {
+        10.0 * (self.d_broadside * self.p_rad / self.p_avail).log10()
+    }
+}
+
+/// The flux surface: the air box shrunk by this fraction of its half-extent
+/// (the `patch_conformal_2g4_baseline` convention), inside the UPML and
+/// outside the board.
+const FLUX_SHRINK: f64 = 0.10;
+/// NTFF grid (θ from 0 to π, φ over [0, 2π)).
+const NTFF_N_THETA: usize = 37;
+const NTFF_N_PHI: usize = 72;
+
+impl Model {
+    /// P1 power balance and broadside gain at `x` (issue #1126, X3).
+    fn radiation(&self, x: &[f64], freqs: &[f64]) -> Vec<RadRow> {
+        let mesh = self.moved_mesh(x);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &self.mask,
+        };
+        let (port, flux, inv_width) = self.port_on(&mesh);
+        let lp = port.lumped_port(self.r_nat, self.v_inc);
+        let center: [f64; 3] = std::array::from_fn(|k| 0.5 * (self.air_lo[k] + self.air_hi[k]));
+        let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (self.air_hi[k] - self.air_lo[k]));
+        let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
+        let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
+        let eps_im = FR4_MATERIALS.eps_r_substrate * FR4_MATERIALS.tan_delta_substrate;
+        freqs
+            .iter()
+            .map(|&f| {
+                let omega = ghz_to_omega_mm(f);
+                let (eps, nu) = self.base.matched_upml_materials(
+                    &FR4_MATERIALS,
+                    self.air_lo,
+                    self.air_hi,
+                    self.pml_thick,
+                    self.sigma0,
+                    omega,
+                );
+                self.n_solves.set(self.n_solves.get() + 1);
+                let sol = driven_solve_with_ports::<B>(
+                    &mesh,
+                    DrivenMaterials::MatchedUpml {
+                        epsilon_tensor: &eps,
+                        nu_tensor: &nu,
+                    },
+                    None,
+                    &bcs,
+                    std::slice::from_ref(&lp),
+                    omega,
+                    &self.source,
+                    &device(),
+                )
+                .expect("radiation solve");
+                assert!(sol.residual_rel < 1e-6, "unhealthy radiation solve");
+                let v = port_voltage(&flux, inv_width, &sol.e_edges);
+                let i = (self.v_inc * 2.0 - v) * (1.0 / self.r_nat);
+                let p_in = 0.5 * (v * i.conj()).re;
+                let p_avail = self.v_inc.norm_sqr() / (2.0 * self.r_nat);
+                let p_rad = flux_power_box(&mesh, omega, &sol.e_edges, flux_lo, flux_hi);
+                let p_diel = 0.5
+                    * omega
+                    * eps_im
+                    * e_norm_sq_integral(
+                        &mesh,
+                        &self.base.tet_physical_tags,
+                        PHYS_SUBSTRATE,
+                        &sol.e_edges,
+                    );
+                let ff = ntff_far_field(
+                    &mesh,
+                    omega,
+                    &sol.e_edges,
+                    flux_lo,
+                    flux_hi,
+                    NTFF_N_THETA,
+                    NTFF_N_PHI,
+                );
+                let (d_max, _) = directivity(&ff);
+                let row = RadRow {
+                    f_ghz: f,
+                    s11: self.s11_of_v(v),
+                    z_ohm: v / i * ETA_0,
+                    p_in,
+                    p_avail,
+                    p_rad,
+                    p_diel,
+                    d_broadside: broadside_directivity(&ff),
+                    d_max,
+                };
+                eprintln!(
+                    "    radiation {f:.4} GHz: |S11| {:6.2} dB, P_rad/P_in {:.4}, P_diel/P_in {:.4}, \
+                     balance {:+.2e}, D_broadside {:.2} dBi, realized gain {:.2} dBi",
+                    20.0 * row.s11.norm().log10(),
+                    row.eta_rad(),
+                    row.p_diel / row.p_in,
+                    row.balance_residual(),
+                    10.0 * row.d_broadside.log10(),
+                    row.realized_gain_dbi()
+                );
+                row
+            })
+            .collect()
+    }
+}
+
+/// Write a (moved) patch mesh with the fixture's physical tags as MSH 2.2
+/// ASCII (issue #1126: the Palace reference reads MSH 2.2; the tag numbers
+/// are the attributes its config refers to). Elementary and physical tag are
+/// both the physical tag.
+fn write_msh22(path: &Path, base: &PatchFixture, mesh: &geode_core::mesh::TetMesh) {
+    let mut t = String::with_capacity(64 * (mesh.n_nodes() + mesh.n_tets()));
+    t.push_str("$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$PhysicalNames\n7\n");
+    for (dim, tag, name) in [
+        (3, 1, "substrate"),
+        (3, 2, "air"),
+        (3, 3, "upml"),
+        (2, 11, "port"),
+        (2, 12, "patch"),
+        (2, 13, "ground"),
+        (2, 14, "outer_boundary"),
+    ] {
+        let _ = writeln!(t, "{dim} {tag} \"{name}\"");
+    }
+    t.push_str("$EndPhysicalNames\n$Nodes\n");
+    let _ = writeln!(t, "{}", mesh.n_nodes());
+    for (i, p) in mesh.nodes.iter().enumerate() {
+        let _ = writeln!(t, "{} {:.17e} {:.17e} {:.17e}", i + 1, p[0], p[1], p[2]);
+    }
+    t.push_str("$EndNodes\n$Elements\n");
+    let n_tri = base.boundary_triangles.len();
+    let _ = writeln!(t, "{}", n_tri + mesh.n_tets());
+    let mut id = 1usize;
+    for (tri, &tag) in base
+        .boundary_triangles
+        .iter()
+        .zip(&base.triangle_physical_tags)
+    {
+        let _ = writeln!(
+            t,
+            "{id} 2 2 {tag} {tag} {} {} {}",
+            tri[0] + 1,
+            tri[1] + 1,
+            tri[2] + 1
+        );
+        id += 1;
+    }
+    for (tet, &tag) in mesh.tets.iter().zip(&base.tet_physical_tags) {
+        let _ = writeln!(
+            t,
+            "{id} 4 2 {tag} {tag} {} {} {} {}",
+            tet[0] + 1,
+            tet[1] + 1,
+            tet[2] + 1,
+            tet[3] + 1
+        );
+        id += 1;
+    }
+    t.push_str("$EndElements\n");
+    if let Some(p) = path.parent() {
+        fs::create_dir_all(p).expect("write-mesh dir");
+    }
+    fs::write(path, t).expect("write msh 2.2");
 }
 
 /// Port voltage `V = (1/w) Σ f_i e_i`.
@@ -1592,6 +1845,12 @@ fn basis_flags(cli: &Cli) -> String {
         if cli.air_on_cylinder {
             f.push_str(" --air-on-cylinder");
         }
+        if cli.rect4 {
+            f.push_str(" --rect4");
+        }
+        if cli.freeze_feed_width {
+            f.push_str(" --freeze-feed-width");
+        }
     }
     f
 }
@@ -1620,7 +1879,10 @@ fn run_verify(
     c: &VerifyCtx<'_>,
 ) {
     let n_dofs = model.morph.n_dofs();
-    let x: Vec<f64> = design.map_or_else(|| vec![0.0; n_dofs], |d| d.x.clone());
+    let mut x: Vec<f64> = design.map_or_else(|| vec![0.0; n_dofs], |d| d.x.clone());
+    for &k in &model.frozen {
+        x[k] = 0.0;
+    }
     let order = if cli.p2 { "p2" } else { "p1" };
     let design_name = design.map_or_else(
         || "initial".to_string(),
@@ -1686,6 +1948,18 @@ fn run_verify(
         (v, w, d)
     });
     let sweep_s = t_sweep.elapsed().as_secs_f64();
+    let rad = if cli.radiation.is_empty() {
+        Vec::new()
+    } else {
+        eprintln!("  radiation (P1) at {:?} GHz:", cli.radiation);
+        model.radiation(&x, &cli.radiation)
+    };
+    let mesh_sha = cli.write_mesh.as_ref().map(|p| {
+        write_msh22(p, &model.base, &model.moved_mesh(&x));
+        let sha = sha256_hex(&fs::read(p).expect("read written mesh"));
+        eprintln!("  wrote the moved mesh (MSH 2.2) to {} (sha256 {sha})", p.display());
+        sha
+    });
     let db = |s: &c64| 20.0 * s.norm().log10();
     let worst = verify
         .iter()
@@ -1746,12 +2020,24 @@ fn run_verify(
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
-             <dir>/{}.msh {} --verify-only{} --verify-n {} --wide-step {}{}{}",
+             <dir>/{}.msh {} --verify-only{} --verify-n {} --wide-step {}{}{}{}",
             c.stem,
             basis_flags(cli),
             if cli.p2 { " --p2" } else { "" },
             cli.verify_n,
             cli.wide_step,
+            if cli.radiation.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " --radiation {}",
+                    cli.radiation
+                        .iter()
+                        .map(|f| format!("{f}"))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            },
             cli.dense.map_or(String::new(), |(lo, hi, n)| format!(
                 " --dense {lo}:{hi}:{n}{}",
                 cli.shard
@@ -1820,6 +2106,12 @@ fn run_verify(
                 );
             }
         }
+    }
+    if cli.freeze_feed_width {
+        t.push_str(
+            "feed_width_frozen = true  # --freeze-feed-width: the width coefficient is 0, the \
+             port keeps the fixture's probe_w\n",
+        );
     }
     let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
     let _ = writeln!(t, "outline = {}", toml_str(c.outline_spec));
@@ -1899,6 +2191,72 @@ fn run_verify(
         let _ = writeln!(t, "s11_mag = {:.9e}", s.norm());
         let _ = writeln!(t, "s11_db = {:.6}", db(s));
         t.push('\n');
+    }
+    if let Some(sha) = &mesh_sha {
+        t.push_str("[moved_mesh]\n");
+        t.push_str(
+            "description = \"The moved mesh of this design on this fixture, written as MSH 2.2 \
+             ASCII with the fixture's physical tags (--write-mesh) for the Palace reference \
+             (issue #1126); not committed (regenerate with this command plus --write-mesh).\"\n",
+        );
+        let _ = writeln!(t, "sha256 = {}", toml_str(sha));
+        t.push('\n');
+    }
+    if !rad.is_empty() {
+        t.push_str("[radiation]\n");
+        t.push_str(
+            "description = \"P1 power balance and broadside gain (issue #1126, X3). p_in = \
+             1/2 Re(V I*) (accepted), p_avail = |V_inc|^2 / (2 R); p_rad = box Poynting flux \
+             through the air box shrunk by flux_shrink of its half-extent (inside the UPML, \
+             outside the board); p_diel = 1/2 omega eps_r tan_delta int_substrate |E|^2 \
+             (exact P1 quadrature); eta_rad = p_rad / p_in; balance = (p_in - p_rad - p_diel) \
+             / p_in. Directivity from the Love-equivalence NTFF on the same box (theta from 0 to \
+             pi, phi over [0, 2 pi)); broadside = theta 0, the patch normal at s = 0. gain = D \
+             eta_rad; realized gain = D p_rad / p_avail = gain (1 - |S11|^2). Conductors are PEC \
+             (no copper loss).\"\n",
+        );
+        let _ = writeln!(t, "flux_shrink = {FLUX_SHRINK}");
+        let _ = writeln!(t, "ntff_grid = [{NTFF_N_THETA}, {NTFF_N_PHI}]");
+        let _ = writeln!(
+            t,
+            "substrate_eps_r = {}\nsubstrate_tan_delta = {}",
+            FR4_MATERIALS.eps_r_substrate, FR4_MATERIALS.tan_delta_substrate
+        );
+        t.push('\n');
+        for r in &rad {
+            t.push_str("[[radiation.point]]\n");
+            let _ = writeln!(t, "f_ghz = {:.6}", r.f_ghz);
+            let _ = writeln!(t, "s11_re = {:.9e}", r.s11.re);
+            let _ = writeln!(t, "s11_im = {:.9e}", r.s11.im);
+            let _ = writeln!(t, "s11_db = {:.6}", db(&r.s11));
+            let _ = writeln!(t, "z_re_ohm = {:.6}", r.z_ohm.re);
+            let _ = writeln!(t, "z_im_ohm = {:.6}", r.z_ohm.im);
+            let _ = writeln!(t, "p_in = {:.9e}", r.p_in);
+            let _ = writeln!(t, "p_avail = {:.9e}", r.p_avail);
+            let _ = writeln!(t, "p_rad = {:.9e}", r.p_rad);
+            let _ = writeln!(t, "p_diel = {:.9e}", r.p_diel);
+            let _ = writeln!(t, "eta_rad = {:.6}", r.eta_rad());
+            let _ = writeln!(t, "diel_fraction = {:.6}", r.p_diel / r.p_in);
+            let _ = writeln!(t, "balance_residual = {:.4e}", r.balance_residual());
+            let _ = writeln!(
+                t,
+                "mismatch_check = {:.3e}",
+                r.p_in / r.p_avail - (1.0 - r.s11.norm_sqr())
+            );
+            let _ = writeln!(
+                t,
+                "directivity_broadside_dbi = {:.4}",
+                10.0 * r.d_broadside.log10()
+            );
+            let _ = writeln!(t, "directivity_max_dbi = {:.4}", 10.0 * r.d_max.log10());
+            let _ = writeln!(t, "gain_broadside_dbi = {:.4}", r.gain_dbi());
+            let _ = writeln!(
+                t,
+                "realized_gain_broadside_dbi = {:.4}",
+                r.realized_gain_dbi()
+            );
+            t.push('\n');
+        }
     }
     for (f, s, res) in &dense {
         t.push_str("[[s11_dense.point]]\n");
@@ -2042,7 +2400,23 @@ fn main() {
             sub_pad,
         )
     });
-    if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper) {
+    if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper && cli.rect4) {
+        // Rectangle baseline (issue #1126, X4): two DOFs, each the sum of the
+        // splines of two opposite edges at half weight.
+        outline_spec = format!(
+            "rect4: 2 DOFs [dW, dL] (mm, total patch width / length change): dW moves the +s \
+             and -s edges outward by dW/2 each, dL the +y and -y edges by dL/2 each, as the sum \
+             of that edge's {} clamped uniform B-splines (degree {}; a partition of unity, so the \
+             edge translates uniformly); same ramp from the pinned feed band (half-width {:.2} \
+             mm), {sub_pad} mm margin decay and exact on-cylinder chart morph as the per-edge \
+             outline basis",
+            cli.outline,
+            cli.outline.saturating_sub(1).min(SPLINE_DEGREE),
+            0.5 * probe_w
+        );
+        n_outline = 2;
+        let _ = ob;
+    } else if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper) {
         // Copper mode (issue #1120): the same per-edge splines, applied by the
         // exact on-cylinder chart morph below (no chord error).
         outline_spec = format!(
@@ -2141,6 +2515,7 @@ fn main() {
         }
         let n_cols = n_outline + n_corner + n_feed;
         let ob = outline_basis.clone();
+        let rect4 = cli.rect4;
         let air = if cli.air_on_cylinder {
             AirMotion::OnCylinder
         } else {
@@ -2154,11 +2529,25 @@ fn main() {
             |s, y| {
                 let mut v = Vec::with_capacity(n_cols);
                 if let Some(ob) = &ob {
-                    v.extend(
-                        ob.eval(s, y)
-                            .into_iter()
-                            .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
-                    );
+                    let e = ob.eval(s, y);
+                    if rect4 {
+                        // [+y, -y, +s, -s] blocks of n splines each.
+                        let n = e.len() / 4;
+                        let sum = |r: std::ops::Range<usize>| {
+                            e[r].iter()
+                                .fold([0.0_f64; 2], |a, b| [a[0] + b[0], a[1] + b[1]])
+                        };
+                        let (yp, ym, sp, sm) =
+                            (sum(0..n), sum(n..2 * n), sum(2 * n..3 * n), sum(3 * n..4 * n));
+                        let half = 0.5 * OUTLINE_SCALE_MM;
+                        v.push([half * (sp[0] + sm[0]), half * (sp[1] + sm[1])]);
+                        v.push([half * (yp[0] + ym[0]), half * (yp[1] + ym[1])]);
+                    } else {
+                        v.extend(
+                            e.into_iter()
+                                .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                        );
+                    }
                 }
                 if let Some(cb) = &corner_basis {
                     v.extend(cb.eval(s, y));
@@ -2322,6 +2711,11 @@ fn main() {
         pml_thick,
         sigma0,
         n_solves: std::cell::Cell::new(0),
+        frozen: if cli.freeze_feed_width {
+            vec![n_outline + n_corner + 1]
+        } else {
+            Vec::new()
+        },
     };
     let n_nodes = model.base.mesh.n_nodes();
     let n_edges = edges.len();
@@ -2373,7 +2767,18 @@ fn main() {
         Some(d) => {
             let mut scale = 1.0_f64;
             loop {
-                let xs: Vec<f64> = d.x.iter().map(|v| v * scale).collect();
+                let xs: Vec<f64> = d
+                    .x
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        if model.frozen.contains(&i) {
+                            0.0
+                        } else {
+                            v * scale
+                        }
+                    })
+                    .collect();
                 let vr = model.min_vol_ratio(&xs);
                 eprintln!(
                     "  warm start from {} (scale {scale}): min vol ratio {vr:.3}",
@@ -2445,13 +2850,16 @@ fn main() {
                 fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_corner", "x0"));
             }
             for (k, name) in ["feed_inset", "feed_width"].iter().enumerate().take(n_feed) {
+                if model.frozen.contains(&(c_end + k)) {
+                    continue;
+                }
                 let d: Vec<f64> = (0..n_dofs)
                     .map(|i| if i == c_end + k { 1.0 } else { 0.0 })
                     .collect();
                 fd_checks.push(fd_check(&model, &x0, &grad0, &d, name, "x0"));
             }
         } else {
-            let d = rng.unit_direction(n_dofs, |_| true);
+            let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
             fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_all", "x0"));
         }
     }
@@ -2640,7 +3048,7 @@ fn main() {
     let grad_final = e_final.grad.clone().unwrap();
     let gnorm_final = norm(&grad_final);
     if n_dofs > 0 && !cli.fd_only && steps.len() > 1 {
-        let d = rng.unit_direction(n_dofs, |_| true);
+        let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
         fd_checks.push(fd_check(
             &model,
             &x_final,

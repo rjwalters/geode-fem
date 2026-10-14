@@ -327,6 +327,47 @@ pub fn extinction_power(
     0.5 * omega * contrast * p_ext
 }
 
+/// `∫ |E|² dV` of the lowest-order Whitney field over the tets carrying
+/// `tag` in `tet_physical_tags` (issue #1126: the dielectric loss of a
+/// driven antenna, `P_d = ½ ω ε₀ ε_r tan δ ∫_sub |E|² dV`, which in the
+/// codebase's natural units, `ε₀ = 1` and `ω ≡ k₀`, is
+/// `½ ω |Im ε| · e_norm_sq_integral(..)` and is directly comparable with
+/// the port power `½ Re(V I*)` and [`flux_power_box`]).
+///
+/// The P1 Whitney field is linear in each tet, so `|E|²` is quadratic and
+/// the degree-2 four-point rule integrates it exactly.
+///
+/// # Panics
+///
+/// Panics if `tet_physical_tags` is not parallel to `mesh.tets` or if
+/// `e_edges.len()` does not match the mesh edge count.
+pub fn e_norm_sq_integral(
+    mesh: &TetMesh,
+    tet_physical_tags: &[i32],
+    tag: i32,
+    e_edges: &[c64],
+) -> f64 {
+    assert_eq!(tet_physical_tags.len(), mesh.n_tets());
+    let edges = mesh.edges();
+    assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
+    let tet_edges = mesh.tet_edges();
+    let mut acc = 0.0_f64;
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        if tet_physical_tags[t] != tag {
+            continue;
+        }
+        let geom = tet_geometry(mesh, tet);
+        let dofs = local_dofs(&tet_edges[t], e_edges);
+        let w_q = geom.volume / 4.0;
+        for q in 0..4 {
+            let lambda: [f64; 4] = std::array::from_fn(|i| if i == q { QUAD_A } else { QUAD_B });
+            let e = eval_field_at_bary(&geom, &dofs, lambda);
+            acc += w_q * (e[0].norm_sqr() + e[1].norm_sqr() + e[2].norm_sqr());
+        }
+    }
+    acc
+}
+
 /// Scattered power via direct Poynting-flux integration of
 /// `½ Re(E_sca × H_sca*) · n̂` over the closed polyhedral surface
 /// bounding the union of tets with centroid radius `< r_obs`
@@ -1102,6 +1143,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `∫|E|²` is exact for P1 fields: a constant field over the unit
+    /// cube gives `|E₀|²`, and the rotational field `E = ẑ × r = (−y, x, 0)`,
+    /// which lies in the lowest-order Nédélec space `{a + b × r}` but is not
+    /// curl-free, gives `∫ (x² + y²) dV = 2/3`; another tag selects nothing.
+    #[test]
+    fn e_norm_sq_integral_is_exact_for_p1_fields() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let tags = vec![7_i32; mesh.n_tets()];
+        let edges = mesh.edges();
+        let dofs_of = |f: &dyn Fn([f64; 3]) -> [f64; 3]| -> Vec<c64> {
+            edges
+                .iter()
+                .map(|e| {
+                    let p = mesh.nodes[e[0] as usize];
+                    let q = mesh.nodes[e[1] as usize];
+                    let mid = [0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1]), 0.5 * (p[2] + q[2])];
+                    // Exact edge moment of a linear field: midpoint value · (q − p).
+                    c64::new(0.0, dot(f(mid), sub(q, p)))
+                })
+                .collect()
+        };
+        let e0 = [0.3_f64, -1.1, 0.7];
+        let e_const = dofs_of(&|_| e0);
+        let got = e_norm_sq_integral(&mesh, &tags, 7, &e_const);
+        assert!((got - dot(e0, e0)).abs() < 1e-12, "constant: {got}");
+        assert_eq!(e_norm_sq_integral(&mesh, &tags, 8, &e_const), 0.0);
+        let e_rot = dofs_of(&|r| [-r[1], r[0], 0.0]);
+        let got = e_norm_sq_integral(&mesh, &tags, 7, &e_rot);
+        assert!((got - 2.0 / 3.0).abs() < 1e-12, "rotational: {got}");
     }
 
     /// Barycentric gradients sum to zero and satisfy

@@ -85,6 +85,12 @@ GEO_PARAMS = {
         "lc_pml",
         "sub_zpad",
         "sub_box_thick",
+        "lc_sub_patch",
+        "sub_patch_pad",
+        "sub_patch_thick",
+        "lc_rim",
+        "rim_dist_min",
+        "rim_dist_max",
     ],
 }
 
@@ -415,6 +421,58 @@ def substrate_layers(nodes, tets, h) -> float:
     return ratios[len(ratios) // 2] if ratios else 0.0
 
 
+def substrate_layers_under_patch(nodes, tets, h, half_w, half_l, inset=3.0) -> float:
+    """``substrate_layers`` restricted to the substrate tets whose (flat)
+    centroid lies over the patch interior, the footprint shrunk by ``inset``
+    mm (``|x| <= half_w - inset, |y| <= half_l - inset``; issue #1126): the
+    layer count where the cavity field lives, which a refinement local to the
+    patch (``lc_sub_patch``) changes while the slab-wide median barely moves.
+    The inset keeps a rim refinement (``lc_rim``), whose many small tets
+    would dominate a per-tet median, out of the count."""
+    half_w -= inset
+    half_l -= inset
+    ratios = []
+    for phys, conn in tets:
+        if phys != 1:
+            continue
+        cx = sum(nodes[t][0] for t in conn) / 4.0
+        cy = sum(nodes[t][1] for t in conn) / 4.0
+        if abs(cx) > half_w or abs(cy) > half_l:
+            continue
+        zs = [nodes[t][2] for t in conn]
+        ext = max(zs) - min(zs)
+        if ext > 0.0:
+            ratios.append(h / ext)
+    ratios.sort()
+    return ratios[len(ratios) // 2] if ratios else 0.0
+
+
+def patch_rim_edge_stats(nodes, tris, half_w, half_l, band=0.5, tag=12):
+    """Mean / max length (mm) of the patch-triangle edges whose midpoint lies
+    within ``band`` mm of the patch outline (flat mesh; issue #1126): the
+    in-plane resolution at the r^-1/2 edge singularity."""
+    total, count, worst = 0.0, 0, 0.0
+    seen = set()
+    for phys, conn in tris:
+        if phys != tag:
+            continue
+        for i in range(3):
+            a, b = conn[i], conn[(i + 1) % 3]
+            key = (min(a, b), max(a, b))
+            if key in seen:
+                continue
+            seen.add(key)
+            pa, pb = nodes[a], nodes[b]
+            mx, my = 0.5 * (pa[0] + pb[0]), 0.5 * (pa[1] + pb[1])
+            if min(half_w - abs(mx), half_l - abs(my)) > band:
+                continue
+            d = _norm(_sub(pa, pb))
+            total += d
+            count += 1
+            worst = max(worst, d)
+    return (total / count, worst) if count else (0.0, 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Quality checks.
 # ---------------------------------------------------------------------------
@@ -548,6 +606,10 @@ def main(argv: list) -> int:
     report = quality_report(nodes, tets, tris, group_names)
     h = float(params["patch"]["h"])
     layers = substrate_layers(nodes, tets, h)
+    half_w = 0.5 * float(params["patch"]["patch_w"])
+    half_l = 0.5 * float(params["patch"]["patch_l"])
+    layers_patch = substrate_layers_under_patch(nodes, tets, h, half_w, half_l)
+    rim_stats = patch_rim_edge_stats(nodes, tris, half_w, half_l)
 
     bent_info = None
     if bend:
@@ -582,6 +644,8 @@ def main(argv: list) -> int:
     print(f"min dihedral:     {report['min_dihedral_deg']:.2f} deg  (gate {MIN_DIHEDRAL_DEG})")
     print(f"total volume:     {report['total_volume']:.6g} mm^3")
     print(f"substrate layers: {layers:.2f}  (median h / tet z-extent, flat mesh)")
+    print(f"  under the patch interior (3 mm inside the outline): {layers_patch:.2f}")
+    print(f"patch rim edges:  mean {rim_stats[0]:.3f} / max {rim_stats[1]:.3f} mm (within 0.5 mm)")
     for dim, tag, name in EXPECTED_GROUPS:
         counts = report["tet_phys_counts"] if dim == 3 else report["tri_phys_counts"]
         kind = "tets" if dim == 3 else "tris"
@@ -660,6 +724,13 @@ def main(argv: list) -> int:
         ]
     prov += ["", "resolution (lengths in mm):"]
     prov.append(f"  substrate layers (median h / tet z-extent, flat mesh): {layers:.2f}")
+    prov.append(
+        f"  substrate layers under the patch interior (3 mm inside the outline): {layers_patch:.2f}"
+    )
+    prov.append(
+        f"  patch rim edge mean / max (edges within 0.5 mm of the outline): "
+        f"{rim_stats[0]:.3f} / {rim_stats[1]:.3f}"
+    )
     names = {1: "substrate", 2: "air", 3: "upml"}
     for tag in (1, 2, 3):
         if tag in edge_stats:
