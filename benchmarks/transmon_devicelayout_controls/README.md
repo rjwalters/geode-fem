@@ -219,6 +219,8 @@ termination.
 | worker | role | time | cost |
 |---|---|---|---|
 | amr1123 (r8g.8xlarge) | the adaptive run, fam_u1_p1, fam_u2_p1 | about 4.3 h | about $8.1 |
-| dl1123 (r8g.4xlarge) | the controls (14 min per run on 16 ranks), the rerun, fam_u1_p2 | about 4.3 h | about $4.1 |
-| lad1123 (r8g.4xlarge) | the conv-step ladder | about 3.3 h | about $3.1 |
-| gate1123 (r8g.4xlarge) | gates | about 1 h | about $1 |
+| dl1123 (r8g.4xlarge) | the controls (8–14 min per Palace run on 16 ranks, including upload), the rerun, fam_u1_p2 | about 4.5 h | about $4.2 |
+| lad1123 (r8g.4xlarge) | the conv-step ladder | about 3.4 h | about $3.2 |
+| gate1123 (r8g.4xlarge) | gates | about 1.5 h | about $1.4 |
+
+The total is about $17. On 32 ranks, #1111's DeviceLayout-discretization runs took about 4 min each.
