@@ -1037,6 +1037,15 @@ const MANIFEST: &[Entry] = &[
          (Palace-GPU vs Palace-CPU vs geode CPU f64, Lambda A100); \
          record meta.measured_date and software.palace_commit",
     ),
+    e(
+        "benchmarks/transmon_devicelayout_controls/results.toml",
+        &["meta.measured_date", "meta.palace_commit"],
+        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issue #1123; reads the \
+         Palace cells of reference/fixtures/transmon_palace/results_controls_1123/ written by \
+         driver.py, ladder_palace.sh and worker_amr.sh on AWS, plus the committed #1079/#1092 \
+         artifacts). Palace only, no Burn backend and no geode solve, so it carries \
+         meta.measured_date and meta.palace_commit instead of the mechanical trio",
+    ),
 ];
 
 fn repo_root() -> PathBuf {

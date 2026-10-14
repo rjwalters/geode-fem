@@ -35,6 +35,9 @@ Cargo.lock.bak
 !reference/fixtures/transmon_palace/results_optimize_1092/*/palace_run.log
 !benchmarks/transmon_devicelayout_optimize/logs/*.log
 !benchmarks/transmon_devicelayout_optimize/ladder_*/logs/*.log
+# #1123 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1123/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1123/logs/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json
