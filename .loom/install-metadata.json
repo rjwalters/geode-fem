@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1157",
-  "loom_commit": "3e3ff8aa9b674281336009ed9b92693dd038f9e9",
+  "loom_version": "0.19.1158",
+  "loom_commit": "f7db3179647083a4df8fe500b1d48a541958a315",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -496,7 +496,6 @@
     ".loom/scripts/tests/test-guide-docs-pr-race.sh",
     ".loom/scripts/tests/test-guide-docs-telemetry.sh",
     ".loom/scripts/tests/test-guide-operator-attention-fold.sh",
-    ".loom/scripts/tests/test-guide-operator-only-exclude.sh",
     ".loom/scripts/tests/test-guide-plan-body-stable-sort.sh",
     ".loom/scripts/tests/test-guide-pool-pressure-defer.sh",
     ".loom/scripts/tests/test-guide-superseding-block-merge-state.sh",
@@ -509,7 +508,6 @@
     ".loom/scripts/tests/test-guide-work-log-self-loop.sh",
     ".loom/scripts/tests/test-guide-work-plan-approved-review-label-fidelity.sh",
     ".loom/scripts/tests/test-guide-work-plan-debounce.sh",
-    ".loom/scripts/tests/test-guide-work-plan-operator-only-exclude.sh",
     ".loom/scripts/tests/test-guide-work-plan-ready-open-pr-exclude.sh",
     ".loom/scripts/tests/test-hard-exclusion-labels.sh",
     ".loom/scripts/tests/test-host-sleep-config.sh",
@@ -582,7 +580,6 @@
     ".loom/scripts/tests/test-merge-pr-worktree-path.sh",
     ".loom/scripts/tests/test-merge-pr-worktree-remove-diagnosis.sh",
     ".loom/scripts/tests/test-nextest-daemon-guard.sh",
-    ".loom/scripts/tests/test-operator-only-subkind.sh",
     ".loom/scripts/tests/test-per-worktree-target-dir.sh",
     ".loom/scripts/tests/test-post-verdict.sh",
     ".loom/scripts/tests/test-pr-worktree-isolation.sh",
@@ -740,7 +737,6 @@
     ".agents/skills/loom-hermit/SKILL.md",
     ".agents/skills/loom-loom/SKILL.md",
     ".loom/docs/promotion-throughput.md",
-    ".loom/scripts/tests/test-champion-needs-revision-routing.sh",
     ".loom/scripts/tests/test-champion-promotion-throughput.sh",
     ".loom/scripts/tests/test-resync-installed-retired-migrate.sh",
     ".loom/scripts/tests/test-sync-labels-migrate-retired.sh",
@@ -763,7 +759,16 @@
     ".loom/scripts/tests/test-resync-installed-agents-hooks.sh",
     ".loom/scripts/tests/test-ci-suite-manifest-installed-layout.sh",
     ".loom/scripts/tests/test-spawn-codex-session-down.sh",
-    ".loom/scripts/tests/test-spawn-codex-session-mount-stale.sh"
+    ".loom/scripts/tests/test-spawn-codex-session-mount-stale.sh",
+    ".claude/commands/loom/champion-targeted.md",
+    ".loom/docs/targeted-role-invocation.md",
+    ".loom/scripts/tests/test-champion-targeted-modes.sh",
+    ".loom/scripts/tests/test-champion-terminal-verdicts.sh",
+    ".loom/scripts/tests/test-guide-operator-hold-exclude.sh",
+    ".loom/scripts/tests/test-guide-work-plan-operator-hold-exclude.sh",
+    ".loom/scripts/tests/test-merge-pr-expected-head.sh",
+    ".loom/scripts/tests/test-operator-hold-routing.sh",
+    ".loom/scripts/tests/test-targeted-role-invocation.sh"
   ],
   "last_resync": "2026-10-14",
   "requires_daemon": "0.19.1081"
