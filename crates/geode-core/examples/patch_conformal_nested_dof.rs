@@ -955,6 +955,8 @@ struct RadRow {
     /// NTFF directivity, broadside (`θ = 0`, the patch normal at `s = 0`) and maximum.
     d_broadside: f64,
     d_max: f64,
+    /// Backward (`θ = π`, through the finite ground) directivity.
+    d_back: f64,
 }
 
 impl RadRow {
@@ -1048,7 +1050,9 @@ impl Model {
                     NTFF_N_THETA,
                     NTFF_N_PHI,
                 );
-                let (d_max, _) = directivity(&ff);
+                let (d_max, d_grid) = directivity(&ff);
+                let back = &d_grid[(NTFF_N_THETA - 1) * NTFF_N_PHI..];
+                let d_back = back.iter().sum::<f64>() / NTFF_N_PHI as f64;
                 let row = RadRow {
                     f_ghz: f,
                     s11: self.s11_of_v(v),
@@ -1059,6 +1063,7 @@ impl Model {
                     p_diel,
                     d_broadside: broadside_directivity(&ff),
                     d_max,
+                    d_back,
                 };
                 eprintln!(
                     "    radiation {f:.4} GHz: |S11| {:6.2} dB, P_rad/P_in {:.4}, P_diel/P_in {:.4}, \
@@ -2249,6 +2254,16 @@ fn run_verify(
                 10.0 * r.d_broadside.log10()
             );
             let _ = writeln!(t, "directivity_max_dbi = {:.4}", 10.0 * r.d_max.log10());
+            let _ = writeln!(
+                t,
+                "directivity_back_dbi = {:.4}",
+                10.0 * r.d_back.max(1e-300).log10()
+            );
+            let _ = writeln!(
+                t,
+                "front_to_back_db = {:.4}",
+                10.0 * (r.d_broadside / r.d_back.max(1e-300)).log10()
+            );
             let _ = writeln!(t, "gain_broadside_dbi = {:.4}", r.gain_dbi());
             let _ = writeln!(
                 t,
