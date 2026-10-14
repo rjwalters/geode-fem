@@ -1,0 +1,10 @@
+cells start 2026-10-14T16:19:52Z: fam_u1_p1:32 amr_initial_p2:32 fam_u2_p1:32 fam_u1_p2:32
+start fam_u1_p1 np=32 2026-10-14T16:19:52Z
+end fam_u1_p1 exit=0 2026-10-14T16:33:46Z
+start amr_initial_p2 np=32 2026-10-14T16:33:46Z
+end amr_initial_p2 exit=0 2026-10-14T19:41:18Z
+start fam_u2_p1 np=32 2026-10-14T19:41:18Z
+end fam_u2_p1 exit=0 2026-10-14T19:57:14Z
+start fam_u1_p2 np=32 2026-10-14T19:57:14Z
+end fam_u1_p2 exit=1 2026-10-14T19:57:15Z
+cells end 2026-10-14T19:57:15Z
