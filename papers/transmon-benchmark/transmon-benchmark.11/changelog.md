@@ -39,7 +39,7 @@ Not in scope here: the v10 Judge's third follow-up (the `[0.0252, 0.0304]` "roun
 |---|---|
 | R1 Codex model names (operator ruling) | "OpenAI models (through Codex)" → "OpenAI's GPT Sol and GPT Astra models (via Codex)"; `BUILT` pin, this changelog and `BRIEF.md` updated. |
 | R2 Codex count | "Commits made through Codex carry no such trailer and are not counted" was false: the 3 trailer-less commits of the 85 are Codex's (`ec9e0539`, PR #1040, the v7 draft; `2efa0057`, PR #1058, the P2 optimization evidence; `4c6faaaf`, PR #1060, the v8 figure revision), with 15,761 of 144,615 added text lines over the counted paths (10.9 %, recomputed). §9 now says "Of these commits, 82 carry a Claude co-author trailer (Opus 66, Fable 10, Sonnet 6); the other 3 were made through Codex, which adds no trailer, and contain about 11 % of the added text lines", and describes Codex's work: one full draft, the figure revision, and the P2 shape-derivative code (`d965e115`, `e4268867`, PR #1058, outside the counted paths) and evidence behind Appendix A. |
-| R3 review claim | "Every change passed …" → "Nearly every change was reviewed by a separate agent session: 46 of the 48 pull requests received an independent review, and once verifier scripts were added, those reviews recomputed the numbers from committed artifacts, reproduced runs and mutation-tested the verifier pins." #539 and #592 have no review or comment (read-only `gh pr view` over all 48); verifier scripts start at v7, and the v7 reviews already mutation-tested them. |
+| R3 review claim | "Every change passed …" → "Nearly every change was reviewed by a separate agent session: 46 of the 48 pull requests received an independent review, and once verifier scripts were added, the reviews of each paper revision recomputed the numbers from committed artifacts, reproduced runs and mutation-tested the verifier pins." #539 and #592 have no review or comment (read-only `gh pr view` over all 48); verifier scripts start at v7, and the v7 reviews already mutation-tested them. |
 | Crutcher Dunnavant's code (operator ruling) | §9 credits the specification (cited), the design input and his 36 commits on main (`git log --author=crutcher@gmail.com`, 2026-06-24 to 06-29): the Rust 2024 migration, the Metal backend, the core-crate and examples restructuring, and geode-util. The acknowledgments add "and for his contributions to the codebase". |
 | Nit: forbidden phrases | Word-bounded regexes: `\bgives? the same shift\b`, `\bsame shift\b(?![-\w])`, `\bconfirms?\b`, … "the same shift-invert target" and "confirmed" now pass; "same shift", "gives the same shift", "confirm", "confirms" still fail (mutation-tested). |
 | Nit: NOTE tense | "offered coauthorship" → "to be offered coauthorship at review". |
@@ -176,3 +176,10 @@ Both rewritten for v10 and mutation-tested: 45 single edits, all caught, plus
 | Opus | Stale strings in v9-era artifacts | out of scope (artifacts outside `papers/`) |
 | Fable | Reconcile the two L_s readings (0.0792 vs 0.0852 nH) | moot — v10 quotes only the L_s band |
 | litsearch | Read Specogna/Ren full texts for floating conductors | open — the "new" claim is worded as an application, not a method |
+
+
+## Re-review fix (PR #1121, 2026-10-13)
+
+| Item | Change |
+|---|---|
+| §9 review scope | "those reviews recomputed … mutation-tested" covered every review from #1040 on, but 7 of those 22 PRs (#1047, #1055, #1057, #1064, #1068, #1071, #1094) did not mutation-test. It now reads "the reviews of each paper revision" (#1040, #1060, #1082, #1119, #1121), which holds. The `BUILT` pin and validation row are updated to match. |

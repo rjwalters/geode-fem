@@ -873,7 +873,7 @@ BUILT = [
     "shared Squad room.",
     # 46 of 48: #539 and #592 have no review or comment (read-only gh queries, validation.md).
     "Nearly every change was reviewed by a separate agent session: 46 of the 48 pull requests received an "
-    "independent review, and once verifier scripts were added, those reviews recomputed the numbers from "
+    "independent review, and once verifier scripts were added, the reviews of each paper revision recomputed the numbers from "
     "committed artifacts, reproduced runs and mutation-tested the verifier pins. Several claims in this paper "
     "were corrected or dropped because of those reviews.",
     "was first read as a design target and set a capacitance anchor; checked against the primary source, it is the "

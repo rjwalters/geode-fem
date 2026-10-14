@@ -54,6 +54,10 @@ TeX Live / pdfTeX.
   reviews (#1040) already mention mutation testing, and v7 is the first
   version with `verify_evidence.py`. Transcribed, not machine-checked (needs
   the forge).
+  Scope (re-review of 2aea0d1b): 7 of the 22 reviews from #1040 on (#1047,
+  #1055, #1057, #1064, #1068, #1071, #1094) did not mutation-test, so §9
+  scopes the claim to the reviews of each paper revision (#1040, #1060,
+  #1082, #1119, #1121).
 - **Judge-review fixes (PR #1121, 18fdabed), mutation check:** 16 single
   edits, each restored, all caught: Sonnet 6→5, Crutcher 36→35, "GPT Sol and
   GPT Astra"→"GPT Astra", 11 %→12 %, 46→48 PRs, "not counted" reinserted
