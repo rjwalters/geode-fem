@@ -12,8 +12,12 @@ The two independent reviews of transmon paper v11 asked for four things the
 4. the inputs of the 4.4766 GHz circuit cap, and why the reviewers' shared
    limit (4.4802 GHz) lies above it.
 
-Everything here is Palace (fba6a5b, the #1092 Dockerfile) and arithmetic.
-No geode solve enters any number. All values are in GHz unless stated.
+Every frequency here is a Palace run (fba6a5b, the #1092 Dockerfile), and no
+new geode solve was made. The one geode-derived input is δ = 215.954 µm, the
+end correction of #1111's transmission-line model. #1111 calibrated it once
+from a finite difference of two geode order-1 solves. The scaling-law Newton
+uses it in its L column, exactly as the geode-gradient Newton does (see §1).
+All values are in GHz unless stated.
 
 ## Files
 
@@ -42,12 +46,16 @@ The two controls:
 
 - **Scaling-law Newton.** Newton in DeviceLayout's variables x1 = √(620/c),
   x2 = 5000/L. The Jacobian is
-  - ∂F_q/∂x1 = F_q/x1, from f_q ∝ 1/√C_Σ ∝ x1;
-  - ∂F_r/∂x2 from #1111's transmission-line model (δ = 216 µm);
+  - c column: ∂F_q/∂x1 = F_q/x1, from f_q ∝ 1/√C_Σ ∝ x1. This uses no
+    derivative; it replaces geode's shape derivative.
+  - L column: ∂F_r/∂x2 from #1111's transmission-line model. This is the same
+    column the geode-gradient Newton uses, with δ = 215.954 µm from #1111's
+    one-time calibration (a single geode finite difference, counted in
+    neither method's runs).
   - zero off-diagonals.
 
-  It is re-evaluated from the Palace values at every point, and no
-  field-solve derivative is used.
+  It is re-evaluated from the Palace values at every point. The two Newton
+  variants differ only in the c column.
 - **Broyden.** One forward finite-difference probe per variable
   (Δx = −0.05) from the initial design gives the full 2×2 Jacobian. Each
   later step applies Broyden's rank-one update.
@@ -56,12 +64,12 @@ The two controls:
 |---|---|---|---|
 | PRIMA (DeviceLayout, published) | 9 | (unpublished) | 1217.678, 7243.955 |
 | Newton, geode-gradient Jacobian (#1111) | 3 | 7.9e-4 | 1225.346, 7223.250 |
-| **Newton, scaling-law Jacobian** | **3** | **1.7e-4** | 1232.664, 7221.270 |
+| **Newton, scaling-law c column** (same L column) | **3** | **1.7e-4** | 1232.664, 7221.270 |
 | Broyden from two probes | 5 (1 + 2 probes + 2 steps) | 6.2e-4 | 1224.847, 7232.447 |
 
-- **Result.** The scaling-law Jacobian with no derivative at all meets the
-  criterion in the same 3 runs as the geode-gradient Newton, and its first
-  step is 4.7× better (err 1.7e-4 against 7.9e-4).
+- **Result.** With a scaling law in place of the shape derivative in the c
+  column, Newton meets the criterion in the same 3 runs as the geode-gradient
+  Newton. Its first step is 4.7× better (err 1.7e-4 against 7.9e-4).
   - The reviewers' surrogate predicted about 4 runs and err 3.0e-4. The
     measured result is 3 runs and 1.7e-4.
   - Broyden needs 5. Its first step comes from a local tangent at the initial
@@ -71,9 +79,21 @@ The two controls:
   problem is close to linear. The 3-versus-9 is Newton's (with any reasonable
   Jacobian) against PRIMA's model-building, not the shape derivative. Here the
   geode gradient's contribution to the run count is nil.
+- **Sensitivity to δ** (`[controls.delta_sensitivity]`, arithmetic only, not
+  run). The Jacobian is diagonal, so δ moves only the L component of each
+  step and never the c component the comparison is about. For the first
+  step:
+  - δ = 0 gives L = 7016 µm;
+  - #1111's δ = 215.954 µm gives 7141 µm;
+  - the Palace-only δ = 564 µm, from the Broyden probe `dl_bp2` by the same
+    f_r (L + δ) = const model, gives 7351 µm.
+
+  δ is weakly determined, as #1111 already noted. A fully Palace-only
+  variant was not run.
 - **Build check.** `dl_initial_rerun` repeats run 1 on this issue's separately
   built Palace image, on 16 ranks, from a regenerated, byte-identical mesh. It
-  matches the committed #1092 cell to every printed digit.
+  matches the committed #1092 cell to 6 decimals (relative differences
+  4e-10 and 7.9e-8).
 
 ### One step from the published final design toward the converged targets
 
@@ -123,6 +143,9 @@ lie inside the band.
     **4.4552** (α = 0.80), and 4.4570 from solves 2–4. That is +0.26 % from
     the estimate, inside the band, and below the cap (4.4766) and the shared
     limit (4.4802).
+  - The fit is an estimate, not a bound. Like the shared limit, it is exactly
+    determined and ill-conditioned: +0.1 % on the finest level moves it by
+    24 MHz. So its 21 MHz margin below the cap is not evidence either way.
 - **Resonator.** It converges more slowly under this marking. Its finest
   level, 5.6986, is still below the part-1 band [5.723, 5.817]. Its
   three-point fit (α = 0.25, 5.778) is not reliable.
@@ -164,7 +187,8 @@ All levels are Palace order 1:
   - Quote the converged initial qubit as the range of the two family
     estimates, **4.444–4.472 GHz**, and state the 0.64 % as the
     mesh-family / refinement-scheme spread.
-  - The adaptive extrapolation, 4.455, lies inside that range.
+  - The adaptive extrapolation, 4.455, lies inside that range. It is an
+    ill-conditioned estimate (±24 MHz per 0.1 %).
   - Widening the band by the 1.8 % level spread would double-count the
     extrapolation.
 
@@ -200,13 +224,16 @@ All levels are Palace order 1:
 - **Why 4.4802 exceeds the cap (by 3.6 MHz, 0.08 %).**
   - The fit is exactly determined (four levels, four unknowns) and
     ill-conditioned. +0.1 % on the order-2 h/2 level alone moves it by
-    20 MHz, so the excess equals a 0.018 % change of that one level. That is
+    20 MHz, so the excess equals a 0.019 % change of that one level (0.0186 %
+    exact; 0.0179 % by the linear estimate). That is
     far inside the 0.15–1.8 % mesh and refinement-scheme effects of §3.
   - It also forces one order on two pre-asymptotic series.
   - On family b, which is close to its asymptotic order, the same
     construction gives 4.4657, below the cap.
-  - So does every independent computation: the adaptive run's finest level
-    (4.4297) and extrapolation (4.4552), and both family estimates.
+  - So do both family estimates and the adaptive run's finest computed level
+    (4.4297).
+  - The adaptive run's extrapolation (4.4552) is left out of this list,
+    because it is as ill-conditioned as the shared limit (24 MHz per 0.1 %).
   - So the excess lies within the conditioning of the family-a fit and is
     not evidence against the cap. The cap stays model-dependent.
 

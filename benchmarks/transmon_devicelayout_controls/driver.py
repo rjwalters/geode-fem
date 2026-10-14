@@ -5,8 +5,10 @@ iteration whose Jacobian took its capacitor_length column from geode's
 shape derivative. This driver runs the same problem (Palace at
 DeviceLayout's own discretization: its mesh_order 2 mesh, solver_order 2,
 its configfile verbatim; targets [3.0, 4.0] GHz; criterion
-sum((f - t)^2 / t^2) / 2 < 1e-4) with two Jacobians that use no field-solve
-derivative at all:
+sum((f - t)^2 / t^2) / 2 < 1e-4) with two Jacobians that use no shape
+derivative (the scaling variant keeps #1111's transmission-line L column, whose
+delta came from #1111's one-time geode finite difference; Broyden uses no geode
+input at all):
 
   scaling   Newton in DeviceLayout's variables x1 = sqrt(620 / c),
             x2 = 5000 / L, with the scaling-law Jacobian
@@ -186,7 +188,7 @@ def to_theta(x):
 
 
 def scaling_jacobian(theta, F):
-    """diag(F_q / x1, dF_r/dx2 of the line model); no field-solve derivative."""
+    """diag(F_q / x1, dF_r/dx2 of #1111's line model): no shape derivative in the c column."""
     x1, x2 = to_x(theta)
     L = theta[1]
     dL_dx2 = -5000.0 / x2**2

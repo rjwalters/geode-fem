@@ -33,22 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `geode-core`
 
-- **Controls for the DeviceLayout.jl SingleTransmon study, Palace only: a zero-derivative scaling-law Jacobian meets DeviceLayout's criterion in the same 3 Palace runs as the geode-gradient Newton; Palace adaptive refinement of the initial geometry does not plateau by 11M DOFs but extrapolates to 4.455 GHz, inside the part-1 band and below the cap; the ~2 % h/2 spread is refinement scheme, not mesh family** (#1123).
+- **Controls for the DeviceLayout.jl SingleTransmon study, Palace runs only: with a scaling law in place of geode's shape derivative in the c column (and #1111's transmission-line L column, shared with the geode-gradient Newton), Newton meets DeviceLayout's criterion in the same 3 Palace runs; Palace adaptive refinement of the initial geometry does not plateau by 11M DOFs and its ill-conditioned DOF extrapolation, 4.455 GHz, lies inside the part-1 band; the ~2 % h/2 spread is refinement scheme, not mesh family** (#1123).
   - **Gradient-free controls at DeviceLayout's discretization** (#1111's setup and run counting).
-    - Newton with ∂F_q/∂x1 = F_q/x1 and #1111's transmission-line column, with no field-solve derivative, meets err < 1e-4 at run 3, with a first-step err of 1.7e-4. The geode-gradient Newton (#1111) also needs 3 runs, with a first-step err of 7.9e-4.
+    - Newton with ∂F_q/∂x1 = F_q/x1 in the c column (no derivative) meets err < 1e-4 at run 3, with a first-step err of 1.7e-4. The geode-gradient Newton (#1111) also needs 3 runs, with a first-step err of 7.9e-4. Both use #1111's transmission-line L column, whose δ = 215.954 µm came from #1111's one-time geode finite difference, so they differ only in the c column. δ moves only the L step: the first L is 7016 / 7141 / 7351 µm for δ = 0 / 215.954 / 564 µm, the last being a Palace-only value from the Broyden probe (arithmetic only, not run).
     - Broyden from two finite-difference probes needs 5 runs. PRIMA's published count is 9.
     - So the 3-versus-9 is Newton against PRIMA, not the shape derivative.
-    - A rerun of #1111's run 1 on this issue's separately built Palace image matches it to every printed digit.
+    - A rerun of #1111's run 1 on this issue's separately built Palace image matches it to 6 decimals (relative differences ≤ 7.9e-8).
   - **One scaling-law step from the published final design toward the converged targets.** It lands at (1442.479, 7408.181) µm. Its Palace ladder gives 3.0040 / 4.0048 GHz (+0.13 % / +0.12 %), with both targets in the band. #1111's geode gradient needed two steps for the same (cv2: +0.16 % / −0.04 %).
   - **Palace adaptive mesh refinement on the initial geometry** (order 2, Dörfler 0.7, to MaxSize 1e7).
     - The qubit goes 4.1683 → 4.2904 → 4.3624 → 4.4057 → 4.4297 GHz over 0.95M → 11.0M DOFs, still rising 0.55 % per step: no plateau.
-    - A three-point fit in DOFs gives 4.4552 GHz (α = 0.80). That is +0.26 % from the 4.4438 estimate, inside its band, and below the 4.4766 GHz cap and the 4.4802 shared limit.
+    - A three-point fit in DOFs gives 4.4552 GHz (α = 0.80). That is +0.26 % from the 4.4438 estimate and inside its band. It is an estimate: +0.1 % on the finest level moves it by 24 MHz, so its 21 MHz margin below the 4.4766 GHz cap is not evidence either way.
     - The resonator converges more slowly (5.6986 GHz, still below its band).
   - **Mesh-family spread.**
     - The 1.95 % at h/2 is 1.5–1.8 % refinement scheme (Palace's `UniformLevels`, which bisects the sheet-edge elements first, against gmsh `-refine`) and 0.15–0.43 % mesh family.
     - The part-1 rule on a second refinement family of the same h mesh gives 4.4720 GHz [4.458, 4.510]: 0.64 % above the ladder's estimate, with its band inside the ladder's.
     - Proposal: quote the initial qubit as 4.444–4.472 GHz inside the unchanged band.
-  - **The cap's tier.** The cap's inputs (L_J, C_J, the certified C_Σ lower bound on `transmon_smoke.msh`, and L_s = k = 0) and assumptions are recorded, and the cap is listed as model-dependent. The shared limit is reported for every series. The initial qubit's 4.4802 GHz excess over the cap equals a 0.018 % change of one input level, so it lies within the conditioning of the fit; the second family's shared limit is 4.4657 GHz, below the cap.
+  - **The cap's tier.** The cap's inputs (L_J, C_J, the certified C_Σ lower bound on `transmon_smoke.msh`, and L_s = k = 0) and assumptions are recorded, and the cap is listed as model-dependent. The shared limit is reported for every series. The initial qubit's 4.4802 GHz excess over the cap equals a 0.0186 % change of one input level (0.0179 % by the linear estimate), so it lies within the conditioning of the fit; the second family's shared limit is 4.4657 GHz, below the cap.
   - **Artifacts.**
     - `benchmarks/transmon_devicelayout_controls/` holds `results.toml` (MANIFEST bucket E), `assemble.py`, `driver.py`, `ladder_palace.sh`, `worker_amr.sh` and `collect.sh`.
     - The Palace cells and logs are in `reference/fixtures/transmon_palace/results_controls_1123/`.

@@ -22,7 +22,8 @@
 //! - the circuit cap from its inputs, and the shared limit of every series
 //!   with its conditioning.
 //!
-//! No geode solve is involved: these pins run in the default tier.
+//! No geode solve runs here (the only geode-derived input is #1111's
+//! transmission-line delta, a constant): these pins run in the default tier.
 
 use std::path::PathBuf;
 
@@ -423,12 +424,33 @@ fn gradient_free_controls_re_derive_from_raw_cells() {
         6e-7,
         "original",
     );
+    let rel = tarr(&r, "controls.build_check.rerun_minus_original_rel");
     for i in 0..2 {
-        assert!(
-            pct(rerun[i], orig[i]).abs() < 1e-4,
-            "the two Palace builds agree on dl_initial"
-        );
+        close_sci(rel[i], rerun[i] / orig[i] - 1.0, "rerun rel");
+        assert!(rel[i].abs() < 1e-7, "the two Palace builds agree to 6 decimals");
     }
+    // The L column's delta: the first scaling step under 0, #1111's value
+    // and the Palace-only dl_bp2 value. The c component never moves.
+    let bp2 = palace(&format!("{CELLS}/dl_bp2"));
+    let t2 = report(&format!("{CELLS}/dl_bp2"));
+    let f0 = DL_INITIAL_GHZ[1];
+    let dp = (bp2[1] * t2[1] - f0 * INITIAL_UM[1]) / (f0 - bp2[1]);
+    close(tf(&r, "controls.delta_sensitivity.delta_palace_dl_bp2_um"), dp, 6e-4, "delta bp2");
+    let mut cs = Vec::new();
+    let mut ls = Vec::new();
+    for d in [0.0, DELTA_UM, dp] {
+        let x = x_of(INITIAL_UM);
+        let j = [
+            [DL_INITIAL_GHZ[0] / x[0], 0.0],
+            [0.0, DL_INITIAL_GHZ[1] / (INITIAL_UM[1] + d) * 5000.0 / (x[1] * x[1])],
+        ];
+        let t = step(INITIAL_UM, DL_INITIAL_GHZ, j);
+        cs.push(t[0]);
+        ls.push(t[1]);
+    }
+    close_all(&tarr(&r, "controls.delta_sensitivity.first_step_c_um"), &cs, 6e-4, "c under delta");
+    close_all(&tarr(&r, "controls.delta_sensitivity.first_step_L_um"), &ls, 6e-4, "L under delta");
+    assert!(cs.iter().all(|c| *c == cs[0]), "delta never moves the c step");
     // The measured outcome, pinned as measured (issue #1123: stated plainly
     // whichever way it came out).
     assert_eq!(n_sc, PINNED_SCALING_RUNS, "scaling-law Newton run count");
@@ -765,6 +787,14 @@ fn adaptive_refinement_re_derives_per_iteration() {
         5e-4,
         "alpha r",
     );
+    let mut w = fq[k - 3..].to_vec();
+    w[2] *= 1.001;
+    close(
+        tf(&r, "amr.initial.dof_extrapolation_f_q_sensitivity_ghz_per_0p1pct_finest"),
+        dof_extrap(&nd[k - 3..], &w).1 - xq,
+        5e-5,
+        "amr fit sensitivity",
+    );
     close(
         tf(&r, "amr.initial.dof_extrapolation_f_r_ghz"),
         xr_,
@@ -983,7 +1013,7 @@ fn mesh_family_spread_re_derives() {
     let amr_fin = *tarr(&r, "amr.initial.f_q_ghz").last().unwrap();
     assert_eq!(
         tbool(&r, "mesh_family.initial.all_estimates_below_cap"),
-        aq.estimate.max(bq.estimate).max(amr_x).max(amr_fin) <= cap
+        aq.estimate.max(bq.estimate).max(amr_fin) <= cap
     );
     let amr_last = *tarr(&r, "amr.initial.f_q_ghz").last().unwrap();
     close(
@@ -1130,6 +1160,24 @@ fn cap_inputs_and_shared_limits_re_derive() {
         tf(&r, "shared_limit.initial_q_excess_as_p2_h2_change_pct"),
         excess / sens[3].abs() * 0.1,
         5e-5,
-        "excess as a level change",
+        "excess as a level change (linear)",
+    );
+    // Exact: the relative decrease of p2 h/2 that brings the limit to the cap.
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        let mut w = base;
+        w[3] *= 1.0 - mid / 100.0;
+        if shared(w[0], w[1], w[2], w[3]).1 > cap {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    close(
+        tf(&r, "shared_limit.initial_q_excess_as_p2_h2_change_pct_exact"),
+        0.5 * (lo + hi),
+        5e-5,
+        "excess as a level change (exact)",
     );
 }
