@@ -659,9 +659,11 @@ fn every_copper_run_keeps_the_board_fixed_and_passes_its_fd_gate() {
 
 /// Every fresh forward verification: fixed board, healthy solves, passive,
 /// its design source unchanged (sha256), and the volume ratio of the verifying
-/// mesh disclosed: exactly one verification runs below the 0.25 guard (the s30
-/// L2 design on the original L1 at p = 2, 0.244; its re-based rerun is at
-/// 0.748).
+/// mesh disclosed: exactly these verifications run below the 0.25 guard — the
+/// s30 L2 design on the original L1 at p = 2 (0.244; its re-based rerun is at
+/// 0.748), the L2-chain design on its L3 (0.228), and the final design on its
+/// L3 (0.100 with the default air morph, 0.241 with `--air-on-cylinder`, S11
+/// within 0.01 dB) and on the independent sibling L1 (0.234).
 #[test]
 fn every_copper_verification_is_healthy_and_its_design_unchanged() {
     let mut below = Vec::new();
@@ -688,7 +690,16 @@ fn every_copper_verification_is_healthy_and_its_design_unchanged() {
     }
     assert_eq!(
         below,
-        ["L2_copper_38_s30_on_L1_p2"],
+        [
+            "L2_copper_38_s30_on_L1_p2",
+            "rbC_L2_copper_38_sm29_on_rbE_L3",
+            "rbD_L1_copper_38_sm45_on_rbD_L3",
+            "rbD_L1_copper_38_sm45_on_rbD_L3_cyl",
+            "rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense0of3",
+            "rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense1of3",
+            "rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense2of3",
+            "rbD_L1_copper_38_sm45_on_rbF_L1_p2",
+        ],
         "verification meshes below the 0.25 guard"
     );
 }
@@ -1090,3 +1101,116 @@ fn minus10_band(pts: &[(f64, f64)]) -> (Option<f64>, Option<f64>, f64, f64) {
 }
 
 const ISM: [f64; 2] = [2.4, 2.4835];
+
+/// **Gate G2 (manufacturable): met.** The final design
+/// `rbD_L1_copper_38_sm45` (L1 chain, space-mapped for P2/L1) on the fixed
+/// 1.6 mm board is below −10 dB across the whole ISM band with p = 2 on L1:
+///
+/// * the 9 in-band points on its own mesh: worst −10.78 dB;
+/// * the 41-point dense sweep (2.30–2.60 GHz, 7.5 MHz): a contiguous −10 dB
+///   band from 2.3938 to 2.4887 GHz (94.9 MHz), covering 100 % of
+///   2.4–2.4835 GHz, centred on the band to 0.5 MHz (sampled dip 2.4425 GHz);
+/// * on an independent L1 mesh regenerated at its probe (rbF): worst −10.35 dB
+///   (the response sits about 3 MHz higher: 0.4–0.7 dB of remesh sensitivity
+///   at the band edges);
+///
+/// On L3 (p = 1) the same design resonates about 14 MHz lower, so its top
+/// edge misses there: −8.80 dB on the 9 points (−8.81 dB with the default air
+/// motion, whose L3 mesh is at volume ratio 0.10, against 0.24 on cylinders);
+/// its dense L3 −10 dB band is as wide (94.6 MHz) but covers 74.6 MHz of the
+/// ISM band. The L2-chain design's 21-point p = 2 sweep has a 94.3 MHz −10 dB
+/// band covering the whole ISM band. The L2-chain design
+/// `rbC_L2_copper_38_sm29` independently meets G2 at the 9 points with p = 2
+/// (−10.10 dB).
+#[test]
+fn gate_g2_is_met_with_p2_on_l1() {
+    let w = |n: &str| {
+        f(
+            &load(&format!("verify/{n}.toml")),
+            "verify.verify_worst_s11_db",
+        )
+    };
+    let stem = "rbD_L1_copper_38_sm45_on_rbD_L1_p2";
+    assert!((w(stem) - -10.78).abs() < 0.01, "9-point worst {}", w(stem));
+    let pts = dense(stem);
+    assert_eq!(pts.len(), 41);
+    let (lo, hi, dip, worst) = minus10_band(&pts);
+    let (lo, hi) = (lo.expect("closed below"), hi.expect("closed above"));
+    assert!(
+        lo < ISM[0] && hi > ISM[1],
+        "-10 dB band [{lo}, {hi}] does not cover the ISM band"
+    );
+    assert!(worst <= -10.0, "dense worst in band {worst}");
+    assert!(
+        (lo - 2.39384).abs() < 2e-5 && (hi - 2.48870).abs() < 2e-5,
+        "band [{lo}, {hi}]"
+    );
+    assert!(
+        (1e3 * (hi - lo) - 94.87).abs() < 0.05,
+        "bandwidth {} MHz",
+        1e3 * (hi - lo)
+    );
+    let centring = 0.5 * (ISM[0] + ISM[1]) - 0.5 * (lo + hi);
+    assert!(centring.abs() < 1e-3, "centring {} MHz", 1e3 * centring);
+    assert!((dip - 2.4425).abs() < 1e-6, "dip on the grid at {dip}");
+    assert!(
+        (worst - -11.371).abs() < 0.01,
+        "dense worst in band {worst}"
+    );
+    // Independent sibling mesh and L3.
+    assert!((w("rbD_L1_copper_38_sm45_on_rbF_L1_p2") - -10.35).abs() < 0.01);
+    assert!(w("rbD_L1_copper_38_sm45_on_rbF_L1_p2") <= -10.0);
+    assert!((w("rbD_L1_copper_38_sm45_on_rbD_L3_cyl") - -8.80).abs() < 0.01);
+    assert!((w("rbD_L1_copper_38_sm45_on_rbD_L3") - -8.81).abs() < 0.01);
+    // L3, dense, on-cylinder air: as wide, centred 14 MHz low.
+    let l3 = dense("rbD_L1_copper_38_sm45_on_rbD_L3_cyl");
+    assert_eq!(l3.len(), 41);
+    let (l3lo, l3hi, _, l3w) = minus10_band(&l3);
+    let (l3lo, l3hi) = (l3lo.unwrap(), l3hi.unwrap());
+    assert!(
+        (1e3 * (l3hi - l3lo) - 94.58).abs() < 0.05,
+        "L3 band {} MHz",
+        1e3 * (l3hi - l3lo)
+    );
+    assert!(
+        l3hi < ISM[1] && (1e3 * (l3hi - ISM[0]) - 74.63).abs() < 0.05,
+        "L3 coverage"
+    );
+    assert!(l3w > -10.0);
+    // The L2-chain design: 9 points and the 21-point sweep with p = 2 on L1.
+    assert!((w("rbC_L2_copper_38_sm29_on_rbE_L1_p2") - -10.10).abs() < 0.01);
+    assert!(w("rbC_L2_copper_38_sm29_on_rbE_L1_p2") <= -10.0);
+    let l2c = dense("rbC_L2_copper_38_sm29_on_rbE_L1_p2");
+    assert_eq!(l2c.len(), 21);
+    let (a, b, _, _) = minus10_band(&l2c);
+    let (a, b) = (a.unwrap(), b.unwrap());
+    assert!(a < ISM[0] && b > ISM[1], "L2-chain band [{a}, {b}]");
+    assert!(
+        (1e3 * (b - a) - 94.33).abs() < 0.05,
+        "L2-chain band {} MHz",
+        1e3 * (b - a)
+    );
+}
+
+/// `copper/g2_summary.toml` (written by `scripts/copper_g2.py --write`) agrees
+/// with the Rust recomputation from the shards for the headline verification.
+#[test]
+fn g2_summary_matches_the_shards() {
+    let v = load("g2_summary.toml");
+    let row = v["verification"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"].as_str() == Some("rbD_L1_copper_38_sm45_on_rbD_L1_p2"))
+        .expect("headline row");
+    let num = |x: &toml::Value| {
+        x.as_float()
+            .or_else(|| x.as_integer().map(|i| i as f64))
+            .unwrap()
+    };
+    let (lo, hi, _, _) = minus10_band(&dense("rbD_L1_copper_38_sm45_on_rbD_L1_p2"));
+    let (lo, hi) = (lo.unwrap(), hi.unwrap());
+    assert!((num(&row["bw_mhz"]) - 1e3 * (hi - lo)).abs() < 1e-3);
+    assert!((num(&row["ism_cover_mhz"]) - 83.5).abs() < 1e-9);
+    assert!((num(&row["ism_cover_pct"]) - 100.0).abs() < 1e-9);
+}
