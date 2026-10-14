@@ -920,6 +920,8 @@ fn read_design(path: &Path) -> DesignFile {
             .unwrap_or_else(|| panic!("design {} lacks [{t}].{k}", path.display()))
             .to_string()
     };
+    // TOML writes integral floats (`probe_inset_mm = 7`) as integers.
+    let num = |c: &toml::Value| c.as_float().or_else(|| c.as_integer().map(|i| i as f64));
     let count =
         |k: &str| -> usize { v["basis"].get(k).and_then(|c| c.as_integer()).unwrap_or(0) as usize };
     let x: Vec<f64> = v["shape"]["design_vector"]
@@ -949,8 +951,8 @@ fn read_design(path: &Path) -> DesignFile {
         n_outline: count("n_outline_dofs"),
         n_corner: count("n_corner_dofs"),
         n_feed: count("n_feed_dofs"),
-        probe_inset: v["meta"].get("probe_inset_mm").and_then(|c| c.as_float()),
-        probe_w: v["meta"].get("probe_w_mm").and_then(|c| c.as_float()),
+        probe_inset: v["meta"].get("probe_inset_mm").and_then(num),
+        probe_w: v["meta"].get("probe_w_mm").and_then(num),
         x,
     }
 }
