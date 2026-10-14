@@ -95,10 +95,11 @@ The L1 gap_48 optimum violates the volume guard on L2 (0.178 < 0.25), so its war
 |---|---|---|---|---|---|---|---|
 | L1 combined_64 (#1087) | L1 | −6.04 | **−14.12** | −9.85 | −7.57 | −5.69 | 8.43 dB |
 | L2 combined_64 cold | L2 | | | **−14.07** | −12.47 | **−9.16** | 4.91 dB |
-| L2 combined_64 warm | L2 | | | **−15.87** | WARM_L3_DB_TXT | WARM_P2_DB_TXT | WARM_LOSS_TXT dB |
+| L2 combined_64 warm | L2 | | | **−15.87** | −11.48 | −8.26 | 7.61 dB |
 
 - **The L1 optimum degrades monotonically with fidelity:** −14.12 → −9.85 → −7.57 → −5.69 dB from L1 to P2/L1. The #1087 "about 8 dB" (L0 ↔ L1) is confirmed against the converged side: 8.4 dB to P2/L1.
 - **The L2 optimum transfers about twice as well:** 1.6 dB lost to L3 and 4.9 dB to P2/L1. It still loses, so the optimizer is still fitting L2's discretization error.
+- **The warm start carries the L1 bias.** The warm-started combined optimum is the best design on L2 (−15.87 dB) but transfers worse than the cold one: −11.48 dB on L3 and −8.26 dB on P2/L1, a 7.6 dB loss. Starting from the L1 optimum keeps it near a design that fits L1's discretization error. The cold start, the clean L2 optimum, is the gate G2 design.
 - **Where the residual comes from.** The L2 optimum's resonance rises with fidelity: 2.425 GHz on L2, 2.450 on L3, 2.500 on P2/L1. That is the same upward drift as the initial dip under refinement (2.329 → 2.357 GHz from L2 to P2/L1, #1085), but about 2.7× larger on the optimized, thicker board. On P2/L1 the misses are at the band bottom: −9.16 dB at 2.40 GHz and −9.999 dB at 2.4104 GHz. From 2.4209 GHz up every point is −10.9 dB or better.
 
 ### Gate G2: not met on the finest verification

@@ -1304,8 +1304,8 @@ const G2_VERIFY_PINS: &[(&str, f64, f64)] = &[
     ("L1_gap_48_on_L1", -13.15249, 0.2500003),
     ("L2_combined_64_cold_on_L3", -12.47029, 0.2658996),
     ("L2_combined_64_cold_on_L1_p2", -9.159596, 0.2359445),
-    ("L2_combined_64_warm_on_L3", WARM_L3_DB, WARM_L3_VOL),
-    ("L2_combined_64_warm_on_L1_p2", WARM_P2_DB, WARM_P2_VOL),
+    ("L2_combined_64_warm_on_L3", -11.47734, 0.232573),
+    ("L2_combined_64_warm_on_L1_p2", -8.256843, 0.2481292),
 ];
 
 /// Worst-of-band |S11| (dB, 9-point verification) of the L2 optimizations.
@@ -1396,6 +1396,16 @@ fn g2_gate_and_transfer_are_pinned() {
             "L2 optimum beats L1 optimum on {t}"
         );
     }
+    // The warm start (from the L1 optimum) wins on L2 but transfers worse:
+    // it carries the L1 bias, so the cold start is the G2 design.
+    assert!(own("L2_combined_64_warm") < own("L2_combined_64_cold"));
+    let loss_warm = worst("L2_combined_64_warm_on_L1_p2") - own("L2_combined_64_warm");
+    assert!(
+        (loss_warm - 7.61).abs() < 0.02,
+        "warm L2 -> P2 loss {loss_warm}"
+    );
+    assert!(worst("L2_combined_64_warm_on_L1_p2") > g2_p2);
+    assert!(worst("L2_combined_64_warm_on_L1_p2") > -10.0);
     // The L1 optimum degrades monotonically with fidelity past its level.
     assert!(
         worst("L1_combined_64_on_L2") > worst("L1_combined_64_on_L1")
@@ -1454,7 +1464,3 @@ fn g2_crater_is_mesh_independent_and_the_guard_site_is_not() {
     let s3 = site("L1_combined_64_on_L3");
     assert!(num(&s3["feed_dist_mm"]) < 4.5 && num(&s3["ratio"]) < 0.25);
 }
-const WARM_L3_DB: f64 = 0.0;
-const WARM_L3_VOL: f64 = 0.0;
-const WARM_P2_DB: f64 = 0.0;
-const WARM_P2_VOL: f64 = 0.0;
