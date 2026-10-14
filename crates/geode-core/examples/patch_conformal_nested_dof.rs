@@ -1688,12 +1688,19 @@ fn run_verify(
         .iter()
         .map(|(f, s, _)| (*f, db(s)))
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let in_band = if verify.is_empty() {
+        "no in-band points".to_string()
+    } else {
+        format!(
+            "worst {worst:.2} dB, best {best:.2} dB over {} points; reached -10 dB = {reached}",
+            verify.len()
+        )
+    };
     eprintln!(
-        "  verify {design_name} on {} ({order}): worst {worst:.2} dB, best {best:.2} dB over {} \
-         points; reached -10 dB = {reached}; min vol ratio {min_ratio:.3}; {}; {sweep_s:.0} s, \
-         peak RSS {peak_rss:.1} GiB",
+        "  verify {design_name} on {} ({order}): {in_band}; {} dense points; min vol ratio \
+         {min_ratio:.3}; {}; {sweep_s:.0} s, peak RSS {peak_rss:.1} GiB",
         c.level,
-        verify.len(),
+        dense.len(),
         dip.map_or("no wide sweep".to_string(), |(f, d)| format!(
             "wide-sweep dip {f:.3} GHz ({d:.1} dB)"
         ))
