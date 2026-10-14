@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1156",
-  "loom_commit": "f952aeb6ac2440c77f4ec90ab1f9e01415cc5a4d",
+  "loom_version": "0.19.1157",
+  "loom_commit": "3e3ff8aa9b674281336009ed9b92693dd038f9e9",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -761,7 +761,9 @@
     ".loom/hooks/tests/test-guard-loom-workspace.sh",
     ".loom/scripts/tests/test-create-issue-refuse-labels.sh",
     ".loom/scripts/tests/test-resync-installed-agents-hooks.sh",
-    ".loom/scripts/tests/test-ci-suite-manifest-installed-layout.sh"
+    ".loom/scripts/tests/test-ci-suite-manifest-installed-layout.sh",
+    ".loom/scripts/tests/test-spawn-codex-session-down.sh",
+    ".loom/scripts/tests/test-spawn-codex-session-mount-stale.sh"
   ],
   "last_resync": "2026-10-14",
   "requires_daemon": "0.19.1081"
