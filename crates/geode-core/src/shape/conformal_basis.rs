@@ -927,17 +927,43 @@ impl FeedBasis {
 /// The design gradient chains the nodal gradient through the **exact**
 /// Jacobian at `x`: `∂P/∂x_q = (r₀/R)(cos φ, 0, −sin φ) a_q + ŷ b_q` on the
 /// substrate nodes and the harmonic columns elsewhere.
+///
+/// With [`AirMotion::OnCylinder`] ([`ChartMorph::build_with`]) the air nodes
+/// move the same way: the chart displacement `(Δs, Δy)` itself is extended
+/// harmonically from the substrate nodes, and **every** node rotates about the
+/// bend axis by `Δs/R` and shifts by `Δy` at its own radius. No node changes
+/// its radius, so the air next to the slab follows the slab exactly; the
+/// [`AirMotion::Linear`] extension of the first-order motion differs from the
+/// slab by the chord error, which squeezes thin air slivers next to a widened
+/// patch on fine meshes. The copper and the board (the substrate nodes) are
+/// identical under both; only the air mesh differs.
 #[derive(Clone, Debug)]
 pub struct ChartMorph {
     chart: CylinderChart,
-    linear: super::FreeformBoundaryMorph,
-    slab: Vec<u32>,
+    linear: Option<super::FreeformBoundaryMorph>,
+    /// The substrate (slab) nodes.
+    substrate: Vec<u32>,
+    /// Nodes moved by the exact chart map (the substrate nodes, or every node
+    /// with [`AirMotion::OnCylinder`]).
+    exact: Vec<u32>,
     is_slab: Vec<bool>,
     r0: Vec<f64>,
     phi0: Vec<f64>,
     y0: Vec<f64>,
-    /// `cols[q][k]`: `(Δs, Δy)` per unit of DOF `q` at substrate node `slab[k]`.
+    /// `cols[q][k]`: `(Δs, Δy)` per unit of DOF `q` at node `exact[k]`.
     cols: Vec<Vec<[f64; 2]>>,
+}
+
+/// How a [`ChartMorph`] moves the air nodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AirMotion {
+    /// The harmonic extension of the first-order (`x = 0`) Cartesian motion of
+    /// the substrate nodes: linear in `x` (issue #1120 optimizations).
+    Linear,
+    /// The harmonic extension of the chart displacement `(Δs, Δy)`, applied to
+    /// every node through the exact on-cylinder map: no node changes its
+    /// radius.
+    OnCylinder,
 }
 
 impl ChartMorph {
@@ -954,6 +980,23 @@ impl ChartMorph {
         nodes: &ConformalPatchNodes,
         n_cols: usize,
         field: impl Fn(f64, f64) -> Vec<[f64; 2]>,
+    ) -> Result<Self, ElectrostaticError> {
+        Self::build_with(mesh, chart, nodes, n_cols, field, AirMotion::Linear)
+    }
+
+    /// [`Self::build`] with a choice of [`AirMotion`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates the Laplace assembly / factorization errors of the
+    /// harmonic air extension.
+    pub fn build_with(
+        mesh: &TetMesh,
+        chart: &CylinderChart,
+        nodes: &ConformalPatchNodes,
+        n_cols: usize,
+        field: impl Fn(f64, f64) -> Vec<[f64; 2]>,
+        air: AirMotion,
     ) -> Result<Self, ElectrostaticError> {
         let r_mid = chart.bend_radius;
         let slab = nodes.slab.clone();
@@ -975,9 +1018,51 @@ impl ChartMorph {
                 cols[c].push(d);
             }
         }
+        let fixed = union(&[&nodes.pml_shell, &nodes.outer]);
+        if air == AirMotion::OnCylinder {
+            // The chart displacement itself, extended harmonically (per
+            // component) from the substrate nodes; zero on the UPML shell and the
+            // outer wall. Every node then moves through the exact map.
+            let index: std::collections::HashMap<u32, usize> =
+                slab.iter().enumerate().map(|(k, &n)| (n, k)).collect();
+            let ext = harmonic_columns_from_fields(
+                mesh,
+                &slab,
+                n_cols,
+                |n| {
+                    let k = index[&n];
+                    (0..n_cols)
+                        .map(|q| [cols[q][k][0], cols[q][k][1], 0.0])
+                        .collect()
+                },
+                &fixed,
+            )?;
+            let all: Vec<u32> = (0..mesh.n_nodes() as u32).collect();
+            let (mut r0, mut phi0, mut y0) = (Vec::new(), Vec::new(), Vec::new());
+            for p in &mesh.nodes {
+                let (s, y) = chart.s_y(*p);
+                r0.push(chart.radius(*p));
+                phi0.push(s / r_mid);
+                y0.push(y);
+            }
+            let cols_all = ext
+                .into_iter()
+                .map(|c| c.into_iter().map(|d| [d[0], d[1]]).collect())
+                .collect();
+            return Ok(Self {
+                chart: *chart,
+                linear: None,
+                substrate: slab,
+                exact: all,
+                is_slab,
+                r0,
+                phi0,
+                y0,
+                cols: cols_all,
+            });
+        }
         // First-order (x = 0) Cartesian motion of the substrate nodes, extended
         // harmonically into the air; zero on the UPML shell and the outer wall.
-        let fixed = union(&[&nodes.pml_shell, &nodes.outer]);
         let index: std::collections::HashMap<u32, usize> =
             slab.iter().enumerate().map(|(k, &n)| (n, k)).collect();
         let linear_cols = harmonic_columns_from_fields(
@@ -1001,8 +1086,9 @@ impl ChartMorph {
         let linear = super::FreeformBoundaryMorph::from_columns(linear_cols)?;
         Ok(Self {
             chart: *chart,
-            linear,
-            slab,
+            linear: Some(linear),
+            exact: slab.clone(),
+            substrate: slab,
             is_slab,
             r0,
             phi0,
@@ -1016,12 +1102,18 @@ impl ChartMorph {
         self.cols.len()
     }
 
-    /// The substrate nodes the morph slides exactly on their cylinders.
+    /// The substrate nodes (the morph slides them exactly on their cylinders).
     pub fn slab_nodes(&self) -> &[u32] {
-        &self.slab
+        &self.substrate
     }
 
-    /// Chart displacement `(Δs, Δy)` of substrate node `slab_nodes()[k]`.
+    /// The nodes moved by the exact chart map: [`Self::slab_nodes`], or every
+    /// node with [`AirMotion::OnCylinder`].
+    pub fn exact_nodes(&self) -> &[u32] {
+        &self.exact
+    }
+
+    /// Chart displacement `(Δs, Δy)` of node `exact_nodes()[k]`.
     fn chart_disp(&self, k: usize, x: &[f64]) -> (f64, f64) {
         let (mut ds, mut dy) = (0.0, 0.0);
         for (xq, col) in x.iter().zip(&self.cols) {
@@ -1040,9 +1132,12 @@ impl ChartMorph {
     /// Panics if `x.len() != n_dofs()` or the mesh does not match the build.
     pub fn apply(&self, mesh: &TetMesh, x: &[f64]) -> TetMesh {
         assert_eq!(x.len(), self.n_dofs(), "ChartMorph: design length");
-        let mut moved = self.linear.apply(mesh, x);
+        let mut moved = match &self.linear {
+            Some(l) => l.apply(mesh, x),
+            None => mesh.clone(),
+        };
         let r_mid = self.chart.bend_radius;
-        for (k, &n) in self.slab.iter().enumerate() {
+        for (k, &n) in self.exact.iter().enumerate() {
             let (ds, dy) = self.chart_disp(k, x);
             if ds == 0.0 && dy == 0.0 {
                 // Bit-exact base position (avoids the round trip through φ).
@@ -1070,10 +1165,10 @@ impl ChartMorph {
             .collect()
     }
 
-    /// Chart displacement `(Δs, Δy)` of every substrate node at `x`, parallel
-    /// to [`Self::slab_nodes`].
+    /// Chart displacement `(Δs, Δy)` at `x` of every node of
+    /// [`Self::exact_nodes`], parallel to it.
     pub fn chart_displacements(&self, x: &[f64]) -> Vec<[f64; 2]> {
-        (0..self.slab.len())
+        (0..self.exact.len())
             .map(|k| {
                 let (ds, dy) = self.chart_disp(k, x);
                 [ds, dy]
@@ -1089,13 +1184,18 @@ impl ChartMorph {
     /// Panics if the lengths do not match the build.
     pub fn design_gradient(&self, x: &[f64], grad_node: &[[f64; 3]]) -> Vec<f64> {
         assert_eq!(x.len(), self.n_dofs(), "ChartMorph: design length");
-        let mut air = grad_node.to_vec();
-        for &n in &self.slab {
-            air[n as usize] = [0.0; 3];
-        }
-        let mut g = self.linear.design_gradient(&air);
+        let mut g = match &self.linear {
+            Some(l) => {
+                let mut air = grad_node.to_vec();
+                for &n in &self.exact {
+                    air[n as usize] = [0.0; 3];
+                }
+                l.design_gradient(&air)
+            }
+            None => vec![0.0; self.n_dofs()],
+        };
         let r_mid = self.chart.bend_radius;
-        for (k, &n) in self.slab.iter().enumerate() {
+        for (k, &n) in self.exact.iter().enumerate() {
             let gn = grad_node[n as usize];
             if gn == [0.0; 3] {
                 continue;

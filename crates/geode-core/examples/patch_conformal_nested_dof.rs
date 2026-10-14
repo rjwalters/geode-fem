@@ -117,7 +117,7 @@ use geode_core::elements::ElementOrder;
 use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, bend_axis_z};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
 use geode_core::shape::conformal_basis::{
-    ChartMorph, ConformalPatchNodes, CornerBasis, CylinderChart, FeedBasis, FeedCutoff,
+    AirMotion, ChartMorph, ConformalPatchNodes, CornerBasis, CylinderChart, FeedBasis, FeedCutoff,
     OutlineBasis, PatchRect, RadialBasis, filter_columns, helmholtz_lattice_filter,
     outline_columns, radial_columns, substrate_top_triangles,
 };
@@ -216,6 +216,8 @@ struct Cli {
     /// the fixture's `probe_inset` / `probe_w`, so the physical design (probe
     /// position and width, outline, corners) is unchanged.
     rebase_feed: bool,
+    /// Copper mode: move the air on the cylinders too ([`AirMotion::OnCylinder`]).
+    air_on_cylinder: bool,
 }
 
 fn parse_cli() -> Cli {
@@ -245,6 +247,7 @@ fn parse_cli() -> Cli {
         dense: None,
         shard: None,
         rebase_feed: false,
+        air_on_cylinder: false,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -285,6 +288,7 @@ fn parse_cli() -> Cli {
             "--wide-step" => cli.wide_step = next(&mut i).parse().expect("--wide-step GHz"),
             "--copper" => cli.copper = true,
             "--rebase-feed" => cli.rebase_feed = true,
+            "--air-on-cylinder" => cli.air_on_cylinder = true,
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -1570,6 +1574,9 @@ fn basis_flags(cli: &Cli) -> String {
         if cli.rebase_feed {
             f.push_str(" --rebase-feed");
         }
+        if cli.air_on_cylinder {
+            f.push_str(" --air-on-cylinder");
+        }
     }
     f
 }
@@ -1810,6 +1817,15 @@ fn run_verify(
     if cli.copper {
         let _ = writeln!(t, "n_corner_dofs = {}", c.n_corner);
         let _ = writeln!(t, "n_feed_dofs = {}", c.n_feed);
+        let _ = writeln!(
+            t,
+            "air_motion = \"{}\"",
+            if cli.air_on_cylinder {
+                "on_cylinder"
+            } else {
+                "linear"
+            }
+        );
     }
     let _ = writeln!(
         t,
@@ -2079,23 +2095,35 @@ fn main() {
         }
         let n_cols = n_outline + n_corner + n_feed;
         let ob = outline_basis.clone();
-        let cm = ChartMorph::build(&base.mesh, &chart, &nodes, n_cols, |s, y| {
-            let mut v = Vec::with_capacity(n_cols);
-            if let Some(ob) = &ob {
-                v.extend(
-                    ob.eval(s, y)
-                        .into_iter()
-                        .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
-                );
-            }
-            if let Some(cb) = &corner_basis {
-                v.extend(cb.eval(s, y));
-            }
-            if let Some(fb) = &feed_basis {
-                v.extend(fb.eval(s, y));
-            }
-            v
-        })
+        let air = if cli.air_on_cylinder {
+            AirMotion::OnCylinder
+        } else {
+            AirMotion::Linear
+        };
+        let cm = ChartMorph::build_with(
+            &base.mesh,
+            &chart,
+            &nodes,
+            n_cols,
+            |s, y| {
+                let mut v = Vec::with_capacity(n_cols);
+                if let Some(ob) = &ob {
+                    v.extend(
+                        ob.eval(s, y)
+                            .into_iter()
+                            .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                    );
+                }
+                if let Some(cb) = &corner_basis {
+                    v.extend(cb.eval(s, y));
+                }
+                if let Some(fb) = &feed_basis {
+                    v.extend(fb.eval(s, y));
+                }
+                v
+            },
+            air,
+        )
         .expect("chart morph");
         DesignMorph::Chart(cm)
     } else {
@@ -2934,7 +2962,7 @@ fn main() {
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
              <dir>/{stem}.msh {}{} --n-band {} --beta {} --max-steps {} --verify-n {} --wide-step \
-             {} --label {}{}",
+             {} --label {}{}{}",
             basis_flags(&cli),
             if cli.band_shift != 0.0 {
                 format!(" --band-shift {}", cli.band_shift)
@@ -2947,6 +2975,7 @@ fn main() {
             cli.verify_n,
             cli.wide_step,
             cli.label,
+            if cli.fd_only { " --fd-only" } else { "" },
             design.as_ref().map_or(String::new(), |d| format!(
                 " --design {}",
                 repo_rel(&d.path)
@@ -3041,6 +3070,15 @@ fn main() {
              the first-order motion; UPML shell and outer boundary pinned\"\n",
         );
         t.push_str("thickness = \"fixed: uniform 1.6 mm FR-4, radial (gap) DOFs frozen\"\n");
+        let _ = writeln!(
+            t,
+            "air_motion = \"{}\"",
+            if cli.air_on_cylinder {
+                "on_cylinder"
+            } else {
+                "linear"
+            }
+        );
     }
     let _ = writeln!(t, "n_radial_dofs = {n_radial}");
     let _ = writeln!(t, "n_outline_dofs = {n_outline}");
