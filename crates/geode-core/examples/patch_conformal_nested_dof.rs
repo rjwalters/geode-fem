@@ -63,7 +63,31 @@
 //! `--n-band N` (band points, default 5), `--beta B` (soft-max sharpness,
 //! default 25), `--max-steps N` (default 60), `--sigma0 S`, `--verify-n N`
 //! (default 9), `--label NAME`, `--out PATH`, `--geometry PATH`,
-//! `--fd-only` (validate the gradient, skip the descent).
+//! `--fd-only` (validate the gradient, skip the descent), `--design TOML`,
+//! `--verify-only`, `--p2`, `--wide-step GHZ` (default 0.025).
+//!
+//! # Carrying a design across meshes (issue #1103, gate G2)
+//!
+//! The basis is a function of the chart `(s, y)` alone, so a coefficient
+//! vector defines the same surface on every level. `--design TOML` reads
+//! `[shape].design_vector` from a results TOML of this example (the basis
+//! description must match this run's):
+//!
+//! * without `--verify-only` it is the **warm start** of the descent
+//!   (halved until it clears the volume guard on this mesh; the scale is
+//!   recorded in `[start]`);
+//! * with `--verify-only` the FD gate and the descent are skipped and the
+//!   design is **verified** by fresh forward sweeps on this fixture: the
+//!   `--verify-n` in-band points and the wide sweep at `--wide-step`
+//!   (`0` skips it), at P1 or, with `--p2`, with second-order Nédélec
+//!   elements (the #1085 `dip --p2` path). Without `--design` the initial
+//!   patch (`x = 0`) is verified. The output goes to
+//!   `nested_dof/verify/<design>_on_<level>[_p2].toml`.
+//!
+//! Every run records where the distortion guard binds (`[guard]`: each
+//! rejected line-search trial's worst tet, located in the chart relative to
+//! the feed and the patch corners) and the feed-crater / substrate-thickness
+//! metrics of the design (`[crater]`).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Write as _;
@@ -78,13 +102,16 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use sha2::{Digest, Sha256};
 
+use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
 use geode_core::driven::shape::driven_shape_gradient_matched_upml_ports;
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource,
+    driven_solve_with_ports,
 };
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, bend_axis_z};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
 use geode_core::shape::conformal_basis::{
@@ -128,6 +155,8 @@ const PLATEAU_WINDOW: usize = 4;
 /// FD step (design units) and tolerance.
 const FD_H: f64 = 1e-5;
 const FD_TOL: f64 = 5e-3;
+/// Wide resonance-location sweep range (GHz).
+const WIDE_GHZ: [f64; 2] = [2.20, 2.70];
 /// RSS sampling period.
 const RSS_SAMPLE: Duration = Duration::from_millis(100);
 
@@ -151,6 +180,16 @@ struct Cli {
     out: Option<PathBuf>,
     geometry: Option<PathBuf>,
     fd_only: bool,
+    /// A results TOML whose `[shape].design_vector` is the warm start (descent
+    /// mode) or the design to verify (`--verify-only`).
+    design: Option<PathBuf>,
+    /// Skip the FD gate and the descent: fresh forward sweeps of `--design`
+    /// (or of the initial patch, `x = 0`) on this fixture (issue #1103).
+    verify_only: bool,
+    /// Verification sweeps with second-order Nédélec elements (`--verify-only` only).
+    p2: bool,
+    /// Wide-sweep spacing over 2.20–2.70 GHz (GHz); `0` skips the wide sweep.
+    wide_step: f64,
 }
 
 fn parse_cli() -> Cli {
@@ -169,6 +208,10 @@ fn parse_cli() -> Cli {
         out: None,
         geometry: None,
         fd_only: false,
+        design: None,
+        verify_only: false,
+        p2: false,
+        wide_step: 0.025,
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -201,11 +244,23 @@ fn parse_cli() -> Cli {
             "--out" => cli.out = Some(PathBuf::from(next(&mut i))),
             "--geometry" => cli.geometry = Some(PathBuf::from(next(&mut i))),
             "--fd-only" => cli.fd_only = true,
+            "--design" => cli.design = Some(PathBuf::from(next(&mut i))),
+            "--verify-only" => cli.verify_only = true,
+            "--p2" => cli.p2 = true,
+            "--wide-step" => cli.wide_step = next(&mut i).parse().expect("--wide-step GHz"),
             other => panic!("unknown flag {other}"),
         }
         i += 1;
     }
     assert!(cli.n_band >= 2, "--n-band must be at least 2");
+    assert!(
+        !cli.p2 || cli.verify_only,
+        "--p2 is a verification order: give it with --verify-only"
+    );
+    assert!(
+        cli.wide_step > 0.0 || (cli.verify_only && cli.wide_step == 0.0),
+        "--wide-step must be > 0 (0, no wide sweep, only with --verify-only)"
+    );
     assert!(
         cli.radial.is_some() || cli.outline > 0,
         "no design freedom: give --radial NSxNY and/or --outline N"
@@ -567,6 +622,82 @@ impl Model {
             })
             .collect()
     }
+
+    /// [`Self::sweep`] with second-order Nédélec elements on the moved mesh
+    /// (the `patch_conformal_convergence dip --p2` path of #1085: the
+    /// `HcurlSpace` operator, port voltage from the operator's own port
+    /// functional; at `ElementOrder::P1` it is bit-identical to the P1 path).
+    fn sweep_p2(&self, x: &[f64], freqs: &[f64]) -> Vec<(f64, c64, f64)> {
+        let mesh = self.moved_mesh(x);
+        let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+        let patch = self.base.patch_triangles();
+        let ground = self.base.ground_triangles();
+        let outer = self.base.outer_boundary_triangles();
+        let mask = space
+            .pec_interior_mask(
+                &mesh,
+                &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+            )
+            .expect("P2 PEC mask");
+        eprintln!(
+            "    P2 space: {} DOFs ({} interior)",
+            mask.len(),
+            mask.iter().filter(|&&m| m).count()
+        );
+        let lp = self.port.lumped_port(self.r_nat, self.v_inc);
+        freqs
+            .iter()
+            .map(|&f| {
+                let omega = ghz_to_omega_mm(f);
+                let t0 = Instant::now();
+                let (eps, nu) = self.base.matched_upml_materials(
+                    &FR4_MATERIALS,
+                    self.air_lo,
+                    self.air_hi,
+                    self.pml_thick,
+                    self.sigma0,
+                    omega,
+                );
+                self.n_solves.set(self.n_solves.get() + 1);
+                let op = DrivenOperator::assemble_with_space::<B>(
+                    &space,
+                    &mesh,
+                    DrivenMaterials::MatchedUpml {
+                        epsilon_tensor: &eps,
+                        nu_tensor: &nu,
+                    },
+                    None,
+                    &DrivenBcs {
+                        pec_interior_mask: &mask,
+                    },
+                    std::slice::from_ref(&lp),
+                    &[],
+                    DrivenSource::Constant(&self.source),
+                    &device(),
+                )
+                .unwrap_or_else(|e| panic!("P2 assemble at {f} GHz: {e}"));
+                let sol = op
+                    .solve_at(omega)
+                    .unwrap_or_else(|e| panic!("P2 solve at {f} GHz: {e}"));
+                let v = op.port_voltage(0, &sol.e_edges);
+                let s = self.s11_of_v(v);
+                assert!(s.norm() <= 1.0 + 1e-6, "passivity at {f} GHz (P2)");
+                let i = (self.v_inc * 2.0 - v) * (1.0 / self.r_nat);
+                let z = v / i * ETA_0;
+                eprintln!(
+                    "    sweep(P2) {f:.4} GHz: |S11| = {:.4} ({:6.2} dB), Z = {:.1} {:+.1}i ohm, \
+                     res {:.1e}, {:.0} s",
+                    s.norm(),
+                    20.0 * s.norm().log10(),
+                    z.re,
+                    z.im,
+                    sol.residual_rel,
+                    t0.elapsed().as_secs_f64()
+                );
+                (f, s, sol.residual_rel)
+            })
+            .collect()
+    }
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -575,6 +706,327 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 
 fn norm(a: &[f64]) -> f64 {
     dot(a, a).sqrt()
+}
+
+// ── Designs carried across meshes, guard sites and the feed crater (#1103) ──
+
+/// A design read back from a results TOML of this example.
+struct DesignFile {
+    path: PathBuf,
+    sha256: String,
+    label: String,
+    level: String,
+    fixture_sha256: String,
+    radial: String,
+    outline: String,
+    x: Vec<f64>,
+}
+
+fn read_design(path: &Path) -> DesignFile {
+    let text =
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("read design {}: {e}", path.display()));
+    let v: toml::Value = text
+        .parse()
+        .unwrap_or_else(|e| panic!("parse design {}: {e}", path.display()));
+    let s = |t: &str, k: &str| -> String {
+        v[t][k]
+            .as_str()
+            .unwrap_or_else(|| panic!("design {} lacks [{t}].{k}", path.display()))
+            .to_string()
+    };
+    let x: Vec<f64> = v["shape"]["design_vector"]
+        .as_array()
+        .unwrap_or_else(|| panic!("design {} lacks [shape].design_vector", path.display()))
+        .iter()
+        .map(|e| e.as_float().expect("design_vector entry"))
+        .collect();
+    DesignFile {
+        path: path.to_path_buf(),
+        sha256: sha256_hex(text.as_bytes()),
+        label: s("meta", "label"),
+        level: s("meta", "level"),
+        fixture_sha256: s("meta", "fixture_sha256"),
+        radial: s("basis", "radial"),
+        outline: s("basis", "outline"),
+        x,
+    }
+}
+
+/// Repo-relative form of a path for the artifacts (no host paths).
+fn repo_rel(path: &Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    match p.find("benchmarks/") {
+        Some(i) => p[i..].to_string(),
+        None => path
+            .file_name()
+            .map_or(p.clone(), |f| f.to_string_lossy().into_owned()),
+    }
+}
+
+/// Where a tet sits relative to the patch, the feed and the corners.
+struct TetSite {
+    tet: usize,
+    ratio: f64,
+    region: &'static str,
+    s: f64,
+    y: f64,
+    /// Radial offset of the base centroid from the substrate-top surface (mm; < 0 inside the slab).
+    dr_mm: f64,
+    feed_dist_mm: f64,
+    corner_dist_mm: f64,
+    /// Distance outside the patch rectangle in the chart (0 inside).
+    outside_patch_mm: f64,
+}
+
+struct Geo {
+    chart: CylinderChart,
+    r_top: f64,
+    rect: PatchRect,
+    feed: (f64, f64),
+}
+
+impl Geo {
+    fn site(&self, base: &PatchFixture, moved: &geode_core::mesh::TetMesh, tet: usize) -> TetSite {
+        let t = base.mesh.tets[tet];
+        let mut c = [0.0_f64; 3];
+        for &n in &t {
+            let p = base.mesh.nodes[n as usize];
+            for k in 0..3 {
+                c[k] += 0.25 * p[k];
+            }
+        }
+        let (s, y) = self.chart.s_y(c);
+        let corner_dist_mm = [self.rect.s[0], self.rect.s[1]]
+            .iter()
+            .flat_map(|&cs| {
+                [self.rect.y[0], self.rect.y[1]]
+                    .into_iter()
+                    .map(move |cy| (s - cs).hypot(y - cy))
+            })
+            .fold(f64::INFINITY, f64::min);
+        let ds = (self.rect.s[0] - s).max(s - self.rect.s[1]).max(0.0);
+        let dy = (self.rect.y[0] - y).max(y - self.rect.y[1]).max(0.0);
+        let region = match base.tet_physical_tags[tet] {
+            geode_core::mesh::patch::PHYS_SUBSTRATE => "substrate",
+            geode_core::mesh::patch::PHYS_AIR => "air",
+            geode_core::mesh::patch::PHYS_UPML => "upml",
+            _ => "other",
+        };
+        // Signed 6·volume of this tet on a mesh.
+        let vol6 = |m: &geode_core::mesh::TetMesh| {
+            let p = |k: usize| m.nodes[t[k] as usize];
+            let (a, b, cc, d) = (p(0), p(1), p(2), p(3));
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]];
+            let w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+            u[0] * (v[1] * w[2] - v[2] * w[1]) - u[1] * (v[0] * w[2] - v[2] * w[0])
+                + u[2] * (v[0] * w[1] - v[1] * w[0])
+        };
+        let ratio = vol6(moved) / vol6(&base.mesh);
+        TetSite {
+            tet,
+            ratio,
+            region,
+            s,
+            y,
+            dr_mm: self.chart.radius(c) - self.r_top,
+            feed_dist_mm: (s - self.feed.0).hypot(y - self.feed.1),
+            corner_dist_mm,
+            outside_patch_mm: ds.hypot(dy),
+        }
+    }
+}
+
+impl TetSite {
+    fn log(&self, what: &str) {
+        eprintln!(
+            "    {what}: tet {} ratio {:.3} in {} at (s, y) = ({:+.2}, {:+.2}) mm, dr {:+.2} mm \
+             from the substrate top, {:.2} mm from the feed, {:.2} mm from a corner, {:.2} mm \
+             outside the patch",
+            self.tet,
+            self.ratio,
+            self.region,
+            self.s,
+            self.y,
+            self.dr_mm,
+            self.feed_dist_mm,
+            self.corner_dist_mm,
+            self.outside_patch_mm
+        );
+    }
+
+    fn toml_inline(&self) -> String {
+        format!(
+            "{{ tet = {}, ratio = {:.6e}, region = \"{}\", s_mm = {:.4}, y_mm = {:.4}, dr_mm = {:.4}, \
+             feed_dist_mm = {:.4}, corner_dist_mm = {:.4}, outside_patch_mm = {:.4} }}",
+            self.tet,
+            self.ratio,
+            self.region,
+            self.s,
+            self.y,
+            self.dr_mm,
+            self.feed_dist_mm,
+            self.corner_dist_mm,
+            self.outside_patch_mm
+        )
+    }
+}
+
+/// Feed-crater and substrate-thickness metrics of a design: the radial lift
+/// of the patch surface, its steepest in-surface slope and where it is.
+struct Crater {
+    feed_node_lift_mm: f64,
+    feed_node_dist_mm: f64,
+    mean_lift_mm: f64,
+    min_lift_mm: f64,
+    max_lift_mm: f64,
+    max_slope: f64,
+    max_slope_s: f64,
+    max_slope_y: f64,
+    max_slope_feed_dist_mm: f64,
+    /// `(r_lo, r_hi, mean lift, n)` over patch nodes by distance from the feed.
+    rings: Vec<(f64, f64, f64, usize)>,
+}
+
+const CRATER_RINGS_MM: [f64; 7] = [0.0, 1.0, 2.0, 4.0, 6.0, 8.0, f64::INFINITY];
+
+fn crater(
+    base: &PatchFixture,
+    disp: &[[f64; 3]],
+    geo: &Geo,
+    patch_nodes: &[u32],
+    patch_tris: &[[u32; 3]],
+) -> Crater {
+    let lift = |n: u32| {
+        let p = base.mesh.nodes[n as usize];
+        let r = geo.chart.radial_dir(p);
+        let d = disp[n as usize];
+        d[0] * r[0] + d[1] * r[1] + d[2] * r[2]
+    };
+    let sy = |n: u32| geo.chart.s_y(base.mesh.nodes[n as usize]);
+    let fd = |(s, y): (f64, f64)| (s - geo.feed.0).hypot(y - geo.feed.1);
+    let lifts: Vec<f64> = patch_nodes.iter().map(|&n| lift(n)).collect();
+    let (mut feed_node_lift_mm, mut feed_node_dist_mm) = (0.0, f64::INFINITY);
+    for (&n, &l) in patch_nodes.iter().zip(&lifts) {
+        let d = fd(sy(n));
+        if d < feed_node_dist_mm {
+            feed_node_dist_mm = d;
+            feed_node_lift_mm = l;
+        }
+    }
+    let rings = CRATER_RINGS_MM
+        .windows(2)
+        .map(|w| {
+            let (mut acc, mut k) = (0.0, 0usize);
+            for (&n, &l) in patch_nodes.iter().zip(&lifts) {
+                let d = fd(sy(n));
+                if d >= w[0] && d < w[1] {
+                    acc += l;
+                    k += 1;
+                }
+            }
+            (w[0], w[1], if k > 0 { acc / k as f64 } else { 0.0 }, k)
+        })
+        .collect();
+    let (mut max_slope, mut at) = (0.0_f64, (0.0, 0.0));
+    for t in patch_tris {
+        let (p0, p1, p2) = (sy(t[0]), sy(t[1]), sy(t[2]));
+        let (l0, l1, l2) = (lift(t[0]), lift(t[1]), lift(t[2]));
+        let (a, b, c, d) = (p1.0 - p0.0, p1.1 - p0.1, p2.0 - p0.0, p2.1 - p0.1);
+        let det = a * d - b * c;
+        if det.abs() < 1e-14 {
+            continue;
+        }
+        let (r1, r2) = (l1 - l0, l2 - l0);
+        let gs = (d * r1 - b * r2) / det;
+        let gy = (a * r2 - c * r1) / det;
+        let g = gs.hypot(gy);
+        if g > max_slope {
+            max_slope = g;
+            at = ((p0.0 + p1.0 + p2.0) / 3.0, (p0.1 + p1.1 + p2.1) / 3.0);
+        }
+    }
+    Crater {
+        feed_node_lift_mm,
+        feed_node_dist_mm,
+        mean_lift_mm: lifts.iter().sum::<f64>() / lifts.len().max(1) as f64,
+        min_lift_mm: lifts.iter().cloned().fold(f64::INFINITY, f64::min),
+        max_lift_mm: lifts.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        max_slope,
+        max_slope_s: at.0,
+        max_slope_y: at.1,
+        max_slope_feed_dist_mm: fd(at),
+        rings,
+    }
+}
+
+impl Crater {
+    fn write(&self, t: &mut String, h: f64) {
+        t.push_str("[crater]\n");
+        t.push_str(
+            "description = \"Radial lift of the patch surface nodes (moved - base, along the \
+             outward radial normal), its steepest in-surface slope |grad lift| over the patch \
+             triangles, and the lift by distance from the pinned feed. The ground does not move \
+             radially, so the substrate thickness under the patch is h + lift.\"\n",
+        );
+        let _ = writeln!(t, "substrate_h_mm = {h}");
+        let _ = writeln!(t, "feed_node_lift_mm = {:.6e}", self.feed_node_lift_mm);
+        let _ = writeln!(t, "feed_node_dist_mm = {:.6e}", self.feed_node_dist_mm);
+        let _ = writeln!(t, "mean_lift_mm = {:.6e}", self.mean_lift_mm);
+        let _ = writeln!(t, "min_lift_mm = {:.6e}", self.min_lift_mm);
+        let _ = writeln!(t, "max_lift_mm = {:.6e}", self.max_lift_mm);
+        let _ = writeln!(t, "mean_thickness_mm = {:.6e}", h + self.mean_lift_mm);
+        let _ = writeln!(t, "max_thickness_mm = {:.6e}", h + self.max_lift_mm);
+        let _ = writeln!(t, "min_thickness_mm = {:.6e}", h + self.min_lift_mm);
+        let _ = writeln!(
+            t,
+            "crater_depth_mm = {:.6e}",
+            self.mean_lift_mm - self.feed_node_lift_mm
+        );
+        let _ = writeln!(t, "max_slope = {:.6e}", self.max_slope);
+        let _ = writeln!(t, "max_slope_s_mm = {:.4}", self.max_slope_s);
+        let _ = writeln!(t, "max_slope_y_mm = {:.4}", self.max_slope_y);
+        let _ = writeln!(
+            t,
+            "max_slope_feed_dist_mm = {:.4}",
+            self.max_slope_feed_dist_mm
+        );
+        let ring = |v: f64| {
+            if v.is_finite() {
+                format!("{v}")
+            } else {
+                "1e9".to_string()
+            }
+        };
+        let _ = writeln!(
+            t,
+            "ring_mean_lift_mm = [{}]",
+            self.rings
+                .iter()
+                .map(|(lo, hi, m, n)| format!(
+                    "{{ r_lo_mm = {}, r_hi_mm = {}, mean_lift_mm = {m:.6e}, n_nodes = {n} }}",
+                    ring(*lo),
+                    ring(*hi)
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        t.push('\n');
+    }
+
+    fn log(&self, h: f64) {
+        eprintln!(
+            "  crater: feed-node lift {:+.3} mm ({:.2} mm from the feed), mean lift {:+.3} mm \
+             (thickness {:.3} mm, max {:.3}), steepest |grad lift| {:.3} at {:.2} mm from the feed",
+            self.feed_node_lift_mm,
+            self.feed_node_dist_mm,
+            self.mean_lift_mm,
+            h + self.mean_lift_mm,
+            h + self.max_lift_mm,
+            self.max_slope,
+            self.max_slope_feed_dist_mm
+        );
+    }
 }
 
 struct FdCheck {
@@ -622,6 +1074,278 @@ struct Step {
 
 fn toml_str(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The wide-sweep grid over 2.20–2.70 GHz at `step` GHz (empty for 0).
+fn wide_grid(step: f64) -> Vec<f64> {
+    if step <= 0.0 {
+        return Vec::new();
+    }
+    let n = ((WIDE_GHZ[1] - WIDE_GHZ[0]) / step).round() as usize;
+    (0..=n).map(|i| WIDE_GHZ[0] + step * i as f64).collect()
+}
+
+/// Run-level context of a `--verify-only` run.
+struct VerifyCtx<'a> {
+    stem: &'a str,
+    level: &'a str,
+    fixture_sha: &'a str,
+    h: f64,
+    sigma0: f64,
+    sigma0_fixture: f64,
+    radial_spec: &'a str,
+    outline_spec: &'a str,
+    n_radial: usize,
+    n_outline: usize,
+    n_edges: usize,
+    t_start: Instant,
+}
+
+/// `--verify-only`: fresh forward sweeps of a carried design (or of the
+/// initial patch) on this fixture at P1 or P2, with the guard site and the
+/// crater metrics of the design as it lands on this mesh (issue #1103).
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn run_verify(
+    cli: &Cli,
+    model: &Model,
+    geo: &Geo,
+    nodes: &ConformalPatchNodes,
+    patch_tris: &[[u32; 3]],
+    design: Option<&DesignFile>,
+    c: &VerifyCtx<'_>,
+) {
+    let n_dofs = model.morph.n_dofs();
+    let x: Vec<f64> = design.map_or_else(|| vec![0.0; n_dofs], |d| d.x.clone());
+    let order = if cli.p2 { "p2" } else { "p1" };
+    let design_name = design.map_or_else(
+        || "initial".to_string(),
+        |d| format!("{}_{}", d.level, d.label),
+    );
+    eprintln!(
+        "  verify-only: design {design_name} on {} at {order}",
+        c.level
+    );
+    let moved = model.moved_mesh(&x);
+    let (min_ratio, worst_tet) = worst_tet_volume_ratio(&model.base.mesh, &moved);
+    let site = geo.site(&model.base, &moved, worst_tet);
+    site.log("worst tet");
+    drop(moved);
+    let disp = model.morph.combined_velocity(&x);
+    let cr = crater(&model.base, &disp, geo, &nodes.patch, patch_tris);
+    cr.log(c.h);
+    let verify_f: Vec<f64> = (0..cli.verify_n)
+        .map(|i| {
+            ISM_2G4_BAND_GHZ[0]
+                + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * i as f64
+                    / (cli.verify_n - 1).max(1) as f64
+        })
+        .collect();
+    let wide_f = wide_grid(cli.wide_step);
+    let run = |f: &[f64]| {
+        if cli.p2 {
+            model.sweep_p2(&x, f)
+        } else {
+            model.sweep(&x, f)
+        }
+    };
+    let t_sweep = Instant::now();
+    let ((verify, wide), peak_rss) = with_peak_rss(|| {
+        eprintln!("  in-band verification sweep:");
+        let v = run(&verify_f);
+        let w = if wide_f.is_empty() {
+            Vec::new()
+        } else {
+            eprintln!("  wide sweep:");
+            run(&wide_f)
+        };
+        (v, w)
+    });
+    let sweep_s = t_sweep.elapsed().as_secs_f64();
+    let db = |s: &c64| 20.0 * s.norm().log10();
+    let worst = verify
+        .iter()
+        .map(|(_, s, _)| db(s))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let best = verify
+        .iter()
+        .map(|(_, s, _)| db(s))
+        .fold(f64::INFINITY, f64::min);
+    let worst_res = verify
+        .iter()
+        .chain(&wide)
+        .map(|(_, _, r)| *r)
+        .fold(0.0_f64, f64::max);
+    assert!(
+        worst_res < 1e-6,
+        "unhealthy forward (residual {worst_res:.2e})"
+    );
+    let reached = worst <= TARGET_DB;
+    let dip = wide
+        .iter()
+        .map(|(f, s, _)| (*f, db(s)))
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    eprintln!(
+        "  verify {design_name} on {} ({order}): worst {worst:.2} dB, best {best:.2} dB over {} \
+         points; reached -10 dB = {reached}; min vol ratio {min_ratio:.3}; {}; {sweep_s:.0} s, \
+         peak RSS {peak_rss:.1} GiB",
+        c.level,
+        verify.len(),
+        dip.map_or("no wide sweep".to_string(), |(f, d)| format!(
+            "wide-sweep dip {f:.3} GHz ({d:.1} dB)"
+        ))
+    );
+
+    let mut t = String::with_capacity(16 * 1024);
+    t.push_str("# Auto-generated by `cargo run -p geode-core --release --example \\\n");
+    t.push_str("#   patch_conformal_nested_dof -- --verify-only <flags>` (see [meta].command).\n");
+    t.push_str("# Do NOT edit by hand; regenerate after any intentional change.\n");
+    t.push_str("# Consumed by `tests/patch_conformal_nested_dof.rs`.\n\n");
+    t.push_str("[meta]\n");
+    t.push_str(
+        "description = \"Fresh forward verification of a nested-DOF design (or of the initial \
+         patch, x = 0) carried onto one fixture of the patch_conformal family at one element \
+         order (issue #1103, conformal v5 E4b / gate G2). The basis is a function of the chart \
+         (s, y) alone, so the coefficient vector defines the same surface on every level.\"\n",
+    );
+    t.push_str("mode = \"verify\"\n");
+    let _ = writeln!(
+        t,
+        "command = {}",
+        toml_str(&format!(
+            "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+             <dir>/{}.msh --radial {} --outline {} --filter-radius {} --verify-only{} --verify-n \
+             {} --wide-step {}{}",
+            c.stem,
+            cli.radial
+                .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
+            cli.outline,
+            cli.filter_radius,
+            if cli.p2 { " --p2" } else { "" },
+            cli.verify_n,
+            cli.wide_step,
+            design.map_or(String::new(), |d| format!(
+                " --design {}",
+                repo_rel(&d.path)
+            ))
+        ))
+    );
+    let _ = writeln!(t, "fixture = {}", toml_str(c.stem));
+    let _ = writeln!(t, "level = {}", toml_str(c.level));
+    let _ = writeln!(t, "fixture_sha256 = {}", toml_str(c.fixture_sha));
+    let _ = writeln!(
+        t,
+        "fixture_yaml = {}",
+        toml_str(&format!("reference/gmsh/{}.yaml", c.stem))
+    );
+    let _ = writeln!(t, "element_order = \"{order}\"");
+    let _ = writeln!(
+        t,
+        "generated_at_commit = \"{}\"",
+        geode_util::repo::current_commit()
+    );
+    BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    if let Ok(host) = std::env::var("PATCH_CONFORMAL_HOST") {
+        let _ = writeln!(t, "host = {}", toml_str(&host));
+    }
+    t.push_str("length_unit = \"mm\"\n");
+    t.push_str("frequency_unit = \"GHz\"\n");
+    let _ = writeln!(
+        t,
+        "band_f_ghz = [{}, {}]",
+        ISM_2G4_BAND_GHZ[0], ISM_2G4_BAND_GHZ[1]
+    );
+    let _ = writeln!(t, "target_db = {TARGET_DB}");
+    let _ = writeln!(t, "port_resistance_ohm = {R_PORT_OHM}");
+    let _ = writeln!(t, "substrate_h_mm = {}", c.h);
+    let _ = writeln!(t, "upml_sigma_0 = {}", c.sigma0);
+    let _ = writeln!(t, "upml_sigma_0_fixture = {}", c.sigma0_fixture);
+    let _ = writeln!(t, "n_edges = {}", c.n_edges);
+    let _ = writeln!(t, "n_nodes = {}", model.base.mesh.n_nodes());
+    let _ = writeln!(t, "n_tets = {}", model.base.mesh.n_tets());
+    t.push('\n');
+
+    t.push_str("[design]\n");
+    let _ = writeln!(t, "name = {}", toml_str(&design_name));
+    match design {
+        None => t.push_str("source = \"initial\"\n"),
+        Some(d) => {
+            let _ = writeln!(t, "source = {}", toml_str(&repo_rel(&d.path)));
+            let _ = writeln!(t, "source_sha256 = {}", toml_str(&d.sha256));
+            let _ = writeln!(t, "label = {}", toml_str(&d.label));
+            let _ = writeln!(t, "optimized_on_level = {}", toml_str(&d.level));
+            let _ = writeln!(
+                t,
+                "optimized_on_fixture_sha256 = {}",
+                toml_str(&d.fixture_sha256)
+            );
+        }
+    }
+    let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
+    let _ = writeln!(t, "outline = {}", toml_str(c.outline_spec));
+    let _ = writeln!(t, "n_radial_dofs = {}", c.n_radial);
+    let _ = writeln!(t, "n_outline_dofs = {}", c.n_outline);
+    let _ = writeln!(
+        t,
+        "design_vector = [{}]",
+        x.iter()
+            .map(|v| format!("{v:.9e}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+
+    t.push_str("[verify]\n");
+    let _ = writeln!(t, "verify_n_points = {}", verify.len());
+    let _ = writeln!(t, "verify_worst_s11_db = {worst:.6e}");
+    let _ = writeln!(t, "verify_best_s11_db = {best:.6e}");
+    let _ = writeln!(t, "reached_target = {reached}");
+    let _ = writeln!(t, "wide_step_ghz = {}", cli.wide_step);
+    if let Some((f, d)) = dip {
+        let _ = writeln!(t, "wide_dip_f_ghz = {f:.4}");
+        let _ = writeln!(t, "wide_dip_db = {d:.4}");
+    }
+    let _ = writeln!(t, "min_vol_ratio = {min_ratio:.6e}");
+    let _ = writeln!(t, "worst_tet = {}", site.toml_inline());
+    let _ = writeln!(t, "worst_solve_residual_rel = {worst_res:.3e}");
+    let _ = writeln!(t, "n_driven_solves = {}", model.n_solves.get());
+    let _ = writeln!(t, "sweep_wall_s = {sweep_s:.1}");
+    let _ = writeln!(t, "sweep_peak_rss_gib = {peak_rss:.3}");
+    let _ = writeln!(t, "total_wall_s = {:.1}", c.t_start.elapsed().as_secs_f64());
+    t.push('\n');
+    cr.write(&mut t, c.h);
+    for (f, s, res) in &verify {
+        t.push_str("[[s11_verify.point]]\n");
+        let _ = writeln!(t, "f_ghz = {f:.6}");
+        let _ = writeln!(t, "s11_re = {:.9e}", s.re);
+        let _ = writeln!(t, "s11_im = {:.9e}", s.im);
+        let _ = writeln!(t, "s11_mag = {:.9e}", s.norm());
+        let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        let _ = writeln!(t, "solve_residual_rel = {res:.3e}");
+        t.push('\n');
+    }
+    for (f, s, _) in &wide {
+        t.push_str("[[s11_wide.point]]\n");
+        let _ = writeln!(t, "f_ghz = {f:.6}");
+        let _ = writeln!(t, "s11_mag = {:.9e}", s.norm());
+        let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        t.push('\n');
+    }
+    let out = cli.out.clone().unwrap_or_else(|| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../benchmarks/patch_antenna_conformal/nested_dof/verify/{design_name}_on_{}{}.toml",
+            c.level,
+            if cli.p2 { "_p2" } else { "" }
+        ))
+    });
+    if let Some(p) = out.parent() {
+        fs::create_dir_all(p).expect("out dir");
+    }
+    fs::write(&out, &t).expect("write verify toml");
+    println!(
+        "patch_conformal_nested_dof [verify {design_name} on {} {order}]: {}",
+        c.level,
+        out.display()
+    );
 }
 
 #[allow(clippy::too_many_lines)]
@@ -757,6 +1481,33 @@ fn main() {
     let morph = FreeformBoundaryMorph::from_columns(columns).expect("morph");
     let n_dofs = morph.n_dofs();
     let morph_s = t_morph.elapsed().as_secs_f64();
+    // A design carried from another run (possibly another mesh level): the
+    // basis is a function of the chart alone, so the same coefficients give
+    // the same surface on every level, provided the basis is the same.
+    let design = cli.design.as_deref().map(read_design);
+    if let Some(d) = &design {
+        assert_eq!(
+            d.x.len(),
+            n_dofs,
+            "design {} has {} DOFs, this basis {n_dofs}",
+            d.path.display(),
+            d.x.len()
+        );
+        assert_eq!(
+            d.radial, radial_spec,
+            "design radial basis differs from this run's"
+        );
+        assert_eq!(
+            d.outline, outline_spec,
+            "design outline basis differs from this run's"
+        );
+    }
+    let geo = Geo {
+        chart,
+        r_top: nodes.r_top,
+        rect,
+        feed,
+    };
 
     // ── Driven model ──
     let edges = base.mesh.edges();
@@ -823,8 +1574,54 @@ fn main() {
         cli.label, band_f
     );
 
+    if cli.verify_only {
+        run_verify(
+            &cli,
+            &model,
+            &geo,
+            &nodes,
+            &patch_tris,
+            design.as_ref(),
+            &VerifyCtx {
+                stem: &stem,
+                level: &level,
+                fixture_sha: &fixture_sha,
+                h,
+                sigma0,
+                sigma0_fixture,
+                radial_spec: &radial_spec,
+                outline_spec: &outline_spec,
+                n_radial,
+                n_outline,
+                n_edges,
+                t_start,
+            },
+        );
+        return;
+    }
+
     // ── Initial evaluation + FD gates ──
-    let x0 = vec![0.0_f64; n_dofs];
+    // Cold start at the fixture (x = 0) or warm start at a carried design,
+    // scaled back by halving until it clears the volume guard on this mesh.
+    let (x0, warm_scale) = match &design {
+        None => (vec![0.0_f64; n_dofs], 0.0),
+        Some(d) => {
+            let mut scale = 1.0_f64;
+            loop {
+                let xs: Vec<f64> = d.x.iter().map(|v| v * scale).collect();
+                let vr = model.min_vol_ratio(&xs);
+                eprintln!(
+                    "  warm start from {} (scale {scale}): min vol ratio {vr:.3}",
+                    repo_rel(&d.path)
+                );
+                if vr >= MIN_VOL_RATIO {
+                    break (xs, scale);
+                }
+                scale *= 0.5;
+                assert!(scale > 1e-3, "warm start cannot clear the volume guard");
+            }
+        }
+    };
     let t0 = Instant::now();
     let (e0, rss0) = with_peak_rss(|| model.eval(&x0, true));
     let eval_s = t0.elapsed().as_secs_f64();
@@ -833,7 +1630,9 @@ fn main() {
         "unhealthy forward (residual {:.2e})",
         e0.worst_residual
     );
-    assert!((e0.min_vol_ratio - 1.0).abs() < 1e-9);
+    if design.is_none() {
+        assert!((e0.min_vol_ratio - 1.0).abs() < 1e-9);
+    }
     let grad0 = e0.grad.clone().unwrap();
     let gnorm0 = norm(&grad0);
     eprintln!(
@@ -891,6 +1690,7 @@ fn main() {
     let mut last_eval: Option<Eval> = None;
     let mut best_worst_db = e0.worst_db();
     let mut best_x = x0.clone();
+    let mut guard_events: Vec<(usize, f64, TetSite)> = Vec::new();
     let max_steps = if cli.fd_only { 0 } else { cli.max_steps };
 
     for iter in 1..=max_steps {
@@ -946,9 +1746,13 @@ fn main() {
         let mut guard_binding = false;
         let accepted = loop {
             let xt: Vec<f64> = x.iter().zip(&d).map(|(xi, di)| xi + a * di).collect();
-            let vr = model.min_vol_ratio(&xt);
+            let moved_t = model.moved_mesh(&xt);
+            let (vr, wt) = worst_tet_volume_ratio(&model.base.mesh, &moved_t);
             if vr < MIN_VOL_RATIO {
                 guard_binding = true;
+                let site = geo.site(&model.base, &moved_t, wt);
+                site.log(&format!("guard binds (step {iter}, a = {a:.3e})"));
+                guard_events.push((iter, a, site));
             } else {
                 let t_eval = Instant::now();
                 let et = model.eval(&xt, true);
@@ -1071,7 +1875,7 @@ fn main() {
     // The initial design's wide sweep is the #1084 baseline artifact
     // (benchmarks/patch_antenna_conformal/baseline_2g4_<level>.toml); only
     // the final design is swept here.
-    let wide_f: Vec<f64> = (0..=20).map(|i| 2.20 + 0.025 * i as f64).collect();
+    let wide_f = wide_grid(cli.wide_step);
     eprintln!("  wide sweep at x_final:");
     let wide = model.sweep(&x_final, &wide_f);
     let (dip_f, dip_db) = wide
@@ -1095,6 +1899,10 @@ fn main() {
         .fold(0.0_f64, f64::max);
     let (worst_ratio_final, worst_tet) =
         worst_tet_volume_ratio(&model.base.mesh, &model.moved_mesh(&x_final));
+    let final_site = geo.site(&model.base, &model.moved_mesh(&x_final), worst_tet);
+    final_site.log("worst tet at x_final");
+    let crater_final = crater(&model.base, &disp, &geo, &nodes.patch, &patch_tris);
+    crater_final.log(h);
     // Mean radial lift of the patch and mean outward edge motion.
     let mean_patch_radial = {
         let mut acc = 0.0;
@@ -1394,7 +2202,7 @@ fn main() {
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
              <dir>/{stem}.msh --radial {} --outline {} --filter-radius {} --n-band {} --beta {} \
-             --max-steps {} --verify-n {} --label {}",
+             --max-steps {} --verify-n {} --wide-step {} --label {}{}",
             cli.radial
                 .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
             cli.outline,
@@ -1403,7 +2211,12 @@ fn main() {
             cli.beta,
             cli.max_steps,
             cli.verify_n,
-            cli.label
+            cli.wide_step,
+            cli.label,
+            design.as_ref().map_or(String::new(), |d| format!(
+                " --design {}",
+                repo_rel(&d.path)
+            ))
         ))
     );
     let _ = writeln!(t, "fixture = {}", toml_str(&stem));
@@ -1420,6 +2233,9 @@ fn main() {
         geode_util::repo::current_commit()
     );
     BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    if let Ok(host) = std::env::var("PATCH_CONFORMAL_HOST") {
+        let _ = writeln!(t, "host = {}", toml_str(&host));
+    }
     t.push_str("length_unit = \"mm\"\n");
     t.push_str("frequency_unit = \"GHz\"\n");
     t.push_str(
@@ -1561,6 +2377,49 @@ fn main() {
     };
     let _ = writeln!(t, "outcome = {}", toml_str(outcome));
     t.push('\n');
+
+    t.push_str("[start]\n");
+    match &design {
+        None => t.push_str("kind = \"cold\"\n"),
+        Some(d) => {
+            t.push_str("kind = \"warm\"\n");
+            let _ = writeln!(t, "design_toml = {}", toml_str(&repo_rel(&d.path)));
+            let _ = writeln!(t, "design_toml_sha256 = {}", toml_str(&d.sha256));
+            let _ = writeln!(t, "design_label = {}", toml_str(&d.label));
+            let _ = writeln!(t, "design_level = {}", toml_str(&d.level));
+            let _ = writeln!(t, "design_fixture_sha256 = {}", toml_str(&d.fixture_sha256));
+            let _ = writeln!(t, "scale = {warm_scale}");
+        }
+    }
+    let _ = writeln!(
+        t,
+        "x_start = [{}]",
+        x0.iter()
+            .map(|v| format!("{v:.9e}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+
+    t.push_str("[guard]\n");
+    t.push_str(
+        "description = \"Where the per-tet volume guard (min ratio 0.25) binds: every line-search \
+         trial it rejected (step, trial step length a, and the worst tet of the trial), and the \
+         worst tet of the reported design. Sites are base-mesh centroids in the chart: (s, y), dr \
+         = radial offset from the substrate top (< 0 inside the slab), distances to the pinned \
+         feed and to the nearest patch corner, and the distance outside the patch rectangle.\"\n",
+    );
+    let _ = writeln!(t, "n_events = {}", guard_events.len());
+    let _ = writeln!(t, "final_worst = {}", final_site.toml_inline());
+    t.push('\n');
+    for (it, a, site) in &guard_events {
+        t.push_str("[[guard.event]]\n");
+        let _ = writeln!(t, "step = {it}");
+        let _ = writeln!(t, "a = {a:.6e}");
+        let _ = writeln!(t, "site = {}", site.toml_inline());
+        t.push('\n');
+    }
+    crater_final.write(&mut t, h);
 
     for (k, s) in e0.s11.iter().enumerate() {
         t.push_str("[[s11_initial.point]]\n");

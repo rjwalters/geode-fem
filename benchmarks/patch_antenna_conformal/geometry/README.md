@@ -15,3 +15,7 @@ These geometries hold only on the mesh level they were optimized on, and they mo
 - **The ground plane is not dumped.** It does not move radially. Under outline DOFs its nodes slide only tangentially, along the base-point tangent, so it stays on the R = 100 mm cylinder up to the chord error `d²/2R` (0.18 mm at `d = 6` mm). The patch–ground gap is preserved because the whole slab column moves together.
 
 The `index_base` and `format` fields and the ground-plane wording were added to the committed files in the Doctor pass on PR #1104. No coordinate, index or S₁₁ value changed. The writer in the example now emits the same fields, so `generated_at_commit` still names the commit whose code produced the numbers.
+
+## L2 designs (#1103)
+
+`L2_combined_64_cold.json`, `L2_combined_64_warm.json` and `L2_gap_48_warm.json` are the L2 re-optimizations of gate G2 (see `../nested_dof/README.md`). They have the same format as the L0/L1 dumps. **They are an idealized non-uniform-thickness ablation.** Their radial DOFs thicken the FR-4 under the patch to about 3.7 mm on average, which cannot be manufactured (operator ruling, 2026-10-13). The fixed-thickness, copper-only design is #1120. A Meep cross-check of these shapes must model the variable-thickness slab.
