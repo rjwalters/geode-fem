@@ -249,6 +249,13 @@ struct Cli {
     /// `--verify-only` (issue #1126, X1): write the moved mesh (with the
     /// fixture's physical tags) as MSH 2.2 ASCII for the Palace reference.
     write_mesh: Option<PathBuf>,
+    /// Gradient-free baseline (issue #1126, X4): separable CMA-ES on the same
+    /// objective with this many band evaluations (each `--n-band` forward
+    /// solves), in place of the adjoint L-BFGS. Designs failing the volume
+    /// guard are ranked last without a solve.
+    gradient_free: Option<usize>,
+    /// Initial CMA-ES step size (design units).
+    cma_sigma0: f64,
 }
 
 fn parse_cli() -> Cli {
@@ -284,6 +291,8 @@ fn parse_cli() -> Cli {
         freeze_feed_width: false,
         radiation: Vec::new(),
         write_mesh: None,
+        gradient_free: None,
+        cma_sigma0: 0.5,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -335,6 +344,10 @@ fn parse_cli() -> Cli {
                     .collect();
             }
             "--write-mesh" => cli.write_mesh = Some(PathBuf::from(next(&mut i))),
+            "--gradient-free" => {
+                cli.gradient_free = Some(next(&mut i).parse().expect("--gradient-free N_EVALS"));
+            }
+            "--cma-sigma0" => cli.cma_sigma0 = next(&mut i).parse().expect("--cma-sigma0 S"),
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -406,6 +419,10 @@ fn parse_cli() -> Cli {
     assert!(
         cli.write_mesh.is_none() || cli.verify_only,
         "--write-mesh needs --verify-only"
+    );
+    assert!(
+        cli.gradient_free.is_none() || (!cli.verify_only && !cli.fd_only && cli.design.is_none()),
+        "--gradient-free is a cold-start descent: no --verify-only, --fd-only or --design"
     );
     assert!(
         !cli.rebase_feed || (cli.copper && cli.feed && cli.design.is_some()),
@@ -537,6 +554,12 @@ impl Rng {
         self.0 ^= self.0 >> 27;
         let v = self.0.wrapping_mul(0x2545_F491_4F6C_DD1D);
         (v >> 11) as f64 / (1u64 << 53) as f64
+    }
+    /// Standard normal (Box-Muller).
+    fn normal(&mut self) -> f64 {
+        let u1 = self.next_f64().max(1e-300);
+        let u2 = self.next_f64();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
     }
     fn unit_direction(&mut self, n: usize, mask: impl Fn(usize) -> bool) -> Vec<f64> {
         let mut d: Vec<f64> = (0..n)
@@ -1138,6 +1161,139 @@ fn write_msh22(path: &Path, base: &PatchFixture, mesh: &geode_core::mesh::TetMes
         fs::create_dir_all(p).expect("write-mesh dir");
     }
     fs::write(path, t).expect("write msh 2.2");
+}
+
+/// One band evaluation of the gradient-free baseline.
+struct GfEval {
+    eval: usize,
+    generation: usize,
+    objective: f64,
+    worst_db: f64,
+    feasible: bool,
+    best_so_far_worst_db: f64,
+    solves_so_far: usize,
+}
+
+/// Separable CMA-ES (Ros and Hansen 2008: CMA-ES with a diagonal covariance,
+/// learning rates scaled by (n + 2) / 3) minimizing the same soft-max
+/// objective as the adjoint descent, from `x = 0`, for `budget` band
+/// evaluations. A design failing the 0.25 volume guard is ranked after
+/// every feasible one, by its guard violation, without a solve (issue
+/// #1126, X4: the gradient-free baseline at a fixed solve budget). Returns
+/// the best feasible design (by worst-of-band) and the evaluation log.
+fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>, Vec<GfEval>) {
+    let n = model.morph.n_dofs();
+    let nf = n as f64;
+    let lambda = 4 + (3.0 * nf.ln()).floor() as usize;
+    let mu = lambda / 2;
+    let raw: Vec<f64> = (0..mu)
+        .map(|i| ((mu as f64) + 0.5).ln() - ((i + 1) as f64).ln())
+        .collect();
+    let wsum: f64 = raw.iter().sum();
+    let w: Vec<f64> = raw.iter().map(|v| v / wsum).collect();
+    let mu_eff = 1.0 / w.iter().map(|v| v * v).sum::<f64>();
+    let c_sigma = (mu_eff + 2.0) / (nf + mu_eff + 5.0);
+    let d_sigma = 1.0 + 2.0 * (((mu_eff - 1.0) / (nf + 1.0)).sqrt() - 1.0).max(0.0) + c_sigma;
+    let c_c = (4.0 + mu_eff / nf) / (nf + 4.0 + 2.0 * mu_eff / nf);
+    let sep = (nf + 2.0) / 3.0;
+    let c_1 = (sep * 2.0 / ((nf + 1.3).powi(2) + mu_eff)).min(1.0);
+    let c_mu = (sep * 2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff))
+        .min(1.0 - c_1);
+    let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
+    let mut rng = Rng(seed);
+    let mut m = vec![0.0_f64; n];
+    let mut sigma = sigma0;
+    let mut cdiag = vec![1.0_f64; n];
+    let mut p_sigma = vec![0.0_f64; n];
+    let mut p_c = vec![0.0_f64; n];
+    let mut log = Vec::new();
+    let mut best: (f64, Vec<f64>) = (f64::INFINITY, m.clone());
+    let mut evals = 0usize;
+    let mut generation = 0usize;
+    while evals < budget {
+        // (rank key, z, y): feasible designs keyed by their objective, guard
+        // failures after every feasible one, by their violation.
+        let mut pop: Vec<(f64, Vec<f64>, Vec<f64>)> = Vec::with_capacity(lambda);
+        for _ in 0..lambda {
+            if evals >= budget {
+                break;
+            }
+            let z: Vec<f64> = (0..n).map(|_| rng.normal()).collect();
+            let y: Vec<f64> = z.iter().zip(&cdiag).map(|(zi, ci)| zi * ci.sqrt()).collect();
+            let x: Vec<f64> = m.iter().zip(&y).map(|(mi, yi)| mi + sigma * yi).collect();
+            let vr = model.min_vol_ratio(&x);
+            evals += 1;
+            let (key, objective, worst_db, feasible) = if vr >= MIN_VOL_RATIO {
+                let e = model.eval(&x, false);
+                if e.worst_db() < best.0 {
+                    best = (e.worst_db(), x.clone());
+                }
+                (e.objective, e.objective, e.worst_db(), true)
+            } else {
+                (1e6 + (MIN_VOL_RATIO - vr), f64::NAN, f64::NAN, false)
+            };
+            log.push(GfEval {
+                eval: evals,
+                generation,
+                objective,
+                worst_db,
+                feasible,
+                best_so_far_worst_db: best.0,
+                solves_so_far: model.n_solves.get(),
+            });
+            eprintln!(
+                "    cma gen {generation} eval {evals}: {}, sigma {sigma:.3e}, best worst {:.2} dB",
+                if feasible {
+                    format!("G = {objective:.6e} (worst {worst_db:.2} dB)")
+                } else {
+                    format!("guard {vr:.3}")
+                },
+                best.0
+            );
+            pop.push((key, z, y));
+        }
+        if pop.len() < mu {
+            break;
+        }
+        pop.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let mut yw = vec![0.0_f64; n];
+        let mut zw = vec![0.0_f64; n];
+        for (wi, (_, z, y)) in w.iter().zip(&pop) {
+            for k in 0..n {
+                yw[k] += wi * y[k];
+                zw[k] += wi * z[k];
+            }
+        }
+        for k in 0..n {
+            m[k] += sigma * yw[k];
+        }
+        let a = (c_sigma * (2.0 - c_sigma) * mu_eff).sqrt();
+        for k in 0..n {
+            p_sigma[k] = (1.0 - c_sigma) * p_sigma[k] + a * zw[k];
+        }
+        let ps_norm = norm(&p_sigma);
+        let h_sigma = ps_norm
+            / (1.0 - (1.0 - c_sigma).powi(2 * (generation as i32 + 1))).sqrt()
+            < (1.4 + 2.0 / (nf + 1.0)) * chi_n;
+        let hs = if h_sigma { 1.0 } else { 0.0 };
+        let b = (c_c * (2.0 - c_c) * mu_eff).sqrt();
+        for k in 0..n {
+            p_c[k] = (1.0 - c_c) * p_c[k] + hs * b * yw[k];
+        }
+        for k in 0..n {
+            let rank_mu: f64 = w
+                .iter()
+                .zip(&pop)
+                .map(|(wi, (_, _, y))| wi * y[k] * y[k])
+                .sum();
+            cdiag[k] = (1.0 - c_1 - c_mu) * cdiag[k]
+                + c_1 * (p_c[k] * p_c[k] + (1.0 - hs) * c_c * (2.0 - c_c) * cdiag[k])
+                + c_mu * rank_mu;
+        }
+        sigma *= ((c_sigma / d_sigma) * (ps_norm / chi_n - 1.0)).exp();
+        generation += 1;
+    }
+    (best.1, log)
 }
 
 /// Port voltage `V = (1/w) Σ f_i e_i`.
@@ -2301,6 +2457,167 @@ fn run_verify(
     );
 }
 
+/// `--gradient-free N`: the separable CMA-ES baseline from `x = 0` with a
+/// budget of `N` band evaluations, then the same 9-point verification sweep
+/// as the descent (issue #1126, X4).
+fn run_gradient_free(
+    cli: &Cli,
+    model: &Model,
+    stem: &str,
+    level: &str,
+    fixture_sha: &str,
+    budget: usize,
+    t_start: Instant,
+) {
+    const SEED: u64 = 0x1126_c3a5_2026;
+    let e0 = model.eval(&vec![0.0; model.morph.n_dofs()], false);
+    let solves_x0 = model.n_solves.get();
+    let (x_best, log) = sep_cma_es(model, budget, cli.cma_sigma0, SEED);
+    let e_best = model.eval(&x_best, false);
+    let verify_f: Vec<f64> = (0..cli.verify_n)
+        .map(|i| {
+            ISM_2G4_BAND_GHZ[0]
+                + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * i as f64
+                    / (cli.verify_n - 1).max(1) as f64
+        })
+        .collect();
+    let verify = model.sweep(&x_best, &verify_f);
+    let db = |s: &c64| 20.0 * s.norm().log10();
+    let verify_worst = verify
+        .iter()
+        .map(|(_, s, _)| db(s))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let n_feasible = log.iter().filter(|g| g.feasible).count();
+    eprintln!(
+        "  gradient-free: {} evals ({n_feasible} feasible), worst-of-band {:.2} -> {:.2} dB (band \
+         points), verification worst {verify_worst:.2} dB; {} solves",
+        log.len(),
+        e0.worst_db(),
+        e_best.worst_db(),
+        model.n_solves.get()
+    );
+    let mut t = String::with_capacity(64 * 1024);
+    t.push_str("# Auto-generated by `cargo run -p geode-core --release --example \\\n");
+    t.push_str("#   patch_conformal_nested_dof -- --gradient-free <N> <flags>` (see [meta].command).\n");
+    t.push_str("# Do NOT edit by hand; regenerate after any intentional change.\n\n");
+    t.push_str("[meta]\n");
+    t.push_str(
+        "description = \"Gradient-free baseline (issue #1126, X4): separable CMA-ES (diagonal \
+         covariance, Ros and Hansen 2008) on the same soft-max |S11|^2 band objective, basis, \
+         volume guard and fixture as the adjoint L-BFGS descent, from x = 0, at a fixed budget \
+         of band evaluations; guard failures are ranked last without a solve.\"\n",
+    );
+    t.push_str("mode = \"gradient_free\"\n");
+    let _ = writeln!(
+        t,
+        "command = {}",
+        toml_str(&format!(
+            "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+             <dir>/{stem}.msh {} --gradient-free {budget} --cma-sigma0 {} --band-shift {} \
+             --n-band {} --beta {} --verify-n {} --label {}",
+            basis_flags(cli),
+            cli.cma_sigma0,
+            cli.band_shift,
+            cli.n_band,
+            cli.beta,
+            cli.verify_n,
+            cli.label
+        ))
+    );
+    let _ = writeln!(t, "label = {}", toml_str(&cli.label));
+    let _ = writeln!(t, "fixture = {}", toml_str(stem));
+    let _ = writeln!(t, "level = {}", toml_str(level));
+    let _ = writeln!(t, "fixture_sha256 = {}", toml_str(fixture_sha));
+    let _ = writeln!(
+        t,
+        "generated_at_commit = \"{}\"",
+        geode_util::repo::current_commit()
+    );
+    BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    if let Ok(host) = std::env::var("PATCH_CONFORMAL_HOST") {
+        let _ = writeln!(t, "host = {}", toml_str(&host));
+    }
+    let _ = writeln!(t, "band_shift_ghz = {}", cli.band_shift);
+    let _ = writeln!(
+        t,
+        "band_points_ghz = [{}]",
+        model
+            .band
+            .iter()
+            .map(|b| format!("{:.6}", b.0))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+    t.push_str("[gradient_free]\n");
+    let _ = writeln!(t, "method = \"sep-CMA-ES\"");
+    let _ = writeln!(t, "seed = {SEED}");
+    let _ = writeln!(t, "sigma0 = {}", cli.cma_sigma0);
+    let _ = writeln!(t, "n_dofs = {}", model.morph.n_dofs());
+    let _ = writeln!(
+        t,
+        "lambda = {}",
+        4 + (3.0 * (model.morph.n_dofs() as f64).ln()).floor() as usize
+    );
+    let _ = writeln!(t, "budget_evals = {budget}");
+    let _ = writeln!(t, "n_evals = {}", log.len());
+    let _ = writeln!(t, "n_feasible = {n_feasible}");
+    let _ = writeln!(t, "worst_s11_db_initial = {:.6e}", e0.worst_db());
+    let _ = writeln!(t, "worst_s11_db_final = {:.6e}", e_best.worst_db());
+    let _ = writeln!(t, "objective_final = {:.9e}", e_best.objective);
+    let _ = writeln!(t, "verify_worst_s11_db = {verify_worst:.6e}");
+    let _ = writeln!(t, "n_driven_solves = {}", model.n_solves.get());
+    let _ = writeln!(t, "n_solves_initial_eval = {solves_x0}");
+    let _ = writeln!(t, "total_wall_s = {:.1}", t_start.elapsed().as_secs_f64());
+    t.push('\n');
+    t.push_str("[shape]\n");
+    let _ = writeln!(
+        t,
+        "design_vector = [{}]",
+        x_best
+            .iter()
+            .map(|v| format!("{v:.9e}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+    for g in &log {
+        t.push_str("[[trajectory.eval]]\n");
+        let _ = writeln!(t, "eval = {}", g.eval);
+        let _ = writeln!(t, "generation = {}", g.generation);
+        let _ = writeln!(t, "feasible = {}", g.feasible);
+        if g.feasible {
+            let _ = writeln!(t, "objective = {:.9e}", g.objective);
+            let _ = writeln!(t, "worst_db = {:.6}", g.worst_db);
+        }
+        if g.best_so_far_worst_db.is_finite() {
+            let _ = writeln!(t, "best_so_far_worst_db = {:.6}", g.best_so_far_worst_db);
+        }
+        let _ = writeln!(t, "solves_so_far = {}", g.solves_so_far);
+        t.push('\n');
+    }
+    for (f, s, res) in &verify {
+        t.push_str("[[s11_verify.point]]\n");
+        let _ = writeln!(t, "f_ghz = {f:.6}");
+        let _ = writeln!(t, "s11_re = {:.9e}", s.re);
+        let _ = writeln!(t, "s11_im = {:.9e}", s.im);
+        let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        let _ = writeln!(t, "solve_residual_rel = {res:.3e}");
+        t.push('\n');
+    }
+    let out = cli.out.clone().unwrap_or_else(|| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../benchmarks/patch_antenna_conformal/v6/x4/{level}_{}.toml",
+            cli.label
+        ))
+    });
+    if let Some(p) = out.parent() {
+        fs::create_dir_all(p).expect("out dir");
+    }
+    fs::write(&out, &t).expect("write gradient-free toml");
+    println!("patch_conformal_nested_dof [gradient-free {}]: {}", cli.label, out.display());
+}
+
 #[allow(clippy::too_many_lines)]
 fn main() {
     let cli = parse_cli();
@@ -2765,6 +3082,11 @@ fn main() {
                 t_start,
             },
         );
+        return;
+    }
+
+    if let Some(budget) = cli.gradient_free {
+        run_gradient_free(&cli, &model, &stem, &level, &fixture_sha, budget, t_start);
         return;
     }
 
