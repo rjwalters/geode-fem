@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters and Crutcher Dunnavant (in that order), equal contributors — standard equal-contribution footnote on both names; affiliations still TODO(operator); + AI-orchestrated development acknowledgment"
+authors: "Robb Walters (solo), Independent Researcher — operator ruling 2026-10-13; Crutcher Dunnavant to be offered coauthorship at review; AI-orchestrated development described in its own section (v11)"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -13,6 +13,41 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 ---
 
 # Brief: the transmon cross-validation benchmark paper
+
+## v11 — operator-ruling revision, 2026-10-13 (tracker #1063) — CURRENT
+
+**v11 = v10 + the operator's 2026-10-13 rulings + the v10 Judge's follow-ups.**
+A narrow revision; where it conflicts with the sections below, this section
+wins. v1–v10 and their critics stay immutable. Status: DRAFT; no score, review
+or audit carries over.
+
+- **Title (ruled):** "A differentiable finite-element solver for
+  superconducting-qubit design: converged frequencies and gradient
+  re-optimization of the DeviceLayout.jl transmon".
+- **Validation claim (ruled):** "an independent same-mesh cross-check of the
+  Palace/DeviceLayout.jl transmon stack, complementing the earlier checks of
+  Palace by SQDMetal and Ye et al." in §1 and the last contribution; never
+  "first" or "validation".
+- **Authors (ruled, superseding the 2026-07-14 coauthor note):** solo,
+  "Robb Walters", "Independent Researcher". The operator shares the draft with
+  Crutcher Dunnavant and offers him authorship.
+- **Whiteroom (ruled):** cited as software, `dunnavant2026whiteroom`
+  (https://github.com/crutcher/palace_whiteroom, public). Loom cited as a URL.
+- **New §9 "How geode-fem Was Designed and Built" (ruled):** the whiteroom
+  lineage and Crutcher Dunnavant's own 36 commits (Rust 2024, Metal backend,
+  restructuring, geode-util); role-separated AI agents (Anthropic's Claude
+  Opus, Fable and Sonnet via Claude Code; OpenAI's GPT Sol and GPT Astra
+  models via Codex, which made 3 of the 85 commits) coordinated by Loom and a
+  Squad room; independent agent review of 46 of the 48 PRs, with three
+  claims it corrected (the misread 4.14 GHz anchor,
+  scalar/tensor mixing, the static route presented as independent); git-history
+  counts, recomputed by `count_provenance.py`; the human author's
+  responsibility.
+- **Mechanical:** repository URL https://github.com/rjwalters/geode-fem in the
+  Reproducibility footnote; archival DOI at Zenodo deposit; no public cubecl
+  f64 tracking issue found, so the footnote promises none.
+- **Remaining operator items:** approve the acknowledgment wording; the Zenodo
+  DOI; Crutcher Dunnavant's answer to the coauthorship offer.
 
 ## v10 — restructured revision, 2026-10-13 (tracker #1063)
 
@@ -821,7 +856,16 @@ arXiv papers dated 3 months–5 years back).
 **No fees; moderation (not review) follows submission — typically 1-2 business
 days to announcement once endorsed.**
 
-## Coauthor note (2026-07-14)
+## Coauthor note (2026-07-14) — SUPERSEDED 2026-10-13
+
+**Operator ruling (2026-10-13):** solo author, Robb Walters, Independent
+Researcher. Crutcher Dunnavant is removed from the byline, with the
+equal-contribution footnote; the operator will share the draft with him and
+offer him coauthorship (source comment `% NOTE: Crutcher Dunnavant to be
+offered coauthorship at review (operator, 2026-10-13)`). The whiteroom question below
+is answered: it is public (https://github.com/crutcher/palace_whiteroom) and
+cited. The original note follows for the record.
+
 Crutcher Dunnavant is the expected coauthor, and the two authors are
 EQUAL CONTRIBUTORS (operator-confirmed): the author block carries the
 standard "These authors contributed equally" footnote on both names.
