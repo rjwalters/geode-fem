@@ -513,6 +513,117 @@ const MANIFEST: &[Entry] = &[
          <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --n-band 5 --verify-n 9 \
          --max-steps 60 --label combined_64 (issue #1087 nested-DOF ladder)",
     ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --label combined_64_cold (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --label combined_64_warm --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_gap_48_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 0 --label gap_48_warm --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --p2 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L0.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L0.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_gap_48_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 0 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
+         (issue #1103 gate G2 verification)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",

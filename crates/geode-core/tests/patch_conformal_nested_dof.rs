@@ -1015,7 +1015,11 @@ fn g2_verifications_state_fixture_order_and_design_provenance() {
         assert_eq!(m["frequency_unit"].as_str().unwrap(), "GHz");
         assert_eq!(m["float_dtype"].as_str().unwrap(), "F64");
         assert_eq!(num(&m["upml_sigma_0"]), 1.0, "{stem}: sigma_0");
-        assert_eq!(num(&m["upml_sigma_0_fixture"]), 1.0, "{stem}: fixture sigma_0");
+        assert_eq!(
+            num(&m["upml_sigma_0_fixture"]),
+            1.0,
+            "{stem}: fixture sigma_0"
+        );
         assert_eq!(num(&m["target_db"]), -10.0);
         assert_eq!(num(&m["substrate_h_mm"]), CONFORMAL_2G4_SUBSTRATE_H_MM);
         assert_eq!(
@@ -1027,7 +1031,8 @@ fn g2_verifications_state_fixture_order_and_design_provenance() {
         assert_eq!(pts.len(), 9, "{stem}: 9 in-band points");
         assert_eq!(num(&doc["verify"]["verify_n_points"]), 9.0);
         for (k, p) in pts.iter().enumerate() {
-            let want = ISM_2G4_BAND_GHZ[0] + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * k as f64 / 8.0;
+            let want =
+                ISM_2G4_BAND_GHZ[0] + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * k as f64 / 8.0;
             assert!((num(&p["f_ghz"]) - want).abs() < 1e-6, "{stem}: grid");
             let mag = num(&p["s11_mag"]);
             assert!(mag <= 1.0 + 1e-6, "{stem}: passivity");
@@ -1058,7 +1063,10 @@ fn g2_verifications_state_fixture_order_and_design_provenance() {
                 .map(|p| (num(&p["f_ghz"]), num(&p["s11_db"])))
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .unwrap();
-            assert!((num(&v["wide_dip_f_ghz"]) - f).abs() < 1e-4, "{stem}: dip f");
+            assert!(
+                (num(&v["wide_dip_f_ghz"]) - f).abs() < 1e-4,
+                "{stem}: dip f"
+            );
             assert!((num(&v["wide_dip_db"]) - db).abs() < 1e-3, "{stem}: dip dB");
             assert!((num(&w[0]["f_ghz"]) - 2.20).abs() < 1e-9);
             assert!((num(&w[w.len() - 1]["f_ghz"]) - 2.70).abs() < 1e-9);
@@ -1117,7 +1125,9 @@ fn g2_initial_patch_matches_the_convergence_study() {
         ("initial_on_L3", "dip_L3"),
         ("initial_on_L1_p2", "dip_L1_p2"),
     ] {
-        let doc = all.get(stem).unwrap_or_else(|| panic!("missing verify/{stem}.toml"));
+        let doc = all
+            .get(stem)
+            .unwrap_or_else(|| panic!("missing verify/{stem}.toml"));
         let c = read_toml(&format!(
             "benchmarks/patch_antenna_conformal/convergence/{conv}.toml"
         ));
@@ -1150,10 +1160,16 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
         let doc = l2_run(stem);
         let m = &doc["meta"];
         assert_eq!(m["level"].as_str().unwrap(), "L2", "{stem}");
-        assert_eq!(m["fixture_sha256"].as_str().unwrap(), pinned_fixture_sha("L2"));
+        assert_eq!(
+            m["fixture_sha256"].as_str().unwrap(),
+            pinned_fixture_sha("L2")
+        );
         assert_eq!(num(&m["upml_sigma_0"]), 1.0, "{stem}: sigma_0");
         assert_eq!(
-            (num(&doc["basis"]["n_radial_dofs"]), num(&doc["basis"]["n_outline_dofs"])),
+            (
+                num(&doc["basis"]["n_radial_dofs"]),
+                num(&doc["basis"]["n_outline_dofs"])
+            ),
             (nr, no),
             "{stem}: DOFs"
         );
@@ -1166,14 +1182,26 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
             .iter()
             .map(|c| c["at"].as_str().unwrap())
             .collect();
-        assert!(ats.contains(&"x0") && ats.contains(&"x_final"), "{stem}: FD at both ends");
+        assert!(
+            ats.contains(&"x0") && ats.contains(&"x_final"),
+            "{stem}: FD at both ends"
+        );
         let o = &doc["optimization"];
         let term = o["terminal_condition"].as_str().unwrap();
         assert!(
-            ["distortion_limited", "plateau", "converged_grad_norm", "max_steps"].contains(&term),
+            [
+                "distortion_limited",
+                "plateau",
+                "converged_grad_norm",
+                "max_steps"
+            ]
+            .contains(&term),
             "{stem}: terminal {term}"
         );
-        assert!(num(&o["worst_vol_ratio_final"]) >= 0.25 - 1e-9, "{stem}: guard");
+        assert!(
+            num(&o["worst_vol_ratio_final"]) >= 0.25 - 1e-9,
+            "{stem}: guard"
+        );
         let g = &doc["guard"];
         assert!(
             (num(&g["final_worst"]["ratio"]) - num(&o["worst_vol_ratio_final"])).abs() < 1e-5,
@@ -1184,18 +1212,31 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
             num(&o["worst_tet_final"]),
             "{stem}: worst tet id"
         );
-        let events = g.get("event").and_then(|e| e.as_array()).cloned().unwrap_or_default();
+        let events = g
+            .get("event")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .unwrap_or_default();
         assert_eq!(num(&g["n_events"]) as usize, events.len());
         for e in &events {
-            assert!(num(&e["site"]["ratio"]) < 0.25, "{stem}: a guard event above the budget");
+            assert!(
+                num(&e["site"]["ratio"]) < 0.25,
+                "{stem}: a guard event above the budget"
+            );
         }
         if term == "distortion_limited" {
-            assert!(!events.is_empty(), "{stem}: distortion_limited with no guard event");
+            assert!(
+                !events.is_empty(),
+                "{stem}: distortion_limited with no guard event"
+            );
         }
         // The trajectory descends.
         let steps = doc["trajectory"]["step"].as_array().unwrap();
         for w in steps.windows(2) {
-            assert!(num(&w[1]["objective"]) <= num(&w[0]["objective"]) + 1e-12, "{stem}: ascent");
+            assert!(
+                num(&w[1]["objective"]) <= num(&w[0]["objective"]) + 1e-12,
+                "{stem}: ascent"
+            );
         }
         // Start.
         let s = &doc["start"];
@@ -1212,12 +1253,18 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
                     .iter()
                     .find(|r| (num(&r["f_ghz"]) - f).abs() < 1e-6)
                     .expect("shared frequency");
-                assert!((num(&r["s11_mag"]) - num(&p["s11_mag"])).abs() < 1e-8, "{stem}: {f} GHz");
+                assert!(
+                    (num(&r["s11_mag"]) - num(&p["s11_mag"])).abs() < 1e-8,
+                    "{stem}: {f} GHz"
+                );
             }
         } else {
             let src = s["design_toml"].as_str().unwrap();
             let text = std::fs::read_to_string(repo().join(src)).unwrap();
-            assert_eq!(s["design_toml_sha256"].as_str().unwrap(), sha256_hex(text.as_bytes()));
+            assert_eq!(
+                s["design_toml_sha256"].as_str().unwrap(),
+                sha256_hex(text.as_bytes())
+            );
             let sdoc: toml::Value = toml::from_str(&text).unwrap();
             assert_eq!(sdoc["meta"]["level"].as_str().unwrap(), "L1");
             let scale = num(&s["scale"]);
@@ -1226,7 +1273,10 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
                 .map(|v| v * scale)
                 .collect();
             for (a, b) in x0.iter().zip(&want) {
-                assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{stem}: warm start");
+                assert!(
+                    (a - b).abs() <= 1e-9 * b.abs().max(1.0),
+                    "{stem}: warm start"
+                );
             }
         }
         // The crater metrics are consistent with the thickness readback.
@@ -1238,3 +1288,173 @@ fn g2_l2_optimizations_pass_the_fd_gate_and_record_the_guard() {
         );
     }
 }
+
+/// Worst-of-band |S11| (dB, 9 in-band points) of every committed
+/// verification, `(file stem, dB, min volume ratio)`.
+const G2_VERIFY_PINS: &[(&str, f64, f64)] = &[
+    ("initial_on_L1", -1.469478, 1.0),
+    ("initial_on_L2", -1.752366, 1.0),
+    ("initial_on_L3", -2.036528, 1.0),
+    ("initial_on_L1_p2", -2.421677, 1.0),
+    ("L1_combined_64_on_L0", -6.041419, 0.3186994),
+    ("L1_combined_64_on_L1", -14.11728, 0.2500007),
+    ("L1_combined_64_on_L2", -9.854112, 0.2751322),
+    ("L1_combined_64_on_L3", -7.566864, 0.2266653),
+    ("L1_combined_64_on_L1_p2", -5.690916, 0.2500007),
+    ("L1_gap_48_on_L1", -13.15249, 0.2500003),
+    ("L2_combined_64_cold_on_L3", -12.47029, 0.2658996),
+    ("L2_combined_64_cold_on_L1_p2", -9.159596, 0.2359445),
+    ("L2_combined_64_warm_on_L3", WARM_L3_DB, WARM_L3_VOL),
+    ("L2_combined_64_warm_on_L1_p2", WARM_P2_DB, WARM_P2_VOL),
+];
+
+/// Worst-of-band |S11| (dB, 9-point verification) of the L2 optimizations.
+const G2_L2_PINS: [(&str, f64); 3] = [
+    ("L2_combined_64_cold", -14.06614),
+    ("L2_combined_64_warm", -15.8668),
+    ("L2_gap_48_warm", -13.28936),
+];
+
+/// Gate G2 and the cross-level transfer (issue #1103).
+///
+/// * **The converged initial patch is far from −10 dB.** The initial
+///   worst-of-band is −1.5 to −2.4 dB on every level and order, so the
+///   optimization problem is real at every fidelity.
+/// * **Gate G2 is not met on the finest verification.** The cold-start L2
+///   combined optimum is −14.07 dB on L2 and holds on L3 (−12.47 dB) but
+///   misses −10 dB with p = 2 on L1 (−9.16 dB), the verification closest to
+///   the converged dip (#1085).
+/// * **The L2 optimum transfers better than the L1 optimum.** Against
+///   the P2/L1 verification the L1 combined optimum loses 8.4 dB and the L2
+///   one 4.9 dB; on every finer target the L1 optimum is worse.
+/// * The board-thickness growth (radial DOFs) is not manufacturable; this
+///   is an idealized non-uniform-thickness ablation (operator ruling,
+///   2026-10-13; the fixed-thickness design is #1120).
+#[test]
+fn g2_gate_and_transfer_are_pinned() {
+    let all = verifications();
+    let worst = |stem: &str| {
+        let d = all
+            .get(stem)
+            .unwrap_or_else(|| panic!("missing verify/{stem}.toml"));
+        num(&d["verify"]["verify_worst_s11_db"])
+    };
+    assert_eq!(all.len(), G2_VERIFY_PINS.len(), "verification set changed");
+    for &(stem, db, vol) in G2_VERIFY_PINS {
+        assert!(
+            (worst(stem) - db).abs() < 0.01,
+            "{stem}: worst-of-band {} dB, pinned {db} dB",
+            worst(stem)
+        );
+        let v = num(&all[stem]["verify"]["min_vol_ratio"]);
+        assert!(
+            (v - vol).abs() < 1e-4,
+            "{stem}: min vol ratio {v}, pinned {vol}"
+        );
+    }
+    let own = |stem: &str| num(&l2_run(stem)["optimization"]["verify_worst_s11_db"]);
+    for (stem, db) in G2_L2_PINS {
+        assert!(
+            (own(stem) - db).abs() < 0.01,
+            "{stem}: {} dB, pinned {db}",
+            own(stem)
+        );
+        assert!(
+            own(stem) <= -10.0,
+            "{stem}: reaches -10 dB on its own level"
+        );
+        assert_eq!(
+            l2_run(stem)["optimization"]["terminal_condition"].as_str(),
+            Some("distortion_limited"),
+            "{stem}"
+        );
+    }
+    // The initial patch is far from the target at every fidelity.
+    for lv in ["L1", "L2", "L3", "L1_p2"] {
+        assert!(worst(&format!("initial_on_{lv}")) > -5.0, "initial on {lv}");
+    }
+    // Gate G2 on the cold-start L2 optimum.
+    let g2_l2 = own("L2_combined_64_cold");
+    let g2_l3 = worst("L2_combined_64_cold_on_L3");
+    let g2_p2 = worst("L2_combined_64_cold_on_L1_p2");
+    assert!(g2_l2 <= -10.0 && g2_l3 <= -10.0, "holds on L2 and L3");
+    assert!(
+        g2_p2 > -10.0,
+        "gate G2: the P2/L1 verification misses -10 dB"
+    );
+    assert!(g2_p2 < -9.0, "gate G2: the miss is under 1 dB");
+    // Transfer: the L2 optimum loses less than the L1 optimum.
+    let loss_l1 = worst("L1_combined_64_on_L1_p2") - worst("L1_combined_64_on_L1");
+    let loss_l2 = g2_p2 - g2_l2;
+    assert!((loss_l1 - 8.43).abs() < 0.02, "L1 -> P2 loss {loss_l1}");
+    assert!((loss_l2 - 4.91).abs() < 0.02, "L2 -> P2 loss {loss_l2}");
+    assert!(loss_l2 < loss_l1);
+    for t in ["L3", "L1_p2"] {
+        assert!(
+            worst(&format!("L2_combined_64_cold_on_{t}"))
+                < worst(&format!("L1_combined_64_on_{t}")),
+            "L2 optimum beats L1 optimum on {t}"
+        );
+    }
+    // The L1 optimum degrades monotonically with fidelity past its level.
+    assert!(
+        worst("L1_combined_64_on_L2") > worst("L1_combined_64_on_L1")
+            && worst("L1_combined_64_on_L3") > worst("L1_combined_64_on_L2")
+            && worst("L1_combined_64_on_L1_p2") > worst("L1_combined_64_on_L3")
+    );
+    // The resonance of the L2 optimum rises with fidelity: L2 < L3 < P2/L1.
+    let dip = |stem: &str| num(&all[stem]["verify"]["wide_dip_f_ghz"]);
+    let dip_l2 = num(&l2_run("L2_combined_64_cold")["optimization"]["dip_f_ghz_final"]);
+    assert!(dip_l2 < dip("L2_combined_64_cold_on_L3"));
+    assert!(dip("L2_combined_64_cold_on_L3") < dip("L2_combined_64_cold_on_L1_p2"));
+    // Non-uniform thickness: every radial design thickens the board well past
+    // the 1.6 mm FR-4 sheet (not manufacturable, #1120).
+    for (stem, _) in G2_L2_PINS {
+        let c = &l2_run(stem)["crater"];
+        assert!(num(&c["mean_thickness_mm"]) > 3.0, "{stem}: mean thickness");
+        assert_eq!(num(&c["min_thickness_mm"]), CONFORMAL_2G4_SUBSTRATE_H_MM);
+    }
+}
+
+/// The feed crater is a property of the surface, not of the mesh: the same
+/// L1 coefficient vector carried onto L2 and L3 gives the same steepest
+/// slope and mean thickness (within the sampling of the patch triangles),
+/// while the worst tet of the morph moves with the mesh (on L3 it is at the
+/// feed-cutoff rim, below the 0.25 guard).
+#[test]
+fn g2_crater_is_mesh_independent_and_the_guard_site_is_not() {
+    let all = verifications();
+    let c = |stem: &str| all[stem]["crater"].clone();
+    let base = c("L1_combined_64_on_L1");
+    for t in ["L2", "L3", "L1_p2"] {
+        let o = c(&format!("L1_combined_64_on_{t}"));
+        assert!(
+            (num(&o["mean_thickness_mm"]) - num(&base["mean_thickness_mm"])).abs() < 0.05,
+            "{t}: mean thickness"
+        );
+        assert!(
+            (num(&o["max_slope"]) - num(&base["max_slope"])).abs() < 0.05,
+            "{t}: steepest slope"
+        );
+        assert!(
+            num(&o["max_slope_feed_dist_mm"]) < 4.0,
+            "{t}: slope at the feed"
+        );
+    }
+    let site = |stem: &str| all[stem]["verify"]["worst_tet"].clone();
+    // On L1 and L2 the worst tet is outside the -s edge, far from the feed.
+    for stem in ["L1_combined_64_on_L1", "L1_combined_64_on_L2"] {
+        let s = site(stem);
+        assert!(
+            num(&s["s_mm"]) < -19.0 && num(&s["feed_dist_mm"]) > 20.0,
+            "{stem}"
+        );
+    }
+    // On L3 it jumps to the feed-cutoff rim, below the guard.
+    let s3 = site("L1_combined_64_on_L3");
+    assert!(num(&s3["feed_dist_mm"]) < 4.5 && num(&s3["ratio"]) < 0.25);
+}
+const WARM_L3_DB: f64 = 0.0;
+const WARM_L3_VOL: f64 = 0.0;
+const WARM_P2_DB: f64 = 0.0;
+const WARM_P2_VOL: f64 = 0.0;

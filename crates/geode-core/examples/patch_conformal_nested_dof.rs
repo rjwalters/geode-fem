@@ -634,7 +634,10 @@ impl Model {
         let ground = self.base.ground_triangles();
         let outer = self.base.outer_boundary_triangles();
         let mask = space
-            .pec_interior_mask(&mesh, &[patch.as_slice(), ground.as_slice(), outer.as_slice()])
+            .pec_interior_mask(
+                &mesh,
+                &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
+            )
             .expect("P2 PEC mask");
         eprintln!(
             "    P2 space: {} DOFs ({} interior)",
@@ -704,7 +707,6 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
 fn norm(a: &[f64]) -> f64 {
     dot(a, a).sqrt()
 }
-
 
 // ── Designs carried across meshes, guard sites and the feed crater (#1103) ──
 
@@ -976,12 +978,26 @@ impl Crater {
         let _ = writeln!(t, "mean_thickness_mm = {:.6e}", h + self.mean_lift_mm);
         let _ = writeln!(t, "max_thickness_mm = {:.6e}", h + self.max_lift_mm);
         let _ = writeln!(t, "min_thickness_mm = {:.6e}", h + self.min_lift_mm);
-        let _ = writeln!(t, "crater_depth_mm = {:.6e}", self.mean_lift_mm - self.feed_node_lift_mm);
+        let _ = writeln!(
+            t,
+            "crater_depth_mm = {:.6e}",
+            self.mean_lift_mm - self.feed_node_lift_mm
+        );
         let _ = writeln!(t, "max_slope = {:.6e}", self.max_slope);
         let _ = writeln!(t, "max_slope_s_mm = {:.4}", self.max_slope_s);
         let _ = writeln!(t, "max_slope_y_mm = {:.4}", self.max_slope_y);
-        let _ = writeln!(t, "max_slope_feed_dist_mm = {:.4}", self.max_slope_feed_dist_mm);
-        let ring = |v: f64| if v.is_finite() { format!("{v}") } else { "1e9".to_string() };
+        let _ = writeln!(
+            t,
+            "max_slope_feed_dist_mm = {:.4}",
+            self.max_slope_feed_dist_mm
+        );
+        let ring = |v: f64| {
+            if v.is_finite() {
+                format!("{v}")
+            } else {
+                "1e9".to_string()
+            }
+        };
         let _ = writeln!(
             t,
             "ring_mean_lift_mm = [{}]",
@@ -1159,7 +1175,10 @@ fn run_verify(
         .chain(&wide)
         .map(|(_, _, r)| *r)
         .fold(0.0_f64, f64::max);
-    assert!(worst_res < 1e-6, "unhealthy forward (residual {worst_res:.2e})");
+    assert!(
+        worst_res < 1e-6,
+        "unhealthy forward (residual {worst_res:.2e})"
+    );
     let reached = worst <= TARGET_DB;
     let dip = wide
         .iter()
@@ -1204,7 +1223,10 @@ fn run_verify(
             if cli.p2 { " --p2" } else { "" },
             cli.verify_n,
             cli.wide_step,
-            design.map_or(String::new(), |d| format!(" --design {}", repo_rel(&d.path)))
+            design.map_or(String::new(), |d| format!(
+                " --design {}",
+                repo_rel(&d.path)
+            ))
         ))
     );
     let _ = writeln!(t, "fixture = {}", toml_str(c.stem));
@@ -1251,7 +1273,11 @@ fn run_verify(
             let _ = writeln!(t, "source_sha256 = {}", toml_str(&d.sha256));
             let _ = writeln!(t, "label = {}", toml_str(&d.label));
             let _ = writeln!(t, "optimized_on_level = {}", toml_str(&d.level));
-            let _ = writeln!(t, "optimized_on_fixture_sha256 = {}", toml_str(&d.fixture_sha256));
+            let _ = writeln!(
+                t,
+                "optimized_on_fixture_sha256 = {}",
+                toml_str(&d.fixture_sha256)
+            );
         }
     }
     let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
@@ -1467,8 +1493,14 @@ fn main() {
             d.path.display(),
             d.x.len()
         );
-        assert_eq!(d.radial, radial_spec, "design radial basis differs from this run's");
-        assert_eq!(d.outline, outline_spec, "design outline basis differs from this run's");
+        assert_eq!(
+            d.radial, radial_spec,
+            "design radial basis differs from this run's"
+        );
+        assert_eq!(
+            d.outline, outline_spec,
+            "design outline basis differs from this run's"
+        );
     }
     let geo = Geo {
         chart,
@@ -1543,20 +1575,28 @@ fn main() {
     );
 
     if cli.verify_only {
-        run_verify(&cli, &model, &geo, &nodes, &patch_tris, design.as_ref(), &VerifyCtx {
-            stem: &stem,
-            level: &level,
-            fixture_sha: &fixture_sha,
-            h,
-            sigma0,
-            sigma0_fixture,
-            radial_spec: &radial_spec,
-            outline_spec: &outline_spec,
-            n_radial,
-            n_outline,
-            n_edges,
-            t_start,
-        });
+        run_verify(
+            &cli,
+            &model,
+            &geo,
+            &nodes,
+            &patch_tris,
+            design.as_ref(),
+            &VerifyCtx {
+                stem: &stem,
+                level: &level,
+                fixture_sha: &fixture_sha,
+                h,
+                sigma0,
+                sigma0_fixture,
+                radial_spec: &radial_spec,
+                outline_spec: &outline_spec,
+                n_radial,
+                n_outline,
+                n_edges,
+                t_start,
+            },
+        );
         return;
     }
 
@@ -2173,9 +2213,10 @@ fn main() {
             cli.verify_n,
             cli.wide_step,
             cli.label,
-            design
-                .as_ref()
-                .map_or(String::new(), |d| format!(" --design {}", repo_rel(&d.path)))
+            design.as_ref().map_or(String::new(), |d| format!(
+                " --design {}",
+                repo_rel(&d.path)
+            ))
         ))
     );
     let _ = writeln!(t, "fixture = {}", toml_str(&stem));
