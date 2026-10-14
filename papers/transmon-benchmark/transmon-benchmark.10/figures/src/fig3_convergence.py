@@ -6,7 +6,7 @@ Sources:
   at h, h/2, h/4 and P2 at h, h/2) and [tensor_eps] (P1 at h, h/2, h/4);
 - benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml: [[uniform_x0_tensor_p2]]
   (tensor P2 at h, h/2), [bracket_x0_tensor] and [gap_x0] (certified tensor
-  bracket and the certified scalar-tensor gap);
+  bracket and the certified scalar-tensor gap, rounded outward to 0.1 %);
 - benchmarks/transmon_diffopt/c_sigma_bracket.toml: [bracket_x0] (certified
   scalar bracket).
 
@@ -16,6 +16,7 @@ certified two-sided brackets from adapted meshes, drawn at the size of the
 mesh that sets them; an inset magnifies them (each is about 0.2 fF tall). No
 design target is drawn. No data value is hard-coded here.
 """
+import math
 from figure_style import *
 
 
@@ -63,8 +64,9 @@ def main():
     ins.set(xlim=(-1, 1), ylim=(sb['lower_ff'] - .8, tb['upper_ff'] + .8), xticks=[-0.55, 0.15], yticks=[])
     ins.set_xticklabels(['scalar', 'tensor'], fontsize=8)
     gap = tens['gap_x0']
-    ins.set_title(f"certified brackets\ngap {100 * gap['tensor_minus_scalar_relative'][0]:.1f}–"
-                  f"{100 * gap['tensor_minus_scalar_relative'][1]:.1f}%", fontsize=8, linespacing=1.2)
+    rel = gap['tensor_minus_scalar_relative']               # certified, rounded outward in the artifact
+    lo, hi = math.floor(1000 * rel[0]) / 10, math.ceil(1000 * rel[1]) / 10   # outward again, to 0.1 %
+    ins.set_title(f"certified brackets\ngap {lo:.1f}–{hi:.1f}%", fontsize=8, linespacing=1.2)
     for side in ['top', 'right']:
         ins.spines[side].set_visible(True)
     fig.legend(*ax.get_legend_handles_labels(), loc='lower center', bbox_to_anchor=(.5, .07), ncol=2,

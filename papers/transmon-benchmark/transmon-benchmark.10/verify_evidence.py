@@ -14,7 +14,10 @@ cross-check and the gradient-assisted re-optimization. It pins:
   converged design and its band mapped to capacitor_length, the shared-limit check;
 - the supporting electrostatic design loop (Appendix A) and the performance
   context (Appendix B);
-- the citation set against refs.bib and the verified litsearch candidates;
+- the disclosure that the extrapolation rule was fixed after the static route, and
+  the evidence tiers (the 0.22 % agreement only under Consistency);
+- the citation set against refs.bib and the verified litsearch candidates, field by
+  field for the five entries retyped from @article, and forbidden prior-art claims;
 - the operator items (title, inherited TODO(operator) lines, the two
   validation-claim sentences, the acknowledgments) against v9;
 - voice and audience rules: no revision narrative, no issue numbers, no
@@ -194,6 +197,27 @@ def check_crosscheck():
             assert abs(dl_over - dl[f"f_{mode}_over_published_pct"]) < 2e-3
             rows[(geom, mode)] = (published, dl[f"f_{mode}_ghz"], dl_over, conv[f"f_{mode}_ghz"], over, lo, hi)
         assert conv["published_below_band"] == [True, True]
+    # The rule was chosen after the static route was known: disclosed as such, and the 0.22 %
+    # agreement is presented as a consistency check only.
+    for geom in ["initial", "final"]:
+        hist = cc["convergence"][geom]["rule_history"]
+        assert "estimate 4.63 GHz" in hist and "after the independent static route" in hist, geom
+    assert 4.63 > cc["static_cross_check"]["initial"]["circuit_cap_f_q_ghz"]
+    phrase("The rule was fixed after the static route had been computed: extrapolation at the observed order "
+           "alone, the rule used before, puts the initial qubit at $4.63$\\,GHz, above the certified cap, and the "
+           "observed-order values are kept only as the band's high side. The agreement of the two routes is "
+           "therefore a consistency check, not a blind prediction.")
+    # The finest computed levels (Palace order 2 on h/2) against the published qubits, floored.
+    finest = [pct(cc["palace"][g]["p2_f_q_ghz"][1] / cc["devicelayout_run"][g]["published_f_q_ghz"] - 1)
+              for g in ["initial", "final"]]
+    assert all(max(cc["palace"][g]["p1_f_q_ghz"][-1], cc["palace"][g]["p2_f_q_ghz"][-1])
+               == cc["palace"][g]["p2_f_q_ghz"][1] for g in ["initial", "final"])
+    fin = f"${floor_to(finest[0], 1):.1f}\\%$ and ${floor_to(finest[1], 1):.1f}\\%$"
+    assert fin == "$4.1\\%$ and $4.7\\%$", fin
+    pin(fin, 4)
+    phrase(f"the finest computed levels already lie {fin} above the published qubit values")
+    phrase(f"the finest computed levels, Palace at order 2 on $h/2$, already lie {fin} above the published "
+           "initial and final qubit values")
     # Table 2, row by row.
     st = cc["static_cross_check"]["initial"]
     cap = st["circuit_cap_f_q_ghz"]
@@ -305,8 +329,15 @@ def check_static(cc):
     assert ceil_to(t_up - gap["scalar_lower_ff"], 2) == gap["tensor_minus_scalar_upper_ff"] == 2.35
     for key in ["gap_x0", "gap_anchor_93p95", "gap_anchor_93p95_resolution_corrected"]:
         assert tens[key]["tensor_minus_scalar_relative"] == [0.0252, 0.0304]
-    contains("is $1.95$--$2.35$\\,fF, or $2.5$--$3.0\\%$ of the scalar value")
-    pin("$2.5$--$3.0\\%$", 3)
+    # Certified, so the printed relative gap is rounded outward, against both the artifact's relative
+    # gap and the floored/ceiled fF gap over the scalar bracket.
+    lo = min(gap["tensor_minus_scalar_relative"][0], gap["tensor_minus_scalar_lower_ff"] / gap["scalar_upper_ff"])
+    hi = max(gap["tensor_minus_scalar_relative"][1], gap["tensor_minus_scalar_upper_ff"] / gap["scalar_lower_ff"])
+    shown = f"${floor_to(pct(lo), 1):.1f}$--${ceil_to(pct(hi), 1):.1f}\\%$"
+    assert shown == "$2.5$--$3.1\\%$", shown
+    contains(f"is $1.95$--$2.35$\\,fF, or {shown} of the scalar value")
+    pin(shown, 3)
+    absent("$2.5$--$3.0\\%$")
     # Coarse-mesh overstatement (ours, from the certified upper bounds).
     p1h = table[("P1", levels[0])]
     t1h = t1["c_sigma_ff"][0]
@@ -329,7 +360,24 @@ def check_static(cc):
     contains("caps it at $1/(2\\pi\\sqrt{L_J(C_\\Sigma + C_J)}) = 4.477$\\,GHz")
     assert f"{-st['eigen_estimate_minus_static_mid_pct']:.2f}" == "0.22"
     contains("the eigenmode estimate is $0.22\\%$ below its midpoint")
-    contains("agree to $0.22\\%$ on the initial qubit")
+    phrase("the $0.22\\%$ is a consistency check, not an independent prediction")
+    pin("$0.22\\%$", 3)
+    absent("A static route agrees")
+    phrase("A static route is consistent with this")
+    # The agreement sits in the Consistency tier, not under what is established.
+    established = NORM[NORM.index("\\paragraph{What is established, and how.}"):NORM.index("\\label{tab:tiers}")]
+    assert "0.22" not in established.split("\\begin{table}")[0]
+    tiers = {row.split(" & ")[0].strip(): row for row in
+             NORM[NORM.index("Tier & Results"):NORM.index("\\end{tabular}", NORM.index("Tier & Results"))]
+             .split("\\\\")}
+    assert [k for k in tiers if "0.22" in tiers[k]] == ["Consistency"], tiers.keys()
+    assert "not a blind prediction" in tiers["Consistency"]
+    contains("Certified & $C_\\Sigma$ of $X^0$: $[77.40, 77.61]$\\,fF (scalar), $[79.56, 79.76]$\\,fF (tensor); "
+             "tensor-minus-scalar gap $2.5$--$3.1\\%$; the qubit cap of $4.477$\\,GHz, conditional on the circuit "
+             "model and certified on the fixture's polygonal geometry, not on the ladder meshes \\\\")
+    contains("Not claimed & Agreement with measurement; a converged hit of $3.0$/$4.0$\\,GHz; a global optimum; "
+             "eigenmode-participation (EPR) derivatives; a speed advantage over Palace \\\\")
+    phrase("The cap does not depend on the extrapolation rule")
     rich = cc["convergence"]["initial"]["p1_richardson_f_q_ghz"]
     assert f"{rich:.3f}" == "4.677" and rich > cap
     contains("pre-asymptotic order ($4.677$\\,GHz)")
@@ -385,6 +433,18 @@ def check_reopt(cc):
     tl = opt["transmission_line"]
     assert round(tl["delta_um"]) == 216
     contains("$\\delta = 216\\,\\mu$m")
+    # delta from f_r (L + delta) = const at L = 5000, 5250 um; its spread under 0.15 % remesh noise in
+    # either frequency, recomputed from the committed pair.
+    d_of = lambda a, b: (5250 * b - 5000 * a) / (a - b)
+    fa, fb = tl["f_r_ghz"]
+    assert abs(d_of(fa, fb) - tl["delta_um"]) < 1e-3
+    spread = max(abs(d_of(fa * (1 + s * 1.5e-3), fb) - tl["delta_um"]) for s in (1, -1))
+    spread = max(spread, max(abs(d_of(fa, fb * (1 + s * 1.5e-3)) - tl["delta_um"]) for s in (1, -1)))
+    assert 25 * round(spread / 25) == 175, spread
+    phrase("remesh noise of about $0.15\\%$ in either $f_r$ moves it by about $\\pm175\\,\\mu$m (recomputed "
+           "from the two committed frequencies), and a second estimate gives about $363\\,\\mu$m")
+    absent("150\\,\\mu$m")
+    phrase("the one-time $\\delta$ calibration is setup and is not counted")
     # Table 4.
     nd = opt["newton_devicelayout"]
     for k in range(4):
@@ -450,12 +510,24 @@ def check_reopt(cc):
     slope = step2["S"][0] * step2["dfdc_h"][0]
     assert f"{slope * 1e4:.2f}" == "-9.05"
     contains("= -9.05\\times10^{-4}$\\,GHz/$\\mu$m")
+    # The mapping's basis: the slope is taken where step 2 started (the step-1 design), and the band
+    # is centred on the step-2 estimate, not the target.
+    assert step2["from"] == opt["conv"]["cv1"]["to_um"]
     f2, (b_lo, b_hi) = cv2["f_q_ghz"], cv2["f_q_band_ghz"]
+    assert f"{f2:.3f}" == "3.005"
+    phrase(f"the slope at the step-1 design where step~2 started, and centred on the step-2 estimate of "
+           f"${f2:.3f}$\\,GHz, the step-2 qubit band corresponds to")
     c_lo, c_hi = c2 + (b_lo - f2) / -slope, c2 + (b_hi - f2) / -slope
     assert round(c_lo) == 1418 and round(c_hi) == 1685
     contains("$c$ between about $1418$ and $1685\\,\\mu$m, $+16\\%$ to $+38\\%$")
     assert floor_to(pct(c_lo / c0 - 1), 0) == 16 and floor_to(pct(c_hi / c0 - 1), 0) == 38
-    pin("$16$--$38\\%$", 2)
+    pin("$16$--$38\\%$", 4)
+    phrase("needs a capacitor about $19\\%$ longer (an extrapolated estimate, $16$--$38\\%$)")
+    phrase("an extrapolated estimate whose band spans $16$--$38\\%$ over the published length")
+    abstract = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
+    assert f"and a resonator ${pct(L2 / L0 - 1):.1f}\\%$ longer" in abstract
+    assert "($16$--$38\\%$ within the extrapolation band)" in abstract
+    pin(f"${pct(L2 / L0 - 1):.1f}\\%$", 2)
     pq, vq = shared_limit(cv2["p1_f_q_ghz"][1], cv2["p1_f_q_ghz"][2], *cv2["p2_f_q_ghz"])
     pr, vr = shared_limit(cv2["p1_f_r_ghz"][1], cv2["p1_f_r_ghz"][2], *cv2["p2_f_r_ghz"])
     assert f"{pq:.2f}" == "0.87" and f"{pr:.2f}" == "0.84" and f"{vq:.3f}" == "3.039" and f"{vr:.3f}" == "4.019"
@@ -567,6 +639,47 @@ def bib_entries(text):
     return out
 
 
+# Litsearch entries typed @article although they are proceedings, chapters or a book.
+# Every candidate field must survive; journal may move to booktitle or series, and
+# only bibliographic container fields may be added.
+RETYPED = {"vardapetyan2008sensitivity": "inproceedings", "elmoselhy2008efficient": "inproceedings",
+           "park2019continuum": "incollection", "raviart1977mixed": "incollection",
+           "polya1951isoperimetric": "book"}
+# The container fields each retyped entry gains, pinned exactly.
+RETYPED_ADDED = {
+    "vardapetyan2008sensitivity": {"booktitle": "2008 IEEE MTT-S International Microwave Symposium Digest"},
+    "elmoselhy2008efficient": {"booktitle": "Proceedings of the 45th annual Design Automation Conference"},
+    "park2019continuum": {"booktitle": "Design Sensitivity Analysis and Optimization of Electromagnetic Systems",
+                          "series": "Mathematical and Analytical Techniques with Applications to Engineering",
+                          "publisher": "Springer"},
+    "raviart1977mixed": {"booktitle": "Mathematical Aspects of Finite Element Methods",
+                         "series": "Lecture Notes in Mathematics", "volume": "606", "publisher": "Springer"},
+    "polya1951isoperimetric": {"series": "Annals of Mathematics Studies", "number": "27",
+                               "publisher": "Princeton University Press"},
+}
+
+
+def bib_fields(entry):
+    kind = re.match(r"\s*@(\w+)\{", entry).group(1).lower()
+    fields = {k.lower(): v.strip() for k, v in re.findall(r"^\s*(\w+)\s*=\s*\{(.*)\},?\s*$", entry, re.M)}
+    return kind, fields
+
+
+def check_retyped(key, ours, theirs):
+    kind, f = bib_fields(ours)
+    ckind, cf = bib_fields(theirs)
+    assert ckind == "article" and kind == RETYPED[key], (key, kind)
+    for name, value in cf.items():
+        if name == "journal":
+            assert value in (f.get("booktitle"), f.get("series")), (key, value)
+        else:
+            assert f.get(name) == value, (key, name)
+    assert "journal" not in f, key
+    assert {k: v for k, v in f.items() if k not in cf} == RETYPED_ADDED[key], key
+    if kind != "book":
+        assert "booktitle" in f, key
+
+
 def check_citations():
     keys = {k.strip() for group in re.findall(r"\\cite\w*(?:\[[^]]*\])*\{([^}]+)\}", TEX) for k in group.split(",")}
     refs = bib_entries((HERE / "refs.bib").read_text())
@@ -574,8 +687,13 @@ def check_citations():
     assert keys == set(refs), (sorted(keys - set(refs)), sorted(set(refs) - keys))
     new = keys - set(bib_entries((HERE.parent / "transmon-benchmark.9" / "refs.bib").read_text()))
     for key in new - {"devicelayout-example"}:
-        assert refs[key] == cand[key], f"litsearch entry changed on merge: {key}"
+        if key in RETYPED:
+            check_retyped(key, refs[key], cand[key])
+        else:
+            assert refs[key] == cand[key], f"litsearch entry changed on merge: {key}"
+    assert set(RETYPED) <= new
     assert "devicelayout-example" in refs and "aws-cqc.github.io/DeviceLayout.jl" in refs["devicelayout-example"]
+    assert bib_fields(refs["devicelayout-example"])[1]["title"] == "{Single-Transmon Simulation} $\\cdot$ {DeviceLayout.jl}"
     # Byline uncertain in the litsearch: not cited.
     assert "webb2000design" not in keys
     for text in ["litsearch", "Tvm"]:
@@ -585,6 +703,16 @@ def check_citations():
                   "no prior work delivers field-level design gradients", "elegant", "Hellmann--Feynman-like",
                   "owned by photonics"]:
         absent(stale, BODY)
+    # Prior-art overclaims, as patterns; the one sanctioned "no prior work" sentence is pinned below.
+    low = re.sub(r"\s+", " ", BODY.lower())
+    for pattern in [r"\bfirst to\b", r"for the first time", r"\bunprecedented\b", r"\bnovel\b",
+                    r"\bno (?:other|existing|prior) (?:solver|code|tool|work)s? (?:exposes?|provides?|offers?|computes?|delivers?)",
+                    r"\bnone (?:of them )?(?:exposes?|provides?|offers?)", r"\bonly (?:solver|code|tool) (?:that|to|with)\b",
+                    r"\bfirst (?:shape|adjoint|gradient|differentiable|sensitivity)"]:
+        assert not re.search(pattern, low), pattern
+    assert low.count("no prior work") == 1
+    phrase("for shape optimization \\citep{akcelik2005adjoint} and for inverse shape determination of deformed "
+           "cavities \\citep{akcelik2008shape}")
     phrase("HFSS computes analytic S-parameter derivatives")
     phrase("COMSOL offers forward and adjoint sensitivities")
     phrase("the classical self-adjoint case")

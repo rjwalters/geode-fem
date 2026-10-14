@@ -27,14 +27,17 @@ critics stay immutable. v10 is a DRAFT; no score, review or audit carries over.
 **Headline (one sentence).** The published SingleTransmon frequencies are
 discretization-limited: geode-fem and Palace converge to qubit frequencies
 7.3 % and 8.7 % above them (resonators 2.7 %), a certified tensor-ε C_Σ bracket
-gives the same shift by a static route, and a gradient-assisted Newton
+read through a circuit model is consistent with that shift and caps the
+initial qubit (the extrapolation rule was fixed after the static route was
+known, so the 0.22 % agreement is a consistency check, not a blind
+prediction), and a gradient-assisted Newton
 iteration reproduces DeviceLayout's optimization in 3 Palace runs (PRIMA: 9)
 and finds that the converged 3.0/4.0 GHz design needs c ≈ 1446 µm (+19 %;
 +16 % to +38 % within the band).
 
 CERTIFIED (for the meshed polygonal geometry; lower floored, upper ceiled):
 - X⁰ C_Σ: scalar [77.40, 77.61] fF, sapphire tensor [79.56, 79.76] fF; certified
-  tensor-minus-scalar gap 2.5–3.0 % (X⁰ and both 93.95 fF designs). The 36.87°
+  tensor-minus-scalar gap 2.5–3.1 %, rounded outward (X⁰ and both 93.95 fF designs). The 36.87°
   rotation is the identity.
 - Under the two-node circuit model, the certified lower bound caps the initial
   qubit at 4.477 GHz.

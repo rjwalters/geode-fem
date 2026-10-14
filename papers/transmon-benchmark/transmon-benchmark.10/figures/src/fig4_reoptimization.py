@@ -9,8 +9,8 @@ capacitor_length range), and benchmarks/transmon_devicelayout_crosscheck/results
 
 (a) The design plane: the published initial and final designs, the Newton
 iterates against DeviceLayout's discretization, and the two Newton steps
-against the converged frequencies, with the capacitor_length range the cv2
-qubit band maps to (a linear map, an estimate).
+against the converged frequencies (Step 1 and Step 2, as in Table 5), with the
+capacitor_length range the step-2 qubit band maps to (a linear map, an estimate).
 (b) DeviceLayout's error measure against the number of Palace runs at its
 discretization; PRIMA's published end point is its 9 runs at the published
 final pair, err computed from the published frequencies.
@@ -54,13 +54,15 @@ def main():
     ax.plot([pub1[0], cv1['to_um'][0], cv2['to_um'][0]], [pub1[1], cv1['to_um'][1], cv2['to_um'][1]],
             color=GREEN, marker='s', ms=4.5, lw=1.1, ls='--', label='Newton, converged frequencies')
     ax.plot(c_range, [cv2['to_um'][1]] * 2, color=GREEN, lw=3.5, alpha=.35, solid_capstyle='butt',
-            label='cv2 qubit band mapped to $c$ (estimate)')
-    ax.annotate('cv2', (cv2['to_um'][0], cv2['to_um'][1]), textcoords='offset points', xytext=(0, -14),
-                ha='center', fontsize=8, color=GREEN)
+            label='step-2 qubit band mapped to $c$ (estimate)')
+    ax.annotate('Step 2', (cv2['to_um'][0], cv2['to_um'][1]), textcoords='offset points', xytext=(-6, 6),
+                ha='right', va='bottom', fontsize=8, color=GREEN)
+    ax.annotate('Step 1', (cv1['to_um'][0], cv1['to_um'][1]), textcoords='offset points', xytext=(6, -6),
+                ha='left', va='top', fontsize=8, color=GREEN)
     for k in range(1, len(c)):
         ax.annotate(str(k), (c[k], L[k]), textcoords='offset points', xytext={1: (6, -9), 2: (-4, -14), 3: (6, 1)}[k], fontsize=8, color=BLUE)
-    ax.annotate(f'from the initial design\n({pub0[0]:.0f}, {pub0[1]:.0f}) $\\mu$m', (1150, 7470),
-                textcoords='offset points', xytext=(4, -4), fontsize=8, color=GRAY, va='top')
+    ax.annotate(f'first leg, from the initial design\n({pub0[0]:.0f}, {pub0[1]:.0f}) $\\mu$m, below the plot',
+                (1400, 7080), textcoords='offset points', xytext=(0, 3), fontsize=8, color=GRAY, va='bottom')
     ax.set(xlabel=r'capacitor_length $c$ ($\mu$m)', ylabel=r'total_length $L$ ($\mu$m)',
            xlim=(1150, 1750), ylim=(7080, 7470))
     ax.set_title('(a) Design plane', loc='left')
@@ -76,7 +78,7 @@ def main():
     bx.set_title('(b) Cost to the criterion', loc='left')
     bx.legend(loc='upper right', frameon=False, fontsize=8)
 
-    designs = [('published\nfinal', cross['convergence']['final']), ('cv1', cv1['ladder']), ('cv2', cv2['ladder'])]
+    designs = [('published\nfinal', cross['convergence']['final']), ('Step 1', cv1['ladder']), ('Step 2', cv2['ladder'])]
     for axx, mode, t, name in [(cq, 'q', targets[0], '(c) Converged qubit'),
                                (cr, 'r', targets[1], '(d) Converged resonator')]:
         axx.axhline(t, color=ORANGE, ls='--', lw=1.1, label='target')

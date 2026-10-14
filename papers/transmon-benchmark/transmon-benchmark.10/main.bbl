@@ -79,7 +79,7 @@ Julian Andrej, Nabil Atallah, Jan-Phillip B{\"a}cker, Jean-Sylvain Camier,
 \bibitem[{AWS Center for Quantum
   Computing}(2025{\natexlab{b}})]{devicelayout-example}
 {AWS Center for Quantum Computing}.
-\newblock {DeviceLayout.jl} documentation: the {SingleTransmon} example.
+\newblock {Single-Transmon Simulation} $\cdot$ {DeviceLayout.jl}.
 \newblock DeviceLayout.jl v1.15.0 documentation and
   \texttt{examples/SingleTransmon/SingleTransmon.jl},
   \url{https://aws-cqc.github.io/DeviceLayout.jl/stable/examples/singletransmon/},
@@ -162,8 +162,8 @@ Nak-Sun Choi, Gi-Woo Jeung, Jin-Kyu Byun, Heung-Geun Kim, and Dong-Hun Kim.
 Tarek El-Moselhy, I.~M. Elfadel, and David Widiger.
 \newblock Efficient algorithm for the computation of on-chip capacitance
   sensitivities with respect to a large set of parameters.
-\newblock \emph{Proceedings of the 45th annual Design Automation Conference},
-  pages 906--911, 2008.
+\newblock In \emph{Proceedings of the 45th annual Design Automation
+  Conference}, pages 906--911, 2008.
 \newblock \doi{10.1145/1391469.1391699}.
 \newblock URL \url{https://doi.org/10.1145/1391469.1391699}.
 
@@ -437,8 +437,9 @@ William~L. Oberkampf and Christopher~J. Roy.
 \bibitem[Park(2019)]{park2019continuum}
 Il~Han Park.
 \newblock Continuum shape design sensitivity of electrostatic system.
-\newblock \emph{Mathematical and Analytical Techniques with Applications to
-  Engineering}, pages 29--112, 2019.
+\newblock In \emph{Design Sensitivity Analysis and Optimization of
+  Electromagnetic Systems}, Mathematical and Analytical Techniques with
+  Applications to Engineering, pages 29--112. Springer, 2019.
 \newblock \doi{10.1007/978-981-13-0230-5_3}.
 \newblock URL \url{https://doi.org/10.1007/978-981-13-0230-5_3}.
 
@@ -481,8 +482,9 @@ J.~Penman and J.~Fraser.
 
 \bibitem[Polya and Szegö(1951)]{polya1951isoperimetric}
 G.~Polya and G.~Szegö.
-\newblock Isoperimetric inequalities in mathematical physics. (am-27).
-\newblock 1951.
+\newblock \emph{Isoperimetric Inequalities in Mathematical Physics. (AM-27)}.
+\newblock Number~27 in Annals of Mathematics Studies. Princeton University
+  Press, 1951.
 \newblock \doi{10.1515/9781400882663}.
 \newblock URL \url{https://doi.org/10.1515/9781400882663}.
 
@@ -545,7 +547,8 @@ Florian Rathgeber, David~A. Ham, Lawrence Mitchell, Michael Lange, Fabio
 \bibitem[Raviart and Thomas(1977)]{raviart1977mixed}
 P.~A. Raviart and J.~M. Thomas.
 \newblock A mixed finite element method for 2-nd order elliptic problems.
-\newblock \emph{Lecture Notes in Mathematics}, pages 292--315, 1977.
+\newblock In \emph{Mathematical Aspects of Finite Element Methods}, volume 606
+  of \emph{Lecture Notes in Mathematics}, pages 292--315. Springer, 1977.
 \newblock \doi{10.1007/bfb0064470}.
 \newblock URL \url{https://doi.org/10.1007/bfb0064470}.
 
@@ -612,7 +615,7 @@ Ruben Specogna.
 L.~Vardapetyan, J.~Manges, and Z.~Cendes.
 \newblock Sensitivity analysis of s-parameters including port variations using
   the transfinite element method.
-\newblock \emph{2008 IEEE MTT-S International Microwave Symposium Digest},
+\newblock In \emph{2008 IEEE MTT-S International Microwave Symposium Digest},
   pages 527--530, 2008.
 \newblock \doi{10.1109/mwsym.2008.4633219}.
 \newblock URL \url{https://doi.org/10.1109/mwsym.2008.4633219}.

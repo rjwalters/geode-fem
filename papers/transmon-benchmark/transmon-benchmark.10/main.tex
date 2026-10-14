@@ -51,11 +51,13 @@ discretization reproduces both published pairs to within $0.7\%$, and on
 shared meshes the two solvers agree on the qubit mode to $10^{-4}\%$.
 Under refinement both converge to qubit frequencies $7.3\%$ and $8.7\%$
 above the published $4.14$ and $3.005$\,GHz, and to resonator frequencies
-$2.7\%$ above, so the published values are limited by discretization. A
-static route agrees: a certified two-sided bracket on the converged island
-capacitance with the sapphire tensor, $[79.56, 79.76]$\,fF, read through a
-two-node circuit of junction and resonator, puts the initial qubit at
-$4.45$\,GHz and caps it at $4.477$\,GHz. We then repeat DeviceLayout's
+$2.7\%$ above, so the published values are limited by discretization;
+the finest computed levels already lie $4.1\%$ and $4.7\%$ above the
+published qubit values. A static route is consistent with this: a
+certified two-sided bracket on the converged island capacitance with the
+sapphire tensor, $[79.56, 79.76]$\,fF, read through a two-node circuit of
+junction and resonator, puts the initial qubit at $4.45$\,GHz and caps it
+at $4.477$\,GHz. We then repeat DeviceLayout's
 two-parameter optimization with Newton steps whose Jacobian comes from
 GEODE-FEM's shape derivative of the eigenfrequencies. At DeviceLayout's
 discretization it meets the published stopping criterion in 3 Palace runs,
@@ -91,9 +93,10 @@ warns that they are sensitive to it. This paper measures how sensitive.
 Our main result is that the published frequencies are
 discretization-limited: two independently implemented solvers converge to
 qubit frequencies $7$--$9\%$ above them, a certified bound on the island
-capacitance gives the same shift by a static route, and a
-gradient-assisted re-optimization at converged resolution finds that the
-optimized design needs a capacitor about $19\%$ longer.
+capacitance, read through a circuit model, is consistent with that shift
+and caps the initial qubit, and a gradient-assisted re-optimization at
+converged resolution estimates that the optimized design needs a capacitor
+about $19\%$ longer (an extrapolated estimate, $16$--$38\%$).
 
 The second solver is GEODE-FEM (``geode-fem''), a Rust finite-element code
 on the Burn tensor framework \citep{burn}. It solves the same
@@ -126,13 +129,15 @@ Our contributions are:
     and resonator circuit they give the initial qubit at $4.45$\,GHz,
     inside the eigenmode band, and a cap of $4.477$\,GHz. The certified
     difference between the sapphire tensor and its scalar average is
-    $2.5$--$3.0\%$ (Section~\ref{sec:static}).
+    $2.5$--$3.1\%$ (Section~\ref{sec:static}).
   \item \textbf{A gradient-assisted re-optimization.} Newton steps in
     DeviceLayout's own variables, with a Jacobian from geode-fem's
     eigenfrequency shape derivative and a transmission-line model,
     meet DeviceLayout's criterion in 3 Palace runs against the published
     9, and at converged resolution move the optimized capacitor from
-    $1217.678$ to about $1446\,\mu$m (Section~\ref{sec:reopt}).
+    $1217.678$ to about $1446\,\mu$m, an extrapolated estimate whose band
+    spans $16$--$38\%$ over the published length
+    (Section~\ref{sec:reopt}).
   \item \textbf{A validated sensitivity layer.} Material and geometry
     derivatives of the electrostatic and driven $H(\mathrm{curl})$
     operators, each checked against finite differences of the full
@@ -168,8 +173,9 @@ frequency response, and used them to optimize microwave devices
 \citep{webb2001design,webb2002design,nair2003optimization}, and continuum
 shape sensitivity for high-frequency devices has been formulated as well
 \citep{choi2011generalized}. Shape adjoints for Maxwell cavity eigenvalues
-were developed for accelerator cavities
-\citep{akcelik2005adjoint,akcelik2008shape}, and a recent study
+were developed for accelerator cavities, for shape optimization
+\citep{akcelik2005adjoint} and for inverse shape determination of
+deformed cavities \citep{akcelik2008shape}, and a recent study
 optimizes Maxwell eigenvalues by shape variations with hand-derived
 adjoint gradients \citep{herter2026numerical}. Commercial solvers expose
 derivatives: HFSS computes analytic S-parameter derivatives with respect
@@ -476,7 +482,12 @@ $\sqrt{2f_2^2 - f_1^2}$, which set the low side; and the same pairs at the
 observed order, which set the high side. The band is an extrapolation
 range, not a bound, and its high side is kept wide on purpose. For the
 initial qubit, the static route of Section~\ref{sec:static} caps the
-band at $4.477$\,GHz.
+band at $4.477$\,GHz. The rule was fixed after the static route had been
+computed: extrapolation at the observed order alone, the rule used
+before, puts the initial qubit at $4.63$\,GHz, above the certified cap,
+and the observed-order values are kept only as the band's high side. The
+agreement of the two routes is therefore a consistency check, not a blind
+prediction.
 
 \begin{figure}[tbp]
   \centering
@@ -596,7 +607,7 @@ certificate closes the gap: the converged island capacitance of the
 unmodified initial design $X^0$ lies in $[77.40, 77.61]$\,fF with the
 scalar $\bar\varepsilon$ and in $[79.56, 79.76]$\,fF with the sapphire
 tensor (Figure~\ref{fig:convergence}). The certified tensor-minus-scalar
-difference is $1.95$--$2.35$\,fF, or $2.5$--$3.0\%$ of the scalar value,
+difference is $1.95$--$2.35$\,fF, or $2.5$--$3.1\%$ of the scalar value,
 and the same relative range holds for the two designs of
 Appendix~\ref{sec:appendix-supporting}. The committed mesh overstates the
 tensor $C_\Sigma$ by at least $56.92$\,fF, which is at least $71.3\%$ of
@@ -648,13 +659,18 @@ Section~\ref{sec:junction}, over every corner of the $C_\Sigma$, $L_s$ and
 $k$ bands, with the resonator at its converged estimate, gives the
 initial dressed qubit in $[4.449, 4.458]$\,GHz. That range lies inside the
 eigenmode band of Section~\ref{sec:crosscheck}, and the eigenmode estimate
-is $0.22\%$ below its midpoint. The range is an estimate, because $L_s$ and
+is $0.22\%$ below its midpoint. Because the extrapolation rule was chosen
+after this range was known (Section~\ref{sec:crosscheck}), the $0.22\%$
+is a consistency check, not an independent prediction. The range is an estimate, because $L_s$ and
 $k$ are. One statement is sharper. A series inductance and a coupling to
 a higher mode can only lower the qubit, so under the circuit model the
 certified lower bound $C_\Sigma \ge 79.56$\,fF caps it at
 $1/(2\pi\sqrt{L_J(C_\Sigma + C_J)}) = 4.477$\,GHz. The cap trims the high side of the
 eigenmode band, which comes from extrapolation at the observed
-pre-asymptotic order ($4.677$\,GHz). Two
+pre-asymptotic order ($4.677$\,GHz). The cap does not depend on the
+extrapolation rule, and the finest computed levels, Palace at order 2
+on $h/2$, already lie $4.1\%$ and $4.7\%$ above the published initial
+and final qubit values. Two
 caveats apply: the bracket is certified on the fixture, which an
 earlier generator produced from the same DeviceLayout geometry, not on
 the meshes of the ladder; and the circuit is a model of the full-wave
@@ -687,8 +703,9 @@ node motion represents it. A transmission-line model holds
 $f_r(L+\delta)$ constant, with $\delta = 216\,\mu$m from one finite
 difference of two DeviceLayout meshes ($L = 5000$ and $5250\,\mu$m), and
 takes $\partial f_q/\partial L = 0$. $\delta$ is weakly determined:
-remesh noise of about $0.15\%$ in $f_r$ is roughly $\pm150\,\mu$m in
-$\delta$, and a second estimate gives about $363\,\mu$m. The model enters
+remesh noise of about $0.15\%$ in either $f_r$ moves it by about
+$\pm175\,\mu$m (recomputed from the two committed frequencies), and a
+second estimate gives about $363\,\mu$m. The model enters
 only the Jacobian, and every iterate is evaluated on the true objective,
 so a poorer Jacobian costs steps, not accuracy.
 
@@ -780,8 +797,9 @@ longer capacitor than the published one: the point estimate is
 $c \approx 1446\,\mu$m, $+19\%$ ($+228\,\mu$m), with a resonator $2.4\%$
 longer ($+172\,\mu$m). Mapped linearly through $dF/dc \approx
 S\,\partial f_h/\partial c = -9.05\times10^{-4}$\,GHz/$\mu$m, the
-step-2 qubit band corresponds to $c$ between about $1418$ and
-$1685\,\mu$m, $+16\%$ to $+38\%$. The point estimate probably leans low:
+slope at the step-1 design where step~2 started, and centred on the
+step-2 estimate of $3.005$\,GHz, the step-2 qubit band corresponds to
+$c$ between about $1418$ and $1685\,\mu$m, $+16\%$ to $+38\%$. The point estimate probably leans low:
 the order-1 and order-2 series share a limit at order $0.87$ (qubit) and
 $0.84$ (resonator), which puts step~2 at $3.039$ and $4.019$\,GHz,
 $+1.3\%$ and $+0.5\%$ over the targets, so the converged design is
@@ -921,23 +939,26 @@ Table~\ref{tab:tiers} sorts the results by the kind of evidence behind
 them. The brackets are the only bounds. The converged frequencies and the
 re-optimized design are extrapolations with stated rules and bands, and
 the static route rests on circuit terms that are themselves
-extrapolated. The two routes agree to $0.22\%$ on the initial qubit.
+extrapolated. What stands without any extrapolation rule is the
+certified cap and the finest computed levels, already $4.1\%$ and
+$4.7\%$ above the published qubit values.
 
 \begin{table}[tbp]
   \centering
   \caption{Evidence tiers. Certified: a guaranteed bound for the meshed
   polygonal geometry. Measured: a committed solve on a stated
   discretization. Estimated: an extrapolation with a stated rule, not a
-  bound.}
+  bound. Consistency: an agreement that is not independent evidence.}
   \label{tab:tiers}
   \footnotesize
   \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.15\linewidth}>{\raggedright\arraybackslash}p{0.79\linewidth}@{}}
     \toprule
     Tier & Results \\
     \midrule
-    Certified & $C_\Sigma$ of $X^0$: $[77.40, 77.61]$\,fF (scalar), $[79.56, 79.76]$\,fF (tensor); tensor-minus-scalar gap $2.5$--$3.0\%$; the qubit cap of $4.477$\,GHz, conditional on the circuit model \\
-    Measured & Same-mesh agreement (Table~\ref{tab:agreement}); Palace at DeviceLayout's discretization within $0.7\%$ of the published pairs; every ladder level; same-mesh agreement on the ladders; the gradient check; 3 Palace runs to DeviceLayout's criterion \\
+    Certified & $C_\Sigma$ of $X^0$: $[77.40, 77.61]$\,fF (scalar), $[79.56, 79.76]$\,fF (tensor); tensor-minus-scalar gap $2.5$--$3.1\%$; the qubit cap of $4.477$\,GHz, conditional on the circuit model and certified on the fixture's polygonal geometry, not on the ladder meshes \\
+    Measured & Same-mesh agreement (Table~\ref{tab:agreement}); Palace at DeviceLayout's discretization within $0.7\%$ of the published pairs; every ladder level, the finest already $4.1\%$ and $4.7\%$ above the published qubit values; same-mesh agreement on the ladders; the gradient check; 3 Palace runs to DeviceLayout's criterion \\
     Estimated & Converged frequencies and bands (Table~\ref{tab:crosscheck}); the static-route qubit range; $L_s$ and $k$; the converged design $c \approx 1446\,\mu$m and its $+16$ to $+38\%$ range \\
+    Consistency & The two routes agree to $0.22\%$ on the initial qubit; the extrapolation rule was fixed after the static route was known, so this is not a blind prediction \\
     Not claimed & Agreement with measurement; a converged hit of $3.0$/$4.0$\,GHz; a global optimum; eigenmode-participation (EPR) derivatives; a speed advantage over Palace \\
     \bottomrule
   \end{tabular}
@@ -971,8 +992,8 @@ The published frequencies of the DeviceLayout.jl SingleTransmon example
 are reproduced by Palace at the example's own discretization and are
 $7$--$9\%$ below the converged qubit frequencies that two independently
 implemented solvers reach under refinement. A certified bracket on the
-island capacitance gives the same shift by a static route and caps the
-initial qubit. A Newton iteration with a geode-fem eigenfrequency
+island capacitance, read through a circuit model, is consistent with that
+shift and caps the initial qubit. A Newton iteration with a geode-fem eigenfrequency
 gradient in its Jacobian reaches DeviceLayout's criterion in a third of
 the published Palace runs, and at converged resolution it moves the
 optimized design to a capacitor about $19\%$ longer, within a band of

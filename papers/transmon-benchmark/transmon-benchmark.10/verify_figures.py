@@ -23,6 +23,7 @@ rendering, not the physics; no field solve is run.
 from pathlib import Path
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -108,14 +109,24 @@ def check_content():
     for b in [sb, tb]:
         assert f"{b['lower_ff']:.2f}–{b['upper_ff']:.2f} fF" in t3
     rel = gap['tensor_minus_scalar_relative']
-    assert f"gap {100 * rel[0]:.1f}–{100 * rel[1]:.1f}%" in t3
-    assert 'gap 2.5–3.0%' in t3 and 'P2, sapphire tensor' in t3 and 'certified two-sided brackets' in t3
+    # Certified, so rounded outward: against the floored/ceiled fF gap and the scalar bracket too.
+    lo = min(rel[0], gap['tensor_minus_scalar_lower_ff'] / gap['scalar_upper_ff'])
+    hi = max(rel[1], gap['tensor_minus_scalar_upper_ff'] / gap['scalar_lower_ff'])
+    shown = (math.floor(1000 * lo) / 10, math.ceil(1000 * hi) / 10)
+    assert shown == (2.5, 3.1), shown
+    assert f"gap {shown[0]:.1f}–{shown[1]:.1f}%" in t3
+    assert 'gap 2.5–3.1%' in t3 and 'P2, sapphire tensor' in t3 and 'certified two-sided brackets' in t3
     assert 'Every marker is an upper bound' in t3
     t4 = every['fig4-reoptimization']
     for label in ['published final (PRIMA)', "Newton, DeviceLayout's discretization", 'Newton, converged frequencies',
                   'qubit band mapped to', '(estimate)', 'estimate band (not a bound)', 'PRIMA, published end point',
-                  "DeviceLayout's criterion", 'target (3.0, 4.0 GHz)', '(620, 5000)']:
+                  "DeviceLayout's criterion", 'target (3.0, 4.0 GHz)', '(620, 5000)', 'first leg, from the initial design',
+                  'step-2 qubit band mapped to']:
         assert label in t4, label
+    # The converged-target steps carry Table 5's names, in (a) and as the (c, d) tick labels.
+    assert t4.count('Step 1') == 3 and t4.count('Step 2') == 3, (t4.count('Step 1'), t4.count('Step 2'))
+    for stale in ['cv1', 'cv2']:
+        assert stale not in t4, stale
 
 
 def check_manuscript():

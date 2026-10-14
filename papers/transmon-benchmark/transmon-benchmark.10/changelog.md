@@ -29,15 +29,17 @@ Palace at DeviceLayout's discretization reproduces both published pairs to
 < 0.7 %; geode-fem and Palace agree to 1e-4 % on the qubit on shared meshes and
 converge 7.3 % / 8.7 % above the published qubits (resonators 2.7 %). A
 certified tensor C_Σ bracket [79.56, 79.76] fF read through the junction
-circuit agrees (4.45 GHz) and caps the initial qubit at 4.477 GHz. Newton with
+circuit is consistent (4.45 GHz) and caps the initial qubit at 4.477 GHz. Newton with
 geode-fem's eigenfrequency gradient meets DeviceLayout's criterion in 3 Palace
 runs against PRIMA's 9; at converged resolution the 3.0/4.0 GHz design needs
 c ≈ 1446 µm, +19 % (+16 % to +38 % within the band). One-sentence
 contribution, §1: "the published frequencies are discretization-limited: two
 independently implemented solvers converge to qubit frequencies 7–9 % above
-them, a certified bound on the island capacitance gives the same shift by a
-static route, and a gradient-assisted re-optimization at converged resolution
-finds that the optimized design needs a capacitor about 19 % longer."
+them, a certified bound on the island capacitance, read through a circuit
+model, is consistent with that shift and caps the initial qubit, and a
+gradient-assisted re-optimization at converged resolution estimates that the
+optimized design needs a capacitor about 19 % longer (an extrapolated
+estimate, 16–38 %)."
 
 The 93.95 fF designs and their brackets are kept only as Appendix A, labelled
 as aimed at a misread target. The anchor chain (93.954 → 93.853 → 93.143 fF),
@@ -82,17 +84,38 @@ of which 16 are body, 2 appendix and 5 references.
 ## Bibliography
 
 `refs.bib` has 76 entries, all cited: the 46 v9 entries that v10 still cites, 29 entries from
-`transmon-benchmark.9.litsearch/candidates.bib` (copied unchanged; the verifier
-checks byte equality) and one URL entry `devicelayout-example` for the
-DeviceLayout.jl SingleTransmon documentation page (the source quoted on #1063).
+`transmon-benchmark.9.litsearch/candidates.bib` (copied unchanged, except that
+five entries typed `article` are retyped: `vardapetyan2008sensitivity`,
+`elmoselhy2008efficient` to inproceedings, `park2019continuum`,
+`raviart1977mixed` to incollection, `polya1951isoperimetric` to book, with
+journal moved to booktitle or series and container fields added; the
+verifier checks byte equality for the rest and field equality, with the
+added fields pinned, for these five; `candidates.bib` is not edited) and one URL entry `devicelayout-example` for the
+DeviceLayout.jl SingleTransmon documentation page (the source quoted on #1063),
+titled as the page is ("Single-Transmon Simulation · DeviceLayout.jl").
 Process notes removed from four entries (`burn`, `devicelayout`,
 `devicelayout-blog`, `palace`) and one (`tzaniovkolevpanayotsvassilevski2018parallel`);
 "TVM" braced; the Halide entry has its full title (Opus).
 
 ## Verifiers
 
-Both rewritten for v10 and mutation-tested: 45 single edits, all caught
-(`validation.md`).
+Both rewritten for v10 and mutation-tested: 45 single edits, all caught, plus
+28 for the Judge-review fixes, all caught (`validation.md`).
+
+## Judge review of df35ac01 (PR #1119)
+
+| Item | Fix |
+|---|---|
+| Blocking 1: the 0.22 % agreement read as independent; the rule was chosen after the static route | §5 extrapolation-rule paragraph discloses it (the earlier observed-order rule gave 4.63 GHz, above the cap; observed-order values kept only as the band's high side; the agreement is a consistency check, not a blind prediction); §6 says the same; abstract "A static route agrees" → "is consistent with this"; §1 and §11 "gives the same shift" → "is consistent with that shift"; the 0.22 % moved from §10's "What is established" paragraph to a new Consistency row of Table 8. Kept as independent: the certified cap (stated as not depending on the rule) and the finest computed levels, Palace order 2 on h/2, +4.1 % / +4.7 % over the published qubits (floored; added to the abstract, §6, §10 and the Measured row). |
+| Blocking 2: certified gap rounded inward | 2.5–3.0 % → 2.5–3.1 % (outward to 0.1 %) in §1, §6, Table 8 and the Figure 3 inset. One decimal, not 2.52–3.04: the artifact's lower 0.0252 is outward against the unrounded bounds (2.521 %) but not against the printed 1.95 fF over 77.61 fF (2.513 %); 2.5 is outward against both. Figure 3 regenerated. |
+| §1 qualifiers | One-sentence contribution and third bullet carry "an extrapolated estimate" and the 16–38 % band. |
+| Table 8 cap | "certified on the fixture's polygonal geometry, not on the ladder meshes". |
+| c mapping basis | Stated: slope at the step-1 design where step 2 started, centred on the step-2 estimate 3.005 GHz (kept, not recentred). |
+| δ ±150 µm | Now "about ±175 µm (recomputed from the two committed frequencies)": 0.15 % in either f_r of `[transmission_line]` moves δ by −166/+177 µm; the verifier recomputes it. The 0.15 % noise level itself is still README prose. |
+| Figure 4 | (a) "Step 1"/"Step 2" labels clear of the dashed line; the off-plot note moved beside the leg that leaves at the bottom; (c, d) ticks and the legend use Step 1/Step 2. |
+| Bibliography | Five entries retyped (above); `polya1951isoperimetric` bibtex warning gone (0 warnings); `devicelayout-example` title. |
+| Akçelik 2008 | "for shape optimization (2005) and for inverse shape determination of deformed cavities (2008)". |
+| Verifier gaps | Pinned: the abstract's 2.4 %, the full Not-claimed row, the δ-calibration sentence, a forbidden prior-art pattern list ("first to", "for the first time", "novel", "no prior work/solver exposes …", "none exposes …", "first shape/adjoint/gradient …"; exactly one "no prior work"), plus each fix above. |
 
 ## Critic notes not resolved here
 

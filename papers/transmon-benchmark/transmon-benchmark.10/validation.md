@@ -43,7 +43,7 @@ Environment: Python 3.14 with NumPy 2.4.1 and Matplotlib 3.10.8; Poppler
   Figure 1 and its three source files are byte-identical to v9's; widths
   ≤ 6.3 in; figure text against the artifacts (Figure 2's four estimates with
   their percentages and the not-a-bound label, Figure 3's two brackets and the
-  2.5–3.0 % gap with no design target, Figure 4's labels); inclusion order and
+  2.5–3.1 % gap, rounded outward, with no design target, Figure 4's labels); inclusion order and
   caption wording.
 - **Mutation check:** 45 single edits, all caught. 36 to `main.tex` in a
   temporary copy of the version directory (Table 2 estimate and band, the
@@ -62,6 +62,19 @@ Environment: Python 3.14 with NumPy 2.4.1 and Matplotlib 3.10.8; Poppler
   provenance hash); 4 to committed files restored afterwards (the converged
   estimate, the tensor bracket, a Newton err, v9's `main.tex`). The harness is
   scratch and not committed.
+- **Judge-review fixes (PR #1119, df35ac01):** 28 further single edits, all
+  caught: 20 to `main.tex` (the abstract's 2.4 %, the Not-claimed hit, the
+  δ-calibration sentence, three inserted prior-art overclaims, the gap back to
+  3.0 %, the rule disclosure inverted and deleted, the §6 consistency sentence,
+  the 0.22 % reinserted under "What is established", the Consistency row's
+  caveat, ±150 µm, both §1 estimate qualifiers, the c-mapping basis, the
+  Table 8 fixture caveat, 4.1 → 4.2 %, "A static route agrees", the Akçelik
+  wording); 5 to `refs.bib` (an added publisher, a type reverted, an author
+  dropped, a booktitle changed, the DeviceLayout title reverted); 3 to the
+  figure scripts, each regenerated before checking (the Figure 3 gap rounded
+  to nearest, the Figure 4 tick labels and the step-1 label back to cv1/cv2).
+  Rebuilt: 23 pages, no undefined reference, no overfull box, no bibtex
+  warning. Pages 1, 11, 14 and 16 inspected at 100 dpi.
 - **Visual inspection** of every page of the built PDF at 80 dpi, with
   Figure 1 (p. 5), Figure 2 (p. 8), Figure 3 (p. 11) and Figure 4 (p. 14) also
   checked as standalone renders while drawing. `figure_style.save()` rejected
@@ -76,6 +89,7 @@ Environment: Python 3.14 with NumPy 2.4.1 and Matplotlib 3.10.8; Poppler
 
 Not checked: no generator was re-run; the certified lower bounds, the ladder
 cells, the coupling and loop-inductance extrapolations and the README prose
-values (δ noise, second δ estimate) are transcribed, not recomputed; the
+values (the 0.15 % δ noise level, the second δ estimate) are transcribed, not
+recomputed (the ±175 µm δ spread is recomputed from them); the
 sensitivity-layer FD errors (Table 6) are carried from v9; no Anvil critic was
 run.
