@@ -351,6 +351,14 @@ fn converged_target_step_and_ladder_re_derive() {
                 Some(inside),
                 "{tag} targets_in_band[{m}]"
             );
+            // The headline claim ("both targets lie inside the band") is a gate,
+            // not just a recorded flag: a regenerated artifact that moved a target
+            // outside its band must fail CI.
+            assert!(
+                inside,
+                "{tag} mode {m}: target {} outside band {:?}",
+                TARGETS[m], bands[m]
+            );
         }
         fconv = [(q * 1e4).round() / 1e4, (r * 1e4).round() / 1e4];
         // The driver rounds every design to 1 nm.

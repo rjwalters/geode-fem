@@ -28,7 +28,7 @@ Phases:
   conv      the same inner loop with S = R(c), the converged-over-h ratio
             of the part-1 ladders interpolated linearly in capacitor_length
             between the initial and final geometries (both measured); the
-            optimum is then verified by a full resolution ladder (separate
+            optimum is then evaluated by a full resolution ladder (separate
             step, see the README).
 
 Every evaluation is appended to <scratch>/opt_log.jsonl; records, meshes and
@@ -344,7 +344,7 @@ def main():
         # One Newton step toward the targets on the CONVERGED frequencies,
         # from the published final geometry, whose converged pair the part-1
         # ladder measured. Same Jacobian model as the dl phase, scaled by
-        # R = F_conv / f_h at that point. The step's prediction is verified
+        # R = F_conv / f_h at that point. The step's prediction is evaluated
         # by a full resolution ladder (ladder.sh), which also gives the
         # converged pair for a second step if one is needed.
         start = FINAL if a.start is None else tuple(a.start)
