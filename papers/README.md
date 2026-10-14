@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.11/` (draft, not reviewed: v10 plus the operator's 2026-10-13 rulings — new title, the same-mesh cross-check wording, solo author, whiteroom and Loom cited, a section on how geode-fem was designed and built; v10 restructured the paper around the converged DeviceLayout.jl SingleTransmon cross-check and a gradient-assisted re-optimization; v6 is the last audited version) |
+| `transmon-benchmark` | `transmon-benchmark.12/` (draft, not reviewed: v11 revised against three reviews, with gradient-free controls showing the 3-vs-9 Palace runs comes from Newton's method, Palace adaptive refinement and a second refinement family of the initial geometry, and the circuit cap as model-dependent; v11 carried the operator's 2026-10-13 rulings; v6 is the last audited version) |
 
 ## Building a paper
 

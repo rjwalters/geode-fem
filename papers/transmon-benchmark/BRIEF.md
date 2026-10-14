@@ -14,7 +14,31 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v11 — operator-ruling revision, 2026-10-13 (tracker #1063) — CURRENT
+## v12 — review revision, 2026-10-14 (tracker #1063) — CURRENT
+
+**v12 = v11 revised against the Fable, Opus and Codex reviews of v11, with the
+controls of #1123 (PR #1127, `benchmarks/transmon_devicelayout_controls/`).**
+Where this section conflicts with the sections below, it wins. v1–v11 and
+their critics stay immutable. Status: DRAFT; no score, review or audit carries
+over. The v11 rulings (title, solo author, §9, validation wording,
+acknowledgment) stand.
+
+- **Gradient attribution:** the 3-vs-9 Palace runs is Newton's method in
+  DeviceLayout's near-linear variables, not the shape derivative: a
+  scaling-law c column also takes 3, Broyden 5. Never credit the run count to
+  the shape derivative or autodiff; state the δ sensitivity.
+- **Convergence wording:** Palace's ladders extrapolate; geode-fem reproduces
+  h and h/2 only. Never "both solvers converge".
+- **Initial qubit:** quote 4.444–4.472 GHz (two refinement families); Palace
+  AMR 4.1683 → 4.4297 GHz, no plateau; its fit 4.4552 is an ill-conditioned
+  estimate.
+- **Tiers:** certified = the C_Σ brackets and gap only; the 4.477 GHz cap is
+  model-dependent; shared limits reported for every series.
+- **Voice:** `.anvil/skills/paper/voice.md` applies (no virtue words, no
+  version history in the text, sparing em-dashes, certified vs estimated kept
+  apart, method credit only where an ablation supports it).
+
+## v11 — operator-ruling revision, 2026-10-13 (tracker #1063)
 
 **v11 = v10 + the operator's 2026-10-13 rulings + the v10 Judge's follow-ups.**
 A narrow revision; where it conflicts with the sections below, this section

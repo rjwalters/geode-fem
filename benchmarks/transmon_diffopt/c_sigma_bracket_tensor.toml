@@ -378,7 +378,7 @@ scalar_lower_ff = 77.409607
 scalar_upper_ff = 77.609945
 tensor_minus_scalar_lower_ff = 1.95  # RIGOROUS: tensor family lower minus scalar family upper, floored
 tensor_minus_scalar_upper_ff = 2.35  # RIGOROUS: tensor family upper minus scalar family lower, ceiled
-tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value, rounded outward
+tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value: [(tensor lower - scalar upper) / scalar upper, (tensor upper - scalar lower) / scalar lower] from the UNROUNDED family bounds, rounded outward; not outward against the rounded fF values above
 
 [bracket_anchor_93p95_tensor]  # the re-anchored #1066 design, sapphire tensor, its held-out meshes
 lower_ff = 95.34  # RIGOROUS: largest certified lower bound of the family, floored
@@ -396,7 +396,7 @@ scalar_lower_ff = 92.758828
 scalar_upper_ff = 92.998561
 tensor_minus_scalar_lower_ff = 2.34  # RIGOROUS: tensor family lower minus scalar family upper, floored
 tensor_minus_scalar_upper_ff = 2.82  # RIGOROUS: tensor family upper minus scalar family lower, ceiled
-tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value, rounded outward
+tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value: [(tensor lower - scalar upper) / scalar upper, (tensor upper - scalar lower) / scalar lower] from the UNROUNDED family bounds, rounded outward; not outward against the rounded fF values above
 
 [increment_anchor_93p95_over_x0_tensor]  # certified C_design - C_X0, both sapphire tensor
 lower_ff = 15.58  # RIGOROUS: design tensor family lower minus X0 tensor family upper, floored
@@ -419,7 +419,7 @@ scalar_lower_ff = 93.891607
 scalar_upper_ff = 94.136104
 tensor_minus_scalar_lower_ff = 2.37  # RIGOROUS: tensor family lower minus scalar family upper, floored
 tensor_minus_scalar_upper_ff = 2.86  # RIGOROUS: tensor family upper minus scalar family lower, ceiled
-tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value, rounded outward
+tensor_minus_scalar_relative = [0.0252, 0.0304]  # of the scalar value: [(tensor lower - scalar upper) / scalar upper, (tensor upper - scalar lower) / scalar lower] from the UNROUNDED family bounds, rounded outward; not outward against the rounded fF values above
 
 [increment_anchor_93p95_resolution_corrected_over_x0_tensor]  # certified C_design - C_X0, both sapphire tensor
 lower_ff = 16.75  # RIGOROUS: design tensor family lower minus X0 tensor family upper, floored
