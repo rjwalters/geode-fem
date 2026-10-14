@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1152",
-  "loom_commit": "2d5fe17958dca799058f16bdd74a12336990bec0",
+  "loom_version": "0.19.1154",
+  "loom_commit": "9086c5eb90893212b418186a85216681fe12376c",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -105,7 +105,6 @@
     ".loom/docs/fleet-comms.md",
     ".loom/docs/fleet-config-lifecycle.md",
     ".loom/docs/forge-authentication.md",
-    ".loom/docs/forge-egress.md",
     ".loom/docs/forge-events.md",
     ".loom/docs/gh-cached.md",
     ".loom/docs/gh-issue-create-rest-fallback.md",
@@ -601,7 +600,6 @@
     ".loom/scripts/tests/test-require-daemon-bin.sh",
     ".loom/scripts/tests/test-resync-installed-agent-skills-guard.sh",
     ".loom/scripts/tests/test-resync-installed-dogfood-symlink.sh",
-    ".loom/scripts/tests/test-resync-installed-egress-doctor.sh",
     ".loom/scripts/tests/test-resync-installed-gh-config-guard.sh",
     ".loom/scripts/tests/test-resync-installed-guard-check.sh",
     ".loom/scripts/tests/test-resync-installed-local-fix-guard.sh",
@@ -623,7 +621,6 @@
     ".loom/scripts/tests/test-session-mode.sh",
     ".loom/scripts/tests/test-skip-labels.sh",
     ".loom/scripts/tests/test-spawn-claude-credential-proxy.sh",
-    ".loom/scripts/tests/test-spawn-claude-managed-gh.sh",
     ".loom/scripts/tests/test-spawn-claude.sh",
     ".loom/scripts/tests/test-spawn-codex-guarded.sh",
     ".loom/scripts/tests/test-spawn-codex-sandbox-noop.sh",
@@ -754,8 +751,15 @@
     ".loom/docs/network-inputs.md",
     ".loom/docs/operator-presence.md",
     ".loom/scripts/tests/test-approval-history-per-issue-events.sh",
-    ".agents/skills/loom-judge-reference/SKILL.md"
+    ".agents/skills/loom-judge-reference/SKILL.md",
+    ".loom/docs/role-draw.md",
+    ".loom/scripts/tests/fixtures/config_resolver/.loom-local/fleet-repo.json",
+    ".loom/scripts/tests/lib/assert.sh",
+    ".loom/scripts/tests/test-resync-installed-labels-block.sh",
+    ".loom/scripts/tests/test-spawn-claude-container-gh.sh",
+    ".loom/hooks/gh-front-env.sh",
+    ".loom/hooks/tests/test-guard-loom-workspace.sh"
   ],
-  "last_resync": "2026-10-13",
+  "last_resync": "2026-10-14",
   "requires_daemon": "0.19.1081"
 }
