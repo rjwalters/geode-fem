@@ -293,6 +293,7 @@ jobs:
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
               --test patch_conformal_convergence \
+              --test patch_conformal_copper \
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
               --test patch_diffopt \
@@ -368,6 +369,7 @@ jobs:
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
               --test patch_conformal_convergence \
+              --test patch_conformal_copper \
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
               --test patch_diffopt \

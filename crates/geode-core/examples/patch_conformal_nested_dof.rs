@@ -211,6 +211,11 @@ struct Cli {
     dense: Option<(f64, f64, usize)>,
     /// `--verify-only` shard `(k, n)` of the dense grid: points `i % n == k`.
     shard: Option<(usize, usize)>,
+    /// Carry `--design` onto a fixture regenerated at another probe inset /
+    /// width (copper mode): the feed coefficients are shifted by the change of
+    /// the fixture's `probe_inset` / `probe_w`, so the physical design (probe
+    /// position and width, outline, corners) is unchanged.
+    rebase_feed: bool,
 }
 
 fn parse_cli() -> Cli {
@@ -239,6 +244,7 @@ fn parse_cli() -> Cli {
         band_shift: 0.0,
         dense: None,
         shard: None,
+        rebase_feed: false,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -278,6 +284,7 @@ fn parse_cli() -> Cli {
             "--p2" => cli.p2 = true,
             "--wide-step" => cli.wide_step = next(&mut i).parse().expect("--wide-step GHz"),
             "--copper" => cli.copper = true,
+            "--rebase-feed" => cli.rebase_feed = true,
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -333,6 +340,10 @@ fn parse_cli() -> Cli {
     assert!(
         cli.dense.is_none() || cli.verify_only,
         "--dense is a verification sweep: give it with --verify-only"
+    );
+    assert!(
+        !cli.rebase_feed || (cli.copper && cli.feed && cli.design.is_some()),
+        "--rebase-feed needs --copper --feed and --design"
     );
     if let Some((k, n)) = cli.shard {
         assert!(
@@ -886,6 +897,14 @@ struct DesignFile {
     /// `[basis].corner` / `[basis].feed` (copper mode, issue #1120; "none" when absent).
     corner: String,
     feed: String,
+    /// `[basis]` DOF counts (absent in older files: 0).
+    n_outline: usize,
+    n_corner: usize,
+    n_feed: usize,
+    /// `[meta].probe_inset_mm` / `probe_w_mm` of the fixture the design was
+    /// optimized on (results TOMLs).
+    probe_inset: Option<f64>,
+    probe_w: Option<f64>,
     x: Vec<f64>,
 }
 
@@ -901,6 +920,8 @@ fn read_design(path: &Path) -> DesignFile {
             .unwrap_or_else(|| panic!("design {} lacks [{t}].{k}", path.display()))
             .to_string()
     };
+    let count =
+        |k: &str| -> usize { v["basis"].get(k).and_then(|c| c.as_integer()).unwrap_or(0) as usize };
     let x: Vec<f64> = v["shape"]["design_vector"]
         .as_array()
         .unwrap_or_else(|| panic!("design {} lacks [shape].design_vector", path.display()))
@@ -925,6 +946,11 @@ fn read_design(path: &Path) -> DesignFile {
             .and_then(|c| c.as_str())
             .unwrap_or("none")
             .to_string(),
+        n_outline: count("n_outline_dofs"),
+        n_corner: count("n_corner_dofs"),
+        n_feed: count("n_feed_dofs"),
+        probe_inset: v["meta"].get("probe_inset_mm").and_then(|c| c.as_float()),
+        probe_w: v["meta"].get("probe_w_mm").and_then(|c| c.as_float()),
         x,
     }
 }
@@ -1286,14 +1312,18 @@ fn copper(
         v.dedup();
         v
     };
-    let (mut fs, mut fy) = (0.0, 0.0);
+    // Probe centre: the midpoint of the port's chart extent (the port nodes
+    // are not symmetric about it).
+    let (mut s_lim, mut y_lim) = (
+        [f64::INFINITY, f64::NEG_INFINITY],
+        [f64::INFINITY, f64::NEG_INFINITY],
+    );
     for &n in &port_nodes {
         let (s, y) = ch.s_y(moved.nodes[n as usize]);
-        fs += s;
-        fy += y;
+        s_lim = [s_lim[0].min(s), s_lim[1].max(s)];
+        y_lim = [y_lim[0].min(y), y_lim[1].max(y)];
     }
-    fs /= port_nodes.len() as f64;
-    fy /= port_nodes.len() as f64;
+    let (fs, fy) = (0.5 * (s_lim[0] + s_lim[1]), 0.5 * (y_lim[0] + y_lim[1]));
     let sy = |n: u32| ch.s_y(base.nodes[n as usize]);
     let msy = |n: u32| ch.s_y(moved.nodes[n as usize]);
     let tol = 1e-6;
@@ -1512,6 +1542,8 @@ struct VerifyCtx<'a> {
     n_corner: usize,
     n_feed: usize,
     n_edges: usize,
+    /// `--rebase-feed` offsets `(Δ inset, Δ width)` (mm) against the design's fixture.
+    rebase: (f64, f64),
     t_start: Instant,
 }
 
@@ -1532,6 +1564,9 @@ fn basis_flags(cli: &Cli) -> String {
         }
         if cli.feed {
             f.push_str(" --feed");
+        }
+        if cli.rebase_feed {
+            f.push_str(" --rebase-feed");
         }
     }
     f
@@ -1746,6 +1781,13 @@ fn run_verify(
                 "optimized_on_fixture_sha256 = {}",
                 toml_str(&d.fixture_sha256)
             );
+            if cli.rebase_feed {
+                let _ = writeln!(
+                    t,
+                    "rebase_feed_mm = [{:.9e}, {:.9e}]",
+                    c.rebase.0, c.rebase.1
+                );
+            }
         }
     }
     let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
@@ -2055,8 +2097,11 @@ fn main() {
     // A design carried from another run (possibly another mesh level): the
     // basis is a function of the chart alone, so the same coefficients give
     // the same surface on every level, provided the basis is the same.
-    let design = cli.design.as_deref().map(read_design);
-    if let Some(d) = &design {
+    let mut design = cli.design.as_deref().map(read_design);
+    // Feed re-base offsets `(Δ inset, Δ width)` (mm) of this fixture against the
+    // design's (`--rebase-feed`).
+    let mut rebase = (0.0_f64, 0.0_f64);
+    if let Some(d) = design.as_mut() {
         assert_eq!(
             d.x.len(),
             n_dofs,
@@ -2068,12 +2113,39 @@ fn main() {
             d.radial, radial_spec,
             "design radial basis differs from this run's"
         );
-        assert_eq!(
-            d.outline, outline_spec,
-            "design outline basis differs from this run's"
-        );
         assert_eq!(d.corner, corner_spec, "design corner basis differs");
-        assert_eq!(d.feed, feed_spec, "design feed basis differs");
+        if cli.rebase_feed {
+            // The outline / feed spec strings name the fixture's probe geometry;
+            // the bases are otherwise the same (same DOF layout). The edge motion
+            // of the outline DOFs does not depend on the feed band, so only the
+            // two feed coefficients change: x_inset' = x_inset - (inset' - inset),
+            // x_width' = x_width - (w' - w).
+            assert_eq!(
+                (d.n_outline, d.n_corner, d.n_feed),
+                (n_outline, n_corner, n_feed),
+                "design DOF layout differs"
+            );
+            let (pi, pw) = (
+                d.probe_inset.expect("design lacks [meta].probe_inset_mm"),
+                d.probe_w.expect("design lacks [meta].probe_w_mm"),
+            );
+            rebase = (probe_inset - pi, probe_w - pw);
+            let k = n_outline + n_corner;
+            d.x[k] -= rebase.0;
+            d.x[k + 1] -= rebase.1;
+            eprintln!(
+                "  rebase-feed: design fixture inset {pi} / width {pw} mm -> this fixture \
+                 {probe_inset} / {probe_w} mm; feed coefficients [{:.6}, {:.6}]",
+                d.x[k],
+                d.x[k + 1]
+            );
+        } else {
+            assert_eq!(
+                d.outline, outline_spec,
+                "design outline basis differs from this run's"
+            );
+            assert_eq!(d.feed, feed_spec, "design feed basis differs");
+        }
     }
     let geo = Geo {
         chart,
@@ -2176,6 +2248,7 @@ fn main() {
                 n_corner,
                 n_feed,
                 n_edges,
+                rebase,
                 t_start,
             },
         );
@@ -3058,6 +3131,9 @@ fn main() {
             let _ = writeln!(t, "design_level = {}", toml_str(&d.level));
             let _ = writeln!(t, "design_fixture_sha256 = {}", toml_str(&d.fixture_sha256));
             let _ = writeln!(t, "scale = {warm_scale}");
+            if cli.rebase_feed {
+                let _ = writeln!(t, "rebase_feed_mm = [{:.9e}, {:.9e}]", rebase.0, rebase.1);
+            }
         }
     }
     let _ = writeln!(
