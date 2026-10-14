@@ -24,6 +24,15 @@
 //!   spatially varying gap reaches −10 dB from P = 16 on L1 and P = 48 on
 //!   L0; the outline alone lands just short; the combined 64 DOFs are
 //!   best).
+//! * **Gate G2** (issue #1103, the `g2_*` tests): the L2 re-optimizations
+//!   `nested_dof/L2_*.toml` and the fresh forward verifications
+//!   `nested_dof/verify/<design>_on_<level>[_p2].toml` on L3 and with p = 2
+//!   on L1. Provenance (fixture pins, design vector equal to its committed
+//!   source, source sha256), agreement of the initial patch with the #1085
+//!   convergence runs, the FD gate and guard records of the L2 runs, the
+//!   gate itself (not met on P2/L1: −9.16 dB), the cross-level transfer,
+//!   and the crater / guard-site findings. These designs are an idealized
+//!   non-uniform-thickness ablation; the manufacturable design is #1120.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
