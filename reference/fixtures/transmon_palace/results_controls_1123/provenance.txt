@@ -1,0 +1,82 @@
+issue:          #1123: controls for the transmon paper v12, on the
+                DeviceLayout.jl SingleTransmon study of #1092 / #1106 / #1111.
+                (1) gradient-free Newton controls for #1111's "3 Palace runs
+                vs PRIMA's 9" at DeviceLayout's discretization; one
+                scaling-law step from the published final design toward the
+                converged targets, with its Palace ladder; (2) Palace
+                adaptive mesh refinement on the initial geometry; (3) the
+                refinement-scheme / mesh-family cells behind the ~2 % h/2
+                spread.
+results:        benchmarks/transmon_devicelayout_controls/results.toml,
+                assembled by benchmarks/transmon_devicelayout_controls/assemble.py
+                from <cell>/eig.csv, port-EPR.csv, error-indicators.csv,
+                palace_run.log, time.txt and generator_report.txt.
+
+cells:
+  dl_sc1, dl_sc2           scaling-law Newton (driver.py scaling)
+  dl_bp1, dl_bp2           Broyden's two forward probes, dx = -0.05 in x1, x2
+  dl_br1, dl_br2           Broyden steps (driver.py broyden)
+  dl_initial_rerun         the part-1 cell dl_initial repeated on this build
+                           (results_crosscheck_1092/dl_initial is run 1 of
+                           every control and is not copied here)
+    All DeviceLayout's own discretization: <tag>_o2.msh2 (DeviceLayout
+    mesh_order 2) and the example's configfile(sm; solver_order=2)
+    verbatim (absorbing far field, two 50 ohm readout ports, junction
+    L || C, sapphire tensor with loss tangent), from
+    reference/julia/generate_transmon_param.jl --dl-config. The design
+    (cap_length, total_length) is in each generator_report.txt.
+  sccv1_{h,r1,r2}_p1,      the Palace half of #1111's evaluation ladder at the
+  sccv1_{h,r1}_p2          conv-step design (1442.479, 7408.181) um:
+                           ladder_palace.sh, the same mkcfg.py cells as
+                           benchmarks/transmon_devicelayout_optimize/ladder.sh
+                           (PEC box, sapphire tensor; h = the DeviceLayout
+                           order-1 mesh, r1/r2 = gmsh -refine once/twice).
+                           Mesh sha256 in logs/sccv1_mesh_sha256.txt.
+  amr_initial_p2           Palace adaptive refinement on the initial
+                           geometry's h mesh (initial_o1_v22.msh, sha256
+                           e23770f4...), solver order 2, PEC box; the
+                           config is results_crosscheck_1092/initial_h_p2's
+                           with Model.Refinement = {MaxIts 12, MaxSize 1e7,
+                           Tol 1e-6, UpdateFraction 0.7, Nonconformal true,
+                           SaveAdaptIterations true}, Eigenmode N = 2 and
+                           Linear MaxIts 1000. iterationNN/ holds every
+                           solve but the last; the top level is the last.
+  fam_u1_p1, fam_u2_p1,    Palace's own uniform refinement (UniformLevels 1,
+  fam_u1_p2                2) of the same h mesh, order 1 and 2: the
+                           second refinement family of [mesh_family]. The
+                           configs are initial_r1_p1 / initial_r2_p1 /
+                           initial_r1_p2 with the h mesh and UniformLevels;
+                           fam_u2_p1 adds Linear MGMaxLevels 1 and fam_u1_p2
+                           MGMaxLevels 2, so their preconditioners match the
+                           gmsh-refined cells (AMS on the finest p = 1
+                           level; p-multigrid over AMS at p = 2) instead of
+                           Palace's default geometric multigrid over the
+                           uniform levels, which made fam_u1_p1 8x slower.
+                           Solver settings only: the discretization and the
+                           eigen tolerance are unchanged.
+
+meshes:         regenerated on the Mac with reference/julia/generate_transmon_param.jl
+                (DeviceLayout.jl 1.15.0, gmsh_jll 4.15.2, Julia 1.10.11,
+                macOS arm64): the initial o1 / o2 meshes regenerate
+                byte-identically to #1092 (sha256 1ddf9528... / 0d0b4799...).
+
+palace:         fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 (v0.17.0-99), image
+                palace:cpu-1043 from reference/palace/docker/Dockerfile,
+                built on amr1123 (also loaded into lad1123 with docker
+                save/load) and, separately, on dl1123. dl_initial_rerun on
+                the dl1123 build matches the #1092 dl_initial to every
+                printed digit.
+hosts:          AWS geode-fem-bench, us-east-1, Ubuntu 24.04 arm64, tagged
+                project=geode-fem, 2026-10-14 UTC:
+                  dl1123   r8g.4xlarge (16 vCPU, 123 GiB): dl_*, fam_u1_p2
+                  lad1123  r8g.4xlarge: sccv1_*
+                  amr1123  r8g.8xlarge (32 vCPU, 247 GiB): amr_initial_p2,
+                           fam_u1_p1, fam_u2_p1
+launch:         run.sh of results_crosscheck_1092 (one cell at a time,
+                OMP_NUM_THREADS=1), MPI ranks: 16 on the r8g.4xlarge
+                workers, 32 on amr1123. worker_amr.sh samples host memory
+                every 60 s (logs/mem_*.log); /usr/bin/time records only the
+                largest rank.
+logs/:          orchestrate_*.log (cell start/end), mem_*.log,
+                controls_log.jsonl (driver.py's record of every control
+                run and step), sccv1_mesh_sha256.txt.

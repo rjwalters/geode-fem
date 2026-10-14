@@ -1037,6 +1037,16 @@ const MANIFEST: &[Entry] = &[
          (Palace-GPU vs Palace-CPU vs geode CPU f64, Lambda A100); \
          record meta.measured_date and software.palace_commit",
     ),
+    e(
+        "benchmarks/transmon_devicelayout_controls/results.toml",
+        &["meta.measured_date", "meta.palace_commit"],
+        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issue #1123; reads the \
+         Palace cells of reference/fixtures/transmon_palace/results_controls_1123/ written by \
+         driver.py, ladder_palace.sh and worker_amr.sh on AWS, plus the committed #1079/#1092 \
+         artifacts). Palace runs only, no Burn backend and no new geode solve (the one \
+         geode-derived input is #1111's transmission-line delta), so it carries \
+         meta.measured_date and meta.palace_commit instead of the mechanical trio",
+    ),
     // Issue #1120: copper-only design on the fixed 1.6 mm board.
     a(
         "benchmarks/patch_antenna_conformal/copper/L0_copper_38.toml",

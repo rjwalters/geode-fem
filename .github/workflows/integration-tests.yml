@@ -321,6 +321,7 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_controls \
               --test transmon_devicelayout_crosscheck \
               --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
@@ -397,6 +398,7 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_controls \
               --test transmon_devicelayout_crosscheck \
               --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
