@@ -60,3 +60,14 @@ related work only.
   brief text is kept below the amendment.
 - Build: `papers/build.sh`, 0 undefined citations or references, 0 overfull
   boxes, 15 pages.
+
+## Judge review of PR #1125 (head `de89da46`)
+
+| Note | Resolution |
+|---|---|
+| Required 1: Jackson–Alexopoulos p factor misremembered, surface-wave Q missing | `jackson_bandwidth.py` (new, committed) implements the CAD formulas as restated in Jackson's ECE 6345 Notes 15–16 (p with the (a2/10), (a2² + 2a4)(3/560), (c2/5) and (a2 c2/70) terms; Q_sp, Q_sw from e_r^hed = 0.899, Q_d; Q_c omitted for the PEC model). §6 now says about 63 and 70 MHz with about 10 % surface-wave loss and cites `jackson_ece6345` alongside `jackson1991simple`; provenance row rewritten |
+| 2: "sits 14.4 MHz lower" | "sits about 14 MHz lower" (13.8 / 14.1 / 14.0 MHz at the low edge / high edge / dip against the P2/L1 band; provenance row) |
+| 3: `count_provenance.py` attributes untrailered commits to Codex | Docstring sentence removed; keys renamed `untrailered_commits`, `untrailered_added_lines`, `untrailered_line_share_pct` |
+| 4: 45–48 MHz read as general | Abstract: "a design optimized on the L1 mesh"; Conclusion: "an L1 optimum lands 45–48 MHz off at P2/L1" |
+| 5: Fig 1(a) label runs into the air-box edge | Label shortened to "R = 100 mm"; "patch" and "UPML, 25 mm" labels moved off the box edges |
+| 6: Codex review sourced to an uncommitted file | `codex-figure-review.md` committed in this directory (host paths scrubbed); provenance row points to it |

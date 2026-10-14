@@ -62,11 +62,11 @@ def main():
     a.set_xlabel("$x$ (mm)", labelpad=1)
     a.set_ylabel("$z$ (mm)", labelpad=1)
     a.set_title("(a) section at $y = 0$, to scale", loc="left")
-    a.text(0, -sz - pml / 2, "UPML, 25 mm", ha="center", va="center", fontsize=8,
+    a.text(0, -sz - pml * 0.58, "UPML, 25 mm", ha="center", va="center", fontsize=8,
            bbox=dict(fc="#E4E7EA", ec="none", pad=.6))
-    a.annotate(f"board on $R$ = {R:g} mm", xy=(-(W / 2 + pad) * .9, -2.5), xytext=(-60, -27),
+    a.annotate(f"$R$ = {R:g} mm", xy=(-(W / 2 + pad) * .9, -2.5), xytext=(-60, -27),
                fontsize=8, arrowprops=dict(arrowstyle="-", color=GRAY, lw=.6))
-    a.annotate("patch", xy=(10, 2.5), xytext=(30, 16), fontsize=8, color=ORANGE,
+    a.annotate("patch", xy=(10, 2.5), xytext=(18, 18), fontsize=8, color=ORANGE,
                arrowprops=dict(arrowstyle="-", color=ORANGE, lw=.6))
     a.text(-sx + 3, sz - 3, "air", ha="left", va="top", fontsize=8, color=GRAY)
 

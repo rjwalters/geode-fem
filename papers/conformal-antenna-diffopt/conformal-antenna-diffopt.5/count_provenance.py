@@ -12,9 +12,9 @@ Method, at BASE (the main commit this revision was drafted against):
   deduplicated.
 - Commits: non-merge history over PATHS. Each commit's Co-Authored-By trailers
   are read; a commit counts once per Claude family (Opus, Fable, Sonnet) it
-  names, and a commit with no Claude trailer is listed separately (these are
-  the commits made through Codex, which adds no trailer).
-- Codex line share: added text lines (git numstat, binary files excluded) of
+  names, and a commit with no Claude trailer is listed separately. The history
+  does not show which tool made an untrailered commit, so none is attributed.
+- Untrailered line share: added text lines (git numstat, binary files excluded) of
   the trailer-less commits over PATHS, as a fraction of all added text lines
   of the counted commits over PATHS.
 - Crutcher Dunnavant: non-merge commits on main at BASE whose author email is
@@ -71,7 +71,7 @@ def counts():
         return sum(int(c[0]) for c in (l.split("\t") for l in out.splitlines() if l) if c[0] != "-")
 
     total = added(BASE, log_args=("log", "--no-merges"))
-    codex = sum(added(sha, log_args=("show",)) for sha in untrailered)
+    untrailered_lines = sum(added(sha, log_args=("show",)) for sha in untrailered)
 
     crutcher = git("log", BASE, "--no-merges", f"--author={AUTHOR_CRUTCHER}", "--format=%ad", "--date=short").split()
 
@@ -82,10 +82,10 @@ def counts():
         "commits": len(commits),
         "claude_trailered": len(commits) - len(untrailered),
         "families": family,
-        "codex_commits": [sha[:8] for sha in untrailered],
-        "codex_added_lines": codex,
+        "untrailered_commits": [sha[:8] for sha in untrailered],
+        "untrailered_added_lines": untrailered_lines,
         "total_added_lines": total,
-        "codex_line_share_pct": round(100 * codex / total, 1),
+        "untrailered_line_share_pct": round(100 * untrailered_lines / total, 1),
         "crutcher_commits": len(crutcher),
         "crutcher_dates": [min(crutcher), max(crutcher)],
     }

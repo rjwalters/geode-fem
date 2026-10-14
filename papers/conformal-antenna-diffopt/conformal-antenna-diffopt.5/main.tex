@@ -45,7 +45,7 @@ freedom (outline splines, corner bumps, feed inset and width) are applied
 by an exact on-cylinder morph, so the board stays $1.6$\,mm thick. A
 mesh-refinement study shows that the antenna's resonance is not converged
 on any affordable mesh: it rises under every $h$- and $p$-refinement, and
-a design optimized on a coarse mesh resonates about $45$--$48$\,MHz higher
+a design optimized on the L1 mesh resonates about $45$--$48$\,MHz higher
 with second-order elements. That detune is close to a pure frequency
 translation, so we correct it by frequency space mapping and verify on
 the finest computed model, second-order elements on the second mesh level
@@ -513,7 +513,7 @@ $+y$ edge, and the board is $1.600$\,mm thick everywhere.
 
 \paragraph{Finest first-order mesh.}
 On L3 the same copper gives $-8.80$\,dB and covers $89\%$ of the band. Its
-$-10$\,dB band is about as wide ($94.6$\,MHz) but sits $14.4$\,MHz lower,
+$-10$\,dB band is about as wide ($94.6$\,MHz) but sits about $14$\,MHz lower,
 close to the initial patch's $14.5$\,MHz L3-to-\PL{} offset. With $95$\,MHz
 of bandwidth against an $83.5$\,MHz band there are only about $11$\,MHz of
 slack, so a design centred for one model is off centre on the other. The
@@ -575,10 +575,14 @@ design has been verified on L3 and at \PL{} exactly as optimized on L2.
 \end{table}
 
 \paragraph{Bandwidth in context.}
-The closed-form estimate of \citet{jackson1991simple} for a flat
-rectangular patch on this substrate, with the FR-4 loss tangent included
-and a voltage standing-wave ratio of $2$, gives about $61$\,MHz for the
-initial $38$\,mm patch and $69$\,MHz for the $49.8$\,mm final patch. The
+The closed-form formulas of \citet{jackson1991simple}, in the form given
+in Jackson's course notes \citep{jackson_ece6345}, estimate the bandwidth of
+a flat rectangular patch on this substrate from its space-wave,
+surface-wave and dielectric $Q$ (conductor loss omitted, since the FEM model
+is PEC). At a voltage standing-wave ratio of $2$ they give about $63$\,MHz
+for the initial $38\times29$\,mm patch and $70$\,MHz for the
+$49.8\times28.8$\,mm final patch, with a surface-wave loss of about
+$10\%$ (\path{jackson_bandwidth.py} in this paper's directory). The
 FEM bandwidths are larger: $84$\,MHz for the $38$\,mm cold optimum on its
 own L1 mesh, and $94.9$\,MHz for the final design at \PL. The closed form
 ignores the feed and the curvature, and we have not resolved the
@@ -755,8 +759,8 @@ antenna, with a feed that moves, gives exact shape gradients at one
 factorization per frequency, and with them a copper-only design on a
 standard $1.6$\,mm board reaches $-10.78$\,dB across the ISM band on the
 finest model we can compute. The harder part was the discretization. The
-resonance is not converged on any affordable mesh, a coarse-mesh optimum
-lands $45$--$48$\,MHz off on a finer one, and the margin left at the
+resonance is not converged on any affordable mesh, an L1 optimum
+lands $45$--$48$\,MHz off at \PL, and the margin left at the
 lower band edge ($6.2$\,MHz) is smaller than every estimate of the
 remaining shift. A frequency-only space mapping removed most of the
 transfer loss, and the same data say the converged design probably misses

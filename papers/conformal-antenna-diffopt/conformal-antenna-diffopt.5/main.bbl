@@ -1,4 +1,4 @@
-\begin{thebibliography}{48}
+\begin{thebibliography}{49}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -218,6 +218,15 @@ D.~R. Jackson and N.~G. Alexopoulos.
   (3):\penalty0 407--410, 1991.
 \newblock \doi{10.1109/8.76341}.
 \newblock URL \url{https://doi.org/10.1109/8.76341}.
+
+\bibitem[Jackson(n.d.)]{jackson_ece6345}
+David~R. Jackson.
+\newblock {ECE} 6345 class notes: Notes 15, {CAD} for {Q}sp, and notes 16,
+  {CAD} for gain and efficiency.
+\newblock University of Houston course notes,
+  \url{http://courses.egr.uh.edu/ECE/ECE6345/Class\%20Notes/}, n.d.
+\newblock Restates the Jackson and Alexopoulos (1991) CAD formulas, including
+  the p factor and the surface-wave efficiency. Accessed 2026-10-14.
 
 \bibitem[Jensen(2022)]{jensen2022comsolshape}
 Kristian~Ejlebj{\ae}rg Jensen.
