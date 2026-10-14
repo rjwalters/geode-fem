@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1154",
-  "loom_commit": "9086c5eb90893212b418186a85216681fe12376c",
+  "loom_version": "0.19.1155",
+  "loom_commit": "4844d0404ab018a44c679f3da55b6ff8bf61dfc3",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -758,7 +758,9 @@
     ".loom/scripts/tests/test-resync-installed-labels-block.sh",
     ".loom/scripts/tests/test-spawn-claude-container-gh.sh",
     ".loom/hooks/gh-front-env.sh",
-    ".loom/hooks/tests/test-guard-loom-workspace.sh"
+    ".loom/hooks/tests/test-guard-loom-workspace.sh",
+    ".loom/scripts/tests/test-create-issue-refuse-labels.sh",
+    ".loom/scripts/tests/test-resync-installed-agents-hooks.sh"
   ],
   "last_resync": "2026-10-14",
   "requires_daemon": "0.19.1081"
