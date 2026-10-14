@@ -335,3 +335,121 @@ fn feed_dofs_move_only_the_probe() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Artifact pins (benchmarks/patch_antenna_conformal/copper/).
+// ─────────────────────────────────────────────────────────────────────────
+
+fn repo() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn copper_dir() -> PathBuf {
+    repo().join("benchmarks/patch_antenna_conformal/copper")
+}
+
+fn load(rel: &str) -> toml::Value {
+    let p = copper_dir().join(rel);
+    std::fs::read_to_string(&p)
+        .unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
+        .parse()
+        .unwrap_or_else(|e| panic!("parse {}: {e}", p.display()))
+}
+
+fn f(v: &toml::Value, dotted: &str) -> f64 {
+    let mut cur = v;
+    for k in dotted.split('.') {
+        cur = cur.get(k).unwrap_or_else(|| panic!("missing key {dotted}"));
+    }
+    cur.as_float()
+        .or_else(|| cur.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("{dotted} is not a number"))
+}
+
+fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
+    let mut cur = v;
+    for k in dotted.split('.') {
+        cur = cur.get(k).unwrap_or_else(|| panic!("missing key {dotted}"));
+    }
+    cur.as_str()
+        .unwrap_or_else(|| panic!("{dotted} is not a string"))
+}
+
+/// Every copper run: σ₀ = 1 (the #1085 plateau value), radial DOFs frozen, the
+/// board a uniform 1.6 mm shell (no substrate node leaves its cylinder, the
+/// patch at `R + h/2`, the thickness 1.6 mm everywhere), the exact chart morph.
+fn assert_fixed_board(v: &toml::Value, what: &str) {
+    assert_eq!(f(v, "meta.upml_sigma_0"), 1.0, "{what}: sigma_0");
+    assert_eq!(f(v, "meta.substrate_h_mm"), 1.6, "{what}: h");
+    assert_eq!(
+        f(v, "basis.n_radial_dofs"),
+        0.0,
+        "{what}: radial DOFs not frozen"
+    );
+    assert_eq!(s(v, "basis.radial"), "none", "{what}: radial basis");
+    assert!(
+        s(v, "basis.morph").starts_with("chart_exact"),
+        "{what}: morph"
+    );
+    assert!(
+        f(v, "copper.max_slab_radius_change_mm") < 1e-9,
+        "{what}: a substrate node left its cylinder"
+    );
+    for k in ["copper.patch_radius_dev_mm", "copper.ground_radius_dev_mm"] {
+        for d in v["copper"][k.split('.').nth(1).unwrap()]
+            .as_array()
+            .unwrap()
+        {
+            assert!(d.as_float().unwrap().abs() < 1e-9, "{what}: {k} = {d}");
+        }
+    }
+    for k in [
+        "crater.min_thickness_mm",
+        "crater.max_thickness_mm",
+        "crater.mean_thickness_mm",
+    ] {
+        assert!((f(v, k) - 1.6).abs() < 1e-9, "{what}: {k} = {}", f(v, k));
+    }
+    assert!(
+        (f(v, "copper.port_length_mm") - 1.6).abs() < 1e-9,
+        "{what}: probe gap"
+    );
+}
+
+/// The copper gradient is FD-validated on L0 and L1 for every DOF group
+/// separately and for each feed DOF alone (the probe width exercises the
+/// moving-feed port terms), all to better than 1e-6 relative.
+#[test]
+fn copper_fd_gates_pass_for_every_dof_group_on_l0_and_l1() {
+    for lvl in ["L0", "L1"] {
+        let v = load(&format!("{lvl}_copper_38_fd.toml"));
+        assert_fixed_board(&v, lvl);
+        assert_eq!(s(&v, "optimization.terminal_condition"), "fd_only");
+        assert_eq!(f(&v, "basis.n_dofs"), N_DOFS as f64);
+        let checks = v["fd_validation"]["check"].as_array().unwrap();
+        let dirs: Vec<&str> = checks
+            .iter()
+            .map(|c| c["direction"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            dirs,
+            [
+                "steepest_descent",
+                "random_outline",
+                "random_corner",
+                "feed_inset",
+                "feed_width"
+            ],
+            "{lvl}: FD directions"
+        );
+        for c in checks {
+            let rel = c["rel_err"].as_float().unwrap();
+            let (a, b) = (
+                c["analytic_dir_deriv"].as_float().unwrap(),
+                c["central_fd_dir_deriv"].as_float().unwrap(),
+            );
+            assert!(rel < 1e-6, "{lvl} {}: rel {rel:.2e}", c["direction"]);
+            assert!(((a - b) / b).abs() < 1e-6 && b.abs() > 1e-6);
+        }
+    }
+}
