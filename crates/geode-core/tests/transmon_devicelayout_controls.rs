@@ -24,7 +24,7 @@
 //!
 //! No geode solve is involved: these pins run in the default tier.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -246,11 +246,17 @@ struct Run {
     f: [f64; 2],
 }
 
+/// Run 1 of every control: the committed part-1 cell, entered at the
+/// 6-decimal values the driver (and #1111) used.
+const DL_INITIAL_GHZ: [f64; 2] = [4.168313, 5.613182];
+
 fn initial_run() -> Run {
+    let raw = palace(&format!("{X1092}/dl_initial"));
+    close_all(&raw, &DL_INITIAL_GHZ, 5e-7, "dl_initial to rounding");
     Run {
         cell: "dl_initial".into(),
         theta: INITIAL_UM,
-        f: palace(&format!("{X1092}/dl_initial")),
+        f: DL_INITIAL_GHZ,
     }
 }
 
@@ -402,6 +408,27 @@ fn gradient_free_controls_re_derive_from_raw_cells() {
         ),
         n_sc <= geode
     );
+    // The run-1 cell re-run on this issue's Palace build.
+    let orig = palace(&format!("{X1092}/dl_initial"));
+    let rerun = palace(&format!("{CELLS}/dl_initial_rerun"));
+    close_all(
+        &tarr(&r, "controls.build_check.rerun_ghz"),
+        &rerun,
+        6e-7,
+        "rerun",
+    );
+    close_all(
+        &tarr(&r, "controls.build_check.original_ghz"),
+        &orig,
+        6e-7,
+        "original",
+    );
+    for i in 0..2 {
+        assert!(
+            pct(rerun[i], orig[i]).abs() < 1e-4,
+            "the two Palace builds agree on dl_initial"
+        );
+    }
     // The measured outcome, pinned as measured (issue #1123: stated plainly
     // whichever way it came out).
     assert_eq!(n_sc, PINNED_SCALING_RUNS, "scaling-law Newton run count");
@@ -450,6 +477,29 @@ fn shared(a1: f64, a2: f64, b1: f64, b2: f64) -> (f64, f64) {
     let (d1, d2) = (a2 - a1, b2 - b1);
     let s = (d1 - d2) / (b2 - a2); // = 2^p - 1
     ((1.0 + s).log2(), b2 + d2 / s)
+}
+
+/// `(alpha, f_inf)` of `f = f_inf - C N^-alpha` through three points: the
+/// root of `(f1 - f0)(N1^-a - N2^-a) = (f2 - f1)(N0^-a - N1^-a)` by
+/// bisection on `a` in `(0, 4)`.
+fn dof_extrap(n: &[f64], f: &[f64]) -> (f64, f64) {
+    let g = |a: f64| {
+        let x: Vec<f64> = n.iter().map(|v| v.powf(-a)).collect();
+        (f[1] - f[0]) * (x[1] - x[2]) - (f[2] - f[1]) * (x[0] - x[1])
+    };
+    let (mut lo, mut hi) = (1e-6, 4.0);
+    assert!(g(lo) * g(hi) < 0.0, "no root: {} {}", g(lo), g(hi));
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if g(lo) * g(mid) <= 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    let a = 0.5 * (lo + hi);
+    let x: Vec<f64> = n.iter().map(|v| v.powf(-a)).collect();
+    (a, f[2] + (f[2] - f[1]) * x[2] / (x[1] - x[2]))
 }
 
 #[test]
@@ -694,6 +744,53 @@ fn adaptive_refinement_re_derives_per_iteration() {
         tbool(&r, "amr.initial.final_r_in_estimate_band"),
         fr_band[0] <= lr && lr <= fr_band[1]
     );
+    let k = nd.len();
+    let (aq, xq) = dof_extrap(&nd[k - 3..], &fq[k - 3..]);
+    let (ar, xr_) = dof_extrap(&nd[k - 3..], &fr[k - 3..]);
+    close(
+        tf(&r, "amr.initial.dof_extrapolation_alpha_q"),
+        aq,
+        5e-4,
+        "alpha q",
+    );
+    close(
+        tf(&r, "amr.initial.dof_extrapolation_f_q_ghz"),
+        xq,
+        5e-5,
+        "extrap q",
+    );
+    close(
+        tf(&r, "amr.initial.dof_extrapolation_alpha_r"),
+        ar,
+        5e-4,
+        "alpha r",
+    );
+    close(
+        tf(&r, "amr.initial.dof_extrapolation_f_r_ghz"),
+        xr_,
+        5e-5,
+        "extrap r",
+    );
+    // The measured outcome, pinned as measured: the adaptive run did NOT
+    // plateau within MaxSize (its last step still moved the qubit by more
+    // than 0.5 %); its finest level and its DOF extrapolation lie inside
+    // the part-1 band and below the circuit cap.
+    assert!(
+        pct(fq[n - 1], fq[n - 2]) > 0.5,
+        "no plateau within 1e7 DOFs"
+    );
+    assert!(
+        band[0] <= last && last <= cap,
+        "finest AMR level in band, below cap"
+    );
+    assert!(
+        band[0] <= xq && xq <= cap,
+        "AMR extrapolation in band, below cap"
+    );
+    assert!(
+        *nd.last().unwrap() > 1e7,
+        "the last solve is the one past MaxSize"
+    );
     // Every adaptive level rises, as every uniform level does.
     assert!(fq.windows(2).all(|w| w[1] > w[0]), "f_q rises: {fq:?}");
 }
@@ -860,6 +957,34 @@ fn mesh_family_spread_re_derives() {
         5e-5,
         "union r",
     );
+    let rng = [aq.estimate.min(bq.estimate), aq.estimate.max(bq.estimate)];
+    close_all(
+        &tarr(&r, "mesh_family.initial.estimate_range_f_q_ghz"),
+        &rng,
+        5e-5,
+        "range",
+    );
+    assert_eq!(
+        tbool(&r, "mesh_family.initial.family_b_band_inside_a"),
+        aq.band[0] <= bq.band[0] && bq.band[1] <= aq.band[1]
+    );
+    let amr_x = tf(&r, "amr.initial.dof_extrapolation_f_q_ghz");
+    close(
+        tf(&r, "mesh_family.initial.amr_dof_extrapolation_f_q_ghz"),
+        amr_x,
+        5e-5,
+        "amr x",
+    );
+    assert_eq!(
+        tbool(&r, "mesh_family.initial.amr_dof_extrapolation_in_range"),
+        rng[0] <= amr_x && amr_x <= rng[1]
+    );
+    let cap = tf(&xr, "static_cross_check.initial.circuit_cap_f_q_ghz");
+    let amr_fin = *tarr(&r, "amr.initial.f_q_ghz").last().unwrap();
+    assert_eq!(
+        tbool(&r, "mesh_family.initial.all_estimates_below_cap"),
+        aq.estimate.max(bq.estimate).max(amr_x).max(amr_fin) <= cap
+    );
     let amr_last = *tarr(&r, "amr.initial.f_q_ghz").last().unwrap();
     close(
         tf(&r, "mesh_family.initial.amr_final_f_q_ghz"),
@@ -920,11 +1045,21 @@ fn cap_inputs_and_shared_limits_re_derive() {
     let ser = |p1: [f64; 2], p2: [f64; 2]| shared(p1[0], p1[1], p2[0], p2[1]);
     let sec = |s: &str, k: &str| tarr(&xr, &format!("convergence.{s}.{k}"));
     let lad = |k: &str| tarr(&opt, &format!("conv.cv2.ladder.{k}"));
-    let sq = tarr(&r, "conv_step.scaling.p1_f_q_ghz");
-    let sq2 = tarr(&r, "conv_step.scaling.p2_f_q_ghz");
-    let sr = tarr(&r, "conv_step.scaling.p1_f_r_ghz");
-    let sr2 = tarr(&r, "conv_step.scaling.p2_f_r_ghz");
-    let b = tarr(&r, "mesh_family.initial.family_b_levels_f_q_ghz");
+    // The new series from their raw cells (the fit amplifies rounding).
+    let sc = |c: &str| palace(&format!("{CELLS}/sccv1_{c}"));
+    let (s1, s2, s3, s4) = (sc("r1_p1"), sc("r2_p1"), sc("h_p2"), sc("r1_p2"));
+    let sq = vec![0.0, s1[0], s2[0]];
+    let sq2 = vec![s3[0], s4[0]];
+    let sr = vec![0.0, s1[1], s2[1]];
+    let sr2 = vec![s3[1], s4[1]];
+    let fb = |c: &str| palace(&format!("{CELLS}/{c}"))[0];
+    let b = [
+        0.0,
+        fb("fam_u1_p1"),
+        fb("fam_u2_p1"),
+        palace(&format!("{X1092}/initial_h_p2"))[0],
+        fb("fam_u1_p2"),
+    ];
     let want = [
         ser(
             tail2(sec("initial", "p1_f_q_ghz")),

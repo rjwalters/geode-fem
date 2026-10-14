@@ -173,8 +173,11 @@ def trajectory(prefix, kind):
     """Re-run a control's step arithmetic on the committed Palace values.
 
     Returns the list of (cell, theta, F, err, role) in run order."""
-    runs = [("dl_initial", drv.INITIAL, list(modes(f"{X1092}/dl_initial")[:2]), "initial")]
-    assert abs(runs[0][2][0] - drv.DL_INITIAL[0]) < 5e-7 and abs(runs[0][2][1] - drv.DL_INITIAL[1]) < 5e-7
+    # Run 1 enters at the 6-decimal values the driver (and #1111) used; they
+    # must be the committed cell's to rounding.
+    raw = modes(f"{X1092}/dl_initial")
+    assert abs(raw[0] - drv.DL_INITIAL[0]) < 5e-7 and abs(raw[1] - drv.DL_INITIAL[1]) < 5e-7
+    runs = [("dl_initial", drv.INITIAL, list(drv.DL_INITIAL), "initial")]
     if kind == "scaling":
         theta, F = drv.INITIAL, runs[0][2]
         k = 1
@@ -267,8 +270,9 @@ def main():
     t.append('palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043')
     t.append(f'cells = "{CELLS}"')
     t.append(
-        'hosts = "AWS r8g.4xlarge dl1123 (16 vCPU, 123 GiB: the DeviceLayout-discretization runs and the conv-step ladder) '
-        'and r8g.8xlarge amr1123 (32 vCPU, 247 GiB: the adaptive run and the refinement-scheme cells), Ubuntu 24.04 arm64"'
+        'hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization '
+        'runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the '
+        'adaptive run, fam_u1_p1 and fam_u2_p1)"'
     )
 
     # ---------------------------------------------------- 1. controls
@@ -512,6 +516,20 @@ def main():
     t.append(f"estimate_spread_pct = {arr([spread_q, spread_r], 3)}  # family b over family a, qubit and resonator")
     t.append(f"union_f_q_band_ghz = {arr(union_q, 4)}")
     t.append(f"union_f_r_band_ghz = {arr(union_r, 4)}")
+    rng = [min(rule_a_q["estimate"], rule_b_q["estimate"]), max(rule_a_q["estimate"], rule_b_q["estimate"])]
+    amr_x = dof_extrapolation(an[-3:], aq[-3:])[1]
+    t.append(f"estimate_range_f_q_ghz = {arr(rng, 4)}  # the two families' estimates")
+    t.append(
+        "family_b_band_inside_a = "
+        + ("true" if rule_a_q["band"][0] <= rule_b_q["band"][0] and rule_b_q["band"][1] <= rule_a_q["band"][1] else "false")
+    )
+    t.append(f"amr_dof_extrapolation_f_q_ghz = {num(amr_x, 4)}")
+    t.append(f"amr_dof_extrapolation_in_range = {'true' if rng[0] <= amr_x <= rng[1] else 'false'}")
+    t.append(
+        "all_estimates_below_cap = "
+        + ("true" if max(rule_a_q["estimate"], rule_b_q["estimate"], amr_x, last) <= cap else "false")
+        + "  # family a, family b, the adaptive run's finest level and its DOF extrapolation"
+    )
     t.append(f"amr_final_f_q_ghz = {num(last, 4)}")
     t.append(f"amr_final_in_union_band = {'true' if union_q[0] <= last <= union_q[1] else 'false'}")
     t.append(PROPOSAL)
@@ -604,14 +622,15 @@ def max_mem_gib(path, cell):
 
 
 PROPOSAL = (
-    'proposal = "Fold the spread in as a second refinement family, not as a percentage on the levels. The ~2 % at h/2 '
-    "is almost all refinement scheme (refinement_scheme_pct), not mesh family (mesh_family_pct): both h meshes agree "
-    "to 0.02 % at h, and under one refinement scheme the two h meshes stay within 0.15-0.43 %. Level spreads "
-    "overstate the effect on the converged value, because both families converge to the same limit. The band "
-    "should therefore be the union of the part-1 rule applied to each refinement family of the same h mesh "
-    "(union_f_q_band_ghz), with the estimate quoted from the family that resolves the sheet edge better and the "
-    "other family's estimate as the stated spread (estimate_spread_pct). A level-based alternative (widening the "
-    'band by the 1.8 % h/2 scheme spread) is not recommended: it double-counts the extrapolation."'
+    'proposal = "The ~2 % between the two h/2 levels is almost all refinement scheme (refinement_scheme_pct: 1.5-1.8 %), '
+    "not mesh family (mesh_family_pct: 0.15-0.43 %); the two h meshes agree to 0.02 % at h. Level spreads overstate "
+    "the effect on the converged value: run through the part-1 rule, the two refinement families of the same h mesh "
+    "give estimates 0.64 % apart (estimate_spread_pct), and the second family's band lies inside the first's "
+    "(family_b_band_inside_a). Proposal for v12: keep the part-1 band (it already covers the second family), and "
+    "quote the converged initial qubit as the range of the two family estimates (estimate_range_f_q_ghz) instead of "
+    "one point, stating the 0.64 % as the mesh-family/refinement-scheme spread; the adaptive run's DOF extrapolation "
+    "lies inside that range (amr_dof_extrapolation_in_range). The resonator behaves the same way (0.62 %). Widening the "
+    'band by the 1.8 % level spread is not recommended: it double-counts the extrapolation."'
 )
 
 CAP_ASSUMPTIONS = (
@@ -629,13 +648,14 @@ WHY_ABOVE_CAP = (
     "3.6 MHz, 0.08 %. The construction is exactly determined (four levels, four unknowns) and ill-conditioned: "
     "+0.1 % on the order-2 h/2 level alone moves it by about 20 MHz (initial_q_sensitivity_ghz_per_0p1pct), so the "
     "excess equals a 0.02 % change of that one level (initial_q_excess_as_p2_h2_change_pct), far inside the 0.15-1.8 % "
-    "mesh and refinement-scheme effects measured in [mesh_family.initial]. It also assumes one common order for the "
-    "order-1 and order-2 series in the pre-asymptotic range, where the order-1 ladder's own observed order is 0.62. "
-    "The excess is therefore not evidence against the cap, and the cap is not evidence against the construction "
-    "beyond its conditioning. The adaptive run ([amr.initial]) is the independent test of where the converged value "
-    'lies relative to both."'
+    "mesh and refinement-scheme effects of [mesh_family.initial]. It also assumes one common order for the order-1 "
+    "and order-2 series in the pre-asymptotic range, where the order-1 ladder's own observed order is 0.62. The same "
+    "construction on the second refinement family (family_b_initial_q, order 1.02, where the ladder is close to its "
+    "asymptotic order) gives 4.4657 GHz, below the cap, and every independent computation is below it too: the "
+    "adaptive run's finest level (4.4297 GHz) and DOF extrapolation (4.4552 GHz), and both family estimates "
+    "([mesh_family.initial].all_estimates_below_cap). The excess is within the conditioning of the family-a fit and "
+    'is not evidence against the cap; the cap is still model-dependent, not certified."'
 )
-
 
 if __name__ == "__main__":
     sys.exit(main())
