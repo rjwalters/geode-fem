@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.10/` (draft, not reviewed: restructured around the converged DeviceLayout.jl SingleTransmon cross-check, with certified sapphire-tensor C_Σ brackets, a static route to the qubit frequency and a gradient-assisted re-optimization toward the published final design; v9 was the re-anchored evidence revision; v6 is the last audited version) |
+| `transmon-benchmark` | `transmon-benchmark.11/` (draft, not reviewed: v10 plus the operator's 2026-10-13 rulings — new title, the same-mesh cross-check wording, solo author, whiteroom and Loom cited, a section on how geode-fem was designed and built; v10 restructured the paper around the converged DeviceLayout.jl SingleTransmon cross-check and a gradient-assisted re-optimization; v6 is the last audited version) |
 
 ## Building a paper
 
