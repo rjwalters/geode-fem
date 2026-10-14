@@ -805,6 +805,322 @@ pub fn outline_columns(
     )
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Copper-only bases on a fixed-thickness board (issue #1120).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Corner DOFs of the patch rectangle: four in-surface fields, one per
+/// corner, each moving its corner **outward along the corner bisector** by
+/// 1 mm per unit (a negative coefficient chamfers / rounds the corner),
+/// with a smoothstep bump `1 − smoothstep(d / radius)` of the chart
+/// distance `d` to the corner. DOF order: `(s_hi, y_hi)`, `(s_lo, y_hi)`,
+/// `(s_hi, y_lo)`, `(s_lo, y_lo)`.
+#[derive(Clone, Copy, Debug)]
+pub struct CornerBasis {
+    rect: PatchRect,
+    radius: f64,
+}
+
+impl CornerBasis {
+    /// Corner bumps of support `radius` (mm) on `rect`.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless `radius > 0`.
+    pub fn new(rect: PatchRect, radius: f64) -> Self {
+        assert!(radius > 0.0, "CornerBasis: radius must be positive");
+        Self { rect, radius }
+    }
+
+    /// Number of DOFs (4).
+    pub fn n_dofs(&self) -> usize {
+        4
+    }
+
+    /// In-surface displacement `(Δs, Δy)` per unit coefficient of each corner
+    /// DOF at chart point `(s, y)`.
+    pub fn eval(&self, s: f64, y: f64) -> Vec<[f64; 2]> {
+        let h = std::f64::consts::FRAC_1_SQRT_2;
+        let corners = [
+            (self.rect.s[1], self.rect.y[1], h, h),
+            (self.rect.s[0], self.rect.y[1], -h, h),
+            (self.rect.s[1], self.rect.y[0], h, -h),
+            (self.rect.s[0], self.rect.y[0], -h, -h),
+        ];
+        corners
+            .iter()
+            .map(|&(cs, cy, us, uy)| {
+                let b = 1.0 - smoothstep((s - cs).hypot(y - cy) / self.radius);
+                [us * b, uy * b]
+            })
+            .collect()
+    }
+}
+
+/// Feed DOFs of the probe-fed patch: the coax probe's position along `y` (the
+/// **inset depth** from the `+y` radiating edge) and its footprint **width**
+/// (the lumped-port rectangle's extent along `y`). Both move nodes only along
+/// `y`, the bend axis, so every node stays on its own cylinder.
+///
+/// * DOF 0, inset: `Δy = −g(d)`: one unit moves the probe 1 mm away from the
+///   `+y` edge (deeper inset); `g = 1` within `r_inner` of the feed centre
+///   (a rigid translation of the port and its surroundings), smoothstep to 0 at
+///   `r_outer`.
+/// * DOF 1, width: `Δy = ½ · clamp((y − y_f) / half_width, −1, 1) · g(d)`: one
+///   unit widens the port rectangle by 1 mm (a uniform `y` scaling of the port
+///   faces), the nodes beyond the port shifting rigidly by ±½ mm within
+///   `r_inner`.
+///
+/// `r_inner` must cover the port (`> half_width`) and `r_outer` must stay
+/// inside the patch edges so the outline does not move.
+#[derive(Clone, Copy, Debug)]
+pub struct FeedBasis {
+    /// Feed centre in the chart (mm).
+    pub s: f64,
+    /// Feed centre in the chart (mm).
+    pub y: f64,
+    /// Half the port width along `y` (mm).
+    pub half_width: f64,
+    /// Radius of the rigid core (mm).
+    pub r_inner: f64,
+    /// Radius beyond which the fields vanish (mm).
+    pub r_outer: f64,
+}
+
+impl FeedBasis {
+    /// Number of DOFs (2: inset, width).
+    pub fn n_dofs(&self) -> usize {
+        2
+    }
+
+    /// In-surface displacement `(Δs, Δy)` per unit coefficient of `[inset,
+    /// width]` at chart point `(s, y)`.
+    pub fn eval(&self, s: f64, y: f64) -> Vec<[f64; 2]> {
+        let d = (s - self.s).hypot(y - self.y);
+        let g = 1.0 - smoothstep((d - self.r_inner) / (self.r_outer - self.r_inner).max(1e-12));
+        let t = ((y - self.y) / self.half_width).clamp(-1.0, 1.0);
+        vec![[0.0, -g], [0.0, 0.5 * t * g]]
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Exact on-surface tangential morph (issue #1120).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A **fixed-thickness** tangential morph of the bent patch: every substrate
+/// node slides **exactly** within its own cylinder `r = const`, so the FR-4
+/// stays a uniform `h`-thick shell and the patch stays on the `R + h/2`
+/// offset surface for every design vector (issue #1120).
+///
+/// A design vector `x` gives each substrate node a chart displacement
+/// `(Δs, Δy) = Σ_q x_q (a_q, b_q)` from in-surface fields (outline, corner,
+/// feed) sampled at its base chart point; the node moves to angle
+/// `φ₀ + Δs / R` (the whole radial column rotates together, so the slab is
+/// not sheared) and `y₀ + Δy` at its base radius:
+/// `P = (r₀ sin φ, y, z_axis + r₀ cos φ)`. This is nonlinear in `x`, unlike
+/// [`outline_columns`], whose straight-line step leaves the cylinder by the
+/// chord error `d² / 2R`. Air nodes follow the harmonic (Laplace) extension of
+/// the first-order motion (`∂P/∂x` at `x = 0`), zero on the UPML shell and the
+/// outer boundary; it is linear in `x` and only has to keep the air mesh
+/// valid.
+///
+/// The design gradient chains the nodal gradient through the **exact**
+/// Jacobian at `x`: `∂P/∂x_q = (r₀/R)(cos φ, 0, −sin φ) a_q + ŷ b_q` on the
+/// substrate nodes and the harmonic columns elsewhere.
+#[derive(Clone, Debug)]
+pub struct ChartMorph {
+    chart: CylinderChart,
+    linear: super::FreeformBoundaryMorph,
+    slab: Vec<u32>,
+    is_slab: Vec<bool>,
+    r0: Vec<f64>,
+    phi0: Vec<f64>,
+    y0: Vec<f64>,
+    /// `cols[q][k]`: `(Δs, Δy)` per unit of DOF `q` at substrate node `slab[k]`.
+    cols: Vec<Vec<[f64; 2]>>,
+}
+
+impl ChartMorph {
+    /// Build the morph for `n_cols` in-surface fields `field(s, y)` (each
+    /// returning `n_cols` `(Δs, Δy)` pairs per unit coefficient).
+    ///
+    /// # Errors
+    ///
+    /// Propagates the Laplace assembly / factorization errors of the
+    /// harmonic air extension.
+    pub fn build(
+        mesh: &TetMesh,
+        chart: &CylinderChart,
+        nodes: &ConformalPatchNodes,
+        n_cols: usize,
+        field: impl Fn(f64, f64) -> Vec<[f64; 2]>,
+    ) -> Result<Self, ElectrostaticError> {
+        let r_mid = chart.bend_radius;
+        let slab = nodes.slab.clone();
+        let mut is_slab = vec![false; mesh.n_nodes()];
+        let mut r0 = Vec::with_capacity(slab.len());
+        let mut phi0 = Vec::with_capacity(slab.len());
+        let mut y0 = Vec::with_capacity(slab.len());
+        let mut cols = vec![Vec::with_capacity(slab.len()); n_cols];
+        for &n in &slab {
+            is_slab[n as usize] = true;
+            let p = mesh.nodes[n as usize];
+            let (s, y) = chart.s_y(p);
+            r0.push(chart.radius(p));
+            phi0.push(s / r_mid);
+            y0.push(y);
+            let v = field(s, y);
+            assert_eq!(v.len(), n_cols, "field at node {n} has {} entries", v.len());
+            for (c, d) in v.into_iter().enumerate() {
+                cols[c].push(d);
+            }
+        }
+        // First-order (x = 0) Cartesian motion of the substrate nodes, extended
+        // harmonically into the air; zero on the UPML shell and the outer wall.
+        let fixed = union(&[&nodes.pml_shell, &nodes.outer]);
+        let index: std::collections::HashMap<u32, usize> =
+            slab.iter().enumerate().map(|(k, &n)| (n, k)).collect();
+        let linear_cols = harmonic_columns_from_fields(
+            mesh,
+            &slab,
+            n_cols,
+            |n| {
+                let k = index[&n];
+                let p = mesh.nodes[n as usize];
+                let t = chart.tangent_s(p);
+                let scale = r0[k] / r_mid;
+                (0..n_cols)
+                    .map(|q| {
+                        let [ds, dy] = cols[q][k];
+                        [scale * ds * t[0], dy, scale * ds * t[2]]
+                    })
+                    .collect()
+            },
+            &fixed,
+        )?;
+        let linear = super::FreeformBoundaryMorph::from_columns(linear_cols)?;
+        Ok(Self {
+            chart: *chart,
+            linear,
+            slab,
+            is_slab,
+            r0,
+            phi0,
+            y0,
+            cols,
+        })
+    }
+
+    /// Number of design DOFs.
+    pub fn n_dofs(&self) -> usize {
+        self.cols.len()
+    }
+
+    /// The substrate nodes the morph slides exactly on their cylinders.
+    pub fn slab_nodes(&self) -> &[u32] {
+        &self.slab
+    }
+
+    /// Chart displacement `(Δs, Δy)` of substrate node `slab_nodes()[k]`.
+    fn chart_disp(&self, k: usize, x: &[f64]) -> (f64, f64) {
+        let (mut ds, mut dy) = (0.0, 0.0);
+        for (xq, col) in x.iter().zip(&self.cols) {
+            if *xq != 0.0 {
+                ds += xq * col[k][0];
+                dy += xq * col[k][1];
+            }
+        }
+        (ds, dy)
+    }
+
+    /// The morphed mesh at `x` (topology fixed; `x = 0` reproduces `mesh`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x.len() != n_dofs()` or the mesh does not match the build.
+    pub fn apply(&self, mesh: &TetMesh, x: &[f64]) -> TetMesh {
+        assert_eq!(x.len(), self.n_dofs(), "ChartMorph: design length");
+        let mut moved = self.linear.apply(mesh, x);
+        let r_mid = self.chart.bend_radius;
+        for (k, &n) in self.slab.iter().enumerate() {
+            let (ds, dy) = self.chart_disp(k, x);
+            if ds == 0.0 && dy == 0.0 {
+                // Bit-exact base position (avoids the round trip through φ).
+                moved.nodes[n as usize] = mesh.nodes[n as usize];
+                continue;
+            }
+            let phi = self.phi0[k] + ds / r_mid;
+            moved.nodes[n as usize] = [
+                self.r0[k] * phi.sin(),
+                self.y0[k] + dy,
+                self.chart.z_axis + self.r0[k] * phi.cos(),
+            ];
+        }
+        moved
+    }
+
+    /// Nodal displacement `X(x) − X⁰` (length `n_nodes`).
+    pub fn displacement(&self, mesh: &TetMesh, x: &[f64]) -> Vec<[f64; 3]> {
+        let moved = self.apply(mesh, x);
+        moved
+            .nodes
+            .iter()
+            .zip(&mesh.nodes)
+            .map(|(a, b)| [a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+            .collect()
+    }
+
+    /// Chart displacement `(Δs, Δy)` of every substrate node at `x`, parallel
+    /// to [`Self::slab_nodes`].
+    pub fn chart_displacements(&self, x: &[f64]) -> Vec<[f64; 2]> {
+        (0..self.slab.len())
+            .map(|k| {
+                let (ds, dy) = self.chart_disp(k, x);
+                [ds, dy]
+            })
+            .collect()
+    }
+
+    /// Design gradient `∂g/∂x_q = Σ_n grad_node_n · ∂X_n/∂x_q (x)` through the
+    /// exact Jacobian at `x` (substrate nodes) and the harmonic columns (air).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lengths do not match the build.
+    pub fn design_gradient(&self, x: &[f64], grad_node: &[[f64; 3]]) -> Vec<f64> {
+        assert_eq!(x.len(), self.n_dofs(), "ChartMorph: design length");
+        let mut air = grad_node.to_vec();
+        for &n in &self.slab {
+            air[n as usize] = [0.0; 3];
+        }
+        let mut g = self.linear.design_gradient(&air);
+        let r_mid = self.chart.bend_radius;
+        for (k, &n) in self.slab.iter().enumerate() {
+            let gn = grad_node[n as usize];
+            if gn == [0.0; 3] {
+                continue;
+            }
+            let (ds, _) = self.chart_disp(k, x);
+            let phi = self.phi0[k] + ds / r_mid;
+            let sc = self.r0[k] / r_mid;
+            // ∂P/∂(Δs) and ∂P/∂(Δy).
+            let dps = [sc * phi.cos(), 0.0, -sc * phi.sin()];
+            let a = gn[0] * dps[0] + gn[2] * dps[2];
+            let b = gn[1];
+            for (gq, col) in g.iter_mut().zip(&self.cols) {
+                let [cs, cy] = col[k];
+                *gq += a * cs + b * cy;
+            }
+        }
+        g
+    }
+
+    /// `true` for the substrate nodes (length `n_nodes`).
+    pub fn is_slab(&self) -> &[bool] {
+        &self.is_slab
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -985,5 +1301,64 @@ mod tests {
                 assert!(ts[0] > 0.0);
             }
         }
+    }
+
+    #[test]
+    fn corner_and_feed_bases_move_what_they_claim() {
+        let rect = PatchRect {
+            s: [-19.0, 19.0],
+            y: [-14.5, 14.5],
+        };
+        let cb = CornerBasis::new(rect, 6.0);
+        assert_eq!(cb.n_dofs(), 4);
+        let h = std::f64::consts::FRAC_1_SQRT_2;
+        // Each corner moves outward along its bisector by 1 per unit; the others
+        // (38 / 29 mm away) stay put.
+        let corners = [
+            (19.0, 14.5, h, h),
+            (-19.0, 14.5, -h, h),
+            (19.0, -14.5, h, -h),
+            (-19.0, -14.5, -h, -h),
+        ];
+        for (q, &(s, y, us, uy)) in corners.iter().enumerate() {
+            let v = cb.eval(s, y);
+            for (j, d) in v.iter().enumerate() {
+                if j == q {
+                    assert!((d[0] - us).abs() < 1e-12 && (d[1] - uy).abs() < 1e-12);
+                } else {
+                    assert_eq!(d, &[0.0, 0.0]);
+                }
+            }
+        }
+        // Compact support: nothing at 6 mm from every corner, monotone decay.
+        assert!(cb.eval(13.0, 14.5).iter().all(|d| d == &[0.0, 0.0]));
+        let a = cb.eval(17.0, 14.5)[0][0];
+        let b = cb.eval(15.0, 14.5)[0][0];
+        assert!(a > b && b > 0.0);
+
+        let fb = FeedBasis {
+            s: 0.0,
+            y: 7.5,
+            half_width: 0.8,
+            r_inner: 1.2,
+            r_outer: 6.4,
+        };
+        assert_eq!(fb.n_dofs(), 2);
+        // Only y motion, everywhere.
+        for (s, y) in [(0.0, 7.5), (0.5, 8.3), (3.0, 4.0), (-2.0, 9.0)] {
+            assert!(fb.eval(s, y).iter().all(|d| d[0] == 0.0));
+        }
+        // Inset: a rigid -1 mm y shift over the whole port (|y - y_f| <= 0.8).
+        for y in [6.7, 7.5, 8.3] {
+            assert_eq!(fb.eval(0.0, y)[0], [0.0, -1.0]);
+        }
+        // Width: the port edges move by -/+ 0.5 (width +1 per unit), linearly
+        // in between, and the centre does not move.
+        assert!((fb.eval(0.0, 8.3)[1][1] - 0.5).abs() < 1e-12);
+        assert!((fb.eval(0.0, 6.7)[1][1] + 0.5).abs() < 1e-12);
+        assert_eq!(fb.eval(0.0, 7.5)[1][1], 0.0);
+        // Both vanish at r_outer, short of the +y edge (7 mm from the feed).
+        assert!(fb.eval(0.0, 7.5 + 6.4).iter().all(|d| d == &[0.0, 0.0]));
+        assert!(fb.eval(0.0, 14.5).iter().all(|d| d == &[0.0, 0.0]));
     }
 }

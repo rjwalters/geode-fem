@@ -106,7 +106,9 @@ use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
-use geode_core::driven::shape::driven_shape_gradient_matched_upml_ports;
+use geode_core::driven::shape::{
+    driven_shape_gradient_matched_upml_moving_port_s11, driven_shape_gradient_matched_upml_ports,
+};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource,
     driven_solve_with_ports,
@@ -115,9 +117,9 @@ use geode_core::elements::ElementOrder;
 use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, bend_axis_z};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
 use geode_core::shape::conformal_basis::{
-    ConformalPatchNodes, CylinderChart, FeedCutoff, OutlineBasis, PatchRect, RadialBasis,
-    filter_columns, helmholtz_lattice_filter, outline_columns, radial_columns,
-    substrate_top_triangles,
+    ChartMorph, ConformalPatchNodes, CornerBasis, CylinderChart, FeedBasis, FeedCutoff,
+    OutlineBasis, PatchRect, RadialBasis, filter_columns, helmholtz_lattice_filter,
+    outline_columns, radial_columns, substrate_top_triangles,
 };
 use geode_core::shape::{FreeformBoundaryMorph, min_tet_volume_ratio, worst_tet_volume_ratio};
 use geode_core::testing::TestBackend;
@@ -157,6 +159,11 @@ const FD_H: f64 = 1e-5;
 const FD_TOL: f64 = 5e-3;
 /// Wide resonance-location sweep range (GHz).
 const WIDE_GHZ: [f64; 2] = [2.20, 2.70];
+/// Copper mode (issue #1120): feed rigid-core radius and support radius, as
+/// multiples of the probe width (1.2 mm and 6.4 mm for the 1.6 mm probe; the
+/// +y edge is 7 mm from the feed, so the outline never moves).
+const FEED_CORE_FRAC: f64 = 0.75;
+const FEED_SUPPORT_FRAC: f64 = 4.0;
 /// RSS sampling period.
 const RSS_SAMPLE: Duration = Duration::from_millis(100);
 
@@ -190,6 +197,20 @@ struct Cli {
     p2: bool,
     /// Wide-sweep spacing over 2.20–2.70 GHz (GHz); `0` skips the wide sweep.
     wide_step: f64,
+    /// Copper-only design on the fixed 1.6 mm board (issue #1120): the exact
+    /// on-cylinder [`ChartMorph`], no radial DOFs.
+    copper: bool,
+    /// Corner-bump support radius (mm; `0` = no corner DOFs). Copper mode only.
+    corner_radius: f64,
+    /// Feed inset depth + probe width DOFs (moving-feed adjoint). Copper mode only.
+    feed: bool,
+    /// Objective band shift (GHz): the band points are `f − shift` (a frequency
+    /// space-mapping correction for the resonance drift to higher fidelity).
+    band_shift: f64,
+    /// `--verify-only` dense sweep `(lo, hi, n)` (GHz, inclusive grid).
+    dense: Option<(f64, f64, usize)>,
+    /// `--verify-only` shard `(k, n)` of the dense grid: points `i % n == k`.
+    shard: Option<(usize, usize)>,
 }
 
 fn parse_cli() -> Cli {
@@ -212,7 +233,14 @@ fn parse_cli() -> Cli {
         verify_only: false,
         p2: false,
         wide_step: 0.025,
+        copper: false,
+        corner_radius: 0.0,
+        feed: false,
+        band_shift: 0.0,
+        dense: None,
+        shard: None,
     };
+    let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     let next = |i: &mut usize| -> String {
@@ -225,6 +253,7 @@ fn parse_cli() -> Cli {
         match args[i].as_str() {
             "--fixture" => cli.fixture = PathBuf::from(next(&mut i)),
             "--radial" => {
+                radial_given = true;
                 let v = next(&mut i);
                 cli.radial = if v == "0" {
                     None
@@ -248,6 +277,25 @@ fn parse_cli() -> Cli {
             "--verify-only" => cli.verify_only = true,
             "--p2" => cli.p2 = true,
             "--wide-step" => cli.wide_step = next(&mut i).parse().expect("--wide-step GHz"),
+            "--copper" => cli.copper = true,
+            "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
+            "--feed" => cli.feed = true,
+            "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
+            "--dense" => {
+                let v = next(&mut i);
+                let p: Vec<&str> = v.split(':').collect();
+                assert_eq!(p.len(), 3, "--dense LO:HI:N");
+                cli.dense = Some((
+                    p[0].parse().expect("LO"),
+                    p[1].parse().expect("HI"),
+                    p[2].parse().expect("N"),
+                ));
+            }
+            "--shard" => {
+                let v = next(&mut i);
+                let (a, b) = v.split_once('/').expect("--shard K/N");
+                cli.shard = Some((a.parse().expect("K"), b.parse().expect("N")));
+            }
             other => panic!("unknown flag {other}"),
         }
         i += 1;
@@ -261,10 +309,49 @@ fn parse_cli() -> Cli {
         cli.wide_step > 0.0 || (cli.verify_only && cli.wide_step == 0.0),
         "--wide-step must be > 0 (0, no wide sweep, only with --verify-only)"
     );
+    if cli.copper {
+        // Fixed 1.6 mm board (issue #1120): the radial (gap) DOFs are frozen.
+        assert!(
+            !radial_given || cli.radial.is_none(),
+            "--copper freezes the substrate thickness: --radial must be 0 (or omitted)"
+        );
+        cli.radial = None;
+        assert!(
+            cli.outline > 0 || cli.corner_radius > 0.0 || cli.feed,
+            "no copper freedom: give --outline N, --corners MM and/or --feed"
+        );
+        assert!(
+            cli.filter_radius == 0.0,
+            "--filter-radius acts on radial DOFs only"
+        );
+    } else {
+        assert!(
+            cli.corner_radius == 0.0 && !cli.feed,
+            "--corners / --feed need --copper"
+        );
+    }
     assert!(
-        cli.radial.is_some() || cli.outline > 0,
+        cli.dense.is_none() || cli.verify_only,
+        "--dense is a verification sweep: give it with --verify-only"
+    );
+    if let Some((k, n)) = cli.shard {
+        assert!(
+            n >= 1 && k < n && cli.dense.is_some(),
+            "--shard K/N needs --dense, K < N"
+        );
+    }
+    assert!(
+        cli.radial.is_some() || cli.outline > 0 || cli.copper,
         "no design freedom: give --radial NSxNY and/or --outline N"
     );
+    if cli.label.is_empty() && cli.copper {
+        cli.label = format!(
+            "copper_{}",
+            4 * cli.outline
+                + if cli.corner_radius > 0.0 { 4 } else { 0 }
+                + if cli.feed { 2 } else { 0 }
+        );
+    }
     if cli.label.is_empty() {
         cli.label = match (cli.radial, cli.outline) {
             (Some((a, b)), 0) => format!("gap_{}", a * b),
@@ -397,9 +484,50 @@ impl Rng {
 /// Per-frequency matched-UPML tensors `(f_ghz, ω, ε, ν)`.
 type BandPoint = (f64, f64, Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>);
 
+/// The design morph: the #1087 linear column morph (radial and / or the
+/// straight-line outline columns) or the #1120 exact on-cylinder chart morph.
+enum DesignMorph {
+    Linear(FreeformBoundaryMorph),
+    Chart(ChartMorph),
+}
+
+impl DesignMorph {
+    fn n_dofs(&self) -> usize {
+        match self {
+            DesignMorph::Linear(m) => m.n_dofs(),
+            DesignMorph::Chart(m) => m.n_dofs(),
+        }
+    }
+
+    fn apply(&self, mesh: &geode_core::mesh::TetMesh, x: &[f64]) -> geode_core::mesh::TetMesh {
+        match self {
+            DesignMorph::Linear(m) => m.apply(mesh, x),
+            DesignMorph::Chart(m) => m.apply(mesh, x),
+        }
+    }
+
+    /// Nodal displacement `X(x) − X⁰`.
+    fn displacement(&self, mesh: &geode_core::mesh::TetMesh, x: &[f64]) -> Vec<[f64; 3]> {
+        match self {
+            DesignMorph::Linear(m) => m.combined_velocity(x),
+            DesignMorph::Chart(m) => m.displacement(mesh, x),
+        }
+    }
+
+    fn design_gradient(&self, x: &[f64], grad_node: &[[f64; 3]]) -> Vec<f64> {
+        match self {
+            DesignMorph::Linear(m) => m.design_gradient(grad_node),
+            DesignMorph::Chart(m) => m.design_gradient(x, grad_node),
+        }
+    }
+}
+
 struct Model {
     base: PatchFixture,
-    morph: FreeformBoundaryMorph,
+    morph: DesignMorph,
+    /// The design moves the port faces (copper mode with feed DOFs): the port is
+    /// rebuilt on every moved mesh and the moving-feed adjoint is used.
+    moving_port: bool,
     band: Vec<BandPoint>,
     beta: f64,
     mask: Vec<bool>,
@@ -456,6 +584,23 @@ impl Model {
         self.morph.apply(&self.base.mesh, x)
     }
 
+    /// The lumped port, its flux covector and `1/w` on a (moved) mesh: the
+    /// base port unless the design moves the feed, in which case the port
+    /// width / gap length and flux moments are those of `mesh`.
+    fn port_on(
+        &self,
+        mesh: &geode_core::mesh::TetMesh,
+    ) -> (geode_core::mesh::patch::PatchPort, Vec<f64>, f64) {
+        if self.moving_port {
+            let port = self.base.port_on_mesh(mesh);
+            let flux = assemble_port_flux(mesh, &port.faces, port.e_hat, &mesh.edges());
+            let inv_width = 1.0 / port.width;
+            (port, flux, inv_width)
+        } else {
+            (self.port.clone(), self.flux.clone(), self.inv_width)
+        }
+    }
+
     fn min_vol_ratio(&self, x: &[f64]) -> f64 {
         min_tet_volume_ratio(&self.base.mesh, &self.moved_mesh(x))
     }
@@ -467,7 +612,8 @@ impl Model {
         let bcs = DrivenBcs {
             pec_interior_mask: &self.mask,
         };
-        let lp = self.port.lumped_port(self.r_nat, self.v_inc);
+        let (port, flux, inv_width) = self.port_on(&mesh);
+        let lp = port.lumped_port(self.r_nat, self.v_inc);
         let n_nodes = mesh.n_nodes();
         let mut g_f = Vec::with_capacity(self.band.len());
         let mut s11 = Vec::with_capacity(self.band.len());
@@ -476,27 +622,42 @@ impl Model {
         for (_f, omega, eps, nu) in &self.band {
             self.n_solves.set(self.n_solves.get() + 1);
             if grad {
-                let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
-                    &mesh,
-                    eps,
-                    nu,
-                    &bcs,
-                    std::slice::from_ref(&lp),
-                    *omega,
-                    &self.source,
-                    s11_sq_objective(
-                        self.flux.clone(),
-                        self.inv_width,
-                        self.v_inc,
+                let sg = if self.moving_port {
+                    driven_shape_gradient_matched_upml_moving_port_s11::<B>(
+                        &mesh,
+                        eps,
+                        nu,
+                        &bcs,
+                        &lp,
+                        *omega,
+                        &self.source,
                         self.r_nat,
-                        self.r_nat,
-                    ),
-                    &device(),
-                )
-                .expect("composed shape gradient");
+                        &device(),
+                    )
+                    .expect("moving-feed composed shape gradient")
+                } else {
+                    driven_shape_gradient_matched_upml_ports::<B, _>(
+                        &mesh,
+                        eps,
+                        nu,
+                        &bcs,
+                        std::slice::from_ref(&lp),
+                        *omega,
+                        &self.source,
+                        s11_sq_objective(
+                            flux.clone(),
+                            inv_width,
+                            self.v_inc,
+                            self.r_nat,
+                            self.r_nat,
+                        ),
+                        &device(),
+                    )
+                    .expect("composed shape gradient")
+                };
                 assert_eq!(sg.n_factorizations, 1, "adjoint must reuse the forward LU");
                 worst_res = worst_res.max(sg.residual_rel);
-                let v = self.port_voltage(&sg.e_edges);
+                let v = port_voltage(&flux, inv_width, &sg.e_edges);
                 let (g, _) = s11_sq_and_dg_dv(v, self.v_inc, self.r_nat, self.r_nat);
                 assert!(
                     (g - sg.objective).abs() <= 1e-9 * g.max(1.0),
@@ -521,7 +682,7 @@ impl Model {
                 )
                 .expect("forward solve");
                 worst_res = worst_res.max(sol.residual_rel);
-                let v = self.port_voltage(&sol.e_edges);
+                let v = port_voltage(&flux, inv_width, &sol.e_edges);
                 let (g, _) = s11_sq_and_dg_dv(v, self.v_inc, self.r_nat, self.r_nat);
                 g_f.push(g);
                 s11.push(self.s11_of_v(v));
@@ -545,7 +706,7 @@ impl Model {
                     a[2] += wf * g[2];
                 }
             }
-            self.morph.design_gradient(&acc)
+            self.morph.design_gradient(x, &acc)
         });
         Eval {
             g_f,
@@ -555,14 +716,6 @@ impl Model {
             worst_residual: worst_res,
             min_vol_ratio,
         }
-    }
-
-    fn port_voltage(&self, e: &[c64]) -> c64 {
-        let mut v = c64::new(0.0, 0.0);
-        for (f, x) in self.flux.iter().zip(e) {
-            v += *x * *f;
-        }
-        v * self.inv_width
     }
 
     fn s11_of_v(&self, v: c64) -> c64 {
@@ -578,7 +731,8 @@ impl Model {
         let bcs = DrivenBcs {
             pec_interior_mask: &self.mask,
         };
-        let lp = self.port.lumped_port(self.r_nat, self.v_inc);
+        let (port, flux, inv_width) = self.port_on(&mesh);
+        let lp = port.lumped_port(self.r_nat, self.v_inc);
         freqs
             .iter()
             .map(|&f| {
@@ -606,7 +760,7 @@ impl Model {
                     &device(),
                 )
                 .expect("sweep solve");
-                let v = self.port_voltage(&sol.e_edges);
+                let v = port_voltage(&flux, inv_width, &sol.e_edges);
                 let s = self.s11_of_v(v);
                 assert!(s.norm() <= 1.0 + 1e-6, "passivity at {f} GHz");
                 let i = (self.v_inc * 2.0 - v) * (1.0 / self.r_nat);
@@ -644,7 +798,8 @@ impl Model {
             mask.len(),
             mask.iter().filter(|&&m| m).count()
         );
-        let lp = self.port.lumped_port(self.r_nat, self.v_inc);
+        let (port, _, _) = self.port_on(&mesh);
+        let lp = port.lumped_port(self.r_nat, self.v_inc);
         freqs
             .iter()
             .map(|&f| {
@@ -700,6 +855,15 @@ impl Model {
     }
 }
 
+/// Port voltage `V = (1/w) Σ f_i e_i`.
+fn port_voltage(flux: &[f64], inv_width: f64, e: &[c64]) -> c64 {
+    let mut v = c64::new(0.0, 0.0);
+    for (f, x) in flux.iter().zip(e) {
+        v += *x * *f;
+    }
+    v * inv_width
+}
+
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
@@ -719,6 +883,9 @@ struct DesignFile {
     fixture_sha256: String,
     radial: String,
     outline: String,
+    /// `[basis].corner` / `[basis].feed` (copper mode, issue #1120; "none" when absent).
+    corner: String,
+    feed: String,
     x: Vec<f64>,
 }
 
@@ -748,6 +915,16 @@ fn read_design(path: &Path) -> DesignFile {
         fixture_sha256: s("meta", "fixture_sha256"),
         radial: s("basis", "radial"),
         outline: s("basis", "outline"),
+        corner: v["basis"]
+            .get("corner")
+            .and_then(|c| c.as_str())
+            .unwrap_or("none")
+            .to_string(),
+        feed: v["basis"]
+            .get("feed")
+            .and_then(|c| c.as_str())
+            .unwrap_or("none")
+            .to_string(),
         x,
     }
 }
@@ -896,12 +1073,20 @@ fn crater(
     geo: &Geo,
     patch_nodes: &[u32],
     patch_tris: &[[u32; 3]],
+    exact_radius: bool,
 ) -> Crater {
+    // The linear morphs report the radial component of the displacement (the
+    // #1087 convention); the exact chart morph (#1120) reports the change of
+    // the node's radius about the bend axis, which is the thickness change.
     let lift = |n: u32| {
         let p = base.mesh.nodes[n as usize];
-        let r = geo.chart.radial_dir(p);
         let d = disp[n as usize];
-        d[0] * r[0] + d[1] * r[1] + d[2] * r[2]
+        if exact_radius {
+            geo.chart.radius([p[0] + d[0], p[1] + d[1], p[2] + d[2]]) - geo.chart.radius(p)
+        } else {
+            let r = geo.chart.radial_dir(p);
+            d[0] * r[0] + d[1] * r[1] + d[2] * r[2]
+        }
     };
     let sy = |n: u32| geo.chart.s_y(base.mesh.nodes[n as usize]);
     let fd = |(s, y): (f64, f64)| (s - geo.feed.0).hypot(y - geo.feed.1);
@@ -1029,6 +1214,231 @@ impl Crater {
     }
 }
 
+/// Copper-mode geometry of a design (issue #1120): the board-thickness check
+/// and the as-built copper dimensions.
+struct Copper {
+    /// Largest |radius change| of any substrate node (mm): 0 for the exact
+    /// chart morph, so the board stays a uniform `h`.
+    max_slab_radius_change_mm: f64,
+    /// Patch-node radius range minus `R + h/2` (mm).
+    patch_radius_dev_mm: [f64; 2],
+    /// Ground-node radius range minus `R − h/2` (mm).
+    ground_radius_dev_mm: [f64; 2],
+    /// Moved feed centre `(s, y)` (mm), port width and gap length (mm).
+    feed_s_mm: f64,
+    feed_y_mm: f64,
+    probe_w_mm: f64,
+    port_length_mm: f64,
+    /// Inset: moved `+y` edge at the feed's `s` minus the moved feed `y` (mm).
+    inset_mm: f64,
+    /// Patch length along `y` at `s ≈ 0` and width along `s` at `y ≈ 0` (mm, chart).
+    length_mm: f64,
+    width_mm: f64,
+    /// Mean outward edge motion `[+y, −y, +s, −s]` (mm, chart).
+    edge_outward_mm: [f64; 4],
+    /// Corner motion `(Δs, Δy)` of the patch node nearest each corner
+    /// `[(s_hi, y_hi), (s_lo, y_hi), (s_hi, y_lo), (s_lo, y_lo)]` (mm, chart).
+    corner_disp_mm: [[f64; 2]; 4],
+    /// Patch area, base and moved (mm²).
+    area_base_mm2: f64,
+    area_mm2: f64,
+}
+
+fn tri_area(p: [[f64; 3]; 3]) -> f64 {
+    let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+    let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+    0.5 * ((e1[1] * e2[2] - e1[2] * e2[1]).powi(2)
+        + (e1[2] * e2[0] - e1[0] * e2[2]).powi(2)
+        + (e1[0] * e2[1] - e1[1] * e2[0]).powi(2))
+    .sqrt()
+}
+
+fn copper(
+    model: &Model,
+    geo: &Geo,
+    nodes: &ConformalPatchNodes,
+    patch_tris: &[[u32; 3]],
+    h: f64,
+    x: &[f64],
+) -> Copper {
+    let base = &model.base.mesh;
+    let moved = model.moved_mesh(x);
+    let ch = &geo.chart;
+    let r_mid = ch.bend_radius;
+    let max_slab_radius_change_mm = nodes
+        .slab
+        .iter()
+        .map(|&n| (ch.radius(moved.nodes[n as usize]) - ch.radius(base.nodes[n as usize])).abs())
+        .fold(0.0_f64, f64::max);
+    let range = |set: &[u32], r_ref: f64| {
+        set.iter()
+            .fold([f64::INFINITY, f64::NEG_INFINITY], |a, &n| {
+                let d = ch.radius(moved.nodes[n as usize]) - r_ref;
+                [a[0].min(d), a[1].max(d)]
+            })
+    };
+    let patch_radius_dev_mm = range(&nodes.patch, r_mid + 0.5 * h);
+    let ground_radius_dev_mm = range(&nodes.ground, r_mid - 0.5 * h);
+    let port = model.base.port_on_mesh(&moved);
+    let port_nodes: Vec<u32> = {
+        let mut v: Vec<u32> = port.faces.iter().flatten().copied().collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    let (mut fs, mut fy) = (0.0, 0.0);
+    for &n in &port_nodes {
+        let (s, y) = ch.s_y(moved.nodes[n as usize]);
+        fs += s;
+        fy += y;
+    }
+    fs /= port_nodes.len() as f64;
+    fy /= port_nodes.len() as f64;
+    let sy = |n: u32| ch.s_y(base.nodes[n as usize]);
+    let msy = |n: u32| ch.s_y(moved.nodes[n as usize]);
+    let tol = 1e-6;
+    let on = |pick: &dyn Fn(f64, f64) -> bool| -> Vec<u32> {
+        nodes
+            .patch
+            .iter()
+            .copied()
+            .filter(|&n| {
+                let (s, y) = sy(n);
+                pick(s, y)
+            })
+            .collect()
+    };
+    let yp = on(&|_, y| (y - geo.rect.y[1]).abs() < tol);
+    let ym = on(&|_, y| (y - geo.rect.y[0]).abs() < tol);
+    let sp = on(&|s, _| (s - geo.rect.s[1]).abs() < tol);
+    let sm = on(&|s, _| (s - geo.rect.s[0]).abs() < tol);
+    let nearest = |set: &[u32], key: &dyn Fn(f64, f64) -> f64| -> u32 {
+        *set.iter()
+            .min_by(|&&a, &&b| {
+                let (sa, ya) = sy(a);
+                let (sb, yb) = sy(b);
+                key(sa, ya).partial_cmp(&key(sb, yb)).unwrap()
+            })
+            .expect("edge nodes")
+    };
+    let f0 = geo.feed.0;
+    let yp_c = nearest(&yp, &|s, _| (s - f0).abs());
+    let ym_c = nearest(&ym, &|s, _| (s - f0).abs());
+    let sp_c = nearest(&sp, &|_, y| y.abs());
+    let sm_c = nearest(&sm, &|_, y| y.abs());
+    let mean = |set: &[u32], f: &dyn Fn(u32) -> f64| {
+        set.iter().map(|&n| f(n)).sum::<f64>() / set.len().max(1) as f64
+    };
+    let edge_outward_mm = [
+        mean(&yp, &|n| msy(n).1 - sy(n).1),
+        mean(&ym, &|n| sy(n).1 - msy(n).1),
+        mean(&sp, &|n| msy(n).0 - sy(n).0),
+        mean(&sm, &|n| sy(n).0 - msy(n).0),
+    ];
+    let corners = [
+        (geo.rect.s[1], geo.rect.y[1]),
+        (geo.rect.s[0], geo.rect.y[1]),
+        (geo.rect.s[1], geo.rect.y[0]),
+        (geo.rect.s[0], geo.rect.y[0]),
+    ];
+    let corner_disp_mm = corners.map(|(cs, cy)| {
+        let n = nearest(&nodes.patch, &|s, y| (s - cs).hypot(y - cy));
+        let (a, b) = (sy(n), msy(n));
+        [b.0 - a.0, b.1 - a.1]
+    });
+    let area = |m: &geode_core::mesh::TetMesh| {
+        patch_tris
+            .iter()
+            .map(|t| tri_area(t.map(|n| m.nodes[n as usize])))
+            .sum::<f64>()
+    };
+    Copper {
+        max_slab_radius_change_mm,
+        patch_radius_dev_mm,
+        ground_radius_dev_mm,
+        feed_s_mm: fs,
+        feed_y_mm: fy,
+        probe_w_mm: port.width,
+        port_length_mm: port.length,
+        inset_mm: msy(yp_c).1 - fy,
+        length_mm: msy(yp_c).1 - msy(ym_c).1,
+        width_mm: msy(sp_c).0 - msy(sm_c).0,
+        edge_outward_mm,
+        corner_disp_mm,
+        area_base_mm2: area(base),
+        area_mm2: area(&moved),
+    }
+}
+
+impl Copper {
+    fn write(&self, t: &mut String) {
+        t.push_str("[copper]\n");
+        t.push_str(
+            "description = \"Copper-only design on the fixed 1.6 mm board (issue #1120). Board \
+             check: the largest radius change of any substrate node about the bend axis (0: every \
+             node stays on its own cylinder, so the FR-4 is a uniform shell and the patch stays on \
+             the R + h/2 offset surface) and the patch / ground radius ranges. As-built copper: \
+             the moved probe centre, width and gap length (the geometric lumped port), the inset \
+             (moved +y edge at the feed's s minus the feed y), the patch length at s ~ 0 and width \
+             at y ~ 0, the mean outward edge motion, the corner motion and the patch area. Chart \
+             coordinates (s = mid-plane arc length, y), mm.\"\n",
+        );
+        let _ = writeln!(
+            t,
+            "max_slab_radius_change_mm = {:.6e}",
+            self.max_slab_radius_change_mm
+        );
+        let _ = writeln!(
+            t,
+            "patch_radius_dev_mm = [{:.6e}, {:.6e}]",
+            self.patch_radius_dev_mm[0], self.patch_radius_dev_mm[1]
+        );
+        let _ = writeln!(
+            t,
+            "ground_radius_dev_mm = [{:.6e}, {:.6e}]",
+            self.ground_radius_dev_mm[0], self.ground_radius_dev_mm[1]
+        );
+        let _ = writeln!(t, "feed_s_mm = {:.6}", self.feed_s_mm);
+        let _ = writeln!(t, "feed_y_mm = {:.6}", self.feed_y_mm);
+        let _ = writeln!(t, "probe_w_mm = {:.6}", self.probe_w_mm);
+        let _ = writeln!(t, "port_length_mm = {:.6}", self.port_length_mm);
+        let _ = writeln!(t, "inset_mm = {:.6}", self.inset_mm);
+        let _ = writeln!(t, "patch_length_mm = {:.6}", self.length_mm);
+        let _ = writeln!(t, "patch_width_mm = {:.6}", self.width_mm);
+        let e = self.edge_outward_mm;
+        let _ = writeln!(
+            t,
+            "edge_outward_mm = {{ y_plus = {:.6e}, y_minus = {:.6e}, s_plus = {:.6e}, s_minus = {:.6e} }}",
+            e[0], e[1], e[2], e[3]
+        );
+        let c = self.corner_disp_mm;
+        let _ = writeln!(
+            t,
+            "corner_disp_mm = [[{:.6e}, {:.6e}], [{:.6e}, {:.6e}], [{:.6e}, {:.6e}], [{:.6e}, {:.6e}]]",
+            c[0][0], c[0][1], c[1][0], c[1][1], c[2][0], c[2][1], c[3][0], c[3][1]
+        );
+        let _ = writeln!(t, "patch_area_base_mm2 = {:.6}", self.area_base_mm2);
+        let _ = writeln!(t, "patch_area_mm2 = {:.6}", self.area_mm2);
+        t.push('\n');
+    }
+
+    fn log(&self) {
+        eprintln!(
+            "  copper: max slab radius change {:.1e} mm; probe at ({:+.3}, {:+.3}) mm, width {:.3} \
+             mm, inset {:.3} mm; patch {:.3} x {:.3} mm (L x W), area {:.1} mm^2 (base {:.1})",
+            self.max_slab_radius_change_mm,
+            self.feed_s_mm,
+            self.feed_y_mm,
+            self.probe_w_mm,
+            self.inset_mm,
+            self.length_mm,
+            self.width_mm,
+            self.area_mm2,
+            self.area_base_mm2
+        );
+    }
+}
+
 struct FdCheck {
     label: String,
     at: String,
@@ -1095,10 +1505,46 @@ struct VerifyCtx<'a> {
     sigma0_fixture: f64,
     radial_spec: &'a str,
     outline_spec: &'a str,
+    corner_spec: &'a str,
+    feed_spec: &'a str,
     n_radial: usize,
     n_outline: usize,
+    n_corner: usize,
+    n_feed: usize,
     n_edges: usize,
     t_start: Instant,
+}
+
+/// The basis flags of a run, for the `[meta].command` strings: the #1087 /
+/// #1103 form, plus the copper flags (issue #1120) when given.
+fn basis_flags(cli: &Cli) -> String {
+    let mut f = format!(
+        "--radial {} --outline {} --filter-radius {}",
+        cli.radial
+            .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
+        cli.outline,
+        cli.filter_radius
+    );
+    if cli.copper {
+        f.push_str(" --copper");
+        if cli.corner_radius > 0.0 {
+            let _ = write!(f, " --corners {}", cli.corner_radius);
+        }
+        if cli.feed {
+            f.push_str(" --feed");
+        }
+    }
+    f
+}
+
+/// The `--dense` grid (all points, or this shard's).
+fn dense_grid(cli: &Cli) -> Vec<f64> {
+    cli.dense.map_or_else(Vec::new, |(lo, hi, n)| {
+        (0..n)
+            .filter(|i| cli.shard.is_none_or(|(k, m)| i % m == k))
+            .map(|i| lo + (hi - lo) * i as f64 / (n - 1).max(1) as f64)
+            .collect()
+    })
 }
 
 /// `--verify-only`: fresh forward sweeps of a carried design (or of the
@@ -1130,9 +1576,22 @@ fn run_verify(
     let site = geo.site(&model.base, &moved, worst_tet);
     site.log("worst tet");
     drop(moved);
-    let disp = model.morph.combined_velocity(&x);
-    let cr = crater(&model.base, &disp, geo, &nodes.patch, patch_tris);
+    let disp = model.morph.displacement(&model.base.mesh, &x);
+    let cr = crater(
+        &model.base,
+        &disp,
+        geo,
+        &nodes.patch,
+        patch_tris,
+        cli.copper,
+    );
     cr.log(c.h);
+    let cu = cli
+        .copper
+        .then(|| copper(model, geo, nodes, patch_tris, c.h, &x));
+    if let Some(cu) = &cu {
+        cu.log();
+    }
     let verify_f: Vec<f64> = (0..cli.verify_n)
         .map(|i| {
             ISM_2G4_BAND_GHZ[0]
@@ -1141,15 +1600,18 @@ fn run_verify(
         })
         .collect();
     let wide_f = wide_grid(cli.wide_step);
+    let dense_f = dense_grid(cli);
     let run = |f: &[f64]| {
-        if cli.p2 {
+        if f.is_empty() {
+            Vec::new()
+        } else if cli.p2 {
             model.sweep_p2(&x, f)
         } else {
             model.sweep(&x, f)
         }
     };
     let t_sweep = Instant::now();
-    let ((verify, wide), peak_rss) = with_peak_rss(|| {
+    let ((verify, wide, dense), peak_rss) = with_peak_rss(|| {
         eprintln!("  in-band verification sweep:");
         let v = run(&verify_f);
         let w = if wide_f.is_empty() {
@@ -1158,7 +1620,11 @@ fn run_verify(
             eprintln!("  wide sweep:");
             run(&wide_f)
         };
-        (v, w)
+        if !dense_f.is_empty() {
+            eprintln!("  dense sweep ({} points):", dense_f.len());
+        }
+        let d = run(&dense_f);
+        (v, w, d)
     });
     let sweep_s = t_sweep.elapsed().as_secs_f64();
     let db = |s: &c64| 20.0 * s.norm().log10();
@@ -1173,6 +1639,7 @@ fn run_verify(
     let worst_res = verify
         .iter()
         .chain(&wide)
+        .chain(&dense)
         .map(|(_, _, r)| *r)
         .fold(0.0_f64, f64::max);
     assert!(
@@ -1213,16 +1680,17 @@ fn run_verify(
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
-             <dir>/{}.msh --radial {} --outline {} --filter-radius {} --verify-only{} --verify-n \
-             {} --wide-step {}{}",
+             <dir>/{}.msh {} --verify-only{} --verify-n {} --wide-step {}{}{}",
             c.stem,
-            cli.radial
-                .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
-            cli.outline,
-            cli.filter_radius,
+            basis_flags(cli),
             if cli.p2 { " --p2" } else { "" },
             cli.verify_n,
             cli.wide_step,
+            cli.dense.map_or(String::new(), |(lo, hi, n)| format!(
+                " --dense {lo}:{hi}:{n}{}",
+                cli.shard
+                    .map_or(String::new(), |(k, m)| format!(" --shard {k}/{m}"))
+            )),
             design.map_or(String::new(), |d| format!(
                 " --design {}",
                 repo_rel(&d.path)
@@ -1282,8 +1750,16 @@ fn run_verify(
     }
     let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
     let _ = writeln!(t, "outline = {}", toml_str(c.outline_spec));
+    if cli.copper {
+        let _ = writeln!(t, "corner = {}", toml_str(c.corner_spec));
+        let _ = writeln!(t, "feed = {}", toml_str(c.feed_spec));
+    }
     let _ = writeln!(t, "n_radial_dofs = {}", c.n_radial);
     let _ = writeln!(t, "n_outline_dofs = {}", c.n_outline);
+    if cli.copper {
+        let _ = writeln!(t, "n_corner_dofs = {}", c.n_corner);
+        let _ = writeln!(t, "n_feed_dofs = {}", c.n_feed);
+    }
     let _ = writeln!(
         t,
         "design_vector = [{}]",
@@ -1296,10 +1772,19 @@ fn run_verify(
 
     t.push_str("[verify]\n");
     let _ = writeln!(t, "verify_n_points = {}", verify.len());
-    let _ = writeln!(t, "verify_worst_s11_db = {worst:.6e}");
-    let _ = writeln!(t, "verify_best_s11_db = {best:.6e}");
-    let _ = writeln!(t, "reached_target = {reached}");
+    if !verify.is_empty() {
+        let _ = writeln!(t, "verify_worst_s11_db = {worst:.6e}");
+        let _ = writeln!(t, "verify_best_s11_db = {best:.6e}");
+        let _ = writeln!(t, "reached_target = {reached}");
+    }
     let _ = writeln!(t, "wide_step_ghz = {}", cli.wide_step);
+    if let Some((lo, hi, n)) = cli.dense {
+        let _ = writeln!(t, "dense_grid_ghz = [{lo}, {hi}]");
+        let _ = writeln!(t, "dense_grid_n = {n}");
+        let (k, m) = cli.shard.unwrap_or((0, 1));
+        let _ = writeln!(t, "dense_shard = [{k}, {m}]");
+        let _ = writeln!(t, "dense_n_points = {}", dense.len());
+    }
     if let Some((f, d)) = dip {
         let _ = writeln!(t, "wide_dip_f_ghz = {f:.4}");
         let _ = writeln!(t, "wide_dip_db = {d:.4}");
@@ -1313,6 +1798,9 @@ fn run_verify(
     let _ = writeln!(t, "total_wall_s = {:.1}", c.t_start.elapsed().as_secs_f64());
     t.push('\n');
     cr.write(&mut t, c.h);
+    if let Some(cu) = &cu {
+        cu.write(&mut t);
+    }
     for (f, s, res) in &verify {
         t.push_str("[[s11_verify.point]]\n");
         let _ = writeln!(t, "f_ghz = {f:.6}");
@@ -1328,6 +1816,16 @@ fn run_verify(
         let _ = writeln!(t, "f_ghz = {f:.6}");
         let _ = writeln!(t, "s11_mag = {:.9e}", s.norm());
         let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        t.push('\n');
+    }
+    for (f, s, res) in &dense {
+        t.push_str("[[s11_dense.point]]\n");
+        let _ = writeln!(t, "f_ghz = {f:.6}");
+        let _ = writeln!(t, "s11_re = {:.9e}", s.re);
+        let _ = writeln!(t, "s11_im = {:.9e}", s.im);
+        let _ = writeln!(t, "s11_mag = {:.9e}", s.norm());
+        let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        let _ = writeln!(t, "solve_residual_rel = {res:.3e}");
         t.push('\n');
     }
     let out = cli.out.clone().unwrap_or_else(|| {
@@ -1462,7 +1960,22 @@ fn main() {
             sub_pad,
         )
     });
-    if let Some(ob) = &outline_basis {
+    if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper) {
+        // Copper mode (issue #1120): the same per-edge splines, applied by the
+        // exact on-cylinder chart morph below (no chord error).
+        outline_spec = format!(
+            "{} clamped uniform B-splines (degree {}) per patch edge [+y, -y, +s, -s], each DOF \
+             moving its edge outward in the surface by {OUTLINE_SCALE_MM} mm (mid-plane arc) per \
+             unit; carried into the slab by a smoothstep ramp from the pinned feed band \
+             (half-width {:.2} mm) to the edge on every substrate node (top, interior, ground) and \
+             decaying over the {sub_pad} mm margin; exact on-cylinder chart morph (each substrate \
+             node keeps its radius)",
+            cli.outline,
+            cli.outline.saturating_sub(1).min(SPLINE_DEGREE),
+            0.5 * probe_w
+        );
+        n_outline = ob.n_dofs();
+    } else if let Some(ob) = &outline_basis {
         let cols = outline_columns(&base.mesh, &chart, ob, &nodes, OUTLINE_SCALE_MM)
             .expect("outline columns");
         outline_spec = format!(
@@ -1478,7 +1991,65 @@ fn main() {
         n_outline = cols.len();
         columns.extend(cols);
     }
-    let morph = FreeformBoundaryMorph::from_columns(columns).expect("morph");
+    let mut corner_spec = String::from("none");
+    let mut feed_spec = String::from("none");
+    let mut n_corner = 0;
+    let mut n_feed = 0;
+    let morph = if cli.copper {
+        let corner_basis =
+            (cli.corner_radius > 0.0).then(|| CornerBasis::new(rect, cli.corner_radius));
+        let feed_basis = cli.feed.then_some(FeedBasis {
+            s: feed.0,
+            y: feed.1,
+            half_width: 0.5 * probe_w,
+            r_inner: FEED_CORE_FRAC * probe_w,
+            r_outer: FEED_SUPPORT_FRAC * probe_w,
+        });
+        if let Some(cb) = &corner_basis {
+            n_corner = cb.n_dofs();
+            corner_spec = format!(
+                "4 corner bumps [(s_hi, y_hi), (s_lo, y_hi), (s_hi, y_lo), (s_lo, y_lo)], each moving \
+                 its corner outward along the bisector by 1 mm per unit (negative = chamfer) with \
+                 support 1 - smoothstep(d / {} mm) of the chart distance to the corner, on every \
+                 substrate node; exact on-cylinder chart morph",
+                cli.corner_radius
+            );
+        }
+        if let Some(fb) = &feed_basis {
+            n_feed = fb.n_dofs();
+            feed_spec = format!(
+                "2 feed DOFs along y (the bend axis): [inset: probe moves 1 mm away from the +y \
+                 edge per unit; width: probe (port) width +1 mm per unit, uniform y scaling of the \
+                 port faces]; rigid within {:.2} mm of the feed centre, smoothstep to 0 at {:.2} \
+                 mm (the +y edge is {probe_inset} mm away), on every substrate node; moving-feed \
+                 adjoint (port width / length / flux re-derived on every moved mesh)",
+                fb.r_inner, fb.r_outer
+            );
+        }
+        let n_cols = n_outline + n_corner + n_feed;
+        let ob = outline_basis.clone();
+        let cm = ChartMorph::build(&base.mesh, &chart, &nodes, n_cols, |s, y| {
+            let mut v = Vec::with_capacity(n_cols);
+            if let Some(ob) = &ob {
+                v.extend(
+                    ob.eval(s, y)
+                        .into_iter()
+                        .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                );
+            }
+            if let Some(cb) = &corner_basis {
+                v.extend(cb.eval(s, y));
+            }
+            if let Some(fb) = &feed_basis {
+                v.extend(fb.eval(s, y));
+            }
+            v
+        })
+        .expect("chart morph");
+        DesignMorph::Chart(cm)
+    } else {
+        DesignMorph::Linear(FreeformBoundaryMorph::from_columns(columns).expect("morph"))
+    };
     let n_dofs = morph.n_dofs();
     let morph_s = t_morph.elapsed().as_secs_f64();
     // A design carried from another run (possibly another mesh level): the
@@ -1501,6 +2072,8 @@ fn main() {
             d.outline, outline_spec,
             "design outline basis differs from this run's"
         );
+        assert_eq!(d.corner, corner_spec, "design corner basis differs");
+        assert_eq!(d.feed, feed_spec, "design feed basis differs");
     }
     let geo = Geo {
         chart,
@@ -1522,10 +2095,14 @@ fn main() {
     let r_nat = R_PORT_OHM / ETA_0;
     let flux = assemble_port_flux(&base.mesh, &port.faces, port.e_hat, &edges);
     let (air_lo, air_hi) = base.air_box(pml_thick);
+    // Objective band points, shifted down by `--band-shift` (frequency space
+    // mapping: a design whose resonance rises by `shift` at higher fidelity is
+    // optimized for the band `shift` lower on this mesh).
     let band_f: Vec<f64> = (0..cli.n_band)
         .map(|i| {
             ISM_2G4_BAND_GHZ[0]
                 + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * i as f64 / (cli.n_band - 1) as f64
+                - cli.band_shift
         })
         .collect();
     let band: Vec<BandPoint> = band_f
@@ -1549,6 +2126,7 @@ fn main() {
         },
         base,
         morph,
+        moving_port: cli.feed,
         band,
         beta: cli.beta,
         mask,
@@ -1569,8 +2147,8 @@ fn main() {
     eprintln!(
         "patch_conformal_nested_dof [{}]: {stem} ({n_edges} edges, {n_nodes} nodes, {n_tets} \
          tets), R = {bend_radius} mm, sigma_0 = {sigma0} (fixture {sigma0_fixture}); DOFs: \
-         {n_radial} radial + {n_outline} outline = {n_dofs}; band {:?} GHz; morph built in \
-         {morph_s:.1} s",
+         {n_radial} radial + {n_outline} outline + {n_corner} corner + {n_feed} feed = {n_dofs}; \
+         band {:?} GHz; morph built in {morph_s:.1} s",
         cli.label, band_f
     );
 
@@ -1591,8 +2169,12 @@ fn main() {
                 sigma0_fixture,
                 radial_spec: &radial_spec,
                 outline_spec: &outline_spec,
+                corner_spec: &corner_spec,
+                feed_spec: &feed_spec,
                 n_radial,
                 n_outline,
+                n_corner,
+                n_feed,
                 n_edges,
                 t_start,
             },
@@ -1657,13 +2239,37 @@ fn main() {
     {
         let d: Vec<f64> = grad0.iter().map(|g| -g / gnorm0).collect();
         fd_checks.push(fd_check(&model, &x0, &grad0, &d, "steepest_descent", "x0"));
-        if n_radial > 0 {
-            let d = rng.unit_direction(n_dofs, |i| i < n_radial);
-            fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_radial", "x0"));
-        }
-        if n_outline > 0 {
-            let d = rng.unit_direction(n_dofs, |i| i >= n_radial);
-            fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_outline", "x0"));
+        if !cli.copper {
+            if n_radial > 0 {
+                let d = rng.unit_direction(n_dofs, |i| i < n_radial);
+                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_radial", "x0"));
+            }
+            if n_outline > 0 {
+                let d = rng.unit_direction(n_dofs, |i| i >= n_radial);
+                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_outline", "x0"));
+            }
+        } else if cli.fd_only {
+            // Copper mode, FD-only (issue #1120): every DOF group separately and
+            // each feed DOF alone (the inset is a rigid port translation, the width
+            // exercises the moving-feed port terms).
+            let (o_end, c_end) = (n_outline, n_outline + n_corner);
+            if n_outline > 0 {
+                let d = rng.unit_direction(n_dofs, |i| i < o_end);
+                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_outline", "x0"));
+            }
+            if n_corner > 0 {
+                let d = rng.unit_direction(n_dofs, |i| (o_end..c_end).contains(&i));
+                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_corner", "x0"));
+            }
+            for (k, name) in ["feed_inset", "feed_width"].iter().enumerate().take(n_feed) {
+                let d: Vec<f64> = (0..n_dofs)
+                    .map(|i| if i == c_end + k { 1.0 } else { 0.0 })
+                    .collect();
+                fd_checks.push(fd_check(&model, &x0, &grad0, &d, name, "x0"));
+            }
+        } else {
+            let d = rng.unit_direction(n_dofs, |_| true);
+            fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_all", "x0"));
         }
     }
 
@@ -1892,7 +2498,7 @@ fn main() {
         .map(|(_, s, _)| 20.0 * s.norm().log10())
         .fold(f64::INFINITY, f64::min);
     let reached = verify_worst <= TARGET_DB;
-    let disp = model.morph.combined_velocity(&x_final);
+    let disp = model.morph.displacement(&model.base.mesh, &x_final);
     let max_disp = disp
         .iter()
         .map(|d| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
@@ -1901,8 +2507,21 @@ fn main() {
         worst_tet_volume_ratio(&model.base.mesh, &model.moved_mesh(&x_final));
     let final_site = geo.site(&model.base, &model.moved_mesh(&x_final), worst_tet);
     final_site.log("worst tet at x_final");
-    let crater_final = crater(&model.base, &disp, &geo, &nodes.patch, &patch_tris);
+    let crater_final = crater(
+        &model.base,
+        &disp,
+        &geo,
+        &nodes.patch,
+        &patch_tris,
+        cli.copper,
+    );
     crater_final.log(h);
+    let copper_final = cli
+        .copper
+        .then(|| copper(&model, &geo, &nodes, &patch_tris, h, &x_final));
+    if let Some(cu) = &copper_final {
+        cu.log();
+    }
     // Mean radial lift of the patch and mean outward edge motion.
     let mean_patch_radial = {
         let mut acc = 0.0;
@@ -2031,17 +2650,30 @@ fn main() {
             let _ = writeln!(j, "  \"{key}\": {value},");
         };
         let js = |s: &str| serde_json::Value::String(s.to_string()).to_string();
-        field(
-            "description",
-            js(
-                "Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved \
+        let description_1087 = "Optimized curved conformal 2.4 GHz patch (issue #1087): base and moved \
                 coordinates of the substrate-top surface nodes (the patch nodes among them, \
                 is_patch) with the patch and substrate-top triangles, bent frame. The ground \
                 plane is not dumped: it does not move radially, and its mesh nodes slide only \
                 tangentially under outline DOFs, which leaves it on the cylinder up to the chord \
                 error d^2/2R. Consumed by the Meep matched-geometry work (#1088) and \
-                benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.",
-            ),
+                benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.";
+        let description_1120 = "Optimized copper of the curved conformal 2.4 GHz patch on a fixed, \
+                uniform 1.6 mm FR-4 board (issue #1120): base and moved coordinates of the \
+                substrate-top surface nodes (the patch nodes among them, is_patch) with the patch \
+                and substrate-top triangles, bent frame. Every substrate node keeps its radius \
+                about the bend axis (exact on-cylinder chart morph), so the board is the \
+                undeformed R = 100 mm shell and only the etched copper (outline, corners) and the \
+                probe (feed_moved_s_y_mm, probe_w_moved_mm) change. The ground plane is the \
+                unchanged substrate bottom and is not dumped. Consumed by the Meep \
+                matched-geometry work (#1088) and \
+                benchmarks/patch_antenna_conformal/scripts/plot_patch_displacement.py.";
+        field(
+            "description",
+            js(if cli.copper {
+                description_1120
+            } else {
+                description_1087
+            }),
         );
         field("index_base", "0".to_string());
         field(
@@ -2083,6 +2715,24 @@ fn main() {
         field("outline_basis", js(&outline_spec));
         field("n_radial_dofs", format!("{n_radial}"));
         field("n_outline_dofs", format!("{n_outline}"));
+        if let Some(cu) = &copper_final {
+            field("corner_basis", js(&corner_spec));
+            field("feed_basis", js(&feed_spec));
+            field("n_corner_dofs", format!("{n_corner}"));
+            field("n_feed_dofs", format!("{n_feed}"));
+            field("thickness_fixed", "true".to_string());
+            field(
+                "max_slab_radius_change_mm",
+                format!("{:e}", cu.max_slab_radius_change_mm),
+            );
+            field(
+                "feed_moved_s_y_mm",
+                format!("[{},{}]", r6(cu.feed_s_mm), r6(cu.feed_y_mm)),
+            );
+            field("probe_w_moved_mm", format!("{}", r6(cu.probe_w_mm)));
+            field("inset_moved_mm", format!("{}", r6(cu.inset_mm)));
+            field("band_shift_ghz", format!("{}", cli.band_shift));
+        }
         field(
             "design_vector",
             format!(
@@ -2201,12 +2851,14 @@ fn main() {
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
-             <dir>/{stem}.msh --radial {} --outline {} --filter-radius {} --n-band {} --beta {} \
-             --max-steps {} --verify-n {} --wide-step {} --label {}{}",
-            cli.radial
-                .map_or("0".to_string(), |(a, b)| format!("{a}x{b}")),
-            cli.outline,
-            cli.filter_radius,
+             <dir>/{stem}.msh {}{} --n-band {} --beta {} --max-steps {} --verify-n {} --wide-step \
+             {} --label {}{}",
+            basis_flags(&cli),
+            if cli.band_shift != 0.0 {
+                format!(" --band-shift {}", cli.band_shift)
+            } else {
+                String::new()
+            },
             cli.n_band,
             cli.beta,
             cli.max_steps,
@@ -2252,6 +2904,9 @@ fn main() {
         let _ = writeln!(t, "band_points_ghz = [{}]", pts.join(", "));
     }
     let _ = writeln!(t, "n_band_points = {}", band_f.len());
+    if cli.copper || cli.band_shift != 0.0 {
+        let _ = writeln!(t, "band_shift_ghz = {}", cli.band_shift);
+    }
     let _ = writeln!(t, "softmax_beta = {}", cli.beta);
     t.push_str(
         "objective = \"G(x) = (1/beta) ln sum_f exp(beta |S11(f; x)|^2) over the band points \
@@ -2295,8 +2950,22 @@ fn main() {
     );
     let _ = writeln!(t, "radial = {}", toml_str(&radial_spec));
     let _ = writeln!(t, "outline = {}", toml_str(&outline_spec));
+    if cli.copper {
+        let _ = writeln!(t, "corner = {}", toml_str(&corner_spec));
+        let _ = writeln!(t, "feed = {}", toml_str(&feed_spec));
+        t.push_str(
+            "morph = \"chart_exact: every substrate node moves to angle phi0 + ds/R and y0 + dy at \
+             its base radius (ChartMorph, issue #1120); air nodes follow the harmonic extension of \
+             the first-order motion; UPML shell and outer boundary pinned\"\n",
+        );
+        t.push_str("thickness = \"fixed: uniform 1.6 mm FR-4, radial (gap) DOFs frozen\"\n");
+    }
     let _ = writeln!(t, "n_radial_dofs = {n_radial}");
     let _ = writeln!(t, "n_outline_dofs = {n_outline}");
+    if cli.copper {
+        let _ = writeln!(t, "n_corner_dofs = {n_corner}");
+        let _ = writeln!(t, "n_feed_dofs = {n_feed}");
+    }
     let _ = writeln!(t, "n_dofs = {n_dofs}");
     let _ = writeln!(t, "radial_scale_mm_per_unit = {radial_scale}");
     let _ = writeln!(t, "outline_scale_mm_per_unit = {OUTLINE_SCALE_MM}");
@@ -2420,6 +3089,9 @@ fn main() {
         t.push('\n');
     }
     crater_final.write(&mut t, h);
+    if let Some(cu) = &copper_final {
+        cu.write(&mut t);
+    }
 
     for (k, s) in e0.s11.iter().enumerate() {
         t.push_str("[[s11_initial.point]]\n");
