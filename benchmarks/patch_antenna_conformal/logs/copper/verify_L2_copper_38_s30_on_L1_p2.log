@@ -1,0 +1,18 @@
+patch_conformal_nested_dof [copper_38]: patch_conformal_L1 (150561 edges, 23246 nodes, 124353 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+  verify-only: design L2_copper_38_s30 on L1 at p2
+    worst tet: tet 101751 ratio 0.244 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.27 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 0.66 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.215) mm, width 2.094 mm, inset 4.952 mm; patch 28.360 x 39.903 mm (L x W), area 1111.4 mm^2 (base 1110.8)
+  in-band verification sweep:
+    P2 space: 804460 DOFs (693840 interior)
+    sweep(P2) 2.4000 GHz: |S11| = 0.3124 (-10.11 dB), Z = 65.8 +34.3i ohm, res 1.8e-12, 513 s
+    sweep(P2) 2.4104 GHz: |S11| = 0.2504 (-12.03 dB), Z = 70.5 +22.9i ohm, res 1.6e-12, 504 s
+    sweep(P2) 2.4209 GHz: |S11| = 0.1918 (-14.34 dB), Z = 70.9 +10.2i ohm, res 1.6e-12, 509 s
+    sweep(P2) 2.4313 GHz: |S11| = 0.1458 (-16.72 dB), Z = 67.0 -1.4i ohm, res 1.6e-12, 486 s
+    sweep(P2) 2.4417 GHz: |S11| = 0.1302 (-17.71 dB), Z = 60.1 -10.2i ohm, res 1.6e-12, 458 s
+    sweep(P2) 2.4522 GHz: |S11| = 0.1545 (-16.22 dB), Z = 52.1 -15.8i ohm, res 1.7e-12, 456 s
+    sweep(P2) 2.4626 GHz: |S11| = 0.2032 (-13.84 dB), Z = 44.2 -18.6i ohm, res 1.7e-12, 455 s
+    sweep(P2) 2.4731 GHz: |S11| = 0.2606 (-11.68 dB), Z = 37.3 -19.5i ohm, res 1.6e-12, 455 s
+    sweep(P2) 2.4835 GHz: |S11| = 0.3192 ( -9.92 dB), Z = 31.4 -19.2i ohm, res 1.6e-12, 458 s
+  verify L2_copper_38_s30 on L1 (p2): worst -9.92 dB, best -17.71 dB over 9 points; reached -10 dB = false; min vol ratio 0.244; no wide sweep; 4297 s, peak RSS 132.3 GiB
+patch_conformal_nested_dof [verify L2_copper_38_s30 on L1 p2]: <out>/verify/L2_copper_38_s30_on_L1_p2.toml
