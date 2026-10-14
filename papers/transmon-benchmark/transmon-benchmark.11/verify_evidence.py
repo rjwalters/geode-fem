@@ -25,7 +25,10 @@ SingleTransmon cross-check and the gradient-assisted re-optimization. It pins:
 - voice and audience rules: no revision narrative, no issue numbers, no
   virtue labels, three em-dashes, and the static route "consistent with" the
   shift in the abstract, Section 1 and Section 11 (never "gives the same
-  shift" or "confirms").
+  shift" or "confirms");
+- the Section 9 provenance counts (PRs, commits, Claude families, the three
+  Codex commits and their line share, Crutcher Dunnavant's commits), recomputed
+  from local git at a pinned base by count_provenance.py.
 
 Bounds, bands and percentages are recomputed from the committed values with
 their rounding direction. Certified lower bounds, the extrapolated circuit
@@ -38,9 +41,12 @@ import hashlib
 import json
 import math
 import re
+import sys
 import tomllib
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.dont_write_bytecode = True
 REPO = HERE.parents[2]
 TEX = (HERE / "main.tex").read_text()
 NORM = re.sub(r"\s+", " ", TEX)
@@ -747,7 +753,7 @@ def check_operator_items():
     for stale in ["tensor-native finite-element", "charging energy,", "cross-validated against Palace", "REFRAME"]:
         absent(stale)
     # Later ruling (2026-10-13, superseding the affiliation ruling): solo author, Independent Researcher;
-    # no equal-contribution footnote; Crutcher Dunnavant is offered coauthorship at review.
+    # no equal-contribution footnote; Crutcher Dunnavant is to be offered coauthorship at review.
     author = TEX[TEX.index("\\author{"):TEX.index("\\date{")]
     assert author == "\\author{Robb Walters\\\\\n  {\\normalsize Independent Researcher}}\n" + AUTHOR_NOTE + "\n", author
     for stale in ["contributed equally", "\\thanks", "\\and ", "affiliation line"]:
@@ -794,6 +800,26 @@ def check_operator_items():
     assert "TODO" not in BODY and "[PENDING" not in TEX
 
 
+def check_provenance():
+    """Section 9 counts, recomputed from local git (read-only, offline) by count_provenance.py."""
+    import count_provenance
+    got = count_provenance.counts()
+    assert got == PROVENANCE, got
+    built = NORM[NORM.index("\\section{How geode-fem Was Designed and Built}"):NORM.index("\\section{Reproducibility}")]
+    fam = got["families"]
+    for text in [f"through {got['prs']} merged pull requests", f"and {got['commits']} commits",
+                 f"Of these commits, {got['claude_trailered']} carry a Claude co-author trailer",
+                 f"(Opus {fam['Opus']}, Fable {fam['Fable']}, Sonnet {fam['Sonnet']})",
+                 f"the other {len(got['codex_commits'])} were made through Codex",
+                 f"about ${round(got['codex_line_share_pct'])}\\%$ of the added text lines",
+                 f"is the author of {got['crutcher_commits']} commits, made in June 2026"]:
+        assert text in built, text
+    assert got["crutcher_dates"][0].startswith("2026-06") and got["crutcher_dates"][1].startswith("2026-06")
+    assert got["claude_trailered"] == sum(fam.values())   # no commit names two families
+    assert "not counted" not in built and "OpenAI models (through Codex)" not in built
+    assert "Every change passed" not in built
+
+
 def check_voice():
     assert BODY.count("---") == 3, BODY.count("---")   # the Section 1 credential sentence and Appendix B
     for word in ["honest", "genuinely", "load-bearing", "load bearing", "elegant", "earlier version",
@@ -817,9 +843,10 @@ def check_voice():
                  NORM.index("\\paragraph{Acknowledgments.}")]
     assert "is consistent with that shift" in intro and "is consistent with that shift" in concl
     low = re.sub(r"\s+", " ", BODY.lower())
-    for stale in ["gives the same shift", "give the same shift", "same shift", "by a static route",
-                  "confirm", "corroborat", "verifies that shift", "reproduces that shift"]:
-        assert stale not in low, stale
+    # Word-bounded, so that "the same shift-invert target" and "confirmed" stay legal.
+    for stale in [r"\bgives? the same shift\b", r"\bsame shift\b(?![-\w])", r"\bby a static route\b",
+                  r"\bconfirms?\b", r"\bcorroborat", r"\bverifies that shift\b", r"\breproduces that shift\b"]:
+        assert not re.search(stale, low), stale
     phrase("Converged frequencies are extrapolations with stated bands, not bounds; the capacitance brackets "
            "are certified for the meshed polygonal geometry.")
     # Certified brackets and extrapolations keep their labels.
@@ -831,34 +858,50 @@ def check_voice():
 V10_SHA = "16a3d01fb4c0480687882923d859abdaedf60adffeeed71f308d6e4d0969dd88"
 TITLE = ("A differentiable finite-element solver for superconducting-qubit design: converged frequencies and "
          "gradient re-optimization of the DeviceLayout.jl transmon")
-AUTHOR_NOTE = "% NOTE: Crutcher Dunnavant offered coauthorship at review (operator, 2026-10-13)"
+AUTHOR_NOTE = "% NOTE: Crutcher Dunnavant to be offered coauthorship at review (operator, 2026-10-13)"
 BUILT = [
     "geode-fem implements the whiteroom L1--L4 operator specification of Crutcher Dunnavant "
-    "\\citep{dunnavant2026whiteroom}, and his design input shaped the solver's operator layer.",
-    "produced by frontier AI models working as role-separated agents: Anthropic's Claude (Opus, Fable and Sonnet "
-    "models, through Claude Code) and OpenAI models (through Codex).",
+    "\\citep{dunnavant2026whiteroom}. He also gave design input on the solver's operator layer and is the author "
+    "of 36 commits, made in June 2026, that migrated the code to Rust 2024, added the Metal (Apple GPU) backend, "
+    "restructured the core crate and the examples into their present layout, and created the geode-util crate.",
+    "The code, the experiments and the drafts of this paper were otherwise produced by frontier AI models working "
+    "as role-separated agents: Anthropic's Claude (Opus, Fable and Sonnet models, through Claude Code) and "
+    "OpenAI's GPT Sol and GPT Astra models (via Codex).",
+    "Codex wrote one full draft of this paper, revised its figures, and wrote the P2 shape-derivative code and "
+    "evidence behind the electrostatic design loop of Appendix~\\ref{sec:appendix-supporting}.",
     "The agents were coordinated by Loom \\citep{loom}, an issue, worktree and pull-request workflow, and by a "
     "shared Squad room.",
-    "Every change passed an independent agent review that recomputed the numbers from committed artifacts, "
-    "reproduced runs and mutation-tested the verifier pins, and several claims in this paper were corrected or "
-    "dropped because of those reviews.",
+    # 46 of 48: #539 and #592 have no review or comment (read-only gh queries, validation.md).
+    "Nearly every change was reviewed by a separate agent session: 46 of the 48 pull requests received an "
+    "independent review, and once verifier scripts were added, those reviews recomputed the numbers from "
+    "committed artifacts, reproduced runs and mutation-tested the verifier pins. Several claims in this paper "
+    "were corrected or dropped because of those reviews.",
     "was first read as a design target and set a capacitance anchor; checked against the primary source, it is the "
     "frequency of the unmodified initial geometry",
     "mixed the scalar-$\\bar\\varepsilon$ and sapphire-tensor models was replaced by certified brackets for each "
     "model and a certified gap between them",
     "was first presented as an independent check; the extrapolation rule had been fixed after the static route was "
     "known, so it is reported as a consistency check",
-    # From git history at 3fe5f706 (validation.md gives the commands).
+    # Recomputed from local git at BASE by count_provenance.py (check_provenance below).
     "Counts from repository history, up to this revision: the paper and its benchmark artifacts changed through 48 "
-    "merged pull requests from 2026-07-14, and 82 of the 85 commits involved carry a Claude co-author trailer "
-    "(Opus 66, Fable 10, Sonnet 6). Commits made through Codex carry no such trailer and are not counted.",
+    "merged pull requests from 2026-07-14 and 85 commits. Of these commits, 82 carry a Claude co-author trailer "
+    "(Opus 66, Fable 10, Sonnet 6); the other 3 were made through Codex, which adds no trailer, and contain about "
+    "$11\\%$ of the added text lines.",
     "The human author directed the research, made every scoping and claim decision, and takes responsibility for "
     "the content.",
 ]
-ACK = ("\\paragraph{Acknowledgments.} We thank Crutcher Dunnavant for the whiteroom specification and for his design "
-       "input to the solver's operator layer, and the Palace and DeviceLayout.jl developers for publishing the "
+ACK = ("\\paragraph{Acknowledgments.} We thank Crutcher Dunnavant for the whiteroom specification, for his design "
+       "input to the solver's operator layer and for his contributions to the codebase, and the Palace and DeviceLayout.jl developers for publishing the "
        "SingleTransmon example and its frequencies. The AI-orchestrated development of geode-fem and of this paper "
        "is described in Section~\\ref{sec:built}. ")
+PROVENANCE = {
+    "base": "3fe5f706456a594b7452eff7285ec5836569363a",
+    "prs": 48, "pr_range": [496, 1119], "commits": 85, "claude_trailered": 82,
+    "families": {"Opus": 66, "Fable": 10, "Sonnet": 6},
+    "codex_commits": ["4c6faaaf", "2efa0057", "ec9e0539"],
+    "codex_added_lines": 15761, "total_added_lines": 144615, "codex_line_share_pct": 10.9,
+    "crutcher_commits": 36, "crutcher_dates": ["2026-06-24", "2026-06-29"],
+}
 OPEN_TODOS = ["% TODO(operator): Zenodo DOI", "% TODO(operator): approve acknowledgment wording"]
 
 
@@ -872,12 +915,14 @@ def main():
     check_perf()
     check_citations()
     check_voice()
+    check_provenance()
     print("PASS: same-mesh credential and fixture refinement shifts; DeviceLayout cross-check (published pairs, "
           "reproduction, extrapolation rule recomputed from the ladder, bands, cap, same-mesh agreement); certified "
           "scalar and tensor capacitance brackets, gap, overstatement and static route; re-optimization (iterates, "
           "cost, gradient check, converged design and its band, shared-limit check); supporting electrostatic loop; "
           "performance context; citations against refs.bib and the litsearch; the operator's 2026-10-13 rulings against "
-          "v10; voice and audience rules, including the static-route wording in the abstract, Section 1 and the conclusion.")
+          "v10; voice and audience rules, including the static-route wording in the abstract, Section 1 and the conclusion; "
+          "Section 9 provenance counts recomputed from local git.")
 
 
 if __name__ == "__main__":

@@ -42,7 +42,29 @@ TeX Live / pdfTeX.
   PR numbers from "Merge pull request #N" and trailing "(#N)", deduplicated
   → 48; `git log origin/main --no-merges --format='@@%h%n%(trailers:key=Co-Authored-By,valueonly)'`
   over the same paths → 85 commits, 82 with a Claude trailer (Opus 66, Fable
-  10, Sonnet 6, counted once per commit per family).
+  10, Sonnet 6, counted once per commit per family). These are now recomputed
+  by the committed `count_provenance.py` (read-only, offline, pinned base
+  `3fe5f706`), which `verify_evidence.py` calls and pins. It also gives the
+  3 trailer-less (Codex) commits `ec9e0539`, `2efa0057`, `4c6faaaf` with
+  15,761 of 144,615 added text lines (10.9 %), and Crutcher Dunnavant's 36
+  non-merge commits on main (`--author=crutcher@gmail.com`, from
+  `git shortlog -sne`; 2026-06-24 to 06-29).
+- **Review coverage** (read-only `gh pr view --json comments,reviews` over
+  the 48 PRs): 46 have a review or comment; #539 and #592 have none. The v7
+  reviews (#1040) already mention mutation testing, and v7 is the first
+  version with `verify_evidence.py`. Transcribed, not machine-checked (needs
+  the forge).
+- **Judge-review fixes (PR #1121, 18fdabed), mutation check:** 16 single
+  edits, each restored, all caught: Sonnet 6→5, Crutcher 36→35, "GPT Sol and
+  GPT Astra"→"GPT Astra", 11 %→12 %, 46→48 PRs, "not counted" reinserted
+  (twice, in the counts sentence and as a new sentence), "for his
+  contributions to"→"for his work on", the NOTE back to "offered", the
+  pinned `commits` 85→84 in `PROVENANCE`, and in §6 "gives the same shift",
+  "same shift", "confirms", "confirm". Two legitimate sentences, "confirmed
+  with the same shift-invert target" and "confirmation used the same
+  shift-and-invert spectral transform", now pass. Rebuild: 24 pages, 0
+  undefined references, 0 overfull boxes, 0 bibtex warnings; §9 (page 15)
+  inspected at 80 dpi.
 - **cubecl tracking issue:** `gh search issues` on tracel-ai/cubecl and
   tracel-ai/burn ("f64", "f64 cuda", "double precision", "float64",
   "f64 support") and a web search found no issue that tracks the CUDA
@@ -56,6 +78,7 @@ TeX Live / pdfTeX.
 - **Immutability:** `git status` touches only `transmon-benchmark.11/`,
   `transmon-benchmark.11.pending/`, `BRIEF.md` and `papers/README.md`.
 
-Not checked: the §9 counts are transcribed, not recomputed by the verifier
-(a shallow clone would not reproduce them); everything v10 listed as not
+Not checked: the §9 review coverage (46 of 48) is transcribed from the
+forge; `count_provenance.py` needs a full clone containing `3fe5f706`;
+everything v10 listed as not
 checked; no Anvil critic was run.

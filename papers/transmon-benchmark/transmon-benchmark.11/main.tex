@@ -32,7 +32,7 @@ design: converged frequencies and gradient re-optimization of the
 DeviceLayout.jl transmon}
 \author{Robb Walters\\
   {\normalsize Independent Researcher}}
-% NOTE: Crutcher Dunnavant offered coauthorship at review (operator, 2026-10-13)
+% NOTE: Crutcher Dunnavant to be offered coauthorship at review (operator, 2026-10-13)
 \date{\today}
 
 \begin{document}
@@ -900,18 +900,26 @@ stationarity result for the eigenproblem.
 \label{sec:built}
 
 geode-fem implements the whiteroom L1--L4 operator specification of
-Crutcher Dunnavant \citep{dunnavant2026whiteroom}, and his design input
-shaped the solver's operator layer. The code, the experiments and the
-drafts of this paper were produced by frontier AI models working as
+Crutcher Dunnavant \citep{dunnavant2026whiteroom}. He also gave design
+input on the solver's operator layer and is the author of 36 commits, made
+in June 2026, that migrated the code to Rust 2024, added the Metal (Apple
+GPU) backend, restructured the core crate and the examples into their
+present layout, and created the geode-util crate. The code, the experiments and the drafts of
+this paper were otherwise produced by frontier AI models working as
 role-separated agents: Anthropic's Claude (Opus, Fable and Sonnet models,
-through Claude Code) and OpenAI models (through Codex). The agents were
+through Claude Code) and OpenAI's GPT Sol and GPT Astra models (via
+Codex). Codex wrote one full draft of this paper, revised its figures, and
+wrote the P2 shape-derivative code and evidence behind the electrostatic
+design loop of Appendix~\ref{sec:appendix-supporting}. The agents were
 coordinated by Loom \citep{loom}, an issue, worktree and pull-request
 workflow, and by a shared Squad room.
 
-Every change passed an independent agent review that recomputed the
-numbers from committed artifacts, reproduced runs and mutation-tested the
-verifier pins, and several claims in this paper were corrected or dropped
-because of those reviews. Three examples follow. The $4.14$\,GHz of the
+Nearly every change was reviewed by a separate agent session: 46 of the
+48 pull requests received an independent review, and once verifier
+scripts were added, those reviews recomputed the numbers from committed
+artifacts, reproduced runs and mutation-tested the verifier pins. Several
+claims in this paper were corrected or dropped because of those reviews.
+Three examples follow. The $4.14$\,GHz of the
 SingleTransmon example was first read as a design target and set a
 capacitance anchor; checked against the primary source, it is the
 frequency of the unmodified initial geometry, and the designs aimed at it
@@ -926,11 +934,11 @@ route was known, so it is reported as a consistency check
 
 Counts from repository history, up to this revision: the paper and its
 benchmark artifacts changed through 48 merged pull requests from
-2026-07-14, and 82 of the 85 commits involved carry a Claude co-author
-trailer (Opus 66, Fable 10, Sonnet 6). Commits made through Codex carry no
-such trailer and are not counted. The human author directed the research,
-made every scoping and claim decision, and takes responsibility for the
-content.
+2026-07-14 and 85 commits. Of these commits, 82 carry a Claude co-author
+trailer (Opus 66, Fable 10, Sonnet 6); the other 3 were made through
+Codex, which adds no trailer, and contain about $11\%$ of the added text
+lines. The human author directed the research, made every scoping and
+claim decision, and takes responsibility for the content.
 
 \section{Reproducibility}
 \label{sec:repro}
@@ -1043,8 +1051,9 @@ discretization is part of the result, and a solver that supplies
 gradients and certified bounds makes it cheap to report converged values.
 
 \paragraph{Acknowledgments.}
-We thank Crutcher Dunnavant for the whiteroom specification and for his
-design input to the solver's operator layer, and the Palace and
+We thank Crutcher Dunnavant for the whiteroom specification, for his
+design input to the solver's operator layer and for his contributions to
+the codebase, and the Palace and
 DeviceLayout.jl developers for publishing the SingleTransmon example and
 its frequencies. The AI-orchestrated development of geode-fem and of this
 paper is described in Section~\ref{sec:built}.

@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters (solo), Independent Researcher — operator ruling 2026-10-13; Crutcher Dunnavant offered coauthorship at review; AI-orchestrated development described in its own section (v11)"
+authors: "Robb Walters (solo), Independent Researcher — operator ruling 2026-10-13; Crutcher Dunnavant to be offered coauthorship at review; AI-orchestrated development described in its own section (v11)"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -34,11 +34,15 @@ or audit carries over.
 - **Whiteroom (ruled):** cited as software, `dunnavant2026whiteroom`
   (https://github.com/crutcher/palace_whiteroom, public). Loom cited as a URL.
 - **New §9 "How geode-fem Was Designed and Built" (ruled):** the whiteroom
-  lineage; role-separated AI agents (Claude via Claude Code, OpenAI models via
-  Codex) coordinated by Loom and a Squad room; independent agent review of
-  every change, with three claims it corrected (the misread 4.14 GHz anchor,
+  lineage and Crutcher Dunnavant's own 36 commits (Rust 2024, Metal backend,
+  restructuring, geode-util); role-separated AI agents (Anthropic's Claude
+  Opus, Fable and Sonnet via Claude Code; OpenAI's GPT Sol and GPT Astra
+  models via Codex, which made 3 of the 85 commits) coordinated by Loom and a
+  Squad room; independent agent review of 46 of the 48 PRs, with three
+  claims it corrected (the misread 4.14 GHz anchor,
   scalar/tensor mixing, the static route presented as independent); git-history
-  counts; the human author's responsibility.
+  counts, recomputed by `count_provenance.py`; the human author's
+  responsibility.
 - **Mechanical:** repository URL https://github.com/rjwalters/geode-fem in the
   Reproducibility footnote; archival DOI at Zenodo deposit; no public cubecl
   f64 tracking issue found, so the footnote promises none.
@@ -857,8 +861,8 @@ days to announcement once endorsed.**
 **Operator ruling (2026-10-13):** solo author, Robb Walters, Independent
 Researcher. Crutcher Dunnavant is removed from the byline, with the
 equal-contribution footnote; the operator will share the draft with him and
-offer him coauthorship (source comment `% NOTE: Crutcher Dunnavant offered
-coauthorship at review (operator, 2026-10-13)`). The whiteroom question below
+offer him coauthorship (source comment `% NOTE: Crutcher Dunnavant to be
+offered coauthorship at review (operator, 2026-10-13)`). The whiteroom question below
 is answered: it is public (https://github.com/crutcher/palace_whiteroom) and
 cited. The original note follows for the record.
 
