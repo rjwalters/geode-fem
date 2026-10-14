@@ -2544,22 +2544,16 @@ fn main() {
             |s, y| {
                 let mut v = Vec::with_capacity(n_cols);
                 if let Some(ob) = &ob {
-                    let e = ob.eval(s, y);
                     if rect4 {
-                        // [+y, -y, +s, -s] blocks of n splines each.
-                        let n = e.len() / 4;
-                        let sum = |r: std::ops::Range<usize>| {
-                            e[r].iter()
-                                .fold([0.0_f64; 2], |a, b| [a[0] + b[0], a[1] + b[1]])
-                        };
-                        let (yp, ym, sp, sm) =
-                            (sum(0..n), sum(n..2 * n), sum(2 * n..3 * n), sum(3 * n..4 * n));
-                        let half = 0.5 * OUTLINE_SCALE_MM;
-                        v.push([half * (sp[0] + sm[0]), half * (sp[1] + sm[1])]);
-                        v.push([half * (yp[0] + ym[0]), half * (yp[1] + ym[1])]);
+                        v.extend(
+                            ob.eval_rect(s, y)
+                                .into_iter()
+                                .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                        );
                     } else {
                         v.extend(
-                            e.into_iter()
+                            ob.eval(s, y)
+                                .into_iter()
                                 .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
                         );
                     }
