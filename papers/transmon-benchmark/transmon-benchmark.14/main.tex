@@ -53,20 +53,20 @@ resonator frequencies of an initial and an optimized transmon design,
 computed with Palace. We reproduce them with Palace to within $0.7\%$ and
 cross-check Palace with geode-fem, an independently implemented
 finite-element solver; on shared meshes the two agree to $10^{-4}\%$ on the
-qubit and to $0.03\%$ on the resonator. Under refinement the qubit
-frequencies keep rising. On the initial design the qubit of an adaptive
+qubit and to $0.03\%$ on the resonator. On the initial design the qubit of an adaptive
 Palace run reaches $4.4297$\,GHz, $7.0\%$ above the published $4.14$\,GHz,
 with no extrapolation. Extrapolated at order 1 in the mesh size, the two
 qubits lie $7$--$9\%$ and the resonators $2.7\%$ above their published
 values. Order 1 is the fastest rate the sheet-edge singularity allows, so
 these estimates lean low. A certified bracket on the island capacitance,
-read through a circuit model, is consistent with that shift. Re-optimized for the $3.0$/$4.0$\,GHz targets at
-the extrapolated frequencies, the design needs a capacitor about
+read through a circuit model, is consistent with that shift. At the extrapolated frequencies the $3.0$/$4.0$\,GHz design needs a
+capacitor about
 $19$--$20\%$ longer than published (about $+17\%$ to $+39\%$ within the
-extrapolation band). Newton's method in DeviceLayout's variables meets its
-stopping criterion in 3 Palace runs, with geode-fem's shape derivative or a
-scaling law in the Jacobian, where DeviceLayout's PRIMA optimizer takes 10
-in the same environment.
+extrapolation band). Counting every Palace run, probes included, Newton's method meets
+DeviceLayout's stopping criterion in 3 runs with
+geode-fem's shape derivative, or a scaling law with geode-fem's resonator
+calibration, in the Jacobian, and in 4 with no geode-fem input at all;
+PRIMA takes 10 in the same environment.
 \end{abstract}
 
 \section{Introduction}
@@ -306,16 +306,19 @@ inductive energy stored in it \citep{minev2021energy}. Both codes use the
 isotropic sheet term of Eq.~\eqref{eq:port} here.
 
 The two codes read the same input mesh but do not solve the same unknowns.
-Palace cracks each metal sheet into two sides by duplicating its vertices.
-Where an edge inside a sheet joins two outline vertices, which are not
-duplicated, the sides cannot be separated, and Palace bisects the elements
-on both sides of that edge (``local bisection for under-resolved interior
-boundaries'' in its log; \texttt{palace/utils/geodata.cpp}). Such edges lie
-where a sheet is one element wide: of the $1{,}009$ on the fixture, $742$
-lie on the ground-plane sheet that carries the resonator, $252$ on the
-feedline and $15$ on the island. The $4{,}913$ added tetrahedra therefore
-sit away from the island and junction, consistent with the qubit agreeing
-to $5\times10^{-5}\,\%$ while the other modes differ by up to $0.032\%$.
+Palace cracks each metal sheet, but not the junction sheet, into two sides
+by duplicating its vertices. Where an edge inside a sheet joins two outline
+vertices, which are not duplicated, the sides cannot be separated, and
+Palace bisects the elements on both sides of that edge, in two passes on
+the fixture (``local bisection
+for under-resolved interior boundaries'' in its log;
+\texttt{palace/utils/geodata.cpp}). Such edges lie where a sheet is one
+element wide: the $1{,}007$ on the fixture, one per vertex Palace adds, are
+$741$ on the ground-plane sheet that carries the resonator, $252$ on the
+feedline and $14$ on the island. The $4{,}913$ added tetrahedra are thus
+concentrated on the resonator and feedline, though some touch the island.
+The closer qubit agreement is consistent with where the bisection sits,
+not explained by it.
 
 \begin{table}[htbp]
   \centering
@@ -652,8 +655,8 @@ model.
 \paragraph{Why the qubit is approached from below.}
 The qubit mode is quasi-static, with nearly all of its inductive energy in
 the junction, so its frequency is set by $C_\Sigma + C_J$, which a
-conforming discretization can only overstate: the computed qubit
-approaches its limit from below. On the fixture the P1 bound ($136.68$\,fF)
+conforming discretization can only overstate, so the computed qubit should
+approach its limit from below. On the fixture the P1 bound ($136.68$\,fF)
 overstates $C_\Sigma + C_J$ by a factor of $1.67$, and the family estimates
 exceed the fixture's qubit by $1.66$--$1.68$ in $f^2$. This is a heuristic,
 not a proof (it omits $L_s$, the coupling and the rotational field); for
@@ -794,8 +797,8 @@ of Broyden's Palace probe, so the derivative measures the local slope
 well. The probe steps $x_1$ by $-0.05$ ($c$ to $686.981\,\mu$m) at
 DeviceLayout's second-order discretization and moves the qubit by $4.5\%$;
 the two slopes differ by $0.07\%$ of the qubit over that step, so unlike
-the first-order difference above, this remeshed difference measures the
-slope. Both local slopes are $11$--$12\%$ shallower than the scaling law's
+the first-order difference above, this remeshed difference is consistent
+with the slope. Both local slopes are $11$--$12\%$ shallower than the scaling law's
 $F_q/x_1 = 4.168$\,GHz, because the frequency is not exactly proportional
 to $x_1$ near the initial design, and the first step is long ($x_1$ from
 $1$ to about $0.7$): the chord slope from the initial design to the
@@ -918,8 +921,7 @@ $8{,}534{,}720$ tetrahedra (initial) and $163{,}431$, $1{,}307{,}448$ and
 $10{,}459{,}584$ (final). The meshes were made
 with gmsh 4.15.2 (\texttt{gmsh\_jll}) under Julia 1.10.11, and Palace was
 built against the MPICH of the Rocky Linux 9 image in
-\path{reference/palace/docker/Dockerfile}. The figure scripts in
-\path{figures/src/} read the artifacts directly.
+\path{reference/palace/docker/Dockerfile}.
 
 \section{Discussion}
 \label{sec:discussion}
@@ -989,8 +991,7 @@ against shared modelling choices such as the port sheet behind the
 $17.49$\,GHz mode. The extrapolations assume the rate the sheet-edge singularity
 allows, their high sides are wide, and the adaptive run had not reached a
 plateau, and $L_s$ and $k$ were extrapolated from two or three
-discretizations. The certificate is validated by tests, not formally
-verified. The estimates are for DeviceLayout's geometry
+discretizations. The estimates are for DeviceLayout's geometry
 under a lossless, linear model ($L_J \parallel C_J$, open readout ports in
 the ladders, zero-thickness metal), not for a fabricated device, and only
 one device is studied. The eigenmode branch is
@@ -1016,18 +1017,18 @@ uniform level at $7.0$ million.
 \section{Conclusion}
 \label{sec:conclusion}
 
-Palace reproduces the published frequencies of the DeviceLayout.jl
-SingleTransmon example at the example's own discretization, and that
-discretization sits $6$--$8\%$ low on the qubits: an adaptive run puts the
+Palace reproduces the published DeviceLayout.jl SingleTransmon
+frequencies at the example's own discretization, which sits $6$--$8\%$ low on the qubits: an adaptive run puts the
 initial qubit $7.0\%$ above its published value with no extrapolation, and
 the estimates, which lean low, put both qubits $7$--$9\%$ above. geode-fem
 reproduces Palace's qubit on every level both codes ran, and a certified
 bracket on the island capacitance, read through a circuit model, is
 consistent with that shift and caps the initial qubit under that model. At
 the extrapolated frequencies the $3.0$/$4.0$\,GHz design needs a capacitor
-about $19$--$20\%$ longer than published, and Newton's method in
-DeviceLayout's variables reaches the example's criterion in 3 Palace runs
-against PRIMA's 10, with or without the shape derivative. For design
+about $19$--$20\%$ longer than published, and Newton's method reaches the
+example's criterion in 3 Palace runs
+with geode-fem's derivative or its resonator calibration, and in 4 with no
+geode-fem input at all, against PRIMA's 10. For design
 examples that are
 meant to be copied, the discretization is part of the result and belongs
 in the report beside it.

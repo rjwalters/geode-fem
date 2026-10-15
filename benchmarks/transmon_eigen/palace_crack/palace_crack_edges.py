@@ -9,15 +9,17 @@ Such an edge lies where a sheet is one element wide.
 
 Usage (repo root; stdlib only, no Palace or cargo needed):
     python3 benchmarks/transmon_eigen/palace_crack/palace_crack_edges.py \
-        crates/geode-core/tests/fixtures/transmon_smoke.msh 4,5 \
+        crates/geode-core/tests/fixtures/transmon_smoke.msh 5 \
         > benchmarks/transmon_eigen/palace_crack/fixture_crack_edges.toml
 
-Physical groups 4 (lumped_element) and 5 (metal) are the interior
-boundaries Palace cracks. Cross-check against Palace's own log
-(reference/fixtures/transmon_palace/results_p1/palace_run_v22.log): it
-added 29,705 - 22,684 - 6,014 = 1,007 vertices by bisection (one per split
-edge, against 1,009 flagged edges here), and 6,014 duplicate vertices
-(5,008 here before bisection, plus the new midpoints on the sheets).
+Only physical group 5 (metal) is cracked. AddInterfaceBdrElements in
+geodata.cpp leaves lumped-port attributes (group 4, lumped_element) out of
+cracking ("lumpedports in particular"), so they are not passed here.
+Cross-check against Palace's own log
+(reference/fixtures/transmon_palace/results_p1/palace_run_v22.log): it added
+29,705 - 22,684 - 6,014 = 1,007 vertices by bisection, one per split edge,
+equal to the 1,007 flagged edges found here; and 13,084 crack triangles +
+2 x 1,007 = 15,098 duplicate boundary elements, as logged.
 """
 import sys
 from collections import defaultdict

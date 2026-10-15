@@ -1,10 +1,10 @@
 # Written by palace_crack_edges.py; do not edit.
 mesh = "crates/geode-core/tests/fixtures/transmon_smoke.msh"
-crack_triangles = 13088
-crack_vertices = 8128
-duplicated_vertices = 5008
-flagged_edges = 1009
+crack_triangles = 13084
+crack_vertices = 8127
+duplicated_vertices = 5007
+flagged_edges = 1007
 [flagged_edges_by_conductor]
 feedline = 252
-ground_and_resonator = 742
-island = 15
+ground_and_resonator = 741
+island = 14

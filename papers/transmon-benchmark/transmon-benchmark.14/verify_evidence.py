@@ -138,7 +138,7 @@ def check_agreement():
     assert worst == 0.032 and ceil_to(worst, 3) <= 0.033
     contains("to $\\leq 0.033\\%$ (worst case $0.032\\%$)")
     assert pal["qubit_geode_vs_palace_pct"] == 5e-5 and pal["target_ghz"] == 2.0
-    pin("$5\\times10^{-5}\\,\\%$", 3)   # Section 1, Section 4 (agreement, bisection)
+    pin("$5\\times10^{-5}\\,\\%$", 2)   # Section 1, Section 4
     assert eigen["modes"]["qubit"]["participation"] == 0.9942
     contains(f"port EPR ${pal['qubit_port_epr']:.5f}$ in Palace")
     assert f"{pal['port_sheet_artifact_port_epr']:.2e}" == "2.49e-08"
@@ -157,14 +157,22 @@ def check_agreement():
     assert re.search(r"vertices\s+\d+\s+\d+\s+\d+\s+29705", log)
     crack = read("benchmarks/transmon_eigen/palace_crack/fixture_crack_edges.toml")
     by = crack["flagged_edges_by_conductor"]
-    assert crack["mesh"] == eigen["meta"]["fixture"] and crack["flagged_edges"] == sum(by.values()) == 1009
-    assert (by["ground_and_resonator"], by["feedline"], by["island"]) == (742, 252, 15)
+    assert crack["mesh"] == eigen["meta"]["fixture"] and crack["flagged_edges"] == sum(by.values()) == 1007
+    assert (by["ground_and_resonator"], by["feedline"], by["island"]) == (741, 252, 14)
+    # Exact agreement with Palace's log (metal cracked, lumped-port sheet excluded as in AddInterfaceBdrElements):
     added_vertices = 29705 - meta["n_nodes"] - 6014       # Palace's bisection midpoints, one per split edge
-    assert added_vertices == 1007 and abs(added_vertices - crack["flagged_edges"]) <= 2
-    contains("of the $1{,}009$ on the fixture, $742$ lie on the ground-plane sheet that carries the resonator, $252$ on "
-             "the feedline and $15$ on the island")
+    assert added_vertices == crack["flagged_edges"]
+    assert "Added 15098 duplicate boundary elements" in log
+    assert crack["crack_triangles"] + 2 * crack["flagged_edges"] == 15098
+    assert "2 iterations of local bisection" in log
+    contains("the $1{,}007$ on the fixture, one per vertex Palace adds, are $741$ on the ground-plane sheet that carries "
+             "the resonator, $252$ on the feedline and $14$ on the island")
+    contains("Palace cracks each metal sheet, but not the junction sheet, into two sides")
+    contains("in two passes on the fixture")
+    contains("concentrated on the resonator and feedline, though some touch the island")
+    contains("The closer qubit agreement is consistent with where the bisection sits, not explained by it.")
+    absent("sit away from the island")
     contains("``local bisection for under-resolved interior boundaries'' in its log; \\texttt{palace/utils/geodata.cpp}")
-    contains("The $4{,}913$ added tetrahedra therefore sit away from the island and junction")
     contains("Palace cracks the metal sheets, bisects $4{,}913$ elements on them and solves $183{,}891$")
     # The EPR is defined and cited where it is used.
     contains("the energy-participation ratio of the junction, the fraction of the mode's inductive energy stored in it "
@@ -306,7 +314,7 @@ def check_crosscheck():
     contains(f"sits ${-under[0][0]:.1f}\\%$ and ${-under[1][0]:.1f}\\%$ low on the two qubits and "
              f"${-under[0][1]:.1f}\\%$ and ${-under[1][1]:.1f}\\%$ low on the resonators")
     assert math.floor(-under[0][0]) == 6 and math.ceil(-under[1][0]) == 8
-    contains("that discretization sits $6$--$8\\%$ low on the qubits")
+    contains("which sits $6$--$8\\%$ low on the qubits")
     nd = max(cc["palace"]["final"]["p1_nd"])
     assert round(nd / 1e6, 1) == 12.6
     pin("$12.6$ million unknowns", 1)
@@ -428,6 +436,7 @@ def check_static(cc):
     f_ratio = [(f / fix_q) ** 2 for f in fam]
     assert [f"{x:.2f}" for x in f_ratio] == ["1.66", "1.68"], f_ratio
     assert f"{p1h:.2f}" == "136.68"
+    contains("so the computed qubit should approach its limit from below")
     contains("On the fixture the P1 bound ($136.68$\\,fF) overstates $C_\\Sigma + C_J$ by a factor of $1.67$, and the "
              "family estimates exceed the fixture's qubit by $1.66$--$1.68$ in $f^2$. This is a heuristic, not a proof")
     # SF-3: the L1 terms are bounded above, not integrated by quadrature of an absolute value.
@@ -685,7 +694,15 @@ def check_controls(cc, opt, slope):
     contains("In this environment the published final design already meets the criterion ($\\mathrm{err} = "
              "1.5\\times10^{-5}$)")
     contains("In one environment, then, the comparison is 3 Newton runs against 10, or 4 with no geode-fem input.")
-    contains("where DeviceLayout's PRIMA optimizer takes 10 in the same environment")
+    # B3: the abstract and conclusion say which inputs the 3-run count needs, and give the geode-free 4.
+    ab = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
+    concl = NORM[NORM.index("\\section{Conclusion}"):NORM.index("\\paragraph{Acknowledgments.}")]
+    assert "and in 4 with no geode-fem input at all" in ab and "PRIMA takes 10 in the same environment" in ab
+    assert "Counting every Palace run, probes included" in ab
+    assert "a scaling law with geode-fem's resonator calibration" in ab
+    assert "and in 4 with no geode-fem input at all, against PRIMA's 10" in concl
+    assert "with geode-fem's derivative or its resonator calibration" in concl
+    absent("with or without the shape derivative")
     # Why the shape-derivative first step lands farther: the Jacobian entries at the initial design.
     x1 = nd["x1"][0]
     S = nd["f_q_ghz"][0] / nd["geode_f_h_q_ghz"][0]
@@ -696,6 +713,7 @@ def check_controls(cc, opt, slope):
     assert round(pct(1 - j_geode / j_broyden), 1) == 1.5
     over_probe = (j_broyden - j_geode) * abs(c["broyden_probe_dx"]) / nd["f_q_ghz"][0]
     assert f"{pct(over_probe):.2f}" == "0.07", over_probe
+    contains("this remeshed difference is consistent with the slope")
     contains("The probe steps $x_1$ by $-0.05$ ($c$ to $686.981\\,\\mu$m) at DeviceLayout's second-order "
              "discretization and moves the qubit by $4.5\\%$; the two slopes differ by $0.07\\%$ of the qubit over that "
              "step")
@@ -846,8 +864,6 @@ def check_controls(cc, opt, slope):
                   "$7$--$9\\%$ below", "Jacobian comes from", "Gradient-Assisted", "gradient re-optimization",
                   "thanks to the", "because of the shape derivative", "the derivative reduces"]:
         absent(stale, BODY)
-    contains("with geode-fem's shape derivative or a scaling law in the Jacobian")
-    contains("with or without the shape derivative")
     contains("Agreement between two codes is evidence against implementation error")
     assert not re.search(r"both (?:solvers |codes )?converge", LOWBODY)
     assert not re.search(r"two independently implemented solvers (?:converge|reach)", LOWBODY)
