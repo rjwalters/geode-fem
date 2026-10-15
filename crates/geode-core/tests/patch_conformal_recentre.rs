@@ -301,9 +301,24 @@ fn palace_p3_meets_minus_10_db_and_agrees_with_geodes_finest_mesh() {
         1e-3,
         "p3 worst in band",
     );
-    pin(pal("sm57_p3", "band_lo_ghz"), 2.393462, 1e-5, "p3 lower edge");
-    pin(pal("sm57_p3", "band_hi_ghz"), 2.486426, 1e-5, "p3 upper edge");
-    pin(pal("sm57_p3", "ism_coverage_frac"), 1.0, 1e-9, "p3 coverage");
+    pin(
+        pal("sm57_p3", "band_lo_ghz"),
+        2.393462,
+        1e-5,
+        "p3 lower edge",
+    );
+    pin(
+        pal("sm57_p3", "band_hi_ghz"),
+        2.486426,
+        1e-5,
+        "p3 upper edge",
+    );
+    pin(
+        pal("sm57_p3", "ism_coverage_frac"),
+        1.0,
+        1e-9,
+        "p3 coverage",
+    );
     assert!(pal("sm57_p3", "margin_lo_mhz") > 6.0 && pal("sm57_p3", "margin_hi_mhz") > 2.5);
     // The design shifts like the initial patch from p = 2 to p = 3 (X1: 8.9
     // MHz on the dip), and the two fine models meet at the lower edge.
@@ -332,7 +347,12 @@ fn the_lower_edge_margin_covers_richardson_not_the_rim_fit() {
     let r = get(&sum, "refinement");
     pin(f(r, "drift_richardson_mhz"), 6.38, 0.01, "Richardson drift");
     pin(f(r, "drift_rim_fit_mhz"), 13.54, 0.01, "rim-fit drift");
-    pin(f(r, "sm57_p3_margin_lo_mhz"), 6.538, 0.002, "p3 lower margin");
+    pin(
+        f(r, "sm57_p3_margin_lo_mhz"),
+        6.538,
+        0.002,
+        "p3 lower margin",
+    );
     assert!(get(r, "sm57_p3_covers_richardson_drift").as_bool().unwrap());
     assert!(!get(r, "sm57_p3_covers_rim_fit_drift").as_bool().unwrap());
     // Total slack at p = 3 against the full 0-14 MHz range.
