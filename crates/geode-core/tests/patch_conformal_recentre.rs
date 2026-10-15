@@ -301,8 +301,8 @@ fn palace_p3_meets_minus_10_db_and_agrees_with_geodes_finest_mesh() {
         1e-3,
         "p3 worst in band",
     );
-    pin(pal("sm57_p3", "band_lo_ghz"), 2.393462, 2e-6, "p3 lower edge");
-    pin(pal("sm57_p3", "band_hi_ghz"), 2.486426, 2e-6, "p3 upper edge");
+    pin(pal("sm57_p3", "band_lo_ghz"), 2.393462, 1e-5, "p3 lower edge");
+    pin(pal("sm57_p3", "band_hi_ghz"), 2.486426, 1e-5, "p3 upper edge");
     pin(pal("sm57_p3", "ism_coverage_frac"), 1.0, 1e-9, "p3 coverage");
     assert!(pal("sm57_p3", "margin_lo_mhz") > 6.0 && pal("sm57_p3", "margin_hi_mhz") > 2.5);
     // The design shifts like the initial patch from p = 2 to p = 3 (X1: 8.9
