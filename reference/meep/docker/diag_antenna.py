@@ -42,28 +42,55 @@ COMM = MPI.COMM_WORLD
 HARNESS_FCEN_GHZ = 2.45  # mean of the harness's linspace(2.2, 2.7, 51)
 
 
-def flat_geometry(config, resolution, setup):
+def shell_bounds(face, dx, outward_sign, mode):
+    """Radial (or z) extent of a one-cell PEC shell on a substrate face.
+
+    outward: the harness convention, [face, face + dx] away from the substrate.
+    face: the shell straddles the face, 0.45 dx inside and 0.55 dx outside, so
+    the tangential-E sample on the face is metal and the next sample inward is
+    not (used on grids where the 1.6 mm gap is a whole number of cells).
+    """
+    if mode == 'outward':
+        a, b = face, face + outward_sign * dx
+    else:
+        a, b = face - outward_sign * 0.45 * dx, face + outward_sign * 0.55 * dx
+    return min(a, b), max(a, b)
+
+
+def flat_geometry(config, resolution, setup, mode='outward'):
     """Axis-aligned flat board with the harness's material/metal conventions."""
     p = config['patch']
     h, dx = p['h'], 1 / resolution
     sw, sl = p['patch_w'] + 2 * p['sub_pad'], p['patch_l'] + 2 * p['sub_pad']
     fr4 = setup['geometry'][0].material
     resistor = setup['geometry'][1]
+    g = shell_bounds(-h / 2, dx, -1, mode)
+    t = shell_bounds(h / 2, dx, +1, mode)
     return [
         mp.Block(center=mp.Vector3(0, 0, 0), size=mp.Vector3(sw, sl, h), material=fr4),
         resistor,
-        # One-cell PEC shells outside the substrate faces, as in the bent harness.
-        mp.Block(center=mp.Vector3(0, 0, -h / 2 - dx / 2), size=mp.Vector3(sw, sl, dx),
+        # One-cell PEC shells on the substrate faces (outward = bent harness).
+        mp.Block(center=mp.Vector3(0, 0, sum(g) / 2), size=mp.Vector3(sw, sl, dx),
                  material=mp.metal),
-        mp.Block(center=mp.Vector3(0, 0, h / 2 + dx / 2),
+        mp.Block(center=mp.Vector3(0, 0, sum(t) / 2),
                  size=mp.Vector3(p['patch_w'], p['patch_l'], dx), material=mp.metal),
     ]
 
 
-def build(config, resolution, geometry_kind, frequencies):
+def build(config, resolution, geometry_kind, frequencies, mode='outward'):
     setup = base.antenna_setup(config, resolution, frequencies)
     if geometry_kind == 'flat':
-        setup['geometry'] = flat_geometry(config, resolution, setup)
+        setup['geometry'] = flat_geometry(config, resolution, setup, mode)
+    elif mode != 'outward':
+        p = config['patch']; h, dx = p['h'], 1 / resolution
+        sw = p['patch_w'] + 2 * p['sub_pad']; sl = p['patch_l'] + 2 * p['sub_pad']
+        substrate, resistor = setup['geometry'][:2]
+        setup['geometry'] = [
+            substrate, resistor,
+            base.shell(*shell_bounds(100 - h / 2, dx, -1, mode), sw / 200, sl, mp.metal),
+            base.shell(*shell_bounds(100 + h / 2, dx, +1, mode), p['patch_w'] / 200,
+                       p['patch_l'], mp.metal)]
+    setup['shell_mode'] = mode
     return setup
 
 
@@ -207,6 +234,7 @@ def main():
     parser.add_argument('--max-checks', type=int, default=6)
     parser.add_argument('--temporal-tolerance', type=float, default=.001)
     parser.add_argument('--max-estimated-gib', type=float, default=48)
+    parser.add_argument('--shell-mode', choices=['outward', 'face'], default='outward')
     parser.add_argument('--dump-grid', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -219,7 +247,7 @@ def main():
     harness_ghz = np.round(np.linspace(2.2, 2.7, 51), 6)
     shared = [int(np.argmin(np.abs(f_ghz - g))) for g in harness_ghz
               if np.min(np.abs(f_ghz - g)) < 1e-9]
-    setup = build(config, args.resolution, args.geometry, frequencies)
+    setup = build(config, args.resolution, args.geometry, frequencies, args.shell_mode)
     cells = int(np.prod([math.ceil(s * args.resolution) for s in setup['cell']]))
     estimated_gib = cells * 400 / 2**30
     if estimated_gib > args.max_estimated_gib:
@@ -241,6 +269,7 @@ def main():
     sim.init_sim()
     result = {'schema': 'geode-meep-diag/1', 'meep_version': mp.__version__,
               'started_utc': started_utc, 'geometry': args.geometry,
+              'shell_mode': args.shell_mode,
               'resolution_cells_per_mm': args.resolution, 'cell_mm': list(setup['cell']),
               'estimated_cells': cells, 'mpi_ranks': mp.count_processors(),
               'architecture': platform.machine(), 'time_step': sim.fields.dt,
