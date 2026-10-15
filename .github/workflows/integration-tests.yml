@@ -297,6 +297,7 @@ jobs:
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
               --test patch_conformal_palace_loop \
+              --test patch_conformal_recentre \
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
@@ -376,6 +377,7 @@ jobs:
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
               --test patch_conformal_palace_loop \
+              --test patch_conformal_recentre \
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \

@@ -1,0 +1,10 @@
+Mesh the Palace runs read (MSH 2.2 ASCII, not committed; issue #1134).
+Written by `patch_conformal_nested_dof --verify-only --write-mesh`, which writes the
+moved mesh with the fixture's physical tags (attributes 1 substrate, 2 air, 3 upml,
+11 port, 12 patch, 13 ground, 14 outer boundary). Default (linear) air morph, as the
+design was optimized and as in #1126 X1 (minimum tet volume ratio 0.257).
+
+9330eee0e0bad605803b810895879d47e6dde1de414eee9364be8d2244e244fb  sm57_rbG_L1.msh
+  rbG_L1_copper_38_sm57_w16 on patch_conformal_rbG_L1 (sha256 6d687225...), written by the
+  run of ../rbG_L1_copper_38_sm57_w16_on_rbG_L1_dense.toml (its [meta].command plus
+  --write-mesh sm57_rbG_L1.msh)
