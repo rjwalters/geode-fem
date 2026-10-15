@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-15T08:00:00+00:00",
+      "completed": "2026-10-15T12:00:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-15T12:00:00+00:00",
+      "note": "Figures 2 and 4 redrawn (C_isl labels; Figure 2 per-family h->0 slots on both geometries, static-route slot, offset diamond); Figures 1, 3, 5 byte-identical to v14 (Figure 1 to v9)"
+    }
+  },
+  "metadata": {
+    "iteration": 15,
+    "max_iterations": 15,
+    "revised_from": 14,
+    "status": "DRAFT",
+    "authorization": "Revision against the Opus (37/44) and Fable (37/44) reviews of v14 (outside the thread; no .14.review sibling), under the operator rulings recorded on #1129 (title, derivative-scope paragraphs, short Section 8, 'bounded', acknowledgment approved, release gate both reviewers >= 40/44). The operator's standing permission to revise this paper covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "42298bc4 (transmon-benchmark.14 as on main, with #1135 merged)",
+    "scope": "v15 = v14 with C_isl / C_Sigma (Koch) renaming, 'on uniform meshes', plasma vs f01, the h/2 same-problem mechanism from Palace's logs, like-for-like Table 1 counts, the cap in the abstract, 'highest uniform level', Nedelec/grad-P1 wording, environment and limit statements, surface-participation citations, Figure 2 redrawn, bib notes, Judge nits; #1135 final-design family b and PRIMA at three trust radii; 19 pages",
+    "pending_dependencies": [
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v15 paper reviews (release gate: both >= 40/44), audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1792078150.9866397,
+      "refs_mtime": null
+    }
+  }
+}
