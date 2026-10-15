@@ -79,11 +79,17 @@ def eigen_config(args) -> dict:
                 "Tol": args.eigen_tol,
                 "Save": 0,
             },
+            # One level and the complex coarse solve: the sparse direct
+            # solver factors the true complex p-order operator once, so each
+            # shift-and-invert step is a back-substitution, not a GMRES solve
+            # preconditioned on a real-valued p = 1 approximation.
             "Linear": {
                 "Type": args.eigen_linear,
                 "KSPType": "GMRES",
                 "Tol": args.tol,
                 "MaxIts": 1000,
+                "MGMaxLevels": 1,
+                "ComplexCoarseSolve": True,
             },
         },
     }
