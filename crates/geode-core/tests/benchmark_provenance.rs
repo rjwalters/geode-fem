@@ -1321,6 +1321,42 @@ const MANIFEST: &[Entry] = &[
         "benchmarks/patch_antenna_conformal/v6/x5/rbH_L1_copper_38_sm45_w127_on_rbH_L1_p2.toml",
         "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbH_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/v6/x5/rbH_L1_copper_38_sm45_w127.toml (issue #1126)",
     ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_sd.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 18858188808230 --label copper_38_pcma190_sd --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_s2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 2 --label copper_38_pcma190_s2 --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_s3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 3 --label copper_38_pcma190_s3 --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pnewuoa190.toml",
+        "palace_loop_prima.py: PRIMA NEWUOA (Fortran, no Burn backend) driving Palace (MFEM, \
+         no Burn backend) through patch_conformal_nested_dof --eval-server --palace-eval, which \
+         supplies only the mesh morph and the volume guard; issue #1130",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/costs_geode_r6i.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_xeval.py --exe <target>/release/examples/patch_conformal_nested_dof --out <out> --solver geode --repeat-x0 3 --grad --design NAME=TOML ... -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 (issue #1130)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/costs_palace_r6i.toml",
+        "palace_loop_xeval.py --solver palace: Palace (MFEM, no Burn backend) band evaluations \
+         and their wall time; geode supplies only the mesh morph; issue #1130",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/cross_geode_on_palace_designs.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_xeval.py --exe <target>/release/examples/patch_conformal_nested_dof --out <out> --solver geode --design NAME=v6/palace_loop/L1_*.toml ... -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 (issue #1130)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/palace_loop_summary.toml",
+        "palace_loop_summary.py: post-processing of v6/palace_loop/*.toml, v6/x4/*.toml and \
+         copper/L1_copper_38.toml (issue #1130); no Burn backend",
+    ),
     b(
         "benchmarks/patch_antenna_conformal/v6/v6_summary.toml",
         "v6_summary.py: post-processing of the bucket-A v6/**/*.toml and copper/verify/*.toml \
