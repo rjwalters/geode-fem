@@ -186,4 +186,6 @@ resource probes, production settings, and interpretation of the R2 pilot.
 convergence: successive-grid differences did not shrink), the comparison with
 GEODE's bent-fixture dip (GEODE ≥ 2.3566 GHz, inside the window; Meep's only deep
 feature is at or below the 2.20 GHz edge; the two refine in opposite directions) and the
-R8 requirement measured from R4 actuals.
+R8 requirement measured from R4 actuals. [DIAGNOSIS.md](DIAGNOSIS.md) traces that
+disagreement to the harness's per-component voxelization of its one-cell metal shells
+on the curved board, and recommends against R8 with the current harness.
