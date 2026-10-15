@@ -97,7 +97,6 @@ fn every_v6_artifact_ran_on_its_committed_fixture_provenance() {
         ("x1/dip_x1sub030_L1.toml", "patch_conformal_x1sub030_L1"),
         ("x1/dip_x1rim040_L1.toml", "patch_conformal_x1rim040_L1"),
         ("x1/dip_x1rim020_L1.toml", "patch_conformal_x1rim020_L1"),
-        ("x1/dip_x1rim010_L1.toml", "patch_conformal_x1rim010_L1"),
         ("x1/dip_x1comb_L1.toml", "patch_conformal_x1comb_L1"),
         (
             "x2/rbD_L1_copper_38_sm45_on_rbDflat_L1_p2.toml",
@@ -165,12 +164,7 @@ fn x1_substrate_and_rim_ladders_raise_the_dip() {
         dip("x1sub040_L1"),
         dip("x1sub030_L1"),
     ];
-    let rim = [
-        dip("L1"),
-        dip("x1rim040_L1"),
-        dip("x1rim020_L1"),
-        dip("x1rim010_L1"),
-    ];
+    let rim = [dip("L1"), dip("x1rim040_L1"), dip("x1rim020_L1")];
     for w in sub.windows(2).chain(rim.windows(2)) {
         assert!(
             w[1] > w[0],
@@ -181,15 +175,46 @@ fn x1_substrate_and_rim_ladders_raise_the_dip() {
         pin(dip(stem), *want, 1e-4, stem);
     }
     let comb = dip("x1comb_L1");
-    assert!(comb > sub[3] && comb > rim[3], "combined is the highest");
+    assert!(comb > sub[3] && comb > rim[2], "combined is the highest");
+    // The rim, not the interior layer count, sets the dip: 3.4 layers with a
+    // 0.39 mm rim and 2 layers with the same rim land within 2 MHz.
+    assert!((dip("x1sub040_L1") - dip("x1rim040_L1")).abs() < 2e-3);
+    // A 0.2 mm rim at P1 already matches the v5 finest model, P2/L1.
+    pin(
+        dip("x1rim020_L1"),
+        2.356643,
+        1e-3,
+        "0.2 mm rim at P1 vs P2/L1",
+    );
+    let sum = load("v6_summary.toml");
+    pin(f(&sum, "x1.rim_fit.order_p"), 0.71, 0.05, "rim-size order");
+    pin(
+        f(&sum, "x1.rim_fit.f_inf_ghz"),
+        RIM_FIT_F_INF,
+        2e-4,
+        "rim-size f_inf",
+    );
+    pin(
+        f(&sum, "x1.textbook_tl_initial_ghz"),
+        2.43322,
+        1e-5,
+        "Hammerstad",
+    );
 }
 
 /// `(stem, bent dip GHz)` of the X1 ladder artifacts.
 const X1_PINS: &[(&str, f64)] = &[
     ("x1sub053_L1", 2.327265),
     ("x1sub040_L1", 2.340396),
+    ("x1sub030_L1", 2.348017),
     ("x1rim040_L1", 2.341971),
+    ("x1rim020_L1", 2.356925),
+    ("x1comb_L1", COMB_DIP),
 ];
+
+/// The combined rung's dip and the rim-size fit's limit (GHz).
+const COMB_DIP: f64 = 0.0;
+const RIM_FIT_F_INF: f64 = 0.0;
 
 /// Palace on geode's own meshes: an independent solver with an independent
 /// absorber. It reproduces geode's L1 dip at p = 1 and p = 2 to within
@@ -357,4 +382,60 @@ fn x4_x5_design_layouts() {
         "rect4: W, L, inset, width"
     );
     assert!(s(&r4, "basis.outline").starts_with("rect4:"));
+}
+
+/// X4 / X5 outcomes at P2/L1 (9 in-band points), against the v5 headline's
+/// -10.78 dB: the 4-parameter rectangle and both realizable feeds clear
+/// -10 dB; the gradient-free search at the adjoint run's budget does not
+/// come close.
+#[test]
+fn x4_x5_outcomes_are_pinned() {
+    let worst = |rel: &str| f(&load(rel), "verify.verify_worst_s11_db");
+    let rect = worst("x4/rbR_L1_copper_rect4_sm45_rb_on_rbR_L1_p2.toml");
+    pin(rect, -10.3341, 1e-3, "rect4 P2/L1");
+    let w16 = worst("x5/rbG_L1_copper_38_sm45_w16_on_rbG_L1_p2.toml");
+    pin(w16, -10.6157, 1e-3, "1.6 mm feed P2/L1");
+    let w127 = worst("x5/rbH_L1_copper_38_sm45_w127_on_rbH_L1_p2.toml");
+    pin(w127, -10.6496, 1e-3, "1.27 mm feed P2/L1");
+    for (w, what) in [(rect, "rect4"), (w16, "w16"), (w127, "w127")] {
+        assert!(
+            w < -10.0 && w > -10.78,
+            "{what}: meets -10 dB, below the 38-DOF margin"
+        );
+    }
+    for rel in [
+        "x5/rbG_L1_copper_38_sm45_w16_on_rbG_L1_p2.toml",
+        "x5/rbH_L1_copper_38_sm45_w127_on_rbH_L1_p2.toml",
+    ] {
+        let v = load(rel);
+        assert_eq!(s(&v, "meta.element_order"), "p2");
+        assert!(get(&v, "design.feed_width_frozen").as_bool().unwrap());
+    }
+    pin(
+        f(
+            &load("x5/rbH_L1_copper_38_sm45_w127.toml"),
+            "copper.probe_w_mm",
+        ),
+        1.27,
+        1e-9,
+        "1.27 mm probe",
+    );
+    let cma = load("x4/L1_copper_38_cma114.toml");
+    pin(
+        f(&cma, "gradient_free.worst_s11_db_final"),
+        -9.5567,
+        1e-3,
+        "CMA-ES at 114 evals",
+    );
+    let at38 = get(&cma, "trajectory.eval")
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["eval"].as_integer() == Some(38))
+        .unwrap()["best_so_far_worst_db"]
+        .as_float()
+        .unwrap();
+    pin(at38, -3.7588, 1e-3, "CMA-ES at the adjoint budget");
+    // The adjoint L-BFGS on the same problem: -10.04 dB in 190 solves.
+    assert!(at38 > -10.04 + 6.0 && f(&cma, "gradient_free.n_driven_solves") > 3.0 * 175.0);
 }

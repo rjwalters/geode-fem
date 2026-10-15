@@ -256,6 +256,8 @@ struct Cli {
     gradient_free: Option<usize>,
     /// Initial CMA-ES step size (design units).
     cma_sigma0: f64,
+    /// CMA-ES seed (`--cma-seed`; default the value of the first committed run).
+    cma_seed: u64,
 }
 
 fn parse_cli() -> Cli {
@@ -293,6 +295,7 @@ fn parse_cli() -> Cli {
         write_mesh: None,
         gradient_free: None,
         cma_sigma0: 0.5,
+        cma_seed: CMA_SEED_DEFAULT,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -348,6 +351,7 @@ fn parse_cli() -> Cli {
                 cli.gradient_free = Some(next(&mut i).parse().expect("--gradient-free N_EVALS"));
             }
             "--cma-sigma0" => cli.cma_sigma0 = next(&mut i).parse().expect("--cma-sigma0 S"),
+            "--cma-seed" => cli.cma_seed = next(&mut i).parse().expect("--cma-seed N"),
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -1162,6 +1166,9 @@ fn write_msh22(path: &Path, base: &PatchFixture, mesh: &geode_core::mesh::TetMes
     }
     fs::write(path, t).expect("write msh 2.2");
 }
+
+/// Seed of the first committed CMA-ES run (`L1_copper_38_cma114`).
+const CMA_SEED_DEFAULT: u64 = 0x1126_c3a5_2026;
 
 /// One band evaluation of the gradient-free baseline.
 struct GfEval {
@@ -2475,10 +2482,10 @@ fn run_gradient_free(
     budget: usize,
     t_start: Instant,
 ) {
-    const SEED: u64 = 0x1126_c3a5_2026;
+    let seed = cli.cma_seed;
     let e0 = model.eval(&vec![0.0; model.morph.n_dofs()], false);
     let solves_x0 = model.n_solves.get();
-    let (x_best, log) = sep_cma_es(model, budget, cli.cma_sigma0, SEED);
+    let (x_best, log) = sep_cma_es(model, budget, cli.cma_sigma0, seed);
     let e_best = model.eval(&x_best, false);
     let verify_f: Vec<f64> = (0..cli.verify_n)
         .map(|i| {
@@ -2521,10 +2528,11 @@ fn run_gradient_free(
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
-             <dir>/{stem}.msh {} --gradient-free {budget} --cma-sigma0 {} --band-shift {} \
-             --n-band {} --beta {} --verify-n {} --label {}",
+             <dir>/{stem}.msh {} --gradient-free {budget} --cma-sigma0 {} --cma-seed {} \
+             --band-shift {} --n-band {} --beta {} --verify-n {} --label {}",
             basis_flags(cli),
             cli.cma_sigma0,
+            cli.cma_seed,
             cli.band_shift,
             cli.n_band,
             cli.beta,
@@ -2559,7 +2567,7 @@ fn run_gradient_free(
     t.push('\n');
     t.push_str("[gradient_free]\n");
     let _ = writeln!(t, "method = \"sep-CMA-ES\"");
-    let _ = writeln!(t, "seed = {SEED}");
+    let _ = writeln!(t, "seed = {seed}");
     let _ = writeln!(t, "sigma0 = {}", cli.cma_sigma0);
     let _ = writeln!(t, "n_dofs = {}", model.morph.n_dofs());
     let _ = writeln!(
