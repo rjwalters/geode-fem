@@ -48,8 +48,9 @@ Every level rises under refinement: the conforming discretization
 over-estimates the island capacitance, so each series approaches from
 below. The thin-sheet edge singularity (E ~ r^-1/2) limits the asymptotic
 eigenvalue rate to O(h) on uniform meshes at any element order. The
-order-1 ladder still shows a pre-asymptotic 0.61 (qubit) and 0.70–0.73
-(resonator).
+order-1 ladder still shows a pre-asymptotic 0.62 (initial qubit; 0.615008
+from the ladder levels, stored as 0.6150) and 0.61 (final qubit), and
+0.70–0.73 (resonator).
 
 - **Estimate:** the mean of the order-1 series (`h/2`, `h/4`) and the
   order-2 series (`h`, `h/2`). Each is extrapolated at order 1 **in the
