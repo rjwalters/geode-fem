@@ -21,9 +21,8 @@ centring_mhz = 128.386
 nd_order = 1
 n_dofs = 174490
 wall_s = 67.820
-max_rss_gib_one_rank = 0.389
 prom_n_samples = 10
-prom_error = 0.000
+prom_error = 2.621e-06
 prom_offline_s = 60.400
 
 [run.init_L1_p2]
@@ -42,9 +41,8 @@ centring_mhz = 84.270
 nd_order = 2
 n_dofs = 884530
 wall_s = 1482.630
-max_rss_gib_one_rank = 0.706
 prom_n_samples = 10
-prom_error = 0.000
+prom_error = 8.974e-06
 prom_offline_s = 1460.000
 
 [run.init_L1_p3]
@@ -63,9 +61,8 @@ centring_mhz = 75.318
 nd_order = 3
 n_dofs = 2503179
 wall_s = 8294.000
-max_rss_gib_one_rank = 1.260
 prom_n_samples = 10
-prom_error = 0.000
+prom_error = 1.307e-05
 prom_offline_s = 8220.000
 
 [run.fin_L1_p2]
@@ -85,7 +82,27 @@ worst_in_band_db = -10.7712
 nd_order = 2
 n_dofs = 962662
 wall_s = 2448.960
-max_rss_gib_one_rank = 0.815
 prom_n_samples = 12
-prom_error = 0.000
+prom_error = 5.825e-06
 prom_offline_s = 2420.000
+
+[run.fin_L1_p3]
+description = "final design rbD_L1_copper_38_sm45 on rbD_L1, p = 3"
+grid_ghz = [2.3200, 2.6000]
+n_points = 281
+dip_f_ghz = 2.449239
+dip_db = -19.8230
+dip_on_grid_edge = false
+band_lo_ghz = 2.402936
+band_hi_ghz = 2.497541
+bandwidth_mhz = 94.605
+ism_coverage_mhz = 80.564
+ism_coverage_frac = 0.9648
+centring_mhz = -8.489
+worst_in_band_db = -9.5566
+nd_order = 3
+n_dofs = 2729331
+wall_s = 13943.000
+prom_n_samples = 12
+prom_error = 1.517e-05
+prom_offline_s = 13800.000

@@ -1254,6 +1254,14 @@ const MANIFEST: &[Entry] = &[
         "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 114 --cma-sigma0 0.5 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma114 (issue #1126)",
     ),
     a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_38_cma190_s2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 0.5 --cma-seed 2 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_s2 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_38_cma190_s3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 0.5 --cma-seed 3 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_s3 (issue #1126)",
+    ),
+    a(
         "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_rect4_sm45.toml",
         "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_rect4_sm45 (issue #1126)",
     ),

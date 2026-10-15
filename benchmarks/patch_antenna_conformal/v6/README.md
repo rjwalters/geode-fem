@@ -10,10 +10,10 @@ All solves ran on AWS (r8g Graviton for geode, r6i x86 for Palace). Hosts are li
 
 | item | question | answer |
 |---|---|---|
-| X1 | Where does the initial patch's dip converge? | **About 2.366–2.380 GHz**, 9–23 MHz above v5's finest model (2.357). The error lives at the patch **rim**, not in the substrate layer count. Palace reproduces geode on the same mesh at p = 1 and p = 2 (within 1.2 MHz), and Palace p = 3 equals geode's finest rung to 0.02 MHz. |
+| X1 | Where does the initial patch's dip converge? | **About 2.366–2.380 GHz**, 9–23 MHz above v5's finest model (2.357). The error lives at the patch **rim**, not in the substrate layer count. Palace reproduces geode on the same mesh at p = 1 and p = 2 (within 1.2 MHz), and Palace p = 3 equals geode's finest rung to 0.02 MHz. **The final design misses at p = 3**: band 2.4029–2.4975 GHz, worst in-band −9.56 dB. |
 | X2 | Does the bend matter? | **It does not move the resonance (under 0.4 MHz). It changes the match by about 1 dB.** The same copper on the flat board misses −10 dB at P2/L1 (−9.93 against −10.78 dB). |
 | X3 | Efficiency and gain, and is the band absorber-loaded? | **η_rad = 0.62, FR-4 loss 0.36, broadside gain 4.4–4.6 dBi** (PEC conductors). The power balance closes to 1.2–2.3 %. The air margin moves the dip by at most 2.4 MHz and the band by at most 1.4 MHz. The FEM's own loss fraction bounds its Q and accounts for the bandwidth gap to the closed form. |
-| X4 | Is the 38-DOF basis or the adjoint needed? | **The 38-DOF basis is not needed to meet the target, but it buys margin.** The 4-parameter rectangle under the same band shift and re-base protocol meets −10 dB at P2/L1 (**−10.33 dB** against −10.78 dB). It is 6 MHz narrower on the coarse model and uses 340 solves against the chain's 655. Separable CMA-ES on the 38 DOFs reaches −3.76 dB at the adjoint run's budget and −9.56 dB at 3× that budget, against the adjoint's −10.04 dB. |
+| X4 | Is the 38-DOF basis or the adjoint needed? | **The basis: not to meet the target. The adjoint: yes, for cost.** The 4-parameter rectangle under the same band-shift and re-base protocol meets −10 dB at P2/L1 (−10.33 dB against −10.78 dB, 6 MHz narrower, 340 solves). On the 38 DOFs, separable CMA-ES (3 seeds) needs 385–520 solves to reach −9.5 dB against the adjoint's 35 (11–15×). It reaches −10 dB in one seed of three (695 solves against 60), and then matches the adjoint's final −10.04 dB. |
 | X5 | Does a realizable 1.27–1.6 mm feed still cover ISM? | **Yes, on P2/L1.** Re-running the final step with the probe pinned gives a worst-of-band of **−10.62 dB (1.6 mm)** and **−10.65 dB (1.27 mm)**, against −10.78 dB with the 4.27 mm strip. |
 
 ## X1: forward-model accuracy (M1)
@@ -50,7 +50,7 @@ What the ladders show:
 | init_L1_p2 | initial, L1 | 2 | 884 530 | 2.3570 | 2.35664 (P2, v5) |
 | init_L1_p3 | initial, L1 | 3 | 2 503 179 | **2.3660** | – |
 | fin_L1_p2 | final design, rbD_L1 | 2 | 962 662 | 2.4406; band 2.3946–2.4885 (94.0 MHz), worst of the 9 in-band points −10.77 dB | P2: band 2.3938–2.4887 (94.9 MHz), −10.78 dB |
-| fin_L1_p3 | final design, rbD_L1 | 3 | – | PAL_FIN_P3 | – |
+| fin_L1_p3 | final design, rbD_L1 | 3 | 2 729 331 | **2.4492; band 2.4029–2.4975 (94.6 MHz), worst of the 9 in-band points −9.56 dB, ISM coverage 96.5 %** | – |
 
 - **The two codes agree** to 1.2 MHz at p = 1 and 0.4 MHz at p = 2 on the same mesh, despite different absorbers. The final design's P2/L1 band reproduces in Palace to about 1 MHz. So the v5 numbers are a correct solution of the discrete model. What was missing was convergence of that model.
 - **p = 3 on L1 gives 2.3660 GHz**, 9 MHz above p = 2. That is the same value, to 0.02 MHz, as geode's finest P1 rung (`x1comb`: 0.1 mm rim, 0.3 mm slab, 1.74M DOFs). Two independent refinements of the same model, p-refinement in Palace and rim h-refinement in geode, meet at the same number. The p-ladder on L1 (2.3129 → 2.3570 → 2.3660 GHz, increments 44 and 9 MHz) is converging fast.
@@ -59,7 +59,7 @@ What the ladders show:
 
 For the **initial patch**, every refinement raises the dip, so the finest computed values are lower bounds. Two independent ones agree: geode P1 `x1comb` gives 2.3659 GHz and Palace p = 3 on L1 gives 2.3660 GHz. The rim fit puts the limit at 2.380 GHz, and the order-1 rim Richardson at 2.372 GHz. **So the converged dip is about 2.366–2.380 GHz: 9–23 MHz above v5's finest model (P2/L1, 2.3566 GHz).** v5's estimate of the further rise was 12.7–48.4 MHz. This narrows it to 9–23 MHz, at the lower end. A 4–6 layer substrate by itself is not what changes the answer. The patch rim is.
 
-For the **final design**: its P2/L1 −10 dB band starts 6.2 MHz below 2.400 GHz. If it shifts by the initial patch's measured 9 MHz (p = 2 → 3), the lower edge lands at about 2.403 GHz. If it shifts by the full 9–23 MHz range, the lower edge lands at 2.403–2.417 GHz. **Either way the converged design misses the lower band edge by roughly 3–17 MHz**, which confirms v5's "probably misses" with a narrower range. FIN_P3_TEXT
+For the **final design**: its P2/L1 −10 dB band starts 6.2 MHz below 2.400 GHz. If it shifts by the initial patch's measured 9 MHz (p = 2 → 3), the lower edge lands at about 2.403 GHz. If it shifts by the full 9–23 MHz range, the lower edge lands at 2.403–2.417 GHz. **Either way the converged design misses the lower band edge by roughly 3–17 MHz**, which confirms v5's "probably misses" with a narrower range. **Palace p = 3 on the final design's own mesh measures it directly.** The band moves up 8.4 MHz from p = 2 (2.3946 → 2.4029 GHz at the lower edge), the lower edge misses 2.400 GHz by **2.9 MHz**, the worst in-band point is **−9.56 dB**, and the band covers 96.5 % of ISM. **The v5 headline design does not meet −10 dB across the band once the rim is resolved.** It misses by about half a dB at the 2.400 GHz edge, and further refinement can only move it higher. The fix is the space-mapping step v5 proposed: re-centre with a band shift of about 44.9 + 9 to 23 MHz. That was not run here.
 
 The textbook transmission-line (Hammerstad) estimate for the unloaded 38 × 29 mm patch is **2.433 GHz** (ε_eff 4.09, ΔL 0.74 mm; `[x1].textbook_tl_*`). The converged FEM dip sits about 50 MHz below it. That gap is not discretization. The probe's reactance pulls the matched |S11| dip below the unloaded cavity resonance, and the transmission-line model ignores the finite 12 mm ground margin and the probe. A port-free eigenfrequency would separate the two, and was not run.
 
@@ -118,15 +118,16 @@ Conductors are PEC, so copper loss is not included and the efficiency is radiati
 
 On its own P1/L1 mesh the rectangle's −10 dB band is **86.9 MHz**, against 93.3 MHz for the 38-DOF design. **At P2/L1 its 9 in-band points are all below −10 dB: worst −10.33 dB** (at 2.4835 GHz; −10.79 at 2.400), against −10.78 dB for the 38-DOF design. The rectangle widens too (38 → 46 mm), so most of the gain is the textbook widening that the review expected. The barrel outline adds about 6 MHz of bandwidth and 0.9 dB of worst-of-band on the coarse model.
 
-**Gradient-free on the 38 DOFs** (`--gradient-free 114`, separable CMA-ES, λ = 14, σ₀ = 0.5, from x = 0 on L1, unshifted). This is the same problem as `../copper/L1_copper_38.toml`, where the adjoint L-BFGS goes from −1.47 to −10.04 dB in 190 solves:
+**Gradient-free on the 38 DOFs** (`--gradient-free N`, separable CMA-ES, λ = 14, σ₀ = 0.5, from x = 0 on L1, unshifted). This is the same problem, objective, basis, volume guard and fixture as `../copper/L1_copper_38.toml`, where the adjoint L-BFGS goes from −1.47 to −10.04 dB. Solves are counted the same way on both sides. One solve is one frequency of the 5-point band, with one LU factorization; the adjoint reuses the forward LU for its adjoint solve. The 5 solves of the x = 0 evaluation, the FD gates and the verification sweeps are excluded. The adjoint counts are rebuilt from its trajectory: every line-search trial that passed the volume guard costs 5 solves. Guard-rejected samples cost nothing on either side.
 
-| band evaluations | forward solves | best worst-of-band |
-|---|---|---|
-| 38 (the adjoint run's 190 solves) | 195 | −3.76 dB |
-| 76 | 365 | −6.94 dB |
-| 114 (3×) | 540 | −9.56 dB |
+| optimizer | seed | solves to −5 dB | −8 dB | −9 dB | −9.5 dB | −10 dB | best reached (solves used) |
+|---|---|---|---|---|---|---|---|
+| adjoint L-BFGS (v5 `L1_copper_38`) | – | 20 | 30 | 30 | 35 | 60 | −10.04 dB (125) |
+| sep-CMA-ES, 114 evaluations (`L1_copper_38_cma114`) | 1 (default) | 275 | 370 | 405 | 520 | not reached | −9.56 dB (535) |
+| sep-CMA-ES, 190 evaluations (`L1_copper_38_cma190_s2`) | 2 | 300 | 385 | 385 | 385 | 695 | −10.02 dB (785) |
+| sep-CMA-ES, 190 evaluations (`L1_copper_38_cma190_s3`) | 3 | 265 | 395 | 395 | 395 | not reached | −9.77 dB (690) |
 
-At an equal solve budget the gradient-free search is 6.3 dB behind. At three times the budget it is still 0.5 dB short of the adjoint's result. Seven of the 114 samples failed the volume guard and were ranked last without a solve. One seed and one σ₀ were run, and a tuned gradient-free method would do better.
+**The gradient is worth about an order of magnitude here.** Over three seeds, CMA-ES needs **385–520 solves to reach −9.5 dB, against 35 for the adjoint (11–15×)**. Only one seed of three reaches −10 dB within its budget, at 695 solves against 60 (12×). At the adjoint run's whole optimization budget (125 solves, 25 band evaluations) it is still above −3.8 dB. With enough solves (seed 2: 785) the gradient-free search does match the adjoint's final result (−10.02 against −10.04 dB). So the gradient's advantage on this problem is speed, about 11–15× in solves, not a better optimum. Only σ₀ = 0.5 and the default population size were tried, so a tuned gradient-free method would do better than these rows.
 
 ## X5: realizable feed (M5)
 
