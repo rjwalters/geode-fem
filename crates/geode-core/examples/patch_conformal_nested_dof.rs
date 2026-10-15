@@ -258,6 +258,21 @@ struct Cli {
     cma_sigma0: f64,
     /// CMA-ES seed (`--cma-seed`; default the value of the first committed run).
     cma_seed: u64,
+    /// Palace in the loop (issue #1130): the forward band evaluation of the
+    /// gradient-free paths is done by this external command instead of
+    /// geode's solver. It is called as `CMD MESH OUTDIR F1,F2,...` (GHz) on
+    /// the moved mesh written as MSH 2.2, and prints one `f re im` line of
+    /// `S₁₁` per frequency on stdout. The geode volume guard, objective and
+    /// optimizer are unchanged.
+    palace_eval: Option<PathBuf>,
+    /// Scratch directory of the external evaluator (`--palace-workdir`).
+    palace_workdir: PathBuf,
+    /// Evaluation server (issue #1130): read design vectors from stdin, one
+    /// per line (`f x1 ... xn` forward, `g x1 ... xn` forward + adjoint,
+    /// geode only), and print one JSON line per design with the guard ratio,
+    /// the per-point `|S₁₁|²`, the objective, the solves and the wall time.
+    /// Drives the PRIMA baseline (`scripts/palace_loop_prima.py`).
+    eval_server: bool,
 }
 
 fn parse_cli() -> Cli {
@@ -296,6 +311,9 @@ fn parse_cli() -> Cli {
         gradient_free: None,
         cma_sigma0: 0.5,
         cma_seed: CMA_SEED_DEFAULT,
+        palace_eval: None,
+        palace_workdir: std::env::temp_dir().join("palace_loop"),
+        eval_server: false,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -352,6 +370,9 @@ fn parse_cli() -> Cli {
             }
             "--cma-sigma0" => cli.cma_sigma0 = next(&mut i).parse().expect("--cma-sigma0 S"),
             "--cma-seed" => cli.cma_seed = next(&mut i).parse().expect("--cma-seed N"),
+            "--palace-eval" => cli.palace_eval = Some(PathBuf::from(next(&mut i))),
+            "--palace-workdir" => cli.palace_workdir = PathBuf::from(next(&mut i)),
+            "--eval-server" => cli.eval_server = true,
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -427,6 +448,19 @@ fn parse_cli() -> Cli {
     assert!(
         cli.gradient_free.is_none() || (!cli.verify_only && !cli.fd_only && cli.design.is_none()),
         "--gradient-free is a cold-start descent: no --verify-only, --fd-only or --design"
+    );
+    assert!(
+        cli.palace_eval.is_none() || cli.gradient_free.is_some() || cli.eval_server,
+        "--palace-eval drives the gradient-free paths: give --gradient-free N or --eval-server"
+    );
+    assert!(
+        !cli.eval_server
+            || (cli.gradient_free.is_none()
+                && !cli.verify_only
+                && !cli.fd_only
+                && cli.design.is_none()),
+        "--eval-server reads its designs from stdin: no --gradient-free, --verify-only, \
+         --fd-only or --design"
     );
     assert!(
         !cli.rebase_feed || (cli.copper && cli.feed && cli.design.is_some()),
@@ -650,6 +684,79 @@ struct Model {
     /// Design DOFs pinned at 0 (`--freeze-feed-width`): their gradient entry
     /// is zeroed, so the descent never moves them.
     frozen: Vec<usize>,
+    /// Palace in the loop (`--palace-eval`, issue #1130): forward band
+    /// evaluations go to this external solver.
+    external: Option<ExternalEval>,
+}
+
+/// An external forward solver for the band evaluation (issue #1130: Palace
+/// on the moved mesh). See [`Cli::palace_eval`] for the calling convention.
+struct ExternalEval {
+    cmd: PathBuf,
+    workdir: PathBuf,
+    /// Wall time spent in the external command (s), and its call count.
+    wall_s: std::cell::Cell<f64>,
+    calls: std::cell::Cell<usize>,
+}
+
+impl ExternalEval {
+    /// `S₁₁` at `freqs` on `mesh` (written as MSH 2.2 with `base`'s tags).
+    fn s11(&self, base: &PatchFixture, mesh: &geode_core::mesh::TetMesh, freqs: &[f64]) -> Vec<c64> {
+        let k = self.calls.get() + 1;
+        self.calls.set(k);
+        let msh = self.workdir.join("eval.msh");
+        write_msh22(&msh, base, mesh);
+        let out_dir = self.workdir.join(format!("eval_{k:05}"));
+        let flist = freqs
+            .iter()
+            .map(|f| format!("{f:.9}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let t0 = Instant::now();
+        let out = Command::new(&self.cmd)
+            .arg(&msh)
+            .arg(&out_dir)
+            .arg(&flist)
+            .output()
+            .unwrap_or_else(|e| panic!("external evaluator {}: {e}", self.cmd.display()));
+        self.wall_s.set(self.wall_s.get() + t0.elapsed().as_secs_f64());
+        assert!(
+            out.status.success(),
+            "external evaluator failed on eval {k} ({}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        let rows: Vec<(f64, c64)> = text
+            .lines()
+            .filter_map(|l| {
+                let v: Vec<f64> = l
+                    .split_whitespace()
+                    .map(str::parse::<f64>)
+                    .collect::<Result<_, _>>()
+                    .ok()?;
+                (v.len() == 3).then(|| (v[0], c64::new(v[1], v[2])))
+            })
+            .collect();
+        assert_eq!(
+            rows.len(),
+            freqs.len(),
+            "external evaluator returned {} S11 rows for {} frequencies:\n{text}",
+            rows.len(),
+            freqs.len()
+        );
+        freqs
+            .iter()
+            .zip(&rows)
+            .map(|(f, (fr, s))| {
+                assert!(
+                    (f - fr).abs() <= 1e-6,
+                    "external evaluator frequency {fr} GHz for requested {f} GHz"
+                );
+                *s
+            })
+            .collect()
+    }
 }
 
 /// One band evaluation: per-point `|S₁₁|²`, `S₁₁`, the soft-max objective
@@ -716,6 +823,32 @@ impl Model {
     fn eval(&self, x: &[f64], grad: bool) -> Eval {
         let mesh = self.moved_mesh(x);
         let min_vol_ratio = min_tet_volume_ratio(&self.base.mesh, &mesh);
+        if let Some(ext) = &self.external {
+            // Palace in the loop (issue #1130): one external band evaluation,
+            // counted as one solve per band point, as geode's forward path.
+            assert!(!grad, "the external evaluator has no adjoint");
+            let freqs: Vec<f64> = self.band.iter().map(|b| b.0).collect();
+            let s11 = ext.s11(&self.base, &mesh, &freqs);
+            self.n_solves.set(self.n_solves.get() + freqs.len());
+            for (k, s) in s11.iter().enumerate() {
+                assert!(
+                    s.norm() <= 1.0 + 1e-6,
+                    "passivity tripwire (external): |S11| = {} > 1 at {} GHz",
+                    s.norm(),
+                    freqs[k]
+                );
+            }
+            let g_f: Vec<f64> = s11.iter().map(|s| s.norm_sqr()).collect();
+            let (objective, _) = softmax(self.beta, &g_f);
+            return Eval {
+                g_f,
+                s11,
+                objective,
+                grad: None,
+                worst_residual: 0.0,
+                min_vol_ratio,
+            };
+        }
         let bcs = DrivenBcs {
             pec_interior_mask: &self.mask,
         };
@@ -1179,6 +1312,8 @@ struct GfEval {
     feasible: bool,
     best_so_far_worst_db: f64,
     solves_so_far: usize,
+    /// Wall time since the optimizer started (s), at the end of this evaluation.
+    wall_s: f64,
 }
 
 /// Separable CMA-ES (Ros and Hansen 2008: CMA-ES with a diagonal covariance,
@@ -1217,6 +1352,7 @@ fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>
     let mut best: (f64, Vec<f64>) = (f64::INFINITY, m.clone());
     let mut evals = 0usize;
     let mut generation = 0usize;
+    let t0 = Instant::now();
     while evals < budget {
         // (rank key, z, y): feasible designs keyed by their objective, guard
         // failures after every feasible one, by their violation.
@@ -1251,6 +1387,7 @@ fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>
                 feasible,
                 best_so_far_worst_db: best.0,
                 solves_so_far: model.n_solves.get(),
+                wall_s: t0.elapsed().as_secs_f64(),
             });
             eprintln!(
                 "    cma gen {generation} eval {evals}: {}, sigma {sigma:.3e}, best worst {:.2} dB",
@@ -2494,7 +2631,15 @@ fn run_gradient_free(
                     / (cli.verify_n - 1).max(1) as f64
         })
         .collect();
-    let verify = model.sweep(&x_best, &verify_f);
+    let verify = match &model.external {
+        // Palace in the loop: the verification points are Palace's too.
+        Some(ext) => {
+            let s = ext.s11(&model.base, &model.moved_mesh(&x_best), &verify_f);
+            model.n_solves.set(model.n_solves.get() + verify_f.len());
+            verify_f.iter().zip(s).map(|(f, s)| (*f, s, 0.0)).collect()
+        }
+        None => model.sweep(&x_best, &verify_f),
+    };
     let db = |s: &c64| 20.0 * s.norm().log10();
     let verify_worst = verify
         .iter()
@@ -2523,13 +2668,35 @@ fn run_gradient_free(
          of band evaluations; guard failures are ranked last without a solve.\"\n",
     );
     t.push_str("mode = \"gradient_free\"\n");
+    if model.external.is_some() {
+        t.push_str(
+            "forward_solver = \"palace\"\nforward_solver_note = \"Palace in the loop (issue \
+             #1130): every band evaluation (and the verification points) is a Palace driven \
+             solve of the moved mesh written as MSH 2.2 (scripts/palace_band_eval.py, p = 1, \
+             first-order absorbing boundary on the outer wall, UPML shell as air); the guard, \
+             objective and optimizer are geode's. trajectory wall_s is the optimizer's wall \
+             clock including mesh writes and Palace start-up.\"\n",
+        );
+    } else {
+        t.push_str("forward_solver = \"geode\"\n");
+    }
+    let palace_flag = cli
+        .palace_eval
+        .as_ref()
+        .map(|p| {
+            format!(
+                " --palace-eval benchmarks/patch_antenna_conformal/scripts/{}",
+                p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            )
+        })
+        .unwrap_or_default();
     let _ = writeln!(
         t,
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
              <dir>/{stem}.msh {} --gradient-free {budget} --cma-sigma0 {} --cma-seed {} \
-             --band-shift {} --n-band {} --beta {} --verify-n {} --label {}",
+             --band-shift {} --n-band {} --beta {} --verify-n {} --label {}{palace_flag}",
             basis_flags(cli),
             cli.cma_sigma0,
             cli.cma_seed,
@@ -2585,6 +2752,10 @@ fn run_gradient_free(
     let _ = writeln!(t, "n_driven_solves = {}", model.n_solves.get());
     let _ = writeln!(t, "n_solves_initial_eval = {solves_x0}");
     let _ = writeln!(t, "total_wall_s = {:.1}", t_start.elapsed().as_secs_f64());
+    if let Some(ext) = &model.external {
+        let _ = writeln!(t, "external_calls = {}", ext.calls.get());
+        let _ = writeln!(t, "external_wall_s = {:.1}", ext.wall_s.get());
+    }
     t.push('\n');
     t.push_str("[shape]\n");
     let _ = writeln!(
@@ -2610,6 +2781,7 @@ fn run_gradient_free(
             let _ = writeln!(t, "best_so_far_worst_db = {:.6}", g.best_so_far_worst_db);
         }
         let _ = writeln!(t, "solves_so_far = {}", g.solves_so_far);
+        let _ = writeln!(t, "wall_s = {:.1}", g.wall_s);
         t.push('\n');
     }
     for (f, s, res) in &verify {
@@ -2623,7 +2795,12 @@ fn run_gradient_free(
     }
     let out = cli.out.clone().unwrap_or_else(|| {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "../../benchmarks/patch_antenna_conformal/v6/x4/{level}_{}.toml",
+            "../../benchmarks/patch_antenna_conformal/v6/{}/{level}_{}.toml",
+            if model.external.is_some() {
+                "palace_loop"
+            } else {
+                "x4"
+            },
             cli.label
         ))
     });
@@ -2636,6 +2813,117 @@ fn run_gradient_free(
         cli.label,
         out.display()
     );
+}
+
+/// `--eval-server` (issue #1130): band evaluations on demand for an external
+/// optimizer (the PRIMA baseline). Each stdin line is `f x1 ... xn` (forward),
+/// `g x1 ... xn` (forward + adjoint, geode only) or `v x1 ... xn` (the
+/// `--verify-n` in-band verification points instead of the band; `"g"` is
+/// then their `|S₁₁|²` and the objective is not formed); each answer is one
+/// JSON line on stdout. A design failing the volume guard is answered without a
+/// solve (`"feasible": false`). `"solves"` is the running total on the same
+/// rule as `--gradient-free` (one per band point and factorization).
+fn run_eval_server(model: &Model, verify_n: usize) {
+    use std::io::{BufRead, Write};
+    let n = model.morph.n_dofs();
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let _ = writeln!(
+        stdout,
+        "{{\"ready\": true, \"n_dofs\": {n}, \"band_ghz\": [{}], \"external\": {}}}",
+        model
+            .band
+            .iter()
+            .map(|b| format!("{:.9}", b.0))
+            .collect::<Vec<_>>()
+            .join(", "),
+        model.external.is_some()
+    );
+    let _ = stdout.flush();
+    let num = |v: f64| {
+        if v.is_finite() {
+            format!("{v:.12e}")
+        } else {
+            "null".to_string()
+        }
+    };
+    for line in stdin.lock().lines() {
+        let line = line.expect("stdin");
+        let mut it = line.split_whitespace();
+        let Some(kind) = it.next() else { continue };
+        if kind == "q" {
+            break;
+        }
+        assert!(
+            matches!(kind, "f" | "g" | "v"),
+            "eval-server: line must start with f, g, v or q"
+        );
+        let x: Vec<f64> = it.map(|v| v.parse().expect("design value")).collect();
+        assert_eq!(x.len(), n, "eval-server: expected {n} design values");
+        let t0 = Instant::now();
+        let vr = model.min_vol_ratio(&x);
+        let mut t = format!("{{\"min_vol_ratio\": {}", num(vr));
+        if kind == "v" {
+            let verify_f: Vec<f64> = (0..verify_n)
+                .map(|i| {
+                    ISM_2G4_BAND_GHZ[0]
+                        + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * i as f64
+                            / (verify_n - 1).max(1) as f64
+                })
+                .collect();
+            let s11: Vec<c64> = match &model.external {
+                Some(ext) => {
+                    model
+                        .n_solves
+                        .set(model.n_solves.get() + verify_f.len());
+                    ext.s11(&model.base, &model.moved_mesh(&x), &verify_f)
+                }
+                None => model.sweep(&x, &verify_f).into_iter().map(|r| r.1).collect(),
+            };
+            let _ = write!(
+                t,
+                ", \"f_ghz\": [{}], \"g\": [{}], \"s11\": [{}]",
+                verify_f.iter().map(|f| num(*f)).collect::<Vec<_>>().join(", "),
+                s11.iter().map(|s| num(s.norm_sqr())).collect::<Vec<_>>().join(", "),
+                s11.iter()
+                    .map(|s| format!("[{}, {}]", num(s.re), num(s.im)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        } else if vr >= MIN_VOL_RATIO {
+            let e = model.eval(&x, kind == "g");
+            let _ = write!(
+                t,
+                ", \"feasible\": true, \"objective\": {}, \"worst_db\": {}, \"g\": [{}], \
+                 \"s11\": [{}]",
+                num(e.objective),
+                num(e.worst_db()),
+                e.g_f.iter().map(|g| num(*g)).collect::<Vec<_>>().join(", "),
+                e.s11
+                    .iter()
+                    .map(|s| format!("[{}, {}]", num(s.re), num(s.im)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            if let Some(g) = &e.grad {
+                let _ = write!(
+                    t,
+                    ", \"grad\": [{}]",
+                    g.iter().map(|v| num(*v)).collect::<Vec<_>>().join(", ")
+                );
+            }
+        } else {
+            t.push_str(", \"feasible\": false");
+        }
+        let _ = writeln!(
+            t,
+            ", \"solves\": {}, \"wall_s\": {:.3}}}",
+            model.n_solves.get(),
+            t0.elapsed().as_secs_f64()
+        );
+        let _ = stdout.write_all(t.as_bytes());
+        let _ = stdout.flush();
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -3062,6 +3350,15 @@ fn main() {
         } else {
             Vec::new()
         },
+        external: cli.palace_eval.as_ref().map(|cmd| {
+            fs::create_dir_all(&cli.palace_workdir).expect("--palace-workdir");
+            ExternalEval {
+                cmd: cmd.clone(),
+                workdir: cli.palace_workdir.clone(),
+                wall_s: std::cell::Cell::new(0.0),
+                calls: std::cell::Cell::new(0),
+            }
+        }),
     };
     let n_nodes = model.base.mesh.n_nodes();
     let n_edges = edges.len();
@@ -3107,6 +3404,11 @@ fn main() {
 
     if let Some(budget) = cli.gradient_free {
         run_gradient_free(&cli, &model, &stem, &level, &fixture_sha, budget, t_start);
+        return;
+    }
+
+    if cli.eval_server {
+        run_eval_server(&model, cli.verify_n);
         return;
     }
 
