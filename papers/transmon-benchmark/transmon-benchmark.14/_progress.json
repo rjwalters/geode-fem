@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-14T20:00:00+00:00",
+      "completed": "2026-10-14T23:30:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-14T23:30:00+00:00",
+      "note": "Figures 3 and 5 redrawn (family-b markers; Palace-delta Newton under one counting rule, published-PRIMA star label, row gap); Figures 1, 2, 4 byte-identical to v9/v13"
+    }
+  },
+  "metadata": {
+    "iteration": 14,
+    "max_iterations": 14,
+    "revised_from": 13,
+    "status": "DRAFT",
+    "authorization": "Revision against the Opus (35/44) and Fable (36/44) reviews of v13 (outside the thread; no .13.review sibling), under the operator rulings recorded on #1129 (title, derivative-scope paragraphs, short Section 8). The operator's standing permission to revise this paper covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "690fddc6 (transmon-benchmark.13 as on main)",
+    "scope": "v14 = v13 with one Palace-run counting rule (Palace-only Newton 4), the identical-discrete-problem claim limited to h/2 with Palace crack bisection located (benchmarks/transmon_eigen/palace_crack/), code-to-code wording, remesh-noise reconciliation, extrapolation-free bracket, qubit-from-below mechanism, design meaning (E_C), certificate L1 bound stated, EPR and Koch citations, Section 9 solver settings and mesh sizes, figure fixes; 18 pages",
+    "pending_dependencies": [
+      "operator: approve the acknowledgment wording (TODO(operator) in source)",
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v14 paper review, audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1792040221.0025067,
+      "refs_mtime": null
+    }
+  }
+}

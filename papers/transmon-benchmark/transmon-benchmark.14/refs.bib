@@ -1,0 +1,366 @@
+% Bibliography for transmon-benchmark v13: the v12 entries that v13 cites, with the url
+% field dropped where a DOI is given and proper nouns brace-protected; plus Fox and Kapoor
+% (eigenvalue derivative), Powell's BOBYQA report, Demkowicz (hp FEM) and the companion
+% conformal-antenna manuscript. DOIs resolved on Crossref 2026-10-15 (validation.md).
+
+@article{akcelik2005adjoint,
+  author = {Akçelik, Volkan and Biros, George and Ghattas, Omar and Keyes, David and Ko, Kwok and Lee, Lie-Quan and Ng, Esmond G},
+  title = {Adjoint methods for electromagnetic shape optimization of the low-loss cavity for the {International Linear Collider}},
+  journal = {Journal of Physics: Conference Series},
+  year = {2005},
+  volume = {16},
+  pages = {435-445},
+  doi = {10.1088/1742-6596/16/1/059},
+}
+
+@book{arpack,
+  title     = {{ARPACK} Users' Guide: Solution of Large-Scale Eigenvalue Problems with Implicitly Restarted {A}rnoldi Methods},
+  author    = {Lehoucq, Richard B. and Sorensen, Danny C. and Yang, Chao},
+  publisher = {SIAM},
+  year      = {1998},
+  doi       = {10.1137/1.9780898719628}
+}
+
+@article{boffi2010finite,
+  author = {Boffi, Daniele},
+  title = {Finite element approximation of eigenvalue problems},
+  journal = {Acta Numerica},
+  volume = {19},
+  pages = {1--120},
+  year = {2010},
+  doi = {10.1017/S0962492910000012},
+}
+
+@article{braess2007equilibrated,
+  author = {Braess, Dietrich and Schöberl, Joachim},
+  title = {Equilibrated residual error estimator for edge elements},
+  journal = {Mathematics of Computation},
+  year = {2007},
+  volume = {77},
+  number = {262},
+  pages = {651-672},
+  doi = {10.1090/s0025-5718-07-02080-7},
+}
+
+@article{broyden1965class,
+  author = {Broyden, C. G.},
+  title = {A class of methods for solving nonlinear simultaneous equations},
+  journal = {Mathematics of Computation},
+  volume = {19},
+  number = {92},
+  pages = {577--593},
+  year = {1965},
+  doi = {10.1090/S0025-5718-1965-0198670-6},
+}
+
+@misc{burn,
+  title        = {Burn: a comprehensive deep-learning and tensor-computation framework in {Rust}},
+  author       = {{Tracel AI}},
+  howpublished = {\url{https://github.com/tracel-ai/burn}},
+  year         = {2024},
+  note         = {v0.21.0 used. No journal or arXiv paper; cited as software.}
+}
+
+@misc{devicelayout,
+  title        = {{DeviceLayout.jl}: computer-aided design of quantum integrated circuits},
+  author       = {{AWS Center for Quantum Computing}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/aws-cqc/DeviceLayout.jl}},
+  note         = {v1.15.0 used for geometry and mesh generation in this work.}
+}
+
+@misc{devicelayout-blog,
+  title        = {Design quantum integrated circuits with open-source software {DeviceLayout.jl} from {AWS}},
+  author       = {Peairs, Greg and Carson, Hugh},
+  year         = {2025},
+  howpublished = {\url{https://aws.amazon.com/blogs/quantum-computing/design-quantum-integrated-circuits-with-open-source-software-devicelayout-jl-from-aws/}},
+  note         = {AWS Quantum Technologies Blog; source of the SingleTransmon designs and their published frequencies.}
+}
+
+@misc{devicelayout-example,
+  title        = {{Single-Transmon Simulation} $\cdot$ {DeviceLayout.jl}},
+  author       = {{AWS Center for Quantum Computing}},
+  year         = {2025},
+  howpublished = {DeviceLayout.jl v1.15.0 documentation and \texttt{examples/SingleTransmon/SingleTransmon.jl}, \url{https://aws-cqc.github.io/DeviceLayout.jl/stable/examples/singletransmon/}},
+  note         = {Source of the optimization targets, variables and stopping criterion, and of the discretization settings.}
+}
+
+@misc{dunnavant2026whiteroom,
+  title        = {palace\_whiteroom},
+  author       = {Dunnavant, Crutcher},
+  year         = {2026},
+  howpublished = {\url{https://github.com/crutcher/palace_whiteroom}},
+  note         = {Software repository. Accessed 2026-10-13}
+}
+
+@misc{eriksson2025automated,
+  author = {Eriksson, Axel M. and Splitthoff, Lukas J. and Upadhyay, Harsh Vardhan and Campana, Pietro and Narendiran, Niranjan Pittan and Helambe, Kunal and Andersson, Linus and Gasparinetti, Simone},
+  title = {Automated, physics-guided, multi-parameter design optimization for superconducting quantum devices},
+  year = {2025},
+  eprint = {2508.18027},
+  eprinttype = {arxiv},
+  archiveprefix = {arXiv},
+  url = {https://arxiv.org/abs/2508.18027},
+}
+
+@article{ern2015polynomial,
+  author = {Ern, Alexandre and Vohralík, Martin},
+  title = {Polynomial-Degree-Robust A Posteriori Estimates in a Unified Setting for Conforming, Nonconforming, Discontinuous Galerkin, and Mixed Discretizations},
+  journal = {SIAM Journal on Numerical Analysis},
+  year = {2015},
+  volume = {53},
+  number = {2},
+  pages = {1058-1081},
+  doi = {10.1137/130950100},
+}
+
+@article{eun2023shape,
+  author = {Eun, Sungjun and Park, Seong Hyeon and Seo, Kyungsik and Choi, Kibum and Hahn, Seungyong},
+  title = {Shape optimization of superconducting transmon qubits for low surface dielectric loss},
+  journal = {Journal of Physics D: Applied Physics},
+  year = {2023},
+  volume = {56},
+  number = {50},
+  pages = {505306},
+  doi = {10.1088/1361-6463/acf7cf},
+}
+
+@article{kazdadi2026faer,
+  author = {Kazdadi, Sarah Qui{\~n}ones El},
+  title = {{faer}: A linear algebra library for the {Rust} programming language},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {123},
+  pages = {6099},
+  doi = {10.21105/joss.06099},
+}
+
+@misc{loom,
+  title        = {Loom: {AI}-powered development orchestration},
+  author       = {Walters, Robb},
+  year         = {2025},
+  howpublished = {\url{https://github.com/rjwalters/loom}},
+  note         = {Software repository. Accessed 2026-10-13}
+}
+
+@article{meixner1972behavior,
+  author = {Meixner, Josef},
+  title = {The behavior of electromagnetic fields at edges},
+  journal = {IEEE Transactions on Antennas and Propagation},
+  volume = {20},
+  number = {4},
+  pages = {442--446},
+  year = {1972},
+  doi = {10.1109/TAP.1972.1140243},
+}
+
+@article{mfem,
+  title   = {{MFEM}: a modular finite element methods library},
+  author  = {Anderson, Robert and Andrej, Julian and Barker, Andrew and Bramwell, Jamie and Camier, Jean-Sylvain and Cerveny, Jakub and Dobrev, Veselin and Dudouit, Yohann and Fisher, Aaron and Kolev, Tzanio and Pazner, Will and Stowell, Mark and Tomov, Vladimir and Akkerman, Ido and Dahm, Johann and Medina, David and Zampini, Stefano},
+  journal = {Computers \& Mathematics with Applications},
+  volume  = {81},
+  pages   = {42--74},
+  year    = {2021},
+  doi     = {10.1016/j.camwa.2020.06.009}
+}
+
+@article{nedelec1980,
+  title   = {Mixed finite elements in {$\mathbb{R}^3$}},
+  author  = {N{\'e}d{\'e}lec, Jean-Claude},
+  journal = {Numerische Mathematik},
+  volume  = {35},
+  number  = {3},
+  pages   = {315--341},
+  year    = {1980},
+  doi     = {10.1007/BF01396415}
+}
+
+@article{nelson1976simplified,
+  author = {Nelson, Richard B.},
+  title = {Simplified calculation of eigenvector derivatives},
+  journal = {AIAA Journal},
+  year = {1976},
+  volume = {14},
+  number = {9},
+  pages = {1201-1205},
+  doi = {10.2514/3.7211},
+}
+
+@article{nikolova2004adjoint,
+  author = {Nikolova, N.K. and Bandler, J.W. and Bakr, M.H.},
+  title = {Adjoint Techniques for Sensitivity Analysis in High-Frequency Structure {CAD}},
+  journal = {IEEE Transactions on Microwave Theory and Techniques},
+  year = {2004},
+  volume = {52},
+  number = {1},
+  pages = {403-419},
+  doi = {10.1109/tmtt.2003.820905},
+}
+
+@book{oberkampf2010verification,
+  author = {Oberkampf, William L. and Roy, Christopher J.},
+  title = {Verification and Validation in Scientific Computing},
+  publisher = {Cambridge University Press},
+  year = {2010},
+  doi = {10.1017/cbo9780511760396},
+}
+
+@misc{palace,
+  title        = {{Palace}: {PA}rallel {LA}rge-scale {C}omputational {E}lectromagnetics},
+  author       = {{Palace developers, AWS Center for Quantum Computing}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/awslabs/palace}},
+  note         = {Open-source 3D finite-element solver; git fba6a5b used in this work.}
+}
+
+@article{prager1947approximations,
+  author = {Prager, W. and Synge, J. L.},
+  title = {Approximations in elasticity based on the concept of function space},
+  journal = {Quarterly of Applied Mathematics},
+  year = {1947},
+  volume = {5},
+  number = {3},
+  pages = {241-269},
+  doi = {10.1090/qam/25902},
+}
+
+@article{rajabzadeh2023analysis,
+  author = {Rajabzadeh, Taha and Wang, Zhaoyou and Lee, Nathan and Makihara, Takuma and Guo, Yudan and Safavi-Naeini, Amir H.},
+  title = {Analysis of arbitrary superconducting quantum circuits accompanied by a {Python} package: {SQcircuit}},
+  journal = {Quantum},
+  year = {2023},
+  volume = {7},
+  pages = {1118},
+  doi = {10.22331/q-2023-09-25-1118},
+}
+
+@incollection{raviart1977mixed,
+  author = {Raviart, P. A. and Thomas, J. M.},
+  title = {A mixed finite element method for 2-nd order elliptic problems},
+  booktitle = {Mathematical Aspects of Finite Element Methods},
+  series = {Lecture Notes in Mathematics},
+  volume = {606},
+  publisher = {Springer},
+  year = {1977},
+  pages = {292-315},
+  doi = {10.1007/bfb0064470},
+}
+
+@article{shanto2024squadds,
+  author = {Shanto, Sadman and Kuo, Andre and Miyamoto, Clark and Zhang, Haimeng and Maurya, Vivek and Vlachos, Evangelos and Hecht, Malida and Shum, Chung Wa and Levenson-Falk, Eli},
+  title = {{SQuADDS}: A validated design database and simulation workflow for superconducting qubit design},
+  journal = {Quantum},
+  year = {2024},
+  volume = {8},
+  pages = {1465},
+  doi = {10.22331/q-2024-09-09-1465},
+}
+
+@misc{sommers2025open,
+  author = {Sommers, David and Degnan, Zach and Gautam, Divita and Chen, Yi-Hsun and Chiu, Chun-Ching and Fedorov, Arkady and Pakkiam, Prasanna},
+  title = {Open-Source Highly Parallel Electromagnetic Simulations for Superconducting Circuits},
+  year = {2025},
+  eprint = {2511.01220},
+  eprinttype = {arxiv},
+  archiveprefix = {arXiv},
+  url = {https://arxiv.org/abs/2511.01220},
+}
+
+@article{specogna2011complementary,
+  author = {Specogna, Ruben},
+  title = {Complementary geometric formulations for electrostatics},
+  journal = {International Journal for Numerical Methods in Engineering},
+  year = {2011},
+  volume = {86},
+  number = {8},
+  pages = {1041-1068},
+  doi = {10.1002/nme.3089},
+}
+
+@article{wang2025supergrad,
+  author = {Wang, Ziang and Wu, Feng and Zhao, Hui-Hai and Wan, Xin and Ni, Xiaotong},
+  title = {{SuperGrad}: a differentiable simulator for superconducting processors},
+  journal = {Quantum},
+  year = {2025},
+  volume = {9},
+  pages = {1722},
+  doi = {10.22331/q-2025-04-24-1722},
+}
+
+@misc{ye2025electromagnetic,
+  author = {Ye, Jiale and Wang, Jiaheng and Liu, Yu-xi},
+  title = {Electromagnetic Feature Extraction in Superconducting Quantum Circuits: An Open-Source Finite-Element Workflow Using {Palace}},
+  year = {2025},
+  eprint = {2511.09041},
+  eprinttype = {arxiv},
+  archiveprefix = {arXiv},
+  url = {https://arxiv.org/abs/2511.09041},
+}
+
+
+
+
+@misc{zhang2023prima,
+  author = {Zhang, Zaikun},
+  title = {{PRIMA}: Reference Implementation for {Powell}'s Methods with Modernization and Amelioration},
+  year = {2023},
+  howpublished = {\url{http://www.libprima.net}},
+  doi = {10.5281/zenodo.8052654},
+  note = {Software},
+}
+
+@article{foxkapoor1968rates,
+  author = {Fox, R. L. and Kapoor, M. P.},
+  title = {Rates of change of eigenvalues and eigenvectors},
+  journal = {AIAA Journal},
+  year = {1968},
+  volume = {6},
+  number = {12},
+  pages = {2426--2429},
+  doi = {10.2514/3.5008},
+}
+
+@techreport{powell2009bobyqa,
+  author = {Powell, M. J. D.},
+  title = {The {BOBYQA} algorithm for bound constrained optimization without derivatives},
+  institution = {Department of Applied Mathematics and Theoretical Physics, University of Cambridge},
+  number = {DAMTP 2009/NA06},
+  year = {2009},
+}
+
+@book{demkowicz2006computing,
+  author = {Demkowicz, Leszek},
+  title = {Computing with $hp$-Adaptive Finite Elements, Volume 1: One and Two Dimensional Elliptic and {Maxwell} Problems},
+  publisher = {Chapman and Hall/CRC},
+  year = {2006},
+  doi = {10.1201/9781420011685},
+}
+
+@misc{walters2026conformal,
+  author = {Walters, Robb},
+  title = {Shape-adjoint design of a curved conformal 2.4\,{GHz} patch antenna on a fixed 1.6\,mm board with a differentiable open-radiator {FEM}},
+  year = {2026},
+  note = {Manuscript in preparation, \path{papers/conformal-antenna-diffopt/} in \url{https://github.com/rjwalters/geode-fem}},
+}
+
+@article{koch2007charge,
+  author = {Koch, Jens and Yu, Terri M. and Gambetta, Jay and Houck, A. A. and Schuster, D. I. and Majer, J. and Blais, Alexandre and Devoret, M. H. and Girvin, S. M. and Schoelkopf, R. J.},
+  title = {Charge-insensitive qubit design derived from the {Cooper} pair box},
+  journal = {Physical Review A},
+  year = {2007},
+  volume = {76},
+  number = {4},
+  pages = {042319},
+  doi = {10.1103/PhysRevA.76.042319},
+}
+
+@article{minev2021energy,
+  author = {Minev, Zlatko K. and Leghtas, Zaki and Mundhada, Shantanu O. and Christakis, Lysander and Pop, Ioan M. and Devoret, Michel H.},
+  title = {Energy-participation quantization of {Josephson} circuits},
+  journal = {npj Quantum Information},
+  year = {2021},
+  volume = {7},
+  pages = {131},
+  doi = {10.1038/s41534-021-00461-8},
+}

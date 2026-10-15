@@ -716,6 +716,12 @@ const MANIFEST: &[Entry] = &[
         "examples/soi_waveguide has no burn dependency (#687 audit)",
     ),
     b(
+        "benchmarks/transmon_eigen/palace_crack/fixture_crack_edges.toml",
+        "stdlib Python mesh analysis, no burn dependency: \
+         python3 benchmarks/transmon_eigen/palace_crack/palace_crack_edges.py \
+         crates/geode-core/tests/fixtures/transmon_smoke.msh 5",
+    ),
+    b(
         "benchmarks/patch_antenna_conformal/upml_ladder_L1.toml",
         "patch_conformal_convergence ladder: post-processing of the bucket-A upml_ladder/*.toml \
          runs (no solve; carries generated_at_commit)",
