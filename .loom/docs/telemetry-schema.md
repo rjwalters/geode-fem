@@ -1333,6 +1333,8 @@ gradeable by a model or prompt experiment.
 | `tokens_by_model` | array | no | Same grouped, raw (not cost-weighted) shape as `sweep.outcome`'s `tokens_by_model`, summed from the tick's own transcripts. |
 | `models_used` | string array | no | The distinct model ids in `tokens_by_model`, sorted and deduped — "did this tick's session escalate past the model it was launched with?" |
 | `actions` | object | no | Forge-mutating work observed in the transcripts: `issues_labeled`, `prs_merged`, `comments_posted`. |
+| `source` | string | no | `step` when a step-engine step ran, not a role-runner tick (#11906). Mapped to `loom.role_tick.source`; absent on a role tick. Additive. |
+| `sweep_id` | string | no | The step's sweep id (`step-<role>-<item>-<ts>`), with `source`. Mapped to `loom.sweep_id`. |
 
 #### `result` — seven values, and why a skip is not a failure
 
@@ -1803,7 +1805,7 @@ carries a `repo` (#11847):
 | `loom.dispatch.role_max_concurrent` | `Gauge` | `{slot}` | — | the role-runner agent ceiling: the largest `autonomous.roleRunner.maxConcurrent` (env tier first) among the tick's repos with the role runner enabled, `0` when none is |
 | `loom.dispatch.role_idle_slots` | `Gauge` | `{slot}` | — | `role_max_concurrent − Σ busy_slots{role≠"sweep"}`, floored at `0`. The host's agent capacity is `max_concurrent + role_max_concurrent` = `Σ busy_slots + idle_slots + role_idle_slots` |
 | `loom.forge.stage_dwell`, `.samples` | delta `Sum` | `s`, `{item}` | `state` ∈ `created_to_curated`, `curated_to_issue`, `building_to_review_requested`, `review_requested_to_merged` | time spent in a forge label stage the work finder never lists; mean = ratio |
-| `loom.forge.stage_items` | `Gauge` | `{item}` | `state`, `repo` (lowercase `owner/name`) | open items per repo, by state. The label states (`curated`, `issue`, `building`, `review_requested`, `changes_requested`, `pr`) count each stage label's first listing page. The queue states (#11847) come from one complete walk of the repo's open issues and PRs: `triage` (`loom:triage`), `unlabeled` (no `loom:` label), `curated_not_promoted` (`loom:curated` without `loom:issue` or `loom:building`), `issue_open_pr` / `issue_no_pr` (`loom:issue`, split by whether an open PR's body closes it), `parked` (a registry `park` label) and `pr_held` (**PRs** with a registry `hold` label, e.g. `loom:pr` under `loom:operator`). States overlap; they are not a partition, so summing across `state` double-counts. Since `repo` was added (#11847) a per-state host total is `sum by (state)` |
+| `loom.forge.stage_items` | `Gauge` | `{item}` | `state`, `repo` (lowercase `owner/name`) | open items per repo, by state. The label states (`curated`, `issue`, `building`, `review_requested`, `changes_requested`, `pr`) count each stage label's first listing page. The queue states (#11847) come from one complete walk of the repo's open issues and PRs: `triage` (`loom:triage`), `unlabeled` (no `loom:` label), `curated_not_promoted` (`loom:curated` without `loom:issue` or `loom:building`), `issue_open_pr` / `issue_no_pr` (`loom:issue`, split by whether an open PR's body closes it), `parked` (a registry `park` label) and `pr_held` (**PRs** with a registry `hold` label, e.g. `loom:pr` under `loom:operator`) and `pr_champion_held` (#11905: **PRs** at `loom:pr` + `loom:blocked` with no operator hold, the label shape of Champion's merge-risk and critical-file holds since #11861, read without the hold marker, so another actor's markerless park counts too; a subset of `pr_held`, disjoint from operator-held approvals). States overlap; they are not a partition, so summing across `state` double-counts. Since `repo` was added (#11847) a per-state host total is `sum by (state)` |
 
 The stage dwell reads the stage labels' listings with the ETag-cached REST
 listing (a `304` costs no rate limit) every 5 minutes, plus at most 8 per-item
@@ -1933,6 +1935,12 @@ that covers candidate evaluation and dispatch. Its attributes are
 `no_eligible_work`, `capacity_full`, `all_skipped`, first match wins), `loom.dispatch.seen`, `loom.dispatch.dispatched`,
 `loom.dispatch.errors`, `loom.dispatch.max_concurrent`, `loom.dispatch.held_roots` (#11857: how many workspaces a hold
 gated this tick, `0` when none) and, on a held tick, `loom.dispatch.halt_causes`.
+A tick whose `loom.dispatch.errors` is non-zero (every `error` result, and a tick that dispatched or was held despite an
+error) also carries `loom.dispatch.error_kind` (#11973), the reason from a fixed set: `forge_listing` (a ready-issue
+listing failed), `rate_limited` (a listing or dispatch failed on the shared GitHub rate limit), `token_selection`,
+`claim_collision`, `claim_lock`, `dispatch_spawn` (the sweep child could not be spawned), `config` (no runtime was
+admitted for the role) or `other`. A tick with errors of more than one kind reads `mixed`. Ticks before #11973 carry
+no `loom.dispatch.error_kind`.
 A held tick's result names its hold (#11649): when every held workspace has the same cause it is
 `halted_` plus that `HaltCause` token (`halted_main_red`, `halted_disk_reservation`, `halted_weight_zero`, `halted_token_pool`,
 `halted_drain`, `halted_ci_billing` (#10113), …); when the holds have several causes it is `halted`, and

@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1160",
-  "loom_commit": "57eb4ca19ae4a3124f3d162a1130df2c9036ce5e",
+  "loom_version": "0.19.1161",
+  "loom_commit": "3187e328c5e0c0ef3342a3c303d4948852cfa665",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -396,7 +396,6 @@
     ".loom/scripts/tests/lib/require-daemon-bin.sh",
     ".loom/scripts/tests/lib/trust-stub.sh",
     ".loom/scripts/tests/lib/write-scope-fixture.sh",
-    ".loom/scripts/tests/lib/write-scope-stub.sh",
     ".loom/scripts/tests/nextest-daemon-guard.sh",
     ".loom/scripts/tests/run-ci-suites.sh",
     ".loom/scripts/tests/test-agent-destroy.sh",
@@ -771,8 +770,12 @@
     ".loom/scripts/tests/test-champion-markerless-park.sh",
     ".loom/scripts/tests/test-loom-daemon-start-work-finder.sh",
     ".loom/scripts/tests/test-loom-daemon-update-relaunch-config.sh",
-    ".loom/scripts/tests/test-champion-merge-queue-step-no-fallthrough.sh"
+    ".loom/scripts/tests/test-champion-merge-queue-step-no-fallthrough.sh",
+    ".agents/skills/loom-judge-ci-red/SKILL.md",
+    ".claude/commands/loom/judge-ci-red.md",
+    ".loom/roles/judge-ci-red.md",
+    ".loom/scripts/tests/test-champion-capped-hold-routing.sh"
   ],
-  "last_resync": "2026-10-14",
+  "last_resync": "2026-10-15",
   "requires_daemon": "0.19.1081"
 }

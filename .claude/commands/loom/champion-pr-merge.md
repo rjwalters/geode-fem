@@ -122,29 +122,27 @@ before Step 1 of the 6 criteria below):
 ```bash
 PR_NUMBER=<number>
 # Live labels + TRUSTED comments, in code (#11932). contradiction: loom:pr
-# beside the verdict label in `detail=`. champion-hold: criteria #2/#3 decide.
+# beside the verdict label in `detail=`. champion-hold: criteria #2/#3 decide;
+# stray-operator (a fleet-added loom:operator on it, #11970): drop it, ditto.
 # foreign-park (loom:blocked, no standing Champion hold marker) or a failed
-# read (exit 3): skip — no merge attempt, no comment, no label change.
-# Exit 2 is a loom-daemon older than the verb: on to the criteria.
+# read (exit 3): skip, with no merge, comment or label change. Exit 2: an
+# older loom-daemon, on to the criteria.
 HC=$(loom-daemon champion-hold classify --pr "$PR_NUMBER" 2>/dev/null); HRC=$?
 OTHER_VERDICT_LABEL=""
 case "$HRC $HC" in
   "0 "*" state=clear "*|"0 "*" state=champion-hold "*|"2 ") ;;
+  "0 "*" state=stray-operator "*) gh pr edit "$PR_NUMBER" --remove-label "loom:operator" ;;
   "0 "*" state=contradiction "*) OTHER_VERDICT_LABEL=${HC##* detail=} ;;
   *) echo "SKIP #$PR_NUMBER: ${HC:-rc=$HRC} — no merge, no comment"; continue ;;
 esac
 
 if [ -n "$OTHER_VERDICT_LABEL" ]; then
   JANITOR_MARKER="<!-- champion:verdict-janitor-notice -->"
-  # Idempotency guard — mirrors the stale-PR notice pattern below: only
-  # comment + relabel once per contradictory episode, so a 10-minute cron
-  # tick doesn't re-post while the contradiction is being resolved.
-  # Cached ("$GH_READ") — a marker grep only answers "did I already post
-  # this?", and your own `--clear-cache` after posting keeps it honest.
-  # `startswith`, not a bare substring match: a genuine notice always emits
-  # the marker as its literal first line, but a later comment can quote it
-  # in prose while discussing the notice without being the notice itself
-  # (#5371) — a substring match would then wrongly suppress the real post.
+  # Idempotency guard (as the stale-PR notice below): comment + relabel once
+  # per contradictory episode. Cached ("$GH_READ"): a marker grep only asks
+  # "did I already post this?", and your `--clear-cache` after posting keeps
+  # it honest. `startswith`, not a substring: a later comment may quote the
+  # marker in prose without being the notice (#5371).
   if [ "$("$GH_READ" pr view "$PR_NUMBER" --json comments --jq "[.comments[].body] | any(startswith(\"$JANITOR_MARKER\"))")" = "true" ]; then
     echo "Verdict-janitor notice already posted for #$PR_NUMBER — skipping (still not eligible to merge)"
   else
@@ -734,10 +732,13 @@ else
   #     critical-file "Hold Cleared") and never count, like (b). Computed even
   #     when (a)-(d) fired.
   HOLD_LABEL_NOW=$(jq -r '[.labels[].name] | any(. == "loom:blocked")' <<<"$PR_JSON")
+  # A `loom:operator` removal after the capped-hold recommendation (#11905) clears
+  # the inbox item, never the hold: only earlier removals can be a release.
+  REC_AT=$(jq -r '[.comments[] | select(.body | startswith("<!-- champion:capped-hold-recommendation -->"))] | last | .createdAt // ""' <<<"$PR_JSON")
   MANUAL_RELEASE_SINCE_HOLD=false; LABEL_REPAIR=false
   if [ "$HOLD_LABEL_NOW" = false ]; then
     if REMOVED_BY=$(gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/events" --paginate --jq \
-      ".[] | select(.event == \"unlabeled\" and (.label.name == \"loom:blocked\" or .label.name == \"loom:operator\") and .created_at > \"$HOLD_AT\" and .actor.type == \"User\" and ((.actor.login // \"\") | length > 0 and (endswith(\"[bot]\") | not))) | \"\(.actor.login) at \(.created_at)\"" 2>/dev/null); then
+      ".[] | select(.event == \"unlabeled\" and (.label.name == \"loom:blocked\" or (.label.name == \"loom:operator\" and (\"$REC_AT\" == \"\" or .created_at <= \"$REC_AT\"))) and .created_at > \"$HOLD_AT\" and .actor.type == \"User\" and ((.actor.login // \"\") | length > 0 and (endswith(\"[bot]\") | not))) | \"\(.actor.login) at \(.created_at)\"" 2>/dev/null); then
       REMOVED_BY=$(tail -n 1 <<<"$REMOVED_BY")
       [ -z "$REMOVED_BY" ] && LABEL_REPAIR=true   # read OK, no removal on record
     else
@@ -2886,7 +2887,7 @@ from this block itself.
 
 **Scope**: open PRs carrying **both** `loom:blocked` and `loom:changes-requested`. This is the parked state `/loom:sweep` writes when a PR exhausts `sweep.max_doctor_cycles` (`PR #P blocked: doctor cycle exhausted after <k> Doctor→Judge round(s); human attention required`). Without this pass that state is **terminal for automation** — the work-finder skips blocked items and Mode C pre-flight skips blocked PRs — so a PR whose Doctor was making real, distinct progress is never reconsidered (issue #4574, PR #4543 incident, 2026-07-30). (Whoever applies this park should also record it as a park record — see `.loom/docs/park-record.md`.)
 
-This pass **never merges anything and never closes anything**. For each parked PR it makes exactly one of three decisions, each with a mandatory rationale comment: **grant one more Doctor→Judge cycle**, **keep parked**, or **recommend closing** (routed to the operator). Run it after the auto-merge queue has been drained — it is the lowest-priority Champion work.
+This pass **never merges or closes anything**. For each parked PR it makes exactly one of three decisions, each with a mandatory rationale comment: **grant one more Doctor→Judge cycle**, **keep parked**, or **recommend closing** (routed to the operator). Run it after the auto-merge queue has been drained — it is the lowest-priority Champion work.
 
 ### Step 1: Find capped PRs
 
@@ -2906,15 +2907,28 @@ OP_HOLDS=$(loom-daemon labels list --property operator_gate --with-retired 2>/de
 ```
 
 **A Champion-held PR (a standing trusted hold marker, #11861) is the
-human's.** Its `loom:blocked` is Champion's merge-risk or critical-file hold,
-which only a human releases. If it also hit the Doctor-cycle cap (a trusted
-`<!-- loom:doctor-cycle-cap -->` comment, or a legacy `doctor cycle
-exhausted` line, after the hold), Doctor no longer works it: post **one**
-comment, guarded by `<!-- champion:capped-hold-recommendation -->`, asking a
-human to review it, close it, or remove the hold. Never remove
-`loom:blocked`, never grant a cycle; skip the steps below for it.
+human's**: only a human releases its `loom:blocked`. If it also hit the
+Doctor-cycle cap (a trusted `<!-- loom:doctor-cycle-cap -->` comment, or a
+legacy `doctor cycle exhausted` line, after the hold), Doctor no longer works
+it. Route it to the operator inbox once (#11905); never remove
+`loom:blocked`, never grant a cycle, skip the steps below:
 
-**The query skips any PR that also carries an operator hold** — a previous pass (or a human) already routed it out to the operator; do not re-decide it. Process the remaining PRs oldest first.
+```bash
+REC="<!-- champion:capped-hold-recommendation -->"  # once: a human may remove loom:operator
+if [ "$("$GH_READ" pr view "$PR_NUMBER" --json comments --jq "[.comments[].body] | any(startswith(\"$REC\"))")" != true ]; then
+  # Label first: a failed label write leaves no marker, so the next pass retries.
+  gh pr edit "$PR_NUMBER" --add-label "loom:operator" &&
+  ./.loom/scripts/post-comment.sh "$PR_NUMBER" --pr --body "$REC
+**Champion: Held PR at the Doctor-cycle cap**
+
+<WHY_DOCTOR_CANNOT_FINISH_IT> A human should review it, close it, or remove both \`loom:blocked\` and \`loom:operator\` to release the hold. Removing only \`loom:operator\` clears the inbox item and releases nothing.
+
+---
+*Automated by Champion role*"
+fi
+```
+
+**The query skips any PR with an operator hold**: it is already routed to a human. Process the rest oldest first.
 
 Two more entry guards, checked against the thread in Step 2 before any decision is made:
 
@@ -2928,7 +2942,7 @@ PR_NUMBER=<number>
 gh pr view "$PR_NUMBER" --comments
 ```
 
-Read the **whole** thread — that complete post-mortem view is the entire reason this decision lives here rather than in the dying sweep that parked the PR. Identify:
+Read the **whole** thread (the post-mortem view is why this decision lives here, not in the sweep that parked it). Identify:
 
 - Every Judge rejection (Judge rejections start with `❌ **Changes Requested**`), in order.
 - The Doctor work between them (fix comments, pushed commits) — evidence that a previous rejection's defects were actually addressed.
@@ -2965,9 +2979,9 @@ This is the **same test** as the sweep's in-sweep distinct-defect exception (`sw
 
 **No hard grant cap.** Champion may grant repeatedly across ticks as long as *each* new rejection shows fresh forward progress. The anti-thrash guarantee comes from applying this test **every round**, not from a counter — so do not add one, and do not treat a high `PRIOR_GRANTS` as automatic grounds for either granting or parking. The `<!-- champion:capped-pr-grant -->` comments are the audit trail that makes a long chain reviewable at a glance.
 
-**No double-grant with the sweep-side exception.** A PR only reaches `loom:blocked` *after* the sweep's single-use distinct-defect grace cycle was already consumed or was not applicable, so this pass can never stack on top of it. The two are the same mechanism at two decision points; neither imposes a numeric cap on the other.
+**No double-grant with the sweep-side exception.** A PR reaches `loom:blocked` only *after* the sweep's single-use grace cycle was consumed or inapplicable, so this pass never stacks on it; neither caps the other.
 
-**Checkpoints are not this pass's business.** Do not write or edit `.loom/sweep-checkpoint/` state. The terminal rejection deliberately left the last `doctor-done` checkpoint in place with its `attempt` value, so the next Doctor cycle increments from there and the escalation ladder (`ladder[min(attempt - 1, len - 1)]`, saturating at the top rung) keeps progressing across grants with no plumbing change.
+**Checkpoints are not this pass's business.** Do not write `.loom/sweep-checkpoint/` state: the terminal rejection left the last `doctor-done` checkpoint and its `attempt`, so the next Doctor cycle increments from there and the escalation ladder keeps progressing across grants.
 
 ### Step 4a: Outcome — grant another Doctor cycle
 
@@ -2998,7 +3012,7 @@ gh pr edit "$PR_NUMBER" --remove-label "loom:blocked"
 echo "Granted an extra Doctor cycle on #$PR_NUMBER (loom:blocked removed)"
 ```
 
-A granted PR leaves the parked set immediately, so this outcome is self-idempotent — the next tick will not see it again unless a fresh rejection re-parks it.
+A granted PR leaves the parked set at once, so this outcome is self-idempotent.
 
 ### Step 4b: Outcome — keep parked
 
