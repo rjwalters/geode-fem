@@ -71,15 +71,6 @@ fn pin(got: f64, want: f64, tol: f64, what: &str) {
     );
 }
 
-fn sha256_file(p: &std::path::Path) -> String {
-    use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(p).unwrap_or_else(|e| panic!("read {}: {e}", p.display()));
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// The fixture sha256 a generator provenance file records.
 fn provenance_sha(stem: &str, key: &str) -> String {
     let p = repo().join(format!(
