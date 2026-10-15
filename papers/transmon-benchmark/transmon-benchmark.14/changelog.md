@@ -1,0 +1,60 @@
+# transmon-benchmark.14 changelog
+
+Revision of v13 against two independent Anvil paper reviews of v13 held outside
+the thread (no `.13.review/` sibling): Opus (35/44, advance) and Fable (36/44,
+advance). The operator's rulings recorded on #1129 stand: the title, the
+derivative-scope paragraphs, and a short Section 8 with no counts. Text and
+figure-script changes only. One new committed analysis
+(`benchmarks/transmon_eigen/palace_crack/`) supports the Section 4 bisection
+claim. No solver or `cargo` was run.
+
+## Step 0: is the certified tier rigorous? (Opus SF-3)
+
+`crates/geode-core/src/assembly/electrostatic_dual.rs`, `certify_impl`: the
+L¹ terms of Eq. (3) are never integrated as quadrature of |p|. Each face term
+is `area * sqrt(Σ w q²)` = |F|^½‖q‖_{L²(F)} and each volume term is
+`vol * sqrt(Σ w (div D)²)` = |T|^½‖div D‖_{L²(T)}, an upper bound by
+Cauchy–Schwarz. q_F and div D are degree-k polynomials (the normal trace of
+RT_k on a plane face is P_k), so their squares have degree 2k. `RtSpace::new`
+uses `duffy_tri(k + 2)`, exact to degree 2k + 2, and `duffy_tet(k + 3)`, exact
+to 2k + 3. The bound is rigorous for k = 1–3 (up to the unbounded f64
+rounding the paper already states). No code fix or re-run is needed. §6 now
+says so in one sentence, and `verify_evidence.py` pins the code lines.
+
+| Source | Note | Resolution |
+|---|---|---|
+| Opus MF-1 / Fable M1 (generic, major) | The Palace-only Newton is counted without the probe that sets its δ | One rule, stated once in the Table 3 caption: every Palace run a method uses counts, probes included, geode-fem solves excluded. The Palace-only Newton is now **4** (3 recorded + `dl_bp2`, Broyden's L probe, shared between the two rows). Fixed in the §1 bullet, Table 3, the §7 text ("3 against 10, or 4 with no geode-fem input"), the Table 5 Measured row, and Figure 5(b), which plots it at runs 1–4 with the probe's err. The abstract's 3 refers to the geode-δ variants and is unchanged. |
+| Opus MF-2 / Fable M2 (generic, major) | "Same discrete problem" is contradicted by Table 1's unknown counts and by the different junction model | §1 now limits the claim to the h/2 meshes, "apart from the junction term". §4 names Palace's rule from `palace/utils/geodata.cpp` at `fba6a5b` and its log line, and locates the flagged edges on the fixture with a committed script that mirrors the rule: 1,009 edges (742 on the ground-and-resonator sheet, 252 on the feedline, 15 on the island). The script matches Palace's own count of 1,007 added vertices. §5 explains the h/2 qubit residual: the rank-1 shunt moves the fixture qubit by 6e-5 % and leaves the other modes unchanged to four decimals. Table 1 states that both codes use the isotropic sheet there. |
+| Opus MF-3 (generic, major) | "Code verification" twice | §2 → "code-to-code comparison and solution verification"; §4 → "a code-to-code comparison". The verifier bans the phrase. |
+| Fable M3 / Opus SF-4 (generic, major) | §7's remeshed difference (2.3× the fixed-topology value) against §10's "within 1.5 %" | §7: −2.28e-3 is labelled as the fixed-topology derivative averaged over the interval (`hf_mean`, the mean of the derivatives at 620 and 650 µm). Remeshing moves the order-1 qubit by 2.6 % over the step, against the step's own 2.0 %, so that difference is remesh noise. The Broyden probe step is given (x₁ −0.05, c to 686.981 µm, at second order, qubit −4.5 %); the two slopes differ by 0.07 % of the qubit over it. §10's third reason is rewritten: the derivative is less accurate unscaled, describes the evaluated objective only after scaling by S, and once scaled gives no more than one probe. The ruling's substance is kept. |
+| Opus SF-1 (generic, minor) | Extrapolation-free bracket | §6, one sentence plus tier labels: [4.4297, 4.477] GHz, +7.0 % to +8.1 %. The lower end is measured, and a lower estimate only if the rise continues; the upper end is model-dependent. Added to Table 5's Model-dependent row. |
+| Opus SF-2 / Fable S2 (generic, minor) | Designer meaning of the shift | New §10 paragraph "What the shift means for a design": (4.4297/4.14)² = 1.145, so C_Σ + C_J is overstated by about 14 % at fixed L_J, and E_C and the anharmonicity are about 14 % larger. L_J cannot retune them. Cites Koch et al. 2007. |
+| Fable S1 (generic, minor) | Why the qubit converges from below | New §6 paragraph: the qubit mode is quasi-static, its frequency is set by C_Σ + C_J, and conforming FEM overstates that. Fixture numbers: capacitance ratio 1.67 against an f² ratio of 1.66–1.68. **Correction to the review's 1.68:** that figure paired the scalar P1 value (137.7 fF) with the tensor bracket; with the tensor P1 value (136.684731 fF) the ratio is 1.67. Stated as a heuristic, not a proof. |
+| Fable S3 (generic, minor) | Two δ values 2.6× apart | §7: "2.6 times the geode-fem one, more than the ±175 µm noise estimate, and costs no extra step". |
+| Opus SF-7 (generic, minor) | One trajectory per method | Table 3 caption, §1 bullet, Table 5. The optional second-`rhobeg` PRIMA run was not made (no new runs in this revision). |
+| Opus SF-8 / Fable S5 (generic, minor) | Final-geometry +8.7 % rests on one family | §5: the final geometry has family a only; family b came out 0.64 % and 0.52 % higher wherever it was run, so +8.7 % is more likely low than high. A family-b ladder on the final design is not run (it needs Palace time). |
+| Opus SF-5 / Fable S6 (related-work) | Cite and define EPR; cite Koch for the transmon and C_Σ | Minev et al. 2021 and Koch et al. 2007 added, both checked against Crossref. EPR is defined where "port EPR" first appears (§4). Koch is cited at the device (§3.2), at E_C (§3.3) and in §10. arXiv entries gain `archiveprefix`. **Declined for length:** the sentence on thin-film-edge practice (surface participation, LOM/Q3D extraction); it would need a litsearch pass. |
+| Opus SF-6 / Fable S7 (generic, minor) | Solver tolerances, shifts, ranks, mesh sizes, tool versions | §9: Palace SLEPc tolerance, targets, linear solvers and tolerances, ranks; the example's tolerances for the DL-configuration runs; geode-fem shifts and residuals; tetrahedron counts of all six ladder meshes; gmsh 4.15.2 / Julia 1.10.11; MPICH from the Rocky Linux 9 image (its version is not pinned in the Dockerfile, so none is printed). All values come from committed configs and logs and are checked by `check_repro`. |
+| Opus SF-9 / Fable S8 (generic, minor) | Abstract appositive | Split into two sentences (199 words). |
+| Opus N-1 (vision/figure) | Figure 5 (c, d) titles crowd the (a, b) x-labels | `fig5_reoptimization.py`: the gap is now 0.155 of the figure height (was 0.11) at a figure height of 5.2 in; the verifier asserts it. |
+| Opus N-2 / Fable S4 (figure) | Figure 5(b) published-PRIMA star: undefined y-value, misleading legend | **Correction to both reviews:** the star was never at the our-environment err (1.5e-5). The script plots the err of the published frequencies (3.005, 3.982), 1.15e-5, in DeviceLayout's environment. The caption now states that and gives the our-environment value; the legend reads "PRIMA, published (its environment, published err)". |
+| Opus N-3 (figure) | Figure 3(a): the family-b point hides family a; Left/Right against (a)/(b) | `fig3_initial_qubit.py`: family b uses larger unfilled markers (ms 8, no fill), and the caption explains. The caption now says "in each panel, the left part / the right part". Figure height 4.8 → 4.45 in. |
+| Opus N-4 (table) | Table 1 precision | Both codes printed to geode-fem's archived three decimals (six for the qubit). Δ remains the archived difference, computed from Palace's full value, as the caption says. |
+| Opus N-5 | "First-step err" for Broyden | Column renamed "err after first step". |
+| Opus N-6 / D9 | 3.6 MHz excess given two sentences | One clause. |
+| Opus N-7 | "Each ladder took 1.4 and 1.6 h" | Sentence removed (length). |
+| Opus N-8 | Name the fixture's generator | §3.2: DeviceLayout.jl v1.15.0 driver `reference/julia/generate_transmon_fixture.jl`. |
+| Opus N-9 / Fable N8 (§8, ruled) | "Agent reviews"; "frontier"; L1–L4; Squad | "The agent reviews of this paper"; "frontier" dropped. L1–L4 and the Squad room are kept as named; explaining them would lengthen the ruled section. The section is still 150–250 words. |
+| Opus N-10 | "A second refinement family" opens with "Three checks" | The sentence moves to the end of the preceding paragraph, and the paragraph opens "The first check is a second refinement family, family b, beside the gmsh ladder, family a" (also Fable N2: family naming). |
+| Opus N-11 / Fable N1 (title, ruled) | Title wording | **Title unchanged**, per the operator's ruling on #1129. Fable's alternative is offered "if it is ever revisited". §1 now adds "every uniform level we could afford lies below those estimates" (Opus N-11). |
+| Fable N3 | 0.22 % against 0.21 % | Kept: 0.222 % from unrounded values (`eigen_estimate_minus_static_mid_pct`), checked by the verifier. |
+| Fable N4 | Palace search-window parenthetical | Now a sentence: "Palace's source shows that its eigensolver searches above its target". |
+| Fable N6 | Hatch the trimmed band in Figure 2 | Declined. Figure 2 is v13's bytes; the trim is stated in the Table 2 note. |
+| Fable N7 | `walters2026conformal` in preparation | Unchanged; the §10 text already says its comparison "is still being run". |
+| Fable S9 / Opus D9 (restatement) | Repeated numbers | Trimmed the §1 bullet 1 numbers, the conclusion, the §10 "What is established" paragraph, and some §3/§7 detail. |
+| Length | about 17 pages | **18 pages** (v13: 17). The added content needed for the must-fixes and should-fixes is about one page, and trimming recovered part of it. `\floatpagefraction` 0.75 → 0.85 and `\bibsep` 1 → 0 pt keep Figure 5 off a page of its own. |
+
+## Verifiers
+
+- `verify_evidence.py`: new guards. "same discrete problem" is allowed only in a sentence containing `$h/2$`. "code verification" is banned. The Palace-only Newton must be 3 recorded runs + 1 probe, with δ recomputed from Broyden's runs 1 and 3. The crack-bisection counts are checked against Palace's log and the new TOML. `hf_mean` is checked as the mean of the endpoint derivatives, along with the 2.6 % / 2.0 % remesh arithmetic and the 0.07 % probe arithmetic. Also checked: the bracket; the 1.67 and 1.66–1.68 ratios; the 1.145 design factor; the code lines that make the L¹ bound rigorous; the Koch and Minev entries and `archiveprefix`; the §9 settings against every ladder config; and v10–v13 main.tex unchanged. Three mutations (reinsert "code verification", add an unqualified "same discrete problem", put back the Palace-only 3) are each killed.
+- `verify_figures.py`: Figures 2 and 4 must be v13's bytes. Figure 5(b) must plot the Palace-δ Newton at runs 1–4 with the probe, and the published star at the published-frequency err. Figure 5 must keep its row gap, and Figure 3 must draw family b with larger unfilled markers.
