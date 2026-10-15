@@ -20,7 +20,12 @@
 //! - the mesh-family and refinement-scheme spread at h/2 and the
 //!   second-family estimate;
 //! - the circuit cap from its inputs, and the shared limit of every series
-//!   with its conditioning.
+//!   with its conditioning;
+//! - issue #1129 (cells in `results_controls_1129/`): the scaling-law Newton
+//!   with the Palace-only end correction, DeviceLayout's PRIMA run repeated
+//!   on this Palace build (trajectory from its log, every run checked
+//!   against its cell), and the second refinement family on the step-2
+//!   design cv2.
 //!
 //! No geode solve runs here (the only geode-derived input is #1111's
 //! transmission-line delta, a constant): these pins run in the default tier.
@@ -222,12 +227,14 @@ fn theta_of(x: [f64; 2]) -> [f64; 2] {
 type M2 = [[f64; 2]; 2];
 
 fn scaling_j(t: [f64; 2], f: [f64; 2]) -> M2 {
+    scaling_j_delta(t, f, DELTA_UM)
+}
+
+/// The scaling-law Jacobian with the line model's end correction `delta`.
+fn scaling_j_delta(t: [f64; 2], f: [f64; 2], delta: f64) -> M2 {
     let x = x_of(t);
     let dl_dx2 = -5000.0 / (x[1] * x[1]);
-    [
-        [f[0] / x[0], 0.0],
-        [0.0, -f[1] / (t[1] + DELTA_UM) * dl_dx2],
-    ]
+    [[f[0] / x[0], 0.0], [0.0, -f[1] / (t[1] + delta) * dl_dx2]]
 }
 
 fn step(t: [f64; 2], f: [f64; 2], j: M2) -> [f64; 2] {
@@ -262,13 +269,19 @@ fn initial_run() -> Run {
 }
 
 fn scaling_runs() -> Vec<Run> {
+    scaling_runs_with("sc", CELLS, DELTA_UM)
+}
+
+/// The scaling-law Newton from the initial design with end correction
+/// `delta`, its runs read from `cells`/dl_<prefix>k.
+fn scaling_runs_with(prefix: &str, cells: &str, delta: f64) -> Vec<Run> {
     let mut runs = vec![initial_run()];
     let (mut t, mut f) = (INITIAL_UM, runs[0].f);
     let mut k = 1;
     while err(f) >= CRITERION {
-        t = step(t, f, scaling_j(t, f));
-        let cell = format!("dl_sc{k}");
-        f = palace(&format!("{CELLS}/{cell}"));
+        t = step(t, f, scaling_j_delta(t, f, delta));
+        let cell = format!("dl_{prefix}{k}");
+        f = palace(&format!("{cells}/{cell}"));
         runs.push(Run { cell, theta: t, f });
         k += 1;
         assert!(k < 10, "scaling control did not reach the criterion");
@@ -331,12 +344,12 @@ fn broyden_runs() -> Vec<Run> {
     runs
 }
 
-fn check_control(r: &toml::Value, name: &str, runs: &[Run]) -> (usize, f64) {
+fn check_control(r: &toml::Value, name: &str, runs: &[Run], cells_dir: &str) -> (usize, f64) {
     let sec = format!("controls.{name}");
     let cells: Vec<String> = runs.iter().map(|x| x.cell.clone()).collect();
     assert_eq!(tstrs(r, &format!("{sec}.cells")), cells, "{sec}.cells");
     for x in &runs[1..] {
-        let rep = report(&format!("{CELLS}/{}", x.cell));
+        let rep = report(&format!("{cells_dir}/{}", x.cell));
         close_all(
             &rep,
             &x.theta,
@@ -386,8 +399,8 @@ fn check_control(r: &toml::Value, name: &str, runs: &[Run]) -> (usize, f64) {
 fn gradient_free_controls_re_derive_from_raw_cells() {
     let r = results();
     let opt = doc("benchmarks/transmon_devicelayout_optimize/results.toml");
-    let (n_sc, e_sc) = check_control(&r, "scaling", &scaling_runs());
-    let (n_br, e_br) = check_control(&r, "broyden", &broyden_runs());
+    let (n_sc, e_sc) = check_control(&r, "scaling", &scaling_runs(), CELLS);
+    let (n_br, e_br) = check_control(&r, "broyden", &broyden_runs(), CELLS);
     let prima = tf(&opt, "newton_devicelayout.prima_palace_runs") as usize;
     let geode = tf(&opt, "newton_devicelayout.palace_runs_at_criterion") as usize;
     let geode_first = tarr(&opt, "newton_devicelayout.err")[1];
@@ -1209,5 +1222,359 @@ fn cap_inputs_and_shared_limits_re_derive() {
         0.5 * (lo + hi),
         5e-5,
         "excess as a level change (exact)",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #1129: the Palace-only Newton (T2), PRIMA on this build (T1), and the
+// second refinement family on the step-2 design cv2 (T3).
+// ---------------------------------------------------------------------------
+
+const C1129: &str = "reference/fixtures/transmon_palace/results_controls_1129";
+const O1092: &str = "reference/fixtures/transmon_palace/results_optimize_1092";
+
+/// The line model's end correction from Palace runs only: `f_r (L + delta)`
+/// constant through `dl_initial` and the Broyden probe `dl_bp2`.
+fn palace_delta() -> f64 {
+    let bp2 = palace(&format!("{CELLS}/dl_bp2"));
+    let t2 = report(&format!("{CELLS}/dl_bp2"));
+    let f0 = DL_INITIAL_GHZ[1];
+    (bp2[1] * t2[1] - f0 * INITIAL_UM[1]) / (f0 - bp2[1])
+}
+
+#[test]
+fn palace_only_scaling_newton_re_derives() {
+    let r = results();
+    let d = palace_delta();
+    close(d, 563.879, 5e-4, "the Palace-only delta");
+    close(
+        tf(&r, "controls.scaling_palace.delta_um"),
+        d,
+        6e-4,
+        "delta_um",
+    );
+    let runs = scaling_runs_with("sp", C1129, d);
+    // The issue's first step: c unchanged from [controls.scaling], L moved.
+    assert_eq!(runs[1].theta, [1196.933, 7350.807], "first step");
+    close_all(
+        &tarr(&r, "controls.scaling_palace.first_step_um"),
+        &runs[1].theta,
+        6e-4,
+        "first_step_um",
+    );
+    let first_l = tarr(&r, "controls.delta_sensitivity.first_step_L_um")[2];
+    close(
+        runs[1].theta[1],
+        first_l,
+        6e-4,
+        "delta_sensitivity predicted it",
+    );
+    let (n, e) = check_control(&r, "scaling_palace", &runs, C1129);
+    assert_eq!(
+        n, PINNED_SCALING_PALACE_RUNS,
+        "Palace-only Newton run count"
+    );
+    let cmp = tarr(&r, "controls.comparison_1129.palace_runs_at_criterion");
+    assert_eq!(cmp[4] as usize, n);
+    close_sci(
+        tarr(&r, "controls.comparison_1129.first_step_err")[4],
+        e,
+        "first step err",
+    );
+    // The #1123 rows are unchanged.
+    let old = tarr(&r, "controls.comparison.palace_runs_at_criterion");
+    assert_eq!(
+        [cmp[0], cmp[2], cmp[3], cmp[5]],
+        [old[0], old[1], old[2], old[3]]
+    );
+    let geode = tget(&r, "controls.comparison_1129.uses_geode_input")
+        .as_array()
+        .unwrap();
+    assert_eq!(geode[4].as_bool(), Some(false), "no geode input");
+}
+
+const PINNED_SCALING_PALACE_RUNS: usize = 3;
+
+struct PrimaRun {
+    x: [f64; 2],
+    theta: [f64; 2],
+    f: [f64; 2],
+    cell: String,
+}
+
+/// PRIMA's evaluations on this build, from the committed log, each checked
+/// against its cell: DeviceLayout's transform of `x` (bit for bit), the
+/// design the mesh was generated at, and the cell's frequencies.
+fn prima_runs() -> Vec<PrimaRun> {
+    let log = read(&format!("{C1129}/logs/prima_log.jsonl"));
+    let mut out = Vec::new();
+    for (i, line) in log.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["run"].as_u64().unwrap() as usize, i + 1);
+        let num = |k: &str| -> f64 { v[k].as_str().unwrap().parse().unwrap() };
+        let xs: Vec<f64> = v["x"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap().parse().unwrap())
+            .collect();
+        let x = [xs[0], xs[1]];
+        let theta = [num("c_um"), num("L_um")];
+        assert_eq!(theta[0], (1.0 / (x[0] * x[0])) * 620.0, "run {}: c", i + 1);
+        assert_eq!(theta[1], (1.0 / x[1]) * 5000.0, "run {}: L", i + 1);
+        assert!(x.iter().all(|v| (0.6..=1.4).contains(v)), "inside the box");
+        let cell = v["cell"].as_str().unwrap().to_string();
+        let dir = if i == 0 {
+            assert_eq!((cell.as_str(), x), ("dl_initial", [1.0, 1.0]));
+            format!("{X1092}/dl_initial")
+        } else {
+            assert_eq!(cell, format!("dl_pr{}", i + 1));
+            let d = format!("{C1129}/{cell}");
+            assert_eq!(report(&d), theta, "{cell}: meshed at the logged design");
+            d
+        };
+        let f = palace(&dir);
+        let fl: Vec<f64> = v["f_ghz"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_f64().unwrap())
+            .collect();
+        assert_eq!(fl, f.to_vec(), "{cell}: the frequencies PRIMA saw");
+        close_sci(v["err"].as_f64().unwrap(), err(f), "logged err");
+        out.push(PrimaRun { x, theta, f, cell });
+    }
+    out
+}
+
+#[test]
+fn prima_on_this_build_re_derives() {
+    let r = results();
+    let runs = prima_runs();
+    let n = runs.len();
+    // BOBYQA's initial interpolation set: x0 and x0 +- rhobeg along each axis.
+    let mut init: Vec<[f64; 2]> = runs[..5].iter().map(|p| p.x).collect();
+    init.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(
+        init,
+        vec![[0.8, 1.0], [1.0, 0.8], [1.0, 1.0], [1.0, 1.2], [1.2, 1.0]],
+        "the initial interpolation set"
+    );
+    let errs: Vec<f64> = runs.iter().map(|p| err(p.f)).collect();
+    // PRIMA stops at the first run below ftarget, so that is the last run.
+    assert!(errs[..n - 1].iter().all(|e| *e >= CRITERION));
+    assert!(errs[n - 1] < CRITERION);
+    let summary: serde_json::Value =
+        serde_json::from_str(&read(&format!("{C1129}/logs/prima_summary.json"))).unwrap();
+    assert_eq!(summary["nf"].as_u64().unwrap() as usize, n, "info.nf");
+    assert_eq!(summary["status"].as_str().unwrap(), "FTARGET_ACHIEVED");
+    let sec = "controls.prima_this_build";
+    assert_eq!(
+        tf(&r, &format!("{sec}.palace_runs_at_criterion")) as usize,
+        n
+    );
+    assert_eq!(tf(&r, &format!("{sec}.prima_nf")) as usize, n);
+    assert_eq!(
+        tstrs(&r, &format!("{sec}.cells")),
+        runs.iter().map(|p| p.cell.clone()).collect::<Vec<_>>()
+    );
+    // The full-precision x round-trips through the artifact.
+    let x1 = tarr(&r, &format!("{sec}.x1"));
+    let x2 = tarr(&r, &format!("{sec}.x2"));
+    for (i, p) in runs.iter().enumerate() {
+        assert_eq!([x1[i], x2[i]], p.x, "x of run {}", i + 1);
+    }
+    close_all(
+        &tarr(&r, &format!("{sec}.c_um")),
+        &runs.iter().map(|p| p.theta[0]).collect::<Vec<_>>(),
+        6e-4,
+        "c_um",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.L_um")),
+        &runs.iter().map(|p| p.theta[1]).collect::<Vec<_>>(),
+        6e-4,
+        "L_um",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.f_q_ghz")),
+        &runs.iter().map(|p| p.f[0]).collect::<Vec<_>>(),
+        6e-7,
+        "f_q",
+    );
+    for (i, (a, b)) in tarr(&r, &format!("{sec}.err"))
+        .iter()
+        .zip(&errs)
+        .enumerate()
+    {
+        close_sci(*a, *b, &format!("prima err[{i}]"));
+    }
+    close_all(
+        &tarr(&r, &format!("{sec}.final_um")),
+        &runs[n - 1].theta,
+        6e-4,
+        "final",
+    );
+    // The published final design already meets the criterion on this build.
+    let pf = palace(&format!("{X1092}/dl_final"));
+    close_all(
+        &tarr(&r, &format!("{sec}.published_final_this_build_ghz")),
+        &pf,
+        6e-7,
+        "published final here",
+    );
+    assert!(err(pf) < CRITERION);
+    let cmp = tarr(&r, "controls.comparison_1129.palace_runs_at_criterion");
+    assert_eq!(cmp[1] as usize, n);
+    assert_eq!(cmp[0], 9.0, "the published count");
+    assert_eq!(
+        tf(
+            &r,
+            "controls.comparison_1129.prima_this_build_minus_published_runs"
+        ),
+        n as f64 - 9.0
+    );
+    // The measured outcome, pinned as measured (#1129: stated plainly
+    // whichever way it came out).
+    assert_eq!(
+        n, PINNED_PRIMA_THIS_BUILD_RUNS,
+        "PRIMA run count on this build"
+    );
+}
+
+const PINNED_PRIMA_THIS_BUILD_RUNS: usize = 10;
+
+#[test]
+fn mesh_family_cv2_re_derives() {
+    let r = results();
+    let opt = doc("benchmarks/transmon_devicelayout_optimize/results.toml");
+    let design = tarr(&opt, "conv.cv2.ladder.design_um");
+    let sec = "mesh_family.cv2";
+    close_all(
+        &tarr(&r, &format!("{sec}.design_um")),
+        &design,
+        6e-4,
+        "design",
+    );
+    let o = |c: &str| palace(&format!("{O1092}/cv2_{c}"));
+    let f = |c: &str| palace(&format!("{C1129}/famcv2_{c}"));
+    let a = [o("h_p1"), o("r1_p1"), o("r2_p1"), o("h_p2"), o("r1_p2")];
+    let b = [o("h_p1"), f("u1_p1"), f("u2_p1"), o("h_p2"), f("u1_p2")];
+    let lv = |s: &[[f64; 2]; 5], m: usize| -> Vec<f64> { s.iter().map(|x| x[m]).collect() };
+    close_all(
+        &tarr(&r, &format!("{sec}.family_a_levels_f_q_ghz")),
+        &lv(&a, 0),
+        6e-7,
+        "a q",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.family_b_levels_f_q_ghz")),
+        &lv(&b, 0),
+        6e-7,
+        "b q",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.family_b_levels_f_r_ghz")),
+        &lv(&b, 1),
+        6e-7,
+        "b r",
+    );
+    // Family b's mesh is the cv2 ladder's h mesh, refined by Palace.
+    for c in ["u1_p1", "u2_p1", "u1_p2"] {
+        let cfg: serde_json::Value =
+            serde_json::from_str(&read(&format!("{C1129}/famcv2_{c}/palace_config.json"))).unwrap();
+        assert_eq!(cfg["Model"]["Mesh"], "/work/cv2_o1_v22.msh");
+        let levels: u64 = if c == "u2_p1" { 2 } else { 1 };
+        assert_eq!(cfg["Model"]["Refinement"]["UniformLevels"], levels);
+    }
+    let sha = read(&format!("{C1129}/logs/cv2_mesh_sha256.txt"));
+    assert!(sha.contains(
+        "0558e1e673a8a678f353c55c57f5bc67ad184bf201dfb68f942cfc7d18e593a3  cv2_o1_v22.msh"
+    ));
+    assert!(
+        read("benchmarks/transmon_devicelayout_optimize/ladder_cv2/mesh_sha256.txt")
+            .contains("0558e1e673a8a678f353c55c57f5bc67ad184bf201dfb68f942cfc7d18e593a3"),
+        "the same h mesh as #1111's cv2 ladder"
+    );
+    let ru = |s: &[[f64; 2]; 5], m: usize| rule([s[0][m], s[1][m], s[2][m]], [s[3][m], s[4][m]]);
+    let (aq, ar, bq, br) = (ru(&a, 0), ru(&a, 1), ru(&b, 0), ru(&b, 1));
+    close(
+        aq.estimate,
+        tf(&opt, "conv.cv2.ladder.f_q_ghz"),
+        5e-5,
+        "family a = #1111",
+    );
+    for (k, v) in [
+        ("family_a_f_q_ghz", aq.estimate),
+        ("family_b_f_q_ghz", bq.estimate),
+        ("family_a_f_r_ghz", ar.estimate),
+        ("family_b_f_r_ghz", br.estimate),
+        ("family_b_observed_order_q", bq.observed_order),
+    ] {
+        close(tf(&r, &format!("{sec}.{k}")), v, 5e-5, k);
+    }
+    close_all(
+        &tarr(&r, &format!("{sec}.family_b_f_q_band_ghz")),
+        &bq.band,
+        5e-5,
+        "b band",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.family_b_f_r_band_ghz")),
+        &br.band,
+        5e-5,
+        "b band r",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.estimate_spread_pct")),
+        &[pct(bq.estimate, aq.estimate), pct(br.estimate, ar.estimate)],
+        5e-4,
+        "spread",
+    );
+    let uq = [aq.band[0].min(bq.band[0]), aq.band[1].max(bq.band[1])];
+    close_all(
+        &tarr(&r, &format!("{sec}.union_f_q_band_ghz")),
+        &uq,
+        5e-5,
+        "union",
+    );
+    assert_eq!(
+        tbool(&r, &format!("{sec}.family_b_band_inside_a")),
+        aq.band[0] <= bq.band[0] && bq.band[1] <= aq.band[1]
+    );
+    // The capacitor length each estimate implies, by f_q ~ sqrt(620 / c).
+    let c_on = |fq: f64| design[0] * (fq / TARGETS[0]).powi(2);
+    let cs = [c_on(aq.estimate), c_on(bq.estimate)];
+    close_all(
+        &tarr(&r, &format!("{sec}.c_on_target_um")),
+        &cs,
+        0.06,
+        "c on target",
+    );
+    close_all(
+        &tarr(&r, &format!("{sec}.c_on_target_over_published_pct")),
+        &[pct(cs[0], FINAL_UM[0]), pct(cs[1], FINAL_UM[0])],
+        6e-3,
+        "c over published",
+    );
+    let cb = [c_on(bq.band[0]), c_on(bq.band[1])];
+    close_all(
+        &tarr(&r, &format!("{sec}.family_b_c_band_um")),
+        &cb,
+        0.06,
+        "c band b",
+    );
+    let cu = [c_on(uq[0]), c_on(uq[1])];
+    close_all(
+        &tarr(&r, &format!("{sec}.union_c_band_um")),
+        &cu,
+        0.06,
+        "c band union",
+    );
+    close(
+        tf(&r, &format!("{sec}.design_over_published_pct")),
+        pct(design[0], FINAL_UM[0]),
+        6e-3,
+        "+19 %",
     );
 }

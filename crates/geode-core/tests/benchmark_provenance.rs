@@ -1040,10 +1040,10 @@ const MANIFEST: &[Entry] = &[
     e(
         "benchmarks/transmon_devicelayout_controls/results.toml",
         &["meta.measured_date", "meta.palace_commit"],
-        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issue #1123; reads the \
-         Palace cells of reference/fixtures/transmon_palace/results_controls_1123/ written by \
-         driver.py, ladder_palace.sh and worker_amr.sh on AWS, plus the committed #1079/#1092 \
-         artifacts). Palace runs only, no Burn backend and no new geode solve (the one \
+        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issues #1123, #1129; reads the \
+         Palace cells of reference/fixtures/transmon_palace/results_controls_1123/ and \
+         results_controls_1129/ written by driver.py, prima_driver.jl, ladder_palace.sh and \
+         worker_amr.sh on AWS, plus the committed #1079/#1092 artifacts). Palace runs only, no Burn backend and no new geode solve (the one \
          geode-derived input is #1111's transmission-line delta), so it carries \
          meta.measured_date and meta.palace_commit instead of the mechanical trio",
     ),
