@@ -1209,28 +1209,50 @@ def check_derivative_discussion():
     ec_of = lambda c_ff: e_ch ** 2 / (2 * c_ff * 1e-15 * h_pl) / 1e9
     for lo_c, hi_c in [(lo_u, hi_u), (tens["bracket_x0_tensor"]["lower_ff"], tens["bracket_x0_tensor"]["upper_ff"])]:
         assert (floor_to(ec_of(hi_c + cj), 4), ceil_to(ec_of(lo_c + cj), 4)) == (0.2271, 0.2278), (lo_c, hi_c)
-    c_of = lambda f: 1 / ((2 * math.pi * f * 1e9) ** 2 * lj) * 1e15
+    c_of = lambda f: 1 / ((2 * math.pi * f * 1e9) ** 2 * lj) * 1e15     # bare LC at fixed L_J (L_s = k = 0)
     c_pub, c_ad = c_of(4.14), c_of(4.4297)
     assert f"{c_pub:.2f}" == "99.45" and f"{ec_of(c_pub):.3f}" == "0.195" and f"{c_ad:.2f}" == "86.87"
+    # v16 Doctor: the 16.6 % holds only for the bare reading. Under the two-node circuit with the L_s and k bands the
+    # published 4.14 GHz implies the committed TransmonAnchor::devicelayout_bare_loop band (C_isl, + C_J here).
+    anc = read("benchmarks/transmon_loop_inductance/results.toml")["anchor"]
+    assert anc["l_s_band_nh"] == [0.113, 0.125] and anc["k_band"] == [0.0227, 0.031]
+    full = [anc["c_sigma_band_low_unrounded_ff"] + cj, anc["c_sigma_band_high_unrounded_ff"] + cj]
+    assert f"{full[0]:.2f}" == "98.59" and f"{full[1]:.2f}" == "98.72", full
+    over_full = [pct(full[0] / (hi_u + cj) - 1), pct(full[1] / (lo_u + cj) - 1)]
+    assert (floor_to(over_full[0], 1), ceil_to(over_full[1], 1)) == (15.6, 16.1), over_full
     assert floor_to(pct(c_pub / (hi_u + cj) - 1), 1) == 16.6 and floor_to(pct(c_pub / 85.26 - 1), 1) == 16.6
-    assert c_ad > 85.26                       # the adaptive level's C_Sigma lies above the bound
+    st_band = read(CROSS)["static_cross_check"]["initial"]["dressed_f_q_band_ghz"]
+    c_st = sorted(c_of(f) for f in st_band)
+    assert (f"{c_st[0]:.1f}", f"{c_st[1]:.1f}") == ("85.8", "86.1"), c_st
+    over_st = sorted(pct(c_pub / c - 1) for c in c_st)
+    assert (f"{over_st[0]:.1f}", f"{over_st[1]:.1f}") == ("15.5", "15.9"), over_st
+    over_ad = pct(c_pub / c_ad - 1)
+    assert round(over_ad) == 14 and c_ad > 85.26 and all(c > 85.26 for c in c_st)
+    # "about half" of the 14 -> 16.6 % gap is the still-rising adaptive level (to the static route's midpoint).
+    share = (sum(over_st) / 2 - over_ad) / (pct(c_pub / 85.26 - 1) - over_ad)
+    assert 0.4 < share < 0.65, share
     for text in ["The bound gives $E_C/h = e^2/2hC_\\Sigma$ in $[0.2271, 0.2278]$\\,GHz, Bounded as a function of "
                  "$C_\\Sigma$ and model-dependent as the transmon's charging energy (a single-island lumped picture).",
-                 "the published $4.14$\\,GHz implies $C_\\Sigma = 99.45$\\,fF and $E_C/h = 0.195$\\,GHz: the published "
-                 "discretization overstates $C_\\Sigma$ by at least $16.6\\%$, and $E_C$ and the anharmonicity, close to "
-                 "$-E_C$ \\citep{koch2007charge}, are at least $16.6\\%$ larger than it implies.",
-                 "The adaptive level gives a smaller $14\\%$ ($1.070^2 = 1.145$) because it is still rising: the "
-                 "$C_\\Sigma$ it implies, $86.87$\\,fF, lies above the bound.",
+                 "Read through the two-node circuit with the $L_s$ and $k$ bands, the published $4.14$\\,GHz implies "
+                 "$C_\\Sigma$ in $[98.59, 98.72]$\\,fF, so under that model the published discretization overstates "
+                 "$C_\\Sigma$ by $15.6$--$16.1\\%$",
+                 "Read as a bare LC at fixed $L_J$ ($L_s = k = 0$), any dressed frequency implies a larger $C_\\Sigma$: "
+                 "$99.45$\\,fF for the published value (at least $16.6\\%$ over the bound), $85.8$--$86.1$\\,fF for the "
+                 "static-route range ($15.5$--$15.9\\%$) and $86.87$\\,fF for the adaptive level (about $14\\%$, "
+                 "$1.070^2 = 1.145$).",
+                 "In that reading about half of the gap between $14\\%$ and $16.6\\%$ is the adaptive level still "
+                 "rising, and the rest is $L_s$ and $k$.",
                  "$L_J$ can retune the qubit frequency but not $E_C$, which the capacitance alone sets."]:
         assert text in e, text
+    assert "at least $16.6\\%$, and" not in e      # the bare-reading figure is not stated as the model's
     # Fable M3: f01 = f_p - E_C/h (Koch), with C at fixed L_J inferred from each linear-mode frequency.
     ec = lambda f: e_ch ** 2 * (2 * math.pi * f) ** 2 * lj / (2 * h_pl)
     ecs = [ec(f * 1e9) / 1e9 for f in (4.14, 4.4297)]
     assert [f"{x:.2f}" for x in ecs] == ["0.19", "0.22"], ecs
     f01 = [f - x for f, x in zip((4.14, 4.4297), ecs)]
     assert f"{pct(f01[1] / f01[0] - 1):.1f}" == "6.6", f01
-    assert ("The transition $f_{01}$ rises by a little less, about $6.6\\%$ at the adaptive level, because $E_C/h$ "
-            "rises from about $0.19$ to $0.22$\\,GHz.") in e
+    assert ("The transition $f_{01}$ rises by a little less than the linear mode, about $6.6\\%$ at the adaptive "
+            "level, because $E_C/h$ rises from about $0.19$ to $0.22$\\,GHz.") in e
     contains("At $L_s = k = 0$ this is the plasma frequency $\\sqrt{8E_JE_C}/h$, and the transmon's $f_{01} \\approx "
              "\\sqrt{8E_JE_C}/h - E_C/h$ lies below it.")
     p = section("\\paragraph{What a practitioner can do.}", "\\section{Conclusion}")

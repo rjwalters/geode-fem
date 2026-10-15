@@ -76,7 +76,7 @@ def panel(ax, data, fam, geom, mode, title):
     # The family-a estimate is labelled in its own slot column, low in the panel, below the published line: no
     # ladder level or reference line reaches that corner (v16: v15's label sat between h/2 and the slots, on the
     # order-2 series).
-    ax.annotate(f'a: {est:.3f} GHz\n({over:+.1f}%)', (XA, .1), xycoords=('data', 'axes fraction'),
+    ax.annotate(f'a: {est:.3f} GHz\n({over:+.1f}% vs published)', (XA, .1), xycoords=('data', 'axes fraction'),
                 ha='center', va='bottom', fontsize=8)
 
 

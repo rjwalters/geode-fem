@@ -1040,17 +1040,21 @@ eigenvector derivatives \citep{nelson1976simplified}.
 \paragraph{What the shift means for a design.}
 The bound gives $E_C/h = e^2/2hC_\Sigma$ in $[0.2271, 0.2278]$\,GHz,
 Bounded as a function of $C_\Sigma$ and model-dependent as the transmon's
-charging energy (a single-island lumped picture). Read at fixed $L_J$ with
-$L_s = k = 0$, the published $4.14$\,GHz implies $C_\Sigma = 99.45$\,fF and
-$E_C/h = 0.195$\,GHz: the published discretization overstates $C_\Sigma$ by
-at least $16.6\%$, and $E_C$ and the anharmonicity, close to $-E_C$
-\citep{koch2007charge}, are at least $16.6\%$ larger than it implies. The
-adaptive level gives a smaller $14\%$ ($1.070^2 = 1.145$) because it is
-still rising: the $C_\Sigma$ it implies, $86.87$\,fF, lies above the bound.
-The transition $f_{01}$ rises by a little less, about $6.6\%$ at the
-adaptive level, because $E_C/h$ rises from about $0.19$ to $0.22$\,GHz.
-$L_J$ can retune the qubit frequency but not $E_C$, which the capacitance
-alone sets.
+charging energy (a single-island lumped picture). Read through the
+two-node circuit with the $L_s$ and $k$ bands, the published $4.14$\,GHz
+implies $C_\Sigma$ in $[98.59, 98.72]$\,fF, so under that model the
+published discretization overstates $C_\Sigma$ by $15.6$--$16.1\%$, and
+$E_C$ and the anharmonicity, close to $-E_C$ \citep{koch2007charge}, are
+larger than it implies by as much. Read as a bare LC at fixed $L_J$ ($L_s
+= k = 0$), any dressed frequency implies a larger $C_\Sigma$: $99.45$\,fF
+for the published value (at least $16.6\%$ over the bound), $85.8$--$86.1$\,fF
+for the static-route range ($15.5$--$15.9\%$) and $86.87$\,fF for the
+adaptive level (about $14\%$, $1.070^2 = 1.145$). In that reading about
+half of the gap between $14\%$ and $16.6\%$ is the adaptive level still
+rising, and the rest is $L_s$ and $k$. The transition $f_{01}$ rises by a
+little less than the linear mode, about $6.6\%$ at the adaptive level,
+because $E_C/h$ rises from about $0.19$ to $0.22$\,GHz. $L_J$ can retune
+the qubit frequency but not $E_C$, which the capacitance alone sets.
 
 \paragraph{What a practitioner can do.}
 The slow rate comes from the sheet edges, and the standard remedy for an

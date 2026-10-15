@@ -141,7 +141,7 @@ def check_content():
     for geom in ['initial', 'final']:
         conv = cc['convergence'][geom]
         for mode in ['q', 'r']:
-            label = f"a: {conv[f'f_{mode}_ghz']:.3f} GHz ({conv[f'f_{mode}_over_published_pct']:+.1f}%)"
+            label = f"a: {conv[f'f_{mode}_ghz']:.3f} GHz ({conv[f'f_{mode}_over_published_pct']:+.1f}% vs published)"
             assert label in t2, label
     for label in ['published (DeviceLayout)', 'Palace, order 1', 'Palace, order 2', 'geode-fem, order 1 (same meshes)',
                   "Palace at DeviceLayout's discretization", 'extrapolation band (not a bound)', 'extrapolated estimate',
@@ -304,10 +304,8 @@ def check_fig2_coordinates(load, plt):
         box = labels[0].get_window_extent(r).expanded(1.05, 1.1)
         assert abs(ax.transData.transform((ax.get_xticks()[3], 0))[0] - (box.x0 + box.x1) / 2) < 1, 'label off its slot'
         for line in ax.get_lines():
-            xy = ax.transData.transform(np.column_stack([line.get_xdata(), line.get_ydata()]).astype(float)) \
-                if not line.get_transform().contains_branch(ax.transAxes) else None
-            if xy is None:
-                continue
+            # Each line's own transform (data for the series, blended for axhline), so every series is tested.
+            xy = line.get_transform().transform(np.column_stack([line.get_xdata(), line.get_ydata()]).astype(float))
             pts = [xy[0]] if len(xy) == 1 else [xy[i] + t * (xy[i + 1] - xy[i]) for i in range(len(xy) - 1)
                                                  for t in np.linspace(0, 1, 400)]
             pad = line.get_markersize() if line.get_marker() not in (None, 'None', '') else 0

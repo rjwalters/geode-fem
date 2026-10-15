@@ -25,13 +25,16 @@ Environment: Python 3.14, NumPy 2.4.1, Matplotlib 3.10.8; Poppler; TeX Live / pd
   family-b final qubit changed to 3.293; the abstract's "(17–39 % within the
   band)" removed; "0.61" claimed for both family-a qubits; the monotonicity
   sentence weakened to "may raise"; the GCI sentence de-attributed; the 16.6 %
-  changed to 14 %.
+  changed to 14 %; the full-model 15.6–16.1 % restated as "at least 16.6 %";
+  the full-model $C_\Sigma$ band and the static-route 85.8–86.1 fF altered.
 - `python3.14 verify_figures.py`: PASS. All five scripts regenerate
   byte-identical PDFs. Figures 3 and 5 are v15's (= v14's) bytes, Figure 4 is
   v15's; Figures 1 and 2 changed (Figure 2: label placement and 0.3 in less
   height; Figure 1: 0.45 in less height, panel (c) shorter; no font changes).
-  The new Figure 2 guard fails on v15's label placement and on a label centred
-  on the estimate. Figure 2 checked visually at 130 and 300 dpi, Figure 1 at
+  The new Figure 2 guard tests every line with its own transform (a first
+  version skipped every data series; corrected), and fails on v15's label
+  placement, through the overlap with "Palace, order 2" even with the
+  slot-centre test disabled, and on a label centred on the estimate. Figure 2 checked visually at 130 and 300 dpi, Figure 1 at
   110 dpi.
 - Anvil pre-flights on the v16 dir: `audience_check` 0 hits in all classes,
   pass; `numeric_consistency` 811 numbers, 0 findings, pass.
