@@ -9,7 +9,8 @@ wall time from `/usr/bin/time -v`), and writes one TOML with, per run:
   two neighbours (in dB, on the uniform frequency grid);
 * the -10 dB band: the contiguous run around the dip, crossings interpolated
   linearly in dB, its width and its overlap with the 2.400-2.4835 GHz ISM
-  band;
+  band, and the VSWR-2 (-9.54 dB) bandwidth for like-for-like comparison
+  with closed-form estimates;
 * the worst |S11| over the 9 in-band points geode verifies (2.400 to 2.4835
   GHz in 10.4375 MHz steps), interpolated linearly in dB;
 * the problem size and cost.
@@ -63,26 +64,30 @@ def dip(rows):
     return f, d, k, rows[k][0] in (rows[0][0], rows[-1][0])
 
 
-def band(rows, k):
-    if rows[k][1] > -10.0:
+def band(rows, k, level=-10.0):
+    if rows[k][1] > level:
         return None
 
     def cross(i, j):
         (fa, da, _), (fb, db, _) = rows[i], rows[j]
-        return fa + (-10.0 - da) * (fb - fa) / (db - da)
+        return fa + (level - da) * (fb - fa) / (db - da)
 
     lo = hi = None
     i = k
-    while i > 0 and rows[i - 1][1] <= -10.0:
+    while i > 0 and rows[i - 1][1] <= level:
         i -= 1
     if i > 0:
         lo = cross(i - 1, i)
     j = k
-    while j < len(rows) - 1 and rows[j + 1][1] <= -10.0:
+    while j < len(rows) - 1 and rows[j + 1][1] <= level:
         j += 1
     if j < len(rows) - 1:
         hi = cross(j, j + 1)
     return lo, hi
+
+
+# VSWR 2: |S11| = 1/3, i.e. -9.542 dB (the closed-form bandwidth criterion).
+VSWR2_DB = 20.0 * math.log10(1.0 / 3.0)
 
 
 def interp_db(rows, f):
@@ -175,6 +180,9 @@ def main() -> None:
                 lines.append(
                     f"centring_mhz = {1e3 * (0.5 * (BAND[0] + BAND[1]) - 0.5 * (lo + hi)):.3f}"
                 )
+        bv = band(rows, k, VSWR2_DB)
+        if bv is not None and bv[0] is not None and bv[1] is not None:
+            lines.append(f"vswr2_bandwidth_mhz = {1e3 * (bv[1] - bv[0]):.3f}")
         if all(w is not None for w in worst):
             lines.append(f"worst_in_band_db = {max(worst):.4f}")
         for k2, v in info.items():

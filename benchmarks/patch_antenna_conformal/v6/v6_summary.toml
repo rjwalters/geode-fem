@@ -134,6 +134,7 @@ bandwidth_mhz = 65.094
 ism_coverage_mhz = 0
 ism_coverage_frac = 0
 centring_mhz = 128.386
+vswr2_bandwidth_mhz = 69.213
 nd_order = 1
 n_dofs = 174490
 wall_s = 67.82
@@ -154,6 +155,7 @@ bandwidth_mhz = 68.063
 ism_coverage_mhz = 0
 ism_coverage_frac = 0
 centring_mhz = 84.27
+vswr2_bandwidth_mhz = 72.29
 nd_order = 2
 n_dofs = 884530
 wall_s = 1482.63
@@ -174,6 +176,7 @@ bandwidth_mhz = 68.721
 ism_coverage_mhz = 0.792
 ism_coverage_frac = 0.0095
 centring_mhz = 75.318
+vswr2_bandwidth_mhz = 72.978
 nd_order = 3
 n_dofs = 2503179
 wall_s = 8294
@@ -194,6 +197,7 @@ bandwidth_mhz = 93.976
 ism_coverage_mhz = 83.5
 ism_coverage_frac = 1
 centring_mhz = 0.193
+vswr2_bandwidth_mhz = 100.251
 worst_in_band_db = -10.7712
 nd_order = 2
 n_dofs = 962662
@@ -215,6 +219,7 @@ bandwidth_mhz = 94.605
 ism_coverage_mhz = 80.564
 ism_coverage_frac = 0.9648
 centring_mhz = -8.489
+vswr2_bandwidth_mhz = 100.951
 worst_in_band_db = -9.5566
 nd_order = 3
 n_dofs = 2729331
@@ -268,8 +273,9 @@ ism_cover_pct = 52.4066
 
 [x3]
 fem_q_total_lower_bound = 18.1069
-fem_bw_vswr2_upper_bound_mhz = 95.2861
 fem_q_rad_lower_bound = 29.4321
+matched_rlc_at_q_bound_vswr2_mhz = 95.2861
+matched_rlc_at_q_bound_10db_mhz = 89.8366
 
 [x3.closed_form_final_width]
 q_sp = 53.4128
@@ -290,6 +296,13 @@ radiated_fraction = 0.491558
 bw_vswr2_mhz = 67.8678
 w_mm = 45.4485
 l_mm = 28.8034
+
+[x3.fem_final_bandwidth_like_for_like]
+palace_p2_minus10db_mhz = 93.976
+palace_p2_vswr2_mhz = 100.251
+palace_p3_minus10db_mhz = 94.605
+palace_p3_vswr2_mhz = 100.951
+closed_form_vswr2_mhz = 70.4304
 
 [[x3.radiation_final_L1]]
 f_ghz = 2.38
@@ -568,6 +581,7 @@ best_worst_db_at_38_evals = -3.75882
 best_worst_db_at_76_evals = -6.94193
 best_worst_db_at_114_evals = -9.55673
 solves_to_level = [275, 370, 405, 520, -1]
+best_worst_db_within_adjoint_budget = -2.65792
 
 [[x4.gradient_free]]
 toml = "v6/x4/L1_copper_38_cma190_s2.toml"
@@ -580,6 +594,7 @@ best_worst_db_at_38_evals = -3.06482
 best_worst_db_at_76_evals = -7.66377
 best_worst_db_at_114_evals = -9.81532
 solves_to_level = [300, 385, 385, 385, 695]
+best_worst_db_within_adjoint_budget = -2.39959
 
 [[x4.gradient_free]]
 toml = "v6/x4/L1_copper_38_cma190_s3.toml"
@@ -592,6 +607,7 @@ best_worst_db_at_38_evals = -3.2708
 best_worst_db_at_76_evals = -7.54413
 best_worst_db_at_114_evals = -9.61138
 solves_to_level = [265, 395, 395, 395, -1]
+best_worst_db_within_adjoint_budget = -2.82281
 
 [x5]
 

@@ -321,8 +321,26 @@ def x3():
         # electric energy is in the substrate (see the README).
         q_t_min = c["diel_fraction"] / TAN_DELTA
         out["fem_q_total_lower_bound"] = q_t_min
-        out["fem_bw_vswr2_upper_bound_mhz"] = 1e3 * 2.44 / (math.sqrt(2) * q_t_min)
         out["fem_q_rad_lower_bound"] = q_t_min / c["eta_rad"]
+        # What a single RLC resonator matched at the centre would give at that
+        # Q (not a bound: an over-coupled, worst-of-band-optimized match can
+        # exceed it). (S - 1) / (Q sqrt S) with S = 2 (VSWR 2) and S = 1.925
+        # (-10 dB).
+        s10 = (1 + 10 ** (-0.5)) / (1 - 10 ** (-0.5))
+        out["matched_rlc_at_q_bound_vswr2_mhz"] = 1e3 * 2.44 / (math.sqrt(2) * q_t_min)
+        out["matched_rlc_at_q_bound_10db_mhz"] = (
+            1e3 * 2.44 * (s10 - 1) / (math.sqrt(s10) * q_t_min)
+        )
+    pal = os.path.join(V6, "x1", "palace_summary.toml")
+    if os.path.exists(pal):
+        run = load(pal)["run"]
+        out["fem_final_bandwidth_like_for_like"] = {
+            "palace_p2_minus10db_mhz": run["fin_L1_p2"]["bandwidth_mhz"],
+            "palace_p2_vswr2_mhz": run["fin_L1_p2"].get("vswr2_bandwidth_mhz"),
+            "palace_p3_minus10db_mhz": run["fin_L1_p3"]["bandwidth_mhz"],
+            "palace_p3_vswr2_mhz": run["fin_L1_p3"].get("vswr2_bandwidth_mhz"),
+            "closed_form_vswr2_mhz": out["closed_form_final_width"]["bw_vswr2_mhz"],
+        }
     return out
 
 
@@ -510,6 +528,11 @@ def main():
         best_at = {
             e["eval"]: e.get("best_so_far_worst_db") for e in tr if e["eval"] in (38, 76, 114)
         }
+        # Best so far within the adjoint run's whole optimization budget.
+        at_budget = min(
+            (w for n_s, w in c if n_s <= cum),
+            default=math.inf,
+        )
         cma_runs.append(
             {
                 "toml": os.path.relpath(p, ROOT),
@@ -522,6 +545,7 @@ def main():
                 "best_worst_db_at_76_evals": best_at.get(76),
                 "best_worst_db_at_114_evals": best_at.get(114),
                 "solves_to_level": [first(c, lv) for lv in levels],
+                "best_worst_db_within_adjoint_budget": at_budget,
             }
         )
     if cma_runs:
