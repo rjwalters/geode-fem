@@ -7,11 +7,13 @@
 [meta]
 issue = 1123
 measured_date = "2026-10-14"
-generated_at_commit = "c03805da"
+generated_at_commit = "cbe96ff1"
 generator = "benchmarks/transmon_devicelayout_controls/assemble.py"
 palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043
 cells = "reference/fixtures/transmon_palace/results_controls_1123"
+cells_1129 = "reference/fixtures/transmon_palace/results_controls_1129"  # issue #1129: [controls.scaling_palace], [controls.prima_this_build], [mesh_family.cv2]
 hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the adaptive run, fam_u1_p1 and fam_u2_p1)"
+hosts_1129 = "AWS us-east-2, Ubuntu 24.04 arm64: r8g.8xlarge w1129 (32 vCPU, 247 GiB), 2026-10-15; the T1/T2 DeviceLayout-discretization runs on 16 ranks and the T3 cells on the other 16, concurrently; Palace image palace:cpu-1043 loaded from the #1123 build"
 
 [controls]
 objective = "Palace at DeviceLayout's own discretization (its mesh_order 2 mesh, solver_order 2, its configfile verbatim), the objective of #1111 and of DeviceLayout's PRIMA run"
@@ -73,6 +75,55 @@ delta_palace_dl_bp2_um = 563.879
 deltas_um = [0.0, 215.954, 563.879]
 first_step_c_um = [1196.933, 1196.933, 1196.933]
 first_step_L_um = [7016.478, 7140.862, 7350.807]
+
+[controls.scaling_palace]
+description = "issue #1129 T2: the [controls.scaling] Newton with the L column's end correction taken from Palace runs only (delta_palace_dl_bp2_um of [controls.delta_sensitivity]); no geode input of any kind"
+jacobian = "c column: dF_q/dx1 = F_q/x1; L column: dF_r/dx2 = -F_r/(L + delta) dL/dx2 with delta = 563.879 um from the Palace runs dl_initial and dl_bp2 by f_r (L + delta) = const; off-diagonals 0; re-evaluated at every point from the Palace values"
+cells = ["dl_initial", "dl_sp1", "dl_sp2"]
+roles = ["initial", "step", "step"]
+c_um = [620.000, 1196.933, 1229.026]
+L_um = [5000.000, 7350.807, 7225.712]
+f_q_ghz = [4.168313, 3.039953, 3.008728]
+f_r_ghz = [5.613182, 3.936702, 4.001445]
+err = [1.572e-01, 2.139e-04, 4.297e-06]  # DeviceLayout's sum((f - t)^2 / t^2) / 2
+palace_runs_at_criterion = 3  # the initial run counts as run 1, as #1111 counts
+first_step_err = 2.139e-04  # the first run placed by a Newton/secant step
+final_um = [1229.026, 7225.712]
+final_ghz = [3.008728, 4.001445]
+final_minus_published_um = [11.348, -18.243]
+delta_um = 563.879
+first_step_um = [1196.933, 7350.807]  # [controls.delta_sensitivity] first_step_*_um[2]
+
+[controls.prima_this_build]
+description = "issue #1129 T1: DeviceLayout's run_optimization re-run with this repository's Palace build: the same PRIMA call (prima(errfunc, [1.0, 1.0]; ftarget = reltol^2 = 1e-4, xl = [0.6, 0.6], xu = [1.4, 1.4], rhobeg = 0.2), which with bounds only is BOBYQA, PRIMA.jl 0.2.4 / PRIMA_jll 0.7.1 from the reference/julia/devicelayout environment) on the same objective (sum((f - t)^2 / t^2) / 2 with cap_length = 620 um / x1^2, total_length = 5000 um / x2, exact), every point a Palace run at DeviceLayout's discretization like the Newton controls; the initial point is the committed dl_initial (run 1)"
+driver = "benchmarks/transmon_devicelayout_controls/prima_driver.jl"
+cells = ["dl_initial", "dl_pr2", "dl_pr3", "dl_pr4", "dl_pr5", "dl_pr6", "dl_pr7", "dl_pr8", "dl_pr9", "dl_pr10"]
+x1 = [1.0, 1.2, 1.0, 0.8, 1.0, 0.8152883055182452, 0.7024366422787469, 0.6966841651106954, 0.6972009515259778, 0.7160778095845071]
+x2 = [1.0, 1.0, 1.2, 1.0, 0.8, 0.7233084755551249, 0.6751289432680017, 0.6559740742673781, 0.694431470106252, 0.693716947562631]
+c_um = [620.000, 430.556, 620.000, 968.750, 620.000, 932.759, 1256.543, 1277.379, 1275.486, 1209.125]
+L_um = [5000.000, 5000.000, 4166.667, 5000.000, 6250.000, 6912.680, 7405.993, 7622.252, 7200.135, 7207.551]
+f_q_ghz = [4.168313, 4.939158, 4.175283, 3.374733, 4.160140, 3.444703, 2.990429, 2.936727, 2.955857, 3.031669]
+f_r_ghz = [5.613182, 5.611432, 6.606503, 5.616160, 4.583786, 4.170991, 3.909448, 3.801869, 4.014700, 4.017931]
+err = [1.572e-01, 2.901e-01, 2.890e-01, 8.943e-02, 8.542e-02, 1.190e-02, 2.613e-04, 1.449e-03, 1.150e-04, 6.577e-05]  # DeviceLayout's sum((f - t)^2 / t^2) / 2
+palace_runs_at_criterion = 10  # PRIMA's info.nf; the initial run counts as run 1, as #1111 counts
+prima_nf = 10
+prima_status = "FTARGET_ACHIEVED"
+published_palace_runs = 9  # DeviceLayout's build (blog / example)
+first_model_step_run = 6  # runs 1-5 are BOBYQA's initial interpolation set x0, x0 +- rhobeg e_i
+first_model_step_err = 1.190e-02
+final_um = [1209.125, 7207.551]
+final_ghz = [3.031669, 4.017931]
+final_minus_published_um = [-8.553, -36.404]
+best_err = 6.577e-05
+published_final_this_build_ghz = [3.016352, 3.995612]  # results_crosscheck_1092/dl_final
+published_final_this_build_err = 1.546e-05  # already below the criterion on this build
+
+[controls.comparison_1129]
+methods = ["PRIMA (DeviceLayout, published)", "PRIMA (DeviceLayout run_optimization, this build)", "Newton, geode-gradient Jacobian (#1111)", "Newton, scaling-law c column, #1111 delta", "Newton, scaling-law c column, Palace-only delta", "Broyden from two probes"]
+palace_runs_at_criterion = [9, 10, 3, 3, 3, 5]
+first_step_err = [nan, nan, 7.914e-04, 1.695e-04, 2.139e-04, 6.240e-04]  # PRIMA builds a model from five runs first, so it has no comparable first step
+uses_geode_input = [false, false, true, true, false, false]  # #1111's shape gradients, or its geode-calibrated delta
+prima_this_build_minus_published_runs = 1
 
 [conv_step.scaling]
 description = "one scaling-law Newton step (the [controls.scaling] Jacobian) from DeviceLayout's published final design toward the targets on the converged frequencies (the part-1 estimate there), evaluated by the Palace half of #1111's ladder (order 1 at h, h/2, h/4; order 2 at h, h/2; PEC box) under the part-1 rule"
@@ -162,6 +213,44 @@ all_estimates_below_cap = true  # family a, family b and the adaptive run's fine
 amr_final_f_q_ghz = 4.4297
 amr_final_in_union_band = true
 proposal = "The ~2 % between the two h/2 levels is almost all refinement scheme (refinement_scheme_pct: 1.5-1.8 %), not mesh family (mesh_family_pct: 0.15-0.43 %); the two h meshes agree to 0.02 % at h. Level spreads overstate the effect on the converged value: run through the part-1 rule, the two refinement families of the same h mesh give estimates 0.64 % apart (estimate_spread_pct), and the second family's band lies inside the first's (family_b_band_inside_a). Proposal for v12: keep the part-1 band (it already covers the second family), and quote the converged initial qubit as the range of the two family estimates (estimate_range_f_q_ghz) instead of one point, stating the 0.64 % as the mesh-family/refinement-scheme spread; the adaptive run's DOF extrapolation (an ill-conditioned estimate) lies inside that range (amr_dof_extrapolation_in_range). The resonator behaves the same way (0.62 %). Widening the band by the 1.8 % level spread is not recommended: it double-counts the extrapolation."
+
+[mesh_family.cv2]
+description = "issue #1129 T3: the second refinement family on #1111's step-2 design cv2 (1446.078 / 7416.352 um), as [mesh_family.initial] did on the initial geometry: family a is #1111's ladder (gmsh -refine of the DeviceLayout h mesh: order 1 at h, h/2, h/4, order 2 at h, h/2), family b refines the same h mesh (cv2_o1_v22.msh, regenerated byte-identically) with Palace's UniformLevels 1, 2 instead (the h cells are shared); both through the part-1 rule. The capacitor lengths are the scaling law f_q ~ sqrt(620/c) applied to each estimate (and band edge): the c at which that estimate would sit on 3.0 GHz, with df_q/dL = 0; an estimate, not a run"
+design_um = [1446.078, 7416.352]
+family_b_cells = ["reference/fixtures/transmon_palace/results_controls_1129/famcv2_u1_p1", "reference/fixtures/transmon_palace/results_controls_1129/famcv2_u2_p1", "reference/fixtures/transmon_palace/results_controls_1129/famcv2_u1_p2"]
+family_a_levels_f_q_ghz = [2.238656, 2.561339, 2.778018, 2.778405, 2.896597]  # p1 h, h/2, h/4; p2 h, h/2
+family_b_levels_f_q_ghz = [2.238656, 2.598425, 2.808175, 2.778405, 2.900490]
+family_a_levels_f_r_ghz = [3.589365, 3.767178, 3.878793, 3.907176, 3.956789]
+family_b_levels_f_r_ghz = [3.589365, 3.802246, 3.915204, 3.907176, 3.961977]
+family_b_nd = [228885, 1722111, 13320582, 1185926, 9110558]
+refinement_scheme_h2_pct = 1.448  # Palace over gmsh refinement, qubit, order 1 at h/2
+family_a_f_q_ghz = 3.0047
+family_a_f_q_band_ghz = [2.9790, 3.2209]
+family_a_observed_order_q = 0.5746
+family_b_f_q_ghz = 3.0203
+family_b_f_q_band_ghz = [3.0033, 3.1014]
+family_b_observed_order_q = 0.7784
+family_a_f_r_ghz = 3.9984
+family_a_f_r_band_ghz = [3.9873, 4.0670]
+family_a_observed_order_r = 0.6718
+family_b_f_r_ghz = 4.0225
+family_b_f_r_band_ghz = [4.0160, 4.0429]
+family_b_observed_order_r = 0.9143
+estimate_spread_pct = [0.516, 0.602]  # family b over family a, qubit and resonator
+union_f_q_band_ghz = [2.9790, 3.2209]
+union_f_r_band_ghz = [3.9873, 4.0670]
+family_b_band_inside_a = true
+estimate_range_f_q_ghz = [3.0047, 3.0203]
+targets_in_family_b_band = [false, false]
+family_b_shared_limit_f_q_ghz = 3.0290  # order 0.963
+c_on_target_um = [1450.7, 1465.7]  # family a, family b: the scaling-law c that puts each estimate on 3.0 GHz
+c_on_target_over_published_pct = [19.13, 20.37]  # vs DeviceLayout's published 1217.678 um
+design_over_published_pct = 18.76  # cv2 itself: the +19 % of the v12 text
+family_b_c_band_um = [1449.3, 1545.5]  # the family-b qubit band mapped by the same law
+union_c_band_um = [1425.9, 1666.9]
+family_b_c_band_over_published_pct = [19.02, 26.92]
+union_c_band_over_published_pct = [17.10, 36.89]
+wall_s = [1597.2, 1700.9, 7200.0]  # u1_p1, u2_p1, u1_p2 on 16 ranks
 
 [cap.initial]
 tier = "model-dependent: a rigorous consequence of the certified C_Sigma bracket only under the lumped two-node circuit model; not a certified bound on the full-wave eigenfrequency"

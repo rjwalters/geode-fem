@@ -170,10 +170,12 @@ def git_head():
 
 
 # ------------------------------------------------------------- sections
-def trajectory(prefix, kind):
+def trajectory(prefix, kind, cells=CELLS, delta=None):
     """Re-run a control's step arithmetic on the committed Palace values.
 
-    Returns the list of (cell, theta, F, err, role) in run order."""
+    `delta` is the scaling law's line-model end correction (#1111's by
+    default). Returns the list of (cell, theta, F, err, role) in run order."""
+    delta = drv.DELTA_UM if delta is None else delta
     # Run 1 enters at the 6-decimal values the driver (and #1111) used; they
     # must be the committed cell's to rounding.
     raw = modes(f"{X1092}/dl_initial")
@@ -183,10 +185,10 @@ def trajectory(prefix, kind):
         theta, F = drv.INITIAL, runs[0][2]
         k = 1
         while drv.dl_error(F) >= drv.CRITERION:
-            theta = drv.newton_step(theta, F, drv.scaling_jacobian(theta, F))
+            theta = drv.newton_step(theta, F, drv.scaling_jacobian(theta, F, delta))
             cell = f"dl_{prefix}{k}"
-            assert os.path.isdir(os.path.join(ROOT, CELLS, cell)), f"missing cell {cell}"
-            F = list(modes(f"{CELLS}/{cell}")[:2])
+            assert os.path.isdir(os.path.join(ROOT, cells, cell)), f"missing cell {cell}"
+            F = list(modes(f"{cells}/{cell}")[:2])
             runs.append((cell, theta, F, "step"))
             k += 1
         return runs
@@ -223,9 +225,9 @@ def trajectory(prefix, kind):
     return runs
 
 
-def write_control(t, name, runs, description, jacobian):
+def write_control(t, name, runs, description, jacobian, cells=CELLS):
     for cell, theta, _, _ in runs[1:]:
-        c, L = report_design(f"{CELLS}/{cell}")
+        c, L = report_design(f"{cells}/{cell}")
         assert abs(c - theta[0]) < 5e-4 and abs(L - theta[1]) < 5e-4, (cell, c, L, theta)
     errs = [drv.dl_error(F) for _, _, F, _ in runs]
     n_crit = next(i + 1 for i, e in enumerate(errs) if e < drv.CRITERION)
@@ -272,10 +274,16 @@ def main():
     t.append('generator = "benchmarks/transmon_devicelayout_controls/assemble.py"')
     t.append('palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043')
     t.append(f'cells = "{CELLS}"')
+    t.append(f'cells_1129 = "{C1129}"  # issue #1129: [controls.scaling_palace], [controls.prima_this_build], [mesh_family.cv2]')
     t.append(
         'hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization '
         'runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the '
         'adaptive run, fam_u1_p1 and fam_u2_p1)"'
+    )
+    t.append(
+        'hosts_1129 = "AWS us-east-2, Ubuntu 24.04 arm64: r8g.8xlarge w1129 (32 vCPU, 247 GiB), 2026-10-15; the T1/T2 '
+        'DeviceLayout-discretization runs on 16 ranks and the T3 cells on the other 16, concurrently; Palace image '
+        'palace:cpu-1043 loaded from the #1123 build"'
     )
 
     # ---------------------------------------------------- 1. controls
@@ -362,6 +370,9 @@ def main():
     t.append("deltas_um = [0.0, " + num(drv.DELTA_UM, 3) + ", " + num(d_palace, 3) + "]")
     t.append(f"first_step_c_um = {arr([f[0] for f in firsts], 3)}")
     t.append(f"first_step_L_um = {arr([f[1] for f in firsts], 3)}")
+
+    # ---------------------------------------------------- 1a. #1129 controls
+    n_sp, e_sp, n_pr = controls_1129(t, d_palace, prima, geode_runs, geode_err, (n_sc, e_sc), (n_br, e_br))
 
     # ---------------------------------------------------- 1b. conv step
     J = drv.scaling_jacobian(drv.FINAL, drv.CONV_FINAL)
@@ -570,6 +581,8 @@ def main():
     t.append(f"amr_final_in_union_band = {'true' if union_q[0] <= last <= union_q[1] else 'false'}")
     t.append(PROPOSAL)
 
+    mesh_family_cv2(t, opt)
+
     # ---------------------------------------------------- 4. the cap
     lj, cj, csig = 14.860e-9, 5.5e-15, toml_value(xr, "static_cross_check.initial", "c_sigma_bracket_ff")
     cap_re = 1.0 / (2 * math.pi * math.sqrt(lj * (csig[0] * 1e-15 + cj))) / 1e9
@@ -629,6 +642,208 @@ def main():
     with open(os.path.join(ROOT, OUT), "w") as fh:
         fh.write("\n".join(t) + "\n")
     print(OUT)
+
+
+C1129 = "reference/fixtures/transmon_palace/results_controls_1129"
+O1092 = "reference/fixtures/transmon_palace/results_optimize_1092"
+
+
+def prima_runs():
+    """The #1129 PRIMA run on this build, from its log, each run checked
+    against its cell: the design is DeviceLayout's transform of the logged x
+    (bit for bit), the mesh was generated at that design (generator report),
+    and the logged frequencies are the cell's."""
+    runs = []
+    with open(os.path.join(ROOT, C1129, "logs/prima_log.jsonl")) as fh:
+        for line in fh:
+            if line.strip():
+                runs.append(json.loads(line))
+    for i, r in enumerate(runs):
+        assert r["run"] == i + 1, r
+        x1, x2 = (float(v) for v in r["x"])
+        c, L = float(r["c_um"]), float(r["L_um"])
+        assert c == (1 / (x1 * x1)) * 620.0 and L == (1 / x2) * 5000.0, r
+        assert 0.6 <= x1 <= 1.4 and 0.6 <= x2 <= 1.4, r
+        if r["cell"] == "dl_initial":
+            assert (x1, x2) == (1.0, 1.0)
+            cell_dir = f"{X1092}/dl_initial"
+        else:
+            assert r["cell"] == f"dl_pr{i + 1}", r
+            cell_dir = f"{C1129}/{r['cell']}"
+            assert report_design(cell_dir) == (c, L), (r, report_design(cell_dir))
+        f = modes(cell_dir)[:2]
+        assert list(f) == r["f_ghz"], (r, f)
+        assert abs(drv.dl_error(f) - r["err"]) <= 1e-15 * max(1.0, r["err"]), r
+        r["dir"] = cell_dir
+        r["xf"] = (x1, x2)
+        r["theta"] = (c, L)
+        r["F"] = list(f)
+    return runs
+
+
+def controls_1129(t, d_palace, prima, geode_runs, geode_err, sc, br):
+    """T2 (the scaling-law Newton with the Palace-only delta) and T1 (PRIMA on
+    this build) of issue #1129, and the six-method comparison."""
+    assert abs(drv.palace_delta(ROOT) - d_palace) < 1e-9
+    sp = trajectory("sp", "scaling", cells=C1129, delta=d_palace)
+    n_sp, e_sp, fin_sp = write_control(
+        t,
+        "scaling_palace",
+        sp,
+        "issue #1129 T2: the [controls.scaling] Newton with the L column's end correction taken from Palace runs "
+        "only (delta_palace_dl_bp2_um of [controls.delta_sensitivity]); no geode input of any kind",
+        "c column: dF_q/dx1 = F_q/x1; L column: dF_r/dx2 = -F_r/(L + delta) dL/dx2 with delta = 563.879 um from the "
+        "Palace runs dl_initial and dl_bp2 by f_r (L + delta) = const; off-diagonals 0; re-evaluated at every point "
+        "from the Palace values",
+        cells=C1129,
+    )
+    t.append(f"delta_um = {num(d_palace, 3)}")
+    t.append(f"first_step_um = {arr(sp[1][1], 3)}  # [controls.delta_sensitivity] first_step_*_um[2]")
+
+    pr = prima_runs()
+    with open(os.path.join(ROOT, C1129, "logs/prima_summary.json")) as fh:
+        summ = json.load(fh)
+    errs = [r["err"] for r in pr]
+    below = [i + 1 for i, e in enumerate(errs) if e < drv.CRITERION]
+    n_pr = below[0]
+    assert n_pr == len(pr) == summ["nf"], (n_pr, len(pr), summ["nf"])
+    assert summ["status"] == "FTARGET_ACHIEVED", summ
+    best = min(range(len(pr)), key=lambda i: errs[i])
+    fin = pr[n_pr - 1]
+    pub = drv.FINAL
+    t.append("\n[controls.prima_this_build]")
+    t.append(
+        'description = "issue #1129 T1: DeviceLayout\'s run_optimization re-run with this repository\'s Palace build: '
+        "the same PRIMA call (prima(errfunc, [1.0, 1.0]; ftarget = reltol^2 = 1e-4, xl = [0.6, 0.6], xu = [1.4, 1.4], "
+        "rhobeg = 0.2), which with bounds only is BOBYQA, PRIMA.jl 0.2.4 / PRIMA_jll 0.7.1 from the "
+        "reference/julia/devicelayout environment) on the same objective (sum((f - t)^2 / t^2) / 2 with "
+        "cap_length = 620 um / x1^2, total_length = 5000 um / x2, exact), every point a Palace run at DeviceLayout's "
+        "discretization like the Newton controls; the initial point is the committed dl_initial (run 1)\""
+    )
+    t.append('driver = "benchmarks/transmon_devicelayout_controls/prima_driver.jl"')
+    t.append(f"cells = {strs([r['cell'] for r in pr])}")
+    t.append(f"x1 = [{', '.join(repr(r['xf'][0]) for r in pr)}]")
+    t.append(f"x2 = [{', '.join(repr(r['xf'][1]) for r in pr)}]")
+    t.append(f"c_um = {arr([r['theta'][0] for r in pr], 3)}")
+    t.append(f"L_um = {arr([r['theta'][1] for r in pr], 3)}")
+    t.append(f"f_q_ghz = {arr([r['F'][0] for r in pr], 6)}")
+    t.append(f"f_r_ghz = {arr([r['F'][1] for r in pr], 6)}")
+    t.append("err = [" + ", ".join(sci(e) for e in errs) + "]  # DeviceLayout's sum((f - t)^2 / t^2) / 2")
+    t.append(f"palace_runs_at_criterion = {n_pr}  # PRIMA's info.nf; the initial run counts as run 1, as #1111 counts")
+    t.append(f"prima_nf = {summ['nf']}")
+    t.append(f"prima_status = {json.dumps(summ['status'])}")
+    t.append(f"published_palace_runs = {prima}  # DeviceLayout's build (blog / example)")
+    t.append("first_model_step_run = 6  # runs 1-5 are BOBYQA's initial interpolation set x0, x0 +- rhobeg e_i")
+    t.append(f"first_model_step_err = {sci(errs[5]) if len(errs) > 5 else 'nan'}")
+    t.append(f"final_um = {arr(fin['theta'], 3)}")
+    t.append(f"final_ghz = {arr(fin['F'], 6)}")
+    t.append(f"final_minus_published_um = {arr([fin['theta'][0] - pub[0], fin['theta'][1] - pub[1]], 3)}")
+    t.append(f"best_err = {sci(errs[best])}")
+    # The published final design on this build: the #1092 part-1 cell dl_final.
+    pf = modes(f"{X1092}/dl_final")[:2]
+    t.append(f"published_final_this_build_ghz = {arr(pf, 6)}  # results_crosscheck_1092/dl_final")
+    t.append(f"published_final_this_build_err = {sci(drv.dl_error(pf))}  # already below the criterion on this build")
+
+    n_sc, e_sc = sc
+    n_br, e_br = br
+    t.append("\n[controls.comparison_1129]")
+    t.append(
+        'methods = ["PRIMA (DeviceLayout, published)", "PRIMA (DeviceLayout run_optimization, this build)", '
+        '"Newton, geode-gradient Jacobian (#1111)", "Newton, scaling-law c column, #1111 delta", '
+        '"Newton, scaling-law c column, Palace-only delta", "Broyden from two probes"]'
+    )
+    t.append(f"palace_runs_at_criterion = [{prima}, {n_pr}, {geode_runs}, {n_sc}, {n_sp}, {n_br}]")
+    t.append(
+        f"first_step_err = [nan, nan, {sci(geode_err[1])}, {sci(e_sc)}, {sci(e_sp)}, {sci(e_br)}]  "
+        "# PRIMA builds a model from five runs first, so it has no comparable first step"
+    )
+    t.append("uses_geode_input = [false, false, true, true, false, false]  # #1111's shape gradients, or its geode-calibrated delta")
+    t.append(f"prima_this_build_minus_published_runs = {n_pr - prima}")
+    return n_sp, e_sp, n_pr
+
+
+def mesh_family_cv2(t, opt):
+    """T3 of issue #1129: the second refinement family (Palace UniformLevels
+    of the same h mesh) on #1111's step-2 design cv2, as [mesh_family.initial]
+    did on the initial geometry, and what each family estimate implies for
+    the converged design's capacitor length."""
+    design = toml_value(opt, "conv.cv2.ladder", "design_um")
+    a = {k: modes(f"{O1092}/cv2_{k}") for k in ("h_p1", "r1_p1", "r2_p1", "h_p2", "r1_p2")}
+    b = {k: modes(f"{C1129}/famcv2_{k}") for k in ("u1_p1", "u2_p1", "u1_p2")}
+    for k, (q, r) in (("p1", ("p1_f_q_ghz", "p1_f_r_ghz")), ("p2", ("p2_f_q_ghz", "p2_f_r_ghz"))):
+        levels = [a[f"{lv}_{k}"] for lv in (("h", "r1", "r2") if k == "p1" else ("h", "r1"))]
+        for i, lv in enumerate(levels):
+            assert abs(lv[0] - toml_value(opt, "conv.cv2.ladder", q)[i]) < 5e-7
+            assert abs(lv[1] - toml_value(opt, "conv.cv2.ladder", r)[i]) < 5e-7
+    fa = {}
+    fb = {}
+    for j, lab in ((0, "q"), (1, "r")):
+        fa[lab] = part1_rule([a["h_p1"][j], a["r1_p1"][j], a["r2_p1"][j]], [a["h_p2"][j], a["r1_p2"][j]])
+        fb[lab] = part1_rule([a["h_p1"][j], b["u1_p1"][j], b["u2_p1"][j]], [a["h_p2"][j], b["u1_p2"][j]])
+    assert abs(fa["q"]["estimate"] - toml_value(opt, "conv.cv2.ladder", "f_q_ghz")) < 5e-5
+    assert abs(fa["r"]["estimate"] - toml_value(opt, "conv.cv2.ladder", "f_r_ghz")) < 5e-5
+    pub_c = drv.FINAL[0]
+
+    def c_for_target(f_est):
+        # The scaling law of [controls.scaling]: f_q ~ sqrt(620 / c), so the
+        # capacitor length that puts this estimate on 3.0 GHz.
+        return design[0] * (f_est / drv.TARGETS[0]) ** 2
+
+    t.append("\n[mesh_family.cv2]")
+    t.append(
+        'description = "issue #1129 T3: the second refinement family on #1111\'s step-2 design cv2 (1446.078 / '
+        "7416.352 um), as [mesh_family.initial] did on the initial geometry: family a is #1111's ladder (gmsh -refine "
+        "of the DeviceLayout h mesh: order 1 at h, h/2, h/4, order 2 at h, h/2), family b refines the same h mesh "
+        "(cv2_o1_v22.msh, regenerated byte-identically) with Palace's UniformLevels 1, 2 instead (the h cells are "
+        "shared); both through the part-1 rule. The capacitor lengths are the scaling law f_q ~ sqrt(620/c) "
+        "applied to each estimate (and band edge): the c at which that estimate would sit on 3.0 GHz, with "
+        'df_q/dL = 0; an estimate, not a run"'
+    )
+    t.append(f"design_um = {arr(design, 3)}")
+    t.append(f"family_b_cells = {strs([f'{C1129}/famcv2_{k}' for k in ('u1_p1', 'u2_p1', 'u1_p2')])}")
+    t.append(f"family_a_levels_f_q_ghz = {arr([a[k][0] for k in ('h_p1', 'r1_p1', 'r2_p1', 'h_p2', 'r1_p2')], 6)}  # p1 h, h/2, h/4; p2 h, h/2")
+    t.append(f"family_b_levels_f_q_ghz = {arr([a['h_p1'][0], b['u1_p1'][0], b['u2_p1'][0], a['h_p2'][0], b['u1_p2'][0]], 6)}")
+    t.append(f"family_a_levels_f_r_ghz = {arr([a[k][1] for k in ('h_p1', 'r1_p1', 'r2_p1', 'h_p2', 'r1_p2')], 6)}")
+    t.append(f"family_b_levels_f_r_ghz = {arr([a['h_p1'][1], b['u1_p1'][1], b['u2_p1'][1], a['h_p2'][1], b['u1_p2'][1]], 6)}")
+    t.append(
+        f"family_b_nd = [{nd_all(f'{O1092}/cv2_h_p1')[-1]}, {nd_all(f'{C1129}/famcv2_u1_p1')[-1]}, "
+        f"{nd_all(f'{C1129}/famcv2_u2_p1')[-1]}, {nd_all(f'{O1092}/cv2_h_p2')[-1]}, {nd_all(f'{C1129}/famcv2_u1_p2')[-1]}]"
+    )
+    t.append(f"refinement_scheme_h2_pct = {num(pct(b['u1_p1'][0], a['r1_p1'][0]), 3)}  # Palace over gmsh refinement, qubit, order 1 at h/2")
+    for lab in ("q", "r"):
+        for fam, rr in (("a", fa), ("b", fb)):
+            t.append(f"family_{fam}_f_{lab}_ghz = {num(rr[lab]['estimate'], 4)}")
+            t.append(f"family_{fam}_f_{lab}_band_ghz = {arr(rr[lab]['band'], 4)}")
+            t.append(f"family_{fam}_observed_order_{lab} = {num(rr[lab]['observed_order'], 4)}")
+    spread = [pct(fb["q"]["estimate"], fa["q"]["estimate"]), pct(fb["r"]["estimate"], fa["r"]["estimate"])]
+    t.append(f"estimate_spread_pct = {arr(spread, 3)}  # family b over family a, qubit and resonator")
+    uq = [min(fa["q"]["band"][0], fb["q"]["band"][0]), max(fa["q"]["band"][1], fb["q"]["band"][1])]
+    ur = [min(fa["r"]["band"][0], fb["r"]["band"][0]), max(fa["r"]["band"][1], fb["r"]["band"][1])]
+    t.append(f"union_f_q_band_ghz = {arr(uq, 4)}")
+    t.append(f"union_f_r_band_ghz = {arr(ur, 4)}")
+    t.append(
+        "family_b_band_inside_a = "
+        + ("true" if fa["q"]["band"][0] <= fb["q"]["band"][0] and fb["q"]["band"][1] <= fa["q"]["band"][1] else "false")
+    )
+    t.append(f"estimate_range_f_q_ghz = {arr(sorted([fa['q']['estimate'], fb['q']['estimate']]), 4)}")
+    t.append(
+        "targets_in_family_b_band = ["
+        + ", ".join("true" if bb[0] <= tv <= bb[1] else "false" for bb, tv in ((fb["q"]["band"], 3.0), (fb["r"]["band"], 4.0)))
+        + "]"
+    )
+    sl = shared_limit(b["u1_p1"][0], b["u2_p1"][0], a["h_p2"][0], b["u1_p2"][0])
+    t.append(f"family_b_shared_limit_f_q_ghz = {num(sl[1], 4)}  # order {num(sl[0], 3)}")
+    ca, cb = c_for_target(fa["q"]["estimate"]), c_for_target(fb["q"]["estimate"])
+    t.append(f"c_on_target_um = {arr([ca, cb], 1)}  # family a, family b: the scaling-law c that puts each estimate on 3.0 GHz")
+    t.append(f"c_on_target_over_published_pct = {arr([pct(ca, pub_c), pct(cb, pub_c)], 2)}  # vs DeviceLayout's published 1217.678 um")
+    t.append(f"design_over_published_pct = {num(pct(design[0], pub_c), 2)}  # cv2 itself: the +19 % of the v12 text")
+    cbands = [sorted([c_for_target(fb["q"]["band"][0]), c_for_target(fb["q"]["band"][1])])]
+    cbands.append(sorted([c_for_target(uq[0]), c_for_target(uq[1])]))
+    t.append(f"family_b_c_band_um = {arr(cbands[0], 1)}  # the family-b qubit band mapped by the same law")
+    t.append(f"union_c_band_um = {arr(cbands[1], 1)}")
+    t.append(f"family_b_c_band_over_published_pct = {arr([pct(c, pub_c) for c in cbands[0]], 2)}")
+    t.append(f"union_c_band_over_published_pct = {arr([pct(c, pub_c) for c in cbands[1]], 2)}")
+    t.append(f"wall_s = {arr([wall_s(f'{C1129}/famcv2_{k}') for k in ('u1_p1', 'u2_p1', 'u1_p2')], 1)}  # u1_p1, u2_p1, u1_p2 on 16 ranks")
 
 
 def dof_extrapolation(n, f):
