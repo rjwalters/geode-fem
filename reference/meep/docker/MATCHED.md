@@ -182,3 +182,6 @@ source in `meep_runs/source_v1.py`; their source hashes have not been rewritten.
 
 See [AWS_PILOT.md](AWS_PILOT.md) for the follow-up calibration, measured
 resource probes, production settings, and interpretation of the R2 pilot.
+[AWS_R4.md](AWS_R4.md) records the R4 run, the R1/R2/R4 trend (no spatial
+convergence: successive-grid differences did not shrink) and the R8 requirement
+measured from R4 actuals.
