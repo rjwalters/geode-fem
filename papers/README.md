@@ -8,7 +8,7 @@ versions are:
 | Thread | Current version |
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.12/` (draft, not reviewed: v11 revised against three reviews, with gradient-free controls showing the 3-vs-9 Palace runs comes from Newton's method, Palace adaptive refinement and a second refinement family of the initial geometry, and the circuit cap as model-dependent; v11 carried the operator's 2026-10-13 rulings; v6 is the last audited version) |
+| `transmon-benchmark` | `transmon-benchmark.13/` (draft, not reviewed: v12 reframed as a cross-check of the Palace/DeviceLayout.jl transmon under the operator's 2026-10-15 rulings, cut to 17 pages, with PRIMA re-run in our environment, a Palace-only Newton and a second refinement family on the re-optimized design; v6 is the last audited version) |
 
 ## Building a paper
 
