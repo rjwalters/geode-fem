@@ -37,4 +37,18 @@ run)
     --config reference/meep/docker/matched_initial_2g4.json --geometry "$geom" --resolution "$res" \
     --max-estimated-gib 120 "$@" --output "/results/${tag}.json" > "$OUT/logs/${tag}.log" 2>&1
   echo "exit=$? end=$(date -u +%FT%TZ)" > "$OUT/logs/${tag}.exit" ;;
+r1eq)
+  # DFT-window equivalence at R1: harness vs diag (harness window) vs diag (wide window),
+  # 8 ranks each, run concurrently.
+  D8=(docker run --rm --cpus 8 --memory 24g --shm-size 1g -v "$PWD:/work:ro" -v "$OUT:/results" "$IMG")
+  C=(--config reference/meep/docker/matched_initial_2g4.json --resolution 1
+     --after-source 1200 --check-interval 600 --max-checks 5)
+  "${D8[@]}" mpirun -np 8 python reference/meep/docker/matched_antenna.py "${C[@]}" \
+    --output /results/r1eq_harness.json > "$OUT/logs/r1eq_harness.log" 2>&1 &
+  "${D8[@]}" mpirun -np 8 python reference/meep/docker/diag_antenna.py "${C[@]}" --geometry bent \
+    --fmin 2.2 --fmax 2.7 --df 0.01 --output /results/r1eq_narrow.json > "$OUT/logs/r1eq_narrow.log" 2>&1 &
+  "${D8[@]}" mpirun -np 8 python reference/meep/docker/diag_antenna.py "${C[@]}" --geometry bent \
+    --output /results/r1eq_wide.json > "$OUT/logs/r1eq_wide.log" 2>&1 &
+  wait
+  echo "end=$(date -u +%FT%TZ)" > "$OUT/logs/r1eq.exit" ;;
 esac
