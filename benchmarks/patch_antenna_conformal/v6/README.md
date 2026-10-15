@@ -200,7 +200,7 @@ What this shows:
   - The 190-evaluation budget is X4's s2/s3 budget. The default seed's X4 run had 114 evaluations, so its column compares unequal budgets past evaluation 114.
   - Palace ran at p = 1 to match geode's P1. X1 shows that p = 1 on L1 sits about 50 MHz low, so none of these levels is a converged-model level (see X1).
 
-Reproducing: each TOML's `[meta].command` gives the command. The Palace runs need the `palace:cpu` image (`reference/palace/docker/Dockerfile`) and pass `--palace-workdir` (scratch). The logs, with host paths scrubbed, are in `palace_loop/logs/`: the runs' stderr, Palace's per-call wall times (`palace_evals_*.log`), and one complete Palace evaluation (`palace_x0_eval/`). AWS spend for the issue was about $17, on two r6i.4xlarge for about 8 h each.
+Reproducing: each TOML's `[meta].command` gives the command. The Palace runs need the `palace:cpu` image (`reference/palace/docker/Dockerfile`) and pass `--palace-workdir` (scratch). The logs, with host paths scrubbed, are in `palace_loop/logs/`: the runs' stderr, Palace's per-call wall times (`palace_evals_*.log`), and one complete Palace evaluation (`palace_x0_eval/`). AWS spend for the issue was about $16: two r6i.4xlarge for 7.6 and 8.0 h (15.6 instance-hours at $1.008), plus their gp3 volumes.
 
 ## What was not done
 
