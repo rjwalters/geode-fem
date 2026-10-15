@@ -124,13 +124,10 @@ def main():
     adj_budget = ac[-1][1]
 
     def run_entry(name, solver, method, seed, curve, d, wall_kind):
-        rec = {
-            "name": name,
-            "solver": solver,
-            "method": method,
-            "seed": seed,
-            "levels_db": LEVELS,
-        }
+        rec = {"name": name, "solver": solver, "method": method}
+        if seed is not None:
+            rec["seed"] = seed
+        rec["levels_db"] = LEVELS
         if d is not None:
             g = d["gradient_free"]
             rec |= {
@@ -149,6 +146,15 @@ def main():
                 "worst_s11_db_final": min(w for *_, w in curve),
             }
         rec["optimization_solves"] = curve[-1][1]
+        if solver == "geode":
+            # What the run's own record says, on its own (different) host.
+            src = d if d is not None else adj
+            rec["recorded_host"] = src["meta"].get("host", "")
+            tw = src.get("gradient_free", src.get("optimization", {})).get("total_wall_s")
+            if tw is None:
+                tw = src.get("total_wall_s")
+            if tw is not None:
+                rec["recorded_total_wall_s"] = tw
         per_solve = None
         if wall_kind == "measured":
             rec["wall_basis"] = "measured (optimizer clock, this run's host)"
