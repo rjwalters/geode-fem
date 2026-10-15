@@ -7,7 +7,7 @@
 [meta]
 issue = 1123
 measured_date = "2026-10-14"
-generated_at_commit = "46232ff2"
+generated_at_commit = "9c4172e7"
 generator = "benchmarks/transmon_devicelayout_controls/assemble.py"
 palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043
 cells = "reference/fixtures/transmon_palace/results_controls_1123"
