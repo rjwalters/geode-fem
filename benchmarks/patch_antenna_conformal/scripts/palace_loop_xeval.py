@@ -70,6 +70,9 @@ def main() -> int:
         f'solver = "{a.solver}"',
         f'palace_np = {int(os.environ.get("PALACE_NP", "16")) if a.solver == "palace" else 0}',
         f'host = "{a.host}"',
+        f'backend = "{srv.hello.get("backend", "unknown")}"',
+        f'float_dtype = "{srv.hello.get("float_dtype", "unknown")}"',
+        f'generated_at_commit = "{srv.hello.get("generated_at_commit", "unknown")}"',
         "band_points_ghz = [" + ", ".join(f"{float(f):.6f}" for f in srv.hello["band_ghz"]) + "]",
         'cost_rule = "one solve = one frequency with one factorization (geode) or one Palace '
         'driven solve (Palace); a band evaluation is 5 solves; wall_s is the whole request '

@@ -2828,16 +2828,21 @@ fn run_eval_server(model: &Model, verify_n: usize) {
     let n = model.morph.n_dofs();
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    let backend = BackendInfo::of::<B>(&device());
     let _ = writeln!(
         stdout,
-        "{{\"ready\": true, \"n_dofs\": {n}, \"band_ghz\": [{}], \"external\": {}}}",
+        "{{\"ready\": true, \"n_dofs\": {n}, \"band_ghz\": [{}], \"external\": {}, \
+         \"backend\": \"{}\", \"float_dtype\": \"{}\", \"generated_at_commit\": \"{}\"}}",
         model
             .band
             .iter()
             .map(|b| format!("{:.9}", b.0))
             .collect::<Vec<_>>()
             .join(", "),
-        model.external.is_some()
+        model.external.is_some(),
+        backend.name,
+        backend.float_dtype,
+        geode_util::repo::current_commit()
     );
     let _ = stdout.flush();
     let num = |v: f64| {

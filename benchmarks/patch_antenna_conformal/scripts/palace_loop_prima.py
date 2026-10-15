@@ -182,6 +182,9 @@ def main() -> int:
         f'--out <out> -- {shown}"'
     )
     t.append(f'label = "{a.label}"')
+    for k in ("backend", "float_dtype", "generated_at_commit"):
+        if k in srv.hello:
+            t.append(f'{k} = "{srv.hello[k]}"')
     if a.host:
         t.append(f'host = "{a.host}"')
     from importlib.metadata import version  # noqa: PLC0415
