@@ -121,6 +121,12 @@ A Yee-cell-aligned metal staircase on the same bent board gives 2.333 GHz.
 
 ## What R8 would need (from R4 actuals)
 
+**Superseded recommendation.** [DIAGNOSIS.md](DIAGNOSIS.md) section 5 recommends
+against running R8 with the current harness. Its metal-voxelization error does not
+shrink with resolution: the grid factors are 0.866 for the flat board and 0.922 for the
+bent board at R4, and about 0.93 is inferred for R8. The resource arithmetic below is
+kept as a record.
+
 The full arithmetic is in `resolution_trend.json` → `r8_projection`. Each axis doubles
 (2,365.6 M cells), dt halves, and the final time is assumed unchanged (70,934 steps).
 

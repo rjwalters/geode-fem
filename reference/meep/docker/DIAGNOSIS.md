@@ -21,14 +21,20 @@ Palace agrees with GEODE on the same meshes. Meep R1/R2/R4 show nothing there (a
   thinner for Ez (h_E) than for the tangential field (h_H). The cavity's electric
   energy sees h_E and its magnetic energy sees h_H, so the resonance drops by about
   √(⟨1/h_H⟩/⟨1/h_E⟩).
-- **The model fits the bent harness run with no free parameters.** At R2 the grid dump
-  gives a factor of 0.893, which predicts **2.086 GHz**. The measured dip is
-  **2.087 GHz**.
+- **The model explains the ~250 MHz artifact.** Nothing in it is fitted, but it is
+  anchored: every predicted dip is the measured flat R2 dip times a factor computed from
+  the grid. At R2 the grid dump gives a factor of 0.893, which predicts **2.086 GHz**
+  for the bent board. The measured dip is **2.087 GHz**.
+- **The model is only good to about 1–2%.** On the grid-aligned bent board it misses by
+  23.5 MHz, and on the inset test by 29.5 MHz (section 3). It cannot resolve
+  GEODE-sized bend shifts of about 1 MHz.
 - **The flat board does not disagree with GEODE.** It is consistent at R2 (factor 1),
   and Meep's flat R2 dip is **2.335 GHz**, 8 MHz below GEODE's flat P1/L3 dip.
 - **The same curved board with Yee-cell-aligned metal behaves like the flat one.** Its
   dip is **2.333 GHz**, a bend shift of **−2.6 MHz** against GEODE's −1.0 to −1.6 MHz.
-  With the harness's shells the shift is −248 MHz.
+  With the harness's shells the shift is −248 MHz. This agreement with GEODE is a
+  *measurement*. The model predicts a shift of about −26 MHz for this board, so it does
+  not predict the agreement.
 
 So GEODE (and Palace) are not contradicted. The committed Meep R2/R4 bent spectra (R1 was not dumped) are
 dominated by a staircasing artifact of the harness. **R8 with the current harness is
@@ -40,6 +46,7 @@ library (the checks stay active under `python -O`):
 ```sh
 python3 benchmarks/fdtd_density_baseline/meep_diag_verify.py
 python3 -O benchmarks/fdtd_density_baseline/meep_diag_verify.py
+python3 benchmarks/fdtd_density_baseline/meep_diag_mutation_test.py   # every corruption must fail
 ```
 
 `--write` regenerates `meep_runs/diag/diagnosis.json`. The verifier checks the
@@ -83,15 +90,15 @@ the explicit lock; all 179 package URLs were replayed and the exported set equal
 The R2 RC oracles reproduce the committed us-east-1 `aws_pilot/rc_{volume,sheet}_R2.json`
 spectra **bit for bit**, and `matched_geometry_verify.py` passes. Every run uses the
 unchanged harness through `reference/meep/docker/diag_antenna.py`, which adds only a flat
-geometry, alternative metal placements, a wider DFT window (1.6–3.0 GHz, 0.01 GHz steps;
-the harness's Gaussian pulse is kept), Ez field maps and a grid dump. The
+geometry, alternative metal placements, a wider DFT window (1.6–3.0 GHz, or 1.2–3.0 GHz
+for the two inset runs, in 0.01 GHz steps; the harness's Gaussian pulse is kept), Ez field maps and a grid dump. The
 `diag_antenna.py` versions used are archived in `diag/sources/` by SHA-256. All runs use
 32 ranks with the R2 stopping settings (1200/600, tolerance 0.001); every run met the
 temporal tolerance. Wrapper: `diag/run_diag.sh`.
 
 **Equivalence to the harness.** At R1 on this host (8 ranks), the harness reproduces the
 committed Mac R1 record (4 ranks) bit for bit. `diag_antenna.py` with the harness's
-window matches the harness to 3e−15. With the wide window it differs by 0.006 in complex
+window matches the harness to 3e−15. With the wide window it differs by 0.0058–0.0071 in complex
 S11 at the shared frequencies, and the bent R2 wide-window run differs from the
 committed R2 by 0.0045–0.0055. That offset comes from the DFT window alone. It is
 recorded and is two orders of magnitude below the effects measured here.
@@ -118,8 +125,11 @@ recorded and is two orders of magnitude below the effects measured here.
   bent about R = 10⁴ mm, the board gives 2.3354 GHz, the flat answer.
 - **Corrected bent R2.** With the metal on whole Yee cells (`--shell-mode cells`), the
   bent board gives **2.3325 GHz, −2.6 MHz from flat**. That is the size of GEODE's bend
-  shift. The port and crown gap are the same as `flat_R2`, so this is a like-for-like
-  correction of the bend alone.
+  shift. The port and the crown gap are the same as `flat_R2`. Away from the crown,
+  though, the cell staircase rounds each column to the nearest plane, giving a 1.5 mm
+  gap in 27 of the 38 columns against 2.0 mm on the flat board (section 3). So this
+  isolates the E/H mismatch, and the remaining differences from `flat_R2` are local gap
+  heights. Their net effect on the dip is the measured −2.6 MHz.
 
 The committed bent R2/R4 records are not wrong as computations. The wide window shows
 that the R2 bent dip exists at 2.087 GHz, just below the 2.2–2.7 GHz window. `AWS_R4.md`
@@ -131,9 +141,10 @@ predicted at about 2.15 GHz (section 3), above the R2 dip, so on this evidence i
 
 Section 2's dumps (`diag/grid_*.json`, `--dump-grid`) read `fields.get_chi1inv` at each
 component's Yee samples. The sample offsets are found empirically: along a line crossing
-a material boundary, only the true offset returns unmixed values. Along y = 0, in every
-x column under the patch, h_E is the height of free Ez samples and h_H is the separation
-of the Ex metal planes.
+a material boundary, only the true offset returns unmixed values. The gap model reads
+the y = 0 slice over the half patch, x in [0, 19] mm, by symmetry. Using the full width
+changes the factors by at most 0.001. In each column, h_E is the height of the free Ez
+samples, n·dx, and h_H is the separation of the Ex metal planes, (n + 1)·dx.
 
 | Grid | h_H (mm: columns) | h_E (mm: columns) | Factor √(⟨1/h_H⟩/⟨1/h_E⟩) |
 |---|---|---|---|
@@ -152,7 +163,9 @@ free is, in the continuum, a layer with ε_z = ∞. It carries the TEM mode's ta
 so it stores magnetic energy but no electric energy. The parallel-plate line under the
 patch then has an inductance per length set by h_H and a capacitance set by h_E. Its
 phase velocity is c/√ε · √(h_E/h_H), and averaging over the x columns gives the factor
-above. The model is evaluated from the dumps and has no fitted parameter.
+above. Nothing is fitted. The model is anchored on one measurement: every predicted
+dip below is the measured `flat_R2` dip (2.3351 GHz) times the factor of that grid
+relative to the flat R2 grid.
 
 | Test | Predicted (GHz) | Measured (GHz) | Error |
 |---|---|---|---|
@@ -160,6 +173,23 @@ above. The model is evaluated from the dumps and has no fitted parameter.
 | R = 10⁴ control | 2.3351 | 2.3354 | +0.01% |
 | bent R2, cell staircase | 2.3090 | 2.3325 | +1.0% |
 | flat R2, inset (TM010 identified by field map) | 1.6512 | 1.6807 | +1.8% |
+
+**Precision of the model.** The model explains the 250 MHz harness artifact to 1 MHz
+and the inset shift to 1.8%. Elsewhere it misses by more:
+
+- **Cell staircase.** On the grid-aligned bent board it predicts 2.3090 GHz and the run
+  measures 2.3325 GHz, a **23.5 MHz** miss. Equivalently, it predicts a bend shift of
+  about −26 MHz where −2.6 MHz is measured. That miss is about ten times GEODE's bend
+  shift.
+- **Inset.** The miss is **29.5 MHz**.
+
+The model's precision is therefore about 1–2% (25–45 MHz). It identifies the cause and
+the size of the 250 MHz artifact, but it cannot resolve GEODE-sized bend shifts. That
+the corrected bent board agrees with GEODE comes from the measurement in section 2, not
+from the model. `meep_diag_verify.py` holds each test to its own bound, bracketing
+these errors: 0.2% for the bent and control runs, 1.5% for the cell staircase, 2% for
+the inset. `meep_diag_mutation_test.py` checks that a forged 30 MHz shift of any of the
+flat, bent or cells spectra fails, as do eight other corruptions of the records.
 
 The inset board was built as a deliberate test of the model on a *flat* board. It has
 two dips, and Ez maps on the gap mid-plane identify them (`map_inset_flat_R2`, a repeat

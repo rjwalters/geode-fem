@@ -19,9 +19,13 @@ E/H gap model. Meep zeroes each E component whose own sample lies in mp.metal.
 Under a patch, h_E is the height over which Ez samples are free and h_H the
 separation of the tangential-E (Ex, Ey) metal planes. A layer with Ez zeroed but
 tangential E free stores magnetic, not electric, energy, so a TEM-like cavity
-mode along y scales as sqrt(<1/h_H> / <1/h_E>) (averages over the x columns under
-the patch). This is a model fitted to nothing: it is evaluated from the dumps
-and compared with the measured dips.
+mode along y scales as sqrt(<1/h_H> / <1/h_E>). The averages run over the x columns
+of the y = 0 slice on the half patch, x in [0, 19] mm, by symmetry. Nothing is
+fitted, but the model is anchored: every predicted dip is the measured flat_R2 dip
+times the grid factor. Its precision is about 1-2 % (25-45 MHz). It explains the
+~250 MHz harness artifact, but it cannot resolve GEODE-sized (~1 MHz) bend shifts;
+the corrected bent board's agreement with GEODE is a measurement, not a prediction.
+Each test has its own tolerance, bracketing the error DIAGNOSIS.md states.
 """
 import argparse
 import cmath
@@ -65,7 +69,10 @@ GRIDS = {
 # Model tests: run -> grid of the same geometry; the reference is flat_R2.
 MODEL_TESTS = {'bent_R2': 'bent_R2', 'ctrl_R2': 'ctrl_R2', 'cells_bent_R2': 'cells_bent_R2',
                'inset_flat_R2': 'inset_flat_R2'}
-MODEL_TOLERANCE = 0.02
+# Per-test bounds on |measured/predicted - 1|, bracketing the errors DIAGNOSIS.md
+# states (bent +0.05 %, ctrl +0.01 %, cells +1.0 %, inset +1.8 %).
+MODEL_TOLERANCE = {'bent_R2': 0.002, 'ctrl_R2': 0.002, 'cells_bent_R2': 0.015,
+                   'inset_flat_R2': 0.02}
 
 
 def load(path):
@@ -365,6 +372,7 @@ def build():
           'Mapped inset run does not reproduce the inset spectrum')
     flat = runs['flat_R2']['dip_parabolic_ghz']
     tests = {}
+    check(MODEL_TOLERANCE.keys() == MODEL_TESTS.keys(), 'Every model test needs its own tolerance')
     for name, grid_name in MODEL_TESTS.items():
         factor = grids[grid_name]['predicted_frequency_factor'] / grids['flat_R2']['predicted_frequency_factor']
         if name == 'inset_flat_R2':
@@ -463,7 +471,7 @@ def main():
     check(all(abs(v) < 2 for v in result['geode']['detune_bent_minus_flat_mhz'].values()), 'GEODE bend shift')
     check(grids['flat_R2']['predicted_frequency_factor'] == 1.0, 'Flat R2 grid should be E/H consistent')
     for name, test in tests.items():
-        check(abs(test['relative_error']) < MODEL_TOLERANCE, f'E/H gap model misses {name}')
+        check(abs(test['relative_error']) < MODEL_TOLERANCE[name], f'E/H gap model misses {name}')
     for name in GRIDS:
         check(grids[name]['slice_conductor_components'] == 2, f'{name}: shell not two closed conductors')
     print('PASS: diagnosis environment, run provenance and spectra, grid dumps, E/H gap model, GEODE comparison')
