@@ -67,18 +67,7 @@ def build(config, resolution, geometry_kind, frequencies):
     return setup
 
 
-def yee_axis(n_cells, resolution, component_offset_half):
-    """Positions (mm) of grid samples along one axis of a centred Meep cell.
-
-    Meep centres the rounded cell on the origin: ivec index m sits at
-    (m - n)/2 pixels. Components with an odd ivec index along this axis
-    (Ex along x, Ey along y, Ez along z) are offset by half a pixel.
-    """
-    out = []
-    for m in range(0, 2 * n_cells + 1):
-        if (m % 2 == 1) == component_offset_half:
-            out.append((m - n_cells) / 2 / resolution)
-    return np.array(out)
+CODE = {'metal': 'M', 'fr4': 'F', 'air': 'A'}
 
 
 def classify(value, eps):
@@ -92,76 +81,116 @@ def classify(value, eps):
 
 
 def dump_grid(sim, setup, config, resolution):
+    """Read Meep's chi1inv at the Yee samples of Ex, Ey, Ez.
+
+    get_chi1inv interpolates linearly between samples, so a query between two
+    samples of different material returns a mixed value. The sample offset of
+    each component along each axis (0 or dx/2 relative to the origin) is
+    therefore found empirically: along a line that crosses a material boundary,
+    only the true offset returns pure values. No Meep origin convention is
+    assumed.
+    """
     p = config['patch']
     eps = config['materials']['substrate_eps_r']
-    n = [int(math.floor(s * resolution + 0.5)) for s in setup['cell']]
-    port = setup['port']
-    comps = {'Ex': (mp.Ex, mp.X, 0), 'Ey': (mp.Ey, mp.Y, 1), 'Ez': (mp.Ez, mp.Z, 2)}
+    dx = 1 / resolution
+    comps = {'Ex': (mp.Ex, mp.X), 'Ey': (mp.Ey, mp.Y), 'Ez': (mp.Ez, mp.Z)}
 
-    def chi(comp, x, y, z):
-        c, d, _ = comps[comp]
-        value = complex(sim.fields.get_chi1inv(c, d, mp.vec(x, y, z)))
+    def chi(comp, q):
+        c, d = comps[comp]
+        value = complex(sim.fields.get_chi1inv(c, d, mp.vec(*q)))
         assert abs(value.imag) < 1e-12, value  # frequency-0 chi1inv is real
-        return value.real
+        return classify(value.real, eps)
 
-    def axis(comp, k):
-        return yee_axis(n[k], resolution, comps[comp][2] == k)
+    def grid(lo, hi, offset):
+        return [round(offset + m * dx, 9)
+                for m in range(math.ceil((lo - offset) / dx - 1e-9), math.floor((hi - offset) / dx + 1e-9) + 1)]
 
-    def nearest(comp, k, value):
-        a = axis(comp, k)
-        return float(a[np.argmin(np.abs(a - value))])
+    def line(comp, k, fixed, lo, hi, offset):
+        out = []
+        for t in grid(lo, hi, offset):
+            q = list(fixed); q[k] = t
+            out.append([t, chi(comp, q)])
+        return out
 
-    result = {'grid_cells': n, 'rounded_cell_mm': [c / resolution for c in n]}
-    # 1. Vertical line through the port centre (x=0, y=7.5) and through the
-    #    patch centre: which z samples of each component are metal/FR-4/air.
-    for label, (x0, y0) in {'port_line': (0.0, port.y), 'patch_centre_line': (0.0, 0.0)}.items():
-        rec = {}
-        for comp in comps:
-            xs, ys = nearest(comp, 0, x0), nearest(comp, 1, y0)
-            zs = [z for z in axis(comp, 2) if abs(z) <= 2.5]
-            rec[comp] = {'x': xs, 'y': ys,
-                         'samples': [[z, classify(chi(comp, xs, ys, z), eps)] for z in zs]}
-        result[label] = rec
-    # 2. Port footprint: Ez samples in y across the resistor at x=0, z=0, and
-    #    whether the resistor conductivity covers them (via the material).
-    zs0 = nearest('Ez', 2, 0.0)
-    ys = [y for y in axis('Ez', 1) if abs(y - port.y) <= 1.5]
-    xs = [x for x in axis('Ez', 0) if abs(x) <= 1.0]
-    in_resistor = lambda pt: mp.is_point_in_object(mp.Vector3(*pt), setup['geometry'][1])
-    result['port_ez_samples'] = {
-        'z': zs0,
-        'y_in_resistor': [y for y in ys if in_resistor((0, y, zs0))],
-        'x_in_resistor': [x for x in xs if in_resistor((x, port.y, zs0))],
-        'resistor_geometric_width_mm': p['probe_w'],
-    }
-    # 3. Patch length: Ex samples along y on the first metal plane above the
-    #    substrate at x=0 (the TM010 current direction is y; Ex/Ey tangential).
-    z_top = [z for z, cls in result['patch_centre_line']['Ex']['samples'] if cls == 'metal' and z > 0]
-    if z_top:
-        zt = min(z_top)
-        for comp in ('Ex', 'Ez'):
-            xs_c = nearest(comp, 0, 0.0)
-            zc = nearest(comp, 2, zt)
-            ys_c = [y for y in axis(comp, 1) if abs(abs(y) - p['patch_l'] / 2) <= 1.0]
-            result[f'patch_y_edge_{comp}'] = {
-                'z': zc, 'samples': [[y, classify(chi(comp, xs_c, y, zc), eps)] for y in ys_c]}
-    # 4. Source weights: fraction of the Ez sheet source landing on Ez samples
-    #    that Meep holds at zero (metal). Linear interpolation in z of the
-    #    uniform sheet onto the Ez sample line through the port.
-    zline = result['port_line']['Ez']['samples']
-    h = p['h']
-    weight = {}
-    for z, cls in zline:
-        lo, hi = z - 1 / resolution, z + 1 / resolution
-        # integral over [-h/2, h/2] of the hat function centred at z
-        ts = np.linspace(max(lo, -h / 2), min(hi, h / 2), 2001)
-        if ts[-1] <= ts[0]:
+    def find_offset(comp, k, fixed, lo, hi):
+        pure = [off for off in (0.0, dx / 2)
+                if not any(c.startswith('mixed') for _, c in line(comp, k, fixed, lo, hi, off))]
+        return pure[0] if len(pure) == 1 else None, pure
+
+    offsets, notes = {c: [None, None, None] for c in comps}, {}
+    # z offsets: vertical line through the board centre crosses metal/FR-4/air.
+    for comp in comps:
+        offsets[comp][2], notes[f'{comp}_z_pure'] = find_offset(comp, 2, [0, 0, 0], -2.5, 2.5)
+    # x and y offsets: lines on a metal sample plane of the patch, crossing its edges.
+    for comp in comps:
+        oz = offsets[comp][2]
+        if oz is None:
             continue
-        hat = np.clip(1 - np.abs(ts - z) * resolution, 0, None)
-        weight[z] = (float(np.trapezoid(hat, ts)), cls)
-    total = sum(w for w, _ in weight.values())
-    result['source_z_weights'] = [[z, w / total, cls] for z, (w, cls) in sorted(weight.items())]
-    result['source_fraction_on_metal_samples'] = sum(w for w, c in weight.values() if c == 'metal') / total
+        zline = line(comp, 2, [0, 0, 0], 0, 2.5, oz)
+        zm = [z for z, c in zline if c == 'metal']
+        if not zm:
+            continue
+        plane = min(zm)
+        offsets[comp][1], notes[f'{comp}_y_pure'] = find_offset(
+            comp, 1, [0, 0, plane], p['patch_l'] / 2 - 2, p['patch_l'] / 2 + 2)
+        offsets[comp][0], notes[f'{comp}_x_pure'] = find_offset(
+            comp, 0, [0, 0, plane], 0.0, p['patch_w'] / 2 + 2)
+    result = {'grid_cells': [int(math.floor(s * resolution + 0.5)) for s in setup['cell']],
+              'sample_offsets_mm': offsets, 'offset_search': notes}
+    if any(o is None for v in offsets.values() for o in v):
+        result['error'] = 'sample offsets undetermined'
+        return result
+
+    def on(comp, k, value):
+        return round(offsets[comp][k] + round((value - offsets[comp][k]) / dx) * dx, 9)
+
+    port = setup['port']
+    # 1. z profiles (true samples) through the port and the patch centre.
+    for label, (x0, y0) in {'port_line': (0.0, port.y), 'patch_centre_line': (0.0, 0.0)}.items():
+        result[label] = {comp: {'x': on(comp, 0, x0), 'y': on(comp, 1, y0), 'samples': line(
+            comp, 2, [on(comp, 0, x0), on(comp, 1, y0), 0], -2.5, 2.5, offsets[comp][2])}
+            for comp in comps}
+    # 2. Port: Ez samples inside the resistor block and their material.
+    resistor = setup['geometry'][1]
+    zs = [z for z, c in result['port_line']['Ez']['samples']]
+    ys = grid(port.y - 1.5, port.y + 1.5, offsets['Ez'][1])
+    xs = grid(-1.0, 1.0, offsets['Ez'][0])
+    inside = lambda x, y, z: mp.is_point_in_object(mp.Vector3(x, y, z), resistor)  # noqa: E731
+    z0 = on('Ez', 2, 0.0)
+    result['port_ez_samples'] = {
+        'y_in_resistor': [y for y in ys if inside(on('Ez', 0, 0), y, z0)],
+        'x_in_resistor': [x for x in xs if inside(x, port.y, z0)],
+        'z_in_resistor': [z for z in zs if inside(on('Ez', 0, 0), port.y, z)],
+        'z_material': [[z, c] for z, c in result['port_line']['Ez']['samples']
+                       if abs(z) <= p['h'] / 2 + dx],
+        'resistor_geometric_width_mm': p['probe_w'], 'gap_mm': p['h']}
+    # 3. Patch extent on each tangential component's first metal plane.
+    for comp in ('Ex', 'Ey'):
+        prof = result['patch_centre_line'][comp]['samples']
+        plane = min(z for z, c in prof if c == 'metal' and z > 0)
+        ys = line(comp, 1, [on(comp, 0, 0), 0, plane], -p['patch_l'] / 2 - 2, p['patch_l'] / 2 + 2, offsets[comp][1])
+        metal_y = [y for y, c in ys if c == 'metal']
+        result[f'patch_length_{comp}'] = {'z_plane': plane, 'first_metal_y': min(metal_y),
+                                          'last_metal_y': max(metal_y), 'metal_samples': len(metal_y)}
+    # 4. Source: hat-function share of the uniform Ez sheet on each z sample
+    #    (an estimate of Meep's linear source interpolation, not read from Meep).
+    h = p['h']
+    shares = []
+    for z, c in result['port_line']['Ez']['samples']:
+        ts = np.linspace(max(z - dx, -h / 2), min(z + dx, h / 2), 4001)
+        if ts[-1] > ts[0]:
+            shares.append([z, float(np.trapezoid(np.clip(1 - np.abs(ts - z) / dx, 0, None), ts)), c])
+    total = sum(w for _, w, _ in shares)
+    result['source_z_share'] = [[z, w / total, c] for z, w, c in shares]
+    result['source_share_on_metal_samples'] = sum(w for _, w, c in shares if c == 'metal') / total
+    # 5. y = 0 xz-slice of Ex and Ez (M metal, F FR-4, A air, ? mixed), rows by z.
+    for comp in ('Ex', 'Ez'):
+        xs = grid(-32, 32, offsets[comp][0])
+        zs = grid(-6.5, 2.5, offsets[comp][2])
+        rows = []
+        for z in zs:
+            rows.append(''.join(CODE.get(chi(comp, [x, on(comp, 1, 0), z]), '?') for x in xs))
+        result[f'slice_y0_{comp}'] = {'x0': xs[0], 'z': zs, 'rows': rows}
     return result
 
 
