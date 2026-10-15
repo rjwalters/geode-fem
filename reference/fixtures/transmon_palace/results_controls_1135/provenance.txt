@@ -1,0 +1,83 @@
+issue:          #1135: transmon follow-ups to the v13 reviews on the
+                DeviceLayout.jl SingleTransmon study: (T4) the second
+                refinement family on DeviceLayout's published final design;
+                (T5) DeviceLayout's PRIMA call re-run with a second and a
+                third initial trust radius (rhobeg).
+results:        benchmarks/transmon_devicelayout_controls/results.toml
+                ([mesh_family.final], [controls.prima_rhobeg0p1],
+                [controls.prima_rhobeg0p4], [controls.prima_rhobeg]),
+                assembled by benchmarks/transmon_devicelayout_controls/assemble.py
+                from <cell>/eig.csv, port-EPR.csv, palace_run.log, time.txt,
+                generator_report.txt and logs/prima_rhobeg*_log.jsonl.
+
+cells:
+  famfinal_u1_p1,          T4: Palace's own uniform refinement (UniformLevels
+  famfinal_u2_p1,          1, 2) of the published final design's h mesh
+  famfinal_u1_p2           (final_o1_v22.msh, sha256 2a7158b0..., converted
+                           on the Mac with gmsh 4.15.2 from the committed
+                           reference/fixtures/transmon_devicelayout/final_o1.msh
+                           and byte-identical to the #1092 ladder's h mesh;
+                           logs/final_mesh_sha256.txt), order 1 and 2. The
+                           configs are results_crosscheck_1092/final_r1_p1 /
+                           final_r2_p1 / final_r1_p2 with the h mesh and
+                           UniformLevels; famfinal_u2_p1 adds Linear
+                           MGMaxLevels 1 and famfinal_u1_p2 MGMaxLevels 2,
+                           the solver-only deltas of the #1123 / #1129 cells
+                           fam_u2_p1 / fam_u1_p2 and famcv2_u2_p1 /
+                           famcv2_u1_p2. The h cells are the #1092 ladder's
+                           final_h_p1 and final_h_p2, not copied here.
+  dl_pa2 ... dl_pa<n>      T5: prima_driver.jl --rhobeg 0.1 --prefix pa, the
+                           n-th point PRIMA asked for.
+  dl_pb2 ... dl_pb<n>      T5: prima_driver.jl --rhobeg 0.39999999999999997
+                           --prefix pb: the largest rhobeg BOBYQA accepts on
+                           DeviceLayout's box, MINVAL(XU - XL)/2 =
+                           (1.4 - 0.6)/2 in binary64. rhobeg = 0.4 itself is
+                           above that bound by one ulp, and PRIMA resets it
+                           to MINVAL(XU - XL)/4 = 0.19999999999999998
+                           ("Invalid RHOBEG ... it is set to
+                           MINVAL(XU-XL)/4"), which is DeviceLayout's 0.2
+                           to 3e-17: logs/rhobeg_probe.txt. A first attempt
+                           at rhobeg = 0.4 was stopped after one run (its
+                           second point was x = [1.2, 1.0], the #1129 run's)
+                           and is not committed.
+    Run 1 of both is the committed results_crosscheck_1092/dl_initial
+    (x = [1, 1]), not copied here. All at DeviceLayout's own
+    discretization: <tag>_o2.msh2 (mesh_order 2) and the example's
+    configfile(sm; solver_order=2) verbatim, from
+    reference/julia/generate_transmon_param.jl --dl-config (driver.py eval),
+    the route of the #1129 PRIMA cells. The design is in each
+    generator_report.txt; it is the exact float PRIMA's x maps to.
+
+logs/:          prima_rhobeg0p1_log.jsonl, prima_rhobeg0p4_log.jsonl (every
+                PRIMA evaluation: x as exact float strings, design,
+                frequencies, err), prima_rhobeg*_summary.json (info.nf,
+                status, rhobeg), prima_rhobeg*_evals_log.jsonl (driver.py's
+                record of each Palace run, with mesh-generation and Palace
+                wall times), orchestrate_fam.log and mem_fam.log (T4, host
+                memory every 60 s; the T5 runs shared the host),
+                final_mesh_sha256.txt, rhobeg_probe.txt (the output of
+                benchmarks/transmon_devicelayout_controls/rhobeg_probe.jl:
+                PRIMA on a quadratic, maxfun 6, the initial interpolation
+                points for each rhobeg and the reset warning at 0.4).
+replay:         julia --project=reference/julia/devicelayout
+                benchmarks/transmon_devicelayout_controls/prima_driver.jl
+                --scratch <dir> --replay reference/fixtures/transmon_palace/results_controls_1135
+                --rhobeg <0.1 | 0.39999999999999997> --prefix <pa | pb>
+                re-runs PRIMA on these cells without Palace.
+
+meshes:         generated on the Mac with reference/julia/generate_transmon_param.jl
+                (DeviceLayout.jl 1.15.0, gmsh_jll 4.15.2, Julia 1.10.11,
+                macOS arm64); final_o1_v22.msh converted with gmsh 4.15.2.
+optimizer:      PRIMA.jl 0.2.4 / PRIMA_jll 0.7.1 (reference/julia/devicelayout
+                Manifest), prima() with bounds = BOBYQA, DeviceLayout's
+                run_optimization call with only rhobeg changed.
+palace:         fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 (v0.17.0-99), image
+                palace:cpu-1043 (image id sha256:6e1d572a4453...), the #1123
+                build, loaded with docker load from #1123's saved image
+                tarball (sha256 9d0c29c2...), not rebuilt.
+host:           AWS geode-fem-bench, us-east-1, Ubuntu 24.04 arm64, tagged
+                project=geode-fem, 2026-10-15 UTC: w1135 r8g.8xlarge (32 vCPU,
+                247 GiB). T4 cells on 16 MPI ranks; the two T5 runs on 8
+                ranks each, concurrently with T4; run.sh of
+                results_crosscheck_1092 (one cell at a time per queue,
+                OMP_NUM_THREADS=1).

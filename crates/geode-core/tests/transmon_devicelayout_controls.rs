@@ -25,7 +25,10 @@
 //!   with the Palace-only end correction, DeviceLayout's PRIMA run repeated
 //!   on this Palace build (trajectory from its log, every run checked
 //!   against its cell), and the second refinement family on the step-2
-//!   design cv2.
+//!   design cv2;
+//! - issue #1135 (cells in `results_controls_1135/`): the second refinement
+//!   family on the published final design, and DeviceLayout's PRIMA call at
+//!   two more initial trust radii.
 //!
 //! No geode solve runs here (the only geode-derived input is #1111's
 //! transmission-line delta, a constant): these pins run in the default tier.
@@ -1306,7 +1309,13 @@ struct PrimaRun {
 /// against its cell: DeviceLayout's transform of `x` (bit for bit), the
 /// design the mesh was generated at, and the cell's frequencies.
 fn prima_runs() -> Vec<PrimaRun> {
-    let log = read(&format!("{C1129}/logs/prima_log.jsonl"));
+    prima_runs_from(C1129, "pr", "logs/prima_log.jsonl")
+}
+
+/// The same reader for any PRIMA run: its cells `<cells>/dl_<prefix><n>` and
+/// its log `<cells>/<log>` (#1129's, or a #1135 trust-radius re-run).
+fn prima_runs_from(cells: &str, prefix: &str, log: &str) -> Vec<PrimaRun> {
+    let log = read(&format!("{cells}/{log}"));
     let mut out = Vec::new();
     for (i, line) in log.lines().filter(|l| !l.trim().is_empty()).enumerate() {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -1328,8 +1337,8 @@ fn prima_runs() -> Vec<PrimaRun> {
             assert_eq!((cell.as_str(), x), ("dl_initial", [1.0, 1.0]));
             format!("{X1092}/dl_initial")
         } else {
-            assert_eq!(cell, format!("dl_pr{}", i + 1));
-            let d = format!("{C1129}/{cell}");
+            assert_eq!(cell, format!("dl_{prefix}{}", i + 1));
+            let d = format!("{cells}/{cell}");
             assert_eq!(report(&d), theta, "{cell}: meshed at the logged design");
             d
         };
@@ -1578,3 +1587,266 @@ fn mesh_family_cv2_re_derives() {
         "+19 %",
     );
 }
+
+const C1135: &str = "reference/fixtures/transmon_palace/results_controls_1135";
+
+/// Issue #1135 T4: the second refinement family on DeviceLayout's published
+/// final design, re-derived from the raw cells: family a is the #1092 ladder
+/// (the "+8.7 %"), family b Palace's own refinement of the same h mesh.
+#[test]
+fn mesh_family_final_re_derives() {
+    let r = results();
+    let xr = doc("benchmarks/transmon_devicelayout_crosscheck/results.toml");
+    let sec = "mesh_family.final";
+    close_all(
+        &tarr(&r, &format!("{sec}.design_um")),
+        &FINAL_UM,
+        6e-4,
+        "design",
+    );
+    let o = |c: &str| palace(&format!("{X1092}/final_{c}"));
+    let f = |c: &str| palace(&format!("{C1135}/famfinal_{c}"));
+    let a = [o("h_p1"), o("r1_p1"), o("r2_p1"), o("h_p2"), o("r1_p2")];
+    let b = [o("h_p1"), f("u1_p1"), f("u2_p1"), o("h_p2"), f("u1_p2")];
+    let lv = |s: &[[f64; 2]; 5], m: usize| -> Vec<f64> { s.iter().map(|x| x[m]).collect() };
+    // Family a is the cross-check's [convergence.final] ladder.
+    let p1 = tarr(&xr, "convergence.final.p1_f_q_ghz");
+    let p2 = tarr(&xr, "convergence.final.p2_f_q_ghz");
+    close_all(
+        &lv(&a, 0),
+        &[p1[0], p1[1], p1[2], p2[0], p2[1]],
+        6e-7,
+        "family a = #1092 ladder",
+    );
+    for (k, s, m) in [
+        ("family_a_levels_f_q_ghz", &a, 0),
+        ("family_b_levels_f_q_ghz", &b, 0),
+        ("family_a_levels_f_r_ghz", &a, 1),
+        ("family_b_levels_f_r_ghz", &b, 1),
+    ] {
+        close_all(&tarr(&r, &format!("{sec}.{k}")), &lv(s, m), 6e-7, k);
+    }
+    // Family b's mesh is the #1092 final h mesh, refined by Palace, and its
+    // configs are the #1092 refined cells with only the mesh, the levels and
+    // the #1123/#1129 multigrid depth changed.
+    for (c, base, levels, mg) in [
+        ("u1_p1", "r1_p1", 1u64, None),
+        ("u2_p1", "r2_p1", 2, Some(1u64)),
+        ("u1_p2", "r1_p2", 1, Some(2)),
+    ] {
+        let mut cfg: serde_json::Value =
+            serde_json::from_str(&read(&format!("{C1135}/famfinal_{c}/palace_config.json")))
+                .unwrap();
+        assert_eq!(cfg["Model"]["Mesh"], "/work/final_o1_v22.msh");
+        assert_eq!(cfg["Model"]["Refinement"]["UniformLevels"], levels);
+        assert_eq!(
+            cfg["Solver"]["Linear"]
+                .get("MGMaxLevels")
+                .and_then(|v| v.as_u64()),
+            mg
+        );
+        let mut base: serde_json::Value =
+            serde_json::from_str(&read(&format!("{X1092}/final_{base}/palace_config.json")))
+                .unwrap();
+        for v in [&mut cfg, &mut base] {
+            v["Model"]["Mesh"] = "".into();
+            v["Model"]["Refinement"]["UniformLevels"] = 0.into();
+            v["Problem"]["Output"] = "".into();
+            v["Solver"]["Linear"]
+                .as_object_mut()
+                .unwrap()
+                .remove("MGMaxLevels");
+        }
+        assert_eq!(cfg, base, "famfinal_{c}: otherwise the #1092 config");
+    }
+    let sha = read(&format!("{C1135}/logs/final_mesh_sha256.txt"));
+    let want = "2a7158b092638cf34ea35f2758a77bcb44333b26c6d9bf01b11eb7d4df1c907d";
+    assert!(sha.contains(&format!("{want}  final_o1_v22.msh")));
+    assert!(
+        read(&format!("{X1092}/provenance.txt")).contains(want),
+        "the same h mesh as the #1092 final ladder"
+    );
+    let ru = |s: &[[f64; 2]; 5], m: usize| rule([s[0][m], s[1][m], s[2][m]], [s[3][m], s[4][m]]);
+    let (aq, ar, bq, br) = (ru(&a, 0), ru(&a, 1), ru(&b, 0), ru(&b, 1));
+    close(
+        aq.estimate,
+        tf(&xr, "convergence.final.f_q_ghz"),
+        5e-5,
+        "family a = #1092",
+    );
+    close(
+        ar.estimate,
+        tf(&xr, "convergence.final.f_r_ghz"),
+        5e-5,
+        "family a r = #1092",
+    );
+    for (k, v) in [
+        ("family_a_f_q_ghz", aq.estimate),
+        ("family_b_f_q_ghz", bq.estimate),
+        ("family_a_f_r_ghz", ar.estimate),
+        ("family_b_f_r_ghz", br.estimate),
+        ("family_a_observed_order_q", aq.observed_order),
+        ("family_b_observed_order_q", bq.observed_order),
+    ] {
+        close(tf(&r, &format!("{sec}.{k}")), v, 5e-5, k);
+    }
+    for (k, v) in [
+        ("family_a_f_q_band_ghz", &aq.band),
+        ("family_b_f_q_band_ghz", &bq.band),
+        ("family_b_f_r_band_ghz", &br.band),
+    ] {
+        close_all(&tarr(&r, &format!("{sec}.{k}")), v, 5e-5, k);
+    }
+    close_all(
+        &tarr(&r, &format!("{sec}.estimate_spread_pct")),
+        &[pct(bq.estimate, aq.estimate), pct(br.estimate, ar.estimate)],
+        5e-4,
+        "spread",
+    );
+    let uq = [aq.band[0].min(bq.band[0]), aq.band[1].max(bq.band[1])];
+    close_all(
+        &tarr(&r, &format!("{sec}.union_f_q_band_ghz")),
+        &uq,
+        5e-5,
+        "union",
+    );
+    assert_eq!(
+        tbool(&r, &format!("{sec}.family_b_band_inside_a")),
+        aq.band[0] <= bq.band[0] && bq.band[1] <= aq.band[1]
+    );
+    let pubq = tf(&xr, "convergence.final.published_f_q_ghz");
+    let over = [pct(aq.estimate, pubq), pct(bq.estimate, pubq)];
+    close_all(
+        &tarr(&r, &format!("{sec}.f_q_over_published_pct")),
+        &over,
+        5e-4,
+        "over published",
+    );
+    close(over[0], 8.659, 5e-3, "family a is the +8.7 %");
+    close_all(
+        &tarr(&r, &format!("{sec}.union_f_q_band_over_published_pct")),
+        &[pct(uq[0], pubq), pct(uq[1], pubq)],
+        5e-4,
+        "union over published",
+    );
+    let (sp, sl) = shared(b[1][0], b[2][0], b[3][0], b[4][0]);
+    close(
+        tf(&r, &format!("{sec}.family_b_shared_limit_f_q_ghz")),
+        sl,
+        5e-5,
+        "b shared limit",
+    );
+    close(
+        tf(&r, &format!("{sec}.family_b_shared_limit_order_q")),
+        sp,
+        5e-5,
+        "b shared order",
+    );
+    // The measured outcome, pinned as measured.
+    close(bq.estimate, PINNED_FINAL_FAMILY_B_F_Q_GHZ, 5e-5, "family b");
+}
+
+const PINNED_FINAL_FAMILY_B_F_Q_GHZ: f64 = 3.2924;
+
+/// Issue #1135 T5: DeviceLayout's PRIMA call with rhobeg 0.1 and 0.4 (its own
+/// is 0.2), every run checked against its cell, and the run counts.
+#[test]
+fn prima_rhobeg_sensitivity_re_derives() {
+    let r = results();
+    let mut counts = Vec::new();
+    for (rb, prefix, stem, pinned) in [
+        (0.1, "pa", "rhobeg0p1", PINNED_PRIMA_RHOBEG_0P1_RUNS),
+        // BOBYQA's largest valid rhobeg on the box: 0.4 itself is one ulp
+        // above (1.4 - 0.6) / 2 and PRIMA would reset it to 0.2.
+        (RHOBEG_MAX, "pb", "rhobeg0p4", PINNED_PRIMA_RHOBEG_0P4_RUNS),
+    ] {
+        let runs = prima_runs_from(C1135, prefix, &format!("logs/prima_{stem}_log.jsonl"));
+        let n = runs.len();
+        let mut init: Vec<[f64; 2]> = runs[..5].iter().map(|p| p.x).collect();
+        init.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut want = [
+            [1.0, 1.0],
+            [1.0 + rb, 1.0],
+            [1.0 - rb, 1.0],
+            [1.0, 1.0 + rb],
+            [1.0, 1.0 - rb],
+        ];
+        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        close_all(
+            &init.concat(),
+            &want.concat(),
+            1e-12,
+            "the initial interpolation set",
+        );
+        let errs: Vec<f64> = runs.iter().map(|p| err(p.f)).collect();
+        let summary: serde_json::Value =
+            serde_json::from_str(&read(&format!("{C1135}/logs/prima_{stem}_summary.json")))
+                .unwrap();
+        assert_eq!(summary["nf"].as_u64().unwrap() as usize, n, "info.nf");
+        // serde_json's default float parser is not correctly rounded (it
+        // reads 0.39999999999999997 as 0.4), so compare to 1e-15 here; the
+        // TOML value of [controls.prima_rhobeg].rhobeg is checked exactly below.
+        close(summary["rhobeg"].as_f64().unwrap(), rb, 1e-15, "rhobeg");
+        assert_eq!(tf(&r, &format!("controls.prima_{stem}.rhobeg")), rb);
+        let reached = summary["status"].as_str().unwrap() == "FTARGET_ACHIEVED";
+        let sec = format!("controls.prima_{stem}");
+        assert_eq!(tbool(&r, &format!("{sec}.reached_criterion")), reached);
+        assert_eq!(tf(&r, &format!("{sec}.palace_runs")) as usize, n);
+        assert_eq!(
+            tstrs(&r, &format!("{sec}.cells")),
+            runs.iter().map(|p| p.cell.clone()).collect::<Vec<_>>()
+        );
+        let x1 = tarr(&r, &format!("{sec}.x1"));
+        let x2 = tarr(&r, &format!("{sec}.x2"));
+        for (i, p) in runs.iter().enumerate() {
+            assert_eq!([x1[i], x2[i]], p.x, "x of run {}", i + 1);
+        }
+        for (i, (a, b)) in tarr(&r, &format!("{sec}.err"))
+            .iter()
+            .zip(&errs)
+            .enumerate()
+        {
+            close_sci(*a, *b, &format!("{stem} err[{i}]"));
+        }
+        let count = if reached {
+            // PRIMA stops at the first run below ftarget.
+            assert!(errs[..n - 1].iter().all(|e| *e >= CRITERION));
+            assert!(errs[n - 1] < CRITERION);
+            assert_eq!(
+                tf(&r, &format!("{sec}.palace_runs_at_criterion")) as usize,
+                n
+            );
+            n as i64
+        } else {
+            assert!(errs.iter().all(|e| *e >= CRITERION));
+            -1
+        };
+        assert_eq!(count, pinned, "PRIMA run count at rhobeg {rb}");
+        counts.push(count);
+    }
+    let all = tarr(&r, "controls.prima_rhobeg.palace_runs_at_criterion");
+    assert_eq!(
+        all,
+        vec![
+            counts[0] as f64,
+            PINNED_PRIMA_THIS_BUILD_RUNS as f64,
+            counts[1] as f64
+        ]
+    );
+    close_all(
+        &tarr(&r, "controls.prima_rhobeg.rhobeg"),
+        &[0.1, 0.2, RHOBEG_MAX],
+        0.0,
+        "rhobeg",
+    );
+    let rb_max = tarr(&r, "controls.prima_rhobeg.rhobeg")[2];
+    assert!(rb_max < 0.4, "0.4 is outside BOBYQA's limit on this box");
+    let probe = read(&format!("{C1135}/logs/rhobeg_probe.txt"));
+    assert!(probe.contains("0.4 => [[1.2, 1.0], [1.0, 1.2], [0.8, 1.0], [1.0, 0.8]]"));
+    assert!(probe.contains("Invalid RHOBEG"));
+}
+
+const RHOBEG_MAX: f64 = (1.4 - 0.6) / 2.0;
+
+const PINNED_PRIMA_RHOBEG_0P1_RUNS: i64 = 10;
+const PINNED_PRIMA_RHOBEG_0P4_RUNS: i64 = 12;
