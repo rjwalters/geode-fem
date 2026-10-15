@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1163",
-  "loom_commit": "695290c117c5d456d46b434f9e2817200184f217",
+  "loom_version": "0.19.1164",
+  "loom_commit": "4f137ac910d942a0fde6fb51791c679c89832ee6",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -776,7 +776,8 @@
     ".loom/roles/judge-ci-red.md",
     ".loom/scripts/tests/test-champion-capped-hold-routing.sh",
     ".loom/scripts/tests/test-champion-post-claim-recheck.sh",
-    ".loom/scripts/tests/test-spawn-codex-model-effort.sh"
+    ".loom/scripts/tests/test-spawn-codex-model-effort.sh",
+    ".loom/scripts/tests/test-check-cas-recheck-consistency.sh"
   ],
   "last_resync": "2026-10-15",
   "requires_daemon": "0.19.1081"
