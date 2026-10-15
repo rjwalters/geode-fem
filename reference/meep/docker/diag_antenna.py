@@ -140,6 +140,7 @@ def cell_staircase(config, resolution, setup, bend, x_edge_offset, plane_offset)
 def build(config, resolution, geometry_kind, frequencies, mode='outward', bend=100.0,
           cell_offsets=(0.0, 0.0)):
     setup = base.antenna_setup(config, resolution, frequencies)
+    setup['resistor'] = setup['geometry'][1]  # the harness port block, kept in every mode
     if geometry_kind == 'flat':
         assert mode != 'cells', 'cells mode is for the bent board'
         setup['geometry'] = flat_geometry(config, resolution, setup, mode)
@@ -247,7 +248,7 @@ def dump_grid(sim, setup, config, resolution):
             comp, 2, [on(comp, 0, x0), on(comp, 1, y0), 0], -2.5, 2.5, offsets[comp][2])}
             for comp in comps}
     # 2. Port: Ez samples inside the resistor block and their material.
-    resistor = setup['geometry'][1]
+    resistor = setup['resistor']
     zs = [z for z, c in result['port_line']['Ez']['samples']]
     ys = grid(port.y - 1.5, port.y + 1.5, offsets['Ez'][1])
     xs = grid(-1.0, 1.0, offsets['Ez'][0])
