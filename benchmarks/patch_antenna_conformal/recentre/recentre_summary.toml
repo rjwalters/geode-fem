@@ -182,6 +182,54 @@ worst_in_band_db = -10.7531
 min_vol_ratio = -1.12775
 n_points = 11
 
+[palace.sm57_p2]
+description = "re-centred design rbG_L1_copper_38_sm57_w16 on rbG_L1, p = 2"
+grid_ghz = [2.32, 2.58]
+n_points = 261
+dip_f_ghz = 2.42998
+dip_db = -22.0033
+dip_on_grid_edge = false
+band_lo_ghz = 2.38474
+band_hi_ghz = 2.47701
+bandwidth_mhz = 92.27
+ism_coverage_mhz = 77.01
+ism_coverage_frac = 0.9223
+centring_mhz = 10.875
+vswr2_bandwidth_mhz = 98.218
+worst_in_band_db = -9.0764
+nd_order = 2
+n_dofs = 884536
+wall_s = 2181.23
+prom_n_samples = 12
+prom_error = 2.684e-06
+prom_offline_s = 2150
+margin_lo_mhz = 15.26
+margin_hi_mhz = -6.49
+
+[palace.sm57_p3]
+description = "re-centred design rbG_L1_copper_38_sm57_w16 on rbG_L1, p = 3"
+grid_ghz = [2.32, 2.6]
+n_points = 281
+dip_f_ghz = 2.43903
+dip_db = -21.8651
+dip_on_grid_edge = false
+band_lo_ghz = 2.39346
+band_hi_ghz = 2.48643
+bandwidth_mhz = 92.964
+ism_coverage_mhz = 83.5
+ism_coverage_frac = 1
+centring_mhz = 1.806
+vswr2_bandwidth_mhz = 98.968
+worst_in_band_db = -10.4595
+nd_order = 3
+n_dofs = 2503077
+wall_s = 12564
+prom_n_samples = 12
+prom_error = 2.421e-06
+prom_offline_s = 12500
+margin_lo_mhz = 6.538
+margin_hi_mhz = 2.926
+
 [rim_edges.sm54_rbG_L1]
 rim_edge_mean_mm = 0.8034
 rim_edge_max_mm = 1.1487
@@ -223,6 +271,12 @@ initial_patch_palace_p3_dip_ghz = 2.36597
 drift_rim_fit_mhz = 13.54
 drift_richardson_mhz = 6.38
 note = "X1 estimates the initial patch's converged dip 0-14 MHz above Palace p = 3 (Palace p = 3 itself as the lower end if the monotone trend holds; order-1 Richardson; the rim fit). A further upward shift d keeps the band covering ISM while d <= margin_lo_mhz; the upper edge only gains."
+sm57_p3_margin_lo_mhz = 6.538
+sm57_p3_margin_hi_mhz = 2.926
+sm57_p3_covers_richardson_drift = true
+sm57_p3_covers_rim_fit_drift = false
 sm57_comb_minus_rim020_lo_edge_mhz = 8.51593
 sm57_rim020_air_morph_lo_edge_mhz = -0.0934162
 sm57_rim020_air_morph_worst_db = 0.014916
+sm57_palace_p3_minus_comb_lo_edge_mhz = 0.0233989
+sm57_palace_p3_minus_p2_lo_edge_mhz = 8.722

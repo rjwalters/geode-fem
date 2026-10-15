@@ -1321,6 +1321,11 @@ const MANIFEST: &[Entry] = &[
          (issue #1126); no Burn backend",
     ),
     // Issue #1134: the copper design re-centred on the refined forward model.
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/palace_summary.toml",
+        "palace_ingest.py: Palace (MFEM, no Burn backend) driven sweeps of the re-centred \
+         design, issue #1134",
+    ),
     a(
         "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml",
         "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.0536 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm54_w16 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1134)",

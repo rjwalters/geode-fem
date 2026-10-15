@@ -278,3 +278,64 @@ fn the_moved_meshes_keep_their_rim_resolution() {
         );
     }
 }
+
+/// Palace (independent solver and absorber) on the design's own L1 mesh, the
+/// #1126 X1 setup: p = 2 reproduces geode P2/L1, and p = 3, the most
+/// accurate model, clears -10 dB across the ISM band with margin at both
+/// edges, its lower edge on geode's finest mesh's.
+#[test]
+fn palace_p3_meets_minus_10_db_and_agrees_with_geodes_finest_mesh() {
+    let sum = load("recentre_summary.toml");
+    let pal = |run: &str, k: &str| f(&sum, &format!("palace.{run}.{k}"));
+    // p = 2 against geode P2 on the same mesh (X1: 0.4 MHz / 0.01 dB).
+    pin(
+        pal("sm57_p2", "worst_in_band_db"),
+        f(model(&sum, "sm57", "L1_p2"), "worst_in_band_db"),
+        0.02,
+        "Palace p2 vs geode P2/L1",
+    );
+    assert_eq!(f(&sum, "palace.sm57_p3.nd_order") as i64, 3);
+    pin(
+        pal("sm57_p3", "worst_in_band_db"),
+        -10.4595,
+        1e-3,
+        "p3 worst in band",
+    );
+    pin(pal("sm57_p3", "band_lo_ghz"), 2.393462, 2e-6, "p3 lower edge");
+    pin(pal("sm57_p3", "band_hi_ghz"), 2.486426, 2e-6, "p3 upper edge");
+    pin(pal("sm57_p3", "ism_coverage_frac"), 1.0, 1e-9, "p3 coverage");
+    assert!(pal("sm57_p3", "margin_lo_mhz") > 6.0 && pal("sm57_p3", "margin_hi_mhz") > 2.5);
+    // The design shifts like the initial patch from p = 2 to p = 3 (X1: 8.9
+    // MHz on the dip), and the two fine models meet at the lower edge.
+    pin(
+        f(&sum, "refinement.sm57_palace_p3_minus_p2_lo_edge_mhz"),
+        8.72,
+        0.05,
+        "p2 -> p3",
+    );
+    assert!(f(&sum, "refinement.sm57_palace_p3_minus_comb_lo_edge_mhz").abs() < 0.5);
+    // Against the v5 headline at p = 3 (X1): it missed the lower edge by
+    // 2.9 MHz at -9.56 dB.
+    let x1 = load_at("benchmarks/patch_antenna_conformal/v6/x1/palace_summary.toml");
+    assert!(f(&x1, "run.fin_L1_p3.band_lo_ghz") > 2.4);
+    assert!(pal("sm57_p3", "worst_in_band_db") < f(&x1, "run.fin_L1_p3.worst_in_band_db") - 0.8);
+}
+
+/// The margin against what refinement may still do. X1 puts the converged
+/// dip 0-14 MHz above Palace p = 3 (order-1 Richardson +6.4 MHz, rim fit
+/// +13.5 MHz). Every refinement moves the band up, so only the lower edge
+/// can be lost: its 6.5 MHz margin covers the Richardson estimate and not
+/// the rim fit. The guard-limited bandwidth leaves no room to cover both.
+#[test]
+fn the_lower_edge_margin_covers_richardson_not_the_rim_fit() {
+    let sum = load("recentre_summary.toml");
+    let r = get(&sum, "refinement");
+    pin(f(r, "drift_richardson_mhz"), 6.38, 0.01, "Richardson drift");
+    pin(f(r, "drift_rim_fit_mhz"), 13.54, 0.01, "rim-fit drift");
+    pin(f(r, "sm57_p3_margin_lo_mhz"), 6.538, 0.002, "p3 lower margin");
+    assert!(get(r, "sm57_p3_covers_richardson_drift").as_bool().unwrap());
+    assert!(!get(r, "sm57_p3_covers_rim_fit_drift").as_bool().unwrap());
+    // Total slack at p = 3 against the full 0-14 MHz range.
+    let slack = f(r, "sm57_p3_margin_lo_mhz") + f(r, "sm57_p3_margin_hi_mhz");
+    assert!(slack < f(r, "drift_rim_fit_mhz"), "slack {slack} MHz");
+}
