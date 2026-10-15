@@ -224,7 +224,10 @@ fn levels(r: &toml::Value, key: &str) -> Vec<f64> {
 fn palace_loop_outcomes_are_pinned() {
     let sum = load(SUMMARY);
     let adj = run(&sum, "geode_adjoint_lbfgs");
-    assert_eq!(levels(adj, "solves_to_level"), [20.0, 30.0, 30.0, 35.0, 60.0]);
+    assert_eq!(
+        levels(adj, "solves_to_level"),
+        [20.0, 30.0, 30.0, 35.0, 60.0]
+    );
     let budget = f(&sum, "meta.adjoint_budget_solves");
     assert_eq!(budget, 125.0);
     // (name, final worst-of-band dB, solves to each level, -1 = not reached)
@@ -256,17 +259,33 @@ fn palace_loop_outcomes_are_pinned() {
         assert_eq!(levels(r, "solves_to_level"), solves, "{name}");
         assert!(f(r, "worst_s11_db_final") > -10.0, "{name} reached -10 dB");
         // At least 11x the adjoint's solves to -9.5 dB, and to -9 dB.
-        assert!(solves[3] >= 11.0 * 35.0 && solves[2] >= 12.0 * 30.0, "{name}");
+        assert!(
+            solves[3] >= 11.0 * 35.0 && solves[2] >= 12.0 * 30.0,
+            "{name}"
+        );
         assert!(
             f(r, "best_worst_db_within_adjoint_budget") > -2.9,
             "{name} within the adjoint budget"
         );
-        assert_eq!(s(r, "wall_basis"), "measured (optimizer clock, this run's host)");
+        assert_eq!(
+            s(r, "wall_basis"),
+            "measured (optimizer clock, this run's host)"
+        );
     }
     // Wall-clock to -9.5 dB, measured on r6i.4xlarge (s).
     let w95 = |name: &str| levels(run(&sum, name), "wall_s_to_level")[3];
-    pin(w95("palace_copper_38_pcma190_s2"), 5061.5, 1.0, "CMA s2 wall to -9.5");
-    pin(w95("palace_copper_38_pnewuoa190"), 5375.1, 1.0, "NEWUOA wall to -9.5");
+    pin(
+        w95("palace_copper_38_pcma190_s2"),
+        5061.5,
+        1.0,
+        "CMA s2 wall to -9.5",
+    );
+    pin(
+        w95("palace_copper_38_pnewuoa190"),
+        5375.1,
+        1.0,
+        "NEWUOA wall to -9.5",
+    );
     let adj95 = w95("geode_adjoint_lbfgs");
     pin(adj95, 665.9, 1.0, "adjoint wall to -9.5 (estimated)");
     assert!(w95("palace_copper_38_pcma190_s2") > 7.5 * adj95);
@@ -283,9 +302,24 @@ fn per_evaluation_costs_are_pinned() {
     let p = get(&sum, "cost.palace");
     assert!(s(g, "host").starts_with("AWS r6i.4xlarge"));
     assert_eq!(s(g, "host"), s(p, "host"), "same host type");
-    pin(f(g, "forward_eval_s"), 72.1, 1.0, "geode forward band evaluation");
-    pin(f(g, "forward_adjoint_eval_s"), 95.1, 1.0, "geode forward + adjoint");
-    pin(f(p, "forward_eval_s"), 64.4, 1.0, "Palace forward band evaluation");
+    pin(
+        f(g, "forward_eval_s"),
+        72.1,
+        1.0,
+        "geode forward band evaluation",
+    );
+    pin(
+        f(g, "forward_adjoint_eval_s"),
+        95.1,
+        1.0,
+        "geode forward + adjoint",
+    );
+    pin(
+        f(p, "forward_eval_s"),
+        64.4,
+        1.0,
+        "Palace forward band evaluation",
+    );
     assert_eq!(f(p, "palace_np"), 16.0);
     pin(
         f(&sum, "cost.ratio.palace_over_geode_forward_eval"),
@@ -295,7 +329,10 @@ fn per_evaluation_costs_are_pinned() {
     );
     for c in [g, p] {
         for w in arr(c, "forward_eval_s_samples") {
-            assert!((num(w) - f(c, "forward_eval_s")).abs() < 2.0, "stable samples");
+            assert!(
+                (num(w) - f(c, "forward_eval_s")).abs() < 2.0,
+                "stable samples"
+            );
         }
     }
 }
@@ -314,9 +351,24 @@ fn cross_evaluations_are_pinned() {
             .unwrap_or_else(|| panic!("no {name} in {table}"));
         f(d, "band_worst_db")
     };
-    pin(by("cross.geode", "geode_adjoint_lbfgs"), -10.0413, 1e-3, "geode on adjoint");
-    pin(by("cross.palace", "geode_adjoint_lbfgs"), -9.7970, 1e-3, "Palace on adjoint");
-    pin(by("cross.palace", "geode_cma190_s2"), -9.8095, 1e-3, "Palace on CMA s2");
+    pin(
+        by("cross.geode", "geode_adjoint_lbfgs"),
+        -10.0413,
+        1e-3,
+        "geode on adjoint",
+    );
+    pin(
+        by("cross.palace", "geode_adjoint_lbfgs"),
+        -9.7970,
+        1e-3,
+        "Palace on adjoint",
+    );
+    pin(
+        by("cross.palace", "geode_cma190_s2"),
+        -9.8095,
+        1e-3,
+        "Palace on CMA s2",
+    );
     for (pal, run_name) in [
         ("palace_pcma190_sd", "palace_copper_38_pcma190_sd"),
         ("palace_pcma190_s2", "palace_copper_38_pcma190_s2"),
@@ -326,7 +378,10 @@ fn cross_evaluations_are_pinned() {
         let geode = by("cross.geode_on_palace_designs", pal);
         let own = f(run(&sum, run_name), "worst_s11_db_final");
         assert!(geode > -10.0, "{pal}: geode reads {geode} dB");
-        assert!((geode - own).abs() < 0.25, "{pal}: geode {geode} against Palace {own}");
+        assert!(
+            (geode - own).abs() < 0.25,
+            "{pal}: geode {geode} against Palace {own}"
+        );
     }
     pin(
         by("cross.geode_on_palace_designs", "palace_pnewuoa190"),
