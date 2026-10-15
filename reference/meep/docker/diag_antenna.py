@@ -100,7 +100,9 @@ def dump_grid(sim, setup, config, resolution):
 
     def chi(comp, x, y, z):
         c, d, _ = comps[comp]
-        return float(sim.fields.get_chi1inv(c, d, mp.vec(x, y, z)))
+        value = complex(sim.fields.get_chi1inv(c, d, mp.vec(x, y, z)))
+        assert abs(value.imag) < 1e-12, value  # frequency-0 chi1inv is real
+        return value.real
 
     def axis(comp, k):
         return yee_axis(n[k], resolution, comps[comp][2] == k)
