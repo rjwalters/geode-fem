@@ -275,6 +275,7 @@ def main():
     t.append('palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043')
     t.append(f'cells = "{CELLS}"')
     t.append(f'cells_1129 = "{C1129}"  # issue #1129: [controls.scaling_palace], [controls.prima_this_build], [mesh_family.cv2]')
+    t.append(f'cells_1135 = "{C1135}"  # issue #1135: [mesh_family.final], [controls.prima_rhobeg0p1], [controls.prima_rhobeg0p4], [controls.prima_rhobeg]')
     t.append(
         'hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization '
         'runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the '
@@ -284,6 +285,11 @@ def main():
         'hosts_1129 = "AWS us-east-2, Ubuntu 24.04 arm64: r8g.8xlarge w1129 (32 vCPU, 247 GiB), 2026-10-15; the T1/T2 '
         'DeviceLayout-discretization runs on 16 ranks and the T3 cells on the other 16, concurrently; Palace image '
         'palace:cpu-1043 loaded from the #1123 build"'
+    )
+    t.append(
+        'hosts_1135 = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.8xlarge w1135 (32 vCPU, 247 GiB), 2026-10-15; the T4 cells '
+        'on 16 ranks, the two T5 PRIMA runs on 8 ranks each, concurrently; Palace image palace:cpu-1043 loaded from the '
+        '#1123 build"'
     )
 
     # ---------------------------------------------------- 1. controls
@@ -582,6 +588,8 @@ def main():
     t.append(PROPOSAL)
 
     mesh_family_cv2(t, opt)
+    mesh_family_final(t, xr)
+    prima_rhobeg(t, n_pr)
 
     # ---------------------------------------------------- 4. the cap
     lj, cj, csig = 14.860e-9, 5.5e-15, toml_value(xr, "static_cross_check.initial", "c_sigma_bracket_ff")
@@ -648,13 +656,15 @@ C1129 = "reference/fixtures/transmon_palace/results_controls_1129"
 O1092 = "reference/fixtures/transmon_palace/results_optimize_1092"
 
 
-def prima_runs():
-    """The #1129 PRIMA run on this build, from its log, each run checked
+def prima_runs(cells=None, prefix="pr", log="logs/prima_log.jsonl"):
+    """The #1129 PRIMA run on this build (or, with cells/prefix/log, one of
+    the #1135 trust-radius re-runs), from its log, each run checked
     against its cell: the design is DeviceLayout's transform of the logged x
     (bit for bit), the mesh was generated at that design (generator report),
     and the logged frequencies are the cell's."""
+    cells = cells or C1129
     runs = []
-    with open(os.path.join(ROOT, C1129, "logs/prima_log.jsonl")) as fh:
+    with open(os.path.join(ROOT, cells, log)) as fh:
         for line in fh:
             if line.strip():
                 runs.append(json.loads(line))
@@ -668,8 +678,8 @@ def prima_runs():
             assert (x1, x2) == (1.0, 1.0)
             cell_dir = f"{X1092}/dl_initial"
         else:
-            assert r["cell"] == f"dl_pr{i + 1}", r
-            cell_dir = f"{C1129}/{r['cell']}"
+            assert r["cell"] == f"dl_{prefix}{i + 1}", r
+            cell_dir = f"{cells}/{r['cell']}"
             assert report_design(cell_dir) == (c, L), (r, report_design(cell_dir))
         f = modes(cell_dir)[:2]
         assert list(f) == r["f_ghz"], (r, f)
@@ -844,6 +854,175 @@ def mesh_family_cv2(t, opt):
     t.append(f"family_b_c_band_over_published_pct = {arr([pct(c, pub_c) for c in cbands[0]], 2)}")
     t.append(f"union_c_band_over_published_pct = {arr([pct(c, pub_c) for c in cbands[1]], 2)}")
     t.append(f"wall_s = {arr([wall_s(f'{C1129}/famcv2_{k}') for k in ('u1_p1', 'u2_p1', 'u1_p2')], 1)}  # u1_p1, u2_p1, u1_p2 on 16 ranks")
+
+
+C1135 = "reference/fixtures/transmon_palace/results_controls_1135"
+
+
+def mesh_family_final(t, xr):
+    """T4 of issue #1135: the second refinement family (Palace UniformLevels
+    of the same h mesh) on DeviceLayout's published final design, as
+    [mesh_family.initial] and [mesh_family.cv2] did, through the same part-1
+    rule. Family a is the #1092 ladder ([convergence.final] of the
+    cross-check), whose estimate is the "+8.7 %" of the v13 text."""
+    a = {k: modes(f"{X1092}/final_{k}") for k in ("h_p1", "r1_p1", "r2_p1", "h_p2", "r1_p2")}
+    b = {k: modes(f"{C1135}/famfinal_{k}") for k in ("u1_p1", "u2_p1", "u1_p2")}
+    for k, (q, r) in (("p1", ("p1_f_q_ghz", "p1_f_r_ghz")), ("p2", ("p2_f_q_ghz", "p2_f_r_ghz"))):
+        levels = [a[f"{lv}_{k}"] for lv in (("h", "r1", "r2") if k == "p1" else ("h", "r1"))]
+        for i, lv in enumerate(levels):
+            assert abs(lv[0] - toml_value(xr, "convergence.final", q)[i]) < 5e-7
+            assert abs(lv[1] - toml_value(xr, "convergence.final", r)[i]) < 5e-7
+    fa, fb = {}, {}
+    for j, lab in ((0, "q"), (1, "r")):
+        fa[lab] = part1_rule([a["h_p1"][j], a["r1_p1"][j], a["r2_p1"][j]], [a["h_p2"][j], a["r1_p2"][j]])
+        fb[lab] = part1_rule([a["h_p1"][j], b["u1_p1"][j], b["u2_p1"][j]], [a["h_p2"][j], b["u1_p2"][j]])
+    assert abs(fa["q"]["estimate"] - toml_value(xr, "convergence.final", "f_q_ghz")) < 5e-5
+    assert abs(fa["r"]["estimate"] - toml_value(xr, "convergence.final", "f_r_ghz")) < 5e-5
+    pub = (toml_value(xr, "convergence.final", "published_f_q_ghz"), toml_value(xr, "convergence.final", "published_f_r_ghz"))
+    dl = modes(f"{X1092}/dl_final")
+    t.append("\n[mesh_family.final]")
+    t.append(
+        'description = "issue #1135 T4: the second refinement family on DeviceLayout\'s published final design '
+        "(1217.678 / 7243.955 um), as [mesh_family.initial] and [mesh_family.cv2] did: family a is the #1092 ladder "
+        "([convergence.final] of the cross-check: gmsh -refine of the DeviceLayout h mesh, order 1 at h, h/2, h/4, "
+        "order 2 at h, h/2), family b refines the same h mesh (final_o1_v22.msh, regenerated byte-identically) with "
+        "Palace's UniformLevels 1, 2 instead (the h cells are shared); both through the part-1 rule. Family a's "
+        'qubit estimate is the +8.7 % over the published 3.005 GHz of the v13 text"'
+    )
+    t.append(f"design_um = {arr(drv.FINAL, 3)}")
+    t.append(f"family_b_cells = {strs([f'{C1135}/famfinal_{k}' for k in ('u1_p1', 'u2_p1', 'u1_p2')])}")
+    t.append(f"family_a_levels_f_q_ghz = {arr([a[k][0] for k in ('h_p1', 'r1_p1', 'r2_p1', 'h_p2', 'r1_p2')], 6)}  # p1 h, h/2, h/4; p2 h, h/2")
+    t.append(f"family_b_levels_f_q_ghz = {arr([a['h_p1'][0], b['u1_p1'][0], b['u2_p1'][0], a['h_p2'][0], b['u1_p2'][0]], 6)}")
+    t.append(f"family_a_levels_f_r_ghz = {arr([a[k][1] for k in ('h_p1', 'r1_p1', 'r2_p1', 'h_p2', 'r1_p2')], 6)}")
+    t.append(f"family_b_levels_f_r_ghz = {arr([a['h_p1'][1], b['u1_p1'][1], b['u2_p1'][1], a['h_p2'][1], b['u1_p2'][1]], 6)}")
+    t.append(
+        f"family_b_nd = [{nd_all(f'{X1092}/final_h_p1')[-1]}, {nd_all(f'{C1135}/famfinal_u1_p1')[-1]}, "
+        f"{nd_all(f'{C1135}/famfinal_u2_p1')[-1]}, {nd_all(f'{X1092}/final_h_p2')[-1]}, {nd_all(f'{C1135}/famfinal_u1_p2')[-1]}]"
+    )
+    t.append(f"refinement_scheme_h2_pct = {num(pct(b['u1_p1'][0], a['r1_p1'][0]), 3)}  # Palace over gmsh refinement, qubit, order 1 at h/2")
+    for lab in ("q", "r"):
+        for fam, rr in (("a", fa), ("b", fb)):
+            t.append(f"family_{fam}_f_{lab}_ghz = {num(rr[lab]['estimate'], 4)}")
+            t.append(f"family_{fam}_f_{lab}_band_ghz = {arr(rr[lab]['band'], 4)}")
+            t.append(f"family_{fam}_observed_order_{lab} = {num(rr[lab]['observed_order'], 4)}")
+    spread = [pct(fb["q"]["estimate"], fa["q"]["estimate"]), pct(fb["r"]["estimate"], fa["r"]["estimate"])]
+    t.append(f"estimate_spread_pct = {arr(spread, 3)}  # family b over family a, qubit and resonator")
+    uq = [min(fa["q"]["band"][0], fb["q"]["band"][0]), max(fa["q"]["band"][1], fb["q"]["band"][1])]
+    ur = [min(fa["r"]["band"][0], fb["r"]["band"][0]), max(fa["r"]["band"][1], fb["r"]["band"][1])]
+    t.append(f"union_f_q_band_ghz = {arr(uq, 4)}")
+    t.append(f"union_f_r_band_ghz = {arr(ur, 4)}")
+    t.append(
+        "family_b_band_inside_a = "
+        + ("true" if fa["q"]["band"][0] <= fb["q"]["band"][0] and fb["q"]["band"][1] <= fa["q"]["band"][1] else "false")
+    )
+    t.append(f"estimate_range_f_q_ghz = {arr(sorted([fa['q']['estimate'], fb['q']['estimate']]), 4)}")
+    t.append(f"estimate_range_f_r_ghz = {arr(sorted([fa['r']['estimate'], fb['r']['estimate']]), 4)}")
+    t.append(f"published_ghz = {arr(pub, 3)}")
+    t.append(
+        f"f_q_over_published_pct = {arr([pct(fa['q']['estimate'], pub[0]), pct(fb['q']['estimate'], pub[0])], 3)}"
+        "  # family a (the +8.7 % of the v13 text), family b"
+    )
+    t.append(f"f_r_over_published_pct = {arr([pct(fa['r']['estimate'], pub[1]), pct(fb['r']['estimate'], pub[1])], 3)}")
+    t.append(f"family_b_f_q_band_over_published_pct = {arr([pct(v, pub[0]) for v in fb['q']['band']], 3)}")
+    t.append(f"union_f_q_band_over_published_pct = {arr([pct(v, pub[0]) for v in uq], 3)}")
+    t.append(f"union_f_r_band_over_published_pct = {arr([pct(v, pub[1]) for v in ur], 3)}")
+    t.append(
+        "published_below_family_b_band = ["
+        + ", ".join("true" if pv < bb[0] else "false" for pv, bb in ((pub[0], fb["q"]["band"]), (pub[1], fb["r"]["band"])))
+        + "]"
+    )
+    t.append(f"devicelayout_run_ghz = {arr(dl[:2], 6)}  # results_crosscheck_1092/dl_final, this environment")
+    t.append(
+        f"devicelayout_run_under_family_b_pct = {arr([pct(dl[0], fb['q']['estimate']), pct(dl[1], fb['r']['estimate'])], 3)}"
+    )
+    sl = shared_limit(b["u1_p1"][0], b["u2_p1"][0], a["h_p2"][0], b["u1_p2"][0])
+    t.append(f"family_b_shared_limit_f_q_ghz = {num(sl[1], 4)}  # order {num(sl[0], 3)}")
+    t.append(f"family_b_shared_limit_order_q = {num(sl[0], 4)}")
+    t.append(f"wall_s = {arr([wall_s(f'{C1135}/famfinal_{k}') for k in ('u1_p1', 'u2_p1', 'u1_p2')], 1)}  # u1_p1, u2_p1, u1_p2 on 16 ranks")
+    t.append(
+        f"host_peak_gib = {arr([max_mem_gib(f'{C1135}/logs/mem_fam.log', f'famfinal_{k}') for k in ('u1_p1', 'u2_p1', 'u1_p2')], 1)}"
+        "  # used host memory while each cell ran (the T5 runs shared the host)"
+    )
+
+
+# T5 of issue #1135: (rhobeg, cell prefix, log stem) of the trust-radius re-runs.
+# "0.4" is the largest rhobeg BOBYQA accepts on DeviceLayout's box,
+# (1.4 - 0.6) / 2 = 0.39999999999999997 in binary64: 0.4 itself is one ulp
+# above it, and PRIMA resets it to (1.4 - 0.6) / 4, i.e. DeviceLayout's 0.2
+# (logs/rhobeg_probe.txt).
+RHOBEG_MAX = (1.4 - 0.6) / 2
+RHOBEG_RUNS = ((0.1, "pa", "prima_rhobeg0p1"), (RHOBEG_MAX, "pb", "prima_rhobeg0p4"))
+
+
+def prima_rhobeg(t, n_default):
+    """T5 of issue #1135: DeviceLayout's PRIMA call with only rhobeg changed
+    (0.1 and 0.4 against its 0.2), every point a Palace run in the same
+    environment as [controls.prima_this_build]; the run count to the
+    criterion for each."""
+    counts, status, finals = [], [], []
+    for rb, prefix, stem in RHOBEG_RUNS:
+        pr = prima_runs(C1135, prefix, f"logs/{stem}_log.jsonl")
+        with open(os.path.join(ROOT, C1135, f"logs/{stem}_summary.json")) as fh:
+            summ = json.load(fh)
+        assert summ["rhobeg"] == rb and summ["prefix"] == prefix and not summ["replay"], summ
+        errs = [r["err"] for r in pr]
+        below = [i + 1 for i, e in enumerate(errs) if e < drv.CRITERION]
+        assert len(pr) == summ["nf"], (len(pr), summ["nf"])
+        reached = summ["status"] == "FTARGET_ACHIEVED"
+        assert reached == bool(below), (summ, below)
+        n = below[0] if below else None
+        if reached:
+            assert n == len(pr), (n, len(pr))
+        # BOBYQA's initial interpolation set: x0 and x0 +- rhobeg along each axis.
+        init = sorted(r["xf"] for r in pr[:5])
+        want = sorted([(1.0, 1.0), (1.0 + rb, 1.0), (1.0 - rb, 1.0), (1.0, 1.0 + rb), (1.0, 1.0 - rb)])
+        assert all(abs(u - v) < 1e-12 for p, q in zip(init, want) for u, v in zip(p, q)), (init, want)
+        fin = pr[-1]
+        best = min(range(len(pr)), key=lambda i: errs[i])
+        key = stem.replace("prima_", "")
+        t.append(f"\n[controls.prima_{key}]")
+        t.append(
+            f'description = "issue #1135 T5: [controls.prima_this_build] with only PRIMA\'s initial trust radius changed, '
+            f"rhobeg = {rb} instead of DeviceLayout's 0.2 (prima_driver.jl --rhobeg {rb} --prefix {prefix}); the same "
+            'objective, bounds, ftarget and Palace environment; the initial point is the committed dl_initial (run 1)"'
+        )
+        t.append(f"rhobeg = {rb!r}")
+        t.append(f"cells = {strs([r['cell'] for r in pr])}")
+        t.append(f"x1 = [{', '.join(repr(r['xf'][0]) for r in pr)}]")
+        t.append(f"x2 = [{', '.join(repr(r['xf'][1]) for r in pr)}]")
+        t.append(f"c_um = {arr([r['theta'][0] for r in pr], 3)}")
+        t.append(f"L_um = {arr([r['theta'][1] for r in pr], 3)}")
+        t.append(f"f_q_ghz = {arr([r['F'][0] for r in pr], 6)}")
+        t.append(f"f_r_ghz = {arr([r['F'][1] for r in pr], 6)}")
+        t.append("err = [" + ", ".join(sci(e) for e in errs) + "]")
+        t.append(f"palace_runs = {len(pr)}  # PRIMA's info.nf")
+        t.append(f"reached_criterion = {'true' if reached else 'false'}")
+        if reached:
+            t.append(f"palace_runs_at_criterion = {n}")
+        t.append(f"prima_status = {json.dumps(summ['status'])}")
+        t.append(f"final_um = {arr(fin['theta'], 3)}")
+        t.append(f"final_ghz = {arr(fin['F'], 6)}")
+        t.append(f"best_err = {sci(errs[best])}")
+        t.append(f"best_run = {best + 1}")
+        counts.append(n if reached else -1)
+        status.append(summ["status"])
+        finals.append(fin["theta"])
+    t.append("\n[controls.prima_rhobeg]")
+    t.append(
+        'description = "issue #1135 T5: Palace runs to DeviceLayout\'s criterion for its PRIMA call at three initial '
+        "trust radii, all in this repository's Palace environment; 0.2 is DeviceLayout's setting "
+        '([controls.prima_this_build]); -1 = not reached"'
+    )
+    rbs = [RHOBEG_RUNS[0][0], 0.2, RHOBEG_RUNS[1][0]]
+    t.append(f"rhobeg = [{', '.join(repr(v) for v in rbs)}]  # 0.39999999999999997 = (1.4 - 0.6) / 2, BOBYQA's limit; 0.4 is reset to 0.2")
+    t.append(f"palace_runs_at_criterion = [{counts[0]}, {n_default}, {counts[1]}]")
+    t.append(f"prima_status = {strs([status[0], 'FTARGET_ACHIEVED', status[1]])}")
+    f0 = prima_runs()[-1]["theta"]  # the #1129 rhobeg 0.2 run
+    t.append(f"final_c_um = {arr([finals[0][0], f0[0], finals[1][0]], 3)}")
+    t.append(f"final_L_um = {arr([finals[0][1], f0[1], finals[1][1]], 3)}")
+    reached = [c for c in counts if c > 0] + [n_default]
+    t.append(f"run_count_range = [{min(reached)}, {max(reached)}]  # over the rhobeg values that reached the criterion")
+    t.append("newton_runs_at_criterion = 3  # [controls.comparison_1129]: every Newton variant")
 
 
 def dof_extrapolation(n, f):

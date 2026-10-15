@@ -17,7 +17,11 @@
 #   julia --project=reference/julia/devicelayout \
 #       benchmarks/transmon_devicelayout_controls/prima_driver.jl \
 #       --scratch <dir> --worker <name> [--np 16] [--remote work1129ctl] \
-#       [--replay <cells dir>] [--max-runs 25]
+#       [--replay <cells dir>] [--max-runs 25] [--rhobeg 0.2] [--prefix pr]
+#
+# --rhobeg (#1135, T5) changes only PRIMA's initial trust radius; the default
+# 0.2 is DeviceLayout's. --prefix names the cells dl_<prefix><n> (default
+# "pr", the #1129 cells); #1135 ran rhobeg 0.1 as "pa" and 0.4 as "pb".
 #
 # Without --replay every new point goes to the worker through
 #   python3 -I benchmarks/transmon_devicelayout_controls/driver.py eval ...
@@ -45,6 +49,8 @@ function parse_args(args)
         "remote" => "work1129ctl",
         "replay" => "",
         "max-runs" => "25",
+        "rhobeg" => "0.2",
+        "prefix" => "pr",
     )
     i = 1
     while i <= length(args)
@@ -86,6 +92,8 @@ function main(args)
     mkpath(scratch)
     replay = o["replay"]
     max_runs = parse(Int, o["max-runs"])
+    rhobeg = parse(Float64, o["rhobeg"])
+    prefix = o["prefix"]
     logpath = joinpath(scratch, isempty(replay) ? "prima_log.jsonl" : "prima_replay_log.jsonl")
     isfile(logpath) && rm(logpath)
     n = Ref(0)
@@ -98,7 +106,7 @@ function main(args)
             cell, src = "dl_initial", INITIAL_CELL
             f = read_cell(src)
         elseif !isempty(replay)
-            cell = "dl_pr$(n[])"
+            cell = "dl_$(prefix)$(n[])"
             src = joinpath(replay, cell)
             isdir(src) || error("replay: PRIMA asked for run $(n[]) at x = $x, but $src does not exist")
             cr, Lr = report_design(src)
@@ -107,10 +115,10 @@ function main(args)
             f = read_cell(src)
         else
             n[] > max_runs && error("more than $max_runs Palace runs: stopping (budget cap)")
-            cell = "dl_pr$(n[])"
+            cell = "dl_$(prefix)$(n[])"
             cmd = `python3 -I benchmarks/transmon_devicelayout_controls/driver.py eval
                    --scratch $scratch --worker $(o["worker"]) --np $(o["np"]) --remote $(o["remote"])
-                   --c $(repr(c)) --L $(repr(L)) --tag pr$(n[])`
+                   --c $(repr(c)) --L $(repr(L)) --tag $(prefix)$(n[])`
             out = read(cmd, String)
             m = match(r"EVAL (\{.*\})", out)
             m === nothing && error("driver.py eval gave no result:\n$out")
@@ -136,7 +144,7 @@ function main(args)
         flush(stdout)
         return e
     end
-    x, info = prima(errfunc, [1.0, 1.0]; ftarget = RELTOL^2, xl = [0.6, 0.6], xu = [1.4, 1.4], rhobeg = 0.2)
+    x, info = prima(errfunc, [1.0, 1.0]; ftarget = RELTOL^2, xl = [0.6, 0.6], xu = [1.4, 1.4], rhobeg = rhobeg)
     summary = Dict(
         "nf" => info.nf,
         "status" => string(info.status),
@@ -147,6 +155,8 @@ function main(args)
         "L_um" => repr((1 / x[2]) * 5000.0),
         "prima_version" => string(pkgversion(PRIMA)),
         "replay" => !isempty(replay),
+        "rhobeg" => rhobeg,
+        "prefix" => prefix,
     )
     open(joinpath(scratch, isempty(replay) ? "prima_summary.json" : "prima_replay_summary.json"), "w") do io
         JSON.print(io, summary, 2)
