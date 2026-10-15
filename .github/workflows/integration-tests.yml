@@ -296,6 +296,7 @@ jobs:
               --test patch_conformal_copper \
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
+              --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \
@@ -373,6 +374,7 @@ jobs:
               --test patch_conformal_copper \
               --test patch_conformal_diffopt \
               --test patch_conformal_nested_dof \
+              --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \

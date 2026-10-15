@@ -417,6 +417,33 @@ impl OutlineBasis {
         }
         out
     }
+
+    /// The two-DOF rectangle collapse of [`Self::eval`] (issue #1126, the
+    /// parametric baseline): `[ΔW, ΔL]` per unit, where `ΔW` moves the `±s`
+    /// edges outward by one half each and `ΔL` the `±y` edges, each as the
+    /// half-weighted sum of that edge's splines. The clamped splines are a
+    /// partition of unity, so the edges translate uniformly and a unit
+    /// coefficient widens (lengthens) the patch by exactly 1 (in the same
+    /// units as [`Self::eval`]), with the same feed-band ramp and margin
+    /// decay.
+    pub fn eval_rect(&self, s: f64, y: f64) -> [[f64; 2]; 2] {
+        let e = self.eval(s, y);
+        let n = self.n_per_edge();
+        let sum = |r: std::ops::Range<usize>| {
+            e[r].iter()
+                .fold([0.0_f64; 2], |a, b| [a[0] + b[0], a[1] + b[1]])
+        };
+        let (yp, ym, sp, sm) = (
+            sum(0..n),
+            sum(n..2 * n),
+            sum(2 * n..3 * n),
+            sum(3 * n..4 * n),
+        );
+        [
+            [0.5 * (sp[0] + sm[0]), 0.5 * (sp[1] + sm[1])],
+            [0.5 * (yp[0] + ym[0]), 0.5 * (yp[1] + ym[1])],
+        ]
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1377,6 +1404,43 @@ mod tests {
         let one = RadialBasis::new(1, 1, 3, rect, None, 0.0);
         assert_eq!(one.eval(3.0, -2.0), vec![1.0]);
         assert_eq!(one.eval(30.0, -2.0), vec![0.0]);
+    }
+
+    #[test]
+    fn outline_rect_collapse_translates_the_edges_uniformly() {
+        let rect = PatchRect {
+            s: [-19.0, 19.0],
+            y: [-14.5, 14.5],
+        };
+        let basis = OutlineBasis::new(8, 3, rect, 0.0, 7.5, 0.8, 12.0);
+        // Along every edge, away from the feed band: the edge moves by half a
+        // unit outward per unit ΔW (±s edges) or ΔL (±y edges), uniformly.
+        for k in 0..=40 {
+            let t = -1.0 + 2.0 * k as f64 / 40.0;
+            let [w, l] = basis.eval_rect(19.0, 14.5 * t);
+            assert!(
+                (w[0] - 0.5).abs() < 1e-12 && w[1] == 0.0,
+                "+s edge {t}: {w:?}"
+            );
+            assert!(l[0] == 0.0, "+s edge {t}: {l:?}");
+            let [w, _] = basis.eval_rect(-19.0, 14.5 * t);
+            assert!((w[0] + 0.5).abs() < 1e-12, "-s edge {t}: {w:?}");
+            let [_, l] = basis.eval_rect(19.0 * t, -14.5);
+            assert!((l[1] + 0.5).abs() < 1e-12, "-y edge {t}: {l:?}");
+            let [_, l] = basis.eval_rect(19.0 * t, 14.5);
+            assert!((l[1] - 0.5).abs() < 1e-12, "+y edge {t}: {l:?}");
+        }
+        // It is the half-weighted edge sum of the full basis.
+        for (s, y) in [(3.0, 2.0), (-10.0, 12.0), (25.0, -1.0), (0.2, 7.4)] {
+            let e = basis.eval(s, y);
+            let [w, l] = basis.eval_rect(s, y);
+            let col = |a: usize, b: usize, c: usize| -> f64 {
+                0.5 * (e[a..a + 8].iter().map(|d| d[c]).sum::<f64>()
+                    + e[b..b + 8].iter().map(|d| d[c]).sum::<f64>())
+            };
+            assert!((w[0] - col(16, 24, 0)).abs() < 1e-15 && (w[1] - col(16, 24, 1)).abs() < 1e-15);
+            assert!((l[0] - col(0, 8, 0)).abs() < 1e-15 && (l[1] - col(0, 8, 1)).abs() < 1e-15);
+        }
     }
 
     #[test]

@@ -106,6 +106,7 @@ use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
+use geode_core::driven::scattering::{e_norm_sq_integral, flux_power_box};
 use geode_core::driven::shape::{
     driven_shape_gradient_matched_upml_moving_port_s11, driven_shape_gradient_matched_upml_ports,
 };
@@ -114,8 +115,9 @@ use geode_core::driven::solve::{
     driven_solve_with_ports,
 };
 use geode_core::elements::ElementOrder;
-use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, bend_axis_z};
+use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, PHYS_SUBSTRATE, bend_axis_z};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
+use geode_core::postproc::ntff::{broadside_directivity, directivity, ntff_far_field};
 use geode_core::shape::conformal_basis::{
     AirMotion, ChartMorph, ConformalPatchNodes, CornerBasis, CylinderChart, FeedBasis, FeedCutoff,
     OutlineBasis, PatchRect, RadialBasis, filter_columns, helmholtz_lattice_filter,
@@ -228,6 +230,34 @@ struct Cli {
     feed_support_legacy: bool,
     /// Copper mode: move the air on the cylinders too ([`AirMotion::OnCylinder`]).
     air_on_cylinder: bool,
+    /// Copper mode (issue #1126, X4): the 4-parameter rectangle baseline. The
+    /// outline DOFs collapse to two, `ΔW` and `ΔL` (mm, total width / length
+    /// change): each moves both opposite edges outward by half its value,
+    /// the sum of that edge's B-splines (a partition of unity, so the edges
+    /// translate uniformly). With `--feed` the design is (W, L, inset, width).
+    rect4: bool,
+    /// Copper mode with `--feed` (issue #1126, X5): pin the probe width DOF at
+    /// 0, so the port keeps the fixture's `probe_w` (a realizable 1.27–1.6 mm
+    /// feed on the rbG / rbH fixtures). The width coefficient is zeroed in the
+    /// start and in every gradient.
+    freeze_feed_width: bool,
+    /// `--verify-only` at P1 (issue #1126, X3): power balance and broadside
+    /// gain at these frequencies (GHz): port power, box Poynting flux,
+    /// substrate dielectric loss, radiation efficiency, NTFF directivity and
+    /// realized gain.
+    radiation: Vec<f64>,
+    /// `--verify-only` (issue #1126, X1): write the moved mesh (with the
+    /// fixture's physical tags) as MSH 2.2 ASCII for the Palace reference.
+    write_mesh: Option<PathBuf>,
+    /// Gradient-free baseline (issue #1126, X4): separable CMA-ES on the same
+    /// objective with this many band evaluations (each `--n-band` forward
+    /// solves), in place of the adjoint L-BFGS. Designs failing the volume
+    /// guard are ranked last without a solve.
+    gradient_free: Option<usize>,
+    /// Initial CMA-ES step size (design units).
+    cma_sigma0: f64,
+    /// CMA-ES seed (`--cma-seed`; default the value of the first committed run).
+    cma_seed: u64,
 }
 
 fn parse_cli() -> Cli {
@@ -259,6 +289,13 @@ fn parse_cli() -> Cli {
         rebase_feed: false,
         feed_support_legacy: false,
         air_on_cylinder: false,
+        rect4: false,
+        freeze_feed_width: false,
+        radiation: Vec::new(),
+        write_mesh: None,
+        gradient_free: None,
+        cma_sigma0: 0.5,
+        cma_seed: CMA_SEED_DEFAULT,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -301,6 +338,20 @@ fn parse_cli() -> Cli {
             "--rebase-feed" => cli.rebase_feed = true,
             "--feed-support-legacy" => cli.feed_support_legacy = true,
             "--air-on-cylinder" => cli.air_on_cylinder = true,
+            "--rect4" => cli.rect4 = true,
+            "--freeze-feed-width" => cli.freeze_feed_width = true,
+            "--radiation" => {
+                cli.radiation = next(&mut i)
+                    .split(',')
+                    .map(|v| v.trim().parse().expect("--radiation f1,f2,... (GHz)"))
+                    .collect();
+            }
+            "--write-mesh" => cli.write_mesh = Some(PathBuf::from(next(&mut i))),
+            "--gradient-free" => {
+                cli.gradient_free = Some(next(&mut i).parse().expect("--gradient-free N_EVALS"));
+            }
+            "--cma-sigma0" => cli.cma_sigma0 = next(&mut i).parse().expect("--cma-sigma0 S"),
+            "--cma-seed" => cli.cma_seed = next(&mut i).parse().expect("--cma-seed N"),
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -358,6 +409,26 @@ fn parse_cli() -> Cli {
         "--dense is a verification sweep: give it with --verify-only"
     );
     assert!(
+        !cli.rect4 || (cli.copper && cli.outline > 0 && cli.corner_radius == 0.0),
+        "--rect4 needs --copper --outline N (the splines it sums) and no --corners"
+    );
+    assert!(
+        !cli.freeze_feed_width || (cli.copper && cli.feed),
+        "--freeze-feed-width needs --copper --feed"
+    );
+    assert!(
+        cli.radiation.is_empty() || (cli.verify_only && !cli.p2),
+        "--radiation is a P1 verification: give it with --verify-only, without --p2"
+    );
+    assert!(
+        cli.write_mesh.is_none() || cli.verify_only,
+        "--write-mesh needs --verify-only"
+    );
+    assert!(
+        cli.gradient_free.is_none() || (!cli.verify_only && !cli.fd_only && cli.design.is_none()),
+        "--gradient-free is a cold-start descent: no --verify-only, --fd-only or --design"
+    );
+    assert!(
         !cli.rebase_feed || (cli.copper && cli.feed && cli.design.is_some()),
         "--rebase-feed needs --copper --feed and --design"
     );
@@ -374,7 +445,7 @@ fn parse_cli() -> Cli {
     if cli.label.is_empty() && cli.copper {
         cli.label = format!(
             "copper_{}",
-            4 * cli.outline
+            if cli.rect4 { 2 } else { 4 * cli.outline }
                 + if cli.corner_radius > 0.0 { 4 } else { 0 }
                 + if cli.feed { 2 } else { 0 }
         );
@@ -488,6 +559,12 @@ impl Rng {
         let v = self.0.wrapping_mul(0x2545_F491_4F6C_DD1D);
         (v >> 11) as f64 / (1u64 << 53) as f64
     }
+    /// Standard normal (Box-Muller).
+    fn normal(&mut self) -> f64 {
+        let u1 = self.next_f64().max(1e-300);
+        let u2 = self.next_f64();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    }
     fn unit_direction(&mut self, n: usize, mask: impl Fn(usize) -> bool) -> Vec<f64> {
         let mut d: Vec<f64> = (0..n)
             .map(|i| {
@@ -570,6 +647,9 @@ struct Model {
     sigma0: f64,
     /// Total driven solves (forward or forward+adjoint) so far.
     n_solves: std::cell::Cell<usize>,
+    /// Design DOFs pinned at 0 (`--freeze-feed-width`): their gradient entry
+    /// is zeroed, so the descent never moves them.
+    frozen: Vec<usize>,
 }
 
 /// One band evaluation: per-point `|S₁₁|²`, `S₁₁`, the soft-max objective
@@ -733,7 +813,11 @@ impl Model {
                     a[2] += wf * g[2];
                 }
             }
-            self.morph.design_gradient(x, &acc)
+            let mut g = self.morph.design_gradient(x, &acc);
+            for &k in &self.frozen {
+                g[k] = 0.0;
+            }
+            g
         });
         Eval {
             g_f,
@@ -880,6 +964,346 @@ impl Model {
             })
             .collect()
     }
+}
+
+/// One `--radiation` point (issue #1126, X3), powers in the solver's natural
+/// units (`η₀ = 1`; only ratios are reported).
+struct RadRow {
+    f_ghz: f64,
+    s11: c64,
+    z_ohm: c64,
+    /// Accepted power `½ Re(V I*)` and available power `|V_inc|² / (2R)`.
+    p_in: f64,
+    p_avail: f64,
+    /// Poynting flux through the air box shrunk by [`FLUX_SHRINK`].
+    p_rad: f64,
+    /// Substrate dielectric loss `½ ω ε_r tan δ ∫_sub |E|²`.
+    p_diel: f64,
+    /// NTFF directivity, broadside (`θ = 0`, the patch normal at `s = 0`) and maximum.
+    d_broadside: f64,
+    d_max: f64,
+    /// Backward (`θ = π`, through the finite ground) directivity.
+    d_back: f64,
+}
+
+impl RadRow {
+    fn eta_rad(&self) -> f64 {
+        self.p_rad / self.p_in
+    }
+    /// `(P_in − P_rad − P_diel) / P_in`: what neither the flux surface nor the
+    /// substrate accounts for (discretization of the flux quadrature).
+    fn balance_residual(&self) -> f64 {
+        (self.p_in - self.p_rad - self.p_diel) / self.p_in
+    }
+    /// Gain `D η_rad` and realized gain `D P_rad / P_avail` at broadside (dBi).
+    fn gain_dbi(&self) -> f64 {
+        10.0 * (self.d_broadside * self.eta_rad()).log10()
+    }
+    fn realized_gain_dbi(&self) -> f64 {
+        10.0 * (self.d_broadside * self.p_rad / self.p_avail).log10()
+    }
+}
+
+/// The flux surface: the air box shrunk by this fraction of its half-extent
+/// (the `patch_conformal_2g4_baseline` convention), inside the UPML and
+/// outside the board.
+const FLUX_SHRINK: f64 = 0.10;
+/// NTFF grid (θ from 0 to π, φ over [0, 2π)).
+const NTFF_N_THETA: usize = 37;
+const NTFF_N_PHI: usize = 72;
+
+impl Model {
+    /// P1 power balance and broadside gain at `x` (issue #1126, X3).
+    fn radiation(&self, x: &[f64], freqs: &[f64]) -> Vec<RadRow> {
+        let mesh = self.moved_mesh(x);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &self.mask,
+        };
+        let (port, flux, inv_width) = self.port_on(&mesh);
+        let lp = port.lumped_port(self.r_nat, self.v_inc);
+        let center: [f64; 3] = std::array::from_fn(|k| 0.5 * (self.air_lo[k] + self.air_hi[k]));
+        let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (self.air_hi[k] - self.air_lo[k]));
+        let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
+        let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
+        let eps_im = FR4_MATERIALS.eps_r_substrate * FR4_MATERIALS.tan_delta_substrate;
+        freqs
+            .iter()
+            .map(|&f| {
+                let omega = ghz_to_omega_mm(f);
+                let (eps, nu) = self.base.matched_upml_materials(
+                    &FR4_MATERIALS,
+                    self.air_lo,
+                    self.air_hi,
+                    self.pml_thick,
+                    self.sigma0,
+                    omega,
+                );
+                self.n_solves.set(self.n_solves.get() + 1);
+                let sol = driven_solve_with_ports::<B>(
+                    &mesh,
+                    DrivenMaterials::MatchedUpml {
+                        epsilon_tensor: &eps,
+                        nu_tensor: &nu,
+                    },
+                    None,
+                    &bcs,
+                    std::slice::from_ref(&lp),
+                    omega,
+                    &self.source,
+                    &device(),
+                )
+                .expect("radiation solve");
+                assert!(sol.residual_rel < 1e-6, "unhealthy radiation solve");
+                let v = port_voltage(&flux, inv_width, &sol.e_edges);
+                let i = (self.v_inc * 2.0 - v) * (1.0 / self.r_nat);
+                let p_in = 0.5 * (v * i.conj()).re;
+                let p_avail = self.v_inc.norm_sqr() / (2.0 * self.r_nat);
+                let p_rad = flux_power_box(&mesh, omega, &sol.e_edges, flux_lo, flux_hi);
+                let p_diel = 0.5
+                    * omega
+                    * eps_im
+                    * e_norm_sq_integral(
+                        &mesh,
+                        &self.base.tet_physical_tags,
+                        PHYS_SUBSTRATE,
+                        &sol.e_edges,
+                    );
+                let ff = ntff_far_field(
+                    &mesh,
+                    omega,
+                    &sol.e_edges,
+                    flux_lo,
+                    flux_hi,
+                    NTFF_N_THETA,
+                    NTFF_N_PHI,
+                );
+                let (d_max, d_grid) = directivity(&ff);
+                let back = &d_grid[(NTFF_N_THETA - 1) * NTFF_N_PHI..];
+                let d_back = back.iter().sum::<f64>() / NTFF_N_PHI as f64;
+                let row = RadRow {
+                    f_ghz: f,
+                    s11: self.s11_of_v(v),
+                    z_ohm: v / i * ETA_0,
+                    p_in,
+                    p_avail,
+                    p_rad,
+                    p_diel,
+                    d_broadside: broadside_directivity(&ff),
+                    d_max,
+                    d_back,
+                };
+                eprintln!(
+                    "    radiation {f:.4} GHz: |S11| {:6.2} dB, P_rad/P_in {:.4}, P_diel/P_in {:.4}, \
+                     balance {:+.2e}, D_broadside {:.2} dBi, realized gain {:.2} dBi",
+                    20.0 * row.s11.norm().log10(),
+                    row.eta_rad(),
+                    row.p_diel / row.p_in,
+                    row.balance_residual(),
+                    10.0 * row.d_broadside.log10(),
+                    row.realized_gain_dbi()
+                );
+                row
+            })
+            .collect()
+    }
+}
+
+/// Write a (moved) patch mesh with the fixture's physical tags as MSH 2.2
+/// ASCII (issue #1126: the Palace reference reads MSH 2.2; the tag numbers
+/// are the attributes its config refers to). Elementary and physical tag are
+/// both the physical tag.
+fn write_msh22(path: &Path, base: &PatchFixture, mesh: &geode_core::mesh::TetMesh) {
+    let mut t = String::with_capacity(64 * (mesh.n_nodes() + mesh.n_tets()));
+    t.push_str("$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$PhysicalNames\n7\n");
+    for (dim, tag, name) in [
+        (3, 1, "substrate"),
+        (3, 2, "air"),
+        (3, 3, "upml"),
+        (2, 11, "port"),
+        (2, 12, "patch"),
+        (2, 13, "ground"),
+        (2, 14, "outer_boundary"),
+    ] {
+        let _ = writeln!(t, "{dim} {tag} \"{name}\"");
+    }
+    t.push_str("$EndPhysicalNames\n$Nodes\n");
+    let _ = writeln!(t, "{}", mesh.n_nodes());
+    for (i, p) in mesh.nodes.iter().enumerate() {
+        let _ = writeln!(t, "{} {:.17e} {:.17e} {:.17e}", i + 1, p[0], p[1], p[2]);
+    }
+    t.push_str("$EndNodes\n$Elements\n");
+    let n_tri = base.boundary_triangles.len();
+    let _ = writeln!(t, "{}", n_tri + mesh.n_tets());
+    let mut id = 1usize;
+    for (tri, &tag) in base
+        .boundary_triangles
+        .iter()
+        .zip(&base.triangle_physical_tags)
+    {
+        let _ = writeln!(
+            t,
+            "{id} 2 2 {tag} {tag} {} {} {}",
+            tri[0] + 1,
+            tri[1] + 1,
+            tri[2] + 1
+        );
+        id += 1;
+    }
+    for (tet, &tag) in mesh.tets.iter().zip(&base.tet_physical_tags) {
+        let _ = writeln!(
+            t,
+            "{id} 4 2 {tag} {tag} {} {} {} {}",
+            tet[0] + 1,
+            tet[1] + 1,
+            tet[2] + 1,
+            tet[3] + 1
+        );
+        id += 1;
+    }
+    t.push_str("$EndElements\n");
+    if let Some(p) = path.parent() {
+        fs::create_dir_all(p).expect("write-mesh dir");
+    }
+    fs::write(path, t).expect("write msh 2.2");
+}
+
+/// Seed of the first committed CMA-ES run (`L1_copper_38_cma114`).
+const CMA_SEED_DEFAULT: u64 = 0x1126_c3a5_2026;
+
+/// One band evaluation of the gradient-free baseline.
+struct GfEval {
+    eval: usize,
+    generation: usize,
+    objective: f64,
+    worst_db: f64,
+    feasible: bool,
+    best_so_far_worst_db: f64,
+    solves_so_far: usize,
+}
+
+/// Separable CMA-ES (Ros and Hansen 2008: CMA-ES with a diagonal covariance,
+/// learning rates scaled by (n + 2) / 3) minimizing the same soft-max
+/// objective as the adjoint descent, from `x = 0`, for `budget` band
+/// evaluations. A design failing the 0.25 volume guard is ranked after
+/// every feasible one, by its guard violation, without a solve (issue
+/// #1126, X4: the gradient-free baseline at a fixed solve budget). Returns
+/// the best feasible design (by worst-of-band) and the evaluation log.
+fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>, Vec<GfEval>) {
+    let n = model.morph.n_dofs();
+    let nf = n as f64;
+    let lambda = 4 + (3.0 * nf.ln()).floor() as usize;
+    let mu = lambda / 2;
+    let raw: Vec<f64> = (0..mu)
+        .map(|i| ((mu as f64) + 0.5).ln() - ((i + 1) as f64).ln())
+        .collect();
+    let wsum: f64 = raw.iter().sum();
+    let w: Vec<f64> = raw.iter().map(|v| v / wsum).collect();
+    let mu_eff = 1.0 / w.iter().map(|v| v * v).sum::<f64>();
+    let c_sigma = (mu_eff + 2.0) / (nf + mu_eff + 5.0);
+    let d_sigma = 1.0 + 2.0 * (((mu_eff - 1.0) / (nf + 1.0)).sqrt() - 1.0).max(0.0) + c_sigma;
+    let c_c = (4.0 + mu_eff / nf) / (nf + 4.0 + 2.0 * mu_eff / nf);
+    let sep = (nf + 2.0) / 3.0;
+    let c_1 = (sep * 2.0 / ((nf + 1.3).powi(2) + mu_eff)).min(1.0);
+    let c_mu =
+        (sep * 2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff)).min(1.0 - c_1);
+    let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
+    let mut rng = Rng(seed);
+    let mut m = vec![0.0_f64; n];
+    let mut sigma = sigma0;
+    let mut cdiag = vec![1.0_f64; n];
+    let mut p_sigma = vec![0.0_f64; n];
+    let mut p_c = vec![0.0_f64; n];
+    let mut log = Vec::new();
+    let mut best: (f64, Vec<f64>) = (f64::INFINITY, m.clone());
+    let mut evals = 0usize;
+    let mut generation = 0usize;
+    while evals < budget {
+        // (rank key, z, y): feasible designs keyed by their objective, guard
+        // failures after every feasible one, by their violation.
+        let mut pop: Vec<(f64, Vec<f64>, Vec<f64>)> = Vec::with_capacity(lambda);
+        for _ in 0..lambda {
+            if evals >= budget {
+                break;
+            }
+            let z: Vec<f64> = (0..n).map(|_| rng.normal()).collect();
+            let y: Vec<f64> = z
+                .iter()
+                .zip(&cdiag)
+                .map(|(zi, ci)| zi * ci.sqrt())
+                .collect();
+            let x: Vec<f64> = m.iter().zip(&y).map(|(mi, yi)| mi + sigma * yi).collect();
+            let vr = model.min_vol_ratio(&x);
+            evals += 1;
+            let (key, objective, worst_db, feasible) = if vr >= MIN_VOL_RATIO {
+                let e = model.eval(&x, false);
+                if e.worst_db() < best.0 {
+                    best = (e.worst_db(), x.clone());
+                }
+                (e.objective, e.objective, e.worst_db(), true)
+            } else {
+                (1e6 + (MIN_VOL_RATIO - vr), f64::NAN, f64::NAN, false)
+            };
+            log.push(GfEval {
+                eval: evals,
+                generation,
+                objective,
+                worst_db,
+                feasible,
+                best_so_far_worst_db: best.0,
+                solves_so_far: model.n_solves.get(),
+            });
+            eprintln!(
+                "    cma gen {generation} eval {evals}: {}, sigma {sigma:.3e}, best worst {:.2} dB",
+                if feasible {
+                    format!("G = {objective:.6e} (worst {worst_db:.2} dB)")
+                } else {
+                    format!("guard {vr:.3}")
+                },
+                best.0
+            );
+            pop.push((key, z, y));
+        }
+        if pop.len() < mu {
+            break;
+        }
+        pop.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let mut yw = vec![0.0_f64; n];
+        let mut zw = vec![0.0_f64; n];
+        for (wi, (_, z, y)) in w.iter().zip(&pop) {
+            for k in 0..n {
+                yw[k] += wi * y[k];
+                zw[k] += wi * z[k];
+            }
+        }
+        for k in 0..n {
+            m[k] += sigma * yw[k];
+        }
+        let a = (c_sigma * (2.0 - c_sigma) * mu_eff).sqrt();
+        for k in 0..n {
+            p_sigma[k] = (1.0 - c_sigma) * p_sigma[k] + a * zw[k];
+        }
+        let ps_norm = norm(&p_sigma);
+        let h_sigma = ps_norm / (1.0 - (1.0 - c_sigma).powi(2 * (generation as i32 + 1))).sqrt()
+            < (1.4 + 2.0 / (nf + 1.0)) * chi_n;
+        let hs = if h_sigma { 1.0 } else { 0.0 };
+        let b = (c_c * (2.0 - c_c) * mu_eff).sqrt();
+        for k in 0..n {
+            p_c[k] = (1.0 - c_c) * p_c[k] + hs * b * yw[k];
+        }
+        for k in 0..n {
+            let rank_mu: f64 = w
+                .iter()
+                .zip(&pop)
+                .map(|(wi, (_, _, y))| wi * y[k] * y[k])
+                .sum();
+            cdiag[k] = (1.0 - c_1 - c_mu) * cdiag[k]
+                + c_1 * (p_c[k] * p_c[k] + (1.0 - hs) * c_c * (2.0 - c_c) * cdiag[k])
+                + c_mu * rank_mu;
+        }
+        sigma *= ((c_sigma / d_sigma) * (ps_norm / chi_n - 1.0)).exp();
+        generation += 1;
+    }
+    (best.1, log)
 }
 
 /// Port voltage `V = (1/w) Σ f_i e_i`.
@@ -1592,6 +2016,12 @@ fn basis_flags(cli: &Cli) -> String {
         if cli.air_on_cylinder {
             f.push_str(" --air-on-cylinder");
         }
+        if cli.rect4 {
+            f.push_str(" --rect4");
+        }
+        if cli.freeze_feed_width {
+            f.push_str(" --freeze-feed-width");
+        }
     }
     f
 }
@@ -1620,7 +2050,10 @@ fn run_verify(
     c: &VerifyCtx<'_>,
 ) {
     let n_dofs = model.morph.n_dofs();
-    let x: Vec<f64> = design.map_or_else(|| vec![0.0; n_dofs], |d| d.x.clone());
+    let mut x: Vec<f64> = design.map_or_else(|| vec![0.0; n_dofs], |d| d.x.clone());
+    for &k in &model.frozen {
+        x[k] = 0.0;
+    }
     let order = if cli.p2 { "p2" } else { "p1" };
     let design_name = design.map_or_else(
         || "initial".to_string(),
@@ -1686,6 +2119,21 @@ fn run_verify(
         (v, w, d)
     });
     let sweep_s = t_sweep.elapsed().as_secs_f64();
+    let rad = if cli.radiation.is_empty() {
+        Vec::new()
+    } else {
+        eprintln!("  radiation (P1) at {:?} GHz:", cli.radiation);
+        model.radiation(&x, &cli.radiation)
+    };
+    let mesh_sha = cli.write_mesh.as_ref().map(|p| {
+        write_msh22(p, &model.base, &model.moved_mesh(&x));
+        let sha = sha256_hex(&fs::read(p).expect("read written mesh"));
+        eprintln!(
+            "  wrote the moved mesh (MSH 2.2) to {} (sha256 {sha})",
+            p.display()
+        );
+        sha
+    });
     let db = |s: &c64| 20.0 * s.norm().log10();
     let worst = verify
         .iter()
@@ -1746,12 +2194,24 @@ fn run_verify(
         "command = {}",
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
-             <dir>/{}.msh {} --verify-only{} --verify-n {} --wide-step {}{}{}",
+             <dir>/{}.msh {} --verify-only{} --verify-n {} --wide-step {}{}{}{}",
             c.stem,
             basis_flags(cli),
             if cli.p2 { " --p2" } else { "" },
             cli.verify_n,
             cli.wide_step,
+            if cli.radiation.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " --radiation {}",
+                    cli.radiation
+                        .iter()
+                        .map(|f| format!("{f}"))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            },
             cli.dense.map_or(String::new(), |(lo, hi, n)| format!(
                 " --dense {lo}:{hi}:{n}{}",
                 cli.shard
@@ -1820,6 +2280,12 @@ fn run_verify(
                 );
             }
         }
+    }
+    if cli.freeze_feed_width {
+        t.push_str(
+            "feed_width_frozen = true  # --freeze-feed-width: the width coefficient is 0, the \
+             port keeps the fixture's probe_w\n",
+        );
     }
     let _ = writeln!(t, "radial = {}", toml_str(c.radial_spec));
     let _ = writeln!(t, "outline = {}", toml_str(c.outline_spec));
@@ -1900,6 +2366,82 @@ fn run_verify(
         let _ = writeln!(t, "s11_db = {:.6}", db(s));
         t.push('\n');
     }
+    if let Some(sha) = &mesh_sha {
+        t.push_str("[moved_mesh]\n");
+        t.push_str(
+            "description = \"The moved mesh of this design on this fixture, written as MSH 2.2 \
+             ASCII with the fixture's physical tags (--write-mesh) for the Palace reference \
+             (issue #1126); not committed (regenerate with this command plus --write-mesh).\"\n",
+        );
+        let _ = writeln!(t, "sha256 = {}", toml_str(sha));
+        t.push('\n');
+    }
+    if !rad.is_empty() {
+        t.push_str("[radiation]\n");
+        t.push_str(
+            "description = \"P1 power balance and broadside gain (issue #1126, X3). p_in = \
+             1/2 Re(V I*) (accepted), p_avail = |V_inc|^2 / (2 R); p_rad = box Poynting flux \
+             through the air box shrunk by flux_shrink of its half-extent (inside the UPML, \
+             outside the board); p_diel = 1/2 omega eps_r tan_delta int_substrate |E|^2 \
+             (exact P1 quadrature); eta_rad = p_rad / p_in; balance = (p_in - p_rad - p_diel) \
+             / p_in. Directivity from the Love-equivalence NTFF on the same box (theta from 0 to \
+             pi, phi over [0, 2 pi)); broadside = theta 0, the patch normal at s = 0. gain = D \
+             eta_rad; realized gain = D p_rad / p_avail = gain (1 - |S11|^2). Conductors are PEC \
+             (no copper loss).\"\n",
+        );
+        let _ = writeln!(t, "flux_shrink = {FLUX_SHRINK}");
+        let _ = writeln!(t, "ntff_grid = [{NTFF_N_THETA}, {NTFF_N_PHI}]");
+        let _ = writeln!(
+            t,
+            "substrate_eps_r = {}\nsubstrate_tan_delta = {}",
+            FR4_MATERIALS.eps_r_substrate, FR4_MATERIALS.tan_delta_substrate
+        );
+        t.push('\n');
+        for r in &rad {
+            t.push_str("[[radiation.point]]\n");
+            let _ = writeln!(t, "f_ghz = {:.6}", r.f_ghz);
+            let _ = writeln!(t, "s11_re = {:.9e}", r.s11.re);
+            let _ = writeln!(t, "s11_im = {:.9e}", r.s11.im);
+            let _ = writeln!(t, "s11_db = {:.6}", db(&r.s11));
+            let _ = writeln!(t, "z_re_ohm = {:.6}", r.z_ohm.re);
+            let _ = writeln!(t, "z_im_ohm = {:.6}", r.z_ohm.im);
+            let _ = writeln!(t, "p_in = {:.9e}", r.p_in);
+            let _ = writeln!(t, "p_avail = {:.9e}", r.p_avail);
+            let _ = writeln!(t, "p_rad = {:.9e}", r.p_rad);
+            let _ = writeln!(t, "p_diel = {:.9e}", r.p_diel);
+            let _ = writeln!(t, "eta_rad = {:.6}", r.eta_rad());
+            let _ = writeln!(t, "diel_fraction = {:.6}", r.p_diel / r.p_in);
+            let _ = writeln!(t, "balance_residual = {:.4e}", r.balance_residual());
+            let _ = writeln!(
+                t,
+                "mismatch_check = {:.3e}",
+                r.p_in / r.p_avail - (1.0 - r.s11.norm_sqr())
+            );
+            let _ = writeln!(
+                t,
+                "directivity_broadside_dbi = {:.4}",
+                10.0 * r.d_broadside.log10()
+            );
+            let _ = writeln!(t, "directivity_max_dbi = {:.4}", 10.0 * r.d_max.log10());
+            let _ = writeln!(
+                t,
+                "directivity_back_dbi = {:.4}",
+                10.0 * r.d_back.max(1e-300).log10()
+            );
+            let _ = writeln!(
+                t,
+                "front_to_back_db = {:.4}",
+                10.0 * (r.d_broadside / r.d_back.max(1e-300)).log10()
+            );
+            let _ = writeln!(t, "gain_broadside_dbi = {:.4}", r.gain_dbi());
+            let _ = writeln!(
+                t,
+                "realized_gain_broadside_dbi = {:.4}",
+                r.realized_gain_dbi()
+            );
+            t.push('\n');
+        }
+    }
     for (f, s, res) in &dense {
         t.push_str("[[s11_dense.point]]\n");
         let _ = writeln!(t, "f_ghz = {f:.6}");
@@ -1924,6 +2466,174 @@ fn run_verify(
     println!(
         "patch_conformal_nested_dof [verify {design_name} on {} {order}]: {}",
         c.level,
+        out.display()
+    );
+}
+
+/// `--gradient-free N`: the separable CMA-ES baseline from `x = 0` with a
+/// budget of `N` band evaluations, then the same 9-point verification sweep
+/// as the descent (issue #1126, X4).
+fn run_gradient_free(
+    cli: &Cli,
+    model: &Model,
+    stem: &str,
+    level: &str,
+    fixture_sha: &str,
+    budget: usize,
+    t_start: Instant,
+) {
+    let seed = cli.cma_seed;
+    let e0 = model.eval(&vec![0.0; model.morph.n_dofs()], false);
+    let solves_x0 = model.n_solves.get();
+    let (x_best, log) = sep_cma_es(model, budget, cli.cma_sigma0, seed);
+    let e_best = model.eval(&x_best, false);
+    let verify_f: Vec<f64> = (0..cli.verify_n)
+        .map(|i| {
+            ISM_2G4_BAND_GHZ[0]
+                + (ISM_2G4_BAND_GHZ[1] - ISM_2G4_BAND_GHZ[0]) * i as f64
+                    / (cli.verify_n - 1).max(1) as f64
+        })
+        .collect();
+    let verify = model.sweep(&x_best, &verify_f);
+    let db = |s: &c64| 20.0 * s.norm().log10();
+    let verify_worst = verify
+        .iter()
+        .map(|(_, s, _)| db(s))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let n_feasible = log.iter().filter(|g| g.feasible).count();
+    eprintln!(
+        "  gradient-free: {} evals ({n_feasible} feasible), worst-of-band {:.2} -> {:.2} dB (band \
+         points), verification worst {verify_worst:.2} dB; {} solves",
+        log.len(),
+        e0.worst_db(),
+        e_best.worst_db(),
+        model.n_solves.get()
+    );
+    let mut t = String::with_capacity(64 * 1024);
+    t.push_str("# Auto-generated by `cargo run -p geode-core --release --example \\\n");
+    t.push_str(
+        "#   patch_conformal_nested_dof -- --gradient-free <N> <flags>` (see [meta].command).\n",
+    );
+    t.push_str("# Do NOT edit by hand; regenerate after any intentional change.\n\n");
+    t.push_str("[meta]\n");
+    t.push_str(
+        "description = \"Gradient-free baseline (issue #1126, X4): separable CMA-ES (diagonal \
+         covariance, Ros and Hansen 2008) on the same soft-max |S11|^2 band objective, basis, \
+         volume guard and fixture as the adjoint L-BFGS descent, from x = 0, at a fixed budget \
+         of band evaluations; guard failures are ranked last without a solve.\"\n",
+    );
+    t.push_str("mode = \"gradient_free\"\n");
+    let _ = writeln!(
+        t,
+        "command = {}",
+        toml_str(&format!(
+            "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+             <dir>/{stem}.msh {} --gradient-free {budget} --cma-sigma0 {} --cma-seed {} \
+             --band-shift {} --n-band {} --beta {} --verify-n {} --label {}",
+            basis_flags(cli),
+            cli.cma_sigma0,
+            cli.cma_seed,
+            cli.band_shift,
+            cli.n_band,
+            cli.beta,
+            cli.verify_n,
+            cli.label
+        ))
+    );
+    let _ = writeln!(t, "label = {}", toml_str(&cli.label));
+    let _ = writeln!(t, "fixture = {}", toml_str(stem));
+    let _ = writeln!(t, "level = {}", toml_str(level));
+    let _ = writeln!(t, "fixture_sha256 = {}", toml_str(fixture_sha));
+    let _ = writeln!(
+        t,
+        "generated_at_commit = \"{}\"",
+        geode_util::repo::current_commit()
+    );
+    BackendInfo::of::<B>(&device()).push_meta(&mut t);
+    if let Ok(host) = std::env::var("PATCH_CONFORMAL_HOST") {
+        let _ = writeln!(t, "host = {}", toml_str(&host));
+    }
+    let _ = writeln!(t, "band_shift_ghz = {}", cli.band_shift);
+    let _ = writeln!(
+        t,
+        "band_points_ghz = [{}]",
+        model
+            .band
+            .iter()
+            .map(|b| format!("{:.6}", b.0))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+    t.push_str("[gradient_free]\n");
+    let _ = writeln!(t, "method = \"sep-CMA-ES\"");
+    let _ = writeln!(t, "seed = {seed}");
+    let _ = writeln!(t, "sigma0 = {}", cli.cma_sigma0);
+    let _ = writeln!(t, "n_dofs = {}", model.morph.n_dofs());
+    let _ = writeln!(
+        t,
+        "lambda = {}",
+        4 + (3.0 * (model.morph.n_dofs() as f64).ln()).floor() as usize
+    );
+    let _ = writeln!(t, "budget_evals = {budget}");
+    let _ = writeln!(t, "n_evals = {}", log.len());
+    let _ = writeln!(t, "n_feasible = {n_feasible}");
+    let _ = writeln!(t, "worst_s11_db_initial = {:.6e}", e0.worst_db());
+    let _ = writeln!(t, "worst_s11_db_final = {:.6e}", e_best.worst_db());
+    let _ = writeln!(t, "objective_final = {:.9e}", e_best.objective);
+    let _ = writeln!(t, "verify_worst_s11_db = {verify_worst:.6e}");
+    let _ = writeln!(t, "n_driven_solves = {}", model.n_solves.get());
+    let _ = writeln!(t, "n_solves_initial_eval = {solves_x0}");
+    let _ = writeln!(t, "total_wall_s = {:.1}", t_start.elapsed().as_secs_f64());
+    t.push('\n');
+    t.push_str("[shape]\n");
+    let _ = writeln!(
+        t,
+        "design_vector = [{}]",
+        x_best
+            .iter()
+            .map(|v| format!("{v:.9e}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    t.push('\n');
+    for g in &log {
+        t.push_str("[[trajectory.eval]]\n");
+        let _ = writeln!(t, "eval = {}", g.eval);
+        let _ = writeln!(t, "generation = {}", g.generation);
+        let _ = writeln!(t, "feasible = {}", g.feasible);
+        if g.feasible {
+            let _ = writeln!(t, "objective = {:.9e}", g.objective);
+            let _ = writeln!(t, "worst_db = {:.6}", g.worst_db);
+        }
+        if g.best_so_far_worst_db.is_finite() {
+            let _ = writeln!(t, "best_so_far_worst_db = {:.6}", g.best_so_far_worst_db);
+        }
+        let _ = writeln!(t, "solves_so_far = {}", g.solves_so_far);
+        t.push('\n');
+    }
+    for (f, s, res) in &verify {
+        t.push_str("[[s11_verify.point]]\n");
+        let _ = writeln!(t, "f_ghz = {f:.6}");
+        let _ = writeln!(t, "s11_re = {:.9e}", s.re);
+        let _ = writeln!(t, "s11_im = {:.9e}", s.im);
+        let _ = writeln!(t, "s11_db = {:.6}", db(s));
+        let _ = writeln!(t, "solve_residual_rel = {res:.3e}");
+        t.push('\n');
+    }
+    let out = cli.out.clone().unwrap_or_else(|| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../benchmarks/patch_antenna_conformal/v6/x4/{level}_{}.toml",
+            cli.label
+        ))
+    });
+    if let Some(p) = out.parent() {
+        fs::create_dir_all(p).expect("out dir");
+    }
+    fs::write(&out, &t).expect("write gradient-free toml");
+    println!(
+        "patch_conformal_nested_dof [gradient-free {}]: {}",
+        cli.label,
         out.display()
     );
 }
@@ -2042,7 +2752,23 @@ fn main() {
             sub_pad,
         )
     });
-    if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper) {
+    if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper && cli.rect4) {
+        // Rectangle baseline (issue #1126, X4): two DOFs, each the sum of the
+        // splines of two opposite edges at half weight.
+        outline_spec = format!(
+            "rect4: 2 DOFs [dW, dL] (mm, total patch width / length change): dW moves the +s \
+             and -s edges outward by dW/2 each, dL the +y and -y edges by dL/2 each, as the sum \
+             of that edge's {} clamped uniform B-splines (degree {}; a partition of unity, so the \
+             edge translates uniformly); same ramp from the pinned feed band (half-width {:.2} \
+             mm), {sub_pad} mm margin decay and exact on-cylinder chart morph as the per-edge \
+             outline basis",
+            cli.outline,
+            cli.outline.saturating_sub(1).min(SPLINE_DEGREE),
+            0.5 * probe_w
+        );
+        n_outline = 2;
+        let _ = ob;
+    } else if let Some(ob) = outline_basis.as_ref().filter(|_| cli.copper) {
         // Copper mode (issue #1120): the same per-edge splines, applied by the
         // exact on-cylinder chart morph below (no chord error).
         outline_spec = format!(
@@ -2141,6 +2867,7 @@ fn main() {
         }
         let n_cols = n_outline + n_corner + n_feed;
         let ob = outline_basis.clone();
+        let rect4 = cli.rect4;
         let air = if cli.air_on_cylinder {
             AirMotion::OnCylinder
         } else {
@@ -2154,11 +2881,19 @@ fn main() {
             |s, y| {
                 let mut v = Vec::with_capacity(n_cols);
                 if let Some(ob) = &ob {
-                    v.extend(
-                        ob.eval(s, y)
-                            .into_iter()
-                            .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
-                    );
+                    if rect4 {
+                        v.extend(
+                            ob.eval_rect(s, y)
+                                .into_iter()
+                                .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                        );
+                    } else {
+                        v.extend(
+                            ob.eval(s, y)
+                                .into_iter()
+                                .map(|[a, b]| [OUTLINE_SCALE_MM * a, OUTLINE_SCALE_MM * b]),
+                        );
+                    }
                 }
                 if let Some(cb) = &corner_basis {
                     v.extend(cb.eval(s, y));
@@ -2322,6 +3057,11 @@ fn main() {
         pml_thick,
         sigma0,
         n_solves: std::cell::Cell::new(0),
+        frozen: if cli.freeze_feed_width {
+            vec![n_outline + n_corner + 1]
+        } else {
+            Vec::new()
+        },
     };
     let n_nodes = model.base.mesh.n_nodes();
     let n_edges = edges.len();
@@ -2365,6 +3105,11 @@ fn main() {
         return;
     }
 
+    if let Some(budget) = cli.gradient_free {
+        run_gradient_free(&cli, &model, &stem, &level, &fixture_sha, budget, t_start);
+        return;
+    }
+
     // ── Initial evaluation + FD gates ──
     // Cold start at the fixture (x = 0) or warm start at a carried design,
     // scaled back by halving until it clears the volume guard on this mesh.
@@ -2373,7 +3118,17 @@ fn main() {
         Some(d) => {
             let mut scale = 1.0_f64;
             loop {
-                let xs: Vec<f64> = d.x.iter().map(|v| v * scale).collect();
+                let xs: Vec<f64> =
+                    d.x.iter()
+                        .enumerate()
+                        .map(|(i, v)| {
+                            if model.frozen.contains(&i) {
+                                0.0
+                            } else {
+                                v * scale
+                            }
+                        })
+                        .collect();
                 let vr = model.min_vol_ratio(&xs);
                 eprintln!(
                     "  warm start from {} (scale {scale}): min vol ratio {vr:.3}",
@@ -2445,13 +3200,16 @@ fn main() {
                 fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_corner", "x0"));
             }
             for (k, name) in ["feed_inset", "feed_width"].iter().enumerate().take(n_feed) {
+                if model.frozen.contains(&(c_end + k)) {
+                    continue;
+                }
                 let d: Vec<f64> = (0..n_dofs)
                     .map(|i| if i == c_end + k { 1.0 } else { 0.0 })
                     .collect();
                 fd_checks.push(fd_check(&model, &x0, &grad0, &d, name, "x0"));
             }
         } else {
-            let d = rng.unit_direction(n_dofs, |_| true);
+            let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
             fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_all", "x0"));
         }
     }
@@ -2640,7 +3398,7 @@ fn main() {
     let grad_final = e_final.grad.clone().unwrap();
     let gnorm_final = norm(&grad_final);
     if n_dofs > 0 && !cli.fd_only && steps.len() > 1 {
-        let d = rng.unit_direction(n_dofs, |_| true);
+        let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
         fd_checks.push(fd_check(
             &model,
             &x_final,

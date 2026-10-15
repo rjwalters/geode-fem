@@ -102,6 +102,23 @@ DefineConstant[ lc_pml = 1e22 ];
 // historical defaults (h and 4 h), so the committed fixtures are unchanged.
 DefineConstant[ sub_zpad = -1 ];
 DefineConstant[ sub_box_thick = -1 ];
+// Optional local refinements (issue #1126, the forward-model accuracy
+// ladder). Both are inactive at their defaults, so every committed fixture
+// regenerates unchanged.
+//   lc_sub_patch: in-slab size inside the patch footprint grown by
+//     sub_patch_pad on every side (z over the same slab box as lc_sub),
+//     relaxing to the surrounding size over sub_patch_thick. It sets the
+//     number of element layers through the 1.6 mm FR-4 under the patch and
+//     its fringe without refining the whole 62 x 53 mm slab.
+//   lc_rim: size within rim_dist_min of the four patch edges (the r^-1/2
+//     edge singularity), growing linearly to the surrounding size at
+//     rim_dist_max.
+DefineConstant[ lc_sub_patch = 1e22 ];
+DefineConstant[ sub_patch_pad = 4.0 ];
+DefineConstant[ sub_patch_thick = 4.0 ];
+DefineConstant[ lc_rim = 1e22 ];
+DefineConstant[ rim_dist_min = 0.5 ];
+DefineConstant[ rim_dist_max = 3.0 ];
 
 // ---------------------------------------------------------------------------
 // Derived geometry.
@@ -274,8 +291,35 @@ Field[7].XMin  = air_x0;  Field[7].XMax  = air_x1;
 Field[7].YMin  = air_y0;  Field[7].YMax  = air_y1;
 Field[7].ZMin  = air_z0;  Field[7].ZMax  = air_z1;
 
+// Local refinements of issue #1126 (inactive at the 1e22 defaults: the
+// Min below then ignores them and the committed fixtures are unchanged).
+fields_min() = {2, 4, 6, 7};
+If (lc_sub_patch < 1e21)
+  Field[8] = Box;
+  Field[8].VIn   = lc_sub_patch;
+  Field[8].VOut  = lc_far;
+  Field[8].XMin  = px0 - sub_patch_pad;  Field[8].XMax  = px1 + sub_patch_pad;
+  Field[8].YMin  = py0 - sub_patch_pad;  Field[8].YMax  = py1 + sub_patch_pad;
+  Field[8].ZMin  = -sub_zpad_eff;  Field[8].ZMax  = h + sub_zpad_eff;
+  Field[8].Thickness = sub_patch_thick;
+  fields_min() += {8};
+EndIf
+If (lc_rim < 1e21)
+  rim_curves() = Boundary{ Surface{surf_patch()}; };
+  Field[9] = Distance;
+  Field[9].CurvesList = {Abs(rim_curves())};
+  Field[9].Sampling = 400;
+  Field[10] = Threshold;
+  Field[10].InField  = 9;
+  Field[10].SizeMin  = lc_rim;
+  Field[10].SizeMax  = lc_far;
+  Field[10].DistMin  = rim_dist_min;
+  Field[10].DistMax  = rim_dist_min + (lc_far - lc_rim) / (lc_sub - lc_rim) * (rim_dist_max - rim_dist_min);
+  fields_min() += {10};
+EndIf
+
 Field[5] = Min;
-Field[5].FieldsList = {2, 4, 6, 7};
+Field[5].FieldsList = {fields_min()};
 Background Field = 5;
 
 Mesh.MeshSizeExtendFromBoundary = 0;

@@ -1,0 +1,85 @@
+fixture:        patch_conformal_x1comb_L1.msh
+sha256:         6e769aa92619a64e1a968756c6e86acd9117656b7b6f47879fa2450fa73f3c49
+flat fixture:   patch_conformal_x1comb_L1.flat.msh
+flat sha256:    bad52c1ea2f94d6377a618111a4062c1f9beceb2e12edccd7184aa6edac1dee7
+generated:      2026-10-14T21:10:53+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/patch_antenna.geo
+wrapper:        reference/gmsh/generate_patch_fixture.py
+parameters:     patch_conformal_x1comb_L1.yaml
+
+parameter values:
+  patch:
+    patch_w: 38.0
+    patch_l: 29.0
+    h: 1.6
+    sub_pad: 12.0
+    probe_w: 1.6
+    probe_inset: 7.0
+  domain:
+    air_margin: 40.0
+    pml_thick: 25.0
+  mesh:
+    lc_patch: 2.0
+    lc_sub: 0.8
+    sub_zpad: 0.4
+    sub_box_thick: 3.2
+    lc_port: 0.6
+    lc_far: 14.0
+    dist_far: 30.0
+    lc_air: 12.0
+    lc_sub_patch: 0.3
+    lc_rim: 0.1
+    lc_pml: 8.3
+  bend:
+    bend_radius: 100.0
+  band:
+    f_lo_ghz: 2.4
+    f_hi_ghz: 2.4835
+    f_ref_ghz: 2.4835
+  solver:
+    port_resistance_ohm: 50.0
+    upml_sigma_0: 1.0
+  materials:
+    substrate_eps_r: 4.4
+    substrate_tan_delta: 0.02
+    conductor_sigma_s_m: 58000000.0
+
+quality report:
+  nodes: 245651
+  tets: 1489944
+  unique edges: 1738557 (budget 3000000)
+  inverted tets: 0
+  min dihedral angle: 6.80 deg
+  substrate tets: 788172
+  air tets: 680544
+  upml tets: 21228
+  port tris: 84
+  patch tris: 48144
+  ground tris: 50024
+  outer_boundary tris: 5926
+
+bend (PatchFixture::bent_conformal node map):
+  bend_radius_mm: 100.0
+  axis: parallel to y through (x = 0, z = -99.2) mm
+  substrate mid-plane z0_mm: 0.8
+  min tet volume ratio (bent / flat): 0.6244
+  patch max |r - (R + h - z0)| mm: 1.421e-14
+  ground max |r - (R - z0)| mm: 1.421e-14
+  flat min dihedral angle: 6.89 deg
+
+resolution (lengths in mm):
+  substrate layers (median h / tet z-extent, flat mesh): 5.64
+  substrate layers under the patch interior (3 mm inside the outline): 4.19
+  patch rim edge mean / max (edges within 0.5 mm of the outline): 0.099 / 0.149
+  substrate tet edge mean / p95 / max: 0.320 / 0.577 / 1.906
+  air tet edge mean / p95 / max: 0.599 / 1.974 / 28.320
+  upml tet edge mean / p95 / max: 11.585 / 16.262 / 21.378
+  patch triangle edge mean / max: 0.211 / 0.389
+  reference frequency: 2.4835 GHz (lambda_0 = 120.714 mm, lambda_d = lambda_0 / sqrt(eps_r) = 57.548 mm)
+  air elements per lambda_0 (mean / p95 / max edge): 201.56 / 61.16 / 4.26
+  upml elements per lambda_0 (mean / p95 / max edge): 10.42 / 7.42 / 5.65
+  substrate elements per lambda_d (mean / p95 / max edge): 179.80 / 99.66 / 30.19
+  patch elements per lambda_d (mean / max edge): 273.19 / 148.06
+  upml elements through the shell (pml_thick / mean edge): 2.16
+  air margin / lambda_0: 0.331
