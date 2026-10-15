@@ -687,17 +687,13 @@ impl Counter {
 
 /// A thread-safe accumulated `f64` (the external evaluator's wall time).
 #[derive(Default)]
-struct F64Sum(AtomicU64);
+struct F64Sum(std::sync::Mutex<f64>);
 impl F64Sum {
     fn get(&self) -> f64 {
-        f64::from_bits(self.0.load(Ordering::SeqCst))
+        *self.0.lock().expect("F64Sum lock")
     }
     fn add(&self, v: f64) {
-        let _ = self
-            .0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |b| {
-                Some((f64::from_bits(b) + v).to_bits())
-            });
+        *self.0.lock().expect("F64Sum lock") += v;
     }
 }
 
