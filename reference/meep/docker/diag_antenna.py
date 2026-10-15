@@ -49,11 +49,16 @@ def shell_bounds(face, dx, outward_sign, mode):
     face: the shell straddles the face, 0.45 dx inside and 0.55 dx outside, so
     the tangential-E sample on the face is metal and the next sample inward is
     not (used on grids where the 1.6 mm gap is a whole number of cells).
+    inset: 0.4 dx inside and 0.6 dx outside. On the R2 flat grid this puts the
+    Ez sample nearest each face inside the metal while the tangential-E metal
+    plane stays where it is (a deliberate Ez/tangential mismatch).
     """
     if mode == 'outward':
         a, b = face, face + outward_sign * dx
-    else:
+    elif mode == 'face':
         a, b = face - outward_sign * 0.45 * dx, face + outward_sign * 0.55 * dx
+    else:  # 'inset': starts 0.4 dx inside the face (E/H-gap mismatch test on R2's flat grid)
+        a, b = face - outward_sign * 0.4 * dx, face + outward_sign * 0.6 * dx
     return min(a, b), max(a, b)
 
 
@@ -247,7 +252,7 @@ def main():
     parser.add_argument('--max-checks', type=int, default=6)
     parser.add_argument('--temporal-tolerance', type=float, default=.001)
     parser.add_argument('--max-estimated-gib', type=float, default=48)
-    parser.add_argument('--shell-mode', choices=['outward', 'face'], default='outward')
+    parser.add_argument('--shell-mode', choices=['outward', 'face', 'inset'], default='outward')
     parser.add_argument('--bend-radius', type=float, default=100.0,
                         help='bent geometry only; 100 reproduces the harness prisms')
     parser.add_argument('--dump-grid', action='store_true')
