@@ -90,10 +90,61 @@ def shell_r(radius_lo, radius_hi, half_angle, length, material, bend, segments=2
     return mp.Prism(vertices=vertices, height=length, axis=mp.Vector3(0, 1, 0), material=material)
 
 
-def build(config, resolution, geometry_kind, frequencies, mode='outward', bend=100.0):
+def cell_staircase(config, resolution, setup, bend, x_edge_offset, plane_offset):
+    """Bent board with Yee-cell-aligned metal (shell mode 'cells').
+
+    For every grid column [x_m, x_m + dx] (x_m = x_edge_offset + m dx, the Ez
+    sample columns) whose centre lies on the patch (ground), one dx-high metal
+    Block sits on the tangential-E plane z_k = plane_offset + k dx nearest the
+    curved face at the column centre: [z_k, z_k + dx] above the patch face,
+    [z_k - dx, z_k] below the ground face. Blocks are inflated by 1e-3 dx so
+    their edge samples are unambiguously inside. The lowest metal sample of
+    every patch column is then a tangential one, so Ez is zeroed only on real
+    step faces. The substrate is the harness ring sector plus dx/2 slivers
+    under the patch and over the ground footprint, all covered by the metal,
+    so the gap is FR-4 up to the metal planes and nothing lies on the patch.
+    """
+    p = config['patch']; h, dx = p['h'], 1 / resolution
+    sw = p['patch_w'] + 2 * p['sub_pad']; sl = p['patch_l'] + 2 * p['sub_pad']
+    fr4 = setup['geometry'][0].material
+    resistor = setup['geometry'][1]
+    eps = 1e-3 * dx
+    z0 = -bend  # cylinder axis
+
+    def blocks(radius, half_arc, length, above):
+        out = []
+        m_lo = math.floor((-half_arc - x_edge_offset) / dx) - 1
+        m_hi = math.ceil((half_arc - x_edge_offset) / dx) + 1
+        for m in range(m_lo, m_hi + 1):
+            xa = x_edge_offset + m * dx
+            xc = xa + dx / 2
+            if abs(xc) > radius * math.sin(half_arc / bend):
+                continue
+            zf = z0 + math.sqrt(radius * radius - xc * xc)
+            zk = plane_offset + round((zf - plane_offset) / dx) * dx
+            za, zb = (zk, zk + dx) if above else (zk - dx, zk)
+            out.append(mp.Block(center=mp.Vector3(xc, 0, (za + zb) / 2),
+                                size=mp.Vector3(dx + 2 * eps, length, dx + 2 * eps),
+                                material=mp.metal))
+        return out
+
+    r_top, r_bot = bend + h / 2, bend - h / 2
+    return ([shell_r(r_bot, r_top, sw / (2 * bend), sl, fr4, bend),
+             shell_r(r_top, r_top + dx / 2, p['patch_w'] / (2 * bend), p['patch_l'], fr4, bend),
+             shell_r(r_bot - dx / 2, r_bot, sw / (2 * bend), sl, fr4, bend),
+             resistor]
+            + blocks(r_bot, sw / 2, sl, above=False)
+            + blocks(r_top, p['patch_w'] / 2, p['patch_l'], above=True))
+
+
+def build(config, resolution, geometry_kind, frequencies, mode='outward', bend=100.0,
+          cell_offsets=(0.0, 0.0)):
     setup = base.antenna_setup(config, resolution, frequencies)
     if geometry_kind == 'flat':
+        assert mode != 'cells', 'cells mode is for the bent board'
         setup['geometry'] = flat_geometry(config, resolution, setup, mode)
+    elif mode == 'cells':
+        setup['geometry'] = cell_staircase(config, resolution, setup, bend, *cell_offsets)
     elif mode != 'outward' or bend != 100.0:
         # Same ring-sector prisms as the harness (arc length on the mid-plane,
         # patch on the convex side), optionally about a different radius.
@@ -252,9 +303,13 @@ def main():
     parser.add_argument('--max-checks', type=int, default=6)
     parser.add_argument('--temporal-tolerance', type=float, default=.001)
     parser.add_argument('--max-estimated-gib', type=float, default=48)
-    parser.add_argument('--shell-mode', choices=['outward', 'face', 'inset'], default='outward')
+    parser.add_argument('--shell-mode', choices=['outward', 'face', 'inset', 'cells'], default='outward')
     parser.add_argument('--bend-radius', type=float, default=100.0,
                         help='bent geometry only; 100 reproduces the harness prisms')
+    parser.add_argument('--cell-x-offset', type=float, default=0.0,
+                        help="cells mode: x of an Ez sample column (from a grid dump)")
+    parser.add_argument('--plane-z-offset', type=float, default=0.0,
+                        help="cells mode: z of a tangential-E sample plane (from a grid dump)")
     parser.add_argument('--dump-grid', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -268,7 +323,7 @@ def main():
     shared = [int(np.argmin(np.abs(f_ghz - g))) for g in harness_ghz
               if np.min(np.abs(f_ghz - g)) < 1e-9]
     setup = build(config, args.resolution, args.geometry, frequencies, args.shell_mode,
-                  args.bend_radius)
+                  args.bend_radius, (args.cell_x_offset, args.plane_z_offset))
     cells = int(np.prod([math.ceil(s * args.resolution) for s in setup['cell']]))
     estimated_gib = cells * 400 / 2**30
     if estimated_gib > args.max_estimated_gib:
@@ -291,6 +346,8 @@ def main():
     result = {'schema': 'geode-meep-diag/1', 'meep_version': mp.__version__,
               'started_utc': started_utc, 'geometry': args.geometry,
               'shell_mode': args.shell_mode, 'bend_radius_mm': setup['bend_radius_mm'],
+              'cell_offsets_mm': ([args.cell_x_offset, args.plane_z_offset]
+                                  if args.shell_mode == 'cells' else None),
               'resolution_cells_per_mm': args.resolution, 'cell_mm': list(setup['cell']),
               'estimated_cells': cells, 'mpi_ranks': mp.count_processors(),
               'architecture': platform.machine(), 'time_step': sim.fields.dt,
