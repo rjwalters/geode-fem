@@ -77,20 +77,33 @@ def flat_geometry(config, resolution, setup, mode='outward'):
     ]
 
 
-def build(config, resolution, geometry_kind, frequencies, mode='outward'):
+def shell_r(radius_lo, radius_hi, half_angle, length, material, bend, segments=256):
+    """matched_antenna.shell with the cylinder axis at z = -bend instead of -100."""
+    phi = np.linspace(-half_angle, half_angle, segments + 1)
+    vertices = [mp.Vector3(r * math.sin(q), -length / 2, r * math.cos(q) - bend)
+                for r, angles in [(radius_hi, phi), (radius_lo, phi[::-1])] for q in angles]
+    return mp.Prism(vertices=vertices, height=length, axis=mp.Vector3(0, 1, 0), material=material)
+
+
+def build(config, resolution, geometry_kind, frequencies, mode='outward', bend=100.0):
     setup = base.antenna_setup(config, resolution, frequencies)
     if geometry_kind == 'flat':
         setup['geometry'] = flat_geometry(config, resolution, setup, mode)
-    elif mode != 'outward':
+    elif mode != 'outward' or bend != 100.0:
+        # Same ring-sector prisms as the harness (arc length on the mid-plane,
+        # patch on the convex side), optionally about a different radius.
         p = config['patch']; h, dx = p['h'], 1 / resolution
         sw = p['patch_w'] + 2 * p['sub_pad']; sl = p['patch_l'] + 2 * p['sub_pad']
-        substrate, resistor = setup['geometry'][:2]
+        substrate_material = setup['geometry'][0].material
+        resistor = setup['geometry'][1]
         setup['geometry'] = [
-            substrate, resistor,
-            base.shell(*shell_bounds(100 - h / 2, dx, -1, mode), sw / 200, sl, mp.metal),
-            base.shell(*shell_bounds(100 + h / 2, dx, +1, mode), p['patch_w'] / 200,
-                       p['patch_l'], mp.metal)]
+            shell_r(bend - h / 2, bend + h / 2, sw / (2 * bend), sl, substrate_material, bend),
+            resistor,
+            shell_r(*shell_bounds(bend - h / 2, dx, -1, mode), sw / (2 * bend), sl, mp.metal, bend),
+            shell_r(*shell_bounds(bend + h / 2, dx, +1, mode), p['patch_w'] / (2 * bend),
+                    p['patch_l'], mp.metal, bend)]
     setup['shell_mode'] = mode
+    setup['bend_radius_mm'] = bend if geometry_kind == 'bent' else None
     return setup
 
 
@@ -235,6 +248,8 @@ def main():
     parser.add_argument('--temporal-tolerance', type=float, default=.001)
     parser.add_argument('--max-estimated-gib', type=float, default=48)
     parser.add_argument('--shell-mode', choices=['outward', 'face'], default='outward')
+    parser.add_argument('--bend-radius', type=float, default=100.0,
+                        help='bent geometry only; 100 reproduces the harness prisms')
     parser.add_argument('--dump-grid', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -247,7 +262,8 @@ def main():
     harness_ghz = np.round(np.linspace(2.2, 2.7, 51), 6)
     shared = [int(np.argmin(np.abs(f_ghz - g))) for g in harness_ghz
               if np.min(np.abs(f_ghz - g)) < 1e-9]
-    setup = build(config, args.resolution, args.geometry, frequencies, args.shell_mode)
+    setup = build(config, args.resolution, args.geometry, frequencies, args.shell_mode,
+                  args.bend_radius)
     cells = int(np.prod([math.ceil(s * args.resolution) for s in setup['cell']]))
     estimated_gib = cells * 400 / 2**30
     if estimated_gib > args.max_estimated_gib:
@@ -269,7 +285,7 @@ def main():
     sim.init_sim()
     result = {'schema': 'geode-meep-diag/1', 'meep_version': mp.__version__,
               'started_utc': started_utc, 'geometry': args.geometry,
-              'shell_mode': args.shell_mode,
+              'shell_mode': args.shell_mode, 'bend_radius_mm': setup['bend_radius_mm'],
               'resolution_cells_per_mm': args.resolution, 'cell_mm': list(setup['cell']),
               'estimated_cells': cells, 'mpi_ranks': mp.count_processors(),
               'architecture': platform.machine(), 'time_step': sim.fields.dt,

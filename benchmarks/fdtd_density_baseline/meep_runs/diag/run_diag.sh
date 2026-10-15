@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #1088 diagnosis runs (one r8g.8xlarge, us-east-2). Usage: run_diag.sh build|grid|run <tag> <geometry> <res>
+# #1088 diagnosis runs (one r8g.8xlarge, us-east-2). Usage: run_diag.sh build | grid|run <tag> <geometry> <res> [args]
 set -u
 OUT=$HOME/diag; mkdir -p "$OUT/logs"; cd "$HOME/geode-fem"
 IMG=meep-matched:locked
@@ -23,10 +23,12 @@ build)
   "${DR[@]}" python reference/meep/docker/matched_geometry_verify.py > "$OUT/logs/geometry.log" 2>&1
   echo "geometry_exit=$?" >> "$OUT/logs/geometry.log" ;;
 grid)
+  # grid <tag> <geometry> <res> [extra diag_antenna.py args]
+  tag=$2; geom=$3; res=$4; shift 4
   "${DR[@]}" mpirun -np 32 python reference/meep/docker/diag_antenna.py \
-    --config reference/meep/docker/matched_initial_2g4.json --geometry "$3" --resolution "$4" \
-    --dump-grid --max-estimated-gib 120 --output "/results/grid_${2}.json" > "$OUT/logs/grid_${2}.log" 2>&1
-  echo "exit=$?" >> "$OUT/logs/grid_${2}.log" ;;
+    --config reference/meep/docker/matched_initial_2g4.json --geometry "$geom" --resolution "$res" \
+    --dump-grid --max-estimated-gib 120 "$@" --output "/results/grid_${tag}.json" > "$OUT/logs/grid_${tag}.log" 2>&1
+  echo "exit=$?" >> "$OUT/logs/grid_${tag}.log" ;;
 run)
   # run <tag> <geometry> <res> [extra diag_antenna.py args]
   tag=$2; geom=$3; res=$4; shift 4
