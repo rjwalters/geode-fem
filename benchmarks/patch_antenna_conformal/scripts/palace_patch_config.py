@@ -80,7 +80,7 @@ def eigen_config(args) -> dict:
                 "Save": 0,
             },
             "Linear": {
-                "Type": "Default",
+                "Type": args.eigen_linear,
                 "KSPType": "GMRES",
                 "Tol": args.tol,
                 "MaxIts": 1000,
@@ -159,6 +159,12 @@ def main() -> None:
     )
     ap.add_argument("--eigen-n", type=int, default=8, help="eigenmodes to converge")
     ap.add_argument("--eigen-tol", type=float, default=1e-8, help="eigensolver tolerance")
+    ap.add_argument(
+        "--eigen-linear",
+        default="MUMPS",
+        help="eigenmode only: Palace linear solver for the shift-and-invert (default MUMPS, "
+        "a direct factorization reused by every Krylov step; the driven sweeps keep Default)",
+    )
     ap.add_argument(
         "--port",
         choices=["open", "short", "lumped"],
