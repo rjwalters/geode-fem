@@ -310,6 +310,9 @@ def main():
                         help="cells mode: x of an Ez sample column (from a grid dump)")
     parser.add_argument('--plane-z-offset', type=float, default=0.0,
                         help="cells mode: z of a tangential-E sample plane (from a grid dump)")
+    parser.add_argument('--map-ghz', type=str, default='',
+                        help='comma-separated frequencies for an Ez DFT map on the z=0 plane '
+                             '(flat boards: the mid-plane of the gap), 50 x 40 mm about the patch')
     parser.add_argument('--dump-grid', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -338,6 +341,12 @@ def main():
     if not args.dump_grid:
         monitor = sim.add_dft_fields([mp.Ez], frequencies, center=setup['port'],
                                      size=setup['monitor_size'], yee_grid=False)
+    map_ghz = [float(f) for f in args.map_ghz.split(',') if f]
+    field_map = None
+    if map_ghz and not args.dump_grid:
+        field_map = sim.add_dft_fields([mp.Ez], [f / base.C_MM_NS for f in map_ghz],
+                                       center=mp.Vector3(0, 0, 0), size=mp.Vector3(50, 40, 0),
+                                       yee_grid=False)
     hashes = {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
               for name in ('diag_antenna.py', 'matched_antenna.py')}
     started_utc = datetime.now(timezone.utc).isoformat()
@@ -387,6 +396,15 @@ def main():
             'voltage_dft': [[float(z.real), float(z.imag)] for z in voltage],
             'injected_current_dft': [[float(z.real), float(z.imag)] for z in injected],
             'spatially_converged': False})
+        if field_map is not None:
+            mx, my, _, _ = sim.get_array_metadata(dft_cell=field_map)
+            maps = []
+            for i, f in enumerate(map_ghz):
+                a = np.asarray(sim.get_dft_array(field_map, mp.Ez, i)).reshape(len(mx), len(my))
+                maps.append({'f_ghz': f,
+                             're': np.round(a.real, 9).tolist(), 'im': np.round(a.imag, 9).tolist()})
+            result['ez_map_z0'] = {'x_mm': [float(v) for v in mx], 'y_mm': [float(v) for v in my],
+                                   'maps': maps}
     wall = COMM.allreduce(time.perf_counter() - start, op=MPI.MAX)
     rss = COMM.allreduce(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024, op=MPI.SUM)
     result['wall_seconds'] = wall
