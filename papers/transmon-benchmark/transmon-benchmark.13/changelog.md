@@ -9,7 +9,7 @@ environment, a Palace-only Newton, and a second refinement family on the step-2
 design. v1–v12 and every critic sibling are byte-identical.
 
 Length: 29 → 17 pages (14.5 pages of body, 2.5 of references; bibliography 84 →
-36 entries). Build: 0 overfull boxes, 0 undefined references or citations.
+35 entries). Build: 0 overfull boxes, 0 undefined references or citations.
 
 ## Operator rulings (2026-10-15, #1129)
 
@@ -41,7 +41,7 @@ Length: 29 → 17 pages (14.5 pages of body, 2.5 of references; bibliography 84 
 | 8 | Opus SF-4 | The adaptive 4.4297 GHz (+7.0 %, no extrapolation) in the abstract | Abstract, §1, §10 and conclusion. |
 | 9 | Opus SF-7, Fable S15 | Fig. 3(b) plots the unreliable resonator fit | Removed from Figure 3(b); the caption says why; the verifier asserts it is not drawn. |
 | 10 | Fable S10, S16 | Practitioner remedy: graded or hp meshes toward the sheet edges | §10 "What a practitioner can do", citing Demkowicz (2006), with the adaptive run as the measured instance. |
-| 11 | Opus SF-1, Fable S1–S9 | Length 29 pp → about 16–17 | 17 pp. Dropped: Appendix A (electrostatic design loop), Appendix B and its table (performance), §8 sensitivity layer and its table, the shared-limit table (one sentence remains), the capacitance table (extremes quoted in §6, all levels in Figure 4), the artifact table (captions name artifacts; a paragraph gives the rest), the §9 counts and examples. Merged v12 Tables 5 and 6 into one controls table. §2 roughly halved (tensor-stack paragraph and the HFSS/COMSOL/Webb/Firedrake list cut). Abstract 290 → 194 words. Repeated "estimate, not a bound" removed (tiers defined once in Table 5; the verifier allows at most two). Bibliography trimmed to the 36 cited entries; `url` dropped wherever a DOI is given; proper nouns brace-protected (Opus N-5). |
+| 11 | Opus SF-1, Fable S1–S9 | Length 29 pp → about 16–17 | 17 pp. Dropped: Appendix A (electrostatic design loop), Appendix B and its table (performance), §8 sensitivity layer and its table, the shared-limit table (one sentence remains), the capacitance table (extremes quoted in §6, all levels in Figure 4), the artifact table (captions name artifacts; a paragraph gives the rest), the §9 counts and examples. Merged v12 Tables 5 and 6 into one controls table. §2 roughly halved (tensor-stack paragraph and the HFSS/COMSOL/Webb/Firedrake list cut). Abstract 290 → 194 words. Repeated "estimate, not a bound" removed (tiers defined once in Table 5; the verifier allows at most two). Bibliography trimmed to the 35 cited entries; `url` dropped wherever a DOI is given; proper nouns brace-protected (Opus N-5). |
 | 12 | v12 Judge nit | Intro bullet "no geode-fem solve" | Now "the latter also with no geode-fem input at all", which the Palace-only Newton makes true; the verifier rejects "no geode-fem solve". |
 | 13 | v12 Judge nit | Palace AMR "an independent check" → "a further check" | "A further check comes from Palace's adaptive mesh refinement". |
 | 14 | v12 Judge nit | §5 "The converged values are estimates" is forbidden wording | Paragraph removed; "converged" no longer names an extrapolation anywhere (the verifier rejects "converged frequenc/value/estimate/design/resolution/…" and "the converged"). Figure 2's "conv." column is now "h→0", and figure legends say "extrapolated estimate". |
@@ -82,3 +82,15 @@ also differs), and T3 notes that `famcv2_u1_p2` ran for 7200 s and exited
 cleanly, with no time limit cutting it short. `results.toml` is unchanged.
 
 Pending (carried): Zenodo DOI (`TODO(operator)`), acknowledgment wording (`TODO(operator)`), Crutcher Dunnavant's answer to the coauthorship offer (source NOTE).
+
+## Judge round 1 on PR #1132 (changes requested at 87dcb314)
+
+| Note | Resolution |
+|---|---|
+| Required: §1 misattributed "the example itself warns that they are sensitive to it" (DeviceLayout v1.15.0 `docs/src/examples/singletransmon.md` says "quite sensitive" only of the order-1 demo, l.383) | §1 now quotes the caveat the authors give for the order-2 runs (l.454–457): second order is used "to reduce sensitivity to the discretization", and this "does not mean that the eigenfrequencies found by Palace will have converged to their true values"; the paper then measures how far from converged they are. `verify_evidence.py` pins the quotation and rejects the old sentence and "quite sensitive". |
+| Required: Figure 5 not cited in the text | §7: "Table 3 and Figure 5(b) compare the optimizers"; the verifier now requires every figure label to be cited in the body. |
+| Nit: "within 1.5 %" (1.53 %) | "within about 1.5 %" in §7 and §10. |
+| Nit: "at best O(h), and slower" | "decays as h^{2s} at any element order, slower than O(h)". |
+| Nit: tense in "we apply it … and found no" | "we apply it …, and we have found no certified capacitance bound". |
+| Nit: name the chord slope | §7: the chord slope from the initial design to the shape-derivative design at the criterion is 4.0 GHz (recomputed: 4.006), close to the scaling law and steeper than either tangent; pinned with 3.71 < chord < 4.168. |
+| Length | The quotation pushed the build to 18 pages; restored to 17 by shortening three captions' source lines, two sentences in §3.1 and §9, the V&V sentence in §2 (Roache 1997 no longer cited; 35 entries), and Figures 2 and 5 by 0.2–0.25 in. |

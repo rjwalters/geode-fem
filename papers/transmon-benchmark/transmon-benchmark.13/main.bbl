@@ -1,4 +1,4 @@
-\begin{thebibliography}{36}
+\begin{thebibliography}{35}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -204,13 +204,6 @@ P.~A. Raviart and J.~M. Thomas.
 \newblock In \emph{Mathematical Aspects of Finite Element Methods}, volume 606
   of \emph{Lecture Notes in Mathematics}, pages 292--315. Springer, 1977.
 \newblock \doi{10.1007/bfb0064470}.
-
-\bibitem[Roache(1997)]{roache1997quantification}
-P.~J. Roache.
-\newblock Quantification of uncertainty in computational fluid dynamics.
-\newblock \emph{Annual Review of Fluid Mechanics}, 29\penalty0 (1):\penalty0
-  123--160, 1997.
-\newblock \doi{10.1146/annurev.fluid.29.1.123}.
 
 \bibitem[Shanto et~al.(2024)Shanto, Kuo, Miyamoto, Zhang, Maurya, Vlachos,
   Hecht, Shum, and Levenson-Falk]{shanto2024squadds}

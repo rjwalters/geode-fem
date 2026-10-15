@@ -57,7 +57,7 @@ def main():
     t_q = targets[0]
     c_range = [c2 + (b_lo - t_q) / -slope, c2 + (b_hi - t_q) / -slope]   # um, centred on the target
 
-    fig = plt.figure(figsize=(6.3, 5.7))
+    fig = plt.figure(figsize=(6.3, 5.45))
     ax = fig.add_axes([.10, .645, .40, .32])
     bx = fig.add_axes([.62, .645, .36, .32])
     cq = fig.add_axes([.10, .31, .40, .225])

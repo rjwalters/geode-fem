@@ -84,8 +84,12 @@ $5.591$\,GHz and a design optimized for targets of $3.0$ and $4.0$\,GHz, at
 $3.005$ and $3.982$\,GHz, found with a derivative-free optimizer in nine
 Palace runs.
 
-Those frequencies come from one discretization, and the example itself
-warns that they are sensitive to it. This paper measures how sensitive. Our
+Those frequencies come from one discretization, and the example's authors
+say what that implies. They run Palace at second order ``to reduce
+sensitivity to the discretization'' and note that this ``does not mean that
+the eigenfrequencies found by Palace will have converged to their true
+values'' \citep{devicelayout-example}. This paper measures
+how far from converged the published frequencies are. Our
 main result is that the published frequencies are discretization-limited.
 Palace's adaptive refinement of the initial design reaches a qubit $7.0\%$ above the
 published value without extrapolation, and its uniform ladders extrapolate
@@ -144,10 +148,8 @@ COMSOL and Ansys with mesh-convergence studies, and
 measurement at the ${\sim}0.3\%$ level. Both use models built
 independently for each tool. Our comparison instead holds the input mesh
 and the junction model fixed and changes the solver implementation, and it
-adds a refinement study of a published design. In V\&V terms
-\citep{roache1997quantification,oberkampf2010verification} it is code
-verification and code-to-code comparison, not validation against
-measurement. As of October 2026, neither Palace nor DeviceLayout.jl has a
+adds a refinement study of a published design: code verification
+\citep{oberkampf2010verification}, not validation against measurement. As of October 2026, neither Palace nor DeviceLayout.jl has a
 methods publication; we cite their repositories and documentation.
 
 \paragraph{Design sensitivities and qubit-design optimization.}
@@ -172,7 +174,7 @@ hypercircle idea of \citet{prager1947approximations} with Raviart--Thomas
 fluxes \citep{raviart1977mixed} equilibrated patch by patch
 \citep{braess2007equilibrated,ern2015polynomial}. The method is not new; we
 apply it to an island capacitance with a floating conductor on a
-production qubit layout and found no certified capacitance bound in the
+production qubit layout, and we have found no certified capacitance bound in the
 qubit-design literature.
 
 \section{Solvers, Device and Models}
@@ -184,9 +186,7 @@ qubit-design literature.
 geode-fem assembles first-order N\'ed\'elec \citep{nedelec1980} and scalar
 P1/P2 element operators as batched $[n_{\mathrm{elem}},k,k]$ tensor
 operations on Burn. Its eigensolver is shift-invert Lanczos \citep{arpack}
-on a real symmetric pencil, factorized with faer \citep{kazdadi2026faer};
-large electrostatic solves use conjugate gradients with an
-algebraic-multigrid preconditioner in f64. The two codes share the
+on a real symmetric pencil, factorized with faer \citep{kazdadi2026faer}. The two codes share the
 formulation, the lumped junction port, the materials and the input mesh,
 and geode-fem follows a specification of Palace's operators
 (Section~\ref{sec:built}). Assembly, the eigensolver and the linear algebra
@@ -313,8 +313,7 @@ participation $0.9942$ in geode-fem and port EPR $0.99424$ in Palace.
   N\'ed\'elec unknowns ($133{,}108$ interior); Palace refines the mesh
   internally around the metal sheets and solves $183{,}891$. geode-fem
   frequencies are given to the archived three decimals (six for the qubit),
-  and $\Delta$ is the archived relative difference. These are same-mesh
-  values on a coarse mesh. Source:
+  and $\Delta$ is the archived relative difference. Source:
   \texttt{benchmarks/transmon\_eigen/results.toml}.}
   \label{tab:agreement}
   \footnotesize
@@ -382,7 +381,7 @@ is an observation, not a guarantee. At the edge of a zero-thickness metal
 sheet the field behaves as $E \sim r^{-1/2}$ \citep{meixner1972behavior},
 so near the edge the eigenfunctions lie in $H^{s}$ only for $s < 1/2$, and
 on uniform meshes the eigenvalue error decays as $h^{2s}$ at any element
-order \citep{boffi2010finite}: at best $O(h)$, and slower. The order-1
+order \citep{boffi2010finite}, slower than $O(h)$. The order-1
 ladders show pre-asymptotic orders of $0.61$ (qubit) and $0.70$--$0.73$
 (resonator).
 
@@ -671,9 +670,8 @@ evaluation; the one-time $\delta$ calibration is not counted.
   all in our Palace environment (build, mesher and platform) except the
   published PRIMA run. The Newton variants use the transmission-line $L$
   column with the stated $\delta$; Broyden's count includes its two probes.
-  Sources:
-  \texttt{benchmarks/transmon\_devicelayout\_optimize/results.toml} and
-  \texttt{benchmarks/transmon\_devicelayout\_controls/results.toml}.}
+  Sources: the \texttt{optimize} and \texttt{controls} artifacts under
+  \texttt{benchmarks/transmon\_devicelayout\_*/}.}
   \label{tab:controls}
   \footnotesize
   \begin{tabular}{@{}lllccc@{}}
@@ -691,7 +689,8 @@ evaluation; the one-time $\delta$ calibration is not counted.
 \end{table}
 
 \paragraph{Against DeviceLayout's discretization.}
-Table~\ref{tab:controls} compares the optimizers on one objective. Newton
+Table~\ref{tab:controls} and Figure~\ref{fig:reopt}(b) compare the
+optimizers on one objective. Newton
 with the shape-derivative column meets the criterion at its second step,
 after 3 Palace runs, and its three geode-fem solves add about $70$\,s,
 against about $4$\,min per Palace run on 32 ranks; a third step reaches
@@ -715,12 +714,15 @@ environment, then, the comparison is 3 Newton runs against 10.
 
 \paragraph{Why the shape-derivative step lands farther.}
 At the initial design the scaled shape derivative gives
-$\partial F_q/\partial x_1 = 3.66$\,GHz, within $1.5\%$ of the $3.71$\,GHz
+$\partial F_q/\partial x_1 = 3.66$\,GHz, within about $1.5\%$ of the $3.71$\,GHz
 of Broyden's Palace probe, so the derivative measures the local slope
 well. Both local slopes are $11$--$12\%$ shallower than the scaling law's
 $F_q/x_1 = 4.168$\,GHz, because the frequency is not exactly proportional
 to $x_1$ near the initial design, and the first step is long ($x_1$ from
-$1$ to about $0.7$). A local tangent therefore overshoots: the
+$1$ to about $0.7$): the chord slope from the initial design to the
+shape-derivative design at the criterion is $4.0$\,GHz, close to the
+scaling law and steeper than either tangent. A local tangent therefore
+overshoots: the
 shape-derivative step lands at $c = 1338.338\,\mu$m and Broyden's at
 $1320.522\,\mu$m, against about $1230\,\mu$m at the criterion, while the
 scaling law, which follows $f_q \propto x_1$ over the whole step, lands at
@@ -747,11 +749,9 @@ wall time, dominated by the order-2 $h/2$ cell.
   second family by Palace alone) and the rule of
   Section~\ref{sec:crosscheck}; values are estimates with their bands.
   Family b refines step 2's $h$ mesh with Palace's uniform refinement
-  instead of gmsh's. Sources:
-  \texttt{benchmarks/transmon\_devicelayout\_optimize/results.toml},
-  \texttt{benchmarks/transmon\_devicelayout\_controls/results.toml} and, for
-  the published final design,
-  \texttt{benchmarks/transmon\_devicelayout\_crosscheck/results.toml}.}
+  instead of gmsh's. Sources: the \texttt{optimize}, \texttt{controls} and
+  (published final) \texttt{crosscheck} artifacts under
+  \texttt{benchmarks/transmon\_devicelayout\_*/}.}
   \label{tab:newton-conv}
   \footnotesize
   \begin{tabular}{@{}lcccc@{}}
@@ -848,10 +848,8 @@ adaptive run and the controls ran on AWS Graviton4 hosts
 (\texttt{r8g.8xlarge}, 32 vCPU, and \texttt{r8g.4xlarge}, 16 vCPU); the
 capacitance brackets ran on a 28-core, 96\,GiB workstation. geode-fem's
 direct solves at the ladders' $h/2$ peaked at $94$ and $136$\,GB, which is
-why only Palace ran the larger cells. The Palace runs consume an MSH~2.2
-conversion of each mesh, because MFEM rejects DeviceLayout's multi-block
-MSH~4.1 file; the conversion keeps every node and physical group and
-reproduces the eigenvalues bit for bit. The figure scripts in
+why only Palace ran the larger cells. The Palace runs read an MSH~2.2
+conversion of each mesh that keeps every node and physical group. The figure scripts in
 \path{figures/src/} read the artifacts directly.
 
 \section{Discussion}
@@ -899,7 +897,7 @@ which costs nothing. Second, a finite-difference gradient costs only $N+1 =
 of a different discrete problem from the one the iteration evaluates:
 DeviceLayout remeshes every design and Palace evaluates it at second
 order, so a remeshed finite difference of that objective is the more
-faithful slope; here the scaled derivative lies $1.5\%$ below one. That the
+faithful slope; here the scaled derivative lies about $1.5\%$ below one. That the
 derivative is exact for its own discrete problem and cheap ($0.44$\,s)
 does not change the number of Palace runs.
 

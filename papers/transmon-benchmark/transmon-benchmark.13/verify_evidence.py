@@ -222,7 +222,8 @@ def check_crosscheck():
            "therefore a consistency check, not a blind prediction.")
     # The rate: the cited theory allows at best O(h), so the order-1 rule leans low.
     phrase("on uniform meshes the eigenvalue error decays as $h^{2s}$ at any element order "
-           "\\citep{boffi2010finite}: at best $O(h)$, and slower")
+           "\\citep{boffi2010finite}, slower than $O(h)$")
+    absent("and slower")
     phrase("Order 1 is the fastest rate the theory allows, so the rule makes the smallest correction consistent with "
            "it, and its estimates lean low")
     phrase("for the order-2 pair the order is taken from theory, because two levels give no observed order")
@@ -585,7 +586,11 @@ def check_controls(cc, opt, slope):
     assert round(pct(1 - j_geode / j_broyden), 1) == 1.5
     shallow = sorted(round(pct(1 - j / j_scaling)) for j in (j_geode, j_broyden))
     assert shallow == [11, 12], shallow
-    contains("$\\partial F_q/\\partial x_1 = 3.66$\\,GHz, within $1.5\\%$ of the $3.71$\\,GHz of Broyden's Palace probe")
+    contains("$\\partial F_q/\\partial x_1 = 3.66$\\,GHz, within about $1.5\\%$ of the $3.71$\\,GHz of Broyden's Palace probe")
+    # The chord slope over the first step, to the shape-derivative design at the criterion (step 2).
+    chord = (nd["f_q_ghz"][2] - nd["f_q_ghz"][0]) / (nd["x1"][2] - nd["x1"][0])
+    assert f"{chord:.1f}" == "4.0" and j_broyden < chord < j_scaling, chord
+    contains("the chord slope from the initial design to the shape-derivative design at the criterion is $4.0$\\,GHz")
     contains("Both local slopes are $11$--$12\\%$ shallower than the scaling law's $F_q/x_1 = 4.168$\\,GHz")
     contains(f"the shape-derivative step lands at $c = {nd['capacitor_length_um'][1]:.3f}\\,\\mu$m and Broyden's at "
              f"${br['c_um'][3]:.3f}\\,\\mu$m")
@@ -593,7 +598,7 @@ def check_controls(cc, opt, slope):
     at_crit = [nd["capacitor_length_um"][2], sc["final_um"][0], sp["final_um"][0], br["final_um"][0]]
     assert all(abs(x - 1230) < 10 for x in at_crit)
     contains("against about $1230\\,\\mu$m at the criterion")
-    contains("the scaled derivative lies $1.5\\%$ below one")
+    contains("the scaled derivative lies about $1.5\\%$ below one")
     # Near-decoupling, from Broyden's two probes.
     own = [abs(pct(br["f_q_ghz"][1] / br["f_q_ghz"][0] - 1)), abs(pct(br["f_r_ghz"][2] / br["f_r_ghz"][0] - 1))]
     other = [abs(pct(br["f_r_ghz"][1] / br["f_r_ghz"][0] - 1)), abs(pct(br["f_q_ghz"][2] / br["f_q_ghz"][0] - 1))]
@@ -823,6 +828,17 @@ def check_citations():
                     r"\bfirst (?:shape|adjoint|gradient|differentiable|sensitivity)"]:
         assert not re.search(pattern, LOWBODY), pattern
     phrase("The method is not new; we apply it")
+    phrase("and we have found no certified capacitance bound in the qubit-design literature")
+    # The example's own caveat, quoted as DeviceLayout v1.15.0 docs/src/examples/singletransmon.md states it for
+    # the order-2 runs (the "quite sensitive" remark there is about the order-1 demo only).
+    phrase("They run Palace at second order ``to reduce sensitivity to the discretization'' and note that this "
+           "``does not mean that the eigenfrequencies found by Palace will have converged to their true values''")
+    absent("the example itself warns that they are sensitive to it")
+    absent("quite sensitive")
+    # Every figure is cited in the text.
+    for lab in ["geometry", "crosscheck", "initialq", "convergence", "reopt"]:
+        assert re.search(r"Figure~\\ref\{fig:" + lab + r"\}", BODY), lab
+    contains("Table~\\ref{tab:controls} and Figure~\\ref{fig:reopt}(b) compare")
     phrase("the field behaves as $E \\sim r^{-1/2}$ \\citep{meixner1972behavior}")
     phrase("DeviceLayout's example optimizes with PRIMA \\citep{zhang2023prima}")
     phrase("with bounds only it runs BOBYQA \\citep{powell2009bobyqa}")

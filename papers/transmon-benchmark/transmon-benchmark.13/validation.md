@@ -12,7 +12,7 @@ Environment: Python 3.14, NumPy 2.4.1, Matplotlib 3.10.8; Poppler; TeX Live 2026
 
 - `papers/build.sh papers/transmon-benchmark/transmon-benchmark.13`: PASS,
   **17 pages** (v12: 29). Body ends on page 16 after about 14.5 pages; the
-  references fill 2.5 pages (36 entries, v12: 84). `main.log`: 0 overfull boxes,
+  references fill 2.5 pages (35 entries, v12: 84). `main.log`: 0 overfull boxes,
   no undefined reference or citation; `main.blg`: 0 warnings. Abstract 200
   words (v12: about 290).
 - `python3.14 verify_evidence.py`: PASS. Rewritten for the v13 text: every

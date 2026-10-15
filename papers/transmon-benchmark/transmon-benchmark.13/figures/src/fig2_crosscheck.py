@@ -68,7 +68,7 @@ def panel(ax, data, fam, geom, mode, title):
 def main():
     data = toml('benchmarks/transmon_devicelayout_crosscheck/results.toml')
     fam = toml('benchmarks/transmon_devicelayout_controls/results.toml')['mesh_family']['initial']
-    fig, axes = plt.subplots(2, 2, figsize=(6.3, 5.0))
+    fig, axes = plt.subplots(2, 2, figsize=(6.3, 4.8))
     for row, geom, name in [(0, 'initial', 'Initial geometry'), (1, 'final', 'Final geometry')]:
         for col, mode, mname in [(0, 'q', 'qubit'), (1, 'r', 'resonator')]:
             panel(axes[row, col], data, fam, geom, mode, f'({"abcd"[2 * row + col]}) {name}, {mname}')
