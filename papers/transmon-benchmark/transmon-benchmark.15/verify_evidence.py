@@ -1,0 +1,1408 @@
+#!/usr/bin/env python3
+"""Check the v15 manuscript against committed artifacts (Python >= 3.11).
+
+v15 revises v14 against the Opus and Fable reviews of v14 (both 37/44). Beyond v14's
+checks it pins: the island capacitance renamed C_isl, with C_Sigma = C_isl + C_J in
+Koch's convention wherever a frequency or E_C is formed, and the Bounded entry
+carrying C_Sigma in [85.06, 85.26] fF (so 4.63 GHz cannot be formed from it);
+"on uniform meshes" wherever the order-1 rate is stated; the linearized (plasma)
+qubit frequency against f01, with the 6.6 % and 0.19-0.22 GHz arithmetic; why h/2
+is the same discrete problem (Palace's h/2 logs: no bisection, element and vertex
+counts = geode-fem's + the crack duplicates); like-for-like Table 1 counts; the
+cap in the abstract; "highest uniform level, order 2 on h/2" in place of "finest";
+the Nedelec/grad-P1 wording of the from-below heuristic; the environment
+difference and "not diagnosed"; the final geometry's second family (#1135 T4) and
+PRIMA at three trust radii (T5); SQuADDS's own "validated design database" quoted
+and attributed; the surface-participation citations; the bibliography notes; the
+L1-L4 and Squad definitions; the acknowledgment marker removed; v14 main.tex
+unchanged.
+
+v14 revised v13 against the Opus and Fable reviews of v13, under the operator's
+rulings (title, derivative-scope paragraphs, short Section 8). Beyond v13's
+checks it pins: one Palace-run counting rule (probes included, so the
+Palace-only Newton is 4 runs: its 3 recorded runs plus Broyden's L probe
+dl_bp2 that sets its delta); the identical-discrete-problem claim only at h/2,
+with Palace's crack bisection traced to its log and to
+benchmarks/transmon_eigen/palace_crack/; "code verification" banned; the
+remeshed first-order difference against hf_mean (a mean of endpoint
+derivatives) and the Broyden probe step; the extrapolation-free bracket
+[4.4297, 4.477] GHz; the qubit-from-below mechanism (1.67 against 1.66-1.68);
+the E_C/anharmonicity translation; the two delta values (2.6x); the L1 bound of
+the lower bound; the EPR and transmon citations; the solver settings and mesh
+sizes of Section 9. v13's checks follow:
+
+- the same-input-mesh agreement (Table 1) and the refinement shifts of the fixture;
+- the cross-check (Table 2): published pairs, Palace at DeviceLayout's
+  discretization, the extrapolation rule recomputed from the ladder cells, bands,
+  the circuit cap, same-mesh agreement (qubit and resonator stated separately),
+  the rate wording (at best O(h), so order-1 estimates lean low);
+- the bounded island capacitance: scalar and tensor brackets, the bounded
+  scalar-tensor gap, the conforming levels, the coarse-mesh overstatement, the
+  static route and the model-dependent cap;
+- the re-optimization (Tables 3 and 4): the controls in one Palace environment
+  (PRIMA 10, three Newton variants 3, Broyden 5; published PRIMA 9 as context),
+  the explanation of the shape-derivative first step from the Jacobian entries,
+  the second refinement family at step 2, and the capacitor band recentred on
+  the 3.0 GHz target and reconciled with the two-family union;
+- the evidence tiers, the derivative-advantage paragraphs and the attribution
+  (no run count or design credited to the shape derivative);
+- the citation set against refs.bib (no uncited entry, no url beside a DOI, the
+  v13 additions), the eigenvalue-derivative citation, forbidden prior-art claims;
+- the operator's rulings (title, solo author, validation wording, Section 8 of
+  150-250 words with the whiteroom citation and the AI-model statement and no
+  commit counts, acknowledgment, repository URL) and the two TODO(operator)
+  comments; v10 to v13 main.tex are unchanged;
+- voice and audience rules: no revision narrative, no issue numbers, no virtue
+  labels, no em-dash, extrapolations never called converged values.
+
+Bounds, bands and percentages are recomputed from the committed values with
+their rounding direction. Lower bounds, the extrapolated circuit
+terms and the ladder cells are transcribed from the artifacts, not recomputed.
+It is not a physics re-run or an independent paper audit. Run from any
+working directory.
+"""
+from pathlib import Path
+import hashlib
+import json
+import math
+import re
+import sys
+import tomllib
+
+HERE = Path(__file__).resolve().parent
+sys.dont_write_bytecode = True
+REPO = HERE.parents[2]
+TEX = (HERE / "main.tex").read_text()
+NORM = re.sub(r"\s+", " ", TEX)
+BODY = "\n".join(line for line in TEX[TEX.index("\\begin{document}"):].splitlines()
+                 if not line.lstrip().startswith("%"))
+LOWBODY = re.sub(r"\s+", " ", BODY.lower())
+DIFFOPT = "benchmarks/transmon_diffopt/"
+CROSS = "benchmarks/transmon_devicelayout_crosscheck/results.toml"
+OPT = "benchmarks/transmon_devicelayout_optimize/"
+CTL = "benchmarks/transmon_devicelayout_controls/results.toml"
+
+
+def read(name):
+    path = REPO / name
+    print(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
+    return tomllib.loads(path.read_text())
+
+
+def read_text(name):
+    path = REPO / name
+    print(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
+    return path.read_text()
+
+
+def contains(value):
+    """The value must appear in the manuscript (source line wrapping ignored)."""
+    assert re.sub(r"\s+", " ", value) in NORM, f"Missing or mismatched manuscript value: {value}"
+
+
+phrase = contains
+
+
+def absent(value, text=None):
+    assert value not in (TEX if text is None else text), f"Stale or forbidden text present: {value}"
+
+
+def pin(value, count):
+    """Exact occurrence count, so that editing one copy cannot hide behind the others."""
+    n = NORM.count(re.sub(r"\s+", " ", value))
+    assert n == count, (value, n, count)
+
+
+def floor_to(x, digits):
+    scale = 10 ** digits
+    return math.floor(x * scale + 1e-9) / scale
+
+
+def ceil_to(x, digits):
+    scale = 10 ** digits
+    return math.ceil(x * scale - 1e-9) / scale
+
+
+def pct(x):
+    return 100 * x
+
+
+def section(title, nxt):
+    return NORM[NORM.index(title):NORM.index(nxt)]
+
+
+# --------------------------------------------------------------------------
+# Section 4: same-input-mesh agreement
+# --------------------------------------------------------------------------
+
+def check_agreement():
+    eigen = read("benchmarks/transmon_eigen/results.toml")
+    pal = eigen["oracles"]["palace_target2"]
+    names = {"qubit": "qubit & transmon qubit", "resonator": "resonator & readout resonator",
+             "mode_2": "mode 2 & box/cavity", "port_sheet_artifact": "port sheet & port-sheet artifact",
+             "mode_4": "mode 4 & box/cavity", "mode_5": "mode 5 & box/cavity", "mode_6": "mode 6 & box/cavity"}
+    worst = 0.0
+    for key, label in names.items():
+        m = eigen["modes"][key]
+        if key == "qubit":
+            row = f"{label} & {m['f_ghz']:.6f} & {m['palace_f_ghz']:.6f} & {m['rel_err_pct']:.5f} \\\\"
+        else:
+            worst = max(worst, m["rel_err_pct"])
+            row = f"{label} & {m['f_ghz']:.3f} & {m['palace_f_ghz']:.3f} & {m['rel_err_pct']:.3f} \\\\"
+            assert f"{abs(100 * (m['f_ghz'] / m['palace_f_ghz'] - 1)):.3f}" == f"{m['rel_err_pct']:.3f}", key
+        contains(row)
+    assert worst == 0.032 and ceil_to(worst, 3) <= 0.033
+    # Opus N-2: one outward-rounded bound only.
+    pin("$\\leq 0.033\\%$", 2)
+    absent("worst case $0.032")
+    assert pal["qubit_geode_vs_palace_pct"] == 5e-5 and pal["target_ghz"] == 2.0
+    pin("$5\\times10^{-5}\\,\\%$", 2)   # Section 1, Section 4
+    assert eigen["modes"]["qubit"]["participation"] == 0.9942
+    contains(f"port EPR ${pal['qubit_port_epr']:.5f}$ in Palace")
+    assert f"{pal['port_sheet_artifact_port_epr']:.2e}" == "2.49e-08"
+    contains("port EPR of $2.49\\times10^{-8}$")
+    meta = eigen["meta"]
+    assert meta["n_nedelec_dofs"] == 156863 and meta["n_interior_dofs"] == 133108
+    log = read_text("reference/fixtures/transmon_palace/results_p1/palace_run_v22.log")
+    assert "ND (p = 1): 183891" in log
+    # Fable S4: Table 1's counts are like for like (all edges, PEC sheet edges included).
+    contains("Counted the same way, as all first-order N\\'ed\\'elec unknowns (edges) including those on PEC sheets, "
+             "geode-fem's mesh has $156{,}863$ ($133{,}108$ interior) and Palace's has $183{,}891$")
+    absent("solves $183{,}891$")
+    contains("Both codes are printed to geode-fem's archived three decimals (six for the qubit); $\\Delta$ is the "
+             "archived relative difference, computed from Palace's full-precision value.")
+    # Palace's crack bisection (MF-2): the rule, its log counts, and where the flagged edges sit.
+    assert "Added 4913 elements in 2 iterations of local bisection for under-resolved interior boundaries" in log
+    assert "Added 6014 duplicate vertices for interior boundaries" in log
+    assert re.search(r"vertices\s+\d+\s+\d+\s+\d+\s+29705", log)
+    crack = read("benchmarks/transmon_eigen/palace_crack/fixture_crack_edges.toml")
+    by = crack["flagged_edges_by_conductor"]
+    assert crack["mesh"] == eigen["meta"]["fixture"] and crack["flagged_edges"] == sum(by.values()) == 1007
+    assert (by["ground_and_resonator"], by["feedline"], by["island"]) == (741, 252, 14)
+    # Exact agreement with Palace's log (metal cracked, lumped-port sheet excluded as in AddInterfaceBdrElements):
+    added_vertices = 29705 - meta["n_nodes"] - 6014       # Palace's bisection midpoints, one per split edge
+    assert added_vertices == crack["flagged_edges"]
+    assert "Added 15098 duplicate boundary elements" in log
+    assert crack["crack_triangles"] + 2 * crack["flagged_edges"] == 15098
+    assert "2 iterations of local bisection" in log
+    contains("the $1{,}007$ on the fixture, one per vertex Palace adds, are $741$ on the ground-plane sheet that carries "
+             "the resonator, $252$ on the feedline and $14$ on the island")
+    contains("Palace cracks each metal sheet, but not the junction sheet, into two sides")
+    contains("in two passes on the fixture")
+    contains("concentrated on the resonator and feedline, though some touch the island")
+    contains("The closer qubit agreement is consistent with where the bisection sits, not explained by it.")
+    absent("sit away from the island")
+    contains("``local bisection for under-resolved interior boundaries'' in its log; \\texttt{palace/utils/geodata.cpp}")
+    contains("after it cracks the metal sheets and adds $4{,}913$ elements on them by bisection")
+    # Opus MF-1 / Fable S3: why cracking without bisection leaves the PEC problem unchanged.
+    contains("Cracking alone leaves the PEC problem unchanged: each volume edge attaches to one copy of a duplicated "
+             "vertex, so the edges that cracking adds are copies of edges in a sheet, and the PEC condition eliminates "
+             "them. Only the bisection changes the unknowns.")
+    # Fable S7: the Target semantics are cited to Palace's configuration schema (scripts/schema/config-schema.json
+    # at fba6a5b: "(Nonzero) frequency target above which to search for eigenvalues, GHz.").
+    contains("Palace's configuration schema defines \\texttt{Target} as the frequency above which its eigensolver "
+             "searches \\citep{palace}")
+    absent("Palace's source shows that its eigensolver")
+    # The EPR is defined and cited where it is used.
+    contains("the energy-participation ratio of the junction, the fraction of the mode's inductive energy stored in it "
+             "\\citep{minev2021energy}")
+    contains("Both codes use the isotropic sheet term of Eq.~\\eqref{eq:port} here.")
+    lc = 1 / (2 * math.pi * math.sqrt(meta["junction_inductance_nh"] * 1e-9 * meta["junction_capacitance_ff"] * 1e-15))
+    assert f"{lc / 1e9:.2f}" == "17.60"
+    contains("$f_{LC} = 17.60$\\,GHz")
+    conv = read("benchmarks/transmon_loop_inductance/results.toml")["convergence"]
+    assert conv["global_labels"] == ["h", "h2", "h2_gmsh", "h_p2"]
+    fq, fr = conv["global_f_q_ghz"], conv["global_f_r_ghz"]
+    assert f"{fq[0]:.4f}" == "3.4527" and abs(fq[0] - pal["qubit_f_ghz"]) < 1e-6
+    for k, label in [(1, "at $h/2$"), (3, "at second order on $h$")]:
+        contains(f"${fq[k]:.4f}$\\,GHz {label} ($+{pct(fq[k] / fq[0] - 1):.1f}\\%$)")
+    contains(f"the resonator by $+{pct(fr[1] / fr[0] - 1):.1f}\\%$ at $h/2$")
+    a2 = eigen["port_voltage_a2"]
+    assert a2["status"] == "measured" and a2["max_abs_gt_b"] == 0.0
+    phrase("it keeps the physical modes to four decimals on the fixture")
+    # The h/2 qubit residual is the junction-model difference (rank-1 shunt against the isotropic sheet).
+    assert a2["bulk_modes_ghz"][0] == 3.452753 and eigen["modes"]["qubit"]["f_ghz"] == 3.452751
+    assert f"{pct(a2['bulk_modes_ghz'][0] / eigen['modes']['qubit']['f_ghz'] - 1):.0e}" == "6e-05"
+    contains("On the fixture the shunt moves the qubit, whose inductive energy sits almost entirely in the junction, by "
+             "$6\\times10^{-5}\\,\\%$ and leaves the other modes unchanged to four decimals.")
+    phrase("This mechanism is our inference, supported by a synthetic test")
+    return pal
+
+
+# --------------------------------------------------------------------------
+# Section 5: the DeviceLayout cross-check
+# --------------------------------------------------------------------------
+
+def order1(f1, f2):
+    return 2 * f2 - f1
+
+
+def order1_lambda(f1, f2):
+    return math.sqrt(2 * f2 ** 2 - f1 ** 2)
+
+
+def rule(levels):
+    """The part-1 estimate from five levels (p1 h, h/2, h/4; p2 h, h/2)."""
+    return (order1(levels[1], levels[2]) + order1(levels[3], levels[4])) / 2
+
+
+def check_crosscheck():
+    cc = read(CROSS)
+    pub = cc["published"]
+    assert pub["initial_f_ghz"] == [4.14, 5.591] and pub["final_f_ghz"] == [3.005, 3.982]
+    assert pub["initial_capacitor_length_um"] == 620 and pub["initial_total_length_um"] == 5000
+    assert pub["final_capacitor_length_um"] == 1217.678 and pub["final_total_length_um"] == 7243.955
+    assert pub["targets_ghz"] == [3.0, 4.0]
+    contains("($c = 620\\,\\mu$m, $L = 5000\\,\\mu$m) at $[4.14, 5.591]$\\,GHz")
+    contains("($c = 1217.678\\,\\mu$m, $L = 7243.955\\,\\mu$m) at $[3.005, 3.982]$\\,GHz")
+    contains("sets the targets to $[3.0, 4.0]$\\,GHz")
+    rows = {}
+    for geom in ["initial", "final"]:
+        conv, dl, pal = cc["convergence"][geom], cc["devicelayout_run"][geom], cc["palace"][geom]
+        assert conv["p1_f_q_ghz"] == pal["p1_f_q_ghz"] and conv["p2_f_q_ghz"] == pal["p2_f_q_ghz"]
+        for mode in ["q", "r"]:
+            p1, p2 = pal[f"p1_f_{mode}_ghz"], pal[f"p2_f_{mode}_ghz"]
+            assert all(b > a for a, b in zip(p1, p1[1:])) and p2[1] > p2[0]
+            a = order1(p1[1], p1[2])
+            b = order1(p2[0], p2[1])
+            assert abs(a - conv[f"p1_order1_f_{mode}_ghz"]) < 2e-6 and abs(b - conv[f"p2_order1_f_{mode}_ghz"]) < 2e-6
+            assert abs(order1_lambda(p1[1], p1[2]) - conv[f"p1_order1_lambda_f_{mode}_ghz"]) < 2e-6
+            assert abs(order1_lambda(p2[0], p2[1]) - conv[f"p2_order1_lambda_f_{mode}_ghz"]) < 2e-6
+            est = (a + b) / 2
+            assert abs(est - conv[f"f_{mode}_ghz"]) < 1e-4
+            six = [conv[f"p1_order1_f_{mode}_ghz"], conv[f"p2_order1_f_{mode}_ghz"],
+                   conv[f"p1_order1_lambda_f_{mode}_ghz"], conv[f"p2_order1_lambda_f_{mode}_ghz"],
+                   conv[f"p1_richardson_f_{mode}_ghz"], conv[f"p2_richardson_f_{mode}_ghz"]]
+            lo, hi = conv[f"f_{mode}_band_ghz"]
+            assert abs(min(six) - lo) < 1e-4 and abs(max(six) - hi) < 1e-4
+            published = dl[f"published_f_{mode}_ghz"]
+            assert published < lo, (geom, mode)
+            over = pct(conv[f"f_{mode}_ghz"] / published - 1)
+            assert abs(over - conv[f"f_{mode}_over_published_pct"]) < 2e-3
+            dl_over = pct(dl[f"f_{mode}_ghz"] / published - 1)
+            assert abs(dl_over - dl[f"f_{mode}_over_published_pct"]) < 2e-3
+            rows[(geom, mode)] = (published, dl[f"f_{mode}_ghz"], dl_over, conv[f"f_{mode}_ghz"], over, lo, hi)
+        assert conv["published_below_band"] == [True, True]
+    for geom in ["initial", "final"]:
+        hist = cc["convergence"][geom]["rule_history"]
+        assert "estimate 4.63 GHz" in hist and "after the independent static route" in hist, geom
+    assert 4.63 > cc["static_cross_check"]["initial"]["circuit_cap_f_q_ghz"]
+    phrase("The rule was fixed after the static route had been computed: extrapolation at the observed order "
+           "alone, the rule used before, puts the initial qubit at $4.63$\\,GHz, above the circuit-model cap, and the "
+           "observed-order values are kept only as the band's high side. The agreement of the two routes is "
+           "therefore a consistency check, not a blind prediction.")
+    # The rate: the cited theory allows at best O(h), so the order-1 rule leans low.
+    phrase("on uniform meshes the eigenvalue error decays as $h^{2s}$ at any element order "
+           "\\citep{boffi2010finite}, slower than $O(h)$")
+    absent("and slower")
+    # Fable M2: the rate statement is qualified "on uniform meshes" everywhere it is made.
+    phrase("Order 1 is the fastest rate the theory allows on uniform meshes, so the rule makes the smallest correction "
+           "consistent with it, and its estimates lean low")
+    phrase("the fastest rate the sheet-edge singularity allows on uniform meshes")
+    phrase("The extrapolations assume the rate the sheet-edge singularity allows on uniform meshes")
+    for m in re.finditer(r"fastest rate|rate the sheet-edge singularity allows", NORM):
+        assert "on uniform meshes" in NORM[m.start():m.start() + 120], NORM[m.start():m.start() + 120]
+    phrase("for the order-2 pair the order is taken from theory, because two levels give no observed order")
+    absent("The asymptotic rate is therefore $O(h)$")
+    # The finest uniform levels (Palace order 2 on h/2) against the published qubits, floored.
+    finest = [pct(cc["palace"][g]["p2_f_q_ghz"][1] / cc["devicelayout_run"][g]["published_f_q_ghz"] - 1)
+              for g in ["initial", "final"]]
+    assert all(max(cc["palace"][g]["p1_f_q_ghz"][-1], cc["palace"][g]["p2_f_q_ghz"][-1])
+               == cc["palace"][g]["p2_f_q_ghz"][1] for g in ["initial", "final"])
+    fin = f"${floor_to(finest[0], 1):.1f}\\%$ and ${floor_to(finest[1], 1):.1f}\\%$"
+    assert fin == "$4.1\\%$ and $4.7\\%$", fin
+    # Opus SF-3: "finest uniform level" is ambiguous (order 1 on h/4 has more unknowns); name the level.
+    assert "finest uniform" not in NORM
+    nd_p2, nd_h4 = cc["palace"]["initial"]["p2_nd"][1], cc["palace"]["initial"]["p1_nd"][2]
+    assert round(nd_p2 / 1e6, 1) == 7.0 and nd_h4 > nd_p2
+    assert all(cc["palace"][g]["p1_nd"][2] > cc["palace"][g]["p2_nd"][1] for g in ["initial", "final"])
+    phrase("With no extrapolation, the highest uniform levels, order 2 on $h/2$ ($7.0$ million unknowns on the initial "
+           f"geometry; order 1 on $h/4$ has more unknowns and lower values), already lie {fin} above the published "
+           "qubit values")
+    contains("order-2 $h/2$ levels $+4.1\\%$ and $+4.7\\%$")
+    # Table 2, row by row.
+    st = cc["static_cross_check"]["initial"]
+    cap = st["circuit_cap_f_q_ghz"]
+    labels = {("initial", "q"): "Initial qubit", ("initial", "r"): "Initial resonator",
+              ("final", "q"): "Final qubit", ("final", "r"): "Final resonator"}
+    for key, label in labels.items():
+        published, dlf, dlo, est, over, lo, hi = rows[key]
+        star = "^{\\ast}" if key == ("initial", "q") else ""
+        contains(f"{label} & {published:g} & {dlf:.4f} ($+{dlo:.2f}\\%$) & {est:.3f} ($+{over:.1f}\\%$) & "
+                 f"$[{lo:.3f}, {hi:.3f}]{star}$ \\\\")
+    capped = st["f_q_band_capped_ghz"]
+    assert capped[0] == cc["convergence"]["initial"]["f_q_band_ghz"][0] and capped[1] == cap
+    contains(f"Under the circuit model of Section~\\ref{{sec:static}}, the cap of ${cap:.3f}$\\,GHz trims the band to "
+             f"$[{capped[0]:.3f}, {capped[1]:.3f}]$.")
+    q_i, q_f = rows[("initial", "q")][4], rows[("final", "q")][4]
+    r_i, r_f = rows[("initial", "r")][4], rows[("final", "r")][4]
+    assert f"{q_i:.1f}" == "7.3" and f"{q_f:.1f}" == "8.7" and f"{r_i:.1f}" == f"{r_f:.1f}" == "2.7"
+    assert 7 <= q_i and q_f <= 9
+    pin("$7.3\\%$ and $8.7\\%$", 1)
+    absent("$7$--$9\\%$")
+    # #1135 T4: the qubit range over two refinement families, 7.3 % (initial, a) to 9.6 % (final, b).
+    ctl = read(CTL)
+    fi, ff = ctl["mesh_family"]["initial"], ctl["mesh_family"]["final"]
+    q_over = [pct(fi["family_a_f_q_ghz"] / 4.14 - 1), pct(fi["family_b_f_q_ghz"] / 4.14 - 1),
+              ff["f_q_over_published_pct"][0], ff["f_q_over_published_pct"][1]]
+    assert f"{min(q_over):.1f}" == "7.3" and f"{max(q_over):.1f}" == "9.6", q_over
+    r_over = [pct(fi["family_a_f_r_ghz"] / 5.591 - 1), pct(fi["family_b_f_r_ghz"] / 5.591 - 1),
+              ff["f_r_over_published_pct"][0], ff["f_r_over_published_pct"][1]]
+    assert f"{min(r_over):.1f}" == "2.7" and f"{max(r_over):.1f}" == "3.3", r_over
+    pin("$7.3$--$9.6\\%$", 3)   # abstract, Section 1, conclusion
+    contains("two refinement families put the qubits $7.3$--$9.6\\%$ and the resonators $2.7$--$3.3\\%$ above their "
+             "published values")
+    contains("in two refinement families, extrapolate to qubits $7.3$--$9.6\\%$ above the two published values")
+    contains("We reproduce them with Palace within $0.7\\%$")
+    # Fable S2: what differs in the environment is stated, and the gap is declared undiagnosed.
+    gaps = [rows[k][2] for k in rows]
+    assert f"{min(gaps):.2f}" == "0.34" and f"{max(gaps):.2f}" == "0.68" and min(gaps) > 0
+    assert "fba6a5b" in cc["meta"]["compute_host"] and "gmsh_jll 4.15.2" in cc["meta"]["geometry_generator"]
+    contains("Neither the blog nor the example records the Palace version, mesher build or platform of the published "
+             "runs; ours are Palace \\texttt{fba6a5b}, gmsh 4.15.2 and AWS Graviton4 hosts")
+    contains("but which difference causes the $0.34$--$0.68\\%$ gap is not diagnosed")
+    assert max(rows[k][2] for k in rows) < 0.7
+    contains(f"$[{rows[('initial','q')][1]:.4f}, {rows[('initial','r')][1]:.4f}]$\\,GHz for the initial design")
+    contains(f"$[{rows[('final','q')][1]:.4f}, {rows[('final','r')][1]:.4f}]$\\,GHz for the final one")
+    contains("$0.68\\%$ and $0.40\\%$")
+    contains("$0.38\\%$ and $0.34\\%$")
+    bm = max(abs(cc["devicelayout_run"][g][f"boundary_model_f_{m}_pct"]) for g in ["initial", "final"] for m in "qr")
+    assert ceil_to(bm, 3) == 0.003
+    contains("differ from the configuration-file runs by at most $0.003\\%$")
+    under = [cc["convergence"][g]["devicelayout_run_under_converged_pct"] for g in ["initial", "final"]]
+    contains(f"sits ${-under[0][0]:.1f}\\%$ and ${-under[1][0]:.1f}\\%$ low on the two qubits and "
+             f"${-under[0][1]:.1f}\\%$ and ${-under[1][1]:.1f}\\%$ low on the resonators")
+    assert math.floor(-under[0][0]) == 6 and math.ceil(-under[1][0]) == 8
+    dl_under = [-under[0][0], -under[1][0], pct(1 - cc["devicelayout_run"]["initial"]["f_q_ghz"] / fi["family_b_f_q_ghz"]),
+                -ctl["mesh_family"]["final"]["devicelayout_run_under_family_b_pct"][0]]
+    assert f"{min(dl_under):.1f}" == "6.2" and f"{max(dl_under):.1f}" == "8.4", dl_under
+    contains("which sits $6.2$--$8.4\\%$ low on the qubits")
+    nd = max(cc["palace"]["final"]["p1_nd"])
+    assert round(nd / 1e6, 1) == 12.6
+    pin("$12.6$ million unknowns", 1)
+    orders_q = [cc["convergence"][g]["p1_observed_order_q"] for g in ["initial", "final"]]
+    orders_r = [cc["convergence"][g]["p1_observed_order_r"] for g in ["initial", "final"]]
+    assert {f"{o:.2f}" for o in orders_q} == {"0.61"}
+    assert f"{min(orders_r):.2f}" == "0.70" and f"{max(orders_r):.2f}" == "0.73"
+    contains("pre-asymptotic orders of $0.61$ (qubit) and $0.70$--$0.73$ (resonator)")
+    # Same-mesh agreement on the ladder: the qubit to 1e-4 %, the resonator 0.03 % at h and 0 at h/2.
+    for g in ["initial", "final"]:
+        sm = cc["same_mesh"][g]
+        assert all(abs(x) <= 1e-4 for x in sm["geode_over_palace_f_q_pct"])
+        assert round(sm["geode_over_palace_f_r_pct"][0], 2) == 0.03 and sm["geode_over_palace_f_r_pct"][1] == 0
+    note = cc["same_mesh"]["initial"]["note"]
+    assert "4946 initial, 5944 final" in note
+    contains("geode-fem and Palace agree on the qubit to $10^{-4}\\,\\%$ on both geometries. On the resonator they "
+             "differ by $0.03\\%$ at $h$")
+    contains("Palace adds $4{,}946$ (initial) and $5{,}944$ (final) elements")
+    # MF-2: the identical-discrete-problem claim is made only for h/2, where Palace adds no elements.
+    for g in ["initial", "final"]:
+        assert cc["same_mesh"][g]["geode_over_palace_f_r_pct"][1] == 0
+    sentences = re.split(r"(?<=[.;:])\s", NORM[NORM.index("\\begin{document}"):])
+    hits = [x for x in sentences if "same discrete problem" in x]
+    assert hits and all("$h/2$" in x for x in hits), hits
+    absent("assemble and solve the same discrete problem")
+    contains("On the $h/2$ meshes of Section~\\ref{sec:crosscheck} both codes solve the same discrete problem apart "
+             "from the junction term, and agree to $0.0000\\%$ on the resonator and $10^{-4}\\%$ on the qubit")
+    # MF-1 (Opus) / S3 (Fable): at h/2 Palace bisects nothing; its counts are geode-fem's plus the crack duplicates.
+    assert "the refined meshes need no bisection" in note
+    base = "reference/fixtures/transmon_palace/results_crosscheck_1092/"
+    dup = {}
+    for g, cell in [("initial", "initial_r1_p1"), ("final", "final_r1_p1")]:
+        log = read_text(base + cell + "/palace_run.log")
+        assert "local bisection" not in log, cell
+        run = tomllib.loads(read_text(f"benchmarks/transmon_devicelayout_crosscheck/geode_runs/{g}_h2.toml"))["run"]
+        nv = int(re.search(r"Added (\d+) duplicate vertices", log).group(1))
+        verts, edges, elems = (int(re.search(rf"^ {k}\s+\d+\s+\d+\s+\d+\s+(\d+)", log, re.M).group(1))
+                               for k in ("vertices", "edges", "elements"))
+        assert elems == run["n_tets"] and verts == run["n_nodes"] + nv, (cell, verts, elems)
+        assert edges > run["n_edges"] and f"ND (p = 1): {edges}" in log
+        dup[g] = (nv, edges, run["n_edges"])
+    fmt = lambda n: f"{n:,}".replace(",", "{,}")
+    contains(f"There Palace's logs report no bisection: its element counts equal the meshes' and its vertices exceed "
+             f"geode-fem's by exactly the duplicated ones (${fmt(dup['initial'][0])}$ initial, "
+             f"${fmt(dup['final'][0])}$ final), and its ${fmt(dup['initial'][1])}$ and ${fmt(dup['final'][1])}$ edges "
+             f"exceed geode-fem's ${fmt(dup['initial'][2])}$ and ${fmt(dup['final'][2])}$ by the copies of sheet edges "
+             "that cracking adds, which the PEC condition eliminates")
+    contains("every uniform level we could afford lies below those estimates")
+    # The final qubit rests on family a only; family b came out higher wherever it was run.
+    # #1135 T4: the final geometry now has both families; the "one family" caveat is gone everywhere.
+    for stale in ["family~a only", "rests on one family", "has family a only"]:
+        absent(stale)
+    contains("Family~b came out higher on every geometry where it was run ($0.64\\%$ initial, $0.83\\%$ final, "
+             "$0.52\\%$ at step~2")
+    contains("the two agree to $10^{-4}\\%$ on the qubit and $0.03\\%$ on the resonator")
+    contains("geode-fem reproduces every level of those ladders it can reach to $10^{-4}\\%$ on the qubit")
+    absent("reproduces the two ladder levels it can reach to $10^{-4}\\%$,")
+    assert f"{cc['palace']['initial']['p1_f_q_ghz'][0]:.4f}" == "3.4520"
+    contains("($3.4527$ against $3.4520$\\,GHz, $0.02\\%$)")
+    mo_q = max(abs(cc["devicelayout_run"][g]["mesh_order_f_q_pct"]) for g in ["initial", "final"])
+    mo_r = max(abs(cc["devicelayout_run"][g]["mesh_order_f_r_pct"]) for g in ["initial", "final"])
+    assert mo_q <= 0.0001 and round(mo_r, 2) == 0.05
+    contains("curving the faces changes the qubit by at most $0.0001\\%$ and the resonator by about $0.05\\%$")
+    contains(f"peaked at ${cc['geode']['initial']['peak_rss_gb'][1]:.0f}$ and "
+             f"${cc['geode']['final']['peak_rss_gb'][1]:.0f}$\\,GB")
+    return cc
+
+
+# --------------------------------------------------------------------------
+# Section 6: bounded island capacitance and the static route
+# --------------------------------------------------------------------------
+
+def check_static(cc):
+    conv = read(DIFFOPT + "c_sigma_convergence.toml")
+    scal = read(DIFFOPT + "c_sigma_bracket.toml")
+    tens = read(DIFFOPT + "c_sigma_bracket_tensor.toml")
+    assert tens["meta"]["sapphire_rotation_is_identity"] is True
+    assert tens["meta"]["sapphire_lab_max_abs_deviation_from_diag"] == 0.0
+    contains("which leaves a uniaxial tensor unchanged, so the lab tensor is diagonal")
+    table = {}
+    for row in conv["x0"]:
+        table.setdefault((row["order"], row["level"]), row["c_sigma_ff"])
+    levels = sorted({lv for _, lv in table})
+    t1 = conv["tensor_eps"]
+    t2 = {r["mesh"]: r["upper_ff"] for r in tens["uniform_x0_tensor_p2"]}
+    assert t2 == {"uniform h/1": 91.717846, "uniform h/2": 85.008425}
+    hi_s, lo_s = table[("P1", levels[0])], table[("P2", levels[1])]
+    # The coarsest and finest uniform values quoted (the extremes of each model's series).
+    assert hi_s == max(table.values()) and lo_s == min(table.values())
+    assert t1["c_sigma_ff"][0] == max(t1["c_sigma_ff"] + list(t2.values()))
+    assert t2["uniform h/2"] == min(t1["c_sigma_ff"] + list(t2.values()))
+    contains(f"from ${hi_s:.6f}$\\,fF at P1 on $h$ to ${lo_s:.6f}$\\,fF at P2 on $h/2$, and with the tensor from "
+             f"${t1['c_sigma_ff'][0]:.6f}$ to ${t2['uniform h/2']:.6f}$\\,fF")
+    sb, tb = scal["bracket_x0"], tens["bracket_x0_tensor"]
+    assert (sb["lower_ff"], sb["upper_ff"]) == (77.40, 77.61) and (tb["lower_ff"], tb["upper_ff"]) == (79.56, 79.76)
+    best_t = max(max(v for k, v in r.items() if k.startswith("lower_")) for r in tens["adaptive_x0_tensor"])
+    assert floor_to(best_t, 2) == tb["lower_ff"]
+    assert ceil_to(min(r["upper_ff"] for r in tens["adaptive_x0_tensor"]), 2) == tb["upper_ff"]
+    pin("$[79.56, 79.76]$\\,fF", 3)
+    pin("$[77.40, 77.61]$\\,fF", 2)
+    gap = tens["gap_x0"]
+    t_up = min(r["upper_ff"] for r in tens["adaptive_x0_tensor"])
+    assert floor_to(best_t - gap["scalar_upper_ff"], 2) == gap["tensor_minus_scalar_lower_ff"] == 1.95
+    assert ceil_to(t_up - gap["scalar_lower_ff"], 2) == gap["tensor_minus_scalar_upper_ff"] == 2.35
+    lo = min(gap["tensor_minus_scalar_relative"][0], gap["tensor_minus_scalar_lower_ff"] / gap["scalar_upper_ff"])
+    hi = max(gap["tensor_minus_scalar_relative"][1], gap["tensor_minus_scalar_upper_ff"] / gap["scalar_lower_ff"])
+    shown = f"${floor_to(pct(lo), 1):.1f}$--${ceil_to(pct(hi), 1):.1f}\\%$"
+    assert shown == "$2.5$--$3.1\\%$", shown
+    contains(f"is $1.95$--$2.35$\\,fF, or {shown} of the scalar value")
+    pin(shown, 2)
+    t1h = t1["c_sigma_ff"][0]
+    assert floor_to(t1h - tb["upper_ff"], 2) == 56.92
+    assert floor_to(pct((t1h - tb["upper_ff"]) / tb["upper_ff"]), 1) == 71.3
+    assert floor_to(pct((hi_s - sb["upper_ff"]) / sb["upper_ff"]), 1) == 77.4
+    contains("overstates the tensor $\\Cisl$ by at least $56.92$\\,fF, which is at least $71.3\\%$ of the exact "
+             "value, and the scalar one by at least $77.4\\%$")
+    st = cc["static_cross_check"]["initial"]
+    assert st["c_sigma_bracket_ff"] == [tb["lower_ff"], tb["upper_ff"]]
+    assert st["inside_eigen_band"] is True
+    lo, hi = st["dressed_f_q_band_ghz"]
+    contains(f"initial dressed qubit in $[{floor_to(lo, 3):.3f}, {ceil_to(hi, 3):.3f}]$\\,GHz")
+    cap = 1 / (2 * math.pi * math.sqrt(14.860e-9 * (tb["lower_ff"] + 5.5) * 1e-15)) / 1e9
+    assert abs(cap - st["circuit_cap_f_q_ghz"]) < 1e-4 and f"{cap:.3f}" == "4.477"
+    pin("$4.477$\\,GHz", 6)   # Section 1, Section 5 rule, Table 2 note, Section 6 bracket, Table 5 (twice)
+    # SF-1: the extrapolation-free bracket, adaptive level to model-dependent cap.
+    amr_top = read(CTL)["amr"]["initial"]["f_q_ghz"][-1]
+    pub_q = cc["published"]["initial_f_ghz"][0]
+    lo_b, hi_b = pct(amr_top / pub_q - 1), pct(cap / pub_q - 1)
+    assert f"{lo_b:.1f}" == "7.0" and f"{hi_b:.1f}" == "8.1" and amr_top < cap
+    contains(f"With no extrapolation, the adaptive level and the cap put the initial qubit between ${amr_top:.4f}$ and "
+             f"${cap:.3f}$\\,GHz, $+{lo_b:.1f}\\%$ to $+{hi_b:.1f}\\%$ over the published value. The lower end is a "
+             "measured level, and a lower estimate only if the rise under refinement continues; the upper end holds "
+             "only under the circuit model.")
+    contains(f"with the adaptive level, $[{amr_top:.4f}, {cap:.3f}]$\\,GHz")
+    # Opus SF-2: the extrapolation-free cap is in the abstract.
+    ab = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
+    assert f"caps it at ${cap:.3f}$\\,GHz ($+{hi_b:.1f}\\%$)" in ab, ab
+    # S1: why the qubit is approached from below; the fixture's capacitance ratio against its f^2 ratio.
+    p1h = conv["tensor_eps"]["c_sigma_ff"][0]
+    c_ratio = [(p1h + 5.5) / (tb[k] + 5.5) for k in ("upper_ff", "lower_ff")]
+    assert [f"{x:.2f}" for x in c_ratio] == ["1.67", "1.67"], c_ratio
+    fix_q = read("benchmarks/transmon_eigen/results.toml")["oracles"]["palace_target2"]["qubit_f_ghz"]
+    fam = read(CTL)["mesh_family"]["initial"]["estimate_range_f_q_ghz"]
+    f_ratio = [(f / fix_q) ** 2 for f in fam]
+    assert [f"{x:.2f}" for x in f_ratio] == ["1.66", "1.68"], f_ratio
+    assert f"{p1h:.2f}" == "136.68"
+    contains("so the computed qubit should approach its limit from below")
+    # Opus SF-4: the comparison is Nedelec/grad-P1, like for like.
+    contains("The quasi-static part of a first-order N\\'ed\\'elec field is the gradient of a P1 potential, and a "
+             "conforming potential can only overstate the capacitance")
+    absent("which a conforming discretization can only overstate")
+    contains("On the fixture the P1 bound on $\\Cisl$ ($136.68$\\,fF), with $C_J$ added, overstates $C_\\Sigma$ by a "
+             "factor of $1.67$, and the family estimates exceed the fixture's order-1 qubit by $1.66$--$1.68$ in $f^2$. "
+             "This is a heuristic, not a proof")
+    # SF-3: the L1 terms are bounded above, not integrated by quadrature of an absolute value.
+    contains("The $L^1$ norms are never integrated by quadrature of an absolute value")
+    contains("$\\lVert p\\rVert_{L^1(K)} \\le |K|^{1/2}\\lVert p\\rVert_{L^2(K)}$")
+    src = read_text("crates/geode-core/src/assembly/electrostatic_dual.rs")
+    assert "let tet_q = duffy_tet(k + 3);" in src and "let tri_q = duffy_tri(k + 2);" in src
+    assert "exact for total degree `2n − 3`" in src and "exact for\n/// total degree `2n − 2`" in src
+    assert src.count("int2.max(0.0).sqrt()") == 1 and src.count("div2.max(0.0).sqrt()") == 1
+    # Operator ruling (#1129): no "certified" in v14; bounds are "bounded by [a, b]", with one stated caveat.
+    assert "certif" not in TEX.lower(), [m.start() for m in re.finditer("certif", TEX.lower())]
+    # The ban on "validated" covers our own claims. The one allowed use is SQuADDS's own wording, quoted and
+    # attributed to its authors (its title: "A validated design database ...").
+    quoted = "what its authors call a ``validated design database''"
+    pin(quoted, 1)
+    assert "validated design database" in refs_entry("shanto2024squadds")
+    assert "curated" not in LOWBODY
+    for word in ["validated", "demonstrated"]:
+        assert word not in LOWBODY.replace(quoted.lower(), ""), word
+    contains("The two bounds hold by theorem, for the exact arithmetic of the discretization on the polygonal "
+             "geometry of the mesh, with lower bounds floored and upper bounds ceiled; the implementation is checked "
+             "by tests, not formally verified.")
+    contains("initial design is bounded by $[77.40, 77.61]$\\,fF with the scalar $\\bar\\varepsilon$ and by "
+             "$[79.56, 79.76]$\\,fF with the sapphire tensor")
+    contains("Bounded: a two-sided bound that holds by theorem for the meshed polygonal geometry.")
+    # Fable M1: C_Sigma follows Koch et al. (it includes C_J); the island capacitance is C_isl. Nowhere may a
+    # frequency be formed from C_isl alone, and the Bounded entry carries C_Sigma = C_isl + C_J explicitly.
+    csig = [round(tb["lower_ff"] + 5.5, 2), round(tb["upper_ff"] + 5.5, 2)]
+    assert csig == [85.06, 85.26]
+    cap_c = 1 / (2 * math.pi * math.sqrt(14.860e-9 * csig[0] * 1e-15)) / 1e9
+    assert f"{cap_c:.3f}" == "4.477"
+    wrong = 1 / (2 * math.pi * math.sqrt(14.860e-9 * tb["lower_ff"] * 1e-15)) / 1e9
+    assert f"{wrong:.2f}" == "4.63"   # the number a reader would get from C_isl alone; it must not be formable
+    contains("that is $C_\\Sigma \\ge 85.06$\\,fF, caps it at $1/(2\\pi\\sqrt{L_J C_\\Sigma}) = 4.477$\\,GHz")
+    contains("In the convention of \\citet{koch2007charge} the transmon's total capacitance is $C_\\Sigma = \\Cisl + "
+             "C_J$, and it sets the charging energy $E_C = e^2/2C_\\Sigma$.")
+    contains("$\\Cisl = C_{ii} - C_{if}^2/C_{ff}$, excludes the junction")
+    contains("With $C_J$ added, the transmon's $C_\\Sigma = \\Cisl + C_J$ is bounded by $[85.06, 85.26]$\\,fF (tensor).")
+    for stale in ["C_\\Sigma + C_J", "C_\\Sigma = C_{ii}", "C_\\Sigma \\ge 79.56", "C_\\Sigma = \\int",
+                  "C_\\Sigma \\;\\ge", "C_\\Sigma$ of the unmodified", "of the $C_\\Sigma$, $L_s$"]:
+        absent(stale, BODY)
+    for m in re.finditer(r"sqrt\{[^}]*\}", BODY):
+        assert "Cisl" not in m.group(0), m.group(0)
+    assert "\\newcommand{\\Cisl}{C_{\\mathrm{isl}}}" in TEX
+    assert f"{-st['eigen_estimate_minus_static_mid_pct']:.2f}" == "0.22"
+    contains("the first family's estimate is $0.22\\%$ below its midpoint")
+    phrase("the $0.22\\%$ is a consistency check, not an independent prediction")
+    pin("$0.22\\%$", 3)
+    established = NORM[NORM.index("\\paragraph{What is established, and how.}"):NORM.index("\\label{tab:tiers}")]
+    assert "0.22" not in established.split("\\begin{table}")[0]
+    tiers = {row.split(" & ")[0].strip(): row for row in
+             NORM[NORM.index("Tier & Results"):NORM.index("\\end{tabular}", NORM.index("Tier & Results"))]
+             .split("\\\\")}
+    assert [k for k in tiers if "0.22" in tiers[k]] == ["Consistency"], tiers.keys()
+    assert "not a blind prediction" in tiers["Consistency"]
+    contains("Bounded & Island capacitance $\\Cisl$ of the unmodified device, without $C_J$: $[77.40, 77.61]$\\,fF "
+             "(scalar), $[79.56, 79.76]$\\,fF (tensor); with $C_J$, $C_\\Sigma = \\Cisl + C_J$ in $[85.06, 85.26]$\\,fF "
+             "(tensor); tensor-minus-scalar gap $2.5$--$3.1\\%$ \\\\")
+    tier = lambda name: next(v for k, v in tiers.items() if k.endswith(name))
+    assert "4.477" not in tier("Bounded") and "4.477" in tier("Model-dependent")
+    # Judge nit: the Model-dependent row names C_Sigma; Opus SF-7: the bracket is not repeated in full there.
+    contains("Model-dependent & The initial-qubit cap of $4.477$\\,GHz $= 1/(2\\pi\\sqrt{L_J C_\\Sigma})$ at the lower "
+             "bound on $C_\\Sigma$: two-node circuit, quasi-static $C_\\Sigma$, bounded on the fixture's polygonal "
+             "geometry, not on the ladder meshes; with the adaptive level, $[4.4297, 4.477]$\\,GHz \\\\")
+    contains("Not claimed & Agreement with measurement; a verified hit of $3.0$/$4.0$\\,GHz in the $h \\to 0$ limit; "
+             "a global optimum; an advantage of the shape derivative on this problem; eigenmode-participation (EPR) "
+             "derivatives; a speed advantage over Palace \\\\")
+    phrase("and does not depend on the extrapolation rule")
+    rich = cc["convergence"]["initial"]["p1_richardson_f_q_ghz"]
+    assert f"{rich:.3f}" == "4.677" and rich > cap
+    contains("It trims the band's observed-order high side ($4.677$\\,GHz)")
+    assert "transmon_smoke.msh" in st["source"] and "not on this PR's DeviceLayout mesh" in st["geometry_caveat"]
+    contains("rests on the fixture, not on the ladder meshes, which agree with it to $0.02\\%$ at $h$")
+    m = scal["method"]["certificate"]
+    assert "0 <= phi* <= 1" in m and "Cauchy-Schwarz" in m
+    contains("$0 \\le \\phi \\le 1$ by the maximum principle")
+    contains("whenever $N(D) > 0$")
+    assert "not interval arithmetic" in tens["method"]["rounding"] and "1e-10" in tens["method"]["rounding"]
+    contains("not interval arithmetic; the worst-case summation error is about $10^{-10}$ relative")
+    contains("bands of $0.113$--$0.125$\\,nH and $0.0227$--$0.0310$, which are estimates.")
+    return sb, tb, tens
+
+
+# --------------------------------------------------------------------------
+# Section 7: the re-optimization and its controls
+# --------------------------------------------------------------------------
+
+def err(f, t):
+    return sum(((a - b) / b) ** 2 for a, b in zip(f, t)) / 2
+
+
+def shared_limit(f1, f2, g1, g2):
+    """Order p at which the two pairs extrapolate to the same limit, and that limit."""
+    ex = lambda a, b, p: b + (b - a) / (2 ** p - 1)
+    lo, hi = 0.3, 3.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        same = (ex(f1, f2, lo) - ex(g1, g2, lo)) * (ex(f1, f2, mid) - ex(g1, g2, mid)) > 0
+        lo, hi = (mid, hi) if same else (lo, mid)
+    return lo, ex(f1, f2, lo)
+
+
+def fmt_err(e):
+    mant, ex = f"{e:.1e}".split("e")
+    return f"${mant}\\times10^{{{int(ex)}}}$"
+
+
+def check_reopt(cc):
+    opt = read(OPT + "results.toml")
+    log = [json.loads(line) for line in read_text(OPT + "opt_log.jsonl").splitlines() if line.strip()]
+    targets = opt["meta"]["targets_ghz"]
+    assert targets == [3.0, 4.0]
+    g = opt["gradient_check"]
+    assert g["hf_df_dc_ghz_per_um"] == g["fd_df_dc_ghz_per_um"] and g["qubit_rel_diff"] == 0
+    assert g["fd_h_um"] == 0.5 and g["velocity_outline_nodes_checked"] == 3146 and g["gradient_s"] == 0.44
+    contains(f"${g['hf_df_dc_ghz_per_um'][0] * 1e3:.6f}\\times10^{{-3}}$\\,GHz/$\\mu$m for the qubit")
+    contains(f"${g['hf_df_dc_ghz_per_um'][1] * 1e6:.3f}\\times10^{{-6}}$\\,GHz/$\\mu$m for the resonator")
+    contains("($3{,}146$ nodes on the initial mesh)")
+    contains("The contraction takes $0.44$\\,s")
+    contains("($\\pm0.5\\,\\mu$m)")
+    rn = opt["remesh_noise"]
+    contains(f"${rn['c_620_to_650_remesh_fd_ghz_per_um'][0] * 1e3:.2f}\\times10^{{-3}}$\\,GHz/$\\mu$m")
+    contains(f"against ${rn['c_620_to_650_hf_mean_ghz_per_um'][0] * 1e3:.2f}\\times10^{{-3}}$ for the fixed-topology "
+             "derivative averaged over the same interval (the mean of its values at the two ends)")
+    # M3 / SF-4: -2.28e-3 is hf_mean, the mean of the fixed-topology derivatives at c = 620 and 650 um.
+    g620 = [e for e in log if e.get("tag") == "fd_initial"][0]
+    g650 = [e for e in log if e.get("tag") == "calibC_650"][0]
+    rc = [e for e in log if e["kind"] == "remesh_check_c"][0]
+    assert abs(rc["hf_mean"][0] - (g620["dfdc"][0] + g650["dfdc"][0]) / 2) < 1e-12
+    assert abs(rc["fd_remesh"][0] - (g650["f"][0] - g620["f"][0]) / 30) < 1e-12
+    assert rc["hf_mean"][0] == rn["c_620_to_650_hf_mean_ghz_per_um"][0]
+    fixed = -rc["hf_mean"][0] * 30 / g620["f"][0]
+    jump = -(rc["fd_remesh"][0] - rc["hf_mean"][0]) * 30 / g620["f"][0]
+    assert f"{pct(fixed):.1f}" == "2.0" and f"{pct(jump):.1f}" == "2.6", (fixed, jump)
+    contains("Remeshing alone moves the first-order qubit by about $2.6\\%$ over this step, more than the $2.0\\%$ the "
+             "step itself moves it, so this difference measures remesh noise, not the slope.")
+    tl = opt["transmission_line"]
+    assert round(tl["delta_um"]) == 216
+    contains("$\\delta = 216\\,\\mu$m")
+    d_of = lambda a, b: (5250 * b - 5000 * a) / (a - b)
+    fa, fb = tl["f_r_ghz"]
+    assert abs(d_of(fa, fb) - tl["delta_um"]) < 1e-3
+    spread = max(abs(d_of(fa * (1 + s * 1.5e-3), fb) - tl["delta_um"]) for s in (1, -1))
+    spread = max(spread, max(abs(d_of(fa, fb * (1 + s * 1.5e-3)) - tl["delta_um"]) for s in (1, -1)))
+    assert 25 * round(spread / 25) == 175, spread
+    phrase("remesh noise of about $0.15\\%$ in either $f_r$ moves it by about $\\pm175\\,\\mu$m")
+    phrase("the one-time $\\delta$ calibration is not counted")
+    nd = opt["newton_devicelayout"]
+    for k in range(4):
+        e = nd["err"][k]
+        assert abs(err([nd["f_q_ghz"][k], nd["f_r_ghz"][k]], targets) - e) < 1e-9 + 2e-3 * e
+        x1, x2 = math.sqrt(620 / nd["capacitor_length_um"][k]), 5000 / nd["total_length_um"][k]
+        assert abs(x1 - nd["x1"][k]) < 1e-6 and abs(x2 - nd["x2"][k]) < 1e-6
+    crit = nd["devicelayout_criterion"]
+    first = next(k for k, e in enumerate(nd["err"]) if e < crit)
+    assert first == nd["criterion_met_at_step"] == 2 and nd["palace_runs_at_criterion"] == first + 1 == 3
+    assert nd["prima_palace_runs"] == 9
+    contains("meets the criterion at its second step, after 3 Palace runs")
+    geode_s = sum(nd["geode_wall_s"][:first + 1])
+    assert 65 <= geode_s <= 75
+    contains("its three geode-fem solves add about $70$\\,s")
+    assert all(200 < s < 270 for s in nd["palace_wall_s"])
+    contains("about $4$\\,min per Palace run on 32 ranks")
+    assert min(nd["geode_wall_s"]) >= 19 and max(nd["geode_wall_s"]) <= 26
+    contains("gradient ($19$--$25$\\,s)")
+    assert f"{nd['err'][3]:.1e}" == "1.4e-07"
+    contains(f"$\\mathrm{{err}} = 1.4\\times10^{{-7}}$ at $({nd['capacitor_length_um'][3]:.3f}, "
+             f"{nd['total_length_um'][3]:.3f})\\,\\mu$m")
+    # Table 5: the steps against the extrapolated frequencies.
+    cross_final = cc["convergence"]["final"]
+    rows = [("Published final", nd["published_final_um"], cross_final),
+            ("Step 1", opt["conv"]["cv1"]["to_um"], opt["conv"]["cv1"]["ladder"]),
+            ("Step 2", opt["conv"]["cv2"]["to_um"], opt["conv"]["cv2"]["ladder"])]
+    for label, um, lad in rows:
+        contains(f"{label} & {um[0]:.3f} & {um[1]:.3f} & {lad['f_q_ghz']:.3f} $[{lad['f_q_band_ghz'][0]:.3f}, "
+                 f"{lad['f_q_band_ghz'][1]:.3f}]$ & {lad['f_r_ghz']:.3f} $[{lad['f_r_band_ghz'][0]:.3f}, "
+                 f"{lad['f_r_band_ghz'][1]:.3f}]$ \\\\")
+    assert opt["conv"]["cv1"]["from_um"] == nd["published_final_um"]
+    assert opt["conv"]["cv1"]["from_converged_ghz"] == [cross_final["f_q_ghz"], cross_final["f_r_ghz"]]
+    cv1, cv2 = opt["conv"]["cv1"]["ladder"], opt["conv"]["cv2"]["ladder"]
+    assert cv1["targets_in_band"] == cv2["targets_in_band"] == [True, True]
+    contains(f"overshoots the qubit by ${cv1['over_target_pct'][0]:.2f}\\%$")
+    contains(f"lands at $+{cv2['over_target_pct'][0]:.2f}\\%$ and ${cv2['over_target_pct'][1]:.2f}\\%$ of the targets")
+    for lad in [cv1, cv2]:
+        q = [lad["geode_over_palace_pct"][0], lad["geode_over_palace_pct"][2]]
+        assert all(abs(x) <= 2e-4 for x in q)
+    contains("agree on the qubit to $2\\times10^{-4}\\,\\%$")
+    c2, L2 = opt["conv"]["cv2"]["to_um"]
+    c0, L0 = nd["published_final_um"]
+    assert opt["conv"]["cv2"]["to_minus_published_final_um"] == [round(c2 - c0, 3), round(L2 - L0, 3)]
+    assert f"{pct(c2 / c0 - 1):.1f}" == "18.8" and round(L2 - L0) == 172 and f"{pct(L2 / L0 - 1):.1f}" == "2.4"
+    contains("$c = 1446.078\\,\\mu$m, $18.8\\%$ longer than published, with a resonator $2.4\\%$ longer "
+             "($+172\\,\\mu$m)")
+    step2 = [e for e in log if e["kind"] == "conv_step" and e["step"] == 2][0]
+    assert step2["theta"] == [c2, L2] and step2["from"] == opt["conv"]["cv1"]["to_um"]
+    slope = step2["S"][0] * step2["dfdc_h"][0]
+    assert f"{slope * 1e4:.2f}" == "-9.05"
+    contains("= -9.05\\times10^{-4}$\\,GHz/$\\mu$m, the slope at the step-1 design where step~2 started, and centred "
+             "on the $3.0$\\,GHz target")
+    absent("centred on the step-2 estimate")
+    # The band recentred on the target (not on the step-2 estimate), linear in c.
+    b_lo, b_hi = cv2["f_q_band_ghz"]
+    c_lo, c_hi = c2 + (b_lo - targets[0]) / -slope, c2 + (b_hi - targets[0]) / -slope
+    assert round(c_lo) == 1423 and round(c_hi) == 1690, (c_lo, c_hi)
+    p_lo, p_hi = pct(c_lo / c0 - 1), pct(c_hi / c0 - 1)
+    assert round(p_lo) == 17 and round(p_hi) == 39, (p_lo, p_hi)
+    contains("the first family's qubit band corresponds to $c$ between about $1423$ and $1690\\,\\mu$m, about $+17\\%$ "
+             "to $+39\\%$")
+    pin("about $+17\\%$ to $+39\\%$", 1)       # Section 7 (dropped from the abstract for the cap, v15)
+    contains("about $+17$ to $+39\\%$ within the band")   # Table 7
+    absent("$16$--$38\\%$")
+    pq, vq = shared_limit(cv2["p1_f_q_ghz"][1], cv2["p1_f_q_ghz"][2], *cv2["p2_f_q_ghz"])
+    pr, vr = shared_limit(cv2["p1_f_r_ghz"][1], cv2["p1_f_r_ghz"][2], *cv2["p2_f_r_ghz"])
+    assert f"{vq:.3f}" == "3.039" and f"{vr:.3f}" == "4.019"
+    contains(f"puts step~2 at ${vq:.3f}$ and ${vr:.3f}$\\,GHz, would call for a longer capacitor still")
+    absent("Each ladder took")
+    assert f"{err(nd['published_final_f_ghz'], targets):.2e}" == "1.15e-05"   # Figure 5b, PRIMA published
+    return opt, slope
+
+
+def check_controls(cc, opt, slope):
+    """The controls in one Palace environment, the second family at step 2, and the attribution they force."""
+    ctl = read(CTL)
+    nd = opt["newton_devicelayout"]
+    c = ctl["controls"]
+    targets = c["targets_ghz"]
+    assert c["delta_um"] == opt["transmission_line"]["delta_um"]
+    for name in ["scaling", "scaling_palace", "broyden", "prima_this_build"]:
+        m = c[name]
+        for k, e in enumerate(m["err"]):
+            assert abs(err([m["f_q_ghz"][k], m["f_r_ghz"][k]], targets) - e) < 1e-9 + 2e-3 * e, (name, k)
+        first = next(k for k, e in enumerate(m["err"]) if e < c["criterion"])
+        assert first + 1 == m["palace_runs_at_criterion"], name
+        assert m["f_q_ghz"][0] == c["scaling"]["f_q_ghz"][0] and abs(m["f_q_ghz"][0] - nd["f_q_ghz"][0]) < 1e-6
+    sc, sp, br, pr = c["scaling"], c["scaling_palace"], c["broyden"], c["prima_this_build"]
+    assert c["comparison_1129"]["palace_runs_at_criterion"] == [9, 10, 3, 3, 3, 5]
+    assert c["comparison_1129"]["uses_geode_input"] == [False, False, True, True, False, False]
+    # Table 4, row by row.
+    contains("PRIMA, published & none & none & 9 & unpublished & (1217.678, 7243.955) \\\\")
+    contains(f"PRIMA, our environment & none & none & {pr['palace_runs_at_criterion']} & n/a & "
+             f"({pr['final_um'][0]:.3f}, {pr['final_um'][1]:.3f}) \\\\")
+    # MF-1: one counting rule. Every Palace run a method uses counts, probes included. The Palace-only Newton's
+    # delta comes from Broyden's L probe dl_bp2 (Broyden run 3), so it is the recorded 3 runs plus that probe.
+    d_of = lambda L1, f1, L2, f2: (L2 * f2 - L1 * f1) / (f1 - f2)
+    assert br["c_um"][2] == 620.0 and br["L_um"][2] == 5263.158 and br["L_um"][0] == 5000.0
+    d_palace = d_of(br["L_um"][0], br["f_r_ghz"][0], br["L_um"][2], br["f_r_ghz"][2])
+    assert abs(d_palace - sp["delta_um"]) < 0.05, d_palace
+    sp_runs = sp["palace_runs_at_criterion"] + 1
+    assert sp_runs == 4 and br["palace_runs_at_criterion"] == 1 + 2 + 2
+    assert f"{sp['delta_um'] / c['delta_um']:.1f}" == "2.6"
+    contains("taken instead from a Palace probe ($c$ fixed, $L$ from $5000$ to $5263\\,\\mu$m), so that no geode-fem "
+             "input remains, it takes 4 runs: the same two steps, plus the probe. This $\\delta$ is $2.6$ times the "
+             "geode-fem one, more than the $\\pm175\\,\\mu$m noise estimate, and costs no extra step.")
+    contains("One counting rule holds for every row: each Palace run a method uses counts, with the initial design as "
+             "run~1 and probes included, among them the probe that sets the Palace $\\delta$ (Broyden's second probe, "
+             "shared by the two rows); geode-fem solves are not counted. Each count is one trajectory.")
+    contains("Newton's method, with and without geode-fem input, Broyden's method and PRIMA are compared by the Palace "
+             "runs they need in one environment")
+    contains("Palace runs to DeviceLayout's criterion, one trajectory each (Table~\\ref{tab:controls})")
+    # #1135 T5: PRIMA at three initial trust radii; 0.4 is not valid on DeviceLayout's box.
+    rb = c["prima_rhobeg"]
+    assert rb["rhobeg"] == [0.1, 0.2, 0.39999999999999997] and rb["palace_runs_at_criterion"] == [10, 10, 12]
+    assert rb["prima_status"] == ["FTARGET_ACHIEVED"] * 3 and rb["newton_runs_at_criterion"] == 3
+    assert (1.4 - 0.6) / 2 == 0.39999999999999997 and 0.39999999999999997 < 0.4
+    for name, r in [("prima_rhobeg0p1", 0.1), ("prima_rhobeg0p4", 0.39999999999999997)]:
+        m = c[name]
+        first = next(k for k, e in enumerate(m["err"]) if e < c["criterion"])
+        assert first + 1 == m["palace_runs_at_criterion"] == len(m["err"]) and m["rhobeg"] == r, name
+        for k, e in enumerate(m["err"]):
+            assert abs(err([m["f_q_ghz"][k], m["f_r_ghz"][k]], targets) - e) < 1e-9 + 2e-3 * e, (name, k)
+    for label, name in [("\\quad \\texttt{rhobeg} $0.1$", "prima_rhobeg0p1"),
+                        ("\\quad \\texttt{rhobeg} $(x_u - x_l)/2$", "prima_rhobeg0p4")]:
+        m = c[name]
+        contains(f"{label} & none & none & {m['palace_runs_at_criterion']} & n/a & "
+                 f"({m['final_um'][0]:.3f}, {m['final_um'][1]:.3f}) \\\\")
+    readme = read_text("benchmarks/transmon_devicelayout_controls/README.md")
+    assert "MINVAL(XU-XL)/4" in readme and "0.19999999999999998" in readme
+    assert "rhoend" not in read_text("benchmarks/transmon_devicelayout_controls/prima_driver.jl")  # PRIMA's default
+    contains("With the initial trust radius \\texttt{rhobeg} at $0.1$ instead of $0.2$, PRIMA also takes 10 runs, and at "
+             "$0.39999999999999997$, the largest value BOBYQA accepts on DeviceLayout's box ($(x_u - x_l)/2$ in binary64; "
+             "$0.4$ is one ulp above it, so PRIMA rejects it and resets the radius to about $0.2$), it takes 12. The final "
+             "radius defaults to $10^{-6}$ \\texttt{rhobeg} and so moves too, but every run stopped on the target first. "
+             "Each setting is a single run.")
+    absent("it again takes 3")
+    absent("3 for each Newton variant, 5")
+    # The Broyden c probe: step and slope agreement in frequency terms.
+    assert br["c_um"][1] == 686.981 and abs(620 / (1 + c["broyden_probe_dx"]) ** 2 - 686.981) < 1e-3
+    for label, delta_from, runs, e, um in [
+            ("shape derivative", "geode-fem", nd["palace_runs_at_criterion"], nd["err"][1],
+             (nd["capacitor_length_um"][2], nd["total_length_um"][2])),
+            ("scaling law", "geode-fem", sc["palace_runs_at_criterion"], sc["first_step_err"], sc["final_um"]),
+            ("scaling law", "Palace", sp_runs, sp["first_step_err"], sp["final_um"])]:
+        contains(f"Newton & {label} & {delta_from} & {runs} & {fmt_err(e)} & ({um[0]:.3f}, {um[1]:.3f}) \\\\")
+    contains(f"Broyden & two probes & none & {br['palace_runs_at_criterion']} & {fmt_err(br['first_step_err'])} & "
+             f"({br['final_um'][0]:.3f}, {br['final_um'][1]:.3f}) \\\\")
+    # The scaling-law first step: err ratio and frequency ratio.
+    ratio = nd["err"][1] / sc["first_step_err"]
+    assert f"{ratio:.1f}" == "4.7" and f"{math.sqrt(ratio):.1f}" == "2.2"
+    contains("its first step has an err $4.7$ times lower ($1.7\\times10^{-4}$ against $7.9\\times10^{-4}$), about "
+             "$2.2$ times closer in frequency")
+    absent("times closer (err")
+    # The Palace-only Newton: no geode-fem input left.
+    assert sp["delta_um"] == c["delta_sensitivity"]["delta_palace_dl_bp2_um"] == 563.879
+    assert sp["first_step_um"] == [c["delta_sensitivity"]["first_step_c_um"][2], c["delta_sensitivity"]["first_step_L_um"][2]]
+    contains("With $\\delta = 563.879\\,\\mu$m")
+    contains("Broyden's method \\citep{broyden1965class} from two forward finite-difference probes, takes 5")
+    # PRIMA in our environment.
+    assert pr["prima_status"] == "FTARGET_ACHIEVED" and pr["prima_nf"] == pr["palace_runs_at_criterion"] == 10
+    assert pr["first_model_step_run"] == 6 and pr["published_palace_runs"] == 9
+    assert pr["err"][8] > c["criterion"] and round(pct(pr["err"][8] / c["criterion"] - 1)) == 15
+    contains(f"run 9 misses the criterion by $15\\%$ ($\\mathrm{{err}} = {pr['err'][8] * 1e4:.2f}\\times10^{{-4}}$)")
+    contains("runs 1--5 are its initial interpolation set of $2n+1 = 5$ points \\citep{powell2009bobyqa}")
+    assert f"{pr['published_final_this_build_err']:.1e}" == "1.5e-05" and pr["published_final_this_build_err"] < 1e-4
+    contains("In this environment the published final design already meets the criterion ($\\mathrm{err} = "
+             "1.5\\times10^{-5}$)")
+    contains("In one environment, then, the comparison is 3 Newton runs against 10 to 12, or 4 with no geode-fem input.")
+    # B3: the abstract and conclusion say which inputs the 3-run count needs, and give the geode-free 4.
+    ab = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
+    concl = NORM[NORM.index("\\section{Conclusion}"):NORM.index("\\paragraph{Acknowledgments.}")]
+    # Opus SF-1: the abstract's last sentence, rewritten; PRIMA over its three trust radii.
+    assert ("Newton's method meets DeviceLayout's stopping criterion in 3 runs, whether its Jacobian uses geode-fem's "
+            "shape derivative or a scaling law calibrated by geode-fem, and in 4 with no geode-fem input; PRIMA takes "
+            "10 to 12 at three initial trust radii in one environment.") in ab, ab
+    assert "Counting every Palace run, probes included" in ab
+    assert ("Newton's method reaches the example's criterion in 3 Palace runs with geode-fem input (its shape "
+            "derivative, or its calibration of the resonator model) and in 4 without, against 10 to 12 for PRIMA") in concl
+    # Fable M3: the qubit frequency is the linearized (plasma) mode, said at first use in the body.
+    assert "linear eigenmodes, the junction linearized" in ab
+    intro = NORM[NORM.index("\\section{Introduction}"):NORM.index("Those frequencies come from one discretization")]
+    assert ("the qubit frequency is the junction's linearized (plasma) mode, not the transmon's 0--1 transition "
+            "$f_{01}$") in intro, intro
+    absent("with or without the shape derivative")
+    # Why the shape-derivative first step lands farther: the Jacobian entries at the initial design.
+    x1 = nd["x1"][0]
+    S = nd["f_q_ghz"][0] / nd["geode_f_h_q_ghz"][0]
+    j_geode = S * nd["geode_df_dc_q_ghz_per_um"][0] * (-2 * 620 / x1 ** 3)
+    j_broyden = (br["f_q_ghz"][1] - br["f_q_ghz"][0]) / c["broyden_probe_dx"]
+    j_scaling = nd["f_q_ghz"][0] / x1
+    assert f"{j_geode:.2f}" == "3.66" and f"{j_broyden:.2f}" == "3.71" and f"{j_scaling:.3f}" == "4.168"
+    assert round(pct(1 - j_geode / j_broyden), 1) == 1.5
+    over_probe = (j_broyden - j_geode) * abs(c["broyden_probe_dx"]) / nd["f_q_ghz"][0]
+    assert f"{pct(over_probe):.2f}" == "0.07", over_probe
+    contains("this remeshed difference is consistent with the slope")
+    contains("the $3.71$\\,GHz of Broyden's probe, a step of $-0.05$ in $x_1$ that moves the qubit by $4.5\\%$; over it "
+             "the two slopes differ by $0.07\\%$ of the qubit, so this remeshed difference is consistent with the slope")
+    shallow = sorted(round(pct(1 - j / j_scaling)) for j in (j_geode, j_broyden))
+    assert shallow == [11, 12], shallow
+    contains("$\\partial F_q/\\partial x_1 = 3.66$\\,GHz, within about $1.5\\%$ of the $3.71$\\,GHz of Broyden's probe")
+    # The chord slope over the first step, to the shape-derivative design at the criterion (step 2).
+    chord = (nd["f_q_ghz"][2] - nd["f_q_ghz"][0]) / (nd["x1"][2] - nd["x1"][0])
+    assert f"{chord:.1f}" == "4.0" and j_broyden < chord < j_scaling, chord
+    contains("Both local slopes are $11$--$12\\%$ shallower than the scaling law's $F_q/x_1 = 4.168$\\,GHz")
+    contains(f"The shape-derivative first step lands at $c = {nd['capacitor_length_um'][1]:.3f}\\,\\mu$m and Broyden's at "
+             f"${br['c_um'][3]:.3f}\\,\\mu$m")
+    contains(f"the scaling law's lands at ${sc['c_um'][1]:.3f}\\,\\mu$m")
+    absent("\\paragraph{Why the shape-derivative step lands farther.}")   # Fable D9: folded into one paragraph
+    at_crit = [nd["capacitor_length_um"][2], sc["final_um"][0], sp["final_um"][0], br["final_um"][0]]
+    assert all(abs(x - 1230) < 10 for x in at_crit)
+    contains("against about $1230\\,\\mu$m at the criterion")
+    contains("once scaled it lies about $1.5\\%$ below Broyden's probe, so it gives no more than one Palace run does")
+    # Near-decoupling, from Broyden's two probes.
+    own = [abs(pct(br["f_q_ghz"][1] / br["f_q_ghz"][0] - 1)), abs(pct(br["f_r_ghz"][2] / br["f_r_ghz"][0] - 1))]
+    other = [abs(pct(br["f_r_ghz"][1] / br["f_r_ghz"][0] - 1)), abs(pct(br["f_q_ghz"][2] / br["f_q_ghz"][0] - 1))]
+    assert all(round(o, 1) == 4.5 for o in own) and max(other) < 0.05, (own, other)
+    contains("a probe in either variable moves its own mode by $4.5\\%$ and the other by at most $0.05\\%$")
+    # The scaling-law converged step (Table 5).
+    cs = ctl["conv_step"]["scaling"]
+    contains(f"Scaling-law step & {cs['to_um'][0]:.3f} & {cs['to_um'][1]:.3f} & {cs['f_q_ghz']:.3f} "
+             f"$[{cs['f_q_band_ghz'][0]:.3f}, {cs['f_q_band_ghz'][1]:.3f}]$ & {cs['f_r_ghz']:.3f} "
+             f"$[{cs['f_r_band_ghz'][0]:.3f}, {cs['f_r_band_ghz'][1]:.3f}]$ \\\\")
+    short = [-x for x in cs["to_minus_cv2_um"]]
+    contains(f"lands ${short[0]:.1f}$ and ${short[1]:.1f}\\,\\mu$m short of step~2")
+    contains(f"at $+{cs['over_target_pct'][0]:.2f}\\%$ and $+{cs['over_target_pct'][1]:.2f}\\%$ of the targets")
+    assert cs["targets_in_band"] == [True, True]
+    # The second refinement family at step 2 (Table 5 row, Section 7, Figure 5).
+    fb = ctl["mesh_family"]["cv2"]
+    cv2 = opt["conv"]["cv2"]
+    assert fb["design_um"] == cv2["to_um"]
+    assert fb["family_a_levels_f_q_ghz"] == cv2["ladder"]["p1_f_q_ghz"] + cv2["ladder"]["p2_f_q_ghz"]
+    est_q, est_r = rule(fb["family_b_levels_f_q_ghz"]), rule(fb["family_b_levels_f_r_ghz"])
+    assert abs(est_q - fb["family_b_f_q_ghz"]) < 1e-4 and abs(est_r - fb["family_b_f_r_ghz"]) < 1e-4
+    bq, brr = fb["family_b_f_q_band_ghz"], fb["family_b_f_r_band_ghz"]
+    contains(f"Step 2, family b & {cv2['to_um'][0]:.3f} & {cv2['to_um'][1]:.3f} & {est_q:.3f} $[{bq[0]:.3f}, "
+             f"{bq[1]:.3f}]$ & {est_r:.3f} $[{brr[0]:.3f}, {brr[1]:.3f}]$ \\\\")
+    contains(f"${fb['family_b_f_q_ghz']:.4f}$ $[{bq[0]:.4f}, {bq[1]:.4f}]$\\,GHz for the qubit and "
+             f"${fb['family_b_f_r_ghz']:.4f}$\\,GHz for the resonator")
+    sp_ = fb["estimate_spread_pct"]
+    contains(f"${sp_[0]:.2f}\\%$ and ${sp_[1]:.2f}\\%$ above the first family")
+    assert fb["targets_in_family_b_band"] == [False, False] and bq[0] > 3.0 and brr[0] > 4.0 and fb["family_b_band_inside_a"]
+    contains("both targets lie just below its band, so on family b step 2 is slightly short")
+    # The capacitor on target, by the scaling law, from each family's estimate and from the bands.
+    law = lambda f: cv2["to_um"][0] * (f / targets[0]) ** 2
+    c0 = opt["newton_devicelayout"]["published_final_um"][0]
+    on = [law(rule(fb["family_a_levels_f_q_ghz"])), law(est_q)]   # from the unrounded estimates
+    assert [round(x, 1) for x in on] == fb["c_on_target_um"], on
+    assert [round(pct(x / c0 - 1), 2) for x in on] == fb["c_on_target_over_published_pct"]
+    contains(f"call for $c = {on[0]:.0f}$ and ${on[1]:.0f}\\,\\mu$m, $+{pct(on[0] / c0 - 1):.1f}\\%$ and "
+             f"$+{pct(on[1] / c0 - 1):.1f}\\%$ over the published length")
+    assert fb["union_f_q_band_ghz"] == cv2["ladder"]["f_q_band_ghz"]
+    union = [law(x) for x in fb["union_f_q_band_ghz"]]
+    assert [round(x, 1) for x in union] == fb["union_c_band_um"]
+    up = [pct(x / c0 - 1) for x in union]
+    assert [round(x, 2) for x in up] == fb["union_c_band_over_published_pct"]
+    bband = [pct(law(x) / c0 - 1) for x in bq]
+    assert [round(x, 2) for x in bband] == fb["family_b_c_band_over_published_pct"]
+    assert up[0] <= bband[0] and bband[1] <= up[1]       # the union band contains family b's, under the scaling law
+    contains(f"a range that contains family~b's ($+{bband[0]:.1f}\\%$ to $+{bband[1]:.1f}\\%$ under the scaling law)")
+    # The linear and scaling-law mappings agree at the lower end and differ by about 2 points at the upper end.
+    lin_hi = pct((cv2["to_um"][0] + (cv2["ladder"]["f_q_band_ghz"][1] - targets[0]) / -slope) / c0 - 1)
+    assert 1.5 < lin_hi - up[1] < 2.5
+    # The headline capacitor statement: 19-20 % over two families.
+    assert [round(x) for x in fb["c_on_target_over_published_pct"]] == [19, 20]
+    pin("$19$--$20\\%$", 2)   # abstract, conclusion
+    contains("needs $c \\approx 1451$--$1466\\,\\mu$m against the published $1217.678\\,\\mu$m")
+    contains("the re-optimized capacitor, $+19$ to $+20\\%$ over two families")
+    absent("$+19\\%$ ($+228\\,\\mu$m)")
+    # Adaptive refinement on the initial geometry (qubit only).
+    a = ctl["amr"]["initial"]
+    assert a["nd"][0] == cc["palace"]["initial"]["p2_nd"][0] and a["f_q_ghz"][0] == cc["palace"]["initial"]["p2_f_q_ghz"][0]
+    assert all(y > x for x, y in zip(a["f_q_ghz"], a["f_q_ghz"][1:]))
+    contains(f"In five solves from ${a['nd'][0] / 1e6:.2f}$ to ${a['nd'][-1] / 1e6:.1f}$ million unknowns the qubit "
+             f"rises from ${a['f_q_ghz'][0]:.4f}$ to ${a['f_q_ghz'][-1]:.4f}$\\,GHz")
+    pin(f"${a['f_q_ghz'][-1]:.4f}$\\,GHz", 2)   # abstract, Section 5 (the Section 10 repeat is cut, Opus SF-7)
+    contains(f"the last step moved the qubit by $+{a['last_change_f_q_pct']:.2f}\\%$; "
+             f"${a['wall_s'] / 3600:.1f}$\\,h, ${a['peak_host_used_gib']:.0f}$\\,GiB peak on 32 ranks")
+    assert a["f_q_ghz"][2] > cc["palace"]["initial"]["p2_f_q_ghz"][1] > a["f_q_ghz"][1]
+    contains(f"The third solve, at ${a['nd'][2] / 1e6:.1f}$ million unknowns, already exceeds the highest uniform level "
+             f"(order 2 on $h/2$, ${cc['palace']['initial']['p2_f_q_ghz'][1]:.4f}$\\,GHz at "
+             f"${cc['palace']['initial']['p2_nd'][1] / 1e6:.1f}$ million)")
+    assert a["final_in_estimate_band"] and a["final_below_cap"]
+    contains(f"${-a['final_minus_estimate_pct']:.2f}\\%$ below the estimate and inside the band")
+    contains(f"gives ${a['dof_extrapolation_f_q_ghz']:.4f}$\\,GHz ($\\alpha = {a['dof_extrapolation_alpha_q']:.2f}$)")
+    contains(f"moves it by ${1000 * a['dof_extrapolation_f_q_sensitivity_ghz_per_0p1pct_finest']:.0f}$\\,MHz")
+    assert not a["final_r_in_estimate_band"]
+    contains(f"its finest level, ${a['f_r_ghz'][-1]:.4f}$\\,GHz, is still below its band, so the adaptive run checks "
+             "the qubit estimate only")
+    assert f"{a['dof_extrapolation_alpha_r']:.2f}" == "0.25"
+    contains("the resonator fit ($\\alpha = 0.25$) is not reliable and not shown")
+    pct7 = pct(a["f_q_ghz"][-1] / cc["published"]["initial_f_ghz"][0] - 1)
+    assert f"{pct7:.1f}" == "7.0"
+    contains("an adaptive Palace run puts the qubit at $4.4297$\\,GHz, $7.0\\%$ above the published $4.14$\\,GHz, "
+             "with no extrapolation")
+    contains("A further check comes from Palace's adaptive mesh refinement")
+    absent("An independent check comes from Palace")
+    # The second refinement family on the initial geometry.
+    f = ctl["mesh_family"]["initial"]
+    assert f["family_a_f_q_ghz"] == round(cc["convergence"]["initial"]["f_q_ghz"], 4)
+    assert f["family_b_band_inside_a"] and f["family_a_f_q_band_ghz"] == f["union_f_q_band_ghz"]
+    contains(f"Its $h/2$ qubit is ${f['h2_f_q_ghz'][1]:.4f}$\\,GHz against gmsh's ${f['h2_f_q_ghz'][0]:.4f}$\\,GHz")
+    contains(f"the two refinements give ${f['h2_f_q_ghz'][3]:.4f}$ and ${f['h2_f_q_ghz'][2]:.4f}$\\,GHz")
+    rs, mf = f["refinement_scheme_pct"], f["mesh_family_pct"]
+    contains(f"accounts for ${min(rs):.1f}$--${max(rs):.1f}\\%$ of the $h/2$ level and the choice of $h$ mesh for only "
+             f"${min(mf):.2f}$--${max(mf):.2f}\\%$")
+    bq0, br0 = f["family_b_f_q_band_ghz"], f["family_b_f_r_band_ghz"]
+    contains(f"gives ${f['family_b_f_q_ghz']:.3f}$ $[{bq0[0]:.3f}, {bq0[1]:.3f}]$\\,GHz for the qubit, at an observed "
+             f"order of ${f['family_b_observed_order_q']:.2f}$")
+    contains(f"${f['family_b_f_r_ghz']:.3f}$ $[{br0[0]:.3f}, {br0[1]:.3f}]$\\,GHz for the resonator")
+    contains(f"The two estimates lie ${f['estimate_spread_pct'][0]:.2f}\\%$ apart")
+    lo_, hi_ = f["estimate_range_f_q_ghz"]
+    rng = f"${lo_:.3f}$--${hi_:.3f}$\\,GHz"
+    assert rng == "$4.444$--$4.472$\\,GHz"
+    pin(rng, 2)
+    pub = cc["published"]["initial_f_ghz"][0]
+    contains(f"{rng}, ${pct(lo_ / pub - 1):.1f}$--${pct(hi_ / pub - 1):.1f}\\%$ above the published value")
+    # Table 2 footnote: family b on both geometries, from the unrounded estimates and bands (#1135 T4 for final).
+    ff = ctl["mesh_family"]["final"]
+    assert ff["design_um"] == [1217.678, 7243.955]
+    assert ff["family_a_levels_f_q_ghz"] == cc["palace"]["final"]["p1_f_q_ghz"] + cc["palace"]["final"]["p2_f_q_ghz"]
+    assert ff["family_b_levels_f_q_ghz"][0] == ff["family_a_levels_f_q_ghz"][0]   # shared h cells
+    vals = []
+    for fam_, mode in [(f, "q"), (f, "r"), (ff, "q"), (ff, "r")]:
+        if fam_ is ff:
+            assert abs(rule(ff[f"family_b_levels_f_{mode}_ghz"]) - ff[f"family_b_f_{mode}_ghz"]) < 1e-4, mode
+        b_ = fam_[f"family_b_f_{mode}_band_ghz"]
+        vals.append(f"${fam_[f'family_b_f_{mode}_ghz']:.3f}$ $[{b_[0]:.3f}, {b_[1]:.3f}]$")
+    contains("The second refinement family gives, in the same order, " + ", ".join(vals[:3]) + " and " + vals[3] + ".")
+    bqf = ff["family_b_f_q_band_ghz"]
+    assert ff["family_b_band_inside_a"] and ff["published_below_family_b_band"] == [True, True]
+    assert f"{ff['family_b_observed_order_q']:.2f}" == "0.90" and f"{ff['family_a_observed_order_q']:.2f}" == "0.61"
+    contains(f"On the final geometry family~b gives ${ff['family_b_f_q_ghz']:.4f}$ $[{bqf[0]:.4f}, {bqf[1]:.4f}]$\\,GHz "
+             f"for the qubit, at an observed order of $0.90$ against $0.61$, ${ff['estimate_spread_pct'][0]:.2f}\\%$ above "
+             "family~a and with its band inside a's.")
+    lo_f, hi_f = ff["estimate_range_f_q_ghz"]
+    po = ff["f_q_over_published_pct"]
+    contains(f"We quote the final qubit as ${lo_f:.3f}$--${hi_f:.3f}$\\,GHz, $+{po[0]:.1f}\\%$ to $+{po[1]:.1f}\\%$ "
+             "over the published $3.005$\\,GHz.")
+    contains(f"the final qubit ${lo_f:.3f}$--${hi_f:.3f}$\\,GHz")
+    # Opus SF-6: family b is partly graded toward the sheets.
+    contains("so family~b is graded slightly toward the sheets, a plausible reason for its higher observed orders")
+    # The common-limit fits, every first-family series.
+    sl = ctl["shared_limit"]
+    lim = dict(zip(sl["series"], zip(sl["order"], sl["f_ghz"])))
+    ests = {"initial_q": cc["convergence"]["initial"]["f_q_ghz"], "initial_r": cc["convergence"]["initial"]["f_r_ghz"],
+            "final_q": cc["convergence"]["final"]["f_q_ghz"], "final_r": cc["convergence"]["final"]["f_r_ghz"],
+            "cv2_q": cv2["ladder"]["f_q_ghz"], "cv2_r": cv2["ladder"]["f_r_ghz"],
+            "sccv1_q": cs["f_q_ghz"], "sccv1_r": cs["f_r_ghz"]}
+    over = [pct(lim[k][1] / v - 1) for k, v in ests.items()]
+    assert all(o > 0 for o in over) and f"{min(over):.1f}" == "0.5" and f"{max(over):.1f}" == "1.3", over
+    contains("it lies $0.5$--$1.3\\%$ above the rule's estimate on every first-family series, as the rule's leaning "
+             "low predicts")
+    sens = sl["initial_q_sensitivity_ghz_per_0p1pct"][3]
+    contains(f"$+0.1\\%$ on the order-2 $h/2$ level alone moves the initial-qubit fit by ${1000 * sens:.0f}$\\,MHz")
+    cap = ctl["cap"]["initial"]
+    assert cap["tier"].startswith("model-dependent") and cap["f_q_ghz"] == cc["static_cross_check"]["initial"]["circuit_cap_f_q_ghz"]
+    exc = lim["initial_q"][1] - cap["f_q_ghz"]
+    assert abs(exc - sl["initial_q_excess_over_cap_ghz"]) < 1e-9
+    assert sl["initial_q_excess_as_p2_h2_change_pct_exact"] < 0.1   # within the fit's 20 MHz per 0.1 % conditioning
+    contains(f"the first family's common-limit fit, ${lim['initial_q'][1]:.4f}$\\,GHz, exceeds it by "
+             f"${1000 * exc:.1f}$\\,MHz, within that fit's conditioning")
+    assert lim["family_b_initial_q"][1] < cap["f_q_ghz"] and f["all_estimates_below_cap"]
+    # Judge nit: "not in the Bounded tier", not "model-dependent, not bounded".
+    contains("so it is model-dependent and not in the Bounded tier")
+    absent("model-dependent, not bounded")
+    # The attribution: no run count or design credited to the shape derivative.
+    for stale in ["Cost to the criterion", "price of entry", "bounds implementation error", "makes it cheap",
+                  "$7$--$9\\%$ below", "Jacobian comes from", "Gradient-Assisted", "gradient re-optimization",
+                  "thanks to the", "because of the shape derivative", "the derivative reduces"]:
+        absent(stale, BODY)
+    contains("Agreement between two codes is evidence against implementation error")
+    assert not re.search(r"both (?:solvers |codes )?converge", LOWBODY)
+    assert not re.search(r"two independently implemented solvers (?:converge|reach)", LOWBODY)
+    assert not re.search(r"no geode-fem solve", LOWBODY)
+
+
+def check_derivative_discussion():
+    """The operator's ruling: why the derivative gives no advantage here, and where derivatives pay off."""
+    d = section("\\paragraph{Why the shape derivative gives no advantage here.}", "\\paragraph{Threats and limitations.}")
+    for text in ["two nearly decoupled parameters", "Newton's method converges with any reasonable Jacobian",
+                 "the scaling law $f_q \\propto x_1$, which costs nothing",
+                 "a finite-difference gradient costs only $N+1 = 3$ solves",
+                 "the coarse-mesh, fixed-topology derivative is the slope of a different discrete problem",
+                 "Unscaled, it is less accurate than a remeshed second-order difference of the evaluated objective",
+                 "it describes that objective only after scaling by the fidelity ratio $S$",
+                 "a remeshed first-order difference, Section~\\ref{sec:reopt}, measures remesh noise",
+                 "a discrete adjoint gives all $N$ derivatives of one objective for about one extra solve",
+                 "coupled targets with no per-parameter scaling law", "freeform shapes",
+                 "\\citep{walters2026conformal}", "38 shape parameters",
+                 "its comparison with gradient-free search is still being run, so it does not yet show whether the "
+                 "derivative helps there"]:
+        assert text in d, text
+    for claim in ["demonstrates an advantage", "shows the advantage", "outperforms"]:
+        assert claim not in d, claim
+    absent("a remeshed finite difference of that objective is the more faithful slope", BODY)
+    # S2 / SF-2: the designer's quantities.
+    e = section("\\paragraph{What the shift means for a design.}", "\\paragraph{What a practitioner can do.}")
+    ratio = (4.4297 / 4.14) ** 2
+    assert f"{(4.4297 / 4.14):.3f}" == "1.070" and f"{ratio:.3f}" == "1.145" and round(pct(ratio - 1)) == 14
+    for text in ["rise of the linear qubit mode at fixed $L_J$",
+                 "overstates $C_\\Sigma$ by about $14\\%$ ($1.070^2 = 1.145$)",
+                 "$E_C$ and the anharmonicity, close to $-E_C$ \\citep{koch2007charge}, are about $14\\%$ larger",
+                 "The choice of $L_J$ can retune the qubit frequency but not $E_C$, which the capacitance alone sets."]:
+        assert text in e, text
+    # Fable M3: f01 = f_p - E_C/h (Koch), with C at fixed L_J inferred from each linear-mode frequency.
+    e_ch, h_pl, lj = 1.602176634e-19, 6.62607015e-34, 14.860e-9
+    ec = lambda f: e_ch ** 2 * (2 * math.pi * f) ** 2 * lj / (2 * h_pl)
+    ecs = [ec(f * 1e9) / 1e9 for f in (4.14, 4.4297)]
+    assert [f"{x:.2f}" for x in ecs] == ["0.19", "0.22"], ecs
+    f01 = [f - x for f, x in zip((4.14, 4.4297), ecs)]
+    assert f"{pct(f01[1] / f01[0] - 1):.1f}" == "6.6", f01
+    assert "The transition $f_{01}$ rises by a little less, about $6.6\\%$, because $E_C/h$ rises with the mode, from about $0.19$ to $0.22$\\,GHz." in e
+    contains("At $L_s = k = 0$ this is the plasma frequency $\\sqrt{8E_JE_C}/h$, and the transmon's $f_{01} \\approx "
+             "\\sqrt{8E_JE_C}/h - E_C/h$ lies below it.")
+    p = section("\\paragraph{What a practitioner can do.}", "\\section{Conclusion}")
+    for text in ["graded toward the edges", "$hp$ refinement \\citep{demkowicz2006computing}",
+                 "at $2.2$ million unknowns it already exceeds the highest uniform level, order 2 on $h/2$ at $7.0$ million",
+                 "\\citep{wang2015surface}", "\\citep{martinis2022surface}"]:
+        assert text in p, text
+
+
+# --------------------------------------------------------------------------
+# Citations, operator items, voice and audience
+# --------------------------------------------------------------------------
+
+def bib_entries(text):
+    out = {}
+    for e in re.split(r"\n(?=@)", text):
+        m = re.match(r"\s*@\w+\{([^,]+),", e)
+        if m:
+            out[m.group(1)] = "\n".join(l for l in e.strip().splitlines() if not l.startswith("%")).strip()
+    return out
+
+
+def bib_fields(entry):
+    kind = re.match(r"\s*@(\w+)\{", entry).group(1).lower()
+    fields = {k.lower(): v.strip() for k, v in re.findall(r"^\s*(\w+)\s*=\s*\{(.*)\},?\s*$", entry, re.M)}
+    return kind, fields
+
+
+V13_DOIS = {"foxkapoor1968rates": "10.2514/3.5008", "demkowicz2006computing": "10.1201/9781420011685"}
+V13_NEW = {"foxkapoor1968rates", "powell2009bobyqa", "demkowicz2006computing", "walters2026conformal"}
+# v14 additions, checked against Crossref (title, venue, volume, article number, year, authors).
+V14_DOIS = {"koch2007charge": "10.1103/PhysRevA.76.042319", "minev2021energy": "10.1038/s41534-021-00461-8"}
+V15_DOIS = {"wang2015surface": "10.1063/1.4934486", "martinis2022surface": "10.1038/s41534-022-00530-6"}
+ARXIV = {"eriksson2025automated", "sommers2025open", "ye2025electromagnetic"}
+
+
+def check_citations():
+    keys = {k.strip() for group in re.findall(r"\\cite\w*(?:\[[^]]*\])*\{([^}]+)\}", TEX) for k in group.split(",")}
+    refs = bib_entries((HERE / "refs.bib").read_text())
+    assert keys == set(refs), (sorted(keys - set(refs)), sorted(set(refs) - keys))
+    # v15: v14's entries plus two Crossref-checked surface-participation papers; the reader-facing notes are reduced
+    # to the software version or venue (Opus N-1), and the example's title uses a colon (Fable N6). Every other
+    # field is v14's.
+    v14 = bib_entries((HERE.parent / "transmon-benchmark.14" / "refs.bib").read_text())
+    assert set(refs) - set(v14) == set(V15_DOIS), sorted(set(refs) - set(v14))
+    assert set(v14) <= set(refs)
+    for key, doi in {**V14_DOIS, **V15_DOIS}.items():
+        assert bib_fields(refs[key])[1]["doi"] == doi, key
+    assert "Wang, C. and Axline" in refs["wang2015surface"] and "162601" in refs["wang2015surface"]
+    assert "Martinis, John M." in refs["martinis2022surface"] and "{26}" in refs["martinis2022surface"]
+    assert "Minev" in refs["minev2021energy"] and "131" in refs["minev2021energy"]
+    assert "Koch, Jens" in refs["koch2007charge"] and "042319" in refs["koch2007charge"]
+    for key in ARXIV:   # eprint with its archive prefix
+        f = bib_fields(refs[key])[1]
+        assert f["archiveprefix"] == "arXiv" and f["eprint"] and f["eprinttype"] == "arxiv", key
+    changed = {"burn": {"note": "Software, v0.21.0"}, "devicelayout": {"note": "Software, v1.15.0"},
+               "devicelayout-blog": {"note": "AWS Quantum Technologies Blog"},
+               "palace": {"note": "Software, commit fba6a5b"},
+               "devicelayout-example": {"title": "{DeviceLayout.jl}: {Single-Transmon Simulation}", "note": None}}
+    for key in set(v14):
+        f, of = bib_fields(refs[key])[1], bib_fields(v14[key])[1]
+        for field, val in changed.get(key, {}).items():
+            of.pop(field, None)
+            if val is None:
+                assert field not in f, (key, field)
+            else:
+                assert f.pop(field) == val, (key, field)
+        assert f == of, key
+    for key, entry in refs.items():
+        for stale in ["cited as software", "No journal", "used in this work", "source of the", "Source of the"]:
+            assert stale not in entry, (key, stale)
+    assert "$\\cdot$" not in refs["devicelayout-example"]
+    for key, entry in refs.items():
+        _, f = bib_fields(entry)
+        assert not ("doi" in f and "url" in f), f"url beside a DOI: {key}"
+    for key, doi in V13_DOIS.items():
+        assert bib_fields(refs[key])[1]["doi"] == doi, key
+    assert bib_fields(refs["powell2009bobyqa"])[1]["number"] == "DAMTP 2009/NA06"
+    assert "papers/conformal-antenna-diffopt/" in refs["walters2026conformal"]
+    title = bib_fields(refs["walters2026conformal"])[1]["title"]
+    v_latest = sorted((p for p in (REPO / "papers/conformal-antenna-diffopt").iterdir()
+                       if re.fullmatch(r"conformal-antenna-diffopt\.\d+", p.name)), key=lambda p: int(p.suffix[1:]))[-1]
+    their = re.sub(r"\s+", " ", re.search(r"\\title\{(.*?)\}\n\\author", (v_latest / "main.tex").read_text(), re.S).group(1))
+    norm = lambda t: re.sub(r"[{}\\,\s]", "", t).lower()
+    assert norm(title) == norm(their), (title, their)
+    # The eigenvalue derivative is credited to Fox and Kapoor; Nelson only for eigenvector derivatives.
+    contains("port EPR $0.99424$ in Palace, the energy-participation ratio of the junction")
+    assert TEX.count("\\citep{koch2007charge}") == 2 and TEX.count("\\citet{koch2007charge}") == 1
+    assert TEX.count("minev2021energy") == 1 and TEX.count("wang2015surface") == TEX.count("martinis2022surface") == 1
+    contains("the classical eigenvalue derivative of a symmetric generalized eigenproblem \\citep{foxkapoor1968rates}")
+    assert TEX.count("nelson1976simplified") == 1
+    contains("which needs eigenvector derivatives \\citep{nelson1976simplified}")
+    absent("Hellmann--Feynman (Nelson)")
+    absent("liang2026adaptive")
+    # Prior-art claims.
+    for stale in ["uncontested", "none exposes an adjoint", "no derivative path", "elegant", "owned by photonics"]:
+        absent(stale, BODY)
+    for pattern in [r"\bfirst to\b", r"for the first time", r"\bunprecedented\b", r"\bnovel\b",
+                    r"to our knowledge", r"\bno prior work\b",
+                    r"\bno (?:other|existing|prior) (?:solver|code|tool|work)s? (?:exposes?|provides?|offers?|computes?|delivers?)",
+                    r"\bnone (?:of them )?(?:exposes?|provides?|offers?)", r"\bonly (?:solver|code|tool) (?:that|to|with)\b",
+                    r"\bfirst (?:shape|adjoint|gradient|differentiable|sensitivity)"]:
+        assert not re.search(pattern, LOWBODY), pattern
+    phrase("The method is not new; we apply it")
+    phrase("and we have found no two-sided capacitance bound in the qubit-design literature")
+    # The example's own caveat, quoted as DeviceLayout v1.15.0 docs/src/examples/singletransmon.md states it for
+    # the order-2 runs (the "quite sensitive" remark there is about the order-1 demo only).
+    phrase("They run Palace at second order ``to reduce sensitivity to the discretization'' and note that this "
+           "``does not mean that the eigenfrequencies found by Palace will have converged to their true values''")
+    absent("the example itself warns that they are sensitive to it")
+    absent("quite sensitive")
+    # Every figure is cited in the text.
+    for lab in ["geometry", "crosscheck", "initialq", "convergence", "reopt"]:
+        assert re.search(r"Figure~\\ref\{fig:" + lab + r"\}", BODY), lab
+    contains("Table~\\ref{tab:controls} and Figure~\\ref{fig:reopt}(b) compare")
+    phrase("the field behaves as $E \\sim r^{-1/2}$ \\citep{meixner1972behavior}")
+    phrase("DeviceLayout's example optimizes with PRIMA \\citep{zhang2023prima}")
+    phrase("with bounds only it runs BOBYQA \\citep{powell2009bobyqa}")
+    phrase("As of October 2026, neither Palace nor DeviceLayout.jl has a methods publication")
+    for k in ["prager1947approximations", "raviart1977mixed", "braess2007equilibrated", "specogna2011complementary",
+              "nikolova2004adjoint", "sommers2025open", "ye2025electromagnetic", "boffi2010finite"]:
+        assert k in keys, k
+    return keys
+
+
+def refs_entry(key):
+    return bib_entries((HERE / "refs.bib").read_text())[key]
+
+
+def check_operator_items():
+    for v, digest in [("10", V10_SHA), ("11", V11_SHA), ("12", V12_SHA), ("13", V13_SHA), ("14", V14_SHA)]:
+        text = (HERE.parent / f"transmon-benchmark.{v}" / "main.tex").read_text()
+        assert hashlib.sha256(text.encode()).hexdigest() == digest, f"v{v} main.tex changed"
+    # Ruling (2026-10-15): the title leads with the cross-check and the convergence finding.
+    title = re.sub(r"\s+", " ", re.search(r"\\title\{(.*?)\}\n", TEX, re.S).group(1))
+    assert title == TITLE, title
+    low_title = title.lower()
+    assert "converged frequencies" not in low_title and "differentiable" not in low_title and "gradient" not in low_title
+    assert low_title.startswith("uniform mesh refinement underestimates")
+    author = TEX[TEX.index("\\author{"):TEX.index("\\date{")]
+    assert author == "\\author{Robb Walters\\\\\n  {\\normalsize Independent Researcher}}\n" + AUTHOR_NOTE + "\n", author
+    for stale in ["contributed equally", "\\thanks", "\\and ", "affiliation line"]:
+        absent(stale)
+    # Ruling: the validation wording, once, in Section 1.
+    ruled = ("an independent same-mesh cross-check of the Palace/DeviceLayout.jl transmon stack, complementing the "
+             "earlier checks of Palace by SQDMetal \\citep{sommers2025open} and \\citet{ye2025electromagnetic}")
+    pin(ruled, 1)
+    intro = section("\\section{Introduction}", "\\section{Related Work}")
+    assert ruled in intro
+    for stale in ["first independent", "third-party", "validation of the palace", "has no publication of its own"]:
+        assert stale not in NORM.lower(), stale
+    # Ruling (2026-10-15): Section 8 short, 150-250 words; credit and AI-model statement kept; no counts.
+    built = section("\\section{How geode-fem Was Designed and Built}", "\\section{Reproducibility}")
+    words = len(built.replace("\\section{How geode-fem Was Designed and Built} \\label{sec:built}", "").split())
+    assert 150 <= words <= 250, words
+    for text in BUILT:
+        assert re.sub(r"\s+", " ", text) in built, text
+    for stale in ["commits", "pull requests from", "co-author trailer", "Counts from repository history",
+                  "earlier full draft", "were corrected or dropped", "Three examples follow", "48 of the 50",
+                  "36 commits"]:
+        assert stale not in built, stale
+    assert not (HERE / "count_provenance.py").exists()
+    assert "frontier" not in built and "The reviews of this paper" not in built
+    assert len(re.findall(r"\\cite\w*\{dunnavant2026whiteroom\}", TEX)) == 1
+    assert "\\url{https://github.com/crutcher/palace_whiteroom}" in refs_entry("dunnavant2026whiteroom")
+    assert "\\url{https://github.com/rjwalters/loom}" in refs_entry("loom")
+    ack = re.sub(r"\s+", " ", BODY[BODY.index("\\paragraph{Acknowledgments.}"):BODY.index("\\bibliographystyle")])
+    assert ack == ACK, ack
+    assert BODY.count("AI-orchestrated") == 1 and "Claude" not in ack and "Codex" not in ack
+    phrase("\\footnote{The geode-fem source is public at \\url{https://github.com/rjwalters/geode-fem}. "
+           "Archival DOI to be added at deposit.}")
+    assert [line for line in TEX.splitlines() if "TODO" in line] == OPEN_TODOS
+    assert "TODO" not in BODY and "[PENDING" not in TEX
+
+
+def check_repro():
+    """SF-6 / S7: solver settings, ranks and mesh sizes of Section 9, from the committed configurations and logs."""
+    base = "reference/fixtures/transmon_palace/results_crosscheck_1092/"
+    cells = {}
+    for line in read_text(base + "cells.txt").splitlines():
+        name, ranks = line.split()
+        cells[name] = int(ranks)
+        cfg = json.loads(read_text(base + name + "/palace_config.json"))
+        e, lin = cfg["Solver"]["Eigenmode"], cfg["Solver"]["Linear"]
+        assert e["Tol"] == 1e-8 and lin["Tol"] == 1e-9, name
+        assert e["Target"] == (3.0 if name.startswith("initial") else 2.0), name
+        h1 = name.endswith("_h_p1")
+        assert lin["Type"] == ("Default" if h1 else "AMS") and (h1 or lin["KSPType"] == "GMRES"), name
+        assert int(ranks) == (16 if h1 else 32), name
+    for name in ["dl_initial", "dl_final"]:
+        e = json.loads(read_text(base + name + "/palace_config.json"))["Solver"]
+        assert (e["Eigenmode"]["Tol"], e["Linear"]["Tol"], e["Eigenmode"]["Target"]) == (1e-6, 1e-7, 2.5)
+    assert "Running with 8 MPI processes" in read_text("reference/fixtures/transmon_palace/results_p1/palace_run_v22.log")
+    contains("Palace's ladder cells use SLEPc shift-invert at tolerance $10^{-8}$, \\texttt{Target} $3.0$ (initial) or "
+             "$2.0$\\,GHz (final), and its default direct solver, SuperLU (order-1 $h$), or AMS-preconditioned GMRES at relative "
+             "tolerance $10^{-9}$, on 16 (order-1 $h$) or 32 MPI ranks; the fixture ran on 8, and the runs at "
+             "DeviceLayout's discretization keep the example's tolerances ($10^{-6}$ and $10^{-7}$, \\texttt{Target} "
+             "$2.5$\\,GHz).")
+    assert "AMS instead of SuperLU" in tomllib.loads(read_text(CROSS))["same_mesh"]["initial"]["note"]   # Fable N4
+    runs = {g: tomllib.loads(read_text(f"benchmarks/transmon_devicelayout_crosscheck/geode_runs/{g}.toml"))["run"]
+            for g in ["initial_h", "initial_h2", "final_h", "final_h2"]}
+    assert {g: r["sigma_ghz"] for g, r in runs.items()} == {"initial_h": 5, "initial_h2": 5, "final_h": 4, "final_h2": 4}
+    assert max(r["max_residual_rel"] for r in runs.values()) < 4e-8
+    contains("On the ladders geode-fem's Lanczos uses shifts of $5$ (initial) and $4$\\,GHz (final), with relative "
+             "residuals below $4\\times10^{-8}$.")
+    prov = read_text(base + "provenance.txt")
+    for n in ["1,066,840", "8,534,720", "1,307,448", "10,459,584"]:
+        assert f"({n} tets)" in prov, n
+    assert runs["initial_h"]["n_tets"] == 133355 and runs["final_h"]["n_tets"] == 163431
+    assert runs["initial_h2"]["n_tets"] == 1066840 and runs["final_h2"]["n_tets"] == 1307448
+    contains("The $h$, $h/2$ and $h/4$ meshes have $133{,}355$, $1{,}066{,}840$ and $8{,}534{,}720$ tetrahedra (initial) "
+             "and $163{,}431$, $1{,}307{,}448$ and $10{,}459{,}584$ (final).")
+    assert "gmsh_jll 4.15.2, Julia 1.10.11" in prov
+    assert "mpich-devel" in read_text("reference/palace/docker/Dockerfile")
+    contains("The meshes were made with gmsh 4.15.2 (\\texttt{gmsh\\_jll}) under Julia 1.10.11, and Palace was built "
+             "against the MPICH of the Rocky Linux 9 image in \\path{reference/palace/docker/Dockerfile}.")
+    fix = read_text("crates/geode-core/tests/fixtures/transmon_smoke.provenance.txt")
+    assert "reference/julia/generate_transmon_fixture.jl" in fix and "DeviceLayout.jl v1.15.0" in fix
+    contains("written by an earlier DeviceLayout.jl v1.15.0 driver, \\path{reference/julia/generate_transmon_fixture.jl}")
+
+
+def check_voice():
+    assert BODY.count("---") == 0, BODY.count("---")   # no em-dash in the body
+    for word in ["honest", "genuine", "transparent", "load-bearing", "load bearing", "emphatically", "elegant",
+                 "earlier version", "this version", "withdraw", "Versions 1", "the tracker", "the ruling",
+                 "deliberately", "supersede", "v8 ", "v9 ", "v12", "Judge", "Doctor"]:
+        assert word.lower() not in BODY.lower(), word
+    body_no_path = re.sub(r"\\path\{[^}]*\}|\\texttt\{[^}]*\}|results_\w+", "", BODY)
+    assert not re.search(r"\\#\d|#\d{3,}", body_no_path), re.findall(r"\\#\d+|#\d{3,}", body_no_path)
+    assert "::" not in re.sub(r"\\texttt\{[^}]*\}", "", BODY)
+    ab = TEX[TEX.index("\\begin{abstract}") + 16:TEX.index("\\end{abstract}")]
+    assert len(ab.split()) <= 200, len(ab.split())    # v12's ~290 words, cut by a third
+    phrase("Our main result is that the published frequencies are discretization-limited")
+    pin("is consistent with that shift", 2)   # Section 1, conclusion (the abstract gives the cap itself)
+    intro = section("\\section{Introduction}", "\\section{Related Work}")
+    concl = section("\\section{Conclusion}", "\\paragraph{Acknowledgments.}")
+    assert "is consistent with that shift and caps the initial qubit under that model" in intro
+    assert "is consistent with that shift and caps the initial qubit under that model" in concl
+    for stale in [r"\bgives? the same shift\b", r"\bsame shift\b(?![-\w])", r"\bby a static route\b",
+                  r"\bconfirms?\b", r"\bcorroborat", r"static route[^.]*\bconfirmed\b", r"\bconfirmed by the static\b",
+                  r"shift[^.]*\bconfirmed\b", r"\bverifies that shift\b", r"\breproduces that shift\b"]:
+        assert not re.search(stale, LOWBODY), stale
+    # Extrapolations are estimates, never converged values.
+    for stale in [r"converged (?:frequenc|value|estimate|design|resolution|target|island|initial|qubit)",
+                  r"\bconv\.", r"the converged "]:
+        assert not re.search(stale, LOWBODY), stale
+    phrase("The band is an extrapolation range, not a bound")
+    phrase("The brackets are the only bounds")
+    phrase("The range is an estimate, because $L_s$ and $k$ are.")
+    assert NORM.lower().count("not a bound") <= 2   # the rule paragraph and a figure legend label at most
+    assert "\\appendix" not in TEX and "\\clearpage" not in BODY
+    # MF-3: the evidence is code-to-code comparison and solution verification, not code verification.
+    assert "code verification" not in LOWBODY
+    phrase("code-to-code comparison and solution verification \\citep{oberkampf2010verification}, not validation "
+           "against measurement")
+    phrase("The agreement above is a code-to-code comparison on one discretization")
+
+
+V10_SHA = "16a3d01fb4c0480687882923d859abdaedf60adffeeed71f308d6e4d0969dd88"
+V11_SHA = "34f7e6ad083cd1ad6ac6c05eb16512c769f9479f1fb47cba30d9ba29e7fd35fb"
+V12_SHA = "55e3797ecdf0771a536aa191b85ea49e113d27d3831236713ec49aaec9671e93"
+V13_SHA = "bf0f115d6476c577cbd522702720de72403a94d1795c57781c03890df00ee563"
+V14_SHA = "c1dbccd7e7e070b46d64c804a3f902b2972b60b86b7b2569943d8d351cb52440"
+TITLE = ("Uniform mesh refinement underestimates the frequencies of the DeviceLayout.jl transmon: an independent "
+         "finite-element cross-check and re-optimization")
+AUTHOR_NOTE = "% NOTE: Crutcher Dunnavant to be offered coauthorship at review (operator, 2026-10-13)"
+BUILT = [
+    "geode-fem implements the whiteroom operator specification of Crutcher Dunnavant "
+    "\\citep{dunnavant2026whiteroom}, whose four layers, L1--L4, restate Palace's cited source as pure functions, "
+    "fused primitives, tensor operations and a small graph-evaluation calculus. He also gave design input on the solver's operator layer and contributed code: "
+    "the migration to Rust 2024, the Metal (Apple GPU) backend, the present layout of the core crate and the "
+    "examples, and the geode-util crate.",
+    "AI models working as role-separated agents: Anthropic's Claude (Opus, Fable and Sonnet models, "
+    "through Claude Code) and OpenAI's GPT Sol and GPT Astra models (via Codex).",
+    "The agents were coordinated by Loom \\citep{loom}, an issue, worktree and pull-request workflow, and by "
+    "Squad, a message room the agents share.",
+    "Nearly every change was reviewed by a separate agent session.",
+    "The agent reviews of this paper recomputed its numbers from the archived artifacts",
+    "The human author directed the research, made every scoping and claim decision, and takes responsibility for "
+    "the content.",
+]
+ACK = ("\\paragraph{Acknowledgments.} We thank Crutcher Dunnavant for the whiteroom specification, for his design "
+       "input to the solver's operator layer and for his contributions to the codebase, and the Palace and "
+       "DeviceLayout.jl developers for publishing the SingleTransmon example and its frequencies. The AI-orchestrated "
+       "development of geode-fem and of this paper is described in Section~\\ref{sec:built}. ")
+# Operator ruling (2026-10-15): the acknowledgment is approved as written; only the DOI marker stays open.
+OPEN_TODOS = ["% TODO(operator): Zenodo DOI"]
+
+
+def main():
+    check_operator_items()
+    check_agreement()
+    cc = check_crosscheck()
+    check_static(cc)
+    opt, slope = check_reopt(cc)
+    check_controls(cc, opt, slope)
+    check_derivative_discussion()
+    check_citations()
+    check_repro()
+    check_voice()
+    print("PASS (v15): C_isl / C_Sigma convention, uniform-mesh rate, plasma vs f01, h/2 same discrete problem from "
+          "Palace's logs, two families on both published designs, PRIMA at three trust radii, quoted SQuADDS wording, "
+          "bibliography notes. Carried from v14: one Palace-run counting rule (Palace-only Newton 4 = 3 + the dl_bp2 probe); identical discrete "
+          "problem only at h/2, Palace's crack bisection from its log and the fixture analysis; no 'code verification'; "
+          "remesh noise against hf_mean and the probe step; the extrapolation-free bracket; the qubit-from-below "
+          "mechanism; E_C and anharmonicity; the L1 bound in code; EPR and transmon citations; solver settings and mesh "
+          "sizes. Carried from v13: same-mesh agreement and fixture refinement shifts; DeviceLayout cross-check (published pairs, "
+          "reproduction, extrapolation rule recomputed from the ladder, bands, cap, same-mesh agreement by mode, the "
+          "at-best-O(h) rate); bounded brackets, gap, conforming levels, overstatement, static route and "
+          "model-dependent cap; re-optimization and controls in one environment (PRIMA 10, Newton 3 three ways, "
+          "Broyden 5), the first-step Jacobian entries, the second family at step 2, the capacitor band recentred on "
+          "the target and reconciled with the two-family union; the derivative discussion and the remedy; citations "
+          "against refs.bib; the operator's rulings (title, validation wording, Section 8); voice and audience rules.")
+
+
+if __name__ == "__main__":
+    main()

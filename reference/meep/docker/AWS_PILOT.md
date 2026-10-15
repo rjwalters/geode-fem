@@ -117,6 +117,10 @@ timeout 2100 docker run --rm --name meep-production \
 
 ## Larger-grid budget constraint
 
+*Superseded for R8 by measured R4 actuals in [AWS_R4.md](AWS_R4.md):
+about 570–585 GiB, so r8g.24xlarge also fits; 15.4 h stepping on
+r8g.48xlarge at ideal efficiency. The original projection is kept below.*
+
 The measured R2 stepping rate changes the planning outlook. If cells scale as
 R³, the CFL step as 1/R, the physical duration stays at t=4433.5, and a 192-core
 r8g.48xlarge gives ideal sixfold throughput relative to this 32-core worker,

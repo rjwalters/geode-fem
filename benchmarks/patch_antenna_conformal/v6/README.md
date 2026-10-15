@@ -15,6 +15,7 @@ All solves ran on AWS (r8g Graviton for geode, r6i x86 for Palace). Hosts are li
 | X3 | Efficiency and gain, and is the band absorber-loaded? | **η_rad = 0.62, FR-4 loss 0.36, broadside gain 4.4–4.6 dBi** (PEC conductors). The power balance closes to 1.2–2.3 %. The air margin moves the dip by at most 2.4 MHz and the band by at most 1.4 MHz. The FEM's own loss fraction gives Q_t ≥ 18.1 against the closed form's 24.5. The bandwidth gap to the closed form, compared on the same VSWR-2 criterion (about 100 against 70.4 MHz), is in the radiation Q. |
 | X4 | Is the 38-DOF basis or the adjoint needed? | **The basis: not to meet the target. The adjoint: yes, for cost.** The 4-parameter rectangle, started cold with the 38-DOF chain's final band shift and given the same feed re-base, meets −10 dB at P2/L1 (−10.33 dB against −10.78 dB, 6 MHz narrower). It used 340 solves against the chain's 655, but the chain's count includes the space-mapping iterations that found that shift. On the 38 DOFs, separable CMA-ES (3 seeds) needs 385–520 solves to reach −9.5 dB against the adjoint's 35 (11–15×). It reaches −10 dB in one seed of three (695 solves against 60), and then matches the adjoint's final −10.04 dB. Within the adjoint's 125 solves the seeds are at −2.66, −2.40 and −2.82 dB. The ratios count factorizations. |
 | X5 | Does a realizable 1.27–1.6 mm feed still cover ISM? | **Yes, on P2/L1.** Re-running the final step with the probe pinned gives a worst-of-band of **−10.62 dB (1.6 mm)** and **−10.65 dB (1.27 mm)**, against −10.78 dB with the 4.27 mm strip. These are P2/L1 passes with about 0.6 dB of margin, less than the 1.35 dB the headline design loses at Palace p = 3, so they are not converged passes. |
+| Palace loop (#1130) | Does a Palace-driven gradient-free search match the adjoint? | **No, at 190 evaluations.** Palace sep-CMA-ES (3 seeds) and PRIMA NEWUOA none reach −10 dB (best −9.95 dB). To −9.5 dB they need 385–805 solves (NEWUOA 420) against the adjoint's 35, and 84–172 min (NEWUOA 90) against about 11 min on the same r6i.4xlarge. Palace's forward evaluation is 11 % cheaper than geode's (64 against 72 s), so the advantage is the gradient. The two forward models agree to 0.004 dB on shared random designs and to 0.24 dB on the optimized ones. |
 
 ## X1: forward-model accuracy (M1)
 
@@ -152,6 +153,54 @@ On its own P1/L1 mesh the rectangle's −10 dB band is **86.9 MHz**, against 93.
 | **re-optimized final step, width pinned** (`x5/rbH_L1_copper_38_sm45_w127`) | **1.27 mm** | **P2/L1** | **−10.65 dB** (−10.65 at 2.400, −11.04 at 2.4835) | |
 
 The 1.6 mm re-optimization ran 10 steps and 130 solves, from −9.58 to −10.70 dB on the shifted band. The 1.27 mm one ran 11 steps and 130 solves, from −9.24 to −10.66 dB. Both stopped distortion-limited. **The 4.3 mm port strip was not what carried the bandwidth.** With an SMA-scale probe the design keeps 92 MHz at P1 and still clears −10 dB across the band at P2/L1. **That pass is at P2/L1, not converged.** X1 shows P2/L1 sits about 8 MHz low on this design family. At Palace p = 3 the headline design loses about 1.35 dB at the 2.400 GHz edge (−10.91 → −9.56 dB), and these margins (0.6 dB) are smaller than that. Read the 1.27/1.6 mm results as "the feed width does not matter", not as converged passes. The patch outline barely changes (49.74 × 28.82 mm). The probe is still an idealized uniform lumped port of the pin's width, and a coax with its own reactance is not modelled.
+
+## Palace in the loop (#1130)
+
+X4's gradient-free baseline used geode as the forward solver, so it isolates the gradient. This section adds the practitioner's baseline: the same gradient-free optimization driven by **Palace**, the tool a designer would otherwise use. Everything is in `palace_loop/`. `scripts/palace_loop_summary.py --write` collects it into `palace_loop/palace_loop_summary.toml`, and `crates/geode-core/tests/patch_conformal_palace_loop.rs` pins it.
+
+**Setup.** The problem is X4's: the 38-DOF copper basis, the soft-max |S11|² objective at the 5 band points, the 0.25 volume guard, the L1 fixture, and x = 0 as the start. `patch_conformal_nested_dof --palace-eval scripts/palace_band_eval.py` keeps geode's morph, guard, objective and optimizer, but hands every band evaluation to Palace. geode writes the moved mesh as MSH 2.2 with the fixture's tags (the X1 path, so no remesh). Palace solves the 5 frequencies directly on it, with no PROM, and geode reads S11 back. The Palace model is X1's (`palace_patch_config.py`): commit `fba6a5b`, the vendored `reference/palace/docker/Dockerfile`, p = 1, GMRES to 1e-8 with the default preconditioner, 16 MPI ranks, the UPML shell as air, and a first-order absorbing outer wall. The PRIMA baseline is NEWUOA, the unconstrained trust-region member of the family DeviceLayout.jl uses. It comes from PRIMA (libprima `43863c69`, built from source) and drives `--eval-server` through `scripts/palace_loop_prima.py`, with `rhobeg` 0.5 (= σ₀), `rhoend` 1e-3 and PRIMA's default 2n + 1 = 77 interpolation points. NEWUOA has no constraints, so a design that fails the guard is answered without a solve, with the penalty 2 + (0.25 − ratio). That happened once in 190 evaluations. Every Palace run ran alone on an r6i.4xlarge.
+
+**Counting** is X4's: one solve is one frequency of the band, the x = 0 evaluation is excluded, and guard-rejected CMA-ES samples cost nothing. NEWUOA's first evaluation is x = 0 itself, and it is counted, as the adjoint's start is. Levels are the worst of the 5 band points, each in that run's own forward model.
+
+### Results
+
+| optimizer (forward solver) | seed | solves to −5 dB | −8 dB | −9 dB | −9.5 dB | −10 dB | best in 190 evaluations | best within the adjoint's 125 solves |
+|---|---|---|---|---|---|---|---|---|
+| adjoint L-BFGS (geode) | – | 20 | 30 | 30 | 35 | 60 | −10.04 dB (125 solves) | −10.04 dB |
+| sep-CMA-ES (geode, X4) | default / 2 / 3 | 275 / 300 / 265 | 370 / 385 / 395 | 405 / 385 / 395 | 520 / 385 / 395 | – / 695 / – | −9.56 (114 evaluations) / −10.02 / −9.77 dB | −2.66 / −2.40 / −2.82 dB |
+| **sep-CMA-ES (Palace)** | default / 2 / 3 | 275 / 300 / 265 | 370 / 385 / 395 | 405 / 385 / 395 | 805 / 385 / 570 | **not reached** | −9.58 / −9.89 / −9.90 dB | −2.66 / −2.40 / −2.83 dB |
+| **PRIMA NEWUOA (Palace)** | – | 405 | 405 | 415 | 420 | **not reached** | −9.95 dB | −1.52 dB |
+
+Wall-clock to the same levels, all on r6i.4xlarge. The Palace rows are measured: the optimizer's own clock, which includes the mesh writes and Palace's start-up. The geode rows are estimated as solves × the measured r6i cost per solve (below), because the X4 and v5 records come from Graviton hosts:
+
+| optimizer (forward solver) | to −5 dB | −8 dB | −9 dB | −9.5 dB | −10 dB |
+|---|---|---|---|---|---|
+| adjoint L-BFGS (geode), estimated | 6.3 min | 9.5 min | 9.5 min | **11.1 min** | 19.0 min |
+| sep-CMA-ES (geode), estimated, seeds default / 2 / 3 | 66 / 72 / 64 min | 89 / 93 / 95 min | 97 / 93 / 95 min | 125 / 93 / 95 min | – / 167 / – min |
+| sep-CMA-ES (Palace), measured, seeds default / 2 / 3 | 59 / 66 / 58 min | 79 / 84 / 86 min | 86 / 84 / 86 min | **172 / 84 / 124 min** | not reached |
+| PRIMA NEWUOA (Palace), measured | 86 min | 86 min | 89 min | **90 min** | not reached |
+
+Cost per band evaluation (5 solves), as the median of 3 at x = 0 on r6i.4xlarge (`palace_loop/costs_*_r6i.toml`):
+
+| | wall per band evaluation | per solve |
+|---|---|---|
+| geode forward (direct LU) | 72.1 s | 14.4 s |
+| geode forward + adjoint (same LU) | 95.1 s | 19.0 s |
+| Palace forward (16 ranks, GMRES + default preconditioner, incl. docker/MPI start-up and partitioning) | 64.4 s | 12.9 s |
+
+What this shows:
+
+- **No Palace-in-the-loop run reaches −10 dB within its 190 evaluations (660–945 solves).** The adjoint reaches −10 dB in 60 solves, or 19 min on this host. To −9.5 dB the Palace runs need 385–805 solves with CMA-ES and 420 with NEWUOA, against the adjoint's 35, which is **11–23× the solves**. In wall-clock that is 84–172 min (CMA-ES) and 90 min (NEWUOA) against an estimated 11 min, **7.6–15.5×**. The wall ratio is smaller than the solve ratio for two reasons: an adjoint evaluation costs 1.32 geode forward evaluations, and Palace's forward evaluation is cheaper than geode's.
+- **Palace's forward solve is the faster one here, by 11 %** (64.4 against 72.1 s per band evaluation on the same host type). The adjoint's advantage is the gradient, not solver speed. A Palace-driven gradient-free search is about 10 % faster in wall-clock than the same search driven by geode: with the same seed it makes the same evaluations to the same levels up to about evaluation 70, where the two trajectories part (next point).
+- **The forward models agree on the shared designs.** With one seed, CMA-ES's first generation is the same 14 designs on both solvers. The guard rejects the same samples, and Palace's worst-of-band matches geode's to **0.004 dB** over all 3 × 14 samples. x = 0 gives −1.4669 against −1.4695 dB. So the same-seed runs follow nearly the same path until about evaluation 70. There they part, because near the optimum the models' small difference re-ranks samples. The difference grows at optimized designs, where the band edge sits on a steep slope. Palace reads the geode adjoint design at **−9.80 dB against geode's −10.04 dB** (the gap is at the 2.400 GHz edge). It reads geode CMA-ES s2 at −9.81 against −10.02 dB. geode reads the four Palace designs at −9.81 to −9.89 dB, within 0.25 dB of Palace's own values, and none of them at −10 dB in either model. A 0.2 dB model difference at −10 dB is the same order as the gap that separates "reached" from "not reached" here, so the −10 dB column compares two slightly different targets. The −9 and −9.5 dB columns do not depend on it.
+- **NEWUOA spends its first 77 evaluations (385 solves) building the interpolation model.** It is at −1.62 dB there, and within the adjoint's 125 solves it has not moved off x = 0 (−1.52 dB). Its first model steps then jump to −9.61 dB in 8 evaluations, and it ends at −9.95 dB, the best of the four Palace runs. With 2n + 1 points that initial phase is close to a finite-difference gradient, about 77 band evaluations for one model gradient, where the adjoint gets one per band evaluation. A smaller `npt` (n + 2 = 40) would start stepping earlier and was not tried.
+- **Negatives and limits.**
+  - Only one setting was tried per optimizer: σ₀ = 0.5 and λ = 14 for CMA-ES, PRIMA's defaults for NEWUOA. A tuned gradient-free method would do better.
+  - The geode wall-clock rows are estimates: solves × the measured per-solve cost at x = 0.
+  - The 190-evaluation budget is X4's s2/s3 budget. The default seed's X4 run had 114 evaluations, so its column compares unequal budgets past evaluation 114.
+  - Palace ran at p = 1 to match geode's P1. X1 shows that p = 1 on L1 sits about 50 MHz low, so none of these levels is a converged-model level (see X1).
+
+Reproducing: each TOML's `[meta].command` gives the command. The Palace runs need the `palace:cpu` image (`reference/palace/docker/Dockerfile`) and pass `--palace-workdir` (scratch). The logs, with host paths scrubbed, are in `palace_loop/logs/`: the runs' stderr, Palace's per-call wall times (`palace_evals_*.log`), and one complete Palace evaluation (`palace_x0_eval/`). AWS spend for the issue was about $16: two r6i.4xlarge for 7.6 and 8.0 h (15.6 instance-hours at $1.008), plus their gp3 volumes.
 
 ## What was not done
 

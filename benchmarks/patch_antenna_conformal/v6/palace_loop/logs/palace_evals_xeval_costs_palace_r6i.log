@@ -1,0 +1,11 @@
+eval_00001 wall_s=64.29 palace_elapsed_s=63.929 np=16 order=1 n_freq=5
+eval_00002 wall_s=65.08 palace_elapsed_s=64.744 np=16 order=1 n_freq=5
+eval_00003 wall_s=64.06 palace_elapsed_s=63.717 np=16 order=1 n_freq=5
+eval_00004 wall_s=63.33 palace_elapsed_s=62.973 np=16 order=1 n_freq=5
+eval_00005 wall_s=108.48 palace_elapsed_s=108.139 np=16 order=1 n_freq=9
+eval_00006 wall_s=63.30 palace_elapsed_s=62.947 np=16 order=1 n_freq=5
+eval_00007 wall_s=106.33 palace_elapsed_s=105.968 np=16 order=1 n_freq=9
+eval_00008 wall_s=64.74 palace_elapsed_s=64.357 np=16 order=1 n_freq=5
+eval_00009 wall_s=106.95 palace_elapsed_s=106.575 np=16 order=1 n_freq=9
+eval_00010 wall_s=64.16 palace_elapsed_s=63.804 np=16 order=1 n_freq=5
+eval_00011 wall_s=109.33 palace_elapsed_s=108.961 np=16 order=1 n_freq=9
