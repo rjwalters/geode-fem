@@ -58,7 +58,7 @@ Palace run reaches $4.4297$\,GHz, $7.0\%$ above the published $4.14$\,GHz,
 with no extrapolation. Extrapolated at order 1 in the mesh size, the two
 qubits lie $7$--$9\%$ and the resonators $2.7\%$ above their published
 values. Order 1 is the fastest rate the sheet-edge singularity allows, so
-these estimates lean low. A certified bracket on the island capacitance,
+these estimates lean low. A two-sided bound on the island capacitance,
 read through a circuit model, is consistent with that shift. At the extrapolated frequencies the $3.0$/$4.0$\,GHz design needs a
 capacitor about
 $19$--$20\%$ longer than published (about $+17\%$ to $+39\%$ within the
@@ -95,7 +95,7 @@ published value without extrapolation, and its uniform ladders extrapolate
 to qubits $7$--$9\%$ above both published values; every uniform level we
 could afford lies below those estimates. geode-fem reproduces every
 level of those ladders it can reach to $10^{-4}\%$ on the qubit, and a
-certified bound on the island capacitance, read through a circuit model, is
+two-sided bound on the island capacitance, read through a circuit model, is
 consistent with that shift and caps the initial qubit under that model.
 
 The second code is GEODE-FEM (``geode-fem''), a Rust finite-element solver
@@ -119,7 +119,7 @@ Our contributions are:
   \item \textbf{A refinement study of a published design example}, with
     a second refinement family and an adaptive run checking the qubit
     estimate (Section~\ref{sec:crosscheck}).
-  \item \textbf{Certified capacitance brackets with the sapphire tensor.}
+  \item \textbf{Two-sided capacitance bounds with the sapphire tensor.}
     An equilibrated-flux lower bound and a conforming upper bound bracket
     the island capacitance of the unmodified device in $[79.56,
     79.76]$\,fF; under a two-node circuit model they cap the initial qubit
@@ -159,7 +159,7 @@ for Maxwell cavity eigenvalues \citep{akcelik2005adjoint}; Palace exposes no
 derivatives.
 In qubit design, SQcircuit \citep{rajabzadeh2023analysis} and
 SuperGrad \citep{wang2025supergrad} differentiate circuit Hamiltonians,
-SQuADDS \citep{shanto2024squadds} looks designs up in a validated
+SQuADDS \citep{shanto2024squadds} looks designs up in a curated
 database, and \citet{eun2023shape} shape-optimize transmon pads with FEM
 and a derivative-free optimizer.
 DeviceLayout's example optimizes with PRIMA \citep{zhang2023prima}, a
@@ -167,14 +167,14 @@ reference implementation of Powell's model-based derivative-free methods,
 which build an interpolation model of the objective from function values;
 with bounds only it runs BOBYQA \citep{powell2009bobyqa}.
 
-\paragraph{Certified two-sided capacitance bounds.}
+\paragraph{Two-sided capacitance bounds.}
 Bracketing a capacitance between complementary energy principles is
 classical \citep{specogna2011complementary}. Our lower bound uses the
 hypercircle idea of \citet{prager1947approximations} with Raviart--Thomas
 fluxes \citep{raviart1977mixed} equilibrated patch by patch
 \citep{braess2007equilibrated,ern2015polynomial}. The method is not new; we
 apply it to an island capacitance with a floating conductor on a
-production qubit layout, and we have found no certified capacitance bound in the
+production qubit layout, and we have found no two-sided capacitance bound in the
 qubit-design literature.
 
 \section{Solvers, Device and Models}
@@ -544,10 +544,10 @@ alone moves the initial-qubit fit by $20$\,MHz.
   \label{fig:initialq}
 \end{figure}
 
-\section{A Static Route: Certified Island Capacitance}
+\section{A Static Route: A Bounded Island Capacitance}
 \label{sec:static}
 
-\paragraph{The certificate.}
+\paragraph{The bound.}
 For the reduced electrostatic problem (island at potential 1, ground and
 resonator at 0, feedline floating with zero net charge), the potential
 $\phi$ satisfies $0 \le \phi \le 1$ by the maximum principle, and
@@ -581,12 +581,13 @@ polynomial $\lVert p\rVert_{L^2}^2$ is integrated exactly (degree $2k$ for
 Raviart--Thomas order $k$, against rules exact to degree $2k+2$ or more). We
 take $D$ from the P2 potential, equilibrated patch by patch into
 Raviart--Thomas fluxes of order one to three, with an independent
-Crouzeix--Raviart flux as a check. The construction is validated against
-an exact parallel plate and an analytic coaxial bracket, and mutation tests
-reject a grounded-feedline or jump-free certificate. \emph{Certified} in this paper means rigorous
-for the discrete polygonal geometry of the mesh, with lower bounds
-floored and upper bounds ceiled. The certificate is evaluated in plain
-f64, not interval arithmetic; the worst-case summation error is about
+Crouzeix--Raviart flux as a check. The two bounds hold by theorem, for the
+exact arithmetic of the discretization on the polygonal geometry of the
+mesh, with lower bounds floored and upper bounds ceiled; the implementation
+is checked by tests, not formally verified. The tests compare it with an
+exact parallel plate and an analytic coaxial bracket, and mutation tests
+reject a grounded-feedline or jump-free lower bound. The bound is evaluated
+in plain f64, not interval arithmetic; the worst-case summation error is about
 $10^{-10}$ relative, far below the rounding. Refinement does not move the
 polygonal surfaces, so all meshes of one geometry bound the same exact
 capacitance, and a family bracket is the largest lower bound and the
@@ -597,10 +598,10 @@ Uniform refinement of the fixture with P1 and P2 elements gives the upper
 bounds of Figure~\ref{fig:convergence}: with the scalar model, from
 $137.706752$\,fF at P1 on $h$ to $83.015285$\,fF at P2 on $h/2$, and with
 the tensor from $136.684731$ to $85.008425$\,fF. On adaptively refined meshes the
-certificate closes the gap: the island capacitance of the unmodified
-initial design lies in $[77.40, 77.61]$\,fF with the scalar
-$\bar\varepsilon$ and in $[79.56, 79.76]$\,fF with the sapphire tensor
-(Figure~\ref{fig:convergence}). The certified tensor-minus-scalar
+lower bound closes the gap: the island capacitance of the unmodified
+initial design is bounded by $[77.40, 77.61]$\,fF with the scalar
+$\bar\varepsilon$ and by $[79.56, 79.76]$\,fF with the sapphire tensor
+(Figure~\ref{fig:convergence}). The bounded tensor-minus-scalar
 difference, computed from the unrounded bounds, is $1.95$--$2.35$\,fF, or
 $2.5$--$3.1\%$ of the scalar value. The fixture itself overstates the
 tensor $C_\Sigma$ by at least $56.92$\,fF, which is at least $71.3\%$ of
@@ -613,10 +614,10 @@ the exact value, and the scalar one by at least $77.4\%$.
   unmodified device under uniform refinement of the fixture, with the scalar trace-averaged
   permittivity (blue) and the sapphire tensor (orange). Every marker is a
   conforming upper bound on the exact capacitance of the meshed polygonal
-  geometry. The short bars are the certified two-sided brackets from
+  geometry. The short bars are the two-sided bounds from
   adapted meshes, each drawn at the tetrahedron count of the mesh that
   sets its lower bound ($3{,}289{,}543$ and $3{,}388{,}197$) and magnified
-  in the inset on a fF scale; the inset title gives the certified
+  in the inset on a fF scale; the inset title gives the bounded
   tensor-minus-scalar gap. Sources: \texttt{c\_sigma\_convergence.toml},
   \texttt{c\_sigma\_bracket.toml} and
   \texttt{c\_sigma\_bracket\_tensor.toml}.}
@@ -624,7 +625,7 @@ the exact value, and the scalar one by at least $77.4\%$.
 \end{figure}
 
 \paragraph{From capacitance to the qubit frequency.}
-Reading the certified tensor bracket through the two-node circuit of
+Reading the tensor bound through the two-node circuit of
 Section~\ref{sec:junction}, over every corner of the $C_\Sigma$, $L_s$ and
 $k$ bands, with the resonator at its extrapolated estimate, gives the
 initial dressed qubit in $[4.449, 4.458]$\,GHz. That range lies inside the
@@ -636,13 +637,13 @@ prediction. The range is an estimate, because $L_s$ and $k$ are.
 
 \paragraph{A model-dependent cap.}
 Under the circuit model, a series inductance and a coupling to a higher
-mode can only lower the qubit, so the certified lower bound $C_\Sigma \ge
+mode can only lower the qubit, so the lower bound $C_\Sigma \ge
 79.56$\,fF caps it at $1/(2\pi\sqrt{L_J(C_\Sigma + C_J)}) = 4.477$\,GHz.
 The cap is rigorous only given that model (one island node with $L_J
 \parallel C_J$, $L_s \ge 0$, coupling only to modes above the qubit, a
 quasi-static $C_\Sigma$) and rests on the fixture, not on the ladder meshes,
 which agree with it to $0.02\%$ at $h$, so we list it as model-dependent,
-not certified. It trims the band's observed-order high side ($4.677$\,GHz)
+not bounded. It trims the band's observed-order high side ($4.677$\,GHz)
 and does not depend on the extrapolation rule. Every computed level and both family
 estimates lie below it; the first family's common-limit fit, $4.4802$\,GHz,
 exceeds it by $3.6$\,MHz, within that fit's conditioning. With no
@@ -935,8 +936,8 @@ above the two published qubits, are lower estimates if the rise continues.
 
 \begin{table}[htbp]
   \centering
-  \caption{Evidence tiers. Certified: a guaranteed bound for the meshed
-  polygonal geometry. Model-dependent: a rigorous consequence of a certified
+  \caption{Evidence tiers. Bounded: a two-sided bound that holds by theorem
+  for the meshed polygonal geometry. Model-dependent: a rigorous consequence of a
   bound under a stated circuit model. Measured: a solve on a stated
   discretization. Estimated: an extrapolation with a stated rule.
   Consistency: an agreement that is not independent evidence.}
@@ -946,8 +947,8 @@ above the two published qubits, are lower estimates if the rise continues.
     \toprule
     Tier & Results \\
     \midrule
-    Certified & $C_\Sigma$ of the unmodified device: $[77.40, 77.61]$\,fF (scalar), $[79.56, 79.76]$\,fF (tensor); tensor-minus-scalar gap $2.5$--$3.1\%$ \\
-    Model-dependent & The initial-qubit cap of $4.477$\,GHz: two-node circuit, quasi-static $C_\Sigma$, bracket certified on the fixture's polygonal geometry, not on the ladder meshes; with the adaptive level, the initial qubit between $4.4297$ and $4.477$\,GHz ($+7.0$ to $+8.1\%$) if the rise continues \\
+    Bounded & $C_\Sigma$ of the unmodified device: $[77.40, 77.61]$\,fF (scalar), $[79.56, 79.76]$\,fF (tensor); tensor-minus-scalar gap $2.5$--$3.1\%$ \\
+    Model-dependent & The initial-qubit cap of $4.477$\,GHz: two-node circuit, quasi-static $C_\Sigma$, bounded on the fixture's polygonal geometry, not on the ladder meshes; with the adaptive level, the initial qubit between $4.4297$ and $4.477$\,GHz ($+7.0$ to $+8.1\%$) if the rise continues \\
     Measured & Same-mesh agreement (Table~\ref{tab:agreement}); the reproduction within $0.7\%$; every ladder and adaptive level (adaptive initial qubit $+7.0\%$, finest uniform levels $+4.1\%$ and $+4.7\%$); the gradient check; Palace runs to DeviceLayout's criterion in one environment, probes counted, one trajectory each: 3 for each Newton variant with the geode-fem $\delta$, 4 with the Palace $\delta$, 5 for Broyden's method, 10 for PRIMA \\
     Estimated & Extrapolated frequencies and bands (Table~\ref{tab:crosscheck}), the initial qubit $4.444$--$4.472$\,GHz over two refinement families; the adaptive fit and the common-limit fits; the static-route qubit range; $L_s$ and $k$; the re-optimized capacitor, $+19$ to $+20\%$ over two families and about $+17$ to $+39\%$ within the band \\
     Consistency & The two routes agree to $0.22\%$ on the initial qubit; the extrapolation rule was fixed after the static route was known, so this is not a blind prediction \\
@@ -1021,7 +1022,7 @@ Palace reproduces the published DeviceLayout.jl SingleTransmon
 frequencies at the example's own discretization, which sits $6$--$8\%$ low on the qubits: an adaptive run puts the
 initial qubit $7.0\%$ above its published value with no extrapolation, and
 the estimates, which lean low, put both qubits $7$--$9\%$ above. geode-fem
-reproduces Palace's qubit on every level both codes ran, and a certified
+reproduces Palace's qubit on every level both codes ran, and a two-sided
 bracket on the island capacitance, read through a circuit model, is
 consistent with that shift and caps the initial qubit under that model. At
 the extrapolated frequencies the $3.0$/$4.0$\,GHz design needs a capacitor

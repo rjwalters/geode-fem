@@ -19,7 +19,7 @@ Environment: Python 3.14, NumPy 2.4.1, Matplotlib 3.10.8; Poppler; TeX Live / pd
 - `python3.14 verify_figures.py`: PASS. Figures 3 and 5 were regenerated
   byte-identically. Figures 1, 2 and 4 are byte-identical to v9 (Figure 1) and
   v13 (Figures 2 and 4).
-- STEP 0 (certificate L¹ terms): a code reading of `electrostatic_dual.rs`
+- STEP 0 (lower-bound L¹ terms): a code reading of `electrostatic_dual.rs`
   shows a rigorous upper bound via |S|^½‖·‖_{L²} with exact quadrature of the
   squared polygonal integrands. See `changelog.md`.
 - Citations: Koch et al. 2007 and Minev et al. 2021 were resolved via Crossref

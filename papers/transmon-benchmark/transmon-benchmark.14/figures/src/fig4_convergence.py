@@ -5,17 +5,17 @@ Sources:
 - benchmarks/transmon_diffopt/c_sigma_convergence.toml: [[x0]] (scalar eps, P1
   at h, h/2, h/4 and P2 at h, h/2) and [tensor_eps] (P1 at h, h/2, h/4);
 - benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml: [[uniform_x0_tensor_p2]]
-  (tensor P2 at h, h/2), [bracket_x0_tensor] and [gap_x0] (certified tensor
-  bracket and the certified scalar-tensor gap; the artifact's relative gap is
+  (tensor P2 at h, h/2), [bracket_x0_tensor] and [gap_x0] (bounded tensor
+  bracket and the bounded scalar-tensor gap; the artifact's relative gap is
   outward against the unrounded bounds, and the inset title rounds it outward
   again to 0.1 %, which also covers the rounded fF bounds);
-- benchmarks/transmon_diffopt/c_sigma_bracket.toml: [bracket_x0] (certified
+- benchmarks/transmon_diffopt/c_sigma_bracket.toml: [bracket_x0] (bounded
   scalar bracket).
 
 One hue per permittivity model (blue scalar, orange tensor), one marker per
 element order. Every marker is a conforming value and therefore an upper bound
 on the exact C_Sigma of the meshed polygonal geometry. The two bars are
-certified two-sided brackets from adapted meshes, each drawn at the
+two-sided bounds from adapted meshes, each drawn at the
 tetrahedron count of the mesh that sets its lower bound (3,289,543 and
 3,388,197); an inset magnifies them (each is about 0.2 fF tall) on a fF scale. No
 design target is drawn. No data value is hard-coded here.
@@ -54,9 +54,9 @@ def main():
                 va='bottom', fontsize=8, color=BLUE)
     bar = dict(lw=4, solid_capstyle='butt', marker='_', ms=12, mew=2.5)   # end marks keep the 0.2 fF bars visible
     ax.plot([n_sb, n_sb], [sb['lower_ff'], sb['upper_ff']], color=BLUE, **bar,
-            label=f"certified, scalar: {sb['lower_ff']:.2f}–{sb['upper_ff']:.2f} fF")
+            label=f"bounded, scalar: {sb['lower_ff']:.2f}–{sb['upper_ff']:.2f} fF")
     ax.plot([n_tb, n_tb], [tb['lower_ff'], tb['upper_ff']], color=ORANGE, **bar,
-            label=f"certified, tensor: {tb['lower_ff']:.2f}–{tb['upper_ff']:.2f} fF")
+            label=f"bounded, tensor: {tb['lower_ff']:.2f}–{tb['upper_ff']:.2f} fF")
     ax.set_xscale('log')
     ax.set(xlim=(1e5, 2.4e7), ylim=(70, 145), ylabel=r'$C_\Sigma$, unmodified device (fF)',
            xlabel=r'Tetrahedra (uniform: $h$, $h/2$, $h/4$; bars: adapted meshes)')
@@ -71,9 +71,9 @@ def main():
     ins.set_ylabel('fF', fontsize=8, labelpad=1)
     ins.set_xticklabels(['scalar', 'tensor'], fontsize=8)
     gap = tens['gap_x0']
-    rel = gap['tensor_minus_scalar_relative']               # certified, rounded outward in the artifact
+    rel = gap['tensor_minus_scalar_relative']               # bounded, rounded outward in the artifact
     lo, hi = math.floor(1000 * rel[0]) / 10, math.ceil(1000 * rel[1]) / 10   # outward again, to 0.1 %
-    ins.set_title(f"certified brackets\ngap {lo:.1f}–{hi:.1f}%", fontsize=8, linespacing=1.2)
+    ins.set_title(f"two-sided bounds\ngap {lo:.1f}–{hi:.1f}%", fontsize=8, linespacing=1.2)
     for side in ['top', 'right']:
         ins.spines[side].set_visible(True)
     fig.legend(*ax.get_legend_handles_labels(), loc='lower center', bbox_to_anchor=(.5, .0), ncol=2,

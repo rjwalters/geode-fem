@@ -14,12 +14,12 @@ rendering, not the physics; no field solve is run.
    Figure 1 (PDF and scripts) must be byte-identical to v9's.
 3. Figure-specific content, from the PDFs' extracted text and the committed
    artifacts: the cross-check estimates and their labels (Figure 2), the
-   certified scalar and tensor brackets and the gap, with no design target
+   bounded scalar and tensor brackets and the gap, with no design target
    drawn (Figure 4), the re-optimization's labels and the controls (Figure 5),
    the initial-qubit checks (Figure 3). Extrapolations are labelled
    "extrapolated", never "converged".
 3b. Data coordinates (check_coordinates), which text and hash checks cannot
-   see: each certified bracket in Figure 4 is drawn at the tetrahedron count of
+   see: each bounded bracket in Figure 4 is drawn at the tetrahedron count of
    the mesh that sets its lower bound; Figure 5(a)'s mapped band is centred on
    the 3.0 GHz target, Figure 5(b) plots PRIMA's ten runs in our environment
    and the Palace-only Newton, with err capped at 1, and Figure 5(c, d) carries
@@ -32,7 +32,7 @@ Newton under the one counting rule (its run 2 is Broyden's L probe, the run that
 sets its delta), labels the published-PRIMA star as the err of the published
 frequencies and widens the gap between the (a, b) x-labels and the (c, d)
 titles; Figure 3 draws family b with larger unfilled markers so that a level
-coinciding with family a stays visible. Figures 1, 2 and 4 are v13's bytes.
+coinciding with family a stays visible. Figures 2 and 4 replace "certified" with "bounded" (operator ruling); Figure 1 is v9's bytes.
 """
 from pathlib import Path
 import hashlib
@@ -92,11 +92,9 @@ def check_regeneration():
     assert before == after, 'regenerated figure bytes differ from the committed PDFs'
     v9 = HERE.parent / 'transmon-benchmark.9' / 'figures'
     assert sha(FIG / 'fig1-geometry.pdf') == sha(v9 / 'fig1-geometry.pdf')
-    v13 = HERE.parent / 'transmon-benchmark.13' / 'figures'
-    for name in ['fig2-crosscheck.pdf', 'fig4-convergence.pdf']:
-        assert sha(FIG / name) == sha(v13 / name), name
-    for name in ['fig2_crosscheck.py', 'fig4_convergence.py']:
-        assert (SRC / name).read_bytes() == (v13 / 'src' / name).read_bytes(), name
+    # Operator ruling (#1129): no "certified" anywhere in the v14 figures or their scripts.
+    for script in SRC.glob('*.py'):
+        assert 'certif' not in script.read_text().lower(), script.name
     for name in ['fig1_geometry.py', 'geometry_mesh.py', 'figure_style.py']:
         assert (SRC / name).read_bytes() == (v9 / 'src' / name).read_bytes(), name
     for name in NAMES:
@@ -108,6 +106,7 @@ def check_regeneration():
 def check_content():
     every = {name: text(name) for name in NAMES}
     for name, t in every.items():
+        assert 'ertified' not in t, name
         for stale in ['anchor', '93.95', '93.14', '89.9', 'spurious', 'Same-mesh', 'within 1%', 'passed',
                       'onverged', 'conv.', 'geode-gradient']:
             assert stale not in t, (name, stale)
@@ -120,7 +119,7 @@ def check_content():
             assert label in t2, label
     for label in ['published (DeviceLayout)', 'Palace, order 1', 'Palace, order 2', 'geode-fem, order 1 (same meshes)',
                   "Palace at DeviceLayout's discretization", 'extrapolation band (not a bound)', 'extrapolated estimate',
-                  'static route (certified', 'circuit-model cap from the certified bound', 'estimate, second refinement family',
+                  'static route (bounded', 'circuit-model cap from the lower bound', 'estimate, second refinement family',
                   'h→0']:
         assert label in t2, label
     t3 = every['fig4-convergence']
@@ -130,13 +129,13 @@ def check_content():
     for b in [sb, tb]:
         assert f"{b['lower_ff']:.2f}–{b['upper_ff']:.2f} fF" in t3
     rel = gap['tensor_minus_scalar_relative']
-    # Certified, so rounded outward: against the floored/ceiled fF gap and the scalar bracket too.
+    # A bound, so rounded outward: against the floored/ceiled fF gap and the scalar bracket too.
     lo = min(rel[0], gap['tensor_minus_scalar_lower_ff'] / gap['scalar_upper_ff'])
     hi = max(rel[1], gap['tensor_minus_scalar_upper_ff'] / gap['scalar_lower_ff'])
     shown = (math.floor(1000 * lo) / 10, math.ceil(1000 * hi) / 10)
     assert shown == (2.5, 3.1), shown
     assert f"gap {shown[0]:.1f}–{shown[1]:.1f}%" in t3
-    assert 'gap 2.5–3.1%' in t3 and 'P2, sapphire tensor' in t3 and 'certified, tensor' in t3
+    assert 'gap 2.5–3.1%' in t3 and 'P2, sapphire tensor' in t3 and 'bounded, tensor' in t3 and 'two-sided bounds' in t3
     assert 'unmodified device (fF)' in t3 and 'of X' not in t3
     assert 'Every marker is an upper bound' not in t3   # the caption says it; the figure no longer repeats it
     tq = every['fig3-initial-qubit']
@@ -162,7 +161,7 @@ def check_content():
 
 
 def check_coordinates():
-    """Figure 4's certified bars sit at the true tetrahedron counts (rebuilt from the script, not the PDF)."""
+    """Figure 4's bounded bars sit at the true tetrahedron counts (rebuilt from the script, not the PDF)."""
     import importlib.util
     import matplotlib
     matplotlib.use('Agg')
@@ -274,7 +273,7 @@ def check_manuscript():
     assert labels == LABELS, labels
     for wording in ['the extrapolated estimate with its band', 'the static route of Section~\\ref{sec:static}',
                     'Every marker is a conforming upper bound on the exact capacitance of the meshed polygonal geometry',
-                    'certified two-sided brackets from adapted meshes', 'magnified in the inset',
+                    'two-sided bounds from adapted meshes', 'magnified in the inset',
                     'mapped linearly to capacitor\\_length around the $3.0$\\,GHz target (an estimate)',
                     "PRIMA's published end point is plotted at its 9 runs and at the err of its published frequencies, "
                     "$1.15\\times10^{-5}$ (DeviceLayout's environment; the same design gives $1.5\\times10^{-5}$ in ours)",
@@ -296,7 +295,7 @@ def main():
     check_coordinates()
     check_manuscript()
     print('PASS: input hashes, byte-identical regeneration of five figures (Figure 1 as in v9), widths, figure content '
-          'against the artifacts, the certified bars at their true mesh sizes, Figure 5 band, controls and second family, '
+          'against the artifacts, the bounded bars at their true mesh sizes, Figure 5 band, controls and second family, '
           'Figure 3 without the resonator fit, inclusion order and caption wording.')
 
 

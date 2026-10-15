@@ -10,7 +10,7 @@ meshes), Palace on DeviceLayout's own second-order mesh with its configfile
 (DeviceLayout's discretization), the published value, and at the right the
 extrapolated estimate with its band. The estimate and band are extrapolations,
 not bounds. For the initial qubit the static route ([static_cross_check.initial]:
-the certified sapphire-tensor C_Sigma of X0 read through the two-node circuit)
+the bounded sapphire-tensor C_Sigma of X0 read through the two-node circuit)
 is drawn too, with the circuit-model cap. For the initial geometry the
 estimate of the second refinement family (benchmarks/transmon_devicelayout_controls/
 results.toml [mesh_family.initial]: the same h mesh refined by Palace instead of
@@ -52,9 +52,9 @@ def panel(ax, data, fam, geom, mode, title):
         a, b = st['dressed_f_q_band_ghz']
         ax.errorbar([CONV_X + .48], [(a + b) / 2], yerr=[[(b - a) / 2], [(b - a) / 2]], color=TEAL,
                     marker='D', ms=4.5, lw=0, elinewidth=2, capsize=3,
-                    label='static route (certified $C_\\Sigma$ + circuit)', zorder=4)
+                    label='static route (bounded $C_\\Sigma$ + circuit)', zorder=4)
         ax.plot([CONV_X - .28, CONV_X + .68], [cap, cap], color=TEAL, ls=':', lw=1.3,
-                label='circuit-model cap from the certified bound', zorder=2)
+                label='circuit-model cap from the lower bound', zorder=2)
     ax.set_xticks(list(range(3)) + [CONV_X])
     ax.set_xticklabels(LEVELS + ['$h\\to0$'])
     ax.set_xlim(-.4, CONV_X + .8)

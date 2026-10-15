@@ -12,7 +12,7 @@ remeshed first-order difference against hf_mean (a mean of endpoint
 derivatives) and the Broyden probe step; the extrapolation-free bracket
 [4.4297, 4.477] GHz; the qubit-from-below mechanism (1.67 against 1.66-1.68);
 the E_C/anharmonicity translation; the two delta values (2.6x); the L1 bound of
-the certificate; the EPR and transmon citations; the solver settings and mesh
+the lower bound; the EPR and transmon citations; the solver settings and mesh
 sizes of Section 9. v13's checks follow:
 
 - the same-input-mesh agreement (Table 1) and the refinement shifts of the fixture;
@@ -20,7 +20,7 @@ sizes of Section 9. v13's checks follow:
   discretization, the extrapolation rule recomputed from the ladder cells, bands,
   the circuit cap, same-mesh agreement (qubit and resonator stated separately),
   the rate wording (at best O(h), so order-1 estimates lean low);
-- the certified island capacitance: scalar and tensor brackets, the certified
+- the bounded island capacitance: scalar and tensor brackets, the bounded
   scalar-tensor gap, the conforming levels, the coarse-mesh overstatement, the
   static route and the model-dependent cap;
 - the re-optimization (Tables 3 and 4): the controls in one Palace environment
@@ -40,7 +40,7 @@ sizes of Section 9. v13's checks follow:
   labels, no em-dash, extrapolations never called converged values.
 
 Bounds, bands and percentages are recomputed from the committed values with
-their rounding direction. Certified lower bounds, the extrapolated circuit
+their rounding direction. Lower bounds, the extrapolated circuit
 terms and the ladder cells are transcribed from the artifacts, not recomputed.
 It is not a physics re-run or an independent paper audit. Run from any
 working directory.
@@ -361,7 +361,7 @@ def check_crosscheck():
 
 
 # --------------------------------------------------------------------------
-# Section 6: certified island capacitance and the static route
+# Section 6: bounded island capacitance and the static route
 # --------------------------------------------------------------------------
 
 def check_static(cc):
@@ -446,7 +446,16 @@ def check_static(cc):
     assert "let tet_q = duffy_tet(k + 3);" in src and "let tri_q = duffy_tri(k + 2);" in src
     assert "exact for total degree `2n − 3`" in src and "exact for\n/// total degree `2n − 2`" in src
     assert src.count("int2.max(0.0).sqrt()") == 1 and src.count("div2.max(0.0).sqrt()") == 1
-    assert not re.search(r"\bcertified (?:circuit )?cap\b", LOWBODY), "the cap is model-dependent, not certified"
+    # Operator ruling (#1129): no "certified" in v14; bounds are "bounded by [a, b]", with one stated caveat.
+    assert "certif" not in TEX.lower(), [m.start() for m in re.finditer("certif", TEX.lower())]
+    for word in ["validated", "demonstrated"]:
+        assert word not in LOWBODY, word
+    contains("The two bounds hold by theorem, for the exact arithmetic of the discretization on the polygonal "
+             "geometry of the mesh, with lower bounds floored and upper bounds ceiled; the implementation is checked "
+             "by tests, not formally verified.")
+    contains("initial design is bounded by $[77.40, 77.61]$\\,fF with the scalar $\\bar\\varepsilon$ and by "
+             "$[79.56, 79.76]$\\,fF with the sapphire tensor")
+    contains("Bounded: a two-sided bound that holds by theorem for the meshed polygonal geometry.")
     contains("caps it at $1/(2\\pi\\sqrt{L_J(C_\\Sigma + C_J)}) = 4.477$\\,GHz")
     assert f"{-st['eigen_estimate_minus_static_mid_pct']:.2f}" == "0.22"
     contains("the first family's estimate is $0.22\\%$ below its midpoint")
@@ -459,12 +468,12 @@ def check_static(cc):
              .split("\\\\")}
     assert [k for k in tiers if "0.22" in tiers[k]] == ["Consistency"], tiers.keys()
     assert "not a blind prediction" in tiers["Consistency"]
-    contains("Certified & $C_\\Sigma$ of the unmodified device: $[77.40, 77.61]$\\,fF (scalar), $[79.56, 79.76]$\\,fF "
+    contains("Bounded & $C_\\Sigma$ of the unmodified device: $[77.40, 77.61]$\\,fF (scalar), $[79.56, 79.76]$\\,fF "
              "(tensor); tensor-minus-scalar gap $2.5$--$3.1\\%$ \\\\")
     tier = lambda name: next(v for k, v in tiers.items() if k.endswith(name))
-    assert "4.477" not in tier("Certified") and "4.477" in tier("Model-dependent")
+    assert "4.477" not in tier("Bounded") and "4.477" in tier("Model-dependent")
     contains("Model-dependent & The initial-qubit cap of $4.477$\\,GHz: two-node circuit, quasi-static $C_\\Sigma$, "
-             "bracket certified on the fixture's polygonal geometry, not on the ladder meshes; with the adaptive level, "
+             "bounded on the fixture's polygonal geometry, not on the ladder meshes; with the adaptive level, "
              "the initial qubit between $4.4297$ and $4.477$\\,GHz ($+7.0$ to $+8.1\\%$) if the rise continues \\\\")
     contains("Not claimed & Agreement with measurement; a verified hit of $3.0$/$4.0$\\,GHz in the $h \\to 0$ limit; "
              "a global optimum; an advantage of the shape derivative on this problem; eigenmode-participation (EPR) "
@@ -858,7 +867,7 @@ def check_controls(cc, opt, slope):
     contains(f"the first family's common-limit fit, ${lim['initial_q'][1]:.4f}$\\,GHz, exceeds it by "
              f"${1000 * exc:.1f}$\\,MHz, within that fit's conditioning")
     assert lim["family_b_initial_q"][1] < cap["f_q_ghz"] and f["all_estimates_below_cap"]
-    contains("so we list it as model-dependent, not certified")
+    contains("so we list it as model-dependent, not bounded")
     # The attribution: no run count or design credited to the shape derivative.
     for stale in ["Cost to the criterion", "price of entry", "bounds implementation error", "makes it cheap",
                   "$7$--$9\\%$ below", "Jacobian comes from", "Gradient-Assisted", "gradient re-optimization",
@@ -990,7 +999,7 @@ def check_citations():
                     r"\bfirst (?:shape|adjoint|gradient|differentiable|sensitivity)"]:
         assert not re.search(pattern, LOWBODY), pattern
     phrase("The method is not new; we apply it")
-    phrase("and we have found no certified capacitance bound in the qubit-design literature")
+    phrase("and we have found no two-sided capacitance bound in the qubit-design literature")
     # The example's own caveat, quoted as DeviceLayout v1.15.0 docs/src/examples/singletransmon.md states it for
     # the order-2 runs (the "quite sensitive" remark there is about the order-1 demo only).
     phrase("They run Palace at second order ``to reduce sensitivity to the discretization'' and note that this "
@@ -1188,7 +1197,7 @@ def main():
           "mechanism; E_C and anharmonicity; the L1 bound in code; EPR and transmon citations; solver settings and mesh "
           "sizes. Carried from v13: same-mesh agreement and fixture refinement shifts; DeviceLayout cross-check (published pairs, "
           "reproduction, extrapolation rule recomputed from the ladder, bands, cap, same-mesh agreement by mode, the "
-          "at-best-O(h) rate); certified brackets, gap, conforming levels, overstatement, static route and "
+          "at-best-O(h) rate); bounded brackets, gap, conforming levels, overstatement, static route and "
           "model-dependent cap; re-optimization and controls in one environment (PRIMA 10, Newton 3 three ways, "
           "Broyden 5), the first-step Jacobian entries, the second family at step 2, the capacitor band recentred on "
           "the target and reconciled with the two-family union; the derivative discussion and the remedy; citations "

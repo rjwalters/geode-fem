@@ -8,7 +8,7 @@ figure-script changes only. One new committed analysis
 (`benchmarks/transmon_eigen/palace_crack/`) supports the Section 4 bisection
 claim. No solver or `cargo` was run.
 
-## Step 0: is the certified tier rigorous? (Opus SF-3)
+## Step 0: is the bounded tier rigorous? (Opus SF-3)
 
 `crates/geode-core/src/assembly/electrostatic_dual.rs`, `certify_impl`: the
 L¹ terms of Eq. (3) are never integrated as quadrature of |p|. Each face term
@@ -55,6 +55,8 @@ says so in one sentence, and `verify_evidence.py` pins the code lines.
 | Judge B2 (CI) | `fixture_crack_edges.toml` missing from the benchmark-provenance manifest | Added as an exempt (stdlib, non-Burn) entry in `crates/geode-core/tests/benchmark_provenance.rs`. |
 | Judge B3 | Abstract and conclusion blur which inputs the 3-run count needs | Both now say: 3 runs with geode-fem's derivative, or a scaling law with geode-fem's resonator calibration; 4 with no geode-fem input; PRIMA 10. |
 | Judge nits | §6 states the heuristic before labelling it; §7 "measures the slope" | "should approach its limit from below"; "is consistent with the slope". |
+| Judge re-verdict (b01452b1) | The cut sentence that the implementation is checked by tests, not formally verified | Restored in §6 as the paper's single statement of why the bound holds: by theorem, for the exact arithmetic of the discretization on the mesh's polygonal geometry, with the implementation checked by tests, not formally verified. A `contains()` guard in `verify_evidence.py` keeps it from being cut again. |
+| Operator ruling on #1129 (voice.md) | Stop using "certified" | Every use is gone from main.tex, including the §6 title and definition, the Table 5 tier (now **Bounded**; Model-dependent, Measured, Estimated and Consistency rows kept) and the abstract, §1, §2 and conclusion. Results are stated as "bounded by [a, b]". The Figure 2 and 4 labels now read "bounded" / "two-sided bounds" / "cap from the lower bound", so those PDFs are no longer v13's bytes. "Validated" and "demonstrated" are not used as replacements; the §6 test sentence and SQuADDS's "validated database" were reworded ("curated"). Both verifiers reject "certif" (main.tex, figure text, figure scripts), and `verify_evidence.py` also rejects "validated" and "demonstrated" in the body and requires the caveat. Code identifiers (`certify_impl`, the artifact's `certificate` field) are unchanged in the sidecars. |
 | Length | about 17 pages | **18 pages** (v13: 17). The added content needed for the must-fixes and should-fixes is about one page, and trimming recovered part of it. `\floatpagefraction` 0.75 → 0.85 and `\bibsep` 1 → 0 pt keep Figure 5 off a page of its own. |
 
 ## Verifiers
