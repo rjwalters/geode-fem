@@ -36,6 +36,10 @@ GUARD_PENALTY = 2.0
 MIN_VOL_RATIO = 0.25
 
 
+class BudgetExhausted(Exception):
+    """The driver's own evaluation cap (PRIMA raises a too-small MAXFUN to n + 3)."""
+
+
 class Server:
     def __init__(self, exe: str, flags: list[str], log_path: str):
         self.log = open(log_path, "w")
@@ -102,7 +106,7 @@ def main() -> int:
     def fun(x):
         if len(log) >= a.budget:
             # PRIMA respects maxfev; this is a guard, not a code path.
-            raise RuntimeError("budget exceeded")
+            raise BudgetExhausted
         r = srv.ask("f", x)
         rec = {
             "eval": len(log) + 1,
@@ -131,12 +135,16 @@ def main() -> int:
         )
         return val
 
-    res = prima.minimize(
-        fun,
-        np.zeros(n),
-        method=a.method,
-        options={"rhobeg": a.rhobeg, "rhoend": a.rhoend, "maxfev": a.budget},
-    )
+    try:
+        res = prima.minimize(
+            fun,
+            np.zeros(n),
+            method=a.method,
+            options={"rhobeg": a.rhobeg, "rhoend": a.rhoend, "maxfev": a.budget},
+        )
+        message = str(res.message)
+    except BudgetExhausted:
+        message = f"stopped by the driver at its budget of {a.budget} evaluations"
     opt_wall = time.monotonic() - t0
     ver = srv.ask("v", best["x"])
     srv.close()
@@ -189,7 +197,7 @@ def main() -> int:
     t.append(f"budget_evals = {a.budget}")
     t.append(f"n_evals = {len(log)}")
     t.append(f"n_feasible = {n_feas}")
-    t.append(f"prima_message = {json.dumps(str(getattr(res, 'message', '')))}")
+    t.append(f"prima_message = {json.dumps(message)}")
     t.append(f"worst_s11_db_initial = {num(e0['worst_db'])}")
     t.append(f"worst_s11_db_final = {num(best['worst_db'])}")
     t.append(f"objective_final = {num(best['objective'])}")
