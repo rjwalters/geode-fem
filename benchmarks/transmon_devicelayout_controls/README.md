@@ -20,7 +20,7 @@ uses it in its L column, exactly as the geode-gradient Newton does (see §1).
 All values are in GHz unless stated.
 
 §5 adds the three follow-ups of #1129 (from the v12 reviews): PRIMA re-run on
-this Palace build, the scaling-law Newton with a Palace-only δ (no geode input
+this Palace environment, the scaling-law Newton with a Palace-only δ (no geode input
 at all), and a second refinement family on the step-2 design.
 
 ## Files
@@ -246,13 +246,17 @@ All levels are Palace order 1:
   - So the excess lies within the conditioning of the family-a fit and is
     not evidence against the cap. The cap stays model-dependent.
 
-## 5. #1129: PRIMA on this build, Palace-only Newton, second family on cv2
+## 5. #1129: PRIMA in this environment, Palace-only Newton, second family on cv2
 
 All three run on the same Palace image as §1–4 (palace:cpu-1043, loaded from
 #1123's saved build) on one us-east-2 worker. The T1/T2 runs used 16 ranks
 and the T3 cells the other 16, concurrently.
 
-### T1. PRIMA re-run on this Palace build
+### T1. PRIMA re-run in this Palace environment
+
+"Environment" here means the Palace build, the mesher and the platform
+together: the published run differs from ours in more than the Palace build,
+since the mesh generator and host differ too.
 
 `prima_driver.jl` repeats DeviceLayout's `run_optimization` call verbatim:
 `prima(errfunc, [1.0, 1.0]; ftarget = 1e-4, xl = [0.6, 0.6], xu = [1.4, 1.4],
@@ -275,18 +279,18 @@ same cells as the Newton controls, and run 1 is the committed `dl_initial`.
 | 9 | 0.6972, 0.6944 | 1275.486, 7200.135 | 2.9559, 4.0147 | 1.15e-4 |
 | **10** | 0.7161, 0.6937 | **1209.125, 7207.551** | 3.0317, 4.0179 | **6.6e-5** |
 
-- **Result: 10 Palace runs on this build, against the published 9.** PRIMA
+- **Result: 10 Palace runs in this environment, against the published 9.** PRIMA
   stops at run 10 with `FTARGET_ACHIEVED` (info.nf = 10). Runs 1–5 are
   BOBYQA's initial interpolation set (x0, x0 ± 0.2 along each axis). Run 9
   misses the criterion by 15 %.
-- On this build the published final design already meets the criterion
-  (`dl_final`: 3.0164 / 3.9956 GHz, err 1.5e-5). So the build difference
+- In this environment the published final design already meets the criterion
+  (`dl_final`: 3.0164 / 3.9956 GHz, err 1.5e-5). So the environment difference
   moves PRIMA's trajectory, not the achievability of the target. PRIMA lands
   at (1209.125, 7207.551) µm, 8.6 / 36.4 µm short of the published design.
-- **What this means for the comparison.** On one Palace build the count is
+- **What this means for the comparison.** In one Palace environment the count is
   3 (each Newton variant) against 10 (PRIMA), not 3 against 9. The published
-  9 came from a different build. The one-run difference is the
-  trajectory's sensitivity to the build, so neither count is a property of
+  9 came from a different environment. The one-run difference is the
+  trajectory's sensitivity to the environment, so neither count is a property of
   PRIMA alone.
 - **Reproducibility.** `prima_driver.jl --replay
   reference/fixtures/transmon_palace/results_controls_1129` re-runs PRIMA on
@@ -350,7 +354,11 @@ The h cells are shared. Both families go through the part-1 rule:
   estimates, 1451–1466 µm). The +17 % to +37 % band of the two families
   combined is the honest uncertainty. By f_r (L + δ) = const, family b's
   resonator estimate asks for about 0.6 % (about 45 µm) more resonator length
-  as well. The cells took 27 + 28 + 120 min on 16 ranks.
+  as well. The cells took 27 + 28 + 120 min on 16 ranks. `famcv2_u1_p2` ran
+  for 7200 s (`time.txt`: 2:00:00; 7201 s between its start and end lines in
+  `logs/orchestrate_fam.log`) and exited cleanly: exit status 0, its full
+  `eig.csv` and Palace's closing timing summary are present, and no worker
+  script sets a time limit, so the round number did not come from a cut-off.
 
 ## Compute
 

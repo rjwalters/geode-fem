@@ -14,7 +14,37 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v12 — review revision, 2026-10-14 (tracker #1063) — CURRENT
+## v13 — reframing revision, 2026-10-15 (tracker #1063, rulings on #1129) — CURRENT
+
+**v13 = v12 revised against the Opus and Fable reviews of v12, the operator's
+2026-10-15 rulings on #1129, and the #1129 follow-up runs (PR #1131).** Where
+this section conflicts with the sections below, it wins. v1–v12 and their
+critics stay immutable. Status: DRAFT; no score, review or audit carries over.
+
+- **Framing and title (ruled):** an independent reproduction and cross-check
+  of the Palace/DeviceLayout.jl transmon work. Title: "Uniform mesh refinement
+  underestimates the frequencies of the DeviceLayout.jl transmon: an
+  independent finite-element cross-check and re-optimization". Never
+  "converged frequencies"; the validation sentence is kept once in §1. The
+  differentiable solver is a tool in the body; no run count or design is
+  credited to the shape derivative.
+- **Derivative (ruled):** §10 explains why the derivative gives no advantage
+  here (two nearly decoupled parameters; N+1 = 3 solves for an FD gradient;
+  the coarse fixed-topology derivative is the slope of a different discrete
+  problem) and where derivatives pay off, pointing neutrally to the
+  conformal-antenna companion, whose gradient-free comparison is still being run.
+- **§8 (ruled):** 150–250 words; Crutcher Dunnavant's spec, design input and
+  code contributions with the palace_whiteroom citation; the AI-model
+  statement; no commit counts, provenance or corrected-claim examples.
+- **Controls in one environment:** Newton 3 (shape derivative; scaling law;
+  scaling law with a Palace-only δ) against PRIMA 10 in our Palace
+  environment, the published 9 as context; Broyden 5.
+- **Re-optimized capacitor:** 19–20 % over the published length over two
+  refinement families; about +17 % to +39 % within the band (centred on
+  3.0 GHz).
+- **Length:** about 16–17 pages; v13 is 17.
+
+## v12 — review revision, 2026-10-14 (tracker #1063)
 
 **v12 = v11 revised against the Fable, Opus and Codex reviews of v11, with the
 controls of #1123 (PR #1127, `benchmarks/transmon_devicelayout_controls/`).**
