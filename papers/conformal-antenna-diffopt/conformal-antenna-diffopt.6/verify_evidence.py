@@ -126,15 +126,14 @@ def check_headline():
     comb = r["model"]["sm57"]["comb_cyl_p1"]
     ref = r["refinement"]
     # Palace p = 3 and the combined mesh
-    for s in [m(p3["worst_in_band_db"]) + "\\,dB", f"${f(p3['band_lo_ghz'], 4)}$--${f(p3['band_hi_ghz'], 4)}$\\,GHz",
-              f"${f(p3['bandwidth_mhz'], 1)}$\\,MHz", f"margins of ${f(p3['margin_lo_mhz'], 1)}$ and ${f(p3['margin_hi_mhz'], 1)}$\\,MHz",
+    for s in [m(p3["worst_in_band_db"]) + "\\,dB", f"${f(p3['band_lo_ghz'], 4)}$ to ${f(p3['band_hi_ghz'], 4)}$\\,GHz",
+              f"${f(p3['bandwidth_mhz'], 1)}$\\,MHz", f"ISM band by ${f(p3['margin_lo_mhz'], 1)}$ and ${f(p3['margin_hi_mhz'], 1)}$\\,MHz",
               m(comb["worst_in_band_db"]) + "\\,dB", f"${f(comb['bw_mhz'], 1)}$\\,MHz band, ${f(comb['bw_lo_ghz'], 4)}$--${f(comb['bw_hi_ghz'], 4)}$\\,GHz"]:
         contains(s)
     assert p3["ism_coverage_frac"] == 1.0 and comb["ism_cover_pct"] == 100
     assert p3["margin_lo_mhz"] > 0 and p3["margin_hi_mhz"] > 0
     lo_agree = abs(p3["band_lo_ghz"] - comb["bw_lo_ghz"]) * 1000
     assert f(lo_agree, 2) == "0.02" and f(ref["sm57_palace_p3_minus_comb_lo_edge_mhz"], 2) == "0.02"
-    contains("agrees on the lower edge to $0.02$\\,MHz")
     contains("The two lower edges agree to $0.02$\\,MHz")
     contains(f"edges differ by ${f((comb['bw_hi_ghz'] - p3['band_hi_ghz']) * 1000, 1)}$\\,MHz")
     rows = palace_csv("recentre/palace/sm57_p3/port-S.csv")
@@ -143,7 +142,7 @@ def check_headline():
     assert f(p3["worst_in_band_db"], 2) == "-10.46"
     # the drift estimates and the shifted p = 3 response (the measured response at 2.400 - d)
     d_r, d_f = ref["drift_richardson_mhz"], ref["drift_rim_fit_mhz"]
-    contains(f"Richardson estimate of the remaining upward drift (${f(d_r, 1)}$\\,MHz)")
+    contains(f"order-1 estimate of the remaining drift (${f(d_r, 1)}$\\,MHz), which may be low")
     contains(f"rim-size fit (${f(d_f, 1)}$\\,MHz)")
     d_r, d_f = round(d_r, 1), round(d_f, 1)   # the shifts as printed, 6.4 and 13.5 MHz
     v_r, v_f = interp(rows, 2.4 - d_r / 1000), interp(rows, 2.4 - d_f / 1000)
@@ -290,7 +289,21 @@ def check_accuracy(v6, fa2, fa3):
     contains(f"finest computed value, ${f(lo, 3)}$\\,GHz, is a lower estimate")
     contains(f"limit at ${f(hi, 3)}$\\,GHz and the order-1 Richardson step on the rim pair at ${f(fit['richardson_order1_rim_pair_ghz'], 3)}$\\,GHz")
     contains(f"$0$ to ${round((hi - lo) * 1000)}$\\,MHz above the finest computed models")
-    contains(f"is ${f(x1['textbook_tl_initial_ghz'], 3)}$\\,GHz \\citep{{hammerstad1975equations}}, about $50$\\,MHz higher")
+    tl = x1["textbook_tl_initial_ghz"]
+    contains(f"is ${f(tl, 3)}$\\,GHz \\citep{{hammerstad1975equations}}, ${round((tl - hi) * 1000)}$ to "
+             f"${round((tl - lo) * 1000)}$\\,MHz above the estimated mesh-limit dip")
+    absent("about $50$\\,MHz higher")
+    contains("we expect, but did not test, that the probe's reactance pulls the matched dip below that resonance")
+    absent("the probe's reactance pulls the matched dip below the unloaded")
+    # the one test of the order-1 rate (Section 7): combined rung vs the order-1 prediction
+    h1, h2, h3 = (rows[k]["rim_edge_mean_mm"] for k in ("x1rim040_L1", "x1rim020_L1", "x1comb_L1"))
+    f1, f2, f3 = (rows[k]["dip_f_ghz"] for k in ("x1rim040_L1", "x1rim020_L1", "x1comb_L1"))
+    finf1 = f2 + (f2 - f1) * h2 / (h1 - h2)
+    pred = (finf1 - f2) * (1 - h3 / h2) * 1000
+    assert abs(finf1 - fit["richardson_order1_rim_pair_ghz"]) < 2e-5
+    contains(f"moved the initial patch's dip ${f((f3 - f2) * 1000, 1)}$\\,MHz where the order-1 step on the rim pair "
+             f"predicts ${f(pred, 1)}$\\,MHz; that rung also refines the slab, so the comparison is confounded")
+    assert f3 - f2 > pred / 1000
     # the coarse ladder
     conv = read("convergence.toml")
     p2l1 = [r for r in conv["s11"]["bent"] if r["element_order"] == "p2" and r["level"] == "L1"][0]
@@ -389,10 +402,12 @@ def check_baselines(v6):
     pal = [r for r in gf if r["solver"] == "palace"]
     s95 = [r["solves_to_level"][i95] for r in gf]
     a95 = adj["solves_to_level"][i95]
-    contains(f"Palace, need ${min(s95)}$ to ${max(s95)}$ solves (${math.floor(min(s95) / a95)}$--${math.floor(max(s95) / a95)}\\times$)")
+    contains(f"Palace need ${math.floor(min(s95) / a95)}$--${math.floor(max(s95) / a95)}$ times as many")
+    contains(f"use ${min(s95)}$ to ${max(s95)}$ (${math.floor(min(s95) / a95)}$--${math.floor(max(s95) / a95)}\\times$)")
     w = [r["wall_s_to_level"][i95] for r in pal]
     lo_r, hi_r = min(w) / adj["wall_s_to_level"][i95], max(w) / adj["wall_s_to_level"][i95]
     pin(f"${f(lo_r, 1)}$ to ${f(hi_r, 1)}$ times", 3)   # abstract, introduction, Section 5
+    pin(f"estimated ${f(lo_r, 1)}$ to ${f(hi_r, 1)}$ times", 2)   # the geode side is estimated: abstract, introduction
     pin(f"${f(lo_r, 1)}$ to ${f(hi_r, 1)}$", 3)
     contains(f"take ${round(min(r['wall_s_to_level'][i95] for r in pal if 'pcma' in r['name']) / 60)}$--"
              f"${round(max(r['wall_s_to_level'][i95] for r in pal if 'pcma' in r['name']) / 60)}$\\,min (CMA-ES) and "
@@ -415,9 +430,23 @@ def check_baselines(v6):
     assert all(r["solves_to_level"][i10] < 0 for r in pal)
     hit = [r for r in gf if r["solves_to_level"][i10] > 0]
     assert len(hit) == 1 and hit[0]["solver"] == "geode"
-    contains(f"at ${hit[0]['solves_to_level'][i10]}$, and then matches the adjoint's final value ({m(hit[0]['worst_s11_db_final'])} against {m(adj['worst_s11_db_final'])}\\,dB)")
+    contains(f"(${f(hit[0]['solves_to_level'][i10] / adj['solves_to_level'][i10], 1)}\\times$), and then matches the adjoint's final value ({m(hit[0]['worst_s11_db_final'])} against {m(adj['worst_s11_db_final'])}\\,dB)")
     ps = [r["optimization_solves"] for r in pal]
     contains(f"within 190 evaluations (${min(ps)}$ to ${max(ps)}$ solves)")
+    # censored -10 dB entries: each run's budget, and the lower bounds they support
+    a10 = adj["solves_to_level"][i10]
+    miss_g = [r for r in gf if r["solver"] == "geode" and r["solves_to_level"][i10] < 0]
+    contains(f"budgets of ${miss_g[0]['optimization_solves']}$ and ${miss_g[1]['optimization_solves']}$ solves, which "
+             f"supports only ratios of at least ${f(miss_g[0]['optimization_solves'] / a10, 1)}$ and "
+             f"${f(miss_g[1]['optimization_solves'] / a10, 1)}$")
+    contains(f"at ${hit[0]['solves_to_level'][i10]}$ (${f(hit[0]['solves_to_level'][i10] / a10, 1)}\\times$)")
+    budgets = [runs[n]["optimization_solves"] for n, *_ in order]
+    contains(f"budget of {budgets[0]}, {budgets[1]} and {budgets[2]} solves (geode-fem CMA-ES seeds), "
+             f"{budgets[3]}, {budgets[4]} and {budgets[5]} (Palace CMA-ES seeds) or {budgets[6]} (NEWUOA)")
+    absent("A dash means the level was not reached.")
+    contains(f"under Palace's own model the adjoint's final design sits at {m(pa_adj := [x for x in s['cross']['palace'] if x['name'] == 'geode_adjoint_lbfgs'][0]['band_worst_db'])}\\,dB, also short of $-10$\\,dB")
+    assert pa_adj > -10
+    contains("derive none from the $-10$\\,dB column")
     # the 41 shared designs, recomputed from the raw trajectories
     pairs = [("v6/x4/L1_copper_38_cma114.toml", "v6/palace_loop/L1_copper_38_pcma190_sd.toml"),
              ("v6/x4/L1_copper_38_cma190_s2.toml", "v6/palace_loop/L1_copper_38_pcma190_s2.toml"),
@@ -483,7 +512,8 @@ def check_fdtd():
     assert g["geode_dip_rises_with_refinement"]
     assert f(g["geode_lower_bound_dip_f_ghz"], 3) == "2.357"
     sec = section("\\paragraph{Comparison with FDTD.}", "\\section{How geode-fem")
-    for s in ["at or below $2.20$\\,GHz", "at or above $2.357$\\,GHz", "opposite directions", "has not been identified",
+    for s in ["suggests a resonance at or below $2.20$\\,GHz", "on their refined models (second order or rim-refined) place the dip at or above $2.357$\\,GHz",
+              "($2.31$\\,GHz on L1 at first order)", "opposite directions", "has not been identified",
               "no comparison of cost or accuracy with FDTD", "$0.25$\\,mm cells"]:
         assert s in sec, s
     for bad in ["because", "due to", "caused by", "PML", "staircas", "subpixel"]:
@@ -535,13 +565,25 @@ def check_voice():
             continue
         assert "never called a converged value" in ctx, ctx
     assert "\\author{Robb Walters\\\\" in TEX and TEX.count("\\author") == 1
-    assert "\\title{An Adjoint Gradient Reaches the Band Target with an Order of Magnitude" in TEX
+    assert "\\title{An Adjoint Gradient Reaches a Worst-of-Band $|S_{11}|$ of $-9.5$\\,dB" in TEX
+    assert "Band Target" not in TEX and "reaches the band target" not in NBODY
+    concl = section("\\section{Conclusion}", "\\paragraph{Acknowledgments.}")
+    for q in ["reaches a worst-of-band $|S_{11}|$ of $-9.5$\\,dB on the coarse optimization model with an order of magnitude",
+              "censored at their budgets", "given the final band shift in advance, would also have met the target on the second-order model",
+              "agrees with geode-fem on the resonance", "which may be low"]:
+        assert q in concl, q
+    assert "confirms" not in concl
+    assert "rectangle, given the final band shift in advance, also meets the target on the second-order model" in NBODY
+    assert "realizable width ($1.6$\\,mm, modelled as a lumped port)" in NBODY
+    assert "(which informed the final band shift)" in NBODY
     assert "\\date{October 2026}" in TEX and "\\today" not in TEX
     assert "% NOTE: Crutcher" not in TEX
     abstract = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
-    for s in ["$1.6$\\,mm probe", "$-10.46$\\,dB", "$2.3935$--$2.4864$\\,GHz ($93.0$\\,MHz)", "$6.5$ and $2.9$\\,MHz",
-              "$0.02$\\,MHz", "($6.4$\\,MHz)", "($13.5$\\,MHz)", "$-8.94$\\,dB", "volume guard"]:
+    for s in ["$1.6$\\,mm probe", "$-10.46$\\,dB", "$93.0$\\,MHz", "$6.5$ and $2.9$\\,MHz",
+              "($6.4$\\,MHz), which may be low", "($13.5$\\,MHz)", "$-8.94$\\,dB", "estimated $7.6$ to $15.5$ times",
+              "not used in choosing the design"]:
         assert s in abstract, s
+    assert len(abstract.split()) <= 215, len(abstract.split())
 
 
 def check_prior_versions():

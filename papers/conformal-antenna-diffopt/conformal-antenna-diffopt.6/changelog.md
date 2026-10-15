@@ -12,7 +12,7 @@ experiments: `benchmarks/patch_antenna_conformal/v6/` (X1–X5), `v6/palace_loop
 
 | Source | Note | Resolution |
 |---|---|---|
-| operator | Lead with what the data show; the gradient advantage belongs here | New title: "An Adjoint Gradient Reaches the Band Target with an Order of Magnitude Fewer Solves than Gradient-Free Search: Copper-Only Design of a 2.4 GHz Conformal Patch Antenna". "Manufacturable" from the candidate title was not used: the probe is a lumped port and nothing was fabricated. No novelty claim |
+| operator | Lead with what the data show; the gradient advantage belongs here | New title: "An Adjoint Gradient Reaches a Worst-of-Band S11 of −9.5 dB with an Order of Magnitude Fewer Solves than Gradient-Free Search: Copper-Only Design of a 2.4 GHz Conformal Patch Antenna" (see the Judge round below). "Manufacturable" from the candidate title was not used: the probe is a lumped port and nothing was fabricated. No novelty claim |
 | operator | Headline design `rbG_L1_copper_38_sm57_w16` stated plainly in abstract and results | Abstract and §7: 1.6 mm probe; Palace p = 3 −10.46 dB; 2.3935–2.4864 GHz (93.0 MHz); 100 % ISM; margins 6.5 / 2.9 MHz; geode finest agrees on the lower edge to 0.02 MHz; covers the +6.4 MHz order-1 drift, not the +13.5 MHz rim-fit drift (−8.94 dB); the volume guard limits the design |
 | operator | Tiers bounded / model-dependent / estimated; no "certified"; extrapolations "estimates" | §1 "Evidence tiers" paragraph (no bounded result in this paper); the mesh-limit dip is "estimated at 2.366–2.380 GHz"; no "converged value" anywhere |
 | operator | Section 9 of 150–250 words modelled on transmon v15 §8; no commit counts | §9 rewritten (about 190 words): whiteroom citation, Crutcher Dunnavant's design input and code, the model statement (Claude Opus/Fable/Sonnet; OpenAI GPT Sol and GPT Astra via Codex), Loom and Squad, author responsibility. Commit and trailer counts, review anecdotes and `count_provenance.py` dropped. "L1–L4" left out because L1 names a mesh here |
@@ -56,6 +56,22 @@ experiments: `benchmarks/patch_antenna_conformal/v6/` (X1–X5), `v6/palace_loop
 | Palace-loop PR Judge nit 3 | WIP commit field | §10: "Most records carry no generating commit and one carries an intermediate one; the code that produced them is merged at geode-fem commit 99646f06" |
 | Recentre PR Judge nit 2 | 8.72 MHz lower-edge vs dip-shift comparison; 8.9 vs 9.0 | §7 prints dip against dip and edge against edge: design C dip +9.1, edge +8.7; initial patch dip +8.9 (Palace p2 → p3). §6 labels the 8.7 in the 57.0 MHz shift as design A's dip shift; the 0.2 mm-rim → p3 step is "about 9 MHz" |
 
+## Judge round on the v6 PR (changes requested, text only)
+
+| Source | Note | Resolution |
+|---|---|---|
+| Judge 1 | The title's "band target" is −10 dB; the ratios are at −9.5 dB | Title and the Conclusion's first sentence name −9.5 dB worst-of-band; true for every baseline (≥ 11×) |
+| Judge 2 | Censored −10 dB runs | §5: the two missing geode CMA-ES seeds are censored at 535 and 690 solves (≥ 8.9×, ≥ 11.5×), the hit at 695 is 11.6×, every Palace run is censored at 660–945 solves, and Palace reads the adjoint design at −9.80 dB; no speedup is derived from −10 dB. Table 3 caption lists every run's budget |
+| Judge 3 | Wall-clock ratio's geode side is estimated | "an estimated 7.6 to 15.5 times" in the abstract and the intro bullet, with the estimation rule in the bullet |
+| Judge 4 | Probe reactance an inference; gap not "about 50" | §4: "we expect, but did not test"; the Hammerstad gap is 54–67 MHz above the 2.366–2.380 GHz estimate (2.43322 − 2.37951 = 53.7) |
+| Judge 5 | The order-1 drift estimate may be low | §7: the combined rung moved 9.0 MHz against 7.7 MHz predicted by order-1, confounded by the slab refinement; abstract and Conclusion say "which may be low" |
+| Judge 6 | Conclusion qualifiers | Rectangle "given the final band shift in advance ... on the second-order model" (Conclusion and intro bullet); "agrees with geode-fem on the resonance" |
+| Judge should-fix | Abstract density | Abstract cut to about 205 words: band range, 0.02 MHz and guard sentence dropped; "geode-fem's finest mesh, not used in choosing the design, agrees" added |
+| Judge should-fix | §8 Meep | "suggests a resonance at or below 2.20 GHz"; the ≥ 2.357 GHz figure is qualified to the refined models (2.31 GHz on L1 at first order). The pending Meep diagnosis is not cited in v6 |
+| Judge should-fix | "realizable width" | "(1.6 mm, modelled as a lumped port)"; source comment updated; §2 notes that Palace p = 3 informed the final band shift |
+
+`verify_evidence.py` gained a guard for each fix; 11 further mutations (one per guard) are each killed.
+
 ## Removed or not carried
 
 - The sibling-mesh check, the L2-chain related design and the L3 verification table rows of v5: superseded by the rim-refined and Palace checks.
@@ -64,7 +80,7 @@ experiments: `benchmarks/patch_antenna_conformal/v6/` (X1–X5), `v6/palace_loop
 
 ## Discrepancies found in the inputs (not changed there)
 
-- `v6/README.md` X3 gives the closed-form radiation Q as 48.5; `1/(1/Q_sp + 1/Q_sw)` with the committed values is 48.0, which the paper prints.
+- (Fixed in a separate benchmarks commit on the same branch.) `v6/README.md` X3 gives the closed-form radiation Q as 48.5; `1/(1/Q_sp + 1/Q_sw)` with the committed values is 48.0, which the paper prints.
 - `v6/README.md` X1 gives the Palace–geode p = 1 agreement as 1.2 MHz; the committed dips differ by 1.13 MHz, printed 1.1.
 - `v6/README.md` X1 says the combined rung's +9.0 MHz is "less than either extrapolation predicts"; the order-1 step predicts about 7.7 MHz for that halving. The paper does not repeat the claim.
 

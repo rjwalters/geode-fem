@@ -2,7 +2,7 @@
 %% under the operator's rulings on the companion transmon paper (gradient advantage
 %% demonstrated here; no "certified"; short Section 9). Adds the forward-accuracy study,
 %% curvature, power balance and gain, gradient-free baselines with geode-fem and with
-%% Palace in the loop, a realizable feed and the design re-centred on the refined model.
+%% Palace in the loop, a 1.6 mm probe (lumped port) and the design re-centred on the refined model.
 %% See changelog.md, provenance.md and verify_evidence.py. v1-v5 and their critic
 %% siblings are unchanged.
 
@@ -30,9 +30,9 @@
       \vspace{5em}}}}}
 \newcommand{\PL}{P2/L1}
 
-\title{An Adjoint Gradient Reaches the Band Target with an Order of Magnitude
-Fewer Solves than Gradient-Free Search: Copper-Only Design of a 2.4\,GHz
-Conformal Patch Antenna}
+\title{An Adjoint Gradient Reaches a Worst-of-Band $|S_{11}|$ of $-9.5$\,dB
+with an Order of Magnitude Fewer Solves than Gradient-Free Search:
+Copper-Only Design of a 2.4\,GHz Conformal Patch Antenna}
 \author{Robb Walters\\
   {\normalsize Independent Researcher}}
 \date{October 2026}
@@ -46,24 +46,20 @@ $1.6$\,mm FR-4 board bent to a $100$\,mm radius, with 38 shape parameters
 and a finite-element solver, geode-fem, whose discrete shape adjoint gives
 the gradient of the band objective at one factorization per frequency. On
 the coarse optimization model the adjoint reaches a worst-of-band
-$|S_{11}|$ of $-9.5$\,dB in $35$ solves. Separable CMA-ES and NEWUOA,
-driven by the independent solver Palace, need $385$ to $805$ solves
-($11$--$23\times$) and $7.6$ to $15.5$ times the wall-clock on the same host.
-Palace's forward solve is about $11\%$ faster than geode-fem's, so the
-advantage comes from the gradient. The 38 parameters are not needed to meet
-the target: a four-parameter rectangle, given the final frequency correction
-in advance, also meets it on the second-order model it was corrected for.
-The forward model's error sits at the patch rim, and refining the rim in geode-fem and raising the element order in Palace
-meet at the same resonance. After one more frequency space-mapping step,
-the design with a $1.6$\,mm probe reaches a worst in-band $|S_{11}|$ of
-$-10.46$\,dB on Palace with third-order elements, with a $-10$\,dB band of
-$2.3935$--$2.4864$\,GHz ($93.0$\,MHz) that covers the whole $2.400$--$2.4835$\,GHz
-ISM band with margins of $6.5$ and $2.9$\,MHz. geode-fem's finest mesh agrees
-on the lower edge to $0.02$\,MHz. The lower margin covers the order-1
-Richardson estimate of the remaining upward drift ($6.4$\,MHz) but not a
-rim-size fit ($13.5$\,MHz), at which $2.400$\,GHz would sit at $-8.94$\,dB.
-The mesh-morph volume guard, not the objective, ends the final descent and
-so limits the bandwidth.
+$|S_{11}|$ of $-9.5$\,dB in $35$ solves; separable CMA-ES and NEWUOA driven
+by the independent solver Palace need $11$--$23$ times as many, and an
+estimated $7.6$ to $15.5$ times the wall-clock on one host. Palace's forward
+solve is about $11\%$ faster than geode-fem's, so the advantage comes from
+the gradient. A four-parameter rectangle, given the final frequency
+correction in advance, also meets the target on the second-order model. The
+forward model's error sits at the patch rim. After one more frequency
+space-mapping step, the design with a $1.6$\,mm probe reaches $-10.46$\,dB
+worst in band on Palace with third-order elements, with a $93.0$\,MHz
+$-10$\,dB band covering the ISM band by $6.5$ and $2.9$\,MHz; geode-fem's
+finest mesh, not used in choosing the design, agrees. The lower margin covers
+the order-1 estimate of the remaining drift ($6.4$\,MHz), which may be low,
+but not a rim-size fit ($13.5$\,MHz), at which $2.400$\,GHz would sit at
+$-8.94$\,dB.
 \end{abstract}
 
 \section{Introduction}
@@ -102,11 +98,14 @@ Three results follow.
   \item \textbf{The gradient makes the search about an order of magnitude
   cheaper} (Section~\ref{sec:baselines}). To reach $-9.5$\,dB on the
   optimization model the adjoint uses $35$ solves; the gradient-free runs use
-  $385$ to $805$ ($11$--$23\times$) and $7.6$ to $15.5$ times the wall-clock.
+  $385$ to $805$ ($11$--$23\times$) and an estimated $7.6$ to $15.5$ times the
+  wall-clock (geode-fem's side is its solves times its measured per-solve
+  cost on the same host).
   Palace's forward evaluation is cheaper than geode-fem's, so the difference
   is the gradient, not the solver. Given enough solves, one CMA-ES seed of
   three finds a design as good as the adjoint's, and a four-parameter
-  rectangle also meets the target on the second-order model, so the gradient
+  rectangle, given the final band shift in advance, also meets the target on
+  the second-order model, so the gradient
   buys speed rather than a better optimum, and the 38-parameter basis is not
   what makes the target reachable.
   \item \textbf{The forward model's error sits at the patch rim}
@@ -116,7 +115,7 @@ Three results follow.
   order agrees with geode-fem's finest rim-refined mesh to under $1$\,MHz.
   \item \textbf{A design re-centred on the refined model meets the ISM band at
   $-10$\,dB on both fine models} (Section~\ref{sec:results}), with a
-  probe of realizable width ($1.6$\,mm) and margins small enough that we state which
+  probe of realizable width ($1.6$\,mm, modelled as a lumped port) and margins small enough that we state which
   drift estimates they cover.
 \end{itemize}
 We also report the checks around the design. The bend moves the resonance
@@ -211,7 +210,8 @@ differentiate with respect to geometry and correct coarse models. What this
 paper adds is a measurement: on a 38-parameter open-radiator problem with a
 moving feed, the solve and wall-clock cost of the adjoint against two
 gradient-free optimizers driven by two independent solvers, and a design
-checked on two fine models, one of them from an independent solver. We do not claim a first EM shape
+checked on two fine models, one of them from an independent solver (which
+informed the final band shift). We do not claim a first EM shape
 adjoint, and we make no performance comparison with structured-grid methods.
 
 \section{Method}
@@ -447,11 +447,12 @@ limit at $2.380$\,GHz and the order-1 Richardson step on the rim pair at
 $2.372$\,GHz. We therefore estimate the initial patch's mesh-limit dip at
 $2.366$--$2.380$\,GHz, $0$ to $14$\,MHz above the finest computed models.
 The Hammerstad transmission-line estimate of the unloaded patch's resonance
-is $2.433$\,GHz \citep{hammerstad1975equations}, about $50$\,MHz higher. The
-two quantities differ: the probe's reactance pulls the matched dip below the
-unloaded cavity resonance, and the closed form ignores the probe and the
-finite ground. A port-free eigenfrequency would separate them and was not
-computed.
+is $2.433$\,GHz \citep{hammerstad1975equations}, $54$ to $67$\,MHz above the
+estimated mesh-limit dip. The two quantities differ: the closed form gives
+the unloaded cavity resonance and ignores the probe and the finite ground,
+and we expect, but did not test, that the probe's reactance pulls the
+matched dip below that resonance. A port-free eigenfrequency would separate
+them and was not computed.
 
 \paragraph{Absorber and air margin.}
 The UPML conductivity $\sigma_0 = 1$ was chosen from a ladder of $\sigma_0$
@@ -512,7 +513,9 @@ Palace's forward solve is about $11\%$ faster.
   first ran 114 evaluations, the others 190). ``Best'' is the best level in
   the run, ``in 125'' the best within the adjoint's 125 solves. Wall-clock
   to $-9.5$\,dB on an r6i.4xlarge: measured for Palace, estimated for
-  geode-fem. A dash means the level was not reached.}
+  geode-fem. A dash is a censored entry: the run did not reach the level
+  within its budget of 535, 785 and 690 solves (geode-fem CMA-ES seeds),
+  860, 780 and 660 (Palace CMA-ES seeds) or 945 (NEWUOA).}
   \label{tab:baselines}
   \small
   \setlength{\tabcolsep}{4pt}
@@ -562,9 +565,15 @@ close to one finite-difference gradient, and then steps to $-9.61$\,dB within
 8 evaluations; a smaller interpolation set was not tried.
 
 The adjoint reaches $-10$\,dB in $60$ solves. One geode-fem CMA-ES seed of
-three reaches it, at $695$, and then matches the adjoint's final value
-($-10.02$ against $-10.04$\,dB); no Palace-driven run reaches it within 190
-evaluations ($660$ to $945$ solves). The $-10$\,dB column needs care. The two
+three reaches it, at $695$ ($11.6\times$), and then matches the adjoint's
+final value ($-10.02$ against $-10.04$\,dB). The other two seeds are
+censored: they miss within their budgets of $535$ and $690$ solves, which
+supports only ratios of at least $8.9$ and $11.5$. Every Palace-driven run is
+censored as well, missing within 190 evaluations ($660$ to $945$ solves),
+and under Palace's own model the adjoint's final design sits at
+$-9.80$\,dB, also short of $-10$\,dB. We therefore state the speedup at
+$-9.5$\,dB and derive none from the $-10$\,dB column. That column needs
+care for a second reason. The two
 forward models agree to $0.004$\,dB on the 41 designs both evaluated (the
 first CMA-ES generation of each seed, 42 samples with one rejected by the
 guard in both), but the difference grows at optimized designs, where the
@@ -757,6 +766,10 @@ $2.400$\,GHz sits at $-10.0$\,dB, just inside. For the rim-fit estimate,
 $d = 13.5$\,MHz, the lower edge reaches about $2.4070$\,GHz and
 $2.400$\,GHz sits at $-8.94$\,dB, a miss (Figure~\ref{fig:response}b).
 These two values are the measured $p = 3$ response shifted, not computed.
+The order-1 estimate may be low. The only data point that tests it is the
+combined rung of Table~\ref{tab:x1}, which moved the initial patch's dip
+$9.0$\,MHz where the order-1 step on the rim pair predicts $7.7$\,MHz; that
+rung also refines the slab, so the comparison is confounded.
 So the design meets the target with margin on the most accurate computed
 models, stays inside the band for the lower part of the drift estimate, and
 misses at $2.400$\,GHz if the drift reaches the rim-fit value. Covering the
@@ -834,9 +847,10 @@ test whether the gradient helps at the refined level.
 A matched-geometry Meep \citep{oskooi2010meep} model of the initial antenna,
 run at three grid resolutions down to $0.25$\,mm cells, disagrees with
 geode-fem and Palace. In the sampled $2.2$--$2.7$\,GHz window its only deep
-$|S_{11}|$ feature sits at the $2.20$\,GHz lower edge, so its resonance is at
-or below $2.20$\,GHz, while geode-fem and Palace place the dip at or above
-$2.357$\,GHz; and under refinement the two move in opposite directions, the
+$|S_{11}|$ feature sits at the $2.20$\,GHz lower edge, which suggests a
+resonance at or below $2.20$\,GHz, while geode-fem and Palace on their
+refined models (second order or rim-refined) place the dip at or above
+$2.357$\,GHz ($2.31$\,GHz on L1 at first order); and under refinement the two move in opposite directions, the
 finite-element dip upward and Meep's minimum downward. The cause has not
 been identified and is being diagnosed. Until it is, we make no comparison of
 cost or accuracy with FDTD, including a conformal FDTD scheme
@@ -914,17 +928,20 @@ source field, and \path{verify_evidence.py} checks the text against them.
 \label{sec:conclusion}
 
 On a 38-parameter copper design of a bent 2.4\,GHz patch, an adjoint
-gradient reaches the band target with an order of magnitude fewer solves
-than two gradient-free optimizers, whether they are driven by the same
-solver or by a faster independent one. The gradient buys speed, not a
-better optimum, and a four-parameter rectangle would also have met the
-target. Getting the target to hold on a fine model needed the forward model
-resolved at the patch rim, where an independent solver confirms where the
-resonance sits, and one more space-mapping step. The resulting design,
-with a $1.6$\,mm probe on a standard board, covers the ISM band at
-$-10$\,dB on both fine models with $6.5$\,MHz of margin at the lower edge.
-That margin covers the order-1 estimate of the remaining drift but not the
-rim-fit estimate, and the volume guard, not the objective, limits it.
+gradient reaches a worst-of-band $|S_{11}|$ of $-9.5$\,dB on the coarse
+optimization model with an order of magnitude fewer solves than two
+gradient-free optimizers, whether they are driven by the same solver or by
+a faster independent one; at $-10$\,dB most gradient-free runs are censored
+at their budgets. The gradient buys speed, not a better optimum, and a
+four-parameter rectangle, given the final band shift in advance, would also
+have met the target on the second-order model. Getting the target to hold
+on a fine model needed the forward model resolved at the patch rim, where an
+independent solver agrees with geode-fem on the resonance, and one more
+space-mapping step. The resulting design, with a $1.6$\,mm probe on a
+standard board, covers the ISM band at $-10$\,dB on both fine models with
+$6.5$\,MHz of margin at the lower edge. That margin covers the order-1
+estimate of the remaining drift, which may be low, but not the rim-fit
+estimate, and the volume guard, not the objective, limits it.
 
 \paragraph{Acknowledgments.}
 We thank Crutcher Dunnavant for the whiteroom specification, for his
