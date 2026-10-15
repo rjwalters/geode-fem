@@ -66,6 +66,18 @@
 //! `--fd-only` (validate the gradient, skip the descent), `--design TOML`,
 //! `--verify-only`, `--p2`, `--wide-step GHZ` (default 0.025).
 //!
+//! # Palace in the loop (issue #1130)
+//!
+//! `--palace-eval CMD` (with `--gradient-free N` or `--eval-server`) keeps
+//! the morph, the volume guard, the objective and the optimizer, but hands
+//! every forward band evaluation to an external solver: the moved mesh is
+//! written as MSH 2.2 under `--palace-workdir` and
+//! `benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py` solves it
+//! with Palace. `--eval-server` answers design vectors on stdin with JSON
+//! band evaluations, for external optimizers (the PRIMA baseline,
+//! `scripts/palace_loop_prima.py`) and the cost / cross-check runs
+//! (`scripts/palace_loop_xeval.py`).
+//!
 //! # Carrying a design across meshes (issue #1103, gate G2)
 //!
 //! The basis is a function of the chart `(s, y)` alone, so a coefficient
@@ -701,7 +713,12 @@ struct ExternalEval {
 
 impl ExternalEval {
     /// `S₁₁` at `freqs` on `mesh` (written as MSH 2.2 with `base`'s tags).
-    fn s11(&self, base: &PatchFixture, mesh: &geode_core::mesh::TetMesh, freqs: &[f64]) -> Vec<c64> {
+    fn s11(
+        &self,
+        base: &PatchFixture,
+        mesh: &geode_core::mesh::TetMesh,
+        freqs: &[f64],
+    ) -> Vec<c64> {
         let k = self.calls.get() + 1;
         self.calls.set(k);
         let msh = self.workdir.join("eval.msh");
@@ -719,7 +736,8 @@ impl ExternalEval {
             .arg(&flist)
             .output()
             .unwrap_or_else(|e| panic!("external evaluator {}: {e}", self.cmd.display()));
-        self.wall_s.set(self.wall_s.get() + t0.elapsed().as_secs_f64());
+        self.wall_s
+            .set(self.wall_s.get() + t0.elapsed().as_secs_f64());
         assert!(
             out.status.success(),
             "external evaluator failed on eval {k} ({}): {}",
@@ -2686,7 +2704,8 @@ fn run_gradient_free(
         .map(|p| {
             format!(
                 " --palace-eval benchmarks/patch_antenna_conformal/scripts/{}",
-                p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+                p.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
             )
         })
         .unwrap_or_default();
@@ -2878,18 +2897,27 @@ fn run_eval_server(model: &Model, verify_n: usize) {
                 .collect();
             let s11: Vec<c64> = match &model.external {
                 Some(ext) => {
-                    model
-                        .n_solves
-                        .set(model.n_solves.get() + verify_f.len());
+                    model.n_solves.set(model.n_solves.get() + verify_f.len());
                     ext.s11(&model.base, &model.moved_mesh(&x), &verify_f)
                 }
-                None => model.sweep(&x, &verify_f).into_iter().map(|r| r.1).collect(),
+                None => model
+                    .sweep(&x, &verify_f)
+                    .into_iter()
+                    .map(|r| r.1)
+                    .collect(),
             };
             let _ = write!(
                 t,
                 ", \"f_ghz\": [{}], \"g\": [{}], \"s11\": [{}]",
-                verify_f.iter().map(|f| num(*f)).collect::<Vec<_>>().join(", "),
-                s11.iter().map(|s| num(s.norm_sqr())).collect::<Vec<_>>().join(", "),
+                verify_f
+                    .iter()
+                    .map(|f| num(*f))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                s11.iter()
+                    .map(|s| num(s.norm_sqr()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 s11.iter()
                     .map(|s| format!("[{}, {}]", num(s.re), num(s.im)))
                     .collect::<Vec<_>>()

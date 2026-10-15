@@ -9,8 +9,11 @@ design on L1 from x = 0 with the soft-max |S11|^2 band objective:
 * geode sep-CMA-ES (`v6/x4/L1_copper_38_cma*.toml`),
 * Palace sep-CMA-ES and Palace PRIMA (`v6/palace_loop/L1_*.toml`),
 
-and the per-evaluation costs measured on one host type
-(`v6/palace_loop/costs_{geode,palace}_r6i.toml`, `palace_loop_xeval.py`).
+the per-evaluation costs measured on one host type
+(`v6/palace_loop/costs_{geode,palace}_r6i.toml`, `palace_loop_xeval.py`),
+which also hold each solver's verdict on the geode-optimized designs, and
+geode's verdict on the Palace-optimized designs
+(`v6/palace_loop/cross_geode_on_palace_designs.toml`).
 
 Per run and objective level (worst-of-band in that run's own forward model):
 band evaluations (the optimizer's evaluation index, guard-rejected samples
@@ -235,6 +238,13 @@ def main():
         lines.append("")
         for dd in c["designs"]:
             lines.append(f"[[cross.{name}]]")
+            for k, v in dd.items():
+                lines.append(f"{k} = {fmt(v)}")
+            lines.append("")
+    xg = os.path.join(PL, "cross_geode_on_palace_designs.toml")
+    if os.path.exists(xg):
+        for dd in load(xg).get("design", []):
+            lines.append("[[cross.geode_on_palace_designs]]")
             for k, v in dd.items():
                 lines.append(f"{k} = {fmt(v)}")
             lines.append("")

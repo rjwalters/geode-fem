@@ -162,8 +162,9 @@ fn palace_and_geode_agree_on_the_shared_first_generation() {
     );
 }
 
-/// Largest Palace-geode worst-of-band difference on the shared designs.
-const GEN0_TOL_DB: f64 = f64::NAN;
+/// Largest Palace-geode worst-of-band difference on the shared designs
+/// (measured 0.0040 dB over the 3 × 14 first-generation samples).
+const GEN0_TOL_DB: f64 = 0.01;
 
 /// First `(evaluation, solves)` at which the best-so-far reaches `lv`, on
 /// X4's rule (the x = 0 evaluation excluded).
@@ -171,12 +172,7 @@ fn to_level(d: &toml::Value, lv: f64) -> Option<(i64, i64)> {
     let x0 = f(d, "gradient_free.n_solves_initial_eval") as i64;
     arr(d, "trajectory.eval").iter().find_map(|e| {
         let b = e.get("best_so_far_worst_db").map(num)?;
-        (b <= lv).then(|| {
-            (
-                f(e, "eval") as i64,
-                f(e, "solves_so_far") as i64 - x0,
-            )
-        })
+        (b <= lv).then(|| (f(e, "eval") as i64, f(e, "solves_so_far") as i64 - x0))
     })
 }
 
@@ -204,4 +200,138 @@ fn summary_counts_match_the_trajectories() {
         checked += 1;
     }
     assert_eq!(checked, 4, "three Palace CMA-ES seeds and one NEWUOA run");
+}
+
+/// The summary row of one run.
+fn run<'a>(sum: &'a toml::Value, name: &str) -> &'a toml::Value {
+    arr(sum, "run")
+        .iter()
+        .find(|r| s(r, "name") == name)
+        .unwrap_or_else(|| panic!("no run {name} in the summary"))
+}
+
+fn levels(r: &toml::Value, key: &str) -> Vec<f64> {
+    arr(r, key).iter().map(num).collect()
+}
+
+/// The outcome, pinned. No Palace gradient-free run reaches -10 dB in its
+/// 190 evaluations; to -9.5 dB they need 385-805 solves (NEWUOA 420)
+/// against the adjoint's 35, and 84-172 min of measured wall-clock (NEWUOA
+/// 90 min) against about 11 min estimated for the adjoint on the same host
+/// type. Within the adjoint's whole 125-solve budget no gradient-free run
+/// gets past -2.9 dB.
+#[test]
+fn palace_loop_outcomes_are_pinned() {
+    let sum = load(SUMMARY);
+    let adj = run(&sum, "geode_adjoint_lbfgs");
+    assert_eq!(levels(adj, "solves_to_level"), [20.0, 30.0, 30.0, 35.0, 60.0]);
+    let budget = f(&sum, "meta.adjoint_budget_solves");
+    assert_eq!(budget, 125.0);
+    // (name, final worst-of-band dB, solves to each level, -1 = not reached)
+    let palace: [(&str, f64, [f64; 5]); 4] = [
+        (
+            "palace_copper_38_pcma190_sd",
+            -9.5825,
+            [275.0, 370.0, 405.0, 805.0, -1.0],
+        ),
+        (
+            "palace_copper_38_pcma190_s2",
+            -9.8928,
+            [300.0, 385.0, 385.0, 385.0, -1.0],
+        ),
+        (
+            "palace_copper_38_pcma190_s3",
+            -9.9037,
+            [265.0, 395.0, 395.0, 570.0, -1.0],
+        ),
+        (
+            "palace_copper_38_pnewuoa190",
+            -9.9465,
+            [405.0, 405.0, 415.0, 420.0, -1.0],
+        ),
+    ];
+    for (name, final_db, solves) in palace {
+        let r = run(&sum, name);
+        pin(f(r, "worst_s11_db_final"), final_db, 1e-3, name);
+        assert_eq!(levels(r, "solves_to_level"), solves, "{name}");
+        assert!(f(r, "worst_s11_db_final") > -10.0, "{name} reached -10 dB");
+        // At least 11x the adjoint's solves to -9.5 dB, and to -9 dB.
+        assert!(solves[3] >= 11.0 * 35.0 && solves[2] >= 12.0 * 30.0, "{name}");
+        assert!(
+            f(r, "best_worst_db_within_adjoint_budget") > -2.9,
+            "{name} within the adjoint budget"
+        );
+        assert_eq!(s(r, "wall_basis"), "measured (optimizer clock, this run's host)");
+    }
+    // Wall-clock to -9.5 dB, measured on r6i.4xlarge (s).
+    let w95 = |name: &str| levels(run(&sum, name), "wall_s_to_level")[3];
+    pin(w95("palace_copper_38_pcma190_s2"), 5061.5, 1.0, "CMA s2 wall to -9.5");
+    pin(w95("palace_copper_38_pnewuoa190"), 5375.1, 1.0, "NEWUOA wall to -9.5");
+    let adj95 = w95("geode_adjoint_lbfgs");
+    pin(adj95, 665.9, 1.0, "adjoint wall to -9.5 (estimated)");
+    assert!(w95("palace_copper_38_pcma190_s2") > 7.5 * adj95);
+}
+
+/// Per-evaluation cost on one host type (r6i.4xlarge, median of 3 at
+/// x = 0): Palace (16 MPI ranks, GMRES + AMS) is about 11 % faster per
+/// forward band evaluation than geode's direct LU, and a geode forward +
+/// adjoint evaluation costs 1.32 geode forward evaluations.
+#[test]
+fn per_evaluation_costs_are_pinned() {
+    let sum = load(SUMMARY);
+    let g = get(&sum, "cost.geode");
+    let p = get(&sum, "cost.palace");
+    assert!(s(g, "host").starts_with("AWS r6i.4xlarge"));
+    assert_eq!(s(g, "host"), s(p, "host"), "same host type");
+    pin(f(g, "forward_eval_s"), 72.1, 1.0, "geode forward band evaluation");
+    pin(f(g, "forward_adjoint_eval_s"), 95.1, 1.0, "geode forward + adjoint");
+    pin(f(p, "forward_eval_s"), 64.4, 1.0, "Palace forward band evaluation");
+    assert_eq!(f(p, "palace_np"), 16.0);
+    pin(
+        f(&sum, "cost.ratio.palace_over_geode_forward_eval"),
+        0.893,
+        0.01,
+        "Palace / geode forward",
+    );
+    for c in [g, p] {
+        for w in arr(c, "forward_eval_s_samples") {
+            assert!((num(w) - f(c, "forward_eval_s")).abs() < 2.0, "stable samples");
+        }
+    }
+}
+
+/// Each solver's verdict on the other's optimized designs (P1/L1, the 5
+/// band points). Palace reads the geode adjoint design 0.24 dB worse than
+/// geode does (-9.80 against -10.04 dB, at the 2.400 GHz edge); geode reads
+/// the Palace designs within 0.25 dB of Palace, and none of them at -10 dB.
+#[test]
+fn cross_evaluations_are_pinned() {
+    let sum = load(SUMMARY);
+    let by = |table: &str, name: &str| -> f64 {
+        let d = arr(&sum, table)
+            .iter()
+            .find(|d| s(d, "name") == name)
+            .unwrap_or_else(|| panic!("no {name} in {table}"));
+        f(d, "band_worst_db")
+    };
+    pin(by("cross.geode", "geode_adjoint_lbfgs"), -10.0413, 1e-3, "geode on adjoint");
+    pin(by("cross.palace", "geode_adjoint_lbfgs"), -9.7970, 1e-3, "Palace on adjoint");
+    pin(by("cross.palace", "geode_cma190_s2"), -9.8095, 1e-3, "Palace on CMA s2");
+    for (pal, run_name) in [
+        ("palace_pcma190_sd", "palace_copper_38_pcma190_sd"),
+        ("palace_pcma190_s2", "palace_copper_38_pcma190_s2"),
+        ("palace_pcma190_s3", "palace_copper_38_pcma190_s3"),
+        ("palace_pnewuoa190", "palace_copper_38_pnewuoa190"),
+    ] {
+        let geode = by("cross.geode_on_palace_designs", pal);
+        let own = f(run(&sum, run_name), "worst_s11_db_final");
+        assert!(geode > -10.0, "{pal}: geode reads {geode} dB");
+        assert!((geode - own).abs() < 0.25, "{pal}: geode {geode} against Palace {own}");
+    }
+    pin(
+        by("cross.geode_on_palace_designs", "palace_pnewuoa190"),
+        -9.8901,
+        1e-3,
+        "geode on the NEWUOA design",
+    );
 }
