@@ -1320,6 +1320,60 @@ const MANIFEST: &[Entry] = &[
         "v6_summary.py: post-processing of the bucket-A v6/**/*.toml and copper/verify/*.toml \
          (issue #1126); no Burn backend",
     ),
+    // Issue #1134: the copper design re-centred on the refined forward model.
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.0536 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm54_w16 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16_on_rbGrim020_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.057 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm57_w16 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbG_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_cyl_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.39:2.395:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_cyl_edge_hi.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --dense 2.4885:2.4935:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_default_morph_inverted.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.39:2.395:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/recentre_summary.toml",
+        "recentre_summary.py: post-processing of the bucket-A recentre/*.toml (issue #1134); \
+         no Burn backend",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/rim_edges.toml",
+        "rim_edge_stats.py: mesh geometry of the moved meshes (issue #1134); no solve",
+    ),
 ];
 
 fn repo_root() -> PathBuf {

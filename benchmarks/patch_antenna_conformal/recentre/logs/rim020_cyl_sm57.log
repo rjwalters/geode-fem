@@ -1,0 +1,76 @@
+  WARNING: --feed-support-legacy: the feed support (6.40 mm) reaches the patch outline (5.12 mm from the feed): the feed DOFs also move the copper edge
+  WARNING: rebase-feed is NOT exact: a feed support reaches the +y edge (design fixture: true, this fixture: true), so the copper outline differs from the design's; compare the [copper] sections
+  rebase-feed: design fixture inset 5.123104893 / width 1.6 mm -> this fixture 5.123104893 / 1.6 mm; feed coefficients [-0.057365, 0.000000]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbGrim020_L1 (431528 edges, 62158 nodes, 366408 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.9 s
+  verify-only: design L1_copper_38_sm57_w16 on L1 at p1
+    worst tet: tet 222003 ratio 0.262 in air at (s, y) = (+24.84, -0.90) mm, dr -2.60 mm from the substrate top, 26.88 mm from the feed, 14.80 mm from a corner, 5.84 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.27 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 13.46 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.434) mm, width 1.600 mm, inset 5.137 mm; patch 28.996 x 49.731 mm (L x W), area 1317.6 mm^2 (base 1110.8)
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.2237 (-13.01 dB), Z = 66.9 +20.5i ohm
+    sweep 2.4104 GHz: |S11| = 0.1597 (-15.93 dB), Z = 65.8 +9.8i ohm
+    sweep 2.4209 GHz: |S11| = 0.1033 (-19.72 dB), Z = 61.5 +0.5i ohm
+    sweep 2.4313 GHz: |S11| = 0.0785 (-22.10 dB), Z = 55.3 -6.4i ohm
+    sweep 2.4417 GHz: |S11| = 0.1097 (-19.20 dB), Z = 48.4 -10.7i ohm
+    sweep 2.4522 GHz: |S11| = 0.1662 (-15.59 dB), Z = 41.7 -13.0i ohm
+    sweep 2.4626 GHz: |S11| = 0.2275 (-12.86 dB), Z = 35.8 -13.7i ohm
+    sweep 2.4731 GHz: |S11| = 0.2879 (-10.82 dB), Z = 30.7 -13.5i ohm
+    sweep 2.4835 GHz: |S11| = 0.3454 ( -9.23 dB), Z = 26.4 -12.6i ohm
+  dense sweep (31 points):
+    sweep 2.3700 GHz: |S11| = 0.4023 ( -7.91 dB), Z = 53.0 +45.1i ohm
+    sweep 2.3750 GHz: |S11| = 0.3743 ( -8.54 dB), Z = 56.4 +42.4i ohm
+    sweep 2.3800 GHz: |S11| = 0.3454 ( -9.23 dB), Z = 59.6 +39.0i ohm
+    sweep 2.3850 GHz: |S11| = 0.3158 (-10.01 dB), Z = 62.4 +35.1i ohm
+    sweep 2.3900 GHz: |S11| = 0.2855 (-10.89 dB), Z = 64.6 +30.5i ohm
+    sweep 2.3950 GHz: |S11| = 0.2547 (-11.88 dB), Z = 66.2 +25.6i ohm
+    sweep 2.4000 GHz: |S11| = 0.2237 (-13.01 dB), Z = 66.9 +20.5i ohm
+    sweep 2.4050 GHz: |S11| = 0.1927 (-14.30 dB), Z = 66.8 +15.3i ohm
+    sweep 2.4100 GHz: |S11| = 0.1623 (-15.79 dB), Z = 65.9 +10.2i ohm
+    sweep 2.4150 GHz: |S11| = 0.1333 (-17.50 dB), Z = 64.2 +5.5i ohm
+    sweep 2.4200 GHz: |S11| = 0.1073 (-19.39 dB), Z = 62.0 +1.2i ohm
+    sweep 2.4250 GHz: |S11| = 0.0874 (-21.17 dB), Z = 59.2 -2.5i ohm
+    sweep 2.4300 GHz: |S11| = 0.0784 (-22.11 dB), Z = 56.1 -5.7i ohm
+    sweep 2.4350 GHz: |S11| = 0.0841 (-21.51 dB), Z = 52.9 -8.2i ohm
+    sweep 2.4400 GHz: |S11| = 0.1017 (-19.85 dB), Z = 49.6 -10.2i ohm
+    sweep 2.4450 GHz: |S11| = 0.1260 (-17.99 dB), Z = 46.3 -11.6i ohm
+    sweep 2.4500 GHz: |S11| = 0.1536 (-16.27 dB), Z = 43.1 -12.7i ohm
+    sweep 2.4550 GHz: |S11| = 0.1826 (-14.77 dB), Z = 40.1 -13.3i ohm
+    sweep 2.4600 GHz: |S11| = 0.2120 (-13.47 dB), Z = 37.2 -13.7i ohm
+    sweep 2.4650 GHz: |S11| = 0.2414 (-12.35 dB), Z = 34.5 -13.7i ohm
+    sweep 2.4700 GHz: |S11| = 0.2704 (-11.36 dB), Z = 32.1 -13.6i ohm
+    sweep 2.4750 GHz: |S11| = 0.2988 (-10.49 dB), Z = 29.8 -13.3i ohm
+    sweep 2.4800 GHz: |S11| = 0.3265 ( -9.72 dB), Z = 27.8 -12.9i ohm
+    sweep 2.4850 GHz: |S11| = 0.3534 ( -9.03 dB), Z = 25.9 -12.4i ohm
+    sweep 2.4900 GHz: |S11| = 0.3794 ( -8.42 dB), Z = 24.1 -11.9i ohm
+    sweep 2.4950 GHz: |S11| = 0.4044 ( -7.86 dB), Z = 22.5 -11.3i ohm
+    sweep 2.5000 GHz: |S11| = 0.4285 ( -7.36 dB), Z = 21.1 -10.6i ohm
+    sweep 2.5050 GHz: |S11| = 0.4517 ( -6.90 dB), Z = 19.8 -9.9i ohm
+    sweep 2.5100 GHz: |S11| = 0.4738 ( -6.49 dB), Z = 18.6 -9.2i ohm
+    sweep 2.5150 GHz: |S11| = 0.4950 ( -6.11 dB), Z = 17.4 -8.5i ohm
+    sweep 2.5200 GHz: |S11| = 0.5152 ( -5.76 dB), Z = 16.4 -7.8i ohm
+  wrote the moved mesh (MSH 2.2) to ~/runs/out/mesh/sm57_rbGrim020_L1_cyl.msh (sha256 e28d31840628cebbd853e556ce442e6f57d0703c34ab87f4e7bd9b478f048a2c)
+  verify L1_copper_38_sm57_w16 on L1 (p1): worst -9.23 dB, best -22.10 dB over 9 points; reached -10 dB = false; 31 dense points; min vol ratio 0.262; no wide sweep; 2286 s, peak RSS 32.9 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm57_w16 on L1 p1]: ~/runs/out/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_dense.toml
+	Command being timed: "~/tgt1134/release/examples/patch_conformal_nested_dof --fixture ~/fix/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --air-on-cylinder --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design rbG_L1_copper_38_sm57_w16.design.toml --write-mesh ~/runs/out/mesh/sm57_rbGrim020_L1_cyl.msh --out ~/runs/out/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_dense.toml"
+	User time (seconds): 37554.39
+	System time (seconds): 1504.35
+	Percent of CPU this job got: 1706%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 38:08.47
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 34441380
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 216841534
+	Voluntary context switches: 68178498
+	Involuntary context switches: 10279441
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 38768
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
