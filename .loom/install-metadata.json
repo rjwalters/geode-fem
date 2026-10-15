@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1162",
-  "loom_commit": "f1ee755eeca1954f35bf83d19f4b84ad51feb9f5",
+  "loom_version": "0.19.1163",
+  "loom_commit": "695290c117c5d456d46b434f9e2817200184f217",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -774,7 +774,9 @@
     ".agents/skills/loom-judge-ci-red/SKILL.md",
     ".claude/commands/loom/judge-ci-red.md",
     ".loom/roles/judge-ci-red.md",
-    ".loom/scripts/tests/test-champion-capped-hold-routing.sh"
+    ".loom/scripts/tests/test-champion-capped-hold-routing.sh",
+    ".loom/scripts/tests/test-champion-post-claim-recheck.sh",
+    ".loom/scripts/tests/test-spawn-codex-model-effort.sh"
   ],
   "last_resync": "2026-10-15",
   "requires_daemon": "0.19.1081"
