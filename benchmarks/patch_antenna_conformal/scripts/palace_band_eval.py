@@ -124,7 +124,8 @@ def main() -> int:
     if len(rows) != len(freqs):
         print(f"port-S.csv has {len(rows)} rows for {len(freqs)} frequencies", file=sys.stderr)
         return 1
-    m = re.findall(r"Elapsed time:?\s*([0-9.eE+-]+)\s*s", text)
+    # Palace's "Elapsed Time Report": the Total row's max over ranks.
+    m = re.findall(r"^Total\s+[0-9.]+\s+([0-9.]+)\s+[0-9.]+\s*$", text, re.M)
     solve_s = m[-1] if m else "nan"
     with (work / "evals.log").open("a") as fh:
         fh.write(
