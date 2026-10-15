@@ -78,6 +78,17 @@
 //! `scripts/palace_loop_prima.py`) and the cost / cross-check runs
 //! (`scripts/palace_loop_xeval.py`).
 //!
+//! # Finite-difference-gradient control (issue #1148, C4)
+//!
+//! `--fd-gradient` runs the same L-BFGS, Armijo line search, volume guard and
+//! objective with the gradient taken by one-sided forward differences
+//! (one forward band evaluation per free DOF, step `FD_GRAD_H`) at the start
+//! and at every accepted iterate, instead of the adjoint. `--fd-jobs K` runs
+//! the perturbations on `K` threads (wall time only), and `--max-solves N`
+//! stops the descent once `N` optimization solves are counted (terminal
+//! `solve_budget`, a censored run). Every run records its counted
+//! `optimization_solves` per step in the trajectory.
+//!
 //! # Carrying a design across meshes (issue #1103, gate G2)
 //!
 //! The basis is a function of the chart `(s, y)` alone, so a coefficient
@@ -107,7 +118,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use burn::tensor::backend::BackendTypes;
@@ -170,6 +181,10 @@ const PLATEAU_TOL: f64 = 5e-4;
 const PLATEAU_WINDOW: usize = 4;
 /// FD step (design units) and tolerance.
 const FD_H: f64 = 1e-5;
+/// Forward-difference step of the `--fd-gradient` control (design units; the
+/// FD gate's step, so truncation is `O(h)` on an `O(1)` Hessian and the
+/// direct-LU round-off, about 1e-12 on the objective, stays near 1e-7).
+const FD_GRAD_H: f64 = 1e-5;
 const FD_TOL: f64 = 5e-3;
 /// Wide resonance-location sweep range (GHz).
 const WIDE_GHZ: [f64; 2] = [2.20, 2.70];
@@ -285,6 +300,22 @@ struct Cli {
     /// the per-point `|S₁₁|²`, the objective, the solves and the wall time.
     /// Drives the PRIMA baseline (`scripts/palace_loop_prima.py`).
     eval_server: bool,
+    /// Finite-difference-gradient control (issue #1148, C4): the same L-BFGS,
+    /// line search, guard and objective, but the gradient at the start and at
+    /// every accepted iterate is a one-sided forward difference of the band
+    /// objective (one forward band evaluation per free DOF, step
+    /// [`FD_GRAD_H`]) instead of the adjoint. Line-search trials are forward
+    /// only.
+    fd_gradient: bool,
+    /// Worker threads for the `--fd-gradient` perturbations (they are
+    /// independent band evaluations; this changes wall time, not solves).
+    fd_jobs: usize,
+    /// Descent budget in optimization solves (`0` = none): no new iteration
+    /// starts once the counted solves reach it (terminal `solve_budget`,
+    /// a censored run). Counted as in #1126 X4: the start's band evaluation,
+    /// every line-search trial that passes the volume guard and, with
+    /// `--fd-gradient`, every perturbation.
+    max_solves: usize,
 }
 
 fn parse_cli() -> Cli {
@@ -326,6 +357,9 @@ fn parse_cli() -> Cli {
         palace_eval: None,
         palace_workdir: std::env::temp_dir().join("palace_loop"),
         eval_server: false,
+        fd_gradient: false,
+        fd_jobs: 1,
+        max_solves: 0,
     };
     let mut radial_given = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -385,6 +419,9 @@ fn parse_cli() -> Cli {
             "--palace-eval" => cli.palace_eval = Some(PathBuf::from(next(&mut i))),
             "--palace-workdir" => cli.palace_workdir = PathBuf::from(next(&mut i)),
             "--eval-server" => cli.eval_server = true,
+            "--fd-gradient" => cli.fd_gradient = true,
+            "--fd-jobs" => cli.fd_jobs = next(&mut i).parse().expect("--fd-jobs N"),
+            "--max-solves" => cli.max_solves = next(&mut i).parse().expect("--max-solves N"),
             "--corners" => cli.corner_radius = next(&mut i).parse().expect("--corners MM"),
             "--feed" => cli.feed = true,
             "--band-shift" => cli.band_shift = next(&mut i).parse().expect("--band-shift GHz"),
@@ -631,6 +668,39 @@ impl Rng {
 
 // ── Model ────────────────────────────────────────────────────────────────
 
+/// A thread-safe running count (the driven-solve and external-call
+/// counters), so the `--fd-gradient` perturbations can share the
+/// [`Model`] across worker threads (issue #1148, C4).
+#[derive(Default)]
+struct Counter(AtomicUsize);
+impl Counter {
+    fn new(v: usize) -> Self {
+        Counter(AtomicUsize::new(v))
+    }
+    fn get(&self) -> usize {
+        self.0.load(Ordering::SeqCst)
+    }
+    fn add(&self, n: usize) {
+        self.0.fetch_add(n, Ordering::SeqCst);
+    }
+}
+
+/// A thread-safe accumulated `f64` (the external evaluator's wall time).
+#[derive(Default)]
+struct F64Sum(AtomicU64);
+impl F64Sum {
+    fn get(&self) -> f64 {
+        f64::from_bits(self.0.load(Ordering::SeqCst))
+    }
+    fn add(&self, v: f64) {
+        let _ = self
+            .0
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |b| {
+                Some((f64::from_bits(b) + v).to_bits())
+            });
+    }
+}
+
 /// Per-frequency matched-UPML tensors `(f_ghz, ω, ε, ν)`.
 type BandPoint = (f64, f64, Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>);
 
@@ -692,7 +762,7 @@ struct Model {
     pml_thick: f64,
     sigma0: f64,
     /// Total driven solves (forward or forward+adjoint) so far.
-    n_solves: std::cell::Cell<usize>,
+    n_solves: Counter,
     /// Design DOFs pinned at 0 (`--freeze-feed-width`): their gradient entry
     /// is zeroed, so the descent never moves them.
     frozen: Vec<usize>,
@@ -707,8 +777,8 @@ struct ExternalEval {
     cmd: PathBuf,
     workdir: PathBuf,
     /// Wall time spent in the external command (s), and its call count.
-    wall_s: std::cell::Cell<f64>,
-    calls: std::cell::Cell<usize>,
+    wall_s: F64Sum,
+    calls: Counter,
 }
 
 impl ExternalEval {
@@ -719,8 +789,8 @@ impl ExternalEval {
         mesh: &geode_core::mesh::TetMesh,
         freqs: &[f64],
     ) -> Vec<c64> {
-        let k = self.calls.get() + 1;
-        self.calls.set(k);
+        self.calls.add(1);
+        let k = self.calls.get();
         let msh = self.workdir.join("eval.msh");
         write_msh22(&msh, base, mesh);
         let out_dir = self.workdir.join(format!("eval_{k:05}"));
@@ -736,8 +806,7 @@ impl ExternalEval {
             .arg(&flist)
             .output()
             .unwrap_or_else(|e| panic!("external evaluator {}: {e}", self.cmd.display()));
-        self.wall_s
-            .set(self.wall_s.get() + t0.elapsed().as_secs_f64());
+        self.wall_s.add(t0.elapsed().as_secs_f64());
         assert!(
             out.status.success(),
             "external evaluator failed on eval {k} ({}): {}",
@@ -847,7 +916,7 @@ impl Model {
             assert!(!grad, "the external evaluator has no adjoint");
             let freqs: Vec<f64> = self.band.iter().map(|b| b.0).collect();
             let s11 = ext.s11(&self.base, &mesh, &freqs);
-            self.n_solves.set(self.n_solves.get() + freqs.len());
+            self.n_solves.add(freqs.len());
             for (k, s) in s11.iter().enumerate() {
                 assert!(
                     s.norm() <= 1.0 + 1e-6,
@@ -878,7 +947,7 @@ impl Model {
         let mut grads: Vec<Vec<[f64; 3]>> = Vec::new();
         let mut worst_res = 0.0_f64;
         for (_f, omega, eps, nu) in &self.band {
-            self.n_solves.set(self.n_solves.get() + 1);
+            self.n_solves.add(1);
             if grad {
                 let sg = if self.moving_port {
                     driven_shape_gradient_matched_upml_moving_port_s11::<B>(
@@ -1007,7 +1076,7 @@ impl Model {
                     self.sigma0,
                     omega,
                 );
-                self.n_solves.set(self.n_solves.get() + 1);
+                self.n_solves.add(1);
                 let sol = driven_solve_with_ports::<B>(
                     &mesh,
                     DrivenMaterials::MatchedUpml {
@@ -1075,7 +1144,7 @@ impl Model {
                     self.sigma0,
                     omega,
                 );
-                self.n_solves.set(self.n_solves.get() + 1);
+                self.n_solves.add(1);
                 let op = DrivenOperator::assemble_with_space::<B>(
                     &space,
                     &mesh,
@@ -1189,7 +1258,7 @@ impl Model {
                     self.sigma0,
                     omega,
                 );
-                self.n_solves.set(self.n_solves.get() + 1);
+                self.n_solves.add(1);
                 let sol = driven_solve_with_ports::<B>(
                     &mesh,
                     DrivenMaterials::MatchedUpml {
@@ -2098,6 +2167,64 @@ fn fd_check(model: &Model, x: &[f64], grad: &[f64], d: &[f64], label: &str, at: 
     }
 }
 
+/// The `--fd-gradient` flags of a descent, for `[meta].command`.
+fn fd_flags(cli: &Cli) -> String {
+    let mut f = String::new();
+    if cli.fd_gradient {
+        let _ = write!(f, " --fd-gradient --fd-jobs {}", cli.fd_jobs);
+    }
+    if cli.max_solves > 0 {
+        let _ = write!(f, " --max-solves {}", cli.max_solves);
+    }
+    f
+}
+
+/// One-sided forward-difference design gradient of the band objective at
+/// `x` (issue #1148, C4): `(G(x + h e_i) − G(x)) / h` for every free DOF,
+/// with `g_x = G(x)` already evaluated. Each perturbation is one forward
+/// band evaluation (`n_band` solves); frozen DOFs get 0 and cost nothing.
+/// The perturbations run on `jobs` threads sharing the model. Returns the
+/// gradient and the number of band evaluations spent.
+fn fd_gradient(model: &Model, x: &[f64], g_x: f64, jobs: usize) -> (Vec<f64>, usize) {
+    let free: Vec<usize> = (0..x.len())
+        .filter(|i| !model.frozen.contains(i))
+        .collect();
+    let jobs = jobs.clamp(1, free.len().max(1));
+    let parts: Vec<Vec<(usize, f64)>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = (0..jobs)
+            .map(|t| {
+                let free = &free;
+                sc.spawn(move || {
+                    free.iter()
+                        .skip(t)
+                        .step_by(jobs)
+                        .map(|&i| {
+                            let mut xp = x.to_vec();
+                            xp[i] += FD_GRAD_H;
+                            (i, (model.eval(&xp, false).objective - g_x) / FD_GRAD_H)
+                        })
+                        .collect()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("FD-gradient worker"))
+            .collect()
+    });
+    let mut grad = vec![0.0_f64; x.len()];
+    for (i, v) in parts.into_iter().flatten() {
+        grad[i] = v;
+    }
+    (grad, free.len())
+}
+
+/// Relative difference `‖a − b‖ / ‖b‖` (FD against adjoint gradient).
+fn rel_diff(a: &[f64], b: &[f64]) -> f64 {
+    let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
+    norm(&d) / norm(b).max(1e-300)
+}
+
 struct Step {
     iter: usize,
     objective: f64,
@@ -2107,6 +2234,8 @@ struct Step {
     step_len: f64,
     backtracks: usize,
     wall_s: f64,
+    /// Optimization solves counted so far (#1126 X4 rule; see `--max-solves`).
+    solves: usize,
 }
 
 fn toml_str(s: &str) -> String {
@@ -2653,7 +2782,7 @@ fn run_gradient_free(
         // Palace in the loop: the verification points are Palace's too.
         Some(ext) => {
             let s = ext.s11(&model.base, &model.moved_mesh(&x_best), &verify_f);
-            model.n_solves.set(model.n_solves.get() + verify_f.len());
+            model.n_solves.add(verify_f.len());
             verify_f.iter().zip(s).map(|(f, s)| (*f, s, 0.0)).collect()
         }
         None => model.sweep(&x_best, &verify_f),
@@ -2897,7 +3026,7 @@ fn run_eval_server(model: &Model, verify_n: usize) {
                 .collect();
             let s11: Vec<c64> = match &model.external {
                 Some(ext) => {
-                    model.n_solves.set(model.n_solves.get() + verify_f.len());
+                    model.n_solves.add(verify_f.len());
                     ext.s11(&model.base, &model.moved_mesh(&x), &verify_f)
                 }
                 None => model
@@ -3377,7 +3506,7 @@ fn main() {
         air_hi,
         pml_thick,
         sigma0,
-        n_solves: std::cell::Cell::new(0),
+        n_solves: Counter::new(0),
         frozen: if cli.freeze_feed_width {
             vec![n_outline + n_corner + 1]
         } else {
@@ -3388,8 +3517,8 @@ fn main() {
             ExternalEval {
                 cmd: cmd.clone(),
                 workdir: cli.palace_workdir.clone(),
-                wall_s: std::cell::Cell::new(0.0),
-                calls: std::cell::Cell::new(0),
+                wall_s: F64Sum::default(),
+                calls: Counter::default(),
             }
         }),
     };
@@ -3488,7 +3617,37 @@ fn main() {
     if design.is_none() {
         assert!((e0.min_vol_ratio - 1.0).abs() < 1e-9);
     }
-    let grad0 = e0.grad.clone().unwrap();
+    // The adjoint gradient at the start. With `--fd-gradient` (issue #1148,
+    // C4) it is only the reference the forward-difference gradient is
+    // compared against, and what the FD gates validate.
+    let grad0_adjoint = e0.grad.clone().unwrap();
+    let n_band = model.band.len();
+    // Optimization solves, counted as in #1126 X4: the start's band
+    // evaluation, every guard-passing line-search trial, and the
+    // forward-difference perturbations.
+    let mut opt_solves = n_band;
+    let mut fd_band_evals = 0usize;
+    let grad0 = if cli.fd_gradient {
+        assert!(
+            model.external.is_none(),
+            "--fd-gradient runs on geode's forward solver"
+        );
+        let t_fd = Instant::now();
+        let (g, n) = fd_gradient(&model, &x0, e0.objective, cli.fd_jobs);
+        opt_solves += n * n_band;
+        fd_band_evals += n;
+        eprintln!(
+            "  FD gradient at the start: {n} band evaluations on {} threads, {:.0} s; \
+             |g_fd - g_adj| / |g_adj| = {:.3e}",
+            cli.fd_jobs,
+            t_fd.elapsed().as_secs_f64(),
+            rel_diff(&g, &grad0_adjoint)
+        );
+        g
+    } else {
+        grad0_adjoint.clone()
+    };
+    let fd_vs_adjoint_x0 = cli.fd_gradient.then(|| rel_diff(&grad0, &grad0_adjoint));
     let gnorm0 = norm(&grad0);
     eprintln!(
         "  x=0: G = {:.6e}, worst |S11| {:.2} dB, best {:.2} dB, |grad| = {gnorm0:.3e}, \
@@ -3510,16 +3669,18 @@ fn main() {
     let mut rng = Rng(0x1087_2026_u64);
     let mut fd_checks = Vec::new();
     {
+        let grad0 = &grad0_adjoint;
+        let gnorm0 = norm(grad0);
         let d: Vec<f64> = grad0.iter().map(|g| -g / gnorm0).collect();
-        fd_checks.push(fd_check(&model, &x0, &grad0, &d, "steepest_descent", "x0"));
+        fd_checks.push(fd_check(&model, &x0, grad0, &d, "steepest_descent", "x0"));
         if !cli.copper {
             if n_radial > 0 {
                 let d = rng.unit_direction(n_dofs, |i| i < n_radial);
-                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_radial", "x0"));
+                fd_checks.push(fd_check(&model, &x0, grad0, &d, "random_radial", "x0"));
             }
             if n_outline > 0 {
                 let d = rng.unit_direction(n_dofs, |i| i >= n_radial);
-                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_outline", "x0"));
+                fd_checks.push(fd_check(&model, &x0, grad0, &d, "random_outline", "x0"));
             }
         } else if cli.fd_only {
             // Copper mode, FD-only (issue #1120): every DOF group separately and
@@ -3528,11 +3689,11 @@ fn main() {
             let (o_end, c_end) = (n_outline, n_outline + n_corner);
             if n_outline > 0 {
                 let d = rng.unit_direction(n_dofs, |i| i < o_end);
-                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_outline", "x0"));
+                fd_checks.push(fd_check(&model, &x0, grad0, &d, "random_outline", "x0"));
             }
             if n_corner > 0 {
                 let d = rng.unit_direction(n_dofs, |i| (o_end..c_end).contains(&i));
-                fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_corner", "x0"));
+                fd_checks.push(fd_check(&model, &x0, grad0, &d, "random_corner", "x0"));
             }
             for (k, name) in ["feed_inset", "feed_width"].iter().enumerate().take(n_feed) {
                 if model.frozen.contains(&(c_end + k)) {
@@ -3541,11 +3702,11 @@ fn main() {
                 let d: Vec<f64> = (0..n_dofs)
                     .map(|i| if i == c_end + k { 1.0 } else { 0.0 })
                     .collect();
-                fd_checks.push(fd_check(&model, &x0, &grad0, &d, name, "x0"));
+                fd_checks.push(fd_check(&model, &x0, grad0, &d, name, "x0"));
             }
         } else {
             let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
-            fd_checks.push(fd_check(&model, &x0, &grad0, &d, "random_all", "x0"));
+            fd_checks.push(fd_check(&model, &x0, grad0, &d, "random_all", "x0"));
         }
     }
 
@@ -3562,6 +3723,7 @@ fn main() {
         step_len: 0.0,
         backtracks: 0,
         wall_s: t_start.elapsed().as_secs_f64(),
+        solves: opt_solves,
     }];
     let mut s_hist: VecDeque<Vec<f64>> = VecDeque::new();
     let mut y_hist: VecDeque<Vec<f64>> = VecDeque::new();
@@ -3572,10 +3734,16 @@ fn main() {
     let mut last_eval: Option<Eval> = None;
     let mut best_worst_db = e0.worst_db();
     let mut best_x = x0.clone();
+    // The gradient the descent used at `best_x` (the FD one with `--fd-gradient`).
+    let mut best_grad = grad0.clone();
     let mut guard_events: Vec<(usize, f64, TetSite)> = Vec::new();
     let max_steps = if cli.fd_only { 0 } else { cli.max_steps };
 
     for iter in 1..=max_steps {
+        if cli.max_solves > 0 && opt_solves >= cli.max_solves {
+            terminal = "solve_budget";
+            break;
+        }
         let gnorm = norm(&grad);
         if gnorm < GRAD_TOL_REL * gnorm0 {
             terminal = "converged_grad_norm";
@@ -3637,7 +3805,8 @@ fn main() {
                 guard_events.push((iter, a, site));
             } else {
                 let t_eval = Instant::now();
-                let et = model.eval(&xt, true);
+                let et = model.eval(&xt, !cli.fd_gradient);
+                opt_solves += n_band;
                 let armijo = et.objective <= g_cur + ARMIJO_C * a * slope;
                 eprintln!(
                     "    trial a = {a:.3e}: G = {:.6e} (worst {:.2} dB), vol {vr:.3}, {} ({:.0} s)",
@@ -3657,7 +3826,7 @@ fn main() {
             backtracks += 1;
         };
         total_backtracks += backtracks;
-        let Some((xn, en, vr)) = accepted else {
+        let Some((xn, mut en, vr)) = accepted else {
             terminal = if guard_binding {
                 "distortion_limited"
             } else {
@@ -3665,6 +3834,17 @@ fn main() {
             };
             break;
         };
+        if cli.fd_gradient {
+            let t_fd = Instant::now();
+            let (g, n) = fd_gradient(&model, &xn, en.objective, cli.fd_jobs);
+            opt_solves += n * n_band;
+            fd_band_evals += n;
+            eprintln!(
+                "    FD gradient: {n} band evaluations, {:.0} s; {opt_solves} optimization solves",
+                t_fd.elapsed().as_secs_f64()
+            );
+            en.grad = Some(g);
+        }
         let gn = en.grad.clone().unwrap();
         let s: Vec<f64> = xn.iter().zip(&x).map(|(a, b)| a - b).collect();
         let yv: Vec<f64> = gn.iter().zip(&grad).map(|(a, b)| a - b).collect();
@@ -3696,6 +3876,7 @@ fn main() {
         if wdb < best_worst_db {
             best_worst_db = wdb;
             best_x = x.clone();
+            best_grad = grad.clone();
         }
         steps.push(Step {
             iter,
@@ -3706,6 +3887,7 @@ fn main() {
             step_len: norm(&s),
             backtracks,
             wall_s: t_start.elapsed().as_secs_f64(),
+            solves: opt_solves,
         });
         last_eval = Some(en);
         if rel_drop.abs() < PLATEAU_TOL {
@@ -3725,12 +3907,18 @@ fn main() {
     // Report the best worst-of-band iterate (the soft-max can trade a hair of
     // worst-point for the aggregate on the last steps).
     let x_final = best_x;
-    let e_final = if x_final == x {
+    let e_final = if x_final == x && !cli.fd_gradient {
         last_eval.unwrap_or_else(|| model.eval(&x_final, true))
     } else {
+        // With `--fd-gradient` the reported design gets a fresh forward +
+        // adjoint evaluation (not counted), so the FD gate below validates
+        // the adjoint as in the adjoint runs and the FD gradient the descent
+        // used there can be compared with it.
+        drop(last_eval);
         model.eval(&x_final, true)
     };
     let grad_final = e_final.grad.clone().unwrap();
+    let fd_vs_adjoint_final = cli.fd_gradient.then(|| rel_diff(&best_grad, &grad_final));
     let gnorm_final = norm(&grad_final);
     if n_dofs > 0 && !cli.fd_only && steps.len() > 1 {
         let d = rng.unit_direction(n_dofs, |i| !model.frozen.contains(&i));
@@ -4128,7 +4316,7 @@ fn main() {
         toml_str(&format!(
             "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
              <dir>/{stem}.msh {}{} --n-band {} --beta {} --max-steps {} --verify-n {} --wide-step \
-             {} --label {}{}{}",
+             {} --label {}{}{}{}",
             basis_flags(&cli),
             if cli.band_shift != 0.0 {
                 format!(" --band-shift {}", cli.band_shift)
@@ -4142,6 +4330,7 @@ fn main() {
             cli.wide_step,
             cli.label,
             if cli.fd_only { " --fd-only" } else { "" },
+            fd_flags(&cli),
             design.as_ref().map_or(String::new(), |d| format!(
                 " --design {}",
                 repo_rel(&d.path)
@@ -4293,6 +4482,35 @@ fn main() {
          units, per-tet signed-volume-ratio guard; gradient = frequency-softmax-weighted composed \
          adjoint nodal gradients contracted through the morph columns\"\n",
     );
+    if cli.fd_gradient {
+        t.push_str(
+            "gradient = \"forward_difference\"\n\
+             gradient_note = \"issue #1148 C4 control: the same L-BFGS, line search, guard and \
+             objective, but the gradient at the start and at every accepted iterate is a one-sided \
+             forward difference of the band objective, one forward band evaluation per free DOF; \
+             line-search trials are forward only. The adjoint is evaluated only at the start and \
+             at the reported design, for comparison and for the FD gates.\"\n",
+        );
+        let _ = writeln!(t, "fd_gradient_h = {FD_GRAD_H:e}");
+        let _ = writeln!(t, "fd_jobs = {}", cli.fd_jobs);
+        let _ = writeln!(t, "fd_band_evals = {fd_band_evals}");
+        if let Some(r) = fd_vs_adjoint_x0 {
+            let _ = writeln!(t, "fd_vs_adjoint_rel_x0 = {r:.6e}");
+        }
+        if let Some(r) = fd_vs_adjoint_final {
+            let _ = writeln!(t, "fd_vs_adjoint_rel_final = {r:.6e}");
+        }
+    } else {
+        t.push_str("gradient = \"adjoint\"\n");
+    }
+    let _ = writeln!(t, "optimization_solves = {opt_solves}");
+    t.push_str(
+        "optimization_solves_rule = \"#1126 X4: the start's band evaluation (n_band solves), \
+         every line-search trial that passed the volume guard (n_band each) and every \
+         forward-difference perturbation (n_band each); FD gates and verification sweeps \
+         excluded\"\n",
+    );
+    let _ = writeln!(t, "max_solves = {}", cli.max_solves);
     let _ = writeln!(t, "max_steps = {}", cli.max_steps);
     let _ = writeln!(t, "n_steps = {}", steps.len() - 1);
     let _ = writeln!(t, "terminal_condition = {}", toml_str(terminal));
@@ -4428,6 +4646,7 @@ fn main() {
         let _ = writeln!(t, "step_len = {:.6e}", s.step_len);
         let _ = writeln!(t, "backtracks = {}", s.backtracks);
         let _ = writeln!(t, "wall_s = {:.1}", s.wall_s);
+        let _ = writeln!(t, "optimization_solves = {}", s.solves);
         t.push('\n');
     }
     t.push_str("[shape]\n");

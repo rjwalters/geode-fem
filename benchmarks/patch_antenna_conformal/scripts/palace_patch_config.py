@@ -25,6 +25,16 @@ Usage:
       --fmin 2.30 --fmax 2.45 --fstep 0.001 --out <dir>/config.json \\
       --postpro <dir>/postpro [--adaptive-tol 1e-3]
 
+Port-free eigenmode (issue #1148, C1): `--eigen-target GHZ` switches the
+problem to Palace's eigenmode driver (shift-and-invert about GHZ, `--eigen-n`
+modes) on the same materials, PEC and absorbing wall. `--port` sets what the
+1.6 mm port gap (tag 11) is: `open` (default for eigenmode: no boundary
+condition, so the feed is removed and the gap is plain dielectric/air),
+`short` (PEC: a shorting strip), or `lumped` (the 50 ohm lumped port as a
+loss, no excitation). The substrate (attribute 1) is registered for the
+energy postprocessing, so each mode's substrate electric participation
+identifies the patch mode among the air-box modes.
+
 Paths are written as given (use container paths for a docker run).
 """
 
@@ -35,7 +45,53 @@ import json
 from pathlib import Path
 
 
+def eigen_config(args) -> dict:
+    """Port-free (or port-loaded) eigenmode config (issue #1148, C1)."""
+    boundaries: dict = {
+        "PEC": {"Attributes": [12, 13] + ([11] if args.port == "short" else [])},
+        "Absorbing": {"Attributes": [14], "Order": 1},
+    }
+    if args.port == "lumped":
+        boundaries["LumpedPort"] = [
+            {"Index": 1, "R": 50.0, "Attributes": [11], "Direction": "+Z"}
+        ]
+    return {
+        "Problem": {"Type": "Eigenmode", "Verbose": 2, "Output": args.postpro},
+        "Model": {
+            "Mesh": args.mesh,
+            "L0": 1.0e-3,
+            "Refinement": {"UniformLevels": args.levels},
+        },
+        "Domains": {
+            "Materials": [
+                {"Attributes": [1], "Permittivity": 4.4, "LossTan": 0.02},
+                {"Attributes": [2, 3], "Permittivity": 1.0},
+            ],
+            "Postprocessing": {"Energy": [{"Index": 1, "Attributes": [1]}]},
+        },
+        "Boundaries": boundaries,
+        "Solver": {
+            "Order": args.order,
+            "Device": "CPU",
+            "Eigenmode": {
+                "Target": args.eigen_target,
+                "N": args.eigen_n,
+                "Tol": args.eigen_tol,
+                "Save": 0,
+            },
+            "Linear": {
+                "Type": "Default",
+                "KSPType": "GMRES",
+                "Tol": args.tol,
+                "MaxIts": 1000,
+            },
+        },
+    }
+
+
 def config(args) -> dict:
+    if args.eigen_target is not None:
+        return eigen_config(args)
     driven = {
         "MinFreq": args.fmin,
         "MaxFreq": args.fmax,
@@ -95,6 +151,20 @@ def main() -> None:
     ap.add_argument("--adaptive-tol", type=float, default=1e-3)
     ap.add_argument("--tol", type=float, default=1e-8)
     ap.add_argument("--postpro", required=True)
+    ap.add_argument(
+        "--eigen-target",
+        type=float,
+        default=None,
+        help="eigenmode driver about this frequency (GHz) instead of the driven sweep",
+    )
+    ap.add_argument("--eigen-n", type=int, default=8, help="eigenmodes to converge")
+    ap.add_argument("--eigen-tol", type=float, default=1e-8, help="eigensolver tolerance")
+    ap.add_argument(
+        "--port",
+        choices=["open", "short", "lumped"],
+        default="open",
+        help="eigenmode only: the port gap (tag 11) open, PEC-shorted or a 50 ohm load",
+    )
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     out = Path(args.out)
