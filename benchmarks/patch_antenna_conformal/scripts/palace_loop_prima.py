@@ -176,7 +176,9 @@ def main() -> int:
     t.append(f'label = "{a.label}"')
     if a.host:
         t.append(f'host = "{a.host}"')
-    t.append(f"prima_version = \"{getattr(prima, '__version__', 'unknown')}\"")
+    from importlib.metadata import version  # noqa: PLC0415
+
+    t.append(f'prima_version = "{version("prima")}"')
     t.append("band_points_ghz = [" + ", ".join(f"{f:.6f}" for f in band) + "]")
     t.append("")
     t.append("[gradient_free]")
