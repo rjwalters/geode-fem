@@ -110,6 +110,15 @@ attributed to one cause. `meep_r4_verify.py` reads these GEODE values from
 `convergence.toml` and recomputes the Meep values at 2.36 and 2.40 GHz. The results are
 in the `geode_comparison` block of `resolution_trend.json`.
 
+**Diagnosed later; see [DIAGNOSIS.md](DIAGNOSIS.md).** The disagreement comes from the
+harness's metal model on the curved board. The one-cell `mp.metal` shells, without
+subpixel averaging, zero Ez samples next to the substrate in columns where the tangential
+metal plane lies one sample further out. That lowers the patch resonance by a factor
+computed from the grid. The flat board in Meep R2 resonates at 2.335 GHz, close to
+GEODE's flat ladder. The bent R2 dip is at 2.087 GHz, just below this window, so the
+"opposite refinement directions" above rest on window-edge minima and are not supported.
+A Yee-cell-aligned metal staircase on the same bent board gives 2.333 GHz.
+
 ## What R8 would need (from R4 actuals)
 
 The full arithmetic is in `resolution_trend.json` → `r8_projection`. Each axis doubles

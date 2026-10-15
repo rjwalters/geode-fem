@@ -1,0 +1,15 @@
+bent_R2.start 2026-10-15T15:49:40Z
+cells_bent_R2.start 2026-10-15T17:55:19Z
+ctrl_R2.start 2026-10-15T16:36:48Z
+flat_R2.start 2026-10-15T15:21:33Z
+inset_flat_R2.start 2026-10-15T17:20:11Z
+map_flat_R2.start 2026-10-15T19:01:21Z
+map_inset_flat_R2.start 2026-10-15T18:26:51Z
+bent_R2.exit exit=0 end=2026-10-15T16:21:48Z
+cells_bent_R2.exit exit=0 end=2026-10-15T18:26:32Z
+ctrl_R2.exit exit=0 end=2026-10-15T17:04:31Z
+flat_R2.exit exit=0 end=2026-10-15T15:49:40Z
+inset_flat_R2.exit exit=0 end=2026-10-15T17:54:41Z
+map_flat_R2.exit exit=0 end=2026-10-15T19:28:42Z
+map_inset_flat_R2.exit exit=0 end=2026-10-15T19:01:21Z
+r1eq.exit end=2026-10-15T17:20:06Z
