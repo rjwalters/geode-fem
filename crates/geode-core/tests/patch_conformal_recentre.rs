@@ -33,7 +33,9 @@ fn load_at(rel: &str) -> toml::Value {
 }
 
 fn load(rel: &str) -> toml::Value {
-    load_at(&format!("benchmarks/patch_antenna_conformal/recentre/{rel}"))
+    load_at(&format!(
+        "benchmarks/patch_antenna_conformal/recentre/{rel}"
+    ))
 }
 
 fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
@@ -120,8 +122,11 @@ fn every_recentre_artifact_ran_on_its_committed_fixture() {
     ] {
         assert!(provenance(stem, "parameters").ends_with(&format!("{stem}.yaml")));
         assert!(
-            provenance(stem, "patch rim edge mean / max (edges within 0.5 mm of the outline)")
-                .starts_with(rim),
+            provenance(
+                stem,
+                "patch rim edge mean / max (edges within 0.5 mm of the outline)"
+            )
+            .starts_with(rim),
             "{stem}: rim"
         );
     }
@@ -139,11 +144,17 @@ fn the_descents_are_guard_limited_at_the_widening() {
         assert_eq!(x.len(), 38, "{tag}");
         assert_eq!(x[37].as_float().unwrap(), 0.0, "{tag}: width DOF frozen");
         pin(f(&d, "meta.band_shift_ghz") * 1e3, shift, 1e-9, tag);
-        assert_eq!(s(&d, "optimization.terminal_condition"), "distortion_limited");
+        assert_eq!(
+            s(&d, "optimization.terminal_condition"),
+            "distortion_limited"
+        );
         let r = f(&d, "optimization.worst_vol_ratio");
         assert!((0.25..0.2501).contains(&r), "{tag}: guard binds ({r})");
         assert_eq!(s(&d, "guard.final_worst.region"), "air");
-        assert!(f(&d, "guard.final_worst.outside_patch_mm") > 5.0, "{tag}: widening site");
+        assert!(
+            f(&d, "guard.final_worst.outside_patch_mm") > 5.0,
+            "{tag}: widening site"
+        );
         // The patch is about 49.7 mm wide, as the v5/X5 family.
         let w = f(&sum, &format!("design.{tag}.patch_width_mm"));
         assert!((49.6..49.8).contains(&w), "{tag}: width {w}");
@@ -175,7 +186,12 @@ fn the_headline_design_meets_minus_10_db_on_geodes_finest_mesh() {
     assert_eq!(f(comb, "n_edges") as i64, 1_738_279);
     assert!(f(comb, "min_vol_ratio") > 0.2, "sound mesh");
     assert!(get(comb, "edges_bracketed").as_bool().unwrap());
-    pin(f(comb, "worst_in_band_db"), -10.7334, 1e-3, "comb worst in band");
+    pin(
+        f(comb, "worst_in_band_db"),
+        -10.7334,
+        1e-3,
+        "comb worst in band",
+    );
     pin(f(comb, "bw_lo_ghz"), 2.39344, 2e-5, "comb lower edge");
     pin(f(comb, "bw_hi_ghz"), 2.48814, 2e-5, "comb upper edge");
     pin(f(comb, "margin_lo_mhz"), 6.56, 0.02, "comb lower margin");
@@ -201,10 +217,23 @@ fn refinement_moves_the_band_up_and_p2_l1_sits_low() {
         "rim 0.2 -> combined",
     );
     let p2 = model(&sum, "sm57", "L1_p2");
-    pin(f(p2, "worst_in_band_db"), -9.0793, 1e-3, "P2/L1 worst in band");
+    pin(
+        f(p2, "worst_in_band_db"),
+        -9.0793,
+        1e-3,
+        "P2/L1 worst in band",
+    );
     let rim = model(&sum, "sm57", "rim020_cyl_p1");
-    pin(f(rim, "worst_in_band_db"), -9.2327, 1e-3, "0.2 mm rim worst in band");
-    assert!(f(rim, "margin_hi_mhz") < 0.0, "0.2 mm rim: misses at 2.4835 GHz");
+    pin(
+        f(rim, "worst_in_band_db"),
+        -9.2327,
+        1e-3,
+        "0.2 mm rim worst in band",
+    );
+    assert!(
+        f(rim, "margin_hi_mhz") < 0.0,
+        "0.2 mm rim: misses at 2.4835 GHz"
+    );
     // P2/L1 and the 0.2 mm rim agree at the upper band edge (X1: they
     // reproduce each other to 0.3 MHz on the initial patch).
     assert!((f(p2, "worst_in_band_db") - f(rim, "worst_in_band_db")).abs() < 0.2);
@@ -223,7 +252,10 @@ fn the_air_morph_moves_nothing_and_the_inverted_run_is_rejected() {
     assert!(f(model(&sum, "sm57", "rim020_cyl_p1"), "min_vol_ratio") > 0.25);
     let rejected = model(&sum, "sm57", "comb_default_rejected");
     assert!(f(rejected, "min_vol_ratio") < 0.0, "inverted");
-    assert!(rejected.get("bw_lo_ghz").is_none(), "no band from an inverted mesh");
+    assert!(
+        rejected.get("bw_lo_ghz").is_none(),
+        "no band from an inverted mesh"
+    );
     let inv = load("rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_default_morph_inverted.toml");
     assert_eq!(s(&inv, "design.air_motion"), "linear");
 }
