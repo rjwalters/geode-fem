@@ -94,6 +94,14 @@ X1_LADDER = [
 ]
 
 
+def hammerstad(w=38.0, l=29.0, h=1.6, eps_r=4.4):
+    """Transmission-line (Hammerstad) resonance of the unloaded rectangular
+    patch, GHz: the textbook estimate the v5 review compares against."""
+    e_eff = (eps_r + 1) / 2 + (eps_r - 1) / 2 / math.sqrt(1 + 12 * h / w)
+    dl = 0.412 * h * (e_eff + 0.3) * (w / h + 0.264) / ((e_eff - 0.258) * (w / h + 0.8))
+    return 299.792458 / (2 * (l + 2 * dl) * math.sqrt(e_eff)), e_eff, dl
+
+
 def x1():
     rows = []
     base = None
@@ -395,7 +403,18 @@ def main():
         "",
     ]
     rows, pal = x1()
-    emit(lines, "x1", {"geode_p1": rows})
+    f_tl, e_eff, dl = hammerstad()
+    emit(
+        lines,
+        "x1",
+        {
+            "textbook_tl_initial_ghz": f_tl,
+            "textbook_tl_eps_eff": e_eff,
+            "textbook_tl_delta_l_mm": dl,
+            "geode_p2_L1_initial_ghz": 2.356643,
+            "geode_p1": rows,
+        },
+    )
     for name, r in pal.items():
         emit(lines, f"x1.palace.{name}", r)
     emit(lines, "x2", x2())

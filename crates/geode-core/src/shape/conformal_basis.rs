@@ -1418,7 +1418,10 @@ mod tests {
         for k in 0..=40 {
             let t = -1.0 + 2.0 * k as f64 / 40.0;
             let [w, l] = basis.eval_rect(19.0, 14.5 * t);
-            assert!((w[0] - 0.5).abs() < 1e-12 && w[1] == 0.0, "+s edge {t}: {w:?}");
+            assert!(
+                (w[0] - 0.5).abs() < 1e-12 && w[1] == 0.0,
+                "+s edge {t}: {w:?}"
+            );
             assert!(l[0] == 0.0, "+s edge {t}: {l:?}");
             let [w, _] = basis.eval_rect(-19.0, 14.5 * t);
             assert!((w[0] + 0.5).abs() < 1e-12, "-s edge {t}: {w:?}");

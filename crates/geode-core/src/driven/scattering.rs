@@ -1160,7 +1160,11 @@ mod tests {
                 .map(|e| {
                     let p = mesh.nodes[e[0] as usize];
                     let q = mesh.nodes[e[1] as usize];
-                    let mid = [0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1]), 0.5 * (p[2] + q[2])];
+                    let mid = [
+                        0.5 * (p[0] + q[0]),
+                        0.5 * (p[1] + q[1]),
+                        0.5 * (p[2] + q[2]),
+                    ];
                     // Exact edge moment of a linear field: midpoint value · (q − p).
                     c64::new(0.0, dot(f(mid), sub(q, p)))
                 })
