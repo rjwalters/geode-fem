@@ -183,5 +183,7 @@ source in `meep_runs/source_v1.py`; their source hashes have not been rewritten.
 See [AWS_PILOT.md](AWS_PILOT.md) for the follow-up calibration, measured
 resource probes, production settings, and interpretation of the R2 pilot.
 [AWS_R4.md](AWS_R4.md) records the R4 run, the R1/R2/R4 trend (no spatial
-convergence: successive-grid differences did not shrink) and the R8 requirement
-measured from R4 actuals.
+convergence: successive-grid differences did not shrink), the comparison with
+GEODE's bent-fixture dip (GEODE ≥ 2.3566 GHz, inside the window; Meep's only deep
+feature is at or below the 2.20 GHz edge; the two refine in opposite directions) and the
+R8 requirement measured from R4 actuals.

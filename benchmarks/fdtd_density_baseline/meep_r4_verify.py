@@ -16,6 +16,7 @@ import math
 import re
 import statistics
 import sys
+import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -89,6 +90,46 @@ def cgroup_peak_bytes(path):
     return max(peaks)
 
 
+def geode_reference(runs):
+    """GEODE bent-fixture dip (same YAML geometry) next to Meep at the same frequencies."""
+    conv = tomllib.loads((ROOT / 'benchmarks/patch_antenna_conformal/convergence.toml').read_text())
+    gate = conv['gate_g1']['bent']
+    levels = conv['s11']['bent']
+    lower, (lo, hi) = gate['lower_bound_dip_f_ghz'], gate['extrapolation_range_ghz']
+    check(not gate['converged'] and lo > lower, 'GEODE gate record changed')
+    dips = [lv['dip_f_ghz'] for lv in levels]
+    window = (runs['R4']['frequency_ghz'][0], runs['R4']['frequency_ghz'][-1])
+    meep = {}
+    for name, run in runs.items():
+        freqs = run['frequency_ghz']
+        gamma, z = final_spectrum(run)
+        at = {}
+        for target in (2.36, 2.40):
+            k = min(range(len(freqs)), key=lambda j: abs(freqs[j] - target))
+            check(abs(freqs[k] - target) < 1e-9, 'Target not on the Meep frequency grid')
+            at[f'{target:.2f}'] = {'s11_db': 20 * math.log10(abs(gamma[k])), 'z_re_ohm': z[k].real}
+        meep[name] = at
+    return {
+        'source': 'benchmarks/patch_antenna_conformal/convergence.toml [s11.bent], [gate_g1.bent]',
+        'geode_levels': [f"{lv['level']}_{lv['element_order']}" for lv in levels],
+        'geode_dip_f_ghz': dips,
+        'geode_dip_db': [lv['dip_db'] for lv in levels],
+        'geode_dip_z_re_ohm': [lv['dip_z_re_ohm'] for lv in levels],
+        'geode_dip_rises_with_refinement': all(a < b for a, b in zip(dips, dips[1:])),
+        'geode_converged': gate['converged'],
+        'geode_lower_bound_dip_f_ghz': lower,
+        'geode_extrapolation_range_ghz': [lo, hi],
+        'geode_lower_bound_inside_meep_window': window[0] < lower < window[1],
+        'meep_at_geode_frequencies': meep,
+        'meep_min_at_window_edge': {
+            name: not summarize(name, run)['min_is_interior'] for name, run in runs.items()},
+        'meep_min_frequency_ghz': {
+            name: summarize(name, run)['min_s11_frequency_ghz'] for name, run in runs.items()},
+        'note': ('Opposite refinement directions recorded, not attributed to one cause. '
+                 'Meep exp(-i wt) vs GEODE exp(+i wt) does not affect |S11| or Re Z.'),
+    }
+
+
 def build_trend():
     runs = {name: json.loads(path.read_text()) for name, path in RUNS}
     r4 = runs['R4']
@@ -130,6 +171,7 @@ def build_trend():
         'max_complex_s11_change_R1_R2': d12,
         'max_complex_s11_change_R2_R4': d24,
         'successive_change_ratio_R1R2_over_R2R4': d12 / d24,
+        'geode_comparison': geode_reference(runs),
         'r4_measured': {
             'logged_grid_shape': grid4,
             'cells': cells4,
@@ -230,6 +272,10 @@ def main():
         print(f'wrote {out}')
         return
     close(trend, json.loads(out.read_text()))
+    ref = trend['geode_comparison']
+    check(ref['geode_dip_rises_with_refinement'] and ref['geode_lower_bound_inside_meep_window'],
+          'GEODE reference no longer inside the window / rising')
+    check(all(ref['meep_min_at_window_edge'].values()), 'A Meep minimum moved inside the window')
     for line in (R4 / 'SHA256SUMS').read_text().splitlines():
         want, name = line.split(None, 1)
         check(digest(R4 / name) == want, f'SHA256SUMS mismatch: {name}')

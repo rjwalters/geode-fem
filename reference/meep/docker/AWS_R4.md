@@ -74,14 +74,41 @@ did **not** shrink on refinement. These three grids show no spatial convergence,
 convergence order can be inferred from them.
 
 The spectrum still changes qualitatively. At R4, the reactance crosses zero near
-2.30 GHz, and |S11| falls steeply to −12.2 dB at the 2.20 GHz lower band edge. This
+2.30 GHz, and |S11| falls steeply to −12.2 dB at the 2.20 GHz lower window edge. This
 suggests a resonance at or below the bottom of the sampled 2.2–2.7 GHz window, but the
 window does not resolve it. None of the three grids has an interior minimum. This is a
 diagnostic observation. It is not attributed to one cause. Grid-dependent model
 elements remain as candidates: one-cell metal shells and port resistor, staircased
-arcs, no subpixel averaging, 1/f loss and an unconverged PML. GEODE equivalence is not
-established. See `meep_runs/aws_r4/spectra.png`, which was rendered by `meep_r4_plot.py`
-in the locked image with Matplotlib 3.11.2.
+arcs, no subpixel averaging, 1/f loss and an unconverged PML. See
+`meep_runs/aws_r4/spectra.png`, which was rendered by `meep_r4_plot.py` in the locked
+image with Matplotlib 3.11.2.
+
+### Comparison with GEODE on the same fixture
+
+Meep and GEODE disagree qualitatively about where this antenna resonates. Both model
+the geometry of `reference/gmsh/patch_conformal_L0.yaml`. GEODE's bent-fixture mesh
+study (`benchmarks/patch_antenna_conformal/convergence.toml`, `[s11.bent]` and
+`[gate_g1.bent]`) puts the |S11| dip *inside* the 2.2–2.7 GHz window:
+
+- Dip frequency rising with every refinement: 2.2717 → 2.3118 → 2.3288 → 2.3422 GHz
+  (p1, L0–L3), then 2.3443 → 2.3566 GHz (p2, L0–L1).
+- Dip depth −23 to −29 dB, with Re Z between 44 and 47 Ω, close to the 50 Ω reference.
+- The study is not converged (`converged = false`). Its lower bound on the converged dip is
+  **2.3566 GHz**, and its extrapolations give **2.369–2.434 GHz**.
+
+Meep shows no feature there. At the same frequencies, R4 gives **−1.46 dB at 2.36 GHz**
+and **−1.15 dB at 2.40 GHz**, with Re Z = 4.2 and 3.4 Ω. R1 and R2 are similar
+(−1.0 to −1.3 dB, Re Z 3.1–3.8 Ω). Meep's only deep feature is at the 2.20 GHz window
+edge, where R4 has Re Z = 31 Ω, still rising toward lower frequency. That is at least
+about 150 MHz below GEODE's lower bound.
+
+The two solvers also refine in opposite directions. GEODE's dip moves up in frequency
+with refinement. Meep's minimum moves from the 2.70 GHz edge at R1 to the 2.20 GHz edge
+at R2 and R4. The |S11| and Re Z comparison does not depend on the time convention
+(Meep exp(−iωt), GEODE exp(+iωt)). As above, the disagreement is recorded, not
+attributed to one cause. `meep_r4_verify.py` reads these GEODE values from
+`convergence.toml` and recomputes the Meep values at 2.36 and 2.40 GHz. The results are
+in the `geode_comparison` block of `resolution_trend.json`.
 
 ## What R8 would need (from R4 actuals)
 
@@ -113,8 +140,11 @@ $11.54), leaving about $237. The ideal-efficiency R8 fits; the 70%-efficiency ca
 not. Before production, measure a short R8 allocation/stepping probe on the target host
 to replace the assumed efficiency. Also decide whether to keep the 2.2–2.7 GHz DFT
 window. The R4 feature lies at its lower edge, so R8 on the same window may not resolve
-it. Widening the window would change the harness hash and need its own provenance
-record. These are operator decisions; nothing here launches R8.
+it. However, GEODE's dip (lower bound 2.3566 GHz, extrapolated 2.369–2.434 GHz) is
+already inside the current window. Widening the window downward would resolve Meep's
+own feature, but it would not by itself test or improve agreement with GEODE. It would
+also change the harness hash and need its own provenance record. These are operator
+decisions; nothing here launches R8.
 
 ## Spend and teardown
 

@@ -80,6 +80,92 @@
   "max_complex_s11_change_R1_R2": 0.47094237920252363,
   "max_complex_s11_change_R2_R4": 0.5011502231468754,
   "successive_change_ratio_R1R2_over_R2R4": 0.9397229761673705,
+  "geode_comparison": {
+    "source": "benchmarks/patch_antenna_conformal/convergence.toml [s11.bent], [gate_g1.bent]",
+    "geode_levels": [
+      "L0_p1",
+      "L1_p1",
+      "L2_p1",
+      "L3_p1",
+      "L0_p2",
+      "L1_p2"
+    ],
+    "geode_dip_f_ghz": [
+      2.271708,
+      2.311815,
+      2.328769,
+      2.342186,
+      2.344336,
+      2.356643
+    ],
+    "geode_dip_db": [
+      -28.8168,
+      -23.1087,
+      -23.1687,
+      -24.3773,
+      -25.8598,
+      -25.6038
+    ],
+    "geode_dip_z_re_ohm": [
+      46.9952,
+      44.3665,
+      44.4343,
+      45.1625,
+      45.9342,
+      45.7889
+    ],
+    "geode_dip_rises_with_refinement": true,
+    "geode_converged": false,
+    "geode_lower_bound_dip_f_ghz": 2.356643,
+    "geode_extrapolation_range_ghz": [
+      2.368792,
+      2.434064
+    ],
+    "geode_lower_bound_inside_meep_window": true,
+    "meep_at_geode_frequencies": {
+      "R1": {
+        "2.36": {
+          "s11_db": -1.0404511059600032,
+          "z_re_ohm": 3.1094893587716586
+        },
+        "2.40": {
+          "s11_db": -1.1874391194426535,
+          "z_re_ohm": 3.573017747743774
+        }
+      },
+      "R2": {
+        "2.36": {
+          "s11_db": -1.3197976596673544,
+          "z_re_ohm": 3.846772656558323
+        },
+        "2.40": {
+          "s11_db": -1.2551902094457268,
+          "z_re_ohm": 3.6809802163925887
+        }
+      },
+      "R4": {
+        "2.36": {
+          "s11_db": -1.4644689779633755,
+          "z_re_ohm": 4.240008968503759
+        },
+        "2.40": {
+          "s11_db": -1.1534042095261845,
+          "z_re_ohm": 3.379258953189399
+        }
+      }
+    },
+    "meep_min_at_window_edge": {
+      "R1": true,
+      "R2": true,
+      "R4": true
+    },
+    "meep_min_frequency_ghz": {
+      "R1": 2.7,
+      "R2": 2.2,
+      "R4": 2.2
+    },
+    "note": "Opposite refinement directions recorded, not attributed to one cause. Meep exp(-i wt) vs GEODE exp(+i wt) does not affect |S11| or Re Z."
+  },
   "r4_measured": {
     "logged_grid_shape": [
       768,
