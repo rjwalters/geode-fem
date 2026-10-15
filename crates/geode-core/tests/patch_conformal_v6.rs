@@ -187,7 +187,7 @@ fn x1_substrate_and_rim_ladders_raise_the_dip() {
         "0.2 mm rim at P1 vs P2/L1",
     );
     let sum = load("v6_summary.toml");
-    pin(f(&sum, "x1.rim_fit.order_p"), 0.71, 0.05, "rim-size order");
+    pin(f(&sum, "x1.rim_fit.order_p"), 0.80, 0.011, "rim-size order");
     pin(
         f(&sum, "x1.rim_fit.f_inf_ghz"),
         RIM_FIT_F_INF,
@@ -213,8 +213,8 @@ const X1_PINS: &[(&str, f64)] = &[
 ];
 
 /// The combined rung's dip and the rim-size fit's limit (GHz).
-const COMB_DIP: f64 = 0.0;
-const RIM_FIT_F_INF: f64 = 0.0;
+const COMB_DIP: f64 = 2.365947;
+const RIM_FIT_F_INF: f64 = 2.37951;
 
 /// Palace on geode's own meshes: an independent solver with an independent
 /// absorber. It reproduces geode's L1 dip at p = 1 and p = 2 to within
@@ -240,10 +240,37 @@ fn x1_palace_reproduces_geode_and_pins_the_reference() {
     for (name, want) in PALACE_PINS {
         pin(run(name, "dip_f_ghz"), *want, 2e-4, name);
     }
+    // p = 3 on L1 lands on geode's finest P1 rung (0.1 mm rim, 0.3 mm slab):
+    // two independent refinements of the same model agree to 0.1 MHz, and
+    // both sit 9 MHz above the v5 finest model.
+    pin(
+        run("init_L1_p3", "dip_f_ghz"),
+        dip("x1comb_L1"),
+        2e-4,
+        "Palace p3 vs geode comb",
+    );
+    // The final design's P2/L1 band reproduces in Palace.
+    pin(
+        run("fin_L1_p2", "band_lo_ghz"),
+        2.3938,
+        1.5e-3,
+        "final band low edge",
+    );
+    pin(
+        run("fin_L1_p2", "worst_in_band_db"),
+        -10.78,
+        0.05,
+        "final worst in band",
+    );
 }
 
 /// `(Palace run, dip GHz)`.
-const PALACE_PINS: &[(&str, f64)] = &[];
+const PALACE_PINS: &[(&str, f64)] = &[
+    ("init_L1_p1", 2.312949),
+    ("init_L1_p2", 2.357025),
+    ("init_L1_p3", 2.365970),
+    ("fin_L1_p2", 2.440571),
+];
 
 // ── X2 ────────────────────────────────────────────────────────────────────
 
@@ -356,13 +383,33 @@ fn x3_power_balance_closes_and_efficiency_is_pinned() {
         5e-3,
         "final directivity",
     );
-    for (name, want) in X3_PINS {
-        let _ = (name, want);
+    let sum = load("v6_summary.toml");
+    pin(
+        f(&sum, "x3.fem_q_total_lower_bound"),
+        18.107,
+        1e-2,
+        "Q_t bound",
+    );
+    pin(
+        f(&sum, "x3.closed_form_final_width.q_total"),
+        24.497,
+        1e-2,
+        "closed-form Q_t",
+    );
+    // The absorber: 40 -> 60 -> 80 mm air moves the dip by under 2.5 MHz.
+    let air = get(&sum, "x3.air_margin").as_array().unwrap();
+    let f40 = f(&air[0], "dip_f_ghz");
+    for a in air {
+        assert!(
+            (f(a, "dip_f_ghz") - f40).abs() < 2.5e-3,
+            "air margin dip shift"
+        );
+        assert!(
+            (f(a, "bw_mhz") - f(&air[0], "bw_mhz")).abs() < 1.5,
+            "air margin bandwidth"
+        );
     }
 }
-
-/// `(key, value)` pins of the X3 summary.
-const X3_PINS: &[(&str, f64)] = &[];
 
 // ── X4 / X5 ───────────────────────────────────────────────────────────────
 

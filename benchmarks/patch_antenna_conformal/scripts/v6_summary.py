@@ -138,11 +138,46 @@ def x1():
     for r in rows:
         if base is not None:
             r["dip_shift_vs_L1_mhz"] = 1e3 * (r["dip_f_ghz"] - base)
+    # Every rung against its rim size: f = f_inf - C h^p, least squares in
+    # (f_inf, C) for each p on a grid, p by the smallest residual.
+    pts = [(r["rim_edge_mean_mm"], r["dip_f_ghz"]) for r in rows if "rim_edge_mean_mm" in r]
+    fit = None
+    if len(pts) >= 3:
+        best = None
+        for k in range(30, 301):
+            p_ = k / 100
+            xs = [h**p_ for h, _ in pts]
+            ys = [f for _, f in pts]
+            n = len(xs)
+            mx, my = sum(xs) / n, sum(ys) / n
+            sxx = sum((x - mx) ** 2 for x in xs)
+            sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+            slope = sxy / sxx
+            icpt = my - slope * mx
+            res = math.sqrt(sum((icpt + slope * x - y) ** 2 for x, y in zip(xs, ys)) / n)
+            if best is None or res < best[0]:
+                best = (res, p_, icpt, -slope)
+        fit = {
+            "model": "dip_f = f_inf - C h_rim^p over every P1 rung (h_rim = mean patch-rim edge)",
+            "order_p": best[1],
+            "f_inf_ghz": best[2],
+            "c_ghz": best[3],
+            "rms_residual_mhz": 1e3 * best[0],
+            "n_points": len(pts),
+        }
+        # Order-1 Richardson on the rim ladder's finest pair (h halves).
+        rim = {r["fixture"]: r for r in rows}
+        if "x1rim040_L1" in rim and "x1rim020_L1" in rim:
+            a, b = rim["x1rim040_L1"], rim["x1rim020_L1"]
+            ha, hb = a["rim_edge_mean_mm"], b["rim_edge_mean_mm"]
+            fit["richardson_order1_rim_pair_ghz"] = b["dip_f_ghz"] + (
+                b["dip_f_ghz"] - a["dip_f_ghz"]
+            ) * hb / (ha - hb)
     pal = {}
     pp = os.path.join(V6, "x1", "palace_summary.toml")
     if os.path.exists(pp):
         pal = load(pp).get("run", {})
-    return rows, pal
+    return rows, pal, fit
 
 
 # ── X2 ────────────────────────────────────────────────────────────────────
@@ -357,7 +392,7 @@ def fmt(v):
     if isinstance(v, list):
         if v and isinstance(v[0], dict):
             raise TypeError
-        return "[" + ", ".join(fmt(x) for x in v) + "]"
+        return "[" + ", ".join("-1" if x is None else fmt(x) for x in v) + "]"
     if isinstance(v, dict):
         return "{ " + ", ".join(f"{k} = {fmt(x)}" for k, x in v.items() if x is not None) + " }"
     raise TypeError(type(v))
@@ -402,7 +437,7 @@ def main():
         'realizable feed. See v6/README.md."',
         "",
     ]
-    rows, pal = x1()
+    rows, pal, fit = x1()
     f_tl, e_eff, dl = hammerstad()
     emit(
         lines,
@@ -413,24 +448,85 @@ def main():
             "textbook_tl_delta_l_mm": dl,
             "geode_p2_L1_initial_ghz": 2.356643,
             "geode_p1": rows,
-        },
+        }
+        | ({"rim_fit": fit} if fit else {}),
     )
     for name, r in pal.items():
         emit(lines, f"x1.palace.{name}", r)
     emit(lines, "x2", x2())
     emit(lines, "x3", x3())
-    emit(
-        lines,
+    x4 = x45(
         "x4",
-        x45(
-            "x4",
-            "L1_copper_rect4_sm45.toml",
-            [
-                ("p2_L1", "L1_copper_rect4_sm45_on_L1_p2.toml"),
-                ("p1_L1_dense", "L1_copper_rect4_sm45_on_L1_dense.toml"),
-            ],
-        ),
+        "rbR_L1_copper_rect4_sm45_rb.toml",
+        [
+            ("p2_L1", "rbR_L1_copper_rect4_sm45_rb_on_rbR_L1_p2.toml"),
+            ("p1_L1_dense", "rbR_L1_copper_rect4_sm45_rb_on_rbR_L1_dense.toml"),
+        ],
     )
+    p = os.path.join(V6, "x4", "L1_copper_rect4_sm45.toml")
+    if os.path.exists(p):
+        x4["descent_stage1"] = descent(p)
+    # Solves to reach a worst-of-band level: the adjoint L-BFGS cold L1 run
+    # (copper/L1_copper_38.toml, rebuilt from its trajectory: 5 solves for
+    # the start, then 5 per line-search trial that passed the volume guard;
+    # FD gates and verification sweeps excluded) against each CMA-ES seed
+    # (solves_so_far at the first evaluation whose best-so-far reaches it,
+    # less the 5 of the x = 0 evaluation).
+    levels = [-5.0, -8.0, -9.0, -9.5, -10.0]
+    adj = load(os.path.join(COPPER, "L1_copper_38.toml"))
+    guard = {}
+    for e in adj["guard"]["event"]:
+        guard[e["step"]] = guard.get(e["step"], 0) + 1
+    cum, curve = 5, [(5, adj["trajectory"]["step"][0]["worst_s11_db"])]
+    for st in adj["trajectory"]["step"][1:]:
+        cum += 5 * (1 + st["backtracks"] - guard.get(st["iter"], 0))
+        curve.append((cum, st["worst_s11_db"]))
+
+    def first(curve, lv):
+        best = math.inf
+        for n_s, w in curve:
+            best = min(best, w)
+            if best <= lv:
+                return n_s
+        return None
+
+    x4["solves_to_level"] = {
+        "levels_db": levels,
+        "adjoint_lbfgs": [first(curve, lv) for lv in levels],
+        "adjoint_lbfgs_total_optimization_solves": cum,
+        "adjoint_lbfgs_final_worst_db": min(w for _, w in curve),
+    }
+    cma_runs = []
+    import glob
+
+    for p in sorted(glob.glob(os.path.join(V6, "x4", "L1_copper_38_cma*.toml"))):
+        d = load(p)
+        g = d["gradient_free"]
+        tr = d["trajectory"]["eval"]
+        c = [
+            (e["solves_so_far"] - g["n_solves_initial_eval"], e.get("best_so_far_worst_db", math.inf))
+            for e in tr
+        ]
+        best_at = {
+            e["eval"]: e.get("best_so_far_worst_db") for e in tr if e["eval"] in (38, 76, 114)
+        }
+        cma_runs.append(
+            {
+                "toml": os.path.relpath(p, ROOT),
+                "seed": g["seed"],
+                "n_evals": g["n_evals"],
+                "n_feasible": g["n_feasible"],
+                "optimization_solves": c[-1][0],
+                "worst_s11_db_final": g["worst_s11_db_final"],
+                "best_worst_db_at_38_evals": best_at.get(38),
+                "best_worst_db_at_76_evals": best_at.get(76),
+                "best_worst_db_at_114_evals": best_at.get(114),
+                "solves_to_level": [first(c, lv) for lv in levels],
+            }
+        )
+    if cma_runs:
+        x4["gradient_free"] = cma_runs
+    emit(lines, "x4", x4)
     emit(
         lines,
         "x5",
@@ -442,8 +538,21 @@ def main():
                 ("final_copper_w127_p1", "rbD_L1_copper_38_sm45_on_rbH_L1_frozen.toml"),
                 ("reopt_w16_p2", "rbG_L1_copper_38_sm45_w16_on_rbG_L1_p2.toml"),
                 ("reopt_w16_p1_dense", "rbG_L1_copper_38_sm45_w16_on_rbG_L1_dense.toml"),
+                ("reopt_w127_p2", "rbH_L1_copper_38_sm45_w127_on_rbH_L1_p2.toml"),
             ],
-        ),
+        )
+        | {
+            k: v
+            for k, v in [
+                (
+                    "descent_w127",
+                    descent(os.path.join(V6, "x5", "rbH_L1_copper_38_sm45_w127.toml"))
+                    if os.path.exists(os.path.join(V6, "x5", "rbH_L1_copper_38_sm45_w127.toml"))
+                    else None,
+                )
+            ]
+            if v is not None
+        },
     )
     text = "\n".join(lines)
     print(text)

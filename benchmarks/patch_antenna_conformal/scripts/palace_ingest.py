@@ -2,8 +2,8 @@
 """Ingest Palace driven sweeps of the conformal patch (issue #1126, X1).
 
 Reads each run's `port-S.csv` (Palace's S-parameter output: frequency in GHz,
-|S11| in dB, arg S11 in degrees) and its log (problem size, wall time, peak
-RSS from `/usr/bin/time -v`), and writes one TOML with, per run:
+|S11| in dB, arg S11 in degrees) and its log (problem size, PROM samples and
+wall time from `/usr/bin/time -v`), and writes one TOML with, per run:
 
 * the |S11| dip: the sampled minimum refined by a parabola through it and its
   two neighbours (in dB, on the uniform frequency grid);
@@ -17,7 +17,7 @@ RSS from `/usr/bin/time -v`), and writes one TOML with, per run:
 Usage:
   python3 palace_ingest.py --out SUMMARY.toml RUN_DIR:NAME[:DESC] ...
 
-RUN_DIR holds `port-S.csv` (Palace's `Problem.Output`) and NAME.log the
+RUN_DIR holds `port-S.csv` and NAME.log (the
 captured stdout+stderr.
 """
 
@@ -108,9 +108,6 @@ def log_info(path: Path) -> dict:
         for p in parts:
             sec = sec * 60 + p
         out["wall_s"] = sec
-    m = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)", text)
-    if m:
-        out["max_rss_gib_one_rank"] = int(m.group(1)) / 1024**2
     # PROM greedy: "n = 10, error = ..." counts the HDM sample vectors (two
     # per solved frequency); "Greedy iteration" lines are the HDM solves after
     # the two band-edge samples.
@@ -155,7 +152,7 @@ def main() -> None:
         bd = band(rows, k)
         verify = [BAND[0] + (BAND[1] - BAND[0]) * i / 8 for i in range(9)]
         worst = [interp_db(rows, f) for f in verify]
-        info = log_info(run_dir.parent.parent / f"{name}.log")
+        info = log_info(run_dir / f"{name}.log")
         lines.append(f"[run.{name}]")
         if desc:
             lines.append(f"description = {toml_str(desc)}")
@@ -181,7 +178,10 @@ def main() -> None:
         if all(w is not None for w in worst):
             lines.append(f"worst_in_band_db = {max(worst):.4f}")
         for k2, v in info.items():
-            lines.append(f"{k2} = {v:.3f}" if isinstance(v, float) else f"{k2} = {v}")
+            if isinstance(v, float):
+                lines.append(f"{k2} = {v:.3e}" if k2 == "prom_error" else f"{k2} = {v:.3f}")
+            else:
+                lines.append(f"{k2} = {v}")
         lines.append("")
     Path(args.out).write_text("\n".join(lines))
     print(args.out)
