@@ -28,6 +28,8 @@ Cargo.lock.bak
 !reference/fixtures/transmon_palace/results_loop_1079/*/palace_run.log
 # #1084 curved conformal 2.4 GHz fixture: baseline / generator / re-check logs
 !benchmarks/patch_antenna_conformal/logs/*.log
+# #1146 Meep harness-v2 run records (cgroup memory samples, run logs; listed in SHA256SUMS)
+!benchmarks/fdtd_density_baseline/meep_runs/v2/**/*.log
 # #1092 DeviceLayout cross-check: Palace run logs (cited by provenance.txt) and geode solve logs
 !reference/fixtures/transmon_palace/results_crosscheck_1092/*/palace_run.log
 !benchmarks/transmon_devicelayout_crosscheck/logs/*.log

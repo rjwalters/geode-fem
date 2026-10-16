@@ -1,0 +1,597 @@
+{
+  "schema": "geode-meep-v2-ladder/1",
+  "note": "Harness v2 (#1146): grid-aligned metal, whole-cell gap and port, flat-loss FR-4. Two bent resolutions do not establish spatial convergence.",
+  "probes": {
+    "R2.5": {
+      "dt": 0.2,
+      "v1_sheet_share_outside_its_samples": 0.234375
+    },
+    "R5": {
+      "dt": 0.1,
+      "v1_sheet_share_outside_its_samples": 0.234375
+    }
+  },
+  "oracles": {
+    "rc_point_R2": 0.000412179619790384,
+    "rc_point_R2.5": 0.0002625874840831762,
+    "rc_point_R5": 8.821970724080443e-05,
+    "rc_point_R2_vs_v1_volume_error": 5.6292860997619876e-15,
+    "sheet_equivalence_max_s11_difference_vs_v1": 5.8412299636085816e-15,
+    "material_R2.5": {
+      "max_eps_real_abs_error": 3.143097030022801e-05,
+      "max_tan_delta_rel_error": 0.00012694919387501447,
+      "designed": {
+        "model": "lorentz",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.02,
+        "tan_delta_max": 0.02154038855035637,
+        "tan_delta_band_2p30_2p42": [
+          0.02,
+          0.020006696699365212
+        ],
+        "eps_real_range": [
+          4.399990462847157,
+          4.400004921635585
+        ]
+      }
+    },
+    "material_R5": {
+      "max_eps_real_abs_error": 1.013576441444286e-05,
+      "max_tan_delta_rel_error": 5.175559235892635e-05,
+      "designed": {
+        "model": "lorentz",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.02,
+        "tan_delta_max": 0.02154038855035637,
+        "tan_delta_band_2p30_2p42": [
+          0.02,
+          0.020006696699365212
+        ],
+        "eps_real_range": [
+          4.399990462847157,
+          4.400004921635585
+        ]
+      }
+    },
+    "material_conductivity_R5": {
+      "max_eps_real_abs_error": 1.0204045734596434e-05,
+      "max_tan_delta_rel_error": 5.068645552153139e-05,
+      "designed": {
+        "model": "conductivity",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.015733333333333335,
+        "tan_delta_max": 0.0295,
+        "tan_delta_band_2p30_2p42": [
+          0.01950413223140496,
+          0.02052173913043478
+        ],
+        "eps_real_range": [
+          4.4,
+          4.4
+        ]
+      }
+    }
+  },
+  "v1": {
+    "v1_r1_ranks_here_vs_committed": [
+      8,
+      4
+    ],
+    "v1_r1_snapshots_identical": true,
+    "v1_rc_r2_identical": true
+  },
+  "runs": {
+    "c_flat_R2.5": {
+      "final_time": 4433.6,
+      "checks_run": 4,
+      "steps": 22168,
+      "max_temporal_change": 0.0007966995383311353,
+      "temporal_tolerance_met": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3683263892858974,
+      "dip_parabolic_db": -29.234084942901973,
+      "z_at_dip_ohm": [
+        48.04456186373893,
+        0.5424060527818828
+      ],
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3683263892858974,
+          "s11_db": -29.234084942901973
+        }
+      ],
+      "at": {
+        "2.36": {
+          "s11_db": -23.196611012254206,
+          "z_ohm": [
+            52.321394357577425,
+            -6.706464610091516
+          ]
+        },
+        "2.40": {
+          "s11_db": -9.862523893612561,
+          "z_ohm": [
+            27.36728320064301,
+            10.850461288331417
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.883920780131404,
+          "z_ohm": [
+            11.113280802002937,
+            5.03141726662905
+          ]
+        }
+      },
+      "wall_seconds": 6899.656145206,
+      "init_seconds": 2.2360512089999247,
+      "stepping_seconds": 6897.392547910001,
+      "seconds_per_step": 0.3111418507718333,
+      "mpi_ranks": 16,
+      "grid_cells_estimated": 72327360,
+      "sum_rank_peak_rss_gib": 19.960678100585938,
+      "cgroup_peak_gib": 19.117450714111328,
+      "fr4": {
+        "model": "conductivity",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.015733333333333335,
+        "tan_delta_max": 0.0295,
+        "tan_delta_band_2p30_2p42": [
+          0.01950413223140496,
+          0.02052173913043478
+        ],
+        "eps_real_range": [
+          4.4,
+          4.4
+        ]
+      }
+    },
+    "c_bent_R2.5": {
+      "final_time": 4433.6,
+      "checks_run": 4,
+      "steps": 22168,
+      "max_temporal_change": 0.0006181918414040736,
+      "temporal_tolerance_met": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3667259081214134,
+      "dip_parabolic_db": -23.409528524702182,
+      "z_at_dip_ohm": [
+        44.760958190929934,
+        -2.69934110261367
+      ],
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3667259081214134,
+          "s11_db": -23.409528524702182
+        }
+      ],
+      "at": {
+        "2.36": {
+          "s11_db": -21.612140622797064,
+          "z_ohm": [
+            47.59639429014168,
+            -7.768679533464632
+          ]
+        },
+        "2.40": {
+          "s11_db": -9.712548342714067,
+          "z_ohm": [
+            26.33066749247492,
+            8.349676695072498
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.902891419686085,
+          "z_ohm": [
+            11.115267081343832,
+            3.7999435331034155
+          ]
+        }
+      },
+      "wall_seconds": 6902.883245923999,
+      "init_seconds": 3.3166061490001084,
+      "stepping_seconds": 6899.507955676,
+      "seconds_per_step": 0.31123727696120534,
+      "mpi_ranks": 16,
+      "grid_cells_estimated": 72327360,
+      "sum_rank_peak_rss_gib": 19.963825225830078,
+      "cgroup_peak_gib": 19.121116638183594,
+      "fr4": {
+        "model": "conductivity",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.015733333333333335,
+        "tan_delta_max": 0.0295,
+        "tan_delta_band_2p30_2p42": [
+          0.01950413223140496,
+          0.02052173913043478
+        ],
+        "eps_real_range": [
+          4.4,
+          4.4
+        ]
+      }
+    },
+    "c_bent_R5": {
+      "final_time": 4433.5,
+      "checks_run": 4,
+      "steps": 44335,
+      "max_temporal_change": 0.0005228948856442615,
+      "temporal_tolerance_met": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3611052663646195,
+      "dip_parabolic_db": -27.237048382754438,
+      "z_at_dip_ohm": [
+        47.28526492502981,
+        -2.992964897301837
+      ],
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3611052663646195,
+          "s11_db": -27.237048382754438
+        }
+      ],
+      "at": {
+        "2.36": {
+          "s11_db": -27.146705656391443,
+          "z_ohm": [
+            47.85939931440487,
+            -3.730623532342254
+          ]
+        },
+        "2.40": {
+          "s11_db": -9.24157720224315,
+          "z_ohm": [
+            25.48093391923592,
+            9.365262828812302
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.8666953301020843,
+          "z_ohm": [
+            11.031857663970579,
+            4.24273829653407
+          ]
+        }
+      },
+      "wall_seconds": 52857.71684883,
+      "init_seconds": 15.973085212001024,
+      "stepping_seconds": 52841.604451415,
+      "seconds_per_step": 1.1918710826979813,
+      "mpi_ranks": 32,
+      "grid_cells_estimated": 577987200,
+      "sum_rank_peak_rss_gib": 135.86888122558594,
+      "cgroup_peak_gib": 134.17770767211914,
+      "fr4": {
+        "model": "conductivity",
+        "anchor_ghz": 2.36,
+        "tan_delta_min": 0.015733333333333335,
+        "tan_delta_max": 0.0295,
+        "tan_delta_band_2p30_2p42": [
+          0.01950413223140496,
+          0.02052173913043478
+        ],
+        "eps_real_range": [
+          4.4,
+          4.4
+        ]
+      }
+    }
+  },
+  "grids": {
+    "c_flat_R2.5": {
+      "board_centre_mm": [
+        0.2,
+        0.0
+      ],
+      "patch_length_mm": 28.8,
+      "patch_width_mm": 38.0,
+      "port_centre_mm": [
+        0.0,
+        7.4,
+        0.0
+      ],
+      "probe_inset_from_patch_edge_mm": 7.0,
+      "port_width_mm": 1.6,
+      "gap_mm": 1.6,
+      "n_gap": 4,
+      "patch_columns": 95,
+      "ez_step_lines": 0,
+      "ez_lines": 94,
+      "ez_free_run_histogram": {
+        "4": 94
+      },
+      "port_discrete_ohm": 49.99999999999999,
+      "time_step": 0.2,
+      "n_gap_cells": 4,
+      "ex_columns_half_patch": 48,
+      "ez_lines_half_patch": 48,
+      "ez_step_lines_half_patch": 0,
+      "diag_gap_model_factor": 1.0
+    },
+    "c_bent_R2.5": {
+      "board_centre_mm": [
+        0.2,
+        0.0
+      ],
+      "patch_length_mm": 28.8,
+      "patch_width_mm": 37.2,
+      "port_centre_mm": [
+        0.0,
+        7.4,
+        0.0
+      ],
+      "probe_inset_from_patch_edge_mm": 7.0,
+      "port_width_mm": 1.6,
+      "gap_mm": 1.6,
+      "n_gap": 4,
+      "patch_columns": 93,
+      "ez_step_lines": 8,
+      "ez_lines": 92,
+      "ez_free_run_histogram": {
+        "3": 8,
+        "4": 84
+      },
+      "port_discrete_ohm": 49.99999999999999,
+      "time_step": 0.2,
+      "n_gap_cells": 4,
+      "ex_columns_half_patch": 47,
+      "ez_lines_half_patch": 47,
+      "ez_step_lines_half_patch": 4,
+      "diag_gap_model_factor": 0.986110436565524
+    },
+    "c_bent_R5": {
+      "board_centre_mm": [
+        0.0,
+        0.1
+      ],
+      "patch_length_mm": 29.0,
+      "patch_width_mm": 37.6,
+      "port_centre_mm": [
+        0.0,
+        7.7,
+        0.0
+      ],
+      "probe_inset_from_patch_edge_mm": 6.900000000000001,
+      "port_width_mm": 1.6,
+      "gap_mm": 1.6,
+      "n_gap": 8,
+      "patch_columns": 188,
+      "ez_step_lines": 18,
+      "ez_lines": 187,
+      "ez_free_run_histogram": {
+        "7": 18,
+        "8": 169
+      },
+      "port_discrete_ohm": 49.99999999999999,
+      "time_step": 0.1,
+      "n_gap_cells": 8,
+      "ex_columns_half_patch": 94,
+      "ez_lines_half_patch": 94,
+      "ez_step_lines_half_patch": 9,
+      "diag_gap_model_factor": 0.9932304599772837
+    },
+    "audit_flat_R2.5": {
+      "board_centre_mm": [
+        0.2,
+        0.0
+      ],
+      "patch_length_mm": 28.8,
+      "patch_width_mm": 38.0,
+      "port_centre_mm": [
+        0.0,
+        7.4,
+        0.0
+      ],
+      "probe_inset_from_patch_edge_mm": 7.0,
+      "port_width_mm": 1.6,
+      "gap_mm": 1.6,
+      "n_gap": 4,
+      "patch_columns": 95,
+      "ez_step_lines": 0,
+      "ez_lines": 94,
+      "ez_free_run_histogram": {
+        "4": 94
+      },
+      "port_discrete_ohm": 49.99999999999999,
+      "time_step": 0.2,
+      "n_gap_cells": 4,
+      "ex_columns_half_patch": 48,
+      "ez_lines_half_patch": 48,
+      "ez_step_lines_half_patch": 0,
+      "diag_gap_model_factor": 1.0
+    },
+    "audit_bent_R2.5": {
+      "board_centre_mm": [
+        0.2,
+        0.0
+      ],
+      "patch_length_mm": 28.8,
+      "patch_width_mm": 37.2,
+      "port_centre_mm": [
+        0.0,
+        7.4,
+        0.0
+      ],
+      "probe_inset_from_patch_edge_mm": 7.0,
+      "port_width_mm": 1.6,
+      "gap_mm": 1.6,
+      "n_gap": 4,
+      "patch_columns": 93,
+      "ez_step_lines": 8,
+      "ez_lines": 92,
+      "ez_free_run_histogram": {
+        "3": 8,
+        "4": 84
+      },
+      "port_discrete_ohm": 49.99999999999999,
+      "time_step": 0.2,
+      "n_gap_cells": 4,
+      "ex_columns_half_patch": 47,
+      "ez_lines_half_patch": 47,
+      "ez_step_lines_half_patch": 4,
+      "diag_gap_model_factor": 0.986110436565524
+    }
+  },
+  "timing": {},
+  "comparison": {
+    "flat_R2.5_minus_geode_flat_mhz": {
+      "L0_p1": 95.62838928589734,
+      "L1_p1": 55.54038928589744,
+      "L2_p1": 38.48638928589754,
+      "L3_p1": 24.969389285897314,
+      "L0_p2": 22.40838928589728,
+      "L1_p2": 10.303389285897246
+    },
+    "bend_shift_R2.5_mhz": -1.60048116448408,
+    "geode_bend_shift_mhz": {
+      "L0_p1": -0.99,
+      "L1_p1": -0.971,
+      "L2_p1": -1.071,
+      "L3_p1": -1.171,
+      "L0_p2": -1.582,
+      "L1_p2": -1.38
+    },
+    "bent_minus_palace_p3_mhz": {
+      "R2.5": 0.7559081214134622,
+      "R5": -4.864733635380425
+    },
+    "bent_minus_geode_x1comb_p1_mhz": {
+      "R2.5": 0.7759081214131491,
+      "R5": -4.844733635380738
+    },
+    "bent_minus_geode_lower_bound_mhz": {
+      "R2.5": 10.082908121413325,
+      "R5": 4.462266364619438
+    },
+    "bent_trend_R2.5_to_R5_mhz": -5.620641756793887,
+    "bent_depth_trend_R2.5_to_R5_db": -3.8275198580522556,
+    "textbook_patch_length_shift_R2.5_to_R5_mhz": -15.530911294454773,
+    "bent_resolutions": 2,
+    "spatial_convergence_established": false
+  },
+  "geode": {
+    "source": "convergence.toml [s11.*], [gate_g1.*], [detune]; v6/v6_summary.toml [x1]",
+    "flat": {
+      "L0_p1": {
+        "dip_f_ghz": 2.272698,
+        "dip_db": -36.0458,
+        "dip_z_re_ohm": 51.3555
+      },
+      "L1_p1": {
+        "dip_f_ghz": 2.312786,
+        "dip_db": -38.3077,
+        "dip_z_re_ohm": 48.9866
+      },
+      "L2_p1": {
+        "dip_f_ghz": 2.32984,
+        "dip_db": -38.2011,
+        "dip_z_re_ohm": 48.9993
+      },
+      "L3_p1": {
+        "dip_f_ghz": 2.343357,
+        "dip_db": -47.5615,
+        "dip_z_re_ohm": 49.6643
+      },
+      "L0_p2": {
+        "dip_f_ghz": 2.345918,
+        "dip_db": -45.343,
+        "dip_z_re_ohm": 50.4604
+      },
+      "L1_p2": {
+        "dip_f_ghz": 2.358023,
+        "dip_db": -50.4138,
+        "dip_z_re_ohm": 50.2202
+      }
+    },
+    "flat_lower_bound_dip_ghz": 2.358023,
+    "flat_p2_extrapolated_dip_ghz": [
+      2.378975,
+      2.406195,
+      2.370606
+    ],
+    "bent": {
+      "L0_p1": {
+        "dip_f_ghz": 2.271708,
+        "dip_db": -28.8168,
+        "dip_z_re_ohm": 46.9952
+      },
+      "L1_p1": {
+        "dip_f_ghz": 2.311815,
+        "dip_db": -23.1087,
+        "dip_z_re_ohm": 44.3665
+      },
+      "L2_p1": {
+        "dip_f_ghz": 2.328769,
+        "dip_db": -23.1687,
+        "dip_z_re_ohm": 44.4343
+      },
+      "L3_p1": {
+        "dip_f_ghz": 2.342186,
+        "dip_db": -24.3773,
+        "dip_z_re_ohm": 45.1625
+      },
+      "L0_p2": {
+        "dip_f_ghz": 2.344336,
+        "dip_db": -25.8598,
+        "dip_z_re_ohm": 45.9342
+      },
+      "L1_p2": {
+        "dip_f_ghz": 2.356643,
+        "dip_db": -25.6038,
+        "dip_z_re_ohm": 45.7889
+      }
+    },
+    "bent_lower_bound_dip_ghz": 2.356643,
+    "bent_p2_extrapolated_dip_ghz": [
+      2.377944,
+      2.405029,
+      2.369309
+    ],
+    "detune_bent_minus_flat_mhz": {
+      "L0_p1": -0.99,
+      "L1_p1": -0.971,
+      "L2_p1": -1.071,
+      "L3_p1": -1.171,
+      "L0_p2": -1.582,
+      "L1_p2": -1.38
+    },
+    "palace_initial_L1": {
+      "p1": {
+        "dip_f_ghz": 2.31295,
+        "dip_db": -23.4152
+      },
+      "p2": {
+        "dip_f_ghz": 2.35703,
+        "dip_db": -26.0057
+      },
+      "p3": {
+        "dip_f_ghz": 2.36597,
+        "dip_db": -26.3649
+      }
+    },
+    "geode_p1_x1comb_L1_dip_ghz": 2.36595,
+    "geode_rim_fit_f_inf_ghz": 2.37951,
+    "geode_rim_richardson_order1_ghz": 2.37235,
+    "textbook_delta_l_mm": 0.738809,
+    "geode_x1comb_L1_cost": {
+      "host": "AWS r8g.8xlarge c2-1126 (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64, dedicated",
+      "n_dofs": 1738557,
+      "n_solves": 19,
+      "total_s": 11018.6,
+      "peak_rss_gib": 208.104,
+      "dip_z_re_ohm": 45.9085
+    }
+  }
+}
