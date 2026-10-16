@@ -21,6 +21,11 @@
 //!   ν-weighted stiffness, consistent-mass current RHS, symmetric Dirichlet
 //!   elimination, and piecewise-constant `B`-field recovery for the
 //!   straight-wire oracle (Epic #448 Phase 1).
+//! - [`magnetostatic_nonlinear`]: the **nonlinear** (B-H) sibling of
+//!   [`magnetostatic`] in SI units — the [`ReluctivityLaw`](magnetostatic_nonlinear::ReluctivityLaw)
+//!   trait with Brauer and monotone-table laws, the consistent-tangent
+//!   damped Newton solve, and the converged tangent for the adjoint
+//!   (motor-paper milestone M1, issue #1157).
 //! - [`magnetostatic3d`]: 3-D **vector** magnetostatic assembly on a
 //!   [`TetMesh`](crate::mesh::TetMesh) with lowest-order Nédélec edge
 //!   elements — host-side `f64` ν-weighted curl-curl (retained full `K`),
@@ -65,6 +70,7 @@ pub mod fe;
 pub mod hcurl_space;
 pub mod magnetostatic;
 pub mod magnetostatic3d;
+pub mod magnetostatic_nonlinear;
 pub mod nedelec;
 pub mod nedelec_matvec;
 pub mod nedelec_p2;

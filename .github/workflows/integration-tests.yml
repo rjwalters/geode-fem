@@ -152,6 +152,7 @@ jobs:
               --test lumped_port \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
+              --test magnetostatic_nonlinear \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
@@ -237,6 +238,7 @@ jobs:
               --test lumped_port \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
+              --test magnetostatic_nonlinear \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
