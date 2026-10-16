@@ -252,9 +252,8 @@ def check_designc(r, v6):
     lo, hi = v6["x1"]["palace"]["init_L1_p3"]["dip_f_ghz"], v6["x1"]["rim_fit"]["f_inf_ghz"]
     d_lo = (lo - c1["initial_dip_p2_ghz"]) * 1000
     d_hi = (hi - c1["initial_dip_p2_ghz"]) * 1000
-    assert round(d_lo) == 9 and round(d_hi) == 22, (d_lo, d_hi)   # printed 9 to 23 (2.380 - 2.357)
-    assert round((2.380 - 2.357) * 1000) == 23
-    contains("The discretization accounts for $9$ to $23$\\,MHz of that")
+    assert round(d_lo) == 9 and round(d_hi) == 22, (d_lo, d_hi)
+    contains(f"The discretization accounts for ${round(d_lo)}$ to ${round(d_hi)}$\\,MHz of that")
     absent("pulls the matched dip below")
     # C2 radiation
     sh, rim = c2["L1_shifted_band"], c2["rim020_ism"]
@@ -267,9 +266,10 @@ def check_designc(r, v6):
     fb = sh["front_to_back_db"] + rim["front_to_back_db"]
     contains(f"front-to-back ratio of ${math.floor(min(fb))}$--${round(max(fb))}$\\,dB")
     contains(f"closes to ${f(max(sh['balance_residual']) * 100, 1)}\\%$ on L1 and ${f(max(rim['balance_residual']) * 100, 1)}\\%$ on the rim mesh")
-    contains(f"(a mismatch loss of ${f(c2['mismatch_loss_at_palace_p3_worst_db'], 2)}$\\,dB) the realized gain is at least "
-             f"${f(c2['realized_gain_floor_dbi'], 2)}$\\,dBi")
-    assert abs(min(rim["gain_broadside_dbi"]) - c2["mismatch_loss_at_palace_p3_worst_db"] - c2["realized_gain_floor_dbi"]) < 1e-3
+    rs, rr = sh["realized_gain_broadside_dbi"], rim["realized_gain_broadside_dbi"]
+    contains(f"realized broadside gain is ${f(min(rs), 2)}$--${f(max(rs), 2)}$\\,dBi on L1 over its optimization band and "
+             f"${f(min(rr), 2)}$--${f(max(rr), 2)}$\\,dBi on the rim mesh over the ISM band (model-dependent)")
+    absent("at least $4.13$")
     # C3 Palace p = 2 on the 0.2 mm rim
     contains(f"Palace $p = 2$, rim $0.2$ & ${thousands(c3['n_dofs'])}$ & {m(c3['worst_in_band_db'])} & "
              f"${f(c3['band_lo_ghz'], 4)}$--${f(c3['band_hi_ghz'], 4)}$ & $100\\%$ & ${f(c3['margin_lo_mhz'], 1)}$ / ${f(c3['margin_hi_mhz'], 1)}$ \\\\")
@@ -303,7 +303,14 @@ def check_designc(r, v6):
     contains(f"initial patch: ${f(ref['drift_richardson_mhz'], 1)}$--${f(ref['drift_rim_fit_mhz'], 1)}$ above Palace $p = 3$, estimated")
     assert c3["minus_palace_L1_p3_lo_edge_mhz"] < ref["drift_richardson_mhz"]
     pin("we do not claim that it meets the ISM band", 2)   # Section 1 and Section 7
-    contains("we estimate that it misses the lower band edge by a few megahertz")
+    dr, df = round(ref["drift_richardson_mhz"], 1), round(ref["drift_rim_fit_mhz"], 1)
+    step = round(c3["minus_palace_L1_p3_lo_edge_mhz"], 1)
+    lo_m, extra_lo, extra_hi = -tot, dr - step, df - step
+    assert (f(lo_m, 1), f(extra_lo, 1), f(extra_hi, 1), f(lo_m + extra_hi, 1)) == ("2.4", "1.8", "8.9", "11.3")
+    contains(f"a further $6.4 - 4.6 = {f(extra_lo, 1)}$ to $13.5 - 4.6 = {f(extra_hi, 1)}$\\,MHz remains")
+    contains(f"estimated miss is ${f(lo_m, 1)}$\\,MHz (the measured terms alone) to $2.4 + 8.9 = {f(lo_m + extra_hi, 1)}$\\,MHz")
+    pin("by $2.4$ to $11$\\,MHz", 4)   # abstract, Section 1, Section 7, Section 11
+    absent("few megahertz")
     return ts, dc
 
 
@@ -497,7 +504,8 @@ def check_baselines(ts, dc):
              f"${f(rat[14][1], 1)}\\times$ with 14, and ${f(rat[38][0], 1)}\\times$ and ${round(rat[38][1])}\\times$ with 38")
     contains(f"the ratio is ${f(rat[4][0], 1)}\\times$ at $-9$\\,dB and ${f(rat[4][1], 1)}\\times$ at $-9.5$\\,dB with 4 parameters, "
              f"and ${f(rat[14][0], 1)}\\times$ and ${f(rat[14][1], 1)}\\times$ with 14")
-    for bad in ["at least $11", "\\ge 11", "\\geq 11", "$\\ge$11"]:
+    contains("from $1.1\\times$ at $-9$\\,dB and $2.4\\times$ at $-9.5$\\,dB with 4 parameters")
+    for bad in ["at least $11", "\\ge 11", "\\geq 11", "$\\ge$11", "close to even", "near one"]:
         absent(bad)
     a4 = runs["tuned/L1_copper_rect4_cold.toml"]
     a14 = runs["tuned/L1_copper_14_cold.toml"]
@@ -664,7 +672,7 @@ def check_voice():
     assert "9.5" not in title and "Order of Magnitude" not in title
     abstract = NORM[NORM.index("\\begin{abstract}"):NORM.index("\\end{abstract}")]
     for s in ["$-9.5$\\,dB in $35$ solves", "$-10.46$\\,dB", "$-10.32$\\,dB", "$1.9$\\,MHz of lower-edge margin",
-              "misses the lower band edge by a few megahertz", "so the savings come from the adjoint",
+              "misses the lower band edge by $2.4$ to $11$\\,MHz", "so the savings come from the adjoint",
               "coarse optimization model"]:
         assert s in abstract, s
     assert len(abstract.split()) <= 240, len(abstract.split())
@@ -673,7 +681,8 @@ def check_voice():
     assert "% NOTE: Crutcher" not in TEX
     concl = section("\\section{Conclusion}", "\\paragraph{Acknowledgments.}")
     for q in ["$-9.5$\\,dB on the coarse optimization model", "$-9$\\,dB with $7.7$ times fewer",
-              "so the savings are the adjoint's", "we estimate that it misses $2.400$\\,GHz by a few megahertz"]:
+              "so the savings are the adjoint's", "we estimate that it misses $2.400$\\,GHz by $2.4$ to $11$\\,MHz",
+              "The ratio is $1.1\\times$ at $-9$\\,dB and $2.4\\times$ at $-9.5$\\,dB with 4 parameters"]:
         assert q in concl, q
     assert "realizable width ($1.6$\\,mm, modelled as a lumped port)" in NBODY
     assert "not cross-checked against a reference implementation" in NBODY
@@ -683,10 +692,21 @@ def check_voice():
 
 
 def check_prior_versions():
-    for n in range(1, 7):
-        rel = f"papers/conformal-antenna-diffopt/conformal-antenna-diffopt.{n}/main.tex"
-        out = subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "HEAD", "--", rel])
-        assert out.returncode == 0, f"{rel} changed"
+    """v1-v6 and every critic sibling are byte-identical to the merge base with origin/main."""
+    base = subprocess.run(["git", "-C", str(REPO), "merge-base", "origin/main", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    thread = "papers/conformal-antenna-diffopt"
+    dirs = sorted(p.name for p in (REPO / thread).iterdir()
+                  if p.is_dir() and re.fullmatch(r"conformal-antenna-diffopt\.[1-6](\.\w+)?", p.name))
+    assert len(dirs) >= 6, dirs
+    for name in dirs:
+        rel = f"{thread}/{name}"
+        for args in (["diff", "--quiet", base, "HEAD", "--", rel], ["diff", "--quiet", "HEAD", "--", rel]):
+            out = subprocess.run(["git", "-C", str(REPO)] + args)
+            assert out.returncode == 0, f"{rel} differs ({' '.join(args[:3])})"
+        untracked = subprocess.run(["git", "-C", str(REPO), "ls-files", "--others", "--exclude-standard", "--", rel],
+                                   capture_output=True, text=True).stdout.strip()
+        assert not untracked, untracked
 
 
 def main():

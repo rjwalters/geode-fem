@@ -76,6 +76,17 @@ mutations are each killed. The paper is 19 pages with this section.
 - The −10 dB censored-ratio arithmetic (≥ 8.9, ≥ 11.5): the text states that no ratio is
   derived from −10 dB.
 
+## Judge round on the v7 PR (changes requested, text only)
+
+| Item | Resolution |
+|---|---|
+| Realized-gain floor mixed two models | §7 gives the realized gain at each model's own match: 4.06–4.50 dBi (L1, optimization band) and 4.11–4.56 dBi (0.2 mm rim, ISM), model-dependent; "at least 4.13" removed |
+| 4-parameter ratio without a level | §1 and §11: "1.1× at −9 dB and 2.4× at −9.5 dB with 4 parameters" |
+| "a few megahertz" without a band | Abstract, §1, §7, §11: "2.4 to 11 MHz". §7 states the arithmetic and the additive assumption: 2.4 MHz from the measured terms; (6.4 − 4.6 = 1.8) to (13.5 − 4.6 = 8.9) MHz more if the initial patch's drift transfers; 2.4 + 8.9 = 11.3 |
+| Stale `papers/README.md` row | Meep pending note replaced by "Meep diagnosis and v2 cross-check" |
+| Nits | "9 to 22 MHz" from unrounded values; artifact-table caption states which paths are repo-relative, and `reference/meep/docker/HARNESS_V2.md` is spelled out; `check_prior_versions()` compares every v1–v6 and critic directory against the merge base with `origin/main` and the working tree, and rejects untracked files there; "here a finite-difference gradient ... is worth less than none" |
+| Acknowledgment TODO | The operator approved the acknowledgment wording as written, so the `TODO(operator)` comment is removed and the text is unchanged |
+
 ## Build and checks
 
 - `papers/build.sh papers/conformal-antenna-diffopt/conformal-antenna-diffopt.7`: 19 pages, 0 overfull

@@ -53,7 +53,7 @@ three most refined models computed, including $-10.46$\,dB on Palace at
 third order and $-10.32$\,dB on Palace at second order on a rim-refined
 mesh, which leaves $1.9$\,MHz of lower-edge margin. A larger air margin
 raises the lower edge by $3.0$--$4.3$\,MHz, so we estimate that the design
-misses the lower band edge by a few megahertz once refined further. Its
+misses the lower band edge by $2.4$ to $11$\,MHz once refined further. Its
 radiation efficiency is $0.61$--$0.63$ with perfectly conducting copper.
 \end{abstract}
 
@@ -91,9 +91,9 @@ and count solves to fixed objective levels.
 Three results follow.
 \begin{itemize}
   \item \textbf{The adjoint cuts the solve count, and the cut grows with the
-  number of parameters} (Section~\ref{sec:baselines}): from close to even
-  with 4 parameters, where three gradient-free runs end lower than the
-  adjoint, to $11\times$ at $-9.5$\,dB and $7.7\times$ at $-9$\,dB with 38,
+  number of parameters} (Section~\ref{sec:baselines}): from $1.1\times$ at
+  $-9$\,dB and $2.4\times$ at $-9.5$\,dB with 4 parameters, where three
+  gradient-free runs end lower than the adjoint, to $11\times$ at $-9.5$\,dB and $7.7\times$ at $-9$\,dB with 38,
   each against the fastest gradient-free run to reach that level. A
   finite-difference gradient on the same L-BFGS path costs $39$ times the
   adjoint's solves, so the savings are the adjoint's, not the gradient's as
@@ -108,7 +108,7 @@ Three results follow.
   (Section~\ref{sec:results}), with a probe of realizable width ($1.6$\,mm,
   modelled as a lumped port). Its lower-edge margin shrinks under further
   refinement and a larger air margin, and we estimate that it misses
-  $2.400$\,GHz by a few megahertz; we do not claim that it meets the ISM band.
+  $2.400$\,GHz by $2.4$ to $11$\,MHz; we do not claim that it meets the ISM band.
 \end{itemize}
 
 \paragraph{Evidence tiers.}
@@ -444,7 +444,7 @@ dip above the cavity resonance, as a series-inductive probe would.
 The Hammerstad transmission-line estimate for the initial patch,
 $2.433$\,GHz \citep{hammerstad1975equations}, lies $92.5$\,MHz above the
 port-free resonance at $p = 2$ and $76$\,MHz above the matched dip. The
-discretization accounts for $9$ to $23$\,MHz of that and the feed moves the
+discretization accounts for $9$ to $22$\,MHz of that and the feed moves the
 dip toward the closed form, so most of the gap is in the cavity model; the
 finite ground and the closed form's own accuracy are untested candidates.
 
@@ -585,7 +585,7 @@ solves to $-9.5$\,dB are $2.6$ to $3.55$ times the $385$--$520$ of separable
 CMA-ES at $\sigma_0 = 0.5$ and more than every gradient-free run that
 reached the level. With the optimizer, basis, guard and iterates fixed, only
 the cost of the gradient changes, so this ablation credits the solve savings
-to the adjoint; a finite-difference gradient on 38 parameters is worth less
+to the adjoint; here a finite-difference gradient on 38 parameters is worth less
 than none. The design itself comes from the optimizer and the
 parametrization, which give the same iterates with either gradient.
 
@@ -790,10 +790,14 @@ The sum assumes that the terms add, and the air-margin term was measured on
 the coarse model. The rim step ($4.6$\,MHz) is below both drift estimates of
 the initial patch above Palace $p = 3$ (order-1 Richardson $6.4$\,MHz, rim
 fit $13.5$\,MHz), so it need not be the last of them; Palace $p = 3$ on the
-$0.2$\,mm-rim mesh was not run. So design~C covers $2.400$--$2.4835$\,GHz at
+$0.2$\,mm-rim mesh was not run. If the initial patch's drift estimates transfer
+and include the measured rim step, a further $6.4 - 4.6 = 1.8$ to
+$13.5 - 4.6 = 8.9$\,MHz remains, so under the same additive assumption the
+estimated miss is $2.4$\,MHz (the measured terms alone) to
+$2.4 + 8.9 = 11.3$\,MHz. So design~C covers $2.400$--$2.4835$\,GHz at
 $-10$\,dB on the three finest discretizations computed, but once refined
 further and given a larger air margin we estimate that it misses the lower
-band edge by a few megahertz, and we do not claim that it meets the ISM
+band edge by $2.4$ to $11$\,MHz, and we do not claim that it meets the ISM
 band.
 
 \paragraph{Where the descent stopped.}
@@ -811,8 +815,9 @@ on and on the $0.2$\,mm-rim mesh across the ISM band. The power balance
 closes to $0.8\%$ on L1 and $1.6\%$ on the rim mesh. The radiation
 efficiency is $0.61$--$0.63$, the dielectric loss fraction $0.37$, and the
 broadside gain $4.45$--$4.66$\,dBi with a front-to-back ratio of
-$13$--$15$\,dB. With the worst in-band match on Palace $p = 3$ (a mismatch
-loss of $0.41$\,dB) the realized gain is at least $4.13$\,dBi. With PEC
+$13$--$15$\,dB. With each model's own match the realized broadside gain is
+$4.06$--$4.50$\,dBi on L1 over its optimization band and $4.11$--$4.56$\,dBi
+on the rim mesh over the ISM band (model-dependent). With PEC
 conductors this efficiency counts radiation against dielectric loss only;
 copper loss would lower it and the gain.
 
@@ -932,7 +937,9 @@ text against them.
 \begin{table}[t]
   \centering
   \caption{Artifacts behind each result, relative to
-  \texttt{benchmarks/patch\_antenna\_conformal/}.}
+  \texttt{benchmarks/patch\_antenna\_conformal/} except where a path begins
+  with \texttt{benchmarks/}, \texttt{reference/} or \texttt{crates/} (repository
+  root).}
   \label{tab:artifacts}
   \footnotesize
   \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.64\linewidth}@{}}
@@ -942,7 +949,7 @@ text against them.
     Fixture, refinement, Palace cross-check, curvature (Section~\ref{sec:accuracy}) & \path{baseline_2g4_L1.toml}, \path{convergence.toml}, \path{upml_ladder_L1.toml}; \path{v6/v6_summary.toml}, \path{v6/x1/}, \path{v6/x2/} \\
     Baselines and scaling (Section~\ref{sec:baselines}) & \path{tuned/tuned_summary.toml}, \path{tuned/}; \path{v6/palace_loop/palace_loop_summary.toml}, \path{v6/x4/}; \path{copper/L1_copper_38.toml}; \path{designc/c4/} \\
     Designs A to C (Sections~\ref{sec:procedure}, \ref{sec:results}) & \path{copper/g2_summary.toml}, \path{v6/x3/}, \path{v6/x5/}; \path{recentre/recentre_summary.toml}, \path{recentre/palace/}; \path{designc/designc_summary.toml}, \path{designc/c1/}--\path{c3/}; \path{tuned/b5/} \\
-    FDTD comparison (Section~\ref{sec:limits}) & \path{reference/meep/docker/DIAGNOSIS.md}, \path{HARNESS_V2.md}; \path{benchmarks/fdtd_density_baseline/meep_runs/v2/ladder.json} \\
+    FDTD comparison (Section~\ref{sec:limits}) & \path{reference/meep/docker/DIAGNOSIS.md}, \path{reference/meep/docker/HARNESS_V2.md}; \path{benchmarks/fdtd_density_baseline/meep_runs/v2/ladder.json} \\
     Generator and tests & \path{crates/geode-core/examples/patch_conformal_nested_dof.rs}; \path{crates/geode-core/tests/patch_conformal_*.rs} \\
     \bottomrule
   \end{tabular}
@@ -955,8 +962,9 @@ On the copper design of a bent 2.4\,GHz patch, a finite-element shape
 adjoint reaches a worst-of-band $|S_{11}|$ of $-9.5$\,dB on the coarse
 optimization model with $11$ times fewer solves than the fastest tuned
 gradient-free run to reach that level, and $-9$\,dB with $7.7$ times fewer
-than the fastest run to reach $-9$\,dB. The ratio is near
-one with 4 parameters and grows with their number. A finite-difference
+than the fastest run to reach $-9$\,dB. The ratio is $1.1\times$ at
+$-9$\,dB and $2.4\times$ at $-9.5$\,dB with 4 parameters and grows with their
+number. A finite-difference
 gradient on the same path costs more than gradient-free search, so the
 savings are the adjoint's, and the optimum is no better: gradient-free search
 reaches the same level given enough solves. The design, re-centred on the
@@ -964,7 +972,7 @@ rim-resolved model, with a $1.6$\,mm probe on a
 standard board, covers the ISM band at $-10$\,dB on the three finest models
 computed, but its lower-edge margin falls to $1.9$\,MHz on the most refined
 one and a larger air margin takes another $3$ to $4$\,MHz, so we estimate
-that it misses $2.400$\,GHz by a few megahertz.
+that it misses $2.400$\,GHz by $2.4$ to $11$\,MHz.
 
 \paragraph{Acknowledgments.}
 We thank Crutcher Dunnavant for the whiteroom specification, for his
