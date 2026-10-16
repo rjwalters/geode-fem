@@ -2182,9 +2182,7 @@ fn fd_flags(cli: &Cli) -> String {
 /// The perturbations run on `jobs` threads sharing the model. Returns the
 /// gradient and the number of band evaluations spent.
 fn fd_gradient(model: &Model, x: &[f64], g_x: f64, jobs: usize) -> (Vec<f64>, usize) {
-    let free: Vec<usize> = (0..x.len())
-        .filter(|i| !model.frozen.contains(i))
-        .collect();
+    let free: Vec<usize> = (0..x.len()).filter(|i| !model.frozen.contains(i)).collect();
     let jobs = jobs.clamp(1, free.len().max(1));
     let parts: Vec<Vec<(usize, f64)>> = std::thread::scope(|sc| {
         let handles: Vec<_> = (0..jobs)

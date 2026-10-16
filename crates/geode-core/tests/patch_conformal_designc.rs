@@ -198,21 +198,34 @@ fn the_eigenmode_runs_use_the_x1_setup_with_the_port_removed() {
         assert_eq!(c["Problem"]["Type"], "Eigenmode", "{run}");
         assert_eq!(c["Solver"]["Order"], 2, "{run}");
         assert_eq!(c["Model"]["Mesh"], format!("/work/{mesh}"), "{run}");
-        assert!(c["Boundaries"].get("LumpedPort").is_none(), "{run}: port removed");
+        assert!(
+            c["Boundaries"].get("LumpedPort").is_none(),
+            "{run}: port removed"
+        );
         assert_eq!(
             c["Boundaries"]["PEC"]["Attributes"],
             serde_json::json!([12, 13]),
             "{run}: port gap not shorted"
         );
-        assert_eq!(c["Boundaries"]["Absorbing"]["Attributes"], serde_json::json!([14]));
-        assert_eq!(c["Solver"]["Linear"]["MGMaxLevels"], 1, "{run}: direct solve");
+        assert_eq!(
+            c["Boundaries"]["Absorbing"]["Attributes"],
+            serde_json::json!([14])
+        );
+        assert_eq!(
+            c["Solver"]["Linear"]["MGMaxLevels"], 1,
+            "{run}: direct solve"
+        );
         assert_eq!(c["Solver"]["Linear"]["ComplexCoarseSolve"], true, "{run}");
     }
     // The meshes are the X1 / #1134 Palace meshes.
     let x1 = read("benchmarks/patch_antenna_conformal/v6/x1/palace/meshes.txt");
-    assert!(x1.contains("98232da017cd0dd5a91b6294295c294990bbfd95b1c16e84a0d0de83abbd0f2b  initial_L1.msh"));
+    assert!(x1.contains(
+        "98232da017cd0dd5a91b6294295c294990bbfd95b1c16e84a0d0de83abbd0f2b  initial_L1.msh"
+    ));
     let rc = read("benchmarks/patch_antenna_conformal/recentre/palace/meshes.txt");
-    assert!(rc.contains("9330eee0e0bad605803b810895879d47e6dde1de414eee9364be8d2244e244fb  sm57_rbG_L1.msh"));
+    assert!(rc.contains(
+        "9330eee0e0bad605803b810895879d47e6dde1de414eee9364be8d2244e244fb  sm57_rbG_L1.msh"
+    ));
     let m = read(&format!("{DC}/meshes.txt"));
     for line in [
         "98232da017cd0dd5a91b6294295c294990bbfd95b1c16e84a0d0de83abbd0f2b  initial_L1.msh",
@@ -241,24 +254,55 @@ fn c1_the_matched_dip_lies_above_the_port_free_resonance() {
         let (fr, q, p, p_next) = patch_mode(run);
         pin(fr, f_want, 1e-6, run);
         pin(q, q_want, 0.01, run);
-        assert!(p > 0.8 && p_next < 0.02, "{run}: patch mode {p} vs {p_next}");
+        assert!(
+            p > 0.8 && p_next < 0.02,
+            "{run}: patch mode {p} vs {p_next}"
+        );
         pin(f(&sum, &format!("c1.{run}.f_re_ghz")), fr, 1e-8, run);
         pin(f(&sum, &format!("c1.{run}.q")), q, 1e-6, run);
-        assert!(f(&sum, &format!("c1.{run}.other_modes_max_q")) < 3.0, "{run}");
+        assert!(
+            f(&sum, &format!("c1.{run}.other_modes_max_q")) < 3.0,
+            "{run}"
+        );
     }
     let x1 = load_at("benchmarks/patch_antenna_conformal/v6/x1/palace_summary.toml");
     let rc = load_at("benchmarks/patch_antenna_conformal/recentre/palace_summary.toml");
     let d_init = 1e3 * (f(&x1, "run.init_L1_p2.dip_f_ghz") - patch_mode("eig_init_p2_open").0);
     let d_c = 1e3 * (f(&rc, "run.sm57_p2.dip_f_ghz") - patch_mode("eig_sm57_p2_open").0);
-    pin(d_init, 16.27, 0.01, "initial: dip minus port-free eigenfrequency");
-    pin(d_c, 30.85, 0.01, "design C: dip minus port-free eigenfrequency");
-    pin(f(&sum, "c1.initial_dip_minus_eig_open_mhz"), d_init, 1e-4, "summary");
-    pin(f(&sum, "c1.sm57_dip_minus_eig_open_mhz"), d_c, 1e-4, "summary");
+    pin(
+        d_init,
+        16.27,
+        0.01,
+        "initial: dip minus port-free eigenfrequency",
+    );
+    pin(
+        d_c,
+        30.85,
+        0.01,
+        "design C: dip minus port-free eigenfrequency",
+    );
+    pin(
+        f(&sum, "c1.initial_dip_minus_eig_open_mhz"),
+        d_init,
+        1e-4,
+        "summary",
+    );
+    pin(
+        f(&sum, "c1.sm57_dip_minus_eig_open_mhz"),
+        d_c,
+        1e-4,
+        "summary",
+    );
     let v6 = load_at("benchmarks/patch_antenna_conformal/v6/v6_summary.toml");
     let tl = f(&v6, "x1.textbook_tl_initial_ghz");
     let gap = 1e3 * (tl - patch_mode("eig_init_p2_open").0);
     pin(gap, 92.47, 0.01, "closed form minus port-free cavity");
-    pin(f(&sum, "c1.textbook_minus_initial_eig_open_mhz"), gap, 1e-4, "summary");
+    pin(
+        f(&sum, "c1.textbook_minus_initial_eig_open_mhz"),
+        gap,
+        1e-4,
+        "summary",
+    );
 }
 
 /// The rows of a `--radiation` TOML at the given frequencies.
@@ -277,10 +321,11 @@ fn rad_rows(rel: &str, freqs: &[f64]) -> Vec<toml::Value> {
 }
 
 fn range(rows: &[toml::Value], key: &str) -> (f64, f64) {
-    rows.iter().map(|r| f(r, key)).fold(
-        (f64::INFINITY, f64::NEG_INFINITY),
-        |(lo, hi), v| (lo.min(v), hi.max(v)),
-    )
+    rows.iter()
+        .map(|r| f(r, key))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        })
 }
 
 /// C2. Design C, on its own meshes: the power balance closes to 1 % on L1
@@ -301,7 +346,13 @@ fn c2_design_c_efficiency_and_gain() {
         &[2.4, 2.42, 2.44, 2.46, 2.4835],
     );
     for (rows, key, eta, gain, bal) in [
-        (&l1, "L1_shifted_band", (0.6249, 0.6259), (4.451, 4.561), 0.0081),
+        (
+            &l1,
+            "L1_shifted_band",
+            (0.6249, 0.6259),
+            (4.451, 4.561),
+            0.0081,
+        ),
         (&rim, "rim020_ism", (0.6122, 0.6133), (4.543, 4.658), 0.0163),
     ] {
         let e = range(rows, "eta_rad");
@@ -341,18 +392,21 @@ fn c2_design_c_efficiency_and_gain() {
         let prov = read(&format!(
             "benchmarks/patch_antenna_conformal/provenance/{stem}.provenance.txt"
         ));
-        assert!(prov.contains(s(&d, "meta.fixture_sha256")), "{rel}: fixture sha");
-        let design = load_at(
-            "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml",
+        assert!(
+            prov.contains(s(&d, "meta.fixture_sha256")),
+            "{rel}: fixture sha"
         );
+        let design =
+            load_at("benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml");
         assert_eq!(
             get(&d, "design.design_vector"),
             get(&design, "shape.design_vector"),
             "{rel}: design C"
         );
-        let src = std::fs::read(repo().join(
-            "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml",
-        ))
+        let src = std::fs::read(
+            repo()
+                .join("benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml"),
+        )
         .unwrap();
         let sha: String = Sha256::digest(&src)
             .iter()
@@ -365,7 +419,12 @@ fn c2_design_c_efficiency_and_gain() {
     assert!((a[0] - 0.6108).abs() < 1e-3 && (a[1] - 0.6156).abs() < 1e-3);
     pin(f(&sum, "c2.eta_c_minus_a_L1"), 0.0122, 5e-4, "C minus A");
     // Realized gain on the Palace p = 3 match: at least 4.13 dBi.
-    pin(f(&sum, "c2.realized_gain_floor_dbi"), 4.133, 1e-3, "realized gain floor");
+    pin(
+        f(&sum, "c2.realized_gain_floor_dbi"),
+        4.133,
+        1e-3,
+        "realized gain floor",
+    );
 }
 
 /// C1, loaded. With the 50 ohm lumped port in place of the open gap, the
@@ -376,7 +435,13 @@ fn c2_design_c_efficiency_and_gain() {
 fn c1_the_50_ohm_load_raises_the_mode_and_halves_its_q() {
     let sum = summary();
     for (open, lumped, df, q_open, q_lumped) in [
-        ("eig_init_p2_open", "eig_init_p2_lumped", 12.21, 22.19, 11.47),
+        (
+            "eig_init_p2_open",
+            "eig_init_p2_lumped",
+            12.21,
+            22.19,
+            11.47,
+        ),
         ("eig_sm57_p2_open", "eig_sm57_p2_lumped", 23.15, 19.31, 8.61),
     ] {
         let (fo, qo, _, _) = patch_mode(open);
@@ -388,10 +453,23 @@ fn c1_the_50_ohm_load_raises_the_mode_and_halves_its_q() {
         let c: serde_json::Value =
             serde_json::from_str(&read(&format!("{DC}/c1/{lumped}/config.json"))).unwrap();
         assert_eq!(c["Boundaries"]["LumpedPort"][0]["R"], 50.0);
-        assert_eq!(c["Boundaries"]["LumpedPort"][0]["Attributes"], serde_json::json!([11]));
+        assert_eq!(
+            c["Boundaries"]["LumpedPort"][0]["Attributes"],
+            serde_json::json!([11])
+        );
     }
-    pin(f(&sum, "c1.initial_eig_lumped_minus_open_mhz"), 12.21, 0.01, "summary");
-    pin(f(&sum, "c1.sm57_eig_lumped_minus_open_mhz"), 23.15, 0.01, "summary");
+    pin(
+        f(&sum, "c1.initial_eig_lumped_minus_open_mhz"),
+        12.21,
+        0.01,
+        "summary",
+    );
+    pin(
+        f(&sum, "c1.sm57_eig_lumped_minus_open_mhz"),
+        23.15,
+        0.01,
+        "summary",
+    );
 }
 
 /// Linear-in-dB crossing of `level` around the |S11| minimum of a Palace
@@ -432,7 +510,12 @@ fn c3_the_refined_design_c_still_covers_ism_with_1_9_mhz_at_the_lower_edge() {
     pin(hi, 2.491204, 2e-6, "upper edge");
     pin(f(&sum, "c3.band_lo_ghz"), lo, 1e-6, "summary lower edge");
     pin(f(&sum, "c3.band_hi_ghz"), hi, 1e-6, "summary upper edge");
-    pin(f(&sum, "c3.worst_in_band_db"), -10.3182, 1e-4, "worst in band");
+    pin(
+        f(&sum, "c3.worst_in_band_db"),
+        -10.3182,
+        1e-4,
+        "worst in band",
+    );
     assert_eq!(f(&sum, "c3.nd_order") as i64, 2);
     assert_eq!(f(&sum, "c3.n_dofs") as i64, 2_465_984);
     pin(f(&sum, "c3.margin_lo_mhz"), 1.906, 1e-3, "lower margin");
@@ -440,14 +523,30 @@ fn c3_the_refined_design_c_still_covers_ism_with_1_9_mhz_at_the_lower_edge() {
     let rc = load_at("benchmarks/patch_antenna_conformal/recentre/palace_summary.toml");
     let d = 1e3 * (lo - f(&rc, "run.sm57_p3.band_lo_ghz"));
     pin(d, 4.632, 1e-3, "rim p2 minus L1 p3 lower edge");
-    pin(f(&sum, "c3.minus_palace_L1_p3_lo_edge_mhz"), d, 1e-6, "summary");
+    // The summary works from palace_ingest's 1e-6 GHz-rounded edges.
+    pin(
+        f(&sum, "c3.minus_palace_L1_p3_lo_edge_mhz"),
+        d,
+        2e-3,
+        "summary",
+    );
     assert!(d > 2.0 && d < 8.0, "between the two review thresholds");
     // Below the Richardson drift estimate the README carried from the
     // initial patch, and well below the rim fit.
     assert!(d < f(&sum, "c3.drift_richardson_mhz"));
     // The same mesh at P1 in geode sits 13 MHz lower; p = 2 on L1 too.
-    pin(f(&sum, "c3.minus_geode_rim020_p1_lo_edge_mhz"), 13.17, 0.01, "vs geode P1");
-    pin(f(&sum, "c3.minus_palace_L1_p2_lo_edge_mhz"), 13.35, 0.01, "vs Palace p2 L1");
+    pin(
+        f(&sum, "c3.minus_geode_rim020_p1_lo_edge_mhz"),
+        13.17,
+        0.01,
+        "vs geode P1",
+    );
+    pin(
+        f(&sum, "c3.minus_palace_L1_p2_lo_edge_mhz"),
+        13.35,
+        0.01,
+        "vs Palace p2 L1",
+    );
     let c: serde_json::Value =
         serde_json::from_str(&read(&format!("{DC}/c3/c3_sm57_rim020_p2/config.json"))).unwrap();
     assert_eq!(c["Problem"]["Type"], "Driven");
@@ -462,7 +561,9 @@ fn adjoint_curve() -> Vec<(f64, f64)> {
     let adj = load_at("benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml");
     let mut guard = std::collections::BTreeMap::<i64, i64>::new();
     for e in get(&adj, "guard.event").as_array().unwrap() {
-        *guard.entry(e.get("step").unwrap().as_integer().unwrap()).or_default() += 1;
+        *guard
+            .entry(e.get("step").unwrap().as_integer().unwrap())
+            .or_default() += 1;
     }
     let steps = get(&adj, "trajectory.step").as_array().unwrap();
     let mut cum = 5.0;
@@ -503,14 +604,22 @@ fn c4_the_fd_gradient_takes_the_adjoint_path_at_39_times_the_solves() {
     assert_eq!(f(&d, "optimization.max_solves") as i64, 2500);
     assert_eq!(s(&d, "meta.fixture"), "patch_conformal_L1");
     assert_eq!(s(&d, "meta.float_dtype"), "F64");
-    let prov = read("benchmarks/patch_antenna_conformal/provenance/patch_conformal_L1.provenance.txt");
+    let prov =
+        read("benchmarks/patch_antenna_conformal/provenance/patch_conformal_L1.provenance.txt");
     assert!(prov.contains(s(&d, "meta.fixture_sha256")));
     // The X4 problem: the adjoint run's start, basis and band.
     let adj = load_at("benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml");
     assert_eq!(get(&d, "start.x_start"), get(&adj, "start.x_start"));
-    assert_eq!(get(&d, "meta.band_points_ghz"), get(&adj, "meta.band_points_ghz"));
+    assert_eq!(
+        get(&d, "meta.band_points_ghz"),
+        get(&adj, "meta.band_points_ghz")
+    );
     for k in ["outline", "corner", "feed"] {
-        assert_eq!(s(&d, &format!("basis.{k}")), s(&adj, &format!("basis.{k}")), "{k}");
+        assert_eq!(
+            s(&d, &format!("basis.{k}")),
+            s(&adj, &format!("basis.{k}")),
+            "{k}"
+        );
     }
     assert_eq!(get(&d, "shape.design_vector").as_array().unwrap().len(), 38);
     // The count, rebuilt from the trajectory and the guard log: n_band (5) +
@@ -519,7 +628,9 @@ fn c4_the_fd_gradient_takes_the_adjoint_path_at_39_times_the_solves() {
     let mut guard = std::collections::BTreeMap::<i64, i64>::new();
     if let Some(ev) = d.get("guard").and_then(|g| g.get("event")) {
         for e in ev.as_array().unwrap() {
-            *guard.entry(e.get("step").unwrap().as_integer().unwrap()).or_default() += 1;
+            *guard
+                .entry(e.get("step").unwrap().as_integer().unwrap())
+                .or_default() += 1;
         }
     }
     let mut cum = 5.0 + 190.0;
@@ -531,16 +642,31 @@ fn c4_the_fd_gradient_takes_the_adjoint_path_at_39_times_the_solves() {
         pin(f(st, "optimization_solves"), cum, 0.0, "per-step count");
         curve.push((cum, f(st, "worst_s11_db")));
     }
-    pin(f(&d, "optimization.optimization_solves"), 2535.0, 0.0, "total");
+    pin(
+        f(&d, "optimization.optimization_solves"),
+        2535.0,
+        0.0,
+        "total",
+    );
     // The same path as the adjoint.
     let adj_steps = get(&adj, "trajectory.step").as_array().unwrap();
     assert_eq!(steps.len(), 13);
     for (a, b) in steps.iter().zip(adj_steps) {
-        pin(f(a, "worst_s11_db"), f(b, "worst_s11_db"), 1e-4, "same path");
+        pin(
+            f(a, "worst_s11_db"),
+            f(b, "worst_s11_db"),
+            1e-4,
+            "same path",
+        );
     }
     assert!(f(&d, "optimization.fd_vs_adjoint_rel_x0") < 1e-6);
     assert!(f(&d, "optimization.fd_vs_adjoint_rel_final") < 1e-3);
-    pin(f(&d, "optimization.verify_worst_s11_db"), -10.0413, 1e-4, "final");
+    pin(
+        f(&d, "optimization.verify_worst_s11_db"),
+        -10.0413,
+        1e-4,
+        "final",
+    );
     // Solves to level, FD against adjoint.
     let adj_curve = adjoint_curve();
     let want_fd = [780.0, 1170.0, 1170.0, 1365.0, 2340.0];
