@@ -322,6 +322,41 @@ pub(super) fn parse_line_elements_with_entity_tags(
     Ok((segments, tags))
 }
 
+/// Count the elements of each gmsh element type in `$Elements`
+/// (`elementType -> numElements`, summed over blocks). Used by the 2-D
+/// tagged reader to reject element types it does not parse instead of
+/// silently skipping them (issue #1162 review).
+pub(super) fn element_type_counts(text: &str) -> Result<BTreeMap<i32, usize>, MeshError> {
+    let Some(start) = text.find("$Elements") else {
+        return Err(MeshError::Parse("missing $Elements section".into()));
+    };
+    let after_header = &text[start + "$Elements".len()..];
+    let Some(end_offset) = after_header.find("$EndElements") else {
+        return Err(MeshError::Parse("missing $EndElements terminator".into()));
+    };
+    let mut lines = after_header[..end_offset]
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    let header = next_line(&mut lines, "$Elements header")?;
+    let mut hdr = header.split_ascii_whitespace();
+    let n_blocks: usize = parse_next(&mut hdr, "numEntityBlocks")?;
+    let mut counts = BTreeMap::new();
+    for _ in 0..n_blocks {
+        let block_header = next_line(&mut lines, "element block header")?;
+        let mut bh = block_header.split_ascii_whitespace();
+        let _entity_dim: i32 = parse_next(&mut bh, "entityDim")?;
+        let _entity_tag: i32 = parse_next(&mut bh, "entityTag")?;
+        let elem_type: i32 = parse_next(&mut bh, "elementType")?;
+        let num_in_block: usize = parse_next(&mut bh, "numElementsInBlock")?;
+        for _ in 0..num_in_block {
+            next_line(&mut lines, "element row")?;
+        }
+        *counts.entry(elem_type).or_insert(0) += num_in_block;
+    }
+    Ok(counts)
+}
+
 /// Build a `(node_tag -> 0-based index)` map by hand-scanning `$Nodes`.
 ///
 /// We replicate the same node-ordering convention as the `mshio`-backed

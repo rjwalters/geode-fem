@@ -15,6 +15,11 @@ use std::collections::BTreeMap;
 use super::{MeshError, msh_tags, read_tagged_tet_mesh};
 use crate::analytic::waveguide::TriMesh;
 
+/// Gmsh element types this reader parses: 2-node line, 3-node triangle,
+/// point. Anything else (6-node triangles, quads, 3-node lines, tets, ...)
+/// is rejected rather than silently dropped.
+const ACCEPTED_GMSH_TYPES: [i32; 3] = [1, 2, 15];
+
 /// Largest |z| accepted for a node of a planar mesh.
 const PLANAR_Z_TOL: f64 = 1e-12;
 
@@ -102,11 +107,30 @@ pub fn tri_signed_area(mesh: &TriMesh, t: usize) -> f64 {
 /// untouched. The count is reported in
 /// [`TaggedTriMesh::reoriented_triangles`].
 ///
+/// Only linear elements are accepted: 2-node lines (gmsh type 1), 3-node
+/// triangles (type 2) and points (type 15). A file with any other element
+/// type, including second-order meshes (6-node triangles, type 9; 3-node
+/// lines, type 8), quads or a mix, is an error, never a partial mesh.
+///
 /// # Errors
 ///
-/// Any [`MeshError`] from the underlying reader, a file that contains
-/// tetrahedra, or a node with |z| > 1e-12 (not a planar mesh).
+/// [`MeshError::UnsupportedGmshElement`] naming the first unsupported gmsh
+/// type and its element count; a file with no triangles; any
+/// [`MeshError`] from the underlying reader; or a node with |z| > 1e-12
+/// (not a planar mesh).
 pub fn read_tagged_tri_mesh(source: &[u8]) -> Result<TaggedTriMesh, MeshError> {
+    let text = std::str::from_utf8(source)
+        .map_err(|e| MeshError::Parse(format!("mesh is not UTF-8: {e}")))?;
+    let type_counts = msh_tags::element_type_counts(text)?;
+    if let Some((&gmsh_type, &count)) = type_counts
+        .iter()
+        .find(|(t, n)| **n > 0 && !ACCEPTED_GMSH_TYPES.contains(t))
+    {
+        return Err(MeshError::UnsupportedGmshElement { gmsh_type, count });
+    }
+    if type_counts.get(&2).copied().unwrap_or(0) == 0 {
+        return Err(MeshError::Parse("2-D mesh has no 3-node triangles".into()));
+    }
     let tagged = read_tagged_tet_mesh(source)?;
     if !tagged.mesh.tets.is_empty() {
         return Err(MeshError::Parse(format!(
@@ -124,8 +148,6 @@ pub fn read_tagged_tri_mesh(source: &[u8]) -> Result<TaggedTriMesh, MeshError> {
         }
         nodes.push([p[0], p[1]]);
     }
-    let text = std::str::from_utf8(source)
-        .map_err(|e| MeshError::Parse(format!("mesh is not UTF-8: {e}")))?;
     let entity_phys = msh_tags::parse_entities_physical_tags(text)?;
     let (lines, line_physical_tags) =
         msh_tags::parse_line_elements_with_entity_tags(text, &entity_phys)?;
@@ -221,6 +243,44 @@ $EndElements
         }
         assert!((m.area_with_tag(7) - 1.0).abs() < 1e-15);
         assert_eq!(m.lines_with_tag(9), vec![[0, 1]]);
+    }
+
+    fn assert_unsupported(src: &str, want_type: i32, want_count: usize) {
+        match read_tagged_tri_mesh(src.as_bytes()) {
+            Err(MeshError::UnsupportedGmshElement { gmsh_type, count }) => {
+                assert_eq!((gmsh_type, count), (want_type, want_count));
+            }
+            other => panic!("expected UnsupportedGmshElement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_six_node_triangles() {
+        // Second-order triangle block (type 9): rows carry 6 node tags
+        // (mid-edge nodes reuse corner tags; only the type matters here).
+        let p2 = SQUARE
+            .replace("2 1 2 2\n", "2 1 9 2\n")
+            .replace("2 1 2 3\n", "2 1 2 3 1 2 3\n")
+            .replace("3 1 3 4\n", "3 1 3 4 1 3 4\n");
+        assert_unsupported(&p2, 9, 2);
+    }
+
+    #[test]
+    fn rejects_quads() {
+        let quad = SQUARE
+            .replace("2 3 1 3\n", "2 2 1 2\n")
+            .replace("2 1 2 2\n2 1 2 3\n3 1 3 4\n", "2 1 3 1\n2 1 2 3 4\n");
+        assert_unsupported(&quad, 3, 1);
+    }
+
+    #[test]
+    fn mixed_file_is_an_error_not_a_partial_mesh() {
+        // Valid triangles plus one 3-node line (type 8) and one quad.
+        let mixed = SQUARE.replace("2 3 1 3\n", "4 5 1 5\n").replace(
+            "$EndElements",
+            "1 1 8 1\n4 1 2 3\n2 1 3 1\n5 1 2 3 4\n$EndElements",
+        );
+        assert_unsupported(&mixed, 3, 1);
     }
 
     #[test]
