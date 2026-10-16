@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1172",
-  "loom_commit": "e1526e68163ab310163e711859be50cdd5b76dde",
+  "loom_version": "0.19.1173",
+  "loom_commit": "12ff39ac825c3c4306e70600afa2e376ae68f065",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -453,7 +453,6 @@
     ".loom/scripts/tests/test-config-tiers-cli-migration.sh",
     ".loom/scripts/tests/test-cpu-budget.sh",
     ".loom/scripts/tests/test-create-issue-duplicate-check.sh",
-    ".loom/scripts/tests/test-create-pr-provenance.sh",
     ".loom/scripts/tests/test-create-pr-rate-limit-fallback.sh",
     ".loom/scripts/tests/test-create-pr-review-gate.sh",
     ".loom/scripts/tests/test-create-pr-superseded-issue.sh",
