@@ -238,3 +238,111 @@ At C = 1e4 the f64 rounding of nodal values of size C raises the
 round-off floor above `rel_tol · reference`. The solve is then correctly
 flagged `RoundoffFloor` rather than `Tolerance`, and the answer is still
 accurate to 4e-12.
+
+## 9. The measured M27 table (issue #1160)
+
+Sections 1–8 use the synthetic table. This section uses the reference
+motor's **measured M27 table**: the 47 points (0–2.30 T) in
+`benchmarks/motor_reference/reference_data.json`.
+
+### 9a. Law checks and Ampère coax (`tests/m27_law.rs`)
+
+`m27_law.log` is the full `--nocapture` output. Regenerate it with:
+
+```text
+cargo test -p geode-core --release --test m27_law -- --nocapture --test-threads=1
+```
+
+CI runs this target in `integration-tests.yml` (core-tests-a).
+
+- The law builds, and it is exact at all 47 knots (max error 0).
+- A dense grid of 300 049 points on 0–3 T has min dH/dB = 67.51 m/H at
+  0.369 T, min ν = 105.39 m/H, and min ν + 2sν' = 67.51 m/H. The test
+  also asserts that `dh_db` and `ν + 2sν'` agree, since they are two
+  routes to the same quantity.
+- **ν'(s) < 0 at low field.** The knot values of H/B are 341.2, 256.4
+  and 208.9 m/H at 0.05, 0.10 and 0.15 T. On 30 000 samples from 0 to
+  1.5 T, ν' is negative from 0 to 0.735 T and changes sign once. The most
+  negative value is ν'(0) = c3 = −22 586 m/(H·T²). Monotone ν is not
+  required, and the law does not impose it. The tangent stays SPD because
+  ν + 2sν' > 0.
+- The central FD of `dnu_db2` agrees to 3.0e-10 (mixed scale) and the
+  energy density to 1.7e-10. The knot energy agrees with Simpson's rule on
+  H(B) to 2.9e-16.
+- The coax is the geometry of section 5, with M27 iron. The inner iron is
+  at 2.05 T and the outer at 1.49 T.
+
+| n_ang | nodes | Newton iterations | max rel err | RMS rel err | mid-annulus mean rel err | \|B\| in iron (T) |
+|---|---|---|---|---|---|---|
+| 32 | 897 | 11 | 3.44e-3 | 2.68e-3 | 2.96e-3 | 1.499–2.046 |
+| 64 | 3329 | 11 | 1.66e-3 | 1.35e-3 | 1.49e-3 | 1.496–2.050 |
+| 128 | 13441 | 11 | 8.10e-4 | 6.73e-4 | 7.48e-4 | 1.494–2.052 |
+| 256 | 52993 | 11 | 4.03e-4 | 3.39e-4 | **3.76e-4** | 1.493–2.053 |
+
+The tripwire uses linear iron at ν(0). It misses the mid-annulus oracle by
+725%, against 0.30% for the nonlinear solve at n_ang = 32.
+
+### 9b. Measured difference against the reference MATLAB `pchip`
+
+The reference's `Mat_Magnetic.m` uses `pchip(B, H)`. Its ν clamps
+B ≤ 1e-5 T to 1e-5 T, and above 2.30 T it uses
+H = H_end + (B − B_end)/μ₀. `pchip_compare.py` implements MATLAB `pchip`
+exactly and applies that clamp and tail. It then compares the result with
+GEODE's dense dump `geode_m27_law_dump.csv`, which `examples/m27_law_dump.rs`
+writes. The dump has 100 samples per table segment, 60 log-spaced points on
+1e-8 to 1e-3 T, and a 0.0025 T grid on the tail. The reference field is
+H_ref = ν_ref(B)·B, the field its residual uses. `pchip_compare.json` is the
+full record and `pchip_compare.log` is the console output. To regenerate the
+dump and then the comparison:
+
+```text
+cargo run -p geode-core --release --example m27_law_dump -- \
+    benchmarks/motor_reference/reference_data.json \
+    > benchmarks/motor_nonlinear_m1/geode_m27_law_dump.csv
+uv run --no-project --python 3.14 --with scipy==1.18.1 python -I \
+    benchmarks/motor_nonlinear_m1/pchip_compare.py \
+    --reference benchmarks/motor_reference/reference_data.json \
+    --dump benchmarks/motor_nonlinear_m1/geode_m27_law_dump.csv \
+    --solver-commit 59e5f5c826a0646e4f086ed9ece3d22b529acff4 \
+    --law-source-blob f1fcba27ffeebc1eabe270a2aab0acbc9b5e37fd \
+    --out benchmarks/motor_nonlinear_m1/pchip_compare.json
+```
+
+The solver commit is the last commit to change
+`magnetostatic_nonlinear.rs`, and the blob is that file's `git hash-object`.
+
+**MATLAB `pchip` against SciPy.** `PchipInterpolator` agrees with the
+transcription to 7.0e-15 in slope and 4.4e-16 in value. Its endpoint
+slopes are the same: 426.0434 m/H at B = 0 and 789 828.53 m/H at 2.30 T.
+SciPy's endpoint rule is the same one-sided three-point formula with the
+same clamps. The clamps do not trigger on M27, because all secants are
+positive.
+
+| region | samples | max \|ΔH\|/H | max \|Δν\|/ν | max \|Δ(dH/dB)\|/(dH/dB) against pchip' |
+|---|---|---|---|---|
+| origin clamp, 0 < B ≤ 1e-5 T | 37 | 6.66e-2 | 6.66e-2 | 6.66e-2 |
+| first segment, 1e-5 < B ≤ 0.05 T | 123 | 6.66e-2 (at 1.2e-5 T) | 6.66e-2 | 6.66e-2 |
+| interior, 0.05–2.25 T | 4401 | 4.2e-16 | 4.2e-16 | 5.3e-15 |
+| last segment, 2.25–2.30 T | 101 | 2.17e-4 (at 2.2825 T) | 2.17e-4 | 7.53e-3 (at 2.30 T) |
+| tail, 2.30–3.0 T | 280 | 2.4e-16 | 3.2e-16 | 0 |
+
+- **Interior.** Both laws use the same weighted-harmonic slopes. The
+  measured difference is round-off.
+- **First segment.** GEODE's odd cubic has ν(0) = 397.66 m/H. The
+  reference's ν for B ≤ 1e-5 T is pchip(1e-5)/1e-5 = 426.03 m/H, from its
+  endpoint slope of 426.04 m/H. That is a 6.66% difference at the origin.
+  The difference is 0 at the 0.05 T knot, where both laws share the slope
+  228.27 m/H.
+  Below the clamp, the reference's own tangent (ν + B·ν'(B), with ν' from
+  the unclamped B) differs from the derivative of its frozen-ν residual by
+  up to 2.7e-5.
+- **Last segment.** GEODE sets the slope at 2.30 T to 1/μ₀ = 795 774.7 m/H
+  for a C¹ join to the tail. pchip's endpoint slope is 789 828.5 m/H, so the
+  reference's dH/dB jumps by 0.747% at 2.30 T. On the segment this gives at
+  most 2.17e-4 in H and ν, and 7.53e-3 in dH/dB, at the knot.
+- **Tail.** Both laws are H_end + (B − B_end)/μ₀ with μ₀ = 4π·1e-7. The
+  difference is round-off.
+
+The effect of these differences on a motor solve is not measured yet.
+`benchmarks/motor_reference/conventions.json` records these numbers in its
+`geode_law_vs_reference` block.
