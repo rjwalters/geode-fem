@@ -18,12 +18,24 @@ V2 = 'benchmarks/fdtd_density_baseline/meep_runs/v2'
 VER = 'benchmarks/fdtd_density_baseline/meep_v2_verify.py'
 
 
+def tracked():
+    """Files a clone would have: git-tracked paths under PATHS (working-tree content)."""
+    out = subprocess.run(['git', '-C', str(SRC), 'ls-files', '-z', '--', *PATHS],
+                         capture_output=True, check=True).stdout.decode().split('\0')
+    files = [f for f in out if f]
+    assert files, 'git ls-files returned nothing'
+    return files
+
+
+TRACKED = tracked()
+
+
 def fresh():
     if WORK.exists(): shutil.rmtree(WORK)
-    for p in PATHS:
-        s, d = SRC / p, WORK / p
+    for f in TRACKED:
+        d = WORK / f
         d.parent.mkdir(parents=True, exist_ok=True)
-        (shutil.copytree if s.is_dir() else shutil.copy2)(s, d)
+        shutil.copy2(SRC / f, d)
 
 
 def jedit(rel, fn):
@@ -99,6 +111,9 @@ CASES = {
  'v2 harness version not archived (forged)': (drop_source, True),
  'GEODE bent lower bound set to 2.300 (forged)': (lambda: toml_sub(CONV, r'(\[gate_g1\.bent\].*?lower_bound_dip_f_ghz = )2\.356643', r'\g<1>2.300000'), True),
  'Palace p3 dip set to 2.300 (forged)': (lambda: toml_sub(V6, r'(\[x1\.palace\.init_L1_p3\].*?dip_f_ghz = )2\.36597', r'\g<1>2.30000'), True),
+ 'tracked cgroup log dropped (as if gitignored)': (lambda: (WORK / V2 / 'logs/c_bent_R5.cgroup_memory.log').unlink(), False),
+ 'probe record from another harness version (forged)': (lambda: jedit(f'{V2}/probe_R5.json', lambda d: d.__setitem__('source_sha256', '0' * 64)), True),
+ 'unlisted extra file in v2/ (not in SHA256SUMS)': (lambda: (WORK / V2 / 'stray.json').write_text('{}'), False),
  'v1 harness edited': (lambda: (WORK / 'reference/meep/docker/matched_antenna.py').open('a').write('# edit\n'), False),
  'ladder.json value edited (sums regenerated)': (lambda: (jedit(f'{V2}/ladder.json', lambda d: d['runs']['c_bent_R5'].__setitem__('dip_parabolic_ghz', 2.40)), resum()), False),
  'cost raised to $41, arithmetic consistent (sums regenerated)': (lambda: (jedit(f'{V2}/environment.json', lambda d: d.update(

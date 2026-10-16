@@ -62,8 +62,8 @@ and Palace bracket.
   other O(dx) terms partly cancel it. The data do not support a converged Meep value
   or a claim that the 4.9 MHz difference from Palace p3 at R5 is final. They do support
   this: on the same fixture all three codes now place the bent dip within 2.356–2.367 GHz,
-  and Meep's R2.5 → R5 change (0.24%) is of the order of GEODE's own last refinement steps
-  (12–13 MHz).
+  and Meep's R2.5 → R5 change (5.6 MHz, 0.24%) is about half of GEODE's own last
+  refinement steps (12–13 MHz).
 
 ## 1. What version 2 changes
 
@@ -89,7 +89,10 @@ Lengths that are not whole cells are snapped and recorded in each run's `layout`
 - **Probe inset.** It is exact at R2.5 (7.0 mm from the patch edge, centre y = 7.4 mm). At
   R5 it is **6.9 mm** (centre y = 7.7 mm, 7.6 mm from the board centre at y = 0.1 mm). A
   50 Ω port of 8 rows cannot sit exactly 7.0 mm from an edge on the same lattice, and
-  6.9 and 7.1 mm were an exact tie that floating-point rounding resolved.
+  6.9 and 7.1 mm were an exact tie that floating-point rounding resolved. Estimate only:
+  the cavity model R_in ∝ cos²(π·y₀/L) (y₀ the inset, L = 29 mm) gives about +2% Re Z,
+  about +1 Ω, for 7.0 → 6.9 mm, and only a second-order change in the resonance. About
+  1 Ω of the bent R2.5 → R5 Re Z change (44.8 → 47.3 Ω) may be this inset.
 - **Patch width.** The bent patch covers the columns that lie wholly inside its 38 mm arc
   on the mid-surface: 37.2 mm projected at R2.5.
 
@@ -137,6 +140,11 @@ tolerance. A small DFT change is a stopping diagnostic, not a certified error bo
 FR-4 uses the `conductivity` model anchored at 2.36 GHz. Dips are parabolic vertices of
 |S11| in dB; Z at the dip is interpolated.
 
+**Dip precision.** Each dip is the vertex of a 3-point parabola in dB through samples
+10 MHz apart. This record does not bound that interpolation's bias. Differences of about
+1 MHz or less, such as the +0.76 MHz from Palace p3 at R2.5, are below the method's
+demonstrated resolution and should not be read as more precise than that.
+
 | Run | Ranks | Checks (final drift) | Dip (GHz) | Depth (dB) | Z at dip (Ω) |
 |---|---|---|---|---|---|
 | `c_flat_R2.5` | 16 | 4 (8.0e-4) | **2.36833** | −29.2 | 48.0 + 0.5j |
@@ -167,11 +175,11 @@ Differences (Meep − reference), recomputed by the verifier into `ladder.json` 
 | Bent R2.5 − GEODE lower bound (2.35664) | +10.1 MHz | [+5, +15] |
 | Bent R5 − GEODE lower bound | +4.5 MHz | [+2, +7] |
 | Bent R2.5 → R5 | −5.6 MHz, depth −3.8 dB | [−8, −3] |
-| Re Z at the dip, every run | 44.8–48.0 Ω (GEODE 44–47 bent, 49–50 flat) | [40, 50] |
+| Re Z at the dip, every run | 44.8–48.0 Ω (GEODE 44.4–47.0 bent, 49.0–51.4 flat) | [40, 50] |
 
 Each spectrum has exactly one minimum below −6 dB in 1.6–3.0 GHz, interior to the window.
 The impedance level is also comparable now. With the exact 50 Ω port and the full
-voltage path, Meep's Re Z at the dip (44.8–48.0 Ω) sits with GEODE's (44–50 Ω). Under v1
+voltage path, Meep's Re Z at the dip (44.8–48.0 Ω) sits with GEODE's (44.4–51.4 Ω). Under v1
 it was 3–4 Ω at these frequencies on the bent board.
 
 ## 4. Cost on the same host type
@@ -212,8 +220,8 @@ How these compare:
   over 2.30–2.42 GHz and ≤ 0.0215 over the whole window, and its discrete Meep form
   matches the design (section 2). It was not used for production because Meep allocates
   polarization fields for every chunk the board touches. Measured on the two R2.5 runs
-  before they were stopped (`logs/killed_lorentz_*`), it took 438 B/cell (31.8 GB
-  container) against 284 B/cell, and 0.42–0.47 against 0.30–0.31 s/step. Scaled to R5,
+  before they were stopped (`logs/killed_lorentz_*`), it took 438 B/cell (29.6 GiB
+  container peak) against 284 B/cell, and 0.42–0.47 against 0.30–0.31 s/step. Scaled to R5,
   that is about 236 GiB, at the edge of this host's 247 GiB. At about 1.45× the step
   time, R5 alone would have taken about 21 h, roughly the whole ~$40 budget. Whether the
   flat-loss model moves the dip was therefore not measured. Loss is expected to change

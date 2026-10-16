@@ -63,7 +63,11 @@ def load(path):
 
 
 def archived_sources():
-    return {digest(p): p.name for p in sorted((V2 / 'sources').glob('matched_antenna_v2.*.py'))}
+    # Every committed v2 record was written by this one harness version (HARNESS_V2.md).
+    out = {digest(p): p.name for p in sorted((V2 / 'sources').glob('matched_antenna_v2.*.py'))}
+    check(len(out) == 1 and digest(DOCKER / 'matched_antenna_v2.py') in out,
+          'Expected exactly one archived v2 harness, identical to matched_antenna_v2.py')
+    return out
 
 
 def check_provenance(run, sources, ranks=None):
@@ -219,8 +223,12 @@ def audit_summary(run):
 
 def probes():
     out = {}
+    sources = archived_sources()
     for r in ('2.5', '5'):
-        p = load(V2 / f'probe_R{r}.json')['probe']
+        rec = load(V2 / f'probe_R{r}.json')
+        check_provenance(rec, sources, 1)
+        check(rec['mode'] == 'probe', 'Probe mode')
+        p = rec['probe']
         dx = 1 / float(r)
         want = {'Ex': [[0.5], [0.0], [0.0]], 'Ey': [[0.0], [0.5], [0.0]], 'Ez': [[0.0], [0.0], [0.5]]}
         for key in ('yee_offsets_cells_n24', 'yee_offsets_cells_n25'):
@@ -242,6 +250,7 @@ def oracles():
     out = {}
     for r in ('2', '2.5', '5'):
         o = load(V2 / f'rc_point_R{r}.json')
+        check_provenance(o, archived_sources(), 2)
         check(o['mode'] == 'rc_oracle' and not o['rc_sheet'], 'RC oracle mode')
         check(o['max_rc_impedance_relative_error'] < RC_TOL[r], f'RC point oracle R{r}')
         out[f'rc_point_R{r}'] = o['max_rc_impedance_relative_error']
@@ -249,6 +258,7 @@ def oracles():
     out['rc_point_R2_vs_v1_volume_error'] = abs(out['rc_point_R2'] - v1['max_rc_impedance_relative_error'])
     check(out['rc_point_R2_vs_v1_volume_error'] < 1e-9, 'Point RC R2 differs from v1 volume RC')
     sp, v1s = load(V2 / 'rc_sheetpoint_R2.json'), load(PILOT / 'rc_sheet_R2.json')
+    check_provenance(sp, archived_sources(), 2)
     check(sp['rc_sheet'] and [s['time'] for s in sp['snapshots']] == [s['time'] for s in v1s['snapshots']],
           'Sheet-equivalence oracle settings')
     d = max(abs(complex(*a) - complex(*b)) for a, b in zip(sp['snapshots'][-1]['s11'], v1s['snapshots'][-1]['s11']))
@@ -256,6 +266,8 @@ def oracles():
     out['sheet_equivalence_max_s11_difference_vs_v1'] = d
     for r in ('2.5', '5', 'conductivity_R5'):
         m = load(V2 / (f'material_{r}.json' if r.startswith('c') else f'material_R{r}.json'))
+        check_provenance(m, archived_sources(), 2)
+        check(m['mode'] == 'material_oracle', 'Material oracle mode')
         check(m['temporal_tolerance_met'], f'Material oracle R{r} stopping')
         de = max(abs(a[1] - b[1]) for a, b in zip(m['fr4_realized'], m['measured_fr4']))
         dt = max(abs(b[2] / a[2] - 1) for a, b in zip(m['fr4_realized'], m['measured_fr4']))
@@ -466,9 +478,14 @@ def main():
         return
     check_environment()
     close(result, load(out))
+    listed = set()
     for line in (V2 / 'SHA256SUMS').read_text().splitlines():
         want, name = line.split(None, 1)
+        check((V2 / name).is_file(), f'SHA256SUMS lists a missing file: {name}')
         check(digest(V2 / name) == want, f'SHA256SUMS mismatch: {name}')
+        listed.add(name)
+    present = {p.relative_to(V2).as_posix() for p in V2.rglob('*') if p.is_file() and p.name != 'SHA256SUMS'}
+    check(present == listed, f'SHA256SUMS does not cover v2/ exactly: {sorted(present ^ listed)[:5]}')
     findings(result)
     print('PASS: v2 environment, v1 intact, probes, oracles, grid audits, spectra, GEODE/Palace comparison')
 
