@@ -1421,6 +1421,30 @@ const MANIFEST: &[Entry] = &[
         "benchmarks/patch_antenna_conformal/recentre/rim_edges.toml",
         "rim_edge_stats.py: mesh geometry of the moved meshes (issue #1134); no solve",
     ),
+    // Issue #1148: design C characterization and the FD-gradient control.
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c2/rbG_L1_copper_38_sm57_w16_on_rbG_L1_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --radiation 2.343,2.363875,2.38475,2.405625,2.4265,2.38,2.4,2.42,2.44,2.46,2.4835,2.5 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1148)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c2/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --radiation 2.4,2.42,2.44,2.46,2.4835 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1148)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/designc/c3/palace_summary.toml",
+        "palace_ingest.py: Palace (MFEM, no Burn backend) p = 2 driven sweep of design C on its \
+         0.2 mm-rim mesh, issue #1148",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c4/L1_copper_38_fdgrad.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_fdgrad --fd-gradient --fd-jobs 8 --max-solves 2500 (issue #1148)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/designc/designc_summary.toml",
+        "designc_summary.py: post-processing of the bucket-A designc/**/*.toml, the Palace \
+         eigenmode CSVs under designc/c1/ and the v6 / recentre / copper references (issue \
+         #1148); no Burn backend",
+    ),
 ];
 
 fn repo_root() -> PathBuf {
