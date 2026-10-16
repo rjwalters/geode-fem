@@ -1,7 +1,7 @@
 ---
 title: "Shape-Adjoint Design of a Curved Conformal 2.4 GHz Patch Antenna on a Fixed 1.6 mm Board with a Differentiable Open-Radiator FEM"
 author: "Robb Walters"
-venue: neurips
+venue: arxiv
 documentclass: anvil-paper
 anonymous: false
 web_search: true
