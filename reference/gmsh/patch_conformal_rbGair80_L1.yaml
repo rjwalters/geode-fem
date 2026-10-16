@@ -17,8 +17,8 @@ patch:
   probe_inset: 5.123104893    # feed inset from the +y patch edge (patch_2g4_matched)
 
 domain:
-  air_margin: 80.0    # air gap substrate -> UPML: 0.33 lambda_0 at 2.4835 GHz,
-#                       >= lambda_0 / 4 down to 1.87 GHz
+  air_margin: 80.0    # air gap substrate -> UPML: 0.66 lambda_0 at 2.4835 GHz,
+#                       >= lambda_0 / 4 down to 0.94 GHz
   pml_thick: 25.0     # matched box-UPML shell thickness (0.21 lambda_0)
 
 mesh:

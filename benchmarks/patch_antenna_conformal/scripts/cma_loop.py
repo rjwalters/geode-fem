@@ -10,8 +10,9 @@ The rules are those of the in-house sep-CMA-ES (`--gradient-free`), so the
 records are comparable row for row:
 
 * lambda = 4 + floor(3 ln n) (pycma's default too), the same sigma0 and a
-  fixed budget of evaluations; the budget may end inside a generation, and
-  the partial generation is then evaluated but not told.
+  fixed budget of evaluations; the budget may end inside a generation; that
+  partial generation is evaluated, and it updates the sep-CMA-ES state only
+  if it holds at least mu samples (pycma is not told).
 * A design that fails the guard costs an evaluation index but no solve. It
   is ranked after every feasible design by its guard violation (fitness
   1e6 + (0.25 - min_vol_ratio)), exactly as `sep_cma_es` ranks it.

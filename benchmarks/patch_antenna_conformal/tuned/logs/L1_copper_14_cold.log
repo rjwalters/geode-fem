@@ -1,0 +1,171 @@
+patch_conformal_nested_dof [copper_14_cold]: patch_conformal_L1 (150561 edges, 23246 nodes, 124353 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 8 outline + 4 corner + 2 feed = 14; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.1 s
+  x=0: G = 7.249930e-1, worst |S11| -1.47 dB, best -3.77 dB, |grad| = 2.160e-1, residual 1.7e-13; gradient eval 105.7 s, peak RSS 5.67 GiB
+        2.4000 GHz: |S11| = 0.6475 ( -3.77 dB)
+        2.4209 GHz: |S11| = 0.7203 ( -2.85 dB)
+        2.4417 GHz: |S11| = 0.7740 ( -2.22 dB)
+        2.4626 GHz: |S11| = 0.8141 ( -1.79 dB)
+        2.4835 GHz: |S11| = 0.8444 ( -1.47 dB)
+  FD [steepest_descent @ x0]: analytic -2.160316e-1, central FD -2.160316e-1, rel 8.420e-9
+  FD [random_all @ x0]: analytic -8.583666e-3, central FD -8.583666e-3, rel 2.298e-8
+    trial a = 1.000e0: G = 6.006994e-1 (worst -2.26 dB), vol 0.893, accept (101 s)
+  step 1: G = 6.006994e-1 (worst |S11| -2.26 dB, best -7.15 dB, drop +1.71e-1), |grad| = 3.110e-1, vol_ratio = 0.893, |dx| = 4.769e-1, backtracks = 0, 540 s elapsed
+    trial a = 1.000e0: G = 4.232313e-1 (worst -3.76 dB), vol 0.793, accept (101 s)
+  step 2: G = 4.232313e-1 (worst |S11| -3.76 dB, best -17.44 dB, drop +2.95e-1), |grad| = 4.281e-1, vol_ratio = 0.793, |dx| = 4.801e-1, backtracks = 0, 642 s elapsed
+    trial a = 1.000e0: G = 2.013474e-1 (worst -7.06 dB), vol 0.699, accept (108 s)
+  step 3: G = 2.013474e-1 (worst |S11| -7.06 dB, best -28.94 dB, drop +5.24e-1), |grad| = 4.389e-1, vol_ratio = 0.699, |dx| = 4.847e-1, backtracks = 0, 750 s elapsed
+    trial a = 1.000e0: G = 2.427550e-1 (worst -6.20 dB), vol 0.612, reject (109 s)
+    trial a = 5.000e-1: G = 1.500283e-1 (worst -8.79 dB), vol 0.656, accept (104 s)
+  step 4: G = 1.500283e-1 (worst |S11| -8.79 dB, best -30.06 dB, drop +2.55e-1), |grad| = 1.929e-1, vol_ratio = 0.656, |dx| = 2.453e-1, backtracks = 1, 963 s elapsed
+    trial a = 1.000e0: G = 1.461406e-1 (worst -9.19 dB), vol 0.665, accept (105 s)
+  step 5: G = 1.461406e-1 (worst |S11| -9.19 dB, best -32.85 dB, drop +2.59e-2), |grad| = 9.939e-2, vol_ratio = 0.665, |dx| = 7.394e-2, backtracks = 0, 1068 s elapsed
+    trial a = 1.000e0: G = 1.448830e-1 (worst -9.52 dB), vol 0.660, accept (101 s)
+  step 6: G = 1.448830e-1 (worst |S11| -9.52 dB, best -43.64 dB, drop +8.61e-3), |grad| = 2.148e-2, vol_ratio = 0.660, |dx| = 2.487e-2, backtracks = 0, 1169 s elapsed
+    trial a = 1.000e0: G = 1.447612e-1 (worst -9.52 dB), vol 0.659, accept (103 s)
+  step 7: G = 1.447612e-1 (worst |S11| -9.52 dB, best -44.49 dB, drop +8.40e-4), |grad| = 2.147e-2, vol_ratio = 0.659, |dx| = 5.781e-3, backtracks = 0, 1272 s elapsed
+    trial a = 1.000e0: G = 1.367619e-1 (worst -9.85 dB), vol 0.455, accept (101 s)
+  step 8: G = 1.367619e-1 (worst |S11| -9.85 dB, best -23.62 dB, drop +5.53e-2), |grad| = 1.886e-2, vol_ratio = 0.455, |dx| = 6.603e-1, backtracks = 0, 1373 s elapsed
+    trial a = 1.000e0: G = 1.361951e-1 (worst -9.96 dB), vol 0.401, accept (101 s)
+  step 9: G = 1.361951e-1 (worst |S11| -9.96 dB, best -21.76 dB, drop +4.14e-3), |grad| = 5.437e-3, vol_ratio = 0.401, |dx| = 1.759e-1, backtracks = 0, 1474 s elapsed
+    trial a = 1.000e0: G = 1.361014e-1 (worst -10.00 dB), vol 0.374, accept (101 s)
+  step 10: G = 1.361014e-1 (worst |S11| -10.00 dB, best -21.07 dB, drop +6.88e-4), |grad| = 2.776e-3, vol_ratio = 0.374, |dx| = 8.430e-2, backtracks = 0, 1575 s elapsed
+    trial a = 1.000e0: G = 1.360649e-1 (worst -10.00 dB), vol 0.364, accept (101 s)
+  step 11: G = 1.360649e-1 (worst |S11| -10.00 dB, best -20.86 dB, drop +2.69e-4), |grad| = 4.698e-3, vol_ratio = 0.364, |dx| = 3.625e-2, backtracks = 0, 1676 s elapsed
+    trial a = 1.000e0: G = 1.359205e-1 (worst -9.98 dB), vol 0.335, accept (101 s)
+  step 12: G = 1.359205e-1 (worst |S11| -9.98 dB, best -20.37 dB, drop +1.06e-3), |grad| = 1.100e-2, vol_ratio = 0.335, |dx| = 1.352e-1, backtracks = 0, 1777 s elapsed
+    trial a = 1.000e0: G = 1.356103e-1 (worst -9.96 dB), vol 0.289, accept (101 s)
+  step 13: G = 1.356103e-1 (worst |S11| -9.96 dB, best -19.80 dB, drop +2.28e-3), |grad| = 1.966e-2, vol_ratio = 0.289, |dx| = 2.858e-1, backtracks = 0, 1879 s elapsed
+    guard binds (step 14, a = 1.000e0): tet 101751 ratio 0.181 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 14, a = 5.000e-1): tet 101751 ratio 0.235 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 2.500e-1: G = 1.353556e-1 (worst -9.96 dB), vol 0.262, accept (105 s)
+  step 14: G = 1.353556e-1 (worst |S11| -9.96 dB, best -19.57 dB, drop +1.88e-3), |grad| = 2.343e-2, vol_ratio = 0.262, |dx| = 2.025e-1, backtracks = 2, 1983 s elapsed
+    guard binds (step 15, a = 6.927e-1): tet 101751 ratio 0.035 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 15, a = 3.463e-1): tet 101751 ratio 0.150 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 15, a = 1.732e-1): tet 101751 ratio 0.206 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 15, a = 8.658e-2): tet 101751 ratio 0.234 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 15, a = 4.329e-2): tet 101751 ratio 0.248 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 2.165e-2: G = 1.352731e-1 (worst -9.96 dB), vol 0.255, accept (105 s)
+  step 15: G = 1.352731e-1 (worst |S11| -9.96 dB, best -19.52 dB, drop +6.09e-4), |grad| = 2.383e-2, vol_ratio = 0.255, |dx| = 5.742e-2, backtracks = 5, 2088 s elapsed
+    guard binds (step 16, a = 2.496e-1): tet 101751 ratio 0.097 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 16, a = 1.248e-1): tet 101751 ratio 0.177 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 16, a = 6.239e-2): tet 101751 ratio 0.216 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 16, a = 3.120e-2): tet 101751 ratio 0.236 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 16, a = 1.560e-2): tet 101751 ratio 0.246 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 7.799e-3: G = 1.351849e-1 (worst -9.95 dB), vol 0.250, accept (102 s)
+  step 16: G = 1.351849e-1 (worst |S11| -9.95 dB, best -19.51 dB, drop +6.52e-4), |grad| = 2.642e-2, vol_ratio = 0.250, |dx| = 5.753e-2, backtracks = 5, 2189 s elapsed
+    guard binds (step 17, a = 2.782e-1): tet 101751 ratio 0.053 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 1.391e-1): tet 101751 ratio 0.152 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 6.955e-2): tet 101751 ratio 0.202 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 3.477e-2): tet 101751 ratio 0.226 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 1.739e-2): tet 101751 ratio 0.238 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 8.693e-3): tet 101751 ratio 0.244 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 4.347e-3): tet 101751 ratio 0.247 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 2.173e-3): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 17, a = 1.087e-3): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 5.433e-4: G = 1.351792e-1 (worst -9.95 dB), vol 0.250, accept (107 s)
+  step 17: G = 1.351792e-1 (worst |S11| -9.95 dB, best -19.51 dB, drop +4.22e-5), |grad| = 2.646e-2, vol_ratio = 0.250, |dx| = 3.587e-3, backtracks = 9, 2296 s elapsed
+    guard binds (step 18, a = 1.671e-1): tet 101751 ratio 0.061 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 8.353e-2): tet 101751 ratio 0.156 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 4.176e-2): tet 101751 ratio 0.203 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 2.088e-2): tet 101751 ratio 0.227 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 1.044e-2): tet 101751 ratio 0.238 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 5.220e-3): tet 101751 ratio 0.244 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 2.610e-3): tet 101751 ratio 0.247 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 1.305e-3): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 6.525e-4): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 3.263e-4): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 1.631e-4): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 18, a = 8.157e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 4.078e-5: G = 1.351785e-1 (worst -9.95 dB), vol 0.250, accept (107 s)
+  step 18: G = 1.351785e-1 (worst |S11| -9.95 dB, best -19.51 dB, drop +5.56e-6), |grad| = 2.646e-2, vol_ratio = 0.250, |dx| = 4.485e-4, backtracks = 12, 2403 s elapsed
+    guard binds (step 19, a = 1.147e-1): tet 101751 ratio 0.067 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 5.734e-2): tet 101751 ratio 0.159 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 2.867e-2): tet 101751 ratio 0.205 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 1.433e-2): tet 101751 ratio 0.228 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 7.167e-3): tet 101751 ratio 0.239 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 3.584e-3): tet 101751 ratio 0.244 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 1.792e-3): tet 101751 ratio 0.247 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 8.959e-4): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 4.479e-4): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 2.240e-4): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 1.120e-4): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 5.599e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 19, a = 2.800e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 1.400e-5: G = 1.351781e-1 (worst -9.95 dB), vol 0.250, accept (106 s)
+  step 19: G = 1.351781e-1 (worst |S11| -9.95 dB, best -19.51 dB, drop +2.88e-6), |grad| = 2.646e-2, vol_ratio = 0.250, |dx| = 2.243e-4, backtracks = 13, 2509 s elapsed
+    guard binds (step 20, a = 8.384e-2): tet 101751 ratio 0.072 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 4.192e-2): tet 101751 ratio 0.162 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 2.096e-2): tet 101751 ratio 0.206 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 1.048e-2): tet 101751 ratio 0.228 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 5.240e-3): tet 101751 ratio 0.239 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 2.620e-3): tet 101751 ratio 0.245 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 1.310e-3): tet 101751 ratio 0.247 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 6.550e-4): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 3.275e-4): tet 101751 ratio 0.249 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 1.638e-4): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 8.188e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 4.094e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 2.047e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    guard binds (step 20, a = 1.023e-5): tet 101751 ratio 0.250 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+    trial a = 5.117e-6: G = 1.351779e-1 (worst -9.95 dB), vol 0.250, accept (106 s)
+  step 20: G = 1.351779e-1 (worst |S11| -9.95 dB, best -19.51 dB, drop +1.48e-6), |grad| = 2.646e-2, vol_ratio = 0.250, |dx| = 1.122e-4, backtracks = 14, 2615 s elapsed
+  FD [random_all @ x_final]: analytic 1.782229e-3, central FD 1.782229e-3, rel 3.688e-7
+  in-band verification sweep at x_final:
+    sweep 2.4000 GHz: |S11| = 0.3161 (-10.00 dB), Z = 59.4 +35.1i ohm
+    sweep 2.4104 GHz: |S11| = 0.2467 (-12.16 dB), Z = 64.5 +25.0i ohm
+    sweep 2.4209 GHz: |S11| = 0.1773 (-15.03 dB), Z = 65.7 +13.4i ohm
+    sweep 2.4313 GHz: |S11| = 0.1157 (-18.74 dB), Z = 62.9 +2.3i ohm
+    sweep 2.4417 GHz: |S11| = 0.0884 (-21.07 dB), Z = 56.9 -6.5i ohm
+    sweep 2.4522 GHz: |S11| = 0.1220 (-18.28 dB), Z = 49.5 -12.2i ohm
+    sweep 2.4626 GHz: |S11| = 0.1836 (-14.72 dB), Z = 42.2 -15.3i ohm
+    sweep 2.4731 GHz: |S11| = 0.2505 (-12.02 dB), Z = 35.5 -16.3i ohm
+    sweep 2.4835 GHz: |S11| = 0.3161 (-10.00 dB), Z = 29.9 -16.2i ohm
+  wide sweep at x_final:
+    sweep 2.2000 GHz: |S11| = 0.8956 ( -0.96 dB), Z = 3.6 +28.2i ohm
+    sweep 2.2250 GHz: |S11| = 0.8731 ( -1.18 dB), Z = 4.6 +30.3i ohm
+    sweep 2.2500 GHz: |S11| = 0.8438 ( -1.48 dB), Z = 6.1 +32.8i ohm
+    sweep 2.2750 GHz: |S11| = 0.8049 ( -1.89 dB), Z = 8.2 +35.8i ohm
+    sweep 2.3000 GHz: |S11| = 0.7529 ( -2.47 dB), Z = 11.6 +39.4i ohm
+    sweep 2.3250 GHz: |S11| = 0.6830 ( -3.31 dB), Z = 17.0 +43.4i ohm
+    sweep 2.3500 GHz: |S11| = 0.5895 ( -4.59 dB), Z = 26.2 +47.1i ohm
+    sweep 2.3750 GHz: |S11| = 0.4673 ( -6.61 dB), Z = 41.1 +47.1i ohm
+    sweep 2.4000 GHz: |S11| = 0.3161 (-10.00 dB), Z = 59.4 +35.1i ohm
+    sweep 2.4250 GHz: |S11| = 0.1512 (-16.41 dB), Z = 65.1 +8.8i ohm
+    sweep 2.4500 GHz: |S11| = 0.1113 (-19.07 dB), Z = 51.1 -11.3i ohm
+    sweep 2.4750 GHz: |S11| = 0.2629 (-11.60 dB), Z = 34.4 -16.4i ohm
+    sweep 2.5000 GHz: |S11| = 0.4118 ( -7.71 dB), Z = 23.0 -14.5i ohm
+    sweep 2.5250 GHz: |S11| = 0.5336 ( -5.46 dB), Z = 16.0 -11.1i ohm
+    sweep 2.5500 GHz: |S11| = 0.6279 ( -4.04 dB), Z = 11.7 -7.6i ohm
+    sweep 2.5750 GHz: |S11| = 0.6995 ( -3.10 dB), Z = 8.9 -4.6i ohm
+    sweep 2.6000 GHz: |S11| = 0.7535 ( -2.46 dB), Z = 7.0 -2.0i ohm
+    sweep 2.6250 GHz: |S11| = 0.7946 ( -2.00 dB), Z = 5.7 +0.2i ohm
+    sweep 2.6500 GHz: |S11| = 0.8261 ( -1.66 dB), Z = 4.8 +2.0i ohm
+    sweep 2.6750 GHz: |S11| = 0.8506 ( -1.41 dB), Z = 4.1 +3.7i ohm
+    sweep 2.7000 GHz: |S11| = 0.8699 ( -1.21 dB), Z = 3.5 +5.2i ohm
+    worst tet at x_final: tet 101751 ratio 0.374 in air at (s, y) = (-2.46, +9.86) mm, dr +0.65 mm from the substrate top, 3.41 mm from the feed, 17.18 mm from a corner, 0.00 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.27 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 1.24 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +8.569) mm, width 1.735 mm, inset 4.925 mm; patch 27.514 x 37.996 mm (L x W), area 1050.5 mm^2 (base 1110.8)
+  terminal = distortion_limited; worst-of-band -1.47 -> -10.00 dB (band points), verification worst -10.00 dB / best -21.07 dB over 9 points, final dip 2.450 GHz (-19.1 dB); reached -10 dB = true; max disp 1.351 mm, mean patch lift -0.000 mm, edges +y -1.052 -y -0.489 +s -0.037 -s -0.038 mm; 175 solves, 3391 s
+patch_conformal_nested_dof [copper_14_cold]: results <out>/L1_copper_14_cold.toml ; geometry ~/geode-fem/crates/geode-core/../../benchmarks/patch_antenna_conformal/geometry/L1_copper_14_cold.json
+	Command being timed: "bash -c <target>/release/examples/patch_conformal_nested_dof --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 2 --corners 6 --feed --max-steps 60 --wide-step 0.025 --label copper_14_cold --out $HOME/runs/L1_copper_14_cold.toml"
+	User time (seconds): 15665.77
+	System time (seconds): 479.65
+	Percent of CPU this job got: 476%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 56:30.95
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 6325040
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 102
+	Minor (reclaiming a frame) page faults: 150886079
+	Voluntary context switches: 24916052
+	Involuntary context switches: 13875602
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 1792
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
