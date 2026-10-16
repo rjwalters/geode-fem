@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1166",
-  "loom_commit": "8a9aad12e32504cea9a7c7d2ed774749c487f875",
+  "loom_version": "0.19.1167",
+  "loom_commit": "485f7d1deeb27051ebafb710f0b0cda276b49399",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -234,7 +234,6 @@
     ".loom/scripts/check-config-no-host-paths.sh",
     ".loom/scripts/check-conflict-markers.sh",
     ".loom/scripts/check-defaults-version-bump.sh",
-    ".loom/scripts/check-dependabot-labels.sh",
     ".loom/scripts/check-duplicate.sh",
     ".loom/scripts/check-evaluating-staleness.sh",
     ".loom/scripts/check-git-identity.sh",
@@ -425,7 +424,6 @@
     ".loom/scripts/tests/test-check-config-no-host-paths.sh",
     ".loom/scripts/tests/test-check-conflict-markers.sh",
     ".loom/scripts/tests/test-check-defaults-version-bump.sh",
-    ".loom/scripts/tests/test-check-dependabot-labels.sh",
     ".loom/scripts/tests/test-check-duplicate.sh",
     ".loom/scripts/tests/test-check-evaluating-staleness.sh",
     ".loom/scripts/tests/test-check-git-identity.sh",
@@ -435,7 +433,6 @@
     ".loom/scripts/tests/test-check-main-clean.sh",
     ".loom/scripts/tests/test-check-main-freshness.sh",
     ".loom/scripts/tests/test-check-merge-config.sh",
-    ".loom/scripts/tests/test-check-pipefail-early-exit.sh",
     ".loom/scripts/tests/test-check-promotion-landed.sh",
     ".loom/scripts/tests/test-check-quarantine-stashes.sh",
     ".loom/scripts/tests/test-check-runtime-capabilities.sh",
@@ -773,8 +770,9 @@
     ".loom/scripts/tests/test-champion-capped-hold-routing.sh",
     ".loom/scripts/tests/test-champion-post-claim-recheck.sh",
     ".loom/scripts/tests/test-spawn-codex-model-effort.sh",
-    ".loom/scripts/tests/test-check-cas-recheck-consistency.sh"
+    ".loom/scripts/tests/test-check-cas-recheck-consistency.sh",
+    ".loom/scripts/tests/test-sync-labels-write-failures.sh"
   ],
-  "last_resync": "2026-10-15",
+  "last_resync": "2026-10-16",
   "requires_daemon": "0.19.1081"
 }
