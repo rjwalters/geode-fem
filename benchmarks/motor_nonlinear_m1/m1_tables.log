@@ -1,7 +1,7 @@
 # cargo test -p geode-core --release --test magnetostatic_nonlinear -- --nocapture --test-threads=1
-# base commit 73930ccf + issue-1157 working tree, 2026-10-16T20:15Z, Darwin arm64
+# base commit 1d082df1 + issue-1157 working tree, 2026-10-16T20:52Z, Darwin arm64
 
-running 11 tests
+running 12 tests
 test converged_tangent_gives_solution_sensitivity ... 
 [3b] converged tangent: dA/dI vs FD of converged solves (coax, n_ang=32)
     ||FD dA/dI - K^-T F/I|| / ||K^-T F/I|| = 8.033e-7 (dI/I = 1e-3)
@@ -39,8 +39,8 @@ test manufactured_solution_converges_at_optimal_rates ...
       8 | 1.250e-1 |      9.1815e-2 |  NaN |   1.8553e-3 |  NaN |          5 | 4.013e2 .. 1.363e3
      16 | 6.250e-2 |      4.5737e-2 | 1.01 |   4.5525e-4 | 2.03 |          8 | 4.012e2 .. 1.990e3
      32 | 3.125e-2 |      2.2829e-2 | 1.00 |   1.1341e-4 | 2.01 |         11 | 4.012e2 .. 2.417e3
-     64 | 1.562e-2 |      1.1408e-2 | 1.00 |   2.8324e-5 | 2.00 |         13 | 4.012e2 .. 2.662e3
-    128 | 7.812e-3 |      5.7032e-3 | 1.00 |   7.0790e-6 | 2.00 |         15 | 4.012e2 .. 2.793e3
+     64 | 1.562e-2 |      1.1408e-2 | 1.00 |   2.8324e-5 | 2.00 |         14 | 4.012e2 .. 2.662e3
+    128 | 7.812e-3 |      5.7032e-3 | 1.00 |   7.0790e-6 | 2.00 |         16 | 4.012e2 .. 2.793e3
     least-squares fitted rates over 5 levels: H1-semi 1.002, L2 2.007
 ok
 test missing_material_and_non_convergence_are_errors ... 
@@ -159,6 +159,12 @@ test tangent_matches_finite_difference_table ...
       table: order h=1e-3 -> 1e-4: all rows 1.95, knot-free rows 2.00
       table: order h=1e-4 -> 1e-5: all rows 2.00, knot-free rows 1.97
 ok
+test warm_start_and_roundoff_floor ... 
+[7] warm starts and the round-off floor (coax, default config unless noted)
+    n_ang | cold its | cold ||R||/ref | (a) restart its | (b) I*1.001 its, ||R||/ref | (c) stagnation min ||R||/ref | floor est/ref | est/observed | (d) rel_tol 1e-14: status, its
+       64 |       11 |      8.448e-11 |               0 |         2,      7.236e-11 |                    6.340e-11 |     5.499e-10 |          8.7 | RoundoffFloor, 11
+      256 |       12 |       2.177e-9 |               0 |         2,       2.309e-9 |                     1.803e-9 |      1.514e-8 |          8.4 | RoundoffFloor, 12
+ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 61.89s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.62s
 

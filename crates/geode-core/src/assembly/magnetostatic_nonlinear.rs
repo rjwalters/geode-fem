@@ -75,9 +75,18 @@
 //! fixed at their prescribed values, which may be non-zero, and are removed
 //! from the unknowns, so `R` and `K` are restricted to the free nodes.
 //! [`NonlinearMagnetostaticSystem::solve`] runs damped Newton with a
-//! backtracking line search ([`LineSearch`]). It returns
-//! [`NonlinearMagnetostaticError::NotConverged`] if the tolerance is not
-//! reached, and never hands back a silent last iterate. The
+//! backtracking line search ([`LineSearch`]). The relative tolerance is
+//! measured against the guess-independent
+//! [`NonlinearMagnetostaticSystem::reference_residual`], the linear-start
+//! drive. A warm start at or near the solution therefore succeeds at once.
+//! An iterate whose residual is at the `f64` round-off floor
+//! ([`NonlinearMagnetostaticSystem::roundoff_floor`]) is also accepted, as
+//! [`ConvergenceStatus::RoundoffFloor`], with the achieved residual
+//! reported. That floor grows with refinement: it was 6e-11 relative at 64
+//! sectors and 1.8e-9 at 256 on the coax test. Genuine non-convergence
+//! stays loud. [`NonlinearMagnetostaticError::NotConverged`] and
+//! [`NonlinearMagnetostaticError::LineSearchFailed`] are returned, and the
+//! solver never hands back a silent last iterate. The
 //! [`NonlinearMagnetostaticSolution`] carries the converged reduced tangent
 //! for the adjoint solve of milestone M3
 //! ([`NonlinearMagnetostaticSolution::solve_tangent_transpose`]).
@@ -127,6 +136,11 @@ pub enum NonlinearMagnetostaticError {
         iteration: usize,
         /// Residual-norm history up to the failure.
         residual_norms: Vec<f64>,
+        /// The tolerance that was not reached.
+        tolerance: f64,
+        /// The round-off floor estimate at the last iterate (see
+        /// [`NonlinearMagnetostaticSystem::roundoff_floor`]).
+        floor_estimate: f64,
     },
     /// The iteration limit was reached before the tolerance.
     NotConverged {
@@ -154,9 +168,12 @@ impl std::fmt::Display for NonlinearMagnetostaticError {
             Self::LineSearchFailed {
                 iteration,
                 residual_norms,
+                tolerance,
+                floor_estimate,
             } => write!(
                 f,
-                "line search failed at Newton iteration {iteration} (residual {:e})",
+                "line search failed at Newton iteration {iteration}: residual {:e}, tolerance \
+                 {tolerance:e}, round-off floor estimate {floor_estimate:e}",
                 residual_norms.last().copied().unwrap_or(f64::NAN)
             ),
             Self::NotConverged {
@@ -208,9 +225,21 @@ pub trait ReluctivityLaw: std::fmt::Debug + Send + Sync {
     /// Inverse law `B(H)` for `H ≥ 0`: the unique `B ≥ 0` with
     /// `h_of_b(B) = H`. The default is a bracketed Newton–bisection hybrid
     /// on the monotone `H(B)`, converged to about machine precision.
-    fn b_of_h(&self, h: f64) -> f64 {
+    /// Negative `H` gives `B = 0`.
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::NonFinite`] if `H` is NaN, or if
+    /// `h_of_b` does not reach `H` below `B = 1e12` T. That happens only
+    /// for a non-physical `H` or a law that is not monotone.
+    fn b_of_h(&self, h: f64) -> Result<f64, NonlinearMagnetostaticError> {
+        if h.is_nan() {
+            return Err(NonlinearMagnetostaticError::NonFinite(
+                "b_of_h: H is NaN".into(),
+            ));
+        }
         if h <= 0.0 {
-            return 0.0;
+            return Ok(0.0);
         }
         let mut lo = 0.0_f64;
         let mut hi = 1.0_f64;
@@ -218,7 +247,9 @@ pub trait ReluctivityLaw: std::fmt::Debug + Send + Sync {
             lo = hi;
             hi *= 2.0;
             if hi > 1e12 {
-                return f64::NAN;
+                return Err(NonlinearMagnetostaticError::NonFinite(format!(
+                    "b_of_h: H = {h:e} A/m is not reached below B = 1e12 T"
+                )));
             }
         }
         let mut b = 0.5 * (lo + hi);
@@ -235,11 +266,11 @@ pub trait ReluctivityLaw: std::fmt::Debug + Send + Sync {
                 next = 0.5 * (lo + hi);
             }
             if (next - b).abs() <= 1e-15 * b.max(1e-300) || hi - lo <= 1e-15 * hi {
-                return next;
+                return Ok(next);
             }
             b = next;
         }
-        b
+        Ok(b)
     }
 }
 
@@ -303,8 +334,13 @@ impl ReluctivityLaw for ConstantLaw {
     fn energy_density(&self, b2: f64) -> f64 {
         0.5 * self.nu * b2
     }
-    fn b_of_h(&self, h: f64) -> f64 {
-        h.max(0.0) / self.nu
+    fn b_of_h(&self, h: f64) -> Result<f64, NonlinearMagnetostaticError> {
+        if h.is_nan() {
+            return Err(NonlinearMagnetostaticError::NonFinite(
+                "b_of_h: H is NaN".into(),
+            ));
+        }
+        Ok(h.max(0.0) / self.nu)
     }
 }
 
@@ -732,14 +768,24 @@ pub enum TangentKind {
 pub struct NewtonConfig {
     /// Absolute residual tolerance (A).
     pub abs_tol: f64,
-    /// Tolerance relative to the initial residual norm `‖R(A_0)‖`.
-    ///
-    /// The default `1e-8` sits above the round-off floor. That floor is set
-    /// by cancellation in `∇A_z = Σ a_p ∇λ_p` when `A_z` carries a large
-    /// offset over small elements, and on the graded coax meshes of the
-    /// tests it is about `1e-11`–`1e-10` relative. Below the floor the line
-    /// search fails rather than stalling silently.
+    /// Tolerance relative to the guess-independent reference residual
+    /// [`NonlinearMagnetostaticSystem::reference_residual`]. That reference
+    /// is the norm of the linear-start right-hand side (load plus Dirichlet
+    /// lifting at `ν(0)`), so a warm start does not tighten the target.
     pub rel_tol: f64,
+    /// Round-off acceptance factor. An iterate with
+    /// `‖R‖ ≤ floor_factor · roundoff_floor(A)` is accepted as
+    /// [`ConvergenceStatus::RoundoffFloor`], with the achieved residual
+    /// reported. No step in `f64` can reduce such a residual reliably.
+    /// `0` disables the test.
+    ///
+    /// The floor comes from cancellation in `∇A_z = Σ a_p ∇λ_p` when `A_z`
+    /// carries a large offset over small elements, and it grows with
+    /// refinement. On the zero-start coax test it measured 8e-11 relative to
+    /// the reference at 64 sectors and 1.8e-9 at 256. Fine motor meshes can
+    /// reach the default `rel_tol` this way, and are then reported as
+    /// converged at the floor rather than as a failed line search.
+    pub floor_factor: f64,
     /// Maximum number of updates.
     pub max_iterations: usize,
     /// Line-search strategy.
@@ -755,12 +801,27 @@ impl Default for NewtonConfig {
         Self {
             abs_tol: 0.0,
             rel_tol: 1e-8,
+            floor_factor: FLOOR_FACTOR_DEFAULT,
             max_iterations: 50,
             line_search: LineSearch::Energy,
             max_backtracks: 40,
             tangent: TangentKind::Consistent,
         }
     }
+}
+
+/// Default [`NewtonConfig::floor_factor`].
+pub const FLOOR_FACTOR_DEFAULT: f64 = 1.0;
+
+/// How a successful solve met its stopping test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConvergenceStatus {
+    /// `‖R‖ ≤ max(abs_tol, rel_tol · reference_residual)`.
+    Tolerance,
+    /// The tolerance was not met, but `‖R‖` is at the `f64` round-off floor
+    /// (`‖R‖ ≤ floor_factor · roundoff_floor`). The achieved residual is
+    /// the last entry of `residual_norms`.
+    RoundoffFloor,
 }
 
 /// A converged nonlinear magnetostatic solve.
@@ -778,8 +839,14 @@ pub struct NonlinearMagnetostaticSolution {
     pub step_lengths: Vec<f64>,
     /// Number of updates taken.
     pub iterations: usize,
-    /// The tolerance that was met.
+    /// The residual tolerance `max(abs_tol, rel_tol · reference_residual)`.
     pub tolerance: f64,
+    /// Which stopping test was met.
+    pub status: ConvergenceStatus,
+    /// The guess-independent reference residual the tolerance is relative to.
+    pub reference_residual: f64,
+    /// The round-off floor estimate at the final iterate.
+    pub floor_estimate: f64,
     /// The **consistent** reduced tangent `∂R/∂A_free` at the converged
     /// state. It is symmetric (and SPD for a monotone law). The M3 adjoint
     /// solves with its transpose.
@@ -1205,6 +1272,83 @@ impl NonlinearMagnetostaticSystem {
             .collect()
     }
 
+    /// The guess-independent **reference residual** that
+    /// [`NewtonConfig::rel_tol`] is relative to:
+    /// `‖F_free − K_ν(0)[free, pinned] · a_D‖₂`, the norm of the
+    /// right-hand side of the [`linear_start`](Self::linear_start) solve.
+    /// This is the total drive (currents, magnets, extra load, Dirichlet
+    /// lifting). It is finite even when the exponential Brauer law would
+    /// overflow at a zero-interior start, and it is the same for every
+    /// initial guess. For zero Dirichlet data it equals `‖R(0)‖`.
+    pub fn reference_residual(&self) -> f64 {
+        let mut r = vec![0.0_f64; self.n_free];
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                r[*fi] = self.load[g];
+            }
+        }
+        for t in 0..self.tris.len() {
+            let tri = &self.tris[t];
+            if tri
+                .iter()
+                .all(|&p| self.free_of_global[p as usize].is_some())
+            {
+                continue;
+            }
+            let nu = self.laws[t].nu(0.0);
+            let ElemGeom { grad, area } = self.geom[t];
+            for p in 0..3 {
+                let Some(fp) = self.free_of_global[tri[p] as usize] else {
+                    continue;
+                };
+                for q in 0..3 {
+                    if self.free_of_global[tri[q] as usize].is_none() {
+                        let kpq = area * nu * (grad[p][0] * grad[q][0] + grad[p][1] * grad[q][1]);
+                        r[fp] -= kpq * self.dirichlet_values[tri[q] as usize];
+                    }
+                }
+            }
+        }
+        norm2(&r)
+    }
+
+    /// An `f64` **round-off floor estimate** for `‖R(A)‖`:
+    /// `ε · ‖S‖₂` with `S_i = |F_i| + Σ_T |T| ν |∇λ_i| Σ_p |a_p| |∇λ_p|`.
+    /// The inner sum bounds the rounding error of `∇A = Σ a_p ∇λ_p` coming
+    /// from the stored nodal values. That error dominates when `A_z` has a
+    /// large offset over small elements. A residual near this level cannot
+    /// be reduced reliably by any update. On the coax test the estimate sits
+    /// 8.4–8.7× above the measured stagnation level at 64 and 256 sectors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a_full.len() != n_nodes`.
+    pub fn roundoff_floor(&self, a_full: &[f64]) -> f64 {
+        assert_eq!(a_full.len(), self.n_nodes, "roundoff_floor: vector length");
+        let mut s = vec![0.0_f64; self.n_free];
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                s[*fi] = self.load[g].abs();
+            }
+        }
+        for t in 0..self.tris.len() {
+            let gr = self.elem_gradient(t, a_full);
+            let nu = self.laws[t].nu(gr[0] * gr[0] + gr[1] * gr[1]);
+            let ElemGeom { grad, area } = self.geom[t];
+            let tri = &self.tris[t];
+            let gnorm = |p: usize| (grad[p][0] * grad[p][0] + grad[p][1] * grad[p][1]).sqrt();
+            let spread: f64 = (0..3)
+                .map(|p| a_full[tri[p] as usize].abs() * gnorm(p))
+                .sum();
+            for (p, &node) in tri.iter().enumerate() {
+                if let Some(fp) = self.free_of_global[node as usize] {
+                    s[fp] += area * nu * gnorm(p) * spread;
+                }
+            }
+        }
+        f64::EPSILON * norm2(&s)
+    }
+
     /// The small-field **linear start**: the solution of the linear problem
     /// with each element frozen at its initial reluctivity `ν(0)`, with the
     /// load and the Dirichlet data. With zero Dirichlet data this is exactly
@@ -1261,8 +1405,14 @@ impl NonlinearMagnetostaticSystem {
     /// vector; its pinned entries are replaced by the Dirichlet values), or
     /// from zero on the free nodes when `initial` is `None`.
     ///
-    /// Convergence is `‖R‖₂ ≤ max(abs_tol, rel_tol·‖R(A_0)‖₂)`. The returned
-    /// tangent is always the **consistent** tangent at the final iterate,
+    /// The solve has converged when `‖R‖₂ ≤ max(abs_tol, rel_tol · reference)`,
+    /// where `reference` is [`reference_residual`](Self::reference_residual)
+    /// and does not depend on the guess. That gives
+    /// [`ConvergenceStatus::Tolerance`]. Otherwise it has converged when
+    /// `‖R‖₂ ≤ floor_factor · roundoff_floor(A)`, which gives
+    /// [`ConvergenceStatus::RoundoffFloor`]. Both tests are applied at every
+    /// iterate, including the initial guess, so a warm start at the solution
+    /// returns after 0 iterations. The returned tangent is always the **consistent** tangent at the final iterate,
     /// even for [`TangentKind::FrozenNu`].
     ///
     /// # Errors
@@ -1299,13 +1449,24 @@ impl NonlinearMagnetostaticSystem {
                 "initial residual".into(),
             ));
         }
-        let tol = config.abs_tol.max(config.rel_tol * rn);
+        let reference = self.reference_residual();
+        let tol = config.abs_tol.max(config.rel_tol * reference);
         let mut residual_norms = vec![rn];
         let mut step_norms = Vec::new();
         let mut step_lengths = Vec::new();
+        let mut floor = f64::NAN;
 
         for it in 0..=config.max_iterations {
-            if rn <= tol {
+            let status = if rn <= tol {
+                Some(ConvergenceStatus::Tolerance)
+            } else {
+                floor = self.roundoff_floor(&a);
+                (rn <= config.floor_factor * floor).then_some(ConvergenceStatus::RoundoffFloor)
+            };
+            if let Some(status) = status {
+                if floor.is_nan() {
+                    floor = self.roundoff_floor(&a);
+                }
                 let tangent = match config.tangent {
                     TangentKind::Consistent => k,
                     TangentKind::FrozenNu => {
@@ -1319,6 +1480,9 @@ impl NonlinearMagnetostaticSystem {
                     step_lengths,
                     iterations: it,
                     tolerance: tol,
+                    status,
+                    reference_residual: reference,
+                    floor_estimate: floor,
                     tangent,
                     free_of_global: self.free_of_global.clone(),
                     n_free: self.n_free,
@@ -1390,6 +1554,8 @@ impl NonlinearMagnetostaticSystem {
                 return Err(NonlinearMagnetostaticError::LineSearchFailed {
                     iteration: it,
                     residual_norms,
+                    tolerance: tol,
+                    floor_estimate: floor,
                 });
             };
             step_norms.push(alpha * norm2(&delta));

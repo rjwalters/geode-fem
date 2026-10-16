@@ -111,9 +111,12 @@ search, rel_tol 1e-8).
   steady ratio of about 0.86 (0.8663 geometric mean over the last 40) and a
   fitted order of 1.000. That is linear convergence.
 
-The round-off floor is about 1e-10 relative. It comes from cancellation in
-∇A over small elements when A has a large offset. The default rel_tol is
-therefore 1e-8.
+The round-off floor comes from cancellation in ∇A over small elements when
+A has a large offset, and it grows with refinement: 6.3e-11 relative at
+n_ang = 64 and 1.8e-9 at 256 (section 7). The relative tolerance (default
+1e-8) is measured against the guess-independent `reference_residual()`.
+An iterate at the estimated floor is accepted as `RoundoffFloor`, with the
+achieved residual reported.
 
 The converged tangent drives the solution sensitivity:
 `dA/dI = K⁻¹F/I`, computed with `solve_tangent_transpose`, matches a
@@ -132,8 +135,8 @@ the exponential law overflows at the boundary layer.
 | 8 | 1.25e-1 | 9.182e-2 | | 1.855e-3 | | 5 | 401–1363 |
 | 16 | 6.25e-2 | 4.574e-2 | 1.01 | 4.553e-4 | 2.03 | 8 | 401–1990 |
 | 32 | 3.13e-2 | 2.283e-2 | 1.00 | 1.134e-4 | 2.01 | 11 | 401–2417 |
-| 64 | 1.56e-2 | 1.141e-2 | 1.00 | 2.832e-5 | 2.00 | 13 | 401–2662 |
-| 128 | 7.81e-3 | 5.703e-3 | 1.00 | 7.079e-6 | 2.00 | 15 | 401–2793 |
+| 64 | 1.56e-2 | 1.141e-2 | 1.00 | 2.832e-5 | 2.00 | 14 | 401–2662 |
+| 128 | 7.81e-3 | 5.703e-3 | 1.00 | 7.079e-6 | 2.00 | 16 | 401–2793 |
 
 The least-squares fitted rates are 1.002 for the H¹ seminorm and 2.007 for
 L². The test asserts H¹ in [0.95, 1.1] and L² in [1.9, 2.2].
@@ -179,3 +182,25 @@ Invalid Brauer coefficients and ConstantLaw values are rejected too. An
 unmapped region tag is `MissingMaterial`, and an iteration cap reached is
 `NotConverged` with the residual history attached. No silent last iterate
 is returned.
+
+## 7. Warm starts and the round-off floor (Judge finding B1 on PR #1159)
+
+The stopping test is `‖R‖ ≤ max(abs_tol, rel_tol · reference)`. Here
+`reference = ‖F_free − K_ν(0)[free, pinned] · a_D‖`, the linear-start
+drive, which does not depend on the guess. A second test,
+`‖R‖ ≤ floor_factor · roundoff_floor(A)` (floor_factor 1 by default),
+gives `ConvergenceStatus::RoundoffFloor`. The floor estimate is
+`ε‖S‖` with `S_i = |F_i| + Σ_T |T| ν |∇λ_i| Σ_p |a_p||∇λ_p|`, which bounds
+the rounding of ∇A from the stored nodal values.
+
+The case is the coax, synthetic table, default config. Residuals are
+relative to the reference.
+
+| n_ang | cold iterations | cold final | (a) restart from converged: iterations | (b) I×1.001 from previous: iterations, final | (c) stagnation min, all stops off | floor estimate | estimate/observed | (d) rel_tol 1e-14 |
+|---|---|---|---|---|---|---|---|---|
+| 64 | 11 | 8.45e-11 | 0 | 2, 7.24e-11 | 6.34e-11 | 5.50e-10 | 8.7 | RoundoffFloor, 11 iterations |
+| 256 | 12 | 2.18e-9 | 0 | 2, 2.31e-9 | 1.80e-9 | 1.51e-8 | 8.4 | RoundoffFloor, 12 iterations |
+
+The warm-started (b) solution matches a cold solve at I×1.001 to <1e-8
+relative. Before this fix, (a) and (b) returned `LineSearchFailed` at both
+resolutions (Judge's probe).

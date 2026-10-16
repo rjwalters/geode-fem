@@ -16,6 +16,9 @@
 //! 5. **Saturated-iron Ampère oracle**: coaxial conductor / iron annulus /
 //!    air, with `|B|(r) = B(I/(2πr))` exact in the iron.
 //! 6. **Law validation**: malformed tables and parameters are rejected.
+//! 7. **Warm starts and the round-off floor**: restarts and 0.1% current
+//!    re-solves from a previous solution succeed, and an unreachable
+//!    tolerance ends at the floor (Judge finding B1, PR #1159).
 //!
 //! Every test prints its measured table. The committed
 //! `benchmarks/motor_nonlinear_m1/m1_tables.log` is this file's
@@ -36,7 +39,7 @@ use geode_core::assembly::magnetostatic::{
     recover_b_field,
 };
 use geode_core::assembly::magnetostatic_nonlinear::{
-    BrauerLaw, ConstantLaw, LineSearch, MaterialMap, NU_0, NewtonConfig,
+    BrauerLaw, ConstantLaw, ConvergenceStatus, LineSearch, MaterialMap, NU_0, NewtonConfig,
     NonlinearMagnetostaticError, NonlinearMagnetostaticSystem, ReluctivityLaw, TabulatedBhLaw,
     TangentKind, load_vector_from_fn,
 };
@@ -599,9 +602,9 @@ fn law_derivatives_match_finite_difference() {
         );
         if h > 0.0 {
             assert!(
-                (t.b_of_h(h) - b).abs() <= 1e-12,
+                (t.b_of_h(h).unwrap() - b).abs() <= 1e-12,
                 "b_of_h({h}) = {} != {b}",
-                t.b_of_h(h)
+                t.b_of_h(h).unwrap()
             );
         }
     }
@@ -1130,7 +1133,7 @@ fn ampere_oracle_level(n_ang: usize) -> OracleRow {
         }
         let c = centroid(&mesh, tri);
         let r = (c[0] * c[0] + c[1] * c[1]).sqrt();
-        let b_exact = law.b_of_h(i / (TAU * r));
+        let b_exact = law.b_of_h(i / (TAU * r)).unwrap();
         let bh = (b[t][0] * b[t][0] + b[t][1] * b[t][1]).sqrt();
         let rel = (bh - b_exact).abs() / b_exact;
         max_rel = max_rel.max(rel);
@@ -1255,7 +1258,8 @@ fn saturated_iron_ampere_oracle() {
         let r = (c[0] * c[0] + c[1] * c[1]).sqrt();
         if tags[t] == TAG_IRON && (r / r_mid).ln().abs() < 0.1 {
             let bh = (b[t][0] * b[t][0] + b[t][1] * b[t][1]).sqrt();
-            sum += (bh - law.b_of_h(i / (TAU * r))).abs() / law.b_of_h(i / (TAU * r));
+            sum += (bh - law.b_of_h(i / (TAU * r)).unwrap()).abs()
+                / law.b_of_h(i / (TAU * r)).unwrap();
             cnt += 1;
         }
     }
@@ -1411,4 +1415,112 @@ fn missing_material_and_non_convergence_are_errors() {
         e_sol.iterations, r_sol.iterations
     );
     assert!(d < 1e-9);
+}
+
+/// Warm starts and the round-off floor (Judge finding B1 on PR #1159). The
+/// relative tolerance uses the guess-independent `reference_residual`, so:
+/// (a) a restart from the converged solution returns at once; (b) a 0.1%
+/// current change re-solved from the previous solution converges in a few
+/// iterations. (c) Iterating past convergence with every stopping test off
+/// shows where the residual stagnates; `roundoff_floor` must bound that
+/// level from above, and not by more than 50x. (d) An unreachable
+/// `rel_tol` ends as `RoundoffFloor` (success, with the achieved residual),
+/// not as `LineSearchFailed`.
+#[test]
+fn warm_start_and_roundoff_floor() {
+    println!("\n[7] warm starts and the round-off floor (coax, default config unless noted)");
+    println!(
+        "    n_ang | cold its | cold ||R||/ref | (a) restart its | (b) I*1.001 its, ||R||/ref | \
+         (c) stagnation min ||R||/ref | floor est/ref | est/observed | (d) rel_tol 1e-14: status, its"
+    );
+    for n_ang in [64usize, 256] {
+        let (mesh, tags) = coax_mesh(n_ang);
+        let i0 = coax_current();
+        let sys = coax_system(&mesh, &tags, i0);
+        let reference = sys.reference_residual();
+        let cold = sys
+            .solve(&NewtonConfig::default(), None)
+            .expect("cold solve");
+        assert_eq!(cold.reference_residual, reference);
+
+        // (a) Restart from the converged solution.
+        let restart = sys
+            .solve(&NewtonConfig::default(), Some(&cold.a_z))
+            .expect("restart from the converged solution must succeed");
+        assert!(
+            restart.iterations <= 1,
+            "restart took {} iterations",
+            restart.iterations
+        );
+
+        // (b) 0.1% current change, warm-started from the previous solution.
+        let sys_b = coax_system(&mesh, &tags, 1.001 * i0);
+        let warm = sys_b
+            .solve(&NewtonConfig::default(), Some(&cold.a_z))
+            .expect("warm-started 0.1% current change must succeed");
+        assert!(
+            warm.iterations <= 5,
+            "warm re-solve took {} iterations",
+            warm.iterations
+        );
+        let cold_b = sys_b.solve(&NewtonConfig::default(), None).unwrap();
+        let dev = norm(
+            &warm
+                .a_z
+                .iter()
+                .zip(&cold_b.a_z)
+                .map(|(x, y)| x - y)
+                .collect::<Vec<f64>>(),
+        ) / norm(&cold_b.a_z);
+        assert!(dev < 1e-8, "warm and cold re-solves differ by {dev:e}");
+
+        // (c) Stagnation level with every stopping test disabled.
+        let probe = NewtonConfig {
+            rel_tol: 0.0,
+            floor_factor: 0.0,
+            max_iterations: 6,
+            ..NewtonConfig::default()
+        };
+        let hist = match sys.solve(&probe, Some(&cold.a_z)) {
+            Err(NonlinearMagnetostaticError::LineSearchFailed { residual_norms, .. })
+            | Err(NonlinearMagnetostaticError::NotConverged { residual_norms, .. }) => {
+                residual_norms
+            }
+            other => panic!("probe with all stopping tests off returned {other:?}"),
+        };
+        let observed = hist.iter().copied().fold(f64::INFINITY, f64::min);
+        let est = sys.roundoff_floor(&cold.a_z);
+        assert!(
+            est >= observed && est <= 50.0 * observed,
+            "floor estimate {est:e} does not bound the observed floor {observed:e} within 50x"
+        );
+
+        // (d) Unreachable tolerance: success at the floor, residual reported.
+        let strict = sys
+            .solve(
+                &NewtonConfig {
+                    rel_tol: 1e-14,
+                    ..NewtonConfig::default()
+                },
+                None,
+            )
+            .expect("an unreachable rel_tol must end at the round-off floor, not fail");
+        assert_eq!(strict.status, ConvergenceStatus::RoundoffFloor);
+        let r_strict = *strict.residual_norms.last().unwrap();
+        assert!(r_strict <= strict.floor_estimate);
+
+        println!(
+            "    {n_ang:5} | {:8} | {:14.3e} | {:15} | {:>9}, {:14.3e} | {:28.3e} | {:13.3e} | {:12.1} | {:?}, {}",
+            cold.iterations,
+            cold.residual_norms.last().unwrap() / reference,
+            restart.iterations,
+            warm.iterations,
+            warm.residual_norms.last().unwrap() / sys_b.reference_residual(),
+            observed / reference,
+            est / reference,
+            est / observed,
+            strict.status,
+            strict.iterations
+        );
+    }
 }
