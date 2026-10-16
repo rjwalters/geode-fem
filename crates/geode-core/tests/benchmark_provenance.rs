@@ -1514,7 +1514,6 @@ const MANIFEST: &[Entry] = &[
         "tuned_summary.py: post-processing of the bucket-A tuned/*.toml and the 38-DOF \
          references (issue #1147); no Burn backend",
     ),
-
     b(
         "benchmarks/patch_antenna_conformal/recentre/rim_edges.toml",
         "rim_edge_stats.py: mesh geometry of the moved meshes (issue #1134); no solve",

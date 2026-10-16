@@ -121,7 +121,12 @@ fn tuned_runs() -> Vec<String> {
     let dir = conf().join("tuned");
     let mut v: Vec<String> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display()))
-        .map(|e| e.expect("dir entry").file_name().to_string_lossy().into_owned())
+        .map(|e| {
+            e.expect("dir entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
         .filter(|n| n.ends_with(".toml") && n != "tuned_summary.toml")
         .map(|n| format!("tuned/{n}"))
         .collect();
@@ -219,8 +224,14 @@ fn tuned_runs_use_the_x4_problem() {
         let d = load(rel);
         let cmd = s(&d, "meta.command");
         assert_eq!(get(&d, "meta.band_points_ghz"), band, "{rel}: band");
-        assert!(cmd.contains("--beta 25") && cmd.contains("--n-band 5"), "{rel}");
-        assert!(cmd.contains("<dir>/patch_conformal_L1.msh"), "{rel}: fixture");
+        assert!(
+            cmd.contains("--beta 25") && cmd.contains("--n-band 5"),
+            "{rel}"
+        );
+        assert!(
+            cmd.contains("<dir>/patch_conformal_L1.msh"),
+            "{rel}: fixture"
+        );
         assert!(!cmd.contains("--design"), "{rel}: cold start");
         if let Some(sha) = d.get("meta").and_then(|m| m.get("fixture_sha256")) {
             assert_eq!(sha.as_str(), Some(L1_SHA), "{rel}: fixture sha256");
@@ -234,7 +245,10 @@ fn tuned_runs_use_the_x4_problem() {
             assert_eq!(f(&d, "meta.band_shift_ghz"), 0.0, "{rel}");
             f(&d, "optimization.worst_s11_db_initial")
         };
-        assert!((start - x0).abs() < 1e-4, "{rel}: x = 0 gives {start}, not {x0}");
+        assert!(
+            (start - x0).abs() < 1e-4,
+            "{rel}: x = 0 gives {start}, not {x0}"
+        );
         let n = n_dofs(&d);
         assert!([4, 14, 38].contains(&n), "{rel}: {n} DOFs");
         // (flags the command must carry, flags it must not)
@@ -278,7 +292,10 @@ fn tuned_settings_are_the_requested_ones() {
     assert_eq!(seeds.len(), 3);
     for sig in ["15", "05"] {
         let d = load(&format!("tuned/L1_copper_38_fcma190_sig{sig}_s11.toml"));
-        assert_eq!(s(&d, "gradient_free.method"), "CMA-ES (full covariance, pycma)");
+        assert_eq!(
+            s(&d, "gradient_free.method"),
+            "CMA-ES (full covariance, pycma)"
+        );
         assert_eq!(f(&d, "gradient_free.lambda"), 14.0);
         assert_eq!(f(&d, "gradient_free.budget_evals"), 190.0);
     }
@@ -305,14 +322,26 @@ fn summary_is_fresh() {
         .collect();
     for rel in &listed {
         let r = summary_run(&sum, rel);
-        assert_eq!(s(r, "sha256"), sha256(rel), "{rel}: stale summary (re-run --write)");
+        assert_eq!(
+            s(r, "sha256"),
+            sha256(rel),
+            "{rel}: stale summary (re-run --write)"
+        );
         let d = load(rel);
         let c = curve(&d);
         let n = n_dofs(&d);
         assert_eq!(f(r, "n_dofs") as i64, n, "{rel}");
-        assert_eq!(f(r, "n_evals") as i64, c.last().unwrap().0, "{rel}: n_evals");
+        assert_eq!(
+            f(r, "n_evals") as i64,
+            c.last().unwrap().0,
+            "{rel}: n_evals"
+        );
         let used = c.last().unwrap().1;
-        assert_eq!(f(r, "optimization_solves") as i64, used, "{rel}: solves used");
+        assert_eq!(
+            f(r, "optimization_solves") as i64,
+            used,
+            "{rel}: solves used"
+        );
         let hits = LEVELS.map(|lv| first(&c, lv));
         for (i, h) in hits.iter().enumerate() {
             close(opts(r, "evals_to_level")[i], h.map(|h| h.0 as f64), rel);
@@ -325,17 +354,25 @@ fn summary_is_fresh() {
                 rel,
             );
             let a = adjoint.get(&n).copied().unwrap_or([None; 5]);
-            for i in 0..5 {
-                let ratio = match (hits[i], a[i]) {
+            for (i, (hit, adj)) in hits.iter().zip(a).enumerate() {
+                let ratio = match (hit, adj) {
                     (Some(h), Some(x)) => Some(h.1 as f64 / x as f64),
                     _ => None,
                 };
-                let lower = match (hits[i], a[i]) {
+                let lower = match (hit, adj) {
                     (None, Some(x)) => Some(used as f64 / x as f64),
                     _ => None,
                 };
-                close(opts(r, "ratio_to_adjoint")[i], ratio, &format!("{rel} ratio {i}"));
-                close(opts(r, "ratio_lower_bound")[i], lower, &format!("{rel} bound {i}"));
+                close(
+                    opts(r, "ratio_to_adjoint")[i],
+                    ratio,
+                    &format!("{rel} ratio {i}"),
+                );
+                close(
+                    opts(r, "ratio_lower_bound")[i],
+                    lower,
+                    &format!("{rel} bound {i}"),
+                );
             }
         }
     }
@@ -349,7 +386,9 @@ fn summary_is_fresh() {
                 let d = load(rel);
                 is_gradient_free(&d)
                     && n_dofs(&d) == n
-                    && d["meta"].get("forward_solver").and_then(toml::Value::as_str)
+                    && d["meta"]
+                        .get("forward_solver")
+                        .and_then(toml::Value::as_str)
                         != Some("palace")
             })
             .collect();
@@ -420,7 +459,10 @@ fn outcomes_are_pinned_from_the_trajectories() {
     for (rel, solves, best) in PINS {
         assert_eq!(solves_to_levels(rel), solves, "{rel}");
         let got = best_db(rel);
-        assert!((got - best).abs() < 1e-3, "{rel}: best {got} against {best}");
+        assert!(
+            (got - best).abs() < 1e-3,
+            "{rel}: best {got} against {best}"
+        );
     }
 }
 
@@ -463,6 +505,9 @@ fn the_tuned_baselines_against_the_adjoint_at_38() {
     assert!(best95 >= 11 * adj[3].unwrap());
 }
 
+/// `(n, adjoint solves to each level, best gradient-free solves to each level)`.
+type ScalingPin = (f64, [Option<f64>; 5], [Option<f64>; 5]);
+
 /// B4: solves to a level against the number of parameters, the adjoint
 /// against the best of the gradient-free runs at that n (best-of-k, which
 /// favours the gradient-free side). To -9.5 dB the ratio is 2.4x at n = 4,
@@ -478,10 +523,22 @@ fn the_advantage_grows_with_the_number_of_parameters() {
             .find(|r| f(r, "n_dofs") == n)
             .unwrap_or_else(|| panic!("no scaling row for n = {n}"))
     };
-    let want: [(f64, [Option<f64>; 5], [Option<f64>; 5]); 3] = [
-        (4.0, [Some(30.), Some(55.), Some(55.), Some(85.), None], [Some(5.), Some(45.), Some(60.), Some(205.), None]),
-        (14.0, [Some(20.), Some(30.), Some(35.), Some(40.), Some(60.)], [Some(10.), Some(90.), Some(115.), Some(115.), None]),
-        (38.0, [Some(20.), Some(30.), Some(30.), Some(35.), Some(60.)], [Some(50.), Some(230.), Some(230.), Some(385.), Some(650.)]),
+    let want: [ScalingPin; 3] = [
+        (
+            4.0,
+            [Some(30.), Some(55.), Some(55.), Some(85.), None],
+            [Some(5.), Some(45.), Some(60.), Some(205.), None],
+        ),
+        (
+            14.0,
+            [Some(20.), Some(30.), Some(35.), Some(40.), Some(60.)],
+            [Some(10.), Some(90.), Some(115.), Some(115.), None],
+        ),
+        (
+            38.0,
+            [Some(20.), Some(30.), Some(30.), Some(35.), Some(60.)],
+            [Some(50.), Some(230.), Some(230.), Some(385.), Some(650.)],
+        ),
     ];
     let mut r95 = Vec::new();
     for (n, adj, gf) in want {
@@ -501,7 +558,10 @@ fn the_advantage_grows_with_the_number_of_parameters() {
         assert!(best_db(rel) < adj4, "{rel} ends above the 4-DOF adjoint");
     }
     assert_eq!(
-        s(&load("tuned/L1_copper_rect4_cold.toml"), "optimization.terminal_condition"),
+        s(
+            &load("tuned/L1_copper_rect4_cold.toml"),
+            "optimization.terminal_condition"
+        ),
         "distortion_limited"
     );
 }
@@ -574,7 +634,11 @@ fn air_margin_drift_of_design_c_is_pinned() {
             "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml"
         );
         let stem = format!("patch_conformal_rbGair{air}_L1");
-        assert_eq!(s(&d, "meta.fixture_sha256"), provenance(&stem, "sha256"), "{rel}");
+        assert_eq!(
+            s(&d, "meta.fixture_sha256"),
+            provenance(&stem, "sha256"),
+            "{rel}"
+        );
         assert_eq!(provenance(&stem, "gmsh version"), "4.15.2-git", "{stem}");
         assert_eq!(
             provenance(&stem, "parameters"),
@@ -582,8 +646,14 @@ fn air_margin_drift_of_design_c_is_pinned() {
             "{stem}"
         );
         let (lo, hi) = band_edges(&rel);
-        assert!((1e3 * (lo - lo0) - dlo).abs() < 0.01, "{rel}: lower edge {lo}");
-        assert!((1e3 * (hi - hi0) - dhi).abs() < 0.01, "{rel}: upper edge {hi}");
+        assert!(
+            (1e3 * (lo - lo0) - dlo).abs() < 0.01,
+            "{rel}: lower edge {lo}"
+        );
+        assert!(
+            (1e3 * (hi - hi0) - dhi).abs() < 0.01,
+            "{rel}: upper edge {hi}"
+        );
         assert!(lo > prev, "{rel}: lower edge not monotone");
         prev = lo;
         // The summary agrees with the re-derivation.
