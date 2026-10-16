@@ -69,5 +69,44 @@
     "optimization_grid_mechanical_degrees": "0,2,...,18; a 20-degree waveform period, not a full 120-degree electrical period.",
     "ripple_definition": "Population standard deviation (normalization N), not sample standard deviation or peak-to-peak percentage. Reference objective sums this over three current levels; our proposed squared-ripple objective is a deliberate later change.",
     "validation_limits": "Saved output is a reproduction target, not a converged reference or an independently validated GEODE result. Establish spatial and angular error before setting optimization targets."
+  },
+  "geode_law_vs_reference": {
+    "issue": 1160,
+    "solver_commit": "59e5f5c826a0646e4f086ed9ece3d22b529acff4",
+    "law": "geode_core::assembly::magnetostatic_nonlinear::TabulatedBhLaw::from_hb(H, B) on the 47 M27 points.",
+    "law_source_git_blob": "f1fcba27ffeebc1eabe270a2aab0acbc9b5e37fd",
+    "method": "Computed, not inferred: benchmarks/motor_nonlinear_m1/pchip_compare.py implements MATLAB pchip (weighted-harmonic interior slopes, one-sided three-point endpoint slopes with shape-preserving clamps) plus the Mat_Magnetic.m 1e-5 T clamp and 1/mu0 tail, and compares it with GEODE's dense dump (examples/m27_law_dump.rs, 100 samples per table segment, log-spaced 1e-8..1e-3 T, 0.0025 T on the tail). H_ref = nu_ref(B)*B. Maxima are over the dump samples.",
+    "record": "benchmarks/motor_nonlinear_m1/pchip_compare.json",
+    "matlab_pchip_vs_scipy_max_rel_slope": 6.9550628570791235e-15,
+    "interior_0p05_to_2p25_T": {
+      "max_rel_dH": 4.18100136183871e-16,
+      "max_rel_dnu": 4.172583123411395e-16,
+      "note": "Same Fritsch-Butland interior slopes; identical to round-off."
+    },
+    "first_segment_1e-5_to_0p05_T": {
+      "max_rel_dH": 0.0665876894133444,
+      "max_rel_dnu": 0.06658768941334445,
+      "max_at_B_T": 1.2115276586285901e-05,
+      "note": "GEODE odd cubic H=c1 B+c3 B^3 vs pchip endpoint slope 426.04 m/H; GEODE nu(0)=397.6613 m/H, reference nu(B<=1e-5)=426.0321 m/H."
+    },
+    "origin_clamp_0_to_1e-5_T": {
+      "max_rel_dH": 0.06659294950090636,
+      "max_rel_dnu": 0.0665929495009064,
+      "reference_self_tangent_mismatch_max_rel": 2.6653111216258635e-05
+    },
+    "last_segment_2p25_to_2p30_T": {
+      "max_rel_dH": 0.00021705942928338463,
+      "max_rel_dnu": 0.0002170594292833828,
+      "max_rel_d_dHdB": 0.0075284545110698145,
+      "slope_at_2p30_geode": 795774.7154594767,
+      "slope_at_2p30_pchip": 789828.5273200028,
+      "note": "GEODE joins the 1/mu0 tail C1; the reference has a 0.747% dH/dB jump at 2.30 T."
+    },
+    "tail_2p30_to_3p0_T": {
+      "max_rel_dH": 2.4304842891179617e-16,
+      "max_rel_dnu": 3.1960868401901194e-16,
+      "note": "Both H_end + (B - B_end)/mu0 with mu0 = 4 pi 1e-7."
+    },
+    "effect_on_solutions": "Not yet quantified in a motor solve; the differences are confined to B < 0.05 T and 2.25..2.30 T."
   }
 }

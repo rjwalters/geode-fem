@@ -150,6 +150,7 @@ jobs:
               --test london_surface_impedance \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
+              --test m27_law \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
@@ -236,6 +237,7 @@ jobs:
               --test london_surface_impedance \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
+              --test m27_law \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
