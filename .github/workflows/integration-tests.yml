@@ -280,6 +280,7 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
@@ -362,6 +363,7 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \

@@ -27,6 +27,7 @@ pub mod periodic;
 pub mod red_refine;
 pub mod sphere;
 pub mod spiral;
+pub mod tagged_tri;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
@@ -37,6 +38,7 @@ pub use sphere::{
     PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
     read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
+pub use tagged_tri::{TaggedTriMesh, read_tagged_tri_mesh};
 // The spiral fixture's PHYS_* tag constants stay namespaced under
 // `mesh::spiral` — several names (e.g. `PHYS_OUTER_BOUNDARY`) would
 // collide with the sphere fixture's crate-root re-exports above.
