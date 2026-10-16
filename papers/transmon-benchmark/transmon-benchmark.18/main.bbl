@@ -15,13 +15,8 @@ Volkan Akçelik, George Biros, Omar Ghattas, David Keyes, Kwok Ko, Lie-Quan
   2005.
 \newblock \doi{10.1088/1742-6596/16/1/059}.
 
-\bibitem[Anderson et~al.(2021)Anderson, Andrej, Barker, Bramwell, Camier,
-  Cerveny, Dobrev, Dudouit, Fisher, Kolev, Pazner, Stowell, Tomov, Akkerman,
-  Dahm, Medina, and Zampini]{mfem}
-Robert Anderson, Julian Andrej, Andrew Barker, Jamie Bramwell, Jean-Sylvain
-  Camier, Jakub Cerveny, Veselin Dobrev, Yohann Dudouit, Aaron Fisher, Tzanio
-  Kolev, Will Pazner, Mark Stowell, Vladimir Tomov, Ido Akkerman, Johann Dahm,
-  David Medina, and Stefano Zampini.
+\bibitem[Anderson et~al.(2021)]{mfem}
+Robert Anderson et~al.
 \newblock {MFEM}: a modular finite element methods library.
 \newblock \emph{Computers \& Mathematics with Applications}, 81:\penalty0
   42--74, 2021.
@@ -76,11 +71,8 @@ Crutcher Dunnavant.
 \newblock \url{https://github.com/crutcher/palace_whiteroom}, 2026.
 \newblock Software repository. Accessed 2026-10-13.
 
-\bibitem[Eriksson et~al.(2025)Eriksson, Splitthoff, Upadhyay, Campana,
-  Narendiran, Helambe, Andersson, and Gasparinetti]{eriksson2025automated}
-Axel~M. Eriksson, Lukas~J. Splitthoff, Harsh~Vardhan Upadhyay, Pietro Campana,
-  Niranjan~Pittan Narendiran, Kunal Helambe, Linus Andersson, and Simone
-  Gasparinetti.
+\bibitem[Eriksson et~al.(2025)]{eriksson2025automated}
+Axel~M. Eriksson et~al.
 \newblock Automated, physics-guided, multi-parameter design optimization for
   superconducting quantum devices, 2025.
 \newblock URL \url{https://arxiv.org/abs/2508.18027}.
@@ -115,10 +107,8 @@ Sarah Qui{\~n}ones~El Kazdadi.
   6099, 2026.
 \newblock \doi{10.21105/joss.06099}.
 
-\bibitem[Koch et~al.(2007)Koch, Yu, Gambetta, Houck, Schuster, Majer, Blais,
-  Devoret, Girvin, and Schoelkopf]{koch2007charge}
-Jens Koch, Terri~M. Yu, Jay Gambetta, A.~A. Houck, D.~I. Schuster, J.~Majer,
-  Alexandre Blais, M.~H. Devoret, S.~M. Girvin, and R.~J. Schoelkopf.
+\bibitem[Koch et~al.(2007)]{koch2007charge}
+Jens Koch et~al.
 \newblock Charge-insensitive qubit design derived from the {Cooper} pair box.
 \newblock \emph{Physical Review A}, 76\penalty0 (4):\penalty0 042319, 2007.
 \newblock \doi{10.1103/PhysRevA.76.042319}.
@@ -250,19 +240,15 @@ Patrick~J. Roache.
   405--413, 1994.
 \newblock \doi{10.1115/1.2910291}.
 
-\bibitem[Shanto et~al.(2024)Shanto, Kuo, Miyamoto, Zhang, Maurya, Vlachos,
-  Hecht, Shum, and Levenson-Falk]{shanto2024squadds}
-Sadman Shanto, Andre Kuo, Clark Miyamoto, Haimeng Zhang, Vivek Maurya,
-  Evangelos Vlachos, Malida Hecht, Chung~Wa Shum, and Eli Levenson-Falk.
+\bibitem[Shanto et~al.(2024)]{shanto2024squadds}
+Sadman Shanto et~al.
 \newblock {SQuADDS}: A validated design database and simulation workflow for
   superconducting qubit design.
 \newblock \emph{Quantum}, 8:\penalty0 1465, 2024.
 \newblock \doi{10.22331/q-2024-09-09-1465}.
 
-\bibitem[Sommers et~al.(2025)Sommers, Degnan, Gautam, Chen, Chiu, Fedorov, and
-  Pakkiam]{sommers2025open}
-David Sommers, Zach Degnan, Divita Gautam, Yi-Hsun Chen, Chun-Ching Chiu,
-  Arkady Fedorov, and Prasanna Pakkiam.
+\bibitem[Sommers et~al.(2025)]{sommers2025open}
+David Sommers et~al.
 \newblock Open-source highly parallel electromagnetic simulations for
   superconducting circuits, 2025.
 \newblock URL \url{https://arxiv.org/abs/2511.01220}.

@@ -33,3 +33,14 @@ Skipped: KQCircuits/Elmer (not verified); §11 as a table and the commit list (F
 ## Length
 
 19 pages (v17: 19), references from page 18. The v18 additions (circuit sentence, film scope, artifact path) are paid for by the cuts above; 18 pages would need cutting a table (for example Table 4, whose values Figure 5(c, d) shows only graphically) or §11's settings, which no review asked to remove.
+
+## Judge round (Doctor)
+
+| Source | Resolution |
+|---|---|
+| Judge M1 (adaptive film estimate) | The 0.75 µm figure used the median outline edge. `sheet_edge_lengths.py` on both DeviceLayout $h$ meshes gives a shortest edge of 1.000 µm (the junction leads) and 1.833/1.877 µm next; four halvings take them to 0.06–0.11 µm. §9 now says the uniform meshes' edges are mostly ten or more times the film; near the junction leads the adaptive meshes are estimated to reach edges comparable to or below the film; there the zero-thickness model is an approximation whose effect is not quantified (listed under Threats and limitations). "still above the film" and its "therefore" are gone. `check_v18()` reads the minimum, the lead edges and p10 from the meshes. |
+| Judge S1 | 136.69 fF (ceiled) in both places. |
+| Judge S2 | "(h/2, h/4)" and "(h, h/2)" restored in the common-limit fit. |
+| Judge S3 | New `two_node_reading.py` writes `two_node_reading.toml` (both directions of §3.3's circuit); Table 6 cites it and says the `transmon_loop_inductance` anchor uses another topology. The verifier re-runs the script and fails on a stale TOML. |
+| Judge nits | "the −9.5 dB target"; the censored lower bound floored to 2.2 (minimum 2.29); "Of that excess, taken as a factor". |
+| Length | To stay at 19 pages: the practitioner paragraph and §11 are trimmed, and five bibliography entries with seven or more authors list the first author and "and others" (eriksson2025automated, mfem, shanto2024squadds, sommers2025open, koch2007charge); the verifier checks that only the author field changed and that the first author is kept. |

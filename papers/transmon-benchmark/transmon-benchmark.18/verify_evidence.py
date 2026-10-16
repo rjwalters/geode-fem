@@ -649,13 +649,13 @@ def check_static(cc):
     fam = read(CTL)["mesh_family"]["initial"]["estimate_range_f_q_ghz"]
     f_ratio = [(f / fix_q) ** 2 for f in fam]
     assert [f"{x:.2f}" for x in f_ratio] == ["1.66", "1.68"], f_ratio
-    assert f"{p1h:.2f}" == "136.68"
+    assert f"{ceil_to(p1h, 2):.2f}" == "136.69"   # v18 Judge S1: ceiled, as in "The unmodified device"
     contains("so the computed qubit should approach its limit from below")
     # Opus SF-4: the comparison is Nedelec/grad-P1, like for like.
     contains("the quasi-static part of a first-order N\\'ed\\'elec field is the gradient of a P1 potential, which "
              "can only overstate the capacitance")
     absent("which a conforming discretization can only overstate")
-    contains("on the fixture the P1 bound ($136.68$\\,fF, with $C_J$ added) overstates $C_\\Sigma$ by a factor of "
+    contains(f"on the fixture the P1 bound (${ceil_to(p1h, 2):.2f}$\\,fF, with $C_J$ added) overstates $C_\\Sigma$ by a factor of "
              "$1.67$, and the family estimates exceed the fixture's order-1 qubit by $1.66$--$1.68$ in $f^2$. This is a "
              "heuristic, not a proof")
     # SF-3: the L1 terms are bounded above, not integrated by quadrature of an absolute value.
@@ -1336,8 +1336,8 @@ def check_derivative_discussion():
                  "as a function of $C_\\Sigma$ and model-dependent as the transmon's charging energy (a single-island "
                  "lumped picture).",
                  "the published $4.14$\\,GHz implies a $C_\\Sigma$ $15.5$--$16.0\\%$ above the bound",
-                 "it puts the published value $16.6$--$17.0\\%$ above the bound (rounded outward).",
-                 "Of that factor, the measured adaptive level accounts for $1.145$, and the remaining $1.9$--$2.1\\%$ "
+                 "$16.6$--$17.0\\%$ above the bound for the published value (rounded outward).",
+                 "Of that excess, taken as a factor, the measured adaptive level accounts for $1.145$, and the remaining $1.9$--$2.1\\%$ "
                  "splits between the still-rising level and $L_s$ and $k$.",
                  "so it reads every frequency as a larger $C_\\Sigma$",   # Fable N1
                  "$L_J$ can retune the qubit frequency but not $E_C$."]:
@@ -1419,10 +1419,16 @@ def check_citations():
     assert set(refs) - set(v15) == new16, sorted(set(refs) - set(v15))
     assert set(refs) - set(v14) == set(V15_DOIS) | new16, sorted(set(refs) - set(v14))
     assert set(v14) <= set(refs) and set(v15) <= set(refs)
-    for key in v15:   # v15's entries unchanged, except the two v17 updates (checked in check_v17)
+    TRUNC = {"eriksson2025automated", "mfem", "shanto2024squadds", "sommers2025open", "koch2007charge"}
+    for key in v15:   # v15's entries unchanged, except the v17 updates and v18's "and others" author lists
         if key in ("burn", "walters2026conformal"):
             continue
-        assert bib_fields(refs[key]) == bib_fields(v15[key]), key
+        f, of = dict(bib_fields(refs[key])[1]), dict(bib_fields(v15[key])[1])
+        if key in TRUNC:   # v18: first author kept, the rest "and others" (page length); nothing else changed
+            first = of["author"].split(" and ")[0].strip()
+            assert f.pop("author") == f"{first} and others", key
+            of.pop("author")
+        assert f == of, key
     assert "Richardson, Lewis Fry" in refs["richardson1911approximate"] and "307--357" in refs["richardson1911approximate"]
     assert "Roache, Patrick J." in refs["roache1994perspective"] and "405--413" in refs["roache1994perspective"]
     assert "2103.10344" in refs["minev2021circuit"] and "quasi-lumped" in refs["minev2021circuit"]
@@ -1442,7 +1448,7 @@ def check_citations():
                "devicelayout-blog": {"note": "AWS Quantum Technologies Blog"},
                "palace": {"note": "Software, commit fba6a5b"},
                "devicelayout-example": {"title": "{DeviceLayout.jl}: {Single-Transmon Simulation}", "note": None}}
-    for key in set(v14) - {"walters2026conformal"}:   # v17: the companion entry is checked in check_v17
+    for key in set(v14) - {"walters2026conformal"} - TRUNC:   # v17: the companion entry is checked in check_v17
         f, of = bib_fields(refs[key])[1], bib_fields(v14[key])[1]
         for field, val in changed.get(key, {}).items():
             of.pop(field, None)
@@ -1702,8 +1708,11 @@ def check_v17():
     adj38 = sc[38]["adjoint_solves_to_level"][i95]
     early = [x["optimization_solves"] / adj38 for x in ts["run"] if x["n_dofs"] == 38 and x["kind"] == "gradient_free"
              and x["solves_to_level"][i95] < 0 and 0 < x["optimization_solves"] < 200]
-    assert early and (f"{min(early):.1f}", f"{max(early):.1f}") == ("2.3", "3.0"), early
-    contains("runs that exhausted their budget before reaching the target bound the ratio from below at $2.3$--$3$")
+    assert early and (f"{min(early):.2f}", f"{max(early):.1f}") == ("2.29", "3.0"), early
+    # v18 Judge nit: a lower bound is floored (min 2.29 -> 2.2).
+    assert (floor_to(min(early), 1), round(max(early))) == (2.2, 3), early
+    contains("runs that exhausted their budget before reaching the $-9.5$\\,dB target bound the ratio from below at "
+             "$2.2$--$3$")
     contains("(artifact: \\texttt{benchmarks/patch\\_antenna\\_conformal/tuned/tuned\\_summary.toml})")
     assert "2.400" in read_text("benchmarks/patch_antenna_conformal/tuned/README.md") and \
         "2.4835" in read_text("benchmarks/patch_antenna_conformal/tuned/README.md")
@@ -1720,10 +1729,40 @@ def check_v18():
     # Opus M2: the film comparison is scoped to the uniform meshes; the adaptive runs refined at most four times.
     for g in ["initial", "final"]:
         assert ctl["amr"][g]["iterations"] == 5   # five solves = the h mesh plus four refinements
-    assert f"{12 / 2 ** 4:.2f}" == "0.75" and 12 / 2 ** 4 > 0.2
-    contains("more than ten times a $0.2\\,\\mu$m film, on every uniform mesh. Palace's adaptive runs refine at most "
-             "four times, so their sheet edges can reach about $0.75\\,\\mu$m, still above the film (an estimate: no "
-             "committed record holds those meshes' minimum edge).")
+    # v18 Judge M1: from the mesh, not from the median: the shortest outline edges are the junction leads.
+    sys.path.insert(0, str(HERE))
+    from sheet_edge_lengths import outline_edge_lengths
+    for mesh in ["reference/fixtures/transmon_devicelayout/initial_o1.msh",
+                 "reference/fixtures/transmon_devicelayout/final_o1.msh"]:
+        L = outline_edge_lengths(REPO / mesh)
+        assert abs(L[0] - 1.0) < 1e-6, (mesh, L[0])
+        lead = [x for x in L if x < 1.9]                       # 1.000 (twice), 1.833, 1.877: the junction leads
+        assert len(lead) >= 3 and max(lead) < 1.9
+        assert f"{L[0] / 16:.2f}" == "0.06" and f"{lead[2] / 16:.2f}" == "0.11", (lead[:4])
+        assert L[0] / 16 < 0.2 and L[len(L) // 10] / 16 > 0.6   # leads below the film; a typical edge above 0.6 um
+    contains("Palace's adaptive runs refine at most four times: a typical outline edge stays above about "
+             "$0.6\\,\\mu$m, but the $1.0$--$1.8\\,\\mu$m edges of the junction leads, where the qubit's error "
+             "indicator is largest, could reach $0.06$--$0.11\\,\\mu$m, comparable to or below the film (an estimate: "
+             "no committed record holds the adaptive meshes' minimum edge). There the zero-thickness model, which every "
+             "mesh discretizes, is an approximation whose effect is not quantified")
+    absent("still above the film")
+    absent("therefore see the zero-thickness edge")
+    # v18 Judge S3: the two-node values come from the paper's own script, in Section 3.3's circuit.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("two_node_reading", HERE / "two_node_reading.py")
+    tnr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tnr)
+    fresh = tnr.render(tnr.compute())
+    assert (HERE / "two_node_reading.toml").read_text() == fresh, "two_node_reading.toml is stale"
+    t = tomllib.loads(fresh)
+    assert [f"{x:.2f}" for x in t["published_c_sigma_ff"]] == ["98.51", "98.64"]
+    assert [f"{x:.4f}" for x in t["static_route_grounded_ghz"]] == \
+        [f"{x:.4f}" for x in read(DIFFOPT + "c_sigma_bracket_grounded_box.toml")["static_route"]["grounded_dressed_f_q_band_ghz"]]
+    contains("\\texttt{two\\_node\\_reading.toml} in the paper's directory (the "
+             "\\texttt{transmon\\_loop\\_inductance} anchor uses another topology)")
+    # v18 Judge S2: the common-limit fit's levels are named, so "exactly determined" can be checked (4 levels, 4 unknowns).
+    contains("The last check fits the order-1 ($h/2$, $h/4$) and order-2 ($h$, $h/2$) series of each ladder with one "
+             "common limit and order, exactly determined")
     absent("every mesh used here sees the zero-thickness edge")
     # Opus M1 statement in Section 3.3.
     contains("The same circuit is used both ways: forward from a bound on $C_\\Sigma$ to a dressed qubit, and backward "
