@@ -24,7 +24,6 @@
     "pending_dependencies": [
       "Zenodo DOI at deposit (TODO(operator) in source)",
       "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
-      "PR #1150 (antenna tuned baselines) merge: the companion ratios are read from its branch",
       "independent v17 paper reviews (release gate: both >= 40/44), audit and numeric critic (Anvil)"
     ],
     "evidence_snapshot": {

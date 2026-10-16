@@ -1010,11 +1010,12 @@ solve, where finite differences need $N$ more; coupled targets with no
 per-parameter scaling law need a computed Jacobian; and freeform shapes
 have many parameters by construction. A companion paper on adjoint shape
 optimization of a conformal patch antenna \citep{walters2026conformal}
-measures this: at 38 shape parameters the adjoint needs at least $11$
-times fewer solves than the best gradient-free run, tuned settings
-included, to reach its
-$-9.5$\,dB target, the ratio falls to $1.1$--$2.4$ at 4 parameters, and
-a tuned full-covariance CMA-ES comes within a factor of $7.7$ at $-9$\,dB.
+measures this. At 38 shape parameters the adjoint reaches the $-9.5$\,dB
+target with about $11$ times fewer solves than the fastest gradient-free
+run that reached it, tuned settings included (runs that stopped early
+bound the ratio only at $2.3$--$3$ or more), and a tuned full-covariance
+CMA-ES comes within a factor of $7.7$ at $-9$\,dB. At 4 parameters the
+ratio is $1.1$ at $-9$\,dB and $2.4$ at $-9.5$\,dB.
 
 \paragraph{Threats and limitations.}
 Agreement between two codes is evidence against implementation error, not
@@ -1043,9 +1044,10 @@ bound, so $E_C$ and the anharmonicity, close to $-E_C$
 \citep{koch2007charge}, are larger than the published discretization
 implies by as much. In the bare LC reading at fixed $L_J$ ($L_s = k = 0$),
 which gives a larger $C_\Sigma$ than the two-node one for every frequency,
-the published $99.45$\,fF exceeds the bound by $16.6$--$17.0\%$, the
+the published $99.45$\,fF exceeds the bound by $16.6$--$17.0\%$ (rounded outward, like the
+factor below), the
 static-route reading by $15.5$--$15.9\%$ and the adaptive-level reading by
-$14.5\%$. Of that factor of $1.166$--$1.169$, the measured adaptive level
+$14.5\%$. Of that factor of $1.166$--$1.170$, the measured adaptive level
 accounts for $1.145$, the gap between that still-rising level and the
 static route for $0.9$--$1.3\%$ more, and $L_s$ and $k$, which the bare
 reading omits, for the remaining $0.6$--$1.2\%$. The transition $f_{01}$

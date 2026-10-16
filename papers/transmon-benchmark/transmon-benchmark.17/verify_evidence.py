@@ -1223,13 +1223,13 @@ def check_derivative_discussion():
                  "(Section~\\ref{sec:reopt})",
                  "a discrete adjoint gives all $N$ derivatives of one objective for about one extra solve",
                  "coupled targets with no per-parameter scaling law", "freeform shapes",
-                 "\\citep{walters2026conformal}", "at 38 shape parameters",
+                 "\\citep{walters2026conformal}", "At 38 shape parameters",
                  # v17: the companion's comparison is finished; scoped to its measured ratios.
                  "A companion paper on adjoint shape optimization of a conformal patch antenna",
-                 "the adjoint needs at least $11$ times fewer solves than the best gradient-free run, tuned settings "
-                 "included, to reach its $-9.5$\\,dB target",
-                 "the ratio falls to $1.1$--$2.4$ at 4 parameters",
-                 "a tuned full-covariance CMA-ES comes within a factor of $7.7$ at $-9$\\,dB"]:
+                 "At 38 shape parameters the adjoint reaches the $-9.5$\\,dB target with about $11$ times fewer solves "
+                 "than the fastest gradient-free run that reached it, tuned settings included",
+                 "a tuned full-covariance CMA-ES comes within a factor of $7.7$ at $-9$\\,dB",
+                 "At 4 parameters the ratio is $1.1$ at $-9$\\,dB and $2.4$ at $-9.5$\\,dB."]:
         assert text in d, text
     for claim in ["demonstrates an advantage", "shows the advantage", "outperforms"]:
         assert claim not in d, claim
@@ -1278,7 +1278,7 @@ def check_derivative_discussion():
     bare = [pct(c_pub / g_hi - 1), pct(c_pub / g_lo - 1)]
     assert (floor_to(bare[0], 1), ceil_to(bare[1], 1)) == (16.6, 17.0), bare
     fac = [c_pub / g_hi, c_pub / g_lo]
-    assert (f"{fac[0]:.3f}", f"{fac[1]:.3f}", f"{c_pub / c_ad:.3f}") == ("1.166", "1.169", "1.145"), fac
+    assert (floor_to(fac[0], 3), ceil_to(fac[1], 3), f"{c_pub / c_ad:.3f}") == (1.166, 1.170, "1.145"), fac   # outward
     gst = read(DIFFOPT + "c_sigma_bracket_grounded_box.toml")["static_route"]["grounded_dressed_f_q_band_ghz"]
     cg = sorted(c_of(f) for f in gst)
     ad_st = sorted(pct(c_ad / c - 1) for c in cg)
@@ -1290,9 +1290,9 @@ def check_derivative_discussion():
                  "lumped picture).",
                  "the published $4.14$\\,GHz implies $C_\\Sigma$ in $[98.59, 98.72]$\\,fF, $15.6$--$16.1\\%$ above the "
                  "bound",
-                 "the published $99.45$\\,fF exceeds the bound by $16.6$--$17.0\\%$, the static-route reading by "
+                 "the published $99.45$\\,fF exceeds the bound by $16.6$--$17.0\\%$ (rounded outward, like the factor below), the static-route reading by "
                  "$15.5$--$15.9\\%$ and the adaptive-level reading by $14.5\\%$.",
-                 "Of that factor of $1.166$--$1.169$, the measured adaptive level accounts for $1.145$, the gap between "
+                 "Of that factor of $1.166$--$1.170$, the measured adaptive level accounts for $1.145$, the gap between "
                  "that still-rising level and the static route for $0.9$--$1.3\\%$ more, and $L_s$ and $k$, which the "
                  "bare reading omits, for the remaining $0.6$--$1.2\\%$.",
                  "which gives a larger $C_\\Sigma$ than the two-node one for every frequency",   # Fable N1
@@ -1629,6 +1629,26 @@ def check_v17():
     assert "vacuum             68903" in rep and "substrate          64452" in rep    # 133,355 tets: the ladder's h
     contains("The element edges along the sheet outlines are mostly $10$--$12\\,\\mu$m long on $h$ and so "
              "$2.5$--$3\\,\\mu$m on $h/4$, more than ten times a $0.2\\,\\mu$m film")
+    # The companion's ratios, from the committed tuned-baseline summary (#1150): the fastest gradient-free run that
+    # reached each level against the adjoint at the same n; runs censored before -9.5 dB bound it only from below.
+    ts = read("benchmarks/patch_antenna_conformal/tuned/tuned_summary.toml")
+    lv = ts["meta"]["levels_db"]
+    i9, i95 = lv.index(-9), lv.index(-9.5)
+    sc = {r["n_dofs"]: r for r in ts["scaling"]}
+    for n, r in sc.items():   # best_ratio recomputed from the runs themselves
+        runs = [x for x in ts["run"] if x["n_dofs"] == n and x["kind"] == "gradient_free"]
+        adj = [x for x in ts["run"] if x["n_dofs"] == n and x["kind"] == "adjoint"][0]["solves_to_level"]
+        for i in (i9, i95):
+            best = min(x["solves_to_level"][i] for x in runs if x["solves_to_level"][i] > 0)
+            assert best == r["best_gradient_free_solves_to_level"][i] and abs(best / adj[i] - r["best_ratio"][i]) < 1e-4
+    assert f"{sc[38]['best_ratio'][i95]:.0f}" == "11" and f"{sc[38]['best_ratio'][i9]:.1f}" == "7.7"
+    assert "fcma" in sc[38]["best_gradient_free_run"][i9]
+    assert (f"{sc[4]['best_ratio'][i9]:.1f}", f"{sc[4]['best_ratio'][i95]:.1f}") == ("1.1", "2.4")
+    adj38 = sc[38]["adjoint_solves_to_level"][i95]
+    early = [x["optimization_solves"] / adj38 for x in ts["run"] if x["n_dofs"] == 38 and x["kind"] == "gradient_free"
+             and x["solves_to_level"][i95] < 0 and 0 < x["optimization_solves"] < 200]
+    assert early and (f"{min(early):.1f}", f"{max(early):.1f}") == ("2.3", "3.0"), early
+    contains("runs that stopped early bound the ratio only at $2.3$--$3$ or more")
     # Voice: no version history, and the companion is not called unfinished.
     absent("still being run")
     absent("does not yet show")

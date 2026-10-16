@@ -4,7 +4,7 @@ These are author-side checks of transcription, figures and packaging, not an
 independent review, audit or numeric critic, and no score is claimed. No solver
 and no `cargo` was run for v17. The inputs are `main` at `f0373dd2`.
 
-Environment: Python 3.14 (verifiers), pdfTeX / TeX Live, Poppler.
+Environment: Python 3.14, run as `python3.14 -I` (verifiers), pdfTeX / TeX Live, Poppler.
 
 - `papers/build.sh papers/transmon-benchmark/transmon-benchmark.17`: PASS,
   **19 pages** (v16: 19), body to page 18, references from page 18.
@@ -25,9 +25,10 @@ Environment: Python 3.14 (verifiers), pdfTeX / TeX Live, Poppler.
 - Mesh statistic for the film comparison: `python3.14 -I sheet_edge_lengths.py
   reference/fixtures/transmon_devicelayout/initial_o1.msh` → 3,186 outline edges,
   p10 9.975, median 11.900, p90 12.000 µm.
-- The companion's solve ratios are read from PR #1150's
-  `benchmarks/patch_antenna_conformal/tuned/README.md` (not on `main` at drafting)
-  and are not pinned by the verifier.
+- The companion's solve ratios are recomputed by `check_v17()` from
+  `benchmarks/patch_antenna_conformal/tuned/tuned_summary.toml` (on `main` since
+  #1150). Judge-round mutations, each killed: 11 → 12, 1.1 → 1.2, 2.3–3 → 2–3,
+  the factor 1.170 → 1.169.
 - v1–v16 and every critic sibling are unchanged (`git diff --stat main --
   papers/transmon-benchmark/` touches only `transmon-benchmark.17/`; the verifier
   pins v10–v16 `main.tex` by SHA-256).
