@@ -257,6 +257,10 @@ are whole numbers of cells: R2.5 or R5 make the 1.6 mm gap exactly 4 or 8 cells,
 R2.5 face-shell dump gives a 1.6 × 1.6 mm, 50.0 Ω discrete port. With those changes it
 needs its own convergence ladder. Those are operator decisions; nothing here launches R8.
 
+**Follow-up (#1146).** [HARNESS_V2.md](HARNESS_V2.md) implements these changes as a new
+harness version (`matched_antenna_v2.py`; v1 is unchanged) and runs the corrected
+flat R2.5 and bent R2.5/R5 ladder.
+
 ## Spend and teardown
 
 One r8g.8xlarge in us-east-2c (`geode-worker-meep-1088-diag`). It launched at 15:08:17Z
