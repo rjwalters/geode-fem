@@ -393,8 +393,7 @@ fn summary_is_fresh() {
             })
             .collect();
         assert_eq!(f(row, "n_gradient_free_runs") as usize, gf.len(), "n = {n}");
-        let a = adjoint[&n];
-        for i in 0..5 {
+        for (i, adj_i) in adjoint[&n].iter().enumerate() {
             let best = gf.iter().filter_map(|rel| solves_to_levels(rel)[i]).min();
             close(
                 opts(row, "best_gradient_free_solves_to_level")[i],
@@ -403,7 +402,7 @@ fn summary_is_fresh() {
             );
             close(
                 opts(row, "adjoint_solves_to_level")[i],
-                a[i].map(|x| x as f64),
+                adj_i.map(|x| x as f64),
                 &format!("n = {n} adjoint {i}"),
             );
         }
