@@ -1,0 +1,40 @@
+  WARNING: --feed-support-legacy: the feed support (6.40 mm) reaches the patch outline (5.12 mm from the feed): the feed DOFs also move the copper edge
+  WARNING: rebase-feed is NOT exact: a feed support reaches the +y edge (design fixture: true, this fixture: true), so the copper outline differs from the design's; compare the [copper] sections
+  rebase-feed: design fixture inset 5.123104893 / width 1.6 mm -> this fixture 5.123104893 / 1.6 mm; feed coefficients [-0.057365, 0.000000]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbGrim020_L1 (431528 edges, 62158 nodes, 366408 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.8 s
+  verify-only: design L1_copper_38_sm57_w16 on L1 at p1
+    worst tet: tet 222003 ratio 0.262 in air at (s, y) = (+24.84, -0.90) mm, dr -2.60 mm from the substrate top, 26.88 mm from the feed, 14.80 mm from a corner, 5.84 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.27 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 13.46 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.434) mm, width 1.600 mm, inset 5.137 mm; patch 28.996 x 49.731 mm (L x W), area 1317.6 mm^2 (base 1110.8)
+  in-band verification sweep:
+  radiation (P1) at [2.4, 2.42, 2.44, 2.46, 2.4835] GHz:
+    radiation 2.4000 GHz: |S11| -13.01 dB, P_rad/P_in 0.6125, P_diel/P_in 0.3721, balance +1.53e-2, D_broadside 6.67 dBi, realized gain 4.32 dBi
+    radiation 2.4200 GHz: |S11| -19.39 dB, P_rad/P_in 0.6131, P_diel/P_in 0.3714, balance +1.55e-2, D_broadside 6.70 dBi, realized gain 4.53 dBi
+    radiation 2.4400 GHz: |S11| -19.85 dB, P_rad/P_in 0.6133, P_diel/P_in 0.3710, balance +1.57e-2, D_broadside 6.73 dBi, realized gain 4.56 dBi
+    radiation 2.4600 GHz: |S11| -13.47 dB, P_rad/P_in 0.6131, P_diel/P_in 0.3710, balance +1.59e-2, D_broadside 6.76 dBi, realized gain 4.43 dBi
+    radiation 2.4835 GHz: |S11|  -9.23 dB, P_rad/P_in 0.6122, P_diel/P_in 0.3715, balance +1.63e-2, D_broadside 6.79 dBi, realized gain 4.11 dBi
+  verify L1_copper_38_sm57_w16 on L1 (p1): no in-band points; 0 dense points; min vol ratio 0.262; no wide sweep; 0 s, peak RSS 0.0 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm57_w16 on L1 p1]: <dir>/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_radiation.toml
+	Command being timed: "<dir>/release/examples/patch_conformal_nested_dof --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --air-on-cylinder --verify-only --verify-n 0 --wide-step 0 --radiation 2.4,2.42,2.44,2.46,2.4835 --design rbG_L1_copper_38_sm57_w16.design.toml --out <dir>/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_radiation.toml"
+	User time (seconds): 4193.07
+	System time (seconds): 107.07
+	Percent of CPU this job got: 1051%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 6:49.02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 33379804
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 33570981
+	Voluntary context switches: 4890843
+	Involuntary context switches: 827879
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 72
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
