@@ -77,8 +77,9 @@ Other checks on the laws:
 ## 3. Newton convergence against the frozen-ν fixed point
 
 The case is the coax of section 5 at n_ang = 64 (3329 nodes), in deep
-saturation, solved from zero with the default configuration (energy line
-search, rel_tol 1e-8).
+saturation, solved from zero with the energy line search. rel_tol is set to
+1e-14, so each run continues to the round-off floor (`RoundoffFloor`) and
+the history shows the whole terminal phase.
 
 | k | Newton, table: ‖R_k‖/‖R₀‖ | α_k | Newton, Brauer: ‖R_k‖/‖R₀‖ | α_k |
 |---|---|---|---|---|
@@ -107,16 +108,17 @@ search, rel_tol 1e-8).
   still rising when the residual reaches the round-off floor. The test
   asserts more than three decades of drop, C_k bounded within a factor of
   10, and a fitted order above 1.7.
-- **Frozen ν (Picard) on the table case** needs 138 iterations, with a
-  steady ratio of about 0.86 (0.8663 geometric mean over the last 40) and a
-  fitted order of 1.000. That is linear convergence.
+- **Frozen ν (Picard) on the table case** needs 158 iterations to reach
+  the floor, with a steady ratio of about 0.866 (0.8658 geometric mean over
+  the last 40) and a fitted order of 1.001. That is linear convergence.
 
 The round-off floor comes from cancellation in ∇A over small elements when
-A has a large offset, and it grows with refinement: 6.3e-11 relative at
-n_ang = 64 and 1.8e-9 at 256 (section 7). The relative tolerance (default
-1e-8) is measured against the guess-independent `reference_residual()`.
-An iterate at the estimated floor is accepted as `RoundoffFloor`, with the
-achieved residual reported.
+A has a large offset, and it grows with refinement: 3.9e-9 A at n_ang = 64
+and 2.9e-8 A at 256 (section 7). The relative tolerance (default 1e-8) is
+measured against `reference_residual()`, a flux scale that does not depend
+on the guess or on a constant offset (sections 7 and 8). An iterate at the
+estimated floor is accepted as `RoundoffFloor`, with the achieved residual
+reported.
 
 The converged tangent drives the solution sensitivity:
 `dA/dI = K⁻¹F/I`, computed with `solve_tangent_transpose`, matches a
@@ -157,7 +159,7 @@ r ≈ 35 mm with |B| ≈ 1.63 T.
 | 32 | 897 | 11 / 16 | 3.19e-3 | 2.57e-3 | 2.38e-3 | 1.428–1.922 |
 | 64 | 3329 | 11 / 16 | 1.58e-3 | 1.29e-3 | 1.21e-3 | 1.424–1.928 |
 | 128 | 13441 | 11 / 17 | 7.86e-4 | 6.45e-4 | 6.03e-4 | 1.422–1.930 |
-| 256 | 52993 | 12 / 19 | 3.95e-4 | 3.24e-4 | **3.03e-4** | 1.421–1.931 |
+| 256 | 52993 | 11 / 19 | 3.95e-4 | 3.24e-4 | **3.03e-4** | 1.421–1.931 |
 
 The error converges at O(h): it halves with each doubling of n_ang. The
 inner iron sits at 1.92–1.93 T (deep saturation) and the outer at 1.42 T
@@ -185,22 +187,54 @@ is returned.
 
 ## 7. Warm starts and the round-off floor (Judge finding B1 on PR #1159)
 
-The stopping test is `‖R‖ ≤ max(abs_tol, rel_tol · reference)`. Here
-`reference = ‖F_free − K_ν(0)[free, pinned] · a_D‖`, the linear-start
-drive, which does not depend on the guess. A second test,
-`‖R‖ ≤ floor_factor · roundoff_floor(A)` (floor_factor 1 by default),
-gives `ConvergenceStatus::RoundoffFloor`. The floor estimate is
-`ε‖S‖` with `S_i = |F_i| + Σ_T |T| ν |∇λ_i| Σ_p |a_p||∇λ_p|`, which bounds
-the rounding of ∇A from the stored nodal values.
+The stopping test is `‖R‖ ≤ max(abs_tol, rel_tol · reference)`, where
+
+```text
+reference = ‖F_free‖ + ‖s‖,   s_i = Σ_T |T| ν(0) |∇λ_i| |∇A_lin|_T .
+```
+
+`reference` is a flux scale of the linear-start solution `A_lin`. It does
+not depend on the guess, and it does not depend on a constant offset of A
+(section 8). A second test, `‖R‖ ≤ floor_factor · roundoff_floor(A)`
+(floor_factor 1 by default), gives `ConvergenceStatus::RoundoffFloor`. The
+floor estimate is `ε‖S‖` with `S_i = |F_i| + Σ_T |T| ν |∇λ_i| Σ_p |a_p||∇λ_p|`,
+which bounds the rounding of ∇A from the stored nodal values. It grows with
+|A| on purpose.
 
 The case is the coax, synthetic table, default config. Residuals are
-relative to the reference.
+relative to the reference (3.71e3 at n_ang = 64, 3.68e3 at 256).
 
 | n_ang | cold iterations | cold final | (a) restart from converged: iterations | (b) I×1.001 from previous: iterations, final | (c) stagnation min, all stops off | floor estimate | estimate/observed | (d) rel_tol 1e-14 |
 |---|---|---|---|---|---|---|---|---|
-| 64 | 11 | 8.45e-11 | 0 | 2, 7.24e-11 | 6.34e-11 | 5.50e-10 | 8.7 | RoundoffFloor, 11 iterations |
-| 256 | 12 | 2.18e-9 | 0 | 2, 2.31e-9 | 1.80e-9 | 1.51e-8 | 8.4 | RoundoffFloor, 12 iterations |
+| 64 | 11 | 1.40e-12 | 0 | 2, 1.20e-12 | 1.05e-12 | 9.10e-12 | 8.7 | RoundoffFloor, 11 iterations |
+| 256 | 11 | 8.39e-11 | 0 | 2, 9.33e-12 | 7.76e-12 | 6.52e-11 | 8.4 | RoundoffFloor, 12 iterations |
 
 The warm-started (b) solution matches a cold solve at I×1.001 to <1e-8
-relative. Before this fix, (a) and (b) returned `LineSearchFailed` at both
-resolutions (Judge's probe).
+relative. Before the B1 fix, (a) and (b) returned `LineSearchFailed` at both
+resolutions.
+
+## 8. Constant Dirichlet offset (Judge finding B2 on PR #1159)
+
+Here the outer ring is pinned to A = C and the guess is C. The physics is
+unchanged, so `A − C` must reproduce the C = 0 solution. The reference is
+taken from the linear start solved with Dirichlet data centred on their
+mean, so a uniform offset cancels before any arithmetic, and the reference
+is exactly invariant. In the B2 defect, the previous reference
+`‖F − K[free,pinned]a_D‖` grew like ν·C, and the solve stopped early with
+status `Tolerance` (34% error at C = 1e6).
+
+| n_ang | C (Wb/m) | ref change | status | iterations | ‖(A−C)−A₀‖/‖A₀‖ | oracle max / mid rel | floor estimate/ref |
+|---|---|---|---|---|---|---|---|
+| 64 | 0 | 0 | Tolerance | 11 | 0 | 1.5766e-3 / 1.2058e-3 | 9.1e-12 |
+| 64 | 0.4 | 1.2e-16 | Tolerance | 11 | 2.6e-16 | 1.5766e-3 / 1.2058e-3 | 1.9e-11 |
+| 64 | 1e2 | 0 | Tolerance | 11 | 3.1e-14 | 1.5766e-3 / 1.2058e-3 | 2.5e-9 |
+| 64 | 1e4 | 0 | RoundoffFloor | 11 | 3.8e-12 | 1.5766e-3 / 1.2058e-3 | 2.5e-7 |
+| 256 | 0 | 0 | Tolerance | 11 | 0 | 3.9480e-4 / 3.0320e-4 | 6.5e-11 |
+| 256 | 0.4 | 2.5e-13 | Tolerance | 11 | 2.8e-16 | 3.9480e-4 / 3.0320e-4 | 1.3e-10 |
+| 256 | 1e2 | 0 | Tolerance | 11 | 3.6e-14 | 3.9480e-4 / 3.0320e-4 | 1.8e-8 |
+| 256 | 1e4 | 0 | RoundoffFloor | 11 | 4.2e-12 | 3.9480e-4 / 3.0320e-4 | 1.8e-6 |
+
+At C = 1e4 the f64 rounding of nodal values of size C raises the
+round-off floor above `rel_tol · reference`. The solve is then correctly
+flagged `RoundoffFloor` rather than `Tolerance`, and the answer is still
+accurate to 4e-12.

@@ -1,7 +1,19 @@
 # cargo test -p geode-core --release --test magnetostatic_nonlinear -- --nocapture --test-threads=1
-# base commit 1d082df1 + issue-1157 working tree, 2026-10-16T20:52Z, Darwin arm64
+# base commit b0b08b9c + issue-1157 working tree, 2026-10-16T21:39Z, Darwin arm64
 
-running 12 tests
+running 13 tests
+test constant_dirichlet_offset_is_invariant ... 
+[8] constant Dirichlet offset C (outer ring A = C, guess = C): invariance (coax)
+    n_ang | C (Wb/m) | reference | ref rel change | status | its | ||(A-C) - A0||/||A0|| | oracle max rel | oracle mid rel | floor est/ref
+       64 |    0.0e0 |  3.7103e3 |         0.00e0 | Tolerance     |  11 |               0.000e0 |      1.5766e-3 |      1.2058e-3 | 9.101e-12
+       64 |   4.0e-1 |  3.7103e3 |       1.23e-16 | Tolerance     |  11 |             2.600e-16 |      1.5766e-3 |      1.2058e-3 | 1.891e-11
+       64 |    1.0e2 |  3.7103e3 |         0.00e0 | Tolerance     |  11 |             3.084e-14 |      1.5766e-3 |      1.2058e-3 | 2.485e-9
+       64 |    1.0e4 |  3.7103e3 |         0.00e0 | RoundoffFloor |  11 |             3.757e-12 |      1.5766e-3 |      1.2058e-3 | 2.476e-7
+      256 |    0.0e0 |  3.6800e3 |         0.00e0 | Tolerance     |  11 |               0.000e0 |      3.9480e-4 |      3.0320e-4 | 6.522e-11
+      256 |   4.0e-1 |  3.6800e3 |       2.51e-13 | Tolerance     |  11 |             2.774e-16 |      3.9480e-4 |      3.0320e-4 | 1.349e-10
+      256 |    1.0e2 |  3.6800e3 |         0.00e0 | Tolerance     |  11 |             3.550e-14 |      3.9480e-4 |      3.0320e-4 | 1.756e-8
+      256 |    1.0e4 |  3.6800e3 |         0.00e0 | RoundoffFloor |  11 |             4.182e-12 |      3.9480e-4 |      3.0320e-4 | 1.750e-6
+ok
 test converged_tangent_gives_solution_sensitivity ... 
 [3b] converged tangent: dA/dI vs FD of converged solves (coax, n_ang=32)
     ||FD dA/dI - K^-T F/I|| / ||K^-T F/I|| = 8.033e-7 (dI/I = 1e-3)
@@ -48,7 +60,7 @@ test missing_material_and_non_convergence_are_errors ...
 ok
 test newton_converges_quadratically_frozen_nu_linearly ... 
 [3] convergence: consistent Newton vs frozen-nu fixed point (coax, deep saturation)
-    mesh: 3329 nodes, 6592 triangles; I = 1256.64 A (H(r_i) = 40000 A/m); default config (energy line search, rel_tol 1e-8)
+    mesh: 3329 nodes, 6592 triangles; I = 1256.64 A (H(r_i) = 40000 A/m); energy line search, rel_tol 1e-14 so every run ends at the round-off floor (RoundoffFloor)
     Newton, synthetic table: 11 iterations from zero
       k | ||R_k||/||R_0|| | alpha_k | r_k/r_(k-1) | C_k = r_k/r_(k-1)^2 (normalized)
        0 |        1.000e0 |         |             |
@@ -84,7 +96,7 @@ test newton_converges_quadratically_frozen_nu_linearly ...
       14 |       1.938e-8 |  1.0000 |    8.012e-5 | 3.312e-1
       15 |      7.153e-11 |  1.0000 |    3.691e-3 | 1.904e5
     Newton, Brauer: terminal full-step residuals ["2.940e-1", "2.698e-2", "2.419e-4", "1.938e-8"]; C_k in [3.122e-1, 3.322e-1]; 7.2 decades; fitted order 1.99; consecutive orders [1.97, 2.00]
-    frozen-nu fixed point (same case, same config): 138 iterations, converged
+    frozen-nu fixed point (same case, same config): 158 iterations, converged
       k | ||R_k||/||R_0|| | r_k/r_(k-1)
         0 |        1.000e0 | NaN
         1 |        8.773e1 | 87.7314
@@ -105,8 +117,10 @@ test newton_converges_quadratically_frozen_nu_linearly ...
       110 |       5.401e-7 | 0.8526
       120 |       1.398e-7 | 0.9695
       130 |       2.919e-8 | 0.8655
-      138 |       9.578e-9 | 0.8508
-    frozen-nu, last 40 iterations: geometric-mean ratio 0.8663, fitted order 1.000; Newton (table) 11 iterations, fitted terminal order 1.77; Newton (Brauer) 15 iterations, 1.99
+      140 |       7.007e-9 | 0.8567
+      150 |       1.776e-9 | 0.8435
+      158 |      5.198e-10 | 0.8698
+    frozen-nu, last 40 iterations: geometric-mean ratio 0.8658, fitted order 1.001; Newton (table) 11 iterations, fitted terminal order 1.77; Newton (Brauer) 15 iterations, 1.99
 ok
 test saturated_iron_ampere_oracle ... 
 [5] saturated-iron Ampere oracle: |B|(r) = B_of_H(I/(2 pi r)) in the iron annulus
@@ -115,7 +129,7 @@ test saturated_iron_ampere_oracle ...
        32 |    897 |                11 / 16                |   3.1887e-3 |   2.5702e-3 |                2.3802e-3 | 1.428 .. 1.922
        64 |   3329 |                11 / 16                |   1.5766e-3 |   1.2888e-3 |                1.2058e-3 | 1.424 .. 1.928
       128 |  13441 |                11 / 17                |   7.8554e-4 |   6.4458e-4 |                6.0256e-4 | 1.422 .. 1.930
-      256 |  52993 |                12 / 19                |   3.9480e-4 |   3.2438e-4 |                3.0320e-4 | 1.421 .. 1.931
+      256 |  52993 |                11 / 19                |   3.9480e-4 |   3.2438e-4 |                3.0320e-4 | 1.421 .. 1.931
     tripwire: linear iron at the initial mu_r (n_ang=32) misses the mid-annulus oracle by 1.951e1 (nonlinear: 2.380e-3)
 ok
 test tangent_is_spd_for_monotone_laws ... 
@@ -162,9 +176,9 @@ ok
 test warm_start_and_roundoff_floor ... 
 [7] warm starts and the round-off floor (coax, default config unless noted)
     n_ang | cold its | cold ||R||/ref | (a) restart its | (b) I*1.001 its, ||R||/ref | (c) stagnation min ||R||/ref | floor est/ref | est/observed | (d) rel_tol 1e-14: status, its
-       64 |       11 |      8.448e-11 |               0 |         2,      7.236e-11 |                    6.340e-11 |     5.499e-10 |          8.7 | RoundoffFloor, 11
-      256 |       12 |       2.177e-9 |               0 |         2,       2.309e-9 |                     1.803e-9 |      1.514e-8 |          8.4 | RoundoffFloor, 12
+       64 |       11 |      1.398e-12 |               0 |         2,      1.198e-12 |                    1.049e-12 |     9.101e-12 |          8.7 | RoundoffFloor, 11
+      256 |       11 |      8.394e-11 |               0 |         2,      9.326e-12 |                    7.764e-12 |     6.522e-11 |          8.4 | RoundoffFloor, 12
 ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.62s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 147.47s
 

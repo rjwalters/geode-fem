@@ -780,16 +780,20 @@ fn newton_converges_quadratically_frozen_nu_linearly() {
     );
     let (mesh, tags) = coax_mesh(64);
     let sys = coax_system(&mesh, &tags, coax_current());
+    // Run past the default tolerance to the round-off floor, so the history
+    // shows the whole terminal phase.
+    let to_floor = NewtonConfig {
+        rel_tol: 1e-14,
+        ..NewtonConfig::default()
+    };
     println!(
-        "    mesh: {} nodes, {} triangles; I = {:.2} A (H(r_i) = {H_INNER:.0} A/m); default config \
-         (energy line search, rel_tol 1e-8)",
+        "    mesh: {} nodes, {} triangles; I = {:.2} A (H(r_i) = {H_INNER:.0} A/m); energy line search, \
+         rel_tol 1e-14 so every run ends at the round-off floor (RoundoffFloor)",
         mesh.n_nodes(),
         mesh.n_tris(),
         coax_current()
     );
-    let sol = sys
-        .solve(&NewtonConfig::default(), None)
-        .expect("Newton converges");
+    let sol = sys.solve(&to_floor, None).expect("Newton converges");
     let terminal = newton_report("Newton, synthetic table", &sol);
     let p_table = assert_quadratic("Newton, synthetic table", &terminal);
 
@@ -826,7 +830,7 @@ fn newton_converges_quadratically_frozen_nu_linearly() {
     )
     .unwrap();
     let bsol = bsys
-        .solve(&NewtonConfig::default(), None)
+        .solve(&to_floor, None)
         .expect("Brauer Newton converges");
     let b = recover_b_field(&mesh, &bsol.a_z);
     let b_iron_max = b
@@ -843,7 +847,7 @@ fn newton_converges_quadratically_frozen_nu_linearly() {
     let fp_cfg = NewtonConfig {
         tangent: TangentKind::FrozenNu,
         max_iterations: 400,
-        ..NewtonConfig::default()
+        ..to_floor
     };
     let fp = sys.solve(&fp_cfg, None);
     let fp_hist = match &fp {
@@ -1437,7 +1441,7 @@ fn warm_start_and_roundoff_floor() {
         let (mesh, tags) = coax_mesh(n_ang);
         let i0 = coax_current();
         let sys = coax_system(&mesh, &tags, i0);
-        let reference = sys.reference_residual();
+        let reference = sys.reference_residual().unwrap();
         let cold = sys
             .solve(&NewtonConfig::default(), None)
             .expect("cold solve");
@@ -1515,12 +1519,106 @@ fn warm_start_and_roundoff_floor() {
             cold.residual_norms.last().unwrap() / reference,
             restart.iterations,
             warm.iterations,
-            warm.residual_norms.last().unwrap() / sys_b.reference_residual(),
+            warm.residual_norms.last().unwrap() / sys_b.reference_residual().unwrap(),
             observed / reference,
             est / reference,
             est / observed,
             strict.status,
             strict.iterations
         );
+    }
+}
+
+/// `(max, mid-annulus mean)` relative |B| error in the iron against the
+/// Ampère oracle, for a coax solution `a_z` at current `i`.
+fn coax_oracle_errors(mesh: &TriMesh, tags: &[i32], a_z: &[f64], i: f64) -> (f64, f64) {
+    let b = recover_b_field(mesh, a_z);
+    let law = synthetic_steel();
+    let r_mid = (R_IRON_IN * R_IRON_OUT).sqrt();
+    let (mut max_rel, mut mid_sum, mut mid_cnt) = (0.0_f64, 0.0, 0usize);
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        if tags[t] != TAG_IRON {
+            continue;
+        }
+        let c = centroid(mesh, tri);
+        let r = (c[0] * c[0] + c[1] * c[1]).sqrt();
+        let b_exact = law.b_of_h(i / (TAU * r)).unwrap();
+        let rel = ((b[t][0] * b[t][0] + b[t][1] * b[t][1]).sqrt() - b_exact).abs() / b_exact;
+        max_rel = max_rel.max(rel);
+        if (r / r_mid).ln().abs() < 0.1 {
+            mid_sum += rel;
+            mid_cnt += 1;
+        }
+    }
+    (max_rel, mid_sum / mid_cnt as f64)
+}
+
+/// A constant offset `C` of the Dirichlet data and of the guess leaves the
+/// physics unchanged, so the solve must not change either (Judge finding
+/// B2 on PR #1159). The reference residual is offset-invariant, so the
+/// tolerance does not loosen with `C`, and `A − C` reproduces the `C = 0`
+/// solution and its oracle error. Where `C` is large enough that f64
+/// round-off of the nodal values dominates, the solve must end as
+/// `RoundoffFloor`, not `Tolerance`.
+#[test]
+fn constant_dirichlet_offset_is_invariant() {
+    println!("\n[8] constant Dirichlet offset C (outer ring A = C, guess = C): invariance (coax)");
+    println!(
+        "    n_ang | C (Wb/m) | reference | ref rel change | status | its | ||(A-C) - A0||/||A0|| | \
+         oracle max rel | oracle mid rel | floor est/ref"
+    );
+    for n_ang in [64usize, 256] {
+        let (mesh, tags) = coax_mesh(n_ang);
+        let i0 = coax_current();
+        let n = mesh.n_nodes();
+        let mut base: Option<(f64, Vec<f64>, (f64, f64))> = None;
+        for c in [0.0, 0.4, 1e2, 1e4] {
+            let sys = coax_system(&mesh, &tags, i0)
+                .with_dirichlet_values(&vec![c; n])
+                .unwrap();
+            let reference = sys.reference_residual().unwrap();
+            let sol = sys
+                .solve(&NewtonConfig::default(), Some(&vec![c; n]))
+                .expect("offset solve");
+            let shifted: Vec<f64> = sol.a_z.iter().map(|a| a - c).collect();
+            let errs = coax_oracle_errors(&mesh, &tags, &sol.a_z, i0);
+            let (ref0, a0, errs0) = base.get_or_insert_with(|| (reference, shifted.clone(), errs));
+            let ref_change = (reference - *ref0).abs() / *ref0;
+            let dev = norm(
+                &shifted
+                    .iter()
+                    .zip(a0.iter())
+                    .map(|(x, y)| x - y)
+                    .collect::<Vec<f64>>(),
+            ) / norm(a0);
+            println!(
+                "    {n_ang:5} | {c:8.1e} | {reference:9.4e} | {ref_change:14.2e} | {:13} | {:3} | {dev:21.3e} | \
+                 {:14.4e} | {:14.4e} | {:.3e}",
+                format!("{:?}", sol.status),
+                sol.iterations,
+                errs.0,
+                errs.1,
+                sol.floor_estimate / reference
+            );
+            // The reference is computed from the linear start with
+            // mean-centred Dirichlet data, so a uniform offset cancels exactly.
+            assert!(
+                ref_change <= 1e-12,
+                "reference changed by {ref_change:e} at C = {c}"
+            );
+            match sol.status {
+                ConvergenceStatus::Tolerance => {
+                    assert!(dev <= 1e-8, "C = {c}: (A - C) differs from A0 by {dev:e}")
+                }
+                ConvergenceStatus::RoundoffFloor => assert!(
+                    dev <= 1e-6,
+                    "C = {c}: floor-limited solve differs from A0 by {dev:e}"
+                ),
+            }
+            assert!(
+                (errs.0 - errs0.0).abs() <= 1e-6 && (errs.1 - errs0.1).abs() <= 1e-6,
+                "C = {c}: oracle error changed: {errs:?} vs {errs0:?}"
+            );
+        }
     }
 }

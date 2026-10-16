@@ -76,14 +76,17 @@
 //! from the unknowns, so `R` and `K` are restricted to the free nodes.
 //! [`NonlinearMagnetostaticSystem::solve`] runs damped Newton with a
 //! backtracking line search ([`LineSearch`]). The relative tolerance is
-//! measured against the guess-independent
-//! [`NonlinearMagnetostaticSystem::reference_residual`], the linear-start
-//! drive. A warm start at or near the solution therefore succeeds at once.
+//! measured against [`NonlinearMagnetostaticSystem::reference_residual`], a
+//! flux scale of the linear-start solution. That scale depends neither on
+//! the initial guess nor on a constant offset of `A_z`, so a warm start at
+//! or near the solution succeeds at once, and an offset Dirichlet value
+//! does not loosen the target.
 //! An iterate whose residual is at the `f64` round-off floor
 //! ([`NonlinearMagnetostaticSystem::roundoff_floor`]) is also accepted, as
 //! [`ConvergenceStatus::RoundoffFloor`], with the achieved residual
-//! reported. That floor grows with refinement: it was 6e-11 relative at 64
-//! sectors and 1.8e-9 at 256 on the coax test. Genuine non-convergence
+//! reported. That floor grows with refinement. On the coax test the
+//! stagnation level was 3.9e-9 A at 64 sectors and 2.9e-8 A at 256, that is
+//! 1.0e-12 and 7.8e-12 of the reference. Genuine non-convergence
 //! stays loud. [`NonlinearMagnetostaticError::NotConverged`] and
 //! [`NonlinearMagnetostaticError::LineSearchFailed`] are returned, and the
 //! solver never hands back a silent last iterate. The
@@ -768,10 +771,12 @@ pub enum TangentKind {
 pub struct NewtonConfig {
     /// Absolute residual tolerance (A).
     pub abs_tol: f64,
-    /// Tolerance relative to the guess-independent reference residual
-    /// [`NonlinearMagnetostaticSystem::reference_residual`]. That reference
-    /// is the norm of the linear-start right-hand side (load plus Dirichlet
-    /// lifting at `ν(0)`), so a warm start does not tighten the target.
+    /// Tolerance relative to
+    /// [`NonlinearMagnetostaticSystem::reference_residual`]: the load norm
+    /// plus the flux-term magnitudes of the linear-start solution. It does
+    /// not depend on the initial guess, so a warm start does not tighten the
+    /// target. It does not depend on a constant offset of `A_z` either, so
+    /// an offset does not loosen it.
     pub rel_tol: f64,
     /// Round-off acceptance factor. An iterate with
     /// `‖R‖ ≤ floor_factor · roundoff_floor(A)` is accepted as
@@ -781,10 +786,12 @@ pub struct NewtonConfig {
     ///
     /// The floor comes from cancellation in `∇A_z = Σ a_p ∇λ_p` when `A_z`
     /// carries a large offset over small elements, and it grows with
-    /// refinement. On the zero-start coax test it measured 8e-11 relative to
-    /// the reference at 64 sectors and 1.8e-9 at 256. Fine motor meshes can
-    /// reach the default `rel_tol` this way, and are then reported as
-    /// converged at the floor rather than as a failed line search.
+    /// refinement. On the zero-start coax test the stagnation level was
+    /// 3.9e-9 A at 64 sectors and 2.9e-8 A at 256, that is 1.0e-12 and
+    /// 7.8e-12 of the reference. A large constant offset of `A_z` raises the
+    /// floor further; see [`NonlinearMagnetostaticSystem::roundoff_floor`].
+    /// A solve that reaches the floor before `rel_tol` is reported as
+    /// converged at the floor, not as a failed line search.
     pub floor_factor: f64,
     /// Maximum number of updates.
     pub max_iterations: usize,
@@ -1272,44 +1279,52 @@ impl NonlinearMagnetostaticSystem {
             .collect()
     }
 
-    /// The guess-independent **reference residual** that
+    /// The guess-independent, offset-invariant **reference residual** that
     /// [`NewtonConfig::rel_tol`] is relative to:
-    /// `‖F_free − K_ν(0)[free, pinned] · a_D‖₂`, the norm of the
-    /// right-hand side of the [`linear_start`](Self::linear_start) solve.
-    /// This is the total drive (currents, magnets, extra load, Dirichlet
-    /// lifting). It is finite even when the exponential Brauer law would
-    /// overflow at a zero-interior start, and it is the same for every
-    /// initial guess. For zero Dirichlet data it equals `‖R(0)‖`.
-    pub fn reference_residual(&self) -> f64 {
-        let mut r = vec![0.0_f64; self.n_free];
+    ///
+    /// ```text
+    ///   reference = ‖F_free‖₂ + ‖s‖₂,   s_i = Σ_{T ∋ i} |T| ν_T(0) |∇λ_i| |∇A_lin|_T ,
+    /// ```
+    ///
+    /// where `A_lin` is the [`linear_start`](Self::linear_start) solution.
+    /// `s` is the magnitude of the flux terms `|T| ν ∇λ_i·∇A` that make up
+    /// the residual rows, evaluated on the small-field linear solution, so it
+    /// measures the size of the terms that the residual cancels. It is
+    /// non-zero for a purely Dirichlet-driven problem, where `F = 0`.
+    ///
+    /// **Invariance.** A constant shift `A → A + C` of the Dirichlet data
+    /// (and of any guess) leaves the physics unchanged. `A_lin` shifts by
+    /// exactly `C`, because constants are in the null space of the stiffness,
+    /// so `∇A_lin` and `s` do not change. `F` does not depend on `A`. In f64
+    /// the invariance is exact too: the gradient is taken from the linear
+    /// start solved with Dirichlet data centred on their mean, so a uniform
+    /// offset cancels exactly before any arithmetic. It does not depend on
+    /// the initial guess either.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the [`linear_start`](Self::linear_start) solve errors.
+    pub fn reference_residual(&self) -> Result<f64, NonlinearMagnetostaticError> {
+        let (a_lin, _shift) = self.linear_start_centered()?;
+        let mut s = vec![0.0_f64; self.n_free];
+        let mut f = vec![0.0_f64; self.n_free];
         for (g, slot) in self.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                r[*fi] = self.load[g];
+                f[*fi] = self.load[g];
             }
         }
         for t in 0..self.tris.len() {
-            let tri = &self.tris[t];
-            if tri
-                .iter()
-                .all(|&p| self.free_of_global[p as usize].is_some())
-            {
-                continue;
-            }
+            let gr = self.elem_gradient(t, &a_lin);
+            let gmag = (gr[0] * gr[0] + gr[1] * gr[1]).sqrt();
             let nu = self.laws[t].nu(0.0);
             let ElemGeom { grad, area } = self.geom[t];
-            for p in 0..3 {
-                let Some(fp) = self.free_of_global[tri[p] as usize] else {
-                    continue;
-                };
-                for q in 0..3 {
-                    if self.free_of_global[tri[q] as usize].is_none() {
-                        let kpq = area * nu * (grad[p][0] * grad[q][0] + grad[p][1] * grad[q][1]);
-                        r[fp] -= kpq * self.dirichlet_values[tri[q] as usize];
-                    }
+            for (gp, &node) in grad.iter().zip(&self.tris[t]) {
+                if let Some(fi) = self.free_of_global[node as usize] {
+                    s[fi] += area * nu * (gp[0] * gp[0] + gp[1] * gp[1]).sqrt() * gmag;
                 }
             }
         }
-        norm2(&r)
+        Ok(norm2(&f) + norm2(&s))
     }
 
     /// An `f64` **round-off floor estimate** for `‖R(A)‖`:
@@ -1319,6 +1334,14 @@ impl NonlinearMagnetostaticSystem {
     /// large offset over small elements. A residual near this level cannot
     /// be reduced reliably by any update. On the coax test the estimate sits
     /// 8.4–8.7× above the measured stagnation level at 64 and 256 sectors.
+    ///
+    /// Unlike [`reference_residual`](Self::reference_residual), this estimate
+    /// is deliberately **not** offset-invariant. It grows with `|a_p|`,
+    /// because a constant offset `C` really does cost precision. Nodal values
+    /// of size `C` carry rounding of `ε C`, and `∇A` inherits about
+    /// `ε C |∇λ|`. A large offset can therefore end a solve as
+    /// [`ConvergenceStatus::RoundoffFloor`] rather than
+    /// [`ConvergenceStatus::Tolerance`].
     ///
     /// # Panics
     ///
@@ -1363,7 +1386,30 @@ impl NonlinearMagnetostaticSystem {
     /// [`NonlinearMagnetostaticError::Assembly`] or
     /// [`NonlinearMagnetostaticError::Factorization`] from the linear solve.
     pub fn linear_start(&self) -> Result<Vec<f64>, NonlinearMagnetostaticError> {
-        let a = self.lift(&vec![0.0; self.n_free]);
+        let (centered, shift) = self.linear_start_centered()?;
+        Ok(centered.into_iter().map(|a| a + shift).collect())
+    }
+
+    /// The linear start minus a constant `shift`, the mean Dirichlet value.
+    /// The linear problem is solved with the Dirichlet data `a_D − shift`,
+    /// which is exact because constants lie in the stiffness null space. A
+    /// uniform offset `C` of the Dirichlet data therefore gives bit-for-bit
+    /// the same centred solution: the solve never sees `C`, and neither
+    /// does its rounding.
+    fn linear_start_centered(&self) -> Result<(Vec<f64>, f64), NonlinearMagnetostaticError> {
+        let (sum, count) = self
+            .free_of_global
+            .iter()
+            .zip(&self.dirichlet_values)
+            .filter(|(slot, _)| slot.is_none())
+            .fold((0.0, 0usize), |(s, n), (_, &v)| (s + v, n + 1));
+        let shift = if count > 0 { sum / count as f64 } else { 0.0 };
+        let mut a = self.lift(&vec![0.0; self.n_free]);
+        for (ai, slot) in a.iter_mut().zip(&self.free_of_global) {
+            if slot.is_none() {
+                *ai -= shift;
+            }
+        }
         let mut r = vec![0.0_f64; self.n_free];
         for (g, slot) in self.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
@@ -1397,8 +1443,12 @@ impl NonlinearMagnetostaticSystem {
             .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
         let mut x: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| -r[i]);
         lu.solve_in_place(x.as_mut());
-        let a_free: Vec<f64> = (0..self.n_free).map(|i| x[(i, 0)]).collect();
-        Ok(self.lift(&a_free))
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                a[g] = x[(*fi, 0)];
+            }
+        }
+        Ok((a, shift))
     }
 
     /// Solve `R(A) = 0` by damped Newton from `initial` (a full nodal
@@ -1406,14 +1456,16 @@ impl NonlinearMagnetostaticSystem {
     /// from zero on the free nodes when `initial` is `None`.
     ///
     /// The solve has converged when `‖R‖₂ ≤ max(abs_tol, rel_tol · reference)`,
-    /// where `reference` is [`reference_residual`](Self::reference_residual)
-    /// and does not depend on the guess. That gives
+    /// where `reference` is [`reference_residual`](Self::reference_residual),
+    /// which depends neither on the guess nor on a constant offset of `A`.
+    /// That gives
     /// [`ConvergenceStatus::Tolerance`]. Otherwise it has converged when
     /// `‖R‖₂ ≤ floor_factor · roundoff_floor(A)`, which gives
     /// [`ConvergenceStatus::RoundoffFloor`]. Both tests are applied at every
     /// iterate, including the initial guess, so a warm start at the solution
-    /// returns after 0 iterations. The returned tangent is always the **consistent** tangent at the final iterate,
-    /// even for [`TangentKind::FrozenNu`].
+    /// returns after 0 iterations. The returned tangent is always the
+    /// **consistent** tangent at the final iterate, even for
+    /// [`TangentKind::FrozenNu`].
     ///
     /// # Errors
     ///
@@ -1449,7 +1501,7 @@ impl NonlinearMagnetostaticSystem {
                 "initial residual".into(),
             ));
         }
-        let reference = self.reference_residual();
+        let reference = self.reference_residual()?;
         let tol = config.abs_tol.max(config.rel_tol * reference);
         let mut residual_norms = vec![rn];
         let mut step_norms = Vec::new();
