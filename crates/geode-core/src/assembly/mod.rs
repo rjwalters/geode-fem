@@ -26,6 +26,9 @@
 //!   trait with Brauer and monotone-table laws, the consistent-tangent
 //!   damped Newton solve, and the converged tangent for the adjoint
 //!   (motor-paper milestone M1, issue #1157).
+//! - [`magnetostatic_sector`]: periodic / antiperiodic sector pairing and the
+//!   conforming sliding band for rotor rotation, as signed node links on the
+//!   nonlinear system (motor-paper milestone M2, issue #1161).
 //! - [`magnetostatic3d`]: 3-D **vector** magnetostatic assembly on a
 //!   [`TetMesh`](crate::mesh::TetMesh) with lowest-order Nédélec edge
 //!   elements — host-side `f64` ν-weighted curl-curl (retained full `K`),
@@ -71,6 +74,7 @@ pub mod hcurl_space;
 pub mod magnetostatic;
 pub mod magnetostatic3d;
 pub mod magnetostatic_nonlinear;
+pub mod magnetostatic_sector;
 pub mod nedelec;
 pub mod nedelec_matvec;
 pub mod nedelec_p2;
