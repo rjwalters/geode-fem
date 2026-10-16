@@ -36,7 +36,34 @@ by one harness version, `matched_antenna_v2.py` `af907349…`, archived in `v2/s
 
 ## Result
 
-RESULT_PLACEHOLDER
+**With version 2, Meep agrees with GEODE and Palace on this antenna.** The v1 artifact
+is gone: the bent board resonates where the flat one does, inside the band that GEODE
+and Palace bracket.
+
+| | Meep v2 | GEODE / Palace |
+|---|---|---|
+| Flat dip, R2.5 | **2.3683 GHz**, −29.2 dB, Re Z 48.0 Ω | GEODE P2 L1 2.3580 GHz, Re Z 50.2 Ω; extrapolations 2.370–2.437 GHz |
+| Bent dip, R2.5 | **2.3667 GHz**, −23.4 dB, Re Z 44.8 Ω | Palace p3 2.36597 GHz; GEODE P1 X1 combined 2.36595 GHz, Re Z 45.9 Ω |
+| Bent dip, R5 | **2.3611 GHz**, −27.2 dB, Re Z 47.3 Ω | GEODE lower bound 2.35664 GHz; GEODE/Palace estimate on refined models 2.366–2.380 GHz |
+| Bend shift (bent − flat), R2.5 | **−1.6 MHz** | GEODE −0.97 to −1.58 MHz |
+
+- **Flat check.** The fixed harness's flat board sits 10.3 MHz above GEODE's finest flat
+  level (P2 L1), between that level and GEODE's extrapolations. v1's flat R2 dip was
+  2.3351 GHz, 8 MHz below GEODE P1 L3.
+- **Bend.** Meep now shifts the dip by −1.6 MHz, GEODE's size and sign. v1 shifted it by
+  −248 MHz.
+- **Trend.** From R2.5 to R5 the bent dip moves **−5.6 MHz** (2.3667 → 2.3611 GHz) and
+  deepens by 3.8 dB. At R2.5 it is 0.8 MHz above Palace p3; at R5 it is 4.9 MHz below
+  Palace p3 and 4.5 MHz above GEODE's lower bound.
+- **Not converged.** Two resolutions give a trend, not a convergence order, and the two
+  grids differ in several O(dx) ways at once: patch length 28.8 → 29.0 mm, probe inset
+  7.0 → 6.9 mm, staircase steps and patch columns. A textbook open-end estimate puts the
+  patch-length part alone at −15.5 MHz, about three times the measured change, so the
+  other O(dx) terms partly cancel it. The data do not support a converged Meep value
+  or a claim that the 4.9 MHz difference from Palace p3 at R5 is final. They do support
+  this: on the same fixture all three codes now place the bent dip within 2.356–2.367 GHz,
+  and Meep's R2.5 → R5 change (0.24%) is of the order of GEODE's own last refinement steps
+  (12–13 MHz).
 
 ## 1. What version 2 changes
 
@@ -60,8 +87,9 @@ Lengths that are not whole cells are snapped and recorded in each run's `layout`
   cells, the same samples Meep's own block gives). At R5 it is exactly 29.0 mm (145
   cells), with the board centred half a cell off the origin.
 - **Probe inset.** It is exact at R2.5 (7.0 mm from the patch edge, centre y = 7.4 mm). At
-  R5 it is **7.1 mm**, because a 50 Ω port of 8 rows cannot also sit exactly 7.0 mm from
-  an edge on the same lattice.
+  R5 it is **6.9 mm** (centre y = 7.7 mm, 7.6 mm from the board centre at y = 0.1 mm). A
+  50 Ω port of 8 rows cannot sit exactly 7.0 mm from an edge on the same lattice, and
+  6.9 and 7.1 mm were an exact tie that floating-point rounding resolved.
 - **Patch width.** The bent patch covers the columns that lie wholly inside its 38 mm arc
   on the mid-surface: 37.2 mm projected at R2.5.
 
@@ -94,7 +122,7 @@ Discrete board (from the audits; half-patch counts in `ladder.json`):
 |---|---|---|---|---|---|
 | flat R2.5 | 4 / 4 cells | 95 (38.0 mm) | 0 of 94 | 4 × 4, 50.0 Ω | 1.000 |
 | bent R2.5 | 4 / 4 cells | 93 (37.2 mm) | 8 of 92 (3 free samples) | 4 × 4, 50.0 Ω | 0.986 |
-| bent R5 | R5_GRID_ROW |
+| bent R5 | 8 / 8 cells | 188 (37.6 mm) | 18 of 187 (7 free samples) | 8 × 8, 50.0 Ω | 0.993 |
 
 The E/H factor is DIAGNOSIS.md's model, applied here only as a description of the
 staircase steps. That model overpredicted the step effect tenfold on the v1 cell
@@ -113,7 +141,7 @@ FR-4 uses the `conductivity` model anchored at 2.36 GHz. Dips are parabolic vert
 |---|---|---|---|---|---|
 | `c_flat_R2.5` | 16 | 4 (8.0e-4) | **2.36833** | −29.2 | 48.0 + 0.5j |
 | `c_bent_R2.5` | 16 | 4 (6.2e-4) | **2.36673** | −23.4 | 44.8 − 2.7j |
-| `c_bent_R5` | 32 | R5_RUN_ROW |
+| `c_bent_R5` | 32 | 4 (5.2e-4) | **2.36111** | −27.2 | 47.3 − 3.0j |
 
 Meep uses exp(−iωt) and GEODE exp(+iωt), which flips Im Z. |S11| and Re Z are unaffected.
 
@@ -127,7 +155,24 @@ GEODE and Palace on the same fixture (`convergence.toml`, `v6/v6_summary.toml`):
 | Palace L1 p2 / p3 | — | 2.35703 / 2.36597 |
 | GEODE bend shift (bent − flat), every level | −0.97 to −1.58 MHz | |
 
-COMPARISON_PLACEHOLDER
+Differences (Meep − reference), recomputed by the verifier into `ladder.json` →
+`comparison` and re-asserted against per-finding brackets:
+
+| Quantity | Value | Verifier bracket |
+|---|---|---|
+| Flat R2.5 − GEODE flat P2 L1 | +10.3 MHz (P1 L3: +25.0 MHz) | [+5, +15] |
+| Bend shift at R2.5 (bent − flat) | −1.60 MHz (GEODE −0.97 to −1.58) | [−3, 0] |
+| Bent R2.5 − Palace p3 | +0.76 MHz | [−2, +3] |
+| Bent R5 − Palace p3 | −4.86 MHz | [−7, −3] |
+| Bent R2.5 − GEODE lower bound (2.35664) | +10.1 MHz | [+5, +15] |
+| Bent R5 − GEODE lower bound | +4.5 MHz | [+2, +7] |
+| Bent R2.5 → R5 | −5.6 MHz, depth −3.8 dB | [−8, −3] |
+| Re Z at the dip, every run | 44.8–48.0 Ω (GEODE 44–47 bent, 49–50 flat) | [40, 50] |
+
+Each spectrum has exactly one minimum below −6 dB in 1.6–3.0 GHz, interior to the window.
+The impedance level is also comparable now. With the exact 50 Ω port and the full
+voltage path, Meep's Re Z at the dip (44.8–48.0 Ω) sits with GEODE's (44–50 Ω). Under v1
+it was 3–4 Ω at these frequencies on the bent board.
 
 ## 4. Cost on the same host type
 
@@ -138,10 +183,26 @@ container cgroup peak, sampled every 30 s. GEODE's is `ps` RSS sampled every 50 
 |---|---|---|---|
 | Meep v2 flat R2.5, 72.3 M cells, 16 ranks (beside the bent run) | full 1.6–3.0 GHz spectrum, 141 points | 6,900 s (1.92 h) | 19.1 GiB |
 | Meep v2 bent R2.5, same | same | 6,903 s (1.92 h) | 19.1 GiB |
-| Meep v2 bent R5, R5_CELLS cells, 32 ranks | same | R5_COST_ROW |
+| Meep v2 bent R5, 578.0 M cells, 32 ranks | same | 52,858 s (14.68 h) | 134.2 GiB |
 | GEODE P1 X1 combined rung, 1.74 M DOF (v6 X1) | dip by pre-scan and golden section, 19 solves | 11,019 s (3.06 h) | 208.1 GiB |
 
-COST_PLACEHOLDER
+Wall time includes initialization (container start and imports excluded), stepping and
+spectral extraction. Meep stepped at 0.311 s/step (R2.5, two 16-rank runs side by side)
+and 1.19 s/step (R5, 32 ranks), or 6.9e-8 and 6.6e-8 rank-seconds per cell-step. The
+container peaks are 284 and 249 B/cell.
+
+How these compare:
+
+- **Meep R2.5 against GEODE's X1 combined rung.** For the bent board Meep R2.5 costs
+  0.63 of GEODE's wall time and 9% of its memory. The two land within 0.8 MHz of each other
+  and of Palace p3. This is not an equal-accuracy ranking. Neither code is converged here,
+  and the outputs differ. Meep returns the full 141-point spectrum from one run. GEODE
+  locates one dip with 19 frequency solves, and it also gives the exact shape gradient
+  (v6), which Meep does not.
+- **Meep R5.** It costs 4.8× GEODE's wall time and 64% of its memory, and its dip is
+  4.8 MHz from GEODE's and Palace's p3 values.
+- **What the refinement cost.** Meep's R2.5 → R5 step cost 7.7× in wall time and 7.0×
+  in memory, and it moved the bent dip by 5.6 MHz.
 
 ## 5. Residuals and limitations
 
@@ -152,13 +213,16 @@ COST_PLACEHOLDER
   matches the design (section 2). It was not used for production because Meep allocates
   polarization fields for every chunk the board touches. Measured on the two R2.5 runs
   before they were stopped (`logs/killed_lorentz_*`), it took 438 B/cell (31.8 GB
-  container) against 280 B/cell, and 0.42–0.47 against 0.30–0.31 s/step. R5 would need
-  about 253 GB, which does not fit this host.
+  container) against 284 B/cell, and 0.42–0.47 against 0.30–0.31 s/step. Scaled to R5,
+  that is about 236 GiB, at the edge of this host's 247 GiB. At about 1.45× the step
+  time, R5 alone would have taken about 21 h, roughly the whole ~$40 budget. Whether the
+  flat-loss model moves the dip was therefore not measured. Loss is expected to change
+  depth and Re Z far more than the resonance.
 - **Staircase steps.** On the bent board a fraction of interior Ez lines sit on steps,
-  with n − 1 free samples between two risers: 8 of 92 at R2.5 (R5_STEPS at R5). The
+  with n − 1 free samples between two risers: 8 of 92 at R2.5 and 18 of 187 at R5. The
   gap is vertical: n·dx = 1.6 mm in every column, while the true board's vertical gap
   is 1.600–1.629 mm (h/cos φ) and its normal gap is 1.6 mm.
-- **Snapped lengths.** See section 1: the patch is 28.8 mm at R2.5 and the inset 7.1 mm
+- **Snapped lengths.** See section 1: the patch is 28.8 mm at R2.5 and the inset 6.9 mm
   at R5.
 - **Not convergence-tested here.** The PML (25 mm, Meep's default profile) and the box,
   both matched to GEODE's UPML extents, as in v1.
@@ -180,4 +244,14 @@ COST_PLACEHOLDER
 
 ## Spend and teardown
 
-SPEND_PLACEHOLDER
+One r8g.8xlarge in us-east-1a (`geode-worker-meep-1146`). us-east-2's 32-vCPU quota was in
+use by another worker. Before launch, us-east-1 on-demand use was about 230 of 300 vCPU, and it was re-checked.
+The worker launched at 2026-10-15T20:57:47Z and was **terminated** at
+2026-10-16T15:09:26Z (65,499 s). A scheduled OS shutdown at 17:29Z bounded it independently. Its
+root volume was deleted with it, and no tagged volume remains.
+
+The conservative elapsed-time estimate is **$34.30**: 18.19 h × $1.88512/h, the us-east-1
+table rate in `scripts/aws/geode-worker.sh`. That is not an AWS bill, and it is within
+the ~$40 budget. The #1088 total is now about $55.7 of the $250 cap (R2 $1.45, R4
+$11.54, diagnosis $8.39, this record $34.30). All results are also kept outside the
+repository in two copies. No Rust was changed, and nothing was run on the Mac.

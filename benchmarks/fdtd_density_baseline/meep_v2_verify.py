@@ -413,9 +413,45 @@ def check_environment():
     return env
 
 
+# Per-finding brackets (MHz unless stated), each bracketing the value HARNESS_V2.md states.
+FIND = {
+    'flat_R2.5_minus_geode_P2_L1': (5.0, 15.0),     # stated +10.3
+    'bend_shift_R2.5': (-3.0, 0.0),                 # stated -1.6 (GEODE -0.97 to -1.58)
+    'bent_R2.5_minus_palace_p3': (-2.0, 3.0),       # stated +0.8
+    'bent_R5_minus_palace_p3': (-7.0, -3.0),       # stated -4.9
+    'bent_R2.5_minus_geode_lower_bound': (5.0, 15.0),   # stated +10.1
+    'bent_R5_minus_geode_lower_bound': (2.0, 7.0),  # stated +4.5
+    'trend_R2.5_to_R5': (-8.0, -3.0),              # stated -5.6
+    're_z_at_dip_ohm': (40.0, 50.0),
+}
+
+
 def findings(result):
-    """The statements HARNESS_V2.md makes, re-asserted from the data (filled in with the data)."""
-    return []
+    """The statements HARNESS_V2.md makes, re-asserted from the data, each against its own bracket."""
+    c, runs = result['comparison'], result['runs']
+
+    def within(name, value):
+        lo, hi = FIND[name]
+        check(lo <= value <= hi, f'Finding {name}: {value:.3f} outside [{lo}, {hi}]')
+    within('flat_R2.5_minus_geode_P2_L1', c['flat_R2.5_minus_geode_flat_mhz']['L1_p2'])
+    within('bend_shift_R2.5', c['bend_shift_R2.5_mhz'])
+    within('bent_R2.5_minus_palace_p3', c['bent_minus_palace_p3_mhz']['R2.5'])
+    within('bent_R5_minus_palace_p3', c['bent_minus_palace_p3_mhz']['R5'])
+    within('bent_R2.5_minus_geode_lower_bound', c['bent_minus_geode_lower_bound_mhz']['R2.5'])
+    within('bent_R5_minus_geode_lower_bound', c['bent_minus_geode_lower_bound_mhz']['R5'])
+    within('trend_R2.5_to_R5', c['bent_trend_R2.5_to_R5_mhz'])
+    for name, r in runs.items():
+        check(r['min_is_interior'] and len(r['local_minima_below_6db']) == 1,
+              f'{name}: expected one resonance below -6 dB in 1.6-3.0 GHz')
+        within('re_z_at_dip_ohm', r['z_at_dip_ohm'][0])
+    for name in ('c_flat_R2.5', 'c_bent_R2.5'):
+        check(runs[name]['temporal_tolerance_met'], f'{name}: stopping tolerance not met')
+    check(not c['spatial_convergence_established'] and c['bent_resolutions'] == 2,
+          'Two bent resolutions cannot establish convergence')
+    check(runs['c_bent_R5']['temporal_tolerance_met'], 'c_bent_R5: stopping tolerance not met')
+    for name in ('c_bent_R2.5', 'c_bent_R5'):
+        check(result['grids'][name]['ez_step_lines'] > 0, f'{name}: bent board without staircase steps')
+    check(result['grids']['c_flat_R2.5']['diag_gap_model_factor'] == 1.0, 'Flat grid E/H consistent')
 
 
 def main():
