@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1169",
-  "loom_commit": "db3504e7df39ed71aa43d66b89851b6fe39f2483",
+  "loom_version": "0.19.1170",
+  "loom_commit": "1a64cc928a7e488c762211ef1f5e665b2182f7d9",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -772,8 +772,10 @@
     ".loom/scripts/tests/test-spawn-codex-model-effort.sh",
     ".loom/scripts/tests/test-check-cas-recheck-consistency.sh",
     ".loom/scripts/tests/test-sync-labels-write-failures.sh",
-    ".loom/scripts/tests/test-champion-epic-escalation-evaluations.sh"
+    ".loom/scripts/tests/test-champion-epic-escalation-evaluations.sh",
+    ".loom/scripts/tests/test-champion-epic-child-discovery.sh",
+    ".loom/scripts/tests/test-champion-tracker-marker-skip.sh"
   ],
   "last_resync": "2026-10-16",
-  "requires_daemon": "0.19.1081"
+  "requires_daemon": "0.19.1088"
 }
