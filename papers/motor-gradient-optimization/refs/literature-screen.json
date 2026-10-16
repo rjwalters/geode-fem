@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-16",
+  "status": "targeted_primary_source_screen_not_exhaustive_novelty_audit",
+  "question": "Which alternatives could remove an apparent benefit from exact motor gradients, and which prior methods already cover the proposed implementation?",
+  "sources": [
+    {
+      "title": "Geometric design of electric motors using adjoint-based shape optimization",
+      "authors": "Luca Scotzniovsky, Ru Xiang, Zeyu Cheng, Gabriel Rodriguez, David Kamensky, Chris Mi, John T. Hwang",
+      "year": 2024,
+      "doi": "10.1007/s11081-024-09892-6",
+      "url": "https://chrismi.sdsu.edu/publications/220.pdf",
+      "evidence_read": "Author-hosted paper: abstract, introduction and computational implementation section.",
+      "finding": "Free-form deformation, PDE mesh warping and electromagnetic FEM are combined with exact derivatives; CSDL automates adjoint derivative computation.",
+      "implication": "End-to-end differentiable motor shape optimization is already prior art. Our candidate contribution must rest on controlled cost comparisons and useful design freedom, not the existence of a differentiable implementation."
+    },
+    {
+      "title": "Robust Shape Optimization of Electric Devices Based on Deterministic Optimization Methods and Finite Element Analysis With Affine Decomposition and Design Elements",
+      "authors": "Ion Gabriel Ion et al.",
+      "year": 2018,
+      "doi": "10.1007/s00202-018-0716-6",
+      "url": "https://arxiv.org/abs/1805.07060",
+      "evidence_read": "Primary arXiv abstract and publication metadata; detailed experiment conditions not audited.",
+      "finding": "Gradient-based FEM geometry optimization without remeshing, including a PM synchronous machine, is compared with stochastic methods such as particle swarm optimization.",
+      "implication": "A gradient-versus-stochastic motor comparison is not itself new. Review its detailed target, design dimension and accounting before claiming a benchmark gap."
+    },
+    {
+      "title": "Optimal torque control of permanent magnet synchronous machines using magnetic equivalent circuits",
+      "authors": "Wolfgang Kemmetmueller, David Faustner, Andreas Kugi",
+      "year": 2015,
+      "doi": "10.1016/j.mechatronics.2015.10.007",
+      "url": "https://www.acin.tuwien.ac.at/file/publications/cds/pre_post_print/kemmetmueller2015b.pdf",
+      "evidence_read": "Author-hosted postprint, abstract and model description.",
+      "finding": "A nonlinear magnetic equivalent circuit represents saturation and nonsinusoidal behavior and supports constrained current optimization, with experimental control validation.",
+      "scope_limit": "This is current/control optimization, not freeform shape optimization or a matched FEM optimizer benchmark.",
+      "implication": "Saturation and torque harmonics alone do not prove simple physical models inadequate. Include a nonlinear, angle-aware reduced magnetic model where feasible, not only global scaling laws."
+    },
+    {
+      "title": "Electrical machines surrogate-based design optimization based on novel waveform targeting strategy with improvement of the computational efficiency",
+      "authors": "Farnam Farshbaf Roomi, Abolfazl Vahedi, Amin Nobahari",
+      "year": 2022,
+      "doi": "10.1049/elp2.12226",
+      "url": "https://ietresearch.onlinelibrary.wiley.com/doi/full/10.1049/elp2.12226",
+      "evidence_read": "Publisher full text: abstract and training-cost section.",
+      "finding": "Waveform-targeted Kriging uses sampled motor waveforms rather than only aggregate output fits. Its cost comparison includes FEM training samples and model-training time.",
+      "scope_limit": "Prediction accuracy at a stated R-squared threshold is not equal-target optimization timing against an adjoint.",
+      "implication": "Use a waveform-aware surrogate as a credible baseline candidate; assess derivative/sign and candidate quality on held-out designs, and charge acquisition/training costs."
+    },
+    {
+      "title": "A globally convergent method to accelerate large-scale optimization using on-the-fly model hyperreduction: application to shape optimization",
+      "authors": "Tianshu Wen, Matthew J. Zahr",
+      "year": 2022,
+      "url": "https://arxiv.org/abs/2206.09942",
+      "evidence_read": "Primary arXiv abstract.",
+      "finding": "Projection and hyperreduction are adapted along the optimization trajectory inside a trust-region framework, including snapshot/model construction in the cost.",
+      "scope_limit": "Demonstrations are fluid shape optimization, not electric motors.",
+      "implication": "An adaptively calibrated reduced model can be stronger than a fixed offline surrogate. Retain this as a baseline design principle; do not transfer its published speedup to motors."
+    },
+    {
+      "title": "Spline-Based Rotor and Stator Optimization of a Permanent Magnet Synchronous Motor",
+      "url": "https://arxiv.org/html/2402.19065v1",
+      "evidence_read": "Primary paper and pinned public implementation b145aaf4ab1a6424828bc941eaf172f48fa0d458.",
+      "finding": "Provides the nonlinear motor reproduction anchor; combines adjoints, shape parameters and scaling laws.",
+      "implication": "Reproduce the recorded model before changing objectives or fixing envelope/current controls for the later causal comparison."
+    },
+    {
+      "title": "Combined Parameter and Shape Optimization of Electric Machines with Isogeometric Analysis",
+      "url": "https://arxiv.org/html/2311.06046v2",
+      "evidence_read": "Primary comparison section and tables, inspected in the feasibility pass.",
+      "finding": "Parameter and shape comparisons motivate useful-shape-freedom testing. Its evolutionary comparison has different settings/hardware, and some shape-only comparisons relax torque constraints.",
+      "implication": "This supports a controlled comparison question, not a claim that no earlier fair benchmark exists."
+    }
+  ],
+  "baseline_plan": [
+    "Exact-gradient constrained optimization and the same optimizer with finite differences, as a diagnostic of derivative computation cost.",
+    "A calibrated, angle-aware reduced physical model; include nonlinear material effects when its representation permits them.",
+    "A waveform-targeted surrogate with online refinement, counted from the first FEM training sample.",
+    "Competitive derivative-free trust-region search and CMA-ES under the same design space and budget.",
+    "Separate nested-design-space ablation: small engineering basis versus additional shape controls, keeping physical constraints and validation targets matched."
+  ],
+  "unresolved_before_novelty_claim": [
+    "Full experiment audit of the 2018 deterministic-versus-stochastic motor paper and its follow-on work.",
+    "Whether a published equal-target, equal-hardware comparison already spans many shape dimensions and adaptive reduced-model baselines.",
+    "Which reduced physical/surrogate implementation can represent the selected ICEM shape family without unfairly restricting the competitor.",
+    "A final current-literature search before manuscript submission."
+  ]
+}
