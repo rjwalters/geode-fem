@@ -208,6 +208,10 @@ def check_headline():
         contains(row)
     log = (B / "recentre/logs/p2_sm57.log").read_text()
     n_p2 = int(re.search(r"P2 space: (\d+) DOFs", log).group(1))
+    assert p2["n_dofs"] - n_p2 == 80200
+    assert "Added 7838 duplicate vertices for interior boundaries" in (B / "recentre/palace/sm57_p2/sm57_p2.log").read_text()
+    contains(f"Palace counts ${thousands(p2['n_dofs'] - n_p2)}$ more unknowns at $p = 2$ on the same mesh because it duplicates the "
+             f"vertices on interior PEC and port surfaces")
     contains(f"geode-fem $p = 2$, L1 & ${thousands(n_p2)}$ & {m(M['L1_p2']['worst_in_band_db'])} & not swept")
     contains(f"agree to ${f(abs(ref['sm57_rim020_air_morph_lo_edge_mhz']), 2)}$\\,MHz at the lower edge")
     contains(f"design~C ${f(p3['wall_s'] / 3600, 1)}$\\,h on 16 MPI ranks")
@@ -305,6 +309,8 @@ def check_designc(r, v6):
     contains("A larger air margin moves the resonance up by $4.3$\\,MHz")
     absent("had not levelled off")
     contains("Air margin, $40 \\to 60$ / $80$\\,mm (dip; edges scatter by $1.3$) & $-4.3$")
+    contains("it is the scatter of the air re-meshes only, applied once to the sum")
+    contains("the budget of Table~\\ref{tab:budget} uses the dip's $4.3 \\pm 1.3$\\,MHz")
     contains(f"Rim refinement at $p = 2$ (Palace, $0.2$\\,mm rim) & $-{f(c3['minus_palace_L1_p3_lo_edge_mhz'], 1)}$")
     contains(f"Lower-edge margin, Palace $p = 3$, L1 & $+{f(p3m, 1)}$")
     tot = round(p3m, 1) - round(c3["minus_palace_L1_p3_lo_edge_mhz"], 1) - round(d80, 1)
@@ -487,8 +493,19 @@ def check_baselines(ts, dc):
              f"on the same host (${f(cst['forward_adjoint_eval_s'] / cst['forward_eval_s'], 2)}\\times$), so in geode-fem wall time the "
              f"$11\\times$ at $-9.5$\\,dB below is about ${f(wf / wa, 1)}\\times$ (${thousands(round(wf))}$ against ${round(wa)}$\\,s)")
     ad = read("copper/L1_copper_38.toml")["optimization"]
-    contains(f"recorded ${ad['n_driven_solves']}$ driven solves include ${ad['n_driven_solves'] - adj['optimization_solves']}$ for the gradient checks")
-    assert ad["n_driven_solves"] - adj["optimization_solves"] == 65
+    adr = read("copper/L1_copper_38.toml")
+    nb = adr["meta"]["n_band_points"]
+    gchk = adr["fd_validation"]["n_checks"] * 2 * nb            # central difference: two band evaluations per check
+    fresh = nb                                                  # fresh evaluation of the reported (best) iterate
+    nver, nwide = len(adr["s11_verify"]["point"]), len(adr["s11_wide_final"]["point"])
+    assert (gchk, fresh, nver, nwide) == (30, 5, 9, 21)
+    assert adj["optimization_solves"] + gchk + fresh + nver + nwide == ad["n_driven_solves"] == 190
+    contains(f"recorded ${ad['n_driven_solves']}$ driven solves include ${gchk + fresh + nver + nwide}$ that are not counted: "
+             f"${gchk + fresh}$ for the three gradient checks and a fresh evaluation of the reported design, and ${nver + nwide}$ for the "
+             f"verification sweeps (${nver}$ in-band and ${nwide}$ wide points)")
+    absent("include $65$ for the gradient checks")
+    last = adr["trajectory"]["step"][-1]["worst_s11_db"]
+    assert last > adr["optimization"]["worst_s11_db_final"]   # the reported design is the best iterate, not the last
     contains("NEWUOA, from PRIMA, gives $11.4\\times$ on its own")
     contains("the best CMA-ES setting is the smallest $\\sigma_0$ tried")
     contains("seed 2 also reaches $-9.5$\\,dB at the same count under both")

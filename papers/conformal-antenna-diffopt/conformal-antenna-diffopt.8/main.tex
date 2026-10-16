@@ -523,7 +523,9 @@ main setting (Table~\ref{tab:baselines}); the best CMA-ES setting is the
 smallest $\sigma_0$ tried. One solve is one band frequency with one matrix factorization. The adjoint
 solve reuses the forward factorization, and the adjoint's start, which
 yields its first gradient, is counted; the run's recorded $190$ driven
-solves include $65$ for the gradient checks, which are not counted. An
+solves include $65$ that are not counted: $35$ for the three gradient checks
+and a fresh evaluation of the reported design, and $30$ for the verification
+sweeps ($9$ in-band and $21$ wide points). An
 adjoint band evaluation takes $95.1$\,s against $72.1$\,s for a forward one on
 the same host ($1.32\times$), so in geode-fem wall time the $11\times$ at
 $-9.5$\,dB below is about $8.3\times$ ($5{,}552$ against $666$\,s). The
@@ -759,7 +761,8 @@ probe sits $5.14$\,mm from the $+y$ edge.
   by a further $d$, read from the computed response at $2.400 - d$\,GHz; the
   dots mark the lower-edge margins, $6.5$ and $1.9$\,MHz. The shaded range
   is the rise of the lower edge with a $60$ or $80$\,mm air margin
-  (geode-fem, $p = 1$, L1). Data: \texttt{recentre/},
+  (geode-fem, $p = 1$, L1); the budget of Table~\ref{tab:budget} uses the
+  dip's $4.3 \pm 1.3$\,MHz. Data: \texttt{recentre/},
   \texttt{designc/c3/}, \texttt{tuned/tuned\_summary.toml}.}
   \label{fig:response}
 \end{figure}
@@ -772,9 +775,9 @@ probe sits $5.14$\,mm from the $+y$ edge.
   interpolated linearly in dB. Margins are $2.400$\,GHz minus the lower
   crossing and the upper crossing minus $2.4835$\,GHz. Design~C's meshes are
   the re-based fixtures with the port at its moved position, so their counts
-  differ slightly from Table~\ref{tab:x1}'s; Palace counts more unknowns on
-  the same mesh and order because it duplicates the vertices on interior PEC
-  and port surfaces. Model-dependent values.}
+  differ slightly from Table~\ref{tab:x1}'s; Palace counts $80{,}200$ more
+  unknowns at $p = 2$ on the same mesh because it duplicates the vertices on
+  interior PEC and port surfaces. Model-dependent values.}
   \label{tab:verify}
   \small
   \setlength{\tabcolsep}{4pt}
@@ -843,7 +846,8 @@ air motions agree to $0.09$\,MHz at the lower edge.
 Table~\ref{tab:budget} collects what moves the lower edge. We take the
 air-margin term as the dip's $4.3$\,MHz and carry the $1.3$\,MHz edge scatter
 between re-meshed air boxes (Section~\ref{sec:accuracy}) as the uncertainty
-of the measured terms. Added, they take more than the margin:
+of the measured terms; it is the scatter of the air re-meshes only, applied
+once to the sum. Added, they take more than the margin:
 $6.5 - 4.6 - 4.3 = -2.4 \pm 1.3$\,MHz, a lower edge near $2.402$\,GHz, and on
 the $0.2$\,mm-rim response moved up by $4.3$\,MHz, $2.400$\,GHz sits at
 $-9.63$\,dB (Figure~\ref{fig:response}b). The sum assumes that the terms add,

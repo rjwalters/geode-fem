@@ -34,6 +34,13 @@ merge base with `origin/main`).
 | Fable S7 / Opus nit | Table 4 caption: Palace duplicates the vertices on interior PEC and port surfaces |
 | Nits | "perfectly conducting (PEC) conductors"; eigenmode settings (7 modes, backward error below 5e-9); Figure 3(a) marker on NEWUOA npt 77 and the σ0 = 1.0 omission named; Table 2 caption: "Best" excludes the uncounted start, seed values; "seed 2 also reaches −9.5 dB at the same count under both"; "8 finite-difference jobs in parallel". Kept: the §9 mutation-testing sentence (approved section) and the `v6/` artifact paths |
 
+## Judge round on the v8 PR (changes requested)
+
+| Item | Resolution |
+|---|---|
+| The 65 uncounted adjoint solves are not all gradient checks | §5: "65 that are not counted: 35 for the three gradient checks and a fresh evaluation of the reported design, and 30 for the verification sweeps (9 in-band and 21 wide points)"; the verifier rebuilds 30 + 5 + 9 + 21 from `copper/L1_copper_38.toml` and checks 125 + 65 = 190; provenance row corrected. The error came from a reviewer's "(65 for the FD gates)" taken without checking |
+| Nits | Table 4 caption gives the 80,200 extra Palace unknowns, pinned with the Palace log line; provenance miss-band row now 1.1–12.6 MHz; §7: the ±1.3 MHz "is the scatter of the air re-meshes only, applied once to the sum"; Figure 4 caption: the budget uses the dip's 4.3 ± 1.3 MHz. Five further mutations each killed (35 → 30, 21 → 20, "eliminates the edges", 80,200 → 80,000, "twice") |
+
 ## Build and checks
 
 - `papers/build.sh papers/conformal-antenna-diffopt/conformal-antenna-diffopt.8`: 19 pages, 0 overfull boxes, no `??`, 74 entries, all cited.
