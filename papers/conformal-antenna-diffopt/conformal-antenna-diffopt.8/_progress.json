@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-16T23:00:00Z",
+      "completed": "2026-10-17T01:00:00Z"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-10-16T23:00:00Z",
+      "completed": "2026-10-17T01:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 8,
+    "max_iterations": 4,
+    "revised_from": 7,
+    "operator_override": true,
+    "operator_note": "Revision against the v7 reviews (Opus 40/44, Fable 40/44); text only, no new experiment; venue arxiv (Zenodo only); no Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}
