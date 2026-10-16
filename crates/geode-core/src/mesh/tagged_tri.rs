@@ -33,6 +33,10 @@ pub struct TaggedTriMesh {
     pub line_physical_tags: Vec<i32>,
     /// `(dim, tag) -> name` from `$PhysicalNames`.
     pub physical_groups: BTreeMap<(i32, i32), String>,
+    /// Number of triangles the reader found clockwise in the file and
+    /// re-oriented (two nodes swapped) so that every triangle in `mesh`
+    /// is counter-clockwise. Diagnostic only.
+    pub reoriented_triangles: usize,
 }
 
 impl TaggedTriMesh {
@@ -88,6 +92,16 @@ pub fn tri_signed_area(mesh: &TriMesh, t: usize) -> f64 {
 
 /// Load a planar Gmsh MSH 4.1 ASCII triangle mesh with its physical tags.
 ///
+/// **Orientation is normalised:** every triangle with negative signed area
+/// in the file has its last two nodes swapped, so all triangles of the
+/// returned mesh are counter-clockwise (positive [`tri_signed_area`]), as
+/// the 2-D magnetostatic assemblers require. Gmsh does not guarantee this:
+/// a surface's triangles follow its parametrisation, and multipatch CAD
+/// (e.g. the ICEM motor sector) mixes both orientations. The swap keeps
+/// the triangle index, so per-triangle tags stay aligned; line elements are
+/// untouched. The count is reported in
+/// [`TaggedTriMesh::reoriented_triangles`].
+///
 /// # Errors
 ///
 /// Any [`MeshError`] from the underlying reader, a file that contains
@@ -115,15 +129,24 @@ pub fn read_tagged_tri_mesh(source: &[u8]) -> Result<TaggedTriMesh, MeshError> {
     let entity_phys = msh_tags::parse_entities_physical_tags(text)?;
     let (lines, line_physical_tags) =
         msh_tags::parse_line_elements_with_entity_tags(text, &entity_phys)?;
+    let mut mesh = TriMesh {
+        nodes,
+        tris: tagged.boundary_triangles,
+    };
+    let mut reoriented_triangles = 0;
+    for t in 0..mesh.tris.len() {
+        if tri_signed_area(&mesh, t) < 0.0 {
+            mesh.tris[t].swap(1, 2);
+            reoriented_triangles += 1;
+        }
+    }
     Ok(TaggedTriMesh {
-        mesh: TriMesh {
-            nodes,
-            tris: tagged.boundary_triangles,
-        },
+        mesh,
         tri_physical_tags: tagged.triangle_physical_tags,
         lines,
         line_physical_tags,
         physical_groups: tagged.mesh.physical_groups,
+        reoriented_triangles,
     })
 }
 
@@ -180,6 +203,24 @@ $EndElements
         assert_eq!(m.nodes_on_line_tag(9), vec![0, 1]);
         assert!((m.area_with_tag(7) - 1.0).abs() < 1e-15);
         assert!(tri_signed_area(&m.mesh, 0) > 0.0);
+        assert_eq!(m.reoriented_triangles, 0);
+    }
+
+    #[test]
+    fn clockwise_triangle_is_reoriented() {
+        // Second triangle written clockwise: (0,0), (0,1), (1,1).
+        let cw = SQUARE.replace("3 1 3 4\n", "3 1 4 3\n");
+        assert_ne!(cw, SQUARE);
+        let m = read_tagged_tri_mesh(cw.as_bytes()).expect("parse");
+        assert_eq!(m.reoriented_triangles, 1);
+        // Same node set, swapped order, tag kept, now counter-clockwise.
+        assert_eq!(m.mesh.tris[1], [0, 2, 3]);
+        assert_eq!(m.tri_physical_tags, vec![7, 7]);
+        for t in 0..m.mesh.n_tris() {
+            assert!(tri_signed_area(&m.mesh, t) > 0.0, "triangle {t} not CCW");
+        }
+        assert!((m.area_with_tag(7) - 1.0).abs() < 1e-15);
+        assert_eq!(m.lines_with_tag(9), vec![[0, 1]]);
     }
 
     #[test]

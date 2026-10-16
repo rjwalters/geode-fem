@@ -26,7 +26,7 @@ uv run --with numpy==2.5.4 --with gmsh==4.15.2 python -I \
     benchmarks/motor_reference/geometry/build_sector_mesh.py --levels 0 1 2 3 \
     --out benchmarks/motor_reference/geometry/meshes \
     --areas-out benchmarks/motor_reference/geometry/exact_areas.json
-uv run --with numpy==2.5.4 --with gmsh==4.15.2 --with matplotlib==3.11.2 python -I \
+uv run --with numpy==2.5.4 --with gmsh==4.15.2 --with matplotlib==3.11.2 --with pillow==11.3.0 python -I \
     benchmarks/motor_reference/geometry/plot_sector_mesh.py \
     benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh \
     benchmarks/motor_reference/geometry/icem_initial_sector_L0.png
@@ -61,8 +61,28 @@ loop, a node count or the gap/overlap check fails.
   R(+60 deg) * master, node for node, with a max mismatch of 7e-16 m. For
   6 poles over a 60-degree sector, A_z(slave) = -A_z(master). The rotor edges
   rotate with the rotor.
-- Each region uses one physical tag. Triangle orientation is not normalised
-  (patches come in both orientations). Use |area|.
+- Each region uses one physical tag. **Triangle orientation in the `.msh` is
+  mixed**, because gmsh follows each surface's parametrisation and the
+  patches come in both orientations. `read_tagged_tri_mesh` **normalises it on
+  load**: it swaps two nodes of every clockwise triangle, so every GEODE
+  consumer gets counter-clockwise triangles (signed area > 0, as the
+  magnetostatic assemblers assert). Tags stay aligned, and the count is
+  reported in `TaggedTriMesh::reoriented_triangles`. Any other reader of the
+  `.msh` must orient triangles itself. Clockwise triangles as written (found
+  in the review of PR #1164): L0 3051 / 5938, L1 10459 / 19163,
+  L2 38841 / 70757, L3 151876 / 275736. By region at L0:
+
+  | region | clockwise / total |
+  |---|---|
+  | rotor_iron | 1159 / 1671 |
+  | magnet | 0 / 93 |
+  | rotor_air | 32 / 64 |
+  | airgap_inner | 0 / 484 |
+  | airgap_outer | 0 / 518 |
+  | stator_iron | 1128 / 1932 |
+  | slot_air | 246 / 246 |
+  | winding groups 1, 4, 5, 6, 9, 11 | 19 / 60 each |
+  | winding groups 2, 3, 7, 8, 10, 12 | 62 / 95 each |
 - Material assignment uses the upstream generator's default `"nonlinear"`
   patch lists, which the optimization uses: rotor iron = patches
   1,2,3,4,5,6,9,10,11, magnet = 8, rotor air = 7,12, inner gap band = 13..17.
@@ -107,7 +127,7 @@ an 8-point rerun, a separate tensor-product quadrature of det J over each
 patch, and the same Green's integral evaluated on the gmsh/OCC curves. All
 three agree to <= 5e-14, except the gmsh CAD area of the two merged bands,
 which agrees to <= 9e-13. That limit comes from the composite quadrature on
-the arc. The mesh columns give (polygon area - exact) / exact per level, which
+the arc. The mesh columns give (polygon |area| - exact) / exact per level, which
 falls as O(h^2), about 4x per level. Straight-sided regions are exact on any
 mesh.
 

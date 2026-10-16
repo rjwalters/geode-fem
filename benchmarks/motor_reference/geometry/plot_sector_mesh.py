@@ -2,7 +2,7 @@
 """Plot a tagged ICEM sector mesh, coloured by physical region, for checking by eye.
 
     uv run --with numpy==2.5.4 --with gmsh==4.15.2 --with matplotlib==3.11.2 \\
-        python -I benchmarks/motor_reference/geometry/plot_sector_mesh.py \\
+        --with pillow==11.3.0 python -I benchmarks/motor_reference/geometry/plot_sector_mesh.py \\
         benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh \\
         benchmarks/motor_reference/geometry/icem_initial_sector_L0.png
 """
@@ -78,8 +78,14 @@ def main(msh, png):
         ax.set_title(title)
     axes[0].legend(handles.values(), handles.keys(), loc="lower left", fontsize=7, ncol=2)
     fig.tight_layout()
-    fig.savefig(png, dpi=100)
+    fig.savefig(png, dpi=70)
     gmsh.finalize()
+    try:  # optional: 64-colour palette keeps the committed PNG ~120 KB
+        from PIL import Image
+    except ImportError:
+        return
+    img = Image.open(png).convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT)
+    img.save(png, optimize=True)
 
 
 if __name__ == "__main__":

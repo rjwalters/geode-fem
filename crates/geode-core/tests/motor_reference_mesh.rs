@@ -90,10 +90,34 @@ fn tags_round_trip() {
         assert_eq!(m.physical_group_tag(1, name), Some(tag), "line {name}");
         assert!(!m.lines_with_tag(tag).is_empty(), "line {name} empty");
     }
-    // Every triangle is tagged, none degenerate.
+    // Every triangle is tagged.
     assert!(m.tri_physical_tags.iter().all(|&t| t != 0));
+}
+
+/// Judge finding on PR #1164: gmsh wrote 3051 of the 5938 L0 triangles
+/// clockwise (patch parametrisations of both orientations). The reader must
+/// hand every consumer counter-clockwise triangles, as the magnetostatic
+/// assemblers assert `signed_area > 0`, without changing tags or areas.
+#[test]
+fn every_triangle_is_counter_clockwise_after_loading() {
+    let (m, report) = load();
+    assert_eq!(m.mesh.n_tris(), 5938);
+    assert_eq!(
+        m.reoriented_triangles, 3051,
+        "clockwise triangles in the file"
+    );
     for t in 0..m.mesh.n_tris() {
-        assert!(geode_core::mesh::tagged_tri::tri_signed_area(&m.mesh, t).abs() > 1e-14);
+        let a = geode_core::mesh::tagged_tri::tri_signed_area(&m.mesh, t);
+        assert!(a > 1e-14, "triangle {t} has signed area {a:e}");
+    }
+    // Per-region triangle counts are unchanged by re-orientation.
+    for (name, tag) in region_names() {
+        let n = m.tris_with_tag(tag).len();
+        assert_eq!(
+            Some(n as u64),
+            report["regions"][name]["triangles"].as_u64(),
+            "region {name}"
+        );
     }
 }
 
@@ -184,4 +208,52 @@ fn antiperiodic_edges_pair_by_sixty_degree_rotation() {
             );
         }
     }
+}
+
+/// Regenerated finer levels (gitignored; built by `build_sector_mesh.py`)
+/// get the same orientation, area and coupling checks when present. In CI
+/// only the pinned L0 exists, and this test checks that it was found.
+#[test]
+fn regenerated_levels_are_counter_clockwise_when_present() {
+    let dir = geometry_dir().join("meshes");
+    let mut checked = 0;
+    for level in 0..4u32 {
+        let path = dir.join(format!("icem_initial_sector_L{level}.msh"));
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let m = read_tagged_tri_mesh(&bytes).expect("parse level");
+        let report: Value = serde_json::from_slice(
+            &std::fs::read(dir.join(format!("icem_initial_sector_L{level}_report.json")))
+                .expect("report"),
+        )
+        .expect("parse report");
+        for t in 0..m.mesh.n_tris() {
+            assert!(
+                geode_core::mesh::tagged_tri::tri_signed_area(&m.mesh, t) > 0.0,
+                "L{level} triangle {t} clockwise"
+            );
+        }
+        let n = N_SEGMENTS << level;
+        assert_eq!(
+            m.nodes_on_line_tag(121).len(),
+            n + 1,
+            "L{level} rotor coupling"
+        );
+        assert_eq!(
+            m.nodes_on_line_tag(122).len(),
+            n + 1,
+            "L{level} stator coupling"
+        );
+        for (name, tag) in region_names() {
+            let reported = report["regions"][name]["area_mesh_m2"].as_f64().unwrap();
+            let area = m.area_with_tag(tag);
+            assert!(
+                ((area - reported) / reported).abs() < 1e-12,
+                "L{level} {name}"
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked >= 1, "pinned L0 mesh missing");
 }
