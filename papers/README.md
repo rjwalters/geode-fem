@@ -7,7 +7,7 @@ versions are:
 
 | Thread | Current version |
 |---|---|
-| `conformal-antenna-diffopt` | `conformal-antenna-diffopt.6/` (draft, not reviewed: v5 revised against its referee review onto the rim-refinement, Palace cross-check, gradient-free baseline and re-centred-design experiments; v4 is the last audited version) |
+| `conformal-antenna-diffopt` | `conformal-antenna-diffopt.7/` (draft, not reviewed: v6 revised against three reviews onto the tuned gradient-free baselines, the n-scaling, the finite-difference control, the design-C eigenmode, radiation, rim-mesh and air-margin experiments and the Meep diagnosis; the corrected Meep results are pending; v4 is the last audited version) |
 | `transmon-benchmark` | `transmon-benchmark.13/` (draft, not reviewed: v12 reframed as a cross-check of the Palace/DeviceLayout.jl transmon under the operator's 2026-10-15 rulings, cut to 17 pages, with PRIMA re-run in our environment, a Palace-only Newton and a second refinement family on the re-optimized design; v6 is the last audited version) |
 
 ## Building a paper
