@@ -13,7 +13,7 @@
 \setcounter{topnumber}{3}
 \setcounter{totalnumber}{4}
 \renewcommand{\bibfont}{\footnotesize}
-\setlength{\bibsep}{1pt plus 1pt}
+\setlength{\bibsep}{0.5pt plus 0.5pt}
 
 \newcommand{\anvilfig}[3][0.98]{%
   \IfFileExists{figures/#2}%
@@ -41,13 +41,14 @@ at one factorization per frequency, and count solves to fixed worst-of-band
 $|S_{11}|$ levels on the coarse optimization model against tuned
 gradient-free search. With 38 shape parameters the adjoint reaches
 $-9.5$\,dB in $35$ solves; the fastest of the separable CMA-ES, full CMA-ES
-and NEWUOA runs, over several step sizes and interpolation sets, needs $385$
-($11\times$), and at $-9$\,dB the best ratio is $7.7\times$ (full CMA-ES, one
-seed). At $-9.5$\,dB the ratio is $2.4\times$ with 4 parameters and
+and NEWUOA runs to reach that level needs $385$ ($11\times$), and the
+fastest to reach $-9$\,dB needs $7.7\times$ the adjoint's solves (full
+CMA-ES, one seed).
+Against the fastest run to reach each level, the ratio is $1.1\times$ at
+$-9$\,dB and $2.4\times$ at $-9.5$\,dB with 4 parameters, and $3.3\times$ and
 $2.9\times$ with 14. L-BFGS with a finite-difference gradient follows the
 adjoint's iterates at $39$ times its solves, behind CMA-ES, so the savings
-come from the adjoint. Re-centred on the rim-resolved model by frequency
-space mapping, the design covers $2.400$--$2.4835$\,GHz at $-10$\,dB on the
+come from the adjoint. Re-centred on the rim-resolved model, the design covers $2.400$--$2.4835$\,GHz at $-10$\,dB on the
 three most refined models computed, including $-10.46$\,dB on Palace at
 third order and $-10.32$\,dB on Palace at second order on a rim-refined
 mesh, which leaves $1.9$\,MHz of lower-edge margin. A larger air margin
@@ -92,7 +93,8 @@ Three results follow.
   \item \textbf{The adjoint cuts the solve count, and the cut grows with the
   number of parameters} (Section~\ref{sec:baselines}): from close to even
   with 4 parameters, where three gradient-free runs end lower than the
-  adjoint, to $11\times$ at $-9.5$\,dB and $7.7\times$ at $-9$\,dB with 38. A
+  adjoint, to $11\times$ at $-9.5$\,dB and $7.7\times$ at $-9$\,dB with 38,
+  each against the fastest gradient-free run to reach that level. A
   finite-difference gradient on the same L-BFGS path costs $39$ times the
   adjoint's solves, so the savings are the adjoint's, not the gradient's as
   such; given enough solves, gradient-free search reaches the same level.
@@ -406,9 +408,8 @@ refines the slab, moves the dip $9.0$\,MHz.
 \paragraph{An independent solver on the same meshes.}
 Palace \citep{palace} solved the same problem on geode-fem's own meshes,
 written out with their physical tags, with the same materials, PEC surfaces
-and uniform $50\,\Omega$ lumped port. Its absorber is different: the UPML
-shell is air and the outer wall carries a first-order absorbing boundary.
-Its driven sweeps use an adaptive reduced-order model with tolerance
+and uniform $50\,\Omega$ lumped port. Its absorber differs (air in the UPML shell, a first-order absorbing outer
+wall); its driven sweeps use an adaptive reduced-order model with tolerance
 $10^{-3}$ on a $1$\,MHz grid, and GMRES to $10^{-8}$. On L1, Palace and
 geode-fem agree on the dip to $1.1$\,MHz at $p = 1$ ($2.3130$ against
 $2.3118$\,GHz) and $0.4$\,MHz at $p = 2$ ($2.3570$ against $2.3566$\,GHz);
@@ -418,8 +419,8 @@ gives $2.3660$\,GHz, $8.9$\,MHz above its $p = 2$ value, and geode-fem's
 finest rung (slab $0.30$ plus rim $0.10$\,mm) gives $2.3659$\,GHz
 (Figure~\ref{fig:accuracy}a): two different refinements of the same model,
 order in Palace and rim size in geode-fem, land within the $1$\,MHz sweep
-step. This checks the discretization, not the model, because the two codes
-share the mesh, the port model and the geometry.
+step. Sharing mesh, port model and geometry, this checks the discretization,
+not the model.
 
 \paragraph{The mesh-limit resonance.}
 Every refinement computed so far raises the dip. If that continues, the
@@ -437,8 +438,7 @@ for the initial patch, and at $2.3991$\,GHz with $Q = 19.3$ for the final
 design, identified by its substrate energy fraction ($0.80$--$0.83$, every
 other mode at most $0.013$). The matched dip
 on the same discrete model lies above it, by $16.3$\,MHz for the initial
-patch and $30.9$\,MHz for the design, whose probe sits closer to the edge,
-and loading the gap with the $50\,\Omega$ port raises the mode by $12.2$ and
+patch and $30.9$\,MHz for the design, and loading the gap with the $50\,\Omega$ port raises the mode by $12.2$ and
 $23.1$\,MHz and halves its $Q$ ($11.5$ and $8.6$). The feed thus raises the
 dip above the cavity resonance, as a series-inductive probe would.
 The Hammerstad transmission-line estimate for the initial patch,
@@ -541,9 +541,8 @@ solves it used.
   the dashed geode-fem runs, and the short $\sigma_0 = 1.5$ runs are
   omitted). (b) Solves to $-9.5$\,dB (solid) and $-9$\,dB (dashed) against
   the number of parameters, for the adjoint and for the best of the 5 to 11
-  gradient-free runs at each $n$. Data: \texttt{copper/},
-  \texttt{tuned/tuned\_summary.toml}, \texttt{designc/c4/},
-  \texttt{v6/x4/}, \texttt{v6/palace\_loop/}.}
+  gradient-free runs at each $n$. Data: \texttt{tuned/},
+  \texttt{designc/c4/}, \texttt{v6/x4/}, \texttt{v6/palace\_loop/}.}
   \label{fig:optimizers}
 \end{figure}
 
@@ -551,7 +550,10 @@ solves it used.
 To reach $-9.5$\,dB the adjoint uses $35$ solves (Table~\ref{tab:baselines},
 Figure~\ref{fig:optimizers}a). The fastest gradient-free run, a separable
 CMA-ES seed at $\sigma_0 = 0.5$, uses $385$ ($11\times$), NEWUOA with $n + 2$
-points $400$ ($11.4\times$), and no run fewer. To $-9$\,dB the best ratio is
+points $400$ ($11.4\times$), and no run fewer. These ratios are against
+the fastest runs that reached the level; the $\sigma_0 = 1.5$ runs, censored
+at $80$ to $105$ solves, bound the $-9.5$\,dB ratio only from below, by $2.3$
+to $3.0\times$. To $-9$\,dB the ratio to the fastest run to reach it is
 $7.7\times$: full CMA-ES at $\sigma_0 = 0.5$ needs $230$ solves against $30$,
 in a single seed, and then $690$ to reach $-9.5$\,dB. A larger step does not help:
 at $\sigma_0 = 1.5$, $89$ to $92\%$ of the samples fail the volume guard, a
@@ -565,14 +567,12 @@ solves, so the budgets favour them.
 
 At $-10$\,dB the comparison is weak. Two gradient-free runs reach it, at
 $650$ and $695$ solves against the adjoint's $60$, and the rest are
-censored. The two forward models agree to $0.004$\,dB on the 41 designs
+censored. The forward models agree to $0.004$\,dB on the 41 designs
 both evaluated (the first CMA-ES generation of each seed, 42 samples with
 one rejected by the guard in both) but differ by up to about $0.25$\,dB at
-optimized designs, where the band edge sits on a steep slope: Palace reads
-the adjoint's final design at $-9.80$\,dB against geode-fem's
-$-10.04$\,dB. That is the size of the gap between reaching and missing
-$-10$\,dB, so we state ratios at $-9$ and $-9.5$\,dB, which are less
-sensitive to it, and derive none from the $-10$\,dB column.
+optimized designs (Palace reads the adjoint's final design at $-9.80$\,dB
+against geode-fem's $-10.04$\,dB), the size of the gap between reaching and
+missing $-10$\,dB, so we derive no ratio from the $-10$\,dB column.
 
 \paragraph{The finite-difference control.}
 With a forward-difference gradient, L-BFGS takes the adjoint's path. The two
@@ -592,9 +592,9 @@ parametrization, which give the same iterates with either gradient.
 \paragraph{Scaling with the number of parameters.}
 From the same cold start with 4 and 14 parameters, against the best of three
 separable CMA-ES seeds at $\sigma_0 = 1.5$ and NEWUOA with $n + 2$ and
-$2n + 1$ points, the ratio at $-9$ and $-9.5$\,dB is $1.1$ and $2.4\times$
-with 4 parameters, $3.3$ and $2.9\times$ with 14, and $7.7$ and $11\times$
-with 38 (Figure~\ref{fig:optimizers}b). With 4 the adjoint stops on the guard
+$2n + 1$ points, the ratio to the fastest run to reach each level is
+$1.1\times$ at $-9$\,dB and $2.4\times$ at $-9.5$\,dB with 4 parameters,
+$3.3\times$ and $2.9\times$ with 14, and $7.7\times$ and $11\times$ with 38 (Figure~\ref{fig:optimizers}b). With 4 the adjoint stops on the guard
 at $-9.85$\,dB and three gradient-free runs end lower ($-9.92$ to
 $-9.97$\,dB); with 14 it reaches $-10.00$\,dB in $60$ solves and the best
 gradient-free run ends at $-9.99$\,dB. At 4 and 14 parameters separable
@@ -625,10 +625,9 @@ fine response as the coarse response shifted in frequency,
 $S_{\mathrm{fine}}(f) \approx S_{\mathrm{coarse}}(f - \delta)$, fit $\delta$
 by least squares over the fine model's points, and re-optimize on the coarse
 model for the band shifted down by $\delta$. For the cold L1 optimum of
-Section~\ref{sec:baselines} the fitted L1-to-\PL{} shift is $47.85$\,MHz, and
-the root-mean-square complex misfit falls from $0.23$--$0.38$ unshifted to
-$0.018$--$0.025$ shifted. Without the correction, the
-cold L1 optimum ($-10.04$\,dB on L1) gives $-4.76$\,dB at \PL.
+Section~\ref{sec:baselines} the fitted L1-to-\PL{} shift is $47.85$\,MHz
+(complex misfit $0.23$--$0.38$ unshifted, $0.018$--$0.025$ shifted); without
+it, the cold L1 optimum ($-10.04$\,dB on L1) gives $-4.76$\,dB at \PL.
 
 \paragraph{Feed re-basing.}
 Moving the feed toward the $+y$ edge compresses the mesh between them, and
@@ -758,10 +757,9 @@ resolve the rim. From $p = 2$ to $p = 3$ on L1 the design's dip rises
 $9.1$\,MHz and its lower band edge $8.7$\,MHz; the initial patch's dip rises
 $8.9$\,MHz over the same step, so the design shifts like the patch.
 
-On the refined meshes the air is moved on cylinders, because the default
-air morph inverts elements above the patch edge on the combined mesh; on the
-$0.2$\,mm-rim mesh the two air motions agree to $0.09$\,MHz at the lower
-edge.
+On the refined meshes the air is moved on cylinders (the default morph
+inverts elements on the combined mesh); on the $0.2$\,mm-rim mesh the two
+air motions agree to $0.09$\,MHz at the lower edge.
 
 \begin{table}[t]
   \centering
@@ -799,8 +797,7 @@ band edge by a few megahertz, and we do not claim that it meets the ISM
 band.
 
 \paragraph{Where the descent stopped.}
-The descents to A, B and C each stop on the volume guard in the air outside
-the widening patch. For C the gradient norm fell 65-fold first, so C may be
+The descents to A, B and C stop on the volume guard. For C the gradient norm fell 65-fold first, so C may be
 near a stationary point of the guarded problem (for the rectangle it grew,
 $0.023$ to $0.074$), and the widened patch comes within about $6$\,mm of
 the $62$\,mm board edge. Remeshing at the widened outline would relieve the
@@ -834,13 +831,11 @@ infinite-ground closed form, perhaps through its finite $62\times53$\,mm
 ground, which we did not test.
 
 \paragraph{Cost.}
-The final descent took $26$\,min on a 32-vCPU host and the
-finite-difference control $4.7$\,h on a 16-vCPU host ($1{,}164$ to
-$1{,}211$\,s per gradient on 8 threads). The Palace $p = 3$ sweep of
-design~C took $3.5$\,h on 16 MPI ranks (12 full solves at $2.5$M unknowns
-for an adaptive reduced-order model) and the $0.2$\,mm-rim sweep $1.5$\,h.
-On the combined mesh geode-fem's direct solver took about $8$\,min per
-frequency at $204$\,GiB, so that mesh served for verification only.
+The final descent took $26$\,min on a 32-vCPU host, the finite-difference
+control $4.7$\,h on a 16-vCPU host ($1{,}164$ to $1{,}211$\,s per gradient on
+8 threads), the Palace $p = 3$ sweep of design~C $3.5$\,h on 16 MPI ranks and
+the $0.2$\,mm-rim sweep $1.5$\,h. geode-fem's direct solver needed about
+$8$\,min per frequency at $204$\,GiB on the combined mesh.
 
 \section{Limitations and Future Work}
 \label{sec:limits}
@@ -952,7 +947,8 @@ text against them.
 On the copper design of a bent 2.4\,GHz patch, a finite-element shape
 adjoint reaches a worst-of-band $|S_{11}|$ of $-9.5$\,dB on the coarse
 optimization model with $11$ times fewer solves than the fastest tuned
-gradient-free run, and $-9$\,dB with $7.7$ times fewer. The ratio is near
+gradient-free run to reach that level, and $-9$\,dB with $7.7$ times fewer
+than the fastest run to reach $-9$\,dB. The ratio is near
 one with 4 parameters and grows with their number. A finite-difference
 gradient on the same path costs more than gradient-free search, so the
 savings are the adjoint's, and the optimum is no better: gradient-free search

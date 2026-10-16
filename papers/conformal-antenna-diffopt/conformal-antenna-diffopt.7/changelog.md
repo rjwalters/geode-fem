@@ -40,6 +40,16 @@ preprint overlay); no journal framing. v1–v6 and the critic dirs are unchanged
 | Judge nits (v6 PR) | Seed-2 budget/dash: Table 3 now has a "Used" column per run, so no budget is listed without a dash; "agrees" applies to the lower edge only and the 1.7 MHz upper-edge difference is stated |
 | Nits | P2/L1 reference row in Table 2; design A's P2/L1 edges 0.7 / 0.2 MHz; "with geode-fem's direct solver"; "independently developed solver Palace"; "Dunnavant also gave design input"; Q_t ≥ 18.1 called a model inequality; header comments and `TODO(operator)` lines removed; the deposit-DOI footnote text moved to a comment; Figure 1(c) width dimension line; Figure 3 dash patterns for grayscale; "not a proven asymptotic order" (no "demonstrated") |
 
+## Coordinator note (transmon Judge finding applied here)
+
+Every solve ratio is stated against the fastest gradient-free run that reached the level,
+with the level named for each ratio: abstract (11× at −9.5 dB, 7.7× at −9 dB; 1.1× / 2.4× at
+n = 4 and 3.3× / 2.9× at n = 14, each at −9 / −9.5 dB), §1 bullet, §5 results and scaling, §11.
+§5 adds that the σ0 = 1.5 runs censored at 80–105 solves bound the −9.5 dB ratio only from
+below, by 2.3 to 3.0×. No "≥ 11×" or "at least 11×" appears (checked in `verify_evidence.py`).
+To hold 18 pages: the −10 dB caveat, space-mapping misfit, air-morph, Palace-absorber and
+cost sentences were shortened, and `\bibsep` reduced to 0.5 pt.
+
 ## Meep
 
 §8 now reports the diagnosis (harness voxelization; flat 2.335 vs geode 2.343 GHz; bend

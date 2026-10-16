@@ -210,11 +210,11 @@ def check_headline():
     n_p2 = int(re.search(r"P2 space: (\d+) DOFs", log).group(1))
     contains(f"geode-fem $p = 2$, L1 & ${thousands(n_p2)}$ & {m(M['L1_p2']['worst_in_band_db'])} & not swept")
     contains(f"agree to ${f(abs(ref['sm57_rim020_air_morph_lo_edge_mhz']), 2)}$\\,MHz at the lower edge")
-    contains(f"took ${f(p3['wall_s'] / 3600, 1)}$\\,h on 16 MPI ranks")
+    contains(f"design~C ${f(p3['wall_s'] / 3600, 1)}$\\,h on 16 MPI ranks")
     assert p3["prom_n_samples"] == 12
     cd = read("recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_cyl_dense.toml")["verify"]
     assert round(cd["sweep_wall_s"] / cd["n_driven_solves"] / 60) == 8 and round(cd["sweep_peak_rss_gib"]) == 204
-    contains("about $8$\\,min per frequency at $204$\\,GiB")
+    contains("about $8$\\,min per frequency at $204$\\,GiB on the combined mesh")
     contains(f"Palace gives design~C a bandwidth of ${f(p3['vswr2_bandwidth_mhz'], 1)}$\\,MHz at $p = 3$")
     for row in ["A & $4.27$\\,mm strip (free width) & $44.94$ & $9$ & $125$ & \\PL \\\\",
                 "B & $1.6$\\,mm probe (pinned) & $44.94$ & $10$ & $130$ & \\PL \\\\",
@@ -444,9 +444,14 @@ def check_baselines(ts, dc):
     b95 = min(r["solves_to_level"][i95] for r in gf38_all if r["solves_to_level"][i95] > 0)
     b9 = min(r["solves_to_level"][i9] for r in gf38_all if r["solves_to_level"][i9] > 0)
     assert (b95, b9) == (385, 230) and round(b95 / a95) == 11 and f(b9 / a9, 1) == "7.7"
-    contains(f"reaches $-9.5$\\,dB in ${a95}$ solves; the fastest of the separable CMA-ES, full CMA-ES and NEWUOA runs, over several "
-             f"step sizes and interpolation sets, needs ${b95}$ (${round(b95 / a95)}\\times$), and at $-9$\\,dB the best ratio is "
-             f"${f(b9 / a9, 1)}\\times$ (full CMA-ES, one seed)")
+    contains(f"reaches $-9.5$\\,dB in ${a95}$ solves; the fastest of the separable CMA-ES, full CMA-ES and NEWUOA runs to reach that "
+             f"level needs ${b95}$ (${round(b95 / a95)}\\times$), and the fastest to reach "
+             f"$-9$\\,dB needs ${f(b9 / a9, 1)}\\times$ the adjoint's solves (full CMA-ES, one seed)")
+    cens = [r["optimization_solves"] for r in s15 + f15]
+    contains(f"censored at ${min(cens)}$ to ${max(cens)}$ solves, bound the $-9.5$\\,dB ratio only from below, by "
+             f"${f(min(cens) / a95, 1)}$ to ${f(max(cens) / a95, 1)}\\times$")
+    contains("each against the fastest gradient-free run to reach that level")
+    contains("gradient-free run to reach that level, and $-9$\\,dB with $7.7$ times fewer than the fastest run to reach $-9$\\,dB")
     contains(f"uses ${b95}$ (${round(b95 / a95)}\\times$), NEWUOA with $n + 2$ points ${n40[0]['solves_to_level'][i95]}$ "
              f"(${f(n40[0]['solves_to_level'][i95] / a95, 1)}\\times$), and no run fewer")
     contains(f"needs ${b9}$ solves against ${a9}$, in a single seed, and then ${f05[0]['solves_to_level'][i95]}$ to reach $-9.5$\\,dB")
@@ -487,9 +492,13 @@ def check_baselines(ts, dc):
     # the n-scaling
     sc = {s["n_dofs"]: s for s in ts["scaling"]}
     rat = {n: (sc[n]["best_ratio"][i9], sc[n]["best_ratio"][i95]) for n in (4, 14, 38)}
-    contains(f"is ${f(rat[4][0], 1)}$ and ${f(rat[4][1], 1)}\\times$ with 4 parameters, ${f(rat[14][0], 1)}$ and "
-             f"${f(rat[14][1], 1)}\\times$ with 14, and ${f(rat[38][0], 1)}$ and ${round(rat[38][1])}\\times$ with 38")
-    contains(f"the ratio is ${f(rat[4][1], 1)}\\times$ with 4 parameters and ${f(rat[14][1], 1)}\\times$ with 14")
+    contains(f"the ratio to the fastest run to reach each level is ${f(rat[4][0], 1)}\\times$ at $-9$\\,dB and "
+             f"${f(rat[4][1], 1)}\\times$ at $-9.5$\\,dB with 4 parameters, ${f(rat[14][0], 1)}\\times$ and "
+             f"${f(rat[14][1], 1)}\\times$ with 14, and ${f(rat[38][0], 1)}\\times$ and ${round(rat[38][1])}\\times$ with 38")
+    contains(f"the ratio is ${f(rat[4][0], 1)}\\times$ at $-9$\\,dB and ${f(rat[4][1], 1)}\\times$ at $-9.5$\\,dB with 4 parameters, "
+             f"and ${f(rat[14][0], 1)}\\times$ and ${f(rat[14][1], 1)}\\times$ with 14")
+    for bad in ["at least $11", "\\ge 11", "\\geq 11", "$\\ge$11"]:
+        absent(bad)
     a4 = runs["tuned/L1_copper_rect4_cold.toml"]
     a14 = runs["tuned/L1_copper_14_cold.toml"]
     assert a4["terminal_condition"] == "distortion_limited" and a4["solves_to_level"][i10] < 0
