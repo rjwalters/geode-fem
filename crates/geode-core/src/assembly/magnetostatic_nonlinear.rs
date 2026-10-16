@@ -93,6 +93,43 @@
 //! [`NonlinearMagnetostaticSolution`] carries the converged reduced tangent
 //! for the adjoint solve of milestone M3
 //! ([`NonlinearMagnetostaticSolution::solve_tangent_transpose`]).
+//!
+//! # Signed node links: periodic and antiperiodic constraints
+//!
+//! [`NonlinearMagnetostaticSystem::with_node_links`] adds constraints of the
+//! form `A_node = s · A_master` with `s = ±1` (motor-paper milestone M2,
+//! issue #1161). They express periodic (`s = +1`) and antiperiodic
+//! (`s = −1`) sector boundaries and the conforming sliding band of
+//! [`crate::assembly::magnetostatic_sector`]. The links are resolved with a
+//! signed union–find into classes. Each free class is one reduced unknown,
+//! so the full potential is `A = P a + A_D`, where the prolongation `P`
+//! ([`NonlinearMagnetostaticSystem::prolongation`]) has one entry `±1` per
+//! free node and `A_D` holds the Dirichlet values. Every quantity in the
+//! module is then the reduced one:
+//!
+//! ```text
+//!   R_red(a) = Pᵀ R(P a + A_D),   K_red = Pᵀ K P ,
+//! ```
+//!
+//! so the reduced tangent stays symmetric, and the M3 adjoint uses the same
+//! `P`. With no links, `P` is the plain free-node injection and every result
+//! is bit-for-bit what it was before.
+//!
+//! Two corner cases are resolved rather than rejected. A class whose links
+//! close a loop with sign `−1` (for example, the centre node of an
+//! antiperiodic sector, which is its own image) forces `A = −A`, so the
+//! whole class is pinned to zero and counted in
+//! [`NonlinearMagnetostaticSystem::n_forced_zero`]. A class that contains a
+//! Dirichlet node is pinned as a whole, and the other members take the
+//! signed value. Dirichlet values that contradict each other through the
+//! links are an error ([`NonlinearMagnetostaticError::InvalidConstraint`]).
+//!
+//! The offset invariance of [`NonlinearMagnetostaticSystem::reference_residual`]
+//! holds whenever a constant is an admissible field, that is, when every
+//! link has `s = +1`. With an antiperiodic link a constant offset is not a
+//! solution of the same problem, and the reference is simply computed
+//! without the centring shift; it is still independent of the initial
+//! guess.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -129,6 +166,9 @@ pub enum NonlinearMagnetostaticError {
     InvalidLaw(String),
     /// faer rejected the sparse-matrix triplets.
     Assembly(String),
+    /// A node link is malformed (index out of range, sign not `±1`), or the
+    /// links and the Dirichlet values contradict each other.
+    InvalidConstraint(String),
     /// faer's sparse LU failed on the reduced tangent.
     Factorization(String),
     /// A residual or tangent entry became NaN or infinite.
@@ -166,6 +206,7 @@ impl std::fmt::Display for NonlinearMagnetostaticError {
             ),
             Self::InvalidLaw(s) => write!(f, "invalid reluctivity law: {s}"),
             Self::Assembly(s) => write!(f, "nonlinear magnetostatic assembly failed: {s}"),
+            Self::InvalidConstraint(s) => write!(f, "invalid node constraint: {s}"),
             Self::Factorization(s) => write!(f, "tangent factorization failed: {s}"),
             Self::NonFinite(s) => write!(f, "non-finite value in nonlinear magnetostatics: {s}"),
             Self::LineSearchFailed {
@@ -858,13 +899,47 @@ pub struct NonlinearMagnetostaticSolution {
     /// state. It is symmetric (and SPD for a monotone law). The M3 adjoint
     /// solves with its transpose.
     pub tangent: SparseColMat<usize, f64>,
-    /// Global → free-node renumbering (`None` for Dirichlet nodes).
+    /// Global → reduced-unknown renumbering (`None` for Dirichlet and
+    /// forced-zero nodes). With node links several nodes share one reduced
+    /// unknown.
     pub free_of_global: Vec<Option<usize>>,
-    /// Number of free nodes (the order of `tangent`).
+    /// Sign of each node's entry in the prolongation `P`
+    /// (`A_g = sign_of_global[g] · a[free_of_global[g]]`). All `+1` without
+    /// antiperiodic links.
+    pub sign_of_global: Vec<f64>,
+    /// Number of reduced unknowns (the order of `tangent`).
     pub n_free: usize,
 }
 
 impl NonlinearMagnetostaticSolution {
+    /// The prolongation `P` (`n_nodes × n_free`, one `±1` per free node)
+    /// with `A = P a + A_D`. The returned [`tangent`](Self::tangent) is
+    /// `Pᵀ K P`, and an adjoint load `∂J/∂A` reduces as `Pᵀ (∂J/∂A)`.
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::Assembly`] if faer rejects the
+    /// triplets.
+    pub fn prolongation(&self) -> Result<SparseColMat<usize, f64>, NonlinearMagnetostaticError> {
+        build_prolongation(&self.free_of_global, &self.sign_of_global, self.n_free)
+    }
+
+    /// `Pᵀ v` for a full nodal vector `v` (an adjoint load, for example).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v.len()` is not the node count.
+    pub fn reduce(&self, v: &[f64]) -> Vec<f64> {
+        assert_eq!(v.len(), self.free_of_global.len(), "reduce: vector length");
+        let mut out = vec![0.0; self.n_free];
+        for (g, slot) in self.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                out[*fi] += self.sign_of_global[g] * v[g];
+            }
+        }
+        out
+    }
+
     /// Solve `Kᵀ λ = rhs` with the converged tangent `K`, where `rhs` and
     /// `λ` are free-node vectors. This is the adjoint solve for milestone M3.
     ///
@@ -910,6 +985,193 @@ struct ElemGeom {
     area: f64,
 }
 
+/// A signed node identification `A[node] = sign · A[master]`, with
+/// `sign = +1` (periodic) or `−1` (antiperiodic). See
+/// [`NonlinearMagnetostaticSystem::with_node_links`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NodeLink {
+    /// The constrained node.
+    pub node: usize,
+    /// The node it is identified with.
+    pub master: usize,
+    /// `+1` or `−1`.
+    pub sign: f64,
+}
+
+impl NodeLink {
+    /// `A[node] = sign · A[master]`.
+    pub fn new(node: usize, master: usize, sign: f64) -> Self {
+        Self { node, master, sign }
+    }
+}
+
+/// The resolved degree-of-freedom map: the prolongation rows and the
+/// effective Dirichlet values.
+#[derive(Debug, Clone)]
+struct DofMap {
+    free_of_global: Vec<Option<usize>>,
+    sign_of_global: Vec<f64>,
+    /// Members per reduced unknown (for the averaging `restrict`).
+    class_size: Vec<usize>,
+    n_free: usize,
+    /// Effective nodal Dirichlet values: user values on user-pinned nodes,
+    /// signed copies on the rest of a pinned class, 0 on forced-zero nodes.
+    dirichlet_values: Vec<f64>,
+    n_forced_zero: usize,
+    /// A constant field is admissible: every node has sign `+1` relative to
+    /// its class representative and no class is forced to zero.
+    offset_admissible: bool,
+}
+
+/// Resolve the Dirichlet mask and values plus the signed links into a
+/// [`DofMap`] by a signed union–find.
+fn resolve_dofs(
+    mask: &[bool],
+    values: &[f64],
+    links: &[NodeLink],
+) -> Result<DofMap, NonlinearMagnetostaticError> {
+    let n = mask.len();
+    let bad = |s: String| Err(NonlinearMagnetostaticError::InvalidConstraint(s));
+    // parent[i], rel[i]: A_i = rel[i] · A_parent[i].
+    let mut parent: Vec<usize> = (0..n).collect();
+    let mut rel = vec![1.0_f64; n];
+    let mut zero = vec![false; n];
+    fn find(parent: &mut [usize], rel: &mut [f64], i: usize) -> (usize, f64) {
+        // Iterative two-pass find with path compression.
+        let mut path = Vec::new();
+        let mut x = i;
+        while parent[x] != x {
+            path.push(x);
+            x = parent[x];
+        }
+        let root = x;
+        // Walk back from the node nearest the root, accumulating signs.
+        for &p in path.iter().rev() {
+            let up = parent[p];
+            if up != root {
+                rel[p] *= rel[up];
+            }
+            parent[p] = root;
+        }
+        let s = if i == root { 1.0 } else { rel[i] };
+        (root, s)
+    }
+    for (li, l) in links.iter().enumerate() {
+        if l.node >= n || l.master >= n {
+            return bad(format!(
+                "link {li}: node {} or master {} out of range for {n} nodes",
+                l.node, l.master
+            ));
+        }
+        if l.sign != 1.0 && l.sign != -1.0 {
+            return bad(format!("link {li}: sign must be +1 or -1, got {}", l.sign));
+        }
+        let (ra, sa) = find(&mut parent, &mut rel, l.node);
+        let (rb, sb) = find(&mut parent, &mut rel, l.master);
+        // A_node = s A_master, A_node = sa A_ra, A_master = sb A_rb
+        // ⇒ A_ra = sa·s·sb A_rb.
+        let s = sa * l.sign * sb;
+        if ra == rb {
+            if s != 1.0 {
+                zero[ra] = true;
+            }
+        } else {
+            parent[ra] = rb;
+            rel[ra] = s;
+            zero[rb] |= zero[ra];
+        }
+    }
+    let mut root_of = vec![0usize; n];
+    let mut sign_to_root = vec![1.0_f64; n];
+    for i in 0..n {
+        let (r, s) = find(&mut parent, &mut rel, i);
+        root_of[i] = r;
+        sign_to_root[i] = s;
+    }
+    // Pinned value of each root (A_root), from the first pinned member.
+    let mut root_value: Vec<Option<(f64, usize)>> = vec![None; n];
+    for i in 0..n {
+        if !mask[i] {
+            continue;
+        }
+        let r = root_of[i];
+        let v = sign_to_root[i] * values[i];
+        if !v.is_finite() {
+            return bad(format!("Dirichlet value of node {i} is not finite: {v}"));
+        }
+        if zero[r] && v != 0.0 {
+            return bad(format!(
+                "node {i} is pinned to {} but its links force it to zero (A = -A)",
+                values[i]
+            ));
+        }
+        match root_value[r] {
+            None => root_value[r] = Some((v, i)),
+            Some((v0, i0)) => {
+                if (v - v0).abs() > 1e-12 * v.abs().max(v0.abs()) {
+                    return bad(format!(
+                        "Dirichlet values contradict the links: node {i} implies {v:e} \
+                         but node {i0} implies {v0:e} for the same linked class"
+                    ));
+                }
+            }
+        }
+    }
+    let mut free_of_global = vec![None; n];
+    let mut sign_of_global = vec![1.0_f64; n];
+    let mut dirichlet_values = vec![0.0_f64; n];
+    let mut slot_of_root: Vec<Option<usize>> = vec![None; n];
+    let mut class_size = Vec::new();
+    let mut n_forced_zero = 0usize;
+    let mut offset_admissible = true;
+    for i in 0..n {
+        let r = root_of[i];
+        let s = sign_to_root[i];
+        sign_of_global[i] = s;
+        if s != 1.0 {
+            offset_admissible = false;
+        }
+        if zero[r] {
+            n_forced_zero += 1;
+            offset_admissible = false;
+            dirichlet_values[i] = 0.0;
+        } else if let Some((v, _)) = root_value[r] {
+            dirichlet_values[i] = if mask[i] { values[i] } else { s * v };
+        } else {
+            let slot = *slot_of_root[r].get_or_insert_with(|| {
+                class_size.push(0);
+                class_size.len() - 1
+            });
+            class_size[slot] += 1;
+            free_of_global[i] = Some(slot);
+        }
+    }
+    Ok(DofMap {
+        free_of_global,
+        sign_of_global,
+        n_free: class_size.len(),
+        class_size,
+        dirichlet_values,
+        n_forced_zero,
+        offset_admissible,
+    })
+}
+
+/// The sparse prolongation `P` (`n_nodes × n_free`) of a DOF map.
+fn build_prolongation(
+    free_of_global: &[Option<usize>],
+    sign_of_global: &[f64],
+    n_free: usize,
+) -> Result<SparseColMat<usize, f64>, NonlinearMagnetostaticError> {
+    let trips: Vec<Triplet<usize, usize, f64>> = free_of_global
+        .iter()
+        .enumerate()
+        .filter_map(|(g, slot)| slot.map(|fi| Triplet::new(g, fi, sign_of_global[g])))
+        .collect();
+    SparseColMat::<usize, f64>::try_new_from_triplets(free_of_global.len(), n_free, &trips)
+        .map_err(|e| NonlinearMagnetostaticError::Assembly(format!("{e:?}")))
+}
+
 /// An assembled-on-demand nonlinear scalar magnetostatic problem on a P1
 /// [`TriMesh`]: per-element laws, the load vector, and the Dirichlet data.
 ///
@@ -924,10 +1186,14 @@ pub struct NonlinearMagnetostaticSystem {
     laws: Vec<Arc<dyn ReluctivityLaw>>,
     /// Full nodal load `F` (A).
     load: Vec<f64>,
-    /// Full nodal Dirichlet values (Wb/m); only pinned entries are used.
-    dirichlet_values: Vec<f64>,
-    free_of_global: Vec<Option<usize>>,
-    n_free: usize,
+    /// User Dirichlet mask (`true` pins the node).
+    dirichlet_mask: Vec<bool>,
+    /// User nodal Dirichlet values (Wb/m); only pinned entries are used.
+    user_dirichlet_values: Vec<f64>,
+    /// Signed node links (periodic / antiperiodic / sliding band).
+    links: Vec<NodeLink>,
+    /// The resolved prolongation and effective Dirichlet data.
+    dofs: DofMap,
     n_nodes: usize,
     /// Kept for the magnetization source.
     mesh: TriMesh,
@@ -996,23 +1262,17 @@ impl NonlinearMagnetostaticSystem {
             }
         }
 
-        let mut free_of_global = vec![None; n_nodes];
-        let mut n_free = 0usize;
-        for (g, &pinned) in dirichlet.iter().enumerate() {
-            if !pinned {
-                free_of_global[g] = Some(n_free);
-                n_free += 1;
-            }
-        }
-
+        let user_dirichlet_values = vec![0.0; n_nodes];
+        let dofs = resolve_dofs(dirichlet, &user_dirichlet_values, &[])?;
         Ok(Self {
             tris: mesh.tris.clone(),
             geom,
             laws,
             load,
-            dirichlet_values: vec![0.0; n_nodes],
-            free_of_global,
-            n_free,
+            dirichlet_mask: dirichlet.to_vec(),
+            user_dirichlet_values,
+            links: Vec::new(),
+            dofs,
             n_nodes,
             mesh: mesh.clone(),
         })
@@ -1080,13 +1340,85 @@ impl NonlinearMagnetostaticSystem {
                 self.n_nodes
             )));
         }
-        self.dirichlet_values = values.to_vec();
+        self.user_dirichlet_values = values.to_vec();
+        self.dofs = resolve_dofs(
+            &self.dirichlet_mask,
+            &self.user_dirichlet_values,
+            &self.links,
+        )?;
         Ok(self)
     }
 
-    /// Number of free (unknown) nodes.
+    /// Add signed node links `A[node] = sign · A[master]` (`sign = ±1`), on
+    /// top of any links already present. Periodic and antiperiodic sector
+    /// edges and the sliding band of
+    /// [`crate::assembly::magnetostatic_sector`] are built this way.
+    ///
+    /// The links are resolved into classes by a signed union–find. Every
+    /// free class becomes one reduced unknown, and the residual, tangent,
+    /// energy line search and tolerance are all the reduced ones,
+    /// `Pᵀ R(P a + A_D)` and `Pᵀ K P` (see the module docs). A class with a
+    /// pinned member is pinned as a whole; a class whose links force
+    /// `A = −A` is pinned to zero ([`n_forced_zero`](Self::n_forced_zero)).
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::InvalidConstraint`] for an index out
+    /// of range, a sign other than `±1`, or Dirichlet values that the links
+    /// contradict (including a non-zero value on a forced-zero node).
+    pub fn with_node_links(
+        mut self,
+        links: &[NodeLink],
+    ) -> Result<Self, NonlinearMagnetostaticError> {
+        let mut all = self.links.clone();
+        all.extend_from_slice(links);
+        self.dofs = resolve_dofs(&self.dirichlet_mask, &self.user_dirichlet_values, &all)?;
+        self.links = all;
+        Ok(self)
+    }
+
+    /// The node links added with [`with_node_links`](Self::with_node_links).
+    pub fn node_links(&self) -> &[NodeLink] {
+        &self.links
+    }
+
+    /// Number of reduced unknowns (free nodes, or free linked classes).
     pub fn n_free(&self) -> usize {
-        self.n_free
+        self.dofs.n_free
+    }
+
+    /// Number of nodes pinned to zero because their links force `A = −A`
+    /// (for example, the centre of an antiperiodic sector).
+    pub fn n_forced_zero(&self) -> usize {
+        self.dofs.n_forced_zero
+    }
+
+    /// Sign of each node in the prolongation (`+1` without antiperiodic
+    /// links; `+1` on pinned nodes).
+    pub fn sign_of_global(&self) -> &[f64] {
+        &self.dofs.sign_of_global
+    }
+
+    /// The effective nodal Dirichlet values: the user values on pinned
+    /// nodes, the signed class value on nodes linked to a pinned node, and 0
+    /// on forced-zero nodes.
+    pub fn dirichlet_values(&self) -> &[f64] {
+        &self.dofs.dirichlet_values
+    }
+
+    /// The prolongation `P` (`n_nodes × n_free`), `A = P a + A_D`, with one
+    /// `±1` entry per free node. The reduced tangent is `Pᵀ K P`.
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::Assembly`] if faer rejects the
+    /// triplets.
+    pub fn prolongation(&self) -> Result<SparseColMat<usize, f64>, NonlinearMagnetostaticError> {
+        build_prolongation(
+            &self.dofs.free_of_global,
+            &self.dofs.sign_of_global,
+            self.dofs.n_free,
+        )
     }
 
     /// Number of mesh nodes.
@@ -1094,9 +1426,10 @@ impl NonlinearMagnetostaticSystem {
         self.n_nodes
     }
 
-    /// Global → free-node renumbering (`None` for Dirichlet nodes).
+    /// Global → reduced-unknown renumbering (`None` for pinned nodes). With
+    /// node links several nodes share one reduced unknown.
     pub fn free_of_global(&self) -> &[Option<usize>] {
-        &self.free_of_global
+        &self.dofs.free_of_global
     }
 
     /// The full nodal load vector `F` (A).
@@ -1104,27 +1437,51 @@ impl NonlinearMagnetostaticSystem {
         &self.load
     }
 
-    /// Full nodal vector from free-node values, with the Dirichlet values
-    /// on the pinned nodes.
+    /// Full nodal vector `P a + A_D` from reduced values, with the Dirichlet
+    /// values on the pinned nodes.
     pub fn lift(&self, a_free: &[f64]) -> Vec<f64> {
-        assert_eq!(a_free.len(), self.n_free, "lift: free vector length");
-        self.free_of_global
+        assert_eq!(a_free.len(), self.dofs.n_free, "lift: free vector length");
+        self.dofs
+            .free_of_global
             .iter()
             .enumerate()
             .map(|(g, slot)| match slot {
-                Some(fi) => a_free[*fi],
-                None => self.dirichlet_values[g],
+                Some(fi) => self.dofs.sign_of_global[g] * a_free[*fi],
+                None => self.dofs.dirichlet_values[g],
             })
             .collect()
     }
 
-    /// Free-node values of a full nodal vector.
+    /// Reduced values of a full nodal vector. Each reduced unknown takes the
+    /// mean of `sign · A` over its class, which is exact for a vector that
+    /// satisfies the links and a least-squares projection for one that does
+    /// not (a warm start from another rotor angle, for example).
     pub fn restrict(&self, a_full: &[f64]) -> Vec<f64> {
         assert_eq!(a_full.len(), self.n_nodes, "restrict: full vector length");
-        let mut out = vec![0.0; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut out = vec![0.0; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                out[*fi] = a_full[g];
+                out[*fi] += self.dofs.sign_of_global[g] * a_full[g];
+            }
+        }
+        for (o, &n) in out.iter_mut().zip(&self.dofs.class_size) {
+            *o /= n as f64;
+        }
+        out
+    }
+
+    /// `Pᵀ v` for a full nodal vector `v`: the reduced form of a nodal load
+    /// or of an adjoint right-hand side `∂J/∂A`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v.len() != n_nodes`.
+    pub fn reduce(&self, v: &[f64]) -> Vec<f64> {
+        assert_eq!(v.len(), self.n_nodes, "reduce: full vector length");
+        let mut out = vec![0.0; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
+            if let Some(fi) = slot {
+                out[*fi] += self.dofs.sign_of_global[g] * v[g];
             }
         }
         out
@@ -1154,10 +1511,10 @@ impl NonlinearMagnetostaticSystem {
     /// Panics if `a_full.len() != n_nodes`.
     pub fn residual(&self, a_full: &[f64]) -> Vec<f64> {
         assert_eq!(a_full.len(), self.n_nodes, "residual: vector length");
-        let mut r = vec![0.0_f64; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut r = vec![0.0_f64; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                r[*fi] = -self.load[g];
+                r[*fi] -= self.dofs.sign_of_global[g] * self.load[g];
             }
         }
         for t in 0..self.tris.len() {
@@ -1166,8 +1523,9 @@ impl NonlinearMagnetostaticSystem {
             let nu = self.laws[t].nu(b2);
             let ElemGeom { grad, area } = self.geom[t];
             for (gp, &node) in grad.iter().zip(&self.tris[t]) {
-                if let Some(fi) = self.free_of_global[node as usize] {
-                    r[fi] += area * nu * (gp[0] * gr[0] + gp[1] * gr[1]);
+                if let Some(fi) = self.dofs.free_of_global[node as usize] {
+                    let sg = self.dofs.sign_of_global[node as usize];
+                    r[fi] += sg * area * nu * (gp[0] * gr[0] + gp[1] * gr[1]);
                 }
             }
         }
@@ -1196,10 +1554,10 @@ impl NonlinearMagnetostaticSystem {
             self.n_nodes,
             "residual_and_tangent: vector length"
         );
-        let mut r = vec![0.0_f64; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut r = vec![0.0_f64; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                r[*fi] = -self.load[g];
+                r[*fi] -= self.dofs.sign_of_global[g] * self.load[g];
             }
         }
         let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(self.tris.len() * 9);
@@ -1220,22 +1578,28 @@ impl NonlinearMagnetostaticSystem {
             ];
             let tri = &self.tris[t];
             for p in 0..3 {
-                let Some(fp) = self.free_of_global[tri[p] as usize] else {
+                let Some(fp) = self.dofs.free_of_global[tri[p] as usize] else {
                     continue;
                 };
-                r[fp] += area * nu * proj[p];
+                let sp = self.dofs.sign_of_global[tri[p] as usize];
+                r[fp] += sp * area * nu * proj[p];
                 for q in 0..3 {
-                    let Some(fq) = self.free_of_global[tri[q] as usize] else {
+                    let Some(fq) = self.dofs.free_of_global[tri[q] as usize] else {
                         continue;
                     };
+                    let sq = self.dofs.sign_of_global[tri[q] as usize];
                     let gpq = grad[p][0] * grad[q][0] + grad[p][1] * grad[q][1];
                     let v = area * (nu * gpq + two_dnu * proj[p] * proj[q]);
-                    trips.push(Triplet::new(fp, fq, v));
+                    trips.push(Triplet::new(fp, fq, sp * sq * v));
                 }
             }
         }
-        let k = SparseColMat::<usize, f64>::try_new_from_triplets(self.n_free, self.n_free, &trips)
-            .map_err(|e| NonlinearMagnetostaticError::Assembly(format!("{e:?}")))?;
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(
+            self.dofs.n_free,
+            self.dofs.n_free,
+            &trips,
+        )
+        .map_err(|e| NonlinearMagnetostaticError::Assembly(format!("{e:?}")))?;
         Ok((r, k))
     }
 
@@ -1299,18 +1663,21 @@ impl NonlinearMagnetostaticSystem {
     /// the invariance is exact too: the gradient is taken from the linear
     /// start solved with Dirichlet data centred on their mean, so a uniform
     /// offset cancels exactly before any arithmetic. It does not depend on
-    /// the initial guess either.
+    /// the initial guess either. With node links, `F_free` is `Pᵀ F` and
+    /// `s` sums over every member of a class; the offset invariance then
+    /// holds when a constant is admissible (all links periodic), see
+    /// [`with_node_links`](Self::with_node_links).
     ///
     /// # Errors
     ///
     /// Propagates the [`linear_start`](Self::linear_start) solve errors.
     pub fn reference_residual(&self) -> Result<f64, NonlinearMagnetostaticError> {
         let (a_lin, _shift) = self.linear_start_centered()?;
-        let mut s = vec![0.0_f64; self.n_free];
-        let mut f = vec![0.0_f64; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut s = vec![0.0_f64; self.dofs.n_free];
+        let mut f = vec![0.0_f64; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                f[*fi] = self.load[g];
+                f[*fi] += self.dofs.sign_of_global[g] * self.load[g];
             }
         }
         for t in 0..self.tris.len() {
@@ -1319,7 +1686,7 @@ impl NonlinearMagnetostaticSystem {
             let nu = self.laws[t].nu(0.0);
             let ElemGeom { grad, area } = self.geom[t];
             for (gp, &node) in grad.iter().zip(&self.tris[t]) {
-                if let Some(fi) = self.free_of_global[node as usize] {
+                if let Some(fi) = self.dofs.free_of_global[node as usize] {
                     s[fi] += area * nu * (gp[0] * gp[0] + gp[1] * gp[1]).sqrt() * gmag;
                 }
             }
@@ -1348,10 +1715,10 @@ impl NonlinearMagnetostaticSystem {
     /// Panics if `a_full.len() != n_nodes`.
     pub fn roundoff_floor(&self, a_full: &[f64]) -> f64 {
         assert_eq!(a_full.len(), self.n_nodes, "roundoff_floor: vector length");
-        let mut s = vec![0.0_f64; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut s = vec![0.0_f64; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                s[*fi] = self.load[g].abs();
+                s[*fi] += self.load[g].abs();
             }
         }
         for t in 0..self.tris.len() {
@@ -1364,7 +1731,7 @@ impl NonlinearMagnetostaticSystem {
                 .map(|p| a_full[tri[p] as usize].abs() * gnorm(p))
                 .sum();
             for (p, &node) in tri.iter().enumerate() {
-                if let Some(fp) = self.free_of_global[node as usize] {
+                if let Some(fp) = self.dofs.free_of_global[node as usize] {
                     s[fp] += area * nu * gnorm(p) * spread;
                 }
             }
@@ -1396,24 +1763,33 @@ impl NonlinearMagnetostaticSystem {
     /// uniform offset `C` of the Dirichlet data therefore gives bit-for-bit
     /// the same centred solution: the solve never sees `C`, and neither
     /// does its rounding.
+    ///
+    /// The shift is used only when a constant is an admissible field (no
+    /// antiperiodic link, no forced-zero class). With an antiperiodic link
+    /// the constant is not in the constrained null space, so `shift = 0`.
     fn linear_start_centered(&self) -> Result<(Vec<f64>, f64), NonlinearMagnetostaticError> {
         let (sum, count) = self
+            .dofs
             .free_of_global
             .iter()
-            .zip(&self.dirichlet_values)
+            .zip(&self.dofs.dirichlet_values)
             .filter(|(slot, _)| slot.is_none())
             .fold((0.0, 0usize), |(s, n), (_, &v)| (s + v, n + 1));
-        let shift = if count > 0 { sum / count as f64 } else { 0.0 };
-        let mut a = self.lift(&vec![0.0; self.n_free]);
-        for (ai, slot) in a.iter_mut().zip(&self.free_of_global) {
+        let shift = if count > 0 && self.dofs.offset_admissible {
+            sum / count as f64
+        } else {
+            0.0
+        };
+        let mut a = self.lift(&vec![0.0; self.dofs.n_free]);
+        for (ai, slot) in a.iter_mut().zip(&self.dofs.free_of_global) {
             if slot.is_none() {
                 *ai -= shift;
             }
         }
-        let mut r = vec![0.0_f64; self.n_free];
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        let mut r = vec![0.0_f64; self.dofs.n_free];
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                r[*fi] = -self.load[g];
+                r[*fi] -= self.dofs.sign_of_global[g] * self.load[g];
             }
         }
         let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(self.tris.len() * 9);
@@ -1422,30 +1798,38 @@ impl NonlinearMagnetostaticSystem {
             let ElemGeom { grad, area } = self.geom[t];
             let tri = &self.tris[t];
             for p in 0..3 {
-                let Some(fp) = self.free_of_global[tri[p] as usize] else {
+                let Some(fp) = self.dofs.free_of_global[tri[p] as usize] else {
                     continue;
                 };
+                let sp = self.dofs.sign_of_global[tri[p] as usize];
                 for q in 0..3 {
                     let kpq = area * nu * (grad[p][0] * grad[q][0] + grad[p][1] * grad[q][1]);
-                    match self.free_of_global[tri[q] as usize] {
-                        Some(fq) => trips.push(Triplet::new(fp, fq, kpq)),
+                    match self.dofs.free_of_global[tri[q] as usize] {
+                        Some(fq) => {
+                            let sq = self.dofs.sign_of_global[tri[q] as usize];
+                            trips.push(Triplet::new(fp, fq, sp * sq * kpq));
+                        }
                         // Fold the Dirichlet column into the residual.
-                        None => r[fp] += kpq * a[tri[q] as usize],
+                        None => r[fp] += sp * kpq * a[tri[q] as usize],
                     }
                 }
             }
         }
-        let k = SparseColMat::<usize, f64>::try_new_from_triplets(self.n_free, self.n_free, &trips)
-            .map_err(|e| NonlinearMagnetostaticError::Assembly(format!("{e:?}")))?;
+        let k = SparseColMat::<usize, f64>::try_new_from_triplets(
+            self.dofs.n_free,
+            self.dofs.n_free,
+            &trips,
+        )
+        .map_err(|e| NonlinearMagnetostaticError::Assembly(format!("{e:?}")))?;
         let lu = k
             .as_ref()
             .sp_lu()
             .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
-        let mut x: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| -r[i]);
+        let mut x: Mat<f64> = Mat::from_fn(self.dofs.n_free, 1, |i, _| -r[i]);
         lu.solve_in_place(x.as_mut());
-        for (g, slot) in self.free_of_global.iter().enumerate() {
+        for (g, slot) in self.dofs.free_of_global.iter().enumerate() {
             if let Some(fi) = slot {
-                a[g] = x[(*fi, 0)];
+                a[g] = self.dofs.sign_of_global[g] * x[(*fi, 0)];
             }
         }
         Ok((a, shift))
@@ -1491,7 +1875,7 @@ impl NonlinearMagnetostaticSystem {
                 }
                 self.restrict(a0)
             }
-            None => vec![0.0; self.n_free],
+            None => vec![0.0; self.dofs.n_free],
         };
         let mut a = self.lift(&a_free);
         let (mut r, mut k) = self.residual_and_tangent(&a, config.tangent)?;
@@ -1536,8 +1920,9 @@ impl NonlinearMagnetostaticSystem {
                     reference_residual: reference,
                     floor_estimate: floor,
                     tangent,
-                    free_of_global: self.free_of_global.clone(),
-                    n_free: self.n_free,
+                    free_of_global: self.dofs.free_of_global.clone(),
+                    sign_of_global: self.dofs.sign_of_global.clone(),
+                    n_free: self.dofs.n_free,
                 });
             }
             if it == config.max_iterations {
@@ -1549,9 +1934,9 @@ impl NonlinearMagnetostaticSystem {
                 .as_ref()
                 .sp_lu()
                 .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
-            let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| -r[i]);
+            let mut rhs: Mat<f64> = Mat::from_fn(self.dofs.n_free, 1, |i, _| -r[i]);
             lu.solve_in_place(rhs.as_mut());
-            let delta: Vec<f64> = (0..self.n_free).map(|i| rhs[(i, 0)]).collect();
+            let delta: Vec<f64> = (0..self.dofs.n_free).map(|i| rhs[(i, 0)]).collect();
             let slope: f64 = r.iter().zip(&delta).map(|(ri, di)| ri * di).sum();
             // Energy and its round-off level: once the predicted decrease
             // `|α Rᵀδ|` is below the noise in Π, the energy test is

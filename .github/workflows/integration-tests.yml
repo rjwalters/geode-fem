@@ -153,6 +153,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
@@ -239,6 +240,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
