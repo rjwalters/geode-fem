@@ -385,15 +385,19 @@ impl TransmonFixture {
     ///
     /// Identification (grounded-transmon topology):
     /// - **ground** = the component the `lumped_element` (junction) sheet
-    ///   touches AND that has the most triangles (the ground plane, which
-    ///   also carries the shorted λ/4 resonator trace);
+    ///   touches AND that has the largest in-plane (`x`–`y`) bounding box
+    ///   (the ground plane, which spans the chip and also carries the
+    ///   shorted λ/4 resonator trace); triangle count breaks ties. Before
+    ///   issue #1145 the most triangles decided, which picks the island once
+    ///   adaptive refinement makes it finer than the ground plane;
     /// - **island** = the *other* component the junction sheet touches (the
     ///   junction bridges island → ground);
     /// - **feedline** = every remaining component (the readout CPW trace,
     ///   which the junction does not touch).
     ///
     /// Returns the components sorted by descending triangle count with
-    /// their [`MetalRole`], so the largest (ground) is first.
+    /// their [`MetalRole`]; on the unrefined fixture the ground plane is
+    /// first, but callers should select by role, not position.
     pub fn split_metal_conductors(&self) -> Vec<MetalComponent> {
         let tris = self.metal_triangles();
         let junction: Vec<[u32; 3]> = self.lumped_element_triangles();
@@ -436,20 +440,28 @@ impl TransmonFixture {
         // Sort by descending triangle count (ground plane first).
         out.sort_by_key(|c| std::cmp::Reverse(c.triangles.len()));
 
-        // Assign roles: among the junction-touching components, the largest
-        // is ground, the other is the island; everything else is feedline.
-        let mut ground_assigned = false;
-        for c in out.iter_mut() {
-            if c.touches_junction {
-                if !ground_assigned {
-                    c.role = MetalRole::Ground;
-                    ground_assigned = true;
-                } else {
-                    c.role = MetalRole::Island;
-                }
+        // Assign roles: among the junction-touching components, the one with
+        // the largest in-plane bounding box is ground (the ground plane spans
+        // the chip), the other is the island; everything else is feedline.
+        // Triangle count only breaks ties: an adaptively refined island can
+        // carry more triangles than the ground plane (issue #1145).
+        let xy_area = |c: &MetalComponent| {
+            (c.bbox[1][0] - c.bbox[0][0]).max(0.0) * (c.bbox[1][1] - c.bbox[0][1]).max(0.0)
+        };
+        let ground = out
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.touches_junction)
+            .max_by(|(ia, a), (ib, b)| xy_area(a).total_cmp(&xy_area(b)).then(ib.cmp(ia)))
+            .map(|(i, _)| i);
+        for (i, c) in out.iter_mut().enumerate() {
+            c.role = if !c.touches_junction {
+                MetalRole::Feedline
+            } else if Some(i) == ground {
+                MetalRole::Ground
             } else {
-                c.role = MetalRole::Feedline;
-            }
+                MetalRole::Island
+            };
         }
         out
     }
@@ -754,6 +766,75 @@ mod tests {
         let mut sizes: Vec<usize> = comps.iter().map(|c| c.len()).collect();
         sizes.sort_unstable();
         assert_eq!(sizes, vec![2, 2]);
+    }
+
+    /// Issue #1145: ground is the chip-spanning component even when the
+    /// island carries more triangles than the ground plane, as it does on
+    /// the round-7 adaptive meshes of the C_Σ bracket. The island sheet is
+    /// subdivided four times (×256 triangles) in place; the split reads only
+    /// the tagged triangles and the node coordinates, so the tets are left
+    /// as they are.
+    #[test]
+    fn ground_role_survives_an_island_finer_than_the_ground_plane_1145() {
+        use std::collections::{BTreeSet, HashMap};
+        let mut fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+        let comps = fx.split_metal_conductors();
+        let find = |cs: &[MetalComponent], r: MetalRole| -> MetalComponent {
+            cs.iter().find(|c| c.role == r).unwrap().clone()
+        };
+        let island0 = find(&comps, MetalRole::Island);
+        let ground0 = find(&comps, MetalRole::Ground);
+        let on_island: BTreeSet<[u32; 3]> = island0.triangles.iter().copied().collect();
+        let metal = fx.tags.metal;
+        let (mut tris, mut tags, mut isl) = (Vec::new(), Vec::new(), Vec::new());
+        for (t, &g) in fx.boundary_triangles.iter().zip(&fx.triangle_physical_tags) {
+            if g == metal && on_island.contains(t) {
+                isl.push(*t);
+            } else {
+                tris.push(*t);
+                tags.push(g);
+            }
+        }
+        for _ in 0..4 {
+            let mut mid: HashMap<(u32, u32), u32> = HashMap::new();
+            let nodes = &mut fx.mesh.nodes;
+            let mut m = |a: u32, b: u32| -> u32 {
+                *mid.entry((a.min(b), a.max(b))).or_insert_with(|| {
+                    let (p, q) = (nodes[a as usize], nodes[b as usize]);
+                    nodes.push(std::array::from_fn(|d| 0.5 * (p[d] + q[d])));
+                    (nodes.len() - 1) as u32
+                })
+            };
+            isl = isl
+                .iter()
+                .flat_map(|&[a, b, c]| {
+                    let (ab, bc, ca) = (m(a, b), m(b, c), m(c, a));
+                    [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]
+                })
+                .collect();
+        }
+        assert!(
+            isl.len() > ground0.triangles.len(),
+            "island now the finer sheet"
+        );
+        tags.extend(std::iter::repeat_n(metal, isl.len()));
+        tris.extend(isl);
+        fx.boundary_triangles = tris;
+        fx.triangle_physical_tags = tags;
+        let comps = fx.split_metal_conductors();
+        assert_eq!(comps.len(), 3);
+        let (g, i) = (
+            find(&comps, MetalRole::Ground),
+            find(&comps, MetalRole::Island),
+        );
+        assert_eq!(g.nodes, ground0.nodes, "ground is still the ground plane");
+        assert_eq!(i.triangles.len(), 256 * island0.triangles.len());
+        assert!(i.triangles.len() > g.triangles.len());
+        assert_eq!(
+            comps[0].role,
+            MetalRole::Island,
+            "the island now sorts first"
+        );
     }
 
     /// Real DeviceLayout fixture: the metal group splits into EXACTLY three

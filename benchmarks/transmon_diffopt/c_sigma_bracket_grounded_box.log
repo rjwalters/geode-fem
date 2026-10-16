@@ -1,0 +1,59 @@
+build start 2026-10-15T21:28:35Z f72390a88b65d44ae37f857889518d73d24c6945
+    Finished `release` profile [optimized] target(s) in 1m 11s
+build rc=0 2026-10-15T21:29:46Z
+run start 2026-10-15T21:29:46Z
+grounded-box X0 uniform P2, sapphire tensor (#1145):
+  X0 uniform h/1 TENSOR P2: 133314 tets, natural 91.717845360 fF, grounded box 91.725008763 fF (+0.007163 fF, 1732 wall faces, 11.2s)
+  X0 uniform h/2 TENSOR P2: 1066512 tets, natural 85.008424705 fF, grounded box 85.015233810 fF (+0.006809 fF, 6928 wall faces, 145.6s)
+grounded-box X0 on the anchor_93p95 held-out meshes (#1145):
+  prep cycle 0: 133314 tets, P1 137.706752265 fF
+  prep cycle 1: 134561 tets, P1 120.517232349 fF
+  prep cycle 2: 136748 tets, P1 110.852326322 fF
+  prep cycle 3: 145475 tets, P1 104.059201522 fF
+  prep cycle 4: 156376 tets, P1 98.037118612 fF
+  prep cycle 5: 168852 tets, P1 93.608991921 fF
+  prep cycle 6: 186732 tets, P1 90.412188534 fF
+  prep cycle 7: 215663 tets, P1 87.600496060 fF
+  prep cycle 8: 265774 tets, P1 85.432204782 fF
+  prep cycle 9: 336823 tets, P1 83.692085666 fF
+  prep cycle 10: 448279 tets, P1 82.323696618 fF
+  anchor_93p95 round 0: 448279 tets, design upper 93.953667887 fF (23.4s)
+  X0 anchor_93p95 round 0 TENSOR P2: 448279 tets, natural 80.516225668 fF, grounded box 80.522744494 fF (+0.006519 fF, 1732 wall faces, 47.2s)
+  anchor_93p95 round 1: 527959 tets, design upper 93.698450413 fF (28.5s)
+  X0 anchor_93p95 round 1 TENSOR P2: 527959 tets, natural 80.313043904 fF, grounded box 80.319554478 fF (+0.006511 fF, 1732 wall faces, 57.6s)
+  anchor_93p95 round 2: 683440 tets, design upper 93.488379452 fF (40.9s)
+  X0 anchor_93p95 round 2 TENSOR P2: 683440 tets, natural 80.150814180 fF, grounded box 80.157320092 fF (+0.006506 fF, 1732 wall faces, 83.2s)
+  anchor_93p95 round 3: 902171 tets, design upper 93.332105806 fF (57.0s)
+  X0 anchor_93p95 round 3 TENSOR P2: 902171 tets, natural 80.024874706 fF, grounded box 80.031378197 fF (+0.006503 fF, 1732 wall faces, 117.8s)
+  anchor_93p95 round 4: 1250525 tets, design upper 93.214010250 fF (89.0s)
+  X0 anchor_93p95 round 4 TENSOR P2: 1250525 tets, natural 79.929824491 fF, grounded box 79.936326254 fF (+0.006502 fF, 1732 wall faces, 178.4s)
+  anchor_93p95 round 5: 1720753 tets, design upper 93.119307099 fF (136.0s)
+  X0 anchor_93p95 round 5 TENSOR P2: 1720753 tets, natural 79.855307884 fF, grounded box 79.861808885 fF (+0.006501 fF, 1732 wall faces, 275.2s)
+  anchor_93p95 round 6: 2430808 tets, design upper 93.052517479 fF (206.6s)
+  X0 anchor_93p95 round 6 TENSOR P2: 2430808 tets, natural 79.800545359 fF, grounded box 79.807045592 fF (+0.006500 fF, 1732 wall faces, 421.1s)
+  X0 anchor_93p95 round 7 TENSOR P2: 3388197 tets, natural 79.758229546 fF, grounded box 79.764729344 fF (+0.006500 fF, 1732 wall faces, 643.9s)
+wrote benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml (2656.9 s total)
+	Command being timed: "~/tgt1145/release/examples/transmon_c_sigma_bracket"
+	User time (seconds): 2574.74
+	System time (seconds): 82.59
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 44:16.95
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 17855168
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 78954333
+	Voluntary context switches: 13335
+	Involuntary context switches: 22860
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 152
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+rc=0 2026-10-15T22:14:03Z

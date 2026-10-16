@@ -276,6 +276,7 @@ def main():
     t.append(f'cells = "{CELLS}"')
     t.append(f'cells_1129 = "{C1129}"  # issue #1129: [controls.scaling_palace], [controls.prima_this_build], [mesh_family.cv2]')
     t.append(f'cells_1135 = "{C1135}"  # issue #1135: [mesh_family.final], [controls.prima_rhobeg0p1], [controls.prima_rhobeg0p4], [controls.prima_rhobeg]')
+    t.append(f'cells_1145 = "{C1145}"  # issue #1145 T7: [amr.final]')
     t.append(
         'hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization '
         'runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the '
@@ -588,8 +589,9 @@ def main():
     t.append(PROPOSAL)
 
     mesh_family_cv2(t, opt)
-    mesh_family_final(t, xr)
+    fam_final = mesh_family_final(t, xr)
     prima_rhobeg(t, n_pr)
+    amr_final(t, fam_final)
 
     # ---------------------------------------------------- 4. the cap
     lj, cj, csig = 14.860e-9, 5.5e-15, toml_value(xr, "static_cross_check.initial", "c_sigma_bracket_ff")
@@ -943,6 +945,93 @@ def mesh_family_final(t, xr):
         f"host_peak_gib = {arr([max_mem_gib(f'{C1135}/logs/mem_fam.log', f'famfinal_{k}') for k in ('u1_p1', 'u2_p1', 'u1_p2')], 1)}"
         "  # used host memory while each cell ran (the T5 runs shared the host)"
     )
+    return fa, fb, pub, dl
+
+
+C1145 = "reference/fixtures/transmon_palace/results_controls_1145"
+
+
+def amr_final(t, fam):
+    """T7 of issue #1145: Palace adaptive refinement on DeviceLayout's
+    published final design, with the settings of [amr.initial] (#1123): the
+    DeviceLayout order-1 h mesh of the final design (final_o1_v22.msh, the
+    #1092 ladder's h), solver order 2, PEC box, sapphire tensor, the AMS/GMRES
+    eigen setup of the ladder's order-2 cell final_h_p2 (Target 2.0 GHz, as
+    that cell), Model.Refinement MaxIts 12, MaxSize 1e7, Tol 1e-6,
+    UpdateFraction 0.7, nonconformal; Eigenmode N = 2. The finest level is a
+    computed value with no extrapolation; the three-point DOF fit is an
+    estimate."""
+    fa, fb, pub, dl = fam
+    amr = f"{C1145}/amr_final_p2"
+    iters = sorted(int(d[len("iteration"):]) for d in os.listdir(os.path.join(ROOT, amr)) if d.startswith("iteration"))
+    assert iters == list(range(1, len(iters) + 1)), iters
+    dirs = [f"{amr}/iteration{i:02d}" for i in iters] + [amr]
+    aq, ar, ind = [], [], []
+    for d in dirs:
+        fq, fr, _ = modes(d)
+        aq.append(fq)
+        ar.append(fr)
+        e = read(f"{d}/error-indicators.csv").splitlines()[1]
+        ind.append(float(e.split(",")[0]))
+    an = nd_all(amr)
+    assert len(an) == len(dirs), (len(an), len(dirs))
+    h = modes(f"{X1092}/final_h_p2")
+    assert abs(aq[0] - h[0]) < 1e-5 and abs(ar[0] - h[1]) < 1e-5, (aq[0], h)
+    last_q, last_r = aq[-1], ar[-1]
+    uq = [min(fa["q"]["band"][0], fb["q"]["band"][0]), max(fa["q"]["band"][1], fb["q"]["band"][1])]
+    ur = [min(fa["r"]["band"][0], fb["r"]["band"][0]), max(fa["r"]["band"][1], fb["r"]["band"][1])]
+    rq = sorted([fa["q"]["estimate"], fb["q"]["estimate"]])
+    rr = sorted([fa["r"]["estimate"], fb["r"]["estimate"]])
+    t.append("\n[amr.final]")
+    t.append(
+        'description = "issue #1145 T7: Palace adaptive mesh refinement on DeviceLayout\'s PUBLISHED FINAL design '
+        "(1217.678 / 7243.955 um) with the settings of [amr.initial]: the DeviceLayout order-1 mesh h of the final "
+        "design (final_o1_v22.msh, the #1092 ladder's h), solver order 2, PEC box, sapphire tensor, the AMS/GMRES eigen "
+        "setup of the ladder's order-2 cell final_h_p2 (Target 2.0 GHz as in that cell); Model.Refinement: MaxIts 12, "
+        "MaxSize 1e7, Tol 1e-6, UpdateFraction 0.7 (Doerfler), nonconformal; Eigenmode N = 2, Linear MaxIts 1000. "
+        'finest_* is a computed level (no extrapolation); dof_extrapolation_* is an exactly determined fit, an estimate"'
+    )
+    t.append(f"iterations = {len(dirs)}  # solves, the unrefined h mesh first")
+    t.append(f"nd = [{', '.join(str(n) for n in an)}]")
+    t.append(f"f_q_ghz = {arr(aq, 6)}")
+    t.append(f"f_r_ghz = {arr(ar, 6)}")
+    t.append(f"error_indicator_norm = [{', '.join(sci(x) for x in ind)}]")
+    t.append(f"step_change_f_q_pct = {arr([pct(aq[i + 1], aq[i]) for i in range(len(aq) - 1)], 4)}  # each solve over the one before")
+    t.append(f"step_change_f_r_pct = {arr([pct(ar[i + 1], ar[i]) for i in range(len(ar) - 1)], 4)}")
+    t.append(f"finest_f_q_ghz = {num(last_q, 6)}  # the finest computed level: no extrapolation")
+    t.append(f"finest_f_r_ghz = {num(last_r, 6)}")
+    t.append(f"published_ghz = {arr(pub, 3)}")
+    t.append(f"finest_over_published_pct = {arr([pct(last_q, pub[0]), pct(last_r, pub[1])], 3)}")
+    t.append(f"devicelayout_run_ghz = {arr(dl[:2], 6)}  # results_crosscheck_1092/dl_final")
+    t.append(f"finest_over_devicelayout_run_pct = {arr([pct(last_q, dl[0]), pct(last_r, dl[1])], 3)}")
+    t.append(f"family_estimate_range_f_q_ghz = {arr(rq, 4)}  # [mesh_family.final]: families a and b, part-1 rule (estimates)")
+    t.append(f"family_estimate_range_f_r_ghz = {arr(rr, 4)}")
+    t.append(f"family_union_f_q_band_ghz = {arr(uq, 4)}")
+    t.append(f"family_union_f_r_band_ghz = {arr(ur, 4)}")
+    t.append(f"finest_minus_family_estimates_f_q_pct = {arr([pct(last_q, v) for v in rq], 3)}")
+    t.append(f"finest_minus_family_estimates_f_r_pct = {arr([pct(last_r, v) for v in rr], 3)}")
+    t.append(f"finest_in_union_band = [{'true' if uq[0] <= last_q <= uq[1] else 'false'}, {'true' if ur[0] <= last_r <= ur[1] else 'false'}]  # qubit, resonator")
+    t.append(f"finest_above_published = [{'true' if last_q > pub[0] else 'false'}, {'true' if last_r > pub[1] else 'false'}]")
+    for lab, seq in (("q", aq), ("r", ar)):
+        try:
+            alpha, lim = dof_extrapolation(an[-3:], seq[-3:])
+        except AssertionError:
+            t.append(f'dof_extrapolation_f_{lab} = "not defined: the last three solves admit no f_inf - C N^-alpha with 0 < alpha < 4"')
+            continue
+        note = "  # far below the asymptotic order: not reliable" if alpha < 0.3 else ""
+        t.append(f"dof_extrapolation_alpha_{lab} = {num(alpha, 4)}  # f = f_inf - C N^-alpha through the last three solves: an ESTIMATE")
+        if note:
+            t.append(f"dof_extrapolation_{lab}_reliable = false{note}")
+        t.append(f"dof_extrapolation_f_{lab}_ghz = {num(lim, 4)}")
+        w = list(seq[-3:])
+        w[2] *= 1.001
+        try:
+            sens = dof_extrapolation(an[-3:], w)[1] - lim
+            t.append(f"dof_extrapolation_f_{lab}_sensitivity_ghz_per_0p1pct_finest = {num(sens, 4)}  # exactly determined: ill-conditioned")
+        except AssertionError:
+            t.append(f'dof_extrapolation_f_{lab}_sensitivity_ghz_per_0p1pct_finest = "not defined"')
+    t.append(f"wall_s = {num(wall_s(amr), 1)}  # 24 ranks; the other 8 vCPU ran the #1145 T6 geode solves and gates during the first ~2 h, so not a clean timing")
+    t.append(f"peak_host_used_gib = {num(max_mem_gib(f'{C1145}/logs/mem_amr1145.log', 'amr_final_p2'), 1)}  # mem.log sampler, while this cell ran; reached in the last solve, after the T6 runs ended")
 
 
 # T5 of issue #1135: (rhobeg, cell prefix, log stem) of the trust-radius re-runs.
