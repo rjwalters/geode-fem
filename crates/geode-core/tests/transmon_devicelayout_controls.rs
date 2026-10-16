@@ -29,6 +29,9 @@
 //! - issue #1135 (cells in `results_controls_1135/`): the second refinement
 //!   family on the published final design, and DeviceLayout's PRIMA call at
 //!   two more initial trust radii.
+//! - issue #1145 (cell in `results_controls_1145/`): the Palace adaptive
+//!   run on the published final design, iteration by iteration, with its
+//!   config checked against #1123's adaptive config.
 //!
 //! No geode solve runs here (the only geode-derived input is #1111's
 //! transmission-line delta, a constant): these pins run in the default tier.
@@ -1850,3 +1853,152 @@ const RHOBEG_MAX: f64 = (1.4 - 0.6) / 2.0;
 
 const PINNED_PRIMA_RHOBEG_0P1_RUNS: i64 = 10;
 const PINNED_PRIMA_RHOBEG_0P4_RUNS: i64 = 12;
+
+const C1145: &str = "reference/fixtures/transmon_palace/results_controls_1145";
+
+/// Issue #1145 T7: the Palace adaptive run on the published final design
+/// re-derives iteration by iteration from its raw cell: the level
+/// sequence, its first solve equal to the ladder's `final_h_p2`, the config
+/// equal to #1123's adaptive config except for the mesh, the output and the
+/// eigen target, the finest level against the published value, DeviceLayout's
+/// own run and the #1135 family estimates, and the three-point DOF fit
+/// (an estimate).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn adaptive_refinement_on_the_final_design_re_derives_per_iteration() {
+    let r = results();
+    let amr = format!("{C1145}/amr_final_p2");
+    let n_it = tf(&r, "amr.final.iterations") as usize;
+    let mut dirs: Vec<String> = (1..n_it)
+        .map(|i| format!("{amr}/iteration{i:02}"))
+        .collect();
+    dirs.push(amr.clone());
+    for d in &dirs {
+        assert!(repo().join(d).is_dir(), "{d}");
+    }
+    assert!(
+        !repo().join(format!("{amr}/iteration{n_it:02}")).exists(),
+        "an iteration directory beyond the recorded count"
+    );
+    // Same settings as #1123's adaptive run: the configs differ only in the
+    // mesh, the output directory and the eigen target (2.0 GHz, final_h_p2's).
+    let cfg = |p: &str| -> serde_json::Value { serde_json::from_str(&read(p)).unwrap() };
+    let mut mine = cfg(&format!("{amr}/palace_config.json"));
+    let theirs = cfg(&format!("{CELLS}/amr_initial_p2/palace_config.json"));
+    let ladder = cfg(&format!("{X1092}/final_h_p2/palace_config.json"));
+    assert_eq!(mine["Model"]["Mesh"], ladder["Model"]["Mesh"]);
+    assert_eq!(
+        mine["Solver"]["Eigenmode"]["Target"],
+        ladder["Solver"]["Eigenmode"]["Target"]
+    );
+    assert_eq!(mine["Boundaries"], ladder["Boundaries"]);
+    mine["Model"]["Mesh"] = theirs["Model"]["Mesh"].clone();
+    mine["Problem"]["Output"] = theirs["Problem"]["Output"].clone();
+    mine["Solver"]["Eigenmode"]["Target"] = theirs["Solver"]["Eigenmode"]["Target"].clone();
+    assert_eq!(mine, theirs, "settings differ from #1123's adaptive run");
+    assert_eq!(
+        read(&format!("{C1145}/logs/final_mesh_sha256.txt"))
+            .split_whitespace()
+            .next(),
+        Some("2a7158b092638cf34ea35f2758a77bcb44333b26c6d9bf01b11eb7d4df1c907d"),
+        "final_o1_v22.msh of #1092"
+    );
+
+    let f: Vec<[f64; 2]> = dirs.iter().map(|d| palace(d)).collect();
+    let fq: Vec<f64> = f.iter().map(|x| x[0]).collect();
+    let fr: Vec<f64> = f.iter().map(|x| x[1]).collect();
+    close_all(&tarr(&r, "amr.final.f_q_ghz"), &fq, 6e-7, "amr final f_q");
+    close_all(&tarr(&r, "amr.final.f_r_ghz"), &fr, 6e-7, "amr final f_r");
+    let nd = nd_all(&amr);
+    assert_eq!(nd, tarr(&r, "amr.final.nd"), "amr final nd");
+    assert!(
+        nd.windows(2).all(|w| w[1] > w[0]),
+        "DOFs grow every iteration"
+    );
+    let h = palace(&format!("{X1092}/final_h_p2"));
+    close(fq[0], h[0], 1e-5, "iteration 1 = final_h_p2 (qubit)");
+    close(fr[0], h[1], 1e-5, "iteration 1 = final_h_p2 (resonator)");
+    let steps = |s: &[f64]| -> Vec<f64> { s.windows(2).map(|w| pct(w[1], w[0])).collect() };
+    close_all(
+        &tarr(&r, "amr.final.step_change_f_q_pct"),
+        &steps(&fq),
+        5e-5,
+        "steps q",
+    );
+    close_all(
+        &tarr(&r, "amr.final.step_change_f_r_pct"),
+        &steps(&fr),
+        5e-5,
+        "steps r",
+    );
+    let (lq, lr) = (*fq.last().unwrap(), *fr.last().unwrap());
+    close(tf(&r, "amr.final.finest_f_q_ghz"), lq, 6e-7, "finest q");
+    close(tf(&r, "amr.final.finest_f_r_ghz"), lr, 6e-7, "finest r");
+    let pubv = tarr(&r, "mesh_family.final.published_ghz");
+    assert_eq!(tarr(&r, "amr.final.published_ghz"), pubv);
+    close_all(
+        &tarr(&r, "amr.final.finest_over_published_pct"),
+        &[pct(lq, pubv[0]), pct(lr, pubv[1])],
+        5e-4,
+        "over published",
+    );
+    let dl = palace(&format!("{X1092}/dl_final"));
+    close_all(
+        &tarr(&r, "amr.final.finest_over_devicelayout_run_pct"),
+        &[pct(lq, dl[0]), pct(lr, dl[1])],
+        5e-4,
+        "over DeviceLayout's run",
+    );
+    // Against the #1135 family estimates (rounded there to 4 decimals).
+    for (lab, last) in [("q", lq), ("r", lr)] {
+        let mut est = [
+            tf(&r, &format!("mesh_family.final.family_a_f_{lab}_ghz")),
+            tf(&r, &format!("mesh_family.final.family_b_f_{lab}_ghz")),
+        ];
+        est.sort_by(f64::total_cmp);
+        close_all(
+            &tarr(&r, &format!("amr.final.family_estimate_range_f_{lab}_ghz")),
+            &est,
+            5e-5,
+            "family range",
+        );
+        close_all(
+            &tarr(
+                &r,
+                &format!("amr.final.finest_minus_family_estimates_f_{lab}_pct"),
+            ),
+            &[pct(last, est[0]), pct(last, est[1])],
+            5e-3,
+            "finest vs families",
+        );
+        let ba = tarr(&r, &format!("mesh_family.final.family_a_f_{lab}_band_ghz"));
+        let bb = tarr(&r, &format!("mesh_family.final.family_b_f_{lab}_band_ghz"));
+        let union = [ba[0].min(bb[0]), ba[1].max(bb[1])];
+        close_all(
+            &tarr(&r, &format!("amr.final.family_union_f_{lab}_band_ghz")),
+            &union,
+            5e-5,
+            "union band",
+        );
+    }
+    let k = nd.len();
+    for (lab, seq) in [("q", &fq), ("r", &fr)] {
+        let key = format!("amr.final.dof_extrapolation_f_{lab}_ghz");
+        if tget(&r, "amr.final")
+            .get(format!("dof_extrapolation_f_{lab}_ghz").as_str())
+            .is_none()
+        {
+            continue;
+        }
+        let (a, x) = dof_extrap(&nd[k - 3..], &seq[k - 3..]);
+        close(
+            tf(&r, &format!("amr.final.dof_extrapolation_alpha_{lab}")),
+            a,
+            5e-4,
+            "alpha",
+        );
+        close(tf(&r, &key), x, 5e-5, "extrapolation");
+    }
+    // Every adaptive level rises, as every uniform level does.
+    assert!(fq.windows(2).all(|w| w[1] > w[0]), "f_q rises: {fq:?}");
+}

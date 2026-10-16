@@ -49,20 +49,30 @@
 //! target is below 93.9537 fF by an estimated 0.10–0.38 fF, ceiling about
 //! 0.6 fF, so the anchor itself is uncertain at the width of the bracket.
 //!
+//! **Grounded box (issue #1145).** `BRACKET_PART=grounded_box` re-solves
+//! X⁰'s sapphire-tensor P2 value on the uniform h, h/2 meshes and on the
+//! held-out meshes of `anchor_93p95` (asserting each against
+//! `c_sigma_bracket_tensor.toml`), then solves again with every
+//! `exterior_boundary` face grounded: the PEC wall of the eigenproblem's
+//! Palace config. Grounding only adds constraints, so the natural-box
+//! lower bound carries over and only the upper side needs solving. It
+//! writes `c_sigma_bracket_grounded_box.toml` with the grounded-box
+//! bracket, the box difference and the static-route dressed band.
+//!
 //! Run with (local, no cloud):
 //!
 //! ```text
 //!   cargo run -p geode-core --release --example transmon_c_sigma_bracket
 //! ```
 //!
-//! Environment: `BRACKET_PART` (`uniform`, `adaptive`, `all` or
-//! `anchor_93p95`, default `all`), `BRACKET_KS` (RT orders equilibrated from P2, default `1,2`),
+//! Environment: `BRACKET_PART` (`uniform`, `adaptive`, `all`,
+//! `anchor_93p95`, `tensor` or `grounded_box`, default `all`), `BRACKET_KS` (RT orders equilibrated from P2, default `1,2`),
 //! `BRACKET_K_LAST` (an extra order at each design's last held-out round,
 //! default `3`; empty for none), `BRACKET_ROUNDS` (held-out rounds, default
 //! 7), `BRACKET_OUT` (output TOML, default
 //! `benchmarks/transmon_diffopt/c_sigma_bracket.toml`, or
 //! `benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml` for
-//! `anchor_93p95`). The TOML carries no timings and is bit-reproducible;
+//! `anchor_93p95`, `c_sigma_bracket_grounded_box.toml` for `grounded_box`). The TOML carries no timings and is bit-reproducible;
 //! timings go to standard output.
 
 use std::fmt::Write as _;
@@ -131,6 +141,9 @@ const HYBRIDIZATION_SHIFT_CEILING_FF: f64 = 0.6;
 const BRACKET_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket.toml";
 const BRACKET_93P95_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_anchor_93p95.toml";
 const BRACKET_TENSOR_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml";
+const BRACKET_GROUNDED_TOML: &str = "benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml";
+/// The static route of the initial geometry (#1092): its resonator estimate and dressed band.
+const CROSSCHECK_RESULTS_TOML: &str = "benchmarks/transmon_devicelayout_crosscheck/results.toml";
 
 fn env_list(name: &str, default: &str) -> Vec<usize> {
     std::env::var(name)
@@ -1092,6 +1105,504 @@ fn uniform_tensor_p2(fx: &TransmonFixture, ks: &[usize]) -> Vec<Row> {
     rows
 }
 
+// ─── Issue #1145: the grounded (PEC) outer box ───
+
+/// One mesh of the grounded-box replay (#1145): the natural-box sapphire
+/// tensor P2 value (asserted against the committed #1091 row of the same
+/// mesh) and the grounded-box value on the same mesh.
+struct BoxRow {
+    label: String,
+    n_tets: usize,
+    wall_faces: usize,
+    natural_ff: f64,
+    grounded_ff: f64,
+    iters: Vec<usize>,
+    res: f64,
+}
+
+/// `sheets` with the outer box joined to ground: every vertex and edge DOF
+/// of the `exterior_boundary` faces pinned to 0 V, which is the PEC wall of
+/// the eigenproblem's Palace config (`PEC = metal + exterior_boundary`).
+///
+/// # Panics
+///
+/// If the group is not the mesh's whole topological boundary, or if the
+/// island or the feedline touches it (the grounded model would then pin a
+/// driven or floating conductor to the wall).
+fn grounded(mesh: &TetMesh, sheets: &Sheets, wall: &[[u32; 3]]) -> Sheets {
+    let mut sorted: Vec<[u32; 3]> = wall
+        .iter()
+        .map(|t| {
+            let mut t = *t;
+            t.sort_unstable();
+            t
+        })
+        .collect();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        mesh.boundary_faces(),
+        "the exterior_boundary group is not the topological boundary"
+    );
+    let mut wall_nodes: Vec<u32> = wall.iter().flatten().copied().collect();
+    wall_nodes.sort_unstable();
+    wall_nodes.dedup();
+    for (i, name) in ["island", "feedline"].iter().enumerate() {
+        assert!(
+            sheets.nodes[i]
+                .iter()
+                .all(|n| wall_nodes.binary_search(n).is_err()),
+            "{name} touches the outer box"
+        );
+    }
+    let mut s = sheets.clone();
+    s.nodes[2].extend(wall_nodes);
+    s.nodes[2].sort_unstable();
+    s.nodes[2].dedup();
+    s.tris[2].extend_from_slice(wall);
+    s
+}
+
+/// `(mesh label, upper_ff)` of every row of `table` in the committed
+/// `c_sigma_bracket_tensor.toml`.
+fn committed_tensor_uppers(table: &str) -> Vec<(String, f64)> {
+    let v: toml::Value = fs::read_to_string(BRACKET_TENSOR_TOML)
+        .unwrap()
+        .parse()
+        .unwrap();
+    v[table]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["mesh"].as_str().unwrap().to_string(),
+                r["upper_ff"].as_float().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// Natural-box and grounded-box tensor P2 solves on one mesh.
+fn box_row(
+    label: &str,
+    mesh: &TetMesh,
+    eps_t: &[[[f64; 3]; 3]],
+    sheets: &Sheets,
+    wall: &[[u32; 3]],
+    want: &[(String, f64)],
+) -> BoxRow {
+    let committed = want
+        .iter()
+        .find(|(l, _)| l == label)
+        .unwrap_or_else(|| panic!("no committed tensor row {label}"))
+        .1;
+    let t = Instant::now();
+    let nat = primal(mesh, Eps::Tensor(eps_t), sheets, 2);
+    // Committed ceiled to 6 decimals; a rerun may differ by roundoff.
+    assert!(
+        (ceil_to(nat.c_ff, 6) - committed).abs() < 2e-6,
+        "{label}: natural-box replay {:.9} fF vs committed {committed:.6} fF",
+        nat.c_ff
+    );
+    let natural_ff = nat.c_ff;
+    drop(nat);
+    let g = grounded(mesh, sheets, wall);
+    let pg = primal(mesh, Eps::Tensor(eps_t), &g, 2);
+    // Same mesh, a superset of pinned DOFs: the discrete energy cannot drop.
+    assert!(
+        pg.c_ff >= natural_ff * (1.0 - 1e-9),
+        "{label}: grounded {} below natural {natural_ff}",
+        pg.c_ff
+    );
+    println!(
+        "  X0 {label} TENSOR P2: {} tets, natural {natural_ff:.9} fF, grounded box {:.9} fF (+{:.6} fF, {} wall faces, {:.1}s)",
+        mesh.n_tets(),
+        pg.c_ff,
+        pg.c_ff - natural_ff,
+        wall.len(),
+        t.elapsed().as_secs_f64()
+    );
+    BoxRow {
+        label: label.to_string(),
+        n_tets: mesh.n_tets(),
+        wall_faces: wall.len(),
+        natural_ff,
+        grounded_ff: pg.c_ff,
+        iters: pg.iters,
+        res: pg.res,
+    }
+}
+
+/// #1145: X⁰ uniform h and h/2, tensor P2, natural and grounded box.
+fn uniform_grounded(fx: &TransmonFixture) -> Vec<BoxRow> {
+    let want = committed_tensor_uppers("uniform_x0_tensor_p2");
+    let mut mesh = fx.mesh.clone();
+    let mut sheets = Sheets::of(fx);
+    let mut wall = fx.exterior_boundary_triangles();
+    let mut eps_t = tensor_eps(fx);
+    let mut rows = Vec::new();
+    for level in 0..X0_P2_FF.len() {
+        if level > 0 {
+            let r = red_refine(&mesh);
+            assert_eq!(r.n_flipped, 0);
+            sheets = sheets.red_refined(&r);
+            wall = r.lift_triangles(&wall);
+            eps_t = r.lift_per_tet(&eps_t);
+            mesh = r.mesh;
+        }
+        let label = format!("uniform h/{}", 1 << level);
+        rows.push(box_row(&label, &mesh, &eps_t, &sheets, &wall, &want));
+    }
+    rows
+}
+
+/// #1145: X⁰ on the held-out meshes of the first #1066 design
+/// (`anchor_93p95`), the family whose round 7 sets `[bracket_x0_tensor]`.
+/// The meshes are rebuilt exactly as in [`adaptive`]: the ten P1
+/// preparation cycles, then the design's scalar P2 solve (asserted against
+/// its `summary.toml`) marks each round. No lower bounds are recomputed: the
+/// natural-box lower bound carries over to the grounded box (see the TOML).
+fn adaptive_grounded(fx_um: &TransmonFixture, max_rounds: usize) -> Vec<BoxRow> {
+    let want = committed_tensor_uppers("adaptive_x0_tensor");
+    let mut fx = fx_um.clone();
+    for p in &mut fx.mesh.nodes {
+        for x in p {
+            *x *= 1e-6;
+        }
+    }
+    let roles =
+        TransmonMorphRoles::identify(&fx, &fx.mesh, TransmonMorphSpec::fixture_default(1e-6))
+            .unwrap();
+    let mut fields = parameter_fields(&fx.mesh, &roles).unwrap().to_vec();
+    let tagged = TaggedTetMesh {
+        mesh: fx.mesh.clone(),
+        tet_physical_tags: fx.tet_physical_tags.clone(),
+        boundary_triangles: fx.boundary_triangles.clone(),
+        triangle_physical_tags: fx.triangle_physical_tags.clone(),
+    };
+    let mut state = BisectionMesh::new(tagged).unwrap();
+    for cycle in 0..=PREP_CYCLES {
+        let current = fixture(state.mesh(), &fx);
+        let sheets = Sheets::of(&current);
+        let p = primal(
+            &current.mesh,
+            Eps::Scalar(&current.epsilon_r_scalar()),
+            &sheets,
+            1,
+        );
+        println!(
+            "  prep cycle {cycle}: {} tets, P1 {:.9} fF",
+            current.mesh.n_tets(),
+            p.c_ff
+        );
+        if cycle == PREP_CYCLES {
+            break;
+        }
+        let marked = dorfler(&indicators(&current, &p.phi));
+        let mut trial = state.clone();
+        let refined = trial.refine(&marked, &RefineOpts::default()).unwrap();
+        assert!(refined.mesh.mesh.n_tets() <= PREP_MAX_TETS);
+        state = trial;
+        fields = prolong(&fields, refined.node_prolongation.as_ref());
+    }
+    let (name, dir) = DESIGNS_93P95[0];
+    let wd = committed(Path::new(dir));
+    let rounds = max_rounds.min(wd.c_ff.len() - 1);
+    let mut rows = Vec::new();
+    for round in 0..=rounds {
+        let base = state.mesh().mesh.clone();
+        assert_eq!(base.n_tets(), wd.n_tets[round], "{name} round {round} mesh");
+        // The design solve only marks the next round; the last round's mesh
+        // is pinned by its tet count and the natural-box X0 replay.
+        let marked = (round < rounds).then(|| {
+            let mut at_final = fixture(state.mesh(), &fx);
+            at_final.mesh = moved(&base, &fields, &wd.theta);
+            let sheets = Sheets::of(&at_final);
+            let t = Instant::now();
+            let p = primal(
+                &at_final.mesh,
+                Eps::Scalar(&at_final.epsilon_r_scalar()),
+                &sheets,
+                2,
+            );
+            println!(
+                "  {name} round {round}: {} tets, design upper {:.9} fF ({:.1}s)",
+                base.n_tets(),
+                p.c_ff,
+                t.elapsed().as_secs_f64()
+            );
+            check(&format!("{name} round {round}"), p.c_ff, wd.c_ff[round]);
+            dorfler(&indicators(&at_final, &p.phi))
+        });
+        let at_x0 = fixture(state.mesh(), &fx);
+        let s0 = Sheets::of(&at_x0);
+        let wall = at_x0.exterior_boundary_triangles();
+        let et0 = tensor_eps(&at_x0);
+        rows.push(box_row(
+            &format!("{name} round {round}"),
+            &at_x0.mesh,
+            &et0,
+            &s0,
+            &wall,
+            &want,
+        ));
+        let Some(marked) = marked else { break };
+        let refined = state.refine(&marked, &RefineOpts::default()).unwrap();
+        fields = prolong(&fields, refined.node_prolongation.as_ref());
+    }
+    rows
+}
+
+/// The dressed-qubit band of the #1078/#1079 two-node circuit over every
+/// corner of `[c_lo, c_hi]` fF and the `L_s` and `k` bands, with the
+/// resonator at `fr_ghz`; also the `L_J`-only band. GHz. The same
+/// construction as `transmon_devicelayout_crosscheck`'s static route.
+fn dressed_band(c_lo: f64, c_hi: f64, fr_ghz: f64) -> ((f64, f64), (f64, f64)) {
+    use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
+        coupled_lc_dressed_pair_hz, harmonic_frequency_hz,
+    };
+    let lc = |c_ff: f64, l_s: f64| {
+        harmonic_frequency_hz(
+            JUNCTION_INDUCTANCE_H + l_s,
+            c_ff * 1e-15 + JUNCTION_CAPACITANCE_F,
+        ) / 1e9
+    };
+    let mut d = Vec::new();
+    for c in [c_lo, c_hi] {
+        for l_s in [
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0,
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1,
+        ] {
+            for k in [
+                DEVICELAYOUT_COUPLING_K_BAND.0,
+                DEVICELAYOUT_COUPLING_K_BAND.1,
+            ] {
+                d.push(coupled_lc_dressed_pair_hz(lc(c, l_s) * 1e9, fr_ghz * 1e9, k).0 / 1e9);
+            }
+        }
+    }
+    (
+        (
+            d.iter().copied().fold(f64::INFINITY, f64::min),
+            d.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        ),
+        (lc(c_hi, 0.0), lc(c_lo, 0.0)),
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn write_grounded_box(out: &Path, uni: &[BoxRow], adapt: &[BoxRow], max_rounds: usize) {
+    let tv: toml::Value = fs::read_to_string(BRACKET_TENSOR_TOML)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let nb = &tv["bracket_x0_tensor"];
+    let nat_lo = nb["lower_ff"].as_float().unwrap();
+    let nat_hi = nb["upper_ff"].as_float().unwrap();
+    let nat_lo_from = nb["lower_from"].as_str().unwrap().to_string();
+    let xv: toml::Value = fs::read_to_string(CROSSCHECK_RESULTS_TOML)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let st = &xv["static_cross_check"]["initial"];
+    let fr = st["resonator_f_r_ghz"].as_float().unwrap();
+    let committed_dressed: Vec<f64> = st["dressed_f_q_band_ghz"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_float().unwrap())
+        .collect();
+    let rows: Vec<&BoxRow> = uni.iter().chain(adapt).collect();
+    let best = rows
+        .iter()
+        .min_by(|a, b| a.grounded_ff.total_cmp(&b.grounded_ff))
+        .unwrap();
+    let finest = rows.iter().max_by_key(|r| r.n_tets).unwrap();
+    let g_hi = ceil_to(best.grounded_ff, 2);
+    let (nat_d, nat_lc) = dressed_band(nat_lo, nat_hi, fr);
+    let r4 = |x: f64| (x * 1e4).round() / 1e4;
+    assert!(
+        (r4(nat_d.0) - committed_dressed[0]).abs() < 1e-9
+            && (r4(nat_d.1) - committed_dressed[1]).abs() < 1e-9,
+        "natural-box dressed band {nat_d:?} does not reproduce the committed {committed_dressed:?}"
+    );
+    let (g_d, g_lc) = dressed_band(nat_lo, g_hi, fr);
+    let mut t = String::new();
+    let _ = writeln!(
+        t,
+        "# Auto-generated by `BRACKET_PART=grounded_box cargo run -p geode-core --release --example transmon_c_sigma_bracket`.\n\
+         # Do NOT edit by hand. Consumed by `tests/transmon_diffopt.rs`. No timings: bit-reproducible.\n\
+         # Issue #1145: the sapphire-tensor C_Sigma of X0 with the OUTER BOX GROUNDED (the PEC wall of the eigenproblem's\n\
+         # Palace config, PEC = metal + exterior_boundary), on the meshes of c_sigma_bracket_tensor.toml. The natural-box\n\
+         # value of every mesh is re-solved and asserted against the committed #1091 row, so the meshes are the same.\n\
+         # Only the upper side is solved: the natural-box lower bound carries over (see [method].monotonicity).\n"
+    );
+    let _ = writeln!(t, "[meta]");
+    let _ = writeln!(t, "issue = 1145");
+    let _ = writeln!(t, "method_issue = 1062");
+    let _ = writeln!(
+        t,
+        "generator = \"crates/geode-core/examples/transmon_c_sigma_bracket.rs\""
+    );
+    let _ = writeln!(t, "part = \"grounded_box\"");
+    let _ = writeln!(
+        t,
+        "fixture = \"crates/geode-core/tests/fixtures/transmon_smoke.msh\""
+    );
+    let _ = writeln!(
+        t,
+        "quantity = \"island C_Sigma with the feedline floating and neutral (C_ii - C_if^2/C_ff), sapphire lab tensor on the substrate, 1 in vacuum; the meshed polygonal geometry\""
+    );
+    let _ = writeln!(
+        t,
+        "natural_box = \"the #1091 model: ground = the ground-plane sheet only, natural (zero normal D) condition on the outer box\""
+    );
+    let _ = writeln!(
+        t,
+        "grounded_box = \"ground = the ground-plane sheet AND every exterior_boundary face (vertex and edge P2 DOFs at 0 V); the island and the feedline do not touch the box (asserted); the group equals the mesh's topological boundary on every mesh (asserted)\""
+    );
+    let _ = writeln!(
+        t,
+        "natural_source = \"{BRACKET_TENSOR_TOML} [uniform_x0_tensor_p2, adaptive_x0_tensor, bracket_x0_tensor]\""
+    );
+    let _ = writeln!(
+        t,
+        "meshes = \"uniform h/1, h/2 (red refinement of the fixture) and the held-out rounds 0-{max_rounds} of {} (rebuilt from the design's scalar solves, asserted against its summary.toml)\"",
+        DESIGNS_93P95[0].1
+    );
+    let _ = writeln!(t, "eps0 = {EPS_0:e}  # F/m; coordinates in metres");
+    let _ = writeln!(t, "\n[method]");
+    let _ = writeln!(
+        t,
+        "upper = \"conforming P2 Galerkin energy with the sapphire tensor (assembly::electrostatic::assemble_electrostatic_p2_sheets_tensor), AMG-PCG: every grounded-box value is an upper bound on the converged grounded-box C_Sigma of the meshed geometry\""
+    );
+    let _ = writeln!(
+        t,
+        "monotonicity = \"grounding the box adds Dirichlet constraints to the energy minimization, so the converged C_Sigma can only rise: C_grounded >= C_natural >= the natural-box lower bound; the same holds on every mesh for the discrete values (asserted)\""
+    );
+    let _ = writeln!(
+        t,
+        "rounding = \"upper values ceiled (6 decimals per mesh, 2 per family), the carried lower bound as committed (floored); differences unrounded, 9 decimals; plain f64, not interval arithmetic\"\n"
+    );
+    for (table, rs) in [
+        ("uniform_x0_grounded_box", uni),
+        ("adaptive_x0_grounded_box", adapt),
+    ] {
+        for r in rs {
+            let _ = writeln!(t, "[[{table}]]");
+            let _ = writeln!(t, "mesh = \"{}\"", r.label);
+            let _ = writeln!(t, "order = \"P2\"");
+            let _ = writeln!(t, "n_tets = {}", r.n_tets);
+            let _ = writeln!(t, "wall_faces = {}", r.wall_faces);
+            let _ = writeln!(
+                t,
+                "natural_upper_ff = {}  # natural box, ceiled; equals the committed #1091 row",
+                ceil_fmt(r.natural_ff, 6)
+            );
+            let _ = writeln!(
+                t,
+                "grounded_upper_ff = {}  # grounded box, conforming, ceiled",
+                ceil_fmt(r.grounded_ff, 6)
+            );
+            let _ = writeln!(
+                t,
+                "grounded_minus_natural_ff = {:.9}  # same mesh, unrounded: a discretization-level difference, not a bound",
+                r.grounded_ff - r.natural_ff
+            );
+            let _ = writeln!(
+                t,
+                "pcg_iterations = {:?}\npcg_max_true_rel_residual = {:.3e}",
+                r.iters, r.res
+            );
+        }
+    }
+    let _ = writeln!(
+        t,
+        "\n[bracket_x0_tensor_grounded_box]  # X0, sapphire tensor, grounded box: the eigenproblem's PEC-box model"
+    );
+    let _ = writeln!(
+        t,
+        "lower_ff = {nat_lo:.2}  # the natural-box lower bound, carried over by monotonicity"
+    );
+    let _ = writeln!(t, "lower_from = \"natural box: {nat_lo_from}\"");
+    let _ = writeln!(
+        t,
+        "upper_ff = {g_hi:.2}  # smallest grounded-box conforming value of the family, ceiled"
+    );
+    let _ = writeln!(t, "upper_from = \"{} P2\"", best.label);
+    let _ = writeln!(t, "width_ff = {:.2}", g_hi - nat_lo);
+    let _ = writeln!(
+        t,
+        "width_relative_to_lower = {}",
+        ceil_fmt((g_hi - nat_lo) / nat_lo, 4)
+    );
+    let _ = writeln!(t, "\n[box_difference]  # grounded box minus natural box");
+    let _ = writeln!(t, "natural_bracket_ff = [{nat_lo:.2}, {nat_hi:.2}]");
+    let _ = writeln!(t, "grounded_bracket_ff = [{nat_lo:.2}, {g_hi:.2}]");
+    let _ = writeln!(
+        t,
+        "upper_shift_ff = {:.2}  # grounded family upper minus natural family upper (both ceiled)",
+        g_hi - nat_hi
+    );
+    let _ = writeln!(
+        t,
+        "finest_mesh = \"{}\"\nfinest_mesh_difference_ff = {:.9}  # same mesh, unrounded: an estimate of the converged difference, not a bound",
+        finest.label,
+        finest.grounded_ff - finest.natural_ff
+    );
+    let _ = writeln!(
+        t,
+        "finest_mesh_difference_relative = {:.3e}",
+        (finest.grounded_ff - finest.natural_ff) / finest.natural_ff
+    );
+    let _ = writeln!(
+        t,
+        "converged_difference_bounded_by_ff = [0.00, {}]  # 0 <= C_grounded - C_natural <= grounded upper - natural lower, ceiled",
+        ceil_fmt(g_hi - nat_lo, 2)
+    );
+    let _ = writeln!(
+        t,
+        "\n[static_route]  # the two-node circuit of transmon_devicelayout_crosscheck [static_cross_check.initial], same corners"
+    );
+    let _ = writeln!(
+        t,
+        "model = \"bare qubit 1/(2 pi sqrt((L_J + L_s)(C_Sigma + C_J))), coupling k to a resonator at f_r; every corner of the C_Sigma, L_s (DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H) and k (DEVICELAYOUT_COUPLING_K_BAND) bands; the circuit terms are estimates (#1078, #1079), so the bands are estimates, not bounds\""
+    );
+    let _ = writeln!(
+        t,
+        "resonator_f_r_ghz = {fr:.4}  # {CROSSCHECK_RESULTS_TOML} [static_cross_check.initial]"
+    );
+    let _ = writeln!(
+        t,
+        "natural_dressed_f_q_band_ghz = [{:.4}, {:.4}]  # recomputed; equals the committed crosscheck band",
+        nat_d.0, nat_d.1
+    );
+    let _ = writeln!(
+        t,
+        "natural_lc_only_f_q_band_ghz = [{:.4}, {:.4}]",
+        nat_lc.0, nat_lc.1
+    );
+    let _ = writeln!(
+        t,
+        "grounded_dressed_f_q_band_ghz = [{:.4}, {:.4}]  # C_Sigma in the grounded-box bracket: the PEC-box model's static-route band",
+        g_d.0, g_d.1
+    );
+    let _ = writeln!(
+        t,
+        "grounded_lc_only_f_q_band_ghz = [{:.4}, {:.4}]  # L_J alone, k = 0",
+        g_lc.0, g_lc.1
+    );
+    let _ = writeln!(
+        t,
+        "dressed_low_end_shift_mhz = {:.1}  # grounded minus natural low end of the dressed band; the high end (set by the lower bound) is unchanged",
+        (g_d.0 - nat_d.0) * 1e3
+    );
+    fs::write(out, t).unwrap();
+}
+
 /// The unrounded scalar family bounds `(max lower, min upper)` of the rows
 /// of `tables` in a committed bracket artifact.
 fn committed_family(path: &str, tables: &[&str]) -> (f64, f64) {
@@ -1605,6 +2116,22 @@ fn main() {
             std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_TENSOR_TOML.into()),
         );
         write_tensor(&out, &uni, &x0_rows, &designs, &ks, &k_last, max_rounds);
+        println!(
+            "wrote {} ({:.1} s total)",
+            out.display(),
+            t0.elapsed().as_secs_f64()
+        );
+        return;
+    }
+    if part == "grounded_box" {
+        println!("grounded-box X0 uniform P2, sapphire tensor (#1145):");
+        let uni = uniform_grounded(&scaled);
+        println!("grounded-box X0 on the anchor_93p95 held-out meshes (#1145):");
+        let adapt = adaptive_grounded(&fx, max_rounds);
+        let out = PathBuf::from(
+            std::env::var("BRACKET_OUT").unwrap_or_else(|_| BRACKET_GROUNDED_TOML.into()),
+        );
+        write_grounded_box(&out, &uni, &adapt, max_rounds);
         println!(
             "wrote {} ({:.1} s total)",
             out.display(),

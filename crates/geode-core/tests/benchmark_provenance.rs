@@ -803,6 +803,12 @@ const MANIFEST: &[Entry] = &[
          (assembly::electrostatic_dual), no Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml",
+        "examples/transmon_c_sigma_bracket.rs (BRACKET_PART=grounded_box, issue #1145): scalar and \
+         sapphire-tensor f64 P1 and P2 electrostatic assembly + AMG-PCG on host CSR, natural and \
+         grounded outer box, no lower-bound solve, no Backend generic",
+    ),
+    b(
         "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml",
         "examples/transmon_refined_optimize.rs: scalar f64 P1/P2 electrostatic assembly + AMG-PCG \
          on host CSR and the f64 energy shape derivative (shape::refined_capacitance, issue \
@@ -1046,9 +1052,9 @@ const MANIFEST: &[Entry] = &[
     e(
         "benchmarks/transmon_devicelayout_controls/results.toml",
         &["meta.measured_date", "meta.palace_commit"],
-        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issues #1123, #1129, #1135; reads the \
+        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issues #1123, #1129, #1135, #1145; reads the \
          Palace cells of reference/fixtures/transmon_palace/results_controls_1123/, \
-         results_controls_1129/ and results_controls_1135/ written by driver.py, prima_driver.jl, ladder_palace.sh and \
+         results_controls_1129/, results_controls_1135/ and results_controls_1145/ written by driver.py, prima_driver.jl, ladder_palace.sh and \
          worker_amr.sh on AWS, plus the committed #1079/#1092 artifacts). Palace runs only, no Burn backend and no new geode solve (the one \
          geode-derived input is #1111's transmission-line delta), so it carries \
          meta.measured_date and meta.palace_commit instead of the mechanical trio",

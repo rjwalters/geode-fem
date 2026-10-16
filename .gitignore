@@ -44,6 +44,9 @@ Cargo.lock.bak
 # #1135 controls: Palace run logs and worker orchestration / memory logs
 !reference/fixtures/transmon_palace/results_controls_1135/*/palace_run.log
 !reference/fixtures/transmon_palace/results_controls_1135/logs/*.log
+# #1145 T7: adaptive refinement on the final design, Palace run log and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1145/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1145/logs/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json

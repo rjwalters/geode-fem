@@ -50,6 +50,12 @@ the published final design, and PRIMA at two more initial trust radii.
   `rhobeg_probe.jl` (which points BOBYQA starts from at each rhobeg, no
   Palace), `collect_1135.sh`; cells, logs and `provenance.txt` in
   `reference/fixtures/transmon_palace/results_controls_1135/`.
+- #1145: T6 is a geode run, `BRACKET_PART=grounded_box` of
+  `crates/geode-core/examples/transmon_c_sigma_bracket.rs`, writing
+  `../transmon_diffopt/c_sigma_bracket_grounded_box.toml` (pinned by
+  `tests/transmon_diffopt.rs`); T7 is `worker_amr.sh amr_final_p2:24`,
+  `collect_1145.sh`, and `[amr.final]` of `results.toml`; cell and logs in
+  `reference/fixtures/transmon_palace/results_controls_1145/`.
 
 ## 1. Gradient-free Newton controls at DeviceLayout's discretization
 
@@ -466,6 +472,104 @@ run 1 = the committed `dl_initial`).
 - **Cost.** 8 ranks per run: 14–21 min of Palace per run (about 16 min on
   average), plus 0.5–12 min of mesh generation on a loaded Mac.
 
+## 7. #1145: grounded-box upper bound, adaptive refinement on the final design
+
+The v16 reviews named two optional runs. T6 is a geode electrostatic solve
+(its artifact is `../transmon_diffopt/c_sigma_bracket_grounded_box.toml`);
+T7 is a Palace run (`[amr.final]` of `results.toml`).
+
+### T6. Grounded-box upper bound on the initial-geometry C_Σ
+
+The static route's bracket [79.56, 79.76] fF (`c_sigma_bracket_tensor.toml
+[bracket_x0_tensor]`, #1091) and its dressed range [4.449, 4.458] GHz belong to
+the natural-box model: ground is the ground-plane sheet only and the outer box
+carries the natural (zero normal D) condition. The eigenproblem's Palace config
+grounds the box (`PEC = metal + exterior_boundary`). Grounding only adds
+constraints to the energy minimization, so the natural-box lower bound also
+bounds the grounded-box C_Σ from below. The upper bound does not transfer.
+
+- **Setup.** `BRACKET_PART=grounded_box` re-solves X⁰'s sapphire-tensor P2
+  value on the same meshes as #1091 (uniform h, h/2 and the eight held-out
+  rounds of `anchor_93p95`). Each natural-box value is asserted against the
+  committed #1091 row of the same mesh. It then solves the same mesh again with
+  every `exterior_boundary` face (vertex and edge DOFs) at 0 V. On every mesh
+  the group is asserted to be the whole topological boundary, and the island
+  and the feedline are asserted not to touch it. No lower bound is recomputed.
+- **Result.**
+
+  | mesh | tets | natural (fF) | grounded box (fF) | difference (fF) |
+  |---|---|---|---|---|
+  | uniform h | 133,314 | 91.717846 | 91.725009 | +0.007163 |
+  | uniform h/2 | 1,066,512 | 85.008425 | 85.015234 | +0.006809 |
+  | round 0 | 448,279 | 80.516226 | 80.522745 | +0.006519 |
+  | round 7 | 3,388,197 | 79.758230 | 79.764730 | +0.006500 |
+
+  Rounds 1–6 are in the TOML; the difference is +0.00650 to +0.00651 fF on
+  every adaptive round. The grounded-box C_Σ is bounded by **[79.56, 79.77]
+  fF** (the upper end is round 7, ceiled). The upper end moves by 0.01 fF at the
+  two-decimal rounding. The same-mesh difference at round 7, **+0.0065 fF
+  (8.1e-5 relative)**, is an estimate of the converged difference, not a bound.
+  The converged difference is bounded by [0, 0.21] fF.
+- **Dressed qubit.** The #1078/#1079 circuit over the same corners (L_s, k
+  bands, resonator 5.7404 GHz) gives **[4.4492, 4.4579] GHz** for the grounded
+  box, against [4.4494, 4.4579] for the natural box. The low end drops by 0.3
+  MHz; the high end is set by the shared lower bound and does not move. The
+  circuit terms are estimates, so this range is an estimate under the circuit
+  model, not a bound on the eigenfrequency. The natural-box band is recomputed
+  and asserted equal to the committed crosscheck band.
+- **A role-identification bug, found by this run.** The first attempt stopped at
+  round 7 with "island touches the outer box"
+  (`../transmon_diffopt/c_sigma_bracket_grounded_box_attempt1.log`). On that
+  mesh the adaptively refined island sheet has more triangles than the ground
+  plane (42,129 against 41,422), and `TransmonFixture::split_metal_conductors`
+  called the junction-touching component with the most triangles "ground". It
+  now picks the one with the largest in-plane bounding box (the ground plane
+  spans the chip), with triangle count as the tie-break. The swap affected only
+  meshes this fine, and there the natural-box C_Σ (island to ground, feedline
+  floating, no other conductor) is symmetric in the two terminals. So every
+  committed natural-box value stands, and the round-7 natural replay
+  reproduces its committed value. The grounded-box value is not symmetric,
+  which is why this run caught it.
+- **Cost.** 44 min wall and 17.9 GB peak RSS on 8 threads of the T7 worker
+  (the first attempt took 36 min more before it stopped).
+
+### T7. Palace adaptive refinement on the published final design
+
+**Setup.** The same settings as §2, on the final design's h mesh
+(`final_o1_v22.msh`, the #1092 ladder's h, sha256 2a7158b0...): the config is
+`final_h_p2`'s with exactly the deltas #1123 applied to `initial_h_p2`, so it
+differs from `amr_initial_p2` only in the mesh, the output path and the eigen
+target (2.0 GHz, as `final_h_p2`). The pin checks this. 24 ranks, against
+#1123's 32.
+
+| solve | ND DOFs | f_q | f_r | error indicator |
+|---|---|---|---|---|
+| 1 (h) | 1,167,212 | 3.016362 | 3.997164 | 0.409 |
+| 2 | 1,315,054 | 3.128649 | 4.000737 | 0.348 |
+| 3 | 2,854,692 | 3.188362 | 4.030701 | 0.264 |
+| 4 | 6,324,942 | 3.226379 | 4.043153 | 0.200 |
+| 5 | 14,622,036 | **3.246796** | 4.055203 | 0.150 |
+
+- **Finest level, no extrapolation: f_q = 3.2468 GHz**, +8.05 % over the
+  published 3.005 GHz and +7.64 % over Palace at DeviceLayout's discretization
+  (3.0164). The resonator's finest level, 4.0552 GHz, is +1.84 % over the
+  published 3.982.
+- **No plateau within MaxSize.** The last step still moved the qubit by
+  +0.63 % and the resonator by +0.30 %. As in §2, the run stopped because the
+  last solve passed 1e7 DOFs, not on a tolerance. Every level rises.
+- **Against the §6 T4 family estimates.** The finest qubit level lies 0.56 %
+  below family a's estimate (3.2652) and 1.39 % below family b's (3.2924). It
+  is inside the union band [3.236, 3.471]. The finest resonator level lies
+  below its union band [4.077, 4.139], as the initial geometry's did in §2.
+  Since the qubit is still rising, these are finite-mesh levels approaching
+  from below, not a converged value.
+- **Fit (estimate).** f = f∞ − C N^−α through the last three solves gives
+  **3.2672 GHz** (α = 0.83), between the two family estimates. It is exactly
+  determined and ill-conditioned: +0.1 % on the finest level moves it by
+  16 MHz. The resonator fit has α = 0.10 and is not reliable.
+- **Cost.** 5.8 h wall on 24 ranks (the other 8 vCPU ran T6 and the gates for
+  the first ~2 h), with a 121.9 GiB host peak in the last solve.
+
 ## Compute
 
 AWS `geode-fem-bench`, us-east-1, tagged `project=geode-fem`, 2026-10-14.
@@ -494,3 +598,11 @@ It was terminated after every output was synced back.
 | worker | role | time | cost |
 |---|---|---|---|
 | w1135 (r8g.8xlarge) | T4 (three cells) on 16 ranks; T5 (two PRIMA runs, 9 + 11 Palace runs) on 8 ranks each, concurrently; gates | 4.1 h | about $7.7 |
+
+#1145 ran on one worker in us-east-2 (same profile and tags), 2026-10-15/16.
+The idle alarm stopped it after T7 ended, it was restarted to sync the outputs
+and run the final gate, and it was terminated after everything was synced back.
+
+| worker | role | time | cost |
+|---|---|---|---|
+| w1145 (r8g.8xlarge) | T7 on 24 ranks; T6 (two attempts and a diagnostic replay) and gates on the other 8 vCPU | WALL_PLACEHOLDER | COST_PLACEHOLDER |

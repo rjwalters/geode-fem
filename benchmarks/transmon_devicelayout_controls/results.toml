@@ -7,12 +7,13 @@
 [meta]
 issue = 1123
 measured_date = "2026-10-14"
-generated_at_commit = "9c4172e7"
+generated_at_commit = "173cd917"
 generator = "benchmarks/transmon_devicelayout_controls/assemble.py"
 palace_commit = "fba6a5b9d17ef09db2907e9c4c6f92d123d131c0"  # v0.17.0-99, reference/palace/docker/Dockerfile, image palace:cpu-1043
 cells = "reference/fixtures/transmon_palace/results_controls_1123"
 cells_1129 = "reference/fixtures/transmon_palace/results_controls_1129"  # issue #1129: [controls.scaling_palace], [controls.prima_this_build], [mesh_family.cv2]
 cells_1135 = "reference/fixtures/transmon_palace/results_controls_1135"  # issue #1135: [mesh_family.final], [controls.prima_rhobeg0p1], [controls.prima_rhobeg0p4], [controls.prima_rhobeg]
+cells_1145 = "reference/fixtures/transmon_palace/results_controls_1145"  # issue #1145 T7: [amr.final]
 hosts = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.4xlarge dl1123 (16 vCPU, 123 GiB; the DeviceLayout-discretization runs and fam_u1_p2), r8g.4xlarge lad1123 (the conv-step ladder) and r8g.8xlarge amr1123 (32 vCPU, 247 GiB; the adaptive run, fam_u1_p1 and fam_u2_p1)"
 hosts_1129 = "AWS us-east-2, Ubuntu 24.04 arm64: r8g.8xlarge w1129 (32 vCPU, 247 GiB), 2026-10-15; the T1/T2 DeviceLayout-discretization runs on 16 ranks and the T3 cells on the other 16, concurrently; Palace image palace:cpu-1043 loaded from the #1123 build"
 hosts_1135 = "AWS us-east-1, Ubuntu 24.04 arm64: r8g.8xlarge w1135 (32 vCPU, 247 GiB), 2026-10-15; the T4 cells on 16 ranks, the two T5 PRIMA runs on 8 ranks each, concurrently; Palace image palace:cpu-1043 loaded from the #1123 build"
@@ -345,6 +346,39 @@ final_c_um = [1235.705, 1209.125, 1245.900]
 final_L_um = [7216.766, 7207.551, 7291.401]
 run_count_range = [10, 12]  # over the rhobeg values that reached the criterion
 newton_runs_at_criterion = 3  # [controls.comparison_1129]: every Newton variant
+
+[amr.final]
+description = "issue #1145 T7: Palace adaptive mesh refinement on DeviceLayout's PUBLISHED FINAL design (1217.678 / 7243.955 um) with the settings of [amr.initial]: the DeviceLayout order-1 mesh h of the final design (final_o1_v22.msh, the #1092 ladder's h), solver order 2, PEC box, sapphire tensor, the AMS/GMRES eigen setup of the ladder's order-2 cell final_h_p2 (Target 2.0 GHz as in that cell); Model.Refinement: MaxIts 12, MaxSize 1e7, Tol 1e-6, UpdateFraction 0.7 (Doerfler), nonconformal; Eigenmode N = 2, Linear MaxIts 1000. finest_* is a computed level (no extrapolation); dof_extrapolation_* is an exactly determined fit, an estimate"
+iterations = 5  # solves, the unrefined h mesh first
+nd = [1167212, 1315054, 2854692, 6324942, 14622036]
+f_q_ghz = [3.016362, 3.128649, 3.188362, 3.226379, 3.246796]
+f_r_ghz = [3.997164, 4.000737, 4.030701, 4.043153, 4.055203]
+error_indicator_norm = [4.093e-01, 3.484e-01, 2.638e-01, 1.996e-01, 1.499e-01]
+step_change_f_q_pct = [3.7226, 1.9086, 1.1923, 0.6328]  # each solve over the one before
+step_change_f_r_pct = [0.0894, 0.7490, 0.3089, 0.2980]
+finest_f_q_ghz = 3.246796  # the finest computed level: no extrapolation
+finest_f_r_ghz = 4.055203
+published_ghz = [3.005, 3.982]
+finest_over_published_pct = [8.046, 1.838]
+devicelayout_run_ghz = [3.016352, 3.995612]  # results_crosscheck_1092/dl_final
+finest_over_devicelayout_run_pct = [7.640, 1.491]
+family_estimate_range_f_q_ghz = [3.2652, 3.2924]  # [mesh_family.final]: families a and b, part-1 rule (estimates)
+family_estimate_range_f_r_ghz = [4.0880, 4.1126]
+family_union_f_q_band_ghz = [3.2356, 3.4710]
+family_union_f_r_band_ghz = [4.0774, 4.1387]
+finest_minus_family_estimates_f_q_pct = [-0.563, -1.385]
+finest_minus_family_estimates_f_r_pct = [-0.801, -1.396]
+finest_in_union_band = [true, false]  # qubit, resonator
+finest_above_published = [true, true]
+dof_extrapolation_alpha_q = 0.8272  # f = f_inf - C N^-alpha through the last three solves: an ESTIMATE
+dof_extrapolation_f_q_ghz = 3.2672
+dof_extrapolation_f_q_sensitivity_ghz_per_0p1pct_finest = 0.0158  # exactly determined: ill-conditioned
+dof_extrapolation_alpha_r = 0.1039  # f = f_inf - C N^-alpha through the last three solves: an ESTIMATE
+dof_extrapolation_r_reliable = false  # far below the asymptotic order: not reliable
+dof_extrapolation_f_r_ghz = 4.1876
+dof_extrapolation_f_r_sensitivity_ghz_per_0p1pct_finest = "not defined"
+wall_s = 20847.0  # 24 ranks; the other 8 vCPU ran the #1145 T6 geode solves and gates during the first ~2 h, so not a clean timing
+peak_host_used_gib = 121.9  # mem.log sampler, while this cell ran; reached in the last solve, after the T6 runs ended
 
 [cap.initial]
 tier = "model-dependent: a rigorous consequence of the certified C_Sigma bracket only under the lumped two-node circuit model; not a certified bound on the full-wave eigenfrequency"
