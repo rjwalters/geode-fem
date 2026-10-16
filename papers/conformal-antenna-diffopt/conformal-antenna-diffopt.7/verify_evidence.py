@@ -559,25 +559,47 @@ def check_baselines(ts, dc):
 # --------------------------------------------------------------------------
 
 def check_fdtd():
+    sec = section("\\paragraph{Comparison with FDTD.}", "\\section{How geode-fem")
+    # v1 harness and its diagnosis (on main)
     p = REPO / "benchmarks/fdtd_density_baseline/meep_runs/diag/diagnosis.json"
     print(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(REPO)}")
     d = json.loads(p.read_text())
-    sec = section("\\paragraph{Comparison with FDTD.}", "\\section{How geode-fem")
-    bent = d["runs"]["bent_R2"]["dip_parabolic_ghz"]
-    assert f(bent, 2) == "2.09"
-    assert f"near ${f(bent, 2)}$\\,GHz" in sec
-    flat = d["flat_R2_vs_geode_flat"]
-    assert f"${f(flat['meep_flat_R2_dip_ghz'], 3)}$\\,GHz against geode-fem's ${f(flat['geode_flat_dips_ghz']['L3_p1'], 3)}$\\,GHz" in sec
-    sh = d["meep_bend_shift_R2_mhz"]
-    assert round(sh["harness_shells"] / 10) * 10 == -250 and "about $250$\\,MHz below" in sec
-    assert f"by ${m(sh['cell_staircase'], 1)[1:-1]}$\\,MHz" in sec.replace("$-", "$-") or "$-2.6$\\,MHz" in sec
-    assert f(sh["cell_staircase"], 1) == "-2.6"
+    assert f(d["runs"]["bent_R2"]["dip_parabolic_ghz"], 2) == "2.09" and "near $2.09$\\,GHz" in sec
+    assert round(d["meep_bend_shift_R2_mhz"]["harness_shells"] / 10) * 10 == -250 and "about $250$\\,MHz below" in sec
     det = d["geode"]["detune_bent_minus_flat_mhz"].values()
     assert f(max(det), 1) == "-1.0" and f(min(det), 1) == "-1.6"
-    assert "geode-fem's $-1.0$ to $-1.6$\\,MHz" in sec
-    assert "$0.5$\\,mm cells" in sec and "$1$--$2\\%$" in sec
-    assert "[PENDING:" in sec and "% TODO-1146" in TEX
-    assert "we make no comparison of cost or accuracy with FDTD" in sec
+    assert "against geode-fem's $-1.0$ to $-1.6$\\,MHz" in sec
+    # v2 harness: read the ladder when it is on this tree, otherwise check the pinned values
+    lad = REPO / "benchmarks/fdtd_density_baseline/meep_runs/v2/ladder.json"
+    if lad.exists():
+        print(f"{hashlib.sha256(lad.read_bytes()).hexdigest()}  {lad.relative_to(REPO)}")
+        L = json.loads(lad.read_text())
+        r, c = L["runs"], L["comparison"]
+        vals = dict(flat=r["c_flat_R2.5"]["dip_parabolic_ghz"], b25=r["c_bent_R2.5"]["dip_parabolic_ghz"],
+                    b5=r["c_bent_R5"]["dip_parabolic_ghz"], dflat=c["flat_R2.5_minus_geode_flat_mhz"]["L1_p2"],
+                    bend=c["bend_shift_R2.5_mhz"], trend=c["bent_trend_R2.5_to_R5_mhz"],
+                    w5=r["c_bent_R5"]["wall_seconds"], m5=r["c_bent_R5"]["cgroup_peak_gib"],
+                    cells5=r["c_bent_R5"]["grid_cells_estimated"], ranks5=r["c_bent_R5"]["mpi_ranks"])
+        assert all(r[k]["temporal_tolerance_met"] for k in r) and c["spatial_convergence_established"] is False
+    else:
+        print("meep_runs/v2/ladder.json not on this tree: checking the pinned values (PR 1153)")
+        vals = dict(flat=2.3683263892858974, b25=2.3667259081214134, b5=2.3611052663646195, dflat=10.303389285897246,
+                    bend=-1.60048116448408, trend=-5.620641756793887, w5=52857.71684883, m5=134.17770767211914,
+                    cells5=577987200, ranks5=32)
+    for s in [f"dips at ${f(vals['flat'], 4)}$\\,GHz, ${f(vals['dflat'], 1)}$\\,MHz above geode-fem's finest flat model",
+              f"moves the dip by ${m(vals['bend'], 1)[1:-1]}$\\,MHz",
+              f"The bent dip is at ${f(vals['b25'], 4)}$\\,GHz with $0.4$\\,mm cells and ${f(vals['b5'], 4)}$\\,GHz with $0.2$\\,mm cells",
+              "($\\mathrm{Re}\\,Z$ $44.8$ and $47.3\\,\\Omega$)",
+              f"their ${m(vals['trend'], 1)[1:-1]}$\\,MHz change is a trend, not a mesh-limit value",
+              f"({round(vals['cells5'] / 1e6)}M cells, {vals['ranks5']} ranks) took ${f(vals['w5'] / 3600, 1)}$\\,h and ${round(vals['m5'])}$\\,GiB",
+              "$2.356$--$2.367$\\,GHz", "$28.8$ against $29.0$\\,mm", "$7.0$ against $6.9$\\,mm",
+              "exactly $50.0\\,\\Omega$", "we draw no cost conclusion"]:
+        assert re.sub(r"\s+", " ", s) in re.sub(r"\s+", " ", sec), s
+    assert f(vals["flat"] - 2.358023, 4) and abs((vals["flat"] - 2.358023) * 1000 - vals["dflat"]) < 1e-6
+    comb = read("v6/x1/dip_x1comb_L1.toml")["cost"]
+    assert (round(comb["total_s"] / 3600, 1), round(comb["peak_rss_gib"]), comb["n_solves"]) == (3.1, 208, 19)
+    assert "geode-fem's finest rung $3.1$\\,h and $208$\\,GiB for one dip (19 solves)" in re.sub(r"\s+", " ", sec)
+    assert "PENDING" not in sec and "TODO-1146" not in TEX
 
 
 def check_citations():
@@ -681,7 +703,7 @@ def main():
           "lower-edge budget with the air-margin rise; the port-free eigenmode and the probe sign; design C's "
           "efficiency and gain; Table 3 (tuned baselines, paired seeds, censoring), the finite-difference control "
           "(39x, 1,164-1,211 s per gradient) and the n-scaling; the rim/slab table, Palace p-ladder and mesh-limit "
-          "estimate; curvature, air margin, Q; the Meep diagnosis wording and the pending marker; citations; "
+          "estimate; curvature, air margin, Q; the Meep v1 diagnosis and v2 cross-check (ladder or pinned values); citations; "
           "Section 9; voice and title; v1-v6 unchanged.")
 
 

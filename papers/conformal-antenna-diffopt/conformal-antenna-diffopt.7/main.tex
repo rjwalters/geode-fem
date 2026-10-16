@@ -858,24 +858,31 @@ surrogate-assisted or Bayesian optimizer may narrow the gap, and whether the
 adjoint helps at the refined level is not tested.
 
 \paragraph{Comparison with FDTD.}
-A matched-geometry Meep \citep{oskooi2010meep} model of the initial antenna
-places the bent patch's resonance near $2.09$\,GHz, about
-$250$\,MHz below the finite-element models. The difference comes from that
-model's voxelization of its one-cell metal shells without subpixel
-averaging: on the curved board the normal and tangential electric field
-see gaps of different heights, which lowers the resonance. With the metal
-aligned to the grid at $0.5$\,mm cells, Meep's flat board resonates at
-$2.335$\,GHz against geode-fem's $2.343$\,GHz on a comparable flat model,
-and the bend moves the Meep dip by $-2.6$\,MHz against geode-fem's $-1.0$ to
-$-1.6$\,MHz. A model of the gap mismatch reproduces the artifact to about
-$1$--$2\%$, too coarse to resolve megahertz bend shifts.
-% TODO-1146: fold in the corrected-harness Meep results (grid-aligned metal,
-% whole-cell gap and port) on the bent initial patch, then remove the marker.
-\textbf{[PENDING: results of the corrected Meep harness on the bent initial
-patch, at its grid resolutions, against geode-fem and Palace.]}
-Until these are in, we make no comparison of cost or accuracy with FDTD,
-including a conformal FDTD scheme
-\citep{dey1997locally,zagorodnov2003uniformly}.
+A first matched-geometry Meep \citep{oskooi2010meep} model of the initial
+antenna placed the bent patch's resonance near $2.09$\,GHz, about
+$250$\,MHz below the finite-element models. That came from its one-cell
+metal shells without subpixel averaging, which on the curved board give
+the normal and tangential electric field different gaps, and it also had a
+$2.0$\,mm discrete gap and a port that was not $50\,\Omega$. A second Meep
+model puts zero-thickness PEC sheets on the Yee grid, keeps the $1.6$\,mm
+gap in every column (4 cells at $0.4$\,mm, 8 at $0.2$\,mm) and uses a port of
+exactly $50.0\,\Omega$. Its flat board dips at $2.3683$\,GHz, $10.3$\,MHz above
+geode-fem's finest flat model ($p = 2$ on L1), and the bend moves the dip by
+$-1.6$\,MHz, against geode-fem's $-1.0$ to $-1.6$\,MHz. The bent dip is at
+$2.3667$\,GHz with $0.4$\,mm cells and $2.3611$\,GHz with $0.2$\,mm cells
+($\mathrm{Re}\,Z$ $44.8$ and $47.3\,\Omega$), against $2.3660$\,GHz for Palace
+$p = 3$ and for geode-fem's finest rung. Meep's dips are parabola vertices
+through samples $10$\,MHz apart, so differences of about $1$\,MHz are below
+their resolution. The two resolutions also differ in patch length ($28.8$
+against $29.0$\,mm) and probe inset ($7.0$ against $6.9$\,mm), so their
+$-5.6$\,MHz change is a trend, not a mesh-limit value. All three codes place
+the bent dip within $2.356$--$2.367$\,GHz. This cross-checks the resonance
+only. On the same host type (r8g.8xlarge), the $0.2$\,mm Meep run (578M
+cells, 32 ranks) took $14.7$\,h and $134$\,GiB for the whole
+$1.6$--$3.0$\,GHz spectrum, and geode-fem's finest rung $3.1$\,h and
+$208$\,GiB for one dip (19 solves); geode-fem also returns the shape
+gradient. These are single runs at unmatched accuracy, and we draw no cost
+conclusion from them.
 
 \section{How geode-fem Was Designed and Built}
 \label{sec:built}
@@ -935,7 +942,7 @@ text against them.
     Fixture, refinement, Palace cross-check, curvature (Section~\ref{sec:accuracy}) & \path{baseline_2g4_L1.toml}, \path{convergence.toml}, \path{upml_ladder_L1.toml}; \path{v6/v6_summary.toml}, \path{v6/x1/}, \path{v6/x2/} \\
     Baselines and scaling (Section~\ref{sec:baselines}) & \path{tuned/tuned_summary.toml}, \path{tuned/}; \path{v6/palace_loop/palace_loop_summary.toml}, \path{v6/x4/}; \path{copper/L1_copper_38.toml}; \path{designc/c4/} \\
     Designs A to C (Sections~\ref{sec:procedure}, \ref{sec:results}) & \path{copper/g2_summary.toml}, \path{v6/x3/}, \path{v6/x5/}; \path{recentre/recentre_summary.toml}, \path{recentre/palace/}; \path{designc/designc_summary.toml}, \path{designc/c1/}--\path{c3/}; \path{tuned/b5/} \\
-    FDTD comparison (Section~\ref{sec:limits}) & \path{reference/meep/docker/DIAGNOSIS.md}; \path{benchmarks/fdtd_density_baseline/meep_runs/diag/diagnosis.json} \\
+    FDTD comparison (Section~\ref{sec:limits}) & \path{reference/meep/docker/DIAGNOSIS.md}, \path{HARNESS_V2.md}; \path{benchmarks/fdtd_density_baseline/meep_runs/v2/ladder.json} \\
     Generator and tests & \path{crates/geode-core/examples/patch_conformal_nested_dof.rs}; \path{crates/geode-core/tests/patch_conformal_*.rs} \\
     \bottomrule
   \end{tabular}

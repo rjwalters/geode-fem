@@ -52,9 +52,20 @@ cost sentences were shortened, and `\bibsep` reduced to 0.5 pt.
 
 ## Meep
 
-§8 now reports the diagnosis (harness voxelization; flat 2.335 vs geode 2.343 GHz; bend
-−2.6 vs −1.0 to −1.6 MHz; gap model good to 1–2 %) and carries a visible
-`[PENDING: …]` paragraph with a `% TODO-1146` comment for the corrected-harness results.
+§8 "Comparison with FDTD" is a short independent cross-check of the bent-board resonance,
+from the v1 diagnosis (`DIAGNOSIS.md`) and the v2 harness (`HARNESS_V2.md`,
+`meep_runs/v2/ladder.json`, PR 1153, numbers final, not yet on main). v2: PEC sheets on the
+Yee grid, 1.6 mm gap in every column (4 / 8 cells), exactly 50.0 Ω port. Flat 0.4 mm cells
+2.3683 GHz (+10.3 MHz on geode P2/L1 flat); bend −1.6 MHz (geode −1.0 to −1.6); bent
+2.3667 (0.4 mm) and 2.3611 GHz (0.2 mm), Re Z 44.8 / 47.3 Ω, against 2.3660 for Palace p = 3
+and geode's finest rung; parabola resolution caveat; −5.6 MHz trend with patch length and
+inset also changing, not a mesh-limit value; all three codes within 2.356–2.367 GHz. Cost as a
+side note with its caveats: Meep 0.2 mm 14.7 h / 134 GiB (578M cells, 32 ranks, full
+1.6–3.0 GHz spectrum) against geode's finest rung 3.1 h / 208 GiB for one dip (19 solves,
+`v6/x1/dip_x1comb_L1.toml [cost]`), "we draw no cost conclusion". The `[PENDING]` marker
+and `% TODO-1146` are gone. `verify_evidence.py` reads `meep_runs/v2/ladder.json` when it is
+on the tree and otherwise checks the values pinned from the PR 1153 ladder; five Meep
+mutations are each killed. The paper is 19 pages with this section.
 
 ## Not carried
 
@@ -67,9 +78,9 @@ cost sentences were shortened, and `\bibsep` reduced to 0.5 pt.
 
 ## Build and checks
 
-- `papers/build.sh papers/conformal-antenna-diffopt/conformal-antenna-diffopt.7`: 18 pages, 0 overfull
+- `papers/build.sh papers/conformal-antenna-diffopt/conformal-antenna-diffopt.7`: 19 pages, 0 overfull
   boxes, 0 undefined references or citations, 72 entries, all cited. The bibliography is set
-  in `\footnotesize`. Folding in the Meep results may add up to half a page.
+  in `\footnotesize`.
 - `python3.14 -I verify_evidence.py`: PASS. Mutations, each killed: −10.46 → −10.47 (abstract);
   385 → 380 (abstract); FD 1,365 → 1,360 (Table 3); 3.55 → 3.5; the ISM non-claim removed;
   16.3 → 16.2 MHz; −9.63 → −9.6 dB; 89 → 90 %; Meep −2.6 → −2.7; "certified" inserted; air
