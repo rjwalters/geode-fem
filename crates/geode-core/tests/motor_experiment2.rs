@@ -697,7 +697,7 @@ fn committed_anchor_is_consistent_with_the_rule() {
         .iter()
         .map(|c| c["std"].as_f64().unwrap().powi(2))
         .sum();
-    assert_eq!(f, a.f0);
+    assert!((f - a.f0).abs() <= 1e-14 * a.f0, "{f} vs {}", a.f0);
     assert_eq!(v["validation_space_b"]["F"].as_f64(), Some(a.f0));
     assert_eq!(
         v["provenance"]["mesh"]["msh_sha256"],

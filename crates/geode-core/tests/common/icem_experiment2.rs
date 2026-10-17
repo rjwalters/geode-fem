@@ -984,12 +984,16 @@ impl Anchor {
             get("mean0_full_current")?,
             v["level"].as_u64().ok_or("anchor.level")? as usize,
         )?;
+        // serde_json parses a written f64 back to within an ulp or so.
+        let close = |x: Option<f64>, y: f64| {
+            x.is_some_and(|x| (x - y).abs() <= 4.0 * f64::EPSILON * y.abs())
+        };
         for (name, t) in a.targets() {
-            if v["targets"][name].as_f64() != Some(t) {
+            if !close(v["targets"][name].as_f64(), t) {
                 return Err(format!("anchor.targets.{name} != {t}"));
             }
         }
-        if v["mean_floor"].as_f64() != Some(a.mean_floor()) {
+        if !close(v["mean_floor"].as_f64(), a.mean_floor()) {
             return Err(format!("anchor.mean_floor != {}", a.mean_floor()));
         }
         Ok(a)
