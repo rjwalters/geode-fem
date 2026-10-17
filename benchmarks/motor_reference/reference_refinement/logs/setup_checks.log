@@ -1,0 +1,83 @@
+# setup checks, issue #1189, 2026-10-17T20:47:39Z
+$ git -C icem rev-parse HEAD; git -C icem status --porcelain | wc -l
+b145aaf4ab1a6424828bc941eaf172f48fa0d458
+       0
+$ git -C geopdes-official rev-parse HEAD HEAD:geopdes
+53ae5ca1ce16fe81057047831cecbaa859c49080
+c6676057c47d67a343e2844630a4d0741f1e3b59
+$ git -C geopdes-official describe --tags
+v3.4.2-4-g53ae5ca
+$ diff -rq geopdes-official/geopdes icem/GeoPDEs/geopdes-3.4.2  (empty = identical)
+exit 0
+$ diff -rq <v3.4.2 tag> icem/GeoPDEs/geopdes-3.4.2
+Files geopdes/inst/multipatch/mp_geo_load.m and icem/GeoPDEs/geopdes-3.4.2/inst/multipatch/mp_geo_load.m differ
+Files geopdes/inst/space/@sp_scalar/sp_eval.m and icem/GeoPDEs/geopdes-3.4.2/inst/space/@sp_scalar/sp_eval.m differ
+Files geopdes/inst/space/@sp_scalar/sp_eval_vector.m and icem/GeoPDEs/geopdes-3.4.2/inst/space/@sp_scalar/sp_eval_vector.m differ
+Files geopdes/inst/space/@sp_vector/sp_eval.m and icem/GeoPDEs/geopdes-3.4.2/inst/space/@sp_vector/sp_eval.m differ
+$ shasum -a 256 nurbs-forge/nurbs-1.4.3.tar.gz
+a74666a1e204b9feda22c9792b87939239221fd816383bc39f75db72b62a209b  nurbs-forge/nurbs-1.4.3.tar.gz
+$ diff -rq nurbs-forge/nurbs-1.4.3 icem/GeoPDEs/nurbs-1.4.3  (empty = identical)
+exit 0
+$ octave-cli --version
+GNU Octave (aarch64-apple-darwin27.0.0) version 11.3.0
+$ brew list --versions octave
+octave 11.3.0_1
+$ octave: version -blas / -lapack
+OpenBLAS (config: OpenBLAS 0.3.34 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP neoversen1 MAX_THREADS=56)
+Linear Algebra PACKage Version 3.12.0
+$ sysctl machdep.cpu.brand_string hw.ncpu hw.perflevel0.physicalcpu hw.perflevel1.physicalcpu hw.memsize
+machdep.cpu.brand_string: Apple M3 Ultra
+hw.ncpu: 28
+hw.perflevel0.physicalcpu: 20
+hw.perflevel1.physicalcpu: 8
+hw.memsize: 103079215104
+$ sw_vers
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+$ cat icem-octave/PATCH_RECORD.json
+{
+ "source_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+ "substitutions": [
+  {
+   "file": "classes/MotorSimulation.m",
+   "old": "obj.Materials(iMat).Material.getType() == \"nonlinear\"",
+   "new": "strcmp(obj.Materials(iMat).Material.getType(), \"nonlinear\")",
+   "count": 5,
+   "sha256_before": "0db5c3d67feefa1fbd6e7b6856b82d6317f152734fb71982a3a7b50bb8e3e16f"
+  },
+  {
+   "file": "material/Mat_Magnetic.m",
+   "old": "any(type == [\"linear\", \"nonlinear\"])",
+   "new": "any(strcmp(type, {\"linear\", \"nonlinear\"}))",
+   "count": 1,
+   "sha256_before": "79619c2451085d9461ca213defcf3af4a036d738a5291f5eaaea7ddd5250118f"
+  },
+  {
+   "file": "material/Mat_Magnetic.m",
+   "old": "obj.getType() == \"linear\"",
+   "new": "strcmp(obj.getType(), \"linear\")",
+   "count": 2,
+   "sha256_before": "95939c87dbfb177649e20907a1d74baf264ab778c5cb5c352157b66b0cd0ac8d"
+  },
+  {
+   "file": "geometries/PSMS/PMSM_rotor1.m",
+   "old": "Type == \"linear\"",
+   "new": "strcmp(Type, \"linear\")",
+   "count": 1,
+   "sha256_before": "f5f9ebb91862bd180cb43bb0f7e6108775791d71751d7f173893fc5d88dfe3e7"
+  },
+  {
+   "file": "geometries/PSMS/PMSM_rotor1.m",
+   "old": "Type == \"nonlinear\"",
+   "new": "strcmp(Type, \"nonlinear\")",
+   "count": 1,
+   "sha256_before": "75c0c30df83ef24e165a7b24b03ce6c8cbb5b186563f659762981f5422c6977b"
+  }
+ ],
+ "patched_sha256": {
+  "classes/MotorSimulation.m": "8dec7d16c3213111da3319229c3f3567cf107c214fe60e1b55396c199cc55734",
+  "geometries/PSMS/PMSM_rotor1.m": "3b5d6ee8c9f0a0b01b397bd8c37ca14168932a210e6fa30a3949bf494a00cc5a",
+  "material/Mat_Magnetic.m": "49140f78a10d9188ef730536df2e0544b14b600ff948e37ec617feca99bfe273"
+ }
+}
