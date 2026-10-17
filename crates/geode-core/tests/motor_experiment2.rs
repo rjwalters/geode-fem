@@ -528,10 +528,6 @@ fn anchor() -> Anchor {
     Anchor::new(9.0e-3, 1.5, 2).unwrap()
 }
 
-fn up(x: f64) -> f64 {
-    x.next_up()
-}
-
 fn down(x: f64) -> f64 {
     x.next_down()
 }
@@ -557,21 +553,22 @@ fn targets_floor_and_margin_follow_amendment_2() {
     assert!(Anchor::new(f64::NAN, 1.0, 2).is_err());
 }
 
-/// `f` with `f + δF(f)` as close to `t` as the arithmetic allows, from
-/// below (`f + δF ≤ t`) and the next value up (`> t`).
+/// The largest `f ≥ 0` with `f + δF(f) ≤ t` and the next float up (for
+/// which it is `> t`): bisection over the bit patterns of non-negative
+/// floats (ordered like the values), 64 steps at most, whatever the rule.
 fn edge(t: f64) -> (f64, f64) {
-    let mut f = if t / 1.1 > 2.5e-6 {
-        t / 1.1
-    } else {
-        t - DELTA_F_ABS
-    };
-    while f + delta_f(f) > t {
-        f = down(f);
+    let ok = |f: f64| f + delta_f(f) <= t;
+    let (mut lo, mut hi) = (0u64, t.to_bits());
+    assert!(ok(f64::from_bits(lo)) && !ok(f64::from_bits(hi)));
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if ok(f64::from_bits(mid)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
     }
-    while f.next_up() + delta_f(f.next_up()) <= t {
-        f = up(f);
-    }
-    (f, up(f))
+    (f64::from_bits(lo), f64::from_bits(hi))
 }
 
 #[test]

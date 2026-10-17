@@ -46,9 +46,12 @@ MUTATIONS = [
 
 
 def run_tests():
-    p = subprocess.run(
-        ["cargo", "test", "-p", "geode-core", "--release", "--test", "motor_experiment2"],
-        cwd=ROOT, capture_output=True, text=True)
+    try:
+        p = subprocess.run(
+            ["cargo", "test", "-p", "geode-core", "--release", "--test", "motor_experiment2"],
+            cwd=ROOT, capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return -1, ["(timeout after 900 s)"], False
     out = p.stdout + p.stderr
     failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED", out, re.M)))
     compile_error = "error[" in out or "could not compile" in out
@@ -58,7 +61,7 @@ def run_tests():
 original = SRC.read_text()
 try:
     rc, failed, ce = run_tests()
-    print(f"baseline: exit {rc}, failed {failed}")
+    print(f"baseline: exit {rc}, failed {failed}", flush=True)
     assert rc == 0 and not failed, "baseline must pass"
     killed = 0
     for name, old, new in MUTATIONS:
