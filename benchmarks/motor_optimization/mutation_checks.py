@@ -53,7 +53,7 @@ def run_tests():
     except subprocess.TimeoutExpired:
         return -1, ["(timeout after 900 s)"], False
     out = p.stdout + p.stderr
-    failed = sorted(set(re.findall(r"^test (\S+) \.\.\. FAILED", out, re.M)))
+    failed = sorted(set(re.findall(r"^test (\S+)(?: - should panic)? \.\.\. FAILED", out, re.M)))
     compile_error = "error[" in out or "could not compile" in out
     return p.returncode, failed, compile_error
 
