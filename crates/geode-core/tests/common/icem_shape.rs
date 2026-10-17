@@ -89,6 +89,21 @@ pub fn arkkio_spec() -> ShapeTorque {
     }
 }
 
+/// Arkkio over the outer gap band only, normalised by 44.5-45.0 mm
+/// (`IcemModel::arkkio(_, 1)`). The band lies between the fixed coupling
+/// circle and the stator bore, so it keeps its annulus when the rotor
+/// surface moves (issue #1183).
+pub fn outer_arkkio_spec() -> ShapeTorque {
+    ShapeTorque::Arkkio {
+        terms: vec![ArkkioTerm {
+            tag: TAG_GAP_OUTER,
+            r_inner: R_COUPLING,
+            r_outer: R_STATOR,
+        }],
+        l_axial: L_AXIAL,
+    }
+}
+
 /// The harmonic coupling torque (N m, axial length included).
 pub fn coupling_spec() -> ShapeTorque {
     ShapeTorque::Coupling { l_axial: L_AXIAL }

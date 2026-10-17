@@ -1,0 +1,31 @@
+=== mutation M1: is_valid always true (guard disabled)
+test band_areas_at_theta0_and_opt120 ... FAILED
+test both_band_rejected_at_opt120_and_unchanged_at_theta0 ... FAILED
+test outer_band_at_opt120_conforming_matches_fd ... ok
+test outer_band_at_opt120_harmonic_matches_coupling_and_fd ... ok
+thread 'band_areas_at_theta0_and_opt120' (825458379) panicked at crates/geode-core/tests/motor_arkkio_band_guard.rs:128:5:
+thread 'both_band_rejected_at_opt120_and_unchanged_at_theta0' (825458380) panicked at crates/geode-core/tests/motor_arkkio_band_guard.rs:99:18:
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.47s
+test assembly::magnetostatic_shape::tests::arkkio_band_areas_group_and_flag_a_moved_boundary ... FAILED
+thread 'assembly::magnetostatic_shape::tests::arkkio_band_areas_group_and_flag_a_moved_boundary' (825623064) panicked at crates/geode-core/src/assembly/magnetostatic_shape.rs:1420:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 839 filtered out; finished in 0.00s
+=== mutation M2: no grouping of terms sharing an annulus
+test band_areas_at_theta0_and_opt120 ... FAILED
+test both_band_rejected_at_opt120_and_unchanged_at_theta0 ... FAILED
+test outer_band_at_opt120_conforming_matches_fd ... ok
+test outer_band_at_opt120_harmonic_matches_coupling_and_fd ... ok
+thread 'band_areas_at_theta0_and_opt120' (825648263) panicked at crates/geode-core/tests/motor_arkkio_band_guard.rs:89:5:
+thread 'both_band_rejected_at_opt120_and_unchanged_at_theta0' (825648264) panicked at crates/geode-core/tests/motor_arkkio_band_guard.rs:166:51:
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.44s
+test assembly::magnetostatic_shape::tests::arkkio_band_areas_group_and_flag_a_moved_boundary ... FAILED
+thread 'assembly::magnetostatic_shape::tests::arkkio_band_areas_group_and_flag_a_moved_boundary' (825780127) panicked at crates/geode-core/src/assembly/magnetostatic_shape.rs:1411:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 839 filtered out; finished in 0.00s
+=== mutation M3: check_torque ignores the band check (solve and gradient unguarded)
+test band_areas_at_theta0_and_opt120 ... ok
+test both_band_rejected_at_opt120_and_unchanged_at_theta0 ... FAILED
+test outer_band_at_opt120_conforming_matches_fd ... ok
+test outer_band_at_opt120_harmonic_matches_coupling_and_fd ... ok
+thread 'both_band_rejected_at_opt120_and_unchanged_at_theta0' (825823099) panicked at crates/geode-core/tests/motor_arkkio_band_guard.rs:99:18:
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.43s
+test assembly::magnetostatic_shape::tests::arkkio_band_areas_group_and_flag_a_moved_boundary ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 839 filtered out; finished in 0.00s
