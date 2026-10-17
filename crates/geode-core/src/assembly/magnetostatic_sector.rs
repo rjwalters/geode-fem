@@ -1230,6 +1230,116 @@ impl SlidingBand {
         Ok(t)
     }
 
+    /// The rows of `∂(Gᵀ A)/∂β` behind
+    /// [`harmonic_coupling_torque`](Self::harmonic_coupling_torque), one
+    /// sparse row `(node, coefficient)` per constraint in the order of
+    /// [`harmonic_constraints`](Self::harmonic_constraints), so that the
+    /// coupling torque is `T = −Σ_j λ_j Σ_(i,w) w · A_i` (issue #1174: the
+    /// shape adjoint needs `∂T/∂A` and `∂T/∂λ`). The entries sit on the
+    /// rotor coupling nodes only.
+    ///
+    /// # Errors
+    ///
+    /// As [`harmonic_constraints`](Self::harmonic_constraints).
+    pub fn harmonic_coupling_torque_rows(
+        &self,
+        k: i64,
+        orders: &[usize],
+        free_ends: bool,
+    ) -> Result<Vec<Vec<(usize, f64)>>, SectorError> {
+        let orders = self.check_harmonic_orders(orders)?;
+        if free_ends && self.full {
+            return Err(SectorError::InvalidInput(
+                "a full machine has no coupling-circle ends to free".into(),
+            ));
+        }
+        let mut rows = Vec::with_capacity(2 * orders.len());
+        for &n in &orders {
+            let nf = n as f64;
+            let rt = self.side_moments(true, k, n, free_ends);
+            // Same derivative as in `harmonic_coupling_torque`:
+            // d(sin part)/dβ = −n Re c_i, d(cos part)/dβ = n Im c_i.
+            if n != 0 {
+                rows.push(
+                    rt.iter()
+                        .map(|&(node, c)| (node as usize, -nf * c[0]))
+                        .collect(),
+                );
+            }
+            rows.push(
+                rt.iter()
+                    .map(|&(node, c)| (node as usize, nf * c[1]))
+                    .collect(),
+            );
+        }
+        Ok(rows)
+    }
+
+    /// The coupling-circle nodes of the split mesh, rotor side then stator
+    /// side, in grid order.
+    pub fn coupling_nodes(&self) -> Vec<u32> {
+        self.rotor_coupling
+            .iter()
+            .chain(&self.stator_coupling)
+            .copied()
+            .collect()
+    }
+
+    /// A copy of the band on the same mesh topology with the split-mesh
+    /// node coordinates replaced by `nodes` (reference position `k = 0`):
+    /// a moved design for the shape adjoint (issue #1174). The links, the
+    /// coupling grid and the report are kept from `self`, so the move must
+    /// leave the coupling-circle nodes **bit-for-bit** where they are, and
+    /// it must not invert a triangle. Radial-edge nodes may move; the links
+    /// stay the topological pairs of the reference mesh, and they still
+    /// express the sector symmetry only if the move maps the low edge onto
+    /// the high edge by the sector rotation.
+    ///
+    /// # Errors
+    ///
+    /// [`SectorError::InvalidInput`] for a length mismatch, a non-finite
+    /// coordinate, a moved coupling node, or a triangle whose signed area is
+    /// not positive (the band's triangles are counter-clockwise).
+    pub fn with_node_positions(&self, nodes: Vec<[f64; 2]>) -> Result<Self, SectorError> {
+        let bad = |s: String| Err(SectorError::InvalidInput(s));
+        if nodes.len() != self.mesh.n_nodes() {
+            return bad(format!(
+                "{} node positions for {} split-mesh nodes",
+                nodes.len(),
+                self.mesh.n_nodes()
+            ));
+        }
+        if let Some(i) = nodes
+            .iter()
+            .position(|p| !(p[0].is_finite() && p[1].is_finite()))
+        {
+            return bad(format!("node {i} has a non-finite position"));
+        }
+        for &c in self.rotor_coupling.iter().chain(&self.stator_coupling) {
+            let (old, new) = (self.mesh.nodes[c as usize], nodes[c as usize]);
+            if old[0].to_bits() != new[0].to_bits() || old[1].to_bits() != new[1].to_bits() {
+                return bad(format!(
+                    "coupling-circle node {c} moved from ({:e}, {:e}) to ({:e}, {:e}); the \
+                     coupling circle must stay fixed",
+                    old[0], old[1], new[0], new[1]
+                ));
+            }
+        }
+        for (t, tri) in self.mesh.tris.iter().enumerate() {
+            let [a, b, c] = tri.map(|i| nodes[i as usize]);
+            let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if cross.is_nan() || cross <= 0.0 {
+                return bad(format!(
+                    "triangle {t} is inverted or degenerate after the move (twice signed area \
+                     {cross:e})"
+                ));
+            }
+        }
+        let mut out = self.clone();
+        out.mesh.nodes = nodes;
+        Ok(out)
+    }
+
     /// The mesh at step `k`: rotor nodes rotated by `kΔ` about the origin,
     /// stator nodes unchanged.
     pub fn rotated_mesh(&self, k: i64) -> TriMesh {

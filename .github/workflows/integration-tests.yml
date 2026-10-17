@@ -289,6 +289,7 @@ jobs:
               --test motor_icem_forward \
               --test motor_icem_harmonic \
               --test motor_reference_mesh \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
@@ -374,6 +375,7 @@ jobs:
               --test motor_icem_forward \
               --test motor_icem_harmonic \
               --test motor_reference_mesh \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
