@@ -92,8 +92,10 @@ if [[ "$STAGE" == eval || "$STAGE" == all ]]; then
                 else
                     job "${N}_moved_L${L}_${CN}_fixed" --design "$D" --source moved --family moved $COMMON --rule fixed
                 fi
+                MN=$N
+                [[ "$N" == initial ]] && MN=theta0 # the plan's name for θ0
                 job "${N}_construction_L${L}_${CN}_fixed" --design "$D" --source fresh --family fresh-construction \
-                    --mesh "$V/meshes/icem_remesh_${N}_L$L.msh" $COMMON --rule fixed
+                    --mesh "$V/meshes/icem_remesh_${MN}_L$L.msh" $COMMON --rule fixed
             done
             M="$V/meshes/icem_opt120_sector_L$L.msh"
             job "opt120_export_L${L}_${CN}_fixed" --design opt120 --source fresh --family fresh-export --mesh "$M" $COMMON --rule fixed

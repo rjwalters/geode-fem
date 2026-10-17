@@ -384,7 +384,13 @@ fn cmd_plan(a: &Args, reference: &Value) {
         .map(|s| {
             let d = parse_design(s, reference);
             let g = d.geo();
-            json!({"name": d.name, "parameter": Value::Null, "h": 0.0, "values": g.values,
+            // build_design_mesh.py reads its winding tags off `theta0`.
+            let name = if d.name == "initial" {
+                "theta0".to_string()
+            } else {
+                d.name.clone()
+            };
+            json!({"name": name, "parameter": Value::Null, "h": 0.0, "values": g.values,
                 "design": d.to_json(), "curves": curves_json(&g)})
         })
         .collect();
