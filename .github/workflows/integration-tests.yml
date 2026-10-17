@@ -288,6 +288,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_cp_design_gradient \
               --test motor_design_gradient \
+              --test motor_design_remesh \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
@@ -378,6 +379,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_cp_design_gradient \
               --test motor_design_gradient \
+              --test motor_design_remesh \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
