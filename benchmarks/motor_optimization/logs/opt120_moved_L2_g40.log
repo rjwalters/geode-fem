@@ -1,0 +1,2 @@
+vs benchmarks/motor_validation/runs/opt120_moved_L2_h93_fixed.json: max |dT| 1.190e-13 N m, max rel d mean 1.453e-14, F 3.868388986e-6 vs 3.868388986e-6 (rel -9.124e-12)
+opt120 g40 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 3.868388986155e-6, mean(1) Some(1.314650465628543), mesh "moved", 57.6 s

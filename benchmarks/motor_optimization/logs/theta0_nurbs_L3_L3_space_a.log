@@ -1,0 +1,2 @@
+vs benchmarks/motor_validation/runs/initial_nurbs_L3_h93_fixed.json: max |dT| 1.864e-7 N m, max rel d mean 1.797e-8, F 9.481074533e-3 vs 9.481074290e-3 (rel 2.556e-8)
+initial L3 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh [scalar]: F 9.481074532684e-3, mean(1) Some(1.440862632951042), mesh "own", 196.7 s

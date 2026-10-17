@@ -1,0 +1,12 @@
+space B theta0 dir h 1e-3: dF/dt -9.805803315e-3 FD -9.806004416e-3 rel 2.05e-5; dmean1/dt 5.854510687e-1 FD 5.854506758e-1 rel 6.71e-7
+space B theta0 dir h 1e-4: dF/dt -9.805803315e-3 FD -9.805806090e-3 rel 2.83e-7; dmean1/dt 5.854510687e-1 FD 5.854510673e-1 rel 2.41e-9
+space B theta0 MAG h 1e-6: dF 1.600607971e-1 FD 1.600612405e-1 rel 2.77e-6
+space B theta0 SW2 h 1e-6: dF 1.337390439e1 FD 1.337390532e1 rel 6.95e-8
+space B theta0 CPR1 h 1e-6: dF -1.104638243e1 FD -1.104637636e1 rel 5.49e-7
+space B theta0 CPS1 h 1e-6: dF 3.442579891e1 FD 3.442576404e1 rel 1.01e-6
+space B interior dir h 1e-3: dF/dt -4.857371810e-3 FD -4.857441054e-3 rel 1.43e-5; dmean1/dt 4.851246936e-1 FD 4.851244130e-1 rel 5.78e-7
+space B interior dir h 1e-4: dF/dt -4.857371810e-3 FD -4.857372253e-3 rel 9.12e-8; dmean1/dt 4.851246936e-1 FD 4.851246915e-1 rel 4.39e-9
+space B interior MAG h 1e-6: dF -6.511802881e-1 FD -6.511803654e-1 rel 1.19e-7
+space B interior SW2 h 1e-6: dF 8.396712624e0 FD 8.396713172e0 rel 6.53e-8
+space B interior CPR1 h 1e-6: dF -4.021697097e0 FD -4.021695613e0 rel 3.69e-7
+space B interior CPS1 h 1e-6: dF 2.000552227e1 FD 2.000550435e1 rel 8.96e-7

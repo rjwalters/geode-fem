@@ -1,0 +1,17 @@
+theta0_nurbs_L2_primary_space_a: initial primary on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [scalar]: F 9.603404147653e-3, mean(1) Some(1.4408390361492982), mesh "own", 38.8 s
+theta0_nurbs_L2_primary: initial primary on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 9.603404147653e-3, mean(1) Some(1.4408390361492982), mesh "own", 38.9 s
+theta0_construction_L2_primary: initial primary on benchmarks/motor_validation/meshes/icem_remesh_theta0_L2.msh [cp]: F 9.605251136786e-3, mean(1) Some(1.4408224348679395), mesh "own", 40.2 s
+opt120_export_L2_primary: opt120 primary on benchmarks/motor_validation/meshes/icem_opt120_sector_L2.msh [cp]: F 3.805003548072e-6, mean(1) Some(1.3147754032404748), mesh "own", 35.4 s
+opt120_construction_L2_primary: opt120 primary on benchmarks/motor_validation/meshes/icem_remesh_opt120_L2.msh [cp]: F 3.798504330813e-6, mean(1) Some(1.3147738518415868), mesh "own", 35.9 s
+opt120_moved_L2_primary: opt120 primary on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 3.863399125276e-6, mean(1) Some(1.3146494818015946), mesh "moved", 37.6 s
+theta0_nurbs_L2_conforming: initial conforming on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 9.796837823518e-3, mean(1) Some(1.4394891139946917), mesh "own", 37.7 s
+opt120_moved_L2_g40: opt120 g40 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 3.868388986155e-6, mean(1) Some(1.314650465628543), mesh "moved", 57.6 s
+opt120_conforming_refused: opt120 conforming: refused: conforming outer-band check is defined only for zero stator offsets on a fresh mesh (#1185 amendment 1)
+theta0_nurbs_L2_g40: initial g40 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 9.603427845426e-3, mean(1) Some(1.440839443538311), mesh "own", 63.4 s
+theta0_construction_L2_conforming: initial conforming on benchmarks/motor_validation/meshes/icem_remesh_theta0_L2.msh [cp]: F 9.796644092374e-3, mean(1) Some(1.4390215645826263), mesh "own", 38.8 s
+opt120_policy_L2_primary: opt120 primary on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 3.798504330813e-6, mean(1) Some(1.3147738518415868), mesh "fresh", 38.1 s
+opt120_export_L3_L3: opt120 L3 on benchmarks/motor_validation/meshes/icem_opt120_sector_L3.msh [cp]: F 3.863495598349e-6, mean(1) Some(1.3146643220829057), mesh "own", 182.5 s
+opt120_construction_L3_L3: opt120 L3 on benchmarks/motor_validation/meshes/icem_remesh_opt120_L3.msh [cp]: F 3.866764109066e-6, mean(1) Some(1.3146651697325966), mesh "own", 192.8 s
+theta0_nurbs_L3_L3_space_a: initial L3 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh [scalar]: F 9.481074532684e-3, mean(1) Some(1.440862632951042), mesh "own", 196.7 s
+theta0_nurbs_L3_L3: initial L3 on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh [cp]: F 9.481074532684e-3, mean(1) Some(1.440862632951042), mesh "own", 196.4 s
+theta0_construction_L3_L3: initial L3 on benchmarks/motor_validation/meshes/icem_remesh_theta0_L3.msh [cp]: F 9.480544484883e-3, mean(1) Some(1.4408579545609659), mesh "own", 208.2 s
