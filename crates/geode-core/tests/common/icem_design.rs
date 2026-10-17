@@ -169,44 +169,77 @@ impl CurrentRule {
     }
 }
 
+/// Harmonic orders of the validation coupling, n = 3:6:93 (experiment 2,
+/// #1185: twice the reference's n_max = 45).
+pub fn validation_harmonics() -> Vec<usize> {
+    (3..=93).step_by(6).collect()
+}
+
 /// Coupling and torque estimator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Harmonic coupling n = 3:6:45 (the reference model), coupling torque.
+    /// The training model of experiment 2 (#1185).
     H45,
-    /// Conforming band, Arkkio torque over both gap bands.
+    /// Harmonic coupling n = 3:6:93, coupling torque. The validation model
+    /// of experiment 2 (#1185, amendment 1).
+    H93,
+    /// Conforming band, Arkkio torque over both gap bands. Not a valid
+    /// estimator once free-form offsets move a band boundary (#1183).
     Conforming,
+    /// Conforming band, Arkkio torque over the outer gap band only
+    /// (`icem_shape::outer_arkkio_spec`: tag 5, normalised by 44.5-45.0 mm,
+    /// `IcemModel::arkkio(_, 1)`), refused by the band-area guard of
+    /// `SectorShapeProblem::solve` (#1183) if the band left its annulus. The
+    /// conforming spot check of experiment 2: fresh meshes only, designs
+    /// with zero stator offsets only (#1185 amendment 1).
+    ConformingOuter,
 }
 
 impl Mode {
     pub fn key(self) -> &'static str {
         match self {
             Mode::H45 => "h45",
+            Mode::H93 => "h93",
             Mode::Conforming => "conforming",
+            Mode::ConformingOuter => "conforming-outer",
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Mode::H45 => "h45/coupling",
+            Mode::H93 => "h93/coupling",
             Mode::Conforming => "conforming/Arkkio",
+            Mode::ConformingOuter => "conforming/outer-band Arkkio",
         }
     }
 
     pub fn coupling(self) -> CouplingMode {
         match self {
             Mode::H45 => CouplingMode::Harmonic(icem::REFERENCE_HARMONICS.to_vec()),
-            Mode::Conforming => CouplingMode::Conforming,
+            Mode::H93 => CouplingMode::Harmonic(validation_harmonics()),
+            Mode::Conforming | Mode::ConformingOuter => CouplingMode::Conforming,
         }
+    }
+
+    /// Whether the torque is an Arkkio functional (needs a conforming or
+    /// harmonic field, valid only while its band is the annulus).
+    pub fn is_arkkio(self) -> bool {
+        matches!(self, Mode::Conforming | Mode::ConformingOuter)
     }
 
     /// The torque functional at axial length `l_axial`.
     pub fn torque(self, l_axial: f64) -> ShapeTorque {
         match (self, icem_shape::arkkio_spec()) {
-            (Mode::H45, _) => ShapeTorque::Coupling { l_axial },
+            (Mode::H45 | Mode::H93, _) => ShapeTorque::Coupling { l_axial },
             (Mode::Conforming, ShapeTorque::Arkkio { terms, .. }) => {
                 ShapeTorque::Arkkio { terms, l_axial }
             }
+            (Mode::ConformingOuter, _) => match icem_shape::outer_arkkio_spec() {
+                ShapeTorque::Arkkio { terms, .. } => ShapeTorque::Arkkio { terms, l_axial },
+                ShapeTorque::Coupling { .. } => unreachable!("outer_arkkio_spec is Arkkio"),
+            },
             _ => unreachable!("arkkio_spec is an Arkkio functional"),
         }
     }
@@ -214,7 +247,9 @@ impl Mode {
     pub fn parse(s: &str) -> Self {
         match s {
             "h45" => Mode::H45,
+            "h93" => Mode::H93,
             "conforming" => Mode::Conforming,
+            "conforming-outer" => Mode::ConformingOuter,
             o => panic!("unknown mode {o}"),
         }
     }
