@@ -84,9 +84,10 @@ fn spaces_have_the_registered_components_boxes_and_theta0() {
     assert_eq!((a.lower[7], a.upper[7]), (0.0005, 0.002)); // Sr1
     assert_eq!(&b.lower[..8], &a.lower[..]);
     assert_eq!(&b.upper[..8], &a.upper[..]);
-    for g in 0..N_OFFSETS {
-        assert_eq!((b.lower[8 + g], b.upper[8 + g]), OFFSET_BOUNDS[g]);
+    for (g, bounds) in OFFSET_BOUNDS.iter().enumerate() {
+        assert_eq!((b.lower[8 + g], b.upper[8 + g]), *bounds);
     }
+    assert_eq!(b.n(), 8 + N_OFFSETS);
     // θ0: the registered initial scalars, zero offsets, inside the box.
     assert_eq!(
         a.x0(),

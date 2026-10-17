@@ -1005,7 +1005,7 @@ impl Anchor {
         self.mean0 * (1.0 + MEAN_FLOOR_MARGIN)
     }
 
-    pub fn to_json(&self) -> Value {
+    pub fn to_json(self) -> Value {
         let t = self.targets();
         json!({
             "F0": self.f0, "mean0_full_current": self.mean0, "level": self.level,
@@ -1158,7 +1158,7 @@ impl FeRule {
         }
     }
 
-    pub fn to_json(&self) -> Value {
+    pub fn to_json(self) -> Value {
         match self {
             FeRule::WallTime { unit_seconds } => {
                 json!({"rule": "wall_time", "unit_seconds": unit_seconds})

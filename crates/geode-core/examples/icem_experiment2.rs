@@ -49,7 +49,7 @@ mod icem_remesh;
 #[path = "../tests/common/icem_shape.rs"]
 mod icem_shape;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use geode_core::mesh::design_remesh::MovingMesh;
@@ -138,7 +138,7 @@ fn threads() -> Value {
     })
 }
 
-fn provenance(mesh: &PathBuf, bytes: &[u8]) -> Value {
+fn provenance(mesh: &Path, bytes: &[u8]) -> Value {
     let env = |k: &str| std::env::var(k).ok();
     json!({
         "commit": env("GEODE_COMMIT"), "worktree_clean": env("GEODE_TREE_CLEAN"),
@@ -336,8 +336,20 @@ fn run_validate<Sp: Space>(a: &Args, reference: &Value, p: Sp::Point, mesh_geo: 
     )
     .expect("validator");
     let (vj, extra) = if a.policy {
-        let r = v.validate(&p).expect("validation");
-        (validation_json::<Sp>(&r), json!({"policy": "on"}))
+        match v.validate(&p) {
+            Ok(r) => (validation_json::<Sp>(&r), json!({"policy": "on"})),
+            Err(e) => {
+                // No value (for example the conforming check of a design
+                // with stator offsets): the refusal is the record.
+                println!("{} {}: refused: {e}", a.design, cfg.name);
+                write_json(
+                    &a.out,
+                    &json!({"issue": 1193, "design": a.design, "config": cfg.to_json(),
+                        "status": "refused", "error": e.to_string(), "provenance": prov}),
+                );
+                return;
+            }
+        }
     } else {
         // The given mesh as is (moved if not its own): record the quality
         // and the trigger the policy would fire, then solve.
@@ -350,7 +362,11 @@ fn run_validate<Sp: Space>(a: &Args, reference: &Value, p: Sp::Point, mesh_geo: 
         let val = icem_experiment2::Validation {
             point: p,
             config: cfg.clone(),
-            mesh: ValidationMesh::Moved { quality: q },
+            mesh: if Sp::geo(&p) == mesh_geo {
+                ValidationMesh::Own { quality: q }
+            } else {
+                ValidationMesh::Moved { quality: q }
+            },
             mesh_size: (m.tagged.mesh.n_nodes(), m.tagged.mesh.n_tris()),
             f: objective_f(&currents),
             currents,
