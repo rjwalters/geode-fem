@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1176",
-  "loom_commit": "43b0f18afd7bec755a0484f9a82e81f336f7742c",
+  "loom_version": "0.19.1177",
+  "loom_commit": "9f78359079053fae40e7a50b427a827089135c6c",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -773,7 +773,8 @@
     ".loom/scripts/tests/test-sync-labels-write-failures.sh",
     ".loom/scripts/tests/test-champion-epic-escalation-evaluations.sh",
     ".loom/scripts/tests/test-champion-epic-child-discovery.sh",
-    ".loom/scripts/tests/test-champion-tracker-marker-skip.sh"
+    ".loom/scripts/tests/test-champion-tracker-marker-skip.sh",
+    ".loom/scripts/tests/test-champion-followon-out-of-scope.sh"
   ],
   "last_resync": "2026-10-17",
   "requires_daemon": "0.19.1088"
