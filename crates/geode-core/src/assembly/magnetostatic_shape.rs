@@ -108,12 +108,23 @@
 //! `dJ/dθ_k = ⟨dJ/dX, V_k⟩` for the node velocities `V_k = ∂X/∂θ_k` of a
 //! design parametrization.
 //!
+//! **Current parameters.** The same adjoint gives the derivative with
+//! respect to the prescribed group currents at fixed `X` (issue #1177):
+//! `F` depends on `I_g` only through `J_g = I_g / A_g`, so
+//! `dT/dI_g = −ψᵀ ∂F/∂I_g = −Q_g / A_g`
+//! ([`TorqueShapeGradient::group_current_grad`]). A load angle or a peak
+//! current enters through `I_g(φ)`, and [`mean_std_parameter_gradient`]
+//! carries a per-point scalar derivative to the two objectives.
+//!
 //! The validation is in three places. The unit tests of this module check
 //! the element terms against central differences. `tests/motor_shape_gradient.rs`
 //! runs CI-fast Taylor tests on the ICEM sector. `benchmarks/motor_shape_gradient/`
 //! holds the full study: Taylor tests in both coupling modes, the
 //! central-difference step sweep, the tolerance study and the cost of an
-//! adjoint.
+//! adjoint. The design gradients `dJ/dθ` of the reference's 12 parameters,
+//! through the node motion of [`crate::mesh::icem_parametric`], are
+//! validated in `tests/motor_design_gradient.rs` and
+//! `benchmarks/motor_shape_gradient/design/` (issue #1177).
 
 use std::time::Instant;
 
@@ -219,6 +230,13 @@ pub struct TorqueShapeGradient {
     /// The explicit part `∂T/∂X` alone (zero unless the functional reads
     /// moving geometry), reference frame.
     pub explicit: Vec<[f64; 2]>,
+    /// `dT/dI_g` per winding group (N m per A, turns included): the
+    /// derivative with respect to the prescribed total current of group `g`
+    /// at fixed `X`, from the same adjoint (`−ψᵀ ∂F/∂I_g = −Q_g / A_g`; module docs). With the
+    /// operating point's currents `I_g(φ)` it gives the derivative with
+    /// respect to any current parameter `φ` (a load angle, a peak current)
+    /// as `Σ_g (dT/dI_g) dI_g/dφ`.
+    pub group_current_grad: Vec<f64>,
     /// Wall time of the adjoint solve and the gradient assembly (s).
     pub adjoint_seconds: f64,
 }
@@ -239,6 +257,9 @@ pub struct AngleSetGradient {
     pub std: f64,
     /// `d(std)/dX`.
     pub std_grad: Vec<[f64; 2]>,
+    /// `dT_j/dI_g` per operating point and winding group
+    /// ([`TorqueShapeGradient::group_current_grad`]).
+    pub group_current_grads: Vec<Vec<f64>>,
     /// Forward wall time per operating point (s).
     pub forward_seconds: Vec<f64>,
     /// Adjoint wall time per operating point (s).
@@ -465,6 +486,27 @@ impl SectorShapeProblem {
         }
     }
 
+    /// `dA_g/dX`: the derivative of the **mesh** area of each winding group
+    /// with respect to the split-mesh node coordinates (reference
+    /// position), from `∂|T|/∂x_q = |T| g_q`; `out[g][node]`. A current
+    /// rule that ties a current to a group area (a fixed current density)
+    /// differentiates through this.
+    pub fn group_area_gradients(&self) -> Vec<Vec<[f64; 2]>> {
+        let mesh = self.band.mesh();
+        let mut out = vec![vec![[0.0; 2]; mesh.n_nodes()]; self.n_groups];
+        for (t, g) in self.groups.iter().enumerate() {
+            if let Some(g) = g {
+                let c = mesh.tris[t].map(|i| mesh.nodes[i as usize]);
+                let (gr, _, _, area) = tri_bary_grads(&c);
+                for (q, &node) in mesh.tris[t].iter().enumerate() {
+                    out[*g][node as usize][0] += area * gr[q][0];
+                    out[*g][node as usize][1] += area * gr[q][1];
+                }
+            }
+        }
+        out
+    }
+
     /// Per-triangle current density `J_t = I_g / A_g` (A/m²).
     ///
     /// # Errors
@@ -664,6 +706,10 @@ impl SectorShapeProblem {
             .map(|(slot, sg)| slot.map_or(0.0, |fi| sg * psi_red[fi]))
             .collect();
 
+        // dT/dI_g = −ψᵀ ∂F/∂I_g = −Q_g / A_g (areas invariant under the
+        // rotation, so the rotated mesh serves).
+        let group_current_grad = self.current_sensitivity(mesh_k, &psi);
+
         // ψᵀ ∂R/∂X on the rotated mesh.
         let j_tri = self.current_density(&s.op.group_currents)?;
         let m_k = self
@@ -705,6 +751,7 @@ impl SectorShapeProblem {
             torque: value,
             grad,
             explicit,
+            group_current_grad,
             adjoint_seconds: t0.elapsed().as_secs_f64(),
         })
     }
@@ -761,11 +808,13 @@ impl SectorShapeProblem {
         }
         let mut torques = Vec::with_capacity(solves.len());
         let mut grads = Vec::with_capacity(solves.len());
+        let mut current_grads = Vec::with_capacity(solves.len());
         let mut adjoint_seconds = Vec::with_capacity(solves.len());
         for s in solves {
             let g = self.torque_gradient(s, torque)?;
             torques.push(g.torque);
             grads.push(g.grad);
+            current_grads.push(g.group_current_grad);
             adjoint_seconds.push(g.adjoint_seconds);
         }
         let (mean, mean_grad, std, std_grad) = mean_std_gradients(&torques, &grads);
@@ -776,9 +825,26 @@ impl SectorShapeProblem {
             mean_grad,
             std,
             std_grad,
+            group_current_grads: current_grads,
             forward_seconds: solves.iter().map(|s| s.forward_seconds).collect(),
             adjoint_seconds,
         })
+    }
+
+    /// `−Q_g / A_g` per group: `Q_g = Σ_{T∈g} |T| Σ_p ψ_p / 3` on `mesh`,
+    /// `A_g` the areas in use ([`group_areas`](Self::group_areas)).
+    fn current_sensitivity(&self, mesh: &TriMesh, psi: &[f64]) -> Vec<f64> {
+        let areas = self.group_areas();
+        let mut q = vec![0.0_f64; self.n_groups];
+        for (t, g) in self.groups.iter().enumerate() {
+            if let Some(g) = g {
+                let c = mesh.tris[t].map(|i| mesh.nodes[i as usize]);
+                let area = tri_bary_grads(&c).3;
+                let psum: f64 = mesh.tris[t].iter().map(|&p| psi[p as usize]).sum();
+                q[*g] += area * psum / 3.0;
+            }
+        }
+        q.iter().zip(&areas).map(|(qg, ag)| -qg / ag).collect()
     }
 
     /// `dJ/dθ_k = ⟨dJ/dX, V_k⟩` for split-mesh velocities `V_k = ∂X/∂θ_k`
@@ -1099,6 +1165,35 @@ pub fn mean_std_gradients(
         }
     }
     (mean, mg, std, sg)
+}
+
+/// The derivatives of the mean and of the population standard deviation of
+/// `t` with respect to one scalar parameter, from the per-point derivatives
+/// `dt` (`dσ = Σ_j (T_j − T̄) dT_j / (n σ)`, module docs). Returns
+/// `(d mean, d std)`; `d std` is 0 when `σ = 0`.
+///
+/// # Panics
+///
+/// Panics if `t` is empty or the lengths differ.
+pub fn mean_std_parameter_gradient(t: &[f64], dt: &[f64]) -> (f64, f64) {
+    assert!(
+        !t.is_empty() && t.len() == dt.len(),
+        "mean_std_parameter_gradient: lengths"
+    );
+    let n = t.len() as f64;
+    let mean = t.iter().sum::<f64>() / n;
+    let std = (t.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / n).sqrt();
+    let dmean = dt.iter().sum::<f64>() / n;
+    let dstd = if std > 0.0 {
+        t.iter()
+            .zip(dt)
+            .map(|(tj, dj)| (tj - mean) * dj)
+            .sum::<f64>()
+            / (n * std)
+    } else {
+        0.0
+    };
+    (dmean, dstd)
 }
 
 /// `⟨grad, v⟩ = Σ_i grad_i · v_i`.

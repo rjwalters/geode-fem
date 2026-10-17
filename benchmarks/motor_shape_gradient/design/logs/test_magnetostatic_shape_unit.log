@@ -1,0 +1,11 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1177/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 2m 15s
+     Running unittests src/lib.rs (/Volumes/Stripe/cargo-target-1177/release/deps/geode_core-c034e78ab3a6100e)
+
+running 3 tests
+test assembly::magnetostatic_shape::tests::mean_std_gradient_is_consistent ... ok
+test assembly::magnetostatic_shape::tests::arkkio_derivatives_match_finite_differences ... ok
+test assembly::magnetostatic_shape::tests::residual_shape_contraction_matches_finite_differences ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 832 filtered out; finished in 0.00s
+

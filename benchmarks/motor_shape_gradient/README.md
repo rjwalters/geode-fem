@@ -38,7 +38,10 @@ parametrization of part A (#1173).
   cold-started forward solve.
 
 The full tables are in [`tables.md`](tables.md), condensed in
-[`summary.md`](summary.md); the raw data are in `study.json`.
+[`summary.md`](summary.md); the raw data are in `study.json`. The design
+gradients of the reference's 12 parameters, which combine this adjoint with
+the node motion of #1173, are validated in [`design/`](design/README.md)
+(issue #1177).
 
 ## Method
 
