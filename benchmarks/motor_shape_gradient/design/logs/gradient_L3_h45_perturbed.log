@@ -1,0 +1,8 @@
+L3 h45 perturbed current 1 gradient
+# Design gradients: L3 (139268 nodes), h45/coupling, design perturbed 
+
+Moved mesh: min angle 13.08 deg, 0 inverted; shape map set-up 1.471 s
+
+## Current level 1 (I_peak = 9.677657 A): mean 1.387842229 N m, std 0.039823565 N m (gradient 148.785 s)
+
+wrote benchmarks/motor_shape_gradient/design/runs/gradient_L3_h45_perturbed.json

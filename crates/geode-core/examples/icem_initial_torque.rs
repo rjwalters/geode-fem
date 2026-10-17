@@ -14,8 +14,29 @@
 //! ```text
 //!   cargo run -p geode-core --release --example icem_initial_torque -- \
 //!       --level 1 [--currents 0,1,2] [--angles 0-19] [--law table|clamp426] \
-//!       [--tol default|tight] [--area mesh|exact] [--spectrum] [--out FILE.json]
+//!       [--tol default|tight] [--area mesh|exact] [--spectrum] \
+//!       [--coupling conforming|harmonic:START:STEP:END|harmonic:all] [--ends tied|free] \
+//!       [--out FILE.json]
 //! ```
+//!
+//! Other designs (issue #1173): `--mesh FILE` solves on any mesh with the
+//! same tags (for example a moved or fresh mesh of the optimized design from
+//! `benchmarks/motor_reference/parametric/`), `--i-peak A` and
+//! `--phi0-deg D` set the peak current and load angle, and `--scale-mesh S`
+//! multiplies every node coordinate by `S` (the reference's `ScaleR`
+//! similarity). Torques are always reported for axial length 0.1 m; a
+//! scaled mesh keeps the Arkkio radii of the unscaled design (the Maxwell
+//! circles are scaled), so `T_arkkio*` is not meaningful there
+//! (`arkkio_valid: false`).
+//!
+//! `--coupling harmonic:3:6:45` replaces the conforming band by the
+//! reference's harmonic coupling (issue #1170): weak continuity of the sine
+//! and cosine moments of orders 3, 9, ..., 45 only, with Lagrange
+//! multipliers. `harmonic:all` uses every antiperiodic order below the
+//! grid's Nyquist limit, which reproduces the conforming band. Records then
+//! carry the coupling torque `T_coupling` as well. `--ends free` leaves the
+//! coupling-circle end nodes out of the radial-edge pairs, as the reference
+//! does (`CouplingMode::HarmonicFreeEnds`).
 //!
 //! Writes one JSON record per run (default
 //! `benchmarks/motor_reference/forward/runs/L{level}_{law}_{tol}_{area}.json`);
@@ -30,6 +51,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use geode_core::assembly::magnetostatic_sector::CouplingMode;
+use geode_core::mesh::icem_parametric::rewrite_msh_nodes;
+use geode_core::mesh::read_tagged_tri_mesh;
 use icem::{AreaMode, I_PEAK_INITIAL, IcemModel, IronLaw, LEVELS, PHI0_INITIAL_DEG};
 
 struct Args {
@@ -40,6 +64,14 @@ struct Args {
     tight: bool,
     area: AreaMode,
     spectrum: bool,
+    /// `None`: conforming; `Some(None)`: every order; `Some(Some(v))`.
+    harmonics: Option<Option<Vec<usize>>>,
+    coupling_name: String,
+    free_ends: bool,
+    mesh: Option<PathBuf>,
+    i_peak: f64,
+    phi0_deg: f64,
+    scale_mesh: f64,
     out: Option<PathBuf>,
 }
 
@@ -65,6 +97,13 @@ fn parse_args() -> Args {
         tight: false,
         area: AreaMode::Mesh,
         spectrum: false,
+        harmonics: None,
+        coupling_name: "conforming".into(),
+        free_ends: false,
+        mesh: None,
+        i_peak: I_PEAK_INITIAL,
+        phi0_deg: PHI0_INITIAL_DEG,
+        scale_mesh: 1.0,
         out: None,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -101,6 +140,36 @@ fn parse_args() -> Args {
                     o => panic!("unknown --area {o}"),
                 }
             }
+            "--coupling" => {
+                if val == "conforming" {
+                    a.harmonics = None;
+                    a.coupling_name = "conforming".into();
+                } else if val == "harmonic:all" {
+                    a.harmonics = Some(None);
+                    a.coupling_name = "hall".into();
+                } else if let Some(spec) = val.strip_prefix("harmonic:") {
+                    let p: Vec<usize> = spec
+                        .split(':')
+                        .map(|x| x.parse().expect("harmonic:START:STEP:END"))
+                        .collect();
+                    assert!(p.len() == 3 && p[1] > 0, "harmonic:START:STEP:END");
+                    a.harmonics = Some(Some((p[0]..=p[2]).step_by(p[1]).collect()));
+                    a.coupling_name = format!("h{}", p[2]);
+                } else {
+                    panic!("unknown --coupling {val}");
+                }
+            }
+            "--ends" => {
+                a.free_ends = match val.as_str() {
+                    "tied" => false,
+                    "free" => true,
+                    o => panic!("unknown --ends {o}"),
+                }
+            }
+            "--mesh" => a.mesh = Some(PathBuf::from(&val)),
+            "--i-peak" => a.i_peak = val.parse().expect("--i-peak A"),
+            "--phi0-deg" => a.phi0_deg = val.parse().expect("--phi0-deg D"),
+            "--scale-mesh" => a.scale_mesh = val.parse().expect("--scale-mesh S"),
             "--out" => a.out = Some(PathBuf::from(&val)),
             o => panic!("unknown argument {o}"),
         }
@@ -123,16 +192,36 @@ fn main() {
     let args = parse_args();
     let reference = icem::load_reference();
     let exact = icem::load_exact_areas();
-    let path = icem::mesh_path(args.level);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| {
+    let path = args
+        .mesh
+        .clone()
+        .unwrap_or_else(|| icem::mesh_path(args.level));
+    assert!(
+        args.mesh.is_none() || args.out.is_some(),
+        "--mesh needs --out (the default record paths are for the initial design)"
+    );
+    let mut bytes = std::fs::read(&path).unwrap_or_else(|e| {
         panic!(
             "read {}: {e}. L1-L3 are gitignored; regenerate them with the \
              benchmarks/motor_reference/geometry/README.md command",
             path.display()
         )
     });
+    if args.scale_mesh != 1.0 {
+        let text = String::from_utf8(bytes).expect("UTF-8 mesh");
+        let tagged = read_tagged_tri_mesh(text.as_bytes()).expect("mesh");
+        let scaled: Vec<[f64; 2]> = tagged
+            .mesh
+            .nodes
+            .iter()
+            .map(|p| [p[0] * args.scale_mesh, p[1] * args.scale_mesh])
+            .collect();
+        bytes = rewrite_msh_nodes(&text, &scaled)
+            .expect("scale mesh")
+            .into_bytes();
+    }
     let t_setup = Instant::now();
-    let model = IcemModel::new(
+    let mut model = IcemModel::new(
         args.level,
         &bytes,
         &reference,
@@ -143,6 +232,26 @@ fn main() {
     .expect("model");
     let setup_s = t_setup.elapsed().as_secs_f64();
     let rep = model.band.report().clone();
+    let orders: Option<Vec<usize>> = args.harmonics.as_ref().map(|h| match h {
+        Some(v) => v.clone(),
+        None => model.band.all_harmonic_orders(),
+    });
+    assert!(
+        !args.free_ends || orders.is_some(),
+        "--ends free needs a harmonic --coupling"
+    );
+    let coupling_name = if args.free_ends {
+        format!("{}f", args.coupling_name)
+    } else {
+        args.coupling_name.clone()
+    };
+    if let Some(o) = &orders {
+        model.coupling = if args.free_ends {
+            CouplingMode::HarmonicFreeEnds(o.clone())
+        } else {
+            CouplingMode::Harmonic(o.clone())
+        };
+    }
     let tol_name = if args.tight { "tight" } else { "default" };
     let area_name = match args.area {
         AreaMode::Mesh => "mesh",
@@ -150,6 +259,13 @@ fn main() {
     };
     let cfg = icem::newton_config(args.tight);
     let n_maxwell = 8 * rep.n_coupling;
+    println!(
+        "mesh {}, scale {}, I_peak {:.9} A, phi0 {:.9} deg",
+        path.display(),
+        args.scale_mesh,
+        args.i_peak,
+        args.phi0_deg
+    );
     println!(
         "ICEM initial design, L{}: {} nodes, {} triangles ({} reoriented on read), N = {} \
          coupling steps ({} per degree), r_c = {:.6} m, rotor/stator edge pairs {}/{}, \
@@ -169,6 +285,16 @@ fn main() {
         icem::magnet_hc(),
         setup_s
     );
+    match &orders {
+        None => println!("  coupling: conforming sliding band"),
+        Some(o) => println!(
+            "  coupling: harmonic, {} ends, {} orders ({} sin/cos modes): {:?}",
+            if args.free_ends { "free" } else { "tied" },
+            o.len(),
+            o.iter().map(|&n| if n == 0 { 1 } else { 2 }).sum::<usize>(),
+            o
+        ),
+    }
     if let IronLaw::RefClamp426 = args.law {
         let (h, b) = icem::m27_table(&reference);
         let l = icem::ClampedLowFieldLaw::new(
@@ -183,18 +309,18 @@ fn main() {
     let mut rows = String::new();
     let t_all = Instant::now();
     for &ci in &args.currents {
-        let i_peak = LEVELS[ci] * I_PEAK_INITIAL;
+        let i_peak = LEVELS[ci] * args.i_peak;
         let mut prev: Option<Vec<f64>> = None;
         println!("  current level {} (I_peak = {:.9} A)", LEVELS[ci], i_peak);
         println!(
-            "    deg | T_arkkio (N m) | T_inner     | T_outer     | T_maxwell(44.25) | its | status | \
-             |R|          | Bmax iron | wall (s)"
+            "    deg | T_arkkio (N m) | T_inner     | T_outer     | T_maxwell(44.25) | T_coupling  | its | \
+             status | |R|          | Bmax iron | wall (s)"
         );
         for &deg in &args.angles {
             let (s, wall) = model
                 .solve_degree(
                     i_peak,
-                    PHI0_INITIAL_DEG.to_radians(),
+                    args.phi0_deg.to_radians(),
                     deg,
                     &cfg,
                     prev.as_deref(),
@@ -205,7 +331,7 @@ fn main() {
             let to = model.arkkio(&s, 1);
             let tm: Vec<f64> = MAXWELL_RADII
                 .iter()
-                .map(|&r| model.maxwell(&s, r, n_maxwell))
+                .map(|&r| model.maxwell(&s, r * args.scale_mesh, n_maxwell))
                 .collect();
             let spectrum = if args.spectrum {
                 let (full, part) =
@@ -227,12 +353,18 @@ fn main() {
             } else {
                 String::new()
             };
+            let tc = s.coupling_torque.map(|t| t * icem::L_AXIAL);
+            let tc_json = match tc {
+                Some(t) => format!("{t:.17e}"),
+                None => "null".into(),
+            };
             let res = *s.solution.residual_norms.last().unwrap();
             let bmax = model.iron_b_max(&s);
             println!(
-                "    {deg:3} | {ta:14.9} | {ti:11.8} | {to:11.8} | {:16.9} | {:3} | {:6} | {res:.3e} | \
-                 {bmax:9.4} | {wall:.3}",
+                "    {deg:3} | {ta:14.9} | {ti:11.8} | {to:11.8} | {:16.9} | {:>11} | {:3} | {:6} | \
+                 {res:.3e} | {bmax:9.4} | {wall:.3}",
                 tm[1],
+                tc.map(|t| format!("{t:.8}")).unwrap_or_else(|| "-".into()),
                 s.solution.iterations,
                 icem::status_name(s.status()),
             );
@@ -243,10 +375,12 @@ fn main() {
                 rows,
                 "    {{\"current_index\": {ci}, \"level_fraction\": {}, \"i_peak_A\": {i_peak:.17e}, \
                  \"angle_deg\": {deg}, \"T_arkkio\": {ta:.17e}, \"T_arkkio_inner\": {ti:.17e}, \
-                 \"T_arkkio_outer\": {to:.17e}, \"T_maxwell\": [{}], \"newton_iterations\": {}, \
+                 \"T_arkkio_outer\": {to:.17e}, \"T_coupling\": {tc_json}, \
+                 \"constraint_violation\": {:.3e}, \"T_maxwell\": [{}], \"newton_iterations\": {}, \
                  \"status\": \"{}\", \"residual\": {res:.6e}, \"tolerance\": {:.6e}, \
                  \"iron_b_max_T\": {bmax:.6}, \"wall_s\": {wall:.4}{spectrum}}}",
                 LEVELS[ci],
+                s.constraint_violation,
                 tm.iter().map(|t| format!("{t:.17e}")).collect::<Vec<_>>().join(", "),
                 s.solution.iterations,
                 icem::status_name(s.status()),
@@ -267,11 +401,29 @@ fn main() {
         write!(areas, "{:.17e}", model.group_areas[g]).unwrap();
     }
     let json = format!(
-        "{{\n  \"issue\": 1168,\n  \"level\": {},\n  \"nodes\": {},\n  \"triangles\": {},\n  \
+        "{{\n  \"issue\": {},\n  \"mesh_file\": \"{}\",\n  \"scale_mesh\": {:.17e},\n  \
+         \"i_peak_full_A\": {:.17e},\n  \"phi0_deg\": {:.17e},\n  \"arkkio_valid\": {},\n  \"coupling\": \"{}\",\n  \"coupling_orders\": {},\n  \"level\": {},\n  \"nodes\": {},\n  \"triangles\": {},\n  \
          \"reoriented_triangles\": {},\n  \"n_coupling\": {},\n  \"law\": \"{}\",\n  \
          \"rel_tol\": {:e},\n  \"area_mode\": \"{}\",\n  \"group_areas_m2\": [{}],\n  \
          \"magnet_hc_A_per_m\": {:.17e},\n  \"maxwell_radii_m\": [{}],\n  \"maxwell_samples\": {},\n  \
          \"setup_s\": {:.4},\n  \"total_solve_s\": {:.4},\n  \"rows\": [\n{}\n  ]\n}}\n",
+        if args.mesh.is_some() {
+            1173
+        } else if orders.is_some() {
+            1170
+        } else {
+            1168
+        },
+        path.file_name().unwrap().to_string_lossy(),
+        args.scale_mesh,
+        args.i_peak,
+        args.phi0_deg,
+        args.scale_mesh == 1.0,
+        coupling_name,
+        match &orders {
+            Some(o) => format!("{o:?}"),
+            None => "null".into(),
+        },
         args.level,
         model.tagged.mesh.n_nodes(),
         model.tagged.mesh.n_tris(),
@@ -282,20 +434,33 @@ fn main() {
         area_name,
         areas,
         icem::magnet_hc(),
-        MAXWELL_RADII.map(|r| format!("{r}")).join(", "),
+        MAXWELL_RADII
+            .map(|r| format!("{}", r * args.scale_mesh))
+            .join(", "),
         n_maxwell,
         setup_s,
         total,
         rows
     );
     let out = args.out.unwrap_or_else(|| {
-        icem::motor_reference_dir().join(format!(
-            "forward/runs/L{}_{}_{}_{}.json",
-            args.level,
-            args.law.name(),
-            tol_name,
-            area_name
-        ))
+        if orders.is_some() {
+            icem::motor_reference_dir().join(format!(
+                "forward_harmonic/runs/L{}_{}_{}_{}_{}.json",
+                args.level,
+                coupling_name,
+                args.law.name(),
+                tol_name,
+                area_name
+            ))
+        } else {
+            icem::motor_reference_dir().join(format!(
+                "forward/runs/L{}_{}_{}_{}.json",
+                args.level,
+                args.law.name(),
+                tol_name,
+                area_name
+            ))
+        }
     });
     std::fs::create_dir_all(out.parent().unwrap()).unwrap();
     std::fs::write(&out, json).unwrap();

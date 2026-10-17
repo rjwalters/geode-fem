@@ -26,10 +26,15 @@ tuned toward the reference.
   them moves the torque by more than 4e-4 N m.
 - **The current phase convention is also ruled out.** The cogging case has
   no current, and its waveform shape still disagrees.
-- **Most likely cause, not proven: the coupling model.** The reference
-  couples rotor and stator through 16 air-gap harmonics (n = 3, 9, ..., 45).
-  GEODE uses a conforming band. Details are in "What the evidence points
-  to" below.
+- **Cause of the load ripple gap: the coupling model (measured in #1170).**
+  The reference couples rotor and stator through 8 harmonic orders
+  n = 3:6:45 (16 sine/cosine coupling modes). GEODE uses a conforming band.
+  Solving GEODE with the reference's truncated coupling
+  ([`../forward_harmonic/`](../forward_harmonic/README.md)) brings the L3
+  load ripple to +1.7% and +1.3% of the reference. The cogging ripple goes
+  to +12.9%, with the right shape but a 13% larger amplitude. The
+  reference's own discretization is still an unexcluded cause of that
+  remainder. Details are in "What the evidence points to" below.
 
 ![GEODE L0-L3 vs reference](icem_initial_torque.png)
 
@@ -200,7 +205,7 @@ round-off-floor acceptances).
 | L2 | 36,083 | 9 to 13 / 2 to 3 | 3.3 s / 13 s | 223 s |
 | L3 | 139,268 | 12 to 14 / 2 to 3 | 16 s / 68 s | 1076 s |
 
-The whole study (`run_all.sh`, 520 solves including the sensitivity runs)
+The whole study (`run_all.sh`, 500 solves including the sensitivity runs)
 took 3500 s of solve time. No cloud was used.
 
 ## What the evidence points to
@@ -230,10 +235,10 @@ The question is why the reference is outside the band.
 - **Reference self-consistency.** Its cogging symmetry residual (5.5e-4) is
   11 to 22 times GEODE L3's, but it is 13 times smaller than the cogging
   disagreement.
-- **Coupling model: most likely, not proven.**
+- **Coupling model: measured in #1170 to explain the load ripple gap.**
   - **How the reference couples.** It connects rotor and stator only through
-    the 16 harmonics 3, 9, ..., 45 of the coupling circle
-    (`setCouplingHarmonics`). Higher harmonics of the trace are not
+    8 harmonic orders n = 3:6:45 (16 sine/cosine coupling modes) of the
+    coupling circle (`setCouplingHarmonics`). Higher harmonics of the trace are not
     transmitted, and the flux of those modes is zero on each side.
   - **How GEODE couples.** It enforces nodal continuity, which carries
     harmonics up to about N.
@@ -249,8 +254,37 @@ The question is why the reference is outside the band.
     the reference either, under load or at zero current. The field of a
     truncated-coupling solve redistributes, so the measurement indicates
     the cause without proving it.
-  - **The test that would settle it.** Solve in GEODE with a
-    harmonic-truncated coupling (a follow-up).
+  - **The truncated-coupling solve (#1170,
+    [`../forward_harmonic/`](../forward_harmonic/README.md)).** GEODE was
+    solved with the reference's coupling: Lagrange multipliers on the
+    sine/cosine moments of orders 3:6:45. Nothing else was changed and
+    nothing was tuned. At L3:
+    - mean torque 0.66206 and 1.44322 N m, inside the L3 band around the
+      reference;
+    - load ripple 0.03961 and 0.08036 N m, +1.7% and +1.3% from the
+      reference (conforming: +9.9% and +11.3%). The reference is inside the
+      L3 band at full current and 0.1% of its value outside it at half
+      current;
+    - cogging ripple 0.01209 N m, +12.9% (conforming: -29%). The waveform
+      shape now matches, at close to a uniform 1.13 times the reference's
+      amplitude, and the reference is 11% of its value outside the band.
+    - Leaving the coupling-circle ends out of the antiperiodic pairs, as the
+      reference does, changes the L3 torque by at most 5e-5 N m.
+    - With every order below the Nyquist limit, the same solver reproduces
+      the conforming band to 4e-9 N m. The cut at n = 45 is therefore a
+      model choice, and it moves the cogging ripple by 59% and the load
+      ripple by 7% to 9% at L3.
+- **The reference's own discretization: not excluded.** It uses degree-2
+  IGA with 3x3 subdivisions per patch, and `../conventions.json` records
+  that its saved output is not a converged reference. Its symmetry
+  residuals (above) cannot bound this error. After the coupling model is
+  matched, this is the remaining candidate for the 13% cogging amplitude
+  difference. In GEODE's truncated solve the cogging ripple rises with
+  refinement (0.0101 at L0 to 0.0121 at L3), so a coarser discretization of
+  this model can sit below the refined value. That points the same way but
+  does not measure the reference's error. A rerun of the reference at finer
+  subdivisions (#1170 Part B) was not done: Octave is not installed on this
+  machine.
 
 ## Reproduce
 

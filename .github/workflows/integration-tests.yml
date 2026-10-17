@@ -154,6 +154,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
               --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
@@ -242,6 +243,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
               --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
@@ -284,8 +286,12 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_design_gradient \
               --test motor_icem_forward \
+              --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
@@ -368,8 +374,12 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_design_gradient \
               --test motor_icem_forward \
+              --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \

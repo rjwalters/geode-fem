@@ -29,6 +29,10 @@
 //! - [`magnetostatic_sector`]: periodic / antiperiodic sector pairing and the
 //!   conforming sliding band for rotor rotation, as signed node links on the
 //!   nonlinear system (motor-paper milestone M2, issue #1161).
+//! - [`magnetostatic_shape`]: the discrete shape adjoint of the nonlinear
+//!   sector torque (Arkkio and harmonic coupling torque, mean and ripple
+//!   objectives) with respect to the node coordinates (motor-paper
+//!   milestone M3, issue #1174).
 //! - [`magnetostatic3d`]: 3-D **vector** magnetostatic assembly on a
 //!   [`TetMesh`](crate::mesh::TetMesh) with lowest-order Nédélec edge
 //!   elements — host-side `f64` ν-weighted curl-curl (retained full `K`),
@@ -75,6 +79,7 @@ pub mod magnetostatic;
 pub mod magnetostatic3d;
 pub mod magnetostatic_nonlinear;
 pub mod magnetostatic_sector;
+pub mod magnetostatic_shape;
 pub mod nedelec;
 pub mod nedelec_matvec;
 pub mod nedelec_p2;

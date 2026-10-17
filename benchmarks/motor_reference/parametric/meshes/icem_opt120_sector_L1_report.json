@@ -1,0 +1,264 @@
+{
+  "level": 1,
+  "coupling_segments_N": 240,
+  "coupling_spacing_deg": 0.25,
+  "size_min_m": 0.00019416787928436914,
+  "size_max_m": 0.0011650072757062148,
+  "gmsh_version": "4.15.2",
+  "point_merge_max_m": 0.0,
+  "shared_side_max_dev_m": 0.0,
+  "mesh": {
+    "nodes": 9497,
+    "triangles": 18291,
+    "min_angle_deg": 13.19805792812303,
+    "max_angle_deg": 116.30325921498273,
+    "min_angle_location_m": [
+      0.015109346756181386,
+      0.038397085764446094
+    ],
+    "min_angle_region_tag": 1,
+    "quality_measure": "4*sqrt(3)*area/sum(edge^2), 1 = equilateral",
+    "quality_min": 0.3787290070276365,
+    "quality_mean": 0.9717335520455166,
+    "quality_p01": 0.8241879617386897,
+    "frac_min_angle_below_20deg": 0.0017494942868077196,
+    "h_max_edge_m": 0.0014758969000196107,
+    "h_min_edge_m": 5.789495429990229e-05
+  },
+  "conformity": {
+    "edges": 27786,
+    "boundary_edges": 699,
+    "boundary_equals_tagged_lines": true
+  },
+  "total_area": {
+    "annulus_exact_m2": 0.0020881502303393092,
+    "nurbs_sum_rel_err": 1.0384331134157234e-15,
+    "mesh_sum_rel_err": -1.8969061045211441e-06
+  },
+  "regions": {
+    "rotor_iron": {
+      "tag": 1,
+      "triangles": 4726,
+      "area_exact_m2": 0.0007765450478939212,
+      "area_cad_rel_err": -1.3961870923341596e-16,
+      "area_mesh_m2": 0.0007766511626972259,
+      "area_mesh_rel_err": 0.00013664990021184826
+    },
+    "magnet": {
+      "tag": 2,
+      "triangles": 200,
+      "area_exact_m2": 5.6902187997063614e-05,
+      "area_cad_rel_err": -2.858068056736554e-15,
+      "area_mesh_m2": 5.690218799706352e-05,
+      "area_mesh_rel_err": -1.6672063664296564e-15
+    },
+    "rotor_air": {
+      "tag": 3,
+      "triangles": 138,
+      "area_exact_m2": 1.7531882134872058e-05,
+      "area_cad_rel_err": -1.7392990590840144e-15,
+      "area_mesh_m2": 1.7531882134872058e-05,
+      "area_mesh_rel_err": 0.0
+    },
+    "airgap_inner": {
+      "tag": 4,
+      "triangles": 3049,
+      "area_exact_m2": 5.183607079950651e-05,
+      "area_cad_rel_err": 3.3727016268168224e-13,
+      "area_mesh_m2": 5.1835522916460046e-05,
+      "area_mesh_rel_err": -1.0569532721453071e-05
+    },
+    "airgap_outer": {
+      "tag": 5,
+      "triangles": 1484,
+      "area_exact_m2": 2.3434163442664225e-05,
+      "area_cad_rel_err": -9.052208406303146e-13,
+      "area_mesh_m2": 2.3434385359682945e-05,
+      "area_mesh_rel_err": 9.469807585128835e-06
+    },
+    "stator_iron": {
+      "tag": 6,
+      "triangles": 5556,
+      "area_exact_m2": 0.0007423789361933597,
+      "area_cad_rel_err": -7.302215348706456e-16,
+      "area_mesh_m2": 0.0007433636401645094,
+      "area_mesh_rel_err": 0.0013264169053595358
+    },
+    "slot_air": {
+      "tag": 7,
+      "triangles": 252,
+      "area_exact_m2": 2.991336254810475e-06,
+      "area_cad_rel_err": 1.5290751441994004e-14,
+      "area_mesh_m2": 2.991644990889721e-06,
+      "area_mesh_rel_err": 0.00010321008838425712
+    },
+    "winding_01_U+": {
+      "tag": 11,
+      "triangles": 111,
+      "area_exact_m2": 3.9544880869768775e-05,
+      "area_cad_rel_err": -1.1994939421477178e-15,
+      "area_mesh_m2": 3.937941425135401e-05,
+      "area_mesh_rel_err": -0.004184274039405777
+    },
+    "winding_02_U+": {
+      "tag": 12,
+      "triangles": 370,
+      "area_exact_m2": 2.9876886734084926e-05,
+      "area_cad_rel_err": 2.268062143939425e-16,
+      "area_mesh_m2": 2.9859892891825e-05,
+      "area_mesh_rel_err": -0.0005687956182039841
+    },
+    "winding_03_U+": {
+      "tag": 13,
+      "triangles": 370,
+      "area_exact_m2": 2.98768867340836e-05,
+      "area_cad_rel_err": -1.8144497151516204e-15,
+      "area_mesh_m2": 2.985989293823012e-05,
+      "area_mesh_rel_err": -0.0005687940649482997
+    },
+    "winding_04_U-": {
+      "tag": 14,
+      "triangles": 111,
+      "area_exact_m2": 3.954488086976874e-05,
+      "area_cad_rel_err": -5.140688323490224e-16,
+      "area_mesh_m2": 3.9379414251353994e-05,
+      "area_mesh_rel_err": -0.004184274039405267
+    },
+    "winding_05_W-": {
+      "tag": 15,
+      "triangles": 111,
+      "area_exact_m2": 3.954488086976923e-05,
+      "area_cad_rel_err": 8.5678138724836e-16,
+      "area_mesh_m2": 3.937941424184861e-05,
+      "area_mesh_rel_err": -0.004184274279787057
+    },
+    "winding_06_W-": {
+      "tag": 16,
+      "triangles": 111,
+      "area_exact_m2": 3.954488086976718e-05,
+      "area_cad_rel_err": -3.4271255489936175e-16,
+      "area_mesh_m2": 3.937941423128953e-05,
+      "area_mesh_rel_err": -0.004184274546750587
+    },
+    "winding_07_W-": {
+      "tag": 17,
+      "triangles": 370,
+      "area_exact_m2": 2.987688673408334e-05,
+      "area_cad_rel_err": -1.1340310719697727e-15,
+      "area_mesh_m2": 2.9859892972296025e-05,
+      "area_mesh_rel_err": -0.0005687929247302994
+    },
+    "winding_08_W-": {
+      "tag": 18,
+      "triangles": 370,
+      "area_exact_m2": 2.9876886734083316e-05,
+      "area_cad_rel_err": -5.670155359848868e-16,
+      "area_mesh_m2": 2.9859892972296032e-05,
+      "area_mesh_rel_err": -0.0005687929247292792
+    },
+    "winding_09_V+": {
+      "tag": 19,
+      "triangles": 111,
+      "area_exact_m2": 3.9544880869767156e-05,
+      "area_cad_rel_err": 3.42712554899362e-16,
+      "area_mesh_m2": 3.9379414231289525e-05,
+      "area_mesh_rel_err": -0.004184274546750076
+    },
+    "winding_10_V+": {
+      "tag": 20,
+      "triangles": 370,
+      "area_exact_m2": 2.9876886734083577e-05,
+      "area_cad_rel_err": -1.0206279647727873e-15,
+      "area_mesh_m2": 2.9859892938230118e-05,
+      "area_mesh_rel_err": -0.0005687940649476197
+    },
+    "winding_11_V+": {
+      "tag": 21,
+      "triangles": 111,
+      "area_exact_m2": 3.9544880869769304e-05,
+      "area_cad_rel_err": -1.0281376646980302e-15,
+      "area_mesh_m2": 3.93794142418486e-05,
+      "area_mesh_rel_err": -0.004184274279789277
+    },
+    "winding_12_V+": {
+      "tag": 22,
+      "triangles": 370,
+      "area_exact_m2": 2.9876886734084963e-05,
+      "area_cad_rel_err": -1.02062796477274e-15,
+      "area_mesh_m2": 2.9859892891825005e-05,
+      "area_mesh_rel_err": -0.0005687956182051174
+    }
+  },
+  "coupling_rotor": {
+    "nodes": 241,
+    "segments": 240,
+    "max_radius_dev_m": 4.2327252813834093e-16,
+    "max_angle_dev_rad": 6.439293542825908e-15
+  },
+  "coupling_stator": {
+    "nodes": 241,
+    "segments": 240,
+    "max_radius_dev_m": 4.2327252813834093e-16,
+    "max_angle_dev_rad": 6.439293542825908e-15
+  },
+  "coupling_rotor_vs_stator_max_dev_m": 0.0,
+  "rotor_antiperiodic": {
+    "edge_nodes_each_side": 40,
+    "gmsh_periodic_pairs": 42,
+    "max_rotation_mismatch_m": 9.639819490876587e-16
+  },
+  "stator_antiperiodic": {
+    "edge_nodes_each_side": 34,
+    "gmsh_periodic_pairs": 37,
+    "max_rotation_mismatch_m": 7.152448122690996e-16
+  },
+  "line_groups": {
+    "dirichlet_inner": {
+      "tag": 101,
+      "segments": 15
+    },
+    "dirichlet_outer": {
+      "tag": 102,
+      "segments": 60
+    },
+    "rotor_edge_lo": {
+      "tag": 111,
+      "segments": 39
+    },
+    "rotor_edge_hi": {
+      "tag": 112,
+      "segments": 39
+    },
+    "stator_edge_lo": {
+      "tag": 113,
+      "segments": 33
+    },
+    "stator_edge_hi": {
+      "tag": 114,
+      "segments": 33
+    },
+    "coupling_rotor": {
+      "tag": 121,
+      "segments": 240
+    },
+    "coupling_stator": {
+      "tag": 122,
+      "segments": 240
+    }
+  },
+  "provenance": {
+    "upstream_repository": "https://github.com/MichaelWiesheu/ICEMsnapshot",
+    "upstream_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+    "exports_sha256": {
+      "results/plots/final/RotorOpt120.txt": "508172e87e08328b35448af06d94f29ce4bc65f33a7c5fe5457f609a67c1e697",
+      "results/plots/final/StatorOpt120.txt": "8cee68a7e9df906c6823db4513a42cf412f7eb4fab9e785644e0582909c43b5b"
+    },
+    "license": "upstream data GPL-3.0-or-later; see ../UPSTREAM_LICENSE.txt",
+    "generator": "benchmarks/motor_reference/geometry/build_sector_mesh.py",
+    "design": "optimized",
+    "rotor_patches_from_iteration_0": []
+  },
+  "msh_file": "icem_opt120_sector_L1.msh",
+  "msh_bytes": 900121,
+  "msh_sha256": "3013eacd3114cf127cb6c9e12feab288b7a5f22140921524995511ea0fe1637b"
+}
