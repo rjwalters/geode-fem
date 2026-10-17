@@ -75,8 +75,15 @@
 //!   [`ARKKIO_BAND_AREA_TOL`] away from its annulus
 //!   ([`arkkio_band_areas`]). They do not switch band silently: the
 //!   objective would change definition mid-optimization. The caller picks
-//!   a band that keeps its annulus (the outer band, between the coupling
-//!   circle and the stator bore) or the coupling torque (issue #1183).
+//!   a band that keeps its annulus or the coupling torque (issue #1183).
+//!   Under the **rotor** offsets the outer band (coupling circle to stator
+//!   bore) keeps its annulus. Under the stator offsets it does not: at
+//!   their bounds `CPS1..3` put it 0.535/0.233/0.239 off. With stator
+//!   offsets in conforming mode neither Arkkio functional is valid. An
+//!   accepted band can still be sheared: on a moved mesh with `SW2` off
+//!   nominal the outer-band Arkkio is about 1% below the coupling torque at
+//!   every mesh level. It is a consistent, exactly differentiated
+//!   functional, but not a calibrated torque.
 //! * [`ShapeTorque::Coupling`]: the harmonic coupling torque
 //!   `T = −L λᵀ D A` of [`SlidingBand::harmonic_coupling_torque`]
 //!   (`D = ∂(Gᵀ A)/∂β`). `D` lives on the coupling circle, so `T` has no
@@ -165,11 +172,15 @@ pub struct ArkkioTerm {
 
 /// Relative tolerance of the Arkkio band-area check
 /// ([`arkkio_band_areas`]): the mesh area behind an annulus may differ from
-/// the annulus by at most this fraction. On the ICEM L0 mesh the departure
-/// from the annulus is `3.7e-5` for the 44.0-45.0 mm both-band group and
-/// `8.4e-5` for the outer band, and it shrinks with refinement. The
-/// free-form Opt120 rotor surface makes the both-band group `1.615` times
-/// its annulus (the inner band `2.237` times its own; issue #1183).
+/// the annulus by at most this fraction. On the ICEM initial-design L0 mesh
+/// the departure (P1 chords) is `3.7e-5` for the 44.0-45.0 mm both-band group
+/// and `8.4e-5` for the outer band. On the initial-design meshes it shrinks
+/// with refinement; on a moved mesh it is set by the design, not the level.
+/// The free-form Opt120 rotor surface makes the both-band group `1.615`
+/// times its annulus (the inner band `2.237` times its own). Opt120's offsets
+/// scaled by 0.001 / 0.003 / 0.01 give `5.9e-4` (accepted) / `1.8e-3` /
+/// `6.2e-3` (rejected), which `tests/motor_arkkio_band_guard.rs` pins
+/// (issue #1183).
 pub const ARKKIO_BAND_AREA_TOL: f64 = 1e-3;
 
 /// The triangles behind one Arkkio normalising annulus, against that

@@ -18,15 +18,34 @@
 //! - at Opt120 the forward solve and the gradient both reject the both-band
 //!   functional (harmonic and conforming coupling), and θ0 still accepts it
 //!   with the torque of the unguarded sum, bit for bit;
-//! - at Opt120 the outer-band Arkkio is accepted. In the reference model
-//!   (harmonic n = 3:6:45) it agrees with the coupling torque at every
-//!   angle to 2% (1.1% measured at L0; 1.3e-4 N m at L3 in
-//!   `benchmarks/motor_validation/`), while the unguarded both-band sum is
-//!   more than 30% off. Its mean-torque gradient over each rotor offset that
-//!   moves the inner band agrees with a central difference that re-moves
-//!   the mesh to 1e-5 (5.8e-7 measured) and with the coupling-torque
-//!   gradient to 3% (1.4% measured at L0). The same central-difference
-//!   check runs on the conforming band.
+//! - the tolerance itself: Opt120's offsets scaled by 0.001 (both-band
+//!   departure about 5.9e-4) are accepted, by 0.003 (about 1.8e-3) and
+//!   0.01 (about 6.2e-3) rejected, so `ARKKIO_BAND_AREA_TOL` is pinned
+//!   between 5.9e-4 and 1.8e-3;
+//! - at Opt120 the outer-band Arkkio is accepted, and is a **consistent
+//!   functional but not a calibrated torque** on this moved mesh. In the
+//!   reference model (harmonic n = 3:6:45) it sits about 1% below the
+//!   coupling torque at every angle (1.1% measured at L0). That gap is a
+//!   shear bias, not discretization: Opt120's `SW2` differs from the
+//!   initial design, and moving the stator-bore nodes tangentially shears
+//!   the outer band's triangles (as #1176 found). The Opt120 h45 mean gap
+//!   is −1.03/−1.10/−0.86% at L0/L1/L2 and does not shrink with level; `SW2`
+//!   alone gives −1.21/−1.14/−0.85%, the rotor offsets alone about 1e-4.
+//!   The 1.3e-4 N m agreement of `benchmarks/motor_validation/` is on
+//!   fresh meshes. So the tolerances below (2% forward, 3% gradient
+//!   against the coupling torque) bound that bias; they are not accuracy
+//!   claims. The unguarded both-band sum is more than 30% off. The
+//!   outer-band mean-torque gradient over each rotor offset that moves the
+//!   inner band agrees with a central difference that re-moves the mesh to
+//!   1e-5 (5.8e-7 measured): the adjoint is exact for the functional it
+//!   differentiates. The same central-difference check runs on the
+//!   conforming band.
+//!
+//! The outer band keeps its annulus only under the **rotor** offsets. The
+//! stator offsets `CPS1..3` at their bounds move the bore and make the outer
+//! band 0.535/0.233/0.239 off its annulus. With stator offsets in conforming
+//! mode neither Arkkio functional is valid, and only the coupling torque
+//! (harmonic coupling) remains.
 
 #[path = "common/icem_forward.rs"]
 mod icem;
@@ -130,6 +149,38 @@ fn band_areas_at_theta0_and_opt120() {
         "{b1:?}"
     );
     assert!(ARKKIO_BAND_AREA_TOL < 0.5 * (b1.ratio() - 1.0));
+}
+
+/// The tolerance is pinned: Opt120's offsets scaled by 0.001 give a
+/// both-band departure below 1e-3 (accepted, also by `solve`), by 0.003 and
+/// 0.01 one in the 1e-3..1e-2 window (rejected, also by `solve`).
+#[test]
+fn tolerance_is_pinned_by_scaled_opt120_offsets() {
+    let s = setup(Mode::H45);
+    let both = icem_shape::arkkio_spec();
+    let cfg = icem::newton_config(false);
+    let off = offsets();
+    let reference = icem::load_reference();
+    for (scale, accept, lo, hi) in [
+        (0.001, true, 4e-4, 8e-4),
+        (0.003, false, 1.2e-3, 3e-3),
+        (0.01, false, 4e-3, 9e-3),
+    ] {
+        let o: [f64; N_OFFSETS] = std::array::from_fn(|g| scale * off[g]);
+        let dp = CpDesignPoint::from_reference(&reference, "optimized", &o);
+        let p = s.problem_at(&dp.geo).unwrap();
+        let b = single(&p, &both);
+        let dep = (b.ratio() - 1.0).abs();
+        println!("offsets x{scale}: both-band departure {dep:.3e}");
+        assert!((lo..hi).contains(&dep), "x{scale}: departure {dep:e}");
+        assert_eq!(b.is_valid(), accept, "x{scale}: {b:?}");
+        let r = p.solve(&ops(&s, &dp)[0], &both, &cfg, None);
+        if accept {
+            r.unwrap();
+        } else {
+            assert_band_rejection(r, &format!("x{scale} forward"));
+        }
+    }
 }
 
 #[test]
@@ -287,6 +338,9 @@ fn outer_band_check(mode: Mode, fd_tol: f64, coupling_tol: Option<(f64, f64)>) {
 
 #[test]
 fn outer_band_at_opt120_harmonic_matches_coupling_and_fd() {
+    // 2% / 3%: bounds on the ~1% SW2 shear bias of the outer-band Arkkio on
+    // the moved Opt120 mesh (module docs), which does not shrink with mesh
+    // level. Not a discretization error, and not an accuracy claim.
     outer_band_check(Mode::H45, 1e-5, Some((2e-2, 3e-2)));
 }
 
