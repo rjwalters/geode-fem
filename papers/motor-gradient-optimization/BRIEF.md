@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Research setup; slotless negative-control screen complete; nonlinear motor experiments pending"
+status_of_inputs: "Revision 3: coupling and scalar design-gradient evidence through commit 910593ba; v2 reviews 36/44 and 35/44, audit numerical flag addressed; fresh review pending; optimization comparison not yet measured"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select after the pilot establishes the contribution; use the generic paper class initially"
@@ -19,8 +19,8 @@ science_card_id: 3
 
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
-the research project. Its Anvil state is **EMPTY (brief only)**: there is no
-manuscript, reviewed result, or publication-ready speedup claim.
+the research project. The operator requested the first manuscript on
+2026-10-16. V1 is preserved unchanged and received two independent 30/44 reviews. The current manuscript is `motor-gradient-optimization.3/`, **REVISED; independent review and audit pending**, incorporating paired harmonic coupling, verified scalar design gradients and cross-model sensitivities. V2 is preserved with two advancing reviews (36/44 and 35/44) and a failed audit; v3 fixes the audited rounding and review findings. The broader optimization claim remains a hypothesis.
 
 The working title may change with the findings. Authorship, venue and final
 title remain open until manuscript preparation; no author invitation or
@@ -52,7 +52,9 @@ ambition to test, not an assumed finding or a criterion for retaining data.
 
 ## Strongest claim
 
-**Current evidence:** the existing linear, slotless motor's stored torque
+**Current measured evidence:** at L3, order-45 truncation shifts standard deviation by 7–9% under load and 59% at zero current relative to conforming coupling. Matching the reference's coupling reduces the loaded ripple discrepancy from 9.9–11.3% to 1.3–1.7%; cogging remains 12.9% high. Of 704 distinct loaded best-step FD comparisons, 688 agree within 2.8e-7 relatively, worst 1.07e-5 (800 recorded comparisons include 96 repeats). Among 592 eligible distinct Taylor checks, 530 span at least four decades. Ripple gradients differ between h45/coupling-torque and conforming/Arkkio pairs; current policy reverses three L1 initial-design mean sensitivities. Recorded full-gradient cost is 1.13–1.20 forwards versus 8.2–10.5 for warm-started FD including its shared base, under uncontrolled host load. These are derivative timings, not optimization time-to-target results.
+
+**Screening evidence:** the existing linear, slotless motor's stored torque
 samples are nearly exactly represented by a three-coefficient sinusoid at
 one geometry. The screening script tests held-out angles, not unseen designs
 or shape gradients. It identifies a useful negative control.
@@ -116,19 +118,14 @@ Keep it and this brief consistent when scope changes.
 | Milestone | Deliverable and acceptance condition | Status |
 |---|---|---|
 | M0: benchmark screen | Existing motor reducibility checked; relevant prior work and solver gaps recorded. | Complete; analysis of stored output only |
-| M1: nonlinear magnetostatics | B-H residual and consistent tangent, linear-limit and manufactured/reference checks, Newton convergence and unit conventions. | Claude coordinating implementation in #1157 |
-| M2: reference motor | Slotted geometry, physical rotation/coupling and torque waveform at each current level; spatial and angular refinement, independent reference agreement. | Reference data prepared by Codex; forward reproduction depends on M1 |
-| M3: motor shape gradients | Directional finite-difference step sweeps and Taylor checks at initial and perturbed designs; stable gradients as state tolerances tighten. | Depends on M2 |
+| M1: nonlinear magnetostatics | B-H residual and consistent tangent, linear-limit and manufactured/reference checks, Newton convergence and unit conventions. | Complete; solver and tests merged in #1159 |
+| M2: reference motor | Slotted geometry, physical rotation/coupling and torque waveform at each current level; spatial and angular refinement, independent reference agreement. | Conforming and harmonic studies merged (#1169/#1172); loaded gap narrowed; cogging and reference/angular convergence remain open |
+| M3: motor shape gradients | Directional finite-difference step sweeps and Taylor checks at initial and perturbed designs; stable gradients as state tolerances tighten. | M3a–c merged and included in v2; grouped-control follow-up in review |
 | M4: useful design freedom | Compare nested engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty. | Depends on M3 |
 | M5: measured optimization cost | Same-host, same-target comparisons against calibrated simple/reduced models, trust-region derivative-free search and CMA-ES, with all setup and calibration charged. | Depends on M4 |
-| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | Depends on M5 |
+| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | First draft authorized before M5; experimental completion, independent manuscript review and audit remain pending |
 
-M1 is the immediate implementation task. Existing GEODE components include
-linear P1/P2 magnetostatics, PM sources and P1 torque extraction; the audited
-source did not contain the required nonlinear B-H solver, physical
-rotation/coupling or motor shape adjoint. Record runnable evidence as these
-capabilities are implemented rather than inferring readiness from related
-electrostatic or antenna gradients.
+M2 now narrows the loaded ripple discrepancy through a paired coupling experiment; residual cogging and reference refinement remain open. M3 scalar gradients are verified. M4 grouped geometry is in review (#1180); optimization and M5 remain unperformed. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
 
 Before M5, freeze numerical tolerances, target/error margins, design bounds,
 starts/seeds and compute budgets. The preliminary M4 cap of three starts and
@@ -201,12 +198,8 @@ one design space from comparisons between design spaces.
   including the stored full-precision torque profiles and reconstruction gaps.
 
 The slotless screen is reproducible but is not a nonlinear-motor result.
-Before manuscript review, add external-artifact verification commands that
-check the actual motor evidence and every claimed cost ratio. A passing
-slotless screen cannot satisfy that requirement.
+The artifact-verification command now checks actual forward/gradient records and cost ratios in v3. A passing slotless screen alone cannot satisfy that requirement.
 
 Keep the project brief mutable and manuscript versions immutable under
-Anvil. Once results support a paper, create `motor-gradient-optimization.1/`
-with the repository's shared LaTeX class, references, data-backed figures
-and provenance. Review and audit state must come from the completed
+Anvil. The current manuscript is `motor-gradient-optimization.3/`, with a local LaTeX class, references, data-backed figures and a pinned evidence manifest. V1 and v2 remain immutable; subsequent results enter a new version. Review and audit state must come from the completed
 workflow; project designation does not confer those states.

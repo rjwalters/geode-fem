@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "stored_fixture_screen_not_new_fem_or_optimization",
+  "fixture_source_commit": "9b3a9a4d02457a6be807275422397428f900eb8f",
+  "fixture": "benchmarks/motor/results.toml",
+  "fixture_sha256": "f3e457da6207913582904e5a3e5c5eb9ab05fefe877532c994ebbb0ee98ee0d4",
+  "script_sha256": "925566e4a72edee756ef2cecd0c22f32708bd7a978ef33924daf59be13f0b355",
+  "unique_angles": 24,
+  "training_angles": 12,
+  "heldout_angles": 12,
+  "fem_l2_relative_to_closed_form": 0.007130335859613982,
+  "harmonic_fits": {
+    "through_harmonic_1": {
+      "coefficient_order": "constant, cos(phi), sin(phi), cos(2phi), sin(2phi), ...",
+      "coefficients_in_fixture_torque_units": [
+        0.002164704997833509,
+        -18.527674494278074,
+        0.0051142908217939
+      ],
+      "heldout_rmse_over_analytic_amplitude": 3.0771623344259425e-10,
+      "heldout_max_abs_error_over_analytic_amplitude": 6.824707323907497e-10
+    },
+    "through_harmonic_2": {
+      "coefficient_order": "constant, cos(phi), sin(phi), cos(2phi), sin(2phi), ...",
+      "coefficients_in_fixture_torque_units": [
+        0.002164704997833509,
+        -18.527674494278074,
+        0.0051142908217939,
+        -4.6346449828968406e-09,
+        5.455827310690567e-09
+      ],
+      "heldout_rmse_over_analytic_amplitude": 5.103605401966745e-10,
+      "heldout_max_abs_error_over_analytic_amplitude": 1.0294815485548149e-09
+    }
+  },
+  "interpretation": [
+    "At fixed geometry, angle-independent linear K and sinusoidal magnetization give u(phi)=u_J+cos(phi)*u_c+sin(phi)*u_s.",
+    "Quadratic Arkkio torque therefore contains only harmonics 0, 1 and 2 in phi=p*theta_r, even with discrete symmetry error.",
+    "One matrix factorization and three RHS solves suffice to construct that field basis; this is a derivation, not a measured implementation speedup.",
+    "The fit checks held-out angles of one geometry, not unseen designs or shape gradients.",
+    "Slotless locked-rotor torque-versus-angle is not synchronous operating torque ripple: the current phase must track rotor angle at fixed load angle for that measurement.",
+    "The harmonic reduction need not hold when material response is nonlinear or physical rotor motion changes the operator.",
+    "Retain this fixture as a correctness control, not evidence that exact gradients accelerate realistic motor optimization."
+  ]
+}
