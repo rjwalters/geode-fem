@@ -227,6 +227,10 @@ pub struct DesignSetup {
     /// The shape problem at the mesh's own node positions (`θ0`).
     pub problem0: SectorShapeProblem,
     pub mode: Mode,
+    /// Rotor angles of the angle set (integer mechanical degrees). Default
+    /// [`OPT_DEGREES`], the reference's 10-angle grid; the pre-registered
+    /// experiment-2 grid g20 is `0..20` (#1185).
+    pub degrees: Vec<i64>,
     /// Wall time of the map's attachment and factorization (s).
     pub map_seconds: f64,
 }
@@ -253,6 +257,7 @@ impl DesignSetup {
             map,
             problem0,
             mode,
+            degrees: OPT_DEGREES.to_vec(),
             map_seconds,
         })
     }
@@ -287,7 +292,7 @@ impl DesignSetup {
     /// The operating points of the optimization grid at `dp`, peak current
     /// `i_peak`.
     pub fn operating_points(&self, dp: &DesignPoint, i_peak: f64) -> Vec<OperatingPoint> {
-        icem_shape::operating_points(&self.model, i_peak, dp.phi0_deg * PI / 180.0, &OPT_DEGREES)
+        icem_shape::operating_points(&self.model, i_peak, dp.phi0_deg * PI / 180.0, &self.degrees)
     }
 }
 
@@ -422,12 +427,25 @@ pub fn design_gradient(
     i_peak: f64,
     cfg: &NewtonConfig,
 ) -> Result<(DesignGradient, Evaluation), SectorError> {
+    design_gradient_from(setup, dp, i_peak, cfg, None)
+}
+
+/// [`design_gradient`] with the forward solves warm-started from
+/// `initials` (one `A_z` per operating point; `None` is the cold start of
+/// [`design_gradient`]).
+pub fn design_gradient_from(
+    setup: &DesignSetup,
+    dp: &DesignPoint,
+    i_peak: f64,
+    cfg: &NewtonConfig,
+    initials: Option<&[Vec<f64>]>,
+) -> Result<(DesignGradient, Evaluation), SectorError> {
     let cb = CurrentBase {
         i_base: i_peak,
         a1_base: 1.0,
         s_base: dp.scale_r,
     };
-    let ev = evaluate(setup, dp, CurrentRule::Prescribed, &cb, cfg, None)?;
+    let ev = evaluate(setup, dp, CurrentRule::Prescribed, &cb, cfg, initials)?;
     let p = &ev.problem;
     let torque = setup.mode.torque(dp.length);
     let t0 = Instant::now();
@@ -459,7 +477,7 @@ pub fn design_gradient(
     let dt_dphi: Vec<f64> = ops
         .iter()
         .zip(&g.group_current_grads)
-        .zip(&OPT_DEGREES)
+        .zip(&setup.degrees)
         .map(|((_, gcg), &deg)| {
             let di = d_current_d_phi0(i_peak, phi0, deg as f64 * PI / 180.0);
             s2 * gcg.iter().zip(&di).map(|(a, b)| a * b).sum::<f64>()

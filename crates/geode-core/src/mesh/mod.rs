@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 
 use mshio::mshfile::ElementType;
 
+pub mod design_remesh;
 pub mod electrostatic_fixtures;
 pub mod extrude;
 pub mod icem_controlpoints;
