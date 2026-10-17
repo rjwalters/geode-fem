@@ -51,6 +51,51 @@
 //! mechanical steps of the reference are `k = N/60` and `2N/60`.
 //! [`SlidingBand::index_of_angle`] converts and fails loudly off the grid.
 //!
+//! # Harmonic coupling
+//!
+//! [`CouplingMode::Harmonic`] replaces the nodal re-connection by weak
+//! continuity of a chosen set of angular harmonics of the trace on the
+//! coupling circle (issue #1170), the coupling model of the ICEM reference
+//! code (`boundaries.coupling_sine_and_cosine_harmonics` in
+//! `benchmarks/motor_reference/conventions.json`). The two sides keep their
+//! own coupling nodes and are joined only through the constraints
+//!
+//! ```text
+//!   ∫ A_stator(θ) e(θ) r_c dθ − ∫ A_rotor(θ) e(θ) r_c dθ = 0 ,
+//!   e ∈ { sin nθ, cos nθ : n in the chosen orders } ,
+//! ```
+//!
+//! imposed with Lagrange multipliers by
+//! [`NonlinearMagnetostaticSystem::solve_constrained`]. Both traces are the
+//! P1 traces in the lab frame, piecewise linear in `θ` between coupling
+//! nodes, so the moment of a hat function centred at `θ_i` is exactly
+//! `r_c Δ sinc²(nΔ/2) · e(θ_i)`; the rotor hats sit at the rotated angles
+//! `θ0 + (i + k)Δ`. For a sector the orders must have the sector symmetry
+//! (`sin(n(θ + α)) = s · sin nθ`; antiperiodic over 60° gives
+//! `n = 3, 9, 15, …`), so the product of trace and test function is
+//! `α`-periodic and the moment over the rotor's rotated arc equals the
+//! moment over the sector. Modes outside the chosen set are not transmitted:
+//! on each side their normal flux is zero (the natural condition).
+//!
+//! [`CouplingMode::HarmonicFreeEnds`] also leaves the two end nodes of each
+//! side's coupling trace out of the radial-edge pairs, as the reference does
+//! (its antiperiodic DOF sets exclude the coupling DOFs); those nodes then
+//! carry their own half hats over the side's own arc, and the trace is
+//! antiperiodic only in the constrained modes.
+//!
+//! With every symmetric order below the grid's Nyquist limit (`nΔ < π`),
+//! the constraints span the whole antiperiodic trace space, and the solution
+//! equals the conforming one; `tests/magnetostatic_sector_harmonic.rs` checks
+//! this.
+//!
+//! **Coupling torque.** The rotor energy is invariant under the rigid
+//! rotation, so the angle enters the constrained minimum only through the
+//! constraints. The envelope theorem gives the torque on the rotor in the
+//! `+θ` direction per unit axial length,
+//! `T = −dΠ*/dβ = −λᵀ ∂(Gᵀ A)/∂β`, with `∂/∂β` acting on the rotor hat
+//! centres ([`SlidingBand::harmonic_coupling_torque`]). This is the
+//! `calcTorqueCoupling` construction of the reference, re-derived here.
+//!
 //! # Mesh input
 //!
 //! [`SlidingBand::new`] takes the mesh, the per-triangle region tags split
@@ -69,7 +114,7 @@ use std::f64::consts::TAU;
 use crate::analytic::waveguide::TriMesh;
 use crate::assembly::magnetostatic::recover_b_field;
 use crate::assembly::magnetostatic_nonlinear::{
-    MaterialMap, NewtonConfig, NodeLink, NonlinearMagnetostaticError,
+    LinearConstraints, MaterialMap, NewtonConfig, NodeLink, NonlinearMagnetostaticError,
     NonlinearMagnetostaticSolution, NonlinearMagnetostaticSystem,
 };
 use crate::assembly::torque::locate_triangle;
@@ -458,6 +503,9 @@ pub struct SlidingBand {
     n: usize,
     full: bool,
     sector_angle: f64,
+    /// Lab angle of coupling grid index 0 at `k = 0`.
+    theta0: f64,
+    r_c: f64,
     periodicity: Periodicity,
     fixed_links: Vec<NodeLink>,
     report: SlidingBandReport,
@@ -820,6 +868,8 @@ impl SlidingBand {
             n,
             full,
             sector_angle: spec.sector_angle,
+            theta0,
+            r_c,
             periodicity: spec.periodicity,
             fixed_links,
             report: SlidingBandReport {
@@ -946,6 +996,240 @@ impl SlidingBand {
         out
     }
 
+    /// The radial-edge links only (both sides), without any coupling-circle
+    /// re-connection: the links of [`CouplingMode::Harmonic`].
+    pub fn edge_links(&self) -> Vec<NodeLink> {
+        self.fixed_links.clone()
+    }
+
+    /// Check a set of harmonic coupling orders against this band and return
+    /// it sorted and de-duplicated.
+    ///
+    /// # Errors
+    ///
+    /// [`SectorError::InvalidInput`] for an empty set, an order without the
+    /// sector symmetry (for a sector of angle `α`, `nα/π` must be an odd
+    /// integer when antiperiodic and an even one when periodic), `n = 0`
+    /// for an antiperiodic sector, or an order at or above the grid's
+    /// Nyquist limit `nΔ ≥ π`.
+    pub fn check_harmonic_orders(&self, orders: &[usize]) -> Result<Vec<usize>, SectorError> {
+        let mut v = orders.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        if v.is_empty() {
+            return Err(SectorError::InvalidInput(
+                "harmonic coupling needs at least one order".into(),
+            ));
+        }
+        let step = self.step_angle();
+        for &n in &v {
+            if !self.full {
+                let q = n as f64 * self.sector_angle / std::f64::consts::PI;
+                let qi = q.round();
+                let parity_ok = match self.periodicity {
+                    Periodicity::Antiperiodic => (qi as i64).rem_euclid(2) == 1,
+                    Periodicity::Periodic => (qi as i64).rem_euclid(2) == 0,
+                };
+                if (q - qi).abs() > 1e-9 || !parity_ok {
+                    return Err(SectorError::InvalidInput(format!(
+                        "harmonic order {n} does not have the {:?} symmetry of a sector of \
+                         {} rad",
+                        self.periodicity, self.sector_angle
+                    )));
+                }
+            }
+            if n as f64 * step >= std::f64::consts::PI - 1e-12 {
+                return Err(SectorError::InvalidInput(format!(
+                    "harmonic order {n} is at or above the Nyquist limit of the coupling grid \
+                     (n * step = {} >= pi, step {step} rad)",
+                    n as f64 * step
+                )));
+            }
+        }
+        Ok(v)
+    }
+
+    /// Every order the band admits below its Nyquist limit (the full
+    /// harmonic set, which spans the whole trace space).
+    pub fn all_harmonic_orders(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut n = 0usize;
+        while (n as f64) * self.step_angle() < std::f64::consts::PI - 1e-12 {
+            if self.check_harmonic_orders(&[n]).is_ok() {
+                out.push(n);
+            }
+            n += 1;
+        }
+        out
+    }
+
+    /// The radial-edge links without the pairs of the coupling-circle end
+    /// nodes: the links of [`CouplingMode::HarmonicFreeEnds`], where the two
+    /// end nodes of each side's coupling trace are tied only through the
+    /// harmonic constraints.
+    pub fn edge_links_free_ends(&self) -> Vec<NodeLink> {
+        let ends: HashSet<usize> = [
+            self.rotor_coupling[0],
+            self.rotor_coupling[self.n],
+            self.stator_coupling[0],
+            self.stator_coupling[self.n],
+        ]
+        .iter()
+        .map(|&x| x as usize)
+        .collect();
+        self.fixed_links
+            .iter()
+            .copied()
+            .filter(|l| !(ends.contains(&l.node) && ends.contains(&l.master)))
+            .collect()
+    }
+
+    /// Per-node moments `c_i = ∫ φ_i(θ) e^{inθ} r_c dθ` (as `[Re, Im]`, so
+    /// the cosine moment is `Re` and the sine moment `Im`) of one side's
+    /// coupling trace at step `k` (the rotor hats sit at `θ0 + (i + k)Δ`).
+    ///
+    /// With tied ends the last sector node `N` is the signed image of node
+    /// `0` through the radial-edge links, and its half hat folds onto node
+    /// `0`, so nodes `0..N` carry full hats `r_c Δ sinc²(nΔ/2) e^{inθ_i}`.
+    /// With free ends nodes `0` and `N` carry their own half hats over the
+    /// side's own arc.
+    fn side_moments(&self, rotor: bool, k: i64, n: usize, free_ends: bool) -> Vec<(u32, [f64; 2])> {
+        let step = self.step_angle();
+        let nf = n as f64;
+        let (nodes, k_eff) = if rotor {
+            (&self.rotor_coupling, k)
+        } else {
+            (&self.stator_coupling, 0)
+        };
+        let angle = |i: usize| self.theta0 + (i as f64 + k_eff as f64) * step;
+        let x = 0.5 * nf * step;
+        let sinc = if x == 0.0 { 1.0 } else { x.sin() / x };
+        let w = self.r_c * step * sinc * sinc;
+        // Right half hat ∫_0^Δ (1 − t/Δ) e^{int} dt.
+        let half = if n == 0 {
+            [0.5 * step, 0.0]
+        } else {
+            let wd = nf * step;
+            [
+                (1.0 - wd.cos()) / (nf * nf * step),
+                1.0 / nf - wd.sin() / (nf * nf * step),
+            ]
+        };
+        let rot_c = |h: [f64; 2], th: f64| {
+            let (c, s) = ((nf * th).cos(), (nf * th).sin());
+            [
+                self.r_c * (c * h[0] - s * h[1]),
+                self.r_c * (s * h[0] + c * h[1]),
+            ]
+        };
+        let mut out = Vec::with_capacity(self.n + 1);
+        if free_ends && !self.full {
+            out.push((nodes[0], rot_c(half, angle(0))));
+            for (i, &node) in nodes.iter().enumerate().take(self.n).skip(1) {
+                let th = angle(i);
+                out.push((node, [w * (nf * th).cos(), w * (nf * th).sin()]));
+            }
+            out.push((nodes[self.n], rot_c([half[0], -half[1]], angle(self.n))));
+        } else {
+            for (i, &node) in nodes.iter().enumerate().take(self.n) {
+                let th = angle(i);
+                out.push((node, [w * (nf * th).cos(), w * (nf * th).sin()]));
+            }
+        }
+        out
+    }
+
+    /// The harmonic coupling constraints at step `k` (see the module docs):
+    /// for each order `n` the `sin nθ` and then the `cos nθ` moment (only
+    /// `cos` for `n = 0`), stator minus rotor. `free_ends` selects the hat
+    /// moments of [`CouplingMode::HarmonicFreeEnds`].
+    ///
+    /// # Errors
+    ///
+    /// As [`check_harmonic_orders`](Self::check_harmonic_orders), and
+    /// [`SectorError::InvalidInput`] for `free_ends` on a full machine.
+    pub fn harmonic_constraints(
+        &self,
+        k: i64,
+        orders: &[usize],
+        free_ends: bool,
+    ) -> Result<LinearConstraints, SectorError> {
+        let orders = self.check_harmonic_orders(orders)?;
+        if free_ends && self.full {
+            return Err(SectorError::InvalidInput(
+                "a full machine has no coupling-circle ends to free".into(),
+            ));
+        }
+        let mut cols = Vec::with_capacity(2 * orders.len());
+        for &n in &orders {
+            let st = self.side_moments(false, k, n, free_ends);
+            let rt = self.side_moments(true, k, n, free_ends);
+            // [Re, Im] index: sine is Im (1), cosine is Re (0).
+            let parts: &[usize] = if n == 0 { &[0] } else { &[1, 0] };
+            for &part in parts {
+                let mut col = Vec::with_capacity(st.len() + rt.len());
+                col.extend(st.iter().map(|&(node, c)| (node as usize, c[part])));
+                col.extend(rt.iter().map(|&(node, c)| (node as usize, -c[part])));
+                cols.push(col);
+            }
+        }
+        LinearConstraints::new(self.mesh.n_nodes(), cols).map_err(SectorError::Solve)
+    }
+
+    /// The **coupling torque** of a harmonic-coupling solve at step `k`
+    /// (N m per metre of axial length, on the modelled sector, positive
+    /// counter-clockwise on the rotor): `T = −λᵀ ∂(Gᵀ A)/∂β`, where `∂/∂β`
+    /// moves the rotor hat centres (module docs), `∂c_i/∂β = i n c_i`.
+    /// `multipliers` are those of
+    /// [`NonlinearMagnetostaticSystem::solve_constrained`] for
+    /// [`harmonic_constraints`](Self::harmonic_constraints)`(k, orders, free_ends)`.
+    ///
+    /// # Errors
+    ///
+    /// As [`harmonic_constraints`](Self::harmonic_constraints), and
+    /// [`SectorError::InvalidInput`] if `a_z` or `multipliers` have the
+    /// wrong length.
+    pub fn harmonic_coupling_torque(
+        &self,
+        k: i64,
+        orders: &[usize],
+        free_ends: bool,
+        a_z: &[f64],
+        multipliers: &[f64],
+    ) -> Result<f64, SectorError> {
+        let orders = self.check_harmonic_orders(orders)?;
+        let m: usize = orders.iter().map(|&n| if n == 0 { 1 } else { 2 }).sum();
+        if a_z.len() != self.mesh.n_nodes() || multipliers.len() != m {
+            return Err(SectorError::InvalidInput(format!(
+                "coupling torque: a_z length {} (need {}), {} multipliers (need {m})",
+                a_z.len(),
+                self.mesh.n_nodes(),
+                multipliers.len()
+            )));
+        }
+        let mut j = 0;
+        let mut t = 0.0;
+        for &n in &orders {
+            let nf = n as f64;
+            // The rotor entries are −c_i; d/dβ(−c_i) = −i n c_i, so
+            // d(cos part)/dβ = n Im c_i and d(sin part)/dβ = −n Re c_i.
+            let (mut dsin, mut dcos) = (0.0, 0.0);
+            for (node, c) in self.side_moments(true, k, n, free_ends) {
+                let a = a_z[node as usize];
+                dsin += -nf * c[0] * a;
+                dcos += nf * c[1] * a;
+            }
+            if n == 0 {
+                t -= multipliers[j] * dcos;
+                j += 1;
+            } else {
+                t -= multipliers[j] * dsin + multipliers[j + 1] * dcos;
+                j += 2;
+            }
+        }
+        Ok(t)
+    }
+
     /// The mesh at step `k`: rotor nodes rotated by `kΔ` about the origin,
     /// stator nodes unchanged.
     pub fn rotated_mesh(&self, k: i64) -> TriMesh {
@@ -986,6 +1270,38 @@ impl SlidingBand {
 // Problem and solve
 // ─────────────────────────────────────────────────────────────────────────
 
+/// How the rotor and stator traces on the coupling circle are joined.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum CouplingMode {
+    /// Nodal re-connection `A_rotor[i] = s^w A_stator[i + k]` (the default):
+    /// every harmonic the grid resolves is continuous.
+    #[default]
+    Conforming,
+    /// Weak continuity of the sine and cosine moments of the listed angular
+    /// orders only, through Lagrange multipliers (module docs, issue
+    /// #1170). The ICEM reference uses `n = 3, 9, …, 45`. The end nodes of
+    /// each side's coupling trace keep their radial-edge pairs.
+    Harmonic(Vec<usize>),
+    /// As [`Harmonic`](Self::Harmonic), but the end nodes of each side's
+    /// coupling trace are left out of the radial-edge pairs and carry their
+    /// own half hats ([`SlidingBand::edge_links_free_ends`]). This is how
+    /// the ICEM reference treats them: its antiperiodic DOF sets exclude the
+    /// coupling DOFs (`setAntiPeriodicBoundaries`). Sectors only.
+    HarmonicFreeEnds(Vec<usize>),
+}
+
+impl CouplingMode {
+    /// The harmonic orders and whether the ends are free (`None` for the
+    /// conforming band).
+    pub fn harmonic(&self) -> Option<(&[usize], bool)> {
+        match self {
+            Self::Conforming => None,
+            Self::Harmonic(o) => Some((o, false)),
+            Self::HarmonicFreeEnds(o) => Some((o, true)),
+        }
+    }
+}
+
 /// A nonlinear magnetostatic problem on a [`SlidingBand`]: materials,
 /// sources in the reference position, and Dirichlet data, solvable at any
 /// step `k`.
@@ -997,6 +1313,7 @@ pub struct SlidingBandProblem {
     magnetization: Option<Vec<[f64; 2]>>,
     dirichlet: Vec<bool>,
     dirichlet_values: Option<Vec<f64>>,
+    coupling: CouplingMode,
 }
 
 /// A converged solve at one sliding-band step.
@@ -1011,8 +1328,22 @@ pub struct SlidingBandSolution {
     /// Per-triangle flux density `B = (∂A/∂y, −∂A/∂x)` (T), lab frame.
     pub b: Vec<[f64; 2]>,
     /// The nonlinear solve: `A_z`, residual history, status, the reduced
-    /// tangent `Pᵀ K P` and the prolongation data.
+    /// tangent `Pᵀ K P` and the prolongation data. Under
+    /// [`CouplingMode::Harmonic`] the residual norms are those of the
+    /// projected (KKT) residual and the tangent excludes the constraint
+    /// rows (see [`NonlinearMagnetostaticSystem::solve_constrained`]).
     pub solution: NonlinearMagnetostaticSolution,
+    /// The Lagrange multipliers of the harmonic coupling constraints, in the
+    /// order of [`SlidingBand::harmonic_constraints`] (empty for
+    /// [`CouplingMode::Conforming`]).
+    pub multipliers: Vec<f64>,
+    /// The coupling torque `−λᵀ ∂(Gᵀ A)/∂β` (N m per metre of axial length,
+    /// modelled sector) for [`CouplingMode::Harmonic`]; `None` for the
+    /// conforming band, where it is not defined.
+    pub coupling_torque: Option<f64>,
+    /// `max |Gᵀ A|` of the harmonic constraints at the solution (`0` for the
+    /// conforming band).
+    pub constraint_violation: f64,
     sector_angle: f64,
     periodicity: Periodicity,
 }
@@ -1091,7 +1422,38 @@ impl SlidingBandProblem {
             magnetization: None,
             dirichlet,
             dirichlet_values: None,
+            coupling: CouplingMode::Conforming,
         })
+    }
+
+    /// Choose how the two sides are joined on the coupling circle (default
+    /// [`CouplingMode::Conforming`]). Harmonic orders are checked, sorted
+    /// and de-duplicated here.
+    ///
+    /// # Errors
+    ///
+    /// As [`SlidingBand::check_harmonic_orders`].
+    pub fn with_coupling(mut self, mode: CouplingMode) -> Result<Self, SectorError> {
+        self.coupling = match mode {
+            CouplingMode::Conforming => CouplingMode::Conforming,
+            CouplingMode::Harmonic(orders) => {
+                CouplingMode::Harmonic(self.band.check_harmonic_orders(&orders)?)
+            }
+            CouplingMode::HarmonicFreeEnds(orders) => {
+                if self.band.full {
+                    return Err(SectorError::InvalidInput(
+                        "free coupling ends need a sector (a full machine has none)".into(),
+                    ));
+                }
+                CouplingMode::HarmonicFreeEnds(self.band.check_harmonic_orders(&orders)?)
+            }
+        };
+        Ok(self)
+    }
+
+    /// The coupling mode.
+    pub fn coupling(&self) -> &CouplingMode {
+        &self.coupling
     }
 
     /// Add a per-triangle magnetization (A/m) given at the reference
@@ -1158,13 +1520,21 @@ impl SlidingBandProblem {
         if let Some(v) = &self.dirichlet_values {
             sys = sys.with_dirichlet_values(v)?;
         }
-        sys = sys.with_node_links(&self.band.links(k))?;
+        let links = match &self.coupling {
+            CouplingMode::Conforming => self.band.links(k),
+            CouplingMode::Harmonic(_) => self.band.edge_links(),
+            CouplingMode::HarmonicFreeEnds(_) => self.band.edge_links_free_ends(),
+        };
+        sys = sys.with_node_links(&links)?;
         Ok((mesh, sys))
     }
 
     /// Solve at step `k` from `initial` (a full nodal vector on the split
     /// mesh, for example the previous step's `A_z`; it is projected onto
-    /// the links of step `k`), or from the linear start when `None`.
+    /// the links of step `k`, and for [`CouplingMode::Harmonic`] onto the
+    /// constraints), or from the linear start when `None` (for the harmonic
+    /// coupling: from zero, whose first Newton step is the constrained
+    /// linear solution when the Dirichlet data are zero).
     ///
     /// # Errors
     ///
@@ -1177,15 +1547,37 @@ impl SlidingBandProblem {
         initial: Option<&[f64]>,
     ) -> Result<SlidingBandSolution, SectorError> {
         let (mesh, sys) = self.system_at(k)?;
-        let start;
-        let init = match initial {
-            Some(a) => a,
-            None => {
-                start = sys.linear_start()?;
-                &start
+        let (solution, multipliers, coupling_torque, constraint_violation) = match &self.coupling {
+            CouplingMode::Conforming => {
+                let start;
+                let init = match initial {
+                    Some(a) => a,
+                    None => {
+                        start = sys.linear_start()?;
+                        &start
+                    }
+                };
+                (sys.solve(config, Some(init))?, Vec::new(), None, 0.0)
+            }
+            CouplingMode::Harmonic(orders) | CouplingMode::HarmonicFreeEnds(orders) => {
+                let free = matches!(self.coupling, CouplingMode::HarmonicFreeEnds(_));
+                let g = self.band.harmonic_constraints(k, orders, free)?;
+                let cs = sys.solve_constrained(&g, config, initial)?;
+                let t = self.band.harmonic_coupling_torque(
+                    k,
+                    orders,
+                    free,
+                    &cs.solution.a_z,
+                    &cs.multipliers,
+                )?;
+                (
+                    cs.solution,
+                    cs.multipliers,
+                    Some(t),
+                    cs.constraint_violation,
+                )
             }
         };
-        let solution = sys.solve(config, Some(init))?;
         let b = recover_b_field(&mesh, &solution.a_z);
         Ok(SlidingBandSolution {
             k,
@@ -1193,6 +1585,9 @@ impl SlidingBandProblem {
             mesh,
             b,
             solution,
+            multipliers,
+            coupling_torque,
+            constraint_violation,
             sector_angle: self.band.sector_angle,
             periodicity: self.band.periodicity,
         })

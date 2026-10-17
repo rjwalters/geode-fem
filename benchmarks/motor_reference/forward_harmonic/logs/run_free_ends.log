@@ -1,0 +1,17 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1170/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 7.73s
+== L0_h45f: --level 0 --coupling harmonic:3:6:45 --ends free
+  total solve wall time 4.07 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L0_h45f.json
+== L1_h45f: --level 1 --coupling harmonic:3:6:45 --ends free
+  total solve wall time 19.60 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h45f.json
+== L2_h45f: --level 2 --coupling harmonic:3:6:45 --ends free
+  total solve wall time 104.62 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h45f.json
+== L3_h45f: --level 3 --coupling harmonic:3:6:45 --ends free
+  total solve wall time 614.68 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L3_h45f.json
+
+wrote /Volumes/Stripe/geode-fem/issue-1170/benchmarks/motor_reference/forward_harmonic/icem_harmonic_torque.png
+wrote /Volumes/Stripe/geode-fem/issue-1170/benchmarks/motor_reference/forward_harmonic/tables.md, summary.json, torque_table.csv

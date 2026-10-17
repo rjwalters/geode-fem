@@ -154,6 +154,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
               --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
@@ -242,6 +243,7 @@ jobs:
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
               --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
               --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
@@ -285,6 +287,7 @@ jobs:
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
               --test motor_icem_forward \
+              --test motor_icem_harmonic \
               --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \
@@ -369,6 +372,7 @@ jobs:
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
               --test motor_icem_forward \
+              --test motor_icem_harmonic \
               --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \

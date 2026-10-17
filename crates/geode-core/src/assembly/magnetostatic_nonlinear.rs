@@ -130,6 +130,16 @@
 //! solution of the same problem, and the reference is simply computed
 //! without the centring shift; it is still independent of the initial
 //! guess.
+//!
+//! # Linear constraints through Lagrange multipliers
+//!
+//! A constraint that ties a node to a combination of many nodes does not
+//! fit a node link. [`LinearConstraints`] holds `Gᵀ A = 0` as sparse columns,
+//! and [`NonlinearMagnetostaticSystem::solve_constrained`] runs the same
+//! damped Newton iteration on the saddle-point system
+//! `[[K, C], [Cᵀ, 0]]`, `C = Pᵀ G`, returning the multipliers with the
+//! solution (issue #1170: the harmonic rotor-stator coupling of
+//! [`crate::assembly::magnetostatic_sector`]).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -2001,6 +2011,502 @@ impl NonlinearMagnetostaticSystem {
             a = trial;
             (r, k) = self.residual_and_tangent(&a, config.tangent)?;
             rn = norm2(&r);
+            if !rn.is_finite() {
+                return Err(NonlinearMagnetostaticError::NonFinite(format!(
+                    "residual after Newton update {it}"
+                )));
+            }
+            residual_norms.push(rn);
+        }
+
+        Err(NonlinearMagnetostaticError::NotConverged {
+            iterations: config.max_iterations,
+            residual_norms,
+            tolerance: tol,
+        })
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Linear equality constraints through Lagrange multipliers
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Linear equality constraints `Gᵀ A = 0` on the full nodal potential `A`,
+/// one sparse column of `G` per constraint (issue #1170). They are imposed
+/// with Lagrange multipliers by
+/// [`NonlinearMagnetostaticSystem::solve_constrained`]; the node links of
+/// [`NonlinearMagnetostaticSystem::with_node_links`] stay in the
+/// prolongation `P`, so the reduced constraint matrix is `C = Pᵀ G`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinearConstraints {
+    n_nodes: usize,
+    columns: Vec<Vec<(usize, f64)>>,
+}
+
+impl LinearConstraints {
+    /// Constraints on a mesh with `n_nodes` nodes; `columns[j]` lists the
+    /// `(node, coefficient)` entries of column `j` of `G` (repeated nodes
+    /// add up).
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::InvalidConstraint`] for a node index
+    /// out of range, a non-finite coefficient, or an empty column.
+    pub fn new(
+        n_nodes: usize,
+        columns: Vec<Vec<(usize, f64)>>,
+    ) -> Result<Self, NonlinearMagnetostaticError> {
+        for (j, col) in columns.iter().enumerate() {
+            if col.is_empty() {
+                return Err(NonlinearMagnetostaticError::InvalidConstraint(format!(
+                    "constraint column {j} is empty"
+                )));
+            }
+            if let Some(&(n, v)) = col.iter().find(|(n, v)| *n >= n_nodes || !v.is_finite()) {
+                return Err(NonlinearMagnetostaticError::InvalidConstraint(format!(
+                    "constraint column {j}: entry ({n}, {v}) is out of range for {n_nodes} \
+                     nodes or not finite"
+                )));
+            }
+        }
+        Ok(Self { n_nodes, columns })
+    }
+
+    /// Number of constraints (columns of `G`).
+    pub fn n_constraints(&self) -> usize {
+        self.columns.len()
+    }
+
+    /// Number of mesh nodes.
+    pub fn n_nodes(&self) -> usize {
+        self.n_nodes
+    }
+
+    /// The sparse columns of `G`.
+    pub fn columns(&self) -> &[Vec<(usize, f64)>] {
+        &self.columns
+    }
+
+    /// `Gᵀ v` for a full nodal vector `v`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `v.len()` is not the node count.
+    pub fn apply_transpose(&self, v: &[f64]) -> Vec<f64> {
+        assert_eq!(v.len(), self.n_nodes, "apply_transpose: vector length");
+        self.columns
+            .iter()
+            .map(|c| c.iter().map(|&(n, w)| w * v[n]).sum())
+            .collect()
+    }
+}
+
+/// A converged solve of [`NonlinearMagnetostaticSystem::solve_constrained`].
+#[derive(Debug, Clone)]
+pub struct ConstrainedSolution {
+    /// The solve. `residual_norms` are norms of the **projected** residual
+    /// `R + C λ` (the KKT residual); `tangent` is the reduced consistent
+    /// tangent `Pᵀ K P` without the constraint rows, so the saddle matrix is
+    /// `[[tangent, C], [Cᵀ, 0]]` with `C` from
+    /// [`NonlinearMagnetostaticSystem::reduced_constraints`].
+    pub solution: NonlinearMagnetostaticSolution,
+    /// The Lagrange multipliers `λ` of `R + C λ = 0` at the final iterate
+    /// (least squares, which is exact at a KKT point). Units: A divided by
+    /// the units of the constraint coefficients.
+    pub multipliers: Vec<f64>,
+    /// `max_j |(Gᵀ A)_j|` at the final iterate.
+    pub constraint_violation: f64,
+}
+
+/// In-place Cholesky of a dense `m × m` SPD matrix (row-major). Fails if a
+/// pivot is not above `1e-13` times the largest diagonal entry.
+fn dense_cholesky(a: &mut [f64], m: usize) -> Option<()> {
+    let scale = (0..m).map(|i| a[i * m + i].abs()).fold(0.0_f64, f64::max);
+    for j in 0..m {
+        let mut d = a[j * m + j];
+        for k in 0..j {
+            d -= a[j * m + k] * a[j * m + k];
+        }
+        // Also rejects a NaN pivot.
+        if d.is_nan() || d <= 1e-13 * scale {
+            return None;
+        }
+        let d = d.sqrt();
+        a[j * m + j] = d;
+        for i in j + 1..m {
+            let mut s = a[i * m + j];
+            for k in 0..j {
+                s -= a[i * m + k] * a[j * m + k];
+            }
+            a[i * m + j] = s / d;
+        }
+    }
+    Some(())
+}
+
+/// Solve `L Lᵀ x = b` with the factor of [`dense_cholesky`].
+fn dense_cholesky_solve(l: &[f64], m: usize, b: &mut [f64]) {
+    for i in 0..m {
+        let mut s = b[i];
+        for k in 0..i {
+            s -= l[i * m + k] * b[k];
+        }
+        b[i] = s / l[i * m + i];
+    }
+    for i in (0..m).rev() {
+        let mut s = b[i];
+        for k in i + 1..m {
+            s -= l[k * m + i] * b[k];
+        }
+        b[i] = s / l[i * m + i];
+    }
+}
+
+/// The reduced constraint data used by the constrained Newton iteration.
+struct ReducedConstraints {
+    /// `C = Pᵀ G`, `n_free × m`.
+    c: Mat<f64>,
+    /// `d = Gᵀ A_D`, so the constraint is `Cᵀ a + d = 0`.
+    d: Vec<f64>,
+    /// Cholesky factor of `Cᵀ C`.
+    gram: Vec<f64>,
+}
+
+impl ReducedConstraints {
+    fn m(&self) -> usize {
+        self.d.len()
+    }
+
+    /// `Cᵀ v`.
+    fn ct(&self, v: &[f64]) -> Vec<f64> {
+        (0..self.m())
+            .map(|j| {
+                let col = self.c.col(j);
+                v.iter().enumerate().map(|(i, x)| x * col[i]).sum()
+            })
+            .collect()
+    }
+
+    /// `v += C y`.
+    fn add_c(&self, v: &mut [f64], y: &[f64]) {
+        for (j, &yj) in y.iter().enumerate() {
+            let col = self.c.col(j);
+            for (i, x) in v.iter_mut().enumerate() {
+                *x += col[i] * yj;
+            }
+        }
+    }
+
+    /// Least-squares multipliers `λ = −(Cᵀ C)⁻¹ Cᵀ r` and the projected
+    /// residual `r + C λ`.
+    fn project(&self, r: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let mut lam = self.ct(r);
+        dense_cholesky_solve(&self.gram, self.m(), &mut lam);
+        for x in lam.iter_mut() {
+            *x = -*x;
+        }
+        let mut rp = r.to_vec();
+        self.add_c(&mut rp, &lam);
+        (lam, rp)
+    }
+}
+
+impl NonlinearMagnetostaticSystem {
+    /// The reduced constraint matrix `C = Pᵀ G` (`n_free × m`) and the
+    /// Dirichlet offset `d = Gᵀ A_D`: on the reduced unknowns the
+    /// constraints read `Cᵀ a + d = 0`.
+    ///
+    /// # Errors
+    ///
+    /// [`NonlinearMagnetostaticError::ShapeMismatch`] if `g` is for another
+    /// node count.
+    pub fn reduced_constraints(
+        &self,
+        g: &LinearConstraints,
+    ) -> Result<(Mat<f64>, Vec<f64>), NonlinearMagnetostaticError> {
+        if g.n_nodes != self.n_nodes {
+            return Err(NonlinearMagnetostaticError::ShapeMismatch(format!(
+                "constraints for {} nodes, system has {}",
+                g.n_nodes, self.n_nodes
+            )));
+        }
+        let mut c = Mat::<f64>::zeros(self.dofs.n_free, g.n_constraints());
+        for (j, col) in g.columns.iter().enumerate() {
+            for &(node, w) in col {
+                if let Some(fi) = self.dofs.free_of_global[node] {
+                    c[(fi, j)] += self.dofs.sign_of_global[node] * w;
+                }
+            }
+        }
+        let d = g.apply_transpose(&self.lift(&vec![0.0; self.dofs.n_free]));
+        Ok((c, d))
+    }
+
+    fn reduce_constraints_factored(
+        &self,
+        g: &LinearConstraints,
+    ) -> Result<ReducedConstraints, NonlinearMagnetostaticError> {
+        let (c, d) = self.reduced_constraints(g)?;
+        let m = d.len();
+        let mut gram = vec![0.0; m * m];
+        for i in 0..m {
+            for j in 0..=i {
+                let (ci, cj) = (c.col(i), c.col(j));
+                let s: f64 = (0..c.nrows()).map(|k| ci[k] * cj[k]).sum();
+                gram[i * m + j] = s;
+                gram[j * m + i] = s;
+            }
+        }
+        if dense_cholesky(&mut gram, m).is_none() {
+            return Err(NonlinearMagnetostaticError::InvalidConstraint(format!(
+                "the {m} constraints are linearly dependent on the free unknowns (Cᵀ C is \
+                 singular): a constraint column vanishes after the links and Dirichlet \
+                 data, or two columns coincide"
+            )));
+        }
+        Ok(ReducedConstraints { c, d, gram })
+    }
+
+    /// Solve `R(A) = 0` subject to the linear constraints `Gᵀ A = 0` by
+    /// damped Newton on the saddle-point (KKT) system
+    ///
+    /// ```text
+    ///   [ K   C ] [ δ ]   [ −R ]
+    ///   [ Cᵀ  0 ] [ λ ] = [  0 ] ,     C = Pᵀ G ,
+    /// ```
+    ///
+    /// that is, the stationary point of `Π(A) + λᵀ Gᵀ A` (issue #1170).
+    /// The initial guess (as in [`solve`](Self::solve), or zero) is first
+    /// projected onto the constraint set in the Euclidean metric of the
+    /// reduced unknowns. Every step then satisfies `Cᵀ δ = 0`, so the
+    /// iterates stay feasible. Each step factors `K` once and solves it for
+    /// `−R` and the `m` columns of `C`, then eliminates `λ` with the dense
+    /// `m × m` Schur complement `Cᵀ K⁻¹ C`. `Rᵀ δ = −δᵀ K δ < 0`, so the
+    /// step is a descent direction for the energy on the constraint set,
+    /// and the [`LineSearch`] tests apply unchanged with the residual
+    /// replaced by the projected residual `R + C λ`, with the least-squares
+    /// `λ = −(Cᵀ C)⁻¹ Cᵀ R`. Convergence is tested on that projected
+    /// residual against [`reference_residual`](Self::reference_residual) of
+    /// the unconstrained system.
+    ///
+    /// `K` must be non-singular on its own: each part of the domain that the
+    /// constraints join needs its own Dirichlet data (for a rotor and a
+    /// stator coupled only through the constraints, the shaft and the outer
+    /// boundary).
+    ///
+    /// # Errors
+    ///
+    /// As [`solve`](Self::solve), plus
+    /// [`NonlinearMagnetostaticError::InvalidConstraint`] when the reduced
+    /// constraints are linearly dependent (or the Schur complement is
+    /// singular), and [`NonlinearMagnetostaticError::ShapeMismatch`] for
+    /// constraints on another node count.
+    pub fn solve_constrained(
+        &self,
+        constraints: &LinearConstraints,
+        config: &NewtonConfig,
+        initial: Option<&[f64]>,
+    ) -> Result<ConstrainedSolution, NonlinearMagnetostaticError> {
+        if constraints.n_constraints() == 0 {
+            let solution = self.solve(config, initial)?;
+            return Ok(ConstrainedSolution {
+                solution,
+                multipliers: Vec::new(),
+                constraint_violation: 0.0,
+            });
+        }
+        let rc = self.reduce_constraints_factored(constraints)?;
+        let m = rc.m();
+        let n = self.dofs.n_free;
+        let mut a_free = match initial {
+            Some(a0) => {
+                if a0.len() != self.n_nodes {
+                    return Err(NonlinearMagnetostaticError::ShapeMismatch(format!(
+                        "initial guess length {} != node count {}",
+                        a0.len(),
+                        self.n_nodes
+                    )));
+                }
+                self.restrict(a0)
+            }
+            None => vec![0.0; n],
+        };
+        // Project onto Cᵀ a + d = 0.
+        let mut viol: Vec<f64> = rc
+            .ct(&a_free)
+            .iter()
+            .zip(&rc.d)
+            .map(|(x, d)| x + d)
+            .collect();
+        dense_cholesky_solve(&rc.gram, m, &mut viol);
+        let neg: Vec<f64> = viol.iter().map(|x| -x).collect();
+        rc.add_c(&mut a_free, &neg);
+
+        let mut a = self.lift(&a_free);
+        let (mut r, mut k) = self.residual_and_tangent(&a, config.tangent)?;
+        let (mut lam, rp) = rc.project(&r);
+        let mut rn = norm2(&rp);
+        if !rn.is_finite() {
+            return Err(NonlinearMagnetostaticError::NonFinite(
+                "initial residual".into(),
+            ));
+        }
+        let reference = self.reference_residual()?;
+        let tol = config.abs_tol.max(config.rel_tol * reference);
+        let mut residual_norms = vec![rn];
+        let mut step_norms = Vec::new();
+        let mut step_lengths = Vec::new();
+        let mut floor = f64::NAN;
+
+        for it in 0..=config.max_iterations {
+            let status = if rn <= tol {
+                Some(ConvergenceStatus::Tolerance)
+            } else {
+                floor = self.roundoff_floor(&a);
+                (rn <= config.floor_factor * floor).then_some(ConvergenceStatus::RoundoffFloor)
+            };
+            if let Some(status) = status {
+                if floor.is_nan() {
+                    floor = self.roundoff_floor(&a);
+                }
+                let tangent = match config.tangent {
+                    TangentKind::Consistent => k,
+                    TangentKind::FrozenNu => {
+                        self.residual_and_tangent(&a, TangentKind::Consistent)?.1
+                    }
+                };
+                let constraint_violation = constraints
+                    .apply_transpose(&a)
+                    .iter()
+                    .fold(0.0_f64, |acc, x| acc.max(x.abs()));
+                return Ok(ConstrainedSolution {
+                    solution: NonlinearMagnetostaticSolution {
+                        a_z: a,
+                        residual_norms,
+                        step_norms,
+                        step_lengths,
+                        iterations: it,
+                        tolerance: tol,
+                        status,
+                        reference_residual: reference,
+                        floor_estimate: floor,
+                        tangent,
+                        free_of_global: self.dofs.free_of_global.clone(),
+                        sign_of_global: self.dofs.sign_of_global.clone(),
+                        n_free: n,
+                    },
+                    multipliers: lam,
+                    constraint_violation,
+                });
+            }
+            if it == config.max_iterations {
+                break;
+            }
+
+            // [z | Y] = K⁻¹ [−R | C]; S = Cᵀ Y; λ = S⁻¹ Cᵀ z; δ = z − Y λ.
+            let lu = k
+                .as_ref()
+                .sp_lu()
+                .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
+            let mut rhs: Mat<f64> =
+                Mat::from_fn(
+                    n,
+                    m + 1,
+                    |i, j| if j == 0 { -r[i] } else { rc.c[(i, j - 1)] },
+                );
+            lu.solve_in_place(rhs.as_mut());
+            let z: Vec<f64> = (0..n).map(|i| rhs[(i, 0)]).collect();
+            let mut s = vec![0.0; m * m];
+            for i in 0..m {
+                let ci = rc.c.col(i);
+                for j in 0..m {
+                    s[i * m + j] = (0..n).map(|q| ci[q] * rhs[(q, j + 1)]).sum();
+                }
+            }
+            // Symmetrise round-off before the Cholesky.
+            for i in 0..m {
+                for j in 0..i {
+                    let v = 0.5 * (s[i * m + j] + s[j * m + i]);
+                    s[i * m + j] = v;
+                    s[j * m + i] = v;
+                }
+            }
+            if dense_cholesky(&mut s, m).is_none() {
+                return Err(NonlinearMagnetostaticError::InvalidConstraint(format!(
+                    "Schur complement Cᵀ K⁻¹ C is singular at Newton iteration {it}"
+                )));
+            }
+            let mut lam_step = rc.ct(&z);
+            dense_cholesky_solve(&s, m, &mut lam_step);
+            let mut delta = z;
+            for (j, &l) in lam_step.iter().enumerate() {
+                for (i, d) in delta.iter_mut().enumerate() {
+                    *d -= rhs[(i, j + 1)] * l;
+                }
+            }
+            let slope: f64 = r.iter().zip(&delta).map(|(ri, di)| ri * di).sum();
+            let (e0, e_noise) = if config.line_search == LineSearch::Energy {
+                let (stored, work) = self.energy_parts(&a);
+                (
+                    stored - work,
+                    1e3 * f64::EPSILON * (stored.abs() + work.abs()),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+
+            let mut alpha = 1.0_f64;
+            let mut accepted = None;
+            for _ in 0..=config.max_backtracks {
+                let trial_free: Vec<f64> = a_free
+                    .iter()
+                    .zip(&delta)
+                    .map(|(x, d)| x + alpha * d)
+                    .collect();
+                let trial = self.lift(&trial_free);
+                let (_, rp_trial) = rc.project(&self.residual(&trial));
+                let rn_trial = norm2(&rp_trial);
+                let residual_ok = rn_trial.is_finite() && rn_trial <= (1.0 - 1e-4 * alpha) * rn;
+                let ok = match config.line_search {
+                    LineSearch::None => {
+                        if !rn_trial.is_finite() {
+                            return Err(NonlinearMagnetostaticError::NonFinite(format!(
+                                "residual after Newton update {it}"
+                            )));
+                        }
+                        true
+                    }
+                    LineSearch::ResidualNorm => residual_ok,
+                    LineSearch::Energy => {
+                        let energy_ok = -alpha * slope > e_noise && {
+                            let e = self.energy(&trial);
+                            e.is_finite() && e <= e0 + 1e-4 * alpha * slope && rn_trial.is_finite()
+                        };
+                        energy_ok || residual_ok
+                    }
+                };
+                if ok {
+                    accepted = Some((trial_free, trial));
+                    break;
+                }
+                alpha *= 0.5;
+            }
+            let Some((trial_free, trial)) = accepted else {
+                return Err(NonlinearMagnetostaticError::LineSearchFailed {
+                    iteration: it,
+                    residual_norms,
+                    tolerance: tol,
+                    floor_estimate: floor,
+                });
+            };
+            step_norms.push(alpha * norm2(&delta));
+            step_lengths.push(alpha);
+            a_free = trial_free;
+            a = trial;
+            (r, k) = self.residual_and_tangent(&a, config.tangent)?;
+            let (lam_new, rp) = rc.project(&r);
+            lam = lam_new;
+            rn = norm2(&rp);
             if !rn.is_finite() {
                 return Err(NonlinearMagnetostaticError::NonFinite(format!(
                     "residual after Newton update {it}"

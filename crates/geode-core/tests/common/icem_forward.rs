@@ -25,8 +25,8 @@ use geode_core::assembly::magnetostatic_nonlinear::{
     ReluctivityLaw, TabulatedBhLaw,
 };
 use geode_core::assembly::magnetostatic_sector::{
-    MATCH_TOL_REL_DEFAULT, Periodicity, SectorBoundaryNodes, SectorError, SlidingBand,
-    SlidingBandProblem, SlidingBandSolution, SlidingBandSpec,
+    CouplingMode, MATCH_TOL_REL_DEFAULT, Periodicity, SectorBoundaryNodes, SectorError,
+    SlidingBand, SlidingBandProblem, SlidingBandSolution, SlidingBandSpec,
 };
 use geode_core::assembly::torque::{arkkio_torque, cartesian_to_polar_b};
 use geode_core::mesh::{TaggedTriMesh, read_tagged_tri_mesh};
@@ -96,6 +96,11 @@ pub const MAGNET_ANGLE: f64 = PI / 2.0;
 pub fn magnet_hc() -> f64 {
     MAGNET_BR / (MU_0 * MAGNET_MUR)
 }
+
+/// The reference's coupling harmonic orders, `n = 3:6:45`
+/// (`boundaries.coupling_sine_and_cosine_harmonics`): 8 orders, 16
+/// sine/cosine coupling modes.
+pub const REFERENCE_HARMONICS: [usize; 8] = [3, 9, 15, 21, 27, 33, 39, 45];
 
 // ── Excitation (conventions.json `excitation`) ──────────────────────────
 /// `excitation.winding_turns`.
@@ -412,6 +417,9 @@ pub struct IcemModel {
     pub magnetization: Vec<[f64; 2]>,
     /// Triangles of the two gap bands (tags 4, 5) for the Maxwell sampler.
     pub gap_tris: Vec<usize>,
+    /// Rotor-stator coupling on r_c (conforming band by default; #1170 adds
+    /// the reference's harmonic coupling).
+    pub coupling: CouplingMode,
 }
 
 impl IcemModel {
@@ -481,6 +489,7 @@ impl IcemModel {
             mesh_group_areas,
             magnetization,
             gap_tris,
+            coupling: CouplingMode::Conforming,
         })
     }
 
@@ -527,7 +536,8 @@ impl IcemModel {
             &j,
             &self.dirichlet,
         )?
-        .with_magnetization(&self.magnetization)
+        .with_magnetization(&self.magnetization)?
+        .with_coupling(self.coupling.clone())
     }
 
     /// Solve at integer mechanical degree `deg`, warm-started from `prev`.
