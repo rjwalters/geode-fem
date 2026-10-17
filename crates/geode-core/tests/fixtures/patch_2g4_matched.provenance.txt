@@ -1,0 +1,36 @@
+fixture:        patch_2g4_matched.msh
+sha256:         e16478f963b4b4d535cbb1a5a528b4f559cee47ff99e5cc3a76902266694c44d
+generated:      2026-06-14T22:23:13+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/patch_antenna.geo
+wrapper:        reference/gmsh/generate_patch_fixture.py
+parameters:     patch_2g4_matched.yaml
+
+parameter values:
+  patch:
+    patch_w: 38.0
+    patch_l: 29.0
+    h: 1.6
+    sub_pad: 12.0
+    probe_w: 1.6
+    probe_inset: 7.0
+  domain:
+    air_margin: 60.0
+    pml_thick: 25.0
+  mesh:
+    lc_patch: 4.5
+    lc_sub: 1.6
+    lc_port: 1.2
+    lc_far: 28.0
+    dist_far: 40.0
+  materials:
+    substrate_eps_r: 4.4
+    substrate_tan_delta: 0.02
+    conductor_sigma_s_m: 58000000.0
+
+quality report:
+  nodes: 4829
+  tets: 26055
+  unique edges: 31317 (budget 150000)
+  inverted tets: 0
+  min dihedral angle: 7.46 deg

@@ -1,0 +1,2360 @@
+//! `geode driven`: port-driven frequency sweep → Z / Y / S per frequency.
+//!
+//! The dense sweep is
+//! [`geode_core::driven::extraction::s_parameter_frequency_sweep_with_mode`]
+//! driven point by point: [`s_parameter_operator`] assembles the
+//! ω-independent operator **once**, then [`s_parameter_point`] per
+//! frequency factors (direct) or preconditions (iterative) `A(ω)` and
+//! back-solves one right-hand side per port — up to `--jobs`
+//! frequencies concurrently, rows in frequency order ([`crate::progress`],
+//! issue #708). Lumped ports and Leontovich walls are composed into the
+//! same operator. With a single port this is bit-for-bit the
+//! [`geode_core::driven::extraction::driven_frequency_sweep`] path the
+//! spiral-inductor benchmark uses.
+//!
+//! # Adaptive sweep (`sweep.adaptive`, issue #708)
+//!
+//! A block Galerkin reduced-order model ([`geode_core::driven::rom`],
+//! [`RomDrive::PerPort`]) built from a few greedy full-order snapshot
+//! solves; every other frequency is interpolated through it, and any
+//! frequency still above the tolerance (or whose reduced solve is
+//! singular) gets a full-order fallback solve.
+//! Each report row says whether it was solved (`solved`), and
+//! `solver.adaptive` carries the greedy diagnostics. `--outdir` exports
+//! fields only for the solved rows.
+//!
+//! Wave-port and mixed lumped + wave specs (issue #774) build the same
+//! kind of PROM over every channel excitation
+//! ([`DrivenRom::build_with_wave_ports`]: each modal term a rank-1
+//! family) and read the power-wave S-matrix with
+//! [`DrivenRom::evaluate_scattering`]; their fallback rows come from the
+//! dense wave / mixed sweep itself ([`dense_channel_points`]).
+//!
+//! [`sweep`] (solve + Z / Y / S / per-port assembly) is shared with
+//! `geode extract`, which post-processes the same results.
+//!
+//! # Open boundaries and wave ports (issue #683)
+//!
+//! * **Silver-Müller** walls join the Leontovich walls in the same
+//!   surface-impedance list (`SurfaceImpedanceModel::Fixed(η₀ = 1)`).
+//! * **Matched box-UPML** (`absorbing_regions`) makes the materials
+//!   ω-dependent (the stretch carries `1/k₀`), which the batched
+//!   assemble-once sweep cannot express. A UPML spec therefore runs the
+//!   same library sweep **once per frequency** with that frequency's
+//!   `DrivenMaterials::MatchedUpml` tensors (reassembling each time). A
+//!   spec without UPML takes the batched path unchanged.
+//! * **Dispersive materials** (`materials[].dispersion`, issue #757)
+//!   take the same per-frequency path: each frequency's operator is
+//!   assembled from [`Problem::eps_at`] (`ε_r(f)`; times the stretch with
+//!   UPML), and each report row echoes the applied `ε_r(f)`.
+//! * **Anisotropic materials** (`eps_r_diag` / `mu_r_diag`, issue #760)
+//!   switch the operator to the same full-tensor (`MatchedUpml`)
+//!   assembly with `ε = ε_r·Λ`, `ν = Λ⁻¹·μ_r⁻¹`
+//!   ([`Problem::material_tensors`]; `Λ = I` outside a shell). They are
+//!   ω-independent, so without UPML / dispersion the operator is still
+//!   assembled once (and the adaptive sweep applies).
+//! * **Wave ports** build each port's modes from its tagged face
+//!   ([`geode_core::driven::ports::PortFaceProjection::wave_port`]) and
+//!   run [`solve_wave_port_sweep_with_mode`] (per frequency with UPML,
+//!   batched otherwise). The result is a power-normalized channel
+//!   S-matrix; wave ports define no port impedance. Leontovich (incl.
+//!   rough) and Silver-Müller walls join the base operator (issue #776);
+//!   the port modes stay PEC-rim modes, so a Silver-Müller wall may not
+//!   touch a port rim (`problem::load` rejects it). Each geometric port's
+//!   degeneracy notes (issue #923: an ambiguous p=1 / p=2 gap ratio, a
+//!   near-degenerate distinct pair) are report `warnings[]`, computed once
+//!   per run by [`wave_port_degeneracy_warnings`]; they change nothing else.
+//! * **Mixed lumped + wave ports** (issue #759) run
+//!   [`solve_mixed_port_sweep_with_mode`] instead: the lumped loads join
+//!   the base operator, the modal terms the same SMW update, and the
+//!   S-matrix is a power-wave matrix over the lumped ports (spec order)
+//!   followed by the wave channels (port-major, mode-minor). Wave channel
+//!   numbers are offset by the lumped-port count. Specs with only one port
+//!   kind take the unchanged pure-lumped / pure-wave paths.
+//! * **Hybrid wave ports** (issue #807): a spec with a wave port whose face
+//!   is inhomogeneous or carries a floating conductor (microstrip,
+//!   stripline, coax) runs [`crate::hybrid::sweep`] — the core spec sweeps,
+//!   which re-solve and track that port's modes per frequency — and its
+//!   rows add per-channel hybrid diagnostics, line impedances and (lossy)
+//!   the measured `σ_max`. Geometric-only specs are unchanged.
+//!
+//! # Sensitivities (`sensitivity`, issues #739 / #883)
+//!
+//! With a `sensitivity` section (direct, dense, no UPML — enforced by
+//! `problem::load`), the report also carries gradients: for a one-lumped-port
+//! spec with `eps_r` parameters only, `∂|S11|²/∂ε_r` at every swept frequency
+//! from the port-loaded material adjoint ([`crate::sensitivity::driven`]);
+//! otherwise the N-port S-matrix observables' gradients w.r.t. material and
+//! shape parameters ([`crate::s_sensitivity::driven`]), checked against the
+//! rows this sweep reports.
+//!
+//! # Field / far-field export (`--outdir`, issue #684)
+//!
+//! Only with `--outdir`, and only for **lumped-port** specs: the sweep
+//! APIs return `Z` / `S` but not the fields (an N-port S-matrix is N
+//! per-excitation solves), so [`Exporter::export_row`] does **one extra solve per
+//! report row** on a [`DrivenOperator`] with every port driven at its
+//! spec `v_inc` — the physical "driven as specified" state — and writes
+//! its `E` as a `.vtu` ([`crate::export`]). With exactly one
+//! `absorbing_regions` shell it also runs the NTFF
+//! ([`geode_core::postproc::ntff`]) over the shell's inner wall shrunk
+//! 10 % ([`NTFF_SHRINK`], `examples/patch_antenna`'s `FLUX_SHRINK`):
+//! directivity, broadside gain and radiation efficiency.
+//!
+//! Wave-port specs export nothing: their physical field is a linear
+//! combination of the per-channel SMW solves, which the library does not
+//! return (deferred; see `crates/geode-cli/README.md`).
+
+use std::path::Path;
+use std::time::Instant;
+
+use burn::tensor::backend::BackendTypes;
+use faer::c64;
+use geode_core::assembly::nedelec::tet_centroids;
+use geode_core::constants::ETA_0_OHM;
+use geode_core::driven::extraction::{
+    SMatrix, SParameterSweepPoint, s_parameter_operator, s_parameter_point, z_from_port_readbacks,
+};
+use geode_core::driven::ports::{
+    CandidateConfirmation, DegenerateCandidate, LumpedPort, MixedPortSweepPoint, PortFaceError,
+    PortFaceProjection, WavePort, WavePortSweepPoint, solve_mixed_port_sweep_with_mode,
+    solve_wave_port_sweep_with_mode,
+};
+use geode_core::driven::rom::{
+    DrivenRom, RomDrive, RomError, RomExcitationPoint, RomScatteringPoint, RomSettings,
+};
+use geode_core::driven::scattering::flux_power_box;
+use geode_core::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, ElementOrder, IterativeSettings,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+};
+use geode_core::postproc::ntff::{
+    broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
+};
+
+use crate::backend::CompiledBackend;
+use crate::check::{mesh_summary, port_summaries, silver_muller_summaries, upml_summaries};
+use crate::error::CliError;
+use crate::export::{OutDir, PatternFile, eps_per_node, field_file_name, pattern_file_name};
+use crate::port_solves::PortSolves;
+use crate::problem::{self, Problem, UpmlRegion};
+use crate::progress::{Progress, SweepOptions, par_map};
+use crate::report::{
+    AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
+    PortResult, Provenance, RoughnessKResult, SolverStats, WarningResult, WaveChannelResult,
+    WaveModeSummary, WavePortSummary,
+};
+use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
+use serde_json::json;
+
+/// NTFF / flux box = the UPML inner wall shrunk this fraction toward
+/// its centre (`examples/patch_antenna`'s `FLUX_SHRINK`): keeps the
+/// Huygens surface off the stretched-coordinate interface.
+pub const NTFF_SHRINK: f64 = 0.10;
+/// NTFF polar samples on `[0, π]` (2° steps; `examples/patch_antenna`).
+pub const NTFF_N_THETA: usize = 91;
+/// NTFF azimuth samples on `[0, 2π)` (5° steps; `examples/patch_antenna`).
+pub const NTFF_N_PHI: usize = 72;
+
+/// The NTFF box for the resolved `absorbing_regions` shells `upml` and
+/// the mesh's tet `centroids`: `None` unless there is exactly one shell,
+/// else that shell's inner
+/// wall shrunk by [`NTFF_SHRINK`] — an [`CliError::InvalidSpec`] if no
+/// centroid lies inside it. Only non-emptiness is checked: that the box
+/// encloses the radiator and every port and lies entirely in air is the
+/// spec author's responsibility (`crates/geode-cli/README.md`).
+#[allow(clippy::type_complexity)]
+fn ntff_box(
+    upml: &[UpmlRegion],
+    centroids: &[[f64; 3]],
+) -> Result<Option<([f64; 3], [f64; 3])>, CliError> {
+    let [u] = upml else {
+        return Ok(None);
+    };
+    let (lo, hi) = shrink_box(u.air_lo, u.air_hi, NTFF_SHRINK);
+    let in_box = |c: &[f64; 3]| (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]);
+    if !centroids.iter().any(in_box) {
+        return Err(CliError::InvalidSpec(format!(
+            "--outdir far-field export: no tet centroid lies inside the NTFF box \
+             {lo:?}–{hi:?} (absorbing region `{}` inner wall shrunk by {NTFF_SHRINK})",
+            u.name
+        )));
+    }
+    // Not every centroid is inside: the shell's stretched tets
+    // (`n_tets_stretched ≥ 1`) lie beyond the inner wall.
+    Ok(Some((lo, hi)))
+}
+
+/// Validate the `--outdir` export of `p` up front — right after
+/// [`problem::load`], before the (expensive) sweep — so a spec whose
+/// NTFF box holds no tet centroid fails in milliseconds rather than
+/// after every frequency has been solved. Callers invoke it only when
+/// `--outdir` was passed; [`Exporter`] re-derives the same box through
+/// the same [`ntff_box`], so the two can never disagree.
+pub fn validate_export(p: &Problem) -> Result<(), CliError> {
+    if p.upml.len() == 1 {
+        ntff_box(&p.upml, &tet_centroids(&p.tagged.mesh))?;
+    }
+    Ok(())
+}
+
+/// Load, solve and report (`check_gradient`: `--check-gradient`, the
+/// sensitivity's FD self-check). With `outdir`, lumped-port specs also export
+/// per-row fields (and NTFF for a UPML open radiator); with
+/// `touchstone`, the spec also writes a Touchstone 2.0 `.sNp`
+/// ([`crate::touchstone`]): a lumped-port spec its S verbatim, a wave-port
+/// or mixed spec its propagating channels renormalized to
+/// `wave_ports[].reference_ohm` (issue #775; classified and validated
+/// before solving). The report's `results[].s` is the modal S either way.
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    outdir: Option<&Path>,
+    touchstone: Option<&Path>,
+    opts: SweepOptions,
+    check_gradient: bool,
+) -> Result<DrivenReport, CliError> {
+    let mut p = problem::load(spec_path, Some(Analysis::Driven))?;
+    // `--check-gradient` (issue #883): the FD self-check, with the spec's
+    // `fd_check` settings or the defaults.
+    if check_gradient {
+        let Some(sens) = &mut p.sensitivity else {
+            return Err(CliError::InvalidSpec(
+                "--check-gradient needs a `sensitivity` section in the spec (the gradients it \
+                 verifies)"
+                    .to_string(),
+            ));
+        };
+        sens.fd_check.get_or_insert((
+            crate::spec::default_fd_relative_step(),
+            crate::spec::default_fd_tolerance(),
+        ));
+    }
+    let p = p;
+    p.print_load_warnings();
+    // Every port-face solve of the run, made once on first use and shared
+    // by the Touchstone classification, the `z0` precheck, the degeneracy
+    // notes, the sweep and the sensitivity (issue #952).
+    let solves = PortSolves::new(&p);
+    let plan = touchstone
+        .map(|path| crate::touchstone::validate(&p, path, &solves))
+        .transpose()?;
+    // A `z0` observable on a channel with no net conductor current has no
+    // line impedance to differentiate (issue #953): reject it from the
+    // face sweep, before the 3-D solve.
+    if let Some(sens) = p.sensitivity.as_ref().filter(|s| s.n_port) {
+        crate::s_sensitivity::line_impedance_error(&p, sens, &solves)?;
+    }
+    // Wave-port specs export nothing, so there is nothing to validate.
+    if outdir.is_some() && p.wave_ports.is_empty() {
+        validate_export(&p)?;
+    }
+    let out = OutDir::create_opt(outdir)?;
+    // The default preconditioner's fallback note (issue #930), once per
+    // run and before the sweep, like the wave ports' degeneracy notes.
+    let preconditioner_warnings = p.preconditioner_warnings();
+    let (results, solver, wave_ports, mut warnings) = if p.wave_ports.is_empty() {
+        let (results, solver) = sweep(&p, out.as_ref(), "driven", opts)?;
+        (results, solver, Vec::new(), Vec::new())
+    } else {
+        if out.is_some() {
+            eprintln!(
+                "note: --outdir: field / far-field export is not supported for wave-port specs, \
+                 including mixed lumped + wave specs (only all-lumped specs export); \
+                 nothing exported"
+            );
+        }
+        // The degeneracy notes of the geometric wave ports (issue #923),
+        // once per run and before the 3-D solve, so a long sweep prints
+        // them up front. Warnings only: nothing below reads them. They are
+        // read off the ports' own face solves (issue #952), which the sweep
+        // then reuses.
+        let (mut warnings, unavailable) = wave_port_degeneracy_warnings(&p, Some(&solves));
+        let (results, solver, wave_ports, sweep_warnings) = wave_sweep(&p, opts, &solves)?;
+        // A failed diagnostic solve is reported only once the sweep itself
+        // has succeeded (the sweep's own mode solve fails with the same
+        // error, which is then the run's error).
+        for w in &unavailable {
+            eprintln!("warning: {}", w.message);
+        }
+        warnings.extend(unavailable);
+        warnings.extend(sweep_warnings);
+        (results, solver, wave_ports, warnings)
+    };
+    warnings.splice(0..0, preconditioner_warnings);
+    // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
+    // the `sensitivity` section only for a one-lumped-port direct dense
+    // sweep without UPML.
+    // The N-port S-matrix sensitivity (issue #883) differentiates the
+    // forward just reported (it checks its own S against `results`).
+    let sensitivities = p
+        .sensitivity
+        .as_ref()
+        .map(|sens| {
+            if sens.n_port {
+                crate::s_sensitivity::driven(&p, sens, &results, opts.jobs, &solves)
+            } else {
+                crate::sensitivity::driven(&p, sens, opts.jobs)
+            }
+        })
+        .transpose()?;
+    let ports = port_summaries(&p);
+    let touchstone_file = touchstone
+        .zip(plan.as_ref())
+        .map(|(path, plan)| {
+            if p.wave_ports.is_empty() {
+                let refs: Vec<f64> = ports.iter().map(|q| q.resistance_ohm).collect();
+                crate::touchstone::write(path, &provenance, &refs, &results)
+            } else {
+                crate::touchstone::write_wave(path, &provenance, &p, plan, &results)
+            }
+        })
+        .transpose()?;
+    Ok(DrivenReport {
+        provenance,
+        kind: "driven",
+        status: "ok",
+        mesh: mesh_summary(&p),
+        ports,
+        wave_ports,
+        silver_muller: silver_muller_summaries(&p),
+        absorbing_regions: upml_summaries(&p),
+        solver,
+        results,
+        touchstone_file,
+        sensitivities,
+        warnings,
+    })
+}
+
+/// The spec's lumped ports as library [`LumpedPort`]s (resistance in
+/// units of η₀), in spec order — shared by the sweep and the `|S11|²`
+/// sensitivity ([`crate::sensitivity::driven`]).
+pub fn lumped_ports(p: &Problem) -> Vec<LumpedPort<'_>> {
+    p.ports
+        .iter()
+        .map(|port| LumpedPort {
+            faces: &port.surface.triangles,
+            e_hat: port.e_hat,
+            // The solver's resistance is in units of η₀.
+            resistance: port.resistance_ohm / ETA_0_OHM,
+            width: port.width,
+            length: port.length,
+            v_inc: port.v_inc,
+        })
+        .collect()
+}
+
+/// The spec's impedance walls: Leontovich walls, then Silver-Müller walls
+/// (`Z_s = η₀ = 1` natural) — shared by the sweep and the `|S11|²`
+/// sensitivity ([`crate::sensitivity::driven`]).
+pub fn impedance_walls(p: &Problem) -> Vec<SurfaceImpedanceBc<'_>> {
+    p.leontovich
+        .iter()
+        .map(|l| SurfaceImpedanceBc {
+            triangles: &l.surface.triangles,
+            model: l.model(),
+        })
+        .chain(p.silver_muller.iter().map(|s| SurfaceImpedanceBc {
+            triangles: &s.triangles,
+            model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),
+        }))
+        .collect()
+}
+
+/// Roughness loss factor `K(f)` of every rough Leontovich wall at the
+/// natural frequency `k0` (issue #758; empty when every wall is smooth).
+pub(crate) fn roughness_k(p: &Problem, k0: f64) -> Vec<RoughnessKResult> {
+    p.leontovich
+        .iter()
+        .filter_map(|l| {
+            l.roughness_k(k0).map(|k| RoughnessKResult {
+                physical_group: l.surface.name.clone(),
+                k,
+            })
+        })
+        .collect()
+}
+
+/// Solver mode from the spec.
+pub(crate) fn solver_mode(p: &Problem) -> SolverMode {
+    match p.solver() {
+        SolverSpec::Direct {} => SolverMode::Direct,
+        SolverSpec::Iterative {
+            tol,
+            max_iters,
+            preconditioner,
+        } => SolverMode::Iterative(IterativeSettings::new(tol, max_iters).with_preconditioner(
+            match preconditioner {
+                // `Problem::solver` has resolved `auto` already (issue
+                // #930); the library's own `Auto` is the same rule.
+                crate::spec::PreconditionerSpec::Auto => {
+                    geode_core::driven::solve::IterativePreconditioner::Auto
+                }
+                crate::spec::PreconditionerSpec::Jacobi => {
+                    geode_core::driven::solve::IterativePreconditioner::Jacobi
+                }
+                crate::spec::PreconditionerSpec::Ilu0 => {
+                    geode_core::driven::solve::IterativePreconditioner::Ilu0
+                }
+                crate::spec::PreconditionerSpec::Ams => {
+                    geode_core::driven::solve::IterativePreconditioner::AMS
+                }
+            },
+        )),
+    }
+}
+
+/// The driven materials of one frequency: the per-tet `ε_r(f)`
+/// ([`Problem::eps_at`]) as a scalar, or — with `absorbing_regions` and /
+/// or anisotropic materials ([`Problem::needs_tensor_materials`]) — the
+/// full constitutive tensors built from it ([`Problem::material_tensors`]:
+/// `ε = ε_r·Λ`, `ν = Λ⁻¹·μ_r⁻¹`).
+enum FrequencyMaterials<'a> {
+    Scalar(std::borrow::Cow<'a, [c64]>),
+    #[allow(clippy::type_complexity)]
+    Tensor(Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>),
+}
+
+impl<'a> FrequencyMaterials<'a> {
+    /// `centroids` is `tet_centroids` of the mesh (unused without UPML).
+    fn at(p: &'a Problem, centroids: &[[f64; 3]], f: &problem::Frequency) -> Self {
+        let eps = p.eps_at(f.hz);
+        if p.needs_tensor_materials() {
+            let (epsilon_tensor, nu_tensor) = p.material_tensors(&eps, centroids, f.k0);
+            Self::Tensor(epsilon_tensor, nu_tensor)
+        } else {
+            Self::Scalar(eps)
+        }
+    }
+
+    /// The ω-independent materials of a spec without UPML or dispersion
+    /// (`!p.is_frequency_dependent()`): the scalar [`Problem::eps`]
+    /// borrowed as before, or the anisotropic tensors (issue #760).
+    fn constant(p: &'a Problem) -> Self {
+        debug_assert!(!p.is_frequency_dependent());
+        if p.is_anisotropic() {
+            // No UPML: centroids / k0 are not read.
+            let (epsilon_tensor, nu_tensor) = p.material_tensors(&p.eps, &[], 0.0);
+            Self::Tensor(epsilon_tensor, nu_tensor)
+        } else {
+            Self::Scalar(std::borrow::Cow::Borrowed(&p.eps))
+        }
+    }
+
+    fn materials(&self) -> DrivenMaterials<'_> {
+        match self {
+            Self::Scalar(eps) => DrivenMaterials::Scalar(eps),
+            Self::Tensor(epsilon_tensor, nu_tensor) => DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            },
+        }
+    }
+}
+
+/// Run `solve` over `p.frequencies` (passed as natural `k₀`): in one
+/// batched call when the materials are ω-independent
+/// ([`FrequencyMaterials::constant`]), else once per
+/// frequency with that frequency's [`FrequencyMaterials`] — UPML
+/// tensors and / or dispersive `ε_r(f)` (the library sweeps assemble
+/// once per call).
+fn per_material_sweep<T>(
+    p: &Problem,
+    mut solve: impl FnMut(DrivenMaterials<'_>, &[f64]) -> Result<Vec<T>, CliError>,
+) -> Result<Vec<T>, CliError> {
+    if !p.is_frequency_dependent() {
+        let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+        return solve(FrequencyMaterials::constant(p).materials(), &omegas);
+    }
+    let centroids = tet_centroids(&p.tagged.mesh);
+    let mut out = Vec::with_capacity(p.frequencies.len());
+    for f in &p.frequencies {
+        let m = FrequencyMaterials::at(p, &centroids, f);
+        out.extend(solve(m.materials(), std::slice::from_ref(&f.k0))?);
+    }
+    Ok(out)
+}
+
+/// Each dispersive region's `ε_r` at `hz` for a report row (issue #757;
+/// empty when every material is constant).
+pub(crate) fn dispersive_eps(p: &Problem, hz: f64) -> Vec<MaterialEpsResult> {
+    p.dispersive_eps(hz)
+        .into_iter()
+        .map(|(name, e)| MaterialEpsResult {
+            physical_group: name.to_string(),
+            eps_r: pair(e),
+        })
+        .collect()
+}
+
+/// One lumped-port sweep row in solver (natural) units, before the
+/// report conversion: `Z` (units of η₀), the S-matrix, the worst residual
+/// (or adaptive residual indicator), the per-RHS Krylov iterations and,
+/// for an adaptive sweep, whether the point was solved full-order.
+struct LumpedRow {
+    z: Vec<c64>,
+    s: SMatrix,
+    residual_rel: f64,
+    iters_per_rhs: Vec<usize>,
+    solved: Option<bool>,
+}
+
+impl LumpedRow {
+    fn from_point(pt: SParameterSweepPoint, solved: Option<bool>) -> Self {
+        Self {
+            z: pt.z,
+            s: pt.s,
+            residual_rel: pt.residual_rel,
+            iters_per_rhs: pt.iters_per_rhs,
+            solved,
+        }
+    }
+}
+
+/// Run the port-driven sweep over `p.frequencies` (in that order) and
+/// assemble the per-frequency Z / Y / S / per-port results and the
+/// aggregate solver statistics. Non-finite residuals or impedances are
+/// a hard [`CliError::NonFinite`]. With `out`, each row additionally
+/// gets its exported field (and far field) — see [`Exporter::export_row`]; the
+/// export solves are not counted in [`SolverStats`].
+///
+/// The dense sweep solves every frequency full-order
+/// ([`s_parameter_point`] on one assembled operator, or one per frequency
+/// with UPML), up to `opts.jobs` at a time; a spec with
+/// `sweep.adaptive` runs the reduced-order-model sweep instead
+/// ([`adaptive_sweep`], issue #708) and exports fields only for its
+/// full-order rows. `command` names the subcommand in the
+/// `sweep_start` progress event ([`crate::progress`]).
+pub fn sweep(
+    p: &Problem,
+    out: Option<&OutDir>,
+    command: &'static str,
+    opts: SweepOptions,
+) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
+    let mode = solver_mode(p);
+
+    type B = CompiledBackend;
+    let device = <B as BackendTypes>::Device::default();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask,
+    };
+    let adaptive = p.spec.sweep.as_ref().and_then(|s| s.adaptive);
+    let progress = Progress::new(opts.progress);
+    progress.emit(
+        "sweep_start",
+        json!({
+            "command": command,
+            "method": if adaptive.is_some() { "adaptive" } else { "dense" },
+            "n_frequencies": p.frequencies.len(),
+            "jobs": opts.jobs,
+        }),
+    );
+    let t0 = Instant::now();
+    let (rows, adaptive_stats) = match adaptive {
+        Some(a) => {
+            let (rows, stats) =
+                adaptive_sweep::<B>(p, &lumped, &surfaces, &bcs, a, opts, &progress)?;
+            (rows, Some(stats))
+        }
+        None => (
+            dense_sweep::<B>(p, &lumped, &surfaces, &bcs, mode, opts, &progress)?,
+            None,
+        ),
+    };
+    let wall_time_s = t0.elapsed().as_secs_f64();
+
+    let n = p.ports.len();
+    let mut results = Vec::with_capacity(rows.len());
+    for (index, (pt, f)) in rows.iter().zip(&p.frequencies).enumerate() {
+        let z: Vec<c64> = pt.z.iter().map(|&z| z * ETA_0_OHM).collect();
+        if !pt.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("residual_rel = {}", pt.residual_rel),
+            });
+        }
+        if let Some(bad) = z.iter().find(|z| !(z.re.is_finite() && z.im.is_finite())) {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("Z = {bad}"),
+            });
+        }
+        let omega_rad_s = 2.0 * std::f64::consts::PI * f.hz;
+        let ports = (0..n)
+            .map(|k| {
+                let zkk = z[k * n + k];
+                let skk = pt.s.entry(k, k);
+                PortResult {
+                    index: k,
+                    z_ohm: pair(zkk),
+                    s: pair(skk),
+                    s_db: 20.0 * skk.norm().log10(),
+                    r_ohm: zkk.re,
+                    l_h: zkk.im / omega_rad_s,
+                    q: zkk.im / zkk.re,
+                }
+            })
+            .collect();
+        results.push(FrequencyResult {
+            frequency_hz: f.hz,
+            k0: f.k0,
+            omega_rad_s,
+            residual_rel: pt.residual_rel,
+            solved: pt.solved,
+            iterations: pt.iters_per_rhs.clone(),
+            z_ohm: matrix(&z, n),
+            y_s: invert(&z, n).map(|y| matrix(&y, n)),
+            s: matrix(&pt.s.s, n),
+            ports,
+            sigma_max: None,
+            wave_channels: Vec::new(),
+            roughness_k: roughness_k(p, f.k0),
+            materials: dispersive_eps(p, f.hz),
+            field_file: None,
+            far_field: None,
+        });
+    }
+    let n_solved = rows.iter().filter(|r| r.solved != Some(false)).count();
+    progress.emit(
+        "sweep_done",
+        json!({
+            "n_frequencies": rows.len(),
+            "n_solved": n_solved,
+            "n_interpolated": rows.len() - n_solved,
+        }),
+    );
+
+    if let Some(out) = out {
+        if n_solved < rows.len() {
+            eprintln!(
+                "note: --outdir: the adaptive sweep exports fields only for its {n_solved} \
+                 full-order rows (`solved: true`); {} interpolated rows have no field file",
+                rows.len() - n_solved
+            );
+        }
+        let exporter = Exporter::<B>::new(p, &lumped, &surfaces, mode, &device)?;
+        for (index, (row, f)) in results.iter_mut().zip(&p.frequencies).enumerate() {
+            if row.solved != Some(false) {
+                exporter.export_row(out, index, f, row)?;
+            }
+        }
+    }
+
+    let summary = crate::check::solver_summary(p.solver());
+    Ok((
+        results,
+        SolverStats {
+            mode: summary.mode,
+            tol: summary.tol,
+            max_iters: summary.max_iters,
+            preconditioner: summary.preconditioner,
+            iterations_max: rows
+                .iter()
+                .flat_map(|pt| pt.iters_per_rhs.iter().copied())
+                .max()
+                .unwrap_or(0),
+            residual_rel_max: rows.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
+            wall_time_s,
+            jobs: opts.jobs_explicit.then_some(opts.jobs),
+            adaptive: adaptive_stats,
+        },
+    ))
+}
+
+/// Emit the `point` progress event of report row `index`.
+fn emit_point(progress: &Progress, p: &Problem, index: usize, row: &LumpedRow) {
+    progress.emit(
+        "point",
+        json!({
+            "index": index,
+            "frequency_hz": p.frequencies[index].hz,
+            "solved": row.solved != Some(false),
+            "residual_rel": row.residual_rel,
+        }),
+    );
+}
+
+/// Dense sweep: every frequency solved full-order, up to `opts.jobs`
+/// concurrently ([`crate::progress::par_map`]; rows in frequency order).
+/// Without UPML or dispersive materials the operator is assembled once
+/// and shared by the workers (each frequency factors its own `A(ω)`);
+/// otherwise each frequency assembles its own operator from that
+/// frequency's [`FrequencyMaterials`] (stretch tensors and / or `ε_r(f)`).
+fn dense_sweep<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    lumped: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    bcs: &DrivenBcs<'_>,
+    mode: SolverMode,
+    opts: SweepOptions,
+    progress: &Progress,
+) -> Result<Vec<LumpedRow>, CliError> {
+    let mesh = &p.tagged.mesh;
+    let n = p.frequencies.len();
+    let solve_row = |index: usize, op: &DrivenOperator| -> Result<LumpedRow, CliError> {
+        let device = <B as BackendTypes>::Device::default();
+        let pt = s_parameter_point::<B>(op, p.frequencies[index].k0, mode, &device)?;
+        let row = LumpedRow::from_point(pt, None);
+        emit_point(progress, p, index, &row);
+        Ok(row)
+    };
+    if !p.is_frequency_dependent() {
+        let device = <B as BackendTypes>::Device::default();
+        let op = s_parameter_operator::<B>(
+            mesh,
+            FrequencyMaterials::constant(p).materials(),
+            None,
+            bcs,
+            lumped,
+            surfaces,
+            &device,
+        )?;
+        return par_map(n, opts.jobs, |index| solve_row(index, &op));
+    }
+    let centroids = tet_centroids(mesh);
+    par_map(n, opts.jobs, |index| {
+        let device = <B as BackendTypes>::Device::default();
+        let m = FrequencyMaterials::at(p, &centroids, &p.frequencies[index]);
+        let op =
+            s_parameter_operator::<B>(mesh, m.materials(), None, bcs, lumped, surfaces, &device)?;
+        solve_row(index, &op)
+    })
+}
+
+/// Adaptive sweep (issue #708): a block Galerkin PROM over every port
+/// excitation ([`DrivenRom::build_with`] with [`RomDrive::PerPort`]) on
+/// the frequency grid, then every frequency evaluated through it. The
+/// per-excitation V / I readbacks give `Z = V·I⁻¹` and the S-matrix with
+/// the dense sweep's own arithmetic ([`z_from_port_readbacks`],
+/// [`SMatrix::from_z_matrix`]). A frequency whose residual indicator is
+/// still above `tolerance` (budget exhausted), or whose reduced system or
+/// reduced port-current matrix is singular, gets a full-order fallback
+/// solve (up to `opts.jobs` at a time). `problem::load` has already
+/// rejected UPML, wave ports and the iterative solver.
+fn adaptive_sweep<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    lumped: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    bcs: &DrivenBcs<'_>,
+    a: AdaptiveSweepSpec,
+    opts: SweepOptions,
+    progress: &Progress,
+) -> Result<(Vec<LumpedRow>, AdaptiveSweepStats), CliError> {
+    let device = <B as BackendTypes>::Device::default();
+    let op = s_parameter_operator::<B>(
+        &p.tagged.mesh,
+        FrequencyMaterials::constant(p).materials(),
+        None,
+        bcs,
+        lumped,
+        surfaces,
+        &device,
+    )?;
+    let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+    // Snapshot ω are grid values verbatim, so the lookup is exact.
+    let hz_of = |w: f64| {
+        p.frequencies
+            .iter()
+            .find(|f| f.k0 == w)
+            .map_or(f64::NAN, |f| f.hz)
+    };
+    let settings = RomSettings {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+    };
+    let mut n_snapshots = 0_usize;
+    let rom = DrivenRom::build_with(&op, &omegas, &settings, RomDrive::PerPort, &mut |w| {
+        n_snapshots += 1;
+        progress.emit(
+            "snapshot",
+            json!({ "frequency_hz": hz_of(w), "n_snapshots": n_snapshots }),
+        );
+    })?;
+
+    let n = op.n_ports();
+    let z0: Vec<f64> = (0..n).map(|k| op.port_resistance(k)).collect();
+    let mut rows: Vec<Option<LumpedRow>> = Vec::with_capacity(omegas.len());
+    let mut fallback: Vec<usize> = Vec::new();
+    for (index, &w) in omegas.iter().enumerate() {
+        let Some((z, residual)) = reduced_z(rom.evaluate_excitations(w), a.tolerance, n)? else {
+            fallback.push(index);
+            rows.push(None);
+            continue;
+        };
+        let s = SMatrix::from_z_matrix(&z, &z0);
+        let row = LumpedRow {
+            z,
+            s,
+            residual_rel: residual,
+            iters_per_rhs: vec![0; n],
+            solved: Some(rom.snapshot_omegas().contains(&w)),
+        };
+        emit_point(progress, p, index, &row);
+        rows.push(Some(row));
+    }
+    let solved = par_map(fallback.len(), opts.jobs, |m| {
+        let index = fallback[m];
+        let device = <B as BackendTypes>::Device::default();
+        let pt = s_parameter_point::<B>(&op, omegas[index], SolverMode::Direct, &device)?;
+        let row = LumpedRow::from_point(pt, Some(true));
+        emit_point(progress, p, index, &row);
+        Ok(row)
+    })?;
+    for (&index, row) in fallback.iter().zip(solved) {
+        rows[index] = Some(row);
+    }
+    let rows: Vec<LumpedRow> = rows
+        .into_iter()
+        .map(|r| r.expect("every row interpolated or solved"))
+        .collect();
+
+    let n_solved = rows.iter().filter(|r| r.solved == Some(true)).count();
+    let mut fallback_frequencies_hz: Vec<f64> =
+        fallback.iter().map(|&i| p.frequencies[i].hz).collect();
+    fallback_frequencies_hz.sort_by(f64::total_cmp);
+    let stats = AdaptiveSweepStats {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+        converged: rom.converged(),
+        worst_residual: rom.worst_residual(),
+        reduced_order: rom.reduced_order(),
+        snapshot_frequencies_hz: rom.snapshot_omegas().iter().map(|&w| hz_of(w)).collect(),
+        fallback_frequencies_hz,
+        n_solved,
+        n_interpolated: rows.len() - n_solved,
+        n_factorizations: rom.snapshot_omegas().len() + fallback.len(),
+    };
+    Ok((rows, stats))
+}
+
+/// `Z(ω)` and the residual indicator from one reduced evaluation, or
+/// `None` when the frequency needs a full-order fallback solve: the
+/// indicator is NaN or above `tolerance`, the reduced system is singular
+/// ([`RomError::ReducedSolveSingular`], possible once the snapshot budget
+/// is exhausted), or the per-excitation port-current matrix is singular
+/// (`Z = V·I⁻¹` undefined or non-finite). Any other error aborts the
+/// sweep: the full-order solve would hit it too (issue #747).
+fn reduced_z(
+    eval: Result<RomExcitationPoint, RomError>,
+    tolerance: f64,
+    n: usize,
+) -> Result<Option<(Vec<c64>, f64)>, CliError> {
+    let pt = match eval {
+        Ok(pt) => pt,
+        Err(RomError::ReducedSolveSingular { .. }) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    if pt.residual_indicator.is_nan() || pt.residual_indicator > tolerance {
+        return Ok(None);
+    }
+    // v_mat[k][j] / i_mat[k][j]: port k under excitation j.
+    let mut v_mat = vec![c64::new(0.0, 0.0); n * n];
+    let mut i_mat = vec![c64::new(0.0, 0.0); n * n];
+    for (j, ports) in pt.excitations.iter().enumerate() {
+        for (k, c) in ports.iter().enumerate() {
+            v_mat[k * n + j] = c.v;
+            i_mat[k * n + j] = c.i;
+        }
+    }
+    Ok(z_from_port_readbacks(&v_mat, &i_mat, n)
+        .filter(|z| z.iter().all(|x| x.re.is_finite() && x.im.is_finite()))
+        .map(|z| (z, pt.residual_indicator)))
+}
+
+/// Wave-port sweep over `p.frequencies`: solve each port's cross-section
+/// modes, run the rank-N SMW wave-port sweep, and report the channel
+/// S-matrix plus the ports' solved modes. A spec that also has lumped
+/// `ports` runs the mixed sweep ([`solve_mixed_port_sweep_with_mode`],
+/// issue #759): lumped ports lead the S-matrix and the wave channel
+/// numbers are offset by their count. Serial: `opts.jobs` is not
+/// applied (noted on stderr when `> 1`), and the `point` progress events
+/// follow the library sweep (all at once without UPML, per frequency
+/// with it). With `sweep.adaptive` it runs [`adaptive_wave_sweep`]
+/// instead (issue #774).
+/// A spec with a **hybrid** wave port (issue #807) runs
+/// [`crate::hybrid::sweep`] instead (the spec sweeps that re-solve and
+/// track its modes per frequency); geometric-only specs take the path
+/// below, unchanged. The fourth element is the report-level warnings.
+#[allow(clippy::type_complexity)]
+pub fn wave_sweep(
+    p: &Problem,
+    opts: SweepOptions,
+    solves: &PortSolves<'_>,
+) -> Result<
+    (
+        Vec<FrequencyResult>,
+        SolverStats,
+        Vec<WavePortSummary>,
+        Vec<WarningResult>,
+    ),
+    CliError,
+> {
+    if p.wave_ports.iter().any(|w| w.hybrid.is_some()) {
+        return crate::hybrid::sweep(p, opts, solves);
+    }
+    if opts.jobs > 1 {
+        eprintln!("note: --jobs: wave-port sweeps run serially (one frequency at a time)");
+    }
+    let adaptive = p.spec.sweep.as_ref().and_then(|s| s.adaptive);
+    let progress = Progress::new(opts.progress);
+    progress.emit(
+        "sweep_start",
+        json!({
+            "command": "driven",
+            "method": if adaptive.is_some() { "adaptive" } else { "dense" },
+            "n_frequencies": p.frequencies.len(),
+            "jobs": 1,
+        }),
+    );
+    let t0 = Instant::now();
+    // The modes and k_c are geometric (ε-independent); each port's fill
+    // medium (issue #777) is set per solve call below. The face solves are
+    // the run's shared ones (issue #952): made here only if no earlier
+    // consumer asked.
+    let mut ports: Vec<WavePort> = (0..p.wave_ports.len())
+        .map(|k| solves.wave_port(k))
+        .collect::<Result<_, _>>()?;
+
+    // k₀ → Hz for the cutoff report (k₀ is linear in f).
+    let hz_per_k0 =
+        crate::problem::to_frequency(1.0, crate::spec::FrequencyUnit::K0, p.length_unit_m()).hz;
+    // Mixed specs (issue #759) number the lumped ports first.
+    let lumped = lumped_ports(p);
+    let n_lumped = lumped.len();
+    let surfaces = impedance_walls(p);
+    let mut channel = n_lumped;
+    let mut summaries = crate::check::wave_port_summaries(p);
+    // Filled-guide cutoff `k_c/√(Re ε_t·μ_n)`, with a dispersive fill
+    // evaluated at the first sweep frequency.
+    let first_hz = p.frequencies.first().map_or(0.0, |f| f.hz);
+    for ((summary, port), w) in summaries.iter_mut().zip(&ports).zip(&p.wave_ports) {
+        let medium = p.port_medium_at(w, first_hz);
+        summary.modes = Some(
+            port.modes
+                .iter()
+                .enumerate()
+                .map(|(mode, m)| {
+                    channel += 1;
+                    WaveModeSummary {
+                        mode,
+                        channel: channel - 1,
+                        k_c: m.k_c,
+                        cutoff_hz: medium.cutoff_k0(m.k_c) * hz_per_k0,
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    let mode = solver_mode(p);
+    type B = CompiledBackend;
+    let device = <B as BackendTypes>::Device::default();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask,
+    };
+    let mut adaptive_stats = None;
+    let points: Vec<ChannelPoint> = if let Some(a) = adaptive {
+        // `problem::load` rejected dispersion and UPML with
+        // `sweep.adaptive`, so every fill is constant.
+        for (port, def) in ports.iter_mut().zip(&p.wave_ports) {
+            port.medium = p.port_medium_at(def, first_hz);
+        }
+        let (points, stats) =
+            adaptive_wave_sweep::<B>(p, &bcs, &lumped, &ports, &surfaces, a, &progress)?;
+        adaptive_stats = Some(stats);
+        points
+    } else {
+        let mut done = 0_usize;
+        per_material_sweep(p, |materials, w| {
+            // Port fill at this call's (first) frequency: per frequency for a
+            // dispersive fill, else the constant fill (the batched call).
+            let hz = p.frequencies[done].hz;
+            for (port, def) in ports.iter_mut().zip(&p.wave_ports) {
+                port.medium = p.port_medium_at(def, hz);
+            }
+            let pts = dense_channel_points::<B>(
+                p, materials, &bcs, &lumped, &ports, &surfaces, w, mode, &device,
+            )?;
+            for pt in &pts {
+                emit_channel_point(&progress, p, done, pt);
+                done += 1;
+            }
+            Ok(pts)
+        })?
+    };
+    let wall_time_s = t0.elapsed().as_secs_f64();
+
+    let results = channel_rows(p, &points)?;
+    let warnings = passivity_warnings(&results);
+
+    let summary = crate::check::solver_summary(p.solver());
+    Ok((
+        results,
+        SolverStats {
+            mode: summary.mode,
+            tol: summary.tol,
+            max_iters: summary.max_iters,
+            preconditioner: summary.preconditioner,
+            iterations_max: points
+                .iter()
+                .flat_map(|pt| pt.iters_per_rhs.iter().copied())
+                .max()
+                .unwrap_or(0),
+            residual_rel_max: points.iter().map(|pt| pt.residual_rel).fold(0.0, f64::max),
+            wall_time_s,
+            jobs: opts.jobs_explicit.then_some(opts.jobs),
+            adaptive: adaptive_stats,
+        },
+        summaries,
+        warnings,
+    ))
+}
+
+/// The report rows of a wave / mixed sweep: per frequency the channel
+/// S-matrix, the per-channel `β` / `S_kk` / `ε_eff` / normalization and, when a
+/// wave port is lossy, the measured `σ_max` (issue #807). Non-finite
+/// residuals or S entries are a hard [`CliError::NonFinite`]. Shared by
+/// the geometric sweep and the hybrid one ([`crate::hybrid::sweep`]), which
+/// then adds each hybrid channel's diagnostics.
+pub(crate) fn channel_rows(
+    p: &Problem,
+    points: &[ChannelPoint],
+) -> Result<Vec<FrequencyResult>, CliError> {
+    let mut results = Vec::with_capacity(points.len());
+    for (index, (pt, f)) in points.iter().zip(&p.frequencies).enumerate() {
+        let n = pt.n;
+        if !pt.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("residual_rel = {}", pt.residual_rel),
+            });
+        }
+        if let Some(bad) =
+            pt.s.iter()
+                .find(|z| !(z.re.is_finite() && z.im.is_finite()))
+        {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("S = {bad}"),
+            });
+        }
+        let mut wave_channels = Vec::with_capacity(n);
+        let mut wave_idx = 0;
+        for (port, &k) in pt.port_mode_counts.iter().enumerate() {
+            for m in 0..k {
+                let c = pt.n_lumped + wave_idx;
+                let skk = pt.s[c * n + c];
+                let beta = pt.beta[wave_idx];
+                wave_idx += 1;
+                // Lossless: β real (propagating) or −j|β|. A lossy fill
+                // makes β complex; a channel propagates when Re β > |Im β|
+                // (Re β² > 0: above the lossless cutoff).
+                let propagating = beta.re > beta.im.abs();
+                wave_channels.push(WaveChannelResult {
+                    channel: c,
+                    port,
+                    mode: m,
+                    beta: pair(beta),
+                    propagating,
+                    s: pair(skk),
+                    s_db: 20.0 * skk.norm().log10(),
+                    eps_eff: propagating.then(|| (beta.re / f.k0).powi(2)),
+                    normalization: normalization(beta),
+                    hybrid: None,
+                });
+            }
+        }
+        results.push(FrequencyResult {
+            frequency_hz: f.hz,
+            k0: f.k0,
+            omega_rad_s: 2.0 * std::f64::consts::PI * f.hz,
+            residual_rel: pt.residual_rel,
+            solved: pt.solved,
+            iterations: pt.iters_per_rhs.clone(),
+            z_ohm: Vec::new(),
+            y_s: None,
+            s: matrix(&pt.s, n),
+            ports: Vec::new(),
+            sigma_max: lossy_wave_ports(p, f.hz).then(|| {
+                let keep: Vec<usize> = (0..pt.n_lumped)
+                    .chain(
+                        wave_channels
+                            .iter()
+                            .filter(|c| c.propagating)
+                            .map(|c| c.channel),
+                    )
+                    .collect();
+                sigma_max(&pt.s, n, &keep)
+            }),
+            wave_channels,
+            roughness_k: roughness_k(p, f.k0),
+            materials: dispersive_eps(p, f.hz),
+            field_file: None,
+            far_field: None,
+        });
+    }
+    Ok(results)
+}
+
+/// How a wave channel of propagation constant `beta` is normalized
+/// ([`WaveChannelResult::normalization`]).
+pub(crate) fn normalization(beta: c64) -> &'static str {
+    if beta.re <= beta.im.abs() {
+        "evanescent"
+    } else if beta.im != 0.0 {
+        "pseudo_power"
+    } else {
+        "power"
+    }
+}
+
+/// Whether some wave port is lossy at `hz` (issue #807): a geometric
+/// port's fill has `Im ε_t ≠ 0` there, or a hybrid port's face is lossy /
+/// dispersive. Its rows then report the measured `σ_max(S)`.
+fn lossy_wave_ports(p: &Problem, hz: f64) -> bool {
+    p.wave_ports.iter().any(|w| match &w.hybrid {
+        Some(h) => h.lossy,
+        None => p.port_medium_at(w, hz).eps_t.im != 0.0,
+    })
+}
+
+/// Largest singular value of the `keep × keep` block of the row-major
+/// `n × n` matrix `s`.
+pub(crate) fn sigma_max(s: &[c64], n: usize, keep: &[usize]) -> f64 {
+    if keep.is_empty() {
+        return 0.0;
+    }
+    let m = faer::Mat::<c64>::from_fn(keep.len(), keep.len(), |i, j| s[keep[i] * n + keep[j]]);
+    // Sorted descending (faer); NaN if the dense SVD fails (never silently
+    // passive).
+    m.as_ref()
+        .singular_values()
+        .ok()
+        .and_then(|sv| sv.first().copied())
+        .unwrap_or(f64::NAN)
+}
+
+/// Tolerance above 1 of a measured `σ_max(S)` before a `"passivity"`
+/// warning (issue #807).
+pub const PASSIVITY_TOL: f64 = 1e-6;
+
+/// A `"passivity"` warning for every row whose measured `σ_max(S)` exceeds
+/// `1 + PASSIVITY_TOL` (issue #807; lossy wave ports are
+/// pseudo-power-normalized, so passivity is measured, not guaranteed), also
+/// printed on stderr.
+pub(crate) fn passivity_warnings(results: &[FrequencyResult]) -> Vec<WarningResult> {
+    let bad: Vec<(f64, f64)> = results
+        .iter()
+        .filter_map(|r| r.sigma_max.map(|s| (r.frequency_hz, s)))
+        // NaN (a failed SVD) counts as a violation: never silently passive.
+        .filter(|&(_, s)| s.is_nan() || s > 1.0 + PASSIVITY_TOL)
+        .collect();
+    let Some(&(hz, worst)) = bad.iter().max_by(|a, b| a.1.total_cmp(&b.1)) else {
+        return Vec::new();
+    };
+    let w = WarningResult {
+        kind: "passivity",
+        wave_port: None,
+        physical_group: None,
+        message: format!(
+            "measured σ_max(S) = {worst:.9} > 1 at {hz:e} Hz ({} row(s) above 1 + {PASSIVITY_TOL:e}): \
+             lossy wave channels are pseudo-power-normalized, so passivity is measured, not \
+             guaranteed; a value above 1 flags an under-resolved lossy port face or a \
+             near-cutoff channel",
+            bad.len()
+        ),
+    };
+    eprintln!("warning: {}", w.message);
+    vec![w]
+}
+
+/// Element order of the CLI's geometric wave-port face solves: `geode driven`
+/// has no element-order field yet (Epic #836 Phase 5a), so every geometric
+/// port's modes are the p=1 ones of [`PortFaceProjection::wave_port`]. The
+/// degeneracy notes (issue #923) are computed at this order, so the gap they
+/// quote is the gap of the modes the report carries (`wave_ports[].modes`).
+/// The decision itself compares the face's p=1 and p=2 solves whichever
+/// order the port runs at, so a p=2 port of the same face gets the same
+/// kinds for the same pairs (`degeneracy_kinds_do_not_depend_on_the_order`).
+pub(crate) const GEOMETRIC_PORT_ORDER: ElementOrder = ElementOrder::P1;
+
+/// Report `kind` of the ambiguous-ratio degeneracy note (issue #923).
+pub(crate) const DEGENERACY_AMBIGUOUS: &str = "wave_port_degeneracy_ambiguous";
+/// Report `kind` of the near-degenerate distinct-pair note (issue #923).
+pub(crate) const DEGENERACY_NEAR_DEGENERATE: &str = "wave_port_degeneracy_near_degenerate";
+/// Report `kind` of a candidate pair whose confirming solve failed (issue
+/// #923).
+pub(crate) const DEGENERACY_UNCONFIRMED: &str = "wave_port_degeneracy_unconfirmed";
+/// Report `kind` of a port whose degeneracy check could not run (issue
+/// #923).
+pub(crate) const DEGENERACY_UNAVAILABLE: &str = "wave_port_degeneracy_unavailable";
+
+/// The notes of one candidate pair, one `(kind, text)` per note
+/// ([`DegenerateCandidate::warning`] joins them with `"; "` into one
+/// string). Each text is the library's own: the candidate is asked again
+/// with the other note's trigger masked (a zero discretization error cannot
+/// be "unresolved" at an ambiguous ratio, whose p=2 gap is positive; a zero
+/// p=1 gap has ratio `∞`, outside the band), and neither masked number is
+/// printed by the note that remains.
+fn candidate_notes(c: &DegenerateCandidate) -> Vec<(&'static str, String)> {
+    let Some(conf) = c.confirmation else {
+        return c
+            .warning()
+            .map(|m| (DEGENERACY_UNCONFIRMED, m))
+            .into_iter()
+            .collect();
+    };
+    let mut notes = Vec::new();
+    if conf.ambiguous() {
+        let mut only = *c;
+        only.confirmation = Some(CandidateConfirmation {
+            discretization_error: 0.0,
+            ..conf
+        });
+        notes.extend(only.warning().map(|m| (DEGENERACY_AMBIGUOUS, m)));
+    }
+    if !c.degenerate && conf.unresolved() {
+        let mut only = *c;
+        only.confirmation = Some(CandidateConfirmation {
+            gap_p1: 0.0,
+            ..conf
+        });
+        notes.extend(only.warning().map(|m| (DEGENERACY_NEAR_DEGENERATE, m)));
+    }
+    notes
+}
+
+/// The degeneracy warnings of one geometric wave port (issue #923): every
+/// note of the candidate pairs among its `n_modes` lowest face modes at
+/// `order` ([`PortFaceProjection::degenerate_candidates`]), one
+/// [`WarningResult`] per note. `Err` is the single
+/// `"wave_port_degeneracy_unavailable"` warning of a face whose check
+/// could not run.
+fn port_degeneracy_warnings(
+    index: usize,
+    name: &str,
+    projection: &PortFaceProjection,
+    n_modes: usize,
+    order: ElementOrder,
+) -> Result<Vec<WarningResult>, WarningResult> {
+    candidate_warnings(
+        index,
+        name,
+        n_modes,
+        projection.degenerate_candidates(n_modes, order).as_deref(),
+    )
+}
+
+/// [`port_degeneracy_warnings`] from candidate records already in hand
+/// (`Err`: the solve that would have given them failed).
+fn candidate_warnings(
+    index: usize,
+    name: &str,
+    n_modes: usize,
+    candidates: Result<&[DegenerateCandidate], &PortFaceError>,
+) -> Result<Vec<WarningResult>, WarningResult> {
+    let warning = |kind, message| WarningResult {
+        kind,
+        wave_port: Some(index),
+        physical_group: Some(name.to_string()),
+        message,
+    };
+    let candidates = candidates.map_err(|e| {
+        warning(
+            DEGENERACY_UNAVAILABLE,
+            format!(
+                "wave port `{name}`: the degeneracy check of its {n_modes} mode(s) could not \
+                     run ({e}), so an ambiguous or near-degenerate mode pair on this face would \
+                     go unreported"
+            ),
+        )
+    })?;
+    Ok(candidates
+        .iter()
+        .flat_map(candidate_notes)
+        .map(|(kind, note)| warning(kind, format!("wave port `{name}`: {note}")))
+        .collect())
+}
+
+/// The degeneracy warnings of every **geometric** wave port of the spec
+/// (issue #923; hybrid ports have core's own cluster diagnostics), in port
+/// order: `(notes, unavailable)`. The notes are printed on stderr here; the
+/// `unavailable` ones (a face whose check failed) are left to the caller,
+/// which reports them only if the sweep itself succeeds.
+///
+/// Called once per `geode driven` run, by [`run`], which is the one place
+/// every output of the run (report, `--touchstone`, sensitivities) hangs
+/// from, and once per `geode check` run (issue #959), which reports the same
+/// warnings without the sweep. Warnings only: the cluster decision is the
+/// library's, and nothing reads these to change S, the Touchstone file or
+/// the exit status.
+///
+/// Cost: with the run's shared `solves` (`geode driven`, issue #952), none:
+/// the records come from each port's own face solve
+/// ([`PortFaceProjection::wave_port_with_candidates`]), which the sweep
+/// reuses. Without (`geode check`, which has no sweep to share with), one
+/// raw face mode solve per geometric port
+/// ([`PortFaceProjection::degenerate_candidates`]), plus the confirming
+/// other-order solve when the face has a candidate pair. A port whose shared
+/// solve failed (its gauge, say) falls back to `degenerate_candidates`, so
+/// the warnings are the same either way.
+pub(crate) fn wave_port_degeneracy_warnings(
+    p: &Problem,
+    solves: Option<&PortSolves<'_>>,
+) -> (Vec<WarningResult>, Vec<WarningResult>) {
+    let (mut notes, mut unavailable) = (Vec::new(), Vec::new());
+    for (index, w) in p.wave_ports.iter().enumerate() {
+        if w.hybrid.is_some() {
+            continue;
+        }
+        // The shared solves are the ports' own, at p=1.
+        let shared = solves
+            .filter(|_| GEOMETRIC_PORT_ORDER == ElementOrder::P1)
+            .and_then(|s| s.candidates(index).ok());
+        let ws = match shared {
+            Some(candidates) => {
+                candidate_warnings(index, &w.surface.name, w.a_inc.len(), Ok(candidates))
+            }
+            None => port_degeneracy_warnings(
+                index,
+                &w.surface.name,
+                &w.projection,
+                w.a_inc.len(),
+                GEOMETRIC_PORT_ORDER,
+            ),
+        };
+        match ws {
+            Ok(ws) => notes.extend(ws),
+            Err(w) => unavailable.push(w),
+        }
+    }
+    for w in &notes {
+        eprintln!("warning: {}", w.message);
+    }
+    (notes, unavailable)
+}
+
+/// Emit the `point` progress event of wave / mixed report row `index`.
+pub(crate) fn emit_channel_point(
+    progress: &Progress,
+    p: &Problem,
+    index: usize,
+    pt: &ChannelPoint,
+) {
+    progress.emit(
+        "point",
+        json!({
+            "index": index,
+            "frequency_hz": p.frequencies[index].hz,
+            "solved": pt.solved != Some(false),
+            "residual_rel": pt.residual_rel,
+        }),
+    );
+}
+
+/// The dense wave / mixed sweep over `omegas` on one set of materials:
+/// [`solve_wave_port_sweep_with_mode`] without lumped ports, else
+/// [`solve_mixed_port_sweep_with_mode`]. Shared by the dense sweep and
+/// the adaptive sweep's full-order fallback, so fallback rows are the
+/// dense rows bit for bit.
+#[allow(clippy::too_many_arguments)]
+fn dense_channel_points<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    ports: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omegas: &[f64],
+    mode: SolverMode,
+    device: &B::Device,
+) -> Result<Vec<ChannelPoint>, CliError> {
+    Ok(if lumped.is_empty() {
+        solve_wave_port_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            bcs,
+            ports,
+            surfaces,
+            omegas,
+            mode,
+            device,
+        )?
+        .into_iter()
+        .map(ChannelPoint::from)
+        .collect()
+    } else {
+        solve_mixed_port_sweep_with_mode::<B>(
+            &p.tagged.mesh,
+            materials,
+            None,
+            bcs,
+            lumped,
+            ports,
+            surfaces,
+            omegas,
+            mode,
+            device,
+        )?
+        .into_iter()
+        .map(ChannelPoint::from)
+        .collect()
+    })
+}
+
+/// Adaptive wave / mixed sweep (issue #774): a Galerkin PROM over every
+/// channel excitation ([`DrivenRom::build_with_wave_ports`]; the base
+/// operator assembled once exactly as the dense mixed sweep assembles
+/// it), evaluated at every frequency with
+/// [`DrivenRom::evaluate_scattering`]. A frequency whose indicator is NaN
+/// or above `tolerance`, whose reduced system is singular, or whose S
+/// has a non-finite entry (e.g. exactly at a lossless cutoff) is solved
+/// full-order by the dense sweep itself ([`dense_channel_points`]), so a
+/// fallback row is the dense row — including its `NonFinite` failure at
+/// a cutoff. Serial, like the dense wave sweep.
+#[allow(clippy::too_many_arguments)]
+fn adaptive_wave_sweep<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    ports: &[WavePort],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    a: AdaptiveSweepSpec,
+    progress: &Progress,
+) -> Result<(Vec<ChannelPoint>, AdaptiveSweepStats), CliError> {
+    let device = <B as BackendTypes>::Device::default();
+    let mesh = &p.tagged.mesh;
+    let materials = FrequencyMaterials::constant(p);
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let op = DrivenOperator::assemble::<B>(
+        mesh,
+        materials.materials(),
+        None,
+        bcs,
+        lumped,
+        surfaces,
+        &zero_source,
+        &device,
+    )?;
+    let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+    // Snapshot ω are grid values verbatim, so the lookup is exact.
+    let hz_of = |w: f64| {
+        p.frequencies
+            .iter()
+            .find(|f| f.k0 == w)
+            .map_or(f64::NAN, |f| f.hz)
+    };
+    let settings = RomSettings {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+    };
+    let mut n_snapshots = 0_usize;
+    let rom =
+        DrivenRom::build_with_wave_ports(&op, mesh, bcs, ports, &omegas, &settings, &mut |w| {
+            n_snapshots += 1;
+            progress.emit(
+                "snapshot",
+                json!({ "frequency_hz": hz_of(w), "n_snapshots": n_snapshots }),
+            );
+        })?;
+
+    let mut points: Vec<ChannelPoint> = Vec::with_capacity(omegas.len());
+    let mut fallback: Vec<usize> = Vec::new();
+    for (index, &w) in omegas.iter().enumerate() {
+        let pt = match reduced_channel_point(rom.evaluate_scattering(w), a.tolerance)? {
+            Some(mut pt) => {
+                pt.solved = Some(rom.snapshot_omegas().contains(&w));
+                pt
+            }
+            None => {
+                fallback.push(index);
+                let mut pt = dense_channel_points::<B>(
+                    p,
+                    materials.materials(),
+                    bcs,
+                    lumped,
+                    ports,
+                    surfaces,
+                    std::slice::from_ref(&w),
+                    SolverMode::Direct,
+                    &device,
+                )?
+                .pop()
+                .expect("one frequency in, one point out");
+                pt.solved = Some(true);
+                pt
+            }
+        };
+        emit_channel_point(progress, p, index, &pt);
+        points.push(pt);
+    }
+
+    let n_solved = points.iter().filter(|r| r.solved == Some(true)).count();
+    let mut fallback_frequencies_hz: Vec<f64> =
+        fallback.iter().map(|&i| p.frequencies[i].hz).collect();
+    fallback_frequencies_hz.sort_by(f64::total_cmp);
+    let stats = AdaptiveSweepStats {
+        tolerance: a.tolerance,
+        max_snapshots: a.max_snapshots,
+        converged: rom.converged(),
+        worst_residual: rom.worst_residual(),
+        reduced_order: rom.reduced_order(),
+        snapshot_frequencies_hz: rom.snapshot_omegas().iter().map(|&w| hz_of(w)).collect(),
+        fallback_frequencies_hz,
+        n_solved,
+        n_interpolated: points.len() - n_solved,
+        n_factorizations: rom.snapshot_omegas().len() + fallback.len(),
+    };
+    Ok((points, stats))
+}
+
+/// The reduced [`ChannelPoint`] of one evaluation, or `None` when the
+/// frequency needs a full-order fallback: the indicator is NaN or above
+/// `tolerance`, the reduced system is singular, or an S entry is
+/// non-finite. Any other error aborts the sweep (the full-order solve
+/// would hit it too).
+fn reduced_channel_point(
+    eval: Result<RomScatteringPoint, RomError>,
+    tolerance: f64,
+) -> Result<Option<ChannelPoint>, CliError> {
+    let pt = match eval {
+        Ok(pt) => pt,
+        Err(RomError::ReducedSolveSingular { .. }) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    if pt.residual_indicator.is_nan()
+        || pt.residual_indicator > tolerance
+        || pt.s.iter().any(|z| !(z.re.is_finite() && z.im.is_finite()))
+    {
+        return Ok(None);
+    }
+    Ok(Some(ChannelPoint {
+        residual_rel: pt.residual_indicator,
+        iters_per_rhs: vec![0; pt.n_ports],
+        s: pt.s,
+        n: pt.n_ports,
+        n_lumped: pt.n_lumped,
+        beta: pt.beta,
+        port_mode_counts: pt.port_mode_counts,
+        solved: None,
+    }))
+}
+
+/// One frequency of a wave-port or mixed sweep, in the shape the report
+/// conversion needs: the row-major `n × n` S-matrix whose leading
+/// `n_lumped` rows / columns are the lumped ports (zero for a pure-wave
+/// spec), then the wave channels port-major, mode-minor with their `β`.
+pub(crate) struct ChannelPoint {
+    pub(crate) residual_rel: f64,
+    pub(crate) s: Vec<c64>,
+    pub(crate) n: usize,
+    pub(crate) n_lumped: usize,
+    pub(crate) beta: Vec<c64>,
+    pub(crate) port_mode_counts: Vec<usize>,
+    pub(crate) iters_per_rhs: Vec<usize>,
+    /// Adaptive sweep only: full-order (`true`) or interpolated.
+    pub(crate) solved: Option<bool>,
+}
+
+impl From<WavePortSweepPoint> for ChannelPoint {
+    fn from(pt: WavePortSweepPoint) -> Self {
+        Self {
+            residual_rel: pt.residual_rel,
+            s: pt.s,
+            n: pt.n_channels,
+            n_lumped: 0,
+            beta: pt.beta,
+            port_mode_counts: pt.port_mode_counts,
+            iters_per_rhs: pt.iters_per_rhs,
+            solved: None,
+        }
+    }
+}
+
+impl From<MixedPortSweepPoint> for ChannelPoint {
+    fn from(pt: MixedPortSweepPoint) -> Self {
+        Self {
+            residual_rel: pt.residual_rel,
+            s: pt.s,
+            n: pt.n_ports,
+            n_lumped: pt.n_lumped,
+            beta: pt.beta,
+            port_mode_counts: pt.port_mode_counts,
+            iters_per_rhs: pt.iters_per_rhs,
+            solved: None,
+        }
+    }
+}
+
+/// Per-row field / NTFF exporter for a lumped-port spec: the
+/// ω-independent [`DrivenOperator`] (built once without UPML or
+/// dispersion; per row with either, since the materials are then
+/// ω-dependent) plus the NTFF box.
+struct Exporter<'a, B: burn::tensor::backend::Backend> {
+    p: &'a Problem,
+    lumped: &'a [LumpedPort<'a>],
+    surfaces: &'a [SurfaceImpedanceBc<'a>],
+    mode: SolverMode,
+    device: &'a B::Device,
+    /// Zero volume source: the ports are the only drive.
+    source: CurrentSource,
+    /// The operator of a spec without UPML or dispersion (ω-independent
+    /// materials).
+    scalar_op: Option<DrivenOperator>,
+    /// Tet centroids (UPML tensors), empty for ω-independent materials.
+    centroids: Vec<[f64; 3]>,
+    /// Per-node `Re ε_r` for the `.vtu` (re-evaluated per row when a
+    /// material is dispersive).
+    eps_nodes: Vec<f64>,
+    /// NTFF box, with exactly one UPML shell.
+    ntff_box: Option<([f64; 3], [f64; 3])>,
+}
+
+impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
+    fn new(
+        p: &'a Problem,
+        lumped: &'a [LumpedPort<'a>],
+        surfaces: &'a [SurfaceImpedanceBc<'a>],
+        mode: SolverMode,
+        device: &'a B::Device,
+    ) -> Result<Self, CliError> {
+        let mesh = &p.tagged.mesh;
+        let mut this = Self {
+            p,
+            lumped,
+            surfaces,
+            mode,
+            device,
+            source: CurrentSource {
+                j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+            },
+            scalar_op: None,
+            centroids: Vec::new(),
+            eps_nodes: eps_per_node(mesh, &p.eps),
+            ntff_box: None,
+        };
+        if p.is_frequency_dependent() {
+            this.centroids = tet_centroids(mesh);
+        } else {
+            this.scalar_op = Some(this.assemble(FrequencyMaterials::constant(p).materials())?);
+        }
+        this.ntff_box = ntff_box(&p.upml, &this.centroids)?;
+        Ok(this)
+    }
+
+    fn assemble(&self, materials: DrivenMaterials<'_>) -> Result<DrivenOperator, CliError> {
+        Ok(DrivenOperator::assemble::<B>(
+            &self.p.tagged.mesh,
+            materials,
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &self.p.pec_mask,
+            },
+            self.lumped,
+            self.surfaces,
+            &self.source,
+            self.device,
+        )?)
+    }
+
+    /// One extra solve at row `index` (every port driven at its `v_inc`),
+    /// written to `E_<index>.vtu`; plus the NTFF quantities and pattern
+    /// file when [`Exporter::ntff_box`] is set.
+    fn export_row(
+        &self,
+        out: &OutDir,
+        index: usize,
+        f: &crate::problem::Frequency,
+        row: &mut FrequencyResult,
+    ) -> Result<(), CliError> {
+        let p = self.p;
+        let mesh = &p.tagged.mesh;
+        let omega = f.k0;
+        let row_op;
+        let op = match &self.scalar_op {
+            Some(op) => op,
+            None => {
+                let m = FrequencyMaterials::at(p, &self.centroids, f);
+                row_op = self.assemble(m.materials())?;
+                &row_op
+            }
+        };
+        let row_eps_nodes;
+        let eps_nodes = if p.dispersion.is_empty() {
+            &self.eps_nodes
+        } else {
+            row_eps_nodes = eps_per_node(mesh, &p.eps_at(f.hz));
+            &row_eps_nodes
+        };
+        let (sol, _) = op.prepare_at::<B>(omega, self.mode, self.device)?.solve()?;
+        if !sol.residual_rel.is_finite()
+            || sol
+                .e_edges
+                .iter()
+                .any(|e| !(e.re.is_finite() && e.im.is_finite()))
+        {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!(
+                    "--outdir export field (residual_rel = {})",
+                    sol.residual_rel
+                ),
+            });
+        }
+        row.field_file =
+            Some(out.write_field(&field_file_name(index), mesh, &sol.e_edges, true, eps_nodes)?);
+
+        let Some((lo, hi)) = self.ntff_box else {
+            return Ok(());
+        };
+        // Net input power Σ_k ½ Re(V_k I_k*) (η₀-normalized natural
+        // units; cancels in η against the box flux).
+        let p_in: f64 = (0..op.n_ports())
+            .map(|k| {
+                let v = op.port_voltage(k, &sol.e_edges);
+                let i = op.port_current(k, v);
+                0.5 * (v * i.conj()).re
+            })
+            .sum();
+        let p_rad = flux_power_box(mesh, omega, &sol.e_edges, lo, hi);
+        let efficiency = if p_in != 0.0 { p_rad / p_in } else { 0.0 };
+        let ff = ntff_far_field(mesh, omega, &sol.e_edges, lo, hi, NTFF_N_THETA, NTFF_N_PHI);
+        let (directivity_max, _) = directivity(&ff);
+        let directivity_broadside = broadside_directivity(&ff);
+        let gain_broadside = gain(directivity_broadside, efficiency);
+        let (e_plane, h_plane) = principal_plane_cuts(&ff);
+        let pattern_file = out.write_json(
+            &pattern_file_name(index),
+            &PatternFile::new(f.hz, e_plane, h_plane),
+        )?;
+        row.far_field = Some(FarFieldResult {
+            box_lo: lo,
+            box_hi: hi,
+            directivity_max,
+            directivity_broadside,
+            gain_broadside,
+            gain_broadside_db: to_db(gain_broadside),
+            efficiency,
+            pattern_file,
+        });
+        Ok(())
+    }
+}
+
+/// `(lo, hi)` shrunk by `frac` of its half-extent toward its centre.
+fn shrink_box(lo: [f64; 3], hi: [f64; 3], frac: f64) -> ([f64; 3], [f64; 3]) {
+    let c: [f64; 3] = std::array::from_fn(|k| 0.5 * (lo[k] + hi[k]));
+    let h: [f64; 3] = std::array::from_fn(|k| 0.5 * (hi[k] - lo[k]));
+    (
+        std::array::from_fn(|k| c[k] - (1.0 - frac) * h[k]),
+        std::array::from_fn(|k| c[k] + (1.0 - frac) * h[k]),
+    )
+}
+
+fn pair(z: c64) -> Complex {
+    [z.re, z.im]
+}
+
+/// Row-major flat `n × n` → nested rows of `[re, im]`.
+fn matrix(m: &[c64], n: usize) -> Vec<Vec<Complex>> {
+    m.chunks(n)
+        .map(|row| row.iter().copied().map(pair).collect())
+        .collect()
+}
+
+/// Inverse of a row-major `n × n` complex matrix by Gauss–Jordan with
+/// partial pivoting; `None` if (numerically) singular.
+pub(crate) fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
+    let zero = c64::new(0.0, 0.0);
+    let one = c64::new(1.0, 0.0);
+    let mut m = a.to_vec();
+    let mut inv = vec![zero; n * n];
+    for i in 0..n {
+        inv[i * n + i] = one;
+    }
+    let scale = a.iter().map(|z| z.norm()).fold(0.0, f64::max);
+    for col in 0..n {
+        let piv = (col..n)
+            .max_by(|&r1, &r2| m[r1 * n + col].norm().total_cmp(&m[r2 * n + col].norm()))?;
+        if m[piv * n + col].norm() <= 1e-14 * scale {
+            return None;
+        }
+        if piv != col {
+            for c in 0..n {
+                m.swap(piv * n + c, col * n + c);
+                inv.swap(piv * n + c, col * n + c);
+            }
+        }
+        let d = one / m[col * n + col];
+        for c in 0..n {
+            m[col * n + c] *= d;
+            inv[col * n + c] *= d;
+        }
+        for r in 0..n {
+            if r != col {
+                let f = m[r * n + col];
+                if f != zero {
+                    for c in 0..n {
+                        let (mc, ic) = (m[col * n + c], inv[col * n + c]);
+                        m[r * n + c] -= f * mc;
+                        inv[r * n + c] -= f * ic;
+                    }
+                }
+            }
+        }
+    }
+    Some(inv)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geode_core::driven::extraction::PortCircuit;
+
+    fn circuit(v: f64, i: f64) -> PortCircuit {
+        let (v, i) = (c64::new(v, 0.0), c64::new(i, 0.0));
+        PortCircuit { v, i, z: v / i }
+    }
+
+    fn point(residual: f64, excitations: Vec<Vec<PortCircuit>>) -> RomExcitationPoint {
+        RomExcitationPoint {
+            omega: 1.0,
+            residual_indicator: residual,
+            excitations,
+        }
+    }
+
+    /// The `z = 0` port face of a committed geode-core Gmsh guide.
+    fn fixture_face(fixture: &str) -> PortFaceProjection {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures")
+            .join(fixture);
+        let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(path).unwrap())
+            .unwrap()
+            .mesh;
+        let faces: Vec<[u32; 3]> = mesh
+            .boundary_faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-9))
+            .collect();
+        geode_core::driven::ports::project_port_face(&mesh, &faces).unwrap()
+    }
+
+    fn kinds(ws: &[WarningResult]) -> Vec<&'static str> {
+        ws.iter().map(|w| w.kind).collect()
+    }
+
+    fn candidate(gap_p1: f64, gap_p2: f64, err: f64, degenerate: bool) -> DegenerateCandidate {
+        DegenerateCandidate {
+            index: 4,
+            order: ElementOrder::P1,
+            gap: gap_p1,
+            confirmation: Some(CandidateConfirmation {
+                gap_p1,
+                gap_p2,
+                discretization_error: err,
+            }),
+            degenerate,
+        }
+    }
+
+    /// Issue #923: [`candidate_notes`] is the library's
+    /// [`DegenerateCandidate::warning`] split by kind — the texts, joined
+    /// as the library joins them, are that warning exactly — on synthetic
+    /// pairs of every kind (both notes at once included) and on every
+    /// candidate of the committed Gmsh faces.
+    #[test]
+    fn candidate_notes_are_the_library_notes_split_by_kind() {
+        let both = candidate(0.01, 0.006, 0.002, false);
+        let mut unconfirmed = both;
+        unconfirmed.confirmation = None;
+        let cases = [
+            (both, vec![DEGENERACY_AMBIGUOUS, DEGENERACY_NEAR_DEGENERATE]),
+            // Ambiguous, decided one cluster: never a "distinct pair".
+            (
+                candidate(0.01, 0.0045, 0.002, true),
+                vec![DEGENERACY_AMBIGUOUS],
+            ),
+            // Ambiguous and distinct, but resolved (error < 0.1 of the gap).
+            (
+                candidate(0.01, 0.006, 0.0005, false),
+                vec![DEGENERACY_AMBIGUOUS],
+            ),
+            // Clear ratio, distinct, unresolved.
+            (
+                candidate(0.01, 0.012, 0.002, false),
+                vec![DEGENERACY_NEAR_DEGENERATE],
+            ),
+            (unconfirmed, vec![DEGENERACY_UNCONFIRMED]),
+            // Clear decisions: a degenerate cluster, a resolved distinct pair.
+            (candidate(0.01, 0.001, 0.002, true), vec![]),
+            (candidate(0.01, 0.012, 0.0005, false), vec![]),
+        ];
+        let mut all: Vec<(DegenerateCandidate, Option<Vec<&str>>)> =
+            cases.into_iter().map(|(c, k)| (c, Some(k))).collect();
+        for fixture in [
+            "guide_box_lc030.msh",
+            "guide_box_lc022.msh",
+            "guide_box_lc018.msh",
+            "guide_coax_lc018_015.msh",
+        ] {
+            let face = fixture_face(fixture);
+            for order in [ElementOrder::P1, ElementOrder::P2] {
+                let cs = face.degenerate_candidates(6, order).unwrap();
+                assert!(!cs.is_empty(), "{fixture}: a candidate pair");
+                all.extend(cs.into_iter().map(|c| (c, None)));
+            }
+        }
+        for (c, want) in all {
+            let notes = candidate_notes(&c);
+            if let Some(want) = want {
+                assert_eq!(notes.iter().map(|n| n.0).collect::<Vec<_>>(), want, "{c:?}");
+            }
+            let joined = notes
+                .iter()
+                .map(|n| n.1.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            assert_eq!((!notes.is_empty()).then_some(joined), c.warning(), "{c:?}");
+        }
+    }
+
+    /// Issue #923, the order choice ([`GEOMETRIC_PORT_ORDER`]): the CLI's
+    /// ports are p=1, and the notes of a p=2 solve of the same face are of
+    /// the same kinds for the same pair — the decision compares the p=1 and
+    /// p=2 gaps whichever order asks. Only the quoted gap is the asking
+    /// order's. Measured kinds on the Gmsh `2 × 0.9` faces: ambiguous at
+    /// `lc` 0.30, ambiguous and near-degenerate at 0.22, near-degenerate at
+    /// 0.18.
+    #[test]
+    fn degeneracy_kinds_do_not_depend_on_the_order() {
+        assert_eq!(GEOMETRIC_PORT_ORDER, ElementOrder::P1);
+        for (fixture, want) in [
+            ("guide_box_lc030.msh", vec![DEGENERACY_AMBIGUOUS]),
+            (
+                "guide_box_lc022.msh",
+                vec![DEGENERACY_AMBIGUOUS, DEGENERACY_NEAR_DEGENERATE],
+            ),
+            ("guide_box_lc018.msh", vec![DEGENERACY_NEAR_DEGENERATE]),
+        ] {
+            let face = fixture_face(fixture);
+            for (order, digit) in [(ElementOrder::P1, 1), (ElementOrder::P2, 2)] {
+                let ws = port_degeneracy_warnings(3, "port_in", &face, 6, order).unwrap();
+                assert_eq!(kinds(&ws), want, "{fixture} {order:?}");
+                for w in &ws {
+                    assert_eq!(w.wave_port, Some(3));
+                    assert_eq!(w.physical_group.as_deref(), Some("port_in"));
+                    assert!(
+                        w.message
+                            .starts_with("wave port `port_in`: port-face modes 4 / 5 (")
+                            && w.message.contains(&format!("at p={digit})")),
+                        "{fixture} {order:?}: {}",
+                        w.message
+                    );
+                }
+            }
+        }
+    }
+
+    /// Issue #923: a truly degenerate cluster is not warned about. The
+    /// committed coax guide's geometric face has candidate pairs among its
+    /// eight lowest modes (the TE₁₁ pair first), every one decided one
+    /// cluster at a clear ratio, so it gets no warning at either order.
+    /// (Through `geode driven` a coax face is a hybrid port, which this
+    /// path skips; this is its geometric face directly.)
+    #[test]
+    fn a_truly_degenerate_cluster_gets_no_degeneracy_warning() {
+        let face = fixture_face("guide_coax_lc018_015.msh");
+        for order in [ElementOrder::P1, ElementOrder::P2] {
+            let cs = face.degenerate_candidates(8, order).unwrap();
+            assert!(
+                cs.len() >= 3 && cs.iter().all(|c| c.degenerate),
+                "{order:?}: {cs:?}"
+            );
+            assert_eq!(cs[0].index, 0, "{order:?}: the TE11 pair");
+            let ws = port_degeneracy_warnings(0, "port_in", &face, 8, order).unwrap();
+            assert!(ws.is_empty(), "{order:?}: {:?}", kinds(&ws));
+        }
+    }
+
+    /// Issue #923: a face whose check cannot run (here more modes than the
+    /// face holds) yields the one `unavailable` warning, not an error.
+    #[test]
+    fn a_failed_degeneracy_check_is_an_unavailable_warning() {
+        let face = fixture_face("guide_box_lc030.msh");
+        let w = port_degeneracy_warnings(1, "port_out", &face, 100_000, ElementOrder::P1)
+            .expect_err("more modes than the face holds");
+        assert_eq!(w.kind, DEGENERACY_UNAVAILABLE);
+        assert_eq!(w.wave_port, Some(1));
+        assert!(
+            w.message.starts_with(
+                "wave port `port_out`: the degeneracy check of its 100000 mode(s) could not run ("
+            ) && w.message.ends_with("on this face would go unreported")
+                && !w.message.contains("  "),
+            "{}",
+            w.message
+        );
+    }
+
+    /// Issue #747: the budget-exhaustion failure modes route to the
+    /// full-order fallback (`Ok(None)`); other errors still abort.
+    #[test]
+    fn reduced_z_routes_singular_cases_to_fallback() {
+        // Healthy single port: Z = V / I.
+        let (z, r) = reduced_z(Ok(point(1e-9, vec![vec![circuit(2.0, 4.0)]])), 1e-6, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!((z, r), (vec![c64::new(0.5, 0.0)], 1e-9));
+        // Indicator above tolerance or NaN.
+        let hi = point(1e-3, vec![vec![circuit(2.0, 4.0)]]);
+        assert!(reduced_z(Ok(hi), 1e-6, 1).unwrap().is_none());
+        let nan = point(f64::NAN, vec![vec![circuit(2.0, 4.0)]]);
+        assert!(reduced_z(Ok(nan), 1e-6, 1).unwrap().is_none());
+        // Singular reduced system.
+        let singular = Err(RomError::ReducedSolveSingular {
+            order: 3,
+            omega: 1.0,
+        });
+        assert!(reduced_z(singular, 1e-6, 1).unwrap().is_none());
+        // Singular port-current matrix: one port (V / 0 is non-finite) and
+        // two ports (rank-1 I).
+        let zero_i = point(1e-9, vec![vec![circuit(2.0, 0.0)]]);
+        assert!(reduced_z(Ok(zero_i), 1e-6, 1).unwrap().is_none());
+        let rank1 = point(
+            1e-9,
+            vec![
+                vec![circuit(1.0, 1.0), circuit(1.0, 1.0)],
+                vec![circuit(2.0, 1.0), circuit(3.0, 1.0)],
+            ],
+        );
+        assert!(reduced_z(Ok(rank1), 1e-6, 2).unwrap().is_none());
+        // Anything else still aborts the sweep.
+        let invalid = Err(RomError::InvalidParameter("bad".into()));
+        assert!(reduced_z(invalid, 1e-6, 1).is_err());
+    }
+
+    #[test]
+    fn invert_two_by_two() {
+        let a = [
+            c64::new(2.0, 1.0),
+            c64::new(0.5, 0.0),
+            c64::new(0.5, 0.0),
+            c64::new(3.0, -1.0),
+        ];
+        let inv = invert(&a, 2).unwrap();
+        for r in 0..2 {
+            for c in 0..2 {
+                let mut acc = c64::new(0.0, 0.0);
+                for k in 0..2 {
+                    acc += a[r * 2 + k] * inv[k * 2 + c];
+                }
+                let want = if r == c { 1.0 } else { 0.0 };
+                assert!((acc - c64::new(want, 0.0)).norm() < 1e-12);
+            }
+        }
+        assert!(invert(&[c64::new(0.0, 0.0)], 1).is_none());
+    }
+
+    /// A shell whose inner wall is the box `[-10, 10]³`.
+    fn shell(name: &str) -> UpmlRegion {
+        UpmlRegion {
+            name: name.into(),
+            tag: 1,
+            n_tets: 1,
+            n_tets_stretched: 1,
+            thickness: 1.0,
+            sigma_0: 25.0,
+            air_lo: [-10.0; 3],
+            air_hi: [10.0; 3],
+        }
+    }
+
+    #[test]
+    fn ntff_box_is_the_single_shell_wall_shrunk() {
+        // 0 or ≥ 2 shells: no NTFF, and no check (even with no centroid).
+        assert_eq!(ntff_box(&[], &[]).unwrap(), None);
+        assert_eq!(ntff_box(&[shell("a"), shell("b")], &[]).unwrap(), None);
+        // One shell with a centroid inside the shrunk box.
+        let (lo, hi) = ntff_box(&[shell("a")], &[[0.0; 3], [9.5, 0.0, 0.0]])
+            .unwrap()
+            .expect("one shell → an NTFF box");
+        for k in 0..3 {
+            assert!((lo[k] + 9.0).abs() < 1e-12 && (hi[k] - 9.0).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn ntff_box_without_a_centroid_inside_is_invalid_spec() {
+        // Inside the shell's inner wall, but outside the 10 %-shrunk box.
+        let err = ntff_box(&[shell("upml")], &[[9.5, 0.0, 0.0], [0.0, -9.5, 0.0]]).unwrap_err();
+        let CliError::InvalidSpec(msg) = err else {
+            panic!("expected InvalidSpec, got {err:?}");
+        };
+        assert!(
+            msg.contains("no tet centroid lies inside the NTFF box"),
+            "{msg}"
+        );
+        assert!(msg.contains("`upml`"), "{msg}");
+        assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #952: one face solve per port per run, shared
+    // -----------------------------------------------------------------
+
+    /// A fresh scratch directory for one sharing test.
+    fn scratch_952(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("geode-952-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The committed geode-core Gmsh guide `fixture` (unit length along
+    /// `z`) written into `dir` with `port_in` / `port_out` / `walls`
+    /// groups from its boundary faces and one `guide` volume.
+    fn fixture_guide_952(dir: &std::path::Path, fixture: &str) -> std::path::PathBuf {
+        let src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures")
+            .join(fixture);
+        let mesh = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(src).unwrap())
+            .unwrap()
+            .mesh;
+        let bf = mesh.boundary_faces();
+        let on = |f: &[u32; 3], z: f64| {
+            f.iter()
+                .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-9)
+        };
+        let pick = |keep: &dyn Fn(&[u32; 3]) -> bool| -> Vec<[u32; 3]> {
+            bf.iter().copied().filter(|f| keep(f)).collect()
+        };
+        let text = crate::test_msh::write_msh_volumes(
+            &mesh.nodes,
+            &[(1, "guide", &mesh.tets)],
+            &[
+                (11, "port_in", &pick(&|f| on(f, 0.0))),
+                (12, "port_out", &pick(&|f| on(f, 1.0))),
+                (13, "walls", &pick(&|f| !on(f, 0.0) && !on(f, 1.0))),
+            ],
+        );
+        let path = dir.join("guide.msh");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    /// `geode driven` on `spec` in-process (with `--touchstone` into `dir`
+    /// when `touchstone`), and this thread's port-face solves during it:
+    /// `(report, geometric face solves, hybrid face sweeps)`.
+    fn driven_952(
+        dir: &std::path::Path,
+        spec: &serde_json::Value,
+        touchstone: bool,
+    ) -> (
+        DrivenReport,
+        geode_core::driven::ports::FaceSolveCounts,
+        usize,
+    ) {
+        let path = dir.join("spec.json");
+        std::fs::write(&path, spec.to_string()).unwrap();
+        let ts = dir.join("out.s2p");
+        let provenance = crate::report::Provenance {
+            schema_version: crate::report::REPORT_SCHEMA_VERSION,
+            geode_version: env!("CARGO_PKG_VERSION"),
+            git_sha: "test",
+            backend: "test",
+            threads: None,
+            spec_path: path.display().to_string(),
+        };
+        let (c0, h0) = (
+            geode_core::driven::ports::face_solve_counts(),
+            crate::hybrid::FACE_SWEEPS.with(std::cell::Cell::get),
+        );
+        let report = run(
+            &path,
+            provenance,
+            None,
+            touchstone.then_some(ts.as_path()),
+            SweepOptions::default(),
+            false,
+        )
+        .unwrap();
+        (
+            report,
+            geode_core::driven::ports::face_solve_counts() - c0,
+            crate::hybrid::FACE_SWEEPS.with(std::cell::Cell::get) - h0,
+        )
+    }
+
+    /// Issue #952: a `geode driven` run with `--touchstone` and an N-port
+    /// sensitivity on two geometric wave ports solves each port face once
+    /// (plus its one confirming solve: six modes of the Gmsh `lc` 0.22 face
+    /// hold a candidate pair) — before #952 four times (the degeneracy
+    /// notes, the Touchstone classification, the sensitivity's port specs
+    /// and the sweep, eight raw solves) — and still reports the #923
+    /// degeneracy warnings. `geode check` on the same spec, which has no
+    /// sweep to share with, still pays one raw solve per port and reports
+    /// the same warnings.
+    #[test]
+    fn a_geometric_driven_run_solves_each_port_face_once() {
+        let dir = scratch_952("geometric");
+        let mesh = fixture_guide_952(&dir, "guide_box_lc022.msh");
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in", "n_modes": 6, "reference_ohm": 500.0 },
+                { "physical_group": "port_out", "n_modes": 6, "reference_ohm": 500.0 }
+            ],
+            "frequencies": { "unit": "k0", "values": [2.3, 2.5] },
+            "sensitivity": {
+                "parameters": [{ "kind": "eps_r", "physical_group": "guide" }],
+                "observables": [{ "quantity": "s", "entry": [6, 0], "form": "db" }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, true);
+        assert_eq!(
+            solves.primary_p1, 2,
+            "one raw face solve per port: {solves:?}"
+        );
+        assert_eq!(
+            solves.confirming, 2,
+            "one confirming solve per port: {solves:?}"
+        );
+        assert_eq!(sweeps, 0);
+        assert!(report.touchstone_file.is_some() && report.sensitivities.is_some());
+        let degeneracy: Vec<(&str, Option<usize>)> = report
+            .warnings
+            .iter()
+            .filter(|w| w.kind.starts_with("wave_port_degeneracy"))
+            .map(|w| (w.kind, w.wave_port))
+            .collect();
+        assert_eq!(
+            degeneracy,
+            [
+                (DEGENERACY_AMBIGUOUS, Some(0)),
+                (DEGENERACY_NEAR_DEGENERATE, Some(0)),
+                (DEGENERACY_AMBIGUOUS, Some(1)),
+                (DEGENERACY_NEAR_DEGENERATE, Some(1)),
+            ]
+        );
+        // `check`: the no-sweep path, one raw solve per port, the same notes.
+        let c0 = geode_core::driven::ports::face_solve_counts();
+        let checked = crate::check::run(
+            &dir.join("spec.json"),
+            crate::report::Provenance {
+                schema_version: crate::report::REPORT_SCHEMA_VERSION,
+                geode_version: env!("CARGO_PKG_VERSION"),
+                git_sha: "test",
+                backend: "test",
+                threads: None,
+                spec_path: String::new(),
+            },
+        )
+        .unwrap();
+        let solves = geode_core::driven::ports::face_solve_counts() - c0;
+        assert_eq!((solves.primary_p1, solves.confirming), (2, 2), "{solves:?}");
+        let messages = |ws: &[WarningResult]| -> Vec<String> {
+            ws.iter()
+                .filter(|w| w.kind.starts_with("wave_port_degeneracy"))
+                .map(|w| w.message.clone())
+                .collect()
+        };
+        assert_eq!(messages(&checked.warnings), messages(&report.warnings));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #952 on a spec with a **hybrid** port: the geometric `port_in`
+    /// (an all-air end) is solved once although the hybrid sweep and the
+    /// sensitivity's port specs both use it (before #952: three times, with
+    /// the degeneracy notes), and the hybrid `port_out` (a slab-loaded end)
+    /// is not face-swept outside the 3-D sweep at all (no `--touchstone`, no
+    /// `z0` observable).
+    #[test]
+    fn a_mixed_geometric_and_hybrid_run_solves_the_geometric_face_once() {
+        let dir = scratch_952("mixed");
+        let (a, b, len) = (2.0, 1.0, 1.2);
+        let g = geode_core::driven::ports::extruded_rect_waveguide_mesh(8, 4, 6, a, b, len);
+        let c = |t: &[u32; 4], k: usize| {
+            t.iter().map(|&n| g.mesh.nodes[n as usize][k]).sum::<f64>() / 4.0
+        };
+        let (end, rest): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+            g.mesh.tets.iter().copied().partition(|t| c(t, 2) < 0.4);
+        let (left, right): (Vec<[u32; 4]>, Vec<[u32; 4]>) =
+            rest.into_iter().partition(|t| c(t, 0) < a / 2.0);
+        let mesh = dir.join("slab.msh");
+        std::fs::write(
+            &mesh,
+            crate::test_msh::write_msh_volumes(
+                &g.mesh.nodes,
+                &[(1, "left", &left), (2, "right", &right), (3, "end", &end)],
+                &[
+                    (11, "port_in", &g.port1_faces),
+                    (12, "port_out", &g.port2_faces),
+                    (13, "walls", &g.sidewall_faces),
+                ],
+            ),
+        )
+        .unwrap();
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "materials": [{ "physical_group": "left", "eps_r": [2.2, 0.0] }],
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [{ "physical_group": "port_in" }, { "physical_group": "port_out" }],
+            "frequencies": { "unit": "k0", "values": [1.8, 2.0] },
+            "sensitivity": {
+                // The all-air end at the geometric port: a slab parameter
+                // would touch the hybrid face's mesh-induced complex pair,
+                // which the sensitivity does not differentiate.
+                "parameters": [{ "kind": "eps_r", "physical_group": "end" }],
+                "observables": [{ "quantity": "s", "entry": [1, 0] }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, false);
+        assert_eq!(solves.primary_p1, 1, "{solves:?}");
+        assert_eq!(sweeps, 0);
+        assert!(report.sensitivities.is_some());
+        assert!(
+            report.wave_ports[1].hybrid.is_some(),
+            "port_out routes hybrid"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Issue #952 for the hybrid face sweep (no 3-D solve) that the
+    /// `--touchstone` classification and the `z0` line-impedance precheck
+    /// (#953) both read: on the coax guide (both ports hybrid) with a `z0`
+    /// observable on `port_in`, each port is face-swept once outside the
+    /// 3-D sweep — before #952 `port_in` was swept twice.
+    #[test]
+    fn touchstone_and_the_z0_precheck_share_the_hybrid_face_sweep() {
+        let dir = scratch_952("hybrid");
+        let mesh = fixture_guide_952(&dir, "guide_coax_lc018_015.msh");
+        let spec = serde_json::json!({
+            "schema_version": 1,
+            "mesh": { "path": mesh.display().to_string(), "length_unit_m": 0.01 },
+            "boundary_conditions": { "pec": ["walls"] },
+            "wave_ports": [
+                { "physical_group": "port_in", "n_modes": 1, "reference_ohm": 50.0 },
+                { "physical_group": "port_out", "n_modes": 1, "reference_ohm": 50.0 }
+            ],
+            "frequencies": { "unit": "k0", "values": [1.0] },
+            "sensitivity": {
+                "parameters": [{ "kind": "eps_r", "physical_group": "guide" }],
+                "observables": [{ "quantity": "z0", "wave_port": "port_in", "mode": 0 }]
+            }
+        });
+        let (report, solves, sweeps) = driven_952(&dir, &spec, true);
+        assert_eq!(sweeps, 2, "one face sweep per hybrid port");
+        assert_eq!(solves.primary_p1, 0, "no geometric port: {solves:?}");
+        assert!(report.touchstone_file.is_some() && report.sensitivities.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

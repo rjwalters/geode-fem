@@ -1,0 +1,190 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Build artifacts
+*.log
+# Committed benchmark evidence log (recovered at-scale run; see issue #556)
+!benchmarks/transmon_bench_cpu/geode_runs_1p16M_2026-07-15.log
+# Committed Palace run evidence log (tracked before *.log rule; negated for consistency)
+!reference/fixtures/transmon_palace/results_p1/palace_run_v22.log
+# #519 Palace-GPU head-to-head run evidence (raw per-run logs + provenance)
+!benchmarks/transmon_bench_gpu/runs/**/*.log
+# #520 GPU driven-scaling sweep run evidence (per-leg logs, Palace logs, TF32 evidence)
+!benchmarks/gpu_driven_scaling/runs/**/*.log
+# #927 like-for-like CPU re-timing raw mode logs (build.log stays ignored)
+!benchmarks/transmon_bench_cpu/runs/**/raw/*.log
+# #1078 Palace coupling cross-check run logs (cited by provenance.txt)
+!reference/fixtures/transmon_palace/results_coupling_1078/*/palace_run.log
+# #1079 Palace loop-inductance run logs (cited by provenance.txt)
+!reference/fixtures/transmon_palace/results_loop_1079/*/palace_run.log
+# #1084 curved conformal 2.4 GHz fixture: baseline / generator / re-check logs
+!benchmarks/patch_antenna_conformal/logs/*.log
+# #1146 Meep harness-v2 run records (cgroup memory samples, run logs; listed in SHA256SUMS)
+!benchmarks/fdtd_density_baseline/meep_runs/v2/**/*.log
+# #1092 DeviceLayout cross-check: Palace run logs (cited by provenance.txt) and geode solve logs
+!reference/fixtures/transmon_palace/results_crosscheck_1092/*/palace_run.log
+!benchmarks/transmon_devicelayout_crosscheck/logs/*.log
+# #1092 part 2 re-optimization: Palace run logs, geode solve and ladder logs
+!reference/fixtures/transmon_palace/results_optimize_1092/*/palace_run.log
+!benchmarks/transmon_devicelayout_optimize/logs/*.log
+!benchmarks/transmon_devicelayout_optimize/ladder_*/logs/*.log
+# #1123 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1123/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1123/logs/*.log
+# #1129 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1129/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1129/logs/*.log
+# #1135 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1135/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1135/logs/*.log
+# #1145 T7: adaptive refinement on the final design, Palace run log and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1145/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1145/logs/*.log
+.loom/daemon-state.json
+.loom/[0-9][0-9]-daemon-state.json
+.loom/stuck-history.json
+.loom/alerts.json
+.loom/health-metrics.json
+.loom/progress/
+
+# Python (reference/ implementations)
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+venv/
+.venv/
+.venv-jax/
+.venv-*/
+
+# Java / Maven (reference/tf_java/ build outputs)
+**/target/
+**/.classpath
+**/.project
+**/.settings/
+
+# Visualization artifacts (geode_viz outputs — issue #277, Epic #276)
+# Generated PNG / SVG plots from tools/viz/ never land in version control;
+# regenerate locally with `python -m geode_viz.plots.<benchmark>`.
+artifacts/
+
+# Python build artifacts (geode_viz package)
+*.egg-info/
+build/
+dist/
+# >>> loom-managed (do not edit) >>>
+# Loom runtime state (don't commit these)
+.loom-in-use
+.loom-checkpoint
+.loom-managed
+.loom-cargo-target-dir
+.no-changes-needed
+.snapshots/
+.loom/.daemon.pid
+.loom/.daemon.log
+.loom/daemon.sock
+.loom/daemon-loop.pid
+.loom/daemon-metrics.json
+.loom/loom-source-path
+.loom/spawn-loop-state.json
+.loom/spawn-loop.pid
+.loom/stop-spawn-loop
+.loom/issue-failures.json
+.loom/interventions/
+.loom/worktrees/
+.loom/worktrees-local/
+.claude/worktrees/
+.loom/state.json
+.loom/mcp-command.json
+.loom/activity.db
+.loom/claims/
+.loom/locks/
+.loom/signals/
+.loom/sweep-dispatch-tap/
+.loom/status/
+.loom/retry-state/
+.loom/exit-codes/
+.loom/sweep-checkpoint/
+.loom/private-jobs/
+.loom/sweep-run/
+.loom/targets/
+.loom/target*/
+.cargo-target*/
+.loom-target/
+/target-*/
+.loom/state/*
+!.loom/state/detect-unlabeled-epics-dismissed
+.loom/stats/
+.loom/diagnostics/
+.loom/guide-docs-state.json
+.loom/metrics_state.json
+.loom/manifest.json
+.loom/stuck-config.json
+.loom/metrics/
+.loom/usage-cache.json
+.loom/claude-config/
+.loom/claude-config.*/
+.loom/claude-config-*/
+.loom/native-tools/
+.loom/tokens/
+.loom/tokens.*/
+.loom/tokens-*/
+.loom/accounts.env
+.loom/accounts.env.*
+.loom/accounts.env-*
+.loom/api-keys/
+.loom/api-keys.*/
+.loom/api-keys-*/
+.loom/account-health.json
+.loom/account-health.lock
+.loom/CANARY
+.loom/*.log
+.loom/*.sock
+.loom/*.tmp
+.loom/*.bak
+.loom/.install.lock
+.loom/logs/
+.loom/.resync-in-progress
+.loom/gh-config/
+.loom/gh-config.*/
+.loom/gh-config-*/
+.loom/gh-config-by-owner/
+.loom/gh-config-by-owner.*/
+.loom/gh-config-by-owner-*/
+.loom-local/
+# <<< loom-managed <<<
+
+# Local credentials / secrets — never commit
+.env
+.env.*
+!.env.example
+*.local.md
+.claude/settings.local.json
+/.voice/
+
+# Repo Skills machine-local install metadata (absolute source path + timestamp)
+.claude/skills/repo/.install-local.json
+
+# Anvil paper-vision per-page render intermediates (regenerable at 200 DPI from main.pdf)
+papers/**/*.vision/pages/
+**/*.vision/pages/
+**/*.vision/slides/
+
+# Vendored Anvil skill install — reinstall with anvil's install.sh.
+# Untracked deliberately: a copy-installed tool tree does not belong in a
+# public repo, and this one carried third-party content (2AMLogic/2am#94).
+.anvil/
+.squad/
+.claude/skills/squad/.install-local.json
+
+# #1084: flat companions of bent patch fixtures are regenerated, not committed
+crates/geode-core/tests/fixtures/*.flat.msh

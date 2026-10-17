@@ -1,0 +1,2 @@
+[size n=30] edges=197190 interior=191670 tets=162000 reps=0 (fixture 6.72 s)
+[size n=40] edges=462520 interior=452760 tets=384000 reps=0 (fixture 17.28 s)

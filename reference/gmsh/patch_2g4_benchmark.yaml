@@ -1,0 +1,38 @@
+# 2.4 GHz rectangular microstrip patch antenna on FR-4 (issue #227
+# benchmark fixture). Probe-fed open radiator: finite PEC ground, PEC
+# patch, coax-probe lumped port, air box + matched-UPML shell.
+#
+# Geometry units: millimeters (so omega = k0 in rad/mm, c = 3e11 mm/s,
+# lambda0 ~ 125 mm at 2.4 GHz). Material values are recorded here as
+# fixture provenance and mirrored as documented constants in
+# crates/geode-core/src/mesh/patch.rs (the mesh itself carries only
+# region tags; materials are applied at solve time).
+
+name: patch_2g4_benchmark
+
+patch:
+  patch_w: 38.0       # patch width  (x extent)
+  patch_l: 29.0       # patch length (y extent)
+  h: 1.6              # FR-4 substrate thickness
+  sub_pad: 12.0       # substrate margin beyond the patch
+  probe_w: 1.6        # coax-probe footprint side
+  probe_inset: 8.0    # feed inset from the +y patch edge (~50 ohm)
+
+domain:
+  air_margin: 60.0    # air gap to the PML (~lambda/2 at 2.4 GHz)
+  pml_thick: 25.0     # matched-UPML shell thickness
+
+mesh:
+  lc_patch: 4.5       # target size on the patch/substrate top face
+  lc_sub: 1.6         # in-slab size (~ substrate thickness, anti-sliver)
+  lc_port: 1.2        # target size at the probe gap
+  lc_far: 28.0        # far-field size (air/UPML)
+  dist_far: 40.0      # distance over which size grows to lc_far
+
+# Material parameters (per region tag; NOT consumed by gmsh — recorded
+# for the solver side; see EPS_* constants in mesh/patch.rs).
+materials:
+  substrate_eps_r: 4.4         # FR-4
+  substrate_tan_delta: 0.02
+  conductor_sigma_s_m: 5.8e7   # copper (PEC in Phase 1; recorded for
+#                                Phase 2 Leontovich loss work)

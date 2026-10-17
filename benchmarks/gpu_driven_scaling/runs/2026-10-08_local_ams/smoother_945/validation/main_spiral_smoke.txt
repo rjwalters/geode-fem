@@ -1,0 +1,13 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=spiral_smoke_ams_matches_direct_lu binary=spiral_golden-2c03b69e5310e414 
+# start=2026-10-08T13:12:59Z loadavg=11.40 12.12 11.81
+
+running 1 test
+test spiral_smoke_ams_matches_direct_lu ... AMS   1.0 GHz: iters [112], residual 6.3e-11, |ΔZ|/|Z| vs direct LU 4.4e-13
+AMS   5.0 GHz: iters [131], residual 8.1e-11, |ΔZ|/|Z| vs direct LU 1.4e-12
+AMS  10.0 GHz: iters [145], residual 6.5e-11, |ΔZ|/|Z| vs direct LU 6.5e-13
+AMS  20.0 GHz: iters [159], residual 7.3e-11, |ΔZ|/|Z| vs direct LU 1.8e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 5.16s
+

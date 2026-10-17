@@ -1,0 +1,6 @@
+measured_date = 2026-10-09
+main_commit = c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3
+ungated_commit = 885e2cc16b3ba95fed41260b2a9ba6a2cf87ec89
+fix_commit = f1f7faa38918ba19c53f66255bc38663b4011929
+sequential_solve_max_dim = 10000
+faer = faier git rev b61bc35d0a166a48c3021dce60294bd92b680013 (0.24.4 fork); the crates.io 0.25.2 port (PR #995) was not merged when these ran

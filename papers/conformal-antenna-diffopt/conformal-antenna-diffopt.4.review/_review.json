@@ -1,0 +1,30 @@
+{
+  "version_dir": "conformal-antenna-diffopt.4",
+  "critic_id": "paper-review",
+  "rubric": "anvil-pub-v2",
+  "scores": [
+    { "id": 1, "dimension": "Rigor of method / argument", "score": 5, "max": 6 },
+    { "id": 2, "dimension": "Evidence sufficiency", "score": 4, "max": 6 },
+    { "id": 3, "dimension": "Clarity of contribution", "score": 5, "max": 5 },
+    { "id": 4, "dimension": "Related-work positioning", "score": 5, "max": 5 },
+    { "id": 5, "dimension": "Reproducibility", "score": 5, "max": 5 },
+    { "id": 6, "dimension": "Figure & table quality", "score": 3, "max": 4 },
+    { "id": 7, "dimension": "Prose & structural quality", "score": 3, "max": 4 },
+    { "id": 8, "dimension": "Citation hygiene", "score": 4, "max": 5 },
+    { "id": 9, "dimension": "Rhetorical economy", "score": 3, "max": 4 }
+  ],
+  "findings": [
+    { "severity": "major", "section": "refs.bib fdtdx entry / Sec 1 + Sec 2", "note": "fdtdx preprint author field ('Schubert, Martin F. and others') conflicts with the resolver-verified JOSS author list (Mahlau, Schubert F., Berg, Rosenhahn) for the same software; likely misattributed. Verify against arXiv:2412.12360 (litsearch micro-re-run or audit resolver call) and fix before submission.", "tags": ["related-work"] },
+    { "severity": "minor", "section": "Sec 3.4 / Availability", "note": "5 overfull hboxes >5pt in reviewer rebuild: 92.9pt body-section texttt call signature (Sec 3.4), 89.6/57.8/15.5pt availability texttt paths, 7.9pt intro bullet. v3 shipped AUDITED with 4 (worst 161pt); worst-case improved, count grew by one. Break the long monospace paths." },
+    { "severity": "minor", "section": "Sec 4 / Sec 5.1 / Sec 5.2 tables", "note": "All three data tables are unnumbered, uncaptioned inline tabulars; promote to captioned table floats with artifact provenance stamps, matching the figures." },
+    { "severity": "minor", "section": "Availability", "note": "Repo now public with URL (v2 gap closed) but 'main branch' still unpinned; add a commit SHA or tag for the artifact of record." },
+    { "severity": "minor", "section": "Sec 5.1 staircasing table", "note": "Perimeter rel-err column non-monotonic (13.0/15.4/14.2/14.2%); verified correct vs staircasing_results.json; add a half-sentence noting oscillation about the plateau (numbers frozen this pass — carried from v2)." },
+    { "severity": "minor", "section": "refs.bib", "note": "ghassemi2013 lacks volume/pages; hooten2025 and fdtdx use 'and others' author truncation, below the standard the other 21 entries meet." },
+    { "severity": "nit", "section": "Sec 2 scoping paragraph", "note": "'and is closed-source and cloud-executed besides' reads editorial; consider folding into the Sec 5.3 parenthetical form." },
+    { "severity": "nit", "section": "global", "note": "Headline numbers (-5.51->-12.06 dB; ~R^3/~R^4) still recur across abstract/intro/results/5.3/discussion/conclusion; Sec 5.3 recaps 5.1-5.2 (carried from v2; frozen by design this pass)." }
+  ],
+  "critical_flags": [],
+  "total": 37,
+  "threshold": 35,
+  "verdict": "advance"
+}

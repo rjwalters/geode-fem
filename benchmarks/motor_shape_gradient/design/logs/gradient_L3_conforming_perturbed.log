@@ -1,0 +1,8 @@
+L3 conforming perturbed current 1 gradient
+# Design gradients: L3 (139268 nodes), conforming/Arkkio, design perturbed 
+
+Moved mesh: min angle 13.08 deg, 0 inverted; shape map set-up 1.465 s
+
+## Current level 1 (I_peak = 9.677657 A): mean 1.385559318 N m, std 0.042964257 N m (gradient 202.721 s)
+
+wrote benchmarks/motor_shape_gradient/design/runs/gradient_L3_conforming_perturbed.json

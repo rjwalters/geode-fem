@@ -1,0 +1,226 @@
+>> /usr/lib64/mpich/bin/mpirun -n 8 /opt/palace/bin/palace-arm64.bin /work/palace_config_h_L6p40.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 8 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+Added 4913 elements in 2 iterations of local bisection for under-resolved interior boundaries
+Added 6014 duplicate vertices for interior boundaries in the mesh
+Added 15098 duplicate boundary elements for interior boundaries in the mesh
+Added 5986 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 4.000e-03 m, tc = 1.334e-02 ns
+Finished partitioning mesh into 8 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-2.000e-03, -7.070e-04, -1.000e-03) m
+ (Xmax, Ymax, Zmax) = (+2.000e-03, +2.993e-03, +1.000e-03) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          3224        3713        3931       29705
+ edges            21114       22986       24011      183891
+ faces            34700       36552       37871      292418
+ elements         16808       17278       17796      138227
+ neighbors            3           5           7
+
+            minimum     maximum
+ h      0.000238104    0.128545
+ kappa      1.00669     16.9909
+
+Estimated current per-rank memory usage is: Min. 40.8M, Max. 146.2M, Avg. 54.7M, Total 437.7M
+Estimated current per-node memory usage is: Min. 438.3M, Max. 438.3M, Avg. 438.3M, Total 438.3M
+
+Configuring Robin impedance BC for lumped ports at attributes:
+ 4: Ls = 6.400e-09 H/sq, Cs = 5.500e-15 F/sq, n = (+0.0,+0.0,+1.0)
+
+Configuring lumped port circuit properties:
+ Index = 1: L = 6.400e-09 H, C = 5.500e-15 F
+
+Configuring Dirichlet PEC BC at attributes:
+ 3, 5
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 1): 29705, ND (p = 1): 183891, RT (p = 1): 292418
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 6, Q = 4 (quadrature order = 2)
+
+Configuring SLEPc eigenvalue solver:
+ Scaling γ = 1.067e+05, δ = 1.708e-05
+ Configuring divergence-free projection
+ Using random starting vector
+ Shift-and-invert σ = 4.500e+00 GHz (3.773e-01)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 183891 unknowns
+ Level 0 (auxiliary) (p = 1): 29705 unknowns
+
+#PETSc Option Table entries:
+-eps_monitor # (source: code)
+#End of PETSc Option Table entries
+
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.548180e+00
+  1 (restart 0) KSP residual norm 7.446256e-09
+  2 (restart 0) KSP residual norm 4.644826e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 5.477e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 3.443941e+01
+  1 (restart 0) KSP residual norm 1.697038e-07
+  2 (restart 0) KSP residual norm 2.026574e-14
+GMRES solver converged in 2 iterations (avg. reduction factor: 2.426e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.585849e+01
+  1 (restart 0) KSP residual norm 3.944673e-08
+  2 (restart 0) KSP residual norm 5.204547e-14
+GMRES solver converged in 2 iterations (avg. reduction factor: 5.729e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 4.153062e+01
+  1 (restart 0) KSP residual norm 6.758654e-08
+  2 (restart 0) KSP residual norm 1.163336e-13
+GMRES solver converged in 2 iterations (avg. reduction factor: 5.293e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 5.929952e+00
+  1 (restart 0) KSP residual norm 9.664917e-09
+  2 (restart 0) KSP residual norm 2.832002e-14
+GMRES solver converged in 2 iterations (avg. reduction factor: 6.911e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 9.513038e-01
+  1 (restart 0) KSP residual norm 7.464584e-10
+GMRES solver converged in 1 iteration (avg. reduction factor: 7.847e-10)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 8.563677e-01
+  1 (restart 0) KSP residual norm 2.365847e-09
+  2 (restart 0) KSP residual norm 1.134209e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 3.639e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 8.918136e-01
+  1 (restart 0) KSP residual norm 2.907542e-09
+  2 (restart 0) KSP residual norm 1.235532e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 3.722e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.889761e+00
+  1 (restart 0) KSP residual norm 2.295400e-09
+  2 (restart 0) KSP residual norm 8.328491e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 6.639e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 8.320529e-01
+  1 (restart 0) KSP residual norm 2.698774e-09
+  2 (restart 0) KSP residual norm 3.546686e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 6.529e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 8.066914e-01
+  1 (restart 0) KSP residual norm 3.064818e-09
+  2 (restart 0) KSP residual norm 1.130656e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 3.744e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.610179e+00
+  1 (restart 0) KSP residual norm 3.320115e-09
+  2 (restart 0) KSP residual norm 7.806224e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 6.963e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.358939e+00
+  1 (restart 0) KSP residual norm 4.216132e-09
+  2 (restart 0) KSP residual norm 1.590950e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 3.422e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.130246e+00
+  1 (restart 0) KSP residual norm 4.840908e-09
+  2 (restart 0) KSP residual norm 5.943056e-16
+GMRES solver converged in 2 iterations (avg. reduction factor: 2.293e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.786413e+00
+  1 (restart 0) KSP residual norm 2.781178e-09
+  2 (restart 0) KSP residual norm 4.753820e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 5.159e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 7.811304e-01
+  1 (restart 0) KSP residual norm 1.338004e-09
+  2 (restart 0) KSP residual norm 1.711536e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 4.681e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 5.893184e-01
+  1 (restart 0) KSP residual norm 1.488542e-09
+  2 (restart 0) KSP residual norm 3.646840e-16
+GMRES solver converged in 2 iterations (avg. reduction factor: 2.488e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 1.045154e+00
+  1 (restart 0) KSP residual norm 1.336161e-09
+  2 (restart 0) KSP residual norm 8.643705e-16
+GMRES solver converged in 2 iterations (avg. reduction factor: 2.876e-08)
+  Residual norms for GMRES solve
+  0 (restart 0) KSP residual norm 2.096826e+00
+  1 (restart 0) KSP residual norm 2.380030e-09
+  2 (restart 0) KSP residual norm 2.455835e-15
+GMRES solver converged in 2 iterations (avg. reduction factor: 3.422e-08)
+  1 EPS nconv=5 first unconverged value (error) 4.48169e-05+4.71701e-12i (1.79413422e-05)
+
+ Linear eigensolve converged (5 eigenpairs) due to CONVERGED_TOL; iterations 1
+ Total number of linear systems solved: 19
+ Total number of linear solver iterations: 37
+ Found 5 converged eigenvalues (first = 1.851e-01-1.106e-16i)
+
+Computing solution error estimates and performing postprocessing
+
+     m,        Re{f} (GHz),        Im{f} (GHz),                  Q,      Error (Bkwd.),       Error (Abs.)
+     1,      +5.131354e+00,      -1.533750e-15,      +1.672813e+15,      +1.321045e-17,      +1.546787e-12
+     2,      +5.263296e+00,      +2.196406e-16,      +1.198161e+16,      +2.268305e-17,      +2.655916e-12
+     3,      +1.546071e+01,      +7.801099e-13,      +9.909313e+12,      +6.352001e-17,      +7.437542e-12
+     4,      +1.869166e+01,      -3.643388e-12,      +2.565148e+12,      +2.647860e-13,      +3.100396e-08
+     5,      +2.069756e+01,      +1.473006e-11,      +7.025620e+11,      +2.652644e-11,      +3.106014e-06
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 6.952e-01, global unknowns = 183891
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 458.6M, Max. 514.4M, Avg. 483.3M, Total 3.8G
+Estimated peak per-node memory usage is: Min. 3.8G, Max. 3.8G, Avg. 3.8G, Total 3.8G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   0.195       2.049       1.816
+  Mesh Preprocessing             0.466       2.317       0.697
+Operator Construction            0.298       0.309       0.303
+Linear Solve                     0.314       0.336       0.321
+  Setup                          0.141       0.142       0.141
+  Preconditioner                 4.607       4.635       4.625
+Eigenvalue Solve                 0.281       0.290       0.284
+Div.-Free Projection             0.970       0.972       0.972
+Estimation                       0.032       0.034       0.033
+  Construction                   0.470       0.471       0.470
+  Solve                          1.045       1.059       1.056
+Postprocessing                   0.119       0.135       0.122
+Disk IO                          0.447       0.458       0.453
+--------------------------------------------------------------
+Total                           11.324      11.325      11.325
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   22.8M       22.8M       22.8M
+  Mesh Preprocessing            148.8M      148.8M      171.6M
+Operator Construction           324.7M      324.7M      496.3M
+Linear Solve                      0.0K        0.0K      496.3M
+  Setup                         351.4M      351.4M      847.7M
+  Preconditioner                  2.6G        2.6G        3.4G
+Eigenvalue Solve                  8.2M        8.2M        3.4G
+Div.-Free Projection            109.4M      109.4M        3.5G
+Estimation                        0.0K        0.0K        3.5G
+  Construction                    9.2M        9.2M        3.5G
+  Solve                           0.0K        0.0K        3.5G
+Postprocessing                    0.0K        0.0K        3.5G
+Disk IO                          46.6M       46.6M        3.6G
+--------------------------------------------------------------
+Total                             3.6G        3.6G        3.6G
+

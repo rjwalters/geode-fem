@@ -1,0 +1,6 @@
+leg=B2_cpu_iter_large kind=cpu bin=target/release/deps/gpu_driven_scaling-bb279c5dd4136faf
+start=2026-10-07T23:59:30Z
+git=d51b4b6e8a5d9bc1977d3b98814fc5574339236b dirty=4
+env: GEODE_SCALING_SIZES=36,40 GEODE_SCALING_CONFIGS=iterative GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1
+end=2026-10-08T00:07:30Z
+rc=0

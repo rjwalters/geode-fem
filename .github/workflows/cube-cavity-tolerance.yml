@@ -1,0 +1,160 @@
+name: cube-cavity-tolerance
+
+# Issue #110 — characterize the cross-platform tolerance floor of the
+# Burn↔NumPy cube-cavity sub-stage comparison.
+#
+# This workflow runs the `cube_cavity_numpy_reference` eigensolve tests
+# across two runner platforms (`ubuntu-latest`, `macos-latest` arm64)
+# so the observed `m_int_diag` / `k_int_diag` /
+# Frobenius drift surfaces in the CI log under `--nocapture`. The
+# `print_substage_diff` helper in the test emits machine-readable
+# `CUBE_CAVITY_SUBSTAGE_DIFF` lines per field per platform, which the
+# `extract-tolerance-table` job collects into a single artifact for the
+# schema doc.
+#
+# Why this workflow exists separately from `tfjava-cube-cavity.yml`:
+#   - tfjava-cube-cavity is heavy (JDK 17, Maven, ~200 MB native libs)
+#     and runs Ubuntu-only. Bolting a macOS matrix onto it would slow
+#     the path-filtered TF-Java gate without buying the macOS runners
+#     anything they need (they don't have JDK 17 + Maven configured for
+#     TF-Java's native classifier).
+#   - The Rust toolchain + the eigensolve tests take ~10 minutes per
+#     platform; total wall-clock is ~30 minutes parallelized.
+#
+# Triggers:
+#   - `pull_request` / `push` to main when the fixture, the test, or
+#     the assembly or dense-eigensolver path that feeds it changes.
+#   - `workflow_dispatch` for ad-hoc re-measurement (e.g., after a
+#     toolchain bump).
+#
+# Runner-starvation note (issue #354):
+#   This workflow used to carry a third `macos-13` (Intel x86_64) leg.
+#   GitHub-hosted Intel macOS runners are deprecated and the leg never
+#   got a runner: it sat "waiting for a runner" for the full 24h Actions
+#   ceiling and was force-cancelled, marking every run of this workflow
+#   cancelled. The #356 mitigation (`timeout-minutes: 30` +
+#   `continue-on-error`) did NOT help, because `timeout-minutes` only
+#   starts counting once a job is assigned a runner — queue-wait is not
+#   covered (verified on runs 28423540386 / 28401340707, both 24h0m
+#   cancelled with the mitigation in place). The Intel leg was therefore
+#   removed entirely; its historical numbers remain in
+#   `baseline.schema.md`. If Intel coverage is ever needed again, use a
+#   self-hosted x86_64 runner rather than the retired GitHub pool.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/geode-core/src/assembly/**'
+      - 'crates/geode-core/src/upload_mesh.rs'
+      - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'crates/geode-util/src/eigen.rs'
+      - 'crates/geode-core/src/eigen/dense.rs'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.schema.md'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - '.github/workflows/cube-cavity-tolerance.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/geode-core/src/assembly/**'
+      - 'crates/geode-core/src/upload_mesh.rs'
+      - 'crates/geode-validation/tests/cube_cavity_numpy_reference.rs'
+      - 'crates/geode-util/src/eigen.rs'
+      - 'crates/geode-core/src/eigen/dense.rs'
+      - 'reference/fixtures/cube_cavity/baseline.json'
+      - 'reference/fixtures/cube_cavity/baseline.schema.md'
+      - 'reference/fixtures/cube_cavity/unit_cube.msh'
+      - '.github/workflows/cube-cavity-tolerance.yml'
+  workflow_dispatch: {}
+
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  cube-cavity-substage-matrix:
+    name: cube-cavity substage diff (${{ matrix.os }})
+    strategy:
+      # Don't fail-fast: we want every platform's diff line in the log,
+      # even if one platform fails the tolerance bar. The whole point of
+      # this workflow is to *see* the worst-case across the matrix.
+      fail-fast: false
+      matrix:
+        # Intel x86_64 (`macos-13`) is intentionally absent — see the
+        # runner-starvation note at the top of this file.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # Both platforms finish in ~4-5 min; 30 min leaves ample headroom
+    # for a cold cache.
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          # Cache key is per-OS because the build artifacts are not
+          # portable across Linux/macOS/x86_64/arm64. Bumping
+          # Cargo.lock invalidates the cache.
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-cube-cavity-tol-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Print runner/toolchain info
+        # Capture the exact CPU + OS + rustc combo so the tolerance
+        # table in baseline.schema.md can cite a concrete provenance
+        # for each platform's number.
+        run: |
+          uname -a
+          rustc --version
+          cargo --version
+          echo "runner.os=${{ runner.os }}"
+          echo "runner.arch=${{ runner.arch }}"
+
+      # The eigensolve tests used to be #[ignore]d (faer 0.24's `qz_real`
+      # panicked under debug-assertions). Since issue #813 they are in the
+      # default tier, so run the whole target (--ignored would now select
+      # nothing). Release keeps the step fast.
+      - name: Run cube_cavity substage test (--nocapture, ndarray, release)
+        # Explicit `shell: bash` runs `bash -eo pipefail`, so a test
+        # failure is not masked by `| tee` (the default `bash -e {0}`
+        # has no pipefail and the step stayed green).
+        shell: bash
+        run: |
+          cargo test \
+            --release -p geode-validation \
+            --test cube_cavity_numpy_reference \
+            -- --nocapture \
+            2>&1 | tee cube_cavity_substage.log
+
+      - name: Extract CUBE_CAVITY_SUBSTAGE_DIFF lines
+        # Filter the log down to just the machine-readable diff lines
+        # the test emits via `print_substage_diff`. These are the
+        # source-of-truth observations for `baseline.schema.md`.
+        if: always()
+        run: |
+          echo "=== Platform: ${{ matrix.os }} (${{ runner.os }}/${{ runner.arch }}) ==="
+          grep '^CUBE_CAVITY_SUBSTAGE_DIFF' cube_cavity_substage.log || \
+            echo "(no CUBE_CAVITY_SUBSTAGE_DIFF lines found — test may have failed before reaching the diff printer)"
+
+      - name: Upload substage diff log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cube-cavity-substage-${{ matrix.os }}
+          path: cube_cavity_substage.log
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,19 @@
+fixture:        guide_box_905_3x1x4p06_lc090.msh
+sha256:         4c4141825e93bf3e168b6459333981668cf21c7ed2d870a630e923b15b368ab4
+generated:      2026-10-08T08:25:03+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/guide_box.geo
+command:        gmsh reference/gmsh/guide_box.geo -3 -format msh41 -v 0 -setnumber a 3 -setnumber b 1 -setnumber d 4.06 -setnumber lc 0.9 -o crates/geode-core/tests/fixtures/guide_box_905_3x1x4p06_lc090.msh
+
+parameter values:
+  a:  3   (x extent, mesh units)
+  b:  1   (y extent)
+  d:  4.06   (z extent: the guide length)
+  lc: 0.9   (mesh size at both ends; lc1 = lc)
+
+physical groups: 3-D "domain"; 2-D "walls" (all six faces). The test takes the
+                 port from boundary_faces() at z = 0.
+nodes:          94
+elements:       400   (all dimensions, as listed in $Elements)
+why:            the 3-D p=2 TM-like cutoff is 12.38 % below the P2 face value on this coarse mesh (k_c h_n = 2.78); the withdrawn p=2 guard law sat 8.42 points above it.
+consumed by:    crates/geode-core/tests/wave_port_p2.rs (issue #905)

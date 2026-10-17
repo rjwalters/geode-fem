@@ -1,0 +1,13 @@
+# tree=main test=spiral_drude_ams_matches_direct
+# git=c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0 env=none
+# start=2026-10-09T11:59:48Z loadavg_start=33.70,54.46,61.19
+
+running 1 test
+test spiral_drude_ams_matches_direct ... ams-drude   1.0 GHz: iters [229], |ΔZ|/|Z| vs direct 5.0e-12
+ams-drude   5.0 GHz: iters [202], |ΔZ|/|Z| vs direct 1.9e-12
+ams-drude  10.0 GHz: iters [232], |ΔZ|/|Z| vs direct 8.3e-13
+ams-drude  20.0 GHz: iters [235], |ΔZ|/|Z| vs direct 1.8e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 8.44s
+

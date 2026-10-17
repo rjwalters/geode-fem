@@ -1,0 +1,18 @@
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 8 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-umpire
+libCEED backend: /cpu/self/opt/blocked
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 8 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-umpire
+libCEED backend: /cpu/self/opt/blocked
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Device configuration: cuda,omp,cpu
+Memory configuration: host-umpire,cuda-umpire
+libCEED backend: /gpu/cuda/magma
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Device configuration: cuda,omp,cpu
+Memory configuration: host-umpire,cuda-umpire
+libCEED backend: /gpu/cuda/magma

@@ -1,0 +1,53 @@
+{
+  "schema": "geode-meep-probe/1",
+  "started_utc": "2026-10-13T15:16:23.251967+00:00",
+  "meep_version": "1.34.0",
+  "architecture": "aarch64",
+  "mpi_ranks": 32,
+  "resolution_cells_per_mm": 2.0,
+  "estimated_cells": 37103616,
+  "initialization_seconds": 16.71664978900003,
+  "requested_steps": 1000,
+  "actual_steps": 1000.0,
+  "stepping_seconds": 150.62111797,
+  "time_step": 0.25,
+  "sum_rank_peak_rss_bytes": 14961823744,
+  "configuration": {
+    "patch": {
+      "patch_w": 38.0,
+      "patch_l": 29.0,
+      "h": 1.6,
+      "sub_pad": 12.0,
+      "probe_w": 1.6,
+      "probe_inset": 7.0
+    },
+    "domain": {
+      "air_margin": 40.0,
+      "pml_thick": 25.0
+    },
+    "materials": {
+      "substrate_eps_r": 4.4,
+      "substrate_tan_delta": 0.02,
+      "conductor_sigma_s_m": "5.8e7"
+    },
+    "band": {
+      "f_lo_ghz": 2.4,
+      "f_hi_ghz": 2.4835,
+      "f_ref_ghz": 2.4835
+    },
+    "bend_radius_mm": 100.0,
+    "port_resistance_ohm": 50.0,
+    "source": {
+      "commit": "571feba337e3f8bc77393277d5018a7d5d6a56aa",
+      "path": "reference/gmsh/patch_conformal_L0.yaml",
+      "sha256": "4b2bc0e2b7a4d59bb6ab0229083c11bdb1b8681317219e989a670e5c11f8c282"
+    }
+  },
+  "source_sha256": "78a80f25a9a56d66b7a9bc78e1d832b48c4cd4629d2230e93865d5ecd56dd30d",
+  "antenna_source_sha256": "66d3285f058b42a62bd26671bb9c2955fd66572de99f4c0a1d96f35f7d9d6d05",
+  "limitations": [
+    "Short startup stepping sample, not steady-state or full-run timing.",
+    "Sum of rank peak RSS is not simultaneous aggregate RSS.",
+    "No S11, temporal convergence, spatial convergence or cost-to-accuracy result."
+  ]
+}

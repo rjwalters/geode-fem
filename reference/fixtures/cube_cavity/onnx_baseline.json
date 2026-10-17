@@ -1,0 +1,73 @@
+{
+  "schema_version": "1",
+  "fixture_id": "cube_cavity/n10_onnx_baseline",
+  "description": "Lowest 5 scalar Helmholtz eigenvalues of the unit cube with homogeneous Dirichlet BC, assembled by the ONNX static-graph pipeline (Epic #88 Phase F.2 / issue #123) on the programmatic cube_tet_mesh of n=10 (729 interior DOFs). Same mesh and same scipy.sparse.linalg.eigsh seam as the NumPy canonical baseline.json; ONNX provides the cross-IR row alongside JAX and TF-Java for Epic #88's graph-only constraint check.",
+  "units": "dimensionless (k^2 with side normalized to 1)",
+  "inputs": {
+    "n": {
+      "shape": [
+        1
+      ],
+      "dtype": "i64",
+      "description": "Cells per side of the programmatic cube_tet_mesh.",
+      "data": [
+        10
+      ]
+    },
+    "side": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Cube edge length.",
+      "data": [
+        1.0
+      ]
+    }
+  },
+  "outputs": {
+    "eigenvalues": {
+      "shape": [
+        5
+      ],
+      "dtype": "f64",
+      "description": "Lowest 5 eigenvalues, ascending. Cross-language f64 reproducibility allows ~1e-5 relative drift per Epic #88 framing; this fixture uses 1e-8 absolute since the in-tree NumPy and ONNX values agree to ~1e-13 at fixture-gen time.",
+      "tolerance_abs": 1e-08,
+      "data": [
+        30.832660835204873,
+        62.91210361562134,
+        62.91210361562137,
+        65.13922463020594,
+        98.1670635310854
+      ]
+    },
+    "k_diag_sum": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "trace(K_int) -- interior-DOF stiffness diagonal sum.",
+      "tolerance_abs": 1e-12,
+      "data": [
+        437.4
+      ]
+    },
+    "m_diag_sum": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "trace(M_int) -- interior-DOF mass diagonal sum.",
+      "tolerance_abs": 1e-12,
+      "data": [
+        0.2916000000000001
+      ]
+    }
+  },
+  "provenance": {
+    "source": "reference/onnx/cube_cavity/assembly_graph.py (Epic #88 Phase F.2 / issue #123)",
+    "verified_against": "reference/numpy/cube_cavity_minimal.py -- eigenvalues agree to 1.3e-15 relative at fixture-gen time",
+    "issue": "#123 (cube-cavity ONNX assembly graph)",
+    "audit": "reference/onnx/audit/cube_cavity_operator_audit.md"
+  }
+}

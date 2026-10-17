@@ -1,0 +1,113 @@
+# #[ignore]d tests that no CI workflow runs (issue #793).
+#
+# Read by scripts/ci-test-coverage.py. Running a target's default tier does
+# not run its #[ignore]d tests, so the guard lists every ignored test of
+# every target that CI runs, and fails when
+#   * an ignored test runs in no workflow (no `-- --ignored` /
+#     `-- --include-ignored` command that selects it) and is NOT listed
+#     here, or
+#   * an entry here is stale: the test now runs, no longer exists, or its
+#     target does not run in CI at all (that belongs in
+#     ci-test-coverage-allowlist.txt), or
+#   * an entry has no reason.
+#
+# Issue #793 timed every such test in release on ubuntu-latest (one test at
+# a time, 20-min cap) and wired the passing ones into integration-tests.yml
+# and arpack.yml. Every entry left here carries its reason. Shrink this
+# file; do not grow it without a reason.
+#
+# Format: <crate>/<target>::<test>  # <reason>   (one ignored test), or
+#         <crate>/<target>  # <reason>           (every ignored test of the
+#                                                 target). The reason is
+#         required, on the same line.
+#
+# Unit tests (issue #921): a crate's `--lib` target is <crate>/lib, and its
+# tests are named by module path, for example
+#   geode-core/lib::driven::solve::tests::some_benchmark  # <reason>
+# No lib entry is needed today: #921 timed the four #[ignore]d geode-core
+# unit tests in release (0.7 s to 14.7 s each, local Apple M3 Ultra) and
+# arpack.yml runs all four by name. It also runs the #913 stress sweep
+# (analytic::waveguide::tests::empty_set_rule_stress_sweep_913, 15 to 63 s).
+
+# geode-core
+
+# Needs an NVIDIA GPU: compiled only with --features cuda (burn-cuda 0.21,
+# f32 only); run by hand on a rented EC2 GPU box.
+geode-core/cocg_burn_equivalence::cocg_burn_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+geode-core/driven_matrix_free_equivalence::driven_matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+geode-core/nedelec_matrix_free_equivalence::matrix_free_cuda_f32_smoke  # needs a CUDA GPU (--features cuda)
+
+# Issue #1011 regression: dense P1 assembly of cube_tet_mesh(35) (46_656
+# nodes, the smallest cube past the old i32 linear-index limit). The dense
+# f64 K and M are ~17 GB each; 39 GB peak RSS, 44 s in release (local
+# 28-core host). Does not fit a 7 GB ubuntu-latest runner. The row-blocked
+# scatter it exercises is covered in CI at small sizes by the
+# assembly::dense_scatter unit tests (geode-core/lib, arpack.yml).
+geode-core/assembly::p1_assembly_past_i32_linear_index_limit_1011  # needs ~40 GB RAM (dense 46_656^2 f64 K and M)
+
+# A fixture regenerator, not a check: heavy (~2 min), it writes a scratch
+# copy of tests/fixtures/mie_complex_pml_dense_eigenvalues.toml under
+# target/ and rewrites the committed fixture only with
+# GEODE_BLESS_DENSE_ORACLE=1 (issue #823). The acceptance test
+# against that fixture (sparse_complex_matches_dense_fixture) runs in
+# arpack.yml.
+geode-core/periodic_cavity::regenerate_periodic_results  # artifact regenerator (GEODE_BLESS_PERIODIC=1 rewrites benchmarks/periodic); its goldens 4/5 run in the default tier
+geode-core/sparse_complex_eigensolver::regenerate_dense_oracle_fixture  # fixture regenerator (heavy; GEODE_BLESS_DENSE_ORACLE=1 rewrites the committed fixture)
+
+# The dense reference tier of the two Silver-Müller self-consistent targets
+# (issue #917). Each test runs 10 to 31 full dense solves of the 4512-DOF
+# pencil (FaerComplexEigensolver, a complete complex Schur decomposition
+# per solve, with eigenvectors in the vector-tracking target), which does
+# not fit a 45-min job. Measured 2026-10-07 on origin/main, release, local
+# 28-core host at load 65-200, three tests in parallel:
+# silvermuller_self_consistent 39 min (3 passed),
+# silvermuller_self_consistent_vector_tracking 38 min (2 passed, 1 failed).
+# CI runs the targets' default tier instead (the sparse_* tests,
+# integration-tests.yml core-dense-eigen): the self-consistent drivers on
+# the sparse complex Lanczos, from the dense tier's seed eigenvalues, in
+# about 2 min. That tier checks its seeds and windows against a dense
+# solve. It is NOT the same scenarios: the dense tier picks by frozen
+# index, the sparse tier by nearest eigenvalue (which is not the same
+# eigenvector) or by eigenvector overlap inside a 12-pair window. Of five
+# runs, three end where the dense run ends (seed k0 = 1, first mode, with and
+# without vector tracking; mode death at k0 = 25, ModeLost at iteration 2 in
+# both tiers since the #988 score, #1021) and two do not (seed k0 = 20; the
+# second seed at k0 = 1, where the nearest-eigenvalue pick changes
+# eigenvector four times). Each sparse test pins its own outcome and
+# says where it differs. So the dense assertions below are not exercised
+# in CI by an equivalent test, only by related ones.
+# vector_tracked_beats_frozen_int_idx was re-seeded at k0 = 20 by issue #940
+# (it failed from k0 = 1, where both drivers follow the same Silver-Müller
+# mode). It now passes, measured at 126 min (49 dense solves with 1104
+# eigenvectors each, load 110-130). Re-measured under the #988 score
+# (#1021, release, one test at a time, load 17-85): beats_frozen 3842 s,
+# lowest_mode 830 s, mode_death 182 s (137 s on a later re-run), 4943 s
+# in total (benchmarks/mie_sphere/runs/2026-10-09_sm_vector_tracking_dense).
+# The resonance it converges on runs in CI as
+# sparse_vector_tracked_converges_on_sphere_resonance, and the
+# comparison as synthetic_vector_tracked_beats_frozen_int_idx.
+geode-core/silvermuller_self_consistent  # dense reference tier: ~39 min; the sparse_* default tier runs the drivers from the same seeds in CI, with a different target rule (#917)
+geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_converges_on_lowest_mode  # dense reference tier: 830 s (#1021); sparse_vector_tracked_converges_on_lowest_mode runs in CI (#917)
+geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_handles_mode_death  # dense reference tier: 182 s (137 s re-run, #1021); sparse_vector_tracked_handles_mode_death runs in CI from the same seed, and both tiers end on ModeLost at iteration 2 (#917, #1021)
+geode-core/silvermuller_self_consistent_vector_tracking::vector_tracked_beats_frozen_int_idx  # dense reference tier: 3842 s (#1021; 126 min under #940); sparse_vector_tracked_converges_on_sphere_resonance and synthetic_vector_tracked_beats_frozen_int_idx run in CI
+
+# Measured negative by design: AMS-MINRES plateaus at about 1.09e-5 at
+# sigma = 4.5 GHz and the test panics if run (issue #531 Phase 1c,
+# benchmarks/transmon_ams_minres_133k/results.toml).
+geode-core/transmon_eigenmode::real_transmon_minres_ams_converges_at_sigma_4p5  # documented measured negative (#531 Phase 1c); panics by design
+
+# The matrix-free (Jacobi / AMS-preconditioned CG and MINRES) solves of the
+# real 133k-DOF transmon. Each timed out at the 20-min cap on ubuntu-latest
+# (#793 measurement runs 37079249918 and 37081282414), so each is over the
+# per-test budget; the direct-LU transmon tests in the same target run in
+# integration-tests.yml (core-ignored).
+#
+# The two CG tests below never converged before issue #960: they ran SPD-only
+# CG at sigma = +4.5 GHz, where the ungauged pencil is indefinite (gradient
+# kernel and the 3.45 GHz junction mode below the shift), and failed at
+# |r|/|b| = 0.69 after 266216 iterations. #960 moved them to the SPD shift
+# sigma = -lambda(4.5 GHz); both pass there. Times are release, one test at a
+# time, on a local Apple M3 Ultra (shared host, load 20-197).
+geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # release-only, passes (#960): direct LU + a 96-step matrix-free AMS-CG eigensolve (~2750 inner CG iterations per step), 69-116 min locally (load-dependent), over the 20-min cap
+geode-core/transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
+geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # release-only, passes (#960): the Jacobi leg runs its full 266216-iteration CG budget before the lower-bound gate, 22.7 min locally, over the 20-min cap

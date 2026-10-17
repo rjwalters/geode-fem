@@ -1,0 +1,90 @@
+{
+  "Problem": {
+    "Output": "postpro/spiral_palace",
+    "Type": "Driven",
+    "Verbose": 2
+  },
+  "Model": {
+    "L0": 1e-6,
+    "Mesh": "crates/geode-core/tests/fixtures/spiral_3p5.msh",
+    "Refinement": {
+      "UniformLevels": 0
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "LossTan": 0.005,
+        "Permittivity": 11.9
+      },
+      {
+        "Attributes": [
+          2
+        ],
+        "LossTan": 0.001,
+        "Permittivity": 4.0
+      },
+      {
+        "Attributes": [
+          3,
+          4
+        ],
+        "LossTan": 0.0,
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Boundaries": {
+    "LumpedPort": [
+      {
+        "Attributes": [
+          11
+        ],
+        "Direction": "+Y",
+        "Excitation": true,
+        "Index": 1,
+        "R": 50.0
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        12,
+        13
+      ]
+    }
+  },
+  "Solver": {
+    "Driven": {
+      "FreqStep": 1.0,
+      "MaxFreq": 40.0,
+      "MinFreq": 0.1,
+      "Restart": 1,
+      "Samples": [
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        4.0,
+        6.0,
+        8.0,
+        10.0,
+        15.0,
+        20.0,
+        30.0,
+        40.0
+      ],
+      "SaveStep": 0
+    },
+    "Linear": {
+      "KSPType": "GMRES",
+      "MaxIts": 200,
+      "Tol": 1e-8,
+      "Type": "Default"
+    },
+    "Order": 1
+  }
+}

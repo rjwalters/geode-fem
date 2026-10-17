@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Summarize a #519 box_bench.sh run into TOML fragments (stdout).
+
+usage: summarize.py <raw-dir> <cpu-baseline-eig.csv>
+
+Reads raw/runs.csv (one row per run), each Palace run's log (Elapsed Time
+Report: per-phase seconds) and eig.csv, and each geode run's log. Emits one
+[cells.<cell>] table per cell with per-run values and mean/stddev, plus an
+[eigen_agreement] table comparing every Palace run's Re{f} against the
+committed CPU Palace baseline (reference/fixtures/transmon_palace/results_p1/
+eig.csv). For every run of every cell it also prints the modes returned, a
+class per mode and the number of physical modes (issue #927: the two solvers
+do not return the same six modes). Pure stdlib; no fitting, no outlier
+rejection.
+"""
+import csv
+import math
+import pathlib
+import re
+import statistics
+import sys
+
+raw = pathlib.Path(sys.argv[1])
+baseline = pathlib.Path(sys.argv[2])
+
+
+def wall_to_s(s):
+    # /usr/bin/time "Elapsed (wall clock)" is [h:]m:ss.ss
+    parts = [float(p) for p in s.split(":")]
+    sec = 0.0
+    for p in parts:
+        sec = sec * 60 + p
+    return sec
+
+
+def read_eig(path):
+    out = []
+    with open(path) as f:
+        rows = list(csv.reader(f))
+    for r in rows[1:]:
+        if len(r) >= 2:
+            out.append(float(r[1]))
+    return out
+
+
+# Palace's Elapsed Time Report rows, in print order. Indented rows are
+# sub-timers; Palace's BlockTimer is EXCLUSIVE (a parent row does not include
+# its indented children), so for any one rank the rows sum to Total. The two
+# indented rows under "Estimation" are printed as bare "Construction" / "Solve"
+# and are keyed here as "Estimation Construction" / "Estimation Solve".
+PHASES = [
+    "Initialization",
+    "Mesh Preprocessing",
+    "Operator Construction",
+    "Linear Solve",
+    "Setup",
+    "Preconditioner",
+    "Eigenvalue Solve",
+    "Div.-Free Projection",
+    "Estimation",
+    "Estimation Construction",
+    "Estimation Solve",
+    "Postprocessing",
+    "Paraview",
+    "Disk IO",
+    "Total",
+]
+
+
+def palace_phases(log):
+    """{phase: (max_over_ranks, avg_over_ranks)} from Palace's Elapsed Time Report."""
+    txt = log.read_text(errors="replace")
+    if "Elapsed Time Report" not in txt:
+        return {}
+    sec = txt.split("Elapsed Time Report")[1].split("Peak Memory")[0]
+    out = {}
+    parent = None
+    for line in sec.splitlines():
+        m = re.match(r"(\s*)([A-Za-z.\- ]+?)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$", line)
+        if not m:
+            continue
+        name = m.group(2).strip()
+        if not m.group(1):
+            parent = name
+        elif parent == "Estimation" and name in ("Construction", "Solve"):
+            name = f"Estimation {name}"
+        if name in PHASES:
+            out[name] = (float(m.group(4)), float(m.group(5)))  # (Max, Avg) over ranks
+    return out
+
+
+def time_v(path):
+    """CPU accounting from a `/usr/bin/time -v` file: (percent, user_s, sys_s)."""
+    if not path.exists():
+        return None
+    txt = path.read_text(errors="replace")
+    pct = re.search(r"Percent of CPU this job got:\s*([0-9]+)%", txt)
+    usr = re.search(r"User time \(seconds\):\s*([0-9.]+)", txt)
+    sys_ = re.search(r"System time \(seconds\):\s*([0-9.]+)", txt)
+    if not (pct and usr and sys_):
+        return None
+    return int(pct.group(1)), float(usr.group(1)), float(sys_.group(1))
+
+
+GEODE_MODE = re.compile(
+    r"mode\[(\d+)\]: .*?f = ([0-9.eE+-]+) GHz, participation p = ([0-9.]+)"
+)
+
+
+def geode_modes(log):
+    """Returned (f_GHz, participation) pairs from a transmon_bench log."""
+    if not log.exists():
+        return []
+    return [(float(m.group(2)), float(m.group(3))) for m in GEODE_MODE.finditer(log.read_text(errors="replace"))]
+
+
+# Mode classification (issue #927, re-baselined by #1045), the rule of
+# benchmarks/transmon_eigen and of
+# benchmarks/transmon_bench_cpu/summarize_like_for_like.py. The reference list
+# is the qubit mode (Palace at Target 2 GHz, #1043) plus the modes of the
+# committed CPU Palace baseline (Target 4.5 GHz): five cavity modes and the
+# 17.49 GHz port-sheet artifact. A returned mode takes the kind of the
+# reference mode it is nearest to, within PHYSICAL_TOL_PCT: "qubit", "cavity"
+# or "port_sheet_artifact"; otherwise "near_kernel" (below NEAR_KERNEL_GHZ) or
+# "unclassified". The physical modes are the qubit and the cavity modes.
+# Before #1045 the qubit was labelled "spurious_port" and the artifact
+# "physical". Participation is not used.
+PHYSICAL_TOL_PCT = 1.0  # PALACE_BAR_PCT of tests/transmon_eigenmode.rs
+NEAR_KERNEL_GHZ = 0.5  # gradient near-kernel survivor threshold of the same tests
+QUBIT_GHZ = 3.452749  # benchmarks/transmon_eigen/results.toml [modes.qubit].palace_f_ghz (#1043)
+PORT_SHEET_ARTIFACT_GHZ = 17.490109  # [modes.port_sheet_artifact].palace_f_ghz
+PHYSICAL_KINDS = ("qubit", "cavity")
+
+
+def reference(oracle):
+    """[(kind, f)]: the qubit mode, then each baseline mode as cavity or port_sheet_artifact."""
+    ref = [("qubit", QUBIT_GHZ)]
+    for pf in oracle:
+        art = abs(pf - PORT_SHEET_ARTIFACT_GHZ) / PORT_SHEET_ARTIFACT_GHZ * 100.0 <= PHYSICAL_TOL_PCT
+        ref.append(("port_sheet_artifact" if art else "cavity", pf))
+    return ref
+
+
+def classify_modes(freqs, oracle):
+    """One class per returned mode: qubit / cavity / port_sheet_artifact / near_kernel / unclassified."""
+    classes = [None] * len(freqs)
+    for kind, pf in reference(oracle):
+        if not freqs:
+            break
+        i = min(range(len(freqs)), key=lambda k: abs(freqs[k] - pf))
+        if abs(freqs[i] - pf) / pf * 100.0 <= PHYSICAL_TOL_PCT:
+            classes[i] = kind
+    for i, f in enumerate(freqs):
+        if not classes[i]:
+            classes[i] = "near_kernel" if f < NEAR_KERNEL_GHZ else "unclassified"
+    return classes
+
+
+def print_mode_classes(prefix, freqs, oracle):
+    classes = classify_modes(freqs, oracle)
+    quoted = ", ".join(f'"{c}"' for c in classes)
+    print(f"{prefix}_modes_class = [{quoted}]")
+    print(f"{prefix}_n_physical = {sum(1 for c in classes if c in PHYSICAL_KINDS)}  # of the 6 physical modes (the qubit and five cavity modes)")
+    request = sum(1 for c in classes if c in ("cavity", "port_sheet_artifact"))
+    print(f"{prefix}_n_palace_request_modes = {request}  # of the baseline's {len(oracle)} (the pre-#1045 n_physical)")
+
+
+# Phase groups used to attribute the Palace GPU-vs-CPU gap (sums of the
+# per-phase "Max over ranks" columns of Palace's Elapsed Time Report).
+PHASE_GROUPS = {
+    "init_plus_mesh": ["Initialization", "Mesh Preprocessing"],
+    "opconstr_setup_precond": ["Operator Construction", "Setup", "Preconditioner"],
+}
+
+
+def fmt(x):
+    return "nan" if (x is None or (isinstance(x, float) and math.isnan(x))) else f"{x:.3f}"
+
+
+rows = list(csv.DictReader(open(raw / "runs.csv")))
+cells = {}
+for r in rows:
+    cells.setdefault(r["cell"], []).append(r)
+
+base = read_eig(baseline)
+print("# ---- generated by benchmarks/transmon_bench_gpu/summarize.py ----")
+for cell, rs in cells.items():
+    walls = [wall_to_s(r["time_wall"]) for r in rs if r["time_wall"] not in ("", "NA")]
+    host = [float(r["host_wall_s"]) for r in rs]
+    rss = [int(r["max_rss_kb"]) for r in rs if r["max_rss_kb"] not in ("", "NA")]
+    gpu = [
+        int(r["gpu_peak_mib"]) - int(r["gpu_idle_mib"])
+        for r in rs
+        if r["gpu_peak_mib"] not in ("", "NA") and r["gpu_idle_mib"] not in ("", "NA")
+    ]
+    exits = [int(r["exit"]) for r in rs]
+    cpu = [time_v(raw / f"{cell}_run{i}.time") for i in range(1, len(rs) + 1)]
+    print(f"\n[cells.{cell}]")
+    print(f"n = {len(rs)}")
+    print(f"exit_codes = {exits}")
+    print(f"wall_s = [{', '.join(fmt(w) for w in walls)}]")
+    if walls:
+        sd = statistics.stdev(walls) if len(walls) > 1 else 0.0
+        print(f"wall_s_mean = {fmt(statistics.mean(walls))}")
+        print(f"wall_s_stddev = {fmt(sd)}")
+    print(f"host_wall_s = [{', '.join(fmt(h) for h in host)}]  # incl. docker start-up for Palace")
+    print(f"peak_rss_kb = {rss}")
+    if all(c is not None for c in cpu):
+        print(f"cpu_percent = {[c[0] for c in cpu]}  # /usr/bin/time -v 'Percent of CPU this job got'")
+        print(f"user_s = [{', '.join(fmt(c[1]) for c in cpu)}]")
+        print(f"sys_s = [{', '.join(fmt(c[2]) for c in cpu)}]")
+    if rss:
+        print(f"peak_rss_gb_max = {max(rss) / 1e6:.2f}")
+    if gpu:
+        print(f"gpu_mem_peak_mib = {gpu}  # nvidia-smi peak minus idle baseline")
+    if cell.startswith("palace"):
+        per_run = []
+        for i, _ in enumerate(rs, start=1):
+            per_run.append(palace_phases(raw / f"{cell}_run{i}.log"))
+        for ph in PHASES:
+            vals = [p.get(ph, (None, None))[0] for p in per_run]
+            avgs = [p.get(ph, (None, None))[1] for p in per_run]
+            if any(v is not None for v in vals):
+                key = "phase_" + re.sub(r"[^a-z0-9]+", "_", ph.lower()).strip("_")
+                for suffix, xs in (("_s", vals), ("_avg_s", avgs)):
+                    line = f"{key}{suffix} = [{', '.join(fmt(v) for v in xs)}]"
+                    if all(v is not None for v in xs):
+                        line += f"  # mean {fmt(statistics.mean(xs))}"
+                    print(line)
+        # Group sums use the Avg-over-ranks column: per rank the exclusive rows
+        # sum to Total, so Avg rows do too. Max-over-ranks rows do NOT (different
+        # ranks hold the max in different rows: on 8 ranks one rank spends ~21 s
+        # in Mesh Preprocessing while the others wait ~21 s in Initialization).
+        for grp, members in PHASE_GROUPS.items():
+            sums = [sum(p.get(ph, (0.0, 0.0))[1] for ph in members) for p in per_run]
+            print(
+                f"phase_group_{grp}_avg_s = [{', '.join(fmt(v) for v in sums)}]"
+                f"  # mean {fmt(statistics.mean(sums))}; {' + '.join(members)}"
+            )
+        rest = [
+            sum(v[1] for ph, v in p.items() if ph != "Total")
+            - sum(p.get(ph, (0.0, 0.0))[1] for g in PHASE_GROUPS.values() for ph in g)
+            for p in per_run
+        ]
+        print(f"phase_group_other_avg_s = [{', '.join(fmt(v) for v in rest)}]  # mean {fmt(statistics.mean(rest))}; all remaining rows")
+        chk = [sum(v[1] for ph, v in p.items() if ph != "Total") for p in per_run]
+        print(f"phase_avg_rows_sum_s = [{', '.join(fmt(v) for v in chk)}]  # should match phase_total_avg_s")
+    if cell.startswith("geode"):
+        for i in range(1, len(rs) + 1):
+            modes = geode_modes(raw / f"{cell}_run{i}.log")
+            print(f"run{i}_modes_f_ghz = [{', '.join(f'{f:.6f}' for f, _ in modes)}]")
+            print(f"run{i}_modes_participation = [{', '.join(f'{p:.4f}' for _, p in modes)}]")
+            print_mode_classes(f"run{i}", [f for f, _ in modes], base)
+    if cell.startswith("palace"):
+        for i in range(1, len(rs) + 1):
+            eig = raw / f"{cell}_run{i}_eig.csv"
+            if eig.exists():
+                freqs = read_eig(eig)
+                print(f"run{i}_modes_f_ghz = [{', '.join(f'{f:.6f}' for f in freqs)}]")
+                print_mode_classes(f"run{i}", freqs, base)
+
+print("\n[eigen_agreement]")
+print('baseline = "reference/fixtures/transmon_palace/results_p1/eig.csv (CPU Palace fba6a5b, 8 ranks, m6i)"')
+print(f"baseline_re_f_ghz = [{', '.join(f'{x:.6f}' for x in base)}]")
+worst = 0.0
+for cell in cells:
+    if not cell.startswith("palace"):
+        continue
+    for i in range(1, len(cells[cell]) + 1):
+        p = raw / f"{cell}_run{i}_eig.csv"
+        if not p.exists():
+            print(f"# {cell} run {i}: no eig.csv")
+            continue
+        f = read_eig(p)
+        rel = [abs(a - b) / abs(b) for a, b in zip(f, base)]
+        worst = max(worst, max(rel))
+        print(f"{cell}_run{i}_re_f_ghz = [{', '.join(f'{x:.6f}' for x in f)}]")
+        print(f"{cell}_run{i}_max_rel_diff = {max(rel):.3e}")
+print(f"max_rel_diff_all_palace_runs = {worst:.3e}")

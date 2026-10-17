@@ -1,0 +1,13 @@
+# tree=default test=spiral_ds_ams_matches_direct
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=none
+# start=2026-10-09T12:03:16Z loadavg_start=26.60,42.11,54.56
+
+running 1 test
+test spiral_ds_ams_matches_direct ... ams   1.0 GHz: iters [112], |ΔZ|/|Z| vs direct 4.4e-13
+ams   5.0 GHz: iters [131], |ΔZ|/|Z| vs direct 2.4e-12
+ams  10.0 GHz: iters [145], |ΔZ|/|Z| vs direct 1.7e-12
+ams  20.0 GHz: iters [159], |ΔZ|/|Z| vs direct 4.3e-13
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 10.29s
+

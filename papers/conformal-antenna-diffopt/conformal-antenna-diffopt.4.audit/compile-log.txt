@@ -1,0 +1,823 @@
+=== pdflatex pass 1 ===
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(../../transmon-benchmark/transmon-benchmark.6/anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+))))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+No file main.aux.
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg)
+
+Package natbib Warning: Citation `piggott2015' on page 1 undefined on input lin
+e 72.
+
+
+Package natbib Warning: Citation `chung2020' on page 1 undefined on input line 
+73.
+
+
+Package natbib Warning: Citation `hughes2019forward' on page 1 undefined on inp
+ut line 75.
+
+
+Package natbib Warning: Citation `hammond2022meepadjoint' on page 1 undefined o
+n input line 76.
+
+
+Package natbib Warning: Citation `su_spinsb' on page 1 undefined on input line 
+76.
+
+
+Package natbib Warning: Citation `fdtdx' on page 1 undefined on input line 77.
+
+
+Package natbib Warning: Citation `mahlau2026fdtdx' on page 1 undefined on input
+ line 77.
+
+
+Package natbib Warning: Citation `invrsgym' on page 1 undefined on input line 7
+7.
+
+[1{/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+
+LaTeX Warning: Reference `sec:eval' on page 2 undefined on input line 98.
+
+
+LaTeX Warning: Reference `sec:related' on page 2 undefined on input line 101.
+
+
+LaTeX Warning: Reference `sec:whitespace' on page 2 undefined on input line 104
+.
+
+
+LaTeX Warning: Reference `sec:method' on page 2 undefined on input line 115.
+
+
+LaTeX Warning: Reference `sec:method' on page 2 undefined on input line 119.
+
+
+LaTeX Warning: Reference `sec:results' on page 2 undefined on input line 123.
+
+
+LaTeX Warning: Reference `sec:related' on page 2 undefined on input line 129.
+
+
+LaTeX Warning: Reference `sec:eval' on page 2 undefined on input line 129.
+
+
+Overfull \hbox (7.90645pt too wide) in paragraph at lines 124--130
+[]\OT1/cmr/m/n/10.95 (-20) An hon-est po-si-tion-ing of the nar-row white space
+ against prior EM shape-adjoint and differentiable-
+
+Package natbib Warning: Citation `hammond2022meepadjoint' on page 2 undefined o
+n input line 137.
+
+
+Package natbib Warning: Citation `oskooi2010meep' on page 2 undefined on input 
+line 138.
+
+
+Package natbib Warning: Citation `hughes2019forward' on page 2 undefined on inp
+ut line 139.
+
+
+Package natbib Warning: Citation `su_spinsb' on page 2 undefined on input line 
+140.
+
+
+Package natbib Warning: Citation `fdtdx' on page 2 undefined on input line 141.
+
+
+
+Package natbib Warning: Citation `mahlau2026fdtdx' on page 2 undefined on input
+ line 141.
+
+
+Package natbib Warning: Citation `invrsgym' on page 2 undefined on input line 1
+42.
+
+
+Package natbib Warning: Citation `erentok2011topology' on page 2 undefined on i
+nput line 145.
+
+
+Package natbib Warning: Citation `piggott2015' on page 2 undefined on input lin
+e 148.
+
+
+Package natbib Warning: Citation `chung2020' on page 2 undefined on input line 
+149.
+
+
+Package natbib Warning: Citation `hammond2025ssp' on page 2 undefined on input 
+line 155.
+
+
+Package natbib Warning: Citation `romano2026ssp2' on page 2 undefined on input 
+line 156.
+
+
+Package natbib Warning: Citation `tidy3dautograd' on page 2 undefined on input 
+line 159.
+
+
+Package natbib Warning: Citation `meepadjointdocs' on page 2 undefined on input
+ line 166.
+
+
+Package natbib Warning: Citation `mahlau2026fdtdx' on page 2 undefined on input
+ line 168.
+
+
+Package natbib Warning: Citation `tidy3dautograd' on page 2 undefined on input 
+line 170.
+
+
+LaTeX Warning: Reference `sec:eval' on page 2 undefined on input line 174.
+
+[2{/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc
+}]
+
+Package natbib Warning: Citation `hooten2025' on page 3 undefined on input line
+ 177.
+
+
+Package natbib Warning: Citation `liu2024imagerep' on page 3 undefined on input
+ line 183.
+
+
+Package natbib Warning: Citation `wang2011' on page 3 undefined on input line 1
+89.
+
+
+Package natbib Warning: Citation `ghassemi2013' on page 3 undefined on input li
+ne 192.
+
+
+Package natbib Warning: Citation `ham2020' on page 3 undefined on input line 19
+4.
+
+
+Package natbib Warning: Citation `takahashi2025tdbie' on page 3 undefined on in
+put line 198.
+
+
+Package natbib Warning: Citation `arens2026tubular' on page 3 undefined on inpu
+t line 200.
+
+
+Package natbib Warning: Citation `balouchev2024balun' on page 3 undefined on in
+put line 201.
+
+
+Package natbib Warning: Citation `gelly2026dgtd' on page 3 undefined on input l
+ine 208.
+
+[3]
+
+LaTeX Warning: Reference `eq:pencil' on page 4 undefined on input line 282.
+
+[4]
+Overfull \hbox (92.9271pt too wide) in paragraph at lines 318--327
+\OT1/cmr/m/n/10.95 (-20) fi-nite dif-fer-ence of the \OT1/cmr/m/it/10.95 (-20) 
+en-tire \OT1/cmr/m/n/10.95 (-20) port $+$ UPML $+$ lossy pipeline through the p
+ub-lic \OT1/cmtt/m/n/10.95 driven[]solve[]with[]ports(MatchedUpml)
+
+LaTeX Warning: Reference `fig:setup' on page 5 undefined on input line 328.
+
+[5 <./figures/setup_schematic.pdf>]
+
+LaTeX Warning: Reference `eq:objective' on page 6 undefined on input line 365.
+
+
+LaTeX Warning: Reference `fig:s11band' on page 6 undefined on input line 380.
+
+[6 <./figures/s11_band.pdf>]
+
+LaTeX Warning: Reference `sec:availability' on page 7 undefined on input line 4
+16.
+
+
+LaTeX Warning: Reference `sec:staircase' on page 7 undefined on input line 417.
+
+
+
+LaTeX Warning: Reference `sec:runtime' on page 7 undefined on input line 417.
+
+
+LaTeX Warning: Reference `sec:discussion' on page 7 undefined on input line 422
+.
+
+
+Package natbib Warning: Citation `hammond2025ssp' on page 7 undefined on input 
+line 461.
+
+
+Package natbib Warning: Citation `romano2026ssp2' on page 7 undefined on input 
+line 462.
+
+
+Package natbib Warning: Citation `meepadjointdocs' on page 7 undefined on input
+ line 464.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package natbib Warning: Citation `oskooi2010meep' on page 7 undefined on input 
+line 472.
+
+[7]
+
+LaTeX Warning: Reference `fig:runtime' on page 8 undefined on input line 497.
+
+
+LaTeX Warning: Reference `sec:staircase' on page 8 undefined on input line 513.
+
+
+
+LaTeX Warning: Reference `sec:results' on page 8 undefined on input line 548.
+
+[8 <./figures/runtime_scaling.pdf>]
+
+Package natbib Warning: Citation `sun2025pngf' on page 9 undefined on input lin
+e 559.
+
+
+Package natbib Warning: Citation `tidy3dautograd' on page 9 undefined on input 
+line 567.
+
+
+LaTeX Warning: Reference `sec:staircase' on page 9 undefined on input line 569.
+
+
+
+LaTeX Warning: Reference `sec:related' on page 9 undefined on input line 570.
+
+
+LaTeX Warning: Reference `sec:eval' on page 9 undefined on input line 580.
+
+
+LaTeX Warning: Reference `sec:eval' on page 9 undefined on input line 591.
+
+[9]
+
+LaTeX Warning: Reference `sec:results' on page 10 undefined on input line 620.
+
+
+LaTeX Warning: Reference `sec:whitespace' on page 10 undefined on input line 63
+0.
+
+
+Overfull \hbox (57.82547pt too wide) in paragraph at lines 636--650
+\OT1/cmtt/m/n/10.95 staircasing[]results.json \OT1/cmr/m/n/10.95 (-20) and the 
+com-pute axis in \OT1/cmtt/m/n/10.95 meep[]runtime[]scaling.json \OT1/cmr/m/n/1
+0.95 (-20) (with \OT1/cmtt/m/n/10.95 RUNTIME[]SCALING.md\OT1/cmr/m/n/10.95 (-20
+) ).
+
+Overfull \hbox (15.47862pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) The FDTD-density base-line it-self is the ven-dored Me
+ep $1\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 (-20) 34\OML/cmm/m/it/10.95 :\OT1/
+cmr/m/n/10.95 (-20) 0$ con-tainer un-der \OT1/cmtt/m/n/10.95 reference/meep/doc
+ker/
+
+Overfull \hbox (89.55486pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 conformal[]baseline[]3d.py\OT1/cm
+r/m/n/10.95 (-20) ). The shape-adjoint im-ple-men-ta-tion lives in \OT1/cmtt/m/
+n/10.95 crates/geode-core/src/driven/shape.rs\OT1/cmr/m/n/10.95 (-20) ,
+(./main.bbl [10] [11])
+
+Package natbib Warning: There were undefined citations.
+
+[12] (./main.aux
+
+Package natbib Warning: Citation(s) may have changed.
+(natbib)                Rerun to get citations correct.
+
+)
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+
+Package rerunfilecheck Warning: File `main.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+ )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmmi9.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/
+public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmr9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public
+/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmsy9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfon
+ts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/cm-super
+/sfrm1095.pfb>
+Output written on main.pdf (12 pages, 364207 bytes).
+Transcript written on main.log.
+=== bibtex ===
+This is BibTeX, Version 0.99e (TeX Live 2026)
+The top-level auxiliary file: main.aux
+The style file: plainnat.bst
+Database file #1: refs.bib
+=== pdflatex pass 2 ===
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(../../transmon-benchmark/transmon-benchmark.6/anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+))))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+(./main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg) (./main.out
+) (./main.out) (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
+al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+Overfull \hbox (7.90645pt too wide) in paragraph at lines 124--130
+[]\OT1/cmr/m/n/10.95 (-20) An hon-est po-si-tion-ing of the nar-row white space
+ against prior EM shape-adjoint and differentiable-
+[2{/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc
+}] [3] [4]
+Overfull \hbox (92.9271pt too wide) in paragraph at lines 318--327
+\OT1/cmr/m/n/10.95 (-20) fi-nite dif-fer-ence of the \OT1/cmr/m/it/10.95 (-20) 
+en-tire \OT1/cmr/m/n/10.95 (-20) port $+$ UPML $+$ lossy pipeline through the p
+ub-lic \OT1/cmtt/m/n/10.95 driven[]solve[]with[]ports(MatchedUpml)
+[5] [6 <./figures/setup_schematic.pdf> <./figures/s11_band.pdf>] [7]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+[8] [9 <./figures/runtime_scaling.pdf>]
+Overfull \hbox (57.82547pt too wide) in paragraph at lines 636--650
+\OT1/cmtt/m/n/10.95 staircasing[]results.json \OT1/cmr/m/n/10.95 (-20) and the 
+com-pute axis in \OT1/cmtt/m/n/10.95 meep[]runtime[]scaling.json \OT1/cmr/m/n/1
+0.95 (-20) (with \OT1/cmtt/m/n/10.95 RUNTIME[]SCALING.md\OT1/cmr/m/n/10.95 (-20
+) ).
+
+Overfull \hbox (15.47862pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) The FDTD-density base-line it-self is the ven-dored Me
+ep $1\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 (-20) 34\OML/cmm/m/it/10.95 :\OT1/
+cmr/m/n/10.95 (-20) 0$ con-tainer un-der \OT1/cmtt/m/n/10.95 reference/meep/doc
+ker/
+
+Overfull \hbox (89.55486pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 conformal[]baseline[]3d.py\OT1/cm
+r/m/n/10.95 (-20) ). The shape-adjoint im-ple-men-ta-tion lives in \OT1/cmtt/m/
+n/10.95 crates/geode-core/src/driven/shape.rs\OT1/cmr/m/n/10.95 (-20) ,
+(./main.bbl [10] [11]) [12] (./main.aux)
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmmi9.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/
+public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmr9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public
+/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmsy9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfon
+ts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/cm-super
+/sfrm1095.pfb>
+Output written on main.pdf (12 pages, 370222 bytes).
+Transcript written on main.log.
+=== pdflatex pass 3 ===
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(../../transmon-benchmark/transmon-benchmark.6/anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+))))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+(./main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg) (./main.out
+) (./main.out) (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
+al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+Overfull \hbox (7.90645pt too wide) in paragraph at lines 124--130
+[]\OT1/cmr/m/n/10.95 (-20) An hon-est po-si-tion-ing of the nar-row white space
+ against prior EM shape-adjoint and differentiable-
+[2{/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc
+}] [3] [4]
+Overfull \hbox (92.9271pt too wide) in paragraph at lines 318--327
+\OT1/cmr/m/n/10.95 (-20) fi-nite dif-fer-ence of the \OT1/cmr/m/it/10.95 (-20) 
+en-tire \OT1/cmr/m/n/10.95 (-20) port $+$ UPML $+$ lossy pipeline through the p
+ub-lic \OT1/cmtt/m/n/10.95 driven[]solve[]with[]ports(MatchedUpml)
+[5] [6 <./figures/setup_schematic.pdf> <./figures/s11_band.pdf>] [7]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\sim' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\leavevmode@ifvmode' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                \kern -1.8254pt
+(hyperref)                removed on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `superscript' on input line 468.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 468.
+
+[8] [9 <./figures/runtime_scaling.pdf>]
+Overfull \hbox (57.82547pt too wide) in paragraph at lines 636--650
+\OT1/cmtt/m/n/10.95 staircasing[]results.json \OT1/cmr/m/n/10.95 (-20) and the 
+com-pute axis in \OT1/cmtt/m/n/10.95 meep[]runtime[]scaling.json \OT1/cmr/m/n/1
+0.95 (-20) (with \OT1/cmtt/m/n/10.95 RUNTIME[]SCALING.md\OT1/cmr/m/n/10.95 (-20
+) ).
+
+Overfull \hbox (15.47862pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) The FDTD-density base-line it-self is the ven-dored Me
+ep $1\OML/cmm/m/it/10.95 :\OT1/cmr/m/n/10.95 (-20) 34\OML/cmm/m/it/10.95 :\OT1/
+cmr/m/n/10.95 (-20) 0$ con-tainer un-der \OT1/cmtt/m/n/10.95 reference/meep/doc
+ker/
+
+Overfull \hbox (89.55486pt too wide) in paragraph at lines 636--650
+\OT1/cmr/m/n/10.95 (-20) (\OT1/cmtt/m/n/10.95 conformal[]baseline[]3d.py\OT1/cm
+r/m/n/10.95 (-20) ). The shape-adjoint im-ple-men-ta-tion lives in \OT1/cmtt/m/
+n/10.95 crates/geode-core/src/driven/shape.rs\OT1/cmr/m/n/10.95 (-20) ,
+(./main.bbl [10] [11]) [12] (./main.aux) )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmmi9.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/
+public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmr9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public
+/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmsy9.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfon
+ts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/cm-super
+/sfrm1095.pfb>
+Output written on main.pdf (12 pages, 370222 bytes).
+Transcript written on main.log.

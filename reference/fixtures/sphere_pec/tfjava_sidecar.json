@@ -1,0 +1,108 @@
+{
+  "schema_version": "1",
+  "fixture_id": "sphere_pec/n774_pec_eigenmode_tfjava",
+  "description": "PLACEHOLDER — TF-Java static-graph reference for the vector-Nédélec sphere-PEC eigenmode pipeline (Epic #88 / #134). This file records the expected structural metadata only; the actual K_int / M_int matrix data are produced at CI time by running reference/tf_java/sphere_pec and comparing to reference/fixtures/sphere_pec/baseline.json. Regenerate with: cd reference/tf_java/sphere_pec && mvn -B -Plinux-x86_64 exec:java, then copy the emitted reduced_kM_sphere_pec.json here.",
+  "units": "lambda = k^2 (inverse-length squared); dimensionless mesh coordinates",
+  "inputs": {
+    "mesh_path": {
+      "shape": [1],
+      "dtype": "str",
+      "description": "Path to the bundled Gmsh .msh fixture (reference/fixtures/sphere_pec/sphere.msh).",
+      "data": ["reference/fixtures/sphere_pec/sphere.msh"]
+    },
+    "n_index": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Refractive index inside the dielectric sphere; epsilon_r = n^2 = 2.25 inside.",
+      "data": [1.5]
+    },
+    "r_buffer": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Outer PEC wall radius.",
+      "data": [2.0]
+    },
+    "n_int": {
+      "shape": [1],
+      "dtype": "i64",
+      "description": "Interior edge count (DOFs after PEC elimination). Should equal 3300 for the 774-node fixture.",
+      "data": [3300]
+    },
+    "n": {
+      "shape": [1],
+      "dtype": "i64",
+      "description": "Alias for eigensolve_from_sidecar.py compatibility: = n_int = 3300.",
+      "data": [3300]
+    },
+    "side": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Alias for eigensolve_from_sidecar.py compatibility: = r_buffer = 2.0.",
+      "data": [2.0]
+    }
+  },
+  "outputs": {
+    "n_nodes": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Number of mesh nodes. Strict equality.",
+      "tolerance_abs": 0.5,
+      "data": [774.0]
+    },
+    "n_tets": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Number of mesh tets. Strict equality.",
+      "tolerance_abs": 0.5,
+      "data": [3335.0]
+    },
+    "n_edges": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Total global edge count (before PEC elimination). Should equal 4512.",
+      "tolerance_abs": 0.5,
+      "data": [4512.0]
+    },
+    "n_interior_edges": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Interior edge count (DOFs after PEC elimination). Should equal 3300.",
+      "tolerance_abs": 0.5,
+      "data": [3300.0]
+    },
+    "k_int_frobenius": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Frobenius norm of K_int. Expected ~1093.85 (from NumPy baseline); tolerance 1e-3 relative.",
+      "tolerance_abs": 1.1,
+      "data": [1093.8505285100885]
+    },
+    "m_int_frobenius": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "Frobenius norm of M_int. Expected ~9.7438 (from NumPy baseline); tolerance 1e-3 relative.",
+      "tolerance_abs": 0.01,
+      "data": [9.743795100368402]
+    },
+    "k_diag_sum": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "trace(K_int) — TF-Java assembly readback. Tolerance 1e-6.",
+      "tolerance_abs": 1e-6,
+      "data": [0.0]
+    },
+    "m_diag_sum": {
+      "shape": [1],
+      "dtype": "f64",
+      "description": "trace(M_int) — TF-Java assembly readback. Tolerance 1e-6.",
+      "tolerance_abs": 1e-6,
+      "data": [0.0]
+    }
+  },
+  "provenance": {
+    "source": "reference/tf_java/sphere_pec (Epic #88 / #134)",
+    "verified_against": "reference/fixtures/sphere_pec/baseline.json — expected K_int Frobenius ~1093.85, M_int Frobenius ~9.74, physical eigenvalues [1.4195, 1.4204, 1.4207, 3.2719, 3.2775] to < 1e-5 relative",
+    "issue": "#134",
+    "note": "This is a placeholder fixture. The K_int / M_int matrix data are NOT embedded here (3300x3300 = 10.9M entries would be ~90MB JSON). The CI workflow runs the TF-Java assembly at test time and compares the emitted sidecar to baseline.json using eigensolve_sphere_pec_sidecar.py."
+  }
+}

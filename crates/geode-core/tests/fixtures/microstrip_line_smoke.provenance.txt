@@ -1,0 +1,27 @@
+fixture:        microstrip_line_smoke.msh
+sha256:         5505306e532ff5ef1a02f5017a9bb7909d4a3901603cdea3a0b3526c29dbc9b4
+generated:      2026-10-03T02:41:00+00:00 (#807 review: 20h x 12h box, strip-edge grading)
+gmsh version:   4.15.2-git
+script:         crates/geode-cli/examples/driven/microstrip_line.geo
+command:        gmsh -3 microstrip_line.geo -format msh41 -o microstrip_line_smoke.msh
+purpose:        geode-cli cookbook (issue #807): a shielded 50-ohm (Hammerstad-Jensen)
+                microstrip line with hybrid wave ports on its end caps.
+
+parameter values (mm):
+  shield box W x H:     20 x 12 (the box is part of the design: ~-0.6 % Z0
+                        vs the open-line Hammerstad-Jensen value)
+  substrate h:          1 (eps_r 4.4, set in the spec)
+  strip width w:        1.91 (zero thickness, on y = h)
+  line length L:        2
+  mesh size:            0.02 + 0.25 d at the strip edges (Distance on the two
+                        edge curves), 0.15 + 0.3 d on the strip, capped 1.5
+
+physical groups:
+  volumes:   substrate, air
+  surfaces:  strip (interior sheet), shield (floor, lid, side walls),
+             port_in (z = 0), port_out (z = L)
+
+quality report:
+  nodes: 9210
+  tets: 51041
+  unique edges: 61986

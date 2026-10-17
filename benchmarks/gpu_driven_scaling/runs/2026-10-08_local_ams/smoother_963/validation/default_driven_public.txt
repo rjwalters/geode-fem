@@ -1,0 +1,11 @@
+# tree=default test=driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=none
+# start=2026-10-09T12:03:54Z loadavg_start=26.54,40.34,53.35
+
+running 1 test
+test driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct ... # ams_smoother edge_dim=316 theta_max=3.186487 lanczos_steps=30 gershgorin=3.999984 rho_hat=3.505136 weight=0.600000 source=default estimate_ms=0.112
+# ams_smoother edge_dim=316 theta_max=3.186487 lanczos_steps=30 gershgorin=3.999984 rho_hat=3.505136 weight=0.600000 source=default estimate_ms=0.112
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.02s
+

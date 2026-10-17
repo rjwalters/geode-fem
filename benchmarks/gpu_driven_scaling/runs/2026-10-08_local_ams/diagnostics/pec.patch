@@ -1,0 +1,17 @@
+--- a/crates/geode-core/tests/gpu_driven_scaling.rs
++++ b/crates/geode-core/tests/gpu_driven_scaling.rs
+@@ -318,7 +318,13 @@
+     let n_edges = edges.len();
+     let n_tets = mesh.n_tets();
+     let port_faces = plane_faces(&mesh, 2, 0.0);
+-    let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
++    let planes: Vec<(usize, f64)> = match std::env::var("DIAG930_PEC").as_deref() {
++        Ok("y0") => vec![(1, 0.0)],
++        Ok("none") => vec![],
++        Ok("y0y1x0") => vec![(1, 0.0), (1, 1.0), (0, 0.0)],
++        _ => vec![(1, 0.0), (1, 1.0)],
++    };
++    let mask = pec_mask_for_planes(&mesh, &edges, &planes);
+     let n_interior = mask.iter().filter(|&&k| k).count();
+     if let Some(dir) = export_dir {
+         let pec_faces: Vec<[u32; 3]> = plane_faces(&mesh, 1, 0.0)

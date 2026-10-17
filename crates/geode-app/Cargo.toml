@@ -1,0 +1,19 @@
+[package]
+name = "geode-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared application spine (clap harness + arg groups + lifecycle seam) for GEODE-FEM example binaries."
+
+[dependencies]
+clap = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Panic-safe scratch dir for the `args` unit tests (issue #766).
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

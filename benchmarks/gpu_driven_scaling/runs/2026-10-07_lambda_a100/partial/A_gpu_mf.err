@@ -1,0 +1,5 @@
+[size n=15] exported mesh -> /home/ubuntu/sweep/meshes/cube_n15.msh
+[size n=15] edges=25695 interior=24285 tets=20250 reps=1 (fixture 8.49 s)
+  [n=15] warm-up: recursion converged in 2989 iters, explicit residual 5.477e-3 > tol (issue #744 drift; timed as a completed solve)
+[size n=20] exported mesh -> /home/ubuntu/sweep/meshes/cube_n20.msh
+[size n=20] edges=59660 interior=57180 tets=48000 reps=1 (fixture 1.49 s)

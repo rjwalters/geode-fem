@@ -1,0 +1,6 @@
+os=macOS 27.0.1 (arm64)
+model=Mac15,14
+cpu=Apple M3 Ultra
+logical_cpus=28
+ram_gib=96
+rustc=rustc 1.98.1 (48a229cea 2026-09-01)

@@ -1,0 +1,24 @@
+# Triaxial inductance fixture (issue #714): two open current paths, the
+# solid core and the tube, both returning through the PEC shield + end
+# caps. See reference/gmsh/coax_inductance.geo for the closed-form 2x2
+# matrix and crates/geode-cli/tests/inductance_golden.rs.
+schema_version = 1
+
+[mesh]
+path = "../../../geode-core/tests/fixtures/coax_inductance_smoke.msh"
+length_unit_m = 1e-3
+
+[boundary_conditions]
+pec = ["shield", "end_caps"]
+
+[[inductance.paths]]
+name = "core"
+conductor = "core"
+source = "core_in"
+sink = "core_out"
+
+[[inductance.paths]]
+name = "tube"
+conductor = "tube"
+source = "tube_in"
+sink = "tube_out"

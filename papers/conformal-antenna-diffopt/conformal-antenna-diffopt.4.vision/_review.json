@@ -1,0 +1,99 @@
+{
+  "schema_version": "1",
+  "kind": "vision",
+  "version_dir": "conformal-antenna-diffopt.4",
+  "critic_id": "paper-vision",
+  "model": "claude-fable-5",
+  "rubric": "anvil-pub-vision-v1",
+  "rendered_artifact": "main.pdf",
+  "scores": [
+    {
+      "dimension": "label_cropping",
+      "score": 3,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.pdf:page=5",
+      "fix": "Break or url/path-wrap the two monospace tokens that overflow the right text margin (driven_solve_with_ports(MatchedUpml) on p.5; crates/geode-core/src/driven/shape.rs on p.10) via \\path/\\url/\\allowbreak or \\sloppy so nothing is clipped at the page edge.",
+      "justification": "Two of the five known overfull hboxes are visually destructive: the monospace call driven_solve_with_ports(MatchedUpml) is clipped to '...(MatchedU' at the right margin (p.5, sec 3.4) and the file path crates/geode-core/src/driven/shape.rs has its '.rs' clipped off the right margin (p.10, Artifact availability). Both are recoverable from adjacent context, so no critical flag, but both lose visible characters of load-bearing code identifiers. All three inline tables and all figure captions are fully within margins and legible."
+    },
+    {
+      "dimension": "axis_legibility",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.pdf:page=9",
+      "justification": "Axis labels, tick marks, titles and legends on all three figures (setup schematic p.6, s11_band p.6, runtime_scaling p.9) are fully legible at print size; axis text (e.g. 'seconds / timestep', 'resolution R (cells/mm)', 'peak RAM (GB)', log-scale decade ticks) reads cleanly at 100% on the 200-DPI render. No too-small font anywhere."
+    },
+    {
+      "dimension": "palette_adherence",
+      "score": 3,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.pdf:page=6",
+      "fix": "Apply the anvil palette in figures/src/plot_s11_band.py and plot_runtime_scaling.py (from anvil.lib.figures.palette import apply / ANVIL_NAVY) so the measured series is anvil navy #1f4e7a instead of raw matplotlib default tab:blue #1f77b4.",
+      "justification": "Both data-plot figures (s11_band p.6, runtime_scaling p.9) use the raw matplotlib default blue (#1f77b4) for the measured series rather than the anvil brand navy (#1f4e7a) from palette.py — the exact 'default matplotlib palette' anti-pattern the dimension names. Mitigated: the choice is consistent across both figures and is print- and colorblind-safe (single-hue series, grayscale-differentiated dashed/dotted reference lines, no color-only encoding), so the deduction is moderate rather than severe."
+    },
+    {
+      "dimension": "mathtext_artifacts",
+      "score": 5,
+      "max": 5,
+      "critical": false,
+      "evidence_span": "main.pdf:page=4",
+      "justification": "All three display equations render correctly and match LaTeX source intent: the complex-symmetric pencil A(omega)x = [K(nu) - omega^2 M(eps) + (j*omega/Z_s) S_p] x = b (eq.1, p.4), the S11 = (Z-Z0)/(Z+Z0) chain (eq.2, p.4), and G(X) = sum_f w_f |S11(f;X)|^2 (eq.3, p.5). Inline math throughout (subscripts, |S_{11}|, R^{2.92}, 1.17e-10, partial K/partial X) is intact. Figure-title mathtext ($\\sim R^{2.92}$, $|S_{11}|$) renders correctly in the rasterized PNGs. No broken spans, no literal-as-italic, no garbled sub/superscripts."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "dimension": "label_cropping",
+      "evidence_span": "main.pdf:page=5",
+      "rationale": "The monospace call driven_solve_with_ports(MatchedUpml) in sec 3.4 (Guards and validation) overflows the right text margin and is clipped mid-identifier to '...(MatchedU'; the closing 'pml)' is lost off the page edge. One of the 5 known overfull hboxes, and it is visually destructive.",
+      "suggested_fix": "Wrap the call in \\path/\\url or insert \\allowbreak inside the identifier, or apply \\sloppy to that paragraph, so the full call renders inside the text block."
+    },
+    {
+      "severity": "major",
+      "dimension": "label_cropping",
+      "evidence_span": "main.pdf:page=10",
+      "rationale": "In the Artifact-and-code-availability section the file path crates/geode-core/src/driven/shape.rs runs past the right margin and its '.rs' extension is clipped at the page edge. A second visually-destructive overfull hbox clipping a load-bearing reproducibility path.",
+      "suggested_fix": "Set the source-file list with \\path/\\url or a breakable \\texttt list (allow line breaks at '/'), or wrap the paragraph in \\sloppy, so no path is clipped."
+    },
+    {
+      "severity": "major",
+      "dimension": "palette_adherence",
+      "evidence_span": "main.pdf:page=9",
+      "rationale": "Figures 2 (s11_band) and 3 (runtime_scaling) plot the measured series in raw matplotlib default blue (#1f77b4) rather than the anvil navy (#1f4e7a). Consistent and print/colorblind-safe, but off-palette against the figures/palette.py convention.",
+      "suggested_fix": "Call anvil.lib.figures.palette.apply() (or pass color=ANVIL_NAVY) in both figures/src plot scripts and re-render the PDFs."
+    },
+    {
+      "severity": "major",
+      "dimension": "label_cropping",
+      "evidence_span": "main.pdf:page=9",
+      "rationale": "Caption/figure mismatch on Figure 3: the caption states 'Points are measured (...); the shaded region is projected' but the rendered right panel shows the projection as a dotted line (ls=':') with NO shaded region — plot_runtime_scaling.py uses ax1.plot(..., ls=':') and never fills/shades. A reader looking for a shaded band finds none.",
+      "suggested_fix": "Either add a fill_between/axvspan shaded projected region in plot_runtime_scaling.py to match the caption, or change the caption to say 'the dotted line is projected'."
+    },
+    {
+      "severity": "minor",
+      "dimension": "label_cropping",
+      "evidence_span": "main.pdf:page=6",
+      "rationale": "Figure 1 (setup_schematic TikZ) is legible but crowded in the center: the red radial-normal arrows overlap/strike through the 'FR-4 (lossy)' and 'PEC ground plane (fixed)' text labels, and the 'band w in {0.30,0.35,0.40}' annotation sits on the dashed UPML box edge. No text is truncated, but the overlap reduces clarity.",
+      "suggested_fix": "In setup_schematic.tex, nudge the FR-4 / ground-plane labels and the band annotation off the arrow paths and box edge (small anchor/offset shifts) to remove the overlaps."
+    },
+    {
+      "severity": "major",
+      "dimension": null,
+      "evidence_span": "main.pdf:page=3",
+      "rationale": "Rendered pages 1-3 show a systematic citation-doubling artifact: the author name is spelled in text and immediately followed by a \\citet that repeats it, e.g. 'Wang and Anderson Wang and Anderson (2011)', 'Piggott et al. Piggott et al. (2015)', 'Chung and Miller Chung and Miller (2020)', 'Hooten et al. Hooten et al. (2025)', 'Ghassemi et al. Ghassemi et al. (2013)', 'Takahashi Takahashi (2025)', 'Arens et al. Arens et al. (2026)', 'Balouchev et al. Balouchev et al. (2024)'. Highly visible on the rendered page. This is a citation-command (\\citet vs \\citep) issue owned by paper-review/paper-audit, surfaced here because it is a prominent rendered defect.",
+      "suggested_fix": "Replace the doubled pattern: drop the hardcoded author name and keep \\citet (yields 'Wang and Anderson (2011) present...'), or keep the name and switch to \\citep (yields 'Wang and Anderson (2011)'). Route to the paper-review/audit reviser."
+    },
+    {
+      "severity": "nit",
+      "dimension": null,
+      "evidence_span": "main.pdf:page=11",
+      "rationale": "The Tidy3D/Flexcompute bibliography entry renders 'PECConformal subpixel averaging' with a missing space ('PEC Conformal'). Source-side typo, visible in the rendered references.",
+      "suggested_fix": "Add the missing space in the refs.bib note field ('PEC Conformal')."
+    }
+  ],
+  "critical_flags": [],
+  "total": 16,
+  "threshold": null
+}

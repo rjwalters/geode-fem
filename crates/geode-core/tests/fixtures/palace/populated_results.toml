@@ -1,0 +1,26 @@
+# EXAMPLE / SYNTHETIC populated [oracles.palace] block. NOT a real
+# Palace reference — see ./README.md. Used to test the
+# `PalaceOracleSlot::from_toml_table` "populated" parser path. The real
+# `benchmarks/patch_antenna/results.toml` slot stays
+# `pending_operator_run` until an operator-run reference is ingested.
+
+[oracles.palace]
+status = "populated"
+palace_version = "0.13.0-test-fixture"
+config_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+port_resistance_ohm = 50
+
+[[oracles.palace.points]]
+f_ghz = 2.20
+s11_re = -0.2087
+s11_im = 0.7017
+
+[[oracles.palace.points]]
+f_ghz = 2.30
+s11_re = -0.4292
+s11_im = -0.2590
+
+[[oracles.palace.points]]
+f_ghz = 2.40
+s11_re = -0.8868
+s11_im = 0.1561

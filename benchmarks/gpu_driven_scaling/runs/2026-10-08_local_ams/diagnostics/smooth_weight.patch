@@ -1,0 +1,86 @@
+diff --git a/crates/geode-core/src/eigen/ams.rs b/crates/geode-core/src/eigen/ams.rs
+index f3795f3a..d3effa08 100644
+--- a/crates/geode-core/src/eigen/ams.rs
++++ b/crates/geode-core/src/eigen/ams.rs
+@@ -1179,13 +1179,80 @@ impl AmsLitePreconditioner {
+             None => (None, None),
+         };
+ 
++        // DIAG944 (throwaway, issue #930 / PR #944): edge-smoother weight knob
++        // and an estimate of the largest eigenvalue of D^-1 A.
++        let smooth_weight = std::env::var("DIAG944_SW")
++            .ok()
++            .and_then(|v| v.parse::<f64>().ok())
++            .unwrap_or(DEFAULT_SMOOTH_WEIGHT);
++        if std::env::var("DIAG944_RHO").is_ok() {
++            // A = K - sigma M applied through the two CSC operators.
++            let apply_a = |x: &[f64], y: &mut [f64], t: &mut [f64]| {
++                spmv(k, x, y);
++                if sigma != 0.0 {
++                    spmv(m, x, t);
++                    for (yi, ti) in y.iter_mut().zip(t.iter()) {
++                        *yi -= sigma * ti;
++                    }
++                }
++            };
++            // Gershgorin upper bound: max_i sum_j |a_ij| / |a_ii| (A symmetric,
++            // so CSC column sums are row sums).
++            let mut abs_sum = vec![0.0_f64; edge_dim];
++            for (mat, scale) in [(k, 1.0), (m, -sigma)] {
++                if scale == 0.0 {
++                    continue;
++                }
++                let (cp, val) = (mat.col_ptr(), mat.val());
++                for j in 0..edge_dim {
++                    for kk in cp[j]..cp[j + 1] {
++                        abs_sum[j] += (scale * val[kk]).abs();
++                    }
++                }
++            }
++            let gersh = abs_sum
++                .iter()
++                .zip(inv_diag.iter())
++                .map(|(s, d)| s * d.abs())
++                .fold(0.0_f64, f64::max);
++            // Power iteration x <- D^-1 A x from a fixed pseudo-random start;
++            // the Rayleigh quotient (x'Ax)/(x'Dx) is a lower bound on lambda_max.
++            let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
++            let mut x: Vec<f64> = (0..edge_dim)
++                .map(|_| {
++                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
++                    ((seed >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
++                })
++                .collect();
++            let mut y = vec![0.0_f64; edge_dim];
++            let mut t = vec![0.0_f64; edge_dim];
++            let mut trace = String::new();
++            for it in 1..=2000_usize {
++                apply_a(&x, &mut y, &mut t);
++                let xax: f64 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
++                let xdx: f64 = x.iter().zip(inv_diag.iter()).map(|(a, d)| a * a / d).sum();
++                if matches!(it, 50 | 200 | 500 | 1000 | 2000) {
++                    trace.push_str(&format!(" it{it}={:.5}", xax / xdx));
++                }
++                let mut nrm = 0.0_f64;
++                for i in 0..edge_dim {
++                    x[i] = inv_diag[i] * y[i];
++                    nrm += x[i] * x[i];
++                }
++                let nrm = nrm.sqrt();
++                x.iter_mut().for_each(|v| *v /= nrm);
++            }
++            println!(
++                "# diag944_rho edge_dim={edge_dim} gershgorin_upper={gersh:.5} power_rayleigh_lower:{trace}"
++            );
++        }
+         Ok(Self {
+             gradient: gradient.clone(),
+             inv_diag,
+             c_coarse,
+             pi,
+             pi_coarse,
+-            smooth_weight: DEFAULT_SMOOTH_WEIGHT,
++            smooth_weight,
+             edge_dim,
+             node_dim,
+         })

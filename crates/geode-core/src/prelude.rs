@@ -1,0 +1,51 @@
+//! Common imports for geode-core: `use geode_core::prelude::*;`.
+//!
+//! Re-exports from the canonical module paths (`crate::analytic`,
+//! `crate::assembly`, `crate::derham`, `crate::driven`,
+//! `crate::eigen` (including `eigen::self_consistent`), `crate::elements`,
+//! `crate::interop`, `crate::mesh`, `crate::postproc`, `crate::solver`,
+//! `crate::traits`) — never a flat-root path — so glob-importing the
+//! prelude stays warning-free under `-D warnings`. This is the finalized
+//! ergonomic surface for the crate (epic #377): high-traffic entry points
+//! only, not an exhaustive dump of every public item.
+pub use crate::analytic::fiber::fiber_lp_neff;
+pub use crate::analytic::mie::{
+    MieEfficiencies, mie_efficiencies, mie_roots_catalog, resonance_roots,
+};
+pub use crate::analytic::patch::PatchCavity;
+pub use crate::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+pub use crate::analytic::waveguide::{
+    TriMesh, disk_tri_mesh, rect_tri_mesh, solve_dielectric_modes2, solve_rect_waveguide_modes,
+};
+pub use crate::assembly::fe::{DirichletBc, ElementType, FeAssembleResult, fe_assemble};
+pub use crate::assembly::nedelec::assemble_global_nedelec;
+pub use crate::assembly::p1::{GlobalSystem, assemble_global_p1};
+pub use crate::assembly::sparse::{SparseSystem, global_system_to_sparse};
+pub use crate::derham::{curl_map, divergence_map, gradient_map};
+pub use crate::driven::extraction::{SMatrix, s_parameter_frequency_sweep};
+pub use crate::driven::ports::{LumpedPort, PortMode, WavePort};
+pub use crate::driven::scattering::solve_scattered_field_matched_upml;
+pub use crate::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSolution, driven_solve,
+};
+pub use crate::eigen::complex::{
+    ComplexEigenSolver, FaerComplexEigensolver, SparseComplexEigenSolver,
+    SparseComplexShiftInvertLanczos,
+};
+pub use crate::eigen::dense::{
+    EigenError, EigenPair, EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc,
+    burn_matrix_to_faer, cube_interior_mask,
+};
+pub use crate::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
+pub use crate::eigen::self_consistent::{SelfConsistentResult, self_consistent_k};
+pub use crate::elements::nedelec::{
+    NedelecLocalMatrices, batched_nedelec_local_matrices, tet_edges,
+};
+pub use crate::elements::p1::{P1LocalMatrices, batched_p1_local_matrices};
+pub use crate::interop::palace::{PalaceOracleSlot, PalaceResults};
+pub use crate::mesh::{GmshReader, MeshReader, TetMesh, cube_tet_mesh, read_sphere_fixture};
+pub use crate::postproc::ntff::{FarField, PatternCut, directivity, ntff_far_field, to_db};
+pub use crate::postproc::viz::write_vtu;
+pub use crate::solver::iterate::{IterOutcome, Step, iterate_while, iterate_while_with_prev};
+pub use crate::solver::ksp::{Cocg, JacobiPreconditioner, KspReport, KspSolve};
+pub use crate::traits::{Element, Mesh, Operator};

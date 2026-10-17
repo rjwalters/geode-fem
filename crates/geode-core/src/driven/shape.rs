@@ -1,0 +1,5606 @@
+//! Discrete-adjoint **geometry / shape** sensitivities for the complex
+//! frequency-domain driven H(curl)/Nédélec solve (Epic #569, issue #577):
+//! `∂(scalar EM observable)/∂(geometry parameter θ)`, finite-difference
+//! validated. The hardest, highest-value gradient of the epic — the shape
+//! sensitivity of a *real Maxwell observable*.
+//!
+//! # Where this sits
+//!
+//! Three prior pieces compose here:
+//!
+//! * [`crate::adjoint`] (#570) established the discrete-adjoint pattern on the
+//!   real SPD scalar operator: factor once, transpose-solve the adjoint reusing
+//!   that factorization, contract `−λᵀ(∂A/∂p) x` locally.
+//! * [`crate::driven::adjoint`] (#576) carried that algebra to the **complex**
+//!   driven Nédélec pencil `A(ε, ω) x = b`, `A = K − ω² M(ε)` — the Wirtinger
+//!   real-`g` collapse `dg/dp = −2 Re[λᵀ(∂A/∂p) x]` with `Aᵀλ = ∂g/∂x`, and the
+//!   complex-symmetric reuse of the forward LU for the transpose (adjoint)
+//!   solve.
+//! * [`crate::shape`] (#571) established the **geometry** counterpart on the
+//!   scalar P1 operator: an exact `∂K_local/∂X` via a forward-mode `Dual`
+//!   through the *same* closed-form element kernel, chained through an analytic
+//!   node-motion map `θ ↦ X(θ)`.
+//!
+//! This module is the intersection: the **geometry** derivative of the
+//! **complex driven Nédélec** solve. It mirrors [`crate::shape`]'s Dual-kernel
+//! recipe for the edge-element (Whitney 1-form) curl-curl / mass / current-RHS
+//! geometry factors, and reuses [`crate::driven::adjoint`]'s complex adjoint
+//! λ (one forward + one adjoint solve sharing a single LU).
+//!
+//! # The shape adjoint identity (with a geometry-dependent RHS)
+//!
+//! Let the node coordinates be `X` and a geometry parameter be `θ`, with an
+//! analytic node-motion map `θ ↦ X(θ)` on a **fixed mesh topology** (fixed edge
+//! set, fixed PEC mask). The interior driven system is `A(X) x = b(X)` and the
+//! observable is a real scalar `g(x, x̄)` with **no** explicit geometry
+//! dependence. Unlike the material case (#576), where `b` is ε-independent, the
+//! **current-source RHS** `b = iωμ₀ ∫ N·J dV` depends on geometry through the
+//! Whitney basis and the element volume — so the shape derivative carries an
+//! extra `∂b/∂X` term:
+//!
+//! ```text
+//!   ∂x/∂X = A⁻¹ ( ∂b/∂X − (∂A/∂X) x ),
+//!   dg/dX = 2 Re[ (∂g/∂x)ᵀ ∂x/∂X ]
+//!         = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ],   with  Aᵀ λ = ∂g/∂x.
+//! ```
+//!
+//! Both terms are **local** contractions, one sweep over the tets, reusing the
+//! single forward LU for the adjoint (a transpose back-substitution — never a
+//! refactorization). The PEC-eliminated edges carry exact zeros in both `x` and
+//! `λ`, so a full-length per-tet contraction automatically restricts to the
+//! interior block (the constraint `x_pec ≡ 0` is `X`-independent, so those DOFs
+//! do not vary). Chaining through the node-motion Jacobian yields the design
+//! gradient
+//!
+//! ```text
+//!   ∂g/∂θ = Σ_{n,d} (∂g/∂X_{n,d}) (∂X_{n,d}/∂θ) = ⟨grad_node, ∂X/∂θ⟩,
+//! ```
+//!
+//! evaluated by [`crate::shape::chain_node_motion`] (shared with the P1 path —
+//! the chain rule is geometry-kernel-agnostic).
+//!
+//! # `∂A/∂X` and `∂b/∂X` are **exact** (forward-mode AD of the element kernel)
+//!
+//! Rather than hand-derive the (correct but error-prone) analytic Jacobian of
+//! the closed-form Nédélec curl-curl / mass / current-RHS entries w.r.t. the
+//! twelve tet coordinates, we evaluate the **same closed-form kernels** as
+//! [`crate::elements::nedelec::batched_nedelec_local_matrices`] and
+//! [`crate::elements::nedelec::batched_nedelec_local_rhs`] in dual-number
+//! arithmetic (`Dual`) and read off the directional derivative. This is
+//! **analytic** (exact forward-mode automatic differentiation — no
+//! finite-difference truncation), so the adjoint-vs-FD test isolates the
+//! correctness of the adjoint algebra + geometry chain, not the element
+//! derivative. Dedicated unit tests cross-check (a) the dual `.re` against the
+//! production Burn kernel and (b) the dual tangent against a central finite
+//! difference of the same `f64` kernel.
+//!
+//! # Scope (v1): lossless real ε_r, per-tet-constant current source
+//!
+//! Following the issue's honesty clause, the load-bearing demonstration is a
+//! **lossless, real-ε_r** driven PEC cavity with a per-tet-constant complex
+//! current source (`J` held fixed per element as the mesh morphs — the natural
+//! "given source density" convention, so `∂b/∂X` is purely geometric). Complex
+//! ε (loss tangent) and a spatially-resampled `J(x)` source are documented
+//! follow-ons.
+
+use burn::tensor::backend::Backend;
+use faer::linalg::solvers::Solve;
+use faer::sparse::{SparseColMat, Triplet};
+use faer::{Mat, c64};
+
+use crate::assembly::nedelec::{
+    NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
+    assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
+};
+use crate::assembly::p1::upload_mesh;
+use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
+use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError, validate_driven_surfaces};
+use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, TET_NEDELEC2_FACE_DOF_BASE, tet_quad_deg4};
+use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES, TetMesh};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Minimal forward-mode dual number for exact differentiation of the closed-
+// form Nédélec element kernels w.r.t. a single seeded node coordinate.
+// (A private twin of the P1 dual in `crate::shape`: each geometry-kernel
+// module owns its AD primitive rather than sharing a cross-module type.)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A first-order **dual number** `re + du·ϵ` (`ϵ² = 0`) for exact forward-mode
+/// automatic differentiation of the closed-form Nédélec element kernels.
+/// Seeding one node coordinate with `du = 1` (all others `du = 0`) and
+/// evaluating [`nedelec_local_dual`] returns, in the `.du` fields of the
+/// resulting local matrices / RHS moments, the exact partial derivatives of
+/// those entries w.r.t. that coordinate.
+///
+/// `pub(crate)`: shared with [`crate::eigen::sensitivity`] (issue #596), which
+/// reuses the same exact element-kernel JVP for the Hellmann–Feynman
+/// eigenvalue-sensitivity contraction `xᵀ(∂K/∂X − λ ∂M/∂X)x`. Only the
+/// constructors [`Dual::cst`] / [`Dual::var`] and the `.re`/`.du` fields are
+/// needed there; the arithmetic methods remain private to this module.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Dual {
+    pub(crate) re: f64,
+    pub(crate) du: f64,
+}
+
+impl Dual {
+    #[inline]
+    pub(crate) fn cst(re: f64) -> Self {
+        Self { re, du: 0.0 }
+    }
+    #[inline]
+    pub(crate) fn var(re: f64) -> Self {
+        Self { re, du: 1.0 }
+    }
+    #[inline]
+    fn add(self, o: Self) -> Self {
+        Self {
+            re: self.re + o.re,
+            du: self.du + o.du,
+        }
+    }
+    #[inline]
+    fn sub(self, o: Self) -> Self {
+        Self {
+            re: self.re - o.re,
+            du: self.du - o.du,
+        }
+    }
+    #[inline]
+    fn mul(self, o: Self) -> Self {
+        Self {
+            re: self.re * o.re,
+            du: self.du * o.re + self.re * o.du,
+        }
+    }
+    #[inline]
+    fn div(self, o: Self) -> Self {
+        let inv = 1.0 / o.re;
+        Self {
+            re: self.re * inv,
+            du: (self.du * o.re - self.re * o.du) * inv * inv,
+        }
+    }
+    #[inline]
+    fn neg(self) -> Self {
+        Self {
+            re: -self.re,
+            du: -self.du,
+        }
+    }
+    /// `|x|`, sub-gradient at the (measure-zero) kink taken as the right
+    /// derivative. The element determinant is bounded away from zero on any
+    /// valid mesh, so the kink is never hit here.
+    #[inline]
+    fn abs(self) -> Self {
+        if self.re >= 0.0 { self } else { self.neg() }
+    }
+    /// `√x`, `du = x.du / (2√x.re)`. Used by the surface-Whitney twin
+    /// [`port_face_dual`] for the triangle area `½‖e₁×e₂‖` (the tet element
+    /// kernels never take a square root — they fold `1/|det|` powers instead —
+    /// so this method is new for the port-face geometry derivative). The port
+    /// area is bounded away from zero on any valid boundary mesh, so the
+    /// `x.re = 0` singularity is never hit.
+    #[inline]
+    fn sqrt(self) -> Self {
+        let r = self.re.sqrt();
+        Self {
+            re: r,
+            du: self.du / (2.0 * r),
+        }
+    }
+    /// Multiply by an `f64` constant (a lifted scalar with zero tangent).
+    #[inline]
+    fn scale(self, c: f64) -> Self {
+        Self {
+            re: self.re * c,
+            du: self.du * c,
+        }
+    }
+}
+
+#[inline]
+fn dsub3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
+    [a[0].sub(b[0]), a[1].sub(b[1]), a[2].sub(b[2])]
+}
+#[inline]
+fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
+    [
+        a[1].mul(b[2]).sub(a[2].mul(b[1])),
+        a[2].mul(b[0]).sub(a[0].mul(b[2])),
+        a[0].mul(b[1]).sub(a[1].mul(b[0])),
+    ]
+}
+#[inline]
+fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
+    a[0].mul(b[0]).add(a[1].mul(b[1])).add(a[2].mul(b[2]))
+}
+/// Scale a dual 3-vector by an `f64` constant (a lifted scalar, zero tangent).
+#[inline]
+fn dscale3(s: f64, a: [Dual; 3]) -> [Dual; 3] {
+    [a[0].scale(s), a[1].scale(s), a[2].scale(s)]
+}
+/// Scale a dual 3-vector by a **dual** scalar (both carry tangents).
+#[inline]
+fn dvscale(s: Dual, a: [Dual; 3]) -> [Dual; 3] {
+    [a[0].mul(s), a[1].mul(s), a[2].mul(s)]
+}
+/// The `f64`-scalar linear combination `s·a + t·b` of two dual 3-vectors
+/// (`s`, `t` are fixed reference barycentric weights with zero tangent).
+#[inline]
+fn dlc3(s: f64, a: [Dual; 3], t: f64, b: [Dual; 3]) -> [Dual; 3] {
+    [
+        a[0].scale(s).add(b[0].scale(t)),
+        a[1].scale(s).add(b[1].scale(t)),
+        a[2].scale(s).add(b[2].scale(t)),
+    ]
+}
+
+/// The first-order Nédélec element-local **curl-curl** `K`, **mass** `M`
+/// (both sign-unaware, `6×6`) and **current-RHS moments** `∫ N_i dV`
+/// (`6×3`, sign-unaware), all evaluated in dual arithmetic on dual-valued
+/// `coords`, so each `.du` is the directional derivative w.r.t. whichever
+/// coordinate was seeded with [`Dual::var`].
+///
+/// Mirrors [`crate::elements::nedelec::batched_nedelec_local_matrices`] and
+/// [`crate::elements::nedelec::batched_nedelec_local_rhs`] entry-for-entry
+/// (so the `.re` fields reproduce those real `f64` kernels):
+///
+/// ```text
+///   e_k = v_k − v_0,   g_1 = e_2×e_3,  g_2 = e_3×e_1,  g_3 = e_1×e_2,
+///   det = e_1·g_1,     g_0 = −(g_1+g_2+g_3),   gg_pq = g_p·g_q,
+///
+///   K_ij = (2/3)(gg_ac gg_bd − gg_ad gg_bc)/|det|³,           i=(a,b), j=(c,d)
+///   M_ij = (1/120)(f_ac gg_bd − f_ad gg_bc − f_bc gg_ad + f_bd gg_ac)/|det|,
+///          f_pq = 2 if p==q else 1
+///   ∫N_i dV = sign(det)/24 · (g_b − g_a)
+/// ```
+///
+/// `pub(crate)`: reused by [`crate::eigen::sensitivity`] (issue #596) for the
+/// geometry half of the Hellmann–Feynman eigenvalue sensitivity — the same
+/// exact `∂K_local/∂X`, `∂M_local/∂X` element JVP, contracted `xᵀ(·)x` instead
+/// of the adjoint's `λᵀ(·)x`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn nedelec_local_dual(
+    coords: &[[Dual; 3]; 4],
+) -> ([[Dual; 6]; 6], [[Dual; 6]; 6], [[Dual; 3]; 6]) {
+    let v0 = coords[0];
+    let e1 = dsub3(coords[1], v0);
+    let e2 = dsub3(coords[2], v0);
+    let e3 = dsub3(coords[3], v0);
+
+    let g1 = dcross3(e2, e3);
+    let g2 = dcross3(e3, e1);
+    let g3 = dcross3(e1, e2);
+    let det = ddot3(e1, g1); // signed 6V
+    let g0 = [
+        g1[0].add(g2[0]).add(g3[0]).neg(),
+        g1[1].add(g2[1]).add(g3[1]).neg(),
+        g1[2].add(g2[2]).add(g3[2]).neg(),
+    ];
+    let g = [g0, g1, g2, g3];
+
+    // Cofactor gram gg_pq = g_p · g_q (physical gram G_pq = gg_pq/det²; the
+    // det powers are folded into the K/M scale factors below, matching the
+    // Burn kernel's `inv_abs_det{,3}` factoring).
+    let gg = |p: usize, q: usize| -> Dual { ddot3(g[p], g[q]) };
+
+    let abs_det = det.abs();
+    let inv_abs = Dual::cst(1.0).div(abs_det); // 1/|det|
+    let inv_abs3 = inv_abs.mul(inv_abs).mul(inv_abs); // 1/|det|³
+
+    let mut k = [[Dual::cst(0.0); 6]; 6];
+    let mut m = [[Dual::cst(0.0); 6]; 6];
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        for (j, &(c, d)) in TET_LOCAL_EDGES.iter().enumerate() {
+            // K_ij = (2/3)(gg_ac gg_bd − gg_ad gg_bc)/|det|³
+            let k_term = gg(a, c).mul(gg(b, d)).sub(gg(a, d).mul(gg(b, c)));
+            k[i][j] = k_term.mul(inv_abs3).scale(2.0 / 3.0);
+
+            // M_ij = (1/120)(f_ac gg_bd − f_ad gg_bc − f_bc gg_ad + f_bd gg_ac)/|det|
+            let f_ac = if a == c { 2.0 } else { 1.0 };
+            let f_ad = if a == d { 2.0 } else { 1.0 };
+            let f_bc = if b == c { 2.0 } else { 1.0 };
+            let f_bd = if b == d { 2.0 } else { 1.0 };
+            let m_term = gg(b, d)
+                .scale(f_ac)
+                .sub(gg(b, c).scale(f_ad))
+                .sub(gg(a, d).scale(f_bc))
+                .add(gg(a, c).scale(f_bd));
+            m[i][j] = m_term.mul(inv_abs).scale(1.0 / 120.0);
+        }
+    }
+
+    // ∫ N_i dV = sign(det)/24 · (g_b − g_a). factor = det/|det|/24.
+    let factor = det.mul(inv_abs).scale(1.0 / 24.0);
+    let mut nint = [[Dual::cst(0.0); 3]; 6];
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        for c in 0..3 {
+            nint[i][c] = factor.mul(g[b][c].sub(g[a][c]));
+        }
+    }
+
+    (k, m, nint)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tensor-material (box-UPML) Dual twin of the FIRST-ORDER Nédélec element
+// (issue #635, Epic #628 Phase C1).
+//
+// Forward-mode-AD counterpart of the full-3×3-weight forward kernels
+// `crate::elements::nedelec::batched_nedelec_local_stiffness_weighted` and
+// `batched_nedelec_local_mass_anisotropic_full` — the ones
+// `assemble_global_nedelec_with_full_tensors{,_sparse}` (nedelec.rs:1899/2008)
+// use for the matched box-UPML pencil `A = K(ν) − ω² M(ε)` with per-tet
+// constitutive tensors `ν = Λ⁻¹` (curl weight) and `ε = ε_r·Λ` (mass weight).
+//
+// Scope C1 **pins the PML shell**: the node-motion map holds every PML-region
+// node fixed, so `∂Λ/∂X = 0` and `Λ` (hence the real 3×3 weight components
+// `W_k`, `W_m`) is a **constant** per-tet input here. Only the fixed-Λ geometry
+// contraction — the element-Jacobian / cofactor derivatives sandwiched by the
+// constant weight — is differentiated; the moving-PML centroid-profile
+// derivative `∂s_k/∂centroid_k` is the explicit Phase C2 non-goal.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Contract two dual 3-vectors through a **fixed** real 3×3 weight `W`:
+/// `aᵀ W b = Σ_pq a[p] W[p][q] b[q]`. `W` is a lifted constant (zero tangent),
+/// so the tangent flows only through the dual vectors `a`, `b` — exactly the
+/// "fixed Λ" convention of the box-UPML shape adjoint (issue #635).
+#[inline]
+fn dweighted3(a: [Dual; 3], w: &[[f64; 3]; 3], b: [Dual; 3]) -> Dual {
+    let mut acc = Dual::cst(0.0);
+    for p in 0..3 {
+        // (row p of W) · b, then times a[p].
+        let mut wb = Dual::cst(0.0);
+        for q in 0..3 {
+            wb = wb.add(b[q].scale(w[p][q]));
+        }
+        acc = acc.add(a[p].mul(wb));
+    }
+    acc
+}
+
+/// Tensor-material (box-UPML, issue #635) Dual twin of the first-order Nédélec
+/// element: local **curl-curl** `K(W_k)` and **mass** `M(W_m)` (both `6×6`,
+/// sign-unaware) for a **fixed** real 3×3 per-tet curl weight `W_k` (a real
+/// component of `ν = Λ⁻¹`) and mass weight `W_m` (a real component of
+/// `ε = ε_r·Λ`), evaluated in dual arithmetic on dual-valued `coords` — so each
+/// `.du` is the exact `∂/∂X` at fixed Λ.
+///
+/// Mirrors [`crate::elements::nedelec::batched_nedelec_local_stiffness_weighted`]
+/// and [`crate::elements::nedelec::batched_nedelec_local_mass_anisotropic_full`]
+/// entry-for-entry (so the `.re` fields reproduce those real `f64` kernels), with
+/// the SAME cofactor construction as [`nedelec_local_dual`]:
+///
+/// ```text
+///   e_k = v_k − v_0,  g_1 = e_2×e_3, g_2 = e_3×e_1, g_3 = e_1×e_2,
+///   det = e_1·g_1,    g_0 = −(g_1+g_2+g_3),   cr_i = g_a × g_b  (edge i=(a,b))
+///
+///   K(W_k)_ij = (2/3) cr_iᵀ W_k cr_j / |det|³,
+///   gw_pq     = g_pᵀ W_m g_q,
+///   M(W_m)_ij = (1/120)(f_ac gw_bd − f_ad gw_bc − f_bc gw_ad + f_bd gw_ac)/|det|,
+///              f_pq = 2 if p==q else 1.
+/// ```
+///
+/// A complex weight runs as two calls (real-part weight, imag-part weight),
+/// exactly the Re/Im split the forward assembler uses; the caller recombines
+/// `∂K = ∂K_re + i·∂K_im`, `∂M = ∂M_re + i·∂M_im`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn nedelec_local_dual_tensor(
+    coords: &[[Dual; 3]; 4],
+    w_k: &[[f64; 3]; 3],
+    w_m: &[[f64; 3]; 3],
+) -> ([[Dual; 6]; 6], [[Dual; 6]; 6]) {
+    let v0 = coords[0];
+    let e1 = dsub3(coords[1], v0);
+    let e2 = dsub3(coords[2], v0);
+    let e3 = dsub3(coords[3], v0);
+
+    let g1 = dcross3(e2, e3);
+    let g2 = dcross3(e3, e1);
+    let g3 = dcross3(e1, e2);
+    let det = ddot3(e1, g1); // signed 6V
+    let g0 = [
+        g1[0].add(g2[0]).add(g3[0]).neg(),
+        g1[1].add(g2[1]).add(g3[1]).neg(),
+        g1[2].add(g2[2]).add(g3[2]).neg(),
+    ];
+    let g = [g0, g1, g2, g3];
+
+    let abs_det = det.abs();
+    let inv_abs = Dual::cst(1.0).div(abs_det); // 1/|det|
+    let inv_abs3 = inv_abs.mul(inv_abs).mul(inv_abs); // 1/|det|³
+
+    // Constant per-tet (unnormalized) curls cr_i = g_a × g_b; the physical curl
+    // `2 cr_i / det²` folds its det powers into the K scale below, matching the
+    // forward kernel's `inv_abs_det³ · (2/3)` factoring.
+    let mut cr = [[Dual::cst(0.0); 3]; 6];
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        cr[i] = dcross3(g[a], g[b]);
+    }
+
+    let mut k = [[Dual::cst(0.0); 6]; 6];
+    let mut m = [[Dual::cst(0.0); 6]; 6];
+
+    // K(W_k)_ij = (2/3) cr_iᵀ W_k cr_j / |det|³.
+    for i in 0..6 {
+        for j in 0..6 {
+            k[i][j] = dweighted3(cr[i], w_k, cr[j]).mul(inv_abs3).scale(2.0 / 3.0);
+        }
+    }
+
+    // Weighted gram gw_pq = g_pᵀ W_m g_q (physical G^W = gw/det²; det² and V/20
+    // collapse into 1/(120 |det|) below, matching the forward kernel).
+    let gw = |p: usize, q: usize| -> Dual { dweighted3(g[p], w_m, g[q]) };
+    for (i, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        for (j, &(c, d)) in TET_LOCAL_EDGES.iter().enumerate() {
+            let f_ac = if a == c { 2.0 } else { 1.0 };
+            let f_ad = if a == d { 2.0 } else { 1.0 };
+            let f_bc = if b == c { 2.0 } else { 1.0 };
+            let f_bd = if b == d { 2.0 } else { 1.0 };
+            let m_term = gw(b, d)
+                .scale(f_ac)
+                .sub(gw(b, c).scale(f_ad))
+                .sub(gw(a, d).scale(f_bc))
+                .add(gw(a, c).scale(f_bd));
+            m[i][j] = m_term.mul(inv_abs).scale(1.0 / 120.0);
+        }
+    }
+
+    (k, m)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Surface-Whitney (flat-triangle) Dual twin — the moving-feed lumped-port
+// geometry derivative (Epic #628 Phase A2, issue #633).
+//
+// Forward-mode-AD counterpart of the flat-triangle Whitney face kernels the
+// forward port assembly uses (`crate::elements::whitney::face_geometry` +
+// `face_mass_block`, and the closed-form flux in
+// `crate::driven::ports::assemble_port_flux`), restricted to ONE port face and
+// evaluated in `Dual` arithmetic — so each `.du` is the exact partial of the
+// face's tangential surface-mass block `S^face_{ij} = ∮_T N_i·N_j dS` and its
+// flux moment `f^face_k = ∮_T N_k·ê dS` w.r.t. whichever face-node coordinate
+// was seeded with `Dual::var`. This is the `∂S_p/∂X` / `∂f/∂X` analog of the
+// volume `nedelec_local_dual`, and is what Phase A1 (pinned feed) dropped.
+//
+// The 3×3 mass block and the 3-vector flux are returned UNSIGNED (local-edge
+// order `TRI_LOCAL_EDGES`); the lower-tag-first orientation signs `s_k` are
+// geometry-independent integers folded in by the caller (into the signed local
+// λ / x), exactly as `assemble_surface_mass_triplets` / `assemble_port_flux`
+// scatter `val·s_i·s_j` and `flux·s_k`.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Dual twin of [`crate::elements::whitney::face_geometry`]'s geometric outputs:
+/// the triangle **area** and the three in-plane **barycentric gradients** `∇λ_k`,
+/// in dual arithmetic on dual-valued triangle vertices `v`.
+///
+/// Mirrors the `f64` kernel entry-for-entry using the determinant-free form
+/// `∇λ_k = (e₁×e₂) × opp_k / ‖e₁×e₂‖²` (identical to the production
+/// `n̂ × opp_k / (2·area)` since `n̂ = (e₁×e₂)/‖e₁×e₂‖`), so the `.re` fields
+/// reproduce the production gradients bit-for-bit while the `.du` fields carry
+/// the exact geometry tangent.
+fn port_face_geometry_dual(v: &[[Dual; 3]; 3]) -> (Dual, [[Dual; 3]; 3]) {
+    let e10 = dsub3(v[1], v[0]);
+    let e20 = dsub3(v[2], v[0]);
+    let cross = dcross3(e10, e20);
+    let two_area_sq = ddot3(cross, cross); // ‖e₁×e₂‖²
+    let two_area = two_area_sq.sqrt();
+    let area = two_area.scale(0.5);
+
+    // opp_k = edge opposite local vertex k (from v_{(k+1)%3} to v_{(k+2)%3}).
+    let opp = [dsub3(v[2], v[1]), dsub3(v[0], v[2]), dsub3(v[1], v[0])];
+    let inv_two_area_sq = Dual::cst(1.0).div(two_area_sq);
+    let grad_lambda = [
+        dvscale(inv_two_area_sq, dcross3(cross, opp[0])),
+        dvscale(inv_two_area_sq, dcross3(cross, opp[1])),
+        dvscale(inv_two_area_sq, dcross3(cross, opp[2])),
+    ];
+    (area, grad_lambda)
+}
+
+/// Dual twin of a single port face: the UNSIGNED tangential surface-mass block
+/// `S^face_{ij} = ∮_T N_i·N_j dS` (`3×3`), the UNSIGNED flux moment
+/// `f^face_k = ∮_T N_k·ê dS` (`3`), and the face area, all in dual arithmetic on
+/// the dual-valued triangle vertices `v`.
+///
+/// The mass block uses the SAME 3-point edge-midpoint quadrature
+/// ([`crate::elements::whitney::BARYCENTRIC_MIDPOINTS`], degree-2 exact) as
+/// `face_mass_block`; the flux uses the SAME closed form
+/// `∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la)` dotted with `ê` as
+/// `assemble_port_flux`. At zero perturbation the `.re` fields reproduce those
+/// `f64` kernels exactly (unit-tested); the `.du` fields are `∂S^face/∂X` and
+/// `∂f^face/∂X`.
+fn port_face_dual(v: &[[Dual; 3]; 3], e_hat: [f64; 3]) -> (Dual, [[Dual; 3]; 3], [Dual; 3]) {
+    let (area, grad_lambda) = port_face_geometry_dual(v);
+    let weight = area.scale(1.0 / 3.0);
+
+    // Tangential surface mass, 3-point edge-midpoint rule on the Whitney trace
+    // N_e(λ) = λ_la·∇λ_lb − λ_lb·∇λ_la (BAC-CAB rank reduction on the flat face).
+    let mut mass = [[Dual::cst(0.0); 3]; 3];
+    for lam in crate::elements::whitney::BARYCENTRIC_MIDPOINTS.iter() {
+        let mut basis_q = [[Dual::cst(0.0); 3]; 3];
+        for (k, &(la, lb)) in crate::elements::whitney::TRI_LOCAL_EDGES.iter().enumerate() {
+            let term_a = dscale3(lam[la], grad_lambda[lb]);
+            let term_b = dscale3(lam[lb], grad_lambda[la]);
+            basis_q[k] = dsub3(term_a, term_b);
+        }
+        for i in 0..3 {
+            for j in 0..3 {
+                mass[i][j] = mass[i][j].add(ddot3(basis_q[i], basis_q[j]).mul(weight));
+            }
+        }
+    }
+
+    // Flux moment f_k = ∮_T N_k·ê dS with ∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la).
+    let e = [
+        Dual::cst(e_hat[0]),
+        Dual::cst(e_hat[1]),
+        Dual::cst(e_hat[2]),
+    ];
+    let mut flux = [Dual::cst(0.0); 3];
+    for (k, &(la, lb)) in crate::elements::whitney::TRI_LOCAL_EDGES.iter().enumerate() {
+        let integral = dvscale(weight, dsub3(grad_lambda[lb], grad_lambda[la]));
+        flux[k] = ddot3(integral, e);
+    }
+
+    (area, mass, flux)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Dual twin of the SECOND-ORDER (p=2) 20-DOF Nédélec element (issue #619).
+//
+// Forward-mode-AD counterpart of the `f64` production kernels in
+// `crate::elements::nedelec_p2` (`tet_barycentric_gradients` /
+// `tet_nedelec2_shapes` / `tet_nedelec2_local` / `tet_nedelec2_local_rhs`),
+// mirroring them entry-for-entry but in `Dual` arithmetic so each `.du` is the
+// exact partial w.r.t. whichever tet coordinate was seeded with `Dual::var`.
+//
+// Deliberately a TWIN, not a genericization of the production kernel: the `f64`
+// `tet_nedelec2_local` sits on the hot forward-assembly path
+// (`assemble_p2_km` → `tet_p2_local_sorted`), so it is left byte-identical for
+// the p=1 AND p=2 forward paths (the AC's "documented equivalent" clause and
+// the house style established by `nedelec_local_dual` at p=1). The two element
+// self-checks (`p2_dual_local_matrices_reproduce_f64_kernel`,
+// `p2_dual_local_derivative_matches_finite_difference`) pin the twin's `.re`
+// against the `f64` kernel and its `.du` against a central FD of the same
+// kernel.
+//
+// The fixed reference-barycentric quadrature points `lam` from
+// `tet_quad_deg4()` are constants (`f64`): geometry enters the integral ONLY
+// through `bary = ∇λ` and the element volume, both differentiable outputs of
+// the Dual barycentric-gradient step. There is NO ∂lam/∂X term.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Dual twin of [`crate::elements::nedelec_p2::tet_barycentric_gradients`]:
+/// physical barycentric gradients `∇λ_p` and the **signed** volume `det/6`, in
+/// dual arithmetic (same cofactor construction as the `f64` kernel).
+fn tet_barycentric_gradients_dual(coords: &[[Dual; 3]; 4]) -> ([[Dual; 3]; 4], Dual) {
+    let v0 = coords[0];
+    let e1 = dsub3(coords[1], v0);
+    let e2 = dsub3(coords[2], v0);
+    let e3 = dsub3(coords[3], v0);
+    let g1 = dcross3(e2, e3);
+    let g2 = dcross3(e3, e1);
+    let g3 = dcross3(e1, e2);
+    let det = ddot3(e1, g1); // = 6V (signed)
+    let inv = Dual::cst(1.0).div(det);
+    let gl1 = [g1[0].mul(inv), g1[1].mul(inv), g1[2].mul(inv)];
+    let gl2 = [g2[0].mul(inv), g2[1].mul(inv), g2[2].mul(inv)];
+    let gl3 = [g3[0].mul(inv), g3[1].mul(inv), g3[2].mul(inv)];
+    let gl0 = [
+        gl1[0].add(gl2[0]).add(gl3[0]).neg(),
+        gl1[1].add(gl2[1]).add(gl3[1]).neg(),
+        gl1[2].add(gl2[2]).add(gl3[2]).neg(),
+    ];
+    ([gl0, gl1, gl2, gl3], det.scale(1.0 / 6.0))
+}
+
+/// Dual twin of [`crate::elements::nedelec_p2::tet_nedelec2_shapes`]: the 20
+/// basis vectors `N_i` and their curls at a **fixed** reference barycentric
+/// point `lam` (`f64` constants), given the (now-Dual) physical gradients
+/// `bary[p] = ∇λ_p`. Mirrors the `f64` construction entry-for-entry.
+#[allow(clippy::type_complexity)]
+fn tet_nedelec2_shapes_dual(
+    lam: &[f64; 4],
+    bary: &[[Dual; 3]; 4],
+) -> (
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+) {
+    let zero = Dual::cst(0.0);
+    let mut n = [[zero; 3]; TET_NEDELEC2_DOFS];
+    let mut c = [[zero; 3]; TET_NEDELEC2_DOFS];
+
+    // Edge functions: W (Whitney) and Q (gradient) per edge.
+    for (e, &(a, b)) in TET_LOCAL_EDGES.iter().enumerate() {
+        // W_ab = λ_a ∇λ_b − λ_b ∇λ_a,  curl = 2 ∇λ_a × ∇λ_b.
+        n[2 * e] = dlc3(lam[a], bary[b], -lam[b], bary[a]);
+        c[2 * e] = dscale3(2.0, dcross3(bary[a], bary[b]));
+        // Q_ab = λ_a ∇λ_b + λ_b ∇λ_a = ∇(λ_a λ_b),  curl = 0.
+        n[2 * e + 1] = dlc3(lam[a], bary[b], lam[b], bary[a]);
+        c[2 * e + 1] = [zero; 3];
+    }
+
+    // Face functions: φ0 = λ_c W_ab, φ1 = λ_a W_bc, with (a,b,c) ascending.
+    for (f, tri) in TET_LOCAL_FACES.iter().enumerate() {
+        let (a, b, cc) = (tri[0], tri[1], tri[2]);
+        let base = TET_NEDELEC2_FACE_DOF_BASE + 2 * f;
+
+        // φ0 = λ_c (λ_a ∇λ_b − λ_b ∇λ_a)
+        let w_ab = dlc3(lam[a], bary[b], -lam[b], bary[a]);
+        n[base] = dscale3(lam[cc], w_ab);
+        // curl φ0 = (λ_c ∇λ_a + λ_a ∇λ_c) × ∇λ_b − (λ_c ∇λ_b + λ_b ∇λ_c) × ∇λ_a
+        {
+            let g_ca = dlc3(lam[cc], bary[a], lam[a], bary[cc]);
+            let g_cb = dlc3(lam[cc], bary[b], lam[b], bary[cc]);
+            c[base] = dsub3(dcross3(g_ca, bary[b]), dcross3(g_cb, bary[a]));
+        }
+
+        // φ1 = λ_a (λ_b ∇λ_c − λ_c ∇λ_b)
+        let w_bc = dlc3(lam[b], bary[cc], -lam[cc], bary[b]);
+        n[base + 1] = dscale3(lam[a], w_bc);
+        // curl φ1 = (λ_a ∇λ_b + λ_b ∇λ_a) × ∇λ_c − (λ_a ∇λ_c + λ_c ∇λ_a) × ∇λ_b
+        {
+            let g_ab = dlc3(lam[a], bary[b], lam[b], bary[a]);
+            let g_ac = dlc3(lam[a], bary[cc], lam[cc], bary[a]);
+            c[base + 1] = dsub3(dcross3(g_ab, bary[cc]), dcross3(g_ac, bary[b]));
+        }
+    }
+
+    (n, c)
+}
+
+/// Dual twin of the second-order Nédélec element: local curl-curl `K` (`20×20`),
+/// mass `M` (`20×20`, ε = 1), and current-RHS moments `∫ N_i dV` (`20×3`), all
+/// in dual arithmetic on dual-valued `coords` — so each `.du` is the exact
+/// directional derivative w.r.t. the seeded coordinate.
+///
+/// Mirrors [`crate::elements::nedelec_p2::tet_nedelec2_local`] and
+/// [`crate::elements::nedelec_p2::tet_nedelec2_local_rhs`]: it accumulates over
+/// the SAME fixed [`tet_quad_deg4`] rule with weight `|signed_vol| · frac`. The
+/// RHS moment is returned per-DOF as the `[20][3]` tensor `∫ N_i dV` (contract
+/// with a fixed `J` to recover the RHS entry `∫ N_i · J dV`), so the caller can
+/// use the same tangents for any held-fixed complex `J`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn nedelec2_local_dual(
+    coords: &[[Dual; 3]; 4],
+) -> (
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+) {
+    let (bary, signed_vol) = tet_barycentric_gradients_dual(coords);
+    let vol_abs = signed_vol.abs();
+
+    let zero = Dual::cst(0.0);
+    let mut k = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut m = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut nint = [[zero; 3]; TET_NEDELEC2_DOFS];
+
+    for (lam, frac) in tet_quad_deg4() {
+        let w = vol_abs.scale(frac);
+        let (n, c) = tet_nedelec2_shapes_dual(&lam, &bary);
+        for i in 0..TET_NEDELEC2_DOFS {
+            for j in 0..TET_NEDELEC2_DOFS {
+                m[i][j] = m[i][j].add(ddot3(n[i], n[j]).mul(w));
+                k[i][j] = k[i][j].add(ddot3(c[i], c[j]).mul(w));
+            }
+            for d in 0..3 {
+                nint[i][d] = nint[i][d].add(n[i][d].mul(w));
+            }
+        }
+    }
+
+    (k, m, nint)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shape-gradient driver.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Result of a driven-Nédélec **geometry** discrete-adjoint gradient
+/// evaluation.
+#[derive(Debug, Clone)]
+pub struct DrivenShapeGradient {
+    /// The scalar objective value `g(x)` at the (unperturbed) forward solution.
+    pub objective: f64,
+    /// The full **nodal-coordinate** gradient `∂g/∂X_{n,d}`, one `[x,y,z]`
+    /// triple per node (length `mesh.n_nodes()`). Chain it through a
+    /// node-motion map with [`crate::shape::chain_node_motion`] to obtain
+    /// `∂g/∂θ`.
+    pub grad_node: Vec<[f64; 3]>,
+    /// Full-length `[n_edges]` complex forward edge field `x` (PEC-eliminated
+    /// edges carry exact zeros), returned for post-processing / cross-checks.
+    pub e_edges: Vec<c64>,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior forward solve —
+    /// a numerical health check (round-off floor for a healthy direct solve).
+    pub residual_rel: f64,
+    /// Number of sparse LU **factorizations** performed. Always `1`: the
+    /// forward and adjoint solves share a single factorization (the adjoint is
+    /// a transpose back-substitution, not a refactorization).
+    pub n_factorizations: usize,
+}
+
+/// Real-ε_r convenience wrapper over [`driven_shape_gradient_complex`].
+///
+/// This is the original **lossless** entry point (issue #577): the per-tet
+/// permittivity is a real `ε_r`, promoted to `ε_r − i·0` and forwarded to the
+/// complex core. The complex path (issue #629, Epic #628 Phase B) adds
+/// substrate loss (`ε = ε′ − i·ε″`, nonzero `tan δ`); the two share **one**
+/// implementation, so the real gradient returned here is bit-for-bit the
+/// complex core evaluated at zero loss. See [`driven_shape_gradient_complex`]
+/// for the full contract, the adjoint identity, and the `∂b/∂X` term.
+///
+/// # Arguments
+///
+/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`),
+///   the evaluated material at which the gradient is taken (held constant under
+///   the geometry perturbation). Every other argument matches
+///   [`driven_shape_gradient_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches or if the sparse
+/// factorization / solve fails (e.g. `ω²` collides with a lossless-pencil
+/// eigenvalue, making `A(ω)` singular), and on an objective-cotangent length
+/// mismatch.
+pub fn driven_shape_gradient<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    driven_shape_gradient_complex::<B, G>(mesh, &eps_complex, bcs, omega, source, objective, device)
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **complex-ε
+/// (lossy) driven Nédélec** EM observable via the discrete adjoint — **one
+/// forward + one adjoint solve**, reusing a single complex sparse LU
+/// factorization — then chain through any analytic node-motion map with
+/// [`crate::shape::chain_node_motion`].
+///
+/// This is the shape-side twin of the complex **material** adjoint
+/// [`crate::driven::adjoint::driven_material_adjoint_gradient_complex`] (#576):
+/// the geometry shape gradient of `A(X) x = b(X)`, `A = K − ω² M(ε)`, with a
+/// per-tet **complex** permittivity `ε = ε′ − i·ε″` (nonzero `Im(ε)` models a
+/// substrate loss tangent `tan δ`) and a per-tet-constant complex current source
+/// held fixed as the mesh morphs. See the module docs for the identity
+/// (including the geometry-dependent-RHS `∂b/∂X` term).
+///
+/// The `A(ω) = K − ω² M(ε)` pencil stays **complex-symmetric** under loss
+/// (`M(ε)` scales the real symmetric element mass by the complex per-tet `ε`),
+/// so the adjoint `Aᵀ λ = ∂g/∂x` still reuses the forward LU — one
+/// factorization, two back-substitutions (`n_factorizations == 1`). The only
+/// change from the lossless path is that the volume contraction factor
+/// `∂A_ij = ∂K_ij − ω² ε ∂M_ij` now carries the complex `ε` (the field `x`,
+/// adjoint `λ`, and `term_a` were already complex).
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh (fixed topology; the gradient is w.r.t. its node
+///   positions).
+/// * `eps_r` — per-tet **complex** relative permittivity `ε = ε′ − i·ε″`
+///   (length `mesh.n_tets()`), the evaluated material at which the gradient is
+///   taken (held constant under the geometry perturbation). Use
+///   [`driven_shape_gradient`] for the real-ε convenience path.
+/// * `bcs` — PEC interior-edge mask, exactly as
+///   [`crate::driven::solve::driven_solve`] takes it.
+/// * `omega` — drive frequency `ω = k₀` (natural units). Must sit away from a
+///   resonance of the pencil so `A(ω)` is non-singular.
+/// * `source` — per-tet-constant complex volumetric current source. Its `j_tet`
+///   values are held **fixed per element** under the geometry perturbation, so
+///   `∂b/∂X` is purely the geometric variation of `∫ N·J dV`.
+/// * `objective` — the scalar figure-of-merit. Given the full-length complex
+///   edge field `x` (`[n_edges]`, PEC zeros in place) it returns `(g, ∂g/∂x)`
+///   with `∂g/∂x` a full-length `[n_edges]` **Wirtinger** cotangent
+///   (`∂g/∂x_i`, un-conjugated; e.g. `x̄_i` for `g = Σ|x_i|²`). Must be real and
+///   depend on geometry only through `x`; its cotangent on PEC edges is ignored.
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches or if the sparse
+/// factorization / solve fails (e.g. `ω²` collides with a pencil eigenvalue,
+/// making `A(ω)` singular), and on an objective-cotangent length mismatch.
+pub fn driven_shape_gradient_complex<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    // Port-less delegation: the shared core with an empty port list is the
+    // historical (Phase B) complex path, bit-for-bit. See the module docs and
+    // [`driven_shape_gradient_ports_complex`].
+    driven_shape_gradient_ports_complex::<B, G>(
+        mesh,
+        eps_r,
+        bcs,
+        omega,
+        source,
+        &[],
+        objective,
+        device,
+    )
+}
+
+/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **port-terminated**
+/// pencil — Epic #628 **Phase A1**, the pinned-feed lumped-port termination in
+/// the shape adjoint (issue #631).
+///
+/// This is [`driven_shape_gradient_complex`] with a slice of **pinned** Palace-
+/// style lumped ports ([`LumpedPort`]) threaded into the differentiated system.
+/// Each port contributes, exactly as the forward
+/// [`crate::driven::solve::driven_solve_with_ports`] does,
+///
+/// ```text
+///   A(ω) += (jω/Z_s) S_p,                    Z_s = R·w/l,  S_p = ∮ N_i·N_j dS
+///   b_i  += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS    (only if V_inc ≠ 0),
+/// ```
+///
+/// so the adjoint now differentiates the **port-loaded** pencil
+/// `A = K − ω² M(ε) + (jω/Z_s) S_p` with the port boundary drive folded into
+/// the RHS `b`. Because `S_p` is real-symmetric and scaled by the scalar
+/// `jω/Z_s`, `A(ω)ᵀ = A(ω)` is preserved — the transpose (adjoint) solve reuses
+/// the single forward LU (`n_factorizations == 1`), exactly as in the port-less
+/// path.
+///
+/// # Pinned feed — why A1 is tractable
+///
+/// The port faces / nodes are **geometry-constant** (the feed is *pinned*), so
+/// `∂S_p/∂X = 0` and `∂b_port/∂X = 0`: there is **no** new `∂A/∂X` or `∂b/∂X`
+/// port term. The constant port term simply loads the forward + adjoint solves,
+/// and the volume-term (K, M) shape gradient is then taken through the loaded
+/// system — the returned gradient genuinely differs from the port-less path
+/// (the field `x`, adjoint `λ`, and the `∂b/∂X` volume RHS all see the port).
+/// **This assumption requires that the node-motion map hold every port-face
+/// node fixed** (a moving feed — `∂S_p/∂X ≠ 0`, `∂b_port/∂X ≠ 0` — is Phase A2,
+/// a documented non-goal here).
+///
+/// An empty `ports` slice reproduces [`driven_shape_gradient_complex`]
+/// bit-for-bit. See that function for the full argument contract; `ports` is
+/// the added parameter.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_ports_complex<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ports: &[LumpedPort<'_>],
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let core = driven_shape_gradient_ports_complex_core::<B, G>(
+        mesh, eps_r, bcs, omega, source, ports, objective, device,
+    )?;
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node: core.grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// Internal result of the port-loaded shape-gradient core: the public
+/// [`DrivenShapeGradient`] fields **plus** the full-length adjoint field
+/// `lambda_full` (zero on PEC edges), which the moving-feed sibling
+/// [`driven_shape_gradient_moving_port_s11`] needs to contract the extra
+/// `∂S_p/∂X`, `∂b_port/∂X`, `∂Z_s/∂X` port terms — WITHOUT a second
+/// factorization (the adjoint `λ` is already computed here off the single LU).
+struct PortShapeCore {
+    objective: f64,
+    grad_node: Vec<[f64; 3]>,
+    e_edges: Vec<c64>,
+    lambda_full: Vec<c64>,
+    residual_rel: f64,
+    n_factorizations: usize,
+}
+
+/// The shared core of [`driven_shape_gradient_ports_complex`]: it performs the
+/// single forward + single adjoint solve on the port-loaded complex-symmetric
+/// pencil and accumulates the **volume** (`K`, `M`, volume-`∂b`) shape-gradient
+/// contraction — the pinned-feed Phase A1 computation. It additionally returns
+/// the adjoint field `lambda_full`, so the moving-feed Phase A2 entry point can
+/// add the port `∂A/∂X`, `∂b_port/∂X` and objective `∂f/∂X` terms on top,
+/// reusing the SAME `λ` (no refactorization). The public A1 wrapper drops
+/// `lambda_full` and is therefore bit-for-bit unchanged.
+#[allow(clippy::too_many_arguments)]
+fn driven_shape_gradient_ports_complex_core<B, G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ports: &[LumpedPort<'_>],
+    objective: G,
+    device: &B::Device,
+) -> Result<PortShapeCore, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // --- Input validation (mirrors driven_solve + the adjoint bookkeeping) ---
+    if bcs.pec_interior_mask.len() != n_edges {
+        return Err(DrivenError::MaskDimMismatch {
+            got: bcs.pec_interior_mask.len(),
+            want: n_edges,
+        });
+    }
+    if eps_r.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_r.len(),
+            want: n_tets,
+        });
+    }
+    if source.j_tet.len() != n_tets {
+        return Err(DrivenError::SourceDimMismatch {
+            got: source.j_tet.len(),
+            want: n_tets,
+        });
+    }
+    // Port validation mirrors the forward `DrivenOperator::assemble_impl` so the
+    // adjoint's port-loaded forward is the same system the public
+    // `driven_solve_with_ports` builds (error instead of panic on a bad spec).
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes_u32 = n_nodes as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes_u32))
+        {
+            return Err(invalid("face node index out of range"));
+        }
+    }
+    // Every port triangle must be a tet face (issue #725) — the Whitney port
+    // kernels below `expect` it.
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
+
+    // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let scatter = NedelecScatterMap::new(&tet_idx);
+    let pattern = scatter.pattern();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
+
+    // --- Assemble K and M(ε) on the Burn backend (complex ε = ε′ − i·ε″). ---
+    let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_sign,
+        &scatter,
+        eps_r,
+    );
+    let k_re_host: Vec<f64> = sys.k_vals.into_data().iter::<f64>().collect();
+    let m_re_host: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
+    let m_im_host: Vec<f64> = sys.m_im_vals.into_data().iter::<f64>().collect();
+
+    // --- Current-source RHS moments ∫ N · J dV. -----------------------------
+    let j_re: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].re, j[1].re, j[2].re])
+        .collect();
+    let j_im: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].im, j[1].im, j[2].im])
+        .collect();
+    let rhs_re_t = assemble_nedelec_current_rhs(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &j_re,
+    );
+    let rhs_im_t =
+        assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
+    let rhs_re: Vec<f64> = rhs_re_t.into_data().iter::<f64>().collect();
+    let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
+
+    // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
+    let mut b_full: Vec<c64> = rhs_re
+        .iter()
+        .zip(rhs_im.iter())
+        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+        .collect();
+
+    // --- Pinned-feed port boundary drive (issue #631, Phase A1). ------------
+    // b_i += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS, identical to the forward
+    // `assemble_b_at`. The port flux functional f_i is geometry-constant under
+    // the pinned feed (∂b_port/∂X = 0), so it contributes only to the solves,
+    // not the geometry contraction.
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let z_s = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / z_s) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
+
+    // --- PEC interior reduction: full edge index → interior index. ----------
+    let mut remap = vec![-1_i64; n_edges];
+    let mut n_interior = 0_usize;
+    for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
+        if keep {
+            remap[i] = n_interior as i64;
+            n_interior += 1;
+        }
+    }
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // --- Interior A(ω) = K − ω² M by linear combination over the pattern. ---
+    let omega2 = omega * omega;
+    let mut kept: Vec<(usize, usize, usize)> = Vec::with_capacity(pattern.nnz());
+    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(pattern.nnz());
+    for (idx, (&r_u32, &c_u32)) in pattern.rows.iter().zip(pattern.cols.iter()).enumerate() {
+        let (rr, cc) = (remap[r_u32 as usize], remap[c_u32 as usize]);
+        if rr < 0 || cc < 0 {
+            continue;
+        }
+        let (rr, cc) = (rr as usize, cc as usize);
+        let a_val =
+            c64::new(k_re_host[idx], 0.0) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2;
+        triplets.push(Triplet::new(rr, cc, a_val));
+        kept.push((rr, cc, idx));
+    }
+
+    // --- Pinned-feed port admittance A(ω) += (jω/Z_s) S_p (issue #631). ------
+    // S_p is the real-symmetric tangential surface mass; the scalar jω/Z_s
+    // scaling keeps A(ω)ᵀ = A(ω), so the transpose (adjoint) solve still reuses
+    // the forward LU. Interior-remapped and kept as its own list so the residual
+    // health check below re-forms the SAME loaded A. Under the pinned feed
+    // ∂S_p/∂X = 0, so these entries do NOT enter the geometry contraction.
+    let mut port_kept: Vec<(usize, usize, c64)> = Vec::new();
+    for port in ports {
+        let scale = c64::new(0.0, omega / port.surface_impedance());
+        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            let a_val = scale * v;
+            triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
+            port_kept.push((rr as usize, cc as usize, a_val));
+        }
+    }
+
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+    // --- Factor A(ω) ONCE. Serves both the forward and adjoint solves. ------
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior-filtered RHS.
+    let b_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(b_full.iter())
+        .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+        .collect();
+
+    // --- Forward solve: A x = b. --------------------------------------------
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(rr, cc, idx) in &kept {
+            let a_val =
+                c64::new(k_re_host[idx], 0.0) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2;
+            ax[rr] += a_val * x_int[cc];
+        }
+        for &(rr, cc, a_val) in &port_kept {
+            ax[rr] += a_val * x_int[cc];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length for the objective + contraction (PEC edges = 0).
+    let mut e_edges = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            e_edges[full_idx] = x_int[ri as usize];
+        }
+    }
+
+    // --- Objective and its Wirtinger cotangent ∂g/∂x. -----------------------
+    let (objective_value, dg_dx) = objective(&e_edges);
+    if dg_dx.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != edge count {n_edges}",
+            dg_dx.len()
+        )));
+    }
+    let g_x_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(dg_dx.iter())
+        .filter_map(|(&keep, &g)| if keep { Some(g) } else { None })
+        .collect();
+
+    // --- Adjoint solve: Aᵀ λ = ∂g/∂x, REUSING the forward factorization. ----
+    // A is complex-symmetric (Aᵀ = A), so the transpose solve equals the
+    // forward solve here; it is written as the transpose to keep the general
+    // adjoint pattern explicit (and to fail loudly under a symmetry-breaking
+    // mutation). No refactorization.
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // λ scattered to full edge length, zero on PEC edges.
+    let mut lambda_full = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            lambda_full[full_idx] = lambda_int[ri as usize];
+        }
+    }
+
+    // --- Nodal-coordinate gradient. -----------------------------------------
+    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X_{n,d} ] − 2 Re[ λᵀ (∂A/∂X_{n,d}) x ], a
+    // purely local per-tet contraction. For each tet we seed each of its 12
+    // local coordinates through the dual Nédélec kernel and read the tangents
+    // (∂K, ∂M, ∂∫N) into the signed complex contraction. Signs `s_i` fold into
+    // the local λ / x (matrix path: s_i s_j; RHS path: single s_i), and PEC
+    // edges carry zeros so only the interior block survives.
+    let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
+    let iomega = c64::new(0.0, omega);
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let gidx = &tet_idx[t];
+        let gsign = &tet_sign[t];
+
+        // Signed complex local adjoint λ and forward x (per-DOF sign s_i).
+        let lam_loc: [c64; 6] =
+            std::array::from_fn(|i| lambda_full[gidx[i] as usize] * (gsign[i] as f64));
+        // Skip a tet whose adjoint vanishes on all six local edges (its local
+        // A/b never couples into the objective).
+        if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+            continue;
+        }
+        let x_loc: [c64; 6] =
+            std::array::from_fn(|i| e_edges[gidx[i] as usize] * (gsign[i] as f64));
+
+        let base = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        let eps_t = eps_r[t];
+        let jt = source.j_tet[t]; // [c64; 3], held fixed as the mesh morphs
+
+        for a in 0..4 {
+            let node = tet[a] as usize;
+            for c_axis in 0..3 {
+                // Seed local vertex a, axis c_axis; all other coords constant.
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c_axis] = Dual::var(base[a][c_axis]);
+                let (dk, dm, dnint) = nedelec_local_dual(&dc);
+
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij. ε_t is the
+                // complex per-tet permittivity (geometry-independent); the
+                // element tangents ∂K/∂X, ∂M/∂X are real, so the mass factor
+                // carries the loss and `d_a` (hence `term_a`) is complex.
+                let mut term_a = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let d_a = c64::new(dk[i][j].du, 0.0) - eps_t * (omega2 * dm[i][j].du);
+                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                    }
+                }
+
+                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
+                let mut term_b = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    let mut dnj = c64::new(0.0, 0.0);
+                    for c in 0..3 {
+                        dnj += jt[c] * dnint[i][c].du;
+                    }
+                    term_b += lam_loc[i] * (iomega * dnj);
+                }
+
+                grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
+            }
+        }
+    }
+
+    Ok(PortShapeCore {
+        objective: objective_value,
+        grad_node,
+        e_edges,
+        lambda_full,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
+/// Accumulate the **moving-feed** lumped-port terms of an `|S₁₁|²` objective
+/// into a nodal-coordinate gradient (Epic #628 Phase A2, issue #633): the port
+/// admittance `∂S_p/∂X` (with `∂Z_s/∂X`), the port drive `∂b_port/∂X`, and the
+/// explicit objective geometry term `∂g/∂X|_x` (the port voltage reads the
+/// geometry through the flux moments `f` and `1/w`). `e_edges` and
+/// `lambda_full` are the forward field and the adjoint of the port-loaded
+/// pencil (full edge length, zero on PEC edges); `flux` is
+/// [`assemble_port_flux`] of `port` on `mesh`. The terms are a post-solve
+/// contraction against the same `λ`, so the caller's single factorization is
+/// preserved. Shared by [`driven_shape_gradient_moving_port_s11`] (scalar
+/// complex `ε`) and [`driven_shape_gradient_matched_upml_moving_port_s11`]
+/// (matched box-UPML tensors, issue #1120): the port terms do not depend on
+/// the volume material.
+#[allow(clippy::too_many_arguments)]
+fn accumulate_moving_port_terms(
+    mesh: &TetMesh,
+    port: &LumpedPort<'_>,
+    z0: f64,
+    omega: f64,
+    edges: &[[u32; 2]],
+    flux: &[f64],
+    e_edges: &[c64],
+    lambda_full: &[c64],
+    grad_node: &mut [[f64; 3]],
+) {
+    use crate::driven::extraction::s11_sq_and_dg_dv;
+    use crate::elements::whitney::{edge_lookup, face_geometry};
+
+    let n_nodes = mesh.n_nodes();
+    let inv_width = 1.0 / port.width;
+
+    // --- Base scalars (all expressed through geometric `area`, `l`, `f`, S_p) --
+    let l = port.length;
+    let w = port.width;
+    let area = w * l; // = Σ face areas (w = area/l), consistent with the forward
+    let inv_area = 1.0 / area;
+    let inv_area2 = inv_area * inv_area;
+    let z_s = port.surface_impedance(); // R·w/l = R·area/l²
+    let alpha = c64::new(0.0, omega / z_s); // jω/Z_s   (A_port = α S_p)
+    let e_inc = port.v_inc * (1.0 / l);
+    let beta = c64::new(0.0, 2.0 * omega / z_s) * e_inc; // (2jω/Z_s)(V_inc/l)
+
+    // Port voltage V = (1/w) Σ f_i x_i = (l/area) P, its |S₁₁|² and ∂g/∂V.
+    let p_scalar: c64 = flux
+        .iter()
+        .zip(e_edges.iter())
+        .map(|(&f, &x)| x * f)
+        .fold(c64::new(0.0, 0.0), |acc, z| acc + z);
+    let v_port = p_scalar * inv_width;
+    let (_g, dg_dv) = s11_sq_and_dg_dv(v_port, port.v_inc, port.resistance, z0);
+
+    // Geometry-independent scalar functionals contracted against λ / x:
+    //   Q_S = λᵀ S_p x,   Q_f = λᵀ f   (S_p triplets already carry the signs).
+    let mut q_s = c64::new(0.0, 0.0);
+    for (r, c, val) in assemble_port_surface_mass(mesh, port.faces, edges) {
+        q_s += lambda_full[r] * val * e_edges[c];
+    }
+    let mut q_f = c64::new(0.0, 0.0);
+    for (&f, &lam) in flux.iter().zip(lambda_full.iter()) {
+        q_f += lam * f;
+    }
+
+    // --- Per-node/axis geometry tangents from the surface-Whitney Dual twin ----
+    // d_area:  ∂(Σ face areas)/∂X
+    // d_l:     ∂l/∂X  (symmetric subgradient of hi − lo, filled below)
+    // dS_c:    λᵀ (∂S_p/∂X) x        df_l: λᵀ (∂f/∂X)        dP_c: Σ (∂f_i/∂X) x_i
+    let mut d_area = vec![[0.0_f64; 3]; n_nodes];
+    let mut d_l = vec![[0.0_f64; 3]; n_nodes];
+    let mut ds_c = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+    let mut df_l = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+    let mut dp_c = vec![[c64::new(0.0, 0.0); 3]; n_nodes];
+
+    let lookup = edge_lookup(edges);
+    for tri in port.faces {
+        let v_real: [[f64; 3]; 3] = [
+            mesh.nodes[tri[0] as usize],
+            mesh.nodes[tri[1] as usize],
+            mesh.nodes[tri[2] as usize],
+        ];
+        // Geometry-independent global edge index + lower-tag-first sign.
+        let edge_info = face_geometry(tri, &v_real, &lookup).edge_info;
+        let lam_loc: [c64; 3] =
+            std::array::from_fn(|k| lambda_full[edge_info[k].0 as usize] * (edge_info[k].1 as f64));
+        let x_loc: [c64; 3] =
+            std::array::from_fn(|k| e_edges[edge_info[k].0 as usize] * (edge_info[k].1 as f64));
+
+        for a in 0..3 {
+            let node = tri[a] as usize;
+            for c in 0..3 {
+                let mut vd = v_real.map(|p| p.map(Dual::cst));
+                vd[a][c] = Dual::var(v_real[a][c]);
+                let (area_d, mass_d, flux_d) = port_face_dual(&vd, port.e_hat);
+
+                d_area[node][c] += area_d.du;
+
+                let mut ds = c64::new(0.0, 0.0);
+                for i in 0..3 {
+                    for j in 0..3 {
+                        ds += lam_loc[i] * x_loc[j] * mass_d[i][j].du;
+                    }
+                }
+                ds_c[node][c] += ds;
+
+                let mut dfl = c64::new(0.0, 0.0);
+                let mut dp = c64::new(0.0, 0.0);
+                for i in 0..3 {
+                    dfl += lam_loc[i] * flux_d[i].du;
+                    dp += x_loc[i] * flux_d[i].du;
+                }
+                df_l[node][c] += dfl;
+                dp_c[node][c] += dp;
+            }
+        }
+    }
+
+    // ∂l/∂X: l = hi − lo, hi = max_n (p_n·ê), lo = min over the port nodes. Use
+    // the symmetric subgradient at ties (±ê split equally over the extremum set).
+    let mut port_nodes: Vec<usize> = port
+        .faces
+        .iter()
+        .flat_map(|f| f.iter().map(|&n| n as usize))
+        .collect();
+    port_nodes.sort_unstable();
+    port_nodes.dedup();
+    let along = |n: usize| -> f64 {
+        let p = mesh.nodes[n];
+        p[0] * port.e_hat[0] + p[1] * port.e_hat[1] + p[2] * port.e_hat[2]
+    };
+    let hi = port_nodes
+        .iter()
+        .map(|&n| along(n))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let lo = port_nodes
+        .iter()
+        .map(|&n| along(n))
+        .fold(f64::INFINITY, f64::min);
+    let tie = 1e-9 * (hi - lo).abs().max(1.0);
+    let argmax: Vec<usize> = port_nodes
+        .iter()
+        .copied()
+        .filter(|&n| (along(n) - hi).abs() <= tie)
+        .collect();
+    let argmin: Vec<usize> = port_nodes
+        .iter()
+        .copied()
+        .filter(|&n| (along(n) - lo).abs() <= tie)
+        .collect();
+    let inv_kmax = 1.0 / argmax.len() as f64;
+    let inv_kmin = 1.0 / argmin.len() as f64;
+    for &n in &argmax {
+        for (slot, &eh) in d_l[n].iter_mut().zip(port.e_hat.iter()) {
+            *slot += eh * inv_kmax;
+        }
+    }
+    for &n in &argmin {
+        for (slot, &eh) in d_l[n].iter_mut().zip(port.e_hat.iter()) {
+            *slot -= eh * inv_kmin;
+        }
+    }
+
+    // --- Accumulate the A2 port + objective terms into grad_node --------------
+    // dg/dX += 2Re[ Q_f ∂β + β·(λᵀ∂f) ]        (port ∂b_port/∂X)
+    //        − 2Re[ Q_S ∂α + α·(λᵀ∂S_p x) ]    (port ∂A_port/∂X, incl. ∂Z_s/∂X)
+    //        + 2Re[ (∂g/∂V)·∂V|_x ]            (objective ∂f/∂X + ∂(1/w)/∂X)
+    let jw_over_r = c64::new(0.0, omega / port.resistance); // jω/R
+    let two_jw_vinc_over_r = c64::new(0.0, 2.0 * omega / port.resistance) * port.v_inc;
+    for node in 0..n_nodes {
+        for c in 0..3 {
+            let da = d_area[node][c];
+            let dl = d_l[node][c];
+            if da == 0.0
+                && dl == 0.0
+                && ds_c[node][c] == c64::new(0.0, 0.0)
+                && df_l[node][c] == c64::new(0.0, 0.0)
+                && dp_c[node][c] == c64::new(0.0, 0.0)
+            {
+                continue;
+            }
+            // ∂(l/area) = ∂l/area − l ∂area/area²  (real).
+            let dloa = dl * inv_area - l * da * inv_area2;
+            // ∂α = jω/R · ∂(l²/area) = jω/R (2l ∂l/area − l² ∂area/area²).
+            let d_alpha = jw_over_r * (2.0 * l * dl * inv_area - l * l * da * inv_area2);
+            // ∂β = 2jωV_inc/R · ∂(l/area).
+            let d_beta = two_jw_vinc_over_r * dloa;
+
+            let term_b = q_f * d_beta + beta * df_l[node][c];
+            let term_a = q_s * d_alpha + alpha * ds_c[node][c];
+            // ∂V|_x = ∂(l/area)·P + (l/area)·Σ (∂f_i) x_i.
+            let dv = p_scalar * dloa + dp_c[node][c] * (l * inv_area);
+            let term_obj = dg_dv * dv;
+
+            grad_node[node][c] += 2.0 * term_b.re - 2.0 * term_a.re + 2.0 * term_obj.re;
+        }
+    }
+}
+
+/// Complex-ε (lossy) driven Nédélec **shape** gradient of a **moving-feed**
+/// lumped-port-terminated pencil with a `|S₁₁(f₀)|²` objective — Epic #628
+/// **Phase A2** (issue #633), the sibling of the pinned-feed
+/// [`driven_shape_gradient_ports_complex`] that additionally differentiates the
+/// port through a moving feed.
+///
+/// Phase A1 assumes the port faces/nodes are geometry-constant, so `∂S_p/∂X = 0`
+/// and `∂b_port/∂X = 0`. When a design node **touches a port face** those
+/// assumptions break and three port terms plus one objective term appear, all of
+/// which this entry point accumulates on top of the A1 volume contraction:
+///
+/// ```text
+///   ∂S_p/∂X   — tangential surface-mass geometry derivative (face area + ∇λ),
+///   ∂f/∂X     — port-flux moment geometry derivative,
+///   ∂Z_s/∂X   — Z_s = R·w/l with w = area/l, l = extent along ê both geometric,
+///   ∂g/∂X|_x  — the |S₁₁|² covector's EXPLICIT dependence on the moving feed
+///               (V = (l/area)·Σ f_i x_i reads geometry through f and 1/w).
+/// ```
+///
+/// # Geometry model for the scalar port dims (matches `mesh/patch.rs`)
+///
+/// The forward solve uses the port's supplied `width` (`w`) and `length` (`l`);
+/// this gradient treats them as the **geometry-derived** quantities the patch
+/// fixture builds ([`crate::mesh::patch`]): `l = hi − lo` is the extent of the
+/// port nodes along `ê` and `w = area/l` with `area = Σ face areas`, so
+/// `Z_s = R·w/l = R·area/l²`. The caller must therefore pass a port whose
+/// `width`/`length` equal those geometric values at the current mesh (as
+/// `PatchFixture::port` does). `∂l/∂X` uses the symmetric subgradient of the
+/// non-smooth `max`/`min`: each of the `K` nodes tied at the extremum receives
+/// `±ê/K` (the derivative for a coherent extremum motion, e.g. a feed-height
+/// design DOF), which is what the FD gate exercises.
+///
+/// # Single factorization preserved
+///
+/// The port admittance is still a scalar (`jω/Z_s`) times the real-symmetric
+/// `S_p`, so `A(ω)ᵀ = A(ω)` and the forward + adjoint share one LU. The extra
+/// A2 terms are a post-solve geometry contraction against the SAME `λ` the core
+/// already computed, so `n_factorizations == 1` is preserved.
+///
+/// # Arguments
+///
+/// Matches [`driven_shape_gradient_ports_complex`] but takes a **single** moving
+/// [`LumpedPort`] and the S-parameter reference impedance `z0` (for the
+/// Palace-style uniform port, `z0 = R`). The objective is fixed to `|S₁₁(f₀)|²`.
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
+/// interior, or factorization / solve failure.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_moving_port_s11<B>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    port: &LumpedPort<'_>,
+    z0: f64,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+{
+    use crate::driven::extraction::s11_sq_objective;
+
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // The moving port's faces feed the Whitney port kernels (and the direct
+    // `face_geometry` call of the dual twin below) BEFORE the core's own port
+    // validation runs, so check them here first (issue #725): a triangle that
+    // is not a tet face is an error, not a panic.
+    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
+
+    // The |S₁₁|² objective closure over the (geometry-fixed-at-base) port-flux
+    // covector — identical to what a caller would build for the A1 path. This
+    // supplies the field cotangent ∂g/∂x that the core adjoint solve uses; the
+    // EXPLICIT geometry term ∂g/∂X|_x is added separately below.
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+    if flux.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "port flux length {} != edge count {n_edges}",
+            flux.len()
+        )));
+    }
+    let inv_width = 1.0 / port.width;
+    let objective = s11_sq_objective(flux.clone(), inv_width, port.v_inc, port.resistance, z0);
+
+    // ONE forward + ONE adjoint solve on the port-loaded pencil; also returns λ.
+    let core = driven_shape_gradient_ports_complex_core::<B, _>(
+        mesh,
+        eps_r,
+        bcs,
+        omega,
+        source,
+        std::slice::from_ref(port),
+        objective,
+        device,
+    )?;
+
+    let mut grad_node = core.grad_node;
+    accumulate_moving_port_terms(
+        mesh,
+        port,
+        z0,
+        omega,
+        &edges,
+        &flux,
+        &core.e_edges,
+        &core.lambda_full,
+        &mut grad_node,
+    );
+
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Box-UPML tensor-material shape-gradient driver — Epic #628 Phase C1
+// (issue #635). PML shell pinned (∂Λ/∂X = 0); the moving-PML profile
+// derivative is the explicit Phase C2 non-goal.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Length-`n_nodes` mask of the mesh nodes touched by any **PML-shell** tet
+/// (`pml_tet_mask[t] == true`, e.g. the tets tagged
+/// [`crate::mesh::patch::PHYS_UPML`]). These nodes carry a geometry-dependent
+/// stretch `Λ(X)` that the **fixed-Λ** box-UPML shape adjoint
+/// ([`driven_shape_gradient_matched_upml`], Phase C1) does **not** differentiate
+/// (`∂Λ/∂X` is the Phase C2 non-goal), so any valid node-motion map MUST hold
+/// them fixed. Pair with [`chain_node_motion_pml_pinned`] to enforce that.
+///
+/// # Panics
+///
+/// If `pml_tet_mask.len() != mesh.n_tets()`.
+pub fn pml_shell_nodes(mesh: &TetMesh, pml_tet_mask: &[bool]) -> Vec<bool> {
+    assert_eq!(
+        pml_tet_mask.len(),
+        mesh.n_tets(),
+        "pml_tet_mask length {} != n_tets {}",
+        pml_tet_mask.len(),
+        mesh.n_tets()
+    );
+    let mut pinned = vec![false; mesh.n_nodes()];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        if pml_tet_mask[t] {
+            for &v in tet.iter() {
+                pinned[v as usize] = true;
+            }
+        }
+    }
+    pinned
+}
+
+/// [`crate::shape::chain_node_motion`] with a **PML-pinned tripwire** (issue
+/// #635, Phase C1): asserts every node flagged in `pinned` (see
+/// [`pml_shell_nodes`]) carries **zero** design motion before contracting
+/// `⟨grad_node, dnode_dtheta⟩= ∂g/∂θ`.
+///
+/// Because the box-UPML shape adjoint holds `Λ` fixed (`∂Λ/∂X = 0` is unmodeled
+/// — Phase C2), a design node that enters a PML tet would silently drop the
+/// profile-derivative term and return a wrong gradient; this guard turns that
+/// into a loud failure at chain time.
+///
+/// # Panics
+///
+/// If the three slices disagree in length, or if any `pinned` node has a
+/// nonzero `dnode_dtheta` entry.
+pub fn chain_node_motion_pml_pinned(
+    grad_node: &[[f64; 3]],
+    dnode_dtheta: &[[f64; 3]],
+    pinned: &[bool],
+) -> f64 {
+    assert_eq!(
+        pinned.len(),
+        dnode_dtheta.len(),
+        "pinned length {} != dnode_dtheta length {}",
+        pinned.len(),
+        dnode_dtheta.len()
+    );
+    for (n, (&is_pinned, d)) in pinned.iter().zip(dnode_dtheta.iter()).enumerate() {
+        if is_pinned {
+            let mag2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            assert!(
+                mag2 == 0.0,
+                "PML-pinned node {n} has nonzero design motion {d:?}; ∂Λ/∂X is \
+                 unmodeled in the box-UPML shape adjoint (Phase C1) — a moving PML \
+                 shell is the Phase C2 non-goal"
+            );
+        }
+    }
+    crate::shape::chain_node_motion(grad_node, dnode_dtheta)
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **matched
+/// box-UPML** (tensor-material) driven Nédélec EM observable via the discrete
+/// adjoint — **one forward + one adjoint solve**, reusing a single complex
+/// sparse LU — with the **PML shell pinned** (Epic #628 Phase C1, issue #635).
+///
+/// This is the tensor-material twin of [`driven_shape_gradient_complex`]: it
+/// differentiates the matched-UPML pencil
+///
+/// ```text
+///   A(ω) = K(ν) − ω² M(ε),   ν = Λ⁻¹ (curl weight),   ε = ε_r·Λ (mass weight),
+/// ```
+///
+/// assembled by [`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors_sparse`]
+/// (the same forward path [`crate::driven::solve::DrivenMaterials::MatchedUpml`]
+/// uses), with per-tet full-3×3 **complex** constitutive tensors. The element
+/// factors `∂K(ν)/∂X` and `∂M(ε)/∂X` are read from the tensor-material Dual twin
+/// `nedelec_local_dual_tensor` (exact forward-mode AD) at **fixed** Λ, and the
+/// current-source RHS carries the same geometric `∂b/∂X` term as the scalar path
+/// (the RHS is material-independent).
+///
+/// # Pinned PML shell — why C1 is tractable
+///
+/// The per-tet `Λ` (hence `ε`, `ν`) is a **constant** input here: the node-motion
+/// map must hold every PML-region node fixed, so `∂Λ/∂X = 0` and the only new work
+/// is the fixed-Λ geometry contraction. Use [`pml_shell_nodes`] +
+/// [`chain_node_motion_pml_pinned`] to enforce (and assert) that pinning at chain
+/// time — a design node entering a PML tet would need the unmodeled profile
+/// derivative `∂s_k/∂centroid_k` (Phase C2). A diagonal box `Λ` is symmetric, so
+/// the complex-symmetric pencil `A(ω)ᵀ = A(ω)` survives and the adjoint reuses the
+/// forward LU (`n_factorizations == 1`).
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh (fixed topology; gradient w.r.t. node positions).
+/// * `epsilon_tensor`, `nu_tensor` — per-tet full-3×3 complex mass / curl weights
+///   (`ε = ε_r·Λ`, `ν = Λ⁻¹`; length `mesh.n_tets()` each), e.g. from
+///   [`crate::mesh::patch::PatchFixture::matched_upml_materials`]. Held **fixed**
+///   under the geometry perturbation (the pinned-shell convention).
+/// * `bcs`, `omega`, `source`, `objective`, `device` — exactly as
+///   [`driven_shape_gradient_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches or a failed
+/// factorization / solve, and on an objective-cotangent length mismatch.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    // Port-less delegation: the shared core with an empty port list is the
+    // historical (Phase C1) box-UPML path, bit-for-bit. See the module docs and
+    // [`driven_shape_gradient_matched_upml_ports`].
+    driven_shape_gradient_matched_upml_ports::<B, G>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        &[],
+        omega,
+        source,
+        objective,
+        device,
+    )
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of the **composed
+/// open-radiator** driven Nédélec pencil — a **matched box-UPML** tensor
+/// material with a **complex (lossy) ε** AND a slice of **pinned-feed lumped
+/// ports** threaded into the differentiated system — via the discrete adjoint
+/// (**one forward + one adjoint solve**, reusing a single complex sparse LU),
+/// with the **PML shell pinned** (Epic #628 capstone, issue #636).
+///
+/// This is the full-forward composition of the three epic ingredients:
+///
+/// * the **box-UPML tensor material** of [`driven_shape_gradient_matched_upml`]
+///   (`A(ω) = K(ν) − ω² M(ε)`, `ν = Λ⁻¹`, `ε = ε_r·Λ`, both full 3×3 complex),
+/// * the **complex/lossy ε** it already carries (nonzero `Im(ε_r)` for `tan δ`),
+///   and
+/// * the **pinned-feed lumped-port termination** of
+///   [`driven_shape_gradient_ports_complex`]
+///   (`A(ω) += (jω/Z_s) S_p`, port boundary drive folded into `b`).
+///
+/// It differentiates the **exact** system the public open-radiator forward
+/// [`crate::driven::solve::driven_solve_with_ports`] builds with
+/// [`crate::driven::solve::DrivenMaterials::MatchedUpml`] materials and the same
+/// `ports` slice — the full radiating patch model. Radiation loss (the UPML)
+/// dissipates power, so the extracted `|S₁₁|` is a **passive** reflection
+/// coefficient (`≤ 1`), unlike the #626 closed-cavity pencil.
+///
+/// # Pinned feed + pinned PML shell — why the capstone is tractable
+///
+/// Both the port faces/nodes and the PML-region nodes are **geometry-constant**
+/// (the feed is pinned, the shell is pinned), so `∂S_p/∂X = 0`,
+/// `∂b_port/∂X = 0`, and `∂Λ/∂X = 0`: there is **no** new geometry term beyond
+/// the fixed-Λ volume `∂K(ν)/∂X`, `∂M(ε)/∂X` and the material-independent
+/// `∂b/∂X` current-RHS contraction. The port admittance and drive simply load
+/// the shared forward + adjoint solves, and the returned gradient is taken
+/// through the loaded system. Use [`pml_shell_nodes`] +
+/// [`chain_node_motion_pml_pinned`] to enforce (and assert) the shell pinning,
+/// and hold every port-face node fixed in the node-motion map. Both loads keep
+/// `A(ω)` complex-symmetric (`Λ` diagonal-box symmetric; `S_p` real-symmetric
+/// scaled by the scalar `jω/Z_s`), so the transpose (adjoint) solve reuses the
+/// single forward LU (`n_factorizations == 1`).
+///
+/// An empty `ports` slice reproduces [`driven_shape_gradient_matched_upml`]
+/// bit-for-bit.
+///
+/// # Arguments
+///
+/// * `mesh`, `epsilon_tensor`, `nu_tensor`, `bcs`, `omega`, `source`,
+///   `objective`, `device` — exactly as [`driven_shape_gradient_matched_upml`].
+/// * `ports` — the pinned-feed [`LumpedPort`] slice (added parameter), threaded
+///   into the forward + adjoint solves identically to
+///   [`driven_shape_gradient_ports_complex`].
+///
+/// # Errors
+///
+/// Propagates [`DrivenError`] on input-shape mismatches, a bad port spec, empty
+/// interior, a failed factorization / solve, or an objective-cotangent length
+/// mismatch.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml_ports<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let core = matched_upml_ports_core::<B, G>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        ports,
+        omega,
+        source,
+        objective,
+        device,
+    )?;
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node: core.grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// Matched box-UPML **moving-feed** `|S₁₁|²` shape gradient (issue #1120): the
+/// tensor-material sibling of [`driven_shape_gradient_moving_port_s11`].
+///
+/// One forward + one adjoint solve on the same port-loaded matched-UPML pencil
+/// as [`driven_shape_gradient_matched_upml_ports`] (single LU), then the
+/// moving-feed port terms `∂S_p/∂X` (with `∂Z_s/∂X`), `∂b_port/∂X` and the
+/// explicit objective term `∂g/∂X|_x` are contracted against the same `λ`
+/// (the shared `accumulate_moving_port_terms`). The PML shell must stay pinned
+/// (`∂Λ/∂X = 0`, the Phase C2 non-goal), exactly as for the pinned-feed path;
+/// the port-face nodes may move.
+///
+/// As for the scalar sibling, the caller must pass a port whose `width` and
+/// `length` are the **geometric** values at `mesh` (`l` = the extent of the
+/// port nodes along `ê`, `w` = face area / `l`, as
+/// [`crate::mesh::patch::PatchFixture::port`] builds them), and the
+/// S-parameter reference impedance `z0` (`= R` for the uniform port).
+///
+/// # Errors
+///
+/// As [`driven_shape_gradient_matched_upml_ports`].
+#[allow(clippy::too_many_arguments)]
+pub fn driven_shape_gradient_matched_upml_moving_port_s11<B>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    port: &LumpedPort<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    z0: f64,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+{
+    use crate::driven::extraction::s11_sq_objective;
+
+    let edges = mesh.edges();
+    validate_driven_surfaces(mesh, "lumped port", std::iter::once(port.faces))?;
+    let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+    let objective = s11_sq_objective(
+        flux.clone(),
+        1.0 / port.width,
+        port.v_inc,
+        port.resistance,
+        z0,
+    );
+    let core = matched_upml_ports_core::<B, _>(
+        mesh,
+        epsilon_tensor,
+        nu_tensor,
+        bcs,
+        std::slice::from_ref(port),
+        omega,
+        source,
+        objective,
+        device,
+    )?;
+    let mut grad_node = core.grad_node;
+    accumulate_moving_port_terms(
+        mesh,
+        port,
+        z0,
+        omega,
+        &edges,
+        &flux,
+        &core.e_edges,
+        &core.lambda_full,
+        &mut grad_node,
+    );
+    Ok(DrivenShapeGradient {
+        objective: core.objective,
+        grad_node,
+        e_edges: core.e_edges,
+        residual_rel: core.residual_rel,
+        n_factorizations: core.n_factorizations,
+    })
+}
+
+/// The shared core of [`driven_shape_gradient_matched_upml_ports`] and
+/// [`driven_shape_gradient_matched_upml_moving_port_s11`]: the single forward +
+/// adjoint solve and the fixed-Λ volume contraction, also returning `λ`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn matched_upml_ports_core<B, G>(
+    mesh: &TetMesh,
+    epsilon_tensor: &[[[c64; 3]; 3]],
+    nu_tensor: &[[[c64; 3]; 3]],
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+    device: &B::Device,
+) -> Result<PortShapeCore, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+    let edges = mesh.edges();
+    let n_edges = edges.len();
+
+    // --- Input validation (mirrors driven_solve + the scalar shape adjoint). --
+    if bcs.pec_interior_mask.len() != n_edges {
+        return Err(DrivenError::MaskDimMismatch {
+            got: bcs.pec_interior_mask.len(),
+            want: n_edges,
+        });
+    }
+    if epsilon_tensor.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: epsilon_tensor.len(),
+            want: n_tets,
+        });
+    }
+    if nu_tensor.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: nu_tensor.len(),
+            want: n_tets,
+        });
+    }
+    if source.j_tet.len() != n_tets {
+        return Err(DrivenError::SourceDimMismatch {
+            got: source.j_tet.len(),
+            want: n_tets,
+        });
+    }
+    // Port validation mirrors the forward `DrivenOperator::assemble_impl` (and
+    // the scalar port core) so the adjoint's port-loaded forward is the same
+    // system `driven_solve_with_ports` builds.
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes_u32 = n_nodes as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes_u32))
+        {
+            return Err(invalid("face node index out of range"));
+        }
+    }
+    // Every port triangle must be a tet face (issue #725) — the Whitney port
+    // kernels below `expect` it.
+    validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
+
+    // --- Edge tables and the sparsity scatter map (issue #218 pattern). -------
+    let tet_edges = mesh.tet_edges();
+    let tet_idx: Vec<[u32; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].0))
+        .collect();
+    let tet_sign: Vec<[i8; 6]> = tet_edges
+        .iter()
+        .map(|row| std::array::from_fn(|i| row[i].1))
+        .collect();
+    let scatter = NedelecScatterMap::new(&tet_idx);
+    let pattern = scatter.pattern();
+
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, device);
+
+    // --- Assemble K(ν) and M(ε) (full complex tensors) on the Burn backend. ---
+    // Unlike the scalar path, the matched-UPML curl-curl K also has an imaginary
+    // part (ν = Λ⁻¹ is complex), so we carry k_im alongside k_re.
+    let sys = assemble_global_nedelec_with_full_tensors_sparse(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_sign,
+        &scatter,
+        epsilon_tensor,
+        nu_tensor,
+    );
+    let k_re_host: Vec<f64> = sys.k_re_vals.into_data().iter::<f64>().collect();
+    let k_im_host: Vec<f64> = sys.k_im_vals.into_data().iter::<f64>().collect();
+    let m_re_host: Vec<f64> = sys.m_re_vals.into_data().iter::<f64>().collect();
+    let m_im_host: Vec<f64> = sys.m_im_vals.into_data().iter::<f64>().collect();
+
+    // --- Current-source RHS moments ∫ N · J dV (material-independent). --------
+    let j_re: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].re, j[1].re, j[2].re])
+        .collect();
+    let j_im: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].im, j[1].im, j[2].im])
+        .collect();
+    let rhs_re_t = assemble_nedelec_current_rhs(
+        nodes_t.clone(),
+        tets_t.clone(),
+        &tet_idx,
+        &tet_sign,
+        n_edges,
+        &j_re,
+    );
+    let rhs_im_t =
+        assemble_nedelec_current_rhs(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im);
+    let rhs_re: Vec<f64> = rhs_re_t.into_data().iter::<f64>().collect();
+    let rhs_im: Vec<f64> = rhs_im_t.into_data().iter::<f64>().collect();
+
+    // b = iωμ₀ ∫ N · J dV with μ₀ = 1: iω (re + i·im) = ω(−im + i·re).
+    let mut b_full: Vec<c64> = rhs_re
+        .iter()
+        .zip(rhs_im.iter())
+        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+        .collect();
+
+    // --- Pinned-feed port boundary drive (issue #631, threaded here for the
+    // composed capstone #636). b_i += (2jω/Z_s)(V_inc/l) ∮ N_i·ê dS, identical
+    // to the forward `driven_solve_with_ports`. The port flux functional f_i is
+    // geometry-constant under the pinned feed (∂b_port/∂X = 0), so it
+    // contributes only to the solves, not the geometry contraction.
+    for port in ports {
+        if port.v_inc == c64::new(0.0, 0.0) {
+            continue;
+        }
+        let z_s = port.surface_impedance();
+        let e_inc = port.v_inc * (1.0 / port.length);
+        let drive = c64::new(0.0, 2.0 * omega / z_s) * e_inc;
+        let flux = assemble_port_flux(mesh, port.faces, port.e_hat, &edges);
+        for (b, f) in b_full.iter_mut().zip(flux.iter()) {
+            *b += drive * *f;
+        }
+    }
+
+    // --- PEC interior reduction: full edge index → interior index. -----------
+    let mut remap = vec![-1_i64; n_edges];
+    let mut n_interior = 0_usize;
+    for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
+        if keep {
+            remap[i] = n_interior as i64;
+            n_interior += 1;
+        }
+    }
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // --- Interior A(ω) = K(ν) − ω² M(ε) by linear combination over the pattern.
+    let omega2 = omega * omega;
+    let a_of_idx = |idx: usize| -> c64 {
+        c64::new(k_re_host[idx], k_im_host[idx]) - c64::new(m_re_host[idx], m_im_host[idx]) * omega2
+    };
+    let mut kept: Vec<(usize, usize, usize)> = Vec::with_capacity(pattern.nnz());
+    let mut triplets: Vec<Triplet<usize, usize, c64>> = Vec::with_capacity(pattern.nnz());
+    for (idx, (&r_u32, &c_u32)) in pattern.rows.iter().zip(pattern.cols.iter()).enumerate() {
+        let (rr, cc) = (remap[r_u32 as usize], remap[c_u32 as usize]);
+        if rr < 0 || cc < 0 {
+            continue;
+        }
+        let (rr, cc) = (rr as usize, cc as usize);
+        triplets.push(Triplet::new(rr, cc, a_of_idx(idx)));
+        kept.push((rr, cc, idx));
+    }
+
+    // --- Pinned-feed port admittance A(ω) += (jω/Z_s) S_p (issue #631). ------
+    // S_p is the real-symmetric tangential surface mass; the scalar jω/Z_s
+    // scaling keeps A(ω)ᵀ = A(ω) (composed with the symmetric box-Λ tensors), so
+    // the transpose (adjoint) solve still reuses the forward LU. Kept as its own
+    // list so the residual health check re-forms the SAME loaded A. Under the
+    // pinned feed ∂S_p/∂X = 0, so these entries do NOT enter the geometry
+    // contraction.
+    let mut port_kept: Vec<(usize, usize, c64)> = Vec::new();
+    for port in ports {
+        let scale = c64::new(0.0, omega / port.surface_impedance());
+        for (r, c, v) in assemble_port_surface_mass(mesh, port.faces, &edges) {
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            let a_val = scale * v;
+            triplets.push(Triplet::new(rr as usize, cc as usize, a_val));
+            port_kept.push((rr as usize, cc as usize, a_val));
+        }
+    }
+
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+    // --- Factor A(ω) ONCE. Serves both the forward and adjoint solves. -------
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior-filtered RHS.
+    let b_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(b_full.iter())
+        .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+        .collect();
+
+    // --- Forward solve: A x = b. ---------------------------------------------
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖ (includes the port load).
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(rr, cc, idx) in &kept {
+            ax[rr] += a_of_idx(idx) * x_int[cc];
+        }
+        for &(rr, cc, a_val) in &port_kept {
+            ax[rr] += a_val * x_int[cc];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length for the objective + contraction (PEC edges = 0).
+    let mut e_edges = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            e_edges[full_idx] = x_int[ri as usize];
+        }
+    }
+
+    // --- Objective and its Wirtinger cotangent ∂g/∂x. ------------------------
+    let (objective_value, dg_dx) = objective(&e_edges);
+    if dg_dx.len() != n_edges {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != edge count {n_edges}",
+            dg_dx.len()
+        )));
+    }
+    let g_x_int: Vec<c64> = bcs
+        .pec_interior_mask
+        .iter()
+        .zip(dg_dx.iter())
+        .filter_map(|(&keep, &g)| if keep { Some(g) } else { None })
+        .collect();
+
+    // --- Adjoint solve: Aᵀ λ = ∂g/∂x, REUSING the forward factorization. -----
+    // A is complex-symmetric (Aᵀ = A: K(ν), M(ε) are symmetric for the symmetric
+    // diagonal box Λ), so the transpose solve reuses the forward LU — written as
+    // the transpose to fail loudly under a symmetry-breaking mutation.
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // λ scattered to full edge length, zero on PEC edges.
+    let mut lambda_full = vec![c64::new(0.0, 0.0); n_edges];
+    for (full_idx, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            lambda_full[full_idx] = lambda_int[ri as usize];
+        }
+    }
+
+    // --- Nodal-coordinate gradient (fixed-Λ tensor-material contraction). -----
+    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X_{n,d} ] − 2 Re[ λᵀ (∂A/∂X_{n,d}) x ], with
+    // ∂A_ij = ∂K(ν)_ij − ω² ∂M(ε)_ij. Both element tangents are COMPLEX here
+    // (the box Λ makes ν, ε complex), so each runs as a Re/Im weight pass of the
+    // tensor Dual twin. The RHS moment ∂(∫N_i) is material-independent — reused
+    // from the scalar dual kernel.
+    let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
+    let iomega = c64::new(0.0, omega);
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let gidx = &tet_idx[t];
+        let gsign = &tet_sign[t];
+
+        let lam_loc: [c64; 6] =
+            std::array::from_fn(|i| lambda_full[gidx[i] as usize] * (gsign[i] as f64));
+        if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+            continue;
+        }
+        let x_loc: [c64; 6] =
+            std::array::from_fn(|i| e_edges[gidx[i] as usize] * (gsign[i] as f64));
+
+        let base = [
+            mesh.nodes[tet[0] as usize],
+            mesh.nodes[tet[1] as usize],
+            mesh.nodes[tet[2] as usize],
+            mesh.nodes[tet[3] as usize],
+        ];
+        // Real / imaginary weight components: ν (curl) and ε (mass).
+        let nu_re = tensor_re(&nu_tensor[t]);
+        let nu_im = tensor_im(&nu_tensor[t]);
+        let eps_re = tensor_re(&epsilon_tensor[t]);
+        let eps_im = tensor_im(&epsilon_tensor[t]);
+        let jt = source.j_tet[t]; // held fixed as the mesh morphs
+
+        for a in 0..4 {
+            let node = tet[a] as usize;
+            for c_axis in 0..3 {
+                // Seed local vertex a, axis c_axis; all other coords constant.
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c_axis] = Dual::var(base[a][c_axis]);
+
+                // Re/Im passes of the tensor twin → complex ∂K, ∂M.
+                let (dk_re, dm_re) = nedelec_local_dual_tensor(&dc, &nu_re, &eps_re);
+                let (dk_im, dm_im) = nedelec_local_dual_tensor(&dc, &nu_im, &eps_im);
+                // Material-independent RHS moments ∂(∫N_i)/∂X.
+                let (_, _, dnint) = nedelec_local_dual(&dc);
+
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K(ν)_ij − ω² ∂M(ε)_ij.
+                let mut term_a = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let dk = c64::new(dk_re[i][j].du, dk_im[i][j].du);
+                        let dm = c64::new(dm_re[i][j].du, dm_im[i][j].du);
+                        let d_a = dk - dm * omega2;
+                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                    }
+                }
+
+                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
+                let mut term_b = c64::new(0.0, 0.0);
+                for i in 0..6 {
+                    let mut dnj = c64::new(0.0, 0.0);
+                    for c in 0..3 {
+                        dnj += jt[c] * dnint[i][c].du;
+                    }
+                    term_b += lam_loc[i] * (iomega * dnj);
+                }
+
+                grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
+            }
+        }
+    }
+
+    Ok(PortShapeCore {
+        objective: objective_value,
+        grad_node,
+        e_edges,
+        lambda_full,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
+/// Real part of a complex 3×3 tensor as a plain `f64` matrix (a lifted constant
+/// weight for the fixed-Λ tensor Dual twin, issue #635).
+#[inline]
+fn tensor_re(t: &[[c64; 3]; 3]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|p| std::array::from_fn(|q| t[p][q].re))
+}
+/// Imaginary part of a complex 3×3 tensor as a plain `f64` matrix.
+#[inline]
+fn tensor_im(t: &[[c64; 3]; 3]) -> [[f64; 3]; 3] {
+    std::array::from_fn(|p| std::array::from_fn(|q| t[p][q].im))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SECOND-ORDER (p=2) shape-gradient driver (issue #619).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Result of a **second-order (`p=2`)** driven-Nédélec **geometry**
+/// discrete-adjoint gradient evaluation. Distinct from
+/// [`DrivenShapeGradient`] because the `p=2` forward field lives over the
+/// `edges×2 + faces×2` DOF numbering (length `n_dofs`), not the `p=1`
+/// per-edge field.
+#[derive(Debug, Clone)]
+pub struct P2DrivenShapeGradient {
+    /// The scalar objective value `g(x)` at the (unperturbed) forward solution.
+    pub objective: f64,
+    /// The full **nodal-coordinate** gradient `∂g/∂X_{n,d}`, one `[x,y,z]`
+    /// triple per node (length `mesh.n_nodes()`). Chain through a node-motion
+    /// map with [`crate::shape::chain_node_motion`] to obtain `∂g/∂θ`.
+    pub grad_node: Vec<[f64; 3]>,
+    /// Full-length `[n_dofs]` complex forward DOF field `x` (PEC-eliminated DOFs
+    /// carry exact zeros), returned for post-processing / cross-checks.
+    pub x: Vec<c64>,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior forward solve.
+    pub residual_rel: f64,
+    /// Number of sparse LU **factorizations** performed. Always `1`: the
+    /// forward and adjoint solves share a single factorization.
+    pub n_factorizations: usize,
+}
+
+/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **second-order
+/// (`p=2`) driven Nédélec** EM observable via the discrete adjoint — **one
+/// forward + one adjoint solve** sharing a single complex sparse LU — then chain
+/// through any analytic node-motion map with [`crate::shape::chain_node_motion`]
+/// (issue #619, Epic #475/#569; the `p=2` retention of the #577 shape adjoint).
+///
+/// This is the `p=2` sibling of [`driven_shape_gradient`]. The adjoint identity
+/// is identical — with the geometry-dependent-RHS `∂b/∂X` term —
+///
+/// ```text
+///   dg/dX = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ],   Aᵀ λ = ∂g/∂x,
+/// ```
+///
+/// but the element factors `∂A/∂X = ∂K/∂X − ω²ε ∂M/∂X` and `∂b/∂X = iω ∂(∫N·J)`
+/// are read from the **20-DOF `p=2` Dual element twin** `nedelec2_local_dual`
+/// (exact forward-mode AD), and the 20 local DOFs gather with **unit sign** from
+/// the ascending-global-vertex sort (no `p=1` `gsign`). Seeding sorted-local
+/// vertex `a` corresponds to global node `tet[perm[a]]`, so the tangent
+/// accumulates into `grad_node[tet[perm[a]]]`.
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh (fixed topology; gradient w.r.t. node positions).
+/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`).
+/// * `interior_dof_mask` — length `n_dofs` (`= 2·n_edges + 2·n_faces`) PEC mask;
+///   build it for a cube cavity with
+///   [`crate::assembly::nedelec_p2::cube_pec_interior_p2_dofs`].
+/// * `omega` — drive frequency `ω = k₀` (away from a resonance).
+/// * `source` — per-tet-constant complex volumetric current source, held
+///   **fixed per element** as the mesh morphs (so `∂b/∂X` is purely geometric).
+/// * `objective` — `g(x) → (value, ∂g/∂x)` over the full-length `[n_dofs]`
+///   complex DOF vector; `∂g/∂x` is the un-conjugated Wirtinger cotangent
+///   (e.g. `x̄` for `g = Σ|x_i|²`). Its entries on PEC DOFs are ignored.
+///
+/// # Errors
+///
+/// [`DrivenError`] on shape mismatches, empty interior, factorization failure,
+/// or an objective-cotangent length mismatch.
+pub fn driven_shape_gradient_p2<G>(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+) -> Result<P2DrivenShapeGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    driven_shape_gradient_p2_complex(
+        mesh,
+        &eps_complex,
+        interior_dof_mask,
+        omega,
+        source,
+        objective,
+    )
+}
+
+/// Complex-ε (lossy) sibling of [`driven_shape_gradient_p2`]: the second-order
+/// (`p=2`) driven-Nédélec **geometry** shape gradient with a per-tet complex
+/// permittivity `ε = ε′ − i·ε″` (nonzero `Im(ε)` models a substrate loss
+/// tangent `tan δ`). This is the `p=2` twin of [`driven_shape_gradient_complex`]
+/// (issue #629, Epic #628 Phase B); the real path above delegates here at zero
+/// loss.
+///
+/// The adjoint identity, the `∂b/∂X` RHS term, and the single-factorization
+/// reuse (`n_factorizations == 1`) are identical to the lossless path — the
+/// only change is that the interior pencil `A = K − ω² M(ε)` and the volume
+/// contraction factor `∂A_ij = ∂K_ij − ω² ε ∂M_ij` carry the complex `ε` (the
+/// field `x`, adjoint `λ`, and `term_a` were already complex). See
+/// [`driven_shape_gradient_p2`] for the argument contract; `eps_r` here is the
+/// per-tet **complex** permittivity (length `mesh.n_tets()`).
+pub fn driven_shape_gradient_p2_complex<G>(
+    mesh: &TetMesh,
+    eps_r: &[c64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    source: &CurrentSource,
+    objective: G,
+) -> Result<P2DrivenShapeGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    use crate::assembly::nedelec_p2::{P2DofMap, assemble_p2_rhs_constant, p2_interior_km_complex};
+    use faer::linalg::solvers::Solve;
+
+    let n_tets = mesh.n_tets();
+    let n_nodes = mesh.n_nodes();
+
+    // --- Input validation (mirrors driven_material_adjoint_gradient_p2). -----
+    if eps_r.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_r.len(),
+            want: n_tets,
+        });
+    }
+    if source.j_tet.len() != n_tets {
+        return Err(DrivenError::SourceDimMismatch {
+            got: source.j_tet.len(),
+            want: n_tets,
+        });
+    }
+    let dofs = P2DofMap::build(mesh);
+    if interior_dof_mask.len() != dofs.n_dofs {
+        return Err(DrivenError::MaskDimMismatch {
+            got: interior_dof_mask.len(),
+            want: dofs.n_dofs,
+        });
+    }
+
+    // --- Current-source RHS: b = iωμ₀ ∫ N · J dV with μ₀ = 1. ----------------
+    // Assemble the real p=2 moments for Re[J] and Im[J] separately (the element
+    // RHS kernel is real-valued), then combine b = iω(re + i·im) = ω(−im + i·re).
+    let j_re: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].re, j[1].re, j[2].re])
+        .collect();
+    let j_im: Vec<[f64; 3]> = source
+        .j_tet
+        .iter()
+        .map(|j| [j[0].im, j[1].im, j[2].im])
+        .collect();
+    let b_re = assemble_p2_rhs_constant(mesh, &dofs, &j_re);
+    let b_im = assemble_p2_rhs_constant(mesh, &dofs, &j_im);
+    let rhs_full: Vec<c64> = b_re
+        .iter()
+        .zip(b_im.iter())
+        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+        .collect();
+
+    // --- Interior pencil A(ω) = K − ω² M(ε) via the shared substrate. --------
+    // Complex ε folds into the mass term `m` (which is thus c64), keeping the
+    // pencil complex-symmetric so the adjoint reuses the forward LU.
+    let (remap, n_interior, kept) = p2_interior_km_complex(mesh, &dofs, eps_r, interior_dof_mask);
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+    let omega2 = omega * omega;
+    let triplets: Vec<Triplet<usize, usize, c64>> = kept
+        .iter()
+        .map(|&(r, c, k, m)| Triplet::new(r, c, k - m * omega2))
+        .collect();
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+
+    // --- Factor ONCE. Serves both the forward and adjoint solves. -----------
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let n_factorizations = 1;
+
+    // Interior-filtered RHS.
+    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            b_int[ri as usize] = rhs_full[g];
+        }
+    }
+
+    // --- Forward solve A x = b. ---------------------------------------------
+    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(r, c, k, m) in &kept {
+            ax[r] += (k - m * omega2) * x_int[c];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let d = ax[i] - b_int[i];
+            res2 += d.re * d.re + d.im * d.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter x to full length for the objective + contraction (PEC DOFs = 0).
+    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            x[g] = x_int[ri as usize];
+        }
+    }
+
+    // --- Objective and its Wirtinger cotangent ∂g/∂x. -----------------------
+    let (objective_value, dg_dx) = objective(&x);
+    if dg_dx.len() != dofs.n_dofs {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != DOF count {}",
+            dg_dx.len(),
+            dofs.n_dofs
+        )));
+    }
+    let mut g_x_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            g_x_int[ri as usize] = dg_dx[g];
+        }
+    }
+
+    // --- Adjoint solve Aᵀ λ = ∂g/∂x, REUSING the forward factorization. -----
+    // A is complex-symmetric (Aᵀ = A), so the transpose solve equals the
+    // forward solve; written as the transpose to keep the pattern explicit and
+    // to fail loudly under a symmetry-breaking mutation. No refactorization.
+    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
+    lu.solve_transpose_in_place(adj.as_mut());
+    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
+
+    // λ scattered to full DOF length, zero on PEC DOFs.
+    let mut lambda_full = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            lambda_full[g] = lambda_int[ri as usize];
+        }
+    }
+
+    // --- Nodal-coordinate gradient (the 20-DOF geometry contraction). --------
+    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ], one local per-tet
+    // sweep. Local λ / x gather with UNIT sign from `tet_dofs[t]` (orientation
+    // absorbed by the ascending-vertex sort). Seed each of the 12 SORTED-local
+    // coordinates through the Dual p=2 element twin; sorted-local vertex `a`
+    // corresponds to global node `tet[perm[a]]`.
+    let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
+    let iomega = c64::new(0.0, omega);
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let gdofs = &dofs.tet_dofs[t];
+        let perm = &dofs.tet_perm[t];
+
+        // Unit-sign local adjoint λ and forward x over the 20 sorted DOFs.
+        let lam_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| lambda_full[gdofs[i]]);
+        // Skip a tet whose adjoint vanishes on all 20 local DOFs (its local
+        // A/b never couples into the objective).
+        if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+            continue;
+        }
+        let x_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| x[gdofs[i]]);
+
+        // Base coords in ASCENDING-VERTEX-SORTED order (matches the local DOF
+        // layout of the Dual twin, hence of lam_loc / x_loc).
+        let sorted = dofs.sorted_coords(mesh, t);
+        let eps_t = eps_r[t];
+        let jt = source.j_tet[t]; // [c64; 3], held fixed as the mesh morphs
+
+        for a in 0..4 {
+            let node = tet[perm[a]] as usize; // sorted-local a → global node
+            for c_axis in 0..3 {
+                let mut dc = sorted.map(|v| v.map(Dual::cst));
+                dc[a][c_axis] = Dual::var(sorted[a][c_axis]);
+                let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+
+                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij. ε_t is the
+                // complex per-tet permittivity; the element tangents are real,
+                // so the mass factor carries the loss and `d_a` is complex.
+                let mut term_a = c64::new(0.0, 0.0);
+                for i in 0..TET_NEDELEC2_DOFS {
+                    for j in 0..TET_NEDELEC2_DOFS {
+                        let d_a = c64::new(dk[i][j].du, 0.0) - eps_t * (omega2 * dm[i][j].du);
+                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                    }
+                }
+
+                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
+                let mut term_b = c64::new(0.0, 0.0);
+                for i in 0..TET_NEDELEC2_DOFS {
+                    let mut dnj = c64::new(0.0, 0.0);
+                    for d in 0..3 {
+                        dnj += jt[d] * dnint[i][d].du;
+                    }
+                    term_b += lam_loc[i] * (iomega * dnj);
+                }
+
+                grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
+            }
+        }
+    }
+
+    Ok(P2DrivenShapeGradient {
+        objective: objective_value,
+        grad_node,
+        x,
+        residual_rel,
+        n_factorizations,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assembly::nedelec::cube_pec_interior_edges;
+    use crate::driven::solve::{DrivenMaterials, driven_solve};
+    use crate::elements::nedelec::batched_nedelec_local_matrices;
+    use crate::mesh::cube_tet_mesh;
+    use crate::shape::chain_node_motion;
+    use crate::testing::TestBackend;
+    use burn::tensor::TensorData;
+    use burn::tensor::backend::BackendTypes;
+
+    type B = TestBackend;
+
+    fn device() -> <B as BackendTypes>::Device {
+        <B as BackendTypes>::Device::default()
+    }
+
+    /// Objective `g(x) = Σ_i |x_i|²` and its Wirtinger cotangent
+    /// `∂g/∂x_i = x̄_i`. Real, no explicit geometry dependence.
+    fn l2_objective(x: &[c64]) -> (f64, Vec<c64>) {
+        let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+        let cot = x.iter().map(|z| c64::new(z.re, -z.im)).collect();
+        (g, cot)
+    }
+
+    /// Driven PEC cube cavity, uniform lossless ε_r, driven by a genuinely
+    /// COMPLEX per-tet current source (so the field `x` is fully complex and
+    /// the Wirtinger conjugation convention is exercised). Returns
+    /// `(mesh, eps_r, interior_mask, source)`.
+    fn cavity_fixture(n: usize) -> (TetMesh, Vec<f64>, Vec<bool>, CurrentSource) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let eps_r = vec![2.0_f64; mesh.n_tets()];
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let pi = std::f64::consts::PI;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.3 * (pi * c[2]).sin()),
+                c64::new(0.5 * (pi * c[1]).sin(), 0.2),
+                c64::new((pi * c[0]).sin(), 0.4 * c[2]),
+            ]
+        });
+        (mesh, eps_r, interior, source)
+    }
+
+    /// The real `f64` Nédélec local matrices from the **production** Burn
+    /// kernel for a single tet, used to pin the dual `.re` fields.
+    fn burn_local_matrices(coords: &[[f64; 3]; 4]) -> ([[f64; 6]; 6], [[f64; 6]; 6]) {
+        let flat: Vec<f64> = coords.iter().flat_map(|v| v.iter().copied()).collect();
+        let t = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(flat, [12]), &device())
+            .reshape([1, 4, 3]);
+        let local = batched_nedelec_local_matrices(t);
+        let k: Vec<f64> = local.k_local.into_data().iter::<f64>().collect();
+        let m: Vec<f64> = local.m_local.into_data().iter::<f64>().collect();
+        let mut kk = [[0.0_f64; 6]; 6];
+        let mut mm = [[0.0_f64; 6]; 6];
+        for i in 0..6 {
+            for j in 0..6 {
+                kk[i][j] = k[i * 6 + j];
+                mm[i][j] = m[i * 6 + j];
+            }
+        }
+        (kk, mm)
+    }
+
+    /// **The dual `.re` faithfully lifts the production Nédélec kernel.** The
+    /// `.re` fields of the dual local K/M must reproduce the real `f64` Burn
+    /// kernel [`batched_nedelec_local_matrices`] entry-for-entry — proving the
+    /// dual pass differentiates *the same* closed form the solver assembles.
+    #[test]
+    fn dual_local_matrices_reproduce_burn_kernel() {
+        // Generic well-shaped (non-axis-aligned) tet.
+        let base = [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ];
+        let dc = base.map(|v| v.map(Dual::cst));
+        let (dk, dm, _) = nedelec_local_dual(&dc);
+        let (bk, bm) = burn_local_matrices(&base);
+        let mut worst = 0.0_f64;
+        for i in 0..6 {
+            for j in 0..6 {
+                let rk = (dk[i][j].re - bk[i][j]).abs() / bk[i][j].abs().max(1e-12);
+                let rm = (dm[i][j].re - bm[i][j]).abs() / bm[i][j].abs().max(1e-12);
+                worst = worst.max(rk).max(rm);
+            }
+        }
+        assert!(
+            worst < 1e-10,
+            "dual .re vs Burn kernel worst rel-err {worst:.3e}"
+        );
+    }
+
+    /// **Element-kernel derivative is exact.** The dual tangents of the local
+    /// K, M and current-RHS moments ∫N_i must match a central finite difference
+    /// of the same `f64` kernel for every one of the twelve node coordinates —
+    /// proving `∂A/∂X` and `∂b/∂X` are analytic (forward-mode AD), not FD
+    /// approximations. A sign flip or dropped term in [`nedelec_local_dual`]
+    /// fails this immediately.
+    #[test]
+    fn dual_local_derivative_matches_finite_difference() {
+        let base = [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ];
+        // Real f64 kernel = dual `.re` on all-constant coords.
+        let eval = |coords: &[[f64; 3]; 4]| {
+            let dc = coords.map(|v| v.map(Dual::cst));
+            let (k, m, n) = nedelec_local_dual(&dc);
+            let kre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| k[i][j].re));
+            let mre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| m[i][j].re));
+            let nre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 3, _>(|c| n[i][c].re));
+            (kre, mre, nre)
+        };
+
+        // Per-kernel normalization: compare the worst absolute dual-vs-FD gap
+        // against that kernel's own derivative scale (max |FD| across entries).
+        // A per-entry relative denominator would blow up on the small-magnitude
+        // entries where the central FD itself loses conditioning (catastrophic
+        // cancellation on the 1/|det|³ curl-curl terms) — the dual is exact, so
+        // the scale-normalized gap is the honest fidelity measure.
+        let h = 1e-6;
+        let mut diff_k = 0.0_f64;
+        let mut scale_k = 0.0_f64;
+        let mut diff_m = 0.0_f64;
+        let mut scale_m = 0.0_f64;
+        let mut diff_n = 0.0_f64;
+        let mut scale_n = 0.0_f64;
+        for a in 0..4 {
+            for c in 0..3 {
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c] = Dual::var(base[a][c]);
+                let (dk, dm, dn) = nedelec_local_dual(&dc);
+
+                let mut cp = base;
+                let mut cm = base;
+                cp[a][c] += h;
+                cm[a][c] -= h;
+                let (kp, mp, np) = eval(&cp);
+                let (km, mm, nm) = eval(&cm);
+
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let fdk = (kp[i][j] - km[i][j]) / (2.0 * h);
+                        let fdm = (mp[i][j] - mm[i][j]) / (2.0 * h);
+                        diff_k = diff_k.max((dk[i][j].du - fdk).abs());
+                        scale_k = scale_k.max(fdk.abs());
+                        diff_m = diff_m.max((dm[i][j].du - fdm).abs());
+                        scale_m = scale_m.max(fdm.abs());
+                    }
+                    for c2 in 0..3 {
+                        let fdn = (np[i][c2] - nm[i][c2]) / (2.0 * h);
+                        diff_n = diff_n.max((dn[i][c2].du - fdn).abs());
+                        scale_n = scale_n.max(fdn.abs());
+                    }
+                }
+            }
+        }
+        // Each kernel must exercise a genuinely nonzero geometry sensitivity.
+        assert!(
+            scale_k > 1e-3 && scale_m > 1e-3 && scale_n > 1e-3,
+            "kernel derivative scales too small (K {scale_k:.3e}, M {scale_m:.3e}, N {scale_n:.3e})"
+        );
+        let rel_k = diff_k / scale_k;
+        let rel_m = diff_m / scale_m;
+        let rel_n = diff_n / scale_n;
+        let worst = rel_k.max(rel_m).max(rel_n);
+        assert!(
+            worst < 1e-6,
+            "dual-vs-FD scale-normalized rel-err too large \
+             (K {rel_k:.3e}, M {rel_m:.3e}, N {rel_n:.3e})"
+        );
+    }
+
+    /// **The load-bearing test.** The driven-Nédélec discrete-adjoint **shape**
+    /// gradient `∂g/∂θ` — one forward + one adjoint solve + the geometry
+    /// Jacobian — must match a full central finite difference of the entire
+    /// driven pipeline (perturb θ → **move the nodes** → re-assemble the
+    /// Nédélec `A` and current RHS `b` on the moved mesh → re-solve → recompute
+    /// g), for two distinct node-motion maps, to a tight relative tolerance.
+    /// The FD arm drives the **public** [`driven_solve`] path, an independent
+    /// cross-check. A wrong sign, a wrong `∂A/∂X` / `∂b/∂X`, a dropped RHS-shape
+    /// term, or a conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_matches_central_finite_difference() {
+        let (mesh, eps_r, interior, source) = cavity_fixture(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg = driven_shape_gradient::<B, _>(
+            &mesh,
+            &eps_r,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "shape adjoint must reuse the forward factorization (no refactorize)"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "forward solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective as a function of θ under a node-velocity
+        // field D: move nodes to X⁰ + θD, re-assemble + re-solve via the public
+        // driven path (same fixed per-tet source), recompute g.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // Objective must agree between the two forward paths (sanity).
+        let g0_pub = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0_pub - sg.objective).abs() <= 1e-9 * g0_pub.abs().max(1.0),
+            "objective mismatch: shape adjoint {} vs public driven_solve {g0_pub}",
+            sg.objective
+        );
+
+        // Two analytic node-motion maps, LINEAR in θ so X(θ)=X⁰+θD and the
+        // constant velocity field D is exact.
+        //   1. Translate ONLY the hi PEC face (x=1) in +x: stretches the last
+        //      tet layer so the cavity gap (and the driven field) shifts.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        //   2. Move a single interior control node (nearest the domain centre)
+        //      in +x — a localized one-node morph.
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            // Coords flow in full f64 (NdArray backend) and the source's ε/J are
+            // held fixed, so the only residual is the FD's own O(h²) truncation
+            // + solver round-off — orders below the 1e-3 issue spec.
+            assert!(
+                rel < 1e-3,
+                "map {name}: adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients (they probe different
+        // geometry perturbations), else the test could pass on a constant.
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire: the finite-difference check must **reject** a shape
+    /// gradient built with the classic complex-adjoint conjugation error (the
+    /// `Aᴴ` mistake, ≡ feeding the wrong Wirtinger cotangent `∂g/∂x̄` instead of
+    /// `∂g/∂x`). The field is genuinely complex, so conjugation changes the
+    /// answer and the FD rejects it — proving the load-bearing test's tolerance
+    /// is biting, not vacuously satisfied.
+    #[test]
+    fn conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_r, interior, source) = cavity_fixture(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient::<B, _>(
+            &mesh,
+            &eps_r,
+            &bcs,
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-conjugation shape gradient");
+
+        // Independent FD reference (public driven path).
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // A morph with a genuinely nonzero, complex-sensitive gradient.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_face) - g_of_theta(-h, &d_face)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_face);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COMPLEX-ε (lossy substrate) shape-gradient tests (issue #629, #628 B).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Uniform **lossy** complex-ε fixture `ε = ε′ − i·ε″` (nonzero `Im(ε)`, a
+    /// substrate loss tangent `tan δ = ε″/ε′`), driven by the same genuinely
+    /// complex source as [`cavity_fixture`], for the complex-ε shape-gradient
+    /// tests. Returns `(mesh, eps_complex, interior_mask, source)`.
+    fn cavity_fixture_complex(n: usize) -> (TetMesh, Vec<c64>, Vec<bool>, CurrentSource) {
+        let (mesh, eps_r, interior, source) = cavity_fixture(n);
+        // ε′ from the lossless fixture (2.0), ε″ = 0.3 → tan δ = 0.15: a big,
+        // unambiguous loss so the complex-ε contraction path is genuinely
+        // exercised (not a near-lossless perturbation the FD could miss).
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, -0.3)).collect();
+        (mesh, eps_c, interior, source)
+    }
+
+    /// **The load-bearing complex-ε test.** The lossy driven-Nédélec
+    /// discrete-adjoint **shape** gradient `∂g/∂θ` — one forward + one adjoint
+    /// solve on the complex-symmetric pencil `A = K − ω² M(ε)` with `Im(ε) ≠ 0`
+    /// — must match a full central finite difference of the entire complex
+    /// driven pipeline (perturb θ → move nodes → re-assemble the complex `A` and
+    /// current RHS `b` → re-solve → recompute g), for two distinct node-motion
+    /// maps, to the ≤1e-3 issue tolerance. The FD arm drives the **public**
+    /// [`driven_solve`] complex `Scalar(ε)` path, an independent cross-check
+    /// against the shape adjoint's own forward. A dropped loss term, a wrong
+    /// sign, or a conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_complex_matches_central_finite_difference() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("complex shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "complex shape adjoint must reuse the forward factorization (no refactorize)"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "forward solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective under a node-velocity field D, via the public
+        // complex driven path (Scalar takes the c64 ε directly).
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // Objective must agree between the two forward paths (sanity).
+        let g0_pub = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0_pub - sg.objective).abs() <= 1e-9 * g0_pub.abs().max(1.0),
+            "objective mismatch: shape adjoint {} vs public driven_solve {g0_pub}",
+            sg.objective
+        );
+
+        // Two analytic node-motion maps, LINEAR in θ.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: complex adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (complex-ε): the FD check must **reject** a lossy shape
+    /// gradient built with the classic complex-adjoint conjugation error
+    /// (feeding `∂g/∂x̄` instead of `∂g/∂x`). With `Im(ε) ≠ 0` the field is
+    /// even more thoroughly complex, so the conjugation error is unmistakable —
+    /// proving the load-bearing complex test's tolerance is biting.
+    #[test]
+    fn complex_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-conjugation complex shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_face) - g_of_theta(-h, &d_face)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_face);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "complex conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    /// **Backward-compat / delegation guard.** At zero loss the complex entry
+    /// point must reproduce the real [`driven_shape_gradient`] bit-for-bit (the
+    /// real path is just this core with `ε″ = 0`). Guards against the real
+    /// signature silently diverging from the shared implementation.
+    #[test]
+    fn real_path_equals_complex_at_zero_loss() {
+        let (mesh, eps_r, interior, source) = cavity_fixture(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let real = driven_shape_gradient::<B, _>(
+            &mesh,
+            &eps_r,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("real shape gradient");
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+        let cplx = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("complex shape gradient at zero loss");
+        assert_eq!(real.n_factorizations, cplx.n_factorizations);
+        let mut worst = 0.0_f64;
+        for (r, c) in real.grad_node.iter().zip(cplx.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((r[d] - c[d]).abs());
+            }
+        }
+        assert!(
+            worst < 1e-12,
+            "real vs complex-at-zero-loss shape gradient differ by {worst:.3e}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PINNED-FEED LUMPED-PORT shape-gradient tests (issue #631, Epic #628 A1).
+    // ─────────────────────────────────────────────────────────────────────
+
+    use crate::driven::extraction::{s11, s11_sq_and_dg_dv, s11_sq_objective};
+    use crate::driven::ports::{port_input_impedance, port_voltage};
+    use crate::driven::solve::driven_solve_with_ports;
+
+    /// Boundary faces of `mesh` lying entirely in the plane `coord[axis]==value`.
+    /// (House twin of the `lumped_port.rs` integration-test helper.)
+    fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
+        mesh.faces()
+            .into_iter()
+            .filter(|f| {
+                f.iter()
+                    .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
+            })
+            .collect()
+    }
+
+    /// PEC interior-edge mask eliminating every edge whose **both** endpoints lie
+    /// on the same listed plane `(axis, value)`. The port plane is deliberately
+    /// left OUT of the eliminated set, so its edges stay interior and the port
+    /// admittance term is live.
+    fn pec_mask_for_planes(
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+        planes: &[(usize, f64)],
+    ) -> Vec<bool> {
+        edges
+            .iter()
+            .map(|e| {
+                let a = mesh.nodes[e[0] as usize];
+                let b = mesh.nodes[e[1] as usize];
+                !planes.iter().any(|&(axis, value)| {
+                    (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
+                })
+            })
+            .collect()
+    }
+
+    /// Pinned-port fixture: unit-cube parallel-plate line — PEC plates at
+    /// `y = 0/1`, a PEC short at `z = 1`, natural/PMC side walls at `x = 0/1` —
+    /// with the lumped feed across the `z = 0` face (`ê = ŷ`). A **lossy**
+    /// substrate `ε = 2 − 0.3i` (so the terminated `|S11| < 1` strictly) plus a
+    /// genuinely COMPLEX volume source (so the volume `∂b/∂X` term is exercised
+    /// alongside the port load). Returns `(mesh, eps_complex, interior_mask,
+    /// source)`; the caller builds the `LumpedPort` (it must borrow the
+    /// `plane_faces(z=0)` list).
+    fn port_line_fixture(n: usize) -> (TetMesh, Vec<c64>, Vec<bool>, CurrentSource) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let edges = mesh.edges();
+        let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
+        let eps = vec![c64::new(2.0, -0.3); mesh.n_tets()];
+        let pi = std::f64::consts::PI;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.2 * (pi * c[2]).sin()),
+                c64::new(0.3 * (pi * c[1]).sin(), 0.15),
+                c64::new(0.1 * (pi * c[0]).sin(), 0.0),
+            ]
+        });
+        (mesh, eps, mask, source)
+    }
+
+    /// **The load-bearing A1 test.** The pinned-feed **port-loaded** driven-
+    /// Nédélec shape gradient `∂g/∂θ` — one forward + one adjoint solve on the
+    /// port-loaded complex-symmetric pencil `A = K − ω²M(ε) + (jω/Z_s)S_p` with
+    /// the port boundary drive in `b` — must match a full central finite
+    /// difference of the entire **port-loaded** driven pipeline. The FD arm
+    /// independently RE-ASSEMBLES + RE-SOLVES the port forward via the public
+    /// [`driven_solve_with_ports`] at moved nodes (not the adjoint's own
+    /// forward). Both node-motion maps hold every `z = 0` port node fixed — the
+    /// pinned-feed premise (`∂S_p/∂X = ∂b_port/∂X = 0`). A wrong sign, a dropped
+    /// port term, or a conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_with_pinned_port_matches_central_finite_difference() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!port_faces.is_empty(), "port surface must be non-empty");
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5), // genuinely complex drive
+        };
+
+        // ONE forward + ONE adjoint solve on the PORT-LOADED pencil.
+        let sg = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            l2_objective,
+            &device(),
+        )
+        .expect("port-loaded shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "port-loaded adjoint must reuse the forward LU (complex-symmetric)"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "port-loaded forward unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Independent FD reference: RE-ASSEMBLE + RE-SOLVE the PORT-LOADED
+        // forward via the public `driven_solve_with_ports` at moved nodes.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        // The adjoint's own port-loaded forward must equal the public port
+        // forward (proves the differentiated pencil IS the public system).
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public port forward {g0}",
+            sg.objective
+        );
+
+        // Pinned-feed node-motion maps (both hold every z=0 port node fixed):
+        //   1. translate the PEC short (z = 1) in +x — the port at z = 0 is
+        //      untouched, so ∂S_p/∂X = ∂b_port/∂X = 0 holds exactly.
+        //   2. an interior control node near the centre (off the port plane).
+        let tol = 1e-9;
+        let d_short: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[2] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        // Guard the pinned-feed premise: no port-face node is moved.
+        for f in &port_faces {
+            for &nn in f {
+                assert_eq!(
+                    d_short[nn as usize], [0.0; 3],
+                    "d_short moves a port-face node — pinned-feed premise violated"
+                );
+            }
+        }
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        assert!(
+            mesh.nodes[ctrl][2].abs() > tol,
+            "interior control node must be off the z=0 port plane"
+        );
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [("short-translate", &d_short), ("interior-node", &d_node)] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            println!("port map {name}: adjoint {ana:.6}, central-FD {fd:.6}, rel-err {rel:.3e}");
+            assert!(
+                rel < 1e-3,
+                "map {name}: port adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_short = chain_node_motion(&sg.grad_node, &d_short);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_short - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_short} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (port-loaded): the FD check must **reject** a
+    /// port-loaded shape gradient built with the classic complex-adjoint
+    /// conjugation error (`∂g/∂x̄` instead of `∂g/∂x`) — proving the load-bearing
+    /// A1 test's tolerance is biting on the genuinely complex port-driven field.
+    #[test]
+    fn port_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-conjugation port shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let tol = 1e-9;
+        let d_short: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[2] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_short) - g_of_theta(-h, &d_short)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_short);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "port conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    /// The port load must **genuinely change** the shape gradient (the whole
+    /// point of A1): differentiating the port-loaded pencil is not the same as
+    /// the port-less pencil. Same mesh / ε / source / ω, port present vs absent.
+    #[test]
+    fn pinned_port_changes_the_shape_gradient() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(3);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+        let with_port = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            l2_objective,
+            &device(),
+        )
+        .expect("port-loaded gradient");
+        let no_port = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("port-less gradient");
+        let mut worst = 0.0_f64;
+        for (a, b) in with_port.grad_node.iter().zip(no_port.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((a[d] - b[d]).abs());
+            }
+        }
+        assert!(
+            worst > 1e-6,
+            "the pinned-port load must change the shape gradient (max diff {worst:.3e})"
+        );
+    }
+
+    /// **Backward-compat / delegation guard.** An empty port slice through the
+    /// new [`driven_shape_gradient_ports_complex`] must reproduce the port-less
+    /// [`driven_shape_gradient_complex`] bit-for-bit — the historical Phase B
+    /// path is exactly this core with no ports.
+    #[test]
+    fn empty_ports_equals_portless_shape_gradient() {
+        let (mesh, eps_c, interior, source) = cavity_fixture_complex(3);
+        let omega = 1.5;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let portless = driven_shape_gradient_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("port-less gradient");
+        let empty = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &[],
+            l2_objective,
+            &device(),
+        )
+        .expect("empty-ports gradient");
+        assert_eq!(portless.n_factorizations, empty.n_factorizations);
+        let mut worst = 0.0_f64;
+        for (a, b) in portless.grad_node.iter().zip(empty.grad_node.iter()) {
+            for d in 0..3 {
+                worst = worst.max((a[d] - b[d]).abs());
+            }
+        }
+        assert!(
+            worst == 0.0,
+            "empty ports diverged from the port-less path by {worst:.3e}"
+        );
+    }
+
+    /// **Physical sanity (issue #631 AC2).** With the port termination present,
+    /// the reflection coefficient `|S11|` read off the port-terminated forward
+    /// is a **bounded** reflection (`≤ 1`) on a passive fixture — a marked
+    /// change from #627's synthetic `|S11|² > 1`, which differentiated a pencil
+    /// with NO port termination (so its extracted `Z = V/I` was not a passive
+    /// impedance). The lossy substrate makes it a strict contraction `< 1`.
+    #[test]
+    fn port_terminated_s11_is_bounded_on_passive_fixture() {
+        let (mesh, eps_c, mask, _src) = port_line_fixture(4);
+        let edges = mesh.edges();
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let omega = 1.3;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        // Pure port drive (zero volume source): the reflection is then the
+        // structure's genuine S11 seen at the port.
+        let zero_src = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let r = 1.0;
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: r,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.0),
+        };
+        let sol = driven_solve_with_ports::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps_c),
+            None,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &zero_src,
+            &device(),
+        )
+        .expect("port-terminated forward");
+        assert!(
+            sol.residual_rel < 1e-9,
+            "forward unhealthy (residual {:.3e})",
+            sol.residual_rel
+        );
+        let z_in = port_input_impedance(&mesh, &port, &edges, &sol.e_edges);
+        let mag = s11(z_in, r).norm();
+        println!("port-terminated |S11| = {mag:.6}  (Z_in = {z_in})");
+        // Passivity: |S11| ≤ 1 for any passive one-port (the provable bound).
+        assert!(
+            mag <= 1.0 + 1e-9,
+            "passive port |S11| = {mag} exceeds 1 — not a bounded reflection coefficient"
+        );
+        // Dissipative substrate ⇒ strict contraction (not the lossless |S11| = 1
+        // marginal case), confirming the termination absorbs real power.
+        assert!(
+            mag < 1.0,
+            "lossy passive fixture should give |S11| < 1, got {mag}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MOVING-FEED lumped-port shape adjoint (Epic #628 Phase A2, issue #633).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Geometry-derived port dims `(width, length)` — the SAME construction as
+    /// [`crate::mesh::patch::PatchFixture::port`]: `length = hi − lo` along `ê`,
+    /// `width = (Σ face areas) / length`. The moving-feed FD reference recomputes
+    /// these at each perturbed mesh (independent of the adjoint's own formulas).
+    fn port_dims(mesh: &TetMesh, faces: &[[u32; 3]], e_hat: [f64; 3]) -> (f64, f64) {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        let mut area = 0.0_f64;
+        for tri in faces {
+            let v: [[f64; 3]; 3] = std::array::from_fn(|k| mesh.nodes[tri[k] as usize]);
+            for p in &v {
+                let along = p[0] * e_hat[0] + p[1] * e_hat[1] + p[2] * e_hat[2];
+                lo = lo.min(along);
+                hi = hi.max(along);
+            }
+            let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+            let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+            let cx = e1[1] * e2[2] - e1[2] * e2[1];
+            let cy = e1[2] * e2[0] - e1[0] * e2[2];
+            let cz = e1[0] * e2[1] - e1[1] * e2[0];
+            area += 0.5 * (cx * cx + cy * cy + cz * cz).sqrt();
+        }
+        let l = hi - lo;
+        (area / l, l)
+    }
+
+    /// **Surface-Whitney Dual twin `.re` faithfully lifts the real port kernels.**
+    /// Scattering the UNSIGNED `port_face_dual` `.re` blocks with the lower-tag
+    /// signs must reproduce the public [`assemble_port_surface_mass`] and
+    /// [`assemble_port_flux`] at zero perturbation — proving the twin
+    /// differentiates *the same* closed forms the forward assembly uses.
+    #[test]
+    fn port_face_dual_re_reproduces_real_kernels() {
+        use crate::elements::whitney::{edge_lookup, face_geometry};
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!faces.is_empty());
+        let e_hat = [0.0, 1.0, 0.0];
+
+        let n = edges.len();
+        let mut s_real = vec![0.0_f64; n * n];
+        for (r, c, v) in assemble_port_surface_mass(&mesh, &faces, &edges) {
+            s_real[r * n + c] += v;
+        }
+        let f_real = assemble_port_flux(&mesh, &faces, e_hat, &edges);
+
+        let lookup = edge_lookup(&edges);
+        let mut s_dual = vec![0.0_f64; n * n];
+        let mut f_dual = vec![0.0_f64; n];
+        for tri in &faces {
+            let v_real: [[f64; 3]; 3] = std::array::from_fn(|k| mesh.nodes[tri[k] as usize]);
+            let info = face_geometry(tri, &v_real, &lookup).edge_info;
+            let vd = v_real.map(|p| p.map(Dual::cst));
+            let (_area, mass_d, flux_d) = port_face_dual(&vd, e_hat);
+            for i in 0..3 {
+                let (gi, si) = info[i];
+                f_dual[gi as usize] += flux_d[i].re * (si as f64);
+                for j in 0..3 {
+                    let (gj, sj) = info[j];
+                    s_dual[gi as usize * n + gj as usize] +=
+                        mass_d[i][j].re * (si as f64) * (sj as f64);
+                }
+            }
+        }
+        let mut max_s = 0.0_f64;
+        let mut max_f = 0.0_f64;
+        for k in 0..n {
+            max_f = max_f.max((f_dual[k] - f_real[k]).abs());
+            for j in 0..n {
+                max_s = max_s.max((s_dual[k * n + j] - s_real[k * n + j]).abs());
+            }
+        }
+        assert!(max_s < 1e-13, "dual S_p .re vs real: {max_s}");
+        assert!(max_f < 1e-13, "dual flux .re vs real: {max_f}");
+    }
+
+    /// **Surface-Whitney Dual twin `.du` matches central FD.** On a generic
+    /// (non-axis-aligned) triangle, each `.du` of the face area, surface-mass
+    /// block, and flux moment must match a central finite difference of the
+    /// twin's own `.re` — the element-level `∂S_p/∂X`, `∂f/∂X` gate.
+    #[test]
+    fn port_face_dual_derivative_matches_finite_difference() {
+        let v0 = [[0.10, 0.20, 0.05], [0.90, 0.15, 0.12], [0.25, 0.85, -0.08]];
+        let e_hat = {
+            let e = [0.3_f64, 0.6, -0.2];
+            let n = (e[0] * e[0] + e[1] * e[1] + e[2] * e[2]).sqrt();
+            [e[0] / n, e[1] / n, e[2] / n]
+        };
+        let h = 1e-6;
+        let mut worst = 0.0_f64;
+        for a in 0..3 {
+            for c in 0..3 {
+                let mut vd = v0.map(|p| p.map(Dual::cst));
+                vd[a][c] = Dual::var(v0[a][c]);
+                let (area_d, mass_d, flux_d) = port_face_dual(&vd, e_hat);
+
+                let eval = |val: f64| -> (f64, [[f64; 3]; 3], [f64; 3]) {
+                    let mut vv = v0;
+                    vv[a][c] = val;
+                    let vc = vv.map(|p| p.map(Dual::cst));
+                    let (ar, mm, ff) = port_face_dual(&vc, e_hat);
+                    let mut m = [[0.0; 3]; 3];
+                    let mut f = [0.0; 3];
+                    for i in 0..3 {
+                        f[i] = ff[i].re;
+                        for j in 0..3 {
+                            m[i][j] = mm[i][j].re;
+                        }
+                    }
+                    (ar.re, m, f)
+                };
+                let (ap, mp, fp) = eval(v0[a][c] + h);
+                let (am, mm, fm) = eval(v0[a][c] - h);
+                worst = worst.max((area_d.du - (ap - am) / (2.0 * h)).abs());
+                for i in 0..3 {
+                    worst = worst.max((flux_d[i].du - (fp[i] - fm[i]) / (2.0 * h)).abs());
+                    for j in 0..3 {
+                        worst =
+                            worst.max((mass_d[i][j].du - (mp[i][j] - mm[i][j]) / (2.0 * h)).abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            worst < 1e-7,
+            "port_face_dual .du vs central FD: worst abs err {worst:.3e}"
+        );
+    }
+
+    /// **The load-bearing A2 test.** The moving-feed port-loaded driven-Nédélec
+    /// `|S₁₁|²` shape gradient — one forward + one adjoint solve on the
+    /// complex-symmetric pencil, plus the extra `∂S_p/∂X`, `∂b_port/∂X`,
+    /// `∂Z_s/∂X` and objective `∂f/∂X` contractions — must match a full central
+    /// finite difference of the entire moving-feed pipeline. The FD arm
+    /// RE-ASSEMBLES the geometry-derived port dims (`w = area/l`, `l = hi−lo`)
+    /// AND re-solves the port forward at moved nodes. The fixture is genuinely
+    /// complex (ε = 2 − 0.3i, complex `V_inc`, complex source), so a dropped
+    /// port term, a wrong sign, or a conjugation error in the new covector paths
+    /// breaks the match.
+    #[test]
+    fn moving_feed_s11_shape_gradient_matches_central_finite_difference() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        assert!(!port_faces.is_empty());
+        let e_hat = [0.0, 1.0, 0.0];
+        let omega = 1.3;
+        let r = 1.0;
+        let z0 = r;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let (w0, l0) = port_dims(&mesh, &port_faces, e_hat);
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat,
+            resistance: r,
+            width: w0,
+            length: l0,
+            v_inc: c64::new(1.0, 0.5),
+        };
+
+        let sg = driven_shape_gradient_moving_port_s11::<B>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &port,
+            z0,
+            &device(),
+        )
+        .expect("moving-feed shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "moving-feed adjoint must reuse the single forward LU"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "moving-feed forward unhealthy (residual {:.3e})",
+            sg.residual_rel
+        );
+
+        let edges = mesh.edges();
+        // Independent FD reference: recompute geometry-derived port dims + the
+        // |S₁₁|² objective from a re-solved moving-feed forward at moved nodes.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let (w, l) = port_dims(&moved, &port_faces, e_hat);
+            let port_m = LumpedPort {
+                faces: &port_faces,
+                e_hat,
+                resistance: r,
+                width: w,
+                length: l,
+                v_inc: c64::new(1.0, 0.5),
+            };
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port_m),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("moving port forward");
+            let v = port_voltage(&moved, &port_m, &edges, &sol.e_edges);
+            s11_sq_and_dg_dv(v, port_m.v_inc, r, z0).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs forward {g0}",
+            sg.objective
+        );
+
+        // Two moving-feed node-motion maps that touch the port face IN-PLANE (an
+        // out-of-plane move is even in the displacement, so its ∂S_p = ∂f = 0 at
+        // the flat face — only in-plane feed motion exercises the A2 terms):
+        //   1. slide a single interior port node in +x (l unchanged; exercises
+        //      ∂area→∂w→∂Z_s, ∂S_p, ∂f, objective ∂f — the dl = 0 path);
+        //   2. lift every y = 1 port node in +y (coherent extremum motion, so
+        //      ∂l ≠ 0 through the symmetric subgradient — the ∂Z_s/∂l path).
+        let tol = 1e-9;
+        let interior_port = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, p)| {
+                p[2].abs() < tol && p[0] > tol && p[0] < 1.0 - tol && p[1] > tol && p[1] < 1.0 - tol
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior z=0 port node");
+        let mut d_shear = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_shear[interior_port] = [1.0, 0.0, 0.0];
+
+        let d_lift: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if p[2].abs() < tol && (p[1] - 1.0).abs() < tol {
+                    [0.0, 1.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+
+        let h = 1e-6;
+        let mut grads = Vec::new();
+        for (name, d) in [("port-slide-x", &d_shear), ("port-lift-y", &d_lift)] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (map does not touch the feed?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            println!("moving-feed {name}: adjoint {ana:.8}, central-FD {fd:.8}, rel-err {rel:.3e}");
+            assert!(
+                rel < 5e-3,
+                "map {name}: moving-feed adjoint {ana} vs central-FD {fd}, rel {rel:.3e} exceeds 5e-3"
+            );
+            grads.push(ana);
+        }
+        assert!(
+            (grads[0] - grads[1]).abs() > 1e-6,
+            "the two moving-feed maps must yield distinct gradients"
+        );
+    }
+
+    /// **Tripwire that bites.** On a port-moving map the pinned-feed A1 gradient
+    /// (which DROPS `∂S_p/∂X`, `∂b_port/∂X`, `∂Z_s/∂X` and the objective `∂f/∂X`)
+    /// must FAIL the same central-FD gate the moving-feed A2 gradient passes —
+    /// proving the four new terms are load-bearing, not cosmetic. On the
+    /// genuinely complex fixture this also rejects a conjugation error in the new
+    /// covector paths (which would perturb the A2 match away from FD).
+    #[test]
+    fn pinned_a1_gradient_fails_moving_feed_fd() {
+        let (mesh, eps_c, mask, source) = port_line_fixture(4);
+        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let e_hat = [0.0, 1.0, 0.0];
+        let omega = 1.3;
+        let r = 1.0;
+        let z0 = r;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let (w0, l0) = port_dims(&mesh, &port_faces, e_hat);
+        let v_inc = c64::new(1.0, 0.5);
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat,
+            resistance: r,
+            width: w0,
+            length: l0,
+            v_inc,
+        };
+        let edges = mesh.edges();
+
+        // Moving-feed A2 gradient (correct).
+        let a2 = driven_shape_gradient_moving_port_s11::<B>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            &port,
+            z0,
+            &device(),
+        )
+        .expect("A2 gradient");
+
+        // Pinned-feed A1 gradient with the SAME |S₁₁|² objective closure — it
+        // omits every port/objective geometry term (∂S_p = ∂f = ∂Z_s = 0).
+        let flux = assemble_port_flux(&mesh, &port_faces, e_hat, &edges);
+        let obj = s11_sq_objective(flux, 1.0 / w0, v_inc, r, z0);
+        let a1 = driven_shape_gradient_ports_complex::<B, _>(
+            &mesh,
+            &eps_c,
+            &bcs,
+            omega,
+            &source,
+            std::slice::from_ref(&port),
+            obj,
+            &device(),
+        )
+        .expect("A1 gradient");
+
+        // A port-moving map that touches the feed IN-PLANE: slide a single
+        // interior port node in +x (an out-of-plane move would leave ∂S_p =
+        // ∂f = 0 at the flat face and A1 would spuriously pass).
+        let tol = 1e-9;
+        let interior_port = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .find(|(_, p)| {
+                p[2].abs() < tol && p[0] > tol && p[0] < 1.0 - tol && p[1] > tol && p[1] < 1.0 - tol
+            })
+            .map(|(i, _)| i)
+            .expect("interior port node");
+        let mut d = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d[interior_port] = [1.0, 0.0, 0.0];
+
+        let g_of_theta = |theta: f64| -> f64 {
+            let mut moved = mesh.clone();
+            moved.nodes[interior_port][0] += theta;
+            let (w, l) = port_dims(&moved, &port_faces, e_hat);
+            let port_m = LumpedPort {
+                faces: &port_faces,
+                e_hat,
+                resistance: r,
+                width: w,
+                length: l,
+                v_inc,
+            };
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::Scalar(&eps_c),
+                None,
+                &bcs,
+                std::slice::from_ref(&port_m),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("forward");
+            let v = port_voltage(&moved, &port_m, &edges, &sol.e_edges);
+            s11_sq_and_dg_dv(v, v_inc, r, z0).0
+        };
+        let h = 1e-6;
+        let fd = (g_of_theta(h) - g_of_theta(-h)) / (2.0 * h);
+        let rel_a2 =
+            (chain_node_motion(&a2.grad_node, &d) - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        let rel_a1 =
+            (chain_node_motion(&a1.grad_node, &d) - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        println!("moving-feed FD {fd:.8}: A2 rel {rel_a2:.3e}, A1(pinned) rel {rel_a1:.3e}");
+        assert!(
+            rel_a2 < 5e-3,
+            "A2 must pass the moving-feed FD (rel {rel_a2:.3e})"
+        );
+        assert!(
+            rel_a1 > 1e-2,
+            "A1(pinned) must FAIL the moving-feed FD (rel {rel_a1:.3e}) — the A2 terms are not biting"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SECOND-ORDER (p=2) tests (issue #619).
+    // ─────────────────────────────────────────────────────────────────────
+
+    use crate::assembly::nedelec_p2::{
+        P2DofMap, assemble_p2_rhs_constant, cube_pec_interior_p2_dofs,
+    };
+    use crate::driven::solve::driven_solve_p2;
+    use crate::elements::nedelec_p2::{tet_nedelec2_local, tet_nedelec2_local_rhs};
+
+    /// A generic well-shaped (non-axis-aligned) tet for the element self-checks.
+    fn generic_tet() -> [[f64; 3]; 4] {
+        [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ]
+    }
+
+    /// Driven PEC cube cavity at `p=2`: uniform lossless ε_r, driven by a
+    /// genuinely COMPLEX per-tet current source. Returns
+    /// `(mesh, eps_r, interior_dof_mask, source)`.
+    fn cavity_fixture_p2(n: usize) -> (TetMesh, Vec<f64>, Vec<bool>, CurrentSource) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let eps_r = vec![2.0_f64; mesh.n_tets()];
+        let dofs = P2DofMap::build(&mesh);
+        let mask = cube_pec_interior_p2_dofs(&mesh, &dofs, 1.0);
+        let pi = std::f64::consts::PI;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.3 * (pi * c[2]).sin()),
+                c64::new(0.5 * (pi * c[1]).sin(), 0.2),
+                c64::new((pi * c[0]).sin(), 0.4 * c[2]),
+            ]
+        });
+        (mesh, eps_r, mask, source)
+    }
+
+    /// **The p=2 dual `.re` faithfully lifts the f64 element kernel.** The `.re`
+    /// fields of the Dual local K/M must reproduce
+    /// [`tet_nedelec2_local`] entry-for-entry, and the Dual RHS-moment tensor
+    /// contracted with a fixed `J` must reproduce
+    /// [`tet_nedelec2_local_rhs`] — proving the Dual twin differentiates *the
+    /// same* closed form the `p=2` solver assembles (mirrors the p=1
+    /// `dual_local_matrices_reproduce_burn_kernel`).
+    #[test]
+    fn p2_dual_local_matrices_reproduce_f64_kernel() {
+        let base = generic_tet();
+        let dc = base.map(|v| v.map(Dual::cst));
+        let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+        let (fk, fm, _vol) = tet_nedelec2_local(&base);
+        let j = [0.7_f64, -0.3, 1.1];
+        let frhs = tet_nedelec2_local_rhs(&base, j);
+
+        let mut worst = 0.0_f64;
+        for i in 0..TET_NEDELEC2_DOFS {
+            for jj in 0..TET_NEDELEC2_DOFS {
+                let rk = (dk[i][jj].re - fk[i][jj]).abs() / fk[i][jj].abs().max(1e-12);
+                let rm = (dm[i][jj].re - fm[i][jj]).abs() / fm[i][jj].abs().max(1e-12);
+                worst = worst.max(rk).max(rm);
+            }
+            // ∫ N_i · J = Σ_c (∫ N_i,c) · J_c.
+            let rhs_i = (0..3).map(|c| dnint[i][c].re * j[c]).sum::<f64>();
+            let rr = (rhs_i - frhs[i]).abs() / frhs[i].abs().max(1e-12);
+            worst = worst.max(rr);
+        }
+        assert!(
+            worst < 1e-10,
+            "p2 dual .re vs f64 kernel worst rel-err {worst:.3e}"
+        );
+    }
+
+    /// **The p=2 element-kernel derivative is exact.** The Dual tangents of the
+    /// local K, M and RHS moments must match a central finite difference of the
+    /// same `f64` kernel for every one of the twelve node coordinates
+    /// (scale-normalized, mirroring the p=1
+    /// `dual_local_derivative_matches_finite_difference`) — proving `∂A/∂X` and
+    /// `∂b/∂X` at p=2 are analytic forward-mode AD, not FD approximations.
+    #[test]
+    fn p2_dual_local_derivative_matches_finite_difference() {
+        let base = generic_tet();
+        let j = [0.7_f64, -0.3, 1.1];
+        let h = 1e-6;
+
+        let mut diff_k = 0.0_f64;
+        let mut scale_k = 0.0_f64;
+        let mut diff_m = 0.0_f64;
+        let mut scale_m = 0.0_f64;
+        let mut diff_n = 0.0_f64;
+        let mut scale_n = 0.0_f64;
+
+        for a in 0..4 {
+            for c in 0..3 {
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c] = Dual::var(base[a][c]);
+                let (dk, dm, dnint) = nedelec2_local_dual(&dc);
+
+                let mut cp = base;
+                let mut cm = base;
+                cp[a][c] += h;
+                cm[a][c] -= h;
+                let (kp, mp, _) = tet_nedelec2_local(&cp);
+                let (km, mm, _) = tet_nedelec2_local(&cm);
+                let rp = tet_nedelec2_local_rhs(&cp, j);
+                let rm = tet_nedelec2_local_rhs(&cm, j);
+
+                for i in 0..TET_NEDELEC2_DOFS {
+                    for jj in 0..TET_NEDELEC2_DOFS {
+                        let fdk = (kp[i][jj] - km[i][jj]) / (2.0 * h);
+                        let fdm = (mp[i][jj] - mm[i][jj]) / (2.0 * h);
+                        diff_k = diff_k.max((dk[i][jj].du - fdk).abs());
+                        scale_k = scale_k.max(fdk.abs());
+                        diff_m = diff_m.max((dm[i][jj].du - fdm).abs());
+                        scale_m = scale_m.max(fdm.abs());
+                    }
+                    // RHS moment derivative: Σ_c (∂∫N_i,c) J_c vs FD of ∫N_i·J.
+                    let dual_rhs = (0..3).map(|c2| dnint[i][c2].du * j[c2]).sum::<f64>();
+                    let fdn = (rp[i] - rm[i]) / (2.0 * h);
+                    diff_n = diff_n.max((dual_rhs - fdn).abs());
+                    scale_n = scale_n.max(fdn.abs());
+                }
+            }
+        }
+
+        assert!(
+            scale_k > 1e-3 && scale_m > 1e-3 && scale_n > 1e-3,
+            "p2 kernel derivative scales too small (K {scale_k:.3e}, M {scale_m:.3e}, N {scale_n:.3e})"
+        );
+        let rel_k = diff_k / scale_k;
+        let rel_m = diff_m / scale_m;
+        let rel_n = diff_n / scale_n;
+        let worst = rel_k.max(rel_m).max(rel_n);
+        assert!(
+            worst < 1e-6,
+            "p2 dual-vs-FD scale-normalized rel-err too large \
+             (K {rel_k:.3e}, M {rel_m:.3e}, N {rel_n:.3e})"
+        );
+    }
+
+    /// **The load-bearing p=2 test.** The `p=2` driven-Nédélec discrete-adjoint
+    /// **shape** gradient must match a full central finite difference of the
+    /// entire `p=2` driven pipeline (move nodes → reassemble the `p=2` `A` and
+    /// current RHS `b` → resolve via the public [`driven_solve_p2`] → recompute
+    /// g), for two distinct node-motion maps. A wrong sign, a wrong `∂A/∂X` /
+    /// `∂b/∂X`, a dropped RHS term, the wrong sorted-vertex node mapping, or a
+    /// conjugation error fails it.
+    #[test]
+    fn driven_shape_gradient_p2_matches_central_finite_difference() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        let dofs = P2DofMap::build(&mesh);
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, l2_objective)
+            .expect("p2 shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "p2 shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "p2 forward solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective as a function of θ under a node-velocity field
+        // D: move nodes to X⁰ + θD, rebuild the p=2 RHS (same drive factor and
+        // fixed per-tet source), re-solve via the public path, recompute g. The
+        // PEC mask is topology-derived, so it is held fixed under node motion.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let j_re: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].re, jj[1].re, jj[2].re])
+                .collect();
+            let j_im: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].im, jj[1].im, jj[2].im])
+                .collect();
+            let b_re = assemble_p2_rhs_constant(&moved, &dofs, &j_re);
+            let b_im = assemble_p2_rhs_constant(&moved, &dofs, &j_im);
+            let rhs: Vec<c64> = b_re
+                .iter()
+                .zip(b_im.iter())
+                .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+                .collect();
+            let sol = driven_solve_p2(&moved, &eps_r, &mask, omega, &rhs).expect("driven_solve_p2");
+            l2_objective(&sol.x).0
+        };
+
+        // Objective must agree between the two forward paths (sanity).
+        let g0_pub = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0_pub - sg.objective).abs() <= 1e-9 * g0_pub.abs().max(1.0),
+            "objective mismatch: shape adjoint {} vs public driven_solve_p2 {g0_pub}",
+            sg.objective
+        );
+
+        // Two analytic node-motion maps, LINEAR in θ.
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: p2 adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        // The two maps must give DISTINCT gradients.
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    /// Mutation tripwire (p=2): the finite-difference check must **reject** a
+    /// shape gradient built with the classic complex-adjoint conjugation error
+    /// (feeding `∂g/∂x̄` instead of `∂g/∂x`) on the genuinely complex cavity
+    /// field — proving the load-bearing p=2 test's tolerance is biting.
+    #[test]
+    fn p2_conjugation_error_is_detected_by_fd() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        let dofs = P2DofMap::build(&mesh);
+
+        // Wrong cotangent: +i·Im instead of −i·Im (∂g/∂x̄ rather than ∂g/∂x).
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, wrong_objective)
+            .expect("wrong-conjugation p2 shape gradient");
+
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let j_re: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].re, jj[1].re, jj[2].re])
+                .collect();
+            let j_im: Vec<[f64; 3]> = source
+                .j_tet
+                .iter()
+                .map(|jj| [jj[0].im, jj[1].im, jj[2].im])
+                .collect();
+            let b_re = assemble_p2_rhs_constant(&moved, &dofs, &j_re);
+            let b_im = assemble_p2_rhs_constant(&moved, &dofs, &j_im);
+            let rhs: Vec<c64> = b_re
+                .iter()
+                .zip(b_im.iter())
+                .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+                .collect();
+            let sol = driven_solve_p2(&moved, &eps_r, &mask, omega, &rhs).expect("driven_solve_p2");
+            l2_objective(&sol.x).0
+        };
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let h = 1e-6;
+        let fd = (g_of_theta(h, &d_face) - g_of_theta(-h, &d_face)) / (2.0 * h);
+        let ana_wrong = chain_node_motion(&wrong.grad_node, &d_face);
+        let rel = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel > 1e-2,
+            "p2 conjugation-error gradient {ana_wrong} matched the FD {fd} (rel {rel:.3e}) — \
+             the tolerance is not biting"
+        );
+    }
+
+    /// **The load-bearing complex-ε p=2 test.** The lossy second-order
+    /// driven-Nédélec shape gradient `∂g/∂θ` (complex `ε = ε′ − i·ε″`,
+    /// `Im(ε) ≠ 0`) must match a full central finite difference of the entire
+    /// complex p=2 pipeline. The public `driven_solve_p2` is real-ε only, so the
+    /// FD reference reuses [`driven_shape_gradient_p2_complex`]'s **own forward
+    /// objective** at perturbed nodes (it re-assembles the complex `A` + RHS and
+    /// re-solves for each θ) — the gradient under test comes from the adjoint
+    /// algebra, the FD reference only reads the forward `g`. A dropped loss term
+    /// in the p=2 pencil or contraction fails it.
+    #[test]
+    fn driven_shape_gradient_p2_complex_matches_central_finite_difference() {
+        let (mesh, eps_r, mask, source) = cavity_fixture_p2(2);
+        let omega = 1.5;
+        // Promote to a lossy substrate: ε = 2.0 − 0.3i (tan δ = 0.15).
+        let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, -0.3)).collect();
+
+        // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
+        let sg =
+            driven_shape_gradient_p2_complex(&mesh, &eps_c, &mask, omega, &source, l2_objective)
+                .expect("complex p2 shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "complex p2 shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-9,
+            "complex p2 forward solve unhealthy (residual {:.3e})",
+            sg.residual_rel
+        );
+
+        // Full-pipeline objective: re-run the complex forward at moved nodes and
+        // read its forward `g` (`.objective`), an independent-of-the-adjoint FD.
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            driven_shape_gradient_p2_complex(&moved, &eps_c, &mask, omega, &source, l2_objective)
+                .expect("complex p2 forward")
+                .objective
+        };
+
+        // Sanity: θ=0 forward matches the gradient run's own objective.
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-9 * g0.abs().max(1.0),
+            "objective mismatch: {} vs {g0}",
+            sg.objective
+        );
+
+        let tol = 1e-9;
+        let d_face: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .map(|p| {
+                if (p[0] - 1.0).abs() < tol {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 0.0]
+                }
+            })
+            .collect();
+        let ctr = [0.5, 0.5, 0.5];
+        let ctrl = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.iter().all(|&c| c > tol && c < 1.0 - tol))
+            .min_by(|(_, a), (_, b)| {
+                let da =
+                    (a[0] - ctr[0]).powi(2) + (a[1] - ctr[1]).powi(2) + (a[2] - ctr[2]).powi(2);
+                let db =
+                    (b[0] - ctr[0]).powi(2) + (b[1] - ctr[1]).powi(2) + (b[2] - ctr[2]).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .map(|(i, _)| i)
+            .expect("mesh has an interior node");
+        let mut d_node = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d_node[ctrl] = [1.0, 0.0, 0.0];
+
+        let h = 1e-6;
+        for (name, d) in [
+            ("hi-face-translate", &d_face),
+            ("interior-control-node", &d_node),
+        ] {
+            let ana = chain_node_motion(&sg.grad_node, d);
+            let fd = (g_of_theta(h, d) - g_of_theta(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-6,
+                "map {name}: FD gradient {fd} unexpectedly ~0 (fixture degenerate?)"
+            );
+            let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            assert!(
+                rel < 1e-3,
+                "map {name}: complex p2 adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 1e-3"
+            );
+        }
+
+        let g_face = chain_node_motion(&sg.grad_node, &d_face);
+        let g_node = chain_node_motion(&sg.grad_node, &d_node);
+        assert!(
+            (g_face - g_node).abs() > 1e-6,
+            "the two node-motion maps must yield distinct gradients ({g_face} vs {g_node})"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Box-UPML tensor-material shape adjoint (issue #635, Epic #628 Phase C1).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// The real `f64` **weighted** Nédélec local matrices from the production
+    /// Burn kernels for one tet and a fixed 3×3 weight pair, used to pin the
+    /// tensor dual `.re` fields.
+    fn burn_weighted_local(
+        coords: &[[f64; 3]; 4],
+        w_k: &[[f64; 3]; 3],
+        w_m: &[[f64; 3]; 3],
+    ) -> ([[f64; 6]; 6], [[f64; 6]; 6]) {
+        use crate::elements::nedelec::{
+            batched_nedelec_local_mass_anisotropic_full, batched_nedelec_local_stiffness_weighted,
+        };
+        let cflat: Vec<f64> = coords.iter().flat_map(|v| v.iter().copied()).collect();
+        let ct = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(cflat, [12]), &device())
+            .reshape([1, 4, 3]);
+        let wk_flat: Vec<f64> = w_k.iter().flat_map(|r| r.iter().copied()).collect();
+        let wm_flat: Vec<f64> = w_m.iter().flat_map(|r| r.iter().copied()).collect();
+        let wkt = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(wk_flat, [9]), &device())
+            .reshape([1, 3, 3]);
+        let wmt = burn::tensor::Tensor::<B, 1>::from_data(TensorData::new(wm_flat, [9]), &device())
+            .reshape([1, 3, 3]);
+        let k: Vec<f64> = batched_nedelec_local_stiffness_weighted(ct.clone(), wkt)
+            .into_data()
+            .iter::<f64>()
+            .collect();
+        let m: Vec<f64> = batched_nedelec_local_mass_anisotropic_full(ct, wmt)
+            .into_data()
+            .iter::<f64>()
+            .collect();
+        let mut kk = [[0.0_f64; 6]; 6];
+        let mut mm = [[0.0_f64; 6]; 6];
+        for i in 0..6 {
+            for j in 0..6 {
+                kk[i][j] = k[i * 6 + j];
+                mm[i][j] = m[i * 6 + j];
+            }
+        }
+        (kk, mm)
+    }
+
+    /// Tet vertices plus the curl-weight (ν) and mass-weight (ε) 3×3 tensors that
+    /// drive the tensor-material twin fixtures.
+    type TensorTwinInputs = ([[f64; 3]; 4], [[f64; 3]; 3], [[f64; 3]; 3]);
+
+    /// A generic (non-axis-aligned) well-shaped tet and a genuinely **full**
+    /// (off-diagonal, asymmetric) 3×3 weight pair — a strictly harder input than
+    /// the diagonal box `Λ`, so passing here subsumes the box case.
+    fn tensor_twin_inputs() -> TensorTwinInputs {
+        let base = [
+            [0.10, 0.20, 0.05],
+            [1.05, 0.15, 0.20],
+            [0.25, 0.95, 0.10],
+            [0.20, 0.30, 1.10],
+        ];
+        // ν = Λ⁻¹-like curl weight, ε = ε_r·Λ-like mass weight (both full here).
+        let w_k = [[1.30, 0.10, -0.05], [0.07, 0.90, 0.12], [-0.03, 0.08, 1.10]];
+        let w_m = [[2.10, 0.15, 0.05], [0.12, 1.80, -0.09], [0.04, 0.11, 2.40]];
+        (base, w_k, w_m)
+    }
+
+    /// **The tensor dual `.re` faithfully lifts the production weighted kernels.**
+    /// Reproduces the forward `assemble_global_nedelec_with_full_tensors` element
+    /// contribution (`batched_nedelec_local_stiffness_weighted` /
+    /// `batched_nedelec_local_mass_anisotropic_full`) at **zero perturbation**.
+    #[test]
+    fn tensor_dual_local_matrices_reproduce_forward_kernel() {
+        let (base, w_k, w_m) = tensor_twin_inputs();
+        let dc = base.map(|v| v.map(Dual::cst));
+        let (dk, dm) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+        let (bk, bm) = burn_weighted_local(&base, &w_k, &w_m);
+        let mut worst = 0.0_f64;
+        for i in 0..6 {
+            for j in 0..6 {
+                let rk = (dk[i][j].re - bk[i][j]).abs() / bk[i][j].abs().max(1e-12);
+                let rm = (dm[i][j].re - bm[i][j]).abs() / bm[i][j].abs().max(1e-12);
+                worst = worst.max(rk).max(rm);
+            }
+        }
+        assert!(
+            worst < 1e-10,
+            "tensor dual .re vs forward weighted kernel worst rel-err {worst:.3e}"
+        );
+    }
+
+    /// **The tensor element-kernel derivative is exact.** The tensor dual
+    /// tangents of `∂K(ν)/∂X`, `∂M(ε)/∂X` must match a central finite difference
+    /// of the SAME `f64` twin for every one of the twelve node coordinates — the
+    /// fixed-Λ geometry Jacobian is analytic forward-mode AD, not FD.
+    #[test]
+    fn tensor_dual_local_derivative_matches_finite_difference() {
+        let (base, w_k, w_m) = tensor_twin_inputs();
+        let eval = |coords: &[[f64; 3]; 4]| {
+            let dc = coords.map(|v| v.map(Dual::cst));
+            let (k, m) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+            let kre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| k[i][j].re));
+            let mre =
+                std::array::from_fn::<_, 6, _>(|i| std::array::from_fn::<_, 6, _>(|j| m[i][j].re));
+            (kre, mre)
+        };
+        let h = 1e-6;
+        let (mut diff_k, mut scale_k, mut diff_m, mut scale_m) = (0.0, 0.0, 0.0, 0.0);
+        for a in 0..4 {
+            for c in 0..3 {
+                let mut dc = base.map(|v| v.map(Dual::cst));
+                dc[a][c] = Dual::var(base[a][c]);
+                let (dk, dm) = nedelec_local_dual_tensor(&dc, &w_k, &w_m);
+
+                let mut cp = base;
+                let mut cm = base;
+                cp[a][c] += h;
+                cm[a][c] -= h;
+                let (kp, mp) = eval(&cp);
+                let (km, mm) = eval(&cm);
+                for i in 0..6 {
+                    for j in 0..6 {
+                        let fdk = (kp[i][j] - km[i][j]) / (2.0 * h);
+                        let fdm = (mp[i][j] - mm[i][j]) / (2.0 * h);
+                        diff_k = f64::max(diff_k, (dk[i][j].du - fdk).abs());
+                        scale_k = f64::max(scale_k, fdk.abs());
+                        diff_m = f64::max(diff_m, (dm[i][j].du - fdm).abs());
+                        scale_m = f64::max(scale_m, fdm.abs());
+                    }
+                }
+            }
+        }
+        assert!(
+            scale_k > 1e-3 && scale_m > 1e-3,
+            "kernel derivative scales too small (K {scale_k:.3e}, M {scale_m:.3e})"
+        );
+        let (rel_k, rel_m) = (diff_k / scale_k, diff_m / scale_m);
+        assert!(
+            rel_k.max(rel_m) < 1e-6,
+            "tensor dual-vs-FD scale-normalized rel-err too large (K {rel_k:.3e}, M {rel_m:.3e})"
+        );
+    }
+
+    /// **PML-pinned tripwire bites.** [`chain_node_motion_pml_pinned`] must panic
+    /// when a design node that belongs to a PML tet carries nonzero motion, since
+    /// `∂Λ/∂X` is unmodeled in Phase C1 (the moving-PML profile derivative is C2).
+    #[test]
+    #[should_panic(expected = "PML-pinned node")]
+    fn pml_pinned_tripwire_rejects_moving_pml_node() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let mut pml = vec![false; mesh.n_tets()];
+        pml[0] = true; // tag the first tet as PML → its 4 nodes are pinned.
+        let pinned = pml_shell_nodes(&mesh, &pml);
+        let node = pinned.iter().position(|&p| p).expect("a pinned node");
+        let grad = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        let mut d = vec![[0.0_f64; 3]; mesh.n_nodes()];
+        d[node] = [1.0, 0.0, 0.0]; // move a pinned node → must panic.
+        let _ = chain_node_motion_pml_pinned(&grad, &d, &pinned);
+    }
+
+    /// **The load-bearing box-UPML gate.** The tensor-material box-UPML shape
+    /// adjoint `∂g/∂θ` on the **real patch UPML shell**
+    /// ([`crate::mesh::patch::PatchFixture::matched_upml_materials`]) must match a
+    /// full central finite difference of the entire UPML driven pipeline
+    /// (perturb θ → move the non-PML nodes → re-assemble + re-solve the
+    /// matched-UPML forward via the public [`driven_solve`] → recompute g) to
+    /// `rel_err ≤ 5e-3`. The PML shell is held fixed (∂Λ/∂X = 0) and the FD
+    /// reference holds the per-tet Λ tensors fixed, matching the C1 convention.
+    /// A conjugation-error tripwire proves the tolerance bites.
+    #[test]
+    fn driven_shape_gradient_matched_upml_matches_central_finite_difference() {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let sigma_0 = 1.0;
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            sigma_0,
+            omega,
+        );
+
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+
+        // Fully complex volumetric current source across the domain (so the field
+        // is genuinely complex and the Wirtinger convention is exercised).
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let sg = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("box-UPML shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "box-UPML shape adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-8,
+            "forward UPML solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // FD reference: hold the per-tet Λ tensors FIXED (the pinned-shell C1
+        // convention), move only non-PML nodes, re-assemble + re-solve the UPML
+        // forward through the independent public driven_solve path.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                &bcs,
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("driven UPML solve");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public driven_solve {g0}",
+            sg.objective
+        );
+
+        // Node-motion map: a smooth +z Gaussian bump on the NON-pinned nodes
+        // (pinned PML nodes held at zero), linear in θ so X(θ)=X⁰+θD is exact.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64; // bump width² (mesh units)
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+
+        let h = 1e-6;
+        let ana = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        let fd = (g_of_theta(h, &d) - g_of_theta(-h, &d)) / (2.0 * h);
+        assert!(
+            fd.abs() > 1e-8,
+            "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
+        );
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel < 5e-3,
+            "box-UPML adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+        );
+
+        // Conjugation tripwire: the wrong Wirtinger cotangent (+i·Im instead of
+        // −i·Im, i.e. ∂g/∂x̄) must be REJECTED by the FD — proving the 5e-3 gate
+        // is biting, not vacuously satisfied.
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-cotangent box-UPML gradient");
+        let ana_wrong = chain_node_motion_pml_pinned(&wrong.grad_node, &d, &pinned);
+        let rel_wrong = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_wrong > 1e-2,
+            "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
+             rel-err {rel_wrong:.3e} (gate not biting)"
+        );
+    }
+
+    /// **The load-bearing capstone test (issue #636).** The composed
+    /// open-radiator shape gradient — matched box-UPML tensor material + lossy
+    /// FR-4 ε + a pinned-feed lumped port, all in one differentiated pencil via
+    /// [`driven_shape_gradient_matched_upml_ports`] — must match a full central
+    /// finite difference of the entire **port-loaded UPML** pipeline (perturb θ →
+    /// move only the non-PML, non-port nodes → re-assemble + re-solve the forward
+    /// through the independent public [`driven_solve_with_ports`] with
+    /// [`DrivenMaterials::MatchedUpml`] → recompute g) to `rel_err ≤ 5e-3`, with
+    /// `n_factorizations == 1`. The PML shell (`∂Λ/∂X = 0`) and the port feed
+    /// (`∂S_p/∂X = ∂b_port/∂X = 0`) are both pinned. A conjugation tripwire proves
+    /// the tolerance bites. This is the composition #626 documented as the
+    /// open-radiator follow-on.
+    #[test]
+    fn driven_shape_gradient_matched_upml_ports_matches_central_finite_difference() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::driven::solve::driven_solve_with_ports;
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let sigma_0 = 1.0;
+        let omega = 0.35;
+        // Lossy FR-4 (tan δ = 0.02) → complex ε; box-UPML stretch on the shell.
+        let (eps_tensor, nu_tensor) = fixture.matched_upml_materials(
+            &FR4_MATERIALS,
+            air_lo,
+            air_hi,
+            pml_thick,
+            sigma_0,
+            omega,
+        );
+
+        // Pinned-feed lumped port (Palace-style uniform), complex incident drive
+        // so the field, V and the objective are genuinely complex.
+        let patch_port = fixture.port();
+        let r_nat = 50.0 / ETA_0;
+        let port = patch_port.lumped_port(r_nat, c64::new(1.0, 0.5));
+
+        // Both the PML shell AND the port-face nodes are pinned in the motion map.
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let mut pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+        for tri in &patch_port.faces {
+            for &n in tri {
+                pinned[n as usize] = true;
+            }
+        }
+
+        // A complex volumetric source in addition to the port drive, so the
+        // volume ∂b/∂X term is exercised alongside the port load.
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed box-UPML + port shape gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "composed capstone adjoint must reuse the forward factorization"
+        );
+        assert!(
+            sg.residual_rel < 1e-8,
+            "forward composed solve unhealthy (residual {:.3e}); pick ω off resonance",
+            sg.residual_rel
+        );
+
+        // FD reference: hold the per-tet Λ tensors FIXED (pinned-shell C1
+        // convention), move only non-PML/non-port nodes, re-assemble + re-solve
+        // the port-loaded UPML forward through the independent public path.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
+        assert!(
+            (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
+            "objective mismatch: adjoint {} vs public port-loaded UPML forward {g0}",
+            sg.objective
+        );
+
+        // Node-motion map: a +z Gaussian bump on the free (non-pinned) nodes.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64;
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+        // Guard the pinned-feed premise: no port-face node is moved.
+        for tri in &patch_port.faces {
+            for &nn in tri {
+                assert_eq!(
+                    d[nn as usize], [0.0; 3],
+                    "motion map moves a port-face node — pinned-feed premise violated"
+                );
+            }
+        }
+
+        let h = 1e-6;
+        let ana = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        let fd = (g_of_theta(h, &d) - g_of_theta(-h, &d)) / (2.0 * h);
+        assert!(
+            fd.abs() > 1e-8,
+            "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
+        );
+        let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel < 5e-3,
+            "composed box-UPML+port adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+        );
+
+        // Conjugation tripwire: the wrong Wirtinger cotangent (∂g/∂x̄) must be
+        // REJECTED by the FD — proving the 5e-3 gate bites for the composition.
+        let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
+            let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
+            let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
+            (g, cot)
+        };
+        let wrong = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            wrong_objective,
+            &device(),
+        )
+        .expect("wrong-cotangent composed gradient");
+        let ana_wrong = chain_node_motion_pml_pinned(&wrong.grad_node, &d, &pinned);
+        let rel_wrong = (ana_wrong - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+        assert!(
+            rel_wrong > 1e-2,
+            "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
+             rel-err {rel_wrong:.3e} (gate not biting)"
+        );
+    }
+
+    /// Empty `ports` reproduces the port-less box-UPML gradient
+    /// ([`driven_shape_gradient_matched_upml`]) — the composed capstone entry
+    /// point is a strict superset (issue #636).
+    ///
+    /// **Tolerance, not bit identity (issue #1108).** The port-less entry point
+    /// delegates to the ports entry point with `&[]`, so the two calls below run
+    /// the same code on the same inputs, and the comparison checks that the
+    /// delegation and the empty-ports path add nothing. It does not check
+    /// determinism. Two calls of the same
+    /// sparse factorization + solve in one process are not bit-reproducible
+    /// on every target: on x86_64 the CI arpack job saw the objective differ
+    /// by 11 ulps (≈ 2.4e-15 relative) on PRs that touch no Rust (#1107,
+    /// #1119), and a rerun passed. The likely cause is floating-point
+    /// summation order that depends on run-time state (SIMD kernels whose
+    /// head / tail split follows the buffer alignment, or thread scheduling).
+    /// So the objective and every gradient component must agree to a
+    /// relative `1e-12` (the gradient scaled by its largest component, since
+    /// single components can be near zero). That is about 400× the observed
+    /// spread and still far below what any real change of the code path
+    /// (a stray port term, a different material or right-hand side) produces.
+    #[test]
+    fn empty_ports_equals_portless_matched_upml_gradient() {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                fixture.patch_triangles().as_slice(),
+                fixture.ground_triangles().as_slice(),
+                fixture.outer_boundary_triangles().as_slice(),
+            ],
+        );
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+        let _ = PHYS_UPML;
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        let portless = driven_shape_gradient_matched_upml::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("portless box-UPML gradient");
+        let empty = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            &[],
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("empty-ports composed gradient");
+
+        assert_eq!(portless.n_factorizations, empty.n_factorizations);
+        assert_eq!(portless.grad_node.len(), empty.grad_node.len());
+        const REL_TOL: f64 = 1e-12;
+        let obj_rel = (portless.objective - empty.objective).abs()
+            / portless.objective.abs().max(f64::MIN_POSITIVE);
+        let scale = portless
+            .grad_node
+            .iter()
+            .flatten()
+            .fold(0.0_f64, |m, v| m.max(v.abs()));
+        assert!(scale > 0.0, "zero gradient");
+        let grad_rel = portless
+            .grad_node
+            .iter()
+            .zip(empty.grad_node.iter())
+            .flat_map(|(a, b)| (0..3).map(move |k| (a[k] - b[k]).abs()))
+            .fold(0.0_f64, f64::max)
+            / scale;
+        println!(
+            "empty ports vs port-less: objective rel {obj_rel:.3e}, gradient rel {grad_rel:.3e}"
+        );
+        assert!(
+            obj_rel <= REL_TOL,
+            "objective differs on empty ports: {} vs {} (rel {obj_rel:.3e})",
+            portless.objective,
+            empty.objective
+        );
+        assert!(
+            grad_rel <= REL_TOL,
+            "grad_node differs on empty ports: max |diff| / max |grad| = {grad_rel:.3e}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // High-DOF freeform boundary parametrization + mesh-morph regularizer
+    // (Epic #647 Phase 1, issue #648) — validated END-TO-END through the
+    // composed open-radiator capstone gradient.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Assemble the composed-capstone patch fixture (matched box-UPML + lossy
+    /// FR-4 + a pinned-feed lumped port) shared by the freeform-morph tests. It
+    /// returns everything needed to (a) compute the capstone nodal gradient and
+    /// (b) re-solve the port-loaded UPML forward under a node-motion map, plus
+    /// the pinned-node mask (PML shell ∪ port faces).
+    #[allow(clippy::type_complexity)]
+    fn capstone_patch_fixture() -> (
+        TetMesh,
+        Vec<[[c64; 3]; 3]>,
+        Vec<[[c64; 3]; 3]>,
+        Vec<bool>,
+        crate::mesh::patch::PatchPort,
+        CurrentSource,
+        Vec<bool>,
+        f64,
+    ) {
+        use crate::mesh::patch::{FR4_MATERIALS, PHYS_UPML, read_patch_smoke_fixture};
+        use crate::mesh::pec_interior_mask_from_triangles;
+
+        let fixture = read_patch_smoke_fixture().expect("patch smoke fixture");
+        let mesh = fixture.mesh.clone();
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+
+        let pml_thick = 8.0;
+        let (air_lo, air_hi) = fixture.air_box(pml_thick);
+        let omega = 0.35;
+        let (eps_tensor, nu_tensor) =
+            fixture.matched_upml_materials(&FR4_MATERIALS, air_lo, air_hi, pml_thick, 1.0, omega);
+
+        let patch_port = fixture.port();
+
+        let pml_tet_mask: Vec<bool> = fixture
+            .tet_physical_tags
+            .iter()
+            .map(|&t| t == PHYS_UPML)
+            .collect();
+        let mut pinned = pml_shell_nodes(&mesh, &pml_tet_mask);
+        for tri in &patch_port.faces {
+            for &nn in tri {
+                pinned[nn as usize] = true;
+            }
+        }
+
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.20 * c[2].cos()),
+                c64::new(0.15 * c[0].sin(), 0.10),
+                c64::new(0.30 * c[0].cos(), 0.20 * c[1].sin()),
+            ]
+        });
+
+        (
+            mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega,
+        )
+    }
+
+    /// **The multi-DOF freeform-shape gradient is FD-exact on a real mesh.** A
+    /// high-DOF freeform boundary parametrization ([`FreeformBoundaryMorph`]) of
+    /// several free patch-metal nodes — each extended into the interior by the
+    /// Laplace mesh-morph regularizer, with the PML shell and pinned feed held
+    /// fixed — contracted against the composed-capstone nodal gradient must match
+    /// a full central finite difference of the entire port-loaded UPML pipeline,
+    /// per DOF, to `rel_err ≤ 5e-3`, with `n_factorizations == 1`. The columns
+    /// vanish on every pinned node, so the contraction agrees bit-for-bit with
+    /// the PML-pinned chain guard.
+    #[test]
+    fn driven_freeform_multidof_shape_gradient_matches_central_finite_difference() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::driven::solve::{DrivenMaterials, driven_solve_with_ports};
+        use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
+
+        let (mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega) =
+            capstone_patch_fixture();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let port = patch_port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.5));
+
+        // Composed-capstone nodal gradient (ONE forward + ONE adjoint solve).
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed capstone gradient");
+        assert_eq!(
+            sg.n_factorizations, 1,
+            "multi-DOF gradient must inherit the single-factorization capstone adjoint"
+        );
+        assert!(sg.residual_rel < 1e-8, "forward solve unhealthy");
+
+        // fixed_zero = every pinned node (PML shell ∪ port feed). The morph
+        // columns are exactly zero there, so ∂Λ/∂X = 0 and the pinned feed hold.
+        let fixed_zero: Vec<u32> = pinned
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &p)| if p { Some(i as u32) } else { None })
+            .collect();
+
+        // Freeform boundary DOFs: several FREE patch-metal nodes, each a +z
+        // (out-of-plane) normal bump — the curved-metal antenna deformation.
+        let mut patch_nodes: Vec<u32> = {
+            use crate::mesh::patch::read_patch_smoke_fixture;
+            read_patch_smoke_fixture()
+                .expect("patch smoke fixture")
+                .patch_triangles()
+                .iter()
+                .flatten()
+                .copied()
+                .collect()
+        };
+        patch_nodes.sort_unstable();
+        patch_nodes.dedup();
+        let free_patch: Vec<u32> = patch_nodes
+            .into_iter()
+            .filter(|&nn| !pinned[nn as usize])
+            .collect();
+        assert!(
+            free_patch.len() >= 3,
+            "need at least 3 free patch nodes for a multi-DOF test, got {}",
+            free_patch.len()
+        );
+        let dofs: Vec<BoundaryMotionDof> = free_patch
+            .iter()
+            .take(3)
+            .map(|&node| BoundaryMotionDof {
+                node,
+                dir: [0.0, 0.0, 1.0],
+            })
+            .collect();
+
+        let morph = FreeformBoundaryMorph::harmonic_boundary(&mesh, &dofs, &fixed_zero)
+            .expect("harmonic freeform morph");
+        assert_eq!(morph.n_dofs(), dofs.len());
+
+        // Columns must vanish on every pinned node (⇒ the PML-pinned chain guard
+        // never trips and the pinned-feed premise holds).
+        for p in 0..morph.n_dofs() {
+            let col = morph.velocity(p);
+            for (i, &is_pinned) in pinned.iter().enumerate() {
+                if is_pinned {
+                    assert_eq!(col[i], [0.0; 3], "morph col {p} moves pinned node {i}");
+                }
+            }
+        }
+
+        // Analytic design-space gradient (per-column contraction of grad_node).
+        let ana = morph.design_gradient(&sg.grad_node);
+        // The PML-pinned chain guard must agree bit-for-bit (columns are 0 on PML).
+        for (p, &ana_p) in ana.iter().enumerate() {
+            let guarded = chain_node_motion_pml_pinned(&sg.grad_node, morph.velocity(p), &pinned);
+            assert_eq!(
+                ana_p.to_bits(),
+                guarded.to_bits(),
+                "design_gradient[{p}] != PML-pinned chain (columns not zero on PML?)"
+            );
+        }
+
+        // Full-pipeline FD reference: move nodes by θ·D_p, re-solve the
+        // port-loaded UPML forward with the per-tet Λ tensors held fixed.
+        let eps_ref = eps_tensor.clone();
+        let nu_ref = nu_tensor.clone();
+        let g_of = |theta: f64, d: &[[f64; 3]]| -> f64 {
+            let mut moved = mesh.clone();
+            for (node, dn) in moved.nodes.iter_mut().zip(d) {
+                node[0] += theta * dn[0];
+                node[1] += theta * dn[1];
+                node[2] += theta * dn[2];
+            }
+            let sol = driven_solve_with_ports::<B>(
+                &moved,
+                DrivenMaterials::MatchedUpml {
+                    epsilon_tensor: &eps_ref,
+                    nu_tensor: &nu_ref,
+                },
+                None,
+                &bcs,
+                std::slice::from_ref(&port),
+                omega,
+                &source,
+                &device(),
+            )
+            .expect("port-loaded UPML forward");
+            l2_objective(&sol.e_edges).0
+        };
+
+        let h = 1e-6;
+        let mut worst = 0.0_f64;
+        for (p, &ana_p) in ana.iter().enumerate() {
+            let d = morph.velocity(p);
+            let fd = (g_of(h, d) - g_of(-h, d)) / (2.0 * h);
+            assert!(
+                fd.abs() > 1e-8,
+                "DOF {p}: FD gradient {fd} ~0 (degenerate boundary DOF)"
+            );
+            let rel = (ana_p - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
+            worst = worst.max(rel);
+            assert!(
+                rel < 5e-3,
+                "DOF {p}: multi-DOF adjoint {ana_p} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+            );
+        }
+        assert!(worst < 5e-3, "worst multi-DOF FD rel-err {worst:.3e}");
+
+        // The DOFs must probe genuinely distinct geometry (not a constant).
+        let distinct = ana
+            .iter()
+            .any(|&g| (g - ana[0]).abs() > 1e-9 * ana[0].abs().max(1.0));
+        assert!(
+            distinct,
+            "all DOF gradients identical — degenerate parametrization"
+        );
+    }
+
+    /// **The multi-DOF parametrization reduces to the single-DOF capstone path
+    /// bit-for-bit.** A one-column [`FreeformBoundaryMorph`] built from the exact
+    /// capstone Gaussian-bump velocity must return precisely the value the
+    /// existing single-DOF chain ([`chain_node_motion_pml_pinned`]) returns from
+    /// the SAME (untouched) capstone `grad_node` — the regression that pins the
+    /// "reduces to the #636 capstone as a special case" invariant.
+    #[test]
+    fn driven_freeform_reduces_to_single_dof_capstone_gradient_bit_for_bit() {
+        use crate::constants::ETA_0_OHM as ETA_0;
+        use crate::shape::{FreeformBoundaryMorph, chain_node_motion};
+
+        let (mesh, eps_tensor, nu_tensor, interior, patch_port, source, pinned, omega) =
+            capstone_patch_fixture();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let port = patch_port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.5));
+
+        let sg = driven_shape_gradient_matched_upml_ports::<B, _>(
+            &mesh,
+            &eps_tensor,
+            &nu_tensor,
+            &bcs,
+            std::slice::from_ref(&port),
+            omega,
+            &source,
+            l2_objective,
+            &device(),
+        )
+        .expect("composed capstone gradient");
+
+        // The capstone single-DOF motion map: a +z Gaussian bump on the free
+        // (non-pinned) nodes, identical to the capstone FD-gate test's `d`.
+        let mut center = [0.0_f64; 3];
+        let mut n_free = 0.0_f64;
+        for (i, p) in mesh.nodes.iter().enumerate() {
+            if !pinned[i] {
+                for k in 0..3 {
+                    center[k] += p[k];
+                }
+                n_free += 1.0;
+            }
+        }
+        for c in center.iter_mut() {
+            *c /= n_free.max(1.0);
+        }
+        let s2 = 25.0_f64;
+        let d: Vec<[f64; 3]> = mesh
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if pinned[i] {
+                    [0.0; 3]
+                } else {
+                    let r2 = (p[0] - center[0]).powi(2)
+                        + (p[1] - center[1]).powi(2)
+                        + (p[2] - center[2]).powi(2);
+                    [0.0, 0.0, (-r2 / (2.0 * s2)).exp()]
+                }
+            })
+            .collect();
+
+        let morph = FreeformBoundaryMorph::from_columns(vec![d.clone()]).unwrap();
+        let dg = morph.design_gradient(&sg.grad_node);
+        assert_eq!(dg.len(), 1);
+
+        // Bit-for-bit against BOTH the raw chain and the PML-pinned chain guard.
+        let raw = chain_node_motion(&sg.grad_node, &d);
+        let guarded = chain_node_motion_pml_pinned(&sg.grad_node, &d, &pinned);
+        assert_eq!(
+            dg[0].to_bits(),
+            raw.to_bits(),
+            "single-column morph != chain_node_motion bit-for-bit"
+        );
+        assert_eq!(
+            dg[0].to_bits(),
+            guarded.to_bits(),
+            "single-column morph != PML-pinned single-DOF chain bit-for-bit"
+        );
+        assert!(dg[0].abs() > 0.0, "degenerate zero gradient");
+    }
+}

@@ -1,0 +1,97 @@
+//! Generalized eigensolvers for the FEM pencils `K x = λ M x`.
+//!
+//! This module groups every eigenvalue backend in the crate under one
+//! namespace:
+//!
+//! - [`dense`] — dense `faer` generalized symmetric eigensolver (the
+//!   correctness oracle for small problems), plus the shared
+//!   [`dense::EigenError`] / [`dense::EigenPair`] types and the
+//!   Burn→faer / Dirichlet-BC helpers.
+//! - [`lanczos`] — sparse real shift-and-invert Lanczos.
+//! - [`ams`] — AMS-lite (auxiliary-space Maxwell, Hiptmair–Xu) preconditioner
+//!   for the matrix-free inner CG of the shift-invert solve: an edge Jacobi
+//!   smoother plus a gradient-space nodal coarse correction that damps the
+//!   H(curl) curl-curl gradient near-kernel Jacobi is blind to (issue #526).
+//! - [`parallel`] — process-global faer parallelism control (a panic-safe
+//!   RAII guard + `GEODE_NUM_THREADS` knob) scoped to the sparse LU
+//!   factorization that fronts the shift-invert eigensolves (issue #518).
+//! - [`complex`] — complex (non-Hermitian) dense and sparse solvers for
+//!   the Silver-Müller and Mie pencils.
+//! - `arpack` — optional ARPACK-backed sparse solver (behind the
+//!   `arpack` Cargo feature), a cross-check oracle for [`lanczos`].
+//! - [`self_consistent`] — self-consistent `k₀` Newton iteration for the
+//!   Silver-Müller quasimode pencil, layered on [`complex`].
+//! - [`cavity`] — order-selectable ([`cavity::ElementOrder`]) lossless
+//!   PEC-cube cavity generalized eigenproblem: dispatches the `p=1` Whitney
+//!   path vs the #621 second-order Nédélec assembly onto the shared sparse
+//!   shift-invert Lanczos, for the `p=2` frequency-convergence gate against
+//!   the analytic `2π²` spectrum (issue #620).
+//! - [`pec_cavity`] — lossless **PEC-walled cavity eigenmodes on any
+//!   (tagged) tet mesh**: per-tet real `ε_r` + PEC surfaces (by mask or by
+//!   Gmsh physical-group name) → resonant `k₀`, via a sparse pattern-aligned
+//!   pencil assembly and the shared shift-invert Lanczos. The library entry
+//!   point behind `geode eigen` (issue #681).
+//! - [`periodic_cavity`] — the same lossless pencil on a **periodic** unit
+//!   cell at zero Bloch phase, reduced by a
+//!   [`crate::assembly::periodic::PeriodicConstraint`] (issue #839, Epic
+//!   #837 Phase 1).
+//! - [`bloch`] — **Bloch-phase band-structure** solves on a periodic unit
+//!   cell: the Hermitian reduced pencil `P(k)ᴴ (K, M) P(k)` by a native
+//!   Hermitian shift-invert block Krylov solve with Bloch-phased gradient
+//!   deflation, Hellmann–Feynman group velocity, and k-path sweeps with
+//!   overlap band tracking (issue #858, Epic #837 Phase 2).
+//! - [`lossy_cavity`] — the complex counterpart of [`pec_cavity`]:
+//!   **lossy / open cavity quasi-modes** (complex per-tet `ε_r`, or full
+//!   complex `(ε, ν)` tensors such as box UPML frozen at a reference `k₀`)
+//!   → complex `k₀` (frequency + `Q`), via the sparse complex shift-invert
+//!   Lanczos. The lossy path behind `geode eigen` (issue #706).
+//! - [`transmon`] — transmon eigenmode solve with the Josephson junction
+//!   as a lumped reactive-shunt surface term (Epic #476 Phase B).
+//! - [`gauge`] — tree-cotree spanning-tree gauge that eliminates the
+//!   Nédélec gradient nullspace from the reduced pencil before the solve,
+//!   (issue #502; not spectrum-preserving for the eigenproblem).
+//! - [`hcurl_null`] — the **exact gradient null space** of the
+//!   order-generic H(curl) pencils (issue #871, Epic #836 Phase 2): its
+//!   closed-form dimension at p=1 and p=2 (free P1/P2-Lagrange DOFs plus
+//!   floating wall potentials), the sparse hierarchical discrete gradient,
+//!   and the scale-free gradient-fraction classifier of the p=2 cavity
+//!   solves.
+//! - [`projection`] — spectrum-preserving divergence-free (discrete-
+//!   Helmholtz) projection `P = I − G(GᵀMG)⁻¹GᵀM` for the eigen path: the
+//!   `M`-orthogonal deflation of the gradient subspace that removes the
+//!   gradient near-kernel *without* shifting the physical spectrum (issue #509,
+//!   the spectrum-preserving alternative to the DOF-elimination `gauge`).
+//! - [`sensitivity`] — **Hellmann–Feynman eigenvalue sensitivities** `∂λ/∂p`
+//!   (material + geometry) on a converged simple eigenpair (issue #596,
+//!   Phase A of the differentiable-eigenmode roadmap; Nelson eigenvector
+//!   derivatives and the PHJD interior eigensolver are deferred follow-ons).
+//! - [`wavenumber`] — the shared cancellation-free principal square root
+//!   `k = √λ` ([`wavenumber::principal_sqrt`]) behind every `λ → k → Q`
+//!   conversion, accurate to a few ulps at any `Q` (issue #830).
+
+pub mod ams;
+pub mod bloch;
+pub mod cavity;
+pub mod complex;
+pub mod dense;
+pub mod gauge;
+pub mod hcurl_null;
+pub mod lanczos;
+pub mod lossy_cavity;
+// `pub(crate)`: the ordering primitives are for internal reuse by the eigen /
+// driven direct-LU paths, not a public API. Keeping the module crate-private
+// also keeps its doc comment out of the public-docs surface (its items are
+// `pub(crate)`), which `rustdoc::private_intra_doc_links` (-D warnings) requires.
+pub(crate) mod ordering;
+pub mod parallel;
+pub mod pec_cavity;
+pub mod periodic_cavity;
+pub mod projection;
+pub mod self_consistent;
+pub mod sensitivity;
+pub mod shift_guard;
+pub mod transmon;
+pub mod wavenumber;
+
+#[cfg(feature = "arpack")]
+pub mod arpack;

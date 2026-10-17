@@ -1,0 +1,13 @@
+# tree=main test=spiral_ams_with_anisotropic_materials_matches_direct
+# git=c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0 env=none
+# start=2026-10-09T11:59:36Z loadavg_start=36.36,55.67,61.69
+
+running 1 test
+test spiral_ams_with_anisotropic_materials_matches_direct ... # ams_smoother edge_dim=13997 theta_max=3.429697 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.772667 weight=0.397597 source=estimate estimate_ms=6.304
+# ams_smoother edge_dim=13997 theta_max=3.226668 lanczos_steps=30 gershgorin=6.043983 rho_hat=3.549334 weight=0.600000 source=default estimate_ms=6.165
+row 0: iterations [118], |ΔZ|/|Z| vs direct 1.31e-12
+row 1: iterations [148], |ΔZ|/|Z| vs direct 1.24e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 3.19s
+

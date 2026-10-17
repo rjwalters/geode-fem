@@ -1,0 +1,1264 @@
+//! Hellmann–Feynman eigenvalue-sensitivity `∂λ/∂p` finite-difference
+//! validation (Epic #569 eigen leg, issue #596 — **Phase A**).
+//!
+//! For a **simple** eigenvalue of the real symmetric-definite transmon pencil
+//! `K x = λ M x`, [`geode_core::eigen::sensitivity`] computes `∂λ/∂ε` (material)
+//! and `∂λ/∂θ` (geometry) analytically from the *converged eigenpair alone* —
+//! no adjoint solve. These tests confirm the analytic gradients against a
+//! central finite difference that **re-solves the same `InnerSolver::Direct`
+//! eigensolver** for the same mode, exactly the pattern the material/shape
+//! sensitivity epic (#570/#571/#576/#577) used.
+//!
+//! - **CI-fast:** a small dielectric PEC-cavity fixture (bare cavity, no port),
+//!   both material and geometry, plus the simple-eigenvalue gap guard and the
+//!   zero-volume-region edge case.
+//! - **Release / `#[ignore]`:** the real 133k-tet DeviceLayout mesh, the
+//!   honesty/scale cross-check.
+
+use burn::tensor::Tensor;
+use burn::tensor::backend::BackendTypes;
+use faer::c64;
+
+use geode_core::assembly::nedelec::{
+    NedelecScatterMap, assemble_global_nedelec_with_full_tensors_sparse,
+};
+use geode_core::assembly::p1::upload_mesh;
+use geode_core::eigen::lanczos::InnerSolver;
+use geode_core::eigen::pec_cavity::PecCavitySettings;
+use geode_core::eigen::sensitivity::{EigenSensitivity, EigenSensitivityError};
+use geode_core::eigen::transmon::{
+    LondonSurface, LumpedReactiveShunt, ReactiveElementNatural, TransmonMode, TransmonPencil,
+    solve_transmon_eigenmodes_full, solve_transmon_eigenmodes_full_with_london,
+};
+use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
+use geode_core::mesh::{TetMesh, TransmonFixture, cube_tet_mesh, read_transmon_smoke_fixture};
+use geode_core::testing::TestBackend;
+
+type B = TestBackend;
+
+const M_PER_UNIT: f64 = 1e-6;
+
+fn device() -> <B as BackendTypes>::Device {
+    <B as BackendTypes>::Device::default()
+}
+
+fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
+    t.into_data().iter::<f64>().collect()
+}
+
+fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
+    let te = mesh.tet_edges();
+    (
+        te.iter()
+            .map(|row| std::array::from_fn(|i| row[i].0))
+            .collect(),
+        te.iter()
+            .map(|row| std::array::from_fn(|i| row[i].1))
+            .collect(),
+    )
+}
+
+/// Assemble the REAL Nédélec pencil value vectors `(k_vals, m_vals)` for a
+/// per-tet **isotropic** real permittivity `eps_r` (μ_r = 1, lossless). The
+/// mass is `M = Σ_t ε_r[t] ∫ N·N` — the linear-in-ε structure the material
+/// sensitivity exploits.
+fn assemble_iso_pencil(
+    mesh: &TetMesh,
+    tet_sign: &[[i8; 6]],
+    scatter: &NedelecScatterMap,
+    eps_r: &[f64],
+) -> (Vec<f64>, Vec<f64>) {
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
+    let identity: [[c64; 3]; 3] = std::array::from_fn(|i| {
+        std::array::from_fn(|j| c64::new(if i == j { 1.0 } else { 0.0 }, 0.0))
+    });
+    let nu_tensor = vec![identity; mesh.n_tets()];
+    let epsilon_tensor: Vec<[[c64; 3]; 3]> = eps_r
+        .iter()
+        .map(|&e| {
+            std::array::from_fn(|i| {
+                std::array::from_fn(|j| c64::new(if i == j { e } else { 0.0 }, 0.0))
+            })
+        })
+        .collect();
+
+    let sys = assemble_global_nedelec_with_full_tensors_sparse::<B>(
+        nodes_t,
+        tets_t,
+        tet_sign,
+        scatter,
+        &epsilon_tensor,
+        &nu_tensor,
+    );
+    (vals_to_host(sys.k_re_vals), vals_to_host(sys.m_re_vals))
+}
+
+/// A closed dielectric PEC-cavity fixture: an `n×n×n` unit cube, PEC on the
+/// entire outer boundary, uniform isotropic ε. NO junction port (a bare cavity)
+/// so the geometry gradient is purely the volume curl-curl/mass terms and the
+/// eigenvector is M-normalized w.r.t. the plain mass.
+struct CavityFixture {
+    mesh: TetMesh,
+    tet_edge_idx: Vec<[u32; 6]>,
+    tet_edge_sign: Vec<[i8; 6]>,
+    edges: Vec<[u32; 2]>,
+    interior_mask: Vec<bool>,
+}
+
+fn cavity_fixture(n: usize) -> CavityFixture {
+    cavity_fixture_with_side(n, 1.0)
+}
+
+/// [`cavity_fixture`] for an `n×n×n` cube of edge length `side` — the same
+/// cavity expressed in a different length unit (issue #814 scale-invariance
+/// regression).
+fn cavity_fixture_with_side(n: usize, side: f64) -> CavityFixture {
+    let mesh = cube_tet_mesh(n, side);
+    let edges = mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+
+    // PEC on every outer-boundary face (a fully closed cavity).
+    let metal: Vec<[u32; 3]> = mesh
+        .faces()
+        .into_iter()
+        .filter(|f| {
+            let on = |c: usize, val: f64| {
+                f.iter()
+                    .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12 * side)
+            };
+            on(0, 0.0) || on(0, side) || on(1, 0.0) || on(1, side) || on(2, 0.0) || on(2, side)
+        })
+        .collect();
+    let interior_mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
+
+    CavityFixture {
+        mesh,
+        tet_edge_idx,
+        tet_edge_sign,
+        edges,
+        interior_mask,
+    }
+}
+
+/// Bare-cavity shunt (no port): `L = ∞` (k_scale 0) and `C = 0` (m_scale 0),
+/// so no surface terms are added — the pencil is the pure volume `(K, M(ε))`.
+fn bare_shunt(faces: &[[u32; 3]]) -> LumpedReactiveShunt<'_> {
+    LumpedReactiveShunt {
+        faces,
+        length: 1.0,
+        width: 1.0,
+        element: ReactiveElementNatural {
+            l_natural: f64::INFINITY,
+            c_natural: 0.0,
+        },
+    }
+}
+
+/// Solve the bare cavity with per-tet isotropic `eps_r`, returning the full
+/// [`TransmonMode`]s (reports + reduced M-normalized eigenvectors) via the
+/// `Direct` eigensolver.
+fn solve_cavity(
+    fx: &CavityFixture,
+    eps_r: &[f64],
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<TransmonMode> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) = assemble_iso_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, eps_r);
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &fx.interior_mask,
+    };
+    solve_transmon_eigenmodes_full(&pencil, sigma, n_modes, M_PER_UNIT, InnerSolver::Direct)
+        .expect("cavity eigensolve")
+}
+
+/// Gradient-nullspace ceiling **relative to the shift** `σ`: a returned Ritz
+/// value `λ ≤ NULL_TOL_REL · σ` is a curl-curl gradient (`λ ≈ 0`) mode, not a
+/// physical one. This is the same scale-invariant criterion (and the same
+/// default) the production cavity solvers use
+/// ([`PecCavitySettings::DEFAULT_NULL_TOL_REL`]): `λ = k²` and `σ` both scale
+/// as `1/L²` under a change of mesh unit, so the classification does not
+/// depend on whether the mesh is in metres or micrometres (issue #814 — the
+/// old ABSOLUTE `λ ≤ 1e-3` cutoff skipped every physical mode of the μm mesh,
+/// where `λ ~ 1e-8`, and silently fell back to a nullspace mode).
+const NULL_TOL_REL: f64 = PecCavitySettings::DEFAULT_NULL_TOL_REL;
+
+/// `true` iff `lambda` is a gradient-nullspace Ritz value for shift `sigma`
+/// (see [`NULL_TOL_REL`]).
+fn is_null_mode(lambda: f64, sigma: f64) -> bool {
+    assert!(
+        sigma > 0.0,
+        "the σ-relative null test needs a positive shift"
+    );
+    lambda <= NULL_TOL_REL * sigma
+}
+
+/// Pick the returned mode with the largest relative gap to its neighbors that
+/// is well above the nullspace — the safest "simple" mode for the HF test.
+/// Nullspace modes are classified relative to the solve's shift `sigma`
+/// ([`is_null_mode`]), so the pick is invariant to the mesh length unit.
+/// Returns `(index_in_list, lambdas_vec, chosen_mode)`.
+///
+/// # Panics
+///
+/// Panics if every returned mode is a nullspace mode (the shift found no
+/// physical mode) rather than silently returning a nullspace mode.
+fn pick_simple_mode(modes: &[TransmonMode], sigma: f64) -> (usize, Vec<f64>, TransmonMode) {
+    let lambdas: Vec<f64> = modes.iter().map(|m| m.report.lambda).collect();
+    let mut best: Option<(usize, f64)> = None;
+    for (i, &li) in lambdas.iter().enumerate() {
+        if is_null_mode(li, sigma) {
+            continue; // skip gradient-nullspace modes
+        }
+        let denom = li.abs().max(f64::MIN_POSITIVE);
+        let mut gap = f64::INFINITY;
+        for (j, &lj) in lambdas.iter().enumerate() {
+            if i != j {
+                gap = gap.min((li - lj).abs() / denom);
+            }
+        }
+        if best.is_none_or(|(_, g)| gap > g) {
+            best = Some((i, gap));
+        }
+    }
+    let (idx, _) = best.unwrap_or_else(|| {
+        panic!(
+            "no physical mode among the {} returned (all λ ≤ {NULL_TOL_REL:e}·σ, \
+             σ = {sigma:e}): {lambdas:?}",
+            lambdas.len()
+        )
+    });
+    (idx, lambdas, modes[idx].clone())
+}
+
+/// Central-difference the eigenvalue of the mode nearest `lambda_base` under a
+/// mesh + material perturbation, re-solving the same `Direct` eigensolver.
+#[allow(clippy::too_many_arguments)]
+fn fd_lambda(
+    fx_mesh: &TetMesh,
+    tet_edge_idx: &[[u32; 6]],
+    tet_edge_sign: &[[i8; 6]],
+    edges: &[[u32; 2]],
+    interior_mask: &[bool],
+    eps_r: &[f64],
+    sigma: f64,
+    n_modes: usize,
+    lambda_base: f64,
+) -> f64 {
+    let scatter = NedelecScatterMap::new(tet_edge_idx);
+    let (k_vals, m_vals) = assemble_iso_pencil(fx_mesh, tet_edge_sign, &scatter, eps_r);
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges,
+        mesh: fx_mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask,
+    };
+    let modes =
+        solve_transmon_eigenmodes_full(&pencil, sigma, n_modes, M_PER_UNIT, InnerSolver::Direct)
+            .expect("FD eigensolve");
+    // Track the mode by nearest eigenvalue (small perturbation ⇒ continuous).
+    modes
+        .iter()
+        .map(|m| m.report.lambda)
+        .min_by(|a, b| {
+            (a - lambda_base)
+                .abs()
+                .partial_cmp(&(b - lambda_base).abs())
+                .unwrap()
+        })
+        .expect("no FD modes")
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: material sensitivity ∂λ/∂ε.
+// -------------------------------------------------------------------------
+
+/// `∂λ/∂ε` (material) FD-validated on the synthetic cavity: the analytic
+/// Hellmann–Feynman gradient matches a central finite difference of the
+/// re-solved eigenvalue, and the uniform-ε closed form `∂λ/∂ε = −λ/ε`.
+#[test]
+fn material_sensitivity_matches_fd_and_closed_form() {
+    let fx = cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 6;
+
+    let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    assert!(
+        !is_null_mode(lambda, sigma),
+        "picked λ = {lambda} too close to nullspace"
+    );
+
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+
+    // Uniform region (all tets → region 0): analytic HF gradient.
+    let region_of = vec![0usize; n_tets];
+    let grad = sens.deigenvalue_deps(&region_of, 1).expect("material grad");
+    let analytic = grad[0];
+
+    // Closed form for a uniform ε: ∂λ/∂ε = −λ/ε.
+    let closed_form = -lambda / eps0;
+    let rel_cf = (analytic - closed_form).abs() / closed_form.abs();
+    assert!(
+        rel_cf < 1e-6,
+        "uniform ∂λ/∂ε analytic {analytic:.6e} vs closed form −λ/ε {closed_form:.6e} \
+         (rel {rel_cf:.2e})"
+    );
+
+    // Central FD of the re-solved eigenvalue under a uniform ε perturbation.
+    let h = 1e-4 * eps0;
+    let eps_p: Vec<f64> = eps_r.iter().map(|&e| e + h).collect();
+    let eps_m: Vec<f64> = eps_r.iter().map(|&e| e - h).collect();
+    let lam_p = fd_lambda(
+        &fx.mesh,
+        &fx.tet_edge_idx,
+        &fx.tet_edge_sign,
+        &fx.edges,
+        &fx.interior_mask,
+        &eps_p,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let lam_m = fd_lambda(
+        &fx.mesh,
+        &fx.tet_edge_idx,
+        &fx.tet_edge_sign,
+        &fx.edges,
+        &fx.interior_mask,
+        &eps_m,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let fd = (lam_p - lam_m) / (2.0 * h);
+    let rel_fd = (analytic - fd).abs() / fd.abs().max(1e-30);
+    eprintln!(
+        "material: analytic {analytic:.6e}, FD {fd:.6e}, closed-form {closed_form:.6e} \
+         (rel_fd {rel_fd:.2e})"
+    );
+    assert!(
+        rel_fd < 1e-4,
+        "∂λ/∂ε analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel_fd:.2e})"
+    );
+}
+
+/// Per-region `∂λ/∂ε_k`: split the cube into two regions by centroid `x`, FD
+/// each region independently, and verify the two region gradients sum to the
+/// uniform closed form `−λ/ε`. Also the zero-volume-region edge case → 0.
+#[test]
+fn per_region_material_sensitivity_matches_fd() {
+    let fx = cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 6;
+
+    // Region 0 = tets with centroid x < 0.5, region 1 otherwise.
+    let region_of: Vec<usize> = (0..n_tets)
+        .map(|t| {
+            let tet = &fx.mesh.tets[t];
+            let cx = (0..4)
+                .map(|k| fx.mesh.nodes[tet[k] as usize][0])
+                .sum::<f64>()
+                / 4.0;
+            if cx < 0.5 { 0 } else { 1 }
+        })
+        .collect();
+
+    let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+
+    // Use 3 regions so region 2 has NO tets (zero-volume edge case).
+    let n_regions = 3;
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let grad = sens
+        .deigenvalue_deps(&region_of, n_regions)
+        .expect("region grad");
+
+    // Zero-volume region → exactly 0 (not NaN).
+    assert_eq!(grad[2], 0.0, "empty region 2 must have zero sensitivity");
+    assert!(grad[2].is_finite());
+
+    // Sum of region gradients == uniform ∂λ/∂ε = −λ/ε.
+    let sum = grad[0] + grad[1];
+    let closed_form = -lambda / eps0;
+    assert!(
+        (sum - closed_form).abs() / closed_form.abs() < 1e-6,
+        "Σ region grads {sum:.6e} != uniform −λ/ε {closed_form:.6e}"
+    );
+
+    // FD each region separately (perturb only that region's ε).
+    #[allow(clippy::needless_range_loop)]
+    for k in 0..2 {
+        let h = 1e-4 * eps0;
+        let bump = |sign: f64| -> Vec<f64> {
+            (0..n_tets)
+                .map(|t| eps_r[t] + if region_of[t] == k { sign * h } else { 0.0 })
+                .collect()
+        };
+        let lam_p = fd_lambda(
+            &fx.mesh,
+            &fx.tet_edge_idx,
+            &fx.tet_edge_sign,
+            &fx.edges,
+            &fx.interior_mask,
+            &bump(1.0),
+            sigma,
+            n_modes,
+            lambda,
+        );
+        let lam_m = fd_lambda(
+            &fx.mesh,
+            &fx.tet_edge_idx,
+            &fx.tet_edge_sign,
+            &fx.edges,
+            &fx.interior_mask,
+            &bump(-1.0),
+            sigma,
+            n_modes,
+            lambda,
+        );
+        let fd = (lam_p - lam_m) / (2.0 * h);
+        let rel = (grad[k] - fd).abs() / fd.abs().max(1e-30);
+        eprintln!(
+            "region {k}: analytic {:.6e}, FD {fd:.6e} (rel {rel:.2e})",
+            grad[k]
+        );
+        assert!(
+            rel < 5e-4,
+            "region {k} ∂λ/∂ε_k analytic {:.6e} vs FD {fd:.6e} (rel {rel:.2e})",
+            grad[k]
+        );
+    }
+}
+
+/// Regression (issue #814): the simple-mode picker is invariant to the mesh
+/// length unit. The same cavity meshed with edge `1` (metres, say) and edge
+/// `1e6` (the same cube in micrometres) has every eigenvalue scaled by
+/// `1e-12`; with the shift scaled the same way, the picker must choose the
+/// same mode. The old ABSOLUTE `λ ≤ 1e-3` nullspace cutoff failed this: on the
+/// μm mesh every physical `λ` is below `1e-3`, so it skipped them all and fell
+/// back to index 0 — a gradient-nullspace mode.
+#[test]
+fn pick_simple_mode_is_invariant_to_mesh_unit() {
+    let scale = 1e6_f64; // metres → micrometres
+    let eps_r_of = |fx: &CavityFixture| vec![4.0_f64; fx.mesh.n_tets()];
+    let n_modes = 6;
+
+    let fx_m = cavity_fixture_with_side(3, 1.0);
+    let sigma_m = 5.0;
+    let modes_m = solve_cavity(&fx_m, &eps_r_of(&fx_m), sigma_m, n_modes);
+    let (idx_m, lambdas_m, _) = pick_simple_mode(&modes_m, sigma_m);
+
+    let fx_um = cavity_fixture_with_side(3, scale);
+    let sigma_um = sigma_m / (scale * scale);
+    let modes_um = solve_cavity(&fx_um, &eps_r_of(&fx_um), sigma_um, n_modes);
+    let (idx_um, lambdas_um, _) = pick_simple_mode(&modes_um, sigma_um);
+
+    eprintln!("m:  idx {idx_m}, λ = {lambdas_m:?}");
+    eprintln!("μm: idx {idx_um}, λ = {lambdas_um:?}");
+    assert_eq!(idx_m, idx_um, "picked mode depends on the mesh unit");
+    let (l_m, l_um) = (lambdas_m[idx_m], lambdas_um[idx_um]);
+    assert!(
+        (l_um * scale * scale - l_m).abs() <= 1e-8 * l_m,
+        "picked λ does not scale as 1/L²: {l_m:e} (m) vs {l_um:e}·{:e} (μm)",
+        scale * scale
+    );
+    assert!(!is_null_mode(l_um, sigma_um));
+    // The μm-mesh physical mode sits far below the old absolute cutoff — the
+    // exact situation that made the old picker return a nullspace mode.
+    assert!(l_um < 1e-3, "fixture no longer exercises the #814 regime");
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: geometry sensitivity ∂λ/∂θ.
+// -------------------------------------------------------------------------
+
+/// Move the mesh node whose position is nearest a given target.
+fn nearest_interior_node(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    interior_mask: &[bool],
+    target: [f64; 3],
+) -> usize {
+    // A node is interior iff every edge incident to it is a kept (non-PEC)
+    // DOF, so it lies on no PEC/boundary face and its adjacent tets never
+    // touch the Dirichlet surface. This is topological — it does not assume
+    // the unit cube or any length unit (issue #814: the old `(eps, 1-eps)`
+    // coordinate box found no node on the μm-scale real fixture).
+    let mut on_boundary = vec![false; mesh.n_nodes()];
+    for (e, &[a, b]) in edges.iter().enumerate() {
+        if !interior_mask[e] {
+            on_boundary[a as usize] = true;
+            on_boundary[b as usize] = true;
+        }
+    }
+    let mut best = (0usize, f64::INFINITY);
+    for (i, p) in mesh.nodes.iter().enumerate() {
+        if on_boundary[i] {
+            continue;
+        }
+        let d = (0..3).map(|k| (p[k] - target[k]).powi(2)).sum::<f64>();
+        if d < best.1 {
+            best = (i, d);
+        }
+    }
+    assert!(best.1.is_finite(), "no strictly-interior node found");
+    best.0
+}
+
+/// `∂λ/∂θ` (geometry) FD-validated on the synthetic cavity: moving a single
+/// interior node along `x`, the analytic Hellmann–Feynman node-motion gradient
+/// matches a central finite difference of the re-solved eigenvalue.
+#[test]
+fn geometry_sensitivity_matches_fd() {
+    let fx = cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 6;
+
+    let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    assert!(!is_null_mode(lambda, sigma));
+
+    // Node-motion velocity: move one interior node along +x by θ.
+    let node = nearest_interior_node(&fx.mesh, &fx.edges, &fx.interior_mask, [0.5, 0.5, 0.5]);
+    let mut vel = vec![[0.0_f64; 3]; fx.mesh.n_nodes()];
+    vel[node] = [1.0, 0.0, 0.0];
+
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let analytic = sens.deigenvalue_dtheta(&vel).expect("geometry grad");
+
+    // Central FD: move the node ±h along the velocity, re-solve.
+    let h = 1e-5;
+    let moved = |sign: f64| -> TetMesh {
+        let mut m = fx.mesh.clone();
+        for (n, v) in vel.iter().enumerate() {
+            m.nodes[n][0] += sign * h * v[0];
+            m.nodes[n][1] += sign * h * v[1];
+            m.nodes[n][2] += sign * h * v[2];
+        }
+        m
+    };
+    let mesh_p = moved(1.0);
+    let mesh_m = moved(-1.0);
+    let lam_p = fd_lambda(
+        &mesh_p,
+        &fx.tet_edge_idx,
+        &fx.tet_edge_sign,
+        &fx.edges,
+        &fx.interior_mask,
+        &eps_r,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let lam_m = fd_lambda(
+        &mesh_m,
+        &fx.tet_edge_idx,
+        &fx.tet_edge_sign,
+        &fx.edges,
+        &fx.interior_mask,
+        &eps_r,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let fd = (lam_p - lam_m) / (2.0 * h);
+    let rel = (analytic - fd).abs() / fd.abs().max(1e-30);
+    eprintln!("geometry: analytic {analytic:.6e}, FD {fd:.6e} (rel {rel:.2e})");
+    assert!(
+        rel < 5e-3,
+        "∂λ/∂θ analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: London penetration-depth sensitivity ∂λ/∂λ_L (issue #604).
+// -------------------------------------------------------------------------
+
+/// A cavity with a **London wall** on `z = 0` (edges kept) and PEC on the
+/// other five walls: mesh, DOF bookkeeping, and the wall triangle list.
+struct LondonCavityFixture {
+    mesh: TetMesh,
+    tet_edge_idx: Vec<[u32; 6]>,
+    tet_edge_sign: Vec<[i8; 6]>,
+    edges: Vec<[u32; 2]>,
+    /// PEC on the five non-London walls; `z = 0` wall edges KEPT.
+    interior_mask: Vec<bool>,
+    /// The London wall triangles (`z = 0`).
+    z0_tris: Vec<[u32; 3]>,
+}
+
+fn london_cavity_fixture(n: usize) -> LondonCavityFixture {
+    let mesh = cube_tet_mesh(n, 1.0);
+    let edges = mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+
+    let on = |f: &[u32; 3], c: usize, val: f64| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12)
+    };
+    // PEC on five walls; the z = 0 wall carries the London term instead.
+    let metal: Vec<[u32; 3]> = mesh
+        .faces()
+        .into_iter()
+        .filter(|f| {
+            on(f, 0, 0.0) || on(f, 0, 1.0) || on(f, 1, 0.0) || on(f, 1, 1.0) || on(f, 2, 1.0)
+        })
+        .collect();
+    let z0_tris: Vec<[u32; 3]> = mesh.faces().into_iter().filter(|f| on(f, 2, 0.0)).collect();
+    assert!(!z0_tris.is_empty());
+    let interior_mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
+
+    LondonCavityFixture {
+        mesh,
+        tet_edge_idx,
+        tet_edge_sign,
+        edges,
+        interior_mask,
+        z0_tris,
+    }
+}
+
+/// Solve the London-wall cavity with per-tet isotropic `eps_r` at the
+/// given `lambda_l`, returning the full modes.
+fn solve_london_cavity(
+    fx: &LondonCavityFixture,
+    eps_r: &[f64],
+    lambda_l: f64,
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<TransmonMode> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (k_vals, m_vals) = assemble_iso_pencil(&fx.mesh, &fx.tet_edge_sign, &scatter, eps_r);
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh: &fx.mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &fx.interior_mask,
+    };
+    let walls = [LondonSurface {
+        triangles: &fx.z0_tris,
+        lambda_l,
+    }];
+    solve_transmon_eigenmodes_full_with_london(
+        &pencil,
+        &walls,
+        sigma,
+        n_modes,
+        M_PER_UNIT,
+        InnerSolver::Direct,
+    )
+    .expect("London cavity eigensolve")
+}
+
+/// `∂λ/∂λ_L` (London penetration depth) FD-validated: the analytic
+/// Hellmann–Feynman surface-mass contraction `−(xᵀS_Γx)/λ_L²` matches a
+/// central finite difference of the re-solved eigenvalue under a λ_L
+/// perturbation, at the bar the material test uses; the gradient is
+/// strictly negative (kinetic inductance lowers the frequency).
+#[test]
+fn london_lambda_l_sensitivity_matches_fd() {
+    let fx = london_cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 8;
+    let lambda_l = 0.05_f64;
+
+    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    assert!(
+        !is_null_mode(lambda, sigma),
+        "picked λ = {lambda} too close to nullspace"
+    );
+
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let analytic = sens
+        .deigenvalue_dlambda_l(&fx.z0_tris, lambda_l)
+        .expect("London grad");
+    assert!(
+        analytic < 0.0,
+        "∂λ/∂λ_L must be negative (kinetic inductance lowers ω): {analytic:.6e}"
+    );
+
+    // Central FD of the re-solved eigenvalue under a λ_L perturbation,
+    // tracking the mode by nearest eigenvalue.
+    let h = 1e-3 * lambda_l;
+    let fd_at = |ll: f64| -> f64 {
+        let modes = solve_london_cavity(&fx, &eps_r, ll, sigma, n_modes);
+        modes
+            .iter()
+            .map(|m| m.report.lambda)
+            .min_by(|a, b| (a - lambda).abs().partial_cmp(&(b - lambda).abs()).unwrap())
+            .expect("no FD modes")
+    };
+    let fd = (fd_at(lambda_l + h) - fd_at(lambda_l - h)) / (2.0 * h);
+    let rel = (analytic - fd).abs() / fd.abs().max(1e-30);
+    eprintln!("London ∂λ/∂λ_L: analytic {analytic:.6e}, FD {fd:.6e} (rel {rel:.2e})");
+    assert!(
+        rel < 1e-4,
+        "∂λ/∂λ_L analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+}
+
+/// The λ_L sensitivity honors the shared entry-point contracts: the
+/// simple-eigenvalue gap guard trips with an unreachable `min_rel_gap`,
+/// and an invalid `λ_L = 0` panics (the PEC limit goes through the PEC
+/// edge mask, matching the driven-path convention).
+#[test]
+fn london_sensitivity_guard_and_invalid_lambda_l() {
+    let fx = london_cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let eps_r = vec![eps0; fx.mesh.n_tets()];
+    let lambda_l = 0.05_f64;
+
+    let sigma = 5.0;
+    let modes = solve_london_cavity(&fx, &eps_r, lambda_l, sigma, 8);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+
+    let strict = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e9,
+    };
+    assert!(matches!(
+        strict.deigenvalue_dlambda_l(&fx.z0_tris, lambda_l),
+        Err(EigenSensitivityError::DegenerateEigenvalue { .. })
+    ));
+
+    let ok = EigenSensitivity {
+        min_rel_gap: 1e-2,
+        ..strict
+    };
+    assert!(ok.deigenvalue_dlambda_l(&fx.z0_tris, lambda_l).is_ok());
+
+    // λ_L = 0 is invalid (PEC limit must use the PEC edge mask).
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = ok.deigenvalue_dlambda_l(&fx.z0_tris, 0.0);
+    }));
+    assert!(
+        panic.is_err(),
+        "λ_L = 0 must panic in deigenvalue_dlambda_l"
+    );
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: simple-eigenvalue guard.
+// -------------------------------------------------------------------------
+
+/// The simple-eigenvalue precondition trips rather than silently producing a
+/// wrong gradient: with an unreachable `min_rel_gap`, every entry point returns
+/// `DegenerateEigenvalue`; with a sane gap, the same mode succeeds.
+#[test]
+fn degenerate_gap_guard_trips() {
+    let fx = cavity_fixture(3);
+    let eps0 = 4.0_f64;
+    let n_tets = fx.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    let sigma = 5.0;
+    let n_modes = 6;
+
+    let modes = solve_cavity(&fx, &eps_r, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+
+    // Unreachable gap → guard trips on ALL entry points.
+    let strict = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e9,
+    };
+    let region_of = vec![0usize; n_tets];
+    assert!(matches!(
+        strict.deigenvalue_deps(&region_of, 1),
+        Err(EigenSensitivityError::DegenerateEigenvalue { .. })
+    ));
+    assert!(matches!(
+        strict.deigenvalue_dx(),
+        Err(EigenSensitivityError::DegenerateEigenvalue { .. })
+    ));
+    let vel = vec![[0.0_f64; 3]; fx.mesh.n_nodes()];
+    assert!(matches!(
+        strict.deigenvalue_dtheta(&vel),
+        Err(EigenSensitivityError::DegenerateEigenvalue { .. })
+    ));
+
+    // Sane gap → the picked (simple) mode succeeds.
+    let ok = EigenSensitivity {
+        min_rel_gap: 1e-2,
+        ..strict
+    };
+    assert!(ok.deigenvalue_deps(&region_of, 1).is_ok());
+}
+
+// -------------------------------------------------------------------------
+// Release / #[ignore]: real 133k-tet fixture scale cross-check.
+// -------------------------------------------------------------------------
+
+/// Assemble the real-mesh bare-cavity pencil (uniform isotropic ε) and solve
+/// `n_modes` near `sigma_f_hz` via `Direct`.
+#[allow(clippy::type_complexity)]
+fn solve_real_bare_cavity(
+    f: &TransmonFixture,
+    eps_r: &[f64],
+    sigma: f64,
+    n_modes: usize,
+) -> (
+    Vec<[u32; 2]>,
+    Vec<bool>,
+    Vec<[u32; 6]>,
+    Vec<[i8; 6]>,
+    Vec<TransmonMode>,
+) {
+    let edges = f.mesh.edges();
+    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let metal = f.metal_triangles();
+    let exterior = f.exterior_boundary_triangles();
+    let interior_mask =
+        pec_interior_mask_from_triangles(&edges, &[metal.as_slice(), exterior.as_slice()]);
+    let scatter = NedelecScatterMap::new(&tet_edge_idx);
+    let (k_vals, m_vals) = assemble_iso_pencil(&f.mesh, &tet_edge_sign, &scatter, eps_r);
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &edges,
+        mesh: &f.mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &interior_mask,
+    };
+    let modes =
+        solve_transmon_eigenmodes_full(&pencil, sigma, n_modes, M_PER_UNIT, InnerSolver::Direct)
+            .expect("real bare-cavity eigensolve");
+    (edges, interior_mask, tet_edge_idx, tet_edge_sign, modes)
+}
+
+/// Release-tier honesty/scale cross-check: on the real 133k-tet DeviceLayout
+/// mesh (bare dielectric cavity, uniform isotropic ε), the analytic
+/// Hellmann–Feynman `∂λ/∂ε` and `∂λ/∂θ` match a central finite difference of
+/// the re-solved `Direct` eigensolver on a picked simple mode.
+///
+/// ```sh
+/// cargo test -p geode-core --release --test transmon_eigen_sensitivity \
+///     -- --ignored real_eigen_sensitivity_release --nocapture
+/// ```
+#[test]
+#[ignore = "two+ 133k-DOF sparse shift-invert eigensolves (FD) — release benchmark only"]
+fn real_eigen_sensitivity_release() {
+    let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
+    eprintln!(
+        "fixture: {} nodes, {} tets",
+        f.mesh.n_nodes(),
+        f.mesh.n_tets()
+    );
+    let eps0 = 10.0_f64; // isotropic dielectric (scale cross-check, not sapphire)
+    let n_tets = f.mesh.n_tets();
+    let eps_r = vec![eps0; n_tets];
+    // Target a low physical band on the μm mesh; request several modes to find
+    // a well-separated simple one above the gradient nullspace.
+    let sigma = geode_core::eigen::transmon::lambda_shift_for_frequency_hz(5.0e9, M_PER_UNIT);
+    let n_modes = 8;
+
+    let (edges, interior_mask, tet_edge_idx, tet_edge_sign, modes) =
+        solve_real_bare_cavity(&f, &eps_r, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    eprintln!("σ = {sigma:.6e}, returned λ = {lambdas:?}");
+    eprintln!(
+        "picked mode {idx}: λ = {lambda:.6e}, f = {:.4} GHz",
+        mode.report.frequency_ghz()
+    );
+    assert!(lambda > 0.0);
+
+    let sens = EigenSensitivity {
+        mesh: &f.mesh,
+        edges: &edges,
+        interior_mask: &interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-3,
+    };
+
+    // --- Material: uniform ∂λ/∂ε vs FD and closed form −λ/ε. ---
+    let region_of = vec![0usize; n_tets];
+    let grad = sens.deigenvalue_deps(&region_of, 1).expect("material grad");
+    let analytic_m = grad[0];
+    let closed_form = -lambda / eps0;
+    let h = 1e-4 * eps0;
+    let lam_p = {
+        let eps: Vec<f64> = eps_r.iter().map(|&e| e + h).collect();
+        fd_lambda(
+            &f.mesh,
+            &tet_edge_idx,
+            &tet_edge_sign,
+            &edges,
+            &interior_mask,
+            &eps,
+            sigma,
+            n_modes,
+            lambda,
+        )
+    };
+    let lam_m = {
+        let eps: Vec<f64> = eps_r.iter().map(|&e| e - h).collect();
+        fd_lambda(
+            &f.mesh,
+            &tet_edge_idx,
+            &tet_edge_sign,
+            &edges,
+            &interior_mask,
+            &eps,
+            sigma,
+            n_modes,
+            lambda,
+        )
+    };
+    let fd_m = (lam_p - lam_m) / (2.0 * h);
+    eprintln!("material: analytic {analytic_m:.6e}, FD {fd_m:.6e}, closed-form {closed_form:.6e}");
+    assert!(
+        (analytic_m - closed_form).abs() / closed_form.abs() < 1e-6,
+        "uniform ∂λ/∂ε vs −λ/ε mismatch"
+    );
+    assert!(
+        (analytic_m - fd_m).abs() / fd_m.abs() < 1e-3,
+        "material ∂λ/∂ε analytic {analytic_m:.6e} vs FD {fd_m:.6e}"
+    );
+
+    // --- Geometry: move one interior node along +x, ∂λ/∂θ vs FD. ---
+    let node = nearest_interior_node(&f.mesh, &edges, &interior_mask, {
+        // centroid of the mesh bounding box
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for p in &f.mesh.nodes {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        [
+            0.5 * (lo[0] + hi[0]),
+            0.5 * (lo[1] + hi[1]),
+            0.5 * (lo[2] + hi[2]),
+        ]
+    });
+    let mut vel = vec![[0.0_f64; 3]; f.mesh.n_nodes()];
+    vel[node] = [1.0, 0.0, 0.0];
+    let analytic_g = sens.deigenvalue_dtheta(&vel).expect("geometry grad");
+    let hg = 1e-3; // μm-unit mesh: a small absolute node motion
+    let moved = |sign: f64| -> TetMesh {
+        let mut m = f.mesh.clone();
+        m.nodes[node][0] += sign * hg;
+        m
+    };
+    let mesh_p = moved(1.0);
+    let mesh_m = moved(-1.0);
+    let lam_gp = fd_lambda(
+        &mesh_p,
+        &tet_edge_idx,
+        &tet_edge_sign,
+        &edges,
+        &interior_mask,
+        &eps_r,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let lam_gm = fd_lambda(
+        &mesh_m,
+        &tet_edge_idx,
+        &tet_edge_sign,
+        &edges,
+        &interior_mask,
+        &eps_r,
+        sigma,
+        n_modes,
+        lambda,
+    );
+    let fd_g = (lam_gp - lam_gm) / (2.0 * hg);
+    let rel_g = (analytic_g - fd_g).abs() / fd_g.abs().max(1e-30);
+    eprintln!("geometry: analytic {analytic_g:.6e}, FD {fd_g:.6e} (rel {rel_g:.2e})");
+    assert!(
+        rel_g < 1e-2,
+        "geometry ∂λ/∂θ analytic {analytic_g:.6e} vs FD {fd_g:.6e} (rel {rel_g:.2e})"
+    );
+}
+
+// -------------------------------------------------------------------------
+// CI-fast: tensor-ε geometry sensitivity (issue #1092).
+// -------------------------------------------------------------------------
+
+/// The sapphire principal values the tensor tests use (#1091).
+const SAPPHIRE_DIAG: [f64; 3] = [9.3, 9.3, 11.5];
+
+fn diag_tensor(d: [f64; 3]) -> [[f64; 3]; 3] {
+    [[d[0], 0.0, 0.0], [0.0, d[1], 0.0], [0.0, 0.0, d[2]]]
+}
+
+/// [`solve_cavity`] with a per-tet real permittivity TENSOR (curl weight `I`).
+fn solve_cavity_tensor(
+    mesh: &TetMesh,
+    fx: &CavityFixture,
+    eps: &[[[f64; 3]; 3]],
+    sigma: f64,
+    n_modes: usize,
+) -> Vec<TransmonMode> {
+    let scatter = NedelecScatterMap::new(&fx.tet_edge_idx);
+    let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());
+    let identity: [[c64; 3]; 3] = std::array::from_fn(|i| {
+        std::array::from_fn(|j| c64::new(if i == j { 1.0 } else { 0.0 }, 0.0))
+    });
+    let nu = vec![identity; mesh.n_tets()];
+    let eps_c: Vec<[[c64; 3]; 3]> = eps
+        .iter()
+        .map(|e| std::array::from_fn(|i| std::array::from_fn(|j| c64::new(e[i][j], 0.0))))
+        .collect();
+    let sys = assemble_global_nedelec_with_full_tensors_sparse::<B>(
+        nodes_t,
+        tets_t,
+        &fx.tet_edge_sign,
+        &scatter,
+        &eps_c,
+        &nu,
+    );
+    let (k_vals, m_vals) = (vals_to_host(sys.k_re_vals), vals_to_host(sys.m_re_vals));
+    let no_faces: Vec<[u32; 3]> = Vec::new();
+    let pencil = TransmonPencil {
+        scatter: &scatter,
+        k_vals: &k_vals,
+        m_vals: &m_vals,
+        edges: &fx.edges,
+        mesh,
+        shunt: bare_shunt(&no_faces),
+        interior_mask: &fx.interior_mask,
+    };
+    solve_transmon_eigenmodes_full(&pencil, sigma, n_modes, M_PER_UNIT, InnerSolver::Direct)
+        .expect("tensor cavity eigensolve")
+}
+
+/// A smooth velocity field on every node (boundary nodes included): each
+/// node moves along a fixed direction scaled by a bump of the unit cube.
+fn bump_velocity(mesh: &TetMesh) -> Vec<[f64; 3]> {
+    use std::f64::consts::PI;
+    mesh.nodes
+        .iter()
+        .map(|p| {
+            let s = (PI * p[0]).sin() * (PI * p[1]).sin() * (0.5 * PI * p[2]).cos() + 0.25 * p[0];
+            [s, -0.5 * s, 0.3 * s]
+        })
+        .collect()
+}
+
+/// With an isotropic tensor `s·I` the tensor-ε geometry gradient equals the
+/// isotropic [`EigenSensitivity::deigenvalue_dtheta`] with `ε_r = s`.
+#[test]
+fn tensor_eps_geometry_sensitivity_reduces_to_isotropic_1092() {
+    let fx = cavity_fixture(3);
+    let s = 4.0_f64;
+    let eps_r = vec![s; fx.mesh.n_tets()];
+    let sigma = 5.0;
+    let modes = solve_cavity(&fx, &eps_r, sigma, 6);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let vel = bump_velocity(&fx.mesh);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let iso = sens.deigenvalue_dtheta(&vel).expect("isotropic");
+    let tensor = sens
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([s; 3]); fx.mesh.n_tets()], &vel)
+        .expect("tensor");
+    let rel = (iso - tensor).abs() / iso.abs();
+    eprintln!("isotropic {iso:.12e}, tensor {tensor:.12e} (rel {rel:.2e})");
+    assert!(rel < 1e-12, "isotropic {iso} vs tensor {tensor}");
+    // The eps_r field is not read: a different scalar leaves the tensor value unchanged.
+    let other = vec![1.0; fx.mesh.n_tets()];
+    let sens2 = EigenSensitivity {
+        eps_r: &other,
+        ..sens
+    };
+    let tensor2 = sens2
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([s; 3]); fx.mesh.n_tets()], &vel)
+        .expect("tensor");
+    assert_eq!(tensor, tensor2);
+}
+
+/// The tensor-ε geometry gradient on an anisotropic (sapphire) cavity
+/// matches a central finite difference of the re-solved eigenvalue under
+/// the same node motion.
+#[test]
+fn tensor_eps_geometry_sensitivity_matches_fd_1092() {
+    let fx = cavity_fixture(3);
+    let eps = vec![diag_tensor(SAPPHIRE_DIAG); fx.mesh.n_tets()];
+    let eps_r_unused = vec![f64::NAN; fx.mesh.n_tets()];
+    let sigma = 2.0;
+    let n_modes = 6;
+    let modes = solve_cavity_tensor(&fx.mesh, &fx, &eps, sigma, n_modes);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, sigma);
+    let lambda = mode.report.lambda;
+    let vel = bump_velocity(&fx.mesh);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r_unused,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 1e-2,
+    };
+    let analytic = sens
+        .deigenvalue_dtheta_tensor_eps(&eps, &vel)
+        .expect("tensor geometry gradient");
+
+    let h = 1e-5;
+    let lam_at = |sign: f64| -> f64 {
+        let mut m = fx.mesh.clone();
+        for (n, v) in vel.iter().enumerate() {
+            for (x, vc) in m.nodes[n].iter_mut().zip(v) {
+                *x += sign * h * vc;
+            }
+        }
+        solve_cavity_tensor(&m, &fx, &eps, sigma, n_modes)
+            .iter()
+            .map(|md| md.report.lambda)
+            .min_by(|a, b| (a - lambda).abs().total_cmp(&(b - lambda).abs()))
+            .unwrap()
+    };
+    let fd = (lam_at(1.0) - lam_at(-1.0)) / (2.0 * h);
+    let rel = (analytic - fd).abs() / fd.abs();
+    eprintln!("tensor geometry: analytic {analytic:.6e}, FD {fd:.6e} (rel {rel:.2e})");
+    assert!(
+        rel < 1e-4,
+        "analytic {analytic:.6e} vs FD {fd:.6e} (rel {rel:.2e})"
+    );
+
+    // The anisotropy matters: the trace-averaged scalar gives a different gradient.
+    let mean = (SAPPHIRE_DIAG[0] + SAPPHIRE_DIAG[1] + SAPPHIRE_DIAG[2]) / 3.0;
+    let wrong = sens
+        .deigenvalue_dtheta_tensor_eps(&vec![diag_tensor([mean; 3]); fx.mesh.n_tets()], &vel)
+        .unwrap();
+    assert!(
+        (wrong - analytic).abs() > 100.0 * rel * analytic.abs(),
+        "the trace scalar must not reproduce the tensor gradient: {wrong} vs {analytic}"
+    );
+}
+
+/// Length guards of the tensor entry point.
+#[test]
+fn tensor_eps_geometry_sensitivity_dim_guards_1092() {
+    let fx = cavity_fixture(2);
+    let eps_r = vec![1.0; fx.mesh.n_tets()];
+    let modes = solve_cavity(&fx, &eps_r, 5.0, 4);
+    let (idx, lambdas, mode) = pick_simple_mode(&modes, 5.0);
+    let sens = EigenSensitivity {
+        mesh: &fx.mesh,
+        edges: &fx.edges,
+        interior_mask: &fx.interior_mask,
+        eps_r: &eps_r,
+        lambdas: &lambdas,
+        mode_index: idx,
+        eigenvector: &mode.vector,
+        min_rel_gap: 0.0,
+    };
+    let vel = vec![[0.0; 3]; fx.mesh.n_nodes()];
+    let short = vec![diag_tensor([1.0; 3]); fx.mesh.n_tets() - 1];
+    assert!(matches!(
+        sens.deigenvalue_dtheta_tensor_eps(&short, &vel),
+        Err(EigenSensitivityError::DimMismatch {
+            what: "eps_tensor",
+            ..
+        })
+    ));
+    let eps = vec![diag_tensor([1.0; 3]); fx.mesh.n_tets()];
+    assert!(matches!(
+        sens.deigenvalue_dtheta_tensor_eps(&eps, &vel[1..]),
+        Err(EigenSensitivityError::DimMismatch {
+            what: "dnode_dtheta",
+            ..
+        })
+    ));
+    assert_eq!(sens.deigenvalue_dtheta_tensor_eps(&eps, &vel).unwrap(), 0.0);
+}

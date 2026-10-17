@@ -1,0 +1,1105 @@
+//! Analytic resonance roots for a dielectric sphere inside a PEC
+//! cavity (issue #4 — Mie benchmark v0).
+//!
+//! This module provides the **analytic ground truth** that the FEM
+//! sphere benchmark in `examples/mie_sphere.rs` compares against.
+//!
+//! # Physical setup
+//!
+//! Two-shell concentric geometry that exactly matches the bundled
+//! sphere fixture:
+//!
+//! - **Inner sphere** `0 ≤ r ≤ R_s`: dielectric with refractive index
+//!   `n` (relative permittivity `ε_r = n²`, `μ_r = 1`).
+//! - **Vacuum buffer** `R_s ≤ r ≤ R_b`: vacuum (`ε_r = 1`, `μ_r = 1`).
+//! - **Outer wall** at `r = R_b`: perfect electric conductor (PEC).
+//!
+//! This is **not** the open-space Mie scattering problem (which has
+//! complex resonance frequencies due to radiative leakage). The PEC
+//! outer wall closes the cavity, making the spectrum purely real. It
+//! is precisely the limit the FEM solver hits when the scalar
+//! isotropic PML absorption strength `σ₀ → 0`: the buffer becomes
+//! transparent and the PEC wall at `r = R_b` sets the boundary
+//! condition.
+//!
+//! v0 of the Mie benchmark cross-checks FEM modes against **these**
+//! analytic roots. The true open-space Mie WGM positions (which need
+//! Hankel functions and complex Newton iteration) are a v1 extension —
+//! see the README cross-link with `strata-fdtd`, which computes the
+//! same physical problem in the time domain.
+//!
+//! # Characteristic equations
+//!
+//! For each angular order `l ≥ 1` we have a `2 × 2` matching system at
+//! `r = R_s` (continuity of tangential `E` and `H`) plus a single PEC
+//! condition at `r = R_b`. Eliminating the buffer coefficients gives a
+//! scalar characteristic function whose real roots `k` are the
+//! resonances. See [`characteristic_te`] / [`characteristic_tm`] for the
+//! derivation; in short:
+//!
+//! | Polarisation | Interface row at `R_s` | PEC wall at `R_b` |
+//! |---|---|---|
+//! | TE (`E_r = 0`) | `n · ψ_l'(n k R_s)` | `u(R_b) = 0` (`ψ`, `χ`) |
+//! | TM (`H_r = 0`) | `ψ_l'(n k R_s) / n` | `u'(R_b) = 0` (`ψ'`, `χ'`) |
+//!
+//! Issue #986 corrected a crosswise pairing (each interface row had
+//! been combined with the other polarisation's wall). The two interface
+//! rows coincide at `n = 1`, so empty-cavity roots are unchanged; the
+//! `n ≠ 1` roots moved (at `n = 1.5`, `R_s = 1`, `R_b = 2`:
+//! TM_1,1 1.303434 → 1.187095, TE_1,1 1.889433 → 1.868800).
+//!
+//! Closed forms for `l = 1, 2` and the upward recurrence
+//! `j_l(x) = (2l-1)/x · j_{l-1}(x) - j_{l-2}(x)` (and the analogous
+//! recurrence for `y_l`) for higher `l`. Roots are extracted by dense
+//! sampling + sign-change bracketing + bisection refinement.
+
+use crate::solver::iterate::{IterOutcome, Step, iterate_while};
+
+/// Polarisation of an electromagnetic resonance in the spherical
+/// cavity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MiePolarisation {
+    /// Transverse-electric. `E` has no radial component; with
+    /// `u = r·E_t` the matching at `r = R_s` is continuity of `u` and
+    /// `du/dr` (interface row `n·ψ_l'(n k R_s)`), and the PEC wall
+    /// imposes `u(R_b) = 0`. See [`characteristic_te`].
+    TE,
+    /// Transverse-magnetic. `H` has no radial component; with
+    /// `u = r·H_t` the matching at `r = R_s` is continuity of `u` and
+    /// the ε-weighted `(1/ε_r) du/dr` (interface row
+    /// `ψ_l'(n k R_s)/n`), and the PEC wall imposes `u'(R_b) = 0`.
+    /// See [`characteristic_tm`].
+    TM,
+}
+
+impl MiePolarisation {
+    /// Short label: `"TE"` or `"TM"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MiePolarisation::TE => "TE",
+            MiePolarisation::TM => "TM",
+        }
+    }
+
+    /// Map a polarisation index (`0 = TE`, `1 = TM`) back to the enum;
+    /// `None` for any other index.
+    pub fn from_index(idx: u8) -> Option<Self> {
+        match idx {
+            0 => Some(MiePolarisation::TE),
+            1 => Some(MiePolarisation::TM),
+            _ => None,
+        }
+    }
+}
+
+/// A single analytic resonance root of the PEC-cavity dielectric
+/// sphere problem.
+#[derive(Debug, Clone, Copy)]
+pub struct MieRoot {
+    /// Polarisation channel (TE or TM).
+    pub pol: MiePolarisation,
+    /// Angular order `l ≥ 1`.
+    pub l: usize,
+    /// Radial order `n ≥ 1` (1 = lowest root for this `l`, `pol`).
+    pub n: usize,
+    /// Resonance position `k` (units: inverse length, same units as
+    /// `R_s`, `R_b`).
+    pub k: f64,
+    /// Magnetic-quantum-number degeneracy = `2 l + 1`. For each
+    /// `(l, n, polarisation)` the cavity supports this many independent
+    /// eigenfunctions (`m = -l, …, +l`) sharing the same `k`. The FEM
+    /// solver lifts this degeneracy slightly via mesh asymmetry.
+    pub multiplicity: usize,
+}
+
+/// Spherical Bessel functions `j_{l-1}(x)` and `j_l(x)` of the first
+/// kind, real arg, computed in a single pass.
+///
+/// Returns `(j_{l-1}, j_l)`. For `l == 0` the first slot is `j_{-1}(x) =
+/// cos(x)/x` (the analytic continuation per the standard recurrence;
+/// not normally used but kept consistent so the recurrence stays
+/// closed).
+///
+/// Sharing one Miller downward pass between `j_{l-1}` and `j_l` is the
+/// whole point of this helper: [`spherical_j`] and [`spherical_j_prime`]
+/// both call into it so we recompute the Bessel ladder once instead of
+/// twice (issue #43).
+///
+/// Uses the same two-regime strategy as the previous standalone
+/// `spherical_j`:
+///
+/// - **Upward recurrence** `j_l = (2l-1)/x · j_{l-1} - j_{l-2}` when
+///   `l ≤ x + 1`. Stable in this regime, and matches the original v0
+///   path so the existing roots for `l = 1, 2` are bit-identical.
+/// - **Miller's downward recurrence** when `l > x + 1`. Upward
+///   recurrence in this regime amplifies the irregular `y_l`
+///   contamination by a factor `~ ((2l)!/(2x)^l)²` per step, so we
+///   instead start at a high index `l_start` with the seed
+///   `j_{l_start+1} = 0, j_{l_start} = 1`, recurse downward, then
+///   normalise against the known closed form `j_0(x) = sin(x)/x`.
+///   `l_start = l + 20` and the canonical 1 / scale renormalisation
+///   give 12-digit accuracy across the catalog range (NR §6.5).
+pub fn spherical_j_pair(l: usize, x: f64) -> (f64, f64) {
+    if x.abs() < 1e-14 {
+        // j_0(0) = 1, j_n(0) = 0 for n ≥ 1. The l = 0 case returns
+        // j_{-1}(0) which is formally singular; we never call into
+        // it from the wrapper code, but return 0 here as a safe
+        // sentinel so the function stays total.
+        return match l {
+            0 => (0.0, 1.0),
+            1 => (1.0, 0.0),
+            _ => (0.0, 0.0),
+        };
+    }
+    let s = x.sin();
+    let c = x.cos();
+    let j0 = s / x;
+    let j1 = s / (x * x) - c / x;
+    if l == 0 {
+        // j_{-1}(x) = cos(x)/x by the standard recurrence (this
+        // matches the convention used in the derivative formula
+        // j_0'(x) = -j_1(x); the j_{-1} value itself is not currently
+        // consumed by callers).
+        return (c / x, j0);
+    }
+    if l == 1 {
+        return (j0, j1);
+    }
+
+    // Upward recurrence regime: stable when `l ≤ x`.
+    if (l as f64) <= x.abs() + 1.0 {
+        let mut prev = j0;
+        let mut curr = j1;
+        for k in 2..=l {
+            let next = ((2 * k - 1) as f64) / x * curr - prev;
+            prev = curr;
+            curr = next;
+        }
+        // After the loop: prev = j_{l-1}, curr = j_l.
+        return (prev, curr);
+    }
+
+    // Downward (Miller's) recurrence: seed with `j_{l_start+1} = 0`,
+    // `j_{l_start} = 1` (unnormalised), recurse downward using
+    // `j_{k-1} = (2k+1)/x · j_k - j_{k+1}` and normalise against the
+    // closed form `j_0(x) = sin(x)/x`.
+    //
+    // Single pass: we capture `j_l` *and* `j_{l-1}` simultaneously, so
+    // callers needing both (notably [`spherical_j_prime`]) pay only one
+    // Miller traversal.
+    let l_start = l + 20;
+    // `j_high = j_{k}`, `j_higher = j_{k+1}` at the top of each loop.
+    let mut j_higher = 0.0_f64;
+    let mut j_high = 1.0_f64;
+    // Snapshots at the rungs we care about. `at_target_minus_1`
+    // captures `j_{l-1}` so we can return it alongside `j_l`.
+    let mut at_target = if l == l_start { Some(j_high) } else { None };
+    let mut at_target_minus_1: Option<f64> = None;
+    let mut at_zero: Option<f64> = None;
+    // Walk k = l_start, l_start - 1, …, 1; the body computes
+    // `j_{k-1}` and slides the window down.
+    for k in (1..=l_start).rev() {
+        let j_low = ((2 * k + 1) as f64) / x * j_high - j_higher;
+        // Slide.
+        j_higher = j_high;
+        j_high = j_low;
+        // Capture before any rescale so the ratio target/zero is
+        // preserved.
+        if k - 1 == l {
+            at_target = Some(j_high);
+        }
+        if k - 1 + 1 == l {
+            // k - 1 == l - 1 — capture j_{l-1}.
+            at_target_minus_1 = Some(j_high);
+        }
+        if k - 1 == 0 {
+            at_zero = Some(j_high);
+        }
+        // Rescale all live state if any element gets large.
+        let scale = j_high.abs().max(j_higher.abs());
+        if scale > 1e100 {
+            j_high /= scale;
+            j_higher /= scale;
+            if let Some(t) = at_target.as_mut() {
+                *t /= scale;
+            }
+            if let Some(t) = at_target_minus_1.as_mut() {
+                *t /= scale;
+            }
+            if let Some(z) = at_zero.as_mut() {
+                *z /= scale;
+            }
+        }
+    }
+    let target = at_target.expect("target rung visited");
+    let target_minus_1 = at_target_minus_1.expect("target-1 rung visited");
+    let zero = at_zero.expect("k=0 rung visited");
+    // Normalise: true j_0(x) = sin(x)/x = j0.
+    let norm = j0 / zero;
+    (target_minus_1 * norm, target * norm)
+}
+
+/// Spherical Bessel function `j_l(x)` of the first kind, real arg.
+///
+/// Thin wrapper over [`spherical_j_pair`] returning only the `j_l`
+/// component. See that function for the recurrence strategy.
+pub fn spherical_j(l: usize, x: f64) -> f64 {
+    spherical_j_pair(l, x).1
+}
+
+/// Spherical Bessel function `y_l(x)` of the second kind, real arg.
+///
+/// Singular at the origin (`y_l(0) = -∞`); only evaluated at `x > 0`
+/// in the buffer region. Closed forms for `l = 0, 1`; upward
+/// recurrence (same as `j_l`) for `l ≥ 2`.
+pub fn spherical_y(l: usize, x: f64) -> f64 {
+    assert!(x > 0.0, "spherical_y is singular at x=0");
+    let s = x.sin();
+    let c = x.cos();
+    let y0 = -c / x;
+    if l == 0 {
+        return y0;
+    }
+    let y1 = -c / (x * x) - s / x;
+    if l == 1 {
+        return y1;
+    }
+    let mut prev = y0;
+    let mut curr = y1;
+    for k in 2..=l {
+        let next = ((2 * k - 1) as f64) / x * curr - prev;
+        prev = curr;
+        curr = next;
+    }
+    curr
+}
+
+/// Derivative `j_l'(x) = j_{l-1}(x) - (l+1)/x · j_l(x)`.
+///
+/// Fused Miller pass (issue #43): both `j_{l-1}` and `j_l` come from a
+/// single call to [`spherical_j_pair`], so the downward recurrence runs
+/// once instead of twice. Identical numerical result, half the work.
+pub fn spherical_j_prime(l: usize, x: f64) -> f64 {
+    if x.abs() < 1e-14 {
+        return if l == 1 { 1.0 / 3.0 } else { 0.0 };
+    }
+    if l == 0 {
+        // j_0'(x) = -j_1(x); cheap closed form, no pair needed.
+        return -spherical_j(1, x);
+    }
+    let (j_lm1, j_l) = spherical_j_pair(l, x);
+    j_lm1 - ((l + 1) as f64) / x * j_l
+}
+
+/// Derivative `y_l'(x) = y_{l-1}(x) - (l+1)/x · y_l(x)`.
+pub fn spherical_y_prime(l: usize, x: f64) -> f64 {
+    assert!(x > 0.0, "y_l' is singular at x=0");
+    if l == 0 {
+        return -spherical_y(1, x);
+    }
+    spherical_y(l - 1, x) - ((l + 1) as f64) / x * spherical_y(l, x)
+}
+
+/// Riccati-Bessel functions `ψ_l(x) = x · j_l(x)` and
+/// `χ_l(x) = -x · y_l(x)`.
+pub fn psi(l: usize, x: f64) -> f64 {
+    x * spherical_j(l, x)
+}
+
+/// Derivative `ψ_l'(x) = j_l(x) + x · j_l'(x)`.
+pub fn psi_prime(l: usize, x: f64) -> f64 {
+    spherical_j(l, x) + x * spherical_j_prime(l, x)
+}
+
+/// Riccati-Bessel `χ_l(x) = -x · y_l(x)` (Bohren-Huffman convention).
+pub fn chi(l: usize, x: f64) -> f64 {
+    -x * spherical_y(l, x)
+}
+
+/// Derivative `χ_l'(x) = -y_l(x) - x · y_l'(x)`.
+pub fn chi_prime(l: usize, x: f64) -> f64 {
+    -spherical_y(l, x) - x * spherical_y_prime(l, x)
+}
+
+/// Buffer-region radial combination `u(k r) = A·ψ_l(k r) − B·χ_l(k r)`
+/// and its argument-derivative at the interface `x_s = k·R_s`, with the
+/// coefficients `(A, B)` fixed (up to overall scale) by the outer-wall
+/// condition. `wall_on_derivative = false` imposes `u(k R_b) = 0`
+/// (`A = χ(x_b)`, `B = ψ(x_b)`); `true` imposes `u'(k R_b) = 0`
+/// (`A = χ'(x_b)`, `B = ψ'(x_b)`). Writing the coefficients this way
+/// (rather than `B/A`) keeps the characteristic function free of a
+/// spurious pole when `χ(x_b)` or `χ'(x_b)` crosses zero.
+fn buffer_at_interface(l: usize, x_s: f64, x_b: f64, wall_on_derivative: bool) -> (f64, f64) {
+    let (big_a, big_b) = if wall_on_derivative {
+        (chi_prime(l, x_b), psi_prime(l, x_b))
+    } else {
+        (chi(l, x_b), psi(l, x_b))
+    };
+    let buf = big_a * psi(l, x_s) - big_b * chi(l, x_s);
+    let buf_prime = big_a * psi_prime(l, x_s) - big_b * chi_prime(l, x_s);
+    (buf, buf_prime)
+}
+
+/// TE characteristic function for the dielectric-sphere-in-PEC-cavity
+/// resonance. A zero of this function in `k` is a TE resonance.
+///
+/// # Derivation (TE: electric field transverse, `E_r = 0`)
+///
+/// Take `E = f(r) X_lm(θ, φ)` with `X_lm` the vector spherical harmonic
+/// (purely tangential) and `μ_r = 1` everywhere. The radial function
+/// obeys the spherical Bessel equation with wavenumber `n k` in the
+/// sphere and `k` in the buffer, so `u(r) = r f(r)` is a Riccati-Bessel
+/// combination: `u = c·ψ_l(n k r)` for `r < R_s` (regular at the origin)
+/// and `u = A·ψ_l(k r) − B·χ_l(k r)` for `R_s < r < R_b`.
+///
+/// - **Tangential `E` continuous at `R_s`**: `f` continuous, hence `u`
+///   continuous: `c·ψ_l(x_in) = buf(x_s)`.
+/// - **Tangential `H` continuous at `R_s`**: `H = ∇×E / (i ω μ₀)` has
+///   tangential part `∝ (1/r) d(r f)/dr = u′(r)/r` (with `μ_r = 1` on
+///   both sides, no material factor). So the *r*-derivative of `u` is
+///   continuous: `c·n k ψ_l'(x_in) = k·buf'(x_s)`, i.e.
+///   `c·n·ψ_l'(x_in) = buf'(x_s)` in argument-derivatives.
+/// - **PEC at `R_b`**: `E_t = f(R_b) X_lm = 0`, hence `u(R_b) = 0`:
+///   `A·ψ_l(x_b) − B·χ_l(x_b) = 0`.
+///
+/// ```text
+/// (1)       ψ_l(x_in) · c = A · ψ_l(x_s)  − B · χ_l(x_s)
+/// (2)  n · ψ_l'(x_in) · c = A · ψ_l'(x_s) − B · χ_l'(x_s)
+/// (3)                   0 = A · ψ_l(x_b)  − B · χ_l(x_b)      (PEC: u = 0)
+/// ```
+///
+/// with `x_in = n k R_s`, `x_s = k R_s`, `x_b = k R_b`. Equation (3)
+/// fixes `(A, B) ∝ (χ_l(x_b), ψ_l(x_b))`; eliminating `c` from (1)–(2)
+/// gives the characteristic function
+/// `ψ_l(x_in)·buf'(x_s) − n·ψ_l'(x_in)·buf(x_s)`.
+///
+/// The interface row (2) carries the factor `n`, and the wall uses
+/// `ψ`/`χ` themselves. Before issue #986 this function paired the
+/// TM interface row (`ψ'/n`) with this TE wall; the two rows coincide
+/// at `n = 1`, so only `n ≠ 1` roots changed.
+pub fn characteristic_te(n: f64, l: usize, r_s: f64, r_b: f64, k: f64) -> f64 {
+    let x_in = n * k * r_s; // dielectric argument at the interface
+    let x_s = k * r_s; // vacuum argument at the interface
+    let x_b = k * r_b; // vacuum argument at the outer wall
+
+    // PEC for TE: u(R_b) = 0.
+    let (buf, buf_prime) = buffer_at_interface(l, x_s, x_b, false);
+
+    // Matching at r = R_s (u and u' continuous):
+    //   ψ(x_in)     = buf
+    //   n · ψ'(x_in) = buf_prime
+    psi(l, x_in) * buf_prime - n * psi_prime(l, x_in) * buf
+}
+
+/// TM characteristic function for the dielectric-sphere-in-PEC-cavity
+/// resonance. A zero of this function in `k` is a TM resonance.
+///
+/// # Derivation (TM: magnetic field transverse, `H_r = 0`)
+///
+/// Dual of [`characteristic_te`]: take `H = g(r) X_lm(θ, φ)` and
+/// `u(r) = r g(r)`, with the same Riccati-Bessel forms
+/// `u = c·ψ_l(n k r)` inside and `u = A·ψ_l(k r) − B·χ_l(k r)` in the
+/// buffer.
+///
+/// - **Tangential `H` continuous at `R_s`**: `g` continuous, hence `u`
+///   continuous: `c·ψ_l(x_in) = buf(x_s)`.
+/// - **Tangential `E` continuous at `R_s`**: `E = ∇×H / (−i ω ε₀ ε_r)`
+///   has tangential part `∝ u′(r) / (ε_r r)`, so the *ε-weighted*
+///   r-derivative `u′/ε_r` is continuous. Inside, `ε_r = n²` and
+///   `u′ = c·n k ψ_l'(x_in)`, giving `c·(k/n) ψ_l'(x_in) = k·buf'(x_s)`,
+///   i.e. `c·ψ_l'(x_in)/n = buf'(x_s)`.
+/// - **PEC at `R_b`**: `E_t ∝ u′(R_b) = 0`:
+///   `A·ψ_l'(x_b) − B·χ_l'(x_b) = 0`.
+///
+/// ```text
+/// (1)        ψ_l(x_in) · c = A · ψ_l(x_s)  − B · χ_l(x_s)
+/// (2)  ψ_l'(x_in) / n · c = A · ψ_l'(x_s) − B · χ_l'(x_s)
+/// (3)                    0 = A · ψ_l'(x_b) − B · χ_l'(x_b)    (PEC: u' = 0)
+/// ```
+///
+/// Characteristic function:
+/// `ψ_l(x_in)·buf'(x_s) − (1/n)·ψ_l'(x_in)·buf(x_s)`.
+///
+/// The interface row carries `1/n` (the `1/ε_r = 1/n²` factor times
+/// the chain-rule `n`), and the wall uses the derivatives `ψ'`/`χ'`.
+/// Before issue #986 this function paired the TE interface row (`n·ψ'`)
+/// with this TM wall; only `n ≠ 1` roots changed.
+pub fn characteristic_tm(n: f64, l: usize, r_s: f64, r_b: f64, k: f64) -> f64 {
+    let x_in = n * k * r_s;
+    let x_s = k * r_s;
+    let x_b = k * r_b;
+
+    // PEC for TM: E_t ∝ u'(R_b) = 0.
+    let (buf, buf_prime) = buffer_at_interface(l, x_s, x_b, true);
+
+    // Matching at r = R_s (u and u'/ε_r continuous):
+    //   ψ(x_in)       = buf
+    //   ψ'(x_in) / n  = buf_prime
+    psi(l, x_in) * buf_prime - (psi_prime(l, x_in) / n) * buf
+}
+
+/// Find real roots of `f` on `[k_min, k_max]` via dense sampling +
+/// sign-change bracketing + bisection refinement to ~12 sig figs.
+fn find_roots<F: Fn(f64) -> f64>(f: F, k_min: f64, k_max: f64, n_samples: usize) -> Vec<f64> {
+    assert!(k_max > k_min);
+    assert!(n_samples >= 3);
+
+    let dk = (k_max - k_min) / (n_samples as f64);
+    let ks: Vec<f64> = (0..=n_samples).map(|i| k_min + (i as f64) * dk).collect();
+    let fs: Vec<f64> = ks.iter().map(|&k| f(k)).collect();
+
+    let mut roots = Vec::new();
+    for i in 0..n_samples {
+        let (a, b) = (ks[i], ks[i + 1]);
+        let (fa, fb) = (fs[i], fs[i + 1]);
+        if !fa.is_finite() || !fb.is_finite() {
+            continue;
+        }
+        if fa == 0.0 && fb == 0.0 {
+            continue;
+        }
+        if fa * fb > 0.0 {
+            continue;
+        }
+        // Reject brackets where the *magnitude* on both sides is
+        // enormous — those are spurious sign flips across a pole of
+        // the characteristic function (e.g., zero of `χ_l(k·R_b)`).
+        let scale = fa.abs().min(fb.abs());
+        if scale > 1e8 {
+            continue;
+        }
+
+        // Bisection refinement (≤ 60 trips) driven by the shared
+        // `iterate_while` combinator (issue #347, follow-up to #301).
+        //
+        // This is a textbook fit for the combinator's graph-only L4
+        // contract: the carried state `Bracket { lo, hi, f_lo }` has a
+        // loop-invariant scalar shape (restriction 1), the continue/stop
+        // choice is a single scalar predicate evaluated inside the step
+        // — interval collapse, an exact zero, or a non-finite sample
+        // (restriction 2), and each bracket yields exactly one root so
+        // there is no data-dependent output count (restriction 3). The
+        // terminal value `T = f64` is the refined root `0.5·(lo + hi)`;
+        // hitting the 60-trip cap falls through to `IterOutcome::MaxIters`
+        // and reads the same midpoint off the final carried state, so the
+        // result is bit-identical to the prior hand-rolled loop.
+        struct Bracket {
+            lo: f64,
+            hi: f64,
+            f_lo: f64,
+        }
+
+        let (outcome, _report) = iterate_while(
+            Bracket {
+                lo: a,
+                hi: b,
+                f_lo: fa,
+            },
+            60,
+            |_it, br| {
+                let Bracket { lo, hi, f_lo } = br;
+                let mid = 0.5 * (lo + hi);
+                let f_mid = f(mid);
+                if !f_mid.is_finite() {
+                    // Original `break` keeps the current `(lo, hi)`.
+                    return Step::Done(0.5 * (lo + hi));
+                }
+                if f_mid == 0.0 || (hi - lo) < 1e-12 * mid.abs().max(1.0) {
+                    // Original collapses `lo = hi = mid`, so the midpoint
+                    // of the collapsed interval is exactly `mid`.
+                    return Step::Done(mid);
+                }
+                if f_lo * f_mid < 0.0 {
+                    Step::Continue(Bracket { lo, hi: mid, f_lo })
+                } else {
+                    Step::Continue(Bracket {
+                        lo: mid,
+                        hi,
+                        f_lo: f_mid,
+                    })
+                }
+            },
+        );
+
+        let root = match outcome {
+            IterOutcome::Done(k) => k,
+            // Cap reached with every step still bracketing: original
+            // pushes the midpoint of the final `(lo, hi)`.
+            IterOutcome::MaxIters(Bracket { lo, hi, .. }) => 0.5 * (lo + hi),
+        };
+        roots.push(root);
+    }
+    roots
+}
+
+/// Lowest `n_max` analytic resonance positions `k` for the
+/// PEC-cavity dielectric-sphere problem with refractive-index contrast
+/// `n` and geometry `(R_s, R_b)`.
+///
+/// Searches `k ∈ (0.1, k_max]` with `k_max = 20` chosen to include
+/// the lowest several roots for `l ≤ 5` and `n ∈ [1.0, 4.0]`.
+pub fn resonance_roots(
+    pol: MiePolarisation,
+    n: f64,
+    l: usize,
+    r_s: f64,
+    r_b: f64,
+    n_max: usize,
+) -> Vec<MieRoot> {
+    assert!(n > 0.0);
+    assert!(l >= 1);
+    assert!(r_b > r_s);
+
+    let k_min = 0.1;
+    let k_max = 20.0;
+    let n_samples = 30_000;
+
+    let f = |k: f64| -> f64 {
+        match pol {
+            MiePolarisation::TE => characteristic_te(n, l, r_s, r_b, k),
+            MiePolarisation::TM => characteristic_tm(n, l, r_s, r_b, k),
+        }
+    };
+
+    let mut raw = find_roots(f, k_min, k_max, n_samples);
+    raw.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+
+    raw.into_iter()
+        .take(n_max)
+        .enumerate()
+        .map(|(idx, k)| MieRoot {
+            pol,
+            l,
+            n: idx + 1,
+            k,
+            multiplicity: 2 * l + 1,
+        })
+        .collect()
+}
+
+/// Convenience: lowest `n_max` TE and TM roots for `l ∈ l_set`,
+/// merged and sorted by ascending `k`.
+pub fn merged_roots(n: f64, l_set: &[usize], r_s: f64, r_b: f64, n_max: usize) -> Vec<MieRoot> {
+    let mut all = Vec::new();
+    for &l in l_set {
+        all.extend(resonance_roots(MiePolarisation::TE, n, l, r_s, r_b, n_max));
+        all.extend(resonance_roots(MiePolarisation::TM, n, l, r_s, r_b, n_max));
+    }
+    all.sort_by(|a, b| a.k.partial_cmp(&b.k).unwrap());
+    all
+}
+
+/// Extended analytic catalog for issue #40 mode classification.
+///
+/// Returns the lowest `n_max` roots for every `(l, polarisation)`
+/// combination with `l ∈ [1, l_max]`, sorted globally by ascending
+/// `k`. Each [`MieRoot`] carries its full `(l, n, pol, multiplicity)`
+/// label so the FEM-side pairing logic in `examples/mie_sphere.rs`
+/// can walk the catalog in `k` order and claim `2l+1` consecutive
+/// FEM modes per analytic resonance.
+///
+/// Geometry is the bundled fixture (`R_SPHERE`, `R_BUFFER`); `m` is
+/// the dielectric refractive-index contrast (the variable name `m`
+/// follows the issue spec — internally we pass it through as the
+/// `n` parameter of [`resonance_roots`], not to be confused with the
+/// magnetic quantum number).
+pub fn mie_roots_catalog(m: f64, l_max: usize, n_max: usize) -> Vec<MieRoot> {
+    assert!(m > 0.0);
+    assert!(l_max >= 1);
+    assert!(n_max >= 1);
+
+    let r_s = crate::mesh::R_SPHERE;
+    let r_b = crate::mesh::R_BUFFER;
+
+    let mut all = Vec::new();
+    for l in 1..=l_max {
+        all.extend(resonance_roots(MiePolarisation::TE, m, l, r_s, r_b, n_max));
+        all.extend(resonance_roots(MiePolarisation::TM, m, l, r_s, r_b, n_max));
+    }
+    all.sort_by(|a, b| a.k.partial_cmp(&b.k).unwrap());
+    all
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spherical_j_closed_forms() {
+        let pi = std::f64::consts::PI;
+        assert!((spherical_j(0, pi)).abs() < 1e-12);
+        assert!((spherical_j(0, pi / 2.0) - 2.0 / pi).abs() < 1e-12);
+        assert!((spherical_j(1, pi) - 1.0 / pi).abs() < 1e-12);
+    }
+
+    #[test]
+    fn spherical_j_recurrence_matches_closed_form_l2() {
+        for &x in &[1.0_f64, 2.5, 4.7, 6.3, 8.1] {
+            let closed = (3.0 / (x * x) - 1.0) * x.sin() / x - 3.0 * x.cos() / (x * x);
+            let recur = spherical_j(2, x);
+            assert!(
+                (closed - recur).abs() < 1e-12,
+                "j_2({x}): closed = {closed}, recur = {recur}"
+            );
+        }
+    }
+
+    #[test]
+    fn spherical_y_closed_forms() {
+        // y_0(x) = -cos(x)/x ; y_1(x) = -cos(x)/x^2 - sin(x)/x.
+        let x = 2.3_f64;
+        let y0_closed = -x.cos() / x;
+        let y1_closed = -x.cos() / (x * x) - x.sin() / x;
+        assert!((spherical_y(0, x) - y0_closed).abs() < 1e-12);
+        assert!((spherical_y(1, x) - y1_closed).abs() < 1e-12);
+    }
+
+    #[test]
+    fn psi_zero_at_origin() {
+        for l in 0..=4 {
+            assert_eq!(psi(l, 0.0), 0.0, "ψ_{l}(0) must be 0");
+        }
+    }
+
+    #[test]
+    fn pec_vacuum_limit_te_first_root_is_j_l_zero() {
+        // Limit n → 1: the two regions merge into one vacuum cavity
+        // with PEC at r = R_b. The TE characteristic should reduce to
+        // ψ_l(k·R_b) = 0  ↔  j_l(k·R_b) = 0. For l = 1, R_b = 1, the
+        // first zero of j_1 is at k·R_b ≈ 4.4934.
+        // Put R_s strictly inside so the matching is well-defined.
+        let roots = resonance_roots(MiePolarisation::TE, 1.0, 1, 0.5, 1.0, 1);
+        assert!(!roots.is_empty());
+        let k = roots[0].k;
+        assert!(
+            (k - 4.4934).abs() < 1e-2,
+            "n=1 vacuum TE_1 ground k = {k}, expected ≈ 4.4934 (first zero of j_1)"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #986: independent oracle for the closed-cavity pairing.
+    //
+    // The oracle below does not call any of `psi`/`chi`/`characteristic_*`:
+    // it writes the l = 1 Riccati-Bessel functions in closed form from
+    // sin/cos and solves the raw 3 × 3 field-matching system
+    // (unknowns c, A, B) by its determinant, with its own bisection.
+    // -----------------------------------------------------------------
+
+    /// `ψ_1(x) = sin x / x − cos x`.
+    fn psi1_closed(x: f64) -> f64 {
+        x.sin() / x - x.cos()
+    }
+    /// `ψ_1'(x) = cos x / x − sin x / x² + sin x`.
+    fn psi1p_closed(x: f64) -> f64 {
+        x.cos() / x - x.sin() / (x * x) + x.sin()
+    }
+    /// `χ_1(x) = −x·y_1(x) = cos x / x + sin x`.
+    fn chi1_closed(x: f64) -> f64 {
+        x.cos() / x + x.sin()
+    }
+    /// `χ_1'(x) = −sin x / x − cos x / x² + cos x`.
+    fn chi1p_closed(x: f64) -> f64 {
+        -x.sin() / x - x.cos() / (x * x) + x.cos()
+    }
+
+    /// Determinant of the 3 × 3 matching system for `l = 1` in the
+    /// unknowns `(c, A, B)`:
+    ///
+    /// ```text
+    /// [ ψ(x_in)        −ψ(x_s)   χ(x_s)  ]   u continuous at R_s
+    /// [ w · ψ'(x_in)   −ψ'(x_s)  χ'(x_s) ]   (weighted) u' continuous at R_s
+    /// [ 0              W_ψ(x_b)  −W_χ(x_b)]   PEC at R_b
+    /// ```
+    ///
+    /// TE (E transverse): `w = n`, wall `W = (ψ, χ)` (u = 0).
+    /// TM (H transverse): `w = 1/n`, wall `W = (ψ', χ')` (u' = 0).
+    fn matching_det_l1(pol: MiePolarisation, n: f64, r_s: f64, r_b: f64, k: f64) -> f64 {
+        let (x_in, x_s, x_b) = (n * k * r_s, k * r_s, k * r_b);
+        let (w, wall_psi, wall_chi) = match pol {
+            MiePolarisation::TE => (n, psi1_closed(x_b), chi1_closed(x_b)),
+            MiePolarisation::TM => (1.0 / n, psi1p_closed(x_b), chi1p_closed(x_b)),
+        };
+        let m = [
+            [psi1_closed(x_in), -psi1_closed(x_s), chi1_closed(x_s)],
+            [
+                w * psi1p_closed(x_in),
+                -psi1p_closed(x_s),
+                chi1p_closed(x_s),
+            ],
+            [0.0, wall_psi, -wall_chi],
+        ];
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    }
+
+    /// Lowest `count` sign-change roots of `f` on `[lo, hi]` by a coarse
+    /// scan plus plain bisection (independent of `find_roots`).
+    fn bracket_roots<F: Fn(f64) -> f64>(f: F, lo: f64, hi: f64, count: usize) -> Vec<f64> {
+        let steps = 4000;
+        let dk = (hi - lo) / steps as f64;
+        let mut out = Vec::new();
+        for i in 0..steps {
+            let (mut a, mut b) = (lo + i as f64 * dk, lo + (i + 1) as f64 * dk);
+            let (mut fa, fb) = (f(a), f(b));
+            if fa * fb > 0.0 {
+                continue;
+            }
+            for _ in 0..200 {
+                let mid = 0.5 * (a + b);
+                let fm = f(mid);
+                if fa * fm <= 0.0 {
+                    b = mid;
+                } else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+            out.push(0.5 * (a + b));
+            if out.len() == count {
+                break;
+            }
+        }
+        out
+    }
+
+    /// Issue #986 regression: at `n = 1.5`, `R_s = 1`, `R_b = 2`, `l = 1`
+    /// the closed-cavity roots must equal the roots of the independent
+    /// 3 × 3 matching determinant, and match values pinned from an
+    /// independent scipy (`spherical_jn`/`spherical_yn` + `brentq`)
+    /// determinant to 1e-6. The pre-fix crosswise pairing gave
+    /// TM_1,1 = 1.303434 and TE_1,1 = 1.889433, which this test rejects.
+    #[test]
+    fn closed_cavity_roots_match_independent_determinant_n_ne_1() {
+        let (n, r_s, r_b) = (1.5, 1.0, 2.0);
+        // scipy reference, n = 1.5, R_s = 1, R_b = 2, l = 1.
+        let pinned_te = [1.868800020173, 3.150294047800, 4.318904374353];
+        let pinned_tm = [1.187094592455, 2.554427853388, 3.694405412239];
+        for (pol, pinned) in [
+            (MiePolarisation::TE, pinned_te),
+            (MiePolarisation::TM, pinned_tm),
+        ] {
+            let oracle = bracket_roots(|k| matching_det_l1(pol, n, r_s, r_b, k), 0.1, 6.0, 3);
+            let got = resonance_roots(pol, n, 1, r_s, r_b, 3);
+            assert_eq!(oracle.len(), 3, "{pol:?}: oracle roots {oracle:?}");
+            assert_eq!(got.len(), 3, "{pol:?}: resonance_roots {got:?}");
+            for i in 0..3 {
+                assert!(
+                    (got[i].k - oracle[i]).abs() < 1e-9,
+                    "{pol:?}_1,{}: resonance_roots {} vs determinant {}",
+                    i + 1,
+                    got[i].k,
+                    oracle[i]
+                );
+                assert!(
+                    (got[i].k - pinned[i]).abs() < 1e-6,
+                    "{pol:?}_1,{}: resonance_roots {} vs scipy {}",
+                    i + 1,
+                    got[i].k,
+                    pinned[i]
+                );
+            }
+        }
+        // The pre-#986 values must no longer appear.
+        let tm11 = resonance_roots(MiePolarisation::TM, n, 1, r_s, r_b, 1)[0].k;
+        let te11 = resonance_roots(MiePolarisation::TE, n, 1, r_s, r_b, 1)[0].k;
+        assert!((tm11 - 1.303434).abs() > 0.1, "TM_1,1 = {tm11}");
+        assert!((te11 - 1.889433).abs() > 0.01, "TE_1,1 = {te11}");
+    }
+
+    /// Issue #986: at `n = 1` the two interface rows coincide, so the fix
+    /// must leave the empty-cavity spectrum untouched. Check (a) the
+    /// characteristic functions match the pre-#986 crosswise formulas to
+    /// `64 ε` of the product magnitudes (#1018) on a dense `k` grid for
+    /// `l = 1..=4`, and (b) the
+    /// `l = 1` roots equal the textbook empty-cavity values
+    /// `j_1(k R_b) = 0` (TE) and `(x j_1(x))' = 0` at `x = k R_b` (TM).
+    #[test]
+    fn closed_cavity_n_eq_1_is_unchanged() {
+        let (r_s, r_b) = (1.0, 2.0);
+        let pre_986_te = |l: usize, k: f64| {
+            let (n, x_in, x_s, x_b) = (1.0_f64, k * r_s, k * r_s, k * r_b);
+            let (a, b) = (chi(l, x_b), psi(l, x_b));
+            let buf = a * psi(l, x_s) - b * chi(l, x_s);
+            let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+            psi(l, x_in) * bufp - (psi_prime(l, x_in) / n) * buf
+        };
+        let pre_986_tm = |l: usize, k: f64| {
+            let (n, x_in, x_s, x_b) = (1.0_f64, k * r_s, k * r_s, k * r_b);
+            let (a, b) = (chi_prime(l, x_b), psi_prime(l, x_b));
+            let buf = a * psi(l, x_s) - b * chi(l, x_s);
+            let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+            psi(l, x_in) * bufp - n * psi_prime(l, x_in) * buf
+        };
+        for l in 1..=4 {
+            for i in 0..2000 {
+                let k = 0.1 + 0.005 * i as f64;
+                // The two forms are algebraically equal at `n = 1` but are
+                // different operation sequences (`ψ'/n` here against `n·ψ'`
+                // in the library, and a different row pairing), so their
+                // rounding can differ. Debug builds agree bit for bit; in
+                // `--release`, inlining and constant-folding of `n = 1`
+                // change which sequence is evaluated, and the results differ
+                // by a few ULP. Not root-caused beyond this (rustc neither
+                // reorders floating-point operations nor contracts to FMA).
+                //
+                // The difference of two products can cancel near a root, so
+                // the tolerance scales with the product magnitudes, not with
+                // the (possibly tiny) result. The factor is 64: the largest
+                // observed `|g − e| / (ε·scale)` is 5.92 (TE, `l = 1`,
+                // `k = 0.255`, where `ψ`/`χ` cancel internally at small
+                // argument), and a `1e-12` relative change to either
+                // function still fails the test.
+                let (x_s, x_b) = (k * r_s, k * r_b);
+                let te_scale = {
+                    let (a, b) = (chi(l, x_b), psi(l, x_b));
+                    let buf = a * psi(l, x_s) - b * chi(l, x_s);
+                    let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+                    (psi(l, x_s) * bufp).abs() + (psi_prime(l, x_s) * buf).abs()
+                };
+                let tm_scale = {
+                    let (a, b) = (chi_prime(l, x_b), psi_prime(l, x_b));
+                    let buf = a * psi(l, x_s) - b * chi(l, x_s);
+                    let bufp = a * psi_prime(l, x_s) - b * chi_prime(l, x_s);
+                    (psi(l, x_s) * bufp).abs() + (psi_prime(l, x_s) * buf).abs()
+                };
+                let (g, e) = (characteristic_te(1.0, l, r_s, r_b, k), pre_986_te(l, k));
+                assert!(
+                    (g - e).abs() <= 64.0 * f64::EPSILON * te_scale,
+                    "TE l={l} k={k}: got {g}, expected {e}"
+                );
+                let (g, e) = (characteristic_tm(1.0, l, r_s, r_b, k), pre_986_tm(l, k));
+                assert!(
+                    (g - e).abs() <= 64.0 * f64::EPSILON * tm_scale,
+                    "TM l={l} k={k}: got {g}, expected {e}"
+                );
+            }
+        }
+        // First zero of j_1 (tan x = x) is 4.493409457909064; first zero
+        // of (x j_1(x))' is 2.743707269992269.
+        let te11 = resonance_roots(MiePolarisation::TE, 1.0, 1, r_s, r_b, 1)[0].k;
+        let tm11 = resonance_roots(MiePolarisation::TM, 1.0, 1, r_s, r_b, 1)[0].k;
+        assert!(
+            (te11 * r_b - 4.493409457909064).abs() < 1e-9,
+            "TE_1,1 = {te11}"
+        );
+        assert!(
+            (tm11 * r_b - 2.743707269992269).abs() < 1e-9,
+            "TM_1,1 = {tm11}"
+        );
+    }
+
+    #[test]
+    fn spherical_j_miller_downward_matches_closed_form_l3() {
+        // l = 3 closed form (Wikipedia): j_3(x) = (15/x^3 - 6/x) sin(x)/x
+        //                                    - (15/x^2 - 1) cos(x)/x.
+        for &x in &[0.5_f64, 1.0, 1.3, 1.5, 2.0, 3.0] {
+            let s = x.sin();
+            let c = x.cos();
+            let closed = (15.0 / x.powi(3) - 6.0 / x) * s / x - (15.0 / x.powi(2) - 1.0) * c / x;
+            let got = spherical_j(3, x);
+            assert!(
+                (closed - got).abs() < 1e-10,
+                "j_3({x}): closed = {closed}, miller = {got}, err = {}",
+                (closed - got).abs()
+            );
+        }
+    }
+
+    #[test]
+    fn spherical_j_small_x_high_l_is_finite_and_small() {
+        // For x ≪ l, j_l(x) ≈ x^l / (2l+1)!! — tiny but non-NaN.
+        for l in 2..=5_usize {
+            let x = 0.3;
+            let val = spherical_j(l, x);
+            assert!(val.is_finite(), "j_{l}({x}) = {val}");
+            assert!(val.abs() < 1.0, "j_{l}({x}) should be ≪ 1: got {val}");
+        }
+    }
+
+    #[test]
+    fn mie_roots_catalog_has_expected_extent() {
+        let cat = mie_roots_catalog(1.5, 3, 3);
+        // 2 polarisations × 3 angular orders × 3 radial orders.
+        assert_eq!(cat.len(), 2 * 3 * 3);
+        for r in &cat {
+            assert!(r.k > 0.0 && r.k.is_finite(), "bad root: {r:?}");
+            assert_eq!(r.multiplicity, 2 * r.l + 1);
+        }
+        // Sorted globally by k.
+        for w in cat.windows(2) {
+            assert!(w[0].k <= w[1].k);
+        }
+    }
+
+    #[test]
+    fn spherical_j_pair_returns_consistent_ladder() {
+        // The fused pair (issue #43) must produce the same values as
+        // two separate calls to `spherical_j`. Cover both the upward
+        // and the Miller-downward regimes by sweeping `l` against `x`.
+        for &x in &[0.5_f64, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0] {
+            for l in 1..=8_usize {
+                let (j_lm1_pair, j_l_pair) = spherical_j_pair(l, x);
+                let j_l_solo = spherical_j(l, x);
+                let j_lm1_solo = spherical_j(l - 1, x);
+                assert!(
+                    (j_l_pair - j_l_solo).abs() <= 1e-12 * j_l_solo.abs().max(1.0),
+                    "j_{l}({x}): pair = {j_l_pair}, solo = {j_l_solo}"
+                );
+                assert!(
+                    (j_lm1_pair - j_lm1_solo).abs() <= 1e-12 * j_lm1_solo.abs().max(1.0),
+                    "j_{}({x}): pair = {j_lm1_pair}, solo = {j_lm1_solo}",
+                    l - 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn spherical_j_prime_after_miller_fusion_matches_unfused_formula() {
+        // Cross-check the fused `j_l'` against the textbook two-call
+        // version `j_{l-1}(x) - (l+1)/x · j_l(x)` to confirm the fusion
+        // is a pure perf change, not a semantics change (issue #43).
+        for &x in &[0.7_f64, 1.3, 1.88943, 1.89074, 2.0, 4.0, 6.0] {
+            for l in 1..=6_usize {
+                let fused = spherical_j_prime(l, x);
+                let two_call = spherical_j(l - 1, x) - ((l + 1) as f64) / x * spherical_j(l, x);
+                assert!(
+                    (fused - two_call).abs() <= 1e-12 * two_call.abs().max(1.0),
+                    "j'_{l}({x}): fused = {fused}, two-call = {two_call}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lowest_roots_are_finite_and_sorted_for_fixture_geometry() {
+        // The bundled fixture has R_SPHERE = 1.0, R_BUFFER = 2.0 and
+        // we use n = 1.5 in the benchmark. The lowest few roots must
+        // be finite and sorted; we don't pin specific numerical
+        // values here (those are recorded in the benchmark output).
+        let roots = merged_roots(1.5, &[1, 2], 1.0, 2.0, 3);
+        assert!(roots.len() >= 4, "expected ≥ 4 roots, got {}", roots.len());
+        for w in roots.windows(2) {
+            assert!(w[0].k <= w[1].k, "merged_roots must be sorted by k");
+        }
+        for r in &roots {
+            assert!(r.k > 0.0 && r.k.is_finite());
+        }
+    }
+
+    /// Verbatim copy of the pre-#347 hand-rolled bracketing/bisection
+    /// `find_roots`, kept as a regression oracle. The production
+    /// `find_roots` now drives the shared `iterate_while` combinator; this
+    /// reference pins the *exact* prior arithmetic so the refactor can be
+    /// asserted bit-identical, not merely close.
+    fn find_roots_reference<F: Fn(f64) -> f64>(
+        f: F,
+        k_min: f64,
+        k_max: f64,
+        n_samples: usize,
+    ) -> Vec<f64> {
+        assert!(k_max > k_min);
+        assert!(n_samples >= 3);
+
+        let dk = (k_max - k_min) / (n_samples as f64);
+        let ks: Vec<f64> = (0..=n_samples).map(|i| k_min + (i as f64) * dk).collect();
+        let fs: Vec<f64> = ks.iter().map(|&k| f(k)).collect();
+
+        let mut roots = Vec::new();
+        for i in 0..n_samples {
+            let (a, b) = (ks[i], ks[i + 1]);
+            let (fa, fb) = (fs[i], fs[i + 1]);
+            if !fa.is_finite() || !fb.is_finite() {
+                continue;
+            }
+            if fa == 0.0 && fb == 0.0 {
+                continue;
+            }
+            if fa * fb > 0.0 {
+                continue;
+            }
+            let scale = fa.abs().min(fb.abs());
+            if scale > 1e8 {
+                continue;
+            }
+
+            let mut lo = a;
+            let mut hi = b;
+            let mut f_lo = fa;
+            for _ in 0..60 {
+                let mid = 0.5 * (lo + hi);
+                let f_mid = f(mid);
+                if !f_mid.is_finite() {
+                    break;
+                }
+                if f_mid == 0.0 || (hi - lo) < 1e-12 * mid.abs().max(1.0) {
+                    lo = mid;
+                    hi = mid;
+                    break;
+                }
+                if f_lo * f_mid < 0.0 {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                    f_lo = f_mid;
+                }
+            }
+            roots.push(0.5 * (lo + hi));
+        }
+        roots
+    }
+
+    #[test]
+    fn find_roots_iterate_while_is_bit_identical_to_prior_impl() {
+        // Drive the *same* characteristic functions `resonance_roots`
+        // uses (the dense 30k-sample sweep over k ∈ [0.1, 20]) and assert
+        // the combinator-driven `find_roots` recovers every root to the
+        // last bit vs the pre-refactor reference. Cover both
+        // polarisations and a spread of (n, l, R_s, R_b) so the test
+        // exercises the exact-zero, interval-collapse, and 60-trip-cap
+        // termination branches.
+        let k_min = 0.1;
+        let k_max = 20.0;
+        let n_samples = 30_000;
+
+        for pol in [MiePolarisation::TE, MiePolarisation::TM] {
+            for &n in &[1.0_f64, 1.5, 2.5, 4.0] {
+                for l in 1..=5_usize {
+                    for &(r_s, r_b) in &[(0.5, 1.0), (1.0, 2.0), (0.3, 3.0)] {
+                        let f = |k: f64| -> f64 {
+                            match pol {
+                                MiePolarisation::TE => characteristic_te(n, l, r_s, r_b, k),
+                                MiePolarisation::TM => characteristic_tm(n, l, r_s, r_b, k),
+                            }
+                        };
+
+                        // `f` captures only `Copy` scalars, so it is
+                        // itself `Copy` and can be handed to both paths.
+                        let got = find_roots(f, k_min, k_max, n_samples);
+                        let expected = find_roots_reference(f, k_min, k_max, n_samples);
+
+                        assert_eq!(
+                            got.len(),
+                            expected.len(),
+                            "root count differs for pol={pol:?} n={n} l={l} \
+                             (r_s={r_s}, r_b={r_b}): got {}, expected {}",
+                            got.len(),
+                            expected.len()
+                        );
+                        for (idx, (g, e)) in got.iter().zip(expected.iter()).enumerate() {
+                            // Bit-identical, not approximate.
+                            assert_eq!(
+                                g.to_bits(),
+                                e.to_bits(),
+                                "root #{idx} differs for pol={pol:?} n={n} l={l} \
+                                 (r_s={r_s}, r_b={r_b}): got {g}, expected {e}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

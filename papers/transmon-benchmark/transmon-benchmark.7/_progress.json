@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-10T17:20:36.652151+00:00",
+      "completed": "2026-10-10T17:24:47.267587+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 7,
+    "max_iterations": 12,
+    "revised_from": 6,
+    "status": "DRAFT",
+    "authorization": "Tracked in #1039. Revision beyond the old cap of 6 is authorized by the operator on 2026-10-10 as a standing permission to revise this paper past the cap (\"we can continue revising the paper as many times as we want\"; recorded on PR #1040 by an agent session on the operator's behalf). max_iterations is raised to 12 so the cap does not gate the next revisions. No review score or audit is claimed.",
+    "pending_dependencies": [
+      "#1062 two-sided (lower) bound on the converged C_Sigma: roadmap, not built; no continuum value is certified",
+      "#1037 Phase C two-target (C_g / beta) experiment: roadmap; ruled by the operator on 2026-10-10 (claw-plus-resonator cut, hold beta = C_g/C_Sigma, add a claw-gap parameter), not yet built; no pending marker",
+      "#1044 rank-1 port-voltage formulation (roadmap, not built); #1045 artifact re-baselining",
+      "independent paper review and audit",
+      "existing TODO(operator) submission inputs"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1791733249.9165149,
+      "refs_mtime": null
+    },
+    "in_place_corrections": [
+      "2026-10-10 PR #1040: qubit mode (#1047/#1055), Palace unknown count, coarse-mesh C_Sigma (#1050), #1035/#1036 methods result",
+      "2026-10-11 PR #1040: C_Sigma mesh-convergence study (#1051, PR #1057) and refined real-device optimization (#1056, PR #1058); coarse-mesh results re-read as a cautionary precursor; no pending marker remains",
+      "2026-10-11 PR #1040 (judge at 1cee07e1): scalar-epsilon scope and tensor bound in abstract, contributions and conclusion; native-f64 / outside-Burn disclosure at the headline; #1037 status (ruled, not built); Figure 6 panel (b) relabelled and regenerated; per-occurrence verifier pins"
+    ]
+  }
+}

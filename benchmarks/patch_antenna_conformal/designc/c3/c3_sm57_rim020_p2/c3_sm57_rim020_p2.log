@@ -1,0 +1,2582 @@
+>> /usr/lib64/mpich/bin/mpirun -n 16 /opt/palace/bin/palace-x86_64.bin /work/c3_sm57_rim020_p2/config.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 16 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/opt/blocked
+
+Added 12755 duplicate vertices for interior boundaries in the mesh
+Added 26466 duplicate boundary elements for interior boundaries in the mesh
+Added 18840 boundary elements for material interfaces to the mesh
+
+Characteristic length and time scales:
+ Lc = 1.920e-01 m, tc = 6.404e-01 ns
+Finished partitioning mesh into 16 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-9.600e-02, -9.150e-02, -6.500e-02) m
+ (Xmax, Ymax, Zmax) = (+9.600e-02, +9.150e-02, +6.660e-02) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          4025        4682        5919       74913
+ edges            27339       29421       32793      470747
+ faces            45824       47640       49847      762245
+ elements         22509       22900       23229      366408
+ neighbors            4           7          13
+
+            minimum     maximum
+ h      0.000816443    0.105066
+ kappa      1.01431     26.9179
+
+Estimated current per-rank memory usage is: Min. 46.2M, Max. 284.0M, Avg. 61.9M, Total 990.8M
+Estimated current per-node memory usage is: Min. 992.5M, Max. 992.5M, Avg. 992.5M, Total 992.5M
+
+Configuring Robin absorbing BC (order 1) at attributes:
+ 14
+
+Configuring Robin impedance BC for lumped ports at attributes:
+ 11: Rs = 5.000e+01 Ω/sq, n = (-1.0,+0.0,-0.0)
+
+Configuring lumped port circuit properties:
+ Index = 1: R = 5.000e+01 Ω
+
+Configuring lumped port excitation source term at attributes:
+ 11: Index = 1
+
+Configuring Dirichlet PEC BC at attributes:
+ 12-13
+
+Computing adaptive fast frequency response for:
+Excitation with index 1 has contributions from:
+ Lumped port  1
+
+Beginning PROM construction offline phase:
+ 261 points for frequency sweep over [2.320e+00, 2.580e+00] GHz
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 545660, ND (p = 2): 2465984, RT (p = 2): 3385959
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 470747 unknowns
+ Level 1 (p = 2): 2465984 unknowns
+ Level 0 (auxiliary) (p = 1): 74913 unknowns
+ Level 1 (auxiliary) (p = 2): 545660 unknowns
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 3.742416e+01
+   1 (restart 0) KSP residual norm 3.216924e+01
+   2 (restart 0) KSP residual norm 3.096917e+01
+   3 (restart 0) KSP residual norm 2.559356e+01
+   4 (restart 0) KSP residual norm 2.267748e+01
+   5 (restart 0) KSP residual norm 2.094550e+01
+   6 (restart 0) KSP residual norm 2.088839e+01
+   7 (restart 0) KSP residual norm 1.997321e+01
+   8 (restart 0) KSP residual norm 1.871140e+01
+   9 (restart 0) KSP residual norm 1.844814e+01
+  10 (restart 0) KSP residual norm 1.750414e+01
+  11 (restart 0) KSP residual norm 1.678421e+01
+  12 (restart 0) KSP residual norm 1.520963e+01
+  13 (restart 0) KSP residual norm 1.476414e+01
+  14 (restart 0) KSP residual norm 1.343376e+01
+  15 (restart 0) KSP residual norm 1.221082e+01
+  16 (restart 0) KSP residual norm 1.173133e+01
+  17 (restart 0) KSP residual norm 1.017756e+01
+  18 (restart 0) KSP residual norm 9.209025e+00
+  19 (restart 0) KSP residual norm 8.011681e+00
+  20 (restart 0) KSP residual norm 7.558674e+00
+  21 (restart 0) KSP residual norm 6.379691e+00
+  22 (restart 0) KSP residual norm 5.714590e+00
+  23 (restart 0) KSP residual norm 4.854810e+00
+  24 (restart 0) KSP residual norm 4.689534e+00
+  25 (restart 0) KSP residual norm 3.938375e+00
+  26 (restart 0) KSP residual norm 3.836509e+00
+  27 (restart 0) KSP residual norm 3.253139e+00
+  28 (restart 0) KSP residual norm 3.145793e+00
+  29 (restart 0) KSP residual norm 2.813810e+00
+  30 (restart 0) KSP residual norm 2.695365e+00
+  31 (restart 0) KSP residual norm 2.198661e+00
+  32 (restart 0) KSP residual norm 2.048527e+00
+  33 (restart 0) KSP residual norm 1.668515e+00
+  34 (restart 0) KSP residual norm 1.591248e+00
+  35 (restart 0) KSP residual norm 1.253846e+00
+  36 (restart 0) KSP residual norm 1.207903e+00
+  37 (restart 0) KSP residual norm 1.014592e+00
+  38 (restart 0) KSP residual norm 9.401382e-01
+  39 (restart 0) KSP residual norm 8.053780e-01
+  40 (restart 0) KSP residual norm 7.558968e-01
+  41 (restart 0) KSP residual norm 6.905410e-01
+  42 (restart 0) KSP residual norm 6.198432e-01
+  43 (restart 0) KSP residual norm 5.101201e-01
+  44 (restart 0) KSP residual norm 4.682993e-01
+  45 (restart 0) KSP residual norm 4.331176e-01
+  46 (restart 0) KSP residual norm 3.787937e-01
+  47 (restart 0) KSP residual norm 3.556705e-01
+  48 (restart 0) KSP residual norm 3.054515e-01
+  49 (restart 0) KSP residual norm 2.737475e-01
+  50 (restart 0) KSP residual norm 2.537403e-01
+  51 (restart 0) KSP residual norm 2.086788e-01
+  52 (restart 0) KSP residual norm 1.893042e-01
+  53 (restart 0) KSP residual norm 1.690203e-01
+  54 (restart 0) KSP residual norm 1.420265e-01
+  55 (restart 0) KSP residual norm 1.315832e-01
+  56 (restart 0) KSP residual norm 1.112279e-01
+  57 (restart 0) KSP residual norm 9.542141e-02
+  58 (restart 0) KSP residual norm 8.928626e-02
+  59 (restart 0) KSP residual norm 7.251106e-02
+  60 (restart 0) KSP residual norm 6.634515e-02
+  61 (restart 0) KSP residual norm 5.935578e-02
+  62 (restart 0) KSP residual norm 5.390763e-02
+  63 (restart 0) KSP residual norm 4.825572e-02
+  64 (restart 0) KSP residual norm 4.239417e-02
+  65 (restart 0) KSP residual norm 3.793941e-02
+  66 (restart 0) KSP residual norm 3.496104e-02
+  67 (restart 0) KSP residual norm 2.673553e-02
+  68 (restart 0) KSP residual norm 2.406761e-02
+  69 (restart 0) KSP residual norm 2.042254e-02
+  70 (restart 0) KSP residual norm 1.857706e-02
+  71 (restart 0) KSP residual norm 1.467786e-02
+  72 (restart 0) KSP residual norm 1.321426e-02
+  73 (restart 0) KSP residual norm 1.121101e-02
+  74 (restart 0) KSP residual norm 9.358021e-03
+  75 (restart 0) KSP residual norm 6.211847e-03
+  76 (restart 0) KSP residual norm 5.360135e-03
+  77 (restart 0) KSP residual norm 4.232814e-03
+  78 (restart 0) KSP residual norm 3.804516e-03
+  79 (restart 0) KSP residual norm 3.013463e-03
+  80 (restart 0) KSP residual norm 2.459789e-03
+  81 (restart 0) KSP residual norm 1.997462e-03
+  82 (restart 0) KSP residual norm 1.652500e-03
+  83 (restart 0) KSP residual norm 1.373520e-03
+  84 (restart 0) KSP residual norm 1.043620e-03
+  85 (restart 0) KSP residual norm 8.522540e-04
+  86 (restart 0) KSP residual norm 6.994755e-04
+  87 (restart 0) KSP residual norm 5.085793e-04
+  88 (restart 0) KSP residual norm 4.132441e-04
+  89 (restart 0) KSP residual norm 3.345513e-04
+  90 (restart 0) KSP residual norm 2.526093e-04
+  91 (restart 0) KSP residual norm 2.199448e-04
+  92 (restart 0) KSP residual norm 1.772813e-04
+  93 (restart 0) KSP residual norm 1.519571e-04
+  94 (restart 0) KSP residual norm 1.263209e-04
+  95 (restart 0) KSP residual norm 1.071818e-04
+  96 (restart 0) KSP residual norm 9.519407e-05
+  97 (restart 0) KSP residual norm 7.939886e-05
+  98 (restart 0) KSP residual norm 7.003982e-05
+  99 (restart 0) KSP residual norm 6.185171e-05
+ 100 (restart 0) KSP residual norm 5.509819e-05
+ 101 (restart 0) KSP residual norm 4.853196e-05
+ 102 (restart 0) KSP residual norm 4.164231e-05
+ 103 (restart 0) KSP residual norm 3.711048e-05
+ 104 (restart 0) KSP residual norm 3.264071e-05
+ 105 (restart 0) KSP residual norm 2.778744e-05
+ 106 (restart 0) KSP residual norm 2.405497e-05
+ 107 (restart 0) KSP residual norm 2.070743e-05
+ 108 (restart 0) KSP residual norm 1.764249e-05
+ 109 (restart 0) KSP residual norm 1.526441e-05
+ 110 (restart 0) KSP residual norm 1.262681e-05
+ 111 (restart 0) KSP residual norm 1.080935e-05
+ 112 (restart 0) KSP residual norm 9.307368e-06
+ 113 (restart 0) KSP residual norm 7.541855e-06
+ 114 (restart 0) KSP residual norm 6.431152e-06
+ 115 (restart 0) KSP residual norm 5.304237e-06
+ 116 (restart 0) KSP residual norm 4.649254e-06
+ 117 (restart 0) KSP residual norm 3.996965e-06
+ 118 (restart 0) KSP residual norm 3.305146e-06
+ 119 (restart 0) KSP residual norm 2.829674e-06
+ 120 (restart 0) KSP residual norm 2.466314e-06
+ 121 (restart 0) KSP residual norm 2.111219e-06
+ 122 (restart 0) KSP residual norm 1.756402e-06
+ 123 (restart 0) KSP residual norm 1.444657e-06
+ 124 (restart 0) KSP residual norm 1.248602e-06
+ 125 (restart 0) KSP residual norm 1.104669e-06
+ 126 (restart 0) KSP residual norm 9.318708e-07
+ 127 (restart 0) KSP residual norm 8.016868e-07
+ 128 (restart 0) KSP residual norm 6.767883e-07
+ 129 (restart 0) KSP residual norm 5.967549e-07
+ 130 (restart 0) KSP residual norm 5.063063e-07
+ 131 (restart 0) KSP residual norm 4.332871e-07
+ 132 (restart 0) KSP residual norm 3.740562e-07
+GMRES solver converged in 132 iterations (avg. reduction factor: 8.697e-01)
+ Field energy E (4.325e-10 J) + H (4.784e-10 J) = 9.108e-10 J
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 5.793808e+01
+   1 (restart 0) KSP residual norm 5.784248e+01
+   2 (restart 0) KSP residual norm 5.542698e+01
+   3 (restart 0) KSP residual norm 4.821679e+01
+   4 (restart 0) KSP residual norm 4.158338e+01
+   5 (restart 0) KSP residual norm 4.150589e+01
+   6 (restart 0) KSP residual norm 3.869530e+01
+   7 (restart 0) KSP residual norm 3.859464e+01
+   8 (restart 0) KSP residual norm 3.755492e+01
+   9 (restart 0) KSP residual norm 3.677606e+01
+  10 (restart 0) KSP residual norm 3.666563e+01
+  11 (restart 0) KSP residual norm 3.477949e+01
+  12 (restart 0) KSP residual norm 2.890087e+01
+  13 (restart 0) KSP residual norm 2.855457e+01
+  14 (restart 0) KSP residual norm 1.857814e+01
+  15 (restart 0) KSP residual norm 1.809704e+01
+  16 (restart 0) KSP residual norm 1.440417e+01
+  17 (restart 0) KSP residual norm 1.369246e+01
+  18 (restart 0) KSP residual norm 1.188355e+01
+  19 (restart 0) KSP residual norm 1.128627e+01
+  20 (restart 0) KSP residual norm 1.093457e+01
+  21 (restart 0) KSP residual norm 1.042295e+01
+  22 (restart 0) KSP residual norm 9.829436e+00
+  23 (restart 0) KSP residual norm 9.617567e+00
+  24 (restart 0) KSP residual norm 8.945555e+00
+  25 (restart 0) KSP residual norm 8.369180e+00
+  26 (restart 0) KSP residual norm 7.833287e+00
+  27 (restart 0) KSP residual norm 7.308580e+00
+  28 (restart 0) KSP residual norm 6.881182e+00
+  29 (restart 0) KSP residual norm 6.192844e+00
+  30 (restart 0) KSP residual norm 4.473730e+00
+  31 (restart 0) KSP residual norm 4.099168e+00
+  32 (restart 0) KSP residual norm 3.596658e+00
+  33 (restart 0) KSP residual norm 3.376444e+00
+  34 (restart 0) KSP residual norm 3.117989e+00
+  35 (restart 0) KSP residual norm 2.932003e+00
+  36 (restart 0) KSP residual norm 2.663744e+00
+  37 (restart 0) KSP residual norm 2.519638e+00
+  38 (restart 0) KSP residual norm 2.270580e+00
+  39 (restart 0) KSP residual norm 2.111187e+00
+  40 (restart 0) KSP residual norm 1.870079e+00
+  41 (restart 0) KSP residual norm 1.819338e+00
+  42 (restart 0) KSP residual norm 1.616213e+00
+  43 (restart 0) KSP residual norm 1.505270e+00
+  44 (restart 0) KSP residual norm 1.360053e+00
+  45 (restart 0) KSP residual norm 1.270383e+00
+  46 (restart 0) KSP residual norm 1.200371e+00
+  47 (restart 0) KSP residual norm 1.126927e+00
+  48 (restart 0) KSP residual norm 1.054747e+00
+  49 (restart 0) KSP residual norm 9.583862e-01
+  50 (restart 0) KSP residual norm 8.784712e-01
+  51 (restart 0) KSP residual norm 7.935582e-01
+  52 (restart 0) KSP residual norm 6.099632e-01
+  53 (restart 0) KSP residual norm 5.686034e-01
+  54 (restart 0) KSP residual norm 4.723584e-01
+  55 (restart 0) KSP residual norm 4.383343e-01
+  56 (restart 0) KSP residual norm 3.717951e-01
+  57 (restart 0) KSP residual norm 3.470043e-01
+  58 (restart 0) KSP residual norm 2.962241e-01
+  59 (restart 0) KSP residual norm 2.677204e-01
+  60 (restart 0) KSP residual norm 2.328886e-01
+  61 (restart 0) KSP residual norm 2.107798e-01
+  62 (restart 0) KSP residual norm 1.828343e-01
+  63 (restart 0) KSP residual norm 1.678750e-01
+  64 (restart 0) KSP residual norm 1.411004e-01
+  65 (restart 0) KSP residual norm 1.286457e-01
+  66 (restart 0) KSP residual norm 1.053206e-01
+  67 (restart 0) KSP residual norm 9.088774e-02
+  68 (restart 0) KSP residual norm 8.195909e-02
+  69 (restart 0) KSP residual norm 7.166312e-02
+  70 (restart 0) KSP residual norm 5.574549e-02
+  71 (restart 0) KSP residual norm 5.220305e-02
+  72 (restart 0) KSP residual norm 4.395046e-02
+  73 (restart 0) KSP residual norm 3.765426e-02
+  74 (restart 0) KSP residual norm 3.419630e-02
+  75 (restart 0) KSP residual norm 2.888831e-02
+  76 (restart 0) KSP residual norm 2.464903e-02
+  77 (restart 0) KSP residual norm 2.156275e-02
+  78 (restart 0) KSP residual norm 1.910115e-02
+  79 (restart 0) KSP residual norm 1.630682e-02
+  80 (restart 0) KSP residual norm 1.409890e-02
+  81 (restart 0) KSP residual norm 1.197241e-02
+  82 (restart 0) KSP residual norm 1.012649e-02
+  83 (restart 0) KSP residual norm 8.729940e-03
+  84 (restart 0) KSP residual norm 6.819343e-03
+  85 (restart 0) KSP residual norm 5.839737e-03
+  86 (restart 0) KSP residual norm 4.997362e-03
+  87 (restart 0) KSP residual norm 3.917894e-03
+  88 (restart 0) KSP residual norm 3.373663e-03
+  89 (restart 0) KSP residual norm 2.943047e-03
+  90 (restart 0) KSP residual norm 2.475874e-03
+  91 (restart 0) KSP residual norm 2.073308e-03
+  92 (restart 0) KSP residual norm 1.758624e-03
+  93 (restart 0) KSP residual norm 1.537823e-03
+  94 (restart 0) KSP residual norm 1.115842e-03
+  95 (restart 0) KSP residual norm 1.001479e-03
+  96 (restart 0) KSP residual norm 8.522714e-04
+  97 (restart 0) KSP residual norm 6.880445e-04
+  98 (restart 0) KSP residual norm 6.088586e-04
+  99 (restart 0) KSP residual norm 4.938630e-04
+ 100 (restart 0) KSP residual norm 4.480653e-04
+ 101 (restart 0) KSP residual norm 3.490224e-04
+ 102 (restart 0) KSP residual norm 2.908746e-04
+ 103 (restart 0) KSP residual norm 2.546471e-04
+ 104 (restart 0) KSP residual norm 2.155631e-04
+ 105 (restart 0) KSP residual norm 1.870223e-04
+ 106 (restart 0) KSP residual norm 1.684571e-04
+ 107 (restart 0) KSP residual norm 1.500728e-04
+ 108 (restart 0) KSP residual norm 1.300180e-04
+ 109 (restart 0) KSP residual norm 1.154786e-04
+ 110 (restart 0) KSP residual norm 1.020185e-04
+ 111 (restart 0) KSP residual norm 9.348338e-05
+ 112 (restart 0) KSP residual norm 8.344779e-05
+ 113 (restart 0) KSP residual norm 7.627957e-05
+ 114 (restart 0) KSP residual norm 6.602488e-05
+ 115 (restart 0) KSP residual norm 6.182285e-05
+ 116 (restart 0) KSP residual norm 5.523210e-05
+ 117 (restart 0) KSP residual norm 4.783043e-05
+ 118 (restart 0) KSP residual norm 4.363601e-05
+ 119 (restart 0) KSP residual norm 3.991412e-05
+ 120 (restart 0) KSP residual norm 3.629501e-05
+ 121 (restart 0) KSP residual norm 3.092670e-05
+ 122 (restart 0) KSP residual norm 2.715910e-05
+ 123 (restart 0) KSP residual norm 2.494907e-05
+ 124 (restart 0) KSP residual norm 2.192006e-05
+ 125 (restart 0) KSP residual norm 1.974193e-05
+ 126 (restart 0) KSP residual norm 1.725565e-05
+ 127 (restart 0) KSP residual norm 1.565176e-05
+ 128 (restart 0) KSP residual norm 1.347255e-05
+ 129 (restart 0) KSP residual norm 1.191286e-05
+ 130 (restart 0) KSP residual norm 1.038114e-05
+ 131 (restart 0) KSP residual norm 9.395734e-06
+ 132 (restart 0) KSP residual norm 8.164439e-06
+ 133 (restart 0) KSP residual norm 7.095998e-06
+ 134 (restart 0) KSP residual norm 6.420697e-06
+ 135 (restart 0) KSP residual norm 5.800545e-06
+ 136 (restart 0) KSP residual norm 4.997744e-06
+ 137 (restart 0) KSP residual norm 4.199160e-06
+ 138 (restart 0) KSP residual norm 3.476277e-06
+ 139 (restart 0) KSP residual norm 2.996527e-06
+ 140 (restart 0) KSP residual norm 2.662446e-06
+ 141 (restart 0) KSP residual norm 2.335151e-06
+ 142 (restart 0) KSP residual norm 1.964629e-06
+ 143 (restart 0) KSP residual norm 1.639187e-06
+ 144 (restart 0) KSP residual norm 1.392598e-06
+ 145 (restart 0) KSP residual norm 1.190209e-06
+ 146 (restart 0) KSP residual norm 9.933971e-07
+ 147 (restart 0) KSP residual norm 8.645245e-07
+ 148 (restart 0) KSP residual norm 7.343648e-07
+ 149 (restart 0) KSP residual norm 6.295474e-07
+ 150 (restart 0) KSP residual norm 5.370696e-07
+GMRES solver converged in 150 iterations (avg. reduction factor: 8.840e-01)
+ Field energy E (4.017e-10 J) + H (3.993e-10 J) = 8.010e-10 J
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 2.297574e+02
+   1 (restart 0) KSP residual norm 1.685735e+02
+   2 (restart 0) KSP residual norm 1.685667e+02
+   3 (restart 0) KSP residual norm 6.816141e+01
+   4 (restart 0) KSP residual norm 5.521354e+01
+   5 (restart 0) KSP residual norm 5.320596e+01
+   6 (restart 0) KSP residual norm 3.088950e+01
+   7 (restart 0) KSP residual norm 3.084653e+01
+   8 (restart 0) KSP residual norm 2.567029e+01
+   9 (restart 0) KSP residual norm 2.444198e+01
+  10 (restart 0) KSP residual norm 2.285574e+01
+  11 (restart 0) KSP residual norm 2.235952e+01
+  12 (restart 0) KSP residual norm 2.201506e+01
+  13 (restart 0) KSP residual norm 2.136411e+01
+  14 (restart 0) KSP residual norm 2.095889e+01
+  15 (restart 0) KSP residual norm 1.983455e+01
+  16 (restart 0) KSP residual norm 1.844309e+01
+  17 (restart 0) KSP residual norm 1.773321e+01
+  18 (restart 0) KSP residual norm 1.493843e+01
+  19 (restart 0) KSP residual norm 1.458080e+01
+  20 (restart 0) KSP residual norm 1.309851e+01
+  21 (restart 0) KSP residual norm 1.298232e+01
+  22 (restart 0) KSP residual norm 1.060224e+01
+  23 (restart 0) KSP residual norm 1.018088e+01
+  24 (restart 0) KSP residual norm 8.350517e+00
+  25 (restart 0) KSP residual norm 7.938061e+00
+  26 (restart 0) KSP residual norm 7.132549e+00
+  27 (restart 0) KSP residual norm 6.127395e+00
+  28 (restart 0) KSP residual norm 5.725177e+00
+  29 (restart 0) KSP residual norm 5.192263e+00
+  30 (restart 0) KSP residual norm 4.943960e+00
+  31 (restart 0) KSP residual norm 4.560560e+00
+  32 (restart 0) KSP residual norm 4.424696e+00
+  33 (restart 0) KSP residual norm 3.972334e+00
+  34 (restart 0) KSP residual norm 3.676428e+00
+  35 (restart 0) KSP residual norm 3.369187e+00
+  36 (restart 0) KSP residual norm 3.056606e+00
+  37 (restart 0) KSP residual norm 2.945385e+00
+  38 (restart 0) KSP residual norm 2.310975e+00
+  39 (restart 0) KSP residual norm 2.155592e+00
+  40 (restart 0) KSP residual norm 1.817542e+00
+  41 (restart 0) KSP residual norm 1.646326e+00
+  42 (restart 0) KSP residual norm 1.378406e+00
+  43 (restart 0) KSP residual norm 1.254630e+00
+  44 (restart 0) KSP residual norm 1.046339e+00
+  45 (restart 0) KSP residual norm 9.778379e-01
+  46 (restart 0) KSP residual norm 8.956999e-01
+  47 (restart 0) KSP residual norm 8.003193e-01
+  48 (restart 0) KSP residual norm 7.511080e-01
+  49 (restart 0) KSP residual norm 6.395656e-01
+  50 (restart 0) KSP residual norm 5.730663e-01
+  51 (restart 0) KSP residual norm 4.919528e-01
+  52 (restart 0) KSP residual norm 4.203486e-01
+  53 (restart 0) KSP residual norm 3.869303e-01
+  54 (restart 0) KSP residual norm 3.434571e-01
+  55 (restart 0) KSP residual norm 2.910596e-01
+  56 (restart 0) KSP residual norm 2.601524e-01
+  57 (restart 0) KSP residual norm 2.278351e-01
+  58 (restart 0) KSP residual norm 1.993131e-01
+  59 (restart 0) KSP residual norm 1.679618e-01
+  60 (restart 0) KSP residual norm 1.481358e-01
+  61 (restart 0) KSP residual norm 1.267999e-01
+  62 (restart 0) KSP residual norm 1.082462e-01
+  63 (restart 0) KSP residual norm 9.791723e-02
+  64 (restart 0) KSP residual norm 8.420110e-02
+  65 (restart 0) KSP residual norm 6.641943e-02
+  66 (restart 0) KSP residual norm 5.957241e-02
+  67 (restart 0) KSP residual norm 4.963993e-02
+  68 (restart 0) KSP residual norm 4.174443e-02
+  69 (restart 0) KSP residual norm 3.777113e-02
+  70 (restart 0) KSP residual norm 3.316401e-02
+  71 (restart 0) KSP residual norm 2.721151e-02
+  72 (restart 0) KSP residual norm 2.478574e-02
+  73 (restart 0) KSP residual norm 2.070997e-02
+  74 (restart 0) KSP residual norm 1.566928e-02
+  75 (restart 0) KSP residual norm 1.369873e-02
+  76 (restart 0) KSP residual norm 1.192467e-02
+  77 (restart 0) KSP residual norm 1.026826e-02
+  78 (restart 0) KSP residual norm 8.411753e-03
+  79 (restart 0) KSP residual norm 7.549399e-03
+  80 (restart 0) KSP residual norm 6.229851e-03
+  81 (restart 0) KSP residual norm 5.107236e-03
+  82 (restart 0) KSP residual norm 4.384202e-03
+  83 (restart 0) KSP residual norm 3.712303e-03
+  84 (restart 0) KSP residual norm 3.205050e-03
+  85 (restart 0) KSP residual norm 2.370922e-03
+  86 (restart 0) KSP residual norm 2.195023e-03
+  87 (restart 0) KSP residual norm 1.751196e-03
+  88 (restart 0) KSP residual norm 1.422111e-03
+  89 (restart 0) KSP residual norm 1.274071e-03
+  90 (restart 0) KSP residual norm 1.068299e-03
+  91 (restart 0) KSP residual norm 9.696669e-04
+  92 (restart 0) KSP residual norm 7.759342e-04
+  93 (restart 0) KSP residual norm 6.971040e-04
+  94 (restart 0) KSP residual norm 5.828465e-04
+  95 (restart 0) KSP residual norm 5.070951e-04
+  96 (restart 0) KSP residual norm 4.048129e-04
+  97 (restart 0) KSP residual norm 3.695741e-04
+  98 (restart 0) KSP residual norm 3.001954e-04
+  99 (restart 0) KSP residual norm 2.654666e-04
+ 100 (restart 0) KSP residual norm 2.284258e-04
+ 101 (restart 0) KSP residual norm 2.050537e-04
+ 102 (restart 0) KSP residual norm 1.825230e-04
+ 103 (restart 0) KSP residual norm 1.589648e-04
+ 104 (restart 0) KSP residual norm 1.370138e-04
+ 105 (restart 0) KSP residual norm 1.167669e-04
+ 106 (restart 0) KSP residual norm 1.071521e-04
+ 107 (restart 0) KSP residual norm 9.780676e-05
+ 108 (restart 0) KSP residual norm 8.834001e-05
+ 109 (restart 0) KSP residual norm 7.770188e-05
+ 110 (restart 0) KSP residual norm 6.834291e-05
+ 111 (restart 0) KSP residual norm 5.923257e-05
+ 112 (restart 0) KSP residual norm 5.186606e-05
+ 113 (restart 0) KSP residual norm 4.539927e-05
+ 114 (restart 0) KSP residual norm 3.950763e-05
+ 115 (restart 0) KSP residual norm 3.354217e-05
+ 116 (restart 0) KSP residual norm 2.796308e-05
+ 117 (restart 0) KSP residual norm 2.372012e-05
+ 118 (restart 0) KSP residual norm 2.007128e-05
+ 119 (restart 0) KSP residual norm 1.769477e-05
+ 120 (restart 0) KSP residual norm 1.484011e-05
+ 121 (restart 0) KSP residual norm 1.289500e-05
+ 122 (restart 0) KSP residual norm 1.096953e-05
+ 123 (restart 0) KSP residual norm 9.379655e-06
+ 124 (restart 0) KSP residual norm 8.192346e-06
+ 125 (restart 0) KSP residual norm 6.601244e-06
+ 126 (restart 0) KSP residual norm 5.645603e-06
+ 127 (restart 0) KSP residual norm 4.811872e-06
+ 128 (restart 0) KSP residual norm 4.034253e-06
+ 129 (restart 0) KSP residual norm 3.373261e-06
+ 130 (restart 0) KSP residual norm 2.857263e-06
+ 131 (restart 0) KSP residual norm 2.409222e-06
+ 132 (restart 0) KSP residual norm 2.060098e-06
+GMRES solver converged in 132 iterations (avg. reduction factor: 8.690e-01)
+
+Greedy iteration 1 (n = 4): ω* = 2.453e+00 GHz (9.873e+00), error = 2.442e-02, memory = 0/2
+ Field energy E (7.273e-10 J) + H (7.204e-10 J) = 1.448e-09 J
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 6.138341e+02
+   1 (restart 0) KSP residual norm 2.959895e+02
+   2 (restart 0) KSP residual norm 1.880889e+02
+   3 (restart 0) KSP residual norm 1.401086e+02
+   4 (restart 0) KSP residual norm 1.157061e+02
+   5 (restart 0) KSP residual norm 8.972855e+01
+   6 (restart 0) KSP residual norm 6.834230e+01
+   7 (restart 0) KSP residual norm 6.757228e+01
+   8 (restart 0) KSP residual norm 4.580048e+01
+   9 (restart 0) KSP residual norm 4.389705e+01
+  10 (restart 0) KSP residual norm 3.804930e+01
+  11 (restart 0) KSP residual norm 3.579707e+01
+  12 (restart 0) KSP residual norm 3.195872e+01
+  13 (restart 0) KSP residual norm 2.993239e+01
+  14 (restart 0) KSP residual norm 2.914069e+01
+  15 (restart 0) KSP residual norm 2.621079e+01
+  16 (restart 0) KSP residual norm 1.615499e+01
+  17 (restart 0) KSP residual norm 1.583176e+01
+  18 (restart 0) KSP residual norm 1.397421e+01
+  19 (restart 0) KSP residual norm 1.333549e+01
+  20 (restart 0) KSP residual norm 1.252903e+01
+  21 (restart 0) KSP residual norm 1.197453e+01
+  22 (restart 0) KSP residual norm 1.149330e+01
+  23 (restart 0) KSP residual norm 9.918348e+00
+  24 (restart 0) KSP residual norm 9.681554e+00
+  25 (restart 0) KSP residual norm 8.637688e+00
+  26 (restart 0) KSP residual norm 8.213520e+00
+  27 (restart 0) KSP residual norm 6.734069e+00
+  28 (restart 0) KSP residual norm 6.459969e+00
+  29 (restart 0) KSP residual norm 5.726815e+00
+  30 (restart 0) KSP residual norm 5.530136e+00
+  31 (restart 0) KSP residual norm 5.058031e+00
+  32 (restart 0) KSP residual norm 4.811592e+00
+  33 (restart 0) KSP residual norm 4.662056e+00
+  34 (restart 0) KSP residual norm 3.876427e+00
+  35 (restart 0) KSP residual norm 3.502370e+00
+  36 (restart 0) KSP residual norm 3.010514e+00
+  37 (restart 0) KSP residual norm 2.929098e+00
+  38 (restart 0) KSP residual norm 2.374054e+00
+  39 (restart 0) KSP residual norm 2.152188e+00
+  40 (restart 0) KSP residual norm 1.960979e+00
+  41 (restart 0) KSP residual norm 1.695156e+00
+  42 (restart 0) KSP residual norm 1.502932e+00
+  43 (restart 0) KSP residual norm 1.312103e+00
+  44 (restart 0) KSP residual norm 1.159408e+00
+  45 (restart 0) KSP residual norm 1.060612e+00
+  46 (restart 0) KSP residual norm 9.437173e-01
+  47 (restart 0) KSP residual norm 8.714241e-01
+  48 (restart 0) KSP residual norm 7.636989e-01
+  49 (restart 0) KSP residual norm 7.124518e-01
+  50 (restart 0) KSP residual norm 6.494351e-01
+  51 (restart 0) KSP residual norm 6.152409e-01
+  52 (restart 0) KSP residual norm 5.340912e-01
+  53 (restart 0) KSP residual norm 4.991212e-01
+  54 (restart 0) KSP residual norm 4.372134e-01
+  55 (restart 0) KSP residual norm 3.866171e-01
+  56 (restart 0) KSP residual norm 3.510319e-01
+  57 (restart 0) KSP residual norm 3.000540e-01
+  58 (restart 0) KSP residual norm 2.682961e-01
+  59 (restart 0) KSP residual norm 2.345573e-01
+  60 (restart 0) KSP residual norm 1.947309e-01
+  61 (restart 0) KSP residual norm 1.768728e-01
+  62 (restart 0) KSP residual norm 1.443630e-01
+  63 (restart 0) KSP residual norm 1.140071e-01
+  64 (restart 0) KSP residual norm 1.012278e-01
+  65 (restart 0) KSP residual norm 9.079680e-02
+  66 (restart 0) KSP residual norm 7.855644e-02
+  67 (restart 0) KSP residual norm 6.204808e-02
+  68 (restart 0) KSP residual norm 5.717983e-02
+  69 (restart 0) KSP residual norm 4.952689e-02
+  70 (restart 0) KSP residual norm 4.555821e-02
+  71 (restart 0) KSP residual norm 3.850715e-02
+  72 (restart 0) KSP residual norm 3.535882e-02
+  73 (restart 0) KSP residual norm 3.043301e-02
+  74 (restart 0) KSP residual norm 2.507680e-02
+  75 (restart 0) KSP residual norm 2.179412e-02
+  76 (restart 0) KSP residual norm 1.939378e-02
+  77 (restart 0) KSP residual norm 1.529104e-02
+  78 (restart 0) KSP residual norm 1.225584e-02
+  79 (restart 0) KSP residual norm 1.119734e-02
+  80 (restart 0) KSP residual norm 8.626256e-03
+  81 (restart 0) KSP residual norm 7.425216e-03
+  82 (restart 0) KSP residual norm 6.178451e-03
+  83 (restart 0) KSP residual norm 5.234901e-03
+  84 (restart 0) KSP residual norm 4.307470e-03
+  85 (restart 0) KSP residual norm 3.679460e-03
+  86 (restart 0) KSP residual norm 3.006947e-03
+  87 (restart 0) KSP residual norm 2.382155e-03
+  88 (restart 0) KSP residual norm 2.114152e-03
+  89 (restart 0) KSP residual norm 1.738011e-03
+  90 (restart 0) KSP residual norm 1.482387e-03
+  91 (restart 0) KSP residual norm 1.331068e-03
+  92 (restart 0) KSP residual norm 1.037089e-03
+  93 (restart 0) KSP residual norm 9.468361e-04
+  94 (restart 0) KSP residual norm 6.807754e-04
+  95 (restart 0) KSP residual norm 5.714510e-04
+  96 (restart 0) KSP residual norm 5.223389e-04
+  97 (restart 0) KSP residual norm 4.441268e-04
+  98 (restart 0) KSP residual norm 3.926113e-04
+  99 (restart 0) KSP residual norm 3.312678e-04
+ 100 (restart 0) KSP residual norm 2.945386e-04
+ 101 (restart 0) KSP residual norm 2.485524e-04
+ 102 (restart 0) KSP residual norm 2.204205e-04
+ 103 (restart 0) KSP residual norm 1.903462e-04
+ 104 (restart 0) KSP residual norm 1.725094e-04
+ 105 (restart 0) KSP residual norm 1.538238e-04
+ 106 (restart 0) KSP residual norm 1.360516e-04
+ 107 (restart 0) KSP residual norm 1.223085e-04
+ 108 (restart 0) KSP residual norm 1.118634e-04
+ 109 (restart 0) KSP residual norm 9.940429e-05
+ 110 (restart 0) KSP residual norm 8.881769e-05
+ 111 (restart 0) KSP residual norm 8.266388e-05
+ 112 (restart 0) KSP residual norm 7.580975e-05
+ 113 (restart 0) KSP residual norm 6.917799e-05
+ 114 (restart 0) KSP residual norm 6.137833e-05
+ 115 (restart 0) KSP residual norm 5.667984e-05
+ 116 (restart 0) KSP residual norm 5.092203e-05
+ 117 (restart 0) KSP residual norm 4.471997e-05
+ 118 (restart 0) KSP residual norm 3.846891e-05
+ 119 (restart 0) KSP residual norm 3.532077e-05
+ 120 (restart 0) KSP residual norm 3.089264e-05
+ 121 (restart 0) KSP residual norm 2.613915e-05
+ 122 (restart 0) KSP residual norm 2.304194e-05
+ 123 (restart 0) KSP residual norm 1.883600e-05
+ 124 (restart 0) KSP residual norm 1.708187e-05
+ 125 (restart 0) KSP residual norm 1.487630e-05
+ 126 (restart 0) KSP residual norm 1.326160e-05
+ 127 (restart 0) KSP residual norm 1.107041e-05
+ 128 (restart 0) KSP residual norm 9.057161e-06
+ 129 (restart 0) KSP residual norm 7.873674e-06
+ 130 (restart 0) KSP residual norm 6.701588e-06
+ 131 (restart 0) KSP residual norm 5.634462e-06
+GMRES solver converged in 131 iterations (avg. reduction factor: 8.683e-01)
+
+Greedy iteration 2 (n = 6): ω* = 2.524e+00 GHz (1.015e+01), error = 2.492e-03, memory = 0/2
+ Field energy E (5.577e-10 J) + H (5.459e-10 J) = 1.104e-09 J
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 5.491110e+01
+   1 (restart 0) KSP residual norm 5.489554e+01
+   2 (restart 0) KSP residual norm 4.814838e+01
+   3 (restart 0) KSP residual norm 3.945928e+01
+   4 (restart 0) KSP residual norm 2.700176e+01
+   5 (restart 0) KSP residual norm 2.413424e+01
+   6 (restart 0) KSP residual norm 2.265943e+01
+   7 (restart 0) KSP residual norm 2.172566e+01
+   8 (restart 0) KSP residual norm 2.004618e+01
+   9 (restart 0) KSP residual norm 1.985423e+01
+  10 (restart 0) KSP residual norm 1.940898e+01
+  11 (restart 0) KSP residual norm 1.873365e+01
+  12 (restart 0) KSP residual norm 1.767756e+01
+  13 (restart 0) KSP residual norm 1.714409e+01
+  14 (restart 0) KSP residual norm 1.587461e+01
+  15 (restart 0) KSP residual norm 1.524083e+01
+  16 (restart 0) KSP residual norm 1.473064e+01
+  17 (restart 0) KSP residual norm 1.398744e+01
+  18 (restart 0) KSP residual norm 1.294677e+01
+  19 (restart 0) KSP residual norm 1.008197e+01
+  20 (restart 0) KSP residual norm 9.294870e+00
+  21 (restart 0) KSP residual norm 8.958028e+00
+  22 (restart 0) KSP residual norm 7.851871e+00
+  23 (restart 0) KSP residual norm 7.146461e+00
+  24 (restart 0) KSP residual norm 6.152007e+00
+  25 (restart 0) KSP residual norm 5.793517e+00
+  26 (restart 0) KSP residual norm 4.931182e+00
+  27 (restart 0) KSP residual norm 4.611899e+00
+  28 (restart 0) KSP residual norm 3.562870e+00
+  29 (restart 0) KSP residual norm 3.435023e+00
+  30 (restart 0) KSP residual norm 2.968566e+00
+  31 (restart 0) KSP residual norm 2.734050e+00
+  32 (restart 0) KSP residual norm 2.388621e+00
+  33 (restart 0) KSP residual norm 2.265886e+00
+  34 (restart 0) KSP residual norm 1.787473e+00
+  35 (restart 0) KSP residual norm 1.712237e+00
+  36 (restart 0) KSP residual norm 1.496482e+00
+  37 (restart 0) KSP residual norm 1.387883e+00
+  38 (restart 0) KSP residual norm 1.310895e+00
+  39 (restart 0) KSP residual norm 1.186340e+00
+  40 (restart 0) KSP residual norm 1.104070e+00
+  41 (restart 0) KSP residual norm 9.907850e-01
+  42 (restart 0) KSP residual norm 9.242453e-01
+  43 (restart 0) KSP residual norm 8.471022e-01
+  44 (restart 0) KSP residual norm 7.836910e-01
+  45 (restart 0) KSP residual norm 6.690736e-01
+  46 (restart 0) KSP residual norm 6.123292e-01
+  47 (restart 0) KSP residual norm 5.505854e-01
+  48 (restart 0) KSP residual norm 5.116132e-01
+  49 (restart 0) KSP residual norm 4.451006e-01
+  50 (restart 0) KSP residual norm 3.910683e-01
+  51 (restart 0) KSP residual norm 3.721696e-01
+  52 (restart 0) KSP residual norm 3.326354e-01
+  53 (restart 0) KSP residual norm 2.955773e-01
+  54 (restart 0) KSP residual norm 2.599126e-01
+  55 (restart 0) KSP residual norm 2.293300e-01
+  56 (restart 0) KSP residual norm 1.766765e-01
+  57 (restart 0) KSP residual norm 1.611974e-01
+  58 (restart 0) KSP residual norm 1.297857e-01
+  59 (restart 0) KSP residual norm 1.121517e-01
+  60 (restart 0) KSP residual norm 1.038268e-01
+  61 (restart 0) KSP residual norm 7.311768e-02
+  62 (restart 0) KSP residual norm 6.738105e-02
+  63 (restart 0) KSP residual norm 5.723182e-02
+  64 (restart 0) KSP residual norm 4.927966e-02
+  65 (restart 0) KSP residual norm 4.313483e-02
+  66 (restart 0) KSP residual norm 3.720460e-02
+  67 (restart 0) KSP residual norm 2.969403e-02
+  68 (restart 0) KSP residual norm 2.719718e-02
+  69 (restart 0) KSP residual norm 2.312006e-02
+  70 (restart 0) KSP residual norm 2.048112e-02
+  71 (restart 0) KSP residual norm 1.735157e-02
+  72 (restart 0) KSP residual norm 1.548370e-02
+  73 (restart 0) KSP residual norm 1.286421e-02
+  74 (restart 0) KSP residual norm 1.087651e-02
+  75 (restart 0) KSP residual norm 9.696390e-03
+  76 (restart 0) KSP residual norm 7.832280e-03
+  77 (restart 0) KSP residual norm 6.484571e-03
+  78 (restart 0) KSP residual norm 5.519800e-03
+  79 (restart 0) KSP residual norm 4.747900e-03
+  80 (restart 0) KSP residual norm 4.105412e-03
+  81 (restart 0) KSP residual norm 3.181351e-03
+  82 (restart 0) KSP residual norm 2.874984e-03
+  83 (restart 0) KSP residual norm 2.430285e-03
+  84 (restart 0) KSP residual norm 1.978620e-03
+  85 (restart 0) KSP residual norm 1.540794e-03
+  86 (restart 0) KSP residual norm 1.225948e-03
+  87 (restart 0) KSP residual norm 1.068435e-03
+  88 (restart 0) KSP residual norm 9.123047e-04
+  89 (restart 0) KSP residual norm 8.139616e-04
+  90 (restart 0) KSP residual norm 5.690588e-04
+  91 (restart 0) KSP residual norm 4.402989e-04
+  92 (restart 0) KSP residual norm 3.921601e-04
+  93 (restart 0) KSP residual norm 3.009559e-04
+  94 (restart 0) KSP residual norm 2.494894e-04
+  95 (restart 0) KSP residual norm 2.214100e-04
+  96 (restart 0) KSP residual norm 1.808203e-04
+  97 (restart 0) KSP residual norm 1.586743e-04
+  98 (restart 0) KSP residual norm 1.328225e-04
+  99 (restart 0) KSP residual norm 1.184731e-04
+ 100 (restart 0) KSP residual norm 1.012716e-04
+ 101 (restart 0) KSP residual norm 8.793483e-05
+ 102 (restart 0) KSP residual norm 7.901394e-05
+ 103 (restart 0) KSP residual norm 6.961418e-05
+ 104 (restart 0) KSP residual norm 6.081785e-05
+ 105 (restart 0) KSP residual norm 5.182451e-05
+ 106 (restart 0) KSP residual norm 4.496295e-05
+ 107 (restart 0) KSP residual norm 3.950910e-05
+ 108 (restart 0) KSP residual norm 3.343302e-05
+ 109 (restart 0) KSP residual norm 2.810122e-05
+ 110 (restart 0) KSP residual norm 2.491289e-05
+ 111 (restart 0) KSP residual norm 2.096078e-05
+ 112 (restart 0) KSP residual norm 1.804650e-05
+ 113 (restart 0) KSP residual norm 1.524820e-05
+ 114 (restart 0) KSP residual norm 1.267419e-05
+ 115 (restart 0) KSP residual norm 1.104793e-05
+ 116 (restart 0) KSP residual norm 9.203635e-06
+ 117 (restart 0) KSP residual norm 7.891207e-06
+ 118 (restart 0) KSP residual norm 6.508806e-06
+ 119 (restart 0) KSP residual norm 5.473041e-06
+ 120 (restart 0) KSP residual norm 4.820784e-06
+ 121 (restart 0) KSP residual norm 3.977553e-06
+ 122 (restart 0) KSP residual norm 3.430092e-06
+ 123 (restart 0) KSP residual norm 2.849738e-06
+ 124 (restart 0) KSP residual norm 2.438027e-06
+ 125 (restart 0) KSP residual norm 2.078504e-06
+ 126 (restart 0) KSP residual norm 1.785255e-06
+ 127 (restart 0) KSP residual norm 1.503101e-06
+ 128 (restart 0) KSP residual norm 1.308127e-06
+ 129 (restart 0) KSP residual norm 1.109635e-06
+ 130 (restart 0) KSP residual norm 9.382073e-07
+ 131 (restart 0) KSP residual norm 8.203802e-07
+ 132 (restart 0) KSP residual norm 7.053404e-07
+ 133 (restart 0) KSP residual norm 6.135798e-07
+ 134 (restart 0) KSP residual norm 5.286311e-07
+GMRES solver converged in 134 iterations (avg. reduction factor: 8.713e-01)
+
+Greedy iteration 3 (n = 8): ω* = 2.372e+00 GHz (9.543e+00), error = 6.391e-05, memory = 1/2
+ Field energy E (5.997e-10 J) + H (6.283e-10 J) = 1.228e-09 J
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 1.165270e+02
+   1 (restart 0) KSP residual norm 7.782061e+01
+   2 (restart 0) KSP residual norm 7.182978e+01
+   3 (restart 0) KSP residual norm 6.588184e+01
+   4 (restart 0) KSP residual norm 6.010780e+01
+   5 (restart 0) KSP residual norm 5.898611e+01
+   6 (restart 0) KSP residual norm 5.310336e+01
+   7 (restart 0) KSP residual norm 4.016022e+01
+   8 (restart 0) KSP residual norm 3.738530e+01
+   9 (restart 0) KSP residual norm 3.731218e+01
+  10 (restart 0) KSP residual norm 3.526113e+01
+  11 (restart 0) KSP residual norm 3.512646e+01
+  12 (restart 0) KSP residual norm 3.050509e+01
+  13 (restart 0) KSP residual norm 3.042853e+01
+  14 (restart 0) KSP residual norm 2.420008e+01
+  15 (restart 0) KSP residual norm 2.234447e+01
+  16 (restart 0) KSP residual norm 1.702458e+01
+  17 (restart 0) KSP residual norm 1.509171e+01
+  18 (restart 0) KSP residual norm 1.352133e+01
+  19 (restart 0) KSP residual norm 1.186405e+01
+  20 (restart 0) KSP residual norm 1.150001e+01
+  21 (restart 0) KSP residual norm 1.105171e+01
+  22 (restart 0) KSP residual norm 1.026116e+01
+  23 (restart 0) KSP residual norm 9.422015e+00
+  24 (restart 0) KSP residual norm 9.014837e+00
+  25 (restart 0) KSP residual norm 8.249020e+00
+  26 (restart 0) KSP residual norm 7.784238e+00
+  27 (restart 0) KSP residual norm 6.773976e+00
+  28 (restart 0) KSP residual norm 6.548585e+00
+  29 (restart 0) KSP residual norm 5.752678e+00
+  30 (restart 0) KSP residual norm 5.534469e+00
+  31 (restart 0) KSP residual norm 4.361962e+00
+  32 (restart 0) KSP residual norm 4.182693e+00
+  33 (restart 0) KSP residual norm 3.609245e+00
+  34 (restart 0) KSP residual norm 3.216738e+00
+  35 (restart 0) KSP residual norm 2.870987e+00
+  36 (restart 0) KSP residual norm 2.736675e+00
+  37 (restart 0) KSP residual norm 2.547155e+00
+  38 (restart 0) KSP residual norm 2.325171e+00
+  39 (restart 0) KSP residual norm 2.241363e+00
+  40 (restart 0) KSP residual norm 1.926884e+00
+  41 (restart 0) KSP residual norm 1.895896e+00
+  42 (restart 0) KSP residual norm 1.638732e+00
+  43 (restart 0) KSP residual norm 1.558400e+00
+  44 (restart 0) KSP residual norm 1.383828e+00
+  45 (restart 0) KSP residual norm 1.277991e+00
+  46 (restart 0) KSP residual norm 1.153094e+00
+  47 (restart 0) KSP residual norm 1.035021e+00
+  48 (restart 0) KSP residual norm 8.925241e-01
+  49 (restart 0) KSP residual norm 8.386293e-01
+  50 (restart 0) KSP residual norm 6.875109e-01
+  51 (restart 0) KSP residual norm 6.454124e-01
+  52 (restart 0) KSP residual norm 5.683191e-01
+  53 (restart 0) KSP residual norm 5.241226e-01
+  54 (restart 0) KSP residual norm 4.655633e-01
+  55 (restart 0) KSP residual norm 4.178379e-01
+  56 (restart 0) KSP residual norm 3.749640e-01
+  57 (restart 0) KSP residual norm 3.210033e-01
+  58 (restart 0) KSP residual norm 2.932866e-01
+  59 (restart 0) KSP residual norm 2.598394e-01
+  60 (restart 0) KSP residual norm 2.256905e-01
+  61 (restart 0) KSP residual norm 2.025114e-01
+  62 (restart 0) KSP residual norm 1.694223e-01
+  63 (restart 0) KSP residual norm 1.506075e-01
+  64 (restart 0) KSP residual norm 1.292993e-01
+  65 (restart 0) KSP residual norm 1.068808e-01
+  66 (restart 0) KSP residual norm 9.852933e-02
+  67 (restart 0) KSP residual norm 8.541267e-02
+  68 (restart 0) KSP residual norm 7.215196e-02
+  69 (restart 0) KSP residual norm 6.656904e-02
+  70 (restart 0) KSP residual norm 5.424975e-02
+  71 (restart 0) KSP residual norm 4.173233e-02
+  72 (restart 0) KSP residual norm 3.717770e-02
+  73 (restart 0) KSP residual norm 3.345380e-02
+  74 (restart 0) KSP residual norm 2.917626e-02
+  75 (restart 0) KSP residual norm 2.555906e-02
+  76 (restart 0) KSP residual norm 2.279519e-02
+  77 (restart 0) KSP residual norm 1.973689e-02
+  78 (restart 0) KSP residual norm 1.628844e-02
+  79 (restart 0) KSP residual norm 1.346523e-02
+  80 (restart 0) KSP residual norm 1.137722e-02
+  81 (restart 0) KSP residual norm 9.890978e-03
+  82 (restart 0) KSP residual norm 7.232178e-03
+  83 (restart 0) KSP residual norm 6.220770e-03
+  84 (restart 0) KSP residual norm 5.584973e-03
+  85 (restart 0) KSP residual norm 4.422055e-03
+  86 (restart 0) KSP residual norm 3.793758e-03
+  87 (restart 0) KSP residual norm 3.281676e-03
+  88 (restart 0) KSP residual norm 2.769746e-03
+  89 (restart 0) KSP residual norm 2.288246e-03
+  90 (restart 0) KSP residual norm 1.955638e-03
+  91 (restart 0) KSP residual norm 1.673432e-03
+  92 (restart 0) KSP residual norm 1.254511e-03
+  93 (restart 0) KSP residual norm 1.148828e-03
+  94 (restart 0) KSP residual norm 9.283775e-04
+  95 (restart 0) KSP residual norm 8.318207e-04
+  96 (restart 0) KSP residual norm 6.907143e-04
+  97 (restart 0) KSP residual norm 5.379932e-04
+  98 (restart 0) KSP residual norm 4.921911e-04
+  99 (restart 0) KSP residual norm 3.895483e-04
+ 100 (restart 0) KSP residual norm 3.379429e-04
+ 101 (restart 0) KSP residual norm 3.000662e-04
+ 102 (restart 0) KSP residual norm 2.580288e-04
+ 103 (restart 0) KSP residual norm 2.219701e-04
+ 104 (restart 0) KSP residual norm 1.907970e-04
+ 105 (restart 0) KSP residual norm 1.695562e-04
+ 106 (restart 0) KSP residual norm 1.510745e-04
+ 107 (restart 0) KSP residual norm 1.369206e-04
+ 108 (restart 0) KSP residual norm 1.209921e-04
+ 109 (restart 0) KSP residual norm 1.109575e-04
+ 110 (restart 0) KSP residual norm 1.000237e-04
+ 111 (restart 0) KSP residual norm 9.031987e-05
+ 112 (restart 0) KSP residual norm 7.469031e-05
+ 113 (restart 0) KSP residual norm 6.930028e-05
+ 114 (restart 0) KSP residual norm 6.286221e-05
+ 115 (restart 0) KSP residual norm 5.683161e-05
+ 116 (restart 0) KSP residual norm 5.062427e-05
+ 117 (restart 0) KSP residual norm 4.678845e-05
+ 118 (restart 0) KSP residual norm 4.184184e-05
+ 119 (restart 0) KSP residual norm 3.682547e-05
+ 120 (restart 0) KSP residual norm 3.396173e-05
+ 121 (restart 0) KSP residual norm 3.005415e-05
+ 122 (restart 0) KSP residual norm 2.686783e-05
+ 123 (restart 0) KSP residual norm 2.326199e-05
+ 124 (restart 0) KSP residual norm 2.107686e-05
+ 125 (restart 0) KSP residual norm 1.863985e-05
+ 126 (restart 0) KSP residual norm 1.607463e-05
+ 127 (restart 0) KSP residual norm 1.436138e-05
+ 128 (restart 0) KSP residual norm 1.287368e-05
+ 129 (restart 0) KSP residual norm 1.122213e-05
+ 130 (restart 0) KSP residual norm 9.177565e-06
+ 131 (restart 0) KSP residual norm 8.068228e-06
+ 132 (restart 0) KSP residual norm 6.991475e-06
+ 133 (restart 0) KSP residual norm 6.068641e-06
+ 134 (restart 0) KSP residual norm 5.477205e-06
+ 135 (restart 0) KSP residual norm 4.775482e-06
+ 136 (restart 0) KSP residual norm 4.042942e-06
+ 137 (restart 0) KSP residual norm 3.459588e-06
+ 138 (restart 0) KSP residual norm 2.968771e-06
+ 139 (restart 0) KSP residual norm 2.523397e-06
+ 140 (restart 0) KSP residual norm 2.111544e-06
+ 141 (restart 0) KSP residual norm 1.780052e-06
+ 142 (restart 0) KSP residual norm 1.492931e-06
+ 143 (restart 0) KSP residual norm 1.268997e-06
+ 144 (restart 0) KSP residual norm 1.071508e-06
+GMRES solver converged in 144 iterations (avg. reduction factor: 8.794e-01)
+
+Greedy iteration 4 (n = 10): ω* = 2.558e+00 GHz (1.030e+01), error = 1.473e-06, memory = 2/2
+ Field energy E (4.560e-10 J) + H (4.495e-10 J) = 9.055e-10 J
+
+Adaptive sampling converged with 6 frequency samples:
+ n = 12, error = 1.473e-06, tol = 1.000e-03, memory = 2/2
+ Sampled frequencies (GHz): 2.320e+00, 2.580e+00, 2.453e+00, 2.524e+00,
+                            2.372e+00, 2.558e+00
+ Sample errors: inf, inf, 2.442e-02, 2.492e-03, 6.391e-05,
+                1.473e-06
+ Total offline phase elapsed time: 5.37e+03 s
+
+Beginning fast frequency sweep online phase
+
+It 1/261: ω/2π = 2.320e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.100256e+01
+ Field energy E (4.325e-10 J) + H (4.784e-10 J) = 9.108e-10 J
+ S[1][1] = +3.196e-02+6.697e-01i, |S[1][1]| = -3.473e+00, arg(S[1][1]) = +8.727e+01
+
+It 2/261: ω/2π = 2.321e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.118024e+01
+ Field energy E (4.355e-10 J) + H (4.812e-10 J) = 9.166e-10 J
+ S[1][1] = +3.553e-02+6.664e-01i, |S[1][1]| = -3.513e+00, arg(S[1][1]) = +8.695e+01
+
+It 3/261: ω/2π = 2.322e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.135827e+01
+ Field energy E (4.385e-10 J) + H (4.839e-10 J) = 9.224e-10 J
+ S[1][1] = +3.909e-02+6.631e-01i, |S[1][1]| = -3.554e+00, arg(S[1][1]) = +8.663e+01
+
+It 4/261: ω/2π = 2.323e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.153662e+01
+ Field energy E (4.415e-10 J) + H (4.867e-10 J) = 9.282e-10 J
+ S[1][1] = +4.264e-02+6.597e-01i, |S[1][1]| = -3.595e+00, arg(S[1][1]) = +8.630e+01
+
+It 5/261: ω/2π = 2.324e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.171528e+01
+ Field energy E (4.445e-10 J) + H (4.895e-10 J) = 9.340e-10 J
+ S[1][1] = +4.618e-02+6.562e-01i, |S[1][1]| = -3.637e+00, arg(S[1][1]) = +8.598e+01
+
+It 6/261: ω/2π = 2.325e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.189424e+01
+ Field energy E (4.476e-10 J) + H (4.923e-10 J) = 9.399e-10 J
+ S[1][1] = +4.970e-02+6.527e-01i, |S[1][1]| = -3.680e+00, arg(S[1][1]) = +8.565e+01
+
+It 7/261: ω/2π = 2.326e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.207347e+01
+ Field energy E (4.507e-10 J) + H (4.951e-10 J) = 9.458e-10 J
+ S[1][1] = +5.321e-02+6.492e-01i, |S[1][1]| = -3.724e+00, arg(S[1][1]) = +8.531e+01
+
+It 8/261: ω/2π = 2.327e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.225296e+01
+ Field energy E (4.538e-10 J) + H (4.979e-10 J) = 9.517e-10 J
+ S[1][1] = +5.671e-02+6.456e-01i, |S[1][1]| = -3.768e+00, arg(S[1][1]) = +8.498e+01
+
+It 9/261: ω/2π = 2.328e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.243269e+01
+ Field energy E (4.569e-10 J) + H (5.008e-10 J) = 9.577e-10 J
+ S[1][1] = +6.020e-02+6.419e-01i, |S[1][1]| = -3.812e+00, arg(S[1][1]) = +8.464e+01
+
+It 10/261: ω/2π = 2.329e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.261265e+01
+ Field energy E (4.600e-10 J) + H (5.036e-10 J) = 9.636e-10 J
+ S[1][1] = +6.367e-02+6.382e-01i, |S[1][1]| = -3.858e+00, arg(S[1][1]) = +8.430e+01
+
+It 11/261: ω/2π = 2.330e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.279280e+01
+ Field energy E (4.631e-10 J) + H (5.065e-10 J) = 9.696e-10 J
+ S[1][1] = +6.712e-02+6.344e-01i, |S[1][1]| = -3.904e+00, arg(S[1][1]) = +8.396e+01
+
+It 12/261: ω/2π = 2.331e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.297315e+01
+ Field energy E (4.663e-10 J) + H (5.094e-10 J) = 9.756e-10 J
+ S[1][1] = +7.056e-02+6.306e-01i, |S[1][1]| = -3.951e+00, arg(S[1][1]) = +8.362e+01
+
+It 13/261: ω/2π = 2.332e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.315365e+01
+ Field energy E (4.695e-10 J) + H (5.122e-10 J) = 9.817e-10 J
+ S[1][1] = +7.398e-02+6.267e-01i, |S[1][1]| = -3.999e+00, arg(S[1][1]) = +8.327e+01
+
+It 14/261: ω/2π = 2.333e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.333430e+01
+ Field energy E (4.726e-10 J) + H (5.151e-10 J) = 9.878e-10 J
+ S[1][1] = +7.738e-02+6.227e-01i, |S[1][1]| = -4.047e+00, arg(S[1][1]) = +8.292e+01
+
+It 15/261: ω/2π = 2.334e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.351507e+01
+ Field energy E (4.758e-10 J) + H (5.180e-10 J) = 9.938e-10 J
+ S[1][1] = +8.076e-02+6.187e-01i, |S[1][1]| = -4.096e+00, arg(S[1][1]) = +8.256e+01
+
+It 16/261: ω/2π = 2.335e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.369595e+01
+ Field energy E (4.790e-10 J) + H (5.209e-10 J) = 9.999e-10 J
+ S[1][1] = +8.411e-02+6.147e-01i, |S[1][1]| = -4.146e+00, arg(S[1][1]) = +8.221e+01
+
+It 17/261: ω/2π = 2.336e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.387690e+01
+ Field energy E (4.822e-10 J) + H (5.238e-10 J) = 1.006e-09 J
+ S[1][1] = +8.745e-02+6.106e-01i, |S[1][1]| = -4.197e+00, arg(S[1][1]) = +8.185e+01
+
+It 18/261: ω/2π = 2.337e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.405791e+01
+ Field energy E (4.855e-10 J) + H (5.268e-10 J) = 1.012e-09 J
+ S[1][1] = +9.076e-02+6.064e-01i, |S[1][1]| = -4.249e+00, arg(S[1][1]) = +8.149e+01
+
+It 19/261: ω/2π = 2.338e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.423895e+01
+ Field energy E (4.887e-10 J) + H (5.297e-10 J) = 1.018e-09 J
+ S[1][1] = +9.405e-02+6.021e-01i, |S[1][1]| = -4.301e+00, arg(S[1][1]) = +8.112e+01
+
+It 20/261: ω/2π = 2.339e+00 GHz (total elapsed time = 5.37e+03 s)
+
+ Sol. ||E|| = 5.441999e+01
+ Field energy E (4.919e-10 J) + H (5.326e-10 J) = 1.025e-09 J
+ S[1][1] = +9.731e-02+5.978e-01i, |S[1][1]| = -4.355e+00, arg(S[1][1]) = +8.075e+01
+
+It 21/261: ω/2π = 2.340e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.460103e+01
+ Field energy E (4.952e-10 J) + H (5.356e-10 J) = 1.031e-09 J
+ S[1][1] = +1.005e-01+5.935e-01i, |S[1][1]| = -4.409e+00, arg(S[1][1]) = +8.038e+01
+
+It 22/261: ω/2π = 2.341e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.478202e+01
+ Field energy E (4.985e-10 J) + H (5.385e-10 J) = 1.037e-09 J
+ S[1][1] = +1.038e-01+5.891e-01i, |S[1][1]| = -4.464e+00, arg(S[1][1]) = +8.001e+01
+
+It 23/261: ω/2π = 2.342e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.496295e+01
+ Field energy E (5.017e-10 J) + H (5.415e-10 J) = 1.043e-09 J
+ S[1][1] = +1.069e-01+5.846e-01i, |S[1][1]| = -4.520e+00, arg(S[1][1]) = +7.963e+01
+
+It 24/261: ω/2π = 2.343e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.514379e+01
+ Field energy E (5.050e-10 J) + H (5.444e-10 J) = 1.049e-09 J
+ S[1][1] = +1.101e-01+5.801e-01i, |S[1][1]| = -4.577e+00, arg(S[1][1]) = +7.925e+01
+
+It 25/261: ω/2π = 2.344e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.532450e+01
+ Field energy E (5.083e-10 J) + H (5.474e-10 J) = 1.056e-09 J
+ S[1][1] = +1.132e-01+5.755e-01i, |S[1][1]| = -4.635e+00, arg(S[1][1]) = +7.887e+01
+
+It 26/261: ω/2π = 2.345e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.550508e+01
+ Field energy E (5.116e-10 J) + H (5.504e-10 J) = 1.062e-09 J
+ S[1][1] = +1.163e-01+5.708e-01i, |S[1][1]| = -4.694e+00, arg(S[1][1]) = +7.848e+01
+
+It 27/261: ω/2π = 2.346e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.568548e+01
+ Field energy E (5.149e-10 J) + H (5.533e-10 J) = 1.068e-09 J
+ S[1][1] = +1.193e-01+5.661e-01i, |S[1][1]| = -4.753e+00, arg(S[1][1]) = +7.810e+01
+
+It 28/261: ω/2π = 2.347e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.586568e+01
+ Field energy E (5.182e-10 J) + H (5.563e-10 J) = 1.075e-09 J
+ S[1][1] = +1.224e-01+5.613e-01i, |S[1][1]| = -4.814e+00, arg(S[1][1]) = +7.770e+01
+
+It 29/261: ω/2π = 2.348e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.604565e+01
+ Field energy E (5.216e-10 J) + H (5.593e-10 J) = 1.081e-09 J
+ S[1][1] = +1.253e-01+5.565e-01i, |S[1][1]| = -4.876e+00, arg(S[1][1]) = +7.731e+01
+
+It 30/261: ω/2π = 2.349e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.622536e+01
+ Field energy E (5.249e-10 J) + H (5.623e-10 J) = 1.087e-09 J
+ S[1][1] = +1.283e-01+5.516e-01i, |S[1][1]| = -4.939e+00, arg(S[1][1]) = +7.691e+01
+
+It 31/261: ω/2π = 2.350e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.640478e+01
+ Field energy E (5.282e-10 J) + H (5.652e-10 J) = 1.093e-09 J
+ S[1][1] = +1.312e-01+5.466e-01i, |S[1][1]| = -5.003e+00, arg(S[1][1]) = +7.650e+01
+
+It 32/261: ω/2π = 2.351e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.658388e+01
+ Field energy E (5.316e-10 J) + H (5.682e-10 J) = 1.100e-09 J
+ S[1][1] = +1.341e-01+5.416e-01i, |S[1][1]| = -5.068e+00, arg(S[1][1]) = +7.610e+01
+
+It 33/261: ω/2π = 2.352e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.676263e+01
+ Field energy E (5.349e-10 J) + H (5.712e-10 J) = 1.106e-09 J
+ S[1][1] = +1.369e-01+5.365e-01i, |S[1][1]| = -5.134e+00, arg(S[1][1]) = +7.569e+01
+
+It 34/261: ω/2π = 2.353e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.694100e+01
+ Field energy E (5.382e-10 J) + H (5.742e-10 J) = 1.112e-09 J
+ S[1][1] = +1.397e-01+5.314e-01i, |S[1][1]| = -5.201e+00, arg(S[1][1]) = +7.527e+01
+
+It 35/261: ω/2π = 2.354e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.711895e+01
+ Field energy E (5.416e-10 J) + H (5.772e-10 J) = 1.119e-09 J
+ S[1][1] = +1.424e-01+5.262e-01i, |S[1][1]| = -5.270e+00, arg(S[1][1]) = +7.486e+01
+
+It 36/261: ω/2π = 2.355e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.729646e+01
+ Field energy E (5.449e-10 J) + H (5.801e-10 J) = 1.125e-09 J
+ S[1][1] = +1.451e-01+5.210e-01i, |S[1][1]| = -5.339e+00, arg(S[1][1]) = +7.444e+01
+
+It 37/261: ω/2π = 2.356e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.747348e+01
+ Field energy E (5.483e-10 J) + H (5.831e-10 J) = 1.131e-09 J
+ S[1][1] = +1.478e-01+5.157e-01i, |S[1][1]| = -5.410e+00, arg(S[1][1]) = +7.401e+01
+
+It 38/261: ω/2π = 2.357e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.764999e+01
+ Field energy E (5.516e-10 J) + H (5.861e-10 J) = 1.138e-09 J
+ S[1][1] = +1.504e-01+5.103e-01i, |S[1][1]| = -5.482e+00, arg(S[1][1]) = +7.358e+01
+
+It 39/261: ω/2π = 2.358e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.782596e+01
+ Field energy E (5.550e-10 J) + H (5.890e-10 J) = 1.144e-09 J
+ S[1][1] = +1.529e-01+5.049e-01i, |S[1][1]| = -5.556e+00, arg(S[1][1]) = +7.315e+01
+
+It 40/261: ω/2π = 2.359e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.800134e+01
+ Field energy E (5.583e-10 J) + H (5.920e-10 J) = 1.150e-09 J
+ S[1][1] = +1.554e-01+4.994e-01i, |S[1][1]| = -5.630e+00, arg(S[1][1]) = +7.271e+01
+
+It 41/261: ω/2π = 2.360e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.817610e+01
+ Field energy E (5.617e-10 J) + H (5.950e-10 J) = 1.157e-09 J
+ S[1][1] = +1.578e-01+4.938e-01i, |S[1][1]| = -5.706e+00, arg(S[1][1]) = +7.227e+01
+
+It 42/261: ω/2π = 2.361e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.835021e+01
+ Field energy E (5.650e-10 J) + H (5.979e-10 J) = 1.163e-09 J
+ S[1][1] = +1.602e-01+4.882e-01i, |S[1][1]| = -5.783e+00, arg(S[1][1]) = +7.183e+01
+
+It 43/261: ω/2π = 2.362e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.852362e+01
+ Field energy E (5.683e-10 J) + H (6.009e-10 J) = 1.169e-09 J
+ S[1][1] = +1.626e-01+4.826e-01i, |S[1][1]| = -5.862e+00, arg(S[1][1]) = +7.138e+01
+
+It 44/261: ω/2π = 2.363e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.869631e+01
+ Field energy E (5.717e-10 J) + H (6.038e-10 J) = 1.175e-09 J
+ S[1][1] = +1.649e-01+4.768e-01i, |S[1][1]| = -5.942e+00, arg(S[1][1]) = +7.093e+01
+
+It 45/261: ω/2π = 2.364e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.886823e+01
+ Field energy E (5.750e-10 J) + H (6.067e-10 J) = 1.182e-09 J
+ S[1][1] = +1.671e-01+4.711e-01i, |S[1][1]| = -6.024e+00, arg(S[1][1]) = +7.047e+01
+
+It 46/261: ω/2π = 2.365e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.903935e+01
+ Field energy E (5.783e-10 J) + H (6.096e-10 J) = 1.188e-09 J
+ S[1][1] = +1.692e-01+4.652e-01i, |S[1][1]| = -6.107e+00, arg(S[1][1]) = +7.001e+01
+
+It 47/261: ω/2π = 2.366e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.920963e+01
+ Field energy E (5.816e-10 J) + H (6.125e-10 J) = 1.194e-09 J
+ S[1][1] = +1.714e-01+4.593e-01i, |S[1][1]| = -6.191e+00, arg(S[1][1]) = +6.954e+01
+
+It 48/261: ω/2π = 2.367e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.937903e+01
+ Field energy E (5.849e-10 J) + H (6.154e-10 J) = 1.200e-09 J
+ S[1][1] = +1.734e-01+4.534e-01i, |S[1][1]| = -6.278e+00, arg(S[1][1]) = +6.907e+01
+
+It 49/261: ω/2π = 2.368e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.954751e+01
+ Field energy E (5.882e-10 J) + H (6.183e-10 J) = 1.207e-09 J
+ S[1][1] = +1.754e-01+4.474e-01i, |S[1][1]| = -6.365e+00, arg(S[1][1]) = +6.860e+01
+
+It 50/261: ω/2π = 2.369e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.971503e+01
+ Field energy E (5.915e-10 J) + H (6.212e-10 J) = 1.213e-09 J
+ S[1][1] = +1.773e-01+4.414e-01i, |S[1][1]| = -6.455e+00, arg(S[1][1]) = +6.812e+01
+
+It 51/261: ω/2π = 2.370e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 5.988156e+01
+ Field energy E (5.948e-10 J) + H (6.240e-10 J) = 1.219e-09 J
+ S[1][1] = +1.791e-01+4.353e-01i, |S[1][1]| = -6.546e+00, arg(S[1][1]) = +6.763e+01
+
+It 52/261: ω/2π = 2.371e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.004704e+01
+ Field energy E (5.981e-10 J) + H (6.269e-10 J) = 1.225e-09 J
+ S[1][1] = +1.809e-01+4.291e-01i, |S[1][1]| = -6.638e+00, arg(S[1][1]) = +6.714e+01
+
+It 53/261: ω/2π = 2.372e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.021145e+01
+ Field energy E (6.013e-10 J) + H (6.297e-10 J) = 1.231e-09 J
+ S[1][1] = +1.826e-01+4.229e-01i, |S[1][1]| = -6.733e+00, arg(S[1][1]) = +6.664e+01
+
+It 54/261: ω/2π = 2.373e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.037473e+01
+ Field energy E (6.045e-10 J) + H (6.325e-10 J) = 1.237e-09 J
+ S[1][1] = +1.843e-01+4.166e-01i, |S[1][1]| = -6.829e+00, arg(S[1][1]) = +6.614e+01
+
+It 55/261: ω/2π = 2.374e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.053685e+01
+ Field energy E (6.078e-10 J) + H (6.353e-10 J) = 1.243e-09 J
+ S[1][1] = +1.858e-01+4.103e-01i, |S[1][1]| = -6.927e+00, arg(S[1][1]) = +6.564e+01
+
+It 56/261: ω/2π = 2.375e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.069777e+01
+ Field energy E (6.110e-10 J) + H (6.380e-10 J) = 1.249e-09 J
+ S[1][1] = +1.873e-01+4.040e-01i, |S[1][1]| = -7.027e+00, arg(S[1][1]) = +6.512e+01
+
+It 57/261: ω/2π = 2.376e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.085744e+01
+ Field energy E (6.142e-10 J) + H (6.408e-10 J) = 1.255e-09 J
+ S[1][1] = +1.887e-01+3.976e-01i, |S[1][1]| = -7.129e+00, arg(S[1][1]) = +6.461e+01
+
+It 58/261: ω/2π = 2.377e+00 GHz (total elapsed time = 5.38e+03 s)
+
+ Sol. ||E|| = 6.101582e+01
+ Field energy E (6.173e-10 J) + H (6.435e-10 J) = 1.261e-09 J
+ S[1][1] = +1.901e-01+3.911e-01i, |S[1][1]| = -7.233e+00, arg(S[1][1]) = +6.408e+01
+
+It 59/261: ω/2π = 2.378e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.117287e+01
+ Field energy E (6.205e-10 J) + H (6.462e-10 J) = 1.267e-09 J
+ S[1][1] = +1.913e-01+3.846e-01i, |S[1][1]| = -7.339e+00, arg(S[1][1]) = +6.355e+01
+
+It 60/261: ω/2π = 2.379e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.132855e+01
+ Field energy E (6.236e-10 J) + H (6.489e-10 J) = 1.273e-09 J
+ S[1][1] = +1.925e-01+3.781e-01i, |S[1][1]| = -7.447e+00, arg(S[1][1]) = +6.302e+01
+
+It 61/261: ω/2π = 2.380e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.148281e+01
+ Field energy E (6.267e-10 J) + H (6.516e-10 J) = 1.278e-09 J
+ S[1][1] = +1.936e-01+3.715e-01i, |S[1][1]| = -7.557e+00, arg(S[1][1]) = +6.247e+01
+
+It 62/261: ω/2π = 2.381e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.163561e+01
+ Field energy E (6.298e-10 J) + H (6.542e-10 J) = 1.284e-09 J
+ S[1][1] = +1.946e-01+3.649e-01i, |S[1][1]| = -7.669e+00, arg(S[1][1]) = +6.193e+01
+
+It 63/261: ω/2π = 2.382e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.178691e+01
+ Field energy E (6.329e-10 J) + H (6.568e-10 J) = 1.290e-09 J
+ S[1][1] = +1.956e-01+3.582e-01i, |S[1][1]| = -7.784e+00, arg(S[1][1]) = +6.137e+01
+
+It 64/261: ω/2π = 2.383e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.193666e+01
+ Field energy E (6.359e-10 J) + H (6.594e-10 J) = 1.295e-09 J
+ S[1][1] = +1.964e-01+3.515e-01i, |S[1][1]| = -7.901e+00, arg(S[1][1]) = +6.081e+01
+
+It 65/261: ω/2π = 2.384e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.208482e+01
+ Field energy E (6.389e-10 J) + H (6.620e-10 J) = 1.301e-09 J
+ S[1][1] = +1.972e-01+3.448e-01i, |S[1][1]| = -8.020e+00, arg(S[1][1]) = +6.024e+01
+
+It 66/261: ω/2π = 2.385e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.223134e+01
+ Field energy E (6.419e-10 J) + H (6.645e-10 J) = 1.306e-09 J
+ S[1][1] = +1.978e-01+3.380e-01i, |S[1][1]| = -8.142e+00, arg(S[1][1]) = +5.966e+01
+
+It 67/261: ω/2π = 2.386e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.237619e+01
+ Field energy E (6.449e-10 J) + H (6.670e-10 J) = 1.312e-09 J
+ S[1][1] = +1.984e-01+3.312e-01i, |S[1][1]| = -8.266e+00, arg(S[1][1]) = +5.907e+01
+
+It 68/261: ω/2π = 2.387e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.251932e+01
+ Field energy E (6.478e-10 J) + H (6.694e-10 J) = 1.317e-09 J
+ S[1][1] = +1.989e-01+3.243e-01i, |S[1][1]| = -8.393e+00, arg(S[1][1]) = +5.848e+01
+
+It 69/261: ω/2π = 2.388e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.266068e+01
+ Field energy E (6.507e-10 J) + H (6.719e-10 J) = 1.323e-09 J
+ S[1][1] = +1.993e-01+3.175e-01i, |S[1][1]| = -8.523e+00, arg(S[1][1]) = +5.788e+01
+
+It 70/261: ω/2π = 2.389e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.280024e+01
+ Field energy E (6.536e-10 J) + H (6.743e-10 J) = 1.328e-09 J
+ S[1][1] = +1.996e-01+3.105e-01i, |S[1][1]| = -8.655e+00, arg(S[1][1]) = +5.726e+01
+
+It 71/261: ω/2π = 2.390e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.293794e+01
+ Field energy E (6.564e-10 J) + H (6.766e-10 J) = 1.333e-09 J
+ S[1][1] = +1.999e-01+3.036e-01i, |S[1][1]| = -8.790e+00, arg(S[1][1]) = +5.664e+01
+
+It 72/261: ω/2π = 2.391e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.307375e+01
+ Field energy E (6.592e-10 J) + H (6.790e-10 J) = 1.338e-09 J
+ S[1][1] = +2.000e-01+2.966e-01i, |S[1][1]| = -8.928e+00, arg(S[1][1]) = +5.601e+01
+
+It 73/261: ω/2π = 2.392e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.320762e+01
+ Field energy E (6.620e-10 J) + H (6.813e-10 J) = 1.343e-09 J
+ S[1][1] = +2.000e-01+2.896e-01i, |S[1][1]| = -9.069e+00, arg(S[1][1]) = +5.537e+01
+
+It 74/261: ω/2π = 2.393e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.333951e+01
+ Field energy E (6.647e-10 J) + H (6.835e-10 J) = 1.348e-09 J
+ S[1][1] = +1.999e-01+2.826e-01i, |S[1][1]| = -9.214e+00, arg(S[1][1]) = +5.472e+01
+
+It 75/261: ω/2π = 2.394e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.346937e+01
+ Field energy E (6.674e-10 J) + H (6.857e-10 J) = 1.353e-09 J
+ S[1][1] = +1.998e-01+2.756e-01i, |S[1][1]| = -9.361e+00, arg(S[1][1]) = +5.406e+01
+
+It 76/261: ω/2π = 2.395e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.359717e+01
+ Field energy E (6.701e-10 J) + H (6.879e-10 J) = 1.358e-09 J
+ S[1][1] = +1.995e-01+2.685e-01i, |S[1][1]| = -9.512e+00, arg(S[1][1]) = +5.339e+01
+
+It 77/261: ω/2π = 2.396e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.372286e+01
+ Field energy E (6.727e-10 J) + H (6.901e-10 J) = 1.363e-09 J
+ S[1][1] = +1.991e-01+2.614e-01i, |S[1][1]| = -9.666e+00, arg(S[1][1]) = +5.270e+01
+
+It 78/261: ω/2π = 2.397e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.384639e+01
+ Field energy E (6.753e-10 J) + H (6.922e-10 J) = 1.367e-09 J
+ S[1][1] = +1.987e-01+2.543e-01i, |S[1][1]| = -9.823e+00, arg(S[1][1]) = +5.200e+01
+
+It 79/261: ω/2π = 2.398e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.396774e+01
+ Field energy E (6.778e-10 J) + H (6.942e-10 J) = 1.372e-09 J
+ S[1][1] = +1.981e-01+2.472e-01i, |S[1][1]| = -9.984e+00, arg(S[1][1]) = +5.129e+01
+
+It 80/261: ω/2π = 2.399e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.408685e+01
+ Field energy E (6.803e-10 J) + H (6.962e-10 J) = 1.377e-09 J
+ S[1][1] = +1.974e-01+2.401e-01i, |S[1][1]| = -1.015e+01, arg(S[1][1]) = +5.057e+01
+
+It 81/261: ω/2π = 2.400e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.420369e+01
+ Field energy E (6.828e-10 J) + H (6.982e-10 J) = 1.381e-09 J
+ S[1][1] = +1.967e-01+2.329e-01i, |S[1][1]| = -1.032e+01, arg(S[1][1]) = +4.983e+01
+
+It 82/261: ω/2π = 2.401e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.431821e+01
+ Field energy E (6.852e-10 J) + H (7.001e-10 J) = 1.385e-09 J
+ S[1][1] = +1.958e-01+2.258e-01i, |S[1][1]| = -1.049e+01, arg(S[1][1]) = +4.907e+01
+
+It 83/261: ω/2π = 2.402e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.443038e+01
+ Field energy E (6.875e-10 J) + H (7.020e-10 J) = 1.390e-09 J
+ S[1][1] = +1.948e-01+2.186e-01i, |S[1][1]| = -1.067e+01, arg(S[1][1]) = +4.830e+01
+
+It 84/261: ω/2π = 2.403e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.454015e+01
+ Field energy E (6.898e-10 J) + H (7.038e-10 J) = 1.394e-09 J
+ S[1][1] = +1.937e-01+2.115e-01i, |S[1][1]| = -1.085e+01, arg(S[1][1]) = +4.751e+01
+
+It 85/261: ω/2π = 2.404e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.464749e+01
+ Field energy E (6.921e-10 J) + H (7.056e-10 J) = 1.398e-09 J
+ S[1][1] = +1.925e-01+2.043e-01i, |S[1][1]| = -1.103e+01, arg(S[1][1]) = +4.671e+01
+
+It 86/261: ω/2π = 2.405e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.475236e+01
+ Field energy E (6.943e-10 J) + H (7.073e-10 J) = 1.402e-09 J
+ S[1][1] = +1.912e-01+1.972e-01i, |S[1][1]| = -1.123e+01, arg(S[1][1]) = +4.588e+01
+
+It 87/261: ω/2π = 2.406e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.485473e+01
+ Field energy E (6.965e-10 J) + H (7.090e-10 J) = 1.405e-09 J
+ S[1][1] = +1.898e-01+1.900e-01i, |S[1][1]| = -1.142e+01, arg(S[1][1]) = +4.503e+01
+
+It 88/261: ω/2π = 2.407e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.495455e+01
+ Field energy E (6.986e-10 J) + H (7.107e-10 J) = 1.409e-09 J
+ S[1][1] = +1.883e-01+1.828e-01i, |S[1][1]| = -1.162e+01, arg(S[1][1]) = +4.416e+01
+
+It 89/261: ω/2π = 2.408e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.505179e+01
+ Field energy E (7.006e-10 J) + H (7.122e-10 J) = 1.413e-09 J
+ S[1][1] = +1.866e-01+1.757e-01i, |S[1][1]| = -1.182e+01, arg(S[1][1]) = +4.327e+01
+
+It 90/261: ω/2π = 2.409e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.514642e+01
+ Field energy E (7.026e-10 J) + H (7.138e-10 J) = 1.416e-09 J
+ S[1][1] = +1.849e-01+1.685e-01i, |S[1][1]| = -1.204e+01, arg(S[1][1]) = +4.235e+01
+
+It 91/261: ω/2π = 2.410e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.523840e+01
+ Field energy E (7.046e-10 J) + H (7.152e-10 J) = 1.420e-09 J
+ S[1][1] = +1.831e-01+1.614e-01i, |S[1][1]| = -1.225e+01, arg(S[1][1]) = +4.140e+01
+
+It 92/261: ω/2π = 2.411e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.532769e+01
+ Field energy E (7.065e-10 J) + H (7.167e-10 J) = 1.423e-09 J
+ S[1][1] = +1.811e-01+1.543e-01i, |S[1][1]| = -1.247e+01, arg(S[1][1]) = +4.042e+01
+
+It 93/261: ω/2π = 2.412e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.541427e+01
+ Field energy E (7.083e-10 J) + H (7.180e-10 J) = 1.426e-09 J
+ S[1][1] = +1.790e-01+1.472e-01i, |S[1][1]| = -1.270e+01, arg(S[1][1]) = +3.942e+01
+
+It 94/261: ω/2π = 2.413e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.549810e+01
+ Field energy E (7.101e-10 J) + H (7.193e-10 J) = 1.429e-09 J
+ S[1][1] = +1.769e-01+1.401e-01i, |S[1][1]| = -1.293e+01, arg(S[1][1]) = +3.837e+01
+
+It 95/261: ω/2π = 2.414e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.557916e+01
+ Field energy E (7.118e-10 J) + H (7.206e-10 J) = 1.432e-09 J
+ S[1][1] = +1.746e-01+1.330e-01i, |S[1][1]| = -1.317e+01, arg(S[1][1]) = +3.730e+01
+
+It 96/261: ω/2π = 2.415e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.565741e+01
+ Field energy E (7.135e-10 J) + H (7.218e-10 J) = 1.435e-09 J
+ S[1][1] = +1.722e-01+1.259e-01i, |S[1][1]| = -1.342e+01, arg(S[1][1]) = +3.618e+01
+
+It 97/261: ω/2π = 2.416e+00 GHz (total elapsed time = 5.39e+03 s)
+
+ Sol. ||E|| = 6.573282e+01
+ Field energy E (7.151e-10 J) + H (7.229e-10 J) = 1.438e-09 J
+ S[1][1] = +1.697e-01+1.189e-01i, |S[1][1]| = -1.367e+01, arg(S[1][1]) = +3.502e+01
+
+It 98/261: ω/2π = 2.417e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.580537e+01
+ Field energy E (7.166e-10 J) + H (7.240e-10 J) = 1.441e-09 J
+ S[1][1] = +1.671e-01+1.119e-01i, |S[1][1]| = -1.393e+01, arg(S[1][1]) = +3.381e+01
+
+It 99/261: ω/2π = 2.418e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.587504e+01
+ Field energy E (7.181e-10 J) + H (7.250e-10 J) = 1.443e-09 J
+ S[1][1] = +1.644e-01+1.049e-01i, |S[1][1]| = -1.420e+01, arg(S[1][1]) = +3.255e+01
+
+It 100/261: ω/2π = 2.419e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.594178e+01
+ Field energy E (7.195e-10 J) + H (7.260e-10 J) = 1.445e-09 J
+ S[1][1] = +1.616e-01+9.799e-02i, |S[1][1]| = -1.447e+01, arg(S[1][1]) = +3.124e+01
+
+It 101/261: ω/2π = 2.420e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.600559e+01
+ Field energy E (7.209e-10 J) + H (7.269e-10 J) = 1.448e-09 J
+ S[1][1] = +1.586e-01+9.108e-02i, |S[1][1]| = -1.475e+01, arg(S[1][1]) = +2.986e+01
+
+It 102/261: ω/2π = 2.421e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.606643e+01
+ Field energy E (7.222e-10 J) + H (7.277e-10 J) = 1.450e-09 J
+ S[1][1] = +1.556e-01+8.420e-02i, |S[1][1]| = -1.504e+01, arg(S[1][1]) = +2.842e+01
+
+It 103/261: ω/2π = 2.422e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.612429e+01
+ Field energy E (7.234e-10 J) + H (7.285e-10 J) = 1.452e-09 J
+ S[1][1] = +1.525e-01+7.737e-02i, |S[1][1]| = -1.534e+01, arg(S[1][1]) = +2.691e+01
+
+It 104/261: ω/2π = 2.423e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.617915e+01
+ Field energy E (7.246e-10 J) + H (7.292e-10 J) = 1.454e-09 J
+ S[1][1] = +1.492e-01+7.057e-02i, |S[1][1]| = -1.565e+01, arg(S[1][1]) = +2.531e+01
+
+It 105/261: ω/2π = 2.424e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.623098e+01
+ Field energy E (7.257e-10 J) + H (7.298e-10 J) = 1.455e-09 J
+ S[1][1] = +1.458e-01+6.382e-02i, |S[1][1]| = -1.596e+01, arg(S[1][1]) = +2.363e+01
+
+It 106/261: ω/2π = 2.425e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.627977e+01
+ Field energy E (7.267e-10 J) + H (7.304e-10 J) = 1.457e-09 J
+ S[1][1] = +1.424e-01+5.711e-02i, |S[1][1]| = -1.628e+01, arg(S[1][1]) = +2.186e+01
+
+It 107/261: ω/2π = 2.426e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.632550e+01
+ Field energy E (7.276e-10 J) + H (7.310e-10 J) = 1.459e-09 J
+ S[1][1] = +1.388e-01+5.045e-02i, |S[1][1]| = -1.661e+01, arg(S[1][1]) = +1.997e+01
+
+It 108/261: ω/2π = 2.427e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.636815e+01
+ Field energy E (7.285e-10 J) + H (7.314e-10 J) = 1.460e-09 J
+ S[1][1] = +1.352e-01+4.384e-02i, |S[1][1]| = -1.695e+01, arg(S[1][1]) = +1.797e+01
+
+It 109/261: ω/2π = 2.428e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.640772e+01
+ Field energy E (7.294e-10 J) + H (7.318e-10 J) = 1.461e-09 J
+ S[1][1] = +1.314e-01+3.728e-02i, |S[1][1]| = -1.729e+01, arg(S[1][1]) = +1.584e+01
+
+It 110/261: ω/2π = 2.429e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.644418e+01
+ Field energy E (7.301e-10 J) + H (7.322e-10 J) = 1.462e-09 J
+ S[1][1] = +1.275e-01+3.077e-02i, |S[1][1]| = -1.764e+01, arg(S[1][1]) = +1.357e+01
+
+It 111/261: ω/2π = 2.430e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.647753e+01
+ Field energy E (7.308e-10 J) + H (7.324e-10 J) = 1.463e-09 J
+ S[1][1] = +1.235e-01+2.432e-02i, |S[1][1]| = -1.800e+01, arg(S[1][1]) = +1.114e+01
+
+It 112/261: ω/2π = 2.431e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.650776e+01
+ Field energy E (7.315e-10 J) + H (7.326e-10 J) = 1.464e-09 J
+ S[1][1] = +1.195e-01+1.793e-02i, |S[1][1]| = -1.836e+01, arg(S[1][1]) = +8.534e+00
+
+It 113/261: ω/2π = 2.432e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.653485e+01
+ Field energy E (7.320e-10 J) + H (7.328e-10 J) = 1.465e-09 J
+ S[1][1] = +1.153e-01+1.160e-02i, |S[1][1]| = -1.872e+01, arg(S[1][1]) = +5.743e+00
+
+It 114/261: ω/2π = 2.433e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.655881e+01
+ Field energy E (7.325e-10 J) + H (7.329e-10 J) = 1.465e-09 J
+ S[1][1] = +1.110e-01+5.329e-03i, |S[1][1]| = -1.908e+01, arg(S[1][1]) = +2.747e+00
+
+It 115/261: ω/2π = 2.434e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.657962e+01
+ Field energy E (7.329e-10 J) + H (7.329e-10 J) = 1.466e-09 J
+ S[1][1] = +1.067e-01-8.757e-04i, |S[1][1]| = -1.944e+01, arg(S[1][1]) = -4.703e-01
+
+It 116/261: ω/2π = 2.435e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.659728e+01
+ Field energy E (7.333e-10 J) + H (7.328e-10 J) = 1.466e-09 J
+ S[1][1] = +1.022e-01-7.014e-03i, |S[1][1]| = -1.979e+01, arg(S[1][1]) = -3.925e+00
+
+It 117/261: ω/2π = 2.436e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.661178e+01
+ Field energy E (7.336e-10 J) + H (7.327e-10 J) = 1.466e-09 J
+ S[1][1] = +9.769e-02-1.308e-02i, |S[1][1]| = -2.013e+01, arg(S[1][1]) = -7.628e+00
+
+It 118/261: ω/2π = 2.437e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.662313e+01
+ Field energy E (7.338e-10 J) + H (7.325e-10 J) = 1.466e-09 J
+ S[1][1] = +9.305e-02-1.908e-02i, |S[1][1]| = -2.045e+01, arg(S[1][1]) = -1.159e+01
+
+It 119/261: ω/2π = 2.438e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.663133e+01
+ Field energy E (7.339e-10 J) + H (7.323e-10 J) = 1.466e-09 J
+ S[1][1] = +8.832e-02-2.501e-02i, |S[1][1]| = -2.074e+01, arg(S[1][1]) = -1.581e+01
+
+It 120/261: ω/2π = 2.439e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.663637e+01
+ Field energy E (7.340e-10 J) + H (7.320e-10 J) = 1.466e-09 J
+ S[1][1] = +8.351e-02-3.086e-02i, |S[1][1]| = -2.101e+01, arg(S[1][1]) = -2.028e+01
+
+It 121/261: ω/2π = 2.440e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.663826e+01
+ Field energy E (7.340e-10 J) + H (7.316e-10 J) = 1.466e-09 J
+ S[1][1] = +7.861e-02-3.664e-02i, |S[1][1]| = -2.124e+01, arg(S[1][1]) = -2.499e+01
+
+It 122/261: ω/2π = 2.441e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.663700e+01
+ Field energy E (7.339e-10 J) + H (7.312e-10 J) = 1.465e-09 J
+ S[1][1] = +7.362e-02-4.234e-02i, |S[1][1]| = -2.142e+01, arg(S[1][1]) = -2.990e+01
+
+It 123/261: ω/2π = 2.442e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.663260e+01
+ Field energy E (7.338e-10 J) + H (7.306e-10 J) = 1.464e-09 J
+ S[1][1] = +6.855e-02-4.795e-02i, |S[1][1]| = -2.155e+01, arg(S[1][1]) = -3.497e+01
+
+It 124/261: ω/2π = 2.443e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.662506e+01
+ Field energy E (7.336e-10 J) + H (7.301e-10 J) = 1.464e-09 J
+ S[1][1] = +6.340e-02-5.349e-02i, |S[1][1]| = -2.162e+01, arg(S[1][1]) = -4.016e+01
+
+It 125/261: ω/2π = 2.444e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.661440e+01
+ Field energy E (7.333e-10 J) + H (7.295e-10 J) = 1.463e-09 J
+ S[1][1] = +5.817e-02-5.894e-02i, |S[1][1]| = -2.164e+01, arg(S[1][1]) = -4.538e+01
+
+It 126/261: ω/2π = 2.445e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.660062e+01
+ Field energy E (7.329e-10 J) + H (7.288e-10 J) = 1.462e-09 J
+ S[1][1] = +5.286e-02-6.431e-02i, |S[1][1]| = -2.159e+01, arg(S[1][1]) = -5.058e+01
+
+It 127/261: ω/2π = 2.446e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.658373e+01
+ Field energy E (7.325e-10 J) + H (7.280e-10 J) = 1.461e-09 J
+ S[1][1] = +4.747e-02-6.960e-02i, |S[1][1]| = -2.149e+01, arg(S[1][1]) = -5.570e+01
+
+It 128/261: ω/2π = 2.447e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.656375e+01
+ Field energy E (7.321e-10 J) + H (7.272e-10 J) = 1.459e-09 J
+ S[1][1] = +4.201e-02-7.479e-02i, |S[1][1]| = -2.133e+01, arg(S[1][1]) = -6.068e+01
+
+It 129/261: ω/2π = 2.448e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.654069e+01
+ Field energy E (7.315e-10 J) + H (7.263e-10 J) = 1.458e-09 J
+ S[1][1] = +3.648e-02-7.990e-02i, |S[1][1]| = -2.113e+01, arg(S[1][1]) = -6.546e+01
+
+It 130/261: ω/2π = 2.449e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.651456e+01
+ Field energy E (7.309e-10 J) + H (7.254e-10 J) = 1.456e-09 J
+ S[1][1] = +3.088e-02-8.492e-02i, |S[1][1]| = -2.088e+01, arg(S[1][1]) = -7.001e+01
+
+It 131/261: ω/2π = 2.450e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.648538e+01
+ Field energy E (7.302e-10 J) + H (7.244e-10 J) = 1.455e-09 J
+ S[1][1] = +2.521e-02-8.984e-02i, |S[1][1]| = -2.060e+01, arg(S[1][1]) = -7.432e+01
+
+It 132/261: ω/2π = 2.451e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.645317e+01
+ Field energy E (7.295e-10 J) + H (7.233e-10 J) = 1.453e-09 J
+ S[1][1] = +1.948e-02-9.467e-02i, |S[1][1]| = -2.030e+01, arg(S[1][1]) = -7.837e+01
+
+It 133/261: ω/2π = 2.452e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.641795e+01
+ Field energy E (7.287e-10 J) + H (7.222e-10 J) = 1.451e-09 J
+ S[1][1] = +1.368e-02-9.941e-02i, |S[1][1]| = -1.997e+01, arg(S[1][1]) = -8.217e+01
+
+It 134/261: ω/2π = 2.453e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.637974e+01
+ Field energy E (7.278e-10 J) + H (7.210e-10 J) = 1.449e-09 J
+ S[1][1] = +7.819e-03-1.041e-01i, |S[1][1]| = -1.963e+01, arg(S[1][1]) = -8.570e+01
+
+It 135/261: ω/2π = 2.454e+00 GHz (total elapsed time = 5.40e+03 s)
+
+ Sol. ||E|| = 6.633855e+01
+ Field energy E (7.268e-10 J) + H (7.198e-10 J) = 1.447e-09 J
+ S[1][1] = +1.898e-03-1.086e-01i, |S[1][1]| = -1.928e+01, arg(S[1][1]) = -8.900e+01
+
+It 136/261: ω/2π = 2.455e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.629442e+01
+ Field energy E (7.258e-10 J) + H (7.185e-10 J) = 1.444e-09 J
+ S[1][1] = -4.080e-03-1.131e-01i, |S[1][1]| = -1.893e+01, arg(S[1][1]) = -9.207e+01
+
+It 137/261: ω/2π = 2.456e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.624736e+01
+ Field energy E (7.248e-10 J) + H (7.171e-10 J) = 1.442e-09 J
+ S[1][1] = -1.011e-02-1.174e-01i, |S[1][1]| = -1.857e+01, arg(S[1][1]) = -9.492e+01
+
+It 138/261: ω/2π = 2.457e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.619740e+01
+ Field energy E (7.236e-10 J) + H (7.157e-10 J) = 1.439e-09 J
+ S[1][1] = -1.620e-02-1.217e-01i, |S[1][1]| = -1.822e+01, arg(S[1][1]) = -9.758e+01
+
+It 139/261: ω/2π = 2.458e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.614456e+01
+ Field energy E (7.224e-10 J) + H (7.143e-10 J) = 1.437e-09 J
+ S[1][1] = -2.234e-02-1.258e-01i, |S[1][1]| = -1.787e+01, arg(S[1][1]) = -1.001e+02
+
+It 140/261: ω/2π = 2.459e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.608888e+01
+ Field energy E (7.212e-10 J) + H (7.128e-10 J) = 1.434e-09 J
+ S[1][1] = -2.852e-02-1.299e-01i, |S[1][1]| = -1.753e+01, arg(S[1][1]) = -1.024e+02
+
+It 141/261: ω/2π = 2.460e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.603038e+01
+ Field energy E (7.199e-10 J) + H (7.112e-10 J) = 1.431e-09 J
+ S[1][1] = -3.476e-02-1.338e-01i, |S[1][1]| = -1.719e+01, arg(S[1][1]) = -1.046e+02
+
+It 142/261: ω/2π = 2.461e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.596909e+01
+ Field energy E (7.185e-10 J) + H (7.096e-10 J) = 1.428e-09 J
+ S[1][1] = -4.103e-02-1.377e-01i, |S[1][1]| = -1.685e+01, arg(S[1][1]) = -1.066e+02
+
+It 143/261: ω/2π = 2.462e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.590504e+01
+ Field energy E (7.170e-10 J) + H (7.079e-10 J) = 1.425e-09 J
+ S[1][1] = -4.735e-02-1.414e-01i, |S[1][1]| = -1.653e+01, arg(S[1][1]) = -1.085e+02
+
+It 144/261: ω/2π = 2.463e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.583826e+01
+ Field energy E (7.156e-10 J) + H (7.062e-10 J) = 1.422e-09 J
+ S[1][1] = -5.371e-02-1.451e-01i, |S[1][1]| = -1.621e+01, arg(S[1][1]) = -1.103e+02
+
+It 145/261: ω/2π = 2.464e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.576879e+01
+ Field energy E (7.140e-10 J) + H (7.044e-10 J) = 1.418e-09 J
+ S[1][1] = -6.011e-02-1.486e-01i, |S[1][1]| = -1.590e+01, arg(S[1][1]) = -1.120e+02
+
+It 146/261: ω/2π = 2.465e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.569665e+01
+ Field energy E (7.124e-10 J) + H (7.026e-10 J) = 1.415e-09 J
+ S[1][1] = -6.654e-02-1.520e-01i, |S[1][1]| = -1.560e+01, arg(S[1][1]) = -1.136e+02
+
+It 147/261: ω/2π = 2.466e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.562188e+01
+ Field energy E (7.107e-10 J) + H (7.007e-10 J) = 1.411e-09 J
+ S[1][1] = -7.300e-02-1.554e-01i, |S[1][1]| = -1.531e+01, arg(S[1][1]) = -1.152e+02
+
+It 148/261: ω/2π = 2.467e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.554451e+01
+ Field energy E (7.090e-10 J) + H (6.988e-10 J) = 1.408e-09 J
+ S[1][1] = -7.950e-02-1.586e-01i, |S[1][1]| = -1.502e+01, arg(S[1][1]) = -1.166e+02
+
+It 149/261: ω/2π = 2.468e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.546459e+01
+ Field energy E (7.073e-10 J) + H (6.968e-10 J) = 1.404e-09 J
+ S[1][1] = -8.602e-02-1.617e-01i, |S[1][1]| = -1.474e+01, arg(S[1][1]) = -1.180e+02
+
+It 150/261: ω/2π = 2.469e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.538214e+01
+ Field energy E (7.054e-10 J) + H (6.948e-10 J) = 1.400e-09 J
+ S[1][1] = -9.258e-02-1.647e-01i, |S[1][1]| = -1.447e+01, arg(S[1][1]) = -1.193e+02
+
+It 151/261: ω/2π = 2.470e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.529721e+01
+ Field energy E (7.036e-10 J) + H (6.928e-10 J) = 1.396e-09 J
+ S[1][1] = -9.915e-02-1.676e-01i, |S[1][1]| = -1.421e+01, arg(S[1][1]) = -1.206e+02
+
+It 152/261: ω/2π = 2.471e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.520982e+01
+ Field energy E (7.016e-10 J) + H (6.907e-10 J) = 1.392e-09 J
+ S[1][1] = -1.057e-01-1.705e-01i, |S[1][1]| = -1.395e+01, arg(S[1][1]) = -1.218e+02
+
+It 153/261: ω/2π = 2.472e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.512003e+01
+ Field energy E (6.997e-10 J) + H (6.885e-10 J) = 1.388e-09 J
+ S[1][1] = -1.124e-01-1.732e-01i, |S[1][1]| = -1.370e+01, arg(S[1][1]) = -1.230e+02
+
+It 154/261: ω/2π = 2.473e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.502786e+01
+ Field energy E (6.977e-10 J) + H (6.863e-10 J) = 1.384e-09 J
+ S[1][1] = -1.190e-01-1.758e-01i, |S[1][1]| = -1.346e+01, arg(S[1][1]) = -1.241e+02
+
+It 155/261: ω/2π = 2.474e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.493336e+01
+ Field energy E (6.956e-10 J) + H (6.841e-10 J) = 1.380e-09 J
+ S[1][1] = -1.257e-01-1.783e-01i, |S[1][1]| = -1.323e+01, arg(S[1][1]) = -1.252e+02
+
+It 156/261: ω/2π = 2.475e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.483656e+01
+ Field energy E (6.935e-10 J) + H (6.819e-10 J) = 1.375e-09 J
+ S[1][1] = -1.323e-01-1.807e-01i, |S[1][1]| = -1.300e+01, arg(S[1][1]) = -1.262e+02
+
+It 157/261: ω/2π = 2.476e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.473752e+01
+ Field energy E (6.913e-10 J) + H (6.796e-10 J) = 1.371e-09 J
+ S[1][1] = -1.390e-01-1.830e-01i, |S[1][1]| = -1.277e+01, arg(S[1][1]) = -1.272e+02
+
+It 158/261: ω/2π = 2.477e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.463626e+01
+ Field energy E (6.891e-10 J) + H (6.772e-10 J) = 1.366e-09 J
+ S[1][1] = -1.457e-01-1.851e-01i, |S[1][1]| = -1.256e+01, arg(S[1][1]) = -1.282e+02
+
+It 159/261: ω/2π = 2.478e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.453282e+01
+ Field energy E (6.869e-10 J) + H (6.748e-10 J) = 1.362e-09 J
+ S[1][1] = -1.524e-01-1.872e-01i, |S[1][1]| = -1.235e+01, arg(S[1][1]) = -1.291e+02
+
+It 160/261: ω/2π = 2.479e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.442726e+01
+ Field energy E (6.846e-10 J) + H (6.724e-10 J) = 1.357e-09 J
+ S[1][1] = -1.591e-01-1.892e-01i, |S[1][1]| = -1.214e+01, arg(S[1][1]) = -1.301e+02
+
+It 161/261: ω/2π = 2.480e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.431962e+01
+ Field energy E (6.823e-10 J) + H (6.700e-10 J) = 1.352e-09 J
+ S[1][1] = -1.658e-01-1.911e-01i, |S[1][1]| = -1.194e+01, arg(S[1][1]) = -1.309e+02
+
+It 162/261: ω/2π = 2.481e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.420992e+01
+ Field energy E (6.799e-10 J) + H (6.675e-10 J) = 1.347e-09 J
+ S[1][1] = -1.725e-01-1.929e-01i, |S[1][1]| = -1.174e+01, arg(S[1][1]) = -1.318e+02
+
+It 163/261: ω/2π = 2.482e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.409823e+01
+ Field energy E (6.775e-10 J) + H (6.650e-10 J) = 1.343e-09 J
+ S[1][1] = -1.792e-01-1.945e-01i, |S[1][1]| = -1.155e+01, arg(S[1][1]) = -1.326e+02
+
+It 164/261: ω/2π = 2.483e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.398457e+01
+ Field energy E (6.751e-10 J) + H (6.625e-10 J) = 1.338e-09 J
+ S[1][1] = -1.859e-01-1.961e-01i, |S[1][1]| = -1.137e+01, arg(S[1][1]) = -1.335e+02
+
+It 165/261: ω/2π = 2.484e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.386900e+01
+ Field energy E (6.726e-10 J) + H (6.599e-10 J) = 1.333e-09 J
+ S[1][1] = -1.926e-01-1.976e-01i, |S[1][1]| = -1.118e+01, arg(S[1][1]) = -1.343e+02
+
+It 166/261: ω/2π = 2.485e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.375155e+01
+ Field energy E (6.701e-10 J) + H (6.573e-10 J) = 1.327e-09 J
+ S[1][1] = -1.992e-01-1.990e-01i, |S[1][1]| = -1.101e+01, arg(S[1][1]) = -1.350e+02
+
+It 167/261: ω/2π = 2.486e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.363227e+01
+ Field energy E (6.675e-10 J) + H (6.547e-10 J) = 1.322e-09 J
+ S[1][1] = -2.059e-01-2.003e-01i, |S[1][1]| = -1.084e+01, arg(S[1][1]) = -1.358e+02
+
+It 168/261: ω/2π = 2.487e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.351120e+01
+ Field energy E (6.650e-10 J) + H (6.521e-10 J) = 1.317e-09 J
+ S[1][1] = -2.126e-01-2.014e-01i, |S[1][1]| = -1.067e+01, arg(S[1][1]) = -1.365e+02
+
+It 169/261: ω/2π = 2.488e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.338839e+01
+ Field energy E (6.623e-10 J) + H (6.494e-10 J) = 1.312e-09 J
+ S[1][1] = -2.192e-01-2.025e-01i, |S[1][1]| = -1.050e+01, arg(S[1][1]) = -1.373e+02
+
+It 170/261: ω/2π = 2.489e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.326388e+01
+ Field energy E (6.597e-10 J) + H (6.467e-10 J) = 1.306e-09 J
+ S[1][1] = -2.259e-01-2.035e-01i, |S[1][1]| = -1.034e+01, arg(S[1][1]) = -1.380e+02
+
+It 171/261: ω/2π = 2.490e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.313771e+01
+ Field energy E (6.570e-10 J) + H (6.440e-10 J) = 1.301e-09 J
+ S[1][1] = -2.325e-01-2.044e-01i, |S[1][1]| = -1.018e+01, arg(S[1][1]) = -1.387e+02
+
+It 172/261: ω/2π = 2.491e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.300993e+01
+ Field energy E (6.543e-10 J) + H (6.412e-10 J) = 1.296e-09 J
+ S[1][1] = -2.391e-01-2.052e-01i, |S[1][1]| = -1.003e+01, arg(S[1][1]) = -1.394e+02
+
+It 173/261: ω/2π = 2.492e+00 GHz (total elapsed time = 5.41e+03 s)
+
+ Sol. ||E|| = 6.288058e+01
+ Field energy E (6.516e-10 J) + H (6.385e-10 J) = 1.290e-09 J
+ S[1][1] = -2.457e-01-2.059e-01i, |S[1][1]| = -9.881e+00, arg(S[1][1]) = -1.400e+02
+
+It 174/261: ω/2π = 2.493e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.274970e+01
+ Field energy E (6.489e-10 J) + H (6.357e-10 J) = 1.285e-09 J
+ S[1][1] = -2.523e-01-2.065e-01i, |S[1][1]| = -9.734e+00, arg(S[1][1]) = -1.407e+02
+
+It 175/261: ω/2π = 2.494e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.261734e+01
+ Field energy E (6.461e-10 J) + H (6.329e-10 J) = 1.279e-09 J
+ S[1][1] = -2.589e-01-2.071e-01i, |S[1][1]| = -9.591e+00, arg(S[1][1]) = -1.413e+02
+
+It 176/261: ω/2π = 2.495e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.248353e+01
+ Field energy E (6.433e-10 J) + H (6.301e-10 J) = 1.273e-09 J
+ S[1][1] = -2.654e-01-2.075e-01i, |S[1][1]| = -9.451e+00, arg(S[1][1]) = -1.420e+02
+
+It 177/261: ω/2π = 2.496e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.234833e+01
+ Field energy E (6.405e-10 J) + H (6.272e-10 J) = 1.268e-09 J
+ S[1][1] = -2.719e-01-2.078e-01i, |S[1][1]| = -9.314e+00, arg(S[1][1]) = -1.426e+02
+
+It 178/261: ω/2π = 2.497e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.221178e+01
+ Field energy E (6.376e-10 J) + H (6.244e-10 J) = 1.262e-09 J
+ S[1][1] = -2.784e-01-2.081e-01i, |S[1][1]| = -9.179e+00, arg(S[1][1]) = -1.432e+02
+
+It 179/261: ω/2π = 2.498e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.207391e+01
+ Field energy E (6.348e-10 J) + H (6.215e-10 J) = 1.256e-09 J
+ S[1][1] = -2.848e-01-2.083e-01i, |S[1][1]| = -9.048e+00, arg(S[1][1]) = -1.438e+02
+
+It 180/261: ω/2π = 2.499e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.193477e+01
+ Field energy E (6.319e-10 J) + H (6.186e-10 J) = 1.251e-09 J
+ S[1][1] = -2.912e-01-2.084e-01i, |S[1][1]| = -8.920e+00, arg(S[1][1]) = -1.444e+02
+
+It 181/261: ω/2π = 2.500e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.179440e+01
+ Field energy E (6.290e-10 J) + H (6.157e-10 J) = 1.245e-09 J
+ S[1][1] = -2.976e-01-2.084e-01i, |S[1][1]| = -8.794e+00, arg(S[1][1]) = -1.450e+02
+
+It 182/261: ω/2π = 2.501e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.165284e+01
+ Field energy E (6.261e-10 J) + H (6.128e-10 J) = 1.239e-09 J
+ S[1][1] = -3.040e-01-2.083e-01i, |S[1][1]| = -8.671e+00, arg(S[1][1]) = -1.456e+02
+
+It 183/261: ω/2π = 2.502e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.151015e+01
+ Field energy E (6.232e-10 J) + H (6.099e-10 J) = 1.233e-09 J
+ S[1][1] = -3.103e-01-2.081e-01i, |S[1][1]| = -8.550e+00, arg(S[1][1]) = -1.462e+02
+
+It 184/261: ω/2π = 2.503e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.136634e+01
+ Field energy E (6.202e-10 J) + H (6.070e-10 J) = 1.227e-09 J
+ S[1][1] = -3.166e-01-2.079e-01i, |S[1][1]| = -8.432e+00, arg(S[1][1]) = -1.467e+02
+
+It 185/261: ω/2π = 2.504e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.122148e+01
+ Field energy E (6.173e-10 J) + H (6.041e-10 J) = 1.221e-09 J
+ S[1][1] = -3.229e-01-2.076e-01i, |S[1][1]| = -8.317e+00, arg(S[1][1]) = -1.473e+02
+
+It 186/261: ω/2π = 2.505e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.107559e+01
+ Field energy E (6.143e-10 J) + H (6.011e-10 J) = 1.215e-09 J
+ S[1][1] = -3.291e-01-2.072e-01i, |S[1][1]| = -8.203e+00, arg(S[1][1]) = -1.478e+02
+
+It 187/261: ω/2π = 2.506e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.092872e+01
+ Field energy E (6.113e-10 J) + H (5.982e-10 J) = 1.209e-09 J
+ S[1][1] = -3.353e-01-2.067e-01i, |S[1][1]| = -8.092e+00, arg(S[1][1]) = -1.484e+02
+
+It 188/261: ω/2π = 2.507e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.078091e+01
+ Field energy E (6.083e-10 J) + H (5.952e-10 J) = 1.204e-09 J
+ S[1][1] = -3.415e-01-2.061e-01i, |S[1][1]| = -7.983e+00, arg(S[1][1]) = -1.489e+02
+
+It 189/261: ω/2π = 2.508e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.063219e+01
+ Field energy E (6.053e-10 J) + H (5.922e-10 J) = 1.198e-09 J
+ S[1][1] = -3.476e-01-2.055e-01i, |S[1][1]| = -7.877e+00, arg(S[1][1]) = -1.494e+02
+
+It 190/261: ω/2π = 2.509e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.048261e+01
+ Field energy E (6.023e-10 J) + H (5.893e-10 J) = 1.192e-09 J
+ S[1][1] = -3.537e-01-2.048e-01i, |S[1][1]| = -7.772e+00, arg(S[1][1]) = -1.499e+02
+
+It 191/261: ω/2π = 2.510e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.033220e+01
+ Field energy E (5.992e-10 J) + H (5.863e-10 J) = 1.186e-09 J
+ S[1][1] = -3.597e-01-2.040e-01i, |S[1][1]| = -7.670e+00, arg(S[1][1]) = -1.504e+02
+
+It 192/261: ω/2π = 2.511e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.018101e+01
+ Field energy E (5.962e-10 J) + H (5.833e-10 J) = 1.180e-09 J
+ S[1][1] = -3.657e-01-2.032e-01i, |S[1][1]| = -7.569e+00, arg(S[1][1]) = -1.509e+02
+
+It 193/261: ω/2π = 2.512e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 6.002907e+01
+ Field energy E (5.932e-10 J) + H (5.804e-10 J) = 1.174e-09 J
+ S[1][1] = -3.717e-01-2.023e-01i, |S[1][1]| = -7.471e+00, arg(S[1][1]) = -1.514e+02
+
+It 194/261: ω/2π = 2.513e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.987641e+01
+ Field energy E (5.901e-10 J) + H (5.774e-10 J) = 1.167e-09 J
+ S[1][1] = -3.776e-01-2.013e-01i, |S[1][1]| = -7.374e+00, arg(S[1][1]) = -1.519e+02
+
+It 195/261: ω/2π = 2.514e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.972308e+01
+ Field energy E (5.871e-10 J) + H (5.744e-10 J) = 1.161e-09 J
+ S[1][1] = -3.834e-01-2.002e-01i, |S[1][1]| = -7.279e+00, arg(S[1][1]) = -1.524e+02
+
+It 196/261: ω/2π = 2.515e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.956910e+01
+ Field energy E (5.840e-10 J) + H (5.714e-10 J) = 1.155e-09 J
+ S[1][1] = -3.893e-01-1.991e-01i, |S[1][1]| = -7.186e+00, arg(S[1][1]) = -1.529e+02
+
+It 197/261: ω/2π = 2.516e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.941452e+01
+ Field energy E (5.809e-10 J) + H (5.684e-10 J) = 1.149e-09 J
+ S[1][1] = -3.950e-01-1.979e-01i, |S[1][1]| = -7.095e+00, arg(S[1][1]) = -1.534e+02
+
+It 198/261: ω/2π = 2.517e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.925938e+01
+ Field energy E (5.779e-10 J) + H (5.654e-10 J) = 1.143e-09 J
+ S[1][1] = -4.008e-01-1.967e-01i, |S[1][1]| = -7.005e+00, arg(S[1][1]) = -1.539e+02
+
+It 199/261: ω/2π = 2.518e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.910370e+01
+ Field energy E (5.748e-10 J) + H (5.625e-10 J) = 1.137e-09 J
+ S[1][1] = -4.065e-01-1.954e-01i, |S[1][1]| = -6.917e+00, arg(S[1][1]) = -1.543e+02
+
+It 200/261: ω/2π = 2.519e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.894751e+01
+ Field energy E (5.717e-10 J) + H (5.595e-10 J) = 1.131e-09 J
+ S[1][1] = -4.121e-01-1.940e-01i, |S[1][1]| = -6.831e+00, arg(S[1][1]) = -1.548e+02
+
+It 201/261: ω/2π = 2.520e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.879087e+01
+ Field energy E (5.687e-10 J) + H (5.565e-10 J) = 1.125e-09 J
+ S[1][1] = -4.177e-01-1.926e-01i, |S[1][1]| = -6.746e+00, arg(S[1][1]) = -1.552e+02
+
+It 202/261: ω/2π = 2.521e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.863378e+01
+ Field energy E (5.656e-10 J) + H (5.535e-10 J) = 1.119e-09 J
+ S[1][1] = -4.232e-01-1.911e-01i, |S[1][1]| = -6.663e+00, arg(S[1][1]) = -1.557e+02
+
+It 203/261: ω/2π = 2.522e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.847630e+01
+ Field energy E (5.625e-10 J) + H (5.506e-10 J) = 1.113e-09 J
+ S[1][1] = -4.287e-01-1.895e-01i, |S[1][1]| = -6.581e+00, arg(S[1][1]) = -1.562e+02
+
+It 204/261: ω/2π = 2.523e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.831845e+01
+ Field energy E (5.595e-10 J) + H (5.476e-10 J) = 1.107e-09 J
+ S[1][1] = -4.342e-01-1.879e-01i, |S[1][1]| = -6.501e+00, arg(S[1][1]) = -1.566e+02
+
+It 205/261: ω/2π = 2.524e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.816026e+01
+ Field energy E (5.564e-10 J) + H (5.447e-10 J) = 1.101e-09 J
+ S[1][1] = -4.396e-01-1.863e-01i, |S[1][1]| = -6.422e+00, arg(S[1][1]) = -1.570e+02
+
+It 206/261: ω/2π = 2.525e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.800176e+01
+ Field energy E (5.534e-10 J) + H (5.417e-10 J) = 1.095e-09 J
+ S[1][1] = -4.449e-01-1.846e-01i, |S[1][1]| = -6.344e+00, arg(S[1][1]) = -1.575e+02
+
+It 207/261: ω/2π = 2.526e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.784299e+01
+ Field energy E (5.503e-10 J) + H (5.388e-10 J) = 1.089e-09 J
+ S[1][1] = -4.502e-01-1.828e-01i, |S[1][1]| = -6.268e+00, arg(S[1][1]) = -1.579e+02
+
+It 208/261: ω/2π = 2.527e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.768398e+01
+ Field energy E (5.472e-10 J) + H (5.358e-10 J) = 1.083e-09 J
+ S[1][1] = -4.555e-01-1.810e-01i, |S[1][1]| = -6.194e+00, arg(S[1][1]) = -1.583e+02
+
+It 209/261: ω/2π = 2.528e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.752474e+01
+ Field energy E (5.442e-10 J) + H (5.329e-10 J) = 1.077e-09 J
+ S[1][1] = -4.607e-01-1.791e-01i, |S[1][1]| = -6.120e+00, arg(S[1][1]) = -1.588e+02
+
+It 210/261: ω/2π = 2.529e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.736532e+01
+ Field energy E (5.411e-10 J) + H (5.300e-10 J) = 1.071e-09 J
+ S[1][1] = -4.658e-01-1.772e-01i, |S[1][1]| = -6.048e+00, arg(S[1][1]) = -1.592e+02
+
+It 211/261: ω/2π = 2.530e+00 GHz (total elapsed time = 5.42e+03 s)
+
+ Sol. ||E|| = 5.720574e+01
+ Field energy E (5.381e-10 J) + H (5.271e-10 J) = 1.065e-09 J
+ S[1][1] = -4.709e-01-1.753e-01i, |S[1][1]| = -5.977e+00, arg(S[1][1]) = -1.596e+02
+
+It 212/261: ω/2π = 2.531e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.704603e+01
+ Field energy E (5.351e-10 J) + H (5.242e-10 J) = 1.059e-09 J
+ S[1][1] = -4.760e-01-1.733e-01i, |S[1][1]| = -5.908e+00, arg(S[1][1]) = -1.600e+02
+
+It 213/261: ω/2π = 2.532e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.688621e+01
+ Field energy E (5.320e-10 J) + H (5.213e-10 J) = 1.053e-09 J
+ S[1][1] = -4.810e-01-1.712e-01i, |S[1][1]| = -5.839e+00, arg(S[1][1]) = -1.604e+02
+
+It 214/261: ω/2π = 2.533e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.672631e+01
+ Field energy E (5.290e-10 J) + H (5.184e-10 J) = 1.047e-09 J
+ S[1][1] = -4.859e-01-1.691e-01i, |S[1][1]| = -5.772e+00, arg(S[1][1]) = -1.608e+02
+
+It 215/261: ω/2π = 2.534e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.656637e+01
+ Field energy E (5.260e-10 J) + H (5.155e-10 J) = 1.042e-09 J
+ S[1][1] = -4.908e-01-1.670e-01i, |S[1][1]| = -5.706e+00, arg(S[1][1]) = -1.612e+02
+
+It 216/261: ω/2π = 2.535e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.640639e+01
+ Field energy E (5.230e-10 J) + H (5.127e-10 J) = 1.036e-09 J
+ S[1][1] = -4.957e-01-1.648e-01i, |S[1][1]| = -5.641e+00, arg(S[1][1]) = -1.616e+02
+
+It 217/261: ω/2π = 2.536e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.624642e+01
+ Field energy E (5.200e-10 J) + H (5.098e-10 J) = 1.030e-09 J
+ S[1][1] = -5.005e-01-1.626e-01i, |S[1][1]| = -5.577e+00, arg(S[1][1]) = -1.620e+02
+
+It 218/261: ω/2π = 2.537e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.608647e+01
+ Field energy E (5.170e-10 J) + H (5.070e-10 J) = 1.024e-09 J
+ S[1][1] = -5.052e-01-1.603e-01i, |S[1][1]| = -5.514e+00, arg(S[1][1]) = -1.624e+02
+
+It 219/261: ω/2π = 2.538e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.592657e+01
+ Field energy E (5.141e-10 J) + H (5.042e-10 J) = 1.018e-09 J
+ S[1][1] = -5.099e-01-1.580e-01i, |S[1][1]| = -5.452e+00, arg(S[1][1]) = -1.628e+02
+
+It 220/261: ω/2π = 2.539e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.576673e+01
+ Field energy E (5.111e-10 J) + H (5.013e-10 J) = 1.012e-09 J
+ S[1][1] = -5.145e-01-1.557e-01i, |S[1][1]| = -5.391e+00, arg(S[1][1]) = -1.632e+02
+
+It 221/261: ω/2π = 2.540e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.560699e+01
+ Field energy E (5.081e-10 J) + H (4.985e-10 J) = 1.007e-09 J
+ S[1][1] = -5.191e-01-1.533e-01i, |S[1][1]| = -5.331e+00, arg(S[1][1]) = -1.635e+02
+
+It 222/261: ω/2π = 2.541e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.544737e+01
+ Field energy E (5.052e-10 J) + H (4.958e-10 J) = 1.001e-09 J
+ S[1][1] = -5.237e-01-1.509e-01i, |S[1][1]| = -5.272e+00, arg(S[1][1]) = -1.639e+02
+
+It 223/261: ω/2π = 2.542e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.528789e+01
+ Field energy E (5.023e-10 J) + H (4.930e-10 J) = 9.952e-10 J
+ S[1][1] = -5.281e-01-1.485e-01i, |S[1][1]| = -5.214e+00, arg(S[1][1]) = -1.643e+02
+
+It 224/261: ω/2π = 2.543e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.512856e+01
+ Field energy E (4.994e-10 J) + H (4.902e-10 J) = 9.896e-10 J
+ S[1][1] = -5.326e-01-1.460e-01i, |S[1][1]| = -5.158e+00, arg(S[1][1]) = -1.647e+02
+
+It 225/261: ω/2π = 2.544e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.496942e+01
+ Field energy E (4.964e-10 J) + H (4.875e-10 J) = 9.839e-10 J
+ S[1][1] = -5.370e-01-1.435e-01i, |S[1][1]| = -5.102e+00, arg(S[1][1]) = -1.650e+02
+
+It 226/261: ω/2π = 2.545e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.481047e+01
+ Field energy E (4.935e-10 J) + H (4.847e-10 J) = 9.783e-10 J
+ S[1][1] = -5.413e-01-1.410e-01i, |S[1][1]| = -5.046e+00, arg(S[1][1]) = -1.654e+02
+
+It 227/261: ω/2π = 2.546e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.465175e+01
+ Field energy E (4.907e-10 J) + H (4.820e-10 J) = 9.727e-10 J
+ S[1][1] = -5.456e-01-1.384e-01i, |S[1][1]| = -4.992e+00, arg(S[1][1]) = -1.658e+02
+
+It 228/261: ω/2π = 2.547e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.449326e+01
+ Field energy E (4.878e-10 J) + H (4.793e-10 J) = 9.671e-10 J
+ S[1][1] = -5.498e-01-1.358e-01i, |S[1][1]| = -4.939e+00, arg(S[1][1]) = -1.661e+02
+
+It 229/261: ω/2π = 2.548e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.433504e+01
+ Field energy E (4.849e-10 J) + H (4.766e-10 J) = 9.616e-10 J
+ S[1][1] = -5.540e-01-1.332e-01i, |S[1][1]| = -4.886e+00, arg(S[1][1]) = -1.665e+02
+
+It 230/261: ω/2π = 2.549e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.417709e+01
+ Field energy E (4.821e-10 J) + H (4.739e-10 J) = 9.560e-10 J
+ S[1][1] = -5.581e-01-1.306e-01i, |S[1][1]| = -4.835e+00, arg(S[1][1]) = -1.668e+02
+
+It 231/261: ω/2π = 2.550e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.401944e+01
+ Field energy E (4.793e-10 J) + H (4.713e-10 J) = 9.505e-10 J
+ S[1][1] = -5.622e-01-1.279e-01i, |S[1][1]| = -4.784e+00, arg(S[1][1]) = -1.672e+02
+
+It 232/261: ω/2π = 2.551e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.386210e+01
+ Field energy E (4.764e-10 J) + H (4.686e-10 J) = 9.451e-10 J
+ S[1][1] = -5.662e-01-1.252e-01i, |S[1][1]| = -4.734e+00, arg(S[1][1]) = -1.675e+02
+
+It 233/261: ω/2π = 2.552e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.370509e+01
+ Field energy E (4.736e-10 J) + H (4.660e-10 J) = 9.397e-10 J
+ S[1][1] = -5.701e-01-1.224e-01i, |S[1][1]| = -4.684e+00, arg(S[1][1]) = -1.679e+02
+
+It 234/261: ω/2π = 2.553e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.354843e+01
+ Field energy E (4.709e-10 J) + H (4.634e-10 J) = 9.343e-10 J
+ S[1][1] = -5.741e-01-1.197e-01i, |S[1][1]| = -4.636e+00, arg(S[1][1]) = -1.682e+02
+
+It 235/261: ω/2π = 2.554e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.339212e+01
+ Field energy E (4.681e-10 J) + H (4.608e-10 J) = 9.289e-10 J
+ S[1][1] = -5.779e-01-1.169e-01i, |S[1][1]| = -4.588e+00, arg(S[1][1]) = -1.686e+02
+
+It 236/261: ω/2π = 2.555e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.323620e+01
+ Field energy E (4.653e-10 J) + H (4.582e-10 J) = 9.235e-10 J
+ S[1][1] = -5.818e-01-1.141e-01i, |S[1][1]| = -4.541e+00, arg(S[1][1]) = -1.689e+02
+
+It 237/261: ω/2π = 2.556e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.308067e+01
+ Field energy E (4.626e-10 J) + H (4.557e-10 J) = 9.182e-10 J
+ S[1][1] = -5.855e-01-1.113e-01i, |S[1][1]| = -4.495e+00, arg(S[1][1]) = -1.692e+02
+
+It 238/261: ω/2π = 2.557e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.292555e+01
+ Field energy E (4.599e-10 J) + H (4.531e-10 J) = 9.130e-10 J
+ S[1][1] = -5.893e-01-1.085e-01i, |S[1][1]| = -4.449e+00, arg(S[1][1]) = -1.696e+02
+
+It 239/261: ω/2π = 2.558e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.277085e+01
+ Field energy E (4.571e-10 J) + H (4.506e-10 J) = 9.077e-10 J
+ S[1][1] = -5.929e-01-1.056e-01i, |S[1][1]| = -4.404e+00, arg(S[1][1]) = -1.699e+02
+
+It 240/261: ω/2π = 2.559e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.261659e+01
+ Field energy E (4.545e-10 J) + H (4.481e-10 J) = 9.025e-10 J
+ S[1][1] = -5.966e-01-1.027e-01i, |S[1][1]| = -4.360e+00, arg(S[1][1]) = -1.702e+02
+
+It 241/261: ω/2π = 2.560e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.246278e+01
+ Field energy E (4.518e-10 J) + H (4.456e-10 J) = 8.973e-10 J
+ S[1][1] = -6.001e-01-9.984e-02i, |S[1][1]| = -4.317e+00, arg(S[1][1]) = -1.706e+02
+
+It 242/261: ω/2π = 2.561e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.230943e+01
+ Field energy E (4.491e-10 J) + H (4.431e-10 J) = 8.922e-10 J
+ S[1][1] = -6.037e-01-9.692e-02i, |S[1][1]| = -4.274e+00, arg(S[1][1]) = -1.709e+02
+
+It 243/261: ω/2π = 2.562e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.215655e+01
+ Field energy E (4.465e-10 J) + H (4.406e-10 J) = 8.871e-10 J
+ S[1][1] = -6.071e-01-9.399e-02i, |S[1][1]| = -4.231e+00, arg(S[1][1]) = -1.712e+02
+
+It 244/261: ω/2π = 2.563e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.200417e+01
+ Field energy E (4.438e-10 J) + H (4.382e-10 J) = 8.820e-10 J
+ S[1][1] = -6.106e-01-9.105e-02i, |S[1][1]| = -4.190e+00, arg(S[1][1]) = -1.715e+02
+
+It 245/261: ω/2π = 2.564e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.185229e+01
+ Field energy E (4.412e-10 J) + H (4.357e-10 J) = 8.770e-10 J
+ S[1][1] = -6.139e-01-8.809e-02i, |S[1][1]| = -4.149e+00, arg(S[1][1]) = -1.718e+02
+
+It 246/261: ω/2π = 2.565e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.170091e+01
+ Field energy E (4.386e-10 J) + H (4.333e-10 J) = 8.720e-10 J
+ S[1][1] = -6.173e-01-8.511e-02i, |S[1][1]| = -4.109e+00, arg(S[1][1]) = -1.721e+02
+
+It 247/261: ω/2π = 2.566e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.155007e+01
+ Field energy E (4.360e-10 J) + H (4.309e-10 J) = 8.670e-10 J
+ S[1][1] = -6.206e-01-8.212e-02i, |S[1][1]| = -4.069e+00, arg(S[1][1]) = -1.725e+02
+
+It 248/261: ω/2π = 2.567e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.139975e+01
+ Field energy E (4.335e-10 J) + H (4.286e-10 J) = 8.620e-10 J
+ S[1][1] = -6.238e-01-7.912e-02i, |S[1][1]| = -4.030e+00, arg(S[1][1]) = -1.728e+02
+
+It 249/261: ω/2π = 2.568e+00 GHz (total elapsed time = 5.43e+03 s)
+
+ Sol. ||E|| = 5.124999e+01
+ Field energy E (4.309e-10 J) + H (4.262e-10 J) = 8.571e-10 J
+ S[1][1] = -6.270e-01-7.610e-02i, |S[1][1]| = -3.991e+00, arg(S[1][1]) = -1.731e+02
+
+It 250/261: ω/2π = 2.569e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.110077e+01
+ Field energy E (4.284e-10 J) + H (4.239e-10 J) = 8.523e-10 J
+ S[1][1] = -6.302e-01-7.307e-02i, |S[1][1]| = -3.953e+00, arg(S[1][1]) = -1.734e+02
+
+It 251/261: ω/2π = 2.570e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.095212e+01
+ Field energy E (4.259e-10 J) + H (4.215e-10 J) = 8.474e-10 J
+ S[1][1] = -6.333e-01-7.003e-02i, |S[1][1]| = -3.915e+00, arg(S[1][1]) = -1.737e+02
+
+It 252/261: ω/2π = 2.571e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.080405e+01
+ Field energy E (4.234e-10 J) + H (4.192e-10 J) = 8.426e-10 J
+ S[1][1] = -6.363e-01-6.698e-02i, |S[1][1]| = -3.879e+00, arg(S[1][1]) = -1.740e+02
+
+It 253/261: ω/2π = 2.572e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.065656e+01
+ Field energy E (4.209e-10 J) + H (4.170e-10 J) = 8.379e-10 J
+ S[1][1] = -6.393e-01-6.391e-02i, |S[1][1]| = -3.842e+00, arg(S[1][1]) = -1.743e+02
+
+It 254/261: ω/2π = 2.573e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.050966e+01
+ Field energy E (4.184e-10 J) + H (4.147e-10 J) = 8.331e-10 J
+ S[1][1] = -6.423e-01-6.084e-02i, |S[1][1]| = -3.806e+00, arg(S[1][1]) = -1.746e+02
+
+It 255/261: ω/2π = 2.574e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.036337e+01
+ Field energy E (4.160e-10 J) + H (4.124e-10 J) = 8.284e-10 J
+ S[1][1] = -6.452e-01-5.776e-02i, |S[1][1]| = -3.771e+00, arg(S[1][1]) = -1.749e+02
+
+It 256/261: ω/2π = 2.575e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.021768e+01
+ Field energy E (4.136e-10 J) + H (4.102e-10 J) = 8.238e-10 J
+ S[1][1] = -6.481e-01-5.467e-02i, |S[1][1]| = -3.736e+00, arg(S[1][1]) = -1.752e+02
+
+It 257/261: ω/2π = 2.576e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 5.007262e+01
+ Field energy E (4.112e-10 J) + H (4.080e-10 J) = 8.191e-10 J
+ S[1][1] = -6.510e-01-5.157e-02i, |S[1][1]| = -3.702e+00, arg(S[1][1]) = -1.755e+02
+
+It 258/261: ω/2π = 2.577e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 4.992817e+01
+ Field energy E (4.088e-10 J) + H (4.058e-10 J) = 8.146e-10 J
+ S[1][1] = -6.538e-01-4.847e-02i, |S[1][1]| = -3.668e+00, arg(S[1][1]) = -1.758e+02
+
+It 259/261: ω/2π = 2.578e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 4.978437e+01
+ Field energy E (4.064e-10 J) + H (4.036e-10 J) = 8.100e-10 J
+ S[1][1] = -6.565e-01-4.535e-02i, |S[1][1]| = -3.635e+00, arg(S[1][1]) = -1.760e+02
+
+It 260/261: ω/2π = 2.579e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 4.964120e+01
+ Field energy E (4.040e-10 J) + H (4.014e-10 J) = 8.055e-10 J
+ S[1][1] = -6.592e-01-4.223e-02i, |S[1][1]| = -3.602e+00, arg(S[1][1]) = -1.763e+02
+
+It 261/261: ω/2π = 2.580e+00 GHz (total elapsed time = 5.44e+03 s)
+
+ Sol. ||E|| = 4.949867e+01
+ Field energy E (4.017e-10 J) + H (3.993e-10 J) = 8.010e-10 J
+ S[1][1] = -6.619e-01-3.911e-02i, |S[1][1]| = -3.569e+00, arg(S[1][1]) = -1.766e+02
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 4.768e-02, global unknowns = 2465984
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 1.6G, Max. 1.8G, Avg. 1.7G, Total 27.2G
+Estimated peak per-node memory usage is: Min. 27.2G, Max. 27.2G, Avg. 27.2G, Total 27.2G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   1.656       4.610       4.423
+  Mesh Preprocessing             2.531       5.483       2.717
+Operator Construction            0.828       1.072       0.953
+Linear Solve                   405.135     413.881     409.547
+  Setup                        195.257     195.266     195.261
+  Preconditioner              4385.449    4412.021    4400.919
+  Coarse Solve                 162.415     182.029     169.217
+PROM Construction                2.733       2.733       2.733
+PROM Solve                       1.852       2.400       2.180
+Estimation                       1.322       1.376       1.351
+  Construction                  12.461      12.471      12.464
+  Solve                        188.771     188.800     188.784
+Postprocessing                  67.756      68.258      67.973
+Disk IO                          2.426       2.426       2.426
+--------------------------------------------------------------
+Total                         5461.072    5461.072    5461.072
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   42.8M       42.8M       42.8M
+  Mesh Preprocessing            363.7M      363.7M      406.5M
+Operator Construction             1.0G        1.0G        1.4G
+Linear Solve                      8.5M        8.5M        1.4G
+  Setup                           6.9G        6.9G        8.3G
+  Preconditioner                443.0M      443.0M        8.7G
+  Coarse Solve                   15.3G       15.3G       24.0G
+PROM Construction                 0.0K        0.0K       24.0G
+PROM Solve                        0.0K        0.0K       24.0G
+Estimation                      125.8M      125.8M       24.1G
+  Construction                    2.4G        2.4G       26.5G
+  Solve                           1.2M        1.2M       26.5G
+Postprocessing                    0.0K        0.0K       26.5G
+Disk IO                         122.8M      122.8M       26.7G
+--------------------------------------------------------------
+Total                            26.8G       26.8G       26.8G
+
+	Command being timed: "palace -np 16 /work/c3_sm57_rim020_p2/config.json"
+	User time (seconds): 86563.08
+	System time (seconds): 795.26
+	Percent of CPU this job got: 1599%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:31:01
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1938892
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 102
+	Minor (reclaiming a frame) page faults: 50932684
+	Voluntary context switches: 5422
+	Involuntary context switches: 412375
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 31368
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

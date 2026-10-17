@@ -1,0 +1,67 @@
+    Finished `release` profile [optimized] target(s) in 0.92s
+     Running tests/magnetostatic_nonlinear.rs (/Volumes/Stripe/cargo-target-1174/release/deps/magnetostatic_nonlinear-7693694d58e57caa)
+
+running 13 tests
+test malformed_tables_and_parameters_are_rejected ... ok
+test tangent_matches_finite_difference_brauer ... ok
+test tangent_matches_finite_difference_table ... ok
+test law_derivatives_match_finite_difference ... ok
+test tangent_is_spd_for_monotone_laws ... ok
+test missing_material_and_non_convergence_are_errors ... ok
+test converged_tangent_gives_solution_sensitivity ... ok
+test linear_limit_matches_linear_module ... ok
+test manufactured_solution_converges_at_optimal_rates ... ok
+test newton_converges_quadratically_frozen_nu_linearly ... ok
+test saturated_iron_ampere_oracle ... ok
+test constant_dirichlet_offset_is_invariant has been running for over 60 seconds
+test warm_start_and_roundoff_floor has been running for over 60 seconds
+test warm_start_and_roundoff_floor ... ok
+test constant_dirichlet_offset_is_invariant ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 72.06s
+
+     Running tests/magnetostatic_sector_harmonic.rs (/Volumes/Stripe/cargo-target-1174/release/deps/magnetostatic_sector_harmonic-82001e955dbef365)
+
+running 6 tests
+test harmonic_coupling_loud_failures ... ok
+test free_end_moments_match_tied_on_antiperiodic_traces ... ok
+test saddle_tangent_fd_check ... ok
+test full_harmonic_set_equals_conforming_band ... ok
+test harmonic_truncation_converges_to_conforming_band ... ok
+test coupling_torque_matches_energy_derivative ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/magnetostatic_sector_sliding.rs (/Volumes/Stripe/cargo-target-1174/release/deps/magnetostatic_sector_sliding-0aa55a20950f741f)
+
+running 8 tests
+test malformed_sectors_fail_loudly ... ok
+test reduced_tangent_fd_symmetry_and_prolongation ... ok
+test clockwise_triangles_match_ccw ... ok
+test antiperiodic_sector_matches_full_machine ... ok
+test warm_start_sweep_and_offset_invariance ... ok
+test sliding_band_linear_slotless_oracle ... ok
+test sliding_band_sector_matches_full_machine ... ok
+test sliding_band_matches_fresh_mesh_under_refinement ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.25s
+
+     Running tests/motor_icem_forward.rs (/Volumes/Stripe/cargo-target-1174/release/deps/motor_icem_forward-992bb2bcc357de4c)
+
+running 4 tests
+test magnet_source_is_reference_coercive_field ... ok
+test clamp426_variant_is_a_consistent_law ... ok
+test winding_table_and_current_density_match_reference ... ok
+test l0_full_current_two_angles_reproduce_committed_torque ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/motor_icem_harmonic.rs (/Volumes/Stripe/cargo-target-1174/release/deps/motor_icem_harmonic-f49931d5669fa352)
+
+running 3 tests
+test tagged_mesh_has_separate_coupling_node_sets ... ok
+test l0_reference_orders_reproduce_committed_torque ... ok
+test every_order_reproduces_the_conforming_band ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+

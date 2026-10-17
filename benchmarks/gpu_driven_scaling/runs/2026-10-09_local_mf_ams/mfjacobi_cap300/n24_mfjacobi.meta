@@ -1,0 +1,11 @@
+leg=n24_mfjacobi bin=<cargo-target>/release/deps/gpu_driven_scaling-1c90931d7f0326c2
+start=2026-10-09T18:59:30Z
+loadavg_start=10.85 17.95 23.22
+rayon_num_threads=1
+scaling_omega=default
+ams_smooth_weight=auto
+git=aeddb15734219429f013973fdd3a17da35acb1f3 dirty=0
+env: GEODE_SCALING_SIZES=24 GEODE_SCALING_CONFIGS=matrix_free GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1 GEODE_SCALING_SPLIT_SETUP=1
+end=2026-10-09T18:59:50Z
+loadavg_end=12.36 17.84 23.06
+rc=0

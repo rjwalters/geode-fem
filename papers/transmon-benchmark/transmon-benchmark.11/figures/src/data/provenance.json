@@ -1,0 +1,13 @@
+{
+  "note": "Inputs of the v10 figure scripts. Every figure reads committed repository artifacts directly; there is no snapshot. verify_figures.py checks every hash.",
+  "files": {},
+  "repository_inputs": {
+    "benchmarks/transmon_devicelayout_crosscheck/results.toml": "4c0adbacd4d62b1255702baea4e0c0f7d60b99bcb90304306e31021326cd6a51",
+    "benchmarks/transmon_devicelayout_optimize/opt_log.jsonl": "25198a4b31fd89eff5701773a1200121994d27c9ec55ebd6df46ecec548e4c78",
+    "benchmarks/transmon_devicelayout_optimize/results.toml": "16d156ce6fb04eea5304050bbe4dec58087a9527bbff52af5e0b2e085df96f97",
+    "benchmarks/transmon_diffopt/c_sigma_bracket.toml": "3dec6e801b61a8f386a47aecd3d66a589b752bc4f8ec6a103e0b28b344069833",
+    "benchmarks/transmon_diffopt/c_sigma_bracket_tensor.toml": "61bdae120c0914be7e8267db1a46598e29accb77d9757146787eb3ba5b98df55",
+    "benchmarks/transmon_diffopt/c_sigma_convergence.toml": "c3b4d1807823dd0ebbcef8c6d0b290b324817e0ac038679dc292e048246c6d22",
+    "crates/geode-core/tests/fixtures/transmon_smoke.msh": "5b3ff4c357a4dc905e7a2e42abc8178778b626e47582c7bbe610f95d332b33dd"
+  }
+}

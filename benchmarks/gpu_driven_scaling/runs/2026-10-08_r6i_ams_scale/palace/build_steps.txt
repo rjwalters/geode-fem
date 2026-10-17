@@ -1,0 +1,59 @@
+# grep of the first (full) docker build log: the Step lines and the Palace source commit line
+Step 1/20 : FROM rockylinux:9 AS builder
+Step 2/20 : ARG MARCH=native
+Step 3/20 : ENV OPT_FLAGS="-O3 -ffp-contract=fast -funroll-loops"
+Step 4/20 : RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb &&     dnf install -y epel-release &&     dnf update -y &&     dnf groupinstall -y "Development Tools" &&     dnf install -y         curl-minimal         gcc-gfortran         git         libunwind-devel         openblas-devel         pkg-config         python3         wget         zlib         mpich-devel &&     dnf clean all
+Step 5/20 : ARG CMAKE_VERSION=3.31.0
+Step 6/20 : RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).sh &&     /bin/bash cmake-${CMAKE_VERSION}-*.sh --skip-license --prefix=/usr &&     rm -rf cmake-*
+Step 7/20 : ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib"
+Step 8/20 : ENV PATH="/usr/lib64/mpich/bin:${PATH}"
+Step 9/20 : ARG PALACE_REF=
+Step 10/20 : WORKDIR /opt
+Step 11/20 : RUN if [ -z "${PALACE_REF}" ]; then         git clone --depth 1 https://github.com/awslabs/palace.git palace-src;     else         git clone https://github.com/awslabs/palace.git palace-src &&         git -C palace-src checkout --detach "${PALACE_REF}";     fi &&     git -C palace-src log -1 --format='%H %cI %s'
+[0mfba6a5b9d17ef09db2907e9c4c6f92d123d131c0 2026-07-11T10:57:21-07:00 Merge pull request #770 from krono-i2/rational-impedance-bc
+Step 12/20 : WORKDIR /opt/palace-build
+Step 13/20 : RUN cmake /opt/palace-src     -DCMAKE_INSTALL_PREFIX=/opt/palace     -DCMAKE_CXX_COMPILER=g++     -DCMAKE_CXX_FLAGS="${OPT_FLAGS}"     -DCMAKE_C_COMPILER=gcc     -DCMAKE_C_FLAGS="${OPT_FLAGS}"     -DCMAKE_Fortran_COMPILER=gfortran     -DCMAKE_Fortran_FLAGS="${OPT_FLAGS}"     -DBUILD_SHARED_LIBS=ON     -DPALACE_WITH_64BIT_INT=OFF     -DPALACE_WITH_OPENMP=ON     -DPALACE_WITH_CUDA=OFF     -DPALACE_WITH_HIP=OFF     -DPALACE_WITH_SUPERLU=ON     -DPALACE_WITH_STRUMPACK=ON     -DPALACE_WITH_MUMPS=ON     -DPALACE_WITH_SLEPC=ON     -DPALACE_WITH_ARPACK=ON     -DPALACE_WITH_LIBXSMM=OFF     -DPALACE_WITH_MAGMA=OFF     -DPALACE_WITH_GSLIB=ON &&     make -j$(nproc)
+Step 14/20 : FROM rockylinux:9
+Step 15/20 : RUN dnf install -y epel-release &&     dnf install -y         openblas         mpich         libgomp         libunwind         time         zlib &&     dnf clean all &&     rm -rf /var/cache/dnf
+Step 16/20 : COPY --from=builder /opt/palace /opt/palace
+Step 17/20 : ENV LD_LIBRARY_PATH="/opt/palace/lib:/usr/lib64/mpich/lib"
+Step 18/20 : ENV PATH="/opt/palace/bin:/usr/lib64/mpich/bin:${PATH}"
+Step 19/20 : WORKDIR /work
+Step 20/20 : ENTRYPOINT ["palace"]
+Successfully built af7e43209403
+Successfully tagged palace:cpu
+# the runtime-stage rebuild (see build_provenance.txt):
+Step 1/20 : FROM rockylinux:9 AS builder
+Step 2/20 : ARG MARCH=native
+ ---> Using cache
+Step 3/20 : ENV OPT_FLAGS="-O3 -ffp-contract=fast -funroll-loops"
+ ---> Using cache
+Step 4/20 : RUN dnf install -y dnf-plugins-core && dnf config-manager --enable crb &&     dnf install -y epel-release &&     dnf update -y &&     dnf groupinstall -y "Development Tools" &&     dnf install -y         curl-minimal         gcc-gfortran         git         libunwind-devel         openblas-devel         pkg-config         python3         wget         zlib         mpich-devel &&     dnf clean all
+ ---> Using cache
+Step 5/20 : ARG CMAKE_VERSION=3.31.0
+ ---> Using cache
+Step 6/20 : RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-$(uname -m).sh &&     /bin/bash cmake-${CMAKE_VERSION}-*.sh --skip-license --prefix=/usr &&     rm -rf cmake-*
+ ---> Using cache
+Step 7/20 : ENV LD_LIBRARY_PATH="/usr/lib64/mpich/lib"
+ ---> Using cache
+Step 8/20 : ENV PATH="/usr/lib64/mpich/bin:${PATH}"
+ ---> Using cache
+Step 9/20 : ARG PALACE_REF=
+ ---> Using cache
+Step 10/20 : WORKDIR /opt
+ ---> Using cache
+Step 11/20 : RUN if [ -z "${PALACE_REF}" ]; then         git clone --depth 1 https://github.com/awslabs/palace.git palace-src;     else         git clone https://github.com/awslabs/palace.git palace-src &&         git -C palace-src checkout --detach "${PALACE_REF}";     fi &&     git -C palace-src log -1 --format='%H %cI %s'
+ ---> Using cache
+Step 12/20 : WORKDIR /opt/palace-build
+ ---> Using cache
+Step 13/20 : RUN cmake /opt/palace-src     -DCMAKE_INSTALL_PREFIX=/opt/palace     -DCMAKE_CXX_COMPILER=g++     -DCMAKE_CXX_FLAGS="${OPT_FLAGS}"     -DCMAKE_C_COMPILER=gcc     -DCMAKE_C_FLAGS="${OPT_FLAGS}"     -DCMAKE_Fortran_COMPILER=gfortran     -DCMAKE_Fortran_FLAGS="${OPT_FLAGS}"     -DBUILD_SHARED_LIBS=ON     -DPALACE_WITH_64BIT_INT=OFF     -DPALACE_WITH_OPENMP=ON     -DPALACE_WITH_CUDA=OFF     -DPALACE_WITH_HIP=OFF     -DPALACE_WITH_SUPERLU=ON     -DPALACE_WITH_STRUMPACK=ON     -DPALACE_WITH_MUMPS=ON     -DPALACE_WITH_SLEPC=ON     -DPALACE_WITH_ARPACK=ON     -DPALACE_WITH_LIBXSMM=OFF     -DPALACE_WITH_MAGMA=OFF     -DPALACE_WITH_GSLIB=ON &&     make -j$(nproc)
+ ---> Using cache
+Step 14/20 : FROM rockylinux:9
+Step 15/20 : RUN dnf install -y epel-release &&     dnf install -y         openblas         openblas-serial         mpich         libgomp         libunwind         time         which         zlib &&     dnf clean all &&     rm -rf /var/cache/dnf
+Step 16/20 : COPY --from=builder /opt/palace /opt/palace
+Step 17/20 : ENV LD_LIBRARY_PATH="/opt/palace/lib:/usr/lib64/mpich/lib"
+Step 18/20 : ENV PATH="/opt/palace/bin:/usr/lib64/mpich/bin:${PATH}"
+Step 19/20 : WORKDIR /work
+Step 20/20 : ENTRYPOINT ["palace"]
+Successfully built 7d12ebf68882
+Successfully tagged palace:cpu

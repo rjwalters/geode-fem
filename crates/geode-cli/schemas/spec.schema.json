@@ -1,0 +1,1469 @@
+{
+  "$defs": {
+    "AdaptiveSweepSpec": {
+      "additionalProperties": false,
+      "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"`; rejected with `absorbing_regions`\n(the matched UPML is re-assembled per frequency) and with dispersive\nmaterials. Lumped `ports`, `wave_ports` and mixed port sets (issue\n#774; the residual is then worst over every channel excitation) and\nLeontovich / Silver-Müller walls are supported.",
+      "properties": {
+        "max_snapshots": {
+          "default": 20,
+          "description": "Budget of greedy snapshot frequencies (full-order factorizations;\ndefault `20`, `≥ 1`). The three seeds (band ends + midpoint)\ncount against it.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tolerance": {
+          "default": 1e-6,
+          "description": "Residual-indicator tolerance `η` (default `1e-6`; in `(0, 1)`). A\nbound on the relative **residual**, not on the error in `Z` / `S`:\nthe error can exceed it by the conditioning of `A(ω)` (see\n`crates/geode-cli/README.md` for measured ratios).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "BoundaryConditionsSpec": {
+      "additionalProperties": false,
+      "description": "Boundary conditions: PEC, Leontovich and (additive in v1, issue\n#683) first-order Silver-Müller absorbing walls. A dimension-2\nphysical group may carry at most one of {port, wave port, PEC,\nLeontovich, Silver-Müller}.",
+      "properties": {
+        "leontovich": {
+          "default": [],
+          "description": "Leontovich good-conductor surface-impedance walls.",
+          "items": {
+            "$ref": "#/$defs/LeontovichSpec"
+          },
+          "type": "array"
+        },
+        "pec": {
+          "default": [],
+          "description": "Dimension-2 physical-group names whose edges are eliminated as\nperfect electric conductor (tangential `E = 0`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "silver_muller": {
+          "default": [],
+          "description": "Dimension-2 physical-group names carrying the first-order\nSilver-Müller absorbing (radiation) condition — the impedance\nboundary with `Z_s = η₀` (no parameters). Driven / extract specs\nonly.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "CapacitanceSpec": {
+      "additionalProperties": false,
+      "description": "Static capacitance-extraction settings (`geode capacitance`, issue\n#705).\n\nSolves the scalar electrostatic problem `−∇·(ε₀ε_r ∇φ) = 0` on the\ntets (P1, per-region real `ε_r` from `materials`) once per terminal:\nterminal *i* held at 1 V, **every other terminal and every ground\nsurface held at 0 V**. The Maxwell capacitance matrix follows from the\nenergy method `C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾`\n([`geode_core::assembly::electrostatic::extract_capacitance`]).\n\n**Conductor model.** Every conductor is voltage-driven: a non-excited\nterminal is *grounded* (0 V), never floating. There is no\ncharge-neutral floating-conductor formulation; a metal body with no\nelectrical connection must still be listed as a terminal (its\nrow/column is then part of the Maxwell matrix, from which floating\nbehaviour can be derived by circuit reduction). Surfaces not listed\nanywhere are natural boundaries (zero normal `D`, i.e. a symmetry /\nopen-circuit wall), not conductors.",
+      "properties": {
+        "ground": {
+          "default": [],
+          "description": "Dimension-2 physical-group names pinned to 0 V in every\nexcitation: the reference / return conductor(s) — ground plane,\nshield, enclosure. At least one is required in v1.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "terminals": {
+          "description": "Dimension-2 physical-group names, one per conductor terminal, in\nmatrix row/column order (`≥ 1`, distinct).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
+    "CurrentPathSpec": {
+      "additionalProperties": false,
+      "description": "One open current path of an [`InductanceSpec`].",
+      "properties": {
+        "conductor": {
+          "description": "Dimension-3 physical group: the conductor volume the current flows\nthrough (homogeneous: the current distribution of a single-material\npath does not depend on its conductivity).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Path name (the inductance matrix row/column label).",
+          "type": "string"
+        },
+        "sink": {
+          "description": "Dimension-2 physical group on the conductor's boundary where the\ncurrent leaves (distinct from, and node-disjoint with, `source`).",
+          "type": "string"
+        },
+        "source": {
+          "description": "Dimension-2 physical group on the conductor's boundary where the\ncurrent enters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "conductor",
+        "source",
+        "sink"
+      ],
+      "type": "object"
+    },
+    "DebyePole": {
+      "additionalProperties": false,
+      "description": "One pole of a [`DispersionSpec::Debye`] model.",
+      "properties": {
+        "delta_eps": {
+          "description": "Permittivity step `Δε_k` across the relaxation (finite, `≥ 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tau_s": {
+          "description": "Relaxation time `τ_k` (s; finite, `> 0`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "delta_eps",
+        "tau_s"
+      ],
+      "type": "object"
+    },
+    "DispersionSpec": {
+      "description": "Frequency-dependent relative-permittivity model of a material\n(issues #757, #761), selected by `model`. Further models are added as\nnew `model` variants. All follow the solver's `exp(+jωt)` convention\n(passive: `Im ε_r ≤ 0`).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Djordjevic–Sarkar wideband Debye model (Djordjević et al., IEEE\nTrans. EMC 43(4), 2001): `ε_r(f) = ε∞ + Δε/L · log₁₀((f₂ + jf) /\n(f₁ + jf))` with `L = log₁₀(f₂/f₁)`, fitted so that\n`ε_r(f_ref) = eps_r·(1 − j·tan_delta)` exactly — a nearly flat\nloss tangent and a slowly falling `ε′` across `[f₁, f₂]` (FR-4 and\nlaminate datasheets).",
+          "properties": {
+            "eps_r": {
+              "description": "Real relative permittivity `ε′` at `f_ref_hz` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_high_hz": {
+              "default": 1000000000000.0,
+              "description": "Upper corner `f₂` (Hz) of the model band (default `1e12`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_low_hz": {
+              "default": 1000.0,
+              "description": "Lower corner `f₁` (Hz) of the model band (default `1e3`).",
+              "format": "double",
+              "type": "number"
+            },
+            "f_ref_hz": {
+              "description": "Frequency (Hz) at which `eps_r` / `tan_delta` are given\n(required; `f_low_hz < f_ref_hz < f_high_hz`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "djordjevic_sarkar",
+              "type": "string"
+            },
+            "tan_delta": {
+              "description": "Loss tangent `tan δ` at `f_ref_hz` (finite, `≥ 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_r",
+            "tan_delta",
+            "f_ref_hz"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Multi-pole Debye relaxation (issue #761): `ε_r(f) = ε∞ +\nΣ_k Δε_k / (1 + jωτ_k)`, `ω = 2πf`. Each pole lowers `ε′` by\n`Δε_k` across its relaxation frequency `1/(2πτ_k)`, where its loss\npeaks; `Im ε_r < 0` for `f > 0`.",
+          "properties": {
+            "eps_inf": {
+              "description": "High-frequency permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "debye",
+              "type": "string"
+            },
+            "poles": {
+              "description": "Relaxation poles (at least one).",
+              "items": {
+                "$ref": "#/$defs/DebyePole"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "poles"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drude free-carrier model (issue #761): `ε_r(f) = ε∞ − ω_p² / (ω² −\njγω)`, `ω = 2πf` (the textbook `ω² + iγω` is the `exp(−iωt)`\nform). `Re ε_r < 0` below `√(ω_p²/ε∞ − γ²)/(2π)` (when real), which\nthe AMS preconditioner rejects; well below `γ` the model is a\nconductor of `σ = ε₀ω_p²/γ` in a background `ε∞`.",
+          "properties": {
+            "eps_inf": {
+              "description": "Background (high-frequency) permittivity `ε∞` (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "gamma_rad_s": {
+              "description": "Collision rate `γ` (rad/s; finite, `≥ 0`; `0` is lossless).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "drude",
+              "type": "string"
+            },
+            "omega_p_rad_s": {
+              "description": "Plasma angular frequency `ω_p` (rad/s; finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "eps_inf",
+            "omega_p_rad_s",
+            "gamma_rad_s"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EigenSpec": {
+      "additionalProperties": false,
+      "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the PEC-cavity pencil `K x = k₀² M_ε x` with the pure-Rust\nsparse shift-invert Lanczos (direct sparse-LU inner solve) and returns\nthe `n_modes` physical modes closest to `shift`, ascending. The pencil\nis real symmetric (lossless, `Q = null`) for real `ε_r`, and complex\nsymmetric (complex `k₀`, finite `Q`) when any `materials[].eps_r` has\n`Im < 0` or the spec has `absorbing_regions` (UPML frozen at `shift`;\nissue #706). Leontovich / Silver-Müller walls are rejected: their\nfrequency-dependent terms would make the eigenproblem nonlinear.\n`shift` must be `> 0`; place it just **below** the lowest mode of\ninterest (open cavities: **near** the resonance of interest) — the\ncurl-curl gradient nullspace sits at `k₀ = 0` and is filtered out, so a\nshift near 0 wastes the Lanczos basis on it.",
+      "properties": {
+        "max_iters": {
+          "default": 160,
+          "description": "Lanczos basis size (default `160`). Raise it when modes are\nnearly degenerate or when `n_modes` is large. Too small a basis\nleaves modes unconverged: any returned mode whose relative\nresidual exceeds [`EigenSpec::residual_tol`] fails the run with\n`solve_failed` (never silently wrong frequencies).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_modes": {
+          "description": "Number of physical modes to return (`≥ 1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_tol": {
+          "default": 1e-6,
+          "description": "Per-mode acceptance bound on the relative eigen-residual\n`‖K x − λ M x‖ / (|λ| ‖M x‖)` (default `1e-6`). A mode above it is\nunconverged and fails the run with `solve_failed`.",
+          "format": "double",
+          "type": "number"
+        },
+        "shift": {
+          "description": "Shift / target frequency in `unit` (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tol": {
+          "default": 1e-9,
+          "description": "Lanczos relative convergence tolerance (default `1e-9`).",
+          "format": "double",
+          "type": "number"
+        },
+        "unit": {
+          "$ref": "#/$defs/FrequencyUnit",
+          "description": "Unit of `shift` (required — no default)."
+        }
+      },
+      "required": [
+        "n_modes",
+        "unit",
+        "shift"
+      ],
+      "type": "object"
+    },
+    "EpsDiagSpec": {
+      "additionalProperties": false,
+      "description": "Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`\nin mesh axes (issue #760). Each component is `[re, im]`, `im ≤ 0`\n(`exp(+jωt)`).",
+      "properties": {
+        "xx": {
+          "description": "`ε_xx` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "yy": {
+          "description": "`ε_yy` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "zz": {
+          "description": "`ε_zz` as `[re, im]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "xx",
+        "yy",
+        "zz"
+      ],
+      "type": "object"
+    },
+    "ExtractSpec": {
+      "additionalProperties": false,
+      "description": "Inductance-extraction settings (`geode extract`).\n\nThe sweep itself is the driven one (`ports`, `frequencies`,\n`boundary_conditions`, `solver`). On top of the per-frequency\n`L = Im Z_kk / ω`, `R = Re Z_kk`, `Q = Im Z_kk / Re Z_kk`, `geode\nextract` reports per port the quasi-static inductance\n`L₀ = lim_{f→0} L(f)` by two-point Richardson extrapolation of\n`L(f) ≈ L₀ − a·f²` on the two lowest **anchor** frequencies\n([`geode_core::driven::extraction::extrapolate_l0`]), a consistency\nerror estimate from the third-lowest anchor, and the self-resonant\nfrequency (first `Im Z_kk` sign change) when the sweep brackets one.\nEvery field is optional: `\"extract\": {}` is a complete section.",
+      "properties": {
+        "anchor_frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit `L₀` anchor ladder (`≥ 2` distinct points), solved **in\naddition to** `frequencies` — e.g. a fine low-frequency ladder for\n`L₀` next to a coarse sweep through the SRF. Omitted: the anchors\nare the spec's `frequencies` (which then need `≥ 2` distinct\npoints). Either way the two lowest anchors extrapolate `L₀` and\nthe third-lowest (if any) feeds the error estimate."
+        },
+        "l0_rel_tol": {
+          "default": null,
+          "description": "Optional convergence gate on the extrapolation: fail the run\n(`solve_failed`) if any port's relative consistency estimate\n`|L₀(f₁,f₂) − L₀(f₂,f₃)| / |L₀|` exceeds it. Needs `≥ 3` anchors.\nOmitted: no gate (the estimate is still reported).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FdCheckSpec": {
+      "additionalProperties": false,
+      "description": "Central finite-difference self-check settings of a\n[`SensitivitySpec`].\n\nThe step is relative: parameter `p` is re-solved at `p ± h`, `h =\nrelative_step · |p|`. The defaults (`relative_step = 1e-4`, `tolerance\n= 1e-4`) mirror the library's own adjoint-vs-FD validation tests\n(`adjoint.rs` capacitance, `magnetostatic_inductance.rs`,\n`transmon_eigen_sensitivity.rs`: central FD, relative agreement\n`< 1e-4`). With a central difference the truncation error is\n`O(h²) ≈ 1e-8` relative and the cancellation error `≈ ε_solve / h`, so\na step of `1e-4` sits well inside the window where both are far below\nthe tolerance.",
+      "properties": {
+        "relative_step": {
+          "default": 0.0001,
+          "description": "Relative central-difference step (default `1e-4`; `0 < step ≤\n0.1`).",
+          "format": "double",
+          "type": "number"
+        },
+        "tolerance": {
+          "default": 0.0001,
+          "description": "Largest accepted relative disagreement `|g − g_FD| / max(|g|,\n|g_FD|, 0.01·|value/p|)` per gradient entry (default `1e-4`; `>\n0`). The floor (1 % of the entry's natural log-derivative scale)\nonly matters for structurally ~zero components. Driven N-port\nobservables use a floor that also covers the FD estimate's own\nround-off (issue #890; `examples/sensitivity/README.md`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "FrequencySpec": {
+      "additionalProperties": false,
+      "description": "Frequency list: **either** an explicit `values` list **or** a\n`start`/`stop`/`count` sweep, in the given `unit`.",
+      "properties": {
+        "count": {
+          "default": null,
+          "description": "Number of sweep points (`≥ 1`; `1` yields just `start`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "spacing": {
+          "$ref": "#/$defs/Spacing",
+          "default": "linear",
+          "description": "Sweep spacing (default `linear`)."
+        },
+        "start": {
+          "default": null,
+          "description": "Sweep start (inclusive).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stop": {
+          "default": null,
+          "description": "Sweep stop (inclusive).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "$ref": "#/$defs/FrequencyUnit",
+          "description": "Unit of every number in this block (required — no default)."
+        },
+        "values": {
+          "default": null,
+          "description": "Explicit frequency list.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "unit"
+      ],
+      "type": "object"
+    },
+    "FrequencyUnit": {
+      "description": "Frequency unit of a [`FrequencySpec`].",
+      "oneOf": [
+        {
+          "const": "hz",
+          "description": "Hertz.",
+          "type": "string"
+        },
+        {
+          "const": "ghz",
+          "description": "Gigahertz.",
+          "type": "string"
+        },
+        {
+          "const": "k0",
+          "description": "Natural units: free-space wavenumber `k₀ = ω/c` in radians per\nmesh length unit (the solver's internal `ω`).",
+          "type": "string"
+        }
+      ]
+    },
+    "HybridPortSpec": {
+      "additionalProperties": false,
+      "description": "Hybrid-port solver options (`wave_ports[].hybrid`, issue #807).",
+      "properties": {
+        "accuracy": {
+          "description": "Per-mode accuracy estimate (an `h/2` re-solve of the port face at\nevery frequency, plus `h/4` at the first). Default `true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "accuracy_threshold": {
+          "description": "Relative error of `β` (and, on a lossy face, of the attenuation\n`α`) above which a propagating channel raises a warning with a\nrefine-to-`h` hint (finite, `> 0`). Default `0.005` (0.5 %).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "impedance_accuracy_threshold": {
+          "description": "Relative error of the line impedance `z_line_ohm` (the port's\n`impedance_definition`) above which a propagating channel on a face\nwith a floating conductor raises an `impedance_accuracy_above_threshold`\nwarning with refine / grade-to hints (finite, `> 0`). Default `0.01`\n(1 %: a 1 % `Z` error renormalizes a matched line to `|S11| ≈ 0.005`,\n−46 dB). The estimate covers mesh error only, not the shield box's\n(physical) effect on a shielded line's impedance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_termination_evanescent": {
+          "description": "Evanescent modes terminated beyond the reported channels (`≥ 0`).\nDefault [`DEFAULT_N_TERMINATION_EVANESCENT`] (`4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImpedanceDefinition": {
+      "description": "Line-impedance definition of a hybrid wave port's channels (issue\n#807). A hybrid (quasi-TEM / hybrid) mode has no unique characteristic\nimpedance; the three classical definitions coincide quasi-statically\nand separate with dispersion. The TE wave impedance `Z_TE = η₀k₀/β` of\ngeometric ports is never offered for hybrid ports: it is a wave, not a\nline, impedance (about `η₀/√ε_eff` for microstrip, and it predicts step\nreflections 14–19× too small).",
+      "oneOf": [
+        {
+          "const": "power_current",
+          "description": "`Z_PI = 2P/|I|²` (power–current; with several conductors the\nper-line modal `2P/Σ|I_c|²`, i.e. `Z_e` / `Z_o` of a symmetric pair).\nContour-independent; the default.",
+          "type": "string"
+        },
+        {
+          "const": "power_voltage",
+          "description": "`Z_PV = |V|²/(2P)` (power–voltage). `V` is integrated along the\nautomatic shortest path from the shield to the conductor (it ends at\nthe nearest conductor point — a microstrip's strip **edge**), so the\nvalue depends on that path and drifts with frequency (measured\n1.01× → 1.11× `Z_PI` over `k₀h = 0.05 … 0.2` on a shielded\nmicrostrip).",
+          "type": "string"
+        },
+        {
+          "const": "voltage_current",
+          "description": "`Z_VI = |V/I|` (voltage–current), `√(Z_PI·Z_PV)`: the same path and\nfrequency dependence as `power_voltage`.",
+          "type": "string"
+        }
+      ]
+    },
+    "InductanceSpec": {
+      "additionalProperties": false,
+      "description": "Static inductance-extraction settings (`geode inductance`, issue\n#714).\n\nFor each current path, a P1 **conduction** solve on the path's\nconductor volume (`∇·(σ∇φ) = 0`, `φ = 1` on `source`, `φ = 0` on\n`sink`, insulated elsewhere) gives the current density `J = −σ∇φ`,\nnormalised to 1 A\n([`geode_core::assembly::current_path::open_path_current`]). One\nmagnetostatic solve per path, `∇×(ν₀ν_r∇×A) = J` on lowest-order\nNédélec edges with a tree-cotree gauge and the `boundary_conditions.pec`\nwall as `n×A = 0`, then gives the Maxwell inductance matrix by the\nenergy method `L_ij = A⁽ⁱ⁾ᵀ K A⁽ʲ⁾ / (I_i I_j)`\n([`geode_core::assembly::magnetostatic3d::extract_inductance`]).\n\n**Open paths, PEC return.** Each path's current enters through\n`source` and leaves through `sink`; both faces are treated as PEC\ncontacts and must touch the `boundary_conditions.pec` wall, which is\nthe return conductor (e.g. a coax core whose end disks meet the shield\nend caps). A closed loop with no terminals, or a terminal floating in\nthe dielectric, has no return path and is not supported in v1.",
+      "properties": {
+        "paths": {
+          "description": "Current paths in matrix row/column order (`≥ 1`, distinct names).",
+          "items": {
+            "$ref": "#/$defs/CurrentPathSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "LeontovichSpec": {
+      "additionalProperties": false,
+      "description": "One Leontovich good-conductor surface\n(`Z_s = (1 + j)·√(ωμ₀ / 2σ)`, times the roughness factor `K(f)` when\n`roughness` is given).",
+      "properties": {
+        "conductivity_s_m": {
+          "description": "Conductor conductivity σ in S/m (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group.",
+          "type": "string"
+        },
+        "roughness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoughnessSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Conductor surface roughness (additive in v1, issue #758). Omit (or\n`null`) for a smooth conductor. The whole complex `Z_s` is scaled\nby the model's real loss factor `K(f) ≥ 1`, evaluated at the skin\ndepth `δ = 1/√(π f μ₀ σ)` of this wall's `conductivity_s_m`."
+        }
+      },
+      "required": [
+        "physical_group",
+        "conductivity_s_m"
+      ],
+      "type": "object"
+    },
+    "LumpedPortSpec": {
+      "additionalProperties": false,
+      "description": "A uniform (Palace-style) lumped port on a surface physical group.",
+      "properties": {
+        "e_hat": {
+          "description": "Gap direction `ê` (normalized on load; must be non-zero).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "length": {
+          "default": null,
+          "description": "Gap length in mesh units (extent along `ê`). Omit to derive it\nfrom the tagged faces' extent along `ê`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group holding the port faces.",
+          "type": "string"
+        },
+        "resistance_ohm": {
+          "description": "Port termination / reference resistance in ohms (`> 0`). This is\nalso the per-port S-parameter reference impedance `Z₀`.",
+          "format": "double",
+          "type": "number"
+        },
+        "v_inc": {
+          "default": [
+            1.0,
+            0.0
+          ],
+          "description": "Incident drive voltage `[re, im]` (default `[1, 0]`; must be\nnon-zero — every port is an S-parameter excitation).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "width": {
+          "default": null,
+          "description": "Port width in mesh units (extent across `ê`). Omit to derive it\nfrom the tagged faces as `area / length`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "physical_group",
+        "e_hat",
+        "resistance_ohm"
+      ],
+      "type": "object"
+    },
+    "MaterialSpec": {
+      "additionalProperties": false,
+      "description": "Material of one volume physical group: complex permittivity and\n(additive in v1, issue #714) real relative permeability.",
+      "properties": {
+        "dispersion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frequency-dependent permittivity model (additive in v1, issue\n#757). Omit (or `null`) for a constant `eps_r`. When present,\n`eps_r` must be left at its default: the region's permittivity at\neach swept frequency is the model's `ε_r(f)` (`exp(+jωt)`,\n`Im ε_r ≤ 0`). `driven` / `extract` dense sweeps only — rejected\nwith `sweep.adaptive`, `sensitivity` and by `eigen`,\n`capacitance` and `inductance`."
+        },
+        "eps_r": {
+          "default": [
+            1.0,
+            0.0
+          ],
+          "description": "Complex relative permittivity `[re, im]`, `im ≤ 0`\n(`exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`). Defaults to\nvacuum `[1, 0]` (so an inductance spec can list only `mu_r`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "eps_r_diag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EpsDiagSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Diagonal anisotropic complex relative permittivity in **mesh\naxes** (additive in v1, issue #760): `{\"xx\": [re, im], \"yy\": …,\n\"zz\": …}`, each component `im ≤ 0` like `eps_r`. Omit (or `null`)\nfor an isotropic material. When present, `eps_r` must be left at\nits default and `dispersion` must be absent. `driven` / `extract`\n/ `eigen` (lossless and lossy) and `capacitance` (real components\nonly); rejected by `inductance` and with a `sensitivity` section."
+        },
+        "mu_r": {
+          "description": "Real relative permeability `μ_r` (finite, `> 0`; default `1`).\nHonoured only by `geode inductance` in v1: every other analysis\nrejects `μ_r ≠ 1` rather than silently ignoring it.",
+          "format": "double",
+          "type": "number"
+        },
+        "mu_r_diag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MuDiagSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Diagonal anisotropic real relative permeability in **mesh axes**\n(additive in v1, issue #760): `{\"xx\": μ, \"yy\": μ, \"zz\": μ}`, each\nfinite and `> 0`. Omit (or `null`) for an isotropic material. When\npresent, `mu_r` must be left at its default. `driven` / `extract`\n/ `eigen` and `inductance`; rejected by `capacitance` and with a\n`sensitivity` section. Unlike the scalar `mu_r` (inductance-only),\nthis is honoured by the wave analyses: three equal components give\nan isotropic `μ_r ≠ 1` there."
+        },
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (`$PhysicalNames`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group"
+      ],
+      "type": "object"
+    },
+    "MeshSpec": {
+      "additionalProperties": false,
+      "description": "Mesh file reference.",
+      "properties": {
+        "length_unit_m": {
+          "description": "Metres per mesh length unit (e.g. `1e-6` for a micron mesh).",
+          "format": "double",
+          "type": "number"
+        },
+        "path": {
+          "description": "Path to a Gmsh MSH 4.1 ASCII tetrahedral mesh. Relative paths are\nresolved against the directory containing the spec file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "length_unit_m"
+      ],
+      "type": "object"
+    },
+    "MuDiagSpec": {
+      "additionalProperties": false,
+      "description": "Diagonal real relative-permeability tensor `diag(μ_xx, μ_yy, μ_zz)` in\nmesh axes (issue #760), each finite and `> 0`.",
+      "properties": {
+        "xx": {
+          "description": "`μ_xx`.",
+          "format": "double",
+          "type": "number"
+        },
+        "yy": {
+          "description": "`μ_yy`.",
+          "format": "double",
+          "type": "number"
+        },
+        "zz": {
+          "description": "`μ_zz`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "xx",
+        "yy",
+        "zz"
+      ],
+      "type": "object"
+    },
+    "ObservableForm": {
+      "description": "How a complex observable `z` becomes a real one.",
+      "oneOf": [
+        {
+          "const": "mag",
+          "description": "`|z|`.",
+          "type": "string"
+        },
+        {
+          "const": "mag_sq",
+          "description": "`|z|²`.",
+          "type": "string"
+        },
+        {
+          "const": "db",
+          "description": "`20·log₁₀|z|` (dB).",
+          "type": "string"
+        },
+        {
+          "const": "phase_deg",
+          "description": "`arg z` in degrees (`(−180, 180]`).",
+          "type": "string"
+        },
+        {
+          "const": "real",
+          "description": "`Re z`.",
+          "type": "string"
+        },
+        {
+          "const": "imag",
+          "description": "`Im z`.",
+          "type": "string"
+        }
+      ]
+    },
+    "ObservableQuantity": {
+      "description": "The quantity of a [`SensitivityObservableSpec`].",
+      "oneOf": [
+        {
+          "const": "s",
+          "description": "One power-wave S-matrix entry `S_ij` (dimensionless).",
+          "type": "string"
+        },
+        {
+          "const": "s_sum_sq",
+          "description": "`Σ |S_ij|²` over `entries` (dimensionless).",
+          "type": "string"
+        },
+        {
+          "const": "z0",
+          "description": "The line impedance of a hybrid port's channel (Ω), under the port's\n`impedance_definition` (`power_current` by default) — the 2-D face\nquantity of Epic #841 Phase 3a, which a design reaches only through\nparameters that touch the port face.",
+          "type": "string"
+        },
+        {
+          "const": "eps_eff",
+          "description": "The effective permittivity `ε_eff = β²/k₀²` of a hybrid port's\nchannel (dimensionless).",
+          "type": "string"
+        }
+      ]
+    },
+    "PreconditionerSpec": {
+      "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "The default (issue #930): `ams` wherever it is supported, else\n`jacobi` with a `\"preconditioner_fallback\"` warning naming the\nreason — a material with `Re ε_r ≤ 0`, matched-UPML\n`absorbing_regions`, or floating PEC conductors. There is no\nmesh-size threshold. `ams` uses more memory than `jacobi` (see\n`geode check`'s resource estimate).",
+          "type": "string"
+        },
+        {
+          "const": "jacobi",
+          "description": "Diagonal (Jacobi) scaling, the default before issue #930.",
+          "type": "string"
+        },
+        {
+          "const": "ilu0",
+          "description": "Incomplete LU with zero fill on `A(ω)`'s own sparsity pattern.",
+          "type": "string"
+        },
+        {
+          "const": "ams",
+          "description": "Hiptmair–Xu auxiliary-space Maxwell (AMS) V-cycle on a real SPD\nproxy of `A(ω)` (issue #744): converges low-frequency, near-static\nproblems (e.g. spirals at 1 GHz) where `jacobi` / `ilu0` stall, at\nan iteration count that stays flat with mesh size. Its nodal\n(gradient-space) coarse problem is always solved by exact sparse LU\n(`geode check` reports its modelled memory); see the CLI README for\nmeasured memory.",
+          "type": "string"
+        }
+      ]
+    },
+    "RoughnessSpec": {
+      "description": "Conductor surface-roughness model of a Leontovich wall (issue #758),\nselected by `model`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Hammerstad–Jensen (1980): `K = 1 + (2/π)·atan(1.4·(Δ/δ)²)`,\nsaturating at `K = 2`.",
+          "properties": {
+            "model": {
+              "const": "hammerstad",
+              "type": "string"
+            },
+            "rms_m": {
+              "description": "RMS surface roughness `Δ` in metres (finite, `≥ 0`; `0` is\nexactly the smooth conductor).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "rms_m"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Huray snowball model, single sphere size on a flat base\n(cannonball form): `K = 1 + (3/2)·(N·4πa²/A_tile) / (1 + δ/a +\nδ²/(2a²))`, saturating at `1 + (3/2)·N·4πa²/A_tile`.",
+          "properties": {
+            "ball_radius_m": {
+              "description": "Sphere radius `a` in metres (finite, `> 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "model": {
+              "const": "huray",
+              "type": "string"
+            },
+            "n_balls": {
+              "description": "Spheres `N` per tile (finite, `≥ 0`; may be fractional; `0` is\nthe smooth conductor).",
+              "format": "double",
+              "type": "number"
+            },
+            "tile_area_m2": {
+              "description": "Tile (flat base) area `A_tile` in square metres (finite,\n`> 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "model",
+            "ball_radius_m",
+            "n_balls",
+            "tile_area_m2"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SensitivityObservableSpec": {
+      "additionalProperties": false,
+      "description": "One differentiated observable of a driven [`SensitivitySpec`] (issue\n#883). Channel indices follow the report's flat S-matrix order: lumped\nports first (spec order), then the wave channels (port-major,\nmode-minor) — the `channel` numbers of `results[].wave_channels`.",
+      "properties": {
+        "entries": {
+          "description": "`quantity = \"s_sum_sq\"`: the entries `[i, j]` whose `|S_ij|²` are\nsummed (`≥ 1`, distinct; e.g. the power leaving every channel for\nexcitation `j`).",
+          "items": {
+            "items": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "entry": {
+          "description": "`quantity = \"s\"`: `[i, j]`, the entry `S_ij` (row `i` = the\noutgoing channel, column `j` = the excited one; `[0, 0]` is `S11`).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservableForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How a complex observable becomes the real number differentiated.\nDefaults: `mag_sq` for `s`, `real` for `z0` / `eps_eff`; not allowed\nfor `s_sum_sq`."
+        },
+        "mode": {
+          "description": "`quantity = \"z0\"` / `\"eps_eff\"`: the port's reported channel\n(default `0`, `< n_modes`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "quantity": {
+          "$ref": "#/$defs/ObservableQuantity",
+          "description": "What is differentiated."
+        },
+        "wave_port": {
+          "description": "`quantity = \"z0\"` / `\"eps_eff\"`: the hybrid wave port (its\n`physical_group`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "quantity"
+      ],
+      "type": "object"
+    },
+    "SensitivityParameterKind": {
+      "description": "Property differentiated by a sensitivity parameter.",
+      "oneOf": [
+        {
+          "const": "eps_r",
+          "description": "Real relative permittivity `ε′ = Re ε_r`, `Im ε_r` held\n(capacitance, eigen, driven).",
+          "type": "string"
+        },
+        {
+          "const": "eps_r_imag",
+          "description": "Loss part `ε″ = −Im ε_r` (`ε_r = ε′ − jε″`), `ε′` held (driven,\nissue #883). At a lossless point (`ε″ = 0`) the gradient is the\npassive-side (`ε″ → 0⁺`) one.",
+          "type": "string"
+        },
+        {
+          "const": "tan_delta",
+          "description": "Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):\n`∂/∂tan δ = ε′·∂/∂ε″`.",
+          "type": "string"
+        },
+        {
+          "const": "nu_r",
+          "description": "Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter\nthe inductance energy form is linear in.",
+          "type": "string"
+        },
+        {
+          "const": "mu_r",
+          "description": "Relative permeability `μ_r` (inductance): `∂L/∂μ_r =\n−ν_r² ∂L/∂ν_r`.",
+          "type": "string"
+        },
+        {
+          "const": "shape",
+          "description": "A geometry parameter (driven, issue #883): see\n[`SensitivityParameterSpec`].",
+          "type": "string"
+        }
+      ]
+    },
+    "SensitivityParameterSpec": {
+      "additionalProperties": false,
+      "description": "One design parameter of a [`SensitivitySpec`]: a material property of\none volume group (`physical_group`), or (`kind = \"shape\"`, driven only,\nissue #883) a motion of named geometry groups.\n\nA shape parameter binds to **group names**, never node ids, so it\nsurvives re-meshing: the groups' nodes move as `motion` prescribes, the\nnodes of the `pinned` groups stay fixed (pinned wins on a shared node),\nand the motion is extended into the volume harmonically (one P1-Laplace\nsolve). Every other boundary node is free to slide with the extension,\nso pin what must not move (an outer shield, a lumped / geometric\nwave-port face, an impedance wall); the report lists the named surfaces\na shape parameter moves (`moved_groups`). A hybrid (microstrip /\nstripline) port face may move in its plane: the port modes follow it.",
+      "properties": {
+        "axis": {
+          "description": "Shape only (required): the motion's direction (normalized; any\nnon-zero vector). `translate`: the parameter is the displacement\nalong it (m). `stretch`: the parameter is the groups' extent along\nit (m; a strip width), changed symmetrically about its centre.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/SensitivityParameterKind",
+          "description": "Which property."
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShapeMotion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Shape only (required): how the groups move."
+        },
+        "name": {
+          "description": "Shape only: the parameter's name in the report (default: the motion\nand the groups, e.g. `stretch(strip)`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "physical_group": {
+          "description": "Material kinds: name of a dimension-3 physical group (need not be\nlisted in `materials`: an unlisted group is differentiated at its\nvacuum default). Shape: one moving group (2-D or 3-D), the same as a\none-element `physical_groups`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "physical_groups": {
+          "description": "Shape only: the moving 2-D and / or 3-D physical groups.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pinned": {
+          "description": "Shape only: 2-D / 3-D physical groups whose nodes stay fixed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "SensitivitySpec": {
+      "additionalProperties": false,
+      "description": "Material design sensitivities (additive in v1, issue #707): exact\ndiscrete gradients of the analysis's observable with respect to\nper-region material parameters, from the library's FD-validated\nadjoint / Hellmann–Feynman machinery (Epic #569).\n\n| analysis | observable | parameter kinds | method |\n|---|---|---|---|\n| `capacitance` (exactly one terminal) | two-terminal `C` (F) at **P2** | `eps_r` | discrete adjoint |\n| `inductance` | every `L_ij` (H) | `nu_r`, `mu_r` | self-adjoint energy form |\n| `eigen` (lossless) | `frequency_hz` of the listed `modes` | `eps_r` | Hellmann–Feynman |\n| `driven` (one lumped port, direct, dense, no UPML) | squared reflection `s11_mag_sq` per frequency | `eps_r` | port-loaded discrete adjoint |\n| `driven` with `observables` or the N-port parameter kinds (issue #883) | any `S_ij` (`mag`, `mag_sq`, `db`, `phase_deg`, `real`, `imag`), sums of `\\|S_ij\\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (reciprocity, zero extra solves) |\n\nThe N-port driven path (Epic #841 Phase 5a) covers lumped, wave\n(geometric, filled), mixed, walled and hybrid (microstrip / stripline)\nspecs, with shape parameters bound to named groups. A driven spec\nwithout `observables` whose parameters are all `eps_r` and that has\nexactly one lumped port keeps the original `s11_mag_sq` report.\n\nNot supported in v1 (rejected with `invalid_spec`, naming what would\nlift it): extract specs (`Z`, `L₀`, `Q`), UPML / adaptive / iterative /\ndispersive / anisotropic driven specs, N-terminal capacitance matrices,\nlossy / open eigen specs (`Q`), and the new parameter kinds or\n`observables` on any analysis other than `driven`.",
+      "properties": {
+        "fd_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FdCheckSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional central finite-difference self-check: every parameter is\nre-solved at `p·(1 ± relative_step)` and each gradient entry is\ncompared to the FD estimate. A disagreement above `tolerance`\nfails the run with `solve_failed`. Costs two extra forward solves\nper parameter. `geode driven --check-gradient` turns it on with the\ndefaults when the section omits it."
+        },
+        "frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Driven specs only (additive in v1, issue #883): the frequencies to\ndifferentiate, each one of the spec's swept `frequencies` (matched\nto 1e-9 relative). Omitted: every swept frequency."
+        },
+        "min_rel_gap": {
+          "description": "Eigen specs only: minimum relative gap `|λ − λ_j| / λ` to every\nother returned mode for a differentiated mode to count as simple\n(default `1e-2`, the library's FD-validated value). A (near-)\ndegenerate mode fails the run with `solve_failed`: Hellmann–Feynman\ndoes not apply to it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "modes": {
+          "description": "Eigen specs only: indices (into the report's ascending `modes`) of\nthe modes to differentiate (default `[0]`). Each must be `<\neigen.n_modes`, and the spec needs `eigen.n_modes ≥ 2` so the\nsimple-eigenvalue gap check has a neighbour to measure.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "observables": {
+          "description": "Driven specs only (additive in v1, issue #883): the differentiated\nobservables. Omitted: every `|S_ij|²` (`mag_sq` of each entry), or,\nfor a one-lumped-port spec whose parameters are all `eps_r`, the\noriginal `s11_mag_sq` report.",
+          "items": {
+            "$ref": "#/$defs/SensitivityObservableSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "parameters": {
+          "description": "Design parameters, one per (volume physical group, kind) pair\n(`≥ 1`, distinct). The gradient is taken at the spec's material\nvalues; every tet of the group shares the parameter.",
+          "items": {
+            "$ref": "#/$defs/SensitivityParameterSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "ShapeMotion": {
+      "description": "The motion of a shape [`SensitivityParameterSpec`].",
+      "oneOf": [
+        {
+          "const": "translate",
+          "description": "Rigid translation along `axis`; the parameter is the displacement\n(value `0` at the meshed geometry).",
+          "type": "string"
+        },
+        {
+          "const": "stretch",
+          "description": "Symmetric stretch along `axis` about the centre of the groups'\nextent; the parameter is the extent itself (a strip width, a slab\nthickness).",
+          "type": "string"
+        }
+      ]
+    },
+    "SolverSpec": {
+      "description": "Linear-solver selection.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Sparse direct LU, one factorization per frequency (default). A\nstruct variant so `deny_unknown_fields` rejects stray keys such as\n`tol` under `mode = \"direct\"`.",
+          "properties": {
+            "mode": {
+              "const": "direct",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "COCG Krylov iteration with a preconditioner (by default `auto`: AMS\nwhere supported, else Jacobi with a warning) built once per\nfrequency. Non-convergence within `max_iters` is a\nhard error.",
+          "properties": {
+            "max_iters": {
+              "default": 5000,
+              "description": "Iteration budget per right-hand side (default `5000`).",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mode": {
+              "const": "iterative",
+              "type": "string"
+            },
+            "preconditioner": {
+              "$ref": "#/$defs/PreconditionerSpec",
+              "default": "auto",
+              "description": "Preconditioner built once per frequency (default `auto`)."
+            },
+            "tol": {
+              "default": 1e-10,
+              "description": "Relative-residual stopping tolerance (default `1e-10`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Spacing": {
+      "description": "Point spacing of a `start`/`stop`/`count` sweep.",
+      "oneOf": [
+        {
+          "const": "linear",
+          "description": "Evenly spaced (default).",
+          "type": "string"
+        },
+        {
+          "const": "log",
+          "description": "Geometrically spaced.",
+          "type": "string"
+        }
+      ]
+    },
+    "SweepSpec": {
+      "additionalProperties": false,
+      "description": "Frequency-sweep strategy of a driven / extract spec (additive in v1,\nissue #708).",
+      "properties": {
+        "adaptive": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveSweepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opt-in adaptive sweep. Omitted: the dense sweep."
+        }
+      },
+      "type": "object"
+    },
+    "UpmlSpec": {
+      "additionalProperties": false,
+      "description": "A matched (full Sacks) box-UPML absorbing shell on one volume physical\ngroup.\n\nThe shell's **inner wall** (the air box) is derived from the mesh: the\nbounding box of every mesh node, shrunk inward by `thickness` on every\nface. Each tet of the group whose centroid lies outside that box gets\nthe complex coordinate stretch `s_i = 1 − j·sigma_0·(d_i/thickness)²/k₀`\nper axis (`d_i` = depth beyond the inner wall on axis `i`), applied as\nthe constitutive tensors `ε = ε_r·Λ`, `ν = Λ⁻¹` on top of the group's\n`materials` permittivity (vacuum if unlisted). The mesh must therefore\nbe an **axis-aligned box** whose outer shell of depth `thickness` is\nthe absorbing region; terminate it with a PEC outer wall.",
+      "properties": {
+        "physical_group": {
+          "description": "Name of a dimension-3 physical group (the absorbing shell tets).",
+          "type": "string"
+        },
+        "sigma_0": {
+          "description": "UPML strength `σ₀` of the quadratic profile, in **natural units**\n(rad per mesh length unit — the same unit as `k₀`), `> 0`. `25` is\nthe repo's validated value for the patch-antenna / Mie shells.",
+          "format": "double",
+          "type": "number"
+        },
+        "thickness": {
+          "description": "Shell thickness in mesh units (`> 0`, less than half the mesh\nextent on every axis).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "physical_group",
+        "thickness",
+        "sigma_0"
+      ],
+      "type": "object"
+    },
+    "WavePortSpec": {
+      "additionalProperties": false,
+      "description": "A wave (modal) port on a planar surface physical group.\n\nThe tagged faces are projected into a local 2-D cross-section whose\nrim (edges on a single face triangle) is PEC. `geode` routes each port\nby its cross-section (Epic #778 Phase 5, issue #807):\n\n* **geometric** — a homogeneously filled face without interior\n  conductors: the `n_modes` lowest-cutoff TE modes (ω-independent\n  profiles; the TE-only TM-cutoff guard of issue #808 applies);\n* **hybrid** — an **inhomogeneous** face (more than one material) or a\n  face carrying an **interior conductor** (a PEC strip, sheet or carved\n  hole: microstrip, stripline, coax): the `n_modes` modes with the\n  largest `β²` of the full-vector `E_t`–`E_z` port pencil (TE, TM,\n  hybrid and quasi-TEM modes alike), re-solved and tracked at every\n  frequency. `impedance_definition` and `hybrid` apply to these ports\n  only.",
+      "properties": {
+        "a_inc": {
+          "default": null,
+          "description": "Per-mode incident amplitude `[re, im]`, length `n_modes`, every\nentry finite and non-zero. Default: `[1, 0]` for every mode.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hybrid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HybridPortSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hybrid-port solver options (issue #807; additive in v1; rejected on\na geometric port). Omit for the defaults."
+        },
+        "impedance_definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImpedanceDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Characteristic (line) impedance a **hybrid** port's channels carry\n(issue #807; additive in v1): the `z_line_ohm` of the report and the\n`Z_c` `--touchstone` renormalizes to `reference_ohm`. Default\n`power_current` (`Z_PI`). Needs a face with a floating conductor;\nrejected on a geometric port (its `Z_c` is the TE wave impedance)."
+        },
+        "n_modes": {
+          "default": 1,
+          "description": "Number of modes (`≥ 1`, default `1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Name of a dimension-2 physical group holding the (planar) port\nfaces.",
+          "type": "string"
+        },
+        "reference_ohm": {
+          "description": "Real Touchstone reference impedance in ohms (finite, `> 0`) that\n`--touchstone` renormalizes every written mode of this port to\n(issue #775; additive in v1). **Required with `--touchstone`** on\na wave-port or mixed spec, and inert without it: the JSON report's\n`results[].s` stays the modal S, referenced to each mode's own\nwave impedance `Z_TE(ω) = η₀·k₀·μ_t/β`, which varies with\nfrequency and so has no default.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "physical_group"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Input of `geode check | driven | eigen | extract | capacitance | inductance`. One analysis per spec, chosen by which of the optional `eigen` / `extract` / `capacitance` / `inductance` sections is present (none = driven). JSON or TOML (same schema). Structural contract only: a document that validates against this schema can still be rejected at run time. Cross-field rules are enforced by the binary, not the schema — which sections each analysis requires or forbids, at most one analysis section, value ranges (> 0, im <= 0, ...), names that must resolve against the mesh / layout, a physical group in at most one role. `geode check` (spec) and `geode mesh` (layout) are the authority.",
+  "properties": {
+    "absorbing_regions": {
+      "default": [],
+      "description": "Matched (box) UPML absorbing shells on volume physical groups\n(additive in v1, issue #683). Empty (default) = no UPML: the\ndriven operator uses the plain scalar per-tet `ε_r`. Driven /\nextract / eigen specs; in an eigen spec (issue #706) the stretch is\nevaluated once at `eigen.shift` (a linear open-cavity pencil, not\niterated to self-consistency with each mode's frequency).",
+      "items": {
+        "$ref": "#/$defs/UpmlSpec"
+      },
+      "type": "array"
+    },
+    "boundary_conditions": {
+      "$ref": "#/$defs/BoundaryConditionsSpec",
+      "default": {
+        "leontovich": [],
+        "pec": [],
+        "silver_muller": []
+      },
+      "description": "Boundary conditions on surface physical groups. Surfaces not named\nhere are natural (PMC-like) boundaries of the weak form."
+    },
+    "capacitance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapacitanceSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Static capacitance-extraction settings (additive in v1, issue\n#705). Its presence makes this a **capacitance spec** (for `geode\ncapacitance`)."
+    },
+    "eigen": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EigenSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Eigenmode analysis settings. Its presence makes this an **eigen\nspec** (for `geode eigen`)."
+    },
+    "extract": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExtractSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
+    },
+    "frequencies": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FrequencySpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Frequencies to solve at. Required for a `driven` / `extract` spec;\nnot allowed in an `eigen` spec (its target is [`EigenSpec::shift`])."
+    },
+    "inductance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InductanceSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Static inductance-extraction settings (additive in v1, issue\n#714). Its presence makes this an **inductance spec** (for `geode\ninductance`)."
+    },
+    "materials": {
+      "default": [],
+      "description": "Per-volume-region complex relative permittivity. Volume physical\ngroups not listed here default to vacuum (`ε_r = 1`); the `check`\nreport lists which regions defaulted.",
+      "items": {
+        "$ref": "#/$defs/MaterialSpec"
+      },
+      "type": "array"
+    },
+    "mesh": {
+      "$ref": "#/$defs/MeshSpec",
+      "description": "The mesh to solve on."
+    },
+    "ports": {
+      "default": [],
+      "description": "Lumped ports. A `driven` / `extract` spec needs at least one lumped\nport **or** (driven only) at least one wave port; a `driven` spec\nmay also mix both kinds (issue #759); an `eigen` spec must have none\n(lumped ports are driven resistive terminations; the eigen solve\ncomputes source-free resonances).",
+      "items": {
+        "$ref": "#/$defs/LumpedPortSpec"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "description": "Must equal [`SPEC_SCHEMA_VERSION`].",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sensitivity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SensitivitySpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Design sensitivities of the analysis's observable (additive in v1,\nissues #707 / #739 / #883). Not an analysis section: it rides on a\n`capacitance` (two-terminal), `inductance`, lossless `eigen` or\n`driven` spec (lumped, wave, mixed or hybrid ports; N-port S\nobservables and shape parameters, issue #883) and adds a\n`sensitivities` block to that report. Extract specs reject it in v1."
+    },
+    "solver": {
+      "$ref": "#/$defs/SolverSpec",
+      "default": {
+        "mode": "direct"
+      },
+      "description": "Linear-solver selection (default: direct sparse LU)."
+    },
+    "sweep": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SweepSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Frequency-sweep strategy (additive in v1, issue #708). Omitted: the\ndense sweep — one full-order solve per frequency. Driven / extract\nspecs only."
+    },
+    "wave_ports": {
+      "default": [],
+      "description": "Wave (modal) ports on planar surface physical groups (additive in\nv1, issue #683). `driven` specs only. Leontovich walls (incl.\nroughness) compose (issue #776); a Silver-Müller wall may not share\nan edge with a wave-port rim. They may be mixed with lumped\n`ports` (issue #759): the S-matrix then lists the lumped ports\nfirst, then the wave channels (port-major, mode-minor), and\n`sensitivity` is rejected. `--touchstone` needs every wave port's\n`reference_ohm` (issue #775); `sweep.adaptive` applies (issue #774).",
+      "items": {
+        "$ref": "#/$defs/WavePortSpec"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "mesh"
+  ],
+  "title": "GEODE problem spec (schema v1)",
+  "type": "object"
+}

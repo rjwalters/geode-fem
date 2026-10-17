@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-16T15:00:00+00:00",
+      "completed": "2026-10-16T19:00:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-16T19:00:00+00:00",
+      "note": "Figures 1-5 byte-identical to v16; captions only"
+    }
+  },
+  "metadata": {
+    "iteration": 18,
+    "max_iterations": 18,
+    "revised_from": 17,
+    "status": "DRAFT",
+    "authorization": "Revision against the Opus (42/44) and Fable (41/44) reviews of v17 (outside the thread), under the operator's standing rulings. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "caa96689 (main, transmon-benchmark.17 as merged by PR #1152)",
+    "scope": "v18 = v17 with one two-node circuit for the static route and the published reading ([98.51, 98.64] fF, 15.5-16.0 %); film comparison scoped to uniform meshes; Table 2 cap on both bands; companion sentence with its artifact; multiplicative factor split; Figure 2 caption; cuts; 19 pages",
+    "pending_dependencies": [
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v18 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1792078150.9866397,
+      "refs_mtime": null
+    }
+  }
+}

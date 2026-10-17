@@ -1,0 +1,8 @@
+one_cpu_per_physical_core=0,1,2,3,4,5,6,7
+cpuset_1=0
+cpuset_8=0,1,2,3,4,5,6,7
+smt_siblings_of_cpuset_8=0,8 1,9 2,10 3,11 4,12 5,13 6,14 7,15
+taskset_check_1=0
+taskset_check_8=0-7
+palace_np8_rank_masks=0 1 2 3 4 5 6 7
+palace_np1_rank_masks=0

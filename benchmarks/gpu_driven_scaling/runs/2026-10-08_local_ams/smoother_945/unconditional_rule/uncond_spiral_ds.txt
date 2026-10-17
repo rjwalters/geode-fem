@@ -1,0 +1,39 @@
+# tree=uncond git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 patch=unconditional_rule.patch
+# test=spiral_ds_ams_matches_direct binary=dispersive_golden-746a9e69e42b8b65 --ignored
+# start=2026-10-08T13:55:12Z loadavg=11.34 8.14 8.42
+
+running 1 test
+test spiral_ds_ams_matches_direct ... 
+thread 'spiral_ds_ams_matches_direct' (368239756) panicked at crates/geode-cli/tests/dispersive_golden.rs:103:5:
+geode ["driven"] failed (exit status: 1):
+stderr: # ams_smoother edge_dim=13997 theta_max=3.093148 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.402463 weight=0.440857 source=estimate estimate_ms=6.325
+# ams_smoother edge_dim=13997 theta_max=3.012197 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.313417 weight=0.452705 source=estimate estimate_ms=6.182
+# ams_smoother edge_dim=13997 theta_max=2.961877 lanczos_steps=30 gershgorin=6.043983 rho_hat=3.258065 weight=0.460396 source=estimate estimate_ms=5.740
+error: driven solve failed: sparse solve failed: iterative back-solve: Krylov solve did not converge — the recursive residual met the tolerance after 153 iterations but the explicitly recomputed residual ‖Ax − b‖/‖b‖ = 1.007e-10 did not (recursive-residual drift; loosen solver.tol to a level the explicit residual can reach, use a stronger preconditioner, or use solver.mode = "direct")
+
+stdout: {
+  "schema_version": 1,
+  "geode_version": "0.8.0",
+  "git_sha": "11d1d60c15cc-dirty",
+  "backend": "ndarray",
+  "threads": null,
+  "spec_path": "<tmp>/geode-cli-dispersive-ams-5575/ams.json",
+  "kind": "error",
+  "status": "error",
+  "command": "driven",
+  "error": {
+    "code": "solve_failed",
+    "message": "driven solve failed: sparse solve failed: iterative back-solve: Krylov solve did not converge — the recursive residual met the tolerance after 153 iterations but the explicitly recomputed residual ‖Ax − b‖/‖b‖ = 1.007e-10 did not (recursive-residual drift; loosen solver.tol to a level the explicit residual can reach, use a stronger preconditioner, or use solver.mode = \"direct\")"
+  }
+}
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    spiral_ds_ams_matches_direct
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 4.97s
+

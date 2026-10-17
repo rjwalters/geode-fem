@@ -1,0 +1,17 @@
+fixture:        guide_box_lc030.msh
+sha256:         bd42e9a72840fef0d0a3da3c339cb595bdacde5909184751f1a82f6ba6839d8c
+generated:      2026-10-05T19:35:00+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/guide_box.geo
+command:        gmsh reference/gmsh/guide_box.geo -3 -format msh41 -v 0 -setnumber a 2 -setnumber b 0.9 -setnumber d 1.0 -setnumber lc 0.30 -o crates/geode-core/tests/fixtures/guide_box_lc030.msh
+
+parameter values:
+  a:  2   (x extent, mesh units)
+  b:  0.9   (y extent)
+  d:  1.0   (z extent: the guide length)
+  lc: 0.30   (mesh size at both ports; lc1 = lc)
+
+physical groups: 3-D "domain"; 2-D "walls" (all six faces). The tests take the
+                 ports from boundary_faces() at z = 0 / z = d, in its order.
+nodes:          183
+consumed by:    crates/geode-core/tests/wave_port_gauge.rs (issue #888)

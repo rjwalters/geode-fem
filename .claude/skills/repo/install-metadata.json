@@ -1,0 +1,9 @@
+{
+  "version": "0.21.5",
+  "commit": "542bef1",
+  "layout_version": 2,
+  "dev": false,
+  "filtered": false,
+  "guardHookInstalled": false,
+  "commands": ["all","audit","branches","browser","decide","deps","docs","followups","gitignore","handoff","help","host-optimize","links","optimize-ci","org-policy","orphans","readme","release","remote","reset","scrub","sudo","tidy","update-tools"]
+}

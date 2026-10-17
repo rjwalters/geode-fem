@@ -1,0 +1,8 @@
+t1_rep3_n50: n50_jacobi rc=0
+t1_rep3_n50: n50_ams rc=0
+t1_rep3_n50: SWEEP_DONE
+palace_cpu_np8_n50_run1,rc=0,cpus=0-7,wall=0:23.54,max_rss_kb_one_rank=885120,cgroup_peak_bytes=6797037568,end=2026-10-08T19:15:55Z
+palace_cpu_np1_n50_run1,rc=0,cpus=0,wall=2:05.48,max_rss_kb_one_rank=6545944,cgroup_peak_bytes=6679298048,end=2026-10-08T19:18:01Z
+palace_cpu_np8_n50_run1,rc=0,cpus=0-7,wall=1:16.04,max_rss_kb_one_rank=3902380,cgroup_peak_bytes=28429352960,end=2026-10-08T19:19:17Z
+palace_cpu_np1_n50_run1,rc=0,cpus=0,wall=5:08.18,max_rss_kb_one_rank=23695144,cgroup_peak_bytes=24274980864,end=2026-10-08T19:24:26Z
+CHAIN_E_DONE

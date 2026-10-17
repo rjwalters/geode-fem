@@ -1,0 +1,17 @@
+cell=palace_s4p5_n6_np1
+run=2
+solver=palace
+env=OMP_NUM_THREADS=1
+image=palace:tuned
+linear_type=SuperLU
+pin=docker --cpuset-cpus 0; mpirun -bind-to core
+command=palace -np 1 -launcher-args '-bind-to core' cfg_palace_s4p5_n6_np1_run2.json
+start_utc=2026-10-09T00:51:07Z
+loadavg_before=1.68 1.67 2.06
+observed_processes_max=1
+observed_tasks_max=1
+observed_cpus_allowed=0
+end_utc=2026-10-09T00:54:05Z
+loadavg_after=0.95 1.34 1.86
+host_wall_s=175.876
+exit=0

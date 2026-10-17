@@ -1,0 +1,53 @@
+Issue #963: where the residual AMS iteration growth on the #520 cube comes
+from (26 -> 55 iterations from 1 854 to 102 024 edges at omega = 0.10 after
+the #945 smoother-weight fix). Summarized as [smoother_963] of
+results_ams_cpu_local.toml.
+
+Developer machine shared with other work (an Apple M3 Ultra, 28 logical
+CPUs), single samples. Iteration counts are the result. Every leg records the
+1-minute load average at its start and end in its .meta file; over the cube
+trees it was 47 to 100. process user + sys seconds are the cost figure and are
+inflated by that load; wall-clock times are recorded and not compared.
+
+A first pass of the same chain ran earlier the same day with load averages
+up to 178. Its iteration counts matched this pass exactly. It was discarded
+and the chain rerun so that no committed timing comes from that spike.
+
+Builds
+  main     origin/main c6f18764, a clean detached checkout with its own target
+           directory.
+  branch   b57ecb71 (feature/issue-963): the opt-in V-cycle knobs. With no
+           knob set it is the shipped preconditioner (default_equals_main_*
+           in the TOML; default_vcycle_options_reproduce_the_shipped_cycle_bitwise).
+  The branch legs' .meta files say dirty=<n> with n in the hundreds. Those
+  are the tracked files of THIS run tree, which a first pass of the chain had
+  committed and this rerun deleted and rewrote while it ran. No source file
+  differed from b57ecb71: `git diff b57ecb71 -- crates` is empty on the
+  commit that adds this note. The validation/ runs were made after this tree
+  was committed, so they say dirty=0.
+
+Knobs (driven assembled AMS only; recorded in each leg's .meta)
+  GEODE_DRIVEN_AMS_PI_COARSE   vector-nodal Pi^T P Pi solve: sgs:<n> (default
+                               sgs:4), direct (exact sparse LU), amg:<cycles>
+  GEODE_DRIVEN_AMS_SMOOTHER    edge smoother: jacobi:<n> (default jacobi:1, the
+                               #945 weight), l1jacobi:<n>, chebyshev:<degree>,
+                               sgs:<n>
+  GEODE_DRIVEN_AMS_CYCLE       additive (default, 0 (1+2) 0) or multiplicative
+                               (0 1 2 1 0)
+  The gradient-space solve is the exact LU in every tree.
+
+Trees: <variant>_w<omega>, one ams_cpu_sweep.sh tree each, AMS legs only,
+RAYON_NUM_THREADS=1, SKIP_DIRECT=1, sizes n = 6 9 12 15 20 24. chain963.sh is
+the exact sequence; chain.out has each tree's exit code. ams_cpu_sweep.sh's
+build.log files were deleted (they hold machine paths).
+
+validation/<variant>_<test>.txt, .time
+  The AMS tests outside the cube fixture (the #961 set, minus the eigen
+  transmon tests, which do not read these knobs), one test per process, run
+  by validation/val963.sh for main, default, pi_amg4 (amg:4) and pi_sgs16
+  (sgs:16), with --include-ignored. Each .txt starts with a three-line header
+  (tree, test, commit, env, start time, load); machine paths in the output
+  are replaced by <repo>, <cargo-target>, <home> and <tmp>. Only
+  spiral_golden prints per-frequency iteration counts. The .time files cover
+  the whole test process, including its direct-LU reference solve and, for
+  the CLI tests, the geode child process when /usr/bin/time counts it.

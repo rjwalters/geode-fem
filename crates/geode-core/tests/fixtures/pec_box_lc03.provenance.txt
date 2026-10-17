@@ -1,0 +1,16 @@
+fixture:        pec_box_lc03.msh
+sha256:         cdd46fa7ca99e7de80269edd4d592c91bbb61c2d30340030f05cdf5aa7944faa
+generated:      2026-10-05T19:23:52+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/pec_box.geo
+command:        gmsh reference/gmsh/pec_box.geo -3 -format msh41 -setnumber lc 0.3 -o crates/geode-core/tests/fixtures/pec_box_lc03.msh
+
+parameter values:
+  a:  1.0   (x extent, mesh units)
+  b:  0.8   (y extent)
+  d:  0.6   (z extent)
+  lc: 0.3   (uniform mesh size)
+
+physical groups: 3-D "domain"; 2-D "x0" "x1" "y0" "y1" "z0" "z1" (one per wall)
+nodes:          84
+consumed by:    crates/geode-core/tests/eigen_p2_tagged.rs (issue #871)

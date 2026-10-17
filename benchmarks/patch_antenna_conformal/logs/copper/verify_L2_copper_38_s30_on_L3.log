@@ -1,0 +1,17 @@
+patch_conformal_nested_dof [copper_38]: patch_conformal_L3 (844238 edges, 123372 nodes, 712863 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 1.2 s
+  verify-only: design L2_copper_38_s30 on L3 at p1
+    worst tet: tet 630209 ratio 0.310 in air at (s, y) = (+1.34, +11.71) mm, dr -1.78 mm from the substrate top, 4.42 mm from the feed, 17.88 mm from a corner, 0.00 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.00 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 27.97 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.215) mm, width 2.094 mm, inset 4.952 mm; patch 28.360 x 39.905 mm (L x W), area 1111.4 mm^2 (base 1110.8)
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.2191 (-13.19 dB), Z = 70.0 +17.5i ohm
+    sweep 2.4104 GHz: |S11| = 0.1626 (-15.78 dB), Z = 68.6 +5.2i ohm
+    sweep 2.4209 GHz: |S11| = 0.1265 (-17.96 dB), Z = 63.3 -5.3i ohm
+    sweep 2.4313 GHz: |S11| = 0.1311 (-17.65 dB), Z = 55.9 -12.7i ohm
+    sweep 2.4417 GHz: |S11| = 0.1722 (-15.28 dB), Z = 47.9 -17.0i ohm
+    sweep 2.4522 GHz: |S11| = 0.2286 (-12.82 dB), Z = 40.5 -18.9i ohm
+    sweep 2.4626 GHz: |S11| = 0.2888 (-10.79 dB), Z = 34.1 -19.1i ohm
+    sweep 2.4731 GHz: |S11| = 0.3480 ( -9.17 dB), Z = 28.7 -18.4i ohm
+    sweep 2.4835 GHz: |S11| = 0.4041 ( -7.87 dB), Z = 24.4 -17.2i ohm
+  verify L2_copper_38_s30 on L3 (p1): worst -7.87 dB, best -17.96 dB over 9 points; reached -10 dB = false; min vol ratio 0.310; no wide sweep; 2238 s, peak RSS 68.9 GiB
+patch_conformal_nested_dof [verify L2_copper_38_s30 on L3 p1]: <out>/verify/L2_copper_38_s30_on_L3.toml

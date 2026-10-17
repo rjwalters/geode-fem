@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/microstrip_line_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    { "physical_group": "substrate", "eps_r": [4.4, 0.0] }
+  ],
+  "boundary_conditions": {
+    "pec": ["shield", "strip"]
+  },
+  "wave_ports": [
+    { "physical_group": "port_in", "reference_ohm": 50 },
+    { "physical_group": "port_out", "reference_ohm": 50 }
+  ],
+  "frequencies": { "unit": "ghz", "values": [1.0, 2.0, 4.0] }
+}

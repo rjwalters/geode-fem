@@ -1,0 +1,9 @@
+{
+  "critic": "pub-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-07-16T18:05:00Z",
+  "finished": "2026-07-16T18:55:00Z",
+  "model": "claude-fable-5",
+  "schema_version": 1,
+  "notes": "Staged via `python -m anvil.lib.sidecar` CLI shim (stage/commit; issue #645 tier 1). Compile verification ran in a scratch copy of transmon-benchmark.5/ per the dispatching agent's do-not-modify-version-dir directive; the shipped main.pdf was verified current against the fresh compile (pdftotext streams byte-identical), so no main.pdf write into the version dir was needed. Corpus tier inactive (no corpus: key in BRIEF.md frontmatter) — no .corpus-audit sibling per contract."
+}

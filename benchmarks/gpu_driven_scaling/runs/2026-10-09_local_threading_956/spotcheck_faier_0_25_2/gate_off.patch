@@ -1,0 +1,13 @@
+diff --git a/crates/geode-core/src/eigen/parallel.rs b/crates/geode-core/src/eigen/parallel.rs
+index 09230b5f..a53e32ec 100644
+--- a/crates/geode-core/src/eigen/parallel.rs
++++ b/crates/geode-core/src/eigen/parallel.rs
+@@ -564,7 +564,7 @@ impl Drop for SequentialSolveScope {
+ /// 97k-unknown transient run the sequential loop made the whole solve 20 % and
+ /// 25 to 50 % slower. Above this dimension the solve is therefore left on the
+ /// caller's parallelism, as before #956.
+-pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 10_000;
++pub const SEQUENTIAL_SOLVE_MAX_DIM: usize = 0;
+ 
+ /// A [`SequentialSolveScope`] for a run of single-right-hand-side solves
+ /// through a fixed sparse LU of dimension `dim`, or `None` when `dim` exceeds

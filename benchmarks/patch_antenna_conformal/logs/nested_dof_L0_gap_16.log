@@ -1,0 +1,86 @@
+patch_conformal_nested_dof [gap_16]: patch_conformal_L0 (38650 edges, 6114 nodes, 31225 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 16 radial + 0 outline = 16; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.0 s
+  x=0: G = 8.365590e-1, worst |S11| -0.90 dB, best -1.92 dB, |grad| = 1.232e-1, residual 5.2e-14; gradient eval 28.8 s, peak RSS 0.82 GiB
+        2.4000 GHz: |S11| = 0.8014 ( -1.92 dB)
+        2.4209 GHz: |S11| = 0.8383 ( -1.53 dB)
+        2.4417 GHz: |S11| = 0.8656 ( -1.25 dB)
+        2.4626 GHz: |S11| = 0.8863 ( -1.05 dB)
+        2.4835 GHz: |S11| = 0.9021 ( -0.90 dB)
+  FD [steepest_descent @ x0]: analytic -1.232111e-1, central FD -1.232111e-1, rel 1.489e-9
+  FD [random_radial @ x0]: analytic -1.859592e-2, central FD -1.859592e-2, rel 2.688e-8
+    trial a = 1.000e0: G = 7.348168e-1 (worst -1.41 dB), vol 0.920, accept (27 s)
+  step 1: G = 7.348168e-1 (worst |S11| -1.41 dB, best -3.87 dB, drop +1.22e-1), |grad| = 1.901e-1, vol_ratio = 0.920, |dx| = 6.674e-1, backtracks = 0, 155 s elapsed
+    trial a = 1.000e0: G = 5.459994e-1 (worst -2.65 dB), vol 0.844, accept (33 s)
+  step 2: G = 5.459994e-1 (worst |S11| -2.65 dB, best -11.78 dB, drop +2.57e-1), |grad| = 3.464e-1, vol_ratio = 0.844, |dx| = 7.330e-1, backtracks = 0, 188 s elapsed
+    trial a = 1.000e0: G = 2.401383e-1 (worst -6.25 dB), vol 0.786, accept (26 s)
+  step 3: G = 2.401383e-1 (worst |S11| -6.25 dB, best -19.74 dB, drop +5.60e-1), |grad| = 5.082e-1, vol_ratio = 0.786, |dx| = 6.791e-1, backtracks = 0, 213 s elapsed
+    trial a = 1.000e0: G = 4.747051e-1 (worst -3.25 dB), vol 0.727, reject (32 s)
+    trial a = 5.000e-1: G = 2.805887e-1 (worst -5.54 dB), vol 0.765, reject (27 s)
+    trial a = 2.500e-1: G = 1.970254e-1 (worst -7.47 dB), vol 0.775, accept (32 s)
+  step 4: G = 1.970254e-1 (worst |S11| -7.47 dB, best -24.61 dB, drop +1.80e-1), |grad| = 2.262e-1, vol_ratio = 0.775, |dx| = 1.643e-1, backtracks = 2, 303 s elapsed
+    trial a = 1.000e0: G = 1.950405e-1 (worst -7.56 dB), vol 0.777, accept (29 s)
+  step 5: G = 1.950405e-1 (worst |S11| -7.56 dB, best -24.23 dB, drop +1.01e-2), |grad| = 1.511e-1, vol_ratio = 0.777, |dx| = 4.973e-2, backtracks = 0, 332 s elapsed
+    trial a = 1.000e0: G = 1.934447e-1 (worst -7.82 dB), vol 0.776, accept (29 s)
+  step 6: G = 1.934447e-1 (worst |S11| -7.82 dB, best -25.02 dB, drop +8.18e-3), |grad| = 3.172e-2, vol_ratio = 0.776, |dx| = 1.962e-2, backtracks = 0, 361 s elapsed
+    trial a = 1.000e0: G = 1.932924e-1 (worst -7.84 dB), vol 0.775, accept (29 s)
+  step 7: G = 1.932924e-1 (worst |S11| -7.84 dB, best -25.09 dB, drop +7.87e-4), |grad| = 3.173e-2, vol_ratio = 0.775, |dx| = 5.028e-3, backtracks = 0, 390 s elapsed
+    trial a = 1.000e0: G = 1.905151e-1 (worst -7.80 dB), vol 0.755, accept (29 s)
+  step 8: G = 1.905151e-1 (worst |S11| -7.80 dB, best -26.44 dB, drop +1.44e-2), |grad| = 1.106e-1, vol_ratio = 0.755, |dx| = 1.175e-1, backtracks = 0, 419 s elapsed
+    trial a = 1.000e0: G = 1.846394e-1 (worst -7.83 dB), vol 0.709, accept (30 s)
+  step 9: G = 1.846394e-1 (worst |S11| -7.83 dB, best -29.53 dB, drop +3.08e-2), |grad| = 1.863e-1, vol_ratio = 0.709, |dx| = 2.826e-1, backtracks = 0, 449 s elapsed
+    trial a = 1.000e0: G = 1.562551e-1 (worst -9.08 dB), vol 0.462, accept (28 s)
+  step 10: G = 1.562551e-1 (worst |S11| -9.08 dB, best -26.64 dB, drop +1.54e-1), |grad| = 1.893e-2, vol_ratio = 0.462, |dx| = 1.493e0, backtracks = 0, 477 s elapsed
+    trial a = 4.688e-1: G = 1.540779e-1 (worst -8.66 dB), vol 0.316, accept (30 s)
+  step 11: G = 1.540779e-1 (worst |S11| -8.66 dB, best -20.58 dB, drop +1.39e-2), |grad| = 1.638e-1, vol_ratio = 0.316, |dx| = 8.689e-1, backtracks = 1, 507 s elapsed
+    trial a = 1.000e0: G = 1.524074e-1 (worst -8.91 dB), vol 0.369, accept (30 s)
+  step 12: G = 1.524074e-1 (worst |S11| -8.91 dB, best -22.59 dB, drop +1.08e-2), |grad| = 9.133e-2, vol_ratio = 0.369, |dx| = 3.157e-1, backtracks = 0, 537 s elapsed
+    trial a = 1.000e0: G = 1.518861e-1 (worst -8.96 dB), vol 0.364, accept (28 s)
+  step 13: G = 1.518861e-1 (worst |S11| -8.96 dB, best -22.56 dB, drop +3.42e-3), |grad| = 8.209e-2, vol_ratio = 0.364, |dx| = 3.310e-2, backtracks = 0, 565 s elapsed
+    trial a = 5.000e-1: G = 1.484117e-1 (worst -9.20 dB), vol 0.302, accept (30 s)
+  step 14: G = 1.484117e-1 (worst |S11| -9.20 dB, best -21.44 dB, drop +2.29e-2), |grad| = 4.767e-2, vol_ratio = 0.302, |dx| = 3.909e-1, backtracks = 1, 595 s elapsed
+    trial a = 2.500e-1: G = 1.471581e-1 (worst -9.28 dB), vol 0.271, accept (29 s)
+  step 15: G = 1.471581e-1 (worst |S11| -9.28 dB, best -20.88 dB, drop +8.45e-3), |grad| = 4.254e-2, vol_ratio = 0.271, |dx| = 1.970e-1, backtracks = 2, 624 s elapsed
+    trial a = 1.250e-1: G = 1.463663e-1 (worst -9.33 dB), vol 0.252, accept (29 s)
+  step 16: G = 1.463663e-1 (worst |S11| -9.33 dB, best -20.62 dB, drop +5.38e-3), |grad| = 3.797e-2, vol_ratio = 0.252, |dx| = 1.218e-1, backtracks = 3, 653 s elapsed
+    trial a = 7.812e-3: G = 1.463066e-1 (worst -9.33 dB), vol 0.251, accept (28 s)
+  step 17: G = 1.463066e-1 (worst |S11| -9.33 dB, best -20.60 dB, drop +4.08e-4), |grad| = 3.759e-2, vol_ratio = 0.251, |dx| = 9.049e-3, backtracks = 7, 681 s elapsed
+    trial a = 3.906e-3: G = 1.462715e-1 (worst -9.33 dB), vol 0.250, accept (28 s)
+  step 18: G = 1.462715e-1 (worst |S11| -9.33 dB, best -20.59 dB, drop +2.40e-4), |grad| = 3.737e-2, vol_ratio = 0.250, |dx| = 5.171e-3, backtracks = 8, 708 s elapsed
+    trial a = 3.052e-5: G = 1.462712e-1 (worst -9.33 dB), vol 0.250, accept (26 s)
+  step 19: G = 1.462712e-1 (worst |S11| -9.33 dB, best -20.59 dB, drop +2.02e-6), |grad| = 3.736e-2, vol_ratio = 0.250, |dx| = 4.308e-5, backtracks = 15, 735 s elapsed
+    trial a = 7.629e-6: G = 1.462712e-1 (worst -9.33 dB), vol 0.250, accept (29 s)
+  step 20: G = 1.462712e-1 (worst |S11| -9.33 dB, best -20.59 dB, drop +5.38e-7), |grad| = 3.736e-2, vol_ratio = 0.250, |dx| = 1.129e-5, backtracks = 17, 764 s elapsed
+  FD [random_all @ x_final]: analytic 1.679844e-3, central FD 1.679844e-3, rel 1.658e-7
+  in-band verification sweep at x_final:
+    sweep 2.4000 GHz: |S11| = 0.3251 ( -9.76 dB), Z = 64.3 +36.3i ohm
+    sweep 2.4104 GHz: |S11| = 0.2515 (-11.99 dB), Z = 68.7 +24.0i ohm
+    sweep 2.4209 GHz: |S11| = 0.1780 (-14.99 dB), Z = 68.1 +10.8i ohm
+    sweep 2.4313 GHz: |S11| = 0.1144 (-18.83 dB), Z = 62.9 -0.6i ohm
+    sweep 2.4417 GHz: |S11| = 0.0934 (-20.59 dB), Z = 55.0 -8.5i ohm
+    sweep 2.4522 GHz: |S11| = 0.1362 (-17.32 dB), Z = 46.6 -12.8i ohm
+    sweep 2.4626 GHz: |S11| = 0.2033 (-13.84 dB), Z = 38.8 -14.5i ohm
+    sweep 2.4731 GHz: |S11| = 0.2737 (-11.26 dB), Z = 32.3 -14.5i ohm
+    sweep 2.4835 GHz: |S11| = 0.3414 ( -9.33 dB), Z = 27.0 -13.5i ohm
+  wide sweep at x_final:
+    sweep 2.2000 GHz: |S11| = 0.9050 ( -0.87 dB), Z = 3.4 +30.5i ohm
+    sweep 2.2250 GHz: |S11| = 0.8845 ( -1.07 dB), Z = 4.4 +32.7i ohm
+    sweep 2.2500 GHz: |S11| = 0.8573 ( -1.34 dB), Z = 5.8 +35.4i ohm
+    sweep 2.2750 GHz: |S11| = 0.8208 ( -1.71 dB), Z = 7.9 +38.6i ohm
+    sweep 2.3000 GHz: |S11| = 0.7712 ( -2.26 dB), Z = 11.3 +42.5i ohm
+    sweep 2.3250 GHz: |S11| = 0.7029 ( -3.06 dB), Z = 17.0 +47.2i ohm
+    sweep 2.3500 GHz: |S11| = 0.6094 ( -4.30 dB), Z = 27.0 +51.5i ohm
+    sweep 2.3750 GHz: |S11| = 0.4839 ( -6.30 dB), Z = 44.0 +51.5i ohm
+    sweep 2.4000 GHz: |S11| = 0.3251 ( -9.76 dB), Z = 64.3 +36.3i ohm
+    sweep 2.4250 GHz: |S11| = 0.1506 (-16.44 dB), Z = 66.5 +5.9i ohm
+    sweep 2.4500 GHz: |S11| = 0.1240 (-18.13 dB), Z = 48.3 -12.2i ohm
+    sweep 2.4750 GHz: |S11| = 0.2865 (-10.86 dB), Z = 31.2 -14.4i ohm
+    sweep 2.5000 GHz: |S11| = 0.4385 ( -7.16 dB), Z = 20.7 -11.1i ohm
+    sweep 2.5250 GHz: |S11| = 0.5590 ( -5.05 dB), Z = 14.5 -7.1i ohm
+    sweep 2.5500 GHz: |S11| = 0.6497 ( -3.75 dB), Z = 10.7 -3.4i ohm
+    sweep 2.5750 GHz: |S11| = 0.7169 ( -2.89 dB), Z = 8.2 -0.3i ohm
+    sweep 2.6000 GHz: |S11| = 0.7668 ( -2.31 dB), Z = 6.6 +2.3i ohm
+    sweep 2.6250 GHz: |S11| = 0.8040 ( -1.89 dB), Z = 5.5 +4.5i ohm
+    sweep 2.6500 GHz: |S11| = 0.8322 ( -1.60 dB), Z = 4.7 +6.5i ohm
+    sweep 2.6750 GHz: |S11| = 0.8538 ( -1.37 dB), Z = 4.1 +8.2i ohm
+    sweep 2.7000 GHz: |S11| = 0.8705 ( -1.21 dB), Z = 3.6 +9.8i ohm
+  terminal = distortion_limited; worst-of-band -0.90 -> -9.33 dB (band points), verification worst -9.33 dB / best -20.59 dB over 9 points, final dip 2.450 GHz (-18.1 dB); reached -10 dB = false; max disp 1.974 mm, mean patch lift +0.261 mm, edges +y +0.000 -y +0.000 +s +0.000 -s +0.000 mm; 175 solves, 941 s
+patch_conformal_nested_dof [gap_16]: results <scratch>/L0/L0_gap_16.toml ; geometry <scratch>/L0/L0_gap_16.json

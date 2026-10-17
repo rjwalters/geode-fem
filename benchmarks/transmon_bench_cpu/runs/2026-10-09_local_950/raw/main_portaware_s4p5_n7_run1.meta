@@ -1,0 +1,9 @@
+cell=main_portaware_s4p5_n7
+run=1
+bin=main
+env=GEODE_INNER=direct GEODE_GAUGE=port_aware GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=7 GEODE_NUM_THREADS=1 RAYON_NUM_THREADS=1
+start_utc=2026-10-09T11:20:22Z
+loadavg_before=56.70 44.40 27.75
+end_utc=2026-10-09T11:22:58Z
+loadavg_after=85.63 62.47 38.00
+exit=0

@@ -1,0 +1,233 @@
+{
+  "schema": "geode-meep-resolution-trend/1",
+  "note": "Successive-grid differences and planning projection only. No spatial convergence or cost-to-accuracy verdict.",
+  "runs": [
+    {
+      "resolution_cells_per_mm": 1.0,
+      "mpi_ranks": 4,
+      "wall_seconds": 309.88636789,
+      "sum_rank_peak_rss_gib": 1.8365287780761719,
+      "final_time": 3833.5,
+      "time_step": 0.5,
+      "checks_run": 3,
+      "temporal_drift_sequence": [
+        0.011820990652575927,
+        0.002946516570972746,
+        0.0009419773590151698
+      ],
+      "temporal_tolerance_met": true,
+      "min_s11_db": -7.101570096626536,
+      "min_s11_frequency_ghz": 2.7,
+      "min_is_interior": false,
+      "worst_in_band_s11_db": -1.1874391194426535,
+      "impedance_2g45_ohm": [
+        4.323035595791173,
+        -12.029926777540899
+      ],
+      "name": "R1"
+    },
+    {
+      "resolution_cells_per_mm": 2.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 1829.241692009,
+      "sum_rank_peak_rss_gib": 14.45748519897461,
+      "final_time": 4433.5,
+      "time_step": 0.25,
+      "checks_run": 4,
+      "temporal_drift_sequence": [
+        0.017134121693974665,
+        0.006313946852368256,
+        0.001862823712391028,
+        0.0006599106387835937
+      ],
+      "temporal_tolerance_met": true,
+      "min_s11_db": -2.7144992441929396,
+      "min_s11_frequency_ghz": 2.2,
+      "min_is_interior": false,
+      "worst_in_band_s11_db": -1.2013068782100351,
+      "impedance_2g45_ohm": [
+        3.5806224132196163,
+        -8.42330723383859
+      ],
+      "name": "R2"
+    },
+    {
+      "resolution_cells_per_mm": 4.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 21299.544037972,
+      "sum_rank_peak_rss_gib": 73.06596374511719,
+      "final_time": 4433.375,
+      "time_step": 0.125,
+      "checks_run": 4,
+      "temporal_drift_sequence": [
+        0.015310489314650661,
+        0.0043666605311664065,
+        0.0010420058494289433,
+        0.0002679935087703343
+      ],
+      "temporal_tolerance_met": true,
+      "min_s11_db": -12.222764578631775,
+      "min_s11_frequency_ghz": 2.2,
+      "min_is_interior": false,
+      "worst_in_band_s11_db": -0.887897473747002,
+      "impedance_2g45_ohm": [
+        2.8365594309568447,
+        -9.380193738754754
+      ],
+      "name": "R4"
+    }
+  ],
+  "max_complex_s11_change_R1_R2": 0.47094237920252363,
+  "max_complex_s11_change_R2_R4": 0.5011502231468754,
+  "successive_change_ratio_R1R2_over_R2R4": 0.9397229761673705,
+  "geode_comparison": {
+    "source": "benchmarks/patch_antenna_conformal/convergence.toml [s11.bent], [gate_g1.bent]",
+    "geode_levels": [
+      "L0_p1",
+      "L1_p1",
+      "L2_p1",
+      "L3_p1",
+      "L0_p2",
+      "L1_p2"
+    ],
+    "geode_dip_f_ghz": [
+      2.271708,
+      2.311815,
+      2.328769,
+      2.342186,
+      2.344336,
+      2.356643
+    ],
+    "geode_dip_db": [
+      -28.8168,
+      -23.1087,
+      -23.1687,
+      -24.3773,
+      -25.8598,
+      -25.6038
+    ],
+    "geode_dip_z_re_ohm": [
+      46.9952,
+      44.3665,
+      44.4343,
+      45.1625,
+      45.9342,
+      45.7889
+    ],
+    "geode_dip_rises_with_refinement": true,
+    "geode_converged": false,
+    "geode_lower_bound_dip_f_ghz": 2.356643,
+    "geode_extrapolation_range_ghz": [
+      2.368792,
+      2.434064
+    ],
+    "geode_lower_bound_inside_meep_window": true,
+    "meep_at_geode_frequencies": {
+      "R1": {
+        "2.36": {
+          "s11_db": -1.0404511059600032,
+          "z_re_ohm": 3.1094893587716586
+        },
+        "2.40": {
+          "s11_db": -1.1874391194426535,
+          "z_re_ohm": 3.573017747743774
+        }
+      },
+      "R2": {
+        "2.36": {
+          "s11_db": -1.3197976596673544,
+          "z_re_ohm": 3.846772656558323
+        },
+        "2.40": {
+          "s11_db": -1.2551902094457268,
+          "z_re_ohm": 3.6809802163925887
+        }
+      },
+      "R4": {
+        "2.36": {
+          "s11_db": -1.4644689779633755,
+          "z_re_ohm": 4.240008968503759
+        },
+        "2.40": {
+          "s11_db": -1.1534042095261845,
+          "z_re_ohm": 3.379258953189399
+        }
+      }
+    },
+    "meep_min_at_window_edge": {
+      "R1": true,
+      "R2": true,
+      "R4": true
+    },
+    "meep_min_frequency_ghz": {
+      "R1": 2.7,
+      "R2": 2.2,
+      "R4": 2.2
+    },
+    "note": "Opposite refinement directions recorded, not attributed to one cause. Meep exp(-i wt) vs GEODE exp(+i wt) does not affect |S11| or Re Z."
+  },
+  "r4_measured": {
+    "logged_grid_shape": [
+      768,
+      732,
+      526
+    ],
+    "cells": 295704576,
+    "steps_to_final_time": 35467,
+    "median_logged_s_per_step": 0.58805,
+    "mean_wall_s_per_step": 0.6005454094784447,
+    "cgroup_memory_peak_gib": 71.26874160766602,
+    "sum_rank_peak_rss_gib": 73.06596374511719,
+    "rank_seconds_per_cell_step": 6.363648562543719e-08
+  },
+  "r8_projection": {
+    "assumptions": [
+      "Grid doubles on each axis (8x cells); dt halves, so 2x steps to the same final time.",
+      "Same stopping outcome as R4 (final time unchanged); more checks would add time.",
+      "Memory scales with cells from the R4 cgroup peak and from the R4 rank-RSS sum.",
+      "Per-step cost from R4 median rank-seconds per cell-step; 70% efficiency is an assumed band, not measured.",
+      "Prices from the scripts/aws/geode-worker.sh table (2026-10-12, us-east-1 on-demand); 16x/24x derived from its linear r8g ladder; not a bill.",
+      "Excludes initialization, environment rebuild and idle time."
+    ],
+    "cells": 2365636608,
+    "steps": 70934,
+    "memory_from_cgroup_peak_gib": 570.1499328613281,
+    "memory_from_rank_rss_sum_gib": 584.5277099609375,
+    "instances": {
+      "r8g.8xlarge": {
+        "vcpus": 32,
+        "nominal_memory_gib": 256,
+        "usd_per_hour": 1.88512,
+        "fits_memory_with_15pct_headroom": false
+      },
+      "r8g.16xlarge": {
+        "vcpus": 64,
+        "nominal_memory_gib": 512,
+        "usd_per_hour": 3.77024,
+        "fits_memory_with_15pct_headroom": false
+      },
+      "r8g.24xlarge": {
+        "vcpus": 96,
+        "nominal_memory_gib": 768,
+        "usd_per_hour": 5.65536,
+        "fits_memory_with_15pct_headroom": true,
+        "ideal_s_per_step": 1.5681333333333332,
+        "stepping_hours_at_100pct_efficiency": 30.89832496296296,
+        "stepping_usd_at_100pct_efficiency": 174.7411510625422,
+        "stepping_hours_at_70pct_efficiency": 44.140464232804234,
+        "stepping_usd_at_70pct_efficiency": 249.63021580363176
+      },
+      "r8g.48xlarge": {
+        "vcpus": 192,
+        "nominal_memory_gib": 1536,
+        "usd_per_hour": 11.31072,
+        "fits_memory_with_15pct_headroom": true,
+        "ideal_s_per_step": 0.7840666666666666,
+        "stepping_hours_at_100pct_efficiency": 15.44916248148148,
+        "stepping_usd_at_100pct_efficiency": 174.7411510625422,
+        "stepping_hours_at_70pct_efficiency": 22.070232116402117,
+        "stepping_usd_at_70pct_efficiency": 249.63021580363176
+      }
+    }
+  }
+}

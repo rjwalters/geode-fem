@@ -1,0 +1,5 @@
+measured_date = 2026-10-09
+tree_commit = 85b4a485acb1f6ad31b7a3181a5e26dec696b5fa
+faer = faier 0.25.2 (crates.io, Cargo.lock at tree_commit)
+build = tree_commit with gate_off.patch (SEQUENTIAL_SOLVE_MAX_DIM = 0), release
+host_load = uptime load averages 10.57 11.99 14.35 at the start and 9.73 11.27 13.73 at the end of spotcheck956.sh (other agents were building on the machine); the 8-thread per-call legs of steps 1 and 2 started at a 1-minute load of 14.6 to 66.2, median 22.8

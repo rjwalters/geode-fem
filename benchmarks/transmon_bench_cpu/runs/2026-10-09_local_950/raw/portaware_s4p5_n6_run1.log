@@ -1,0 +1,21 @@
+=== transmon_bench (Epic #547 scale-benchmark gate) ===
+config: inner = direct (faer COLAMD sparse LU), σ = 4.5 GHz, n_modes = 6, GEODE_NUM_THREADS = 1
+gauge: port_aware (#950 port-subspace divergence-free projection; one factorization, no junction extract)
+mesh: embedded transmon smoke fixture (no CLI arg given)
+fixture: 22684 nodes, 133314 tets (loaded in 0.094 s)
+setup/assembly: 156863 edges → 133108 interior DOFs, pencil nnz = 2561711 (5.221 s)
+port-aware projection: 96 Lanczos iterations, 0 extra re-projections
+factorizations of K − σM: 1; re-admitted gradient directions: 1
+null-mode filter: dropped 1 (|λ| ≤ 1.188e-12; largest dropped |λ| = 3.853e-20)
+eigenvalues / frequencies (sorted by λ):
+  mode[0]: λ = 5.236594e-9, f = 3.452751 GHz, participation p = 0.9942, residual = 1.07e-8
+  mode[1]: λ = 1.166297e-8, f = 5.152825 GHz, participation p = 0.0005, residual = 1.68e-9
+  mode[2]: λ = 1.050551e-7, f = 15.464979 GHz, participation p = 0.0000, residual = 1.17e-9
+  mode[3]: λ = 1.343703e-7, f = 17.490109 GHz, participation p = 1.0000, residual = 1.13e-9
+  mode[4]: λ = 1.534838e-7, f = 18.692705 GHz, participation p = 0.0000, residual = 1.25e-9
+  mode[5]: λ = 1.882785e-7, f = 20.703377 GHz, participation p = 0.0000, residual = 1.47e-9
+--- wall-clock ---
+  fixture-load : 0.094 s
+  setup+assembly : 5.221 s
+  solve (direct (faer COLAMD sparse LU)) : 29.754 s
+  TOTAL : 35.070 s (133108 interior DOFs, 6 modes)

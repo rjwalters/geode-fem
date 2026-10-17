@@ -1,0 +1,33 @@
+
+running 1 test
+test gpu_driven_scaling_benchmark ... # ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: ndarray / f64
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(ndarray f64)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f64) = 1e-8; iter max = 300
+# knobs: sizes = [24], reps = 0, configs = [direct=false, iterative=false, matrix_free=true], skip_e2e = true, skip_sweep = true, max_replacements = 0
+# split_setup = true: every cell carries warmup_setup_s / warmup_krylov_s
+
+[[cell]]
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "3_matrix_free"
+method = "burn_cocg"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = false
+reps = 1
+dnf_attempt_s = 17.253443
+iterations = 300
+residual_rel = 6.589e-1
+accuracy_rel_l2_vs_direct = nan
+sweep5_converged = false
+# dnf: sparse solve failed: matrix-free COCG: COCG did not converge in 300 iterations: relative residual 0.6588547973923986 > tol 0.00000001
+
+# ---- end fragment ----
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.43s
+

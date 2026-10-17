@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "description": "Shielded microstrip shorted by end caps (geode-cli cookbook; the default tier of tests/mesh_static_golden.rs, issue #720): a 2 mm thick trace inside a rectangular PEC shield, its end faces touching the end caps (the two contacts).",
+  "length_unit_m": 0.001,
+  "dielectrics": [
+    {
+      "name": "air",
+      "z_bottom": -0.5,
+      "thickness": 2.5
+    }
+  ],
+  "conductors": [
+    {
+      "name": "gnd",
+      "z_bottom": -0.25,
+      "thickness": 0.25,
+      "mesh_size": 0.25,
+      "polygons": [
+        {
+          "outer": [
+            [
+              -0.25,
+              -1.75
+            ],
+            [
+              2.25,
+              -1.75
+            ],
+            [
+              2.25,
+              1.75
+            ],
+            [
+              -0.25,
+              1.75
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lid",
+      "z_bottom": 1.5,
+      "thickness": 0.25,
+      "mesh_size": 0.25,
+      "polygons": [
+        {
+          "outer": [
+            [
+              -0.25,
+              -1.75
+            ],
+            [
+              2.25,
+              -1.75
+            ],
+            [
+              2.25,
+              1.75
+            ],
+            [
+              -0.25,
+              1.75
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "walls",
+      "z_bottom": 0.0,
+      "thickness": 1.5,
+      "mesh_size": 0.25,
+      "polygons": [
+        {
+          "outer": [
+            [
+              -0.25,
+              -1.75
+            ],
+            [
+              2.25,
+              -1.75
+            ],
+            [
+              2.25,
+              -1.5
+            ],
+            [
+              -0.25,
+              -1.5
+            ]
+          ]
+        },
+        {
+          "outer": [
+            [
+              -0.25,
+              1.5
+            ],
+            [
+              2.25,
+              1.5
+            ],
+            [
+              2.25,
+              1.75
+            ],
+            [
+              -0.25,
+              1.75
+            ]
+          ]
+        },
+        {
+          "net": "cap_in",
+          "outer": [
+            [
+              -0.25,
+              -1.5
+            ],
+            [
+              0.0,
+              -1.5
+            ],
+            [
+              0.0,
+              1.5
+            ],
+            [
+              -0.25,
+              1.5
+            ]
+          ]
+        },
+        {
+          "net": "cap_out",
+          "outer": [
+            [
+              2.0,
+              -1.5
+            ],
+            [
+              2.25,
+              -1.5
+            ],
+            [
+              2.25,
+              1.5
+            ],
+            [
+              2.0,
+              1.5
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sig",
+      "z_bottom": 0.5,
+      "thickness": 0.25,
+      "polygons": [
+        {
+          "outer": [
+            [
+              0.0,
+              -0.5
+            ],
+            [
+              2.0,
+              -0.5
+            ],
+            [
+              2.0,
+              0.5
+            ],
+            [
+              0.0,
+              0.5
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "contacts": [
+    {
+      "name": "sig_in",
+      "conductor": "sig",
+      "to": "cap_in"
+    },
+    {
+      "name": "sig_out",
+      "conductor": "sig",
+      "to": "cap_out"
+    }
+  ],
+  "margin": 0.25,
+  "mesh": {
+    "size_max": 0.3,
+    "size_conductor": 0.1
+  }
+}

@@ -1,0 +1,1812 @@
+//! Transmon eigenmode solve with a **Josephson junction as a lumped
+//! reactive shunt surface term** (Epic #476 Phase B, issue #492).
+//!
+//! # The reactive lumped-shunt substitution
+//!
+//! The driven lumped port
+//! ([`crate::driven::ports::LumpedPort`], Epic #193/#202)
+//! contributes a Robin term `A(ω) += (jω/Z_s) S_Γ` to the driven system,
+//! with `Z_s = Z_lumped · w/ℓ` the uniform-port surface impedance and
+//! `S_Γ[i,j] = ∮_Γ N_i · N_j dS` the real symmetric PSD tangential
+//! surface mass ([`crate::driven::ports::assemble_port_surface_mass`]).
+//! Only resistive `Z = R` is supported there, in the DRIVEN path.
+//!
+//! Substituting the **reactive** lumped impedances of the Josephson
+//! junction (modeled as a linear inductor `L` in parallel with a junction
+//! capacitance `C`) into the same Robin term keeps everything **real**:
+//!
+//! - **Inductor** `Z = jωL`: `jω/Z_s = jω · ℓ/(jωL·w) = ℓ/(L·w)` —
+//!   frequency-independent and REAL. It is a **stiffness**, adding to `K`:
+//!
+//!   ```text
+//!   K_port = (ℓ / (w · L̃)) · S_Γ.
+//!   ```
+//!
+//! - **Capacitor** `Z = 1/(jωC)`: `jω/Z_s = −ω² · C·ℓ/w` — an `−ω²`
+//!   term, i.e. it folds into the **mass**:
+//!
+//!   ```text
+//!   M_port = ((C̃ · ℓ) / w) · S_Γ.
+//!   ```
+//!
+//! Here `ℓ` (gap length along `ê`) and `w` (width) are the uniform-port
+//! geometry factors [`crate::mesh::transmon::TransmonPort`] recovers from
+//! the tagged junction triangles. The PEC-bounded transmon eigenproblem
+//! therefore stays a REAL symmetric generalized pencil
+//!
+//! ```text
+//! (K + K_port) x = ω² (M + M_port) x,
+//! ```
+//!
+//! with `K_port`, `M_port` PSD (positive scalars times the PSD `S_Γ`) —
+//! solvable **as-is** with the real shift-invert Lanczos
+//! ([`crate::eigen::lanczos::SparseShiftInvertLanczos`]). This matches
+//! Palace's `LumpedPort`/`LumpedElement` with `L`/`C` in the eigenmode
+//! problem type: purely reactive elements participate in the (real)
+//! eigenproblem; only `R` makes it complex.
+//!
+//! # Natural-unit conversion
+//!
+//! The repo works in natural units (η₀ = μ₀ = ε₀ = 1); the mesh
+//! coordinates are in the fixture's length unit (the DeviceLayout
+//! transmon mesh is in **micrometres**). The SI element values convert to
+//! natural-unit lengths via
+//!
+//! ```text
+//! L̃ = L / μ₀,   C̃ = C / ε₀,
+//! ```
+//!
+//! then are **rescaled into the mesh length unit** so `ℓ`, `w`, `L̃`, `C̃`
+//! share one unit. See [`ReactiveElementNatural::from_si`]. Eigenvalues
+//! come out as `λ = k²` in `(1/length-unit)²`; restore the physical
+//! frequency with [`frequency_hz_from_lambda`].
+//!
+//! # Scope fences (v1)
+//!
+//! - **Resistive R in eigenmode is OUT of scope.** `R` makes the pencil
+//!   complex (lossy modes, finite Q / κ). v1 drops the 50 Ω terms on
+//!   `port_1`/`port_2` entirely (lossless approximation). The readout
+//!   ports are left as natural (open) boundaries.
+//! - **Full EPR post-processing is Phase C.** The only participation
+//!   quantity here is the minimal junction-energy ratio
+//!   [`ModeReport::participation`] used for mode identification.
+//!
+//! # Opt-in rank-1 port-voltage shunt (issue #1044)
+//!
+//! [`LumpedPortVoltageShunt`] replaces `S_Γ` by the rank-1 form
+//! `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ`, with `b` the uniform
+//! port-voltage functional. It is selected per solve with
+//! [`JunctionPortModel::PortVoltage`] through
+//! [`solve_transmon_eigenmodes_full_with_port_model`] (ungauged) and
+//! [`crate::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model`]
+//! (bulk projector, exact under A2). The default stays the distributed
+//! [`LumpedReactiveShunt`].
+
+use faer::sparse::{SparseColMat, Triplet};
+
+use crate::assembly::nedelec::NedelecScatterMap;
+use crate::driven::ports::{assemble_port_flux, assemble_port_surface_mass};
+use crate::eigen::dense::EigenError;
+#[allow(unused_imports)] // referenced in doc links
+use crate::eigen::dense::EigenPair;
+use crate::eigen::gauge::TreeCotreeGauge;
+use crate::eigen::lanczos::{InnerSolver, SparseShiftInvertLanczos};
+use crate::mesh::TetMesh;
+
+/// Vacuum permeability `μ₀` (H/m), SI.
+pub const MU0_SI: f64 = 4.0 * std::f64::consts::PI * 1e-7;
+/// Vacuum permittivity `ε₀` (F/m), SI (CODATA).
+pub const EPS0_SI: f64 = 8.8541878128e-12;
+/// Speed of light `c` (m/s), SI (exact).
+pub const C_LIGHT_SI: f64 = 299_792_458.0;
+
+/// A reactive lumped element (`L` in parallel with `C`) in **natural
+/// units rescaled to the mesh length unit**.
+///
+/// Both `l_natural` and `c_natural` carry the mesh length unit (e.g.
+/// micrometres) so they compose directly with the port geometry factors
+/// `ℓ`, `w` (also in mesh units) when forming `K_port`/`M_port`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReactiveElementNatural {
+    /// Inductance in natural units, rescaled to the mesh length unit:
+    /// `L̃ = (L / μ₀) / m_per_unit`.
+    pub l_natural: f64,
+    /// Capacitance in natural units, rescaled to the mesh length unit:
+    /// `C̃ = (C / ε₀) / m_per_unit`.
+    pub c_natural: f64,
+}
+
+impl ReactiveElementNatural {
+    /// Convert SI element values `(L [H], C [F])` to natural units in the
+    /// mesh length unit.
+    ///
+    /// `m_per_unit` is the length of one mesh unit in metres (e.g.
+    /// `1e-6` for a micrometre-unit mesh). The natural-unit conversion
+    /// `L̃ = L/μ₀`, `C̃ = C/ε₀` yields lengths in **metres**; dividing by
+    /// `m_per_unit` re-expresses them in the mesh unit so they compose
+    /// with `ℓ`, `w`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `m_per_unit` is not strictly positive.
+    pub fn from_si(l_henry: f64, c_farad: f64, m_per_unit: f64) -> Self {
+        assert!(
+            m_per_unit > 0.0,
+            "m_per_unit must be positive, got {m_per_unit}"
+        );
+        Self {
+            l_natural: (l_henry / MU0_SI) / m_per_unit,
+            c_natural: (c_farad / EPS0_SI) / m_per_unit,
+        }
+    }
+}
+
+/// A reactive lumped-shunt surface term on a tagged port patch: produces
+/// the `K_port` and `M_port` scalings of the real symmetric surface mass
+/// `S_Γ` per the module derivation.
+///
+/// The surface mass itself is assembled by the shared Whitney kernel
+/// ([`assemble_port_surface_mass`]) — the same bit-identical-triplet
+/// machinery the driven port uses. This struct only carries the geometry
+/// and element values and applies the scalar scalings.
+#[derive(Debug, Clone)]
+pub struct LumpedReactiveShunt<'a> {
+    /// Port surface triangles (0-based node triples into `mesh.nodes`).
+    pub faces: &'a [[u32; 3]],
+    /// Gap length `ℓ` along `ê`, in mesh units.
+    pub length: f64,
+    /// Port width `w` (area / length), in mesh units.
+    pub width: f64,
+    /// Reactive element values in natural units (mesh length unit).
+    pub element: ReactiveElementNatural,
+}
+
+impl LumpedReactiveShunt<'_> {
+    /// Stiffness scaling `ℓ / (w · L̃)` applied to `S_Γ` to form `K_port`.
+    /// Zero when `l_natural` is infinite (junction removed) — see
+    /// [`LumpedReactiveShunt::without_inductor`].
+    pub fn k_scale(&self) -> f64 {
+        if self.element.l_natural.is_infinite() {
+            0.0
+        } else {
+            self.length / (self.width * self.element.l_natural)
+        }
+    }
+
+    /// Mass scaling `(C̃ · ℓ) / w` applied to `S_Γ` to form `M_port`.
+    pub fn m_scale(&self) -> f64 {
+        self.element.c_natural * self.length / self.width
+    }
+
+    /// A copy of this shunt with the inductor removed (`L̃ = ∞`, so
+    /// `k_scale() == 0`) — the junction-removal tripwire. The capacitance
+    /// is retained (the `M_port` choice is stated explicitly).
+    pub fn without_inductor(&self) -> Self {
+        let mut out = self.clone();
+        out.element.l_natural = f64::INFINITY;
+        out
+    }
+
+    /// Assemble the `K_port` surface triplets `(row, col, value)` over
+    /// global edge indices: `k_scale · S_Γ`. Empty when `k_scale() == 0`.
+    pub fn k_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        let s = self.k_scale();
+        if s == 0.0 {
+            return Vec::new();
+        }
+        assemble_port_surface_mass(mesh, self.faces, edges)
+            .into_iter()
+            .map(|(r, c, v)| (r, c, s * v))
+            .collect()
+    }
+
+    /// Assemble the `M_port` surface triplets `(row, col, value)` over
+    /// global edge indices: `m_scale · S_Γ`.
+    pub fn m_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        let s = self.m_scale();
+        assemble_port_surface_mass(mesh, self.faces, edges)
+            .into_iter()
+            .map(|(r, c, v)| (r, c, s * v))
+            .collect()
+    }
+}
+
+/// The **rank-1 port-voltage** junction shunt (formulation A2 of
+/// `docs/research/transmon-lumped-port-formulation.md`, issue #1044): the
+/// exact two-terminal lumped `L ∥ C` element, opt-in beside the default
+/// distributed [`LumpedReactiveShunt`].
+///
+/// # Operator
+///
+/// With the uniform port-voltage functional
+///
+/// ```text
+/// b_i = (1/w) ∫_Γ N_i · ê dS        (= assemble_port_flux / w),   V = bᵀx,
+/// ```
+///
+/// the junction stores exactly the lumped energies `V²/L̃` and `C̃ V²`:
+///
+/// ```text
+/// K_port = (1/L̃) b bᵀ,     M_port = C̃ b bᵀ.
+/// ```
+///
+/// Both are real symmetric rank-1 PSD, so the pencil stays real symmetric and
+/// `K + |σ|M` stays SPD. For the uniform tangential field `E = E₀ ê` on a
+/// rectangular port (`V = E₀ ℓ`) the energies equal those of the distributed
+/// shunt (`(ℓ/(w L̃)) ∫_Γ |E_t|² dS = E₀² ℓ²/L̃`). The two shunts differ only
+/// on non-uniform patch fields. A zero-voltage patch pattern (`bᵀx = 0`) gets
+/// no port stiffness here, while the distributed `S_Γ` gives it its own `L`/`C`
+/// resonance. On the 133k fixture that resonance is the 17.49 GHz port-sheet
+/// mode, which this shunt removes. Palace's `LumpedPort` uses the same `V`
+/// functional, but only for post-processing; its operator is `S_Γ` (note §1).
+///
+/// # Gauge consequence
+///
+/// For a free node `n` (not on PEC), `(Gᵀb)_n = (1/w) ∫_Γ ∇λ_n · ê dS =
+/// (1/w) ∮_{∂Γ} λ_n (ê·ν) ds`. On a rectangular port the two sides parallel to
+/// `ê` have `ê·ν = 0` and the two terminal sides lie on PEC, where `λ_n = 0`.
+/// So `Gᵀ b = 0` and `Gᵀ K_port = Gᵀ M_port = 0`: `image(d⁰_interior)` stays
+/// exactly in the kernel of `K + K_port`, and the plain bulk
+/// [`crate::eigen::projection::MOrthogonalGradientProjector`] is exact. This
+/// requires the terminal sides of the port to be on PEC.
+///
+/// Junction participation is `(V²/L̃) / xᵀ K_tot x`
+/// ([`ModeReport::participation`] with this `K_port`).
+#[derive(Debug, Clone)]
+pub struct LumpedPortVoltageShunt<'a> {
+    /// Port surface triangles (0-based node triples into `mesh.nodes`).
+    pub faces: &'a [[u32; 3]],
+    /// Port width `w` (area / length), in mesh units: the averaging width of
+    /// the voltage functional.
+    pub width: f64,
+    /// Unit field direction `ê` across the gap (tangential to the port).
+    pub e_hat: [f64; 3],
+    /// Reactive element values in natural units (mesh length unit).
+    pub element: ReactiveElementNatural,
+}
+
+impl<'a> LumpedPortVoltageShunt<'a> {
+    /// The A2 shunt with the same faces, width and element values as a
+    /// distributed `shunt`, plus the port direction `e_hat`. (The gap length
+    /// `ℓ` does not enter A2: it is carried by the functional `b` itself.)
+    pub fn from_reactive_shunt(shunt: &LumpedReactiveShunt<'a>, e_hat: [f64; 3]) -> Self {
+        Self {
+            faces: shunt.faces,
+            width: shunt.width,
+            e_hat,
+            element: shunt.element,
+        }
+    }
+
+    /// Stiffness scaling `1/L̃` applied to `b bᵀ`. Zero when `l_natural` is
+    /// infinite (junction removed).
+    pub fn k_scale(&self) -> f64 {
+        if self.element.l_natural.is_infinite() {
+            0.0
+        } else {
+            1.0 / self.element.l_natural
+        }
+    }
+
+    /// Mass scaling `C̃` applied to `b bᵀ`.
+    pub fn m_scale(&self) -> f64 {
+        self.element.c_natural
+    }
+
+    /// A copy with the inductor removed (`L̃ = ∞`, so `k_scale() == 0`); the
+    /// capacitance is kept, as in [`LumpedReactiveShunt::without_inductor`].
+    pub fn without_inductor(&self) -> Self {
+        let mut out = self.clone();
+        out.element.l_natural = f64::INFINITY;
+        out
+    }
+
+    /// The uniform port-voltage functional `b = assemble_port_flux / w` as a
+    /// sparse list `(global edge, b_e)` of its nonzero entries, in ascending
+    /// edge order. `V = Σ b_e x_e` for a full-length edge vector `x`.
+    pub fn voltage_functional(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, f64)> {
+        let inv_w = 1.0 / self.width;
+        assemble_port_flux(mesh, self.faces, self.e_hat, edges)
+            .into_iter()
+            .enumerate()
+            .filter(|&(_, f)| f != 0.0)
+            .map(|(e, f)| (e, f * inv_w))
+            .collect()
+    }
+
+    /// `scale · b bᵀ` as triplets over global edge indices (`nnz(b)²` entries).
+    fn rank1_triplets(
+        &self,
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+        scale: f64,
+    ) -> Vec<(usize, usize, f64)> {
+        if scale == 0.0 {
+            return Vec::new();
+        }
+        let b = self.voltage_functional(mesh, edges);
+        let mut out = Vec::with_capacity(b.len() * b.len());
+        for &(i, bi) in &b {
+            for &(j, bj) in &b {
+                out.push((i, j, scale * (bi * bj))); // (bi·bj) first: bitwise symmetric
+            }
+        }
+        out
+    }
+
+    /// Assemble the `K_port = (1/L̃) b bᵀ` triplets `(row, col, value)` over
+    /// global edge indices. Empty when `k_scale() == 0`.
+    pub fn k_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        self.rank1_triplets(mesh, edges, self.k_scale())
+    }
+
+    /// Assemble the `M_port = C̃ b bᵀ` triplets `(row, col, value)` over global
+    /// edge indices.
+    pub fn m_port_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        self.rank1_triplets(mesh, edges, self.m_scale())
+    }
+}
+
+/// Surface triplets `(row, col, value)` over global edge indices.
+pub type PortTriplets = Vec<(usize, usize, f64)>;
+
+/// Which junction port operator a transmon eigensolve uses (issue #1044).
+///
+/// The geometry and element values always come from the pencil's
+/// [`TransmonPencil::shunt`]; this selects how they enter `K` and `M`.
+/// [`JunctionPortModel::DistributedSurface`] is the default and reproduces
+/// every committed number. [`JunctionPortModel::PortVoltage`] is the opt-in
+/// rank-1 A2 term ([`LumpedPortVoltageShunt`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+pub enum JunctionPortModel {
+    /// The distributed isotropic surface term `K_port = (ℓ/(w L̃)) S_Γ`,
+    /// `M_port = (C̃ ℓ/w) S_Γ` ([`LumpedReactiveShunt`]): Palace's
+    /// `LumpedPort` operator. The default.
+    #[default]
+    DistributedSurface,
+    /// The rank-1 port-voltage term `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ`
+    /// ([`LumpedPortVoltageShunt`]) with port direction `e_hat` (the
+    /// fixture's `TransmonPort::e_hat`).
+    PortVoltage {
+        /// Unit field direction `ê` across the gap.
+        e_hat: [f64; 3],
+    },
+}
+
+impl JunctionPortModel {
+    /// The `(K_port, M_port)` triplets over global edge indices for `shunt`
+    /// under this model.
+    pub fn port_triplets(
+        &self,
+        shunt: &LumpedReactiveShunt<'_>,
+        mesh: &TetMesh,
+        edges: &[[u32; 2]],
+    ) -> (PortTriplets, PortTriplets) {
+        match *self {
+            Self::DistributedSurface => (
+                shunt.k_port_triplets(mesh, edges),
+                shunt.m_port_triplets(mesh, edges),
+            ),
+            Self::PortVoltage { e_hat } => {
+                let a2 = LumpedPortVoltageShunt::from_reactive_shunt(shunt, e_hat);
+                (
+                    a2.k_port_triplets(mesh, edges),
+                    a2.m_port_triplets(mesh, edges),
+                )
+            }
+        }
+    }
+}
+
+/// A **London superconducting wall** on the eigenmode pencil (Epic #475,
+/// issue #604): a set of boundary triangles (one per-surface tag) sharing
+/// a London penetration depth `λ_L`.
+///
+/// The driven-path Leontovich weak term is `+(iω/Z_s) S_Γ`
+/// ([`crate::driven::solve::SurfaceImpedanceModel::London`]); substituting
+/// the London impedance `Z_s = iωμλ_L` (μ = 1 natural units) cancels the
+/// iω **exactly**, leaving the real, frequency-independent coefficient
+/// `1/λ_L` — a stiffness. Like the junction inductor
+/// ([`LumpedReactiveShunt::k_port_triplets`]), the term therefore lands on
+/// the **K side** of the real symmetric pencil:
+///
+/// ```text
+/// (K + K_port + Σ_w λ_L,w⁻¹ S_Γ,w) x = λ (M + M_port) x,
+/// ```
+///
+/// keeping the pencil real symmetric — no new nonlinearity, solvable with
+/// the same shift-invert Lanczos. Physically the term is the wall's
+/// **kinetic inductance**: the eigenfrequency drops relative to the PEC
+/// wall, to first order by `Δω/ω ≈ −(λ_L/2)·∮|H_t|²dA / ∫μ|H|²dV`.
+///
+/// `1/λ_L` acts as a penalty enforcing `E_t → 0` on the wall as
+/// `λ_L → 0`: the small-λ_L limit converges to the PEC wall (wall edges
+/// eliminated). That is how the PEC baseline must be expressed — **exact
+/// `λ_L = 0` is invalid** ([`Self::k_triplets`] panics), mirroring the
+/// driven path's `SurfaceImpedanceSingular` convention.
+///
+/// `lambda_l` is a length in natural (mesh) units:
+/// `λ_L_nat = λ_L_SI / L_unit`.
+#[derive(Debug, Clone, Copy)]
+pub struct LondonSurface<'a> {
+    /// Wall triangles (0-based node triples into `mesh.nodes`, any
+    /// winding); must be faces of the tet mesh. The wall's edges must be
+    /// KEPT (interior) in the pencil's `interior_mask` — a PEC-eliminated
+    /// edge cannot carry the London term.
+    pub triangles: &'a [[u32; 3]],
+    /// London penetration depth λ_L in mesh units
+    /// (`λ_L_nat = λ_L_SI / L_unit`). Must be `> 0` and finite.
+    pub lambda_l: f64,
+}
+
+impl LondonSurface<'_> {
+    /// Assemble the London stiffness triplets `λ_L⁻¹ S_Γ` over global
+    /// edge indices ([`LumpedReactiveShunt::k_port_triplets`]-style; the
+    /// surface mass comes from the shared Whitney kernel via
+    /// [`crate::assembly::surface::assemble_surface_mass_triplets`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `lambda_l` is not strictly positive and finite: the
+    /// `λ_L = 0` PEC limit must be expressed through the PEC edge mask,
+    /// not through a vanishing penetration depth.
+    pub fn k_triplets(&self, mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<(usize, usize, f64)> {
+        assert!(
+            self.lambda_l.is_finite() && self.lambda_l > 0.0,
+            "London lambda_l must be strictly positive and finite, got {}; \
+             the λ_L = 0 PEC limit must be expressed through the PEC edge mask",
+            self.lambda_l
+        );
+        let s = 1.0 / self.lambda_l;
+        crate::assembly::surface::assemble_surface_mass_triplets(mesh, self.triangles, edges)
+            .into_iter()
+            .map(|(r, c, v)| (r, c, s * v))
+            .collect()
+    }
+}
+
+/// Restore a physical frequency (Hz) from an eigenvalue `λ = k²`
+/// (in `(1/mesh-unit)²`).
+///
+/// `k = √λ` is a wavenumber in `1/mesh-unit`; converting to `1/m` via
+/// `m_per_unit` and using `f = c·k / (2π)`:
+///
+/// ```text
+/// f = c · √λ / (m_per_unit · 2π).
+/// ```
+///
+/// Negative `λ` (gradient-nullspace rounding noise) yields `0` rather
+/// than a NaN.
+pub fn frequency_hz_from_lambda(lambda: f64, m_per_unit: f64) -> f64 {
+    if lambda <= 0.0 {
+        return 0.0;
+    }
+    C_LIGHT_SI * lambda.sqrt() / (m_per_unit * 2.0 * std::f64::consts::PI)
+}
+
+/// The eigenvalue shift `σ = k²` targeting a given physical frequency
+/// (Hz) on a mesh with `m_per_unit` metres per unit — the inverse of
+/// [`frequency_hz_from_lambda`].
+pub fn lambda_shift_for_frequency_hz(f_hz: f64, m_per_unit: f64) -> f64 {
+    let k = 2.0 * std::f64::consts::PI * f_hz * m_per_unit / C_LIGHT_SI;
+    k * k
+}
+
+/// A single computed eigenmode with its junction participation and
+/// restored physical frequency.
+#[derive(Debug, Clone)]
+pub struct ModeReport {
+    /// Eigenvalue `λ = k²` in `(1/mesh-unit)²`.
+    pub lambda: f64,
+    /// Restored physical frequency (Hz).
+    pub frequency_hz: f64,
+    /// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)
+    /// ∈ [0, 1]` — the minimal EPR precursor for mode identification. The
+    /// qubit-like mode has large `p`, the resonator-like mode small `p`.
+    pub participation: f64,
+}
+
+impl ModeReport {
+    /// Frequency in GHz (convenience for reporting against the blog band).
+    pub fn frequency_ghz(&self) -> f64 {
+        self.frequency_hz / 1e9
+    }
+}
+
+/// A converged transmon eigenmode: the [`ModeReport`] **plus** the reduced
+/// interior-DOF eigenvector.
+///
+/// The `vector` is the M-normalized ([`EigenPair`] convention, `xᵀ (M+M_port)
+/// x = 1`) eigenvector in the **same reduced DOF ordering** the pencil `K`/`M`
+/// use (the plain PEC-interior reduction of the ungauged path). It is what
+/// [`crate::eigen::sensitivity`] consumes for the Hellmann–Feynman `∂λ/∂p`
+/// gradient (issue #596) — the plain [`solve_transmon_eigenmodes`] entry point
+/// drops it, so [`solve_transmon_eigenmodes_full`] surfaces it.
+#[derive(Debug, Clone)]
+pub struct TransmonMode {
+    /// The mode's eigenvalue / frequency / junction participation.
+    pub report: ModeReport,
+    /// Reduced interior-DOF eigenvector, M-normalized (`xᵀ (M+M_port) x = 1`),
+    /// in the ungauged PEC-interior DOF ordering (length = interior dim).
+    pub vector: Vec<f64>,
+}
+
+/// Build a real faer [`SparseColMat`] from a `[nnz]` value slice aligned
+/// to the volume sparsity pattern of `scatter`, restricted to the
+/// interior DOFs, with **extra surface triplets** added on top.
+///
+/// `interior_index[e]` is `Some(reduced_index)` for a kept interior edge
+/// and `None` for a PEC (Dirichlet) edge. Volume entries whose row or
+/// column is Dirichlet are dropped (the standard interior reduction). The
+/// `extra` triplets (K_port/M_port over global edge indices) are reindexed
+/// the same way and summed by faer's `try_new_from_triplets`.
+fn assemble_reduced_real(
+    pattern_rows: &[u32],
+    pattern_cols: &[u32],
+    vals: &[f64],
+    extra: &[(usize, usize, f64)],
+    interior_index: &[Option<usize>],
+    dim: usize,
+) -> Result<SparseColMat<usize, f64>, EigenError> {
+    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(vals.len() + extra.len());
+    for ((&r, &c), &v) in pattern_rows
+        .iter()
+        .zip(pattern_cols.iter())
+        .zip(vals.iter())
+    {
+        if let (Some(ri), Some(ci)) = (interior_index[r as usize], interior_index[c as usize]) {
+            trips.push(Triplet::new(ri, ci, v));
+        }
+    }
+    for &(r, c, v) in extra {
+        if let (Some(ri), Some(ci)) = (interior_index[r], interior_index[c]) {
+            trips.push(Triplet::new(ri, ci, v));
+        }
+    }
+    SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, &trips)
+        .map_err(|e| EigenError::FaerGevd(format!("reduced sparse assembly: {e:?}")))
+}
+
+/// Inputs to [`solve_transmon_eigenmodes`]: the assembled real pencil
+/// value vectors plus the junction shunt and reduction bookkeeping.
+///
+/// The value vectors `k_vals`/`m_vals` are the **real parts** of the
+/// sparse full-tensor Nédélec assembly
+/// ([`crate::assembly::nedelec::assemble_global_nedelec_with_full_tensors_sparse`]),
+/// pulled to host `f64` and aligned to `scatter.pattern()`. The imaginary
+/// parts are asserted ~0 by the caller (the sapphire ε tensor is lossless
+/// here, so the pencil is exactly real).
+pub struct TransmonPencil<'a> {
+    /// Volume sparsity-pattern + slot map the value vectors align to.
+    pub scatter: &'a NedelecScatterMap,
+    /// Curl-curl stiffness values `[nnz]` in pattern order (real part).
+    pub k_vals: &'a [f64],
+    /// ε-weighted mass values `[nnz]` in pattern order (real part).
+    pub m_vals: &'a [f64],
+    /// Global edge table (`mesh.edges()`), for the surface-mass assembly.
+    pub edges: &'a [[u32; 2]],
+    /// The mesh (for the Whitney surface kernel).
+    pub mesh: &'a TetMesh,
+    /// The junction reactive shunt on the `lumped_element` patch.
+    pub shunt: LumpedReactiveShunt<'a>,
+    /// Interior-DOF mask over `edges` (`true` = kept interior edge).
+    pub interior_mask: &'a [bool],
+}
+
+/// Solve the transmon eigenmodes: assemble the real pencil
+/// `(K + K_port) x = λ (M + M_port) x`, reduce over the interior DOFs,
+/// and run shift-invert Lanczos near `sigma` for `n_modes` modes. Returns
+/// the modes with restored physical frequencies and junction
+/// participation, plus the reduced `(K + K_port)` and `K_port` matrices
+/// (retained for tripwire / diagnostic re-use).
+///
+/// `sigma` is the eigenvalue shift `λ = k²` (use
+/// [`lambda_shift_for_frequency_hz`] to place it in the expected band and
+/// separate the modes from the gradient nullspace at 0).
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve.
+pub fn solve_transmon_eigenmodes(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<Vec<ModeReport>, EigenError> {
+    solve_transmon_eigenmodes_with_inner(pencil, sigma, n_modes, m_per_unit, InnerSolver::Direct)
+}
+
+/// [`solve_transmon_eigenmodes`] with an explicit inner-solve backend
+/// selection (issue #524).
+///
+/// [`InnerSolver::Direct`] (the default the plain entry point uses) factors
+/// `(K − σM)` with a sparse LU — fast but `O(N^{4/3})`-fill memory that
+/// OOM-kills past a few-hundred-k DOF. [`InnerSolver::MatrixFree`] replaces
+/// the inner factorization with matrix-free Jacobi-CG, keeping the working
+/// set `O(N)` so the eigensolve scales to the ~1M-DOF meshes that OOM the
+/// direct path. The matrix-free path requires `(K − σM)` SPD, so place
+/// `sigma` **below** the lowest eigenvalue of the pencil. The transmon's
+/// 4.5 GHz request shift does not satisfy this: the 3.45 GHz qubit mode lies
+/// below it, so that shift is indefinite for `(K − σM)`; see [`InnerSolver`] for the full
+/// numerical rationale and the inner-tolerance coupling.
+///
+/// To target an **interior** band (a shift placed *between* two eigenvalues,
+/// e.g. bracketing the junction LC mode), pass
+/// [`InnerSolver::MatrixFreeIndefinite`]: there `(K − σM)` is
+/// symmetric-indefinite and CG breaks down, so the inner solve switches to
+/// matrix-free MINRES with an absolute-value Jacobi preconditioner while
+/// keeping the same `O(N)` memory (issue #535).
+///
+/// # Memory scaling (issue #524)
+///
+/// The direct path allocates the sparse `L`/`U` factors of `(K − σM)`,
+/// whose fill-in scales super-linearly (~`O(N^{4/3})` for 3-D H(curl)) and
+/// dominates the working set; on the transmon benchmark it reached 63.9 GB
+/// peak RSS at ~1M DOF and SIGKILLed. The matrix-free path allocates only a
+/// handful of length-`N` Krylov vectors plus the Jacobi diagonal — total
+/// working set is `O(N)` on top of the two input CSC operators — so it
+/// completes where the direct path OOMs. (The full 1M-DOF completion run is
+/// an operator/AWS follow-up; CI validates equivalence on the synthetic and
+/// 133k fixtures.)
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve. For [`InnerSolver::MatrixFree`], a non-SPD `(K − σM)` (shift not
+/// below the spectrum) surfaces as an inner-CG non-convergence error rather
+/// than a wrong result.
+pub fn solve_transmon_eigenmodes_with_inner(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<ModeReport>, EigenError> {
+    Ok(
+        solve_transmon_eigenmodes_full(pencil, sigma, n_modes, m_per_unit, inner)?
+            .into_iter()
+            .map(|m| m.report)
+            .collect(),
+    )
+}
+
+/// Build the plain **ungauged** PEC-interior reindex (`Some(reduced) = kept
+/// interior edge`, `None = Dirichlet/PEC edge`) and the reduced dimension —
+/// the DOF ordering the ungauged transmon eigensolve and its eigenvectors use.
+///
+/// Shared by [`solve_transmon_eigenmodes_full`] and
+/// [`crate::eigen::sensitivity`] (which recomputes the identical map from the
+/// same `interior_mask` to scatter a reduced eigenvector back to full edge
+/// length for the per-tet Hellmann–Feynman contraction).
+fn ungauged_interior_reindex(
+    pencil: &TransmonPencil<'_>,
+) -> Result<(Vec<Option<usize>>, usize), EigenError> {
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+    let mut interior_index = vec![None; n_edges];
+    let mut dim = 0usize;
+    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no interior DOFs after PEC reduction".into(),
+        ));
+    }
+    Ok((interior_index, dim))
+}
+
+/// [`solve_transmon_eigenmodes_with_inner`] returning the full
+/// [`TransmonMode`]s — the mode reports **and** the reduced M-normalized
+/// eigenvectors — through the ungauged PEC-interior reduction.
+///
+/// This is the entry point [`crate::eigen::sensitivity`] drives: it needs the
+/// converged eigenvector (in the reduced DOF ordering `K`/`M` use) for the
+/// Hellmann–Feynman `∂λ/∂p` gradient (issue #596), which the report-only
+/// [`solve_transmon_eigenmodes_with_inner`] discards. All numerics are
+/// identical to that function; only the eigenvector is additionally surfaced.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos solve.
+pub fn solve_transmon_eigenmodes_full(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
+    solve_transmon_eigenmodes_full_with_london(pencil, &[], sigma, n_modes, m_per_unit, inner)
+}
+
+/// [`solve_transmon_eigenmodes_full`] with additional **London
+/// superconducting walls** (Epic #475, issue #604): each
+/// [`LondonSurface`] contributes its kinetic-inductance stiffness
+/// `λ_L⁻¹ S_Γ` to the **K side** of the real symmetric pencil
+///
+/// ```text
+/// (K + K_port + Σ_w λ_L,w⁻¹ S_Γ,w) x = λ (M + M_port) x.
+/// ```
+///
+/// Multiple walls with distinct `λ_L` (per-surface tags) are supported.
+/// The wall edges must be kept (interior) in the pencil's
+/// `interior_mask`; the junction participation reported per mode remains
+/// junction-only (the London stiffness enters the denominator through
+/// the total `K`, not the `K_port` numerator). With `london = &[]` this
+/// is exactly [`solve_transmon_eigenmodes_full`].
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve.
+///
+/// # Panics
+///
+/// Panics (via [`LondonSurface::k_triplets`]) if any wall's `lambda_l`
+/// is not strictly positive and finite.
+pub fn solve_transmon_eigenmodes_full_with_london(
+    pencil: &TransmonPencil<'_>,
+    london: &[LondonSurface<'_>],
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
+    solve_transmon_eigenmodes_full_with_port_model(
+        pencil,
+        JunctionPortModel::default(),
+        london,
+        sigma,
+        n_modes,
+        m_per_unit,
+        inner,
+    )
+}
+
+/// [`solve_transmon_eigenmodes_full_with_london`] with an explicit junction
+/// [`JunctionPortModel`] (issue #1044): the ungauged entry point for the
+/// opt-in rank-1 port-voltage shunt A2 ([`JunctionPortModel::PortVoltage`]).
+///
+/// With [`JunctionPortModel::DistributedSurface`] this is exactly
+/// [`solve_transmon_eigenmodes_full_with_london`]. Under A2 the junction
+/// participation reported per mode is `(V²/L̃) / xᵀ K_tot x`.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve.
+///
+/// # Panics
+///
+/// As [`solve_transmon_eigenmodes_full_with_london`].
+pub fn solve_transmon_eigenmodes_full_with_port_model(
+    pencil: &TransmonPencil<'_>,
+    port_model: JunctionPortModel,
+    london: &[LondonSurface<'_>],
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
+    let (interior_index, dim) = ungauged_interior_reindex(pencil)?;
+    solve_transmon_eigenmodes_reindexed(
+        pencil,
+        port_model,
+        london,
+        &interior_index,
+        dim,
+        sigma,
+        n_modes,
+        m_per_unit,
+        inner,
+    )
+}
+
+/// Tree-cotree **gauged** transmon eigensolve (issue #502).
+///
+/// Identical to [`solve_transmon_eigenmodes`] except that the reduced
+/// pencil is additionally restricted to the **cotree** edges of a spanning
+/// tree of the mesh node graph ([`TreeCotreeGauge`]), eliminating exactly
+/// `rank(d⁰_interior)` gradient DOFs (`kernel(K) = image(d⁰)`). The gauged
+/// pencil is smaller (`interior_dim − tree_edges` DOFs), which speeds the
+/// sparse LU up.
+///
+/// # NOT spectrum-preserving for the eigenproblem
+///
+/// DOF elimination (drop tree rows/cols of BOTH `K` and `M`) is the correct
+/// gauge for the curl-curl *source* problem but **shifts** the generalized
+/// eigenproblem's physical spectrum, because the physical eigenvectors have
+/// nonzero tree-edge components (see [`TreeCotreeGauge`] docs and the
+/// measured 1.64% resonator drift in
+/// `tests/transmon_eigenmode.rs::tree_cotree_dof_elimination_shifts_eigen_spectrum`).
+/// This entry point exists to exercise and pin that finding; the
+/// spectrum-preserving fix is a divergence-free projection (issue #502
+/// follow-on). Do **not** use it as the physical transmon solver — the
+/// ungauged [`solve_transmon_eigenmodes`] remains the committed benchmark
+/// path.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly or the Lanczos
+/// solve; errors if the gauge leaves no cotree DOFs.
+pub fn solve_transmon_eigenmodes_gauged(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+) -> Result<Vec<ModeReport>, EigenError> {
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+    let gauge = TreeCotreeGauge::build(pencil.edges, pencil.interior_mask, pencil.mesh.n_nodes());
+    let dim = gauge.gauged_dim();
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no cotree DOFs after tree-cotree gauge".into(),
+        ));
+    }
+    Ok(solve_transmon_eigenmodes_reindexed(
+        pencil,
+        JunctionPortModel::DistributedSurface,
+        &[],
+        gauge.gauged_index_map(),
+        dim,
+        sigma,
+        n_modes,
+        m_per_unit,
+        InnerSolver::Direct,
+    )?
+    .into_iter()
+    .map(|m| m.report)
+    .collect())
+}
+
+/// Shared core: solve the reduced real pencil under an arbitrary
+/// global-edge → reduced-DOF `reindex` (`Some(r)` = kept DOF at reduced
+/// index `r`, `None` = eliminated), with reduced dimension `dim`. The
+/// ungauged path passes the plain PEC interior reindex; the gauged path
+/// passes the tree-cotree cotree reindex. Everything downstream (surface
+/// terms, reduced assembly, Lanczos, participation) is index-agnostic.
+/// `london` walls add their `λ_L⁻¹ S_Γ` stiffness to the K side (issue
+/// #604); the junction-participation numerator stays `K_port`-only.
+/// `port_model` selects the junction operator (issue #1044).
+#[allow(clippy::too_many_arguments)]
+fn solve_transmon_eigenmodes_reindexed(
+    pencil: &TransmonPencil<'_>,
+    port_model: JunctionPortModel,
+    london: &[LondonSurface<'_>],
+    reindex: &[Option<usize>],
+    dim: usize,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    inner: InnerSolver,
+) -> Result<Vec<TransmonMode>, EigenError> {
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+    let interior_index = reindex;
+
+    // Junction port terms over the full edge set.
+    let (k_port, m_port) = port_model.port_triplets(&pencil.shunt, pencil.mesh, pencil.edges);
+
+    // K-side extras: the junction K_port plus every London wall's
+    // kinetic-inductance stiffness λ_L⁻¹ S_Γ (issue #604).
+    let mut k_extra = k_port.clone();
+    for wall in london {
+        k_extra.extend(wall.k_triplets(pencil.mesh, pencil.edges));
+    }
+
+    // Reduced (K + K_port + Σ λ_L⁻¹ S_Γ) and (M + M_port) real sparse
+    // matrices.
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_extra,
+        interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        interior_index,
+        dim,
+    )?;
+
+    // K_port alone (reduced) — needed for the participation numerator.
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, interior_index, dim)?;
+
+    // The indefinite MINRES path preconditions with the three-space AMS built
+    // for the SPD operator `K + |σ|M` (issues #531/#559); abs-Jacobi alone is too
+    // weak to converge at the interior 4.5 GHz shift. Every other inner backend
+    // keeps the Jacobi default (the direct LU paths ignore the preconditioner;
+    // the SPD CG path selects AMS through its own `*_with_gradient` entry point).
+    let use_ams_minres = matches!(inner, InnerSolver::MatrixFreeIndefinite);
+    let precond = if use_ams_minres {
+        crate::eigen::lanczos::InnerPreconditioner::Ams
+    } else {
+        crate::eigen::lanczos::InnerPreconditioner::Jacobi
+    };
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters: 96,
+        tol: 1e-8,
+        inner,
+        precond,
+    };
+    let pairs = if use_ams_minres {
+        // G = d⁰_interior plus the per-reduced-edge-row geometry `d_e = p_b − p_a`
+        // the vector-nodal `Π` block needs — the full three-space AMS auxiliary
+        // space (issue #550). Consumed only by the AMS MINRES preconditioner.
+        let mut gradient = crate::eigen::projection::InteriorGradient::build(
+            pencil.edges,
+            pencil.interior_mask,
+            interior_index,
+            pencil.mesh.n_nodes(),
+            dim,
+        );
+        let mut edge_vectors = vec![[0.0_f64; 3]; dim];
+        for (e, &row) in interior_index.iter().enumerate() {
+            if let Some(row) = row {
+                let [a, b] = pencil.edges[e];
+                let pa = pencil.mesh.nodes[a as usize];
+                let pb = pencil.mesh.nodes[b as usize];
+                edge_vectors[row] = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            }
+        }
+        gradient = gradient.with_edge_vectors(edge_vectors);
+        solver.smallest_eigenpairs_with_gradient(
+            k_red.as_ref(),
+            m_red.as_ref(),
+            n_modes,
+            &gradient,
+        )?
+    } else {
+        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?
+    };
+
+    Ok(pairs
+        .into_iter()
+        .map(|pair| TransmonMode {
+            report: ModeReport {
+                lambda: pair.lambda,
+                frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+                participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+            },
+            vector: pair.vector,
+        })
+        .collect())
+}
+
+/// Matrix-free transmon eigensolve with an explicit inner-CG preconditioner,
+/// returning the modes **and the total inner-CG iteration count** (issue #526).
+///
+/// Builds the plain PEC-interior reduced pencil `(K + K_port, M + M_port)` (the
+/// same ungauged reindex [`solve_transmon_eigenmodes_with_inner`] uses), the
+/// discrete gradient `G = d⁰_interior`, and runs the matrix-free shift-invert
+/// Lanczos with the requested [`crate::eigen::lanczos::InnerPreconditioner`].
+/// The returned iteration
+/// count is summed across every outer Lanczos step's inner
+/// `(K − σM)⁻¹` CG solve — the quantity the preconditioner controls, used to
+/// measure the AMS-lite vs Jacobi iteration reduction.
+///
+/// This is always the [`InnerSolver::MatrixFree`] path (the direct LU backend
+/// has no inner iteration). Place `sigma` **below** the spectrum so `(K − σM)`
+/// is SPD (see [`InnerSolver`]).
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build (nodal
+/// `Gᵀ(K−σM)G` LU), or the matrix-free Lanczos solve.
+pub fn solve_transmon_eigenmodes_matrix_free_inner_iters(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        false,
+        InnerSolver::MatrixFree,
+    )
+}
+
+/// [`solve_transmon_eigenmodes_matrix_free_inner_iters`] running the **full
+/// three-space** Hiptmair–Xu AMS cycle (issue #550): the gradient-space
+/// correction PLUS the vector-nodal `Π (ΠᵀAΠ)⁻¹ Πᵀ` block.
+///
+/// Identical to the two-space entry point except that the per-edge geometry
+/// `d_e = p_b − p_a` (from the mesh node coordinates) is attached to the
+/// discrete gradient, which is exactly the switch
+/// the `AmsLitePreconditioner` (`crate::eigen::ams`) uses to build `Π`. Meaningful
+/// only with `precond == InnerPreconditioner::Ams`; with `Jacobi` the geometry
+/// is ignored (Jacobi never touches `G` or `Π`), so the two entry points
+/// coincide there. Returns the modes and the total inner-CG iteration count,
+/// the apples-to-apples measurement vehicle for the three-space vs
+/// gradient-only comparison.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build (the
+/// nodal `Gᵀ(K−σM)G` and vector-nodal `Πᵀ(K−σM)Π` LUs), or the matrix-free
+/// Lanczos solve.
+pub fn solve_transmon_eigenmodes_matrix_free_inner_iters_three_space(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        true,
+        InnerSolver::MatrixFree,
+    )
+}
+
+/// Instrumented **indefinite MINRES** transmon eigensolve returning the modes and
+/// the total inner-MINRES iteration count (issues #531/#559).
+///
+/// The interior/indefinite-shift sibling of
+/// [`solve_transmon_eigenmodes_matrix_free_inner_iters_three_space`]: it runs the
+/// [`InnerSolver::MatrixFreeIndefinite`] MINRES inner solve instead of SPD CG, so
+/// it is valid at a shift `σ` placed **interior** to the spectrum (e.g. the
+/// physical 4.5 GHz transmon operating point, where `(K − σM)` is
+/// symmetric-indefinite). With `precond == InnerPreconditioner::Ams` the inner
+/// solve is preconditioned by the three-space Hiptmair–Xu AMS built for the
+/// sign-flipped SPD operator `K + |σ|M` and applied additively (the SPD MINRES
+/// preconditioner of #559); with `precond == InnerPreconditioner::Jacobi` it is
+/// the absolute-value-Jacobi baseline. The returned count is the total inner
+/// MINRES iterations summed across the outer Lanczos loop — the apples-to-apples
+/// AMS-vs-abs-Jacobi measurement vehicle.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] from the reduced assembly, the AMS build, or the
+/// matrix-free MINRES solve (including inner non-convergence, which the
+/// abs-Jacobi baseline hits at a deep-interior shift).
+pub fn solve_transmon_eigenmodes_indefinite_inner_iters_three_space(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    matrix_free_inner_iters_impl(
+        pencil,
+        sigma,
+        n_modes,
+        m_per_unit,
+        precond,
+        true,
+        InnerSolver::MatrixFreeIndefinite,
+    )
+}
+
+/// Shared body of the instrumented matrix-free transmon eigensolve. When
+/// `three_space` is set the discrete gradient additionally carries the
+/// per-reduced-edge-row geometry `d_e = p_b − p_a`, enabling the vector-nodal
+/// `Π` block of full AMS (issue #550); otherwise it is the gradient-only
+/// two-space cycle.
+fn matrix_free_inner_iters_impl(
+    pencil: &TransmonPencil<'_>,
+    sigma: f64,
+    n_modes: usize,
+    m_per_unit: f64,
+    precond: crate::eigen::lanczos::InnerPreconditioner,
+    three_space: bool,
+    inner: InnerSolver,
+) -> Result<(Vec<ModeReport>, usize), EigenError> {
+    let n_edges = pencil.edges.len();
+    assert_eq!(
+        pencil.interior_mask.len(),
+        n_edges,
+        "interior mask length must equal edge count"
+    );
+
+    // Plain PEC interior reindex (identical to the ungauged path).
+    let mut interior_index = vec![None; n_edges];
+    let mut dim = 0usize;
+    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
+        if keep {
+            interior_index[e] = Some(dim);
+            dim += 1;
+        }
+    }
+    if dim == 0 {
+        return Err(EigenError::FaerGevd(
+            "no interior DOFs after PEC reduction".into(),
+        ));
+    }
+
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+
+    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
+    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
+
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_port,
+        &interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        &interior_index,
+        dim,
+    )?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+
+    // G = d⁰_interior — the AMS auxiliary-space prolongation. Only consumed by
+    // the AMS preconditioner; the Jacobi path ignores it.
+    let mut gradient = crate::eigen::projection::InteriorGradient::build(
+        pencil.edges,
+        pencil.interior_mask,
+        &interior_index,
+        pencil.mesh.n_nodes(),
+        dim,
+    );
+    if three_space {
+        // Per-reduced-edge-row edge vectors d_e = p_b − p_a (edges[e] = [a,b],
+        // the same −1@a/+1@b orientation G encodes) — the geometry the
+        // vector-nodal Π interpolation needs (issue #550).
+        let mut edge_vectors = vec![[0.0_f64; 3]; dim];
+        for (e, &row) in interior_index.iter().enumerate() {
+            if let Some(row) = row {
+                let [a, b] = pencil.edges[e];
+                let pa = pencil.mesh.nodes[a as usize];
+                let pb = pencil.mesh.nodes[b as usize];
+                edge_vectors[row] = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            }
+        }
+        gradient = gradient.with_edge_vectors(edge_vectors);
+    }
+
+    let solver = SparseShiftInvertLanczos {
+        sigma,
+        max_iters: 96,
+        tol: 1e-8,
+        inner,
+        precond,
+    };
+    let (pairs, inner_iters) = solver.smallest_eigenpairs_inner_iters(
+        k_red.as_ref(),
+        m_red.as_ref(),
+        n_modes,
+        Some(&gradient),
+    )?;
+
+    let modes = pairs
+        .iter()
+        .map(|pair| ModeReport {
+            lambda: pair.lambda,
+            frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
+            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+        })
+        .collect();
+    Ok((modes, inner_iters))
+}
+
+/// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)`.
+///
+/// Both quadratic forms are evaluated on the reduced interior-DOF vector.
+/// Clamped to `[0, 1]` against rounding noise. Returns `0` if the
+/// denominator is non-positive (degenerate).
+fn junction_participation(
+    k_total: &SparseColMat<usize, f64>,
+    k_port: &SparseColMat<usize, f64>,
+    x: &[f64],
+) -> f64 {
+    let num = quad_form(k_port, x);
+    let den = quad_form(k_total, x);
+    if den <= 0.0 {
+        return 0.0;
+    }
+    (num / den).clamp(0.0, 1.0)
+}
+
+/// Quadratic form `xᵀ A x` for a CSC sparse matrix.
+fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    let mut acc = 0.0;
+    for j in 0..a.ncols() {
+        let xj = x[j];
+        if xj == 0.0 {
+            continue;
+        }
+        for k in col_ptr[j]..col_ptr[j + 1] {
+            acc += x[row_idx[k]] * val[k] * xj;
+        }
+    }
+    acc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::{TetMesh, cube_tet_mesh};
+
+    /// Hand-computed natural-unit conversion for the DeviceLayout junction
+    /// values on a micrometre-unit mesh (issue #492 derivation):
+    /// `L̃ = 14.860 nH / μ₀ ≈ 1.18253×10⁴ μm`,
+    /// `C̃ = 5.5 fF / ε₀ ≈ 621.17 μm`.
+    #[test]
+    fn si_to_natural_matches_hand_numbers() {
+        let e = ReactiveElementNatural::from_si(14.860e-9, 5.5e-15, 1e-6);
+        // L̃ in μm.
+        let l_expected = (14.860e-9 / MU0_SI) / 1e-6; // ≈ 1.18253e4
+        let c_expected = (5.5e-15 / EPS0_SI) / 1e-6; // ≈ 621.17
+        assert!(
+            (e.l_natural - l_expected).abs() / l_expected < 1e-12,
+            "L̃ = {}, want {l_expected}",
+            e.l_natural
+        );
+        assert!(
+            (e.c_natural - c_expected).abs() / c_expected < 1e-12,
+            "C̃ = {}, want {c_expected}",
+            e.c_natural
+        );
+        // Order-of-magnitude anchors from the issue body.
+        assert!(
+            (e.l_natural - 1.18253e4).abs() < 5.0,
+            "L̃ ≈ 1.18253e4 μm, got {}",
+            e.l_natural
+        );
+        assert!(
+            (e.c_natural - 621.17).abs() < 0.5,
+            "C̃ ≈ 621.17 μm, got {}",
+            e.c_natural
+        );
+    }
+
+    /// A flat rectangular port patch on `z = 0` of the unit cube.
+    fn z0_port(mesh: &TetMesh) -> Vec<[u32; 3]> {
+        mesh.faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&n| mesh.nodes[n as usize][2].abs() < 1e-12))
+            .collect()
+    }
+
+    fn shunt_on<'a>(faces: &'a [[u32; 3]], l: f64, c: f64) -> LumpedReactiveShunt<'a> {
+        LumpedReactiveShunt {
+            faces,
+            length: 1.0,
+            width: 1.0,
+            element: ReactiveElementNatural {
+                l_natural: l,
+                c_natural: c,
+            },
+        }
+    }
+
+    /// K_port must be symmetric (it inherits S_Γ's symmetry) and PSD
+    /// (`xᵀ K_port x ≥ 0` for random x, since `k_scale ≥ 0` and S_Γ is
+    /// PSD).
+    #[test]
+    fn k_port_symmetric_and_psd() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        let n = edges.len();
+
+        let mut dense = vec![0.0_f64; n * n];
+        for (r, c, v) in shunt.k_port_triplets(&mesh, &edges) {
+            dense[r * n + c] += v;
+        }
+        // Symmetry.
+        let mut max_asym = 0.0_f64;
+        for r in 0..n {
+            for c in 0..n {
+                max_asym = max_asym.max((dense[r * n + c] - dense[c * n + r]).abs());
+            }
+        }
+        assert!(max_asym < 1e-14, "K_port not symmetric: {max_asym}");
+        // PSD: xᵀ K_port x ≥ 0 on several deterministic random vectors.
+        for seed in 0..8u64 {
+            let x: Vec<f64> = (0..n)
+                .map(|i| (((i as u64 + seed * 7 + 1) as f64) * 0.7391).sin())
+                .collect();
+            let mut q = 0.0;
+            for r in 0..n {
+                for c in 0..n {
+                    q += x[r] * dense[r * n + c] * x[c];
+                }
+            }
+            assert!(q >= -1e-12, "K_port not PSD: xᵀKx = {q}");
+        }
+    }
+
+    /// Doubling `L̃` halves every `K_port` entry; doubling `C̃` doubles
+    /// every `M_port` entry (linear scaling of the surface term).
+    #[test]
+    fn linear_scaling_in_l_and_c() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+
+        let base = shunt_on(&faces, 10.0, 5.0);
+        let double_l = shunt_on(&faces, 20.0, 5.0);
+        let double_c = shunt_on(&faces, 10.0, 10.0);
+
+        let k_base = base.k_port_triplets(&mesh, &edges);
+        let k_dl = double_l.k_port_triplets(&mesh, &edges);
+        assert_eq!(k_base.len(), k_dl.len());
+        for (b, d) in k_base.iter().zip(k_dl.iter()) {
+            assert_eq!(b.0, d.0);
+            assert_eq!(b.1, d.1);
+            assert!(
+                (b.2 - 2.0 * d.2).abs() < 1e-12 * b.2.abs().max(1.0),
+                "doubling L̃ must halve K_port: {} vs {}",
+                b.2,
+                d.2
+            );
+        }
+
+        let m_base = base.m_port_triplets(&mesh, &edges);
+        let m_dc = double_c.m_port_triplets(&mesh, &edges);
+        assert_eq!(m_base.len(), m_dc.len());
+        for (b, d) in m_base.iter().zip(m_dc.iter()) {
+            assert!(
+                (2.0 * b.2 - d.2).abs() < 1e-12 * d.2.abs().max(1.0),
+                "doubling C̃ must double M_port: {} vs {}",
+                b.2,
+                d.2
+            );
+        }
+    }
+
+    /// The scalings compose the geometry factors exactly: `k_scale =
+    /// ℓ/(w·L̃)` and `m_scale = C̃·ℓ/w` for hand-picked `ℓ`, `w`.
+    #[test]
+    fn scale_factors_match_geometry() {
+        let faces: Vec<[u32; 3]> = Vec::new();
+        let shunt = LumpedReactiveShunt {
+            faces: &faces,
+            length: 3.0,
+            width: 2.0,
+            element: ReactiveElementNatural {
+                l_natural: 5.0,
+                c_natural: 7.0,
+            },
+        };
+        assert!((shunt.k_scale() - 3.0 / (2.0 * 5.0)).abs() < 1e-15);
+        assert!((shunt.m_scale() - 7.0 * 3.0 / 2.0).abs() < 1e-15);
+    }
+
+    /// Junction removal (`without_inductor`) zeroes `k_scale` (so
+    /// `K_port` is empty) but preserves the capacitive `M_port`.
+    #[test]
+    fn junction_removal_zeroes_k_keeps_m() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        let removed = shunt.without_inductor();
+
+        assert_eq!(removed.k_scale(), 0.0);
+        assert!(removed.k_port_triplets(&mesh, &edges).is_empty());
+        // M_port unchanged.
+        assert_eq!(
+            removed.m_port_triplets(&mesh, &edges).len(),
+            shunt.m_port_triplets(&mesh, &edges).len()
+        );
+    }
+
+    /// The London stiffness triplets scale as `1/λ_L` (doubling λ_L
+    /// halves every entry) and reproduce the raw surface mass at
+    /// `λ_L = 1` — the K-side, `k_port_triplets`-style contract.
+    #[test]
+    fn london_k_triplets_scale_as_inverse_lambda_l() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+
+        let base = LondonSurface {
+            triangles: &faces,
+            lambda_l: 1.0,
+        };
+        let double = LondonSurface {
+            triangles: &faces,
+            lambda_l: 2.0,
+        };
+        let raw = assemble_port_surface_mass(&mesh, &faces, &edges);
+        let k1 = base.k_triplets(&mesh, &edges);
+        let k2 = double.k_triplets(&mesh, &edges);
+        assert_eq!(k1.len(), raw.len());
+        assert_eq!(k1.len(), k2.len());
+        for ((r, d), s) in k1.iter().zip(k2.iter()).zip(raw.iter()) {
+            assert_eq!((r.0, r.1), (d.0, d.1));
+            assert_eq!((r.0, r.1), (s.0, s.1));
+            // λ_L = 1 reproduces S_Γ exactly; doubling λ_L halves.
+            assert_eq!(r.2, s.2, "λ_L = 1 must reproduce S_Γ");
+            assert!(
+                (r.2 - 2.0 * d.2).abs() < 1e-15 * r.2.abs().max(1.0),
+                "doubling λ_L must halve the London stiffness: {} vs {}",
+                r.2,
+                d.2
+            );
+        }
+    }
+
+    /// Exact `λ_L = 0` (the PEC limit) is invalid — it must be expressed
+    /// through the PEC edge mask, mirroring the driven path's
+    /// `SurfaceImpedanceSingular` convention.
+    #[test]
+    #[should_panic(expected = "London lambda_l must be strictly positive")]
+    fn london_zero_lambda_l_panics() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let wall = LondonSurface {
+            triangles: &faces,
+            lambda_l: 0.0,
+        };
+        let _ = wall.k_triplets(&mesh, &edges);
+    }
+
+    /// Uniform-field closed form: for the constant tangential field
+    /// `E = ê` interpolated on a flat port, `xᵀ S_Γ x = Area` (the
+    /// Whitney elements reproduce constants exactly). Here the z=0 face of
+    /// the unit cube has area 1, so with `ê = x̂` the quadratic form of
+    /// the surface mass equals 1.
+    #[test]
+    fn uniform_field_surface_mass_closed_form() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        // Edge DOFs of the constant field E = x̂: e_i = x_b − x_a.
+        let x: Vec<f64> = edges
+            .iter()
+            .map(|e| mesh.nodes[e[1] as usize][0] - mesh.nodes[e[0] as usize][0])
+            .collect();
+        let n = edges.len();
+        let mut s = vec![0.0_f64; n * n];
+        for (r, c, v) in assemble_port_surface_mass(&mesh, &faces, &edges) {
+            s[r * n + c] += v;
+        }
+        let mut q = 0.0;
+        for r in 0..n {
+            for c in 0..n {
+                q += x[r] * s[r * n + c] * x[c];
+            }
+        }
+        assert!(
+            (q - 1.0).abs() < 1e-12,
+            "uniform-field xᵀ S_Γ x = {q}, want Area = 1"
+        );
+    }
+
+    fn a2_on<'a>(faces: &'a [[u32; 3]], l: f64, c: f64) -> LumpedPortVoltageShunt<'a> {
+        LumpedPortVoltageShunt::from_reactive_shunt(&shunt_on(faces, l, c), [0.0, 1.0, 0.0])
+    }
+
+    fn dense_of(trips: &[(usize, usize, f64)], n: usize) -> Vec<f64> {
+        let mut a = vec![0.0_f64; n * n];
+        for &(r, c, v) in trips {
+            a[r * n + c] += v;
+        }
+        a
+    }
+
+    /// Edge DOFs of the uniform field `E = ŷ`: `u_e = ŷ · (x_b − x_a)`.
+    fn uniform_y(mesh: &TetMesh, edges: &[[u32; 2]]) -> Vec<f64> {
+        edges
+            .iter()
+            .map(|e| mesh.nodes[e[1] as usize][1] - mesh.nodes[e[0] as usize][1])
+            .collect()
+    }
+
+    /// Issue #1044: the A2 port terms are exactly `(1/L̃) b bᵀ` and `C̃ b bᵀ`:
+    /// symmetric, rank one (every quadratic form is `(bᵀx)²/L̃`, so PSD), with
+    /// `b = assemble_port_flux / w`.
+    #[test]
+    fn port_voltage_shunt_is_symmetric_rank1_psd() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let (l, c) = (10.0, 5.0);
+        let mut a2 = a2_on(&faces, l, c);
+        a2.width = 0.5; // a non-unit width, to check the 1/w of b
+        let n = edges.len();
+
+        let b_sparse = a2.voltage_functional(&mesh, &edges);
+        let flux = assemble_port_flux(&mesh, &faces, [0.0, 1.0, 0.0], &edges);
+        let mut b = vec![0.0_f64; n];
+        for &(e, v) in &b_sparse {
+            b[e] = v;
+        }
+        for e in 0..n {
+            assert!(
+                (b[e] - flux[e] / 0.5).abs() < 1e-15,
+                "b != flux / w at edge {e}"
+            );
+        }
+        assert!(
+            b_sparse.windows(2).all(|w| w[0].0 < w[1].0),
+            "voltage functional must be in ascending edge order"
+        );
+        assert_eq!(
+            a2.k_port_triplets(&mesh, &edges).len(),
+            b_sparse.len() * b_sparse.len(),
+            "rank-1 triplet count must be nnz(b)²"
+        );
+
+        let k = dense_of(&a2.k_port_triplets(&mesh, &edges), n);
+        let m = dense_of(&a2.m_port_triplets(&mesh, &edges), n);
+        for r in 0..n {
+            for col in 0..n {
+                let want_k = b[r] * b[col] / l;
+                let want_m = c * b[r] * b[col];
+                assert!(
+                    (k[r * n + col] - want_k).abs() < 1e-15,
+                    "K_port != b bᵀ / L̃"
+                );
+                assert!((m[r * n + col] - want_m).abs() < 1e-13, "M_port != C̃ b bᵀ");
+                assert_eq!(k[r * n + col], k[col * n + r], "K_port not symmetric");
+                assert_eq!(m[r * n + col], m[col * n + r], "M_port not symmetric");
+            }
+        }
+        for seed in 0..8u64 {
+            let x: Vec<f64> = (0..n)
+                .map(|i| (((i as u64 + seed * 7 + 1) as f64) * 0.7391).sin())
+                .collect();
+            let v: f64 = b.iter().zip(&x).map(|(a, y)| a * y).sum();
+            let mut q = 0.0;
+            for r in 0..n {
+                for col in 0..n {
+                    q += x[r] * k[r * n + col] * x[col];
+                }
+            }
+            assert!(
+                (q - v * v / l).abs() <= 1e-13 * (v * v / l).max(1e-30),
+                "xᵀ K_port x = {q}, want (bᵀx)²/L̃ = {}",
+                v * v / l
+            );
+        }
+
+        // Junction removal empties K_port and keeps M_port.
+        let removed = a2.without_inductor();
+        assert_eq!(removed.k_scale(), 0.0);
+        assert!(removed.k_port_triplets(&mesh, &edges).is_empty());
+        assert_eq!(
+            removed.m_port_triplets(&mesh, &edges),
+            a2.m_port_triplets(&mesh, &edges)
+        );
+    }
+
+    /// Issue #1044: on the uniform field `u` (`E = ŷ`) of a flat rectangular
+    /// port, `S_Γ u = f`, `uᵀ S_Γ u = area`, the port voltage is `bᵀu = ℓ`, and
+    /// A2 stores exactly the energy of the distributed shunt:
+    /// `uᵀ K_A2 u = uᵀ K_S u` and likewise for `M`.
+    #[test]
+    fn port_voltage_matches_distributed_shunt_on_uniform_field() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let n = edges.len();
+        let u = uniform_y(&mesh, &edges);
+        let s = dense_of(&assemble_port_surface_mass(&mesh, &faces, &edges), n);
+        let f = assemble_port_flux(&mesh, &faces, [0.0, 1.0, 0.0], &edges);
+        let mut usu = 0.0;
+        for r in 0..n {
+            let su: f64 = (0..n).map(|col| s[r * n + col] * u[col]).sum();
+            assert!((su - f[r]).abs() < 1e-14, "S_Γ u != f at edge {r}");
+            usu += u[r] * su;
+        }
+        assert!((usu - 1.0).abs() < 1e-12, "uᵀ S_Γ u = {usu}, want area 1");
+
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        let a2 = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, [0.0, 1.0, 0.0]);
+        let v: f64 = a2
+            .voltage_functional(&mesh, &edges)
+            .iter()
+            .map(|&(e, b)| b * u[e])
+            .sum();
+        assert!((v - shunt.length).abs() < 1e-12, "V(u) = {v}, want ℓ");
+        let quad = |t: &[(usize, usize, f64)]| t.iter().map(|&(r, c, x)| u[r] * x * u[c]).sum();
+        let (ks, ms): (f64, f64) = (
+            quad(&shunt.k_port_triplets(&mesh, &edges)),
+            quad(&shunt.m_port_triplets(&mesh, &edges)),
+        );
+        let (ka, ma): (f64, f64) = (
+            quad(&a2.k_port_triplets(&mesh, &edges)),
+            quad(&a2.m_port_triplets(&mesh, &edges)),
+        );
+        assert!(
+            (ks - ka).abs() < 1e-12 * ks,
+            "uniform-field K energy: S {ks}, A2 {ka}"
+        );
+        assert!(
+            (ms - ma).abs() < 1e-12 * ms,
+            "uniform-field M energy: S {ms}, A2 {ma}"
+        );
+    }
+
+    /// Issue #1044: with the port's boundary on PEC and free nodes inside the
+    /// patch, `Gᵀ b = 0` (to round-off) while `Gᵀ S_Γ ≠ 0`, so the plain bulk
+    /// gradient projector is exact under A2 and not under `S_Γ`. `n = 2` has
+    /// one free patch node (as on the 133k fixture); `n = 3, 4` have 4 and 9.
+    #[test]
+    fn port_voltage_gradient_annihilates_b() {
+        use crate::eigen::projection::InteriorGradient;
+        use crate::mesh::spiral::pec_interior_mask_from_triangles;
+
+        for (n_div, want_free_patch) in [(2usize, 1usize), (3, 4), (4, 9)] {
+            let mesh = cube_tet_mesh(n_div, 1.0);
+            let edges = mesh.edges();
+            let faces = z0_port(&mesh);
+            // PEC on every outer face except the port face z = 0.
+            let on = |f: &[u32; 3], c: usize, val: f64| {
+                f.iter()
+                    .all(|&v| (mesh.nodes[v as usize][c] - val).abs() < 1e-12)
+            };
+            let metal: Vec<[u32; 3]> = mesh
+                .faces()
+                .into_iter()
+                .filter(|f| {
+                    (on(f, 2, 1.0)
+                        || on(f, 0, 0.0)
+                        || on(f, 0, 1.0)
+                        || on(f, 1, 0.0)
+                        || on(f, 1, 1.0))
+                        && !on(f, 2, 0.0)
+                })
+                .collect();
+            let mask = pec_interior_mask_from_triangles(&edges, &[metal.as_slice()]);
+            let mut idx = vec![None; edges.len()];
+            let mut dim = 0;
+            for (e, &k) in mask.iter().enumerate() {
+                if k {
+                    idx[e] = Some(dim);
+                    dim += 1;
+                }
+            }
+            let grad = InteriorGradient::build(&edges, &mask, &idx, mesh.n_nodes(), dim);
+            let g = grad.matrix();
+
+            // Free patch nodes: on z = 0 and a gradient column.
+            let mut free = vec![false; mesh.n_nodes()];
+            for (e, &k) in mask.iter().enumerate() {
+                if !k {
+                    continue;
+                }
+                for &v in &edges[e] {
+                    free[v as usize] = true;
+                }
+            }
+            for (e, &k) in mask.iter().enumerate() {
+                if !k {
+                    for &v in &edges[e] {
+                        free[v as usize] = false;
+                    }
+                }
+            }
+            let free_patch = (0..mesh.n_nodes())
+                .filter(|&v| free[v] && mesh.nodes[v][2].abs() < 1e-12)
+                .count();
+            assert_eq!(
+                free_patch, want_free_patch,
+                "free patch nodes (n = {n_div})"
+            );
+
+            let a2 = a2_on(&faces, 10.0, 5.0);
+            let mut b = vec![0.0_f64; dim];
+            for (e, v) in a2.voltage_functional(&mesh, &edges) {
+                if let Some(r) = idx[e] {
+                    b[r] = v;
+                }
+            }
+            let b_max = b.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+            assert!(b_max > 0.1, "b vanished on the interior edges");
+            let s_red: Vec<(usize, usize, f64)> = assemble_port_surface_mass(&mesh, &faces, &edges)
+                .into_iter()
+                .filter_map(|(r, c, v)| Some((idx[r]?, idx[c]?, v)))
+                .collect();
+            let mut gt_b = 0.0_f64;
+            let mut gt_s = 0.0_f64;
+            for col in 0..g.ncols() {
+                let mut acc = 0.0;
+                let mut row = vec![0.0_f64; dim];
+                for p in g.col_ptr()[col]..g.col_ptr()[col + 1] {
+                    let r = g.row_idx()[p];
+                    acc += g.val()[p] * b[r];
+                    for &(sr, sc, sv) in &s_red {
+                        if sr == r {
+                            row[sc] += g.val()[p] * sv;
+                        }
+                    }
+                }
+                gt_b = gt_b.max(acc.abs());
+                gt_s = gt_s.max(row.iter().fold(0.0_f64, |a, v| a.max(v.abs())));
+            }
+            assert!(
+                gt_b <= 1e-14 * b_max,
+                "max|Gᵀ b| = {gt_b:e} (n = {n_div}), want 0 to round-off"
+            );
+            assert!(
+                gt_s > 1e-3,
+                "Gᵀ S_Γ should not vanish: {gt_s:e} (n = {n_div})"
+            );
+        }
+    }
+
+    /// The default port model is the distributed shunt, and its triplets are
+    /// exactly the [`LumpedReactiveShunt`] ones (so every default solve is
+    /// unchanged by issue #1044).
+    #[test]
+    fn default_port_model_is_distributed_shunt() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let edges = mesh.edges();
+        let faces = z0_port(&mesh);
+        let shunt = shunt_on(&faces, 10.0, 5.0);
+        assert_eq!(
+            JunctionPortModel::default(),
+            JunctionPortModel::DistributedSurface
+        );
+        let (k, m) = JunctionPortModel::default().port_triplets(&shunt, &mesh, &edges);
+        assert_eq!(k, shunt.k_port_triplets(&mesh, &edges));
+        assert_eq!(m, shunt.m_port_triplets(&mesh, &edges));
+        let a2 = JunctionPortModel::PortVoltage {
+            e_hat: [0.0, 1.0, 0.0],
+        };
+        let (k2, m2) = a2.port_triplets(&shunt, &mesh, &edges);
+        let direct = LumpedPortVoltageShunt::from_reactive_shunt(&shunt, [0.0, 1.0, 0.0]);
+        assert_eq!(k2, direct.k_port_triplets(&mesh, &edges));
+        assert_eq!(m2, direct.m_port_triplets(&mesh, &edges));
+    }
+
+    /// `frequency_hz_from_lambda` and `lambda_shift_for_frequency_hz` are
+    /// inverses, and a 5 GHz mode on a μm mesh lands at `λ ≈ 1.1e-8 μm⁻²`
+    /// (the issue's shift-placement estimate).
+    #[test]
+    fn frequency_lambda_roundtrip() {
+        let m_per_unit = 1e-6;
+        let f = 5.0e9;
+        let lambda = lambda_shift_for_frequency_hz(f, m_per_unit);
+        assert!(
+            (lambda - 1.098e-8).abs() < 0.05e-8,
+            "λ(5 GHz, μm) ≈ 1.1e-8, got {lambda}"
+        );
+        let f_back = frequency_hz_from_lambda(lambda, m_per_unit);
+        assert!(
+            (f_back - f).abs() / f < 1e-12,
+            "roundtrip f = {f_back}, want {f}"
+        );
+        // Non-positive λ → 0 Hz (nullspace guard).
+        assert_eq!(frequency_hz_from_lambda(-1.0, m_per_unit), 0.0);
+    }
+}

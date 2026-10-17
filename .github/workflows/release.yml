@@ -1,0 +1,283 @@
+name: release
+
+# Issue #709 (Epic #702, Phase 7, Part B) — prebuilt `geode` CLI binaries.
+#
+# Builds the `geode` binary (crates/geode-cli, DEFAULT features: ndarray
+# f64 CPU backend + faer-parallel; no arpack, no GPU, so no native
+# dependencies beyond the Rust toolchain) for three targets, packages each as
+# `geode-<version>-<target>.tar.gz` (binary + LICENSE + the CLI README) with
+# a matching `.sha256`, smoke-tests the PACKAGED binary on its own runner, and
+# attaches the tarballs + checksums to the GitHub Release.
+#
+# Triggers:
+#   - release: published      → build, smoke-test, upload to that release.
+#   - workflow_dispatch(tag)  → build + smoke-test an existing tag (dry run:
+#                               tarballs land as workflow artifacts only).
+#                               Set `upload: true` to (re-)attach them to the
+#                               tag's existing release, e.g. to backfill.
+#   - pull_request            → only when this workflow or the container
+#                               recipe changes: build + smoke-test all three
+#                               targets WITHOUT uploading, so the packaging
+#                               path is proven on every runner before merge.
+#
+# Permissions: the workflow default is `contents: read`. Only the `publish`
+# job (release event, or dispatch with upload=true) is granted
+# `contents: write`, and it runs no build code — it just downloads the
+# already-built artifacts and calls `gh release upload`.
+#
+# Portability:
+#   - Linux targets build on ubuntu-22.04 / ubuntu-22.04-arm, so the binaries
+#     need glibc >= 2.35 (Ubuntu 22.04, Debian 12, RHEL/Rocky 10, ...), a
+#     lower baseline than ubuntu-latest (24.04, glibc 2.39) would give. The
+#     build step logs the highest GLIBC_x.y symbol the binary references.
+#     A musl/static build is a possible follow-up, not done here.
+#   - macOS arm64 targets MACOSX_DEPLOYMENT_TARGET=11.0 (Big Sur+).
+#   - Gmsh is NOT bundled: it is an external runtime dependency of
+#     `geode mesh` only (see crates/geode-cli/README.md, "Install").
+#
+# Caching: the cargo cache is used on pull_request runs only. Release builds
+# compile from a clean target dir so a published artifact never depends on
+# cache contents.
+#
+# The container recipe (docker/geode-cli/Dockerfile) is built (never pushed)
+# by the `container` job on pull requests that touch it; publishing an image
+# to ghcr.io is deliberately deferred (it would need `packages: write`).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to build (e.g. v0.6.0)"
+        required: true
+        type: string
+      upload:
+        description: "Attach the tarballs to the tag's existing GitHub Release"
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - docker/geode-cli/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build geode (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    # Cold release build of the full geode-core dependency tree with
+    # thin LTO + codegen-units=1; 45 min bounds queue starvation (issue #354).
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-14
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - name: Resolve ref + version
+        id: meta
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            release)           ref="refs/tags/$RELEASE_TAG"; version="${RELEASE_TAG#v}" ;;
+            workflow_dispatch) ref="refs/tags/$INPUT_TAG";   version="${INPUT_TAG#v}" ;;
+            *)                 ref="$PR_SHA";                version="dev-${PR_SHA:0:12}" ;;
+          esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.ref }}
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + target (pull requests only)
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      # build.rs bakes `git rev-parse --short=12 HEAD` into `geode --version`.
+      # GEODE_GIT_SHA is the documented fallback when no .git is visible; set
+      # it to the checked-out commit so the version string is the tag's sha
+      # either way.
+      - name: Build geode (release, default features)
+        shell: bash
+        run: |
+          set -euo pipefail
+          GEODE_GIT_SHA="$(git rev-parse --short=12 HEAD)"
+          export GEODE_GIT_SHA
+          echo "GEODE_GIT_SHA=$GEODE_GIT_SHA"
+          cargo build --locked --release -p geode-cli --target ${{ matrix.target }}
+
+      - name: Package tarball + checksum
+        id: pkg
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          name="geode-${VERSION}-${TARGET}"
+          mkdir -p "dist/$name"
+          cp "target/${TARGET}/release/geode" "dist/$name/geode"
+          cp LICENSE "dist/$name/LICENSE"
+          cp crates/geode-cli/README.md "dist/$name/README.md"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          if command -v sha256sum >/dev/null; then
+            (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          else
+            (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+          fi
+          cat "dist/$name.tar.gz.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      # Smoke-test the PACKAGED binary (extracted from the tarball, checksum
+      # verified) on the runner that built it: `--version` must carry the
+      # checked-out commit (and not be -dirty), and `geode check` on a
+      # committed smoke fixture must succeed and emit a `check` report.
+      - name: Smoke test packaged binary
+        shell: bash
+        env:
+          NAME: ${{ steps.pkg.outputs.name }}
+        run: |
+          set -euo pipefail
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          cp "dist/$NAME.tar.gz" "dist/$NAME.tar.gz.sha256" "$smoke/"
+          cd "$smoke"
+          if command -v sha256sum >/dev/null; then
+            sha256sum -c "$NAME.tar.gz.sha256"
+          else
+            shasum -a 256 -c "$NAME.tar.gz.sha256"
+          fi
+          tar -xzf "$NAME.tar.gz"
+          bin="$smoke/$NAME/geode"
+          file "$bin"
+
+          want="$(git -C "$GITHUB_WORKSPACE" rev-parse --short=12 HEAD)"
+          got="$("$bin" --version)"
+          echo "geode --version: $got"
+          case "$got" in
+            *"($want)"*) ;;
+            *) echo "::error::--version does not carry commit $want"; exit 1 ;;
+          esac
+
+          "$bin" check "$GITHUB_WORKSPACE/crates/geode-cli/tests/fixtures/capacitance_coax_smoke.json" \
+            -o check.json
+          jq -e '.kind == "check"' check.json
+          jq -c '{kind, git_sha, geode_version}' check.json
+
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            echo "Highest GLIBC symbol version required:"
+            objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          else
+            echo "Minimum macOS version:"
+            otool -l "$bin" | grep -A3 LC_BUILD_VERSION | grep minos || true
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.name }}
+          path: |
+            dist/${{ steps.pkg.outputs.name }}.tar.gz
+            dist/${{ steps.pkg.outputs.name }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: attach to GitHub Release
+    needs: build
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.upload)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: gh release upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          gh release upload "$TAG" dist/*.tar.gz dist/*.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  container:
+    # Build (never push) the geode + Gmsh container recipe so it cannot rot.
+    # Publishing to ghcr.io is deferred; see docker/geode-cli/README.md.
+    name: build container (no push)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: docker build
+        run: |
+          DOCKER_BUILDKIT=1 docker build \
+            -f docker/geode-cli/Dockerfile \
+            --build-arg GEODE_GIT_SHA="$(git rev-parse --short=12 HEAD)" \
+            -t geode-cli:ci .
+
+      - name: Smoke test image
+        run: |
+          docker run --rm geode-cli:ci --version
+          docker run --rm --entrypoint gmsh geode-cli:ci --version
+          docker run --rm -v "$PWD:/work:ro" geode-cli:ci \
+            check /work/crates/geode-cli/tests/fixtures/capacitance_coax_smoke.json \
+            | jq -e '.kind == "check"'
+          # geode mesh end-to-end through the image's Gmsh (needs >= 4.11),
+          # then `check` the generated starter spec.
+          mkdir -m 777 "$RUNNER_TEMP/mesh"
+          cp crates/geode-cli/tests/fixtures/spiral_layout_smoke.json "$RUNNER_TEMP/mesh/"
+          docker run --rm -v "$RUNNER_TEMP/mesh:/work" geode-cli:ci \
+            mesh spiral_layout_smoke.json --mesh-out m.msh --spec-out s.json \
+            | jq -e '.kind == "mesh"'
+          docker run --rm -v "$RUNNER_TEMP/mesh:/work" geode-cli:ci check s.json \
+            | jq -e '.kind == "check"'

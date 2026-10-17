@@ -1,0 +1,10 @@
+{
+  "gate": "render_gate",
+  "version_dir": "conformal-antenna-diffopt.2",
+  "passed": null,
+  "skipped": true,
+  "reason": "main.pdf / compile-log.txt absent -- paper-audit has not run; render-gate fails open (expected at review time).",
+  "pdf_path": "conformal-antenna-diffopt.2/main.pdf",
+  "log_path": "conformal-antenna-diffopt.2.audit/compile-log.txt",
+  "critical_flags": []
+}

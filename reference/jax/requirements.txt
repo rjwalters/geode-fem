@@ -1,0 +1,15 @@
+# JAX cube-cavity reference (Epic #88 / #93) — CPU-only install.
+# CUDA / TPU paths are deferred to acceleration work (out of scope for #88).
+#
+# Install:
+#     python3 -m venv .venv-jax
+#     source .venv-jax/bin/activate
+#     pip install -r reference/jax/requirements.txt
+#
+# Versions pinned loosely (range, not exact) so contributors on
+# slightly different Python versions don't trip on resolver issues.
+# CI should pin exact in a lockfile when this stack lands in CI.
+
+jax[cpu]>=0.10.0,<0.12.0
+numpy>=2.0.0
+scipy>=1.14.0

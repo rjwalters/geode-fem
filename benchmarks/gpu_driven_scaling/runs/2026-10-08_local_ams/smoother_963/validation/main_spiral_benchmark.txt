@@ -1,0 +1,11 @@
+# tree=main test=spiral_benchmark_ams_matches_direct_lu
+# git=c6f187643d40fa1c4ca0e6798e3f1ca60fa004d3 dirty=0 env=none
+# start=2026-10-09T11:59:19Z loadavg_start=40.75,57.46,62.42
+
+running 1 test
+test spiral_benchmark_ams_matches_direct_lu ... # ams_smoother edge_dim=53189 theta_max=3.068191 lanczos_steps=30 gershgorin=5.136690 rho_hat=3.375010 weight=0.600000 source=default estimate_ms=25.772
+AMS   1.0 GHz: iters [114], residual 8.9e-11, |ΔZ|/|Z| vs direct LU 2.5e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 17.30s
+

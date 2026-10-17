@@ -1,0 +1,6 @@
+A1_gpu_mf_full rc=0
+A2_gpu_mf_cap300 rc=0
+C1_cpu_mf_full rc=0
+C2_cpu_mf_cap300 rc=0
+B1_cpu_direct_iter rc=0
+B2_cpu_iter_large rc=0

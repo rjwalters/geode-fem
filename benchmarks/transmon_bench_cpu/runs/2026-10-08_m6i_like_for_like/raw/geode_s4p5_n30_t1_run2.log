@@ -1,0 +1,42 @@
+=== transmon_bench (Epic #547 scale-benchmark gate) ===
+config: inner = direct (faer COLAMD sparse LU), σ = 4.5 GHz, n_modes = 30, GEODE_NUM_THREADS = 1
+gauge: none (ungauged pencil)
+mesh: embedded transmon smoke fixture (no CLI arg given)
+fixture: 22684 nodes, 133314 tets (loaded in 0.078 s)
+setup/assembly: 156863 edges → 133108 interior DOFs, pencil nnz = 2561711 (4.981 s)
+eigenvalues / frequencies (sorted by λ):
+  mode[0]: λ = -2.485342e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[1]: λ = -2.160499e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[2]: λ = -1.904605e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[3]: λ = -1.656925e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[4]: λ = -1.593077e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[5]: λ = -1.423739e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[6]: λ = -1.197646e-16, f = 0.000000 GHz, participation p = 0.0000
+  mode[7]: λ = -9.325751e-17, f = 0.000000 GHz, participation p = 0.0000
+  mode[8]: λ = -6.356786e-17, f = 0.000000 GHz, participation p = 0.0000
+  mode[9]: λ = -4.712586e-17, f = 0.000000 GHz, participation p = 0.0000
+  mode[10]: λ = -2.991816e-17, f = 0.000000 GHz, participation p = 0.0000
+  mode[11]: λ = -9.604263e-18, f = 0.000000 GHz, participation p = 0.0000
+  mode[12]: λ = -7.666806e-20, f = 0.000000 GHz, participation p = 0.0000
+  mode[13]: λ = 4.982114e-18, f = 0.000106 GHz, participation p = 0.0000
+  mode[14]: λ = 2.303627e-17, f = 0.000229 GHz, participation p = 0.0000
+  mode[15]: λ = 4.523571e-17, f = 0.000321 GHz, participation p = 0.0000
+  mode[16]: λ = 5.834626e-17, f = 0.000364 GHz, participation p = 0.0000
+  mode[17]: λ = 7.376143e-17, f = 0.000410 GHz, participation p = 0.0000
+  mode[18]: λ = 9.711331e-17, f = 0.000470 GHz, participation p = 0.0000
+  mode[19]: λ = 1.004917e-16, f = 0.000478 GHz, participation p = 0.0000
+  mode[20]: λ = 1.385486e-16, f = 0.000562 GHz, participation p = 0.0000
+  mode[21]: λ = 1.590291e-16, f = 0.000602 GHz, participation p = 0.0000
+  mode[22]: λ = 2.540310e-16, f = 0.000760 GHz, participation p = 0.0000
+  mode[23]: λ = 5.236594e-9, f = 3.452751 GHz, participation p = 0.9942
+  mode[24]: λ = 1.166297e-8, f = 5.152825 GHz, participation p = 0.0005
+  mode[25]: λ = 1.050551e-7, f = 15.464979 GHz, participation p = 0.0000
+  mode[26]: λ = 1.343703e-7, f = 17.490109 GHz, participation p = 1.0000
+  mode[27]: λ = 1.534838e-7, f = 18.692705 GHz, participation p = 0.0000
+  mode[28]: λ = 1.882785e-7, f = 20.703377 GHz, participation p = 0.0000
+  mode[29]: λ = 2.989575e-7, f = 26.088287 GHz, participation p = 0.0000
+--- wall-clock ---
+  fixture-load : 0.078 s
+  setup+assembly : 4.981 s
+  solve (direct (faer COLAMD sparse LU)) : 30.107 s
+  TOTAL : 35.166 s (133108 interior DOFs, 30 modes)

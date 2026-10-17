@@ -1,0 +1,424 @@
+\begin{thebibliography}{49}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[{Ansys, Inc.}(2025)]{ansys_hfss_derivatives}
+{Ansys, Inc.}
+\newblock Overview of the technical approach for derivatives in {HFSS}.
+\newblock Ansys Electronics Desktop online help, release 2025 R2, 2025.
+\newblock URL
+  \url{https://ansyshelp.ansys.com/public//Views/Secured/Electronics/v252/en/Subsystems/HFSS/Content/HFSS/OverviewoftheTechnicalApproachforDerivativesinHFSS.htm}.
+\newblock Accessed 2026-10-12.
+
+\bibitem[Arens et~al.(2026)Arens, Griesmaier, Kn{\"o}ller, and
+  Schurr]{arens2026tubular}
+Tilo Arens, Roland Griesmaier, Marvin Kn{\"o}ller, and Raphael Schurr.
+\newblock Optimal design of tubular perfectly conducting objects in
+  electromagnetic chirality.
+\newblock \emph{arXiv preprint arXiv:2606.30891}, 2026.
+
+\bibitem[Balouchev et~al.(2024)Balouchev, D{\"o}lz, Nolte, Sch{\"o}ps, and
+  Torchio]{balouchev2024balun}
+Boian Balouchev, J{\"u}rgen D{\"o}lz, Maximilian Nolte, Sebastian Sch{\"o}ps,
+  and Riccardo Torchio.
+\newblock Isogeometric shape optimization of multi-tapered coaxial baluns
+  simulated by an integral equation method.
+\newblock \emph{arXiv preprint arXiv:2406.19025}, 2024.
+
+\bibitem[Bandler et~al.(1994)Bandler, Biernacki, Chen, Grobelny, and
+  Hemmers]{bandler1994space}
+J.~W. Bandler, R.~M. Biernacki, Shao~Hua Chen, P.~A. Grobelny, and R.~H.
+  Hemmers.
+\newblock Space mapping technique for electromagnetic optimization.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  42\penalty0 (12):\penalty0 2536--2544, 1994.
+\newblock \doi{10.1109/22.339794}.
+\newblock URL \url{https://doi.org/10.1109/22.339794}.
+
+\bibitem[Bandler et~al.(2004)Bandler, Cheng, Dakroury, Mohamed, Bakr, Madsen,
+  and S{\o}ndergaard]{bandler2004space}
+J.~W. Bandler, Q.~S. Cheng, S.~A. Dakroury, A.~S. Mohamed, M.~H. Bakr,
+  K.~Madsen, and J.~S{\o}ndergaard.
+\newblock Space mapping: the state of the art.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  52\penalty0 (1):\penalty0 337--361, 2004.
+\newblock \doi{10.1109/TMTT.2003.820904}.
+\newblock URL \url{https://doi.org/10.1109/TMTT.2003.820904}.
+
+\bibitem[Benkler et~al.(2006)Benkler, Chavannes, and Kuster]{benkler2006new}
+S.~Benkler, N.~Chavannes, and N.~Kuster.
+\newblock A new 3-d conformal pec fdtd scheme with user-defined geometric
+  precision and derived stability criterion.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 54\penalty0
+  (6):\penalty0 1843--1849, 2006.
+\newblock \doi{10.1109/tap.2006.875909}.
+\newblock URL \url{https://doi.org/10.1109/tap.2006.875909}.
+
+\bibitem[Cangellaris and Wright(1991)]{cangellaris1991analysis}
+A.C. Cangellaris and D.B. Wright.
+\newblock Analysis of the numerical error caused by the stair-stepped
+  approximation of a conducting boundary in fdtd simulations of electromagnetic
+  phenomena.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 39\penalty0
+  (10):\penalty0 1518--1525, 1991.
+\newblock \doi{10.1109/8.97384}.
+\newblock URL \url{https://doi.org/10.1109/8.97384}.
+
+\bibitem[Choi et~al.(2011)Choi, Jeung, Byun, Kim, and Kim]{choi2011generalized}
+Nak-Sun Choi, Gi-Woo Jeung, Jin-Kyu Byun, Heung-Geun Kim, and Dong-Hun Kim.
+\newblock Generalized continuum sensitivity formula for shape optimization of
+  high-frequency devices in frequency domain.
+\newblock \emph{IEEE Transactions on Magnetics}, 47\penalty0 (5):\penalty0
+  1274--1277, 2011.
+\newblock \doi{10.1109/tmag.2010.2087009}.
+\newblock URL \url{https://doi.org/10.1109/tmag.2010.2087009}.
+
+\bibitem[{COMSOL AB}(2023)]{comsol_sensitivity_method}
+{COMSOL AB}.
+\newblock Choosing a sensitivity method ({COMSOL} multiphysics 6.2 reference
+  manual).
+\newblock COMSOL documentation, 2023.
+\newblock URL
+  \url{https://doc.comsol.com/6.2/doc/com.comsol.help.comsol/comsol_ref_sensitivity.31.07.html}.
+\newblock Accessed 2026-10-12.
+
+\bibitem[Dey and Mittra(1997)]{dey1997locally}
+S.~Dey and R.~Mittra.
+\newblock A locally conformal finite-difference time-domain (fdtd) algorithm
+  for modeling three-dimensional perfectly conducting objects.
+\newblock \emph{IEEE Microwave and Guided Wave Letters}, 7\penalty0
+  (9):\penalty0 273--275, 1997.
+\newblock \doi{10.1109/75.622536}.
+\newblock URL \url{https://doi.org/10.1109/75.622536}.
+
+\bibitem[Dunnavant(2026)]{dunnavant2026whiteroom}
+Crutcher Dunnavant.
+\newblock palace\_whiteroom.
+\newblock \url{https://github.com/crutcher/palace_whiteroom}, 2026.
+\newblock Software repository. Accessed 2026-10-13.
+
+\bibitem[Erentok and Sigmund(2011)]{erentok2011topology}
+Aycan Erentok and Ole Sigmund.
+\newblock Topology optimization of sub-wavelength antennas.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 59\penalty0
+  (1):\penalty0 58--69, 2011.
+\newblock \doi{10.1109/TAP.2010.2090451}.
+
+\bibitem[{Flexcompute, Inc.}(2026)]{tidy3dautograd}
+{Flexcompute, Inc.}
+\newblock Tidy3d: hardware-accelerated {FDTD} with autograd shape and material
+  gradients ({PECConformal} subpixel averaging; {TriangleMesh} vertex gradients
+  and {PEC}-embedded-dielectric gradients on the 2.12 development branch).
+\newblock Software and changelog,
+  \url{https://github.com/flexcompute/tidy3d/blob/develop/CHANGELOG.md}, 2026.
+\newblock Version 2.12.0.dev, accessed 2026-07-21.
+
+\bibitem[Gangl et~al.(2021)Gangl, Sturm, Neunteufel, and
+  Sch{\"o}berl]{gangl2021fully}
+Peter Gangl, Kevin Sturm, Michael Neunteufel, and Joachim Sch{\"o}berl.
+\newblock Fully and semi-automated shape differentiation in ngsolve.
+\newblock \emph{Structural and Multidisciplinary Optimization}, 63\penalty0
+  (3):\penalty0 1579--1607, 2021.
+\newblock \doi{10.1007/s00158-020-02742-w}.
+\newblock URL \url{https://doi.org/10.1007/s00158-020-02742-w}.
+
+\bibitem[Ghassemi et~al.(2013)Ghassemi, Bakr, and Sangary]{ghassemi2013antenna}
+Massoud Ghassemi, Mohamed Bakr, and Nagula Sangary.
+\newblock Antenna design exploiting adjoint sensitivity-based geometry
+  evolution.
+\newblock \emph{IET Microwaves, Antennas \& Propagation}, 7\penalty0
+  (4):\penalty0 268--276, 2013.
+\newblock \doi{10.1049/iet-map.2012.0374}.
+\newblock URL \url{https://doi.org/10.1049/iet-map.2012.0374}.
+
+\bibitem[H{\"a}ggblad and Runborg(2014)]{haggblad2014accuracy}
+Jon H{\"a}ggblad and Olof Runborg.
+\newblock Accuracy of staircase approximations in finite-difference methods for
+  wave propagation.
+\newblock \emph{Numerische Mathematik}, 128\penalty0 (4):\penalty0 741--771,
+  2014.
+\newblock \doi{10.1007/s00211-014-0625-1}.
+\newblock URL \url{https://doi.org/10.1007/s00211-014-0625-1}.
+
+\bibitem[Ham et~al.(2019)Ham, Mitchell, Paganini, and
+  Wechsung]{ham2019automated}
+David~A. Ham, Lawrence Mitchell, Alberto Paganini, and Florian Wechsung.
+\newblock Automated shape differentiation in the unified form language.
+\newblock \emph{Structural and Multidisciplinary Optimization}, 60\penalty0
+  (5):\penalty0 1813--1820, 2019.
+\newblock \doi{10.1007/s00158-019-02281-z}.
+\newblock URL \url{https://doi.org/10.1007/s00158-019-02281-z}.
+
+\bibitem[Ham et~al.(2020)Ham, Mitusch, and Schmidt]{ham2020}
+David~A. Ham, Sebastian~K. Mitusch, and Stephan Schmidt.
+\newblock Automatic shape derivatives for transient {PDE}s in {FEniCS} and
+  {Firedrake}.
+\newblock \emph{arXiv preprint arXiv:2001.10058}, 2020.
+
+\bibitem[Hammond et~al.(2022)Hammond, Oskooi, Chen, Lin, Johnson, and
+  Ralph]{hammond2022meepadjoint}
+Alec~M. Hammond, Ardavan Oskooi, Mo~Chen, Zin Lin, Steven~G. Johnson, and
+  Stephen~E. Ralph.
+\newblock High-performance hybrid time/frequency-domain topology optimization
+  for large-scale photonics inverse design.
+\newblock \emph{Optics Express}, 30\penalty0 (3):\penalty0 4467--4491, 2022.
+\newblock \doi{10.1364/OE.442074}.
+
+\bibitem[Hammond et~al.(2025)Hammond, Oskooi, Hammond, Chen, Ralph, and
+  Johnson]{hammond2025unifying}
+Alec~M. Hammond, Ardavan Oskooi, Ian~M. Hammond, Mo~Chen, Stephen~E. Ralph, and
+  Steven~G. Johnson.
+\newblock Unifying and accelerating level-set and density-based topology
+  optimization by subpixel-smoothed projection.
+\newblock \emph{Optics Express}, 33\penalty0 (16):\penalty0 33620, 2025.
+\newblock \doi{10.1364/oe.563512}.
+\newblock URL \url{https://doi.org/10.1364/oe.563512}.
+
+\bibitem[Hassan et~al.(2014{\natexlab{a}})Hassan, Wadbro, and
+  Berggren]{hassan2014patch}
+Emadeldeen Hassan, Eddie Wadbro, and Martin Berggren.
+\newblock Patch and ground plane design of microstrip antennas by material
+  distribution topology optimization.
+\newblock \emph{Progress In Electromagnetics Research B}, 59:\penalty0 89--102,
+  2014{\natexlab{a}}.
+\newblock \doi{10.2528/pierb14030605}.
+\newblock URL \url{https://doi.org/10.2528/pierb14030605}.
+
+\bibitem[Hassan et~al.(2014{\natexlab{b}})Hassan, Wadbro, and
+  Berggren]{hassan2014topology}
+Emadeldeen Hassan, Eddie Wadbro, and Martin Berggren.
+\newblock Topology optimization of metallic antennas.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 62\penalty0
+  (5):\penalty0 2488--2500, 2014{\natexlab{b}}.
+\newblock \doi{10.1109/tap.2014.2309112}.
+\newblock URL \url{https://doi.org/10.1109/tap.2014.2309112}.
+
+\bibitem[Hooten et~al.(2025)]{hooten2025}
+Sean Hooten et~al.
+\newblock Automatic differentiation accelerated shape optimization approaches
+  to photonic inverse design on rectilinear simulation grids.
+\newblock \emph{Laser \& Photonics Reviews}, 2025.
+\newblock \doi{10.1002/lpor.202301199}.
+
+\bibitem[Hughes et~al.(2019)Hughes, Williamson, Minkov, and
+  Fan]{hughes2019forward}
+Tyler~W. Hughes, Ian A.~D. Williamson, Momchil Minkov, and Shanhui Fan.
+\newblock Forward-mode differentiation of {Maxwell}'s equations.
+\newblock \emph{ACS Photonics}, 6\penalty0 (11):\penalty0 3010--3016, 2019.
+\newblock \doi{10.1021/acsphotonics.9b01238}.
+
+\bibitem[Jackson and Alexopoulos(1991)]{jackson1991simple}
+D.~R. Jackson and N.~G. Alexopoulos.
+\newblock Simple approximate formulas for input resistance, bandwidth, and
+  efficiency of a resonant rectangular patch.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 39\penalty0
+  (3):\penalty0 407--410, 1991.
+\newblock \doi{10.1109/8.76341}.
+\newblock URL \url{https://doi.org/10.1109/8.76341}.
+
+\bibitem[Jackson(n.d.)]{jackson_ece6345}
+David~R. Jackson.
+\newblock {ECE} 6345 class notes: Notes 15, {CAD} for {Q}sp, and notes 16,
+  {CAD} for gain and efficiency.
+\newblock University of Houston course notes,
+  \url{http://courses.egr.uh.edu/ECE/ECE6345/Class\%20Notes/}, n.d.
+\newblock Restates the Jackson and Alexopoulos (1991) CAD formulas, including
+  the p factor and the surface-wave efficiency. Accessed 2026-10-14.
+
+\bibitem[Jensen(2022)]{jensen2022comsolshape}
+Kristian~Ejlebj{\ae}rg Jensen.
+\newblock Shape optimization in electromagnetics: Part 2.
+\newblock COMSOL Blog, 16 December 2022, 2022.
+\newblock URL
+  \url{https://www.comsol.com/blogs/shape-optimization-in-electromagnetics-part-2}.
+\newblock Accessed 2026-10-12.
+
+\bibitem[Liu and Bonar(2024)]{liu2024imagerep}
+Zhaocheng Liu and Jim Bonar.
+\newblock Differential shape optimization with image representation for
+  photonic design.
+\newblock \emph{arXiv preprint arXiv:2410.13074}, 2024.
+
+\bibitem[Mahlau et~al.(2026)Mahlau, Schubert, Berg, and
+  Rosenhahn]{mahlau2026fdtdx}
+Yannik Mahlau, Frederik Schubert, Lukas Berg, and Bodo Rosenhahn.
+\newblock {FDTDX}: High-performance open-source {FDTD} simulation with
+  automatic differentiation.
+\newblock \emph{Journal of Open Source Software}, 11\penalty0 (117):\penalty0
+  8912, 2026.
+\newblock \doi{10.21105/joss.08912}.
+
+\bibitem[{Meep developers}(2026)]{meepadjointdocs}
+{Meep developers}.
+\newblock Meep adjoint solver documentation: material-grid adjoint gradients
+  unsupported for dispersive and metallic media.
+\newblock Online documentation,
+  \url{https://meep.readthedocs.io/en/latest/Python_Tutorials/Adjoint_Solver/},
+  2026.
+\newblock Accessed 2026-07-21.
+
+\bibitem[Mittra and Yu(2000)]{mittra2000conformal}
+R.~Mittra and W.~Yu.
+\newblock A conformal fdtd software package modeling antennas and microstrip
+  circuit components.
+\newblock \emph{IEEE Antennas and Propagation Magazine}, 42\penalty0
+  (5):\penalty0 28--39, 2000.
+\newblock \doi{10.1109/74.883505}.
+\newblock URL \url{https://doi.org/10.1109/74.883505}.
+
+\bibitem[Nair and Webb(2003)]{nair2003optimization}
+D.~Nair and J.P. Webb.
+\newblock Optimization of microwave devices using 3-d finite elements and the
+  design sensitivity of the frequency response.
+\newblock \emph{IEEE Transactions on Magnetics}, 39\penalty0 (3):\penalty0
+  1325--1328, 2003.
+\newblock \doi{10.1109/tmag.2003.810520}.
+\newblock URL \url{https://doi.org/10.1109/tmag.2003.810520}.
+
+\bibitem[Nikolova et~al.(2004{\natexlab{a}})Nikolova, Bandler, and
+  Bakr]{nikolova2004adjoint}
+N.K. Nikolova, J.W. Bandler, and M.H. Bakr.
+\newblock Adjoint techniques for sensitivity analysis in high-frequency
+  structure cad.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  52\penalty0 (1):\penalty0 403--419, 2004{\natexlab{a}}.
+\newblock \doi{10.1109/tmtt.2003.820905}.
+\newblock URL \url{https://doi.org/10.1109/tmtt.2003.820905}.
+
+\bibitem[Nikolova et~al.(2004{\natexlab{b}})Nikolova, Tam, and
+  Bakr]{nikolova2004sensitivity}
+N.K. Nikolova, H.W. Tam, and M.H. Bakr.
+\newblock Sensitivity analysis with the fdtd method on structured grids.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  52\penalty0 (4):\penalty0 1207--1216, 2004{\natexlab{b}}.
+\newblock \doi{10.1109/tmtt.2004.825710}.
+\newblock URL \url{https://doi.org/10.1109/tmtt.2004.825710}.
+
+\bibitem[Nikolova et~al.(2006{\natexlab{a}})Nikolova, Li, Li, and
+  Bakr]{nikolova2006scattering}
+N.K. Nikolova, Ying Li, Yan Li, and M.H. Bakr.
+\newblock Sensitivity analysis of scattering parameters with electromagnetic
+  time-domain simulators.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  54\penalty0 (4):\penalty0 1598--1610, 2006{\natexlab{a}}.
+\newblock \doi{10.1109/tmtt.2006.871350}.
+\newblock URL \url{https://doi.org/10.1109/tmtt.2006.871350}.
+
+\bibitem[Nikolova et~al.(2006{\natexlab{b}})Nikolova, Zhu, Li, Bakr, and
+  Bandler]{nikolova2006network}
+N.K. Nikolova, Jiang Zhu, Dongying Li, M.H. Bakr, and J.W. Bandler.
+\newblock Sensitivity analysis of network parameters with electromagnetic
+  frequency-domain simulators.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  54\penalty0 (2):\penalty0 670--681, 2006{\natexlab{b}}.
+\newblock \doi{10.1109/tmtt.2005.862663}.
+\newblock URL \url{https://doi.org/10.1109/tmtt.2005.862663}.
+
+\bibitem[Oskooi et~al.(2010)Oskooi, Roundy, Ibanescu, Bermel, Joannopoulos, and
+  Johnson]{oskooi2010meep}
+Ardavan~F. Oskooi, David Roundy, Mihai Ibanescu, Peter Bermel, J.~D.
+  Joannopoulos, and Steven~G. Johnson.
+\newblock Meep: A flexible free-software package for electromagnetic
+  simulations by the {FDTD} method.
+\newblock \emph{Computer Physics Communications}, 181\penalty0 (3):\penalty0
+  687--702, 2010.
+\newblock \doi{10.1016/j.cpc.2009.11.008}.
+
+\bibitem[Paganini and Wechsung(2021)]{paganini2021fireshape}
+Alberto Paganini and Florian Wechsung.
+\newblock Fireshape: a shape optimization toolbox for firedrake.
+\newblock \emph{Structural and Multidisciplinary Optimization}, 63\penalty0
+  (5):\penalty0 2553--2569, 2021.
+\newblock \doi{10.1007/s00158-020-02813-y}.
+\newblock URL \url{https://doi.org/10.1007/s00158-020-02813-y}.
+
+\bibitem[Romano et~al.(2026)Romano, Arrieta, and Johnson]{romano2026ssp2}
+Giuseppe Romano, Rodrigo Arrieta, and Steven~G. Johnson.
+\newblock Differentiating through binarized topology changes: Second-order
+  subpixel-smoothed projection.
+\newblock \emph{arXiv preprint arXiv:2601.10737}, 2026.
+
+\bibitem[Su et~al.(2019)Su, Vercruysse, Skarda, Sapra, Petykiewicz, and Vu{\v
+  c}kovi{\'c}]{su_spinsb}
+Logan Su, Dries Vercruysse, Jinhie Skarda, Neil~V. Sapra, Jan~A. Petykiewicz,
+  and Jelena Vu{\v c}kovi{\'c}.
+\newblock Nanophotonic inverse design with {SPINS}: Software architecture and
+  practical considerations.
+\newblock \emph{arXiv preprint arXiv:1910.04829}, 2019.
+
+\bibitem[Sun et~al.(2025)Sun, Elsawaf, Zheng, Lin, Hsu, and
+  Sideris]{sun2025pngf}
+Jui-Hung Sun, Mohamed Elsawaf, Yifei Zheng, Ho-Chun Lin, Chia~Wei Hsu, and
+  Constantine Sideris.
+\newblock Near real-time full-wave inverse design of electromagnetic devices.
+\newblock \emph{arXiv preprint arXiv:2501.18054}, 2025.
+
+\bibitem[Takahashi(2025)]{takahashi2025tdbie}
+Toru Takahashi.
+\newblock An electromagnetic shape optimisation for perfectly electric
+  conductors by the time-domain boundary integral equations.
+\newblock \emph{Engineering with Computers}, 41\penalty0 (1):\penalty0
+  293--320, 2025.
+\newblock \doi{10.1007/s00366-024-01990-4}.
+
+\bibitem[{Tracel AI}(2024)]{burn}
+{Tracel AI}.
+\newblock Burn: a comprehensive deep-learning and tensor-computation framework
+  in {Rust}.
+\newblock \url{https://github.com/tracel-ai/burn}, 2024.
+\newblock v0.21.0 used. No journal or arXiv paper; cited as software.
+
+\bibitem[Vardapetyan et~al.(2008)Vardapetyan, Manges, and
+  Cendes]{vardapetyan2008sensitivity}
+L.~Vardapetyan, J.~Manges, and Z.~Cendes.
+\newblock Sensitivity analysis of s-parameters including port variations using
+  the transfinite element method.
+\newblock \emph{2008 IEEE MTT-S International Microwave Symposium Digest},
+  pages 527--530, 2008.
+\newblock \doi{10.1109/mwsym.2008.4633219}.
+\newblock URL \url{https://doi.org/10.1109/mwsym.2008.4633219}.
+
+\bibitem[Walters(2025)]{loom}
+Robb Walters.
+\newblock Loom: {AI}-powered development orchestration.
+\newblock \url{https://github.com/rjwalters/loom}, 2025.
+\newblock Software repository. Accessed 2026-10-13.
+
+\bibitem[Wang and Anderson(2011)]{wang2011}
+Li~Wang and W.~Kyle Anderson.
+\newblock Adjoint-based shape optimization for electromagnetic problems using
+  discontinuous {G}alerkin methods.
+\newblock \emph{AIAA Journal}, 49\penalty0 (6):\penalty0 1302--1305, 2011.
+\newblock \doi{10.2514/1.J050594}.
+
+\bibitem[Webb(2002)]{webb2002design}
+J.P. Webb.
+\newblock Design sensitivity of frequency response in 3-d finite-element
+  analysis of microwave devices.
+\newblock \emph{IEEE Transactions on Magnetics}, 38\penalty0 (2):\penalty0
+  1109--1112, 2002.
+\newblock \doi{10.1109/20.996284}.
+\newblock URL \url{https://doi.org/10.1109/20.996284}.
+
+\bibitem[Webb and Akel(2000)]{webb2000design}
+J.P. Webb and H.~Akel.
+\newblock Design sensitivities for scattering-matrix calculation with
+  tetrahedral edge elements.
+\newblock \emph{IEEE Transactions on Magnetics}, 36\penalty0 (4):\penalty0
+  1043--1046, 2000.
+\newblock \doi{10.1109/20.877620}.
+\newblock URL \url{https://doi.org/10.1109/20.877620}.
+
+\bibitem[Zagorodnov et~al.(2003)Zagorodnov, Schuhmann, and
+  Weiland]{zagorodnov2003uniformly}
+I.A. Zagorodnov, R.~Schuhmann, and T.~Weiland.
+\newblock A uniformly stable conformal fdtd-method in cartesian grids.
+\newblock \emph{International Journal of Numerical Modelling: Electronic
+  Networks, Devices and Fields}, 16\penalty0 (2):\penalty0 127--141, 2003.
+\newblock \doi{10.1002/jnm.488}.
+\newblock URL \url{https://doi.org/10.1002/jnm.488}.
+
+\end{thebibliography}

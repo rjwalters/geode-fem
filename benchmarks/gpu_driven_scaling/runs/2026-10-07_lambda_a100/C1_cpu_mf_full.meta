@@ -1,0 +1,6 @@
+leg=C1_cpu_mf_full kind=cpu bin=target/release/deps/gpu_driven_scaling-bb279c5dd4136faf
+start=2026-10-07T23:23:17Z
+git=d51b4b6e8a5d9bc1977d3b98814fc5574339236b dirty=4
+env: GEODE_SCALING_SIZES=15,20,24 GEODE_SCALING_CONFIGS=matrix_free GEODE_SCALING_REPS=0 GEODE_SCALING_SKIP_E2E=1 GEODE_SCALING_SKIP_SWEEP=1
+end=2026-10-07T23:44:20Z
+rc=0

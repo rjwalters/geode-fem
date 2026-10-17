@@ -1,0 +1,9 @@
+{
+  "critic": "vision",
+  "role": "paper-vision.md",
+  "started": "2026-07-21T22:24:10Z",
+  "finished": "2026-07-21T22:24:10Z",
+  "model": "claude-fable-5",
+  "schema_version": 1,
+  "scorecard_kind": "machine-summary"
+}

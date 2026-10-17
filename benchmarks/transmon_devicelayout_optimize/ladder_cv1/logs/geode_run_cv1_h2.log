@@ -1,0 +1,7 @@
+cv1_h2: <work>/cv1_r1.msh (222853 nodes, 1323360 tets)
+  assembled 1550548 edges in 26.4 s
+  f = 2.518482 GHz  p = 0.985870
+  f = 3.767334 GHz  p = 0.000232
+  f = 11.297169 GHz  p = 0.000010
+  solve 516.2 s, peak RSS Some(134.42072) GB, total 543.3 s
+wrote <work>/geode_runs/cv1_h2.toml

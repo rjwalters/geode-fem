@@ -1,0 +1,41 @@
+
+running 1 test
+test gpu_driven_scaling_benchmark ... # ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: ndarray / f64
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(ndarray f64)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f64) = 1e-8; iter max = 20000
+# knobs: sizes = [12], reps = 0, configs = [direct=false, iterative=false, matrix_free=false], skip_e2e = true, skip_sweep = true
+# config 5=Iterative(assembled COCG+AMS, CPU f64, tol 1e-8); opt-in (issue #930)
+# split_setup = true: every cell carries warmup_setup_s / warmup_krylov_s
+
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 1.233706
+warmup_setup_s = 0.037806
+warmup_krylov_s = 1.195873
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 307
+residual_rel = 8.519e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.659986380e-1, 7.449350471e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# ---- end fragment ----
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s
+

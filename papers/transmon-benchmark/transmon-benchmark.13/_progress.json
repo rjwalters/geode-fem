@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-15T04:00:00+00:00",
+      "completed": "2026-10-15T08:30:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-15T08:30:00+00:00",
+      "note": "Figures 2-5 redrawn (labels, Figure 3 without the resonator fit, Figure 4 one hue per model, Figure 5 with PRIMA in our environment, the Palace-only Newton, the recentred band and step 2's second family); Figure 1 byte-identical to v9"
+    }
+  },
+  "metadata": {
+    "iteration": 13,
+    "max_iterations": 13,
+    "revised_from": 12,
+    "status": "DRAFT",
+    "authorization": "Revision against the Opus and Fable reviews of v12 (outside the thread; no .12.review sibling) and the operator's rulings of 2026-10-15 recorded on #1129 (framing and title, the derivative paragraphs, a short Section 8), with the #1129 follow-up runs (PR #1131). The operator's standing permission to revise this paper covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "6744446e (transmon-benchmark.12 as on main, plus the #1129 controls)",
+    "scope": "v13 = v12 reframed as a cross-check of the Palace/DeviceLayout.jl transmon (new title), cut from 29 to 17 pages (Appendices A and B, Section 8 sensitivity layer, shared-limit table, performance table, capacitance table and artifact table dropped; Section 8 on development cut to 166 words; bibliography 84 -> 36 entries, no url beside a DOI), PRIMA in our environment (10) against Newton (3), the Palace-only Newton (3), the second refinement family at step 2, the capacitor band recentred on 3.0 GHz (+17 to +39 %) and reconciled with the two-family union, the at-best-O(h) wording, the first-step explanation, the derivative-advantage paragraphs, the eigenvalue-derivative citation (Fox and Kapoor 1968), the practitioner remedy; README nits for benchmarks/transmon_devicelayout_controls in a separate commit",
+    "pending_dependencies": [
+      "operator: approve the acknowledgment wording (TODO(operator) in source)",
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v13 paper review, audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1792040221.0025067,
+      "refs_mtime": null
+    }
+  }
+}

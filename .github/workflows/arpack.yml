@@ -1,0 +1,475 @@
+name: arpack
+
+# Issue #24 — exercises the opt-in `arpack` Cargo feature on Linux.
+# The default build path (pure-Rust Lanczos) does not need libarpack and
+# is not exercised here; this workflow's only job is to keep the ARPACK
+# FFI from regressing.
+#
+# We deliberately do not run the full test suite here — the heavy
+# physics tests (Mie, Silver-Müller PML) are platform-sensitive and out
+# of scope for the ARPACK glue. We just build the workspace with the
+# feature on and run the gated `sparse_eigensolver` test, which is the
+# acceptance bar for issue #24.
+#
+# Issue #692 — the build-and-test job also runs the (static, no-solve)
+# benchmark provenance guard and the default tiers of the per-benchmark
+# regression tests by name; see those steps.
+#
+# Issue #675 — this workflow also hosts the repo's clippy gate, widened
+# from `-p geode-core` to the whole workspace (so `crates/*` and
+# `examples/*` are all lint-gated), plus a separate `geode-cli` job that
+# runs the CLI integration suite (default tier; `#[ignore]`d heavy tiers
+# stay out of CI).
+#
+# Toolchain note: both jobs use the floating `dtolnay/rust-toolchain@stable`
+# (matching `rust-toolchain.toml`'s `channel = "stable"`). This is a
+# deliberate choice — new stable clippy lints surface here first (e.g. the
+# Rust 1.98 `chunks_exact_to_as_chunks` lint that turned #676 red), and
+# the fix is to address the lint in a follow-up, not to pin an old
+# toolchain. Run `rustup update stable` before trusting a clean local
+# clippy run.
+
+on:
+  # Issue #899: no `push:` trigger. Every PR runs this workflow, so it does
+  # not run again on each merge. main-batch.yml dispatches it on the newest
+  # main every 3 hours, unless that commit already has a successful run. A
+  # manual dispatch always runs.
+  workflow_dispatch: {}
+  pull_request:
+    branches: [main]
+
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    name: cargo test --features arpack (linux)
+    runs-on: ubuntu-latest
+    # Cap queue-wait + run time. This is a single Linux build, a
+    # workspace-wide clippy pass (#675), one gated test, and a few
+    # seconds-scale benchmark provenance/regression checks (#692). A warm run
+    # takes about 19 min. Any PR that changes Cargo.lock (e.g. a new
+    # workspace member, #873) misses the cache, and the cold run got through
+    # clippy and every test step but the last two before a 25 min cap
+    # cancelled it. A cancelled job never saves the cache, so the miss
+    # repeated on every retry. 40 min fits a cold run without letting a
+    # starved runner orphan for the 24h GitHub ceiling (issue #354).
+    timeout-minutes: 40
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libarpack2-dev and pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-arpack-${{ hashFiles('**/Cargo.lock') }}
+
+      # The runner is headless ubuntu-latest — no Vulkan/CUDA adapter — so
+      # we build against the CPU (`ndarray`) backend.
+      # `ndarray` resolves `TestBackend` to `NdArray<f64>`, preserving the f64 precision the
+      # ARPACK oracle test relies on.
+      - name: Build geode-core with --features arpack (CPU backend)
+        run: |
+          cargo build -p geode-core --features arpack --release
+
+      # Issue #675: gate the whole workspace (crates/* + examples/*), not
+      # just geode-core. The arpack feature stays scoped to geode-core.
+      - name: Clippy (workspace, arpack + ndarray, CPU backend)
+        run: |
+          cargo clippy --workspace --tests --features geode-core/arpack -- -D warnings
+
+      # Issue #692: benchmark-artifact provenance guard. Reads the committed
+      # benchmarks/**/*.toml off disk (no solves, <1 s) and fails if a
+      # Burn-backed artifact lacks [meta].backend / float_dtype = "F64" /
+      # generated_at_commit, or if a new artifact is not classified in the
+      # test's MANIFEST. There is no blanket `cargo test -p geode-core` job,
+      # so this test is only enforced because it is named here. Same
+      # features/profile as the build above so the artifacts are reused.
+      - name: Benchmark provenance guard (f64 metadata on committed artifacts)
+        run: |
+          cargo test --features arpack \
+              -p geode-core --release --test benchmark_provenance
+
+      # Issue #692 follow-up: the per-benchmark tier-1 checks that also
+      # assert [meta].float_dtype == "F64" (and compare committed rows)
+      # previously never ran in CI. Their default (non-#[ignore]d) tiers
+      # read committed TOML/fixtures only and finish in ~1 s each in
+      # release; the heavy regeneration tiers stay #[ignore]d.
+      # patch_antenna_radiation also carries the cross-artifact f_res
+      # tie-in between pattern*.toml and results*.toml (#697).
+      - name: Benchmark tier-1 regression checks (default tier)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test spiral_inductor_benchmark \
+              --test slcfet_3hp_benchmark \
+              --test patch_antenna_extraction \
+              --test patch_antenna_matched \
+              --test patch_antenna_radiation
+
+      # Issue #793: the same five targets' committed-results benchmarks
+      # (#[ignore]d as heavy in debug). Measured release times on
+      # ubuntu-latest, one test at a time: slcfet_3hp 31 s, spiral 7 s,
+      # the four patch tests 1-3 s each (about 46 s in all).
+      - name: Benchmark tier-1 committed-results checks (--ignored tier)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test spiral_inductor_benchmark \
+              --test slcfet_3hp_benchmark \
+              --test patch_antenna_extraction \
+              --test patch_antenna_matched \
+              --test patch_antenna_radiation -- --ignored
+
+      # Issue #714: the open-path current excitation behind
+      # `geode inductance` (P1 conduction J vs the analytic axial / loop
+      # builders, round-off discrete solenoidality, tripwires). No blanket
+      # geode-core job exists, so it is named here; < 1 s in release.
+      #
+      # Issue #731: `surface_not_on_mesh` (7 tests, issue #732 added the
+      # "false face" pair) covers the typed `SurfaceNotOnMesh` error
+      # contract (issue #725) across every public entry point that accepts
+      # caller-supplied surface/port triangles. Same "no blanket geode-core
+      # job" gap, so it is named here too; < 1 s in release.
+      #
+      # Issue #708: `rom_sweep` (the adaptive-sweep PROM behind `geode
+      # driven`'s `sweep.adaptive`, now with impedance surfaces and block
+      # per-port drives) — named here for the same reason; ~2 s in release.
+      #
+      # Issue #759: `mixed_port` (lumped + wave ports in one operator:
+      # lumped block vs the Z route, sheet closed forms, reciprocity,
+      # passivity) — same reason; < 1 s in release.
+      #
+      # Issue #776: `wave_port_impedance_walls` (wave ports with Leontovich
+      # / rough / Silver-Müller walls: TE10 α_c vs Pozar Eq. 3.96 on the
+      # 16 × 8 × 8 guide, K(f) scaling, bit-identity of the empty-walls
+      # call) — same reason; ~2 s in release.
+      #
+      # Issue #842: `s_matrix_sensitivity` (Epic #841 Phase 1: N-port
+      # ∂S/∂θ through lumped / wave / filled / mixed / walled / untouched
+      # hybrid specs vs central FD through the public forwards, the five
+      # mutation tripwires, VJP = JVP, the General transpose path and the
+      # scope fences) — same reason; ~1.5 s in release.
+      #
+      # Issue #872: `s_matrix_sensitivity_hybrid` (Epic #841 Phase 3b:
+      # ∂S/∂θ on designs that touch hybrid port faces — slab guide,
+      # microstrip, width step, conducting face — vs central FD through the
+      # public hybrid spec sweep, the three port-mode tripwires, VJP = JVP,
+      # General, the degenerate-cluster error and the fences) — same
+      # reason; ~25 s in release.
+      - name: Open-path current excitation + surface-not-on-mesh error contract + PROM sweep
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test current_path \
+              --test surface_not_on_mesh \
+              --test rom_sweep \
+              --test mixed_port \
+              --test wave_port_impedance_walls \
+              --test s_matrix_sensitivity \
+              --test s_matrix_sensitivity_hybrid
+
+      # Issue #785: the core wave-port and iterative-sweep suites, which
+      # no job ran before (found in the #783 review). `wave_port` carries
+      # the #777 filled-port closed forms (dielectric fill, transverse-
+      # isotropic tensor fill). Its four `#[ignore]`d height-step /
+      # bimodal tests and the one `wave_port_step_mode_matching` test are
+      # "heavy" only in debug, so they run here via --include-ignored.
+      # Issue #808 added the ignored height-step TM₁₁ measurement
+      # (`te_only_ports_above_tm11_give_length_dependent_s`, ~15 s).
+      # Release timings, local (Apple Silicon, 6 threads): wave_port 0.05 s
+      # default + 0.52 s ignored, wave_port_from_tags 0.05 s,
+      # iterative_sweep 0.04 s, driven_matrix_free_equivalence 1.4 s,
+      # wave_port_step_mode_matching 0.14 s.
+      # Issue #888: `wave_port_gauge` (the canonical port-face frame and
+      # mode gauge: S21 phase vs e^{-jβL} under face reordering / re-winding,
+      # committed Gmsh guides, the degenerate square-guide pair, filled,
+      # mixed lumped + wave, and hybrid ports); ~1 s in release.
+      # Issue #946: `faer_global_parallelism` (faer's process-global
+      # parallelism around a factorization guard, an AMS-preconditioned
+      # back-solve and a direct eigensolve); one test, well under 1 s.
+      # Issue #966: `driven_matrix_free_ams` (the matrix-free path's
+      # host-side AMS against the assembled AMS, Direct and matrix-free
+      # Jacobi; coarse-solve pluggability; the backend / preconditioner
+      # rejections); about 11 s in release on a loaded local host.
+      - name: Wave ports + iterative sweep + matrix-free driven equivalence
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test wave_port_from_tags \
+              --test wave_port_gauge \
+              --test iterative_sweep \
+              --test faer_global_parallelism \
+              --test driven_matrix_free_equivalence \
+              --test driven_matrix_free_ams
+          cargo test --features arpack -p geode-core --release \
+              --test wave_port \
+              --test wave_port_step_mode_matching -- --include-ignored
+
+      # Issue #786: every unit test (`--lib`) of geode-core, geode-util and
+      # geode-app. Before this step, only hand-picked geode-core modules ran
+      # (`driven::ports::` #808, `eigen::lanczos::` / `analytic::waveguide::`
+      # #798, `eigen::complex::` / `eigen::lossy_cavity::` /
+      # `eigen::projection::` / `analytic::mixed_pencil::` /
+      # `analytic::lossy_port_modes::` #828/#831/#834, `eigen::pec_cavity` /
+      # `assembly::magnetostatic3d` #760, `mesh::periodic` #839), so a unit
+      # test in any other module ran in no job. This step runs all of them:
+      # geode-core 644 tests in 8.5 s in release on a loaded local host (4
+      # more are #[ignore]d heavy-fixture benchmarks -- the two
+      # `driven::solve` patch benchmarks and the two 133k-tet transmon
+      # partition runs -- which the next step runs). It is the same `--lib` test binary
+      # the per-module runs it replaces already compiled, so the job's
+      # compile time does not grow; the run grows by a few seconds.
+      # geode-util: the validation helpers (#828: the degenerate-cluster floor
+      # of `dense_lowest_eigenpairs`, the #826/#830 `q_factor` /
+      # `k_from_lambda` tests); < 1 s. geode-app: the `args` and app-trait
+      # units (7 tests), which no job ran; < 1 s.
+      - name: Unit tests (geode-core, geode-util, geode-app; all modules)
+        run: |
+          cargo test --features arpack -p geode-core --release --lib
+          cargo test --features geode-core/arpack -p geode-util --release --lib
+          cargo test -p geode-app --release --lib
+
+      # Issue #921: the four `#[ignore]`d geode-core unit tests, which ran in
+      # no job (and which ci-test-coverage.py could not see before it
+      # modelled the `<crate>/lib` target). They are "heavy" only in debug.
+      # Release timings, one test at a time, local (Apple M3 Ultra, loaded
+      # host; not re-timed on ubuntu-latest):
+      #   driven::solve::tests::iterative_patch_benchmark          0.7 s
+      #   driven::solve::tests::ilu_patch_benchmark                0.7 s
+      #   mesh::partition::tests::transmon_133k_cut_quality_report 0.9 s
+      #   solver::distributed::tests::
+      #     transmon_distributed_spectrum_matches_single_process  14.7 s
+      #     (13.9 s of it user time, so close to single-threaded; 1.2 GB
+      #     peak RSS)
+      # Issue #913 added a fifth, the reduced empty-set-rule stress sweep
+      # (120 small 2D classifier solves):
+      #   analytic::waveguide::tests::empty_set_rule_stress_sweep_913
+      #     14.6, 49, 54 and 63 s over four runs (host load average above
+      #     100 for the slow three)
+      # Issue #947 added a sixth, the PML curl-floor measurement (about 40
+      # small 2D PML solves on five fiber fixtures):
+      #   analytic::waveguide::tests::pml_curl_floor_measurement_947
+      #     100, 169 and 444 s over three runs (local, heavily loaded host)
+      # About 17 s for the first four plus 15 to 63 s for the sweep and 100
+      # to 444 s for the measurement; with a 2x margin for the 4-vCPU
+      # runner, up to about 17 min. Same `--lib` test binary as the step above, so nothing new is
+      # compiled. The tests are named with --exact (not a blanket
+      # `-- --ignored`) so that a new #[ignore]d unit test is not pulled into
+      # this job unmeasured: the guard fails until it is named here or put
+      # on scripts/ci-test-coverage-ignored-allowlist.txt with a reason.
+      - name: "Unit tests (geode-core, the #[ignore]d heavy-fixture tier)"
+        run: |
+          cargo test --features arpack -p geode-core --release --lib -- \
+              --ignored --exact \
+              driven::solve::tests::iterative_patch_benchmark \
+              driven::solve::tests::ilu_patch_benchmark \
+              mesh::partition::tests::transmon_133k_cut_quality_report \
+              solver::distributed::tests::transmon_distributed_spectrum_matches_single_process \
+              analytic::waveguide::tests::empty_set_rule_stress_sweep_913 \
+              analytic::waveguide::tests::pml_curl_floor_measurement_947
+
+      # Issue #760: diagonal anisotropic materials — the uniaxial-cube
+      # closed-form golden (n = 8 / 16, ~15 s in release). The lossless
+      # tensor cavity pencil and diagonal-nu magnetostatics unit tests (and
+      # the #839 periodic-map units) run in the unit-test step above.
+      - name: Anisotropic materials (uniaxial-cavity golden)
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test uniaxial_cavity -- --include-ignored
+
+      - name: Run the gated sparse-eigensolver acceptance test
+        # Issue #24 acceptance: matches dense oracle to 1e-6 at n=5 with
+        # the same fixture as the Lanczos check. Runs on the CPU backend so
+        # it works headless. Its tests are no longer #[ignore]d (issue
+        # #813: the dense oracle stopped calling faer's qz_real), so this
+        # runs the default tier, not --ignored (which would now select none).
+        run: |
+          cargo test --features arpack \
+              -p geode-core --release --test sparse_eigensolver
+
+      - name: Run the gated complex sparse-eigensolver acceptance test (fixtured dense oracle)
+        # Issue #710: sparse complex shift-invert Lanczos on the Mie
+        # sphere PML pencil vs the committed dense oracle fixture
+        # (tests/fixtures/mie_complex_pml_dense_eigenvalues.toml: dense
+        # shift-invert, cross-checked against a capped-shift full QZ).
+        # Only the fast comparison (~2 s) runs here; the regeneration
+        # test (regenerate_dense_oracle_fixture) never runs in CI.
+        run: |
+          cargo test --features arpack -p geode-core --release \
+              --test sparse_complex_eigensolver -- --ignored --exact sparse_complex_matches_dense_fixture
+
+  geode-cli:
+    # Issue #675 — run the `geode` CLI integration suite
+    # (`crates/geode-cli/tests/cli.rs` + the `spiral_golden.rs` smoke tier,
+    # including the `solve_failed` non-convergence exit test). Default
+    # features only, so no libarpack install is needed. The heavy golden
+    # tier is `#[ignore]`d and is deliberately not run here (no
+    # `--ignored`). Runs in parallel with the arpack/clippy job above.
+    #
+    # Issue #704 — `geode mesh` shells out to the external `gmsh` binary,
+    # so Gmsh is installed here and GEODE_REQUIRE_GMSH=1 turns the
+    # Gmsh-dependent tests' local skip-if-absent into a hard failure:
+    # `tests/mesh_golden.rs` must actually run in CI.
+    name: cargo test -p geode-cli (linux)
+    runs-on: ubuntu-latest
+    # Cold dependency build + the debug default tier. The release
+    # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
+    # job below. The apt Gmsh install alone has taken ~11 min on a slow
+    # mirror; 45 min bounds queue-wait (issue #354) with that headroom.
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+      GEODE_REQUIRE_GMSH: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Install Gmsh (geode mesh, issue #704)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gmsh
+          gmsh --version
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-geode-cli-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run geode-cli tests (default tier, CPU backend)
+        run: |
+          cargo test -p geode-cli
+
+      # Issue #933: the bin unit tests of the mie_sphere (3 tests) and
+      # spiral_inductor (1 test) example crates (`src/main.rs`), which ran
+      # in no job until ci-test-coverage.py modelled `<crate>/bin:<name>`.
+      # Pure-logic tests; the run itself takes < 1 s. The cost is the build:
+      # these crates enable geode-core's `testing` feature, so geode-core and
+      # some of the burn stack are rebuilt in debug with that feature set.
+      # Measured locally after `cargo test -p geode-cli` (Apple M3 Ultra,
+      # loaded host; not re-timed on ubuntu-latest): 46 s wall, 38 crates
+      # recompiled. Kept as a separate command, not merged into the
+      # geode-cli invocation, so the CLI is still tested with its own
+      # feature set.
+      - name: Example crates' bin unit tests (mie_sphere, spiral_inductor)
+        run: |
+          cargo test -p mie_sphere -p spiral_inductor --bins
+
+  geode-cli-release:
+    # Release-mode `--ignored` benchmark tiers for the geode CLI, split out
+    # of the `geode-cli` job so the debug default tier and the release
+    # benchmark build run in parallel. Together they had outgrown the
+    # 30-minute bound, and main runs were being cancelled.
+    name: cargo test -p geode-cli --release --ignored (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: short
+      GEODE_REQUIRE_GMSH: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Install Gmsh (geode mesh, issue #704)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gmsh
+          gmsh --version
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-geode-cli-release-${{ hashFiles('**/Cargo.lock') }}
+
+      # The inductance benchmark tier (#714): finer coax/triax mesh at the
+      # 1 % oracle bar + monotone convergence + library parity. ~1 min in
+      # debug but ~2 s in release, so it runs here in release. Issue #720
+      # adds the layout → inductance convergence tier (three Gmsh meshes of
+      # a shielded microstrip vs its 2-D reference, ~10 s in release) and
+      # the guard-ring capacitance convergence tier (three meshes, 7.8k /
+      # 26k / 97k nodes, vs Maxwell's gap-corrected value, ~1 min in
+      # release).
+      #
+      # Issue #708 adds the adaptive-sweep goldens (spiral smoke + patch
+      # Silver-Müller smoke, adaptive vs dense sweep; ~15 s in release,
+      # minutes in debug).
+      #
+      # Issue #744 adds the AMS-preconditioned spiral benchmark (54k edges,
+      # 1 GHz, AMS-COCG vs direct LU + committed bands; ~10 s in release).
+      #
+      # Issue #758 adds the rough-Leontovich AMS and adaptive-sweep
+      # goldens (rough spiral smoke vs the direct dense sweep; ~20 s in
+      # release).
+      #
+      # Issue #757 adds the dispersive-substrate AMS golden (Djordjevic-
+      # Sarkar spiral smoke, AMS-COCG vs direct LU; ~10 s in release).
+      # Issue #761 adds the Debye and Drude (doped-Si) AMS twins to the
+      # same --test dispersive_golden (all three ~10 s in release).
+      #
+      # Issue #760 adds the anisotropic-materials AMS golden (spiral smoke
+      # with a uniaxial substrate and diagonal mu, AMS-COCG vs direct LU;
+      # ~4 s in release).
+      - name: geode static-extraction benchmark tiers (release, --ignored)
+        run: |
+          cargo test -p geode-cli --release --test inductance_golden \
+              --test mesh_static_golden --test adaptive_sweep_golden \
+              --test roughness_golden --test dispersive_golden \
+              --test anisotropic_golden -- --ignored
+          cargo test -p geode-cli --release --test spiral_golden -- --ignored
+
+      # Issue #793: the remaining geode-cli benchmark tiers (every one
+      # #[ignore]d as heavy in debug). Measured release times on
+      # ubuntu-latest, one test at a time, before #810 (faster dense real
+      # eigensolver, so the sphere_pec_golden oracle is quicker now):
+      # mesh_golden spiral layout 26 s,
+      # patch_extract_golden 18 s, slcfet_extract_golden 82 s,
+      # sphere_pec_golden dense oracle 74 s; spiral_golden's committed-band
+      # benchmark (now unfiltered above) 14 s.
+      #
+      # Issue #807 adds the hybrid wave-port microstrip goldens (50 Ω
+      # Touchstone line, Hammerstad–Jensen eps_eff, coupled even / odd,
+      # lossy sigma_max + accuracy warnings, dispersive substrate; ~10 s in
+      # release, ~12 min in debug). Its review adds the microstrip cookbook
+      # `geode check` (Z_PI within 2 % of 50 ohm, no impedance-accuracy
+      # warning; ~7 s in release, ~4 min in debug).
+      #
+      # Issue #883 adds the microstrip cookbook's strip-width sensitivity
+      # under --check-gradient (dZ0/dw, deps_eff/dw, dS vs the shipped
+      # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~1 min
+      # in release on an M-series laptop).
+      - name: geode extraction / eigen benchmark tiers (release, --ignored)
+        run: |
+          cargo test -p geode-cli --release --test mesh_golden \
+              --test patch_extract_golden --test slcfet_extract_golden \
+              --test sphere_pec_golden --test hybrid_wave_port \
+              --test cookbook --test sensitivity_nport -- --ignored

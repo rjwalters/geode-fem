@@ -1,0 +1,172 @@
+
+running 1 test
+test gpu_driven_scaling_benchmark ... # ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: ndarray / f64
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(ndarray f64)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f64) = 1e-8; iter max = 20000
+# knobs: sizes = [6, 9, 12, 15, 20, 24], reps = 0, configs = [direct=false, iterative=false, matrix_free=false], skip_e2e = true, skip_sweep = true
+# config 5=Iterative(assembled COCG+AMS, CPU f64, tol 1e-8); opt-in (issue #930)
+# split_setup = true: every cell carries warmup_setup_s / warmup_krylov_s
+
+# diag944_rho edge_dim=1614 gershgorin_upper=3.99942 power_rayleigh_lower: it50=3.34378 it200=3.35599 it500=3.36565 it1000=3.38760 it2000=3.38761
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 0.070798
+warmup_setup_s = 0.039666
+warmup_krylov_s = 0.031126
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 70
+residual_rel = 7.656e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.660077370e-1, 7.349708964e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# diag944_rho edge_dim=5337 gershgorin_upper=3.99974 power_rayleigh_lower: it50=3.35904 it200=3.40507 it500=3.40742 it1000=3.40754 it2000=3.40754
+[[cell]]
+size_n = 9
+n_edges = 5859
+n_interior = 5337
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 0.361651
+warmup_setup_s = 0.138243
+warmup_krylov_s = 0.223393
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 139
+residual_rel = 8.754e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.660010062e-1, 7.423417007e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# diag944_rho edge_dim=12516 gershgorin_upper=3.99985 power_rayleigh_lower: it50=3.37127 it200=3.40491 it500=3.40939 it1000=3.41392 it2000=3.41460
+[[cell]]
+size_n = 12
+n_edges = 13428
+n_interior = 12516
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 1.594327
+warmup_setup_s = 0.343755
+warmup_krylov_s = 1.250543
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 307
+residual_rel = 8.519e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.659986380e-1, 7.449350471e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# diag944_rho edge_dim=24285 gershgorin_upper=3.99991 power_rayleigh_lower: it50=3.37339 it200=3.41257 it500=3.41740 it1000=3.41783 it2000=3.41789
+[[cell]]
+size_n = 15
+n_edges = 25695
+n_interior = 24285
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 5.171450
+warmup_setup_s = 0.670801
+warmup_krylov_s = 4.500595
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 532
+residual_rel = 9.198e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.659975395e-1, 7.461380549e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# diag944_rho edge_dim=57180 gershgorin_upper=3.99995 power_rayleigh_lower: it50=3.36558 it200=3.40949 it500=3.41784 it1000=3.41979 it2000=3.42036
+[[cell]]
+size_n = 20
+n_edges = 59660
+n_interior = 57180
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 40.380773
+warmup_setup_s = 1.636805
+warmup_krylov_s = 38.743851
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 1683
+residual_rel = 9.987e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.659966841e-1, 7.470749827e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# diag944_rho edge_dim=98472 gershgorin_upper=3.99996 power_rayleigh_lower: it50=3.37425 it200=3.40993 it500=3.41730 it1000=3.41879 it2000=3.41916
+[[cell]]
+size_n = 24
+n_edges = 102024
+n_interior = 98472
+config = "5_iterative_ams"
+method = "cocg_ams"
+device = "cpu"
+dtype = "f64"
+tol = 1e-8
+converged = true
+flaky = false
+reps = 0
+solve_reps_ok = 0
+e2e_reps_ok = 0
+warmup_solve_s = 137.960722
+warmup_setup_s = 3.470814
+warmup_krylov_s = 134.489755
+solve_only_s = nan
+end_to_end_s = nan
+iterations = 2234
+residual_rel = 9.926e-9
+accuracy_rel_l2_vs_direct = nan
+port_v = [6.659963478e-1, 7.474433802e-3]  # Re, Im of port-1 voltage (v_inc = 1)
+sweep5_skipped = true
+
+# ---- end fragment ----
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 187.96s
+

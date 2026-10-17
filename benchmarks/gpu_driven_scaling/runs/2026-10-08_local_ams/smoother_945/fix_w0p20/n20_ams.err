@@ -1,0 +1,2 @@
+[size n=20] edges=59660 interior=57180 tets=48000 reps=0 (fixture 0.67 s)
+# ams_smoother edge_dim=57180 theta_max=3.412668 lanczos_steps=30 gershgorin=3.999890 rho_hat=3.753934 weight=0.399581 source=estimate estimate_ms=21.380

@@ -1,0 +1,13 @@
+# Native arm64 MPI environment for the matched antenna comparison (#1088).
+# Build: docker build --platform linux/arm64 -t meep-matched:mpi \
+#          -f reference/meep/docker/Dockerfile.matched reference/meep/docker
+# Package versions and exact builds are exported inside the image.
+FROM condaforge/miniforge3@sha256:f752860f77bd417aa4db35be3d2e906fdb740fb80f40755ed651fff9e8873aad
+COPY matched-conda-linux-aarch64.txt /opt/meep-lock.txt
+RUN mamba create -y -n meep --file /opt/meep-lock.txt \
+    && conda list -n meep --explicit > /opt/meep-explicit.txt \
+    && mamba clean -a -y
+ENV PATH=/opt/conda/envs/meep/bin:$PATH
+ENV MPLBACKEND=Agg OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+WORKDIR /work
+CMD ["python", "-c", "import meep as mp; print(mp.__version__, mp.count_processors())"]

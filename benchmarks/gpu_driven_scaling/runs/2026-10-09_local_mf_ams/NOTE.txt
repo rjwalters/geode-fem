@@ -1,0 +1,34 @@
+Issue #966: matrix-free driven COCG with the host-side AMS preconditioner,
+against assembled AMS, assembled Jacobi and matrix-free Jacobi, on the #520
+cube fixture. Local developer Mac (Apple M3 Ultra, 96 GB) under unrelated
+load; every leg RAYON_NUM_THREADS=1. Measured at commit aeddb157 (the
+implementation commit of the #966 branch, clean tree; see each .meta).
+
+Exact invocations, from the checkout root, in this order:
+
+  R=benchmarks/gpu_driven_scaling/runs/2026-10-09_local_mf_ams
+  S=benchmarks/gpu_driven_scaling/ams_cpu_sweep.sh
+  RAYON_NUM_THREADS=1 LEGS="jacobi ams mfjacobi mfams mfxcheck" $S $R 15 20
+  RAYON_NUM_THREADS=1 LEGS="jacobi ams mfams" $S $R 24
+  RAYON_NUM_THREADS=1 LEGS="mfjacobi" $S $R 24
+  RAYON_NUM_THREADS=1 LEGS="mfxcheck" $S $R 24
+  RAYON_NUM_THREADS=1 SKIP_DIRECT=1 LEGS="ams mfams" $S $R 36
+  RAYON_NUM_THREADS=1 SKIP_DIRECT=1 LEGS="ams mfams" $S $R 40
+  RAYON_NUM_THREADS=1 SKIP_DIRECT=1 LEGS="jacobi" $S $R 36 40
+  RAYON_NUM_THREADS=1 GEODE_SCALING_ITER_MAX=1 LEGS="mfjacobi" $S $R/mfjacobi_cap1 24 36 40
+  RAYON_NUM_THREADS=1 GEODE_SCALING_ITER_MAX=300 LEGS="mfjacobi" $S $R/mfjacobi_cap300 24 36 40
+
+The .meta env line does not record GEODE_SCALING_ITER_MAX; the capped legs'
+cap is the DNF cell's `iterations` in their .stdout (1 or 300). n=24 has
+both a full and a capped matrix-free Jacobi run, as a check of the
+(t_300 - t_1) / 299 per-iteration method.
+
+No Direct at n = 36, 40 (SKIP_DIRECT); the field accuracy check vs Direct is
+the mfxcheck legs at n = 15, 20, 24.
+
+Then:
+
+  python3 -I benchmarks/gpu_driven_scaling/summarize_mf_ams_local.py $R \
+    > benchmarks/gpu_driven_scaling/results_mf_ams_cpu_local.toml
+
+build.log files are gitignored (they hold this machine's cargo target path).

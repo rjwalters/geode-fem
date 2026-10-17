@@ -1,0 +1,95 @@
+# Issue #1145 attempt 1 (commit e6e1f005, before the split_metal_conductors role fix): the round-7 grounded solve stopped on
+# 'island touches the outer box'. The diagnostic replay below (attempt-1 code plus DIAG prints, not committed; it skipped
+# the X0 solves of rounds 0-6 and was stopped during the round-7 natural solve, before its own wall check) shows why:
+# on the round-7 X0 mesh the island sheet (42129 tris) outnumbers the ground plane (41422 tris), and the old rule
+# (ground = most triangles) labelled the ground plane 'Island'.
+## run.log
+run start 2026-10-15T20:31:38Z
+grounded-box X0 uniform P2, sapphire tensor (#1145):
+  X0 uniform h/1 TENSOR P2: 133314 tets, natural 91.717845360 fF, grounded box 91.725008763 fF (+0.007163 fF, 1732 wall faces, 11.0s)
+  X0 uniform h/2 TENSOR P2: 1066512 tets, natural 85.008424705 fF, grounded box 85.015233810 fF (+0.006809 fF, 6928 wall faces, 132.2s)
+grounded-box X0 on the anchor_93p95 held-out meshes (#1145):
+  prep cycle 0: 133314 tets, P1 137.706752265 fF
+  prep cycle 1: 134561 tets, P1 120.517232349 fF
+  prep cycle 2: 136748 tets, P1 110.852326322 fF
+  prep cycle 3: 145475 tets, P1 104.059201522 fF
+  prep cycle 4: 156376 tets, P1 98.037118612 fF
+  prep cycle 5: 168852 tets, P1 93.608991921 fF
+  prep cycle 6: 186732 tets, P1 90.412188534 fF
+  prep cycle 7: 215663 tets, P1 87.600496060 fF
+  prep cycle 8: 265774 tets, P1 85.432204782 fF
+  prep cycle 9: 336823 tets, P1 83.692085666 fF
+  prep cycle 10: 448279 tets, P1 82.323696618 fF
+  anchor_93p95 round 0: 448279 tets, design upper 93.953667887 fF (21.3s)
+  X0 anchor_93p95 round 0 TENSOR P2: 448279 tets, natural 80.516225668 fF, grounded box 80.522744494 fF (+0.006519 fF, 1732 wall faces, 43.4s)
+  anchor_93p95 round 1: 527959 tets, design upper 93.698450413 fF (26.2s)
+  X0 anchor_93p95 round 1 TENSOR P2: 527959 tets, natural 80.313043904 fF, grounded box 80.319554478 fF (+0.006511 fF, 1732 wall faces, 53.1s)
+  anchor_93p95 round 2: 683440 tets, design upper 93.488379452 fF (37.4s)
+  X0 anchor_93p95 round 2 TENSOR P2: 683440 tets, natural 80.150814180 fF, grounded box 80.157320092 fF (+0.006506 fF, 1732 wall faces, 75.9s)
+  anchor_93p95 round 3: 902171 tets, design upper 93.332105806 fF (53.1s)
+  X0 anchor_93p95 round 3 TENSOR P2: 902171 tets, natural 80.024874706 fF, grounded box 80.031378197 fF (+0.006503 fF, 1732 wall faces, 105.2s)
+  anchor_93p95 round 4: 1250525 tets, design upper 93.214010250 fF (80.4s)
+  X0 anchor_93p95 round 4 TENSOR P2: 1250525 tets, natural 79.929824491 fF, grounded box 79.936326254 fF (+0.006502 fF, 1732 wall faces, 163.4s)
+  anchor_93p95 round 5: 1720753 tets, design upper 93.119307099 fF (128.7s)
+  X0 anchor_93p95 round 5 TENSOR P2: 1720753 tets, natural 79.855307884 fF, grounded box 79.861808885 fF (+0.006501 fF, 1732 wall faces, 252.2s)
+  anchor_93p95 round 6: 2430808 tets, design upper 93.052517479 fF (194.2s)
+  X0 anchor_93p95 round 6 TENSOR P2: 2430808 tets, natural 79.800545359 fF, grounded box 79.807045592 fF (+0.006500 fF, 1732 wall faces, 395.5s)
+
+thread 'main' (12582) panicked at crates/geode-core/examples/transmon_c_sigma_bracket.rs:1151:9:
+island touches the outer box
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Command exited with non-zero status 101
+	Command being timed: "~/tgt1145/release/examples/transmon_c_sigma_bracket"
+	User time (seconds): 2119.27
+	System time (seconds): 69.62
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 36:28.50
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 17886740
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 69230963
+	Voluntary context switches: 14776
+	Involuntary context switches: 15114
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 120
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 101
+rc=101 2026-10-15T21:08:07Z
+## diag.log
+grounded-box X0 uniform P2, sapphire tensor (#1145):
+DIAG island: 101 nodes, 0 on wall; wall nodes 868, mesh nodes 22684
+DIAG feedline: 653 nodes, 0 on wall; wall nodes 868, mesh nodes 22684
+  X0 uniform h/1 TENSOR P2: 133314 tets, natural 91.717845360 fF, grounded box 91.725008763 fF (+0.007163 fF, 1732 wall faces, 11.1s)
+DIAG island: 340 nodes, 0 on wall; wall nodes 3466, mesh nodes 179547
+DIAG feedline: 2154 nodes, 0 on wall; wall nodes 3466, mesh nodes 179547
+  X0 uniform h/2 TENSOR P2: 1066512 tets, natural 85.008424705 fF, grounded box 85.015233810 fF (+0.006809 fF, 6928 wall faces, 143.9s)
+grounded-box X0 on the anchor_93p95 held-out meshes (#1145):
+  prep cycle 0: 133314 tets, P1 137.706752265 fF
+  prep cycle 1: 134561 tets, P1 120.517232349 fF
+  prep cycle 2: 136748 tets, P1 110.852326322 fF
+  prep cycle 3: 145475 tets, P1 104.059201522 fF
+  prep cycle 4: 156376 tets, P1 98.037118612 fF
+  prep cycle 5: 168852 tets, P1 93.608991921 fF
+  prep cycle 6: 186732 tets, P1 90.412188534 fF
+  prep cycle 7: 215663 tets, P1 87.600496060 fF
+  prep cycle 8: 265774 tets, P1 85.432204782 fF
+  prep cycle 9: 336823 tets, P1 83.692085666 fF
+  prep cycle 10: 448279 tets, P1 82.323696618 fF
+  anchor_93p95 round 0: 448279 tets, design upper 93.953667887 fF (23.1s)
+  anchor_93p95 round 1: 527959 tets, design upper 93.698450413 fF (28.7s)
+  anchor_93p95 round 2: 683440 tets, design upper 93.488379452 fF (40.4s)
+  anchor_93p95 round 3: 902171 tets, design upper 93.332105806 fF (56.6s)
+  anchor_93p95 round 4: 1250525 tets, design upper 93.214010250 fF (88.2s)
+  anchor_93p95 round 5: 1720753 tets, design upper 93.119307099 fF (133.8s)
+  anchor_93p95 round 6: 2430808 tets, design upper 93.052517479 fF (205.1s)
+DIAG comp Ground: 42129 tris, 23448 nodes
+DIAG comp Island: 41422 tris, 24080 nodes
+DIAG comp Feedline: 849 tris, 653 nodes

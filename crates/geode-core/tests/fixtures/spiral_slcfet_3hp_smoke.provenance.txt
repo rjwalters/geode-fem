@@ -1,0 +1,45 @@
+fixture:        spiral_slcfet_3hp_smoke.msh
+sha256:         937fcb85781bd2bb068bb4a821b8ae64a093e93db89a0d1a24f814f7210d4745
+generated:      2026-06-12T17:17:12+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/spiral_inductor.geo
+wrapper:        reference/gmsh/generate_spiral_fixture.py
+parameters:     spiral_slcfet_3hp_smoke.yaml
+
+parameter values:
+  spiral:
+    n_turns: 3.0
+    w: 10.0
+    s: 5.0
+    d_in: 60.0
+    g: 4.0
+    feed_len: 12.0
+    stub_len: 10.0
+  stack:
+    h_sub: 30.0
+    h_ox: 10.0
+    z1_bot: 0.0
+    t1: 3.0
+    z2_bot: 5.0
+    t2: 2.25
+    h_air: 14.0
+    h_buf: 10.0
+    margin: 25.0
+  mesh:
+    lc_cond: 9.0
+    lc_port: 3.0
+    lc_far: 30.0
+    dist_far: 28.0
+  materials:
+    substrate_eps_r: 9.7
+    substrate_tan_delta: 0.004
+    dielectric_eps_r: 1.0
+    dielectric_tan_delta: 0.0
+    conductor_sigma_s_m: 51467000.0
+
+quality report:
+  nodes: 2352
+  tets: 10893
+  unique edges: 14527 (budget 100000)
+  inverted tets: 0
+  min dihedral angle: 7.10 deg

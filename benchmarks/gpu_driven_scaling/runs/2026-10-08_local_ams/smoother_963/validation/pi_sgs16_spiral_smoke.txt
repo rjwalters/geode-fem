@@ -1,0 +1,17 @@
+# tree=pi_sgs16 test=spiral_smoke_ams_matches_direct_lu
+# git=0e1721f69583b6664320d47cf60c4d6159a663d5 dirty=0 env=GEODE_DRIVEN_AMS_PI_COARSE=sgs:16
+# start=2026-10-09T12:05:28Z loadavg_start=20.69,34.61,49.75
+
+running 1 test
+test spiral_smoke_ams_matches_direct_lu ... # ams_smoother edge_dim=13997 theta_max=3.093148 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.402463 weight=0.600000 source=default estimate_ms=6.139
+# ams_smoother edge_dim=13997 theta_max=3.012197 lanczos_steps=30 gershgorin=6.043984 rho_hat=3.313417 weight=0.600000 source=default estimate_ms=6.154
+# ams_smoother edge_dim=13997 theta_max=2.961877 lanczos_steps=30 gershgorin=6.043983 rho_hat=3.258065 weight=0.600000 source=default estimate_ms=6.291
+# ams_smoother edge_dim=13997 theta_max=2.928841 lanczos_steps=30 gershgorin=6.043981 rho_hat=3.221725 weight=0.600000 source=default estimate_ms=6.161
+AMS   1.0 GHz: iters [104], residual 9.9e-11, |ΔZ|/|Z| vs direct LU 1.6e-12
+AMS   5.0 GHz: iters [129], residual 7.0e-11, |ΔZ|/|Z| vs direct LU 6.8e-13
+AMS  10.0 GHz: iters [139], residual 8.8e-11, |ΔZ|/|Z| vs direct LU 5.6e-13
+AMS  20.0 GHz: iters [158], residual 6.5e-11, |ΔZ|/|Z| vs direct LU 1.3e-12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 15.18s
+

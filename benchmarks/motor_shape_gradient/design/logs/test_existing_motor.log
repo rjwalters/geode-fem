@@ -1,0 +1,45 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1177/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 7.06s
+     Running tests/motor_icem_forward.rs (/Volumes/Stripe/cargo-target-1177/release/deps/motor_icem_forward-992bb2bcc357de4c)
+
+running 4 tests
+test magnet_source_is_reference_coercive_field ... ok
+test clamp426_variant_is_a_consistent_law ... ok
+test winding_table_and_current_density_match_reference ... ok
+test l0_full_current_two_angles_reproduce_committed_torque ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/motor_icem_harmonic.rs (/Volumes/Stripe/cargo-target-1177/release/deps/motor_icem_harmonic-f49931d5669fa352)
+
+running 3 tests
+test tagged_mesh_has_separate_coupling_node_sets ... ok
+test l0_reference_orders_reproduce_committed_torque ... ok
+test every_order_reproduces_the_conforming_band ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/motor_icem_parametric.rs (/Volumes/Stripe/cargo-target-1177/release/deps/motor_icem_parametric-276e42fdc7926874)
+
+running 6 tests
+test attaches_l0_and_reproduces_it_at_theta0 ... ok
+test air_gap_and_coupling_never_move ... ok
+test optimized_design_moves_l0_validly_and_round_trips ... ok
+test jacobian_matches_central_differences ... ok
+test construction_vs_optimized_export_isolates_free_form_motion ... ok
+test construction_reproduces_initial_export ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/motor_shape_gradient.rs (/Volumes/Stripe/cargo-target-1177/release/deps/motor_shape_gradient-d47cbfc9e10c95d1)
+
+running 6 tests
+test air_gap_rule_and_admissibility ... ok
+test coupling_torque_rows_reproduce_the_band_torque ... ok
+test forward_reproduces_icem_model ... ok
+test taylor_conforming_arkkio_full_current ... ok
+test taylor_conforming_arkkio_band_motion_full_current ... ok
+test taylor_harmonic_coupling_torque_half_current ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+

@@ -1,0 +1,180 @@
+diff --git a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/changelog.md b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/changelog.md
+index e75217f..ba411b9 100644
+--- a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/changelog.md
++++ b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/changelog.md
+@@ -32,3 +32,15 @@ citation was changed.** `refs.bib` and `figures/` (the three rendered figures +
+ - `refs.bib`: byte-identical to v2 (9 entries, all `\cite` keys resolve 1:1).
+ - `figures/`: `setup_schematic.pdf`, `s11_band.pdf|png`, `runtime_scaling.pdf|png`, and `figures/src/` (`plot_s11_band.py`, `plot_runtime_scaling.py`, `setup_schematic.tex`, `setup_schematic.md`) copied forward unchanged.
+ - No number, claim, method, structure, or citation was altered. Edits were limited to: (1) caption placeholder-text removal, (2) "intractable"/"cannot reach" wording scoped to the measured single-process/single-node regime, (3) redundant −12.06 dB restatement trims in intro + conclusion.
++
++## Post-audit operator pass (2026-07-21, issue #659)
++
++**Pass type:** litsearch-gap closure + artifact-URL insertion, per the #659
++operator checklist. This is the "dedicated literature-search pass" the v3 body
++explicitly deferred to; no number, method, or result claim changed.
++
++| Item | Resolution |
++|------|------------|
++| Public repo URL (#659 item 2) | Artifact-availability section now links `https://github.com/rjwalters/geode-fem` (repo verified PUBLIC). |
++| Litsearch gaps (#659 item 4) | Added 4 resolver-verified entries (CrossRef + doi.org): `hughes2019forward` (ceviche, ACS Photonics 6(11):3010), `hammond2022meepadjoint` (Meep adjoint, Opt. Express 30(3):4467), `oskooi2010meep` (Meep engine, CPC 181(3):687), `erentok2011topology` (IEEE TAP 59(1):58). Wired into intro tool list, §2 related-work contrast-class paragraph (Erentok–Sigmund sentence added), and §5 Meep 1.34.0 first use. Removed the two "named-but-uncited" disclaimer passages (§2 and §6) that scaffolded this pass. 13/13 citations resolve. |
++| Build note | `latexmk` does not trigger bibtex here; build with `pdflatex && bibtex main && pdflatex && pdflatex` (TEXINPUTS pointing at `anvil-paper.cls` in `../../transmon-benchmark/transmon-benchmark.6/`). `main.bbl` now committed — required for arXiv, which does not run bibtex. |
+diff --git a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/main.tex b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/main.tex
+index 80afacb..541456d 100644
+--- a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/main.tex
++++ b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/main.tex
+@@ -8,6 +8,10 @@
+ %%   benchmarks/fdtd_density_baseline/meep_runtime_scaling.json (compute axis)
+ %%   reference/meep/docker/                                      (FDTD-density baseline)
+ %% No fabricated or converged-FDTD-density number is asserted anywhere.
++%% Post-audit operator pass (2026-07-21, #659): public repo URL added to the
++%% availability section; the three deferred litsearch gaps closed with
++%% resolver-verified BibTeX (hughes2019forward, hammond2022meepadjoint,
++%% oskooi2010meep, erentok2011topology) — see changelog.md.
+ 
+ \documentclass{anvil-paper}
+ 
+@@ -65,7 +69,8 @@ non-intuitive structures. The canonical ``killer'' demonstrations --- the
+ compact wavelength demultiplexer of Piggott et al.~\cite{piggott2015} and the
+ high-NA achromatic metalens of Chung and Miller~\cite{chung2020} --- are
+ guided-wave or periodic \emph{photonic} problems, and the workhorse tools
+-(\textsc{ceviche}, Meep's adjoint solver, SPINS-B~\cite{su_spinsb},
++(\textsc{ceviche}~\cite{hughes2019forward}, Meep's adjoint
++solver~\cite{hammond2022meepadjoint}, SPINS-B~\cite{su_spinsb},
+ FDTDX~\cite{fdtdx}, invrs-gym~\cite{invrsgym}) optimize a permittivity
+ \emph{density} field discretized on a structured Yee/Cartesian grid. This
+ representation is a superb fit for topology optimization of dielectric
+@@ -126,18 +131,19 @@ Our contributions are:
+ 
+ \paragraph{Structured-grid density-based differentiable EM (the contrast class).}
+ The dominant differentiable-EM tools optimize a permittivity/density field on a
+-Yee/Cartesian grid: Meep's adjoint solver, \textsc{ceviche} and its
+-challenge suite, SPINS-B~\cite{su_spinsb}, the JAX-based 3-D FDTD framework
++Yee/Cartesian grid: Meep's adjoint solver~\cite{hammond2022meepadjoint} (built
++on the Meep FDTD engine~\cite{oskooi2010meep}), the forward-mode-differentiated
++\textsc{ceviche}~\cite{hughes2019forward} and its challenge suite,
++SPINS-B~\cite{su_spinsb}, the JAX-based 3-D FDTD framework
+ FDTDX~\cite{fdtdx}, and the invrs-gym benchmark toolkit~\cite{invrsgym}. These
+ methods perform topology optimization of a continuous density that is later
+-binarized. Their canonical successes --- the Piggott et al.\ WDM
+-demultiplexer~\cite{piggott2015} and the Chung--Miller achromatic
++binarized --- a recipe applied to conductor-based antenna design as early as
++Erentok and Sigmund's sub-wavelength antenna work~\cite{erentok2011topology},
++which likewise optimizes material occupancy on a fixed grid rather than the
++position of a curved metal boundary. Their canonical successes --- the Piggott
++et al.\ WDM demultiplexer~\cite{piggott2015} and the Chung--Miller achromatic
+ metalens~\cite{chung2020} --- are guided or periodic photonics, not open
+-radiators terminated by PML. Two references we would like to cite directly ---
+-the \textsc{ceviche} forward-mode-differentiation-of-Maxwell paper (Hughes et
+-al., ACS Photonics 2019) and the Meep adjoint-solver documentation --- are not
+-yet in our verified bibliography and are named here for the reader without citing
+-an unresolved key (see Section~\ref{sec:discussion}).
++radiators terminated by PML.
+ 
+ \paragraph{AD shape optimization still on a rectilinear grid.}
+ Hooten et al.~\cite{hooten2025} accelerate shape optimization with automatic
+@@ -414,7 +420,7 @@ conformal mesh reaches that fidelity at fixed DOF.
+ \label{sec:runtime}
+ 
+ We measured the 3-D FDTD cost of the same box-UPML curved conformal open-radiator
+-problem with Meep $1.34.0$ (the vendored \texttt{reference/meep/docker/}
++problem with Meep~$1.34.0$~\cite{oskooi2010meep} (the vendored \texttt{reference/meep/docker/}
+ container), single-process on an AWS \texttt{m6i.4xlarge} ($16$ vCPU Intel Ice
+ Lake, $61$~GB RAM), timing steady-state seconds/timestep over $61$ steps after
+ warmup (\texttt{meep\_runtime\_scaling.json}).
+@@ -533,13 +539,6 @@ A converged FDTD-density optimization of this geometry --- which would re-confir
+ the intractability rather than overturn it --- and a low-DOF parametric baseline
+ remain to be run. A near-to-far-field (NTFF) shape adjoint extending the
+ objective from $|S_{11}|$ to pattern/gain is future work and is not claimed here.
+-Finally, three references are named in the text but are not yet in our
+-resolver-verified bibliography, and are surfaced here as gaps for a dedicated
+-literature-search pass rather than cited from an unresolved key: (1) the
+-\textsc{ceviche} forward-mode-differentiation-of-Maxwell paper (Hughes et al.,
+-ACS Photonics 2019); (2) the Meep adjoint-solver reference / documentation; and
+-(3) a canonical antenna shape/topology-optimization reference beyond Ghassemi et
+-al.\ that would strengthen the parametric-baseline framing.
+ 
+ \section{Conclusion}
+ \label{sec:conclusion}
+@@ -568,7 +567,8 @@ announced next steps.
+ \section*{Artifact and code availability}
+ \label{sec:availability}
+ All quantitative claims trace to artifacts committed on the \texttt{main} branch
+-of the GEODE-FEM repository. The headline design result is
++of the GEODE-FEM repository, publicly available at
++\url{https://github.com/rjwalters/geode-fem}. The headline design result is
+ \texttt{benchmarks/patch\_antenna\_conformal/conformal\_results.toml}. The
+ evaluation-section measurements are in \texttt{benchmarks/fdtd\_density\_baseline/}:
+ the geometric-fidelity axis in \texttt{staircasing\_results.json} and the compute
+diff --git a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/refs.bib b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/refs.bib
+index 379925d..777dc50 100644
+--- a/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/refs.bib
++++ b/papers/conformal-antenna-diffopt/conformal-antenna-diffopt.3/refs.bib
+@@ -2,10 +2,11 @@
+ % Carried over from .1; the load-bearing wang2011 entry is replaced with the
+ % corrected single-title form (the .1 entry had a conflated Navier--Stokes/EM
+ % title; corrected against the root refs.bib and DOI 10.2514/1.J050594). No new
+-% BibTeX was invented by the reviser; the three author-declared citation gaps
+-% (ceviche/Hughes 2019, Meep-adjoint docs, a canonical antenna-topology-opt
+-% reference) remain named-but-uncited in the body's Future Work, per BRIEF.md,
+-% pending a paper-litsearch pass.
++% BibTeX was invented by the reviser. The three author-declared citation gaps
++% (ceviche/Hughes 2019, Meep adjoint solver, a canonical antenna-topology-opt
++% reference) were closed 2026-07-21 by the #659 litsearch pass: hughes2019forward,
++% hammond2022meepadjoint (+ oskooi2010meep for the Meep engine itself), and
++% erentok2011topology, each DOI resolver-verified (CrossRef + doi.org).
+ 
+ @article{wang2011,
+   author  = {Wang, Li and Anderson, W. Kyle},
+@@ -105,3 +106,52 @@
+   eprint        = {1910.04829},
+   archivePrefix = {arXiv}
+ }
++
++@article{hughes2019forward,
++  author  = {Hughes, Tyler W. and Williamson, Ian A. D. and Minkov, Momchil and
++             Fan, Shanhui},
++  title   = {Forward-Mode Differentiation of {Maxwell}'s Equations},
++  journal = {ACS Photonics},
++  volume  = {6},
++  number  = {11},
++  pages   = {3010--3016},
++  year    = {2019},
++  doi     = {10.1021/acsphotonics.9b01238}
++}
++
++@article{hammond2022meepadjoint,
++  author  = {Hammond, Alec M. and Oskooi, Ardavan and Chen, Mo and Lin, Zin and
++             Johnson, Steven G. and Ralph, Stephen E.},
++  title   = {High-performance hybrid time/frequency-domain topology
++             optimization for large-scale photonics inverse design},
++  journal = {Optics Express},
++  volume  = {30},
++  number  = {3},
++  pages   = {4467--4491},
++  year    = {2022},
++  doi     = {10.1364/OE.442074}
++}
++
++@article{oskooi2010meep,
++  author  = {Oskooi, Ardavan F. and Roundy, David and Ibanescu, Mihai and
++             Bermel, Peter and Joannopoulos, J. D. and Johnson, Steven G.},
++  title   = {Meep: A flexible free-software package for electromagnetic
++             simulations by the {FDTD} method},
++  journal = {Computer Physics Communications},
++  volume  = {181},
++  number  = {3},
++  pages   = {687--702},
++  year    = {2010},
++  doi     = {10.1016/j.cpc.2009.11.008}
++}
++
++@article{erentok2011topology,
++  author  = {Erentok, Aycan and Sigmund, Ole},
++  title   = {Topology Optimization of Sub-Wavelength Antennas},
++  journal = {IEEE Transactions on Antennas and Propagation},
++  volume  = {59},
++  number  = {1},
++  pages   = {58--69},
++  year    = {2011},
++  doi     = {10.1109/TAP.2010.2090451}
++}

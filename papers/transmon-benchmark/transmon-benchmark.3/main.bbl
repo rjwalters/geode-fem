@@ -1,0 +1,442 @@
+\begin{thebibliography}{50}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Albanese and Rubinacci(1988)]{albanese1988solution}
+R.~Albanese and G.~Rubinacci.
+\newblock Solution of three dimensional eddy current problems by integral and
+  differential methods.
+\newblock \emph{IEEE Transactions on Magnetics}, 24\penalty0 (1):\penalty0
+  98--101, 1988.
+\newblock \doi{10.1109/20.43865}.
+\newblock URL \url{https://doi.org/10.1109/20.43865}.
+
+\bibitem[Alnæs et~al.(2014)Alnæs, Logg, Ølgaard, Rognes, and
+  Wells]{alnaes2014unified}
+Martin~S. Alnæs, Anders Logg, Kristian~B. Ølgaard, Marie~E. Rognes, and
+  Garth~N. Wells.
+\newblock Unified form language.
+\newblock \emph{ACM Transactions on Mathematical Software}, 40\penalty0
+  (2):\penalty0 1--37, 2014.
+\newblock \doi{10.1145/2566630}.
+\newblock URL \url{https://doi.org/10.1145/2566630}.
+
+\bibitem[Anderson et~al.(2021)Anderson, Andrej, Barker, Bramwell, Camier,
+  Cerveny, Dobrev, Dudouit, Fisher, Kolev, Pazner, Stowell, Tomov, Akkerman,
+  Dahm, Medina, and Zampini]{mfem}
+Robert Anderson, Julian Andrej, Andrew Barker, Jamie Bramwell, Jean-Sylvain
+  Camier, Jakub Cerveny, Veselin Dobrev, Yohann Dudouit, Aaron Fisher, Tzanio
+  Kolev, Will Pazner, Mark Stowell, Vladimir Tomov, Ido Akkerman, Johann Dahm,
+  David Medina, and Stefano Zampini.
+\newblock {MFEM}: a modular finite element methods library.
+\newblock \emph{Computers \& Mathematics with Applications}, 81:\penalty0
+  42--74, 2021.
+\newblock \doi{10.1016/j.camwa.2020.06.009}.
+
+\bibitem[Andrej et~al.(2024)Andrej, Atallah, B{\"a}cker, Camier, Copeland,
+  Dobrev, Dudouit, Duswald, Keith, Kim, Kolev, Lazarov, Mittal, Pazner,
+  Petrides, Shiraiwa, Stowell, and Tomov]{andrej2024high}
+Julian Andrej, Nabil Atallah, Jan-Phillip B{\"a}cker, Jean-Sylvain Camier,
+  Dylan Copeland, Veselin Dobrev, Yohann Dudouit, Tobias Duswald, Brendan
+  Keith, Dohyun Kim, Tzanio Kolev, Boyan Lazarov, Ketan Mittal, Will Pazner,
+  Socratis Petrides, Syun'ichi Shiraiwa, Mark Stowell, and Vladimir Tomov.
+\newblock High-performance finite elements with mfem.
+\newblock \emph{The International Journal of High Performance Computing
+  Applications}, 2024.
+\newblock \doi{10.1177/10943420241261981}.
+\newblock URL \url{https://doi.org/10.1177/10943420241261981}.
+
+\bibitem[Arsenovic et~al.(2022)Arsenovic, Hillairet, Anderson, Forsten, Ries,
+  Eller, Sauber, Weikle, Barnhart, and Forstmayr]{arsenovic2022scikit}
+Alexander Arsenovic, Julien Hillairet, Jackson Anderson, Henrik Forsten,
+  Vincent Ries, Michael Eller, Noah Sauber, Robert Weikle, William Barnhart,
+  and Franz Forstmayr.
+\newblock scikit-rf: An open source python package for microwave network
+  creation, analysis, and calibration [speaker's corner].
+\newblock \emph{IEEE Microwave Magazine}, 23\penalty0 (1):\penalty0 98--105,
+  2022.
+\newblock \doi{10.1109/mmm.2021.3117139}.
+\newblock URL \url{https://doi.org/10.1109/mmm.2021.3117139}.
+
+\bibitem[{AWS Center for Quantum Computing}(2025)]{devicelayout}
+{AWS Center for Quantum Computing}.
+\newblock {DeviceLayout.jl}: computer-aided design of quantum integrated
+  circuits.
+\newblock \url{https://github.com/aws-cqc/DeviceLayout.jl}, 2025.
+\newblock v1.15.0 used for geometry/mesh generation in this work. No journal or
+  arXiv artifact exists as of 2026-07-14 (litsearch absence check).
+
+\bibitem[{AWS Quantum Technologies Blog}(2023)]{palace-blog}
+{AWS Quantum Technologies Blog}.
+\newblock {AWS} releases open-source software {Palace} for cloud-based
+  electromagnetics simulations of quantum computing hardware.
+\newblock
+  \url{https://aws.amazon.com/blogs/quantum-computing/aws-releases-open-source-software-palace-for-cloud-based-electromagnetics-simulations-of-quantum-computing-hardware/},
+  2023.
+
+\bibitem[Brown et~al.(2021)Brown, Abdelfattah, Barra, Beams, Camier, Dobrev,
+  Dudouit, Ghaffari, Kolev, Medina, Pazner, Ratnayaka, Thompson, and
+  Tomov]{brown2021libceed}
+Jed Brown, Ahmad Abdelfattah, Valeria Barra, Natalie Beams, Jean-Sylvain
+  Camier, Veselin Dobrev, Yohann Dudouit, Leila Ghaffari, Tzanio Kolev, David
+  Medina, Will Pazner, Thilina Ratnayaka, Jeremy Thompson, and Stan Tomov.
+\newblock libceed: Fast algebra for high-order element-based discretizations.
+\newblock \emph{Journal of Open Source Software}, 6\penalty0 (63):\penalty0
+  2945, 2021.
+\newblock \doi{10.21105/joss.02945}.
+\newblock URL \url{https://doi.org/10.21105/joss.02945}.
+
+\bibitem[Chen et~al.(2018)Chen, Moreau, Jiang, Zheng, Yan, Cowan, Shen, Wang,
+  Hu, Ceze, Guestrin, and Krishnamurthy]{chen2018tvm}
+Tianqi Chen, Thierry Moreau, Ziheng Jiang, Lianmin Zheng, Eddie Yan, Meghan
+  Cowan, Haichen Shen, Leyuan Wang, Yuwei Hu, Luis Ceze, Carlos Guestrin, and
+  Arvind Krishnamurthy.
+\newblock Tvm: An automated end-to-end optimizing compiler for deep learning,
+  2018.
+\newblock URL \url{https://arxiv.org/abs/1802.04799}.
+
+\bibitem[Chi and Wen(2026)]{chi2026torch}
+Mingyuan Chi and Shizheng Wen.
+\newblock torch-sla: Differentiable sparse linear algebra with adjoint solvers
+  and sparse tensor parallelism for pytorch, 2026.
+\newblock URL \url{https://arxiv.org/abs/2601.13994}.
+
+\bibitem[Dular et~al.(1998)Dular, Geuzaine, Henrotte, and
+  Legros]{dular1998general}
+P.~Dular, C.~Geuzaine, F.~Henrotte, and W.~Legros.
+\newblock A general environment for the treatment of discrete problems and its
+  application to the finite element method.
+\newblock \emph{IEEE Transactions on Magnetics}, 34\penalty0 (5):\penalty0
+  3395--3398, 1998.
+\newblock \doi{10.1109/20.717799}.
+\newblock URL \url{https://doi.org/10.1109/20.717799}.
+
+\bibitem[Geuzaine and Remacle(2009)]{gmsh}
+Christophe Geuzaine and Jean-Fran{\c{c}}ois Remacle.
+\newblock Gmsh: a 3-{D} finite element mesh generator with built-in pre- and
+  post-processing facilities.
+\newblock \emph{International Journal for Numerical Methods in Engineering},
+  79\penalty0 (11):\penalty0 1309--1331, 2009.
+\newblock \doi{10.1002/nme.2579}.
+
+\bibitem[Hammond et~al.(2022)Hammond, Oskooi, Chen, Lin, Johnson, and
+  Ralph]{hammond2022high}
+Alec~M. Hammond, Ardavan Oskooi, Mo~Chen, Zin Lin, Steven~G. Johnson, and
+  Stephen~E. Ralph.
+\newblock High-performance hybrid time/frequency-domain topology optimization
+  for large-scale photonics inverse design.
+\newblock \emph{Optics Express}, 30\penalty0 (3):\penalty0 4467, 2022.
+\newblock \doi{10.1364/oe.442074}.
+\newblock URL \url{https://doi.org/10.1364/oe.442074}.
+
+\bibitem[Hernandez et~al.(2005)Hernandez, Roman, and Vidal]{slepc}
+Vicente Hernandez, Jose~E. Roman, and Vicente Vidal.
+\newblock {SLEPc}: a scalable and flexible toolkit for the solution of
+  eigenvalue problems.
+\newblock \emph{ACM Transactions on Mathematical Software}, 31\penalty0
+  (3):\penalty0 351--362, 2005.
+\newblock \doi{10.1145/1089014.1089019}.
+
+\bibitem[Hiptmair and Xu(2007)]{hiptmair-xu}
+Ralf Hiptmair and Jinchao Xu.
+\newblock Nodal auxiliary space preconditioning in {H(curl)} and {H(div)}
+  spaces.
+\newblock \emph{SIAM Journal on Numerical Analysis}, 45\penalty0 (6):\penalty0
+  2483--2509, 2007.
+\newblock \doi{10.1137/060660588}.
+
+\bibitem[Hoffmann et~al.(2009)Hoffmann, Hafner, Leidenberger, Hesselbarth, and
+  Burger]{hoffmann2009comparison}
+Johannes Hoffmann, Christian Hafner, Patrick Leidenberger, Jan Hesselbarth, and
+  Sven Burger.
+\newblock Comparison of electromagnetic field solvers for the 3d analysis of
+  plasmonic nano antennas, 2009.
+\newblock URL \url{https://arxiv.org/abs/0907.3570}.
+
+\bibitem[Holl et~al.(2020)Holl, Koltun, and Thuerey]{holl2020learning}
+Philipp Holl, Vladlen Koltun, and Nils Thuerey.
+\newblock Learning to control pdes with differentiable physics, 2020.
+\newblock URL \url{https://arxiv.org/abs/2001.07457}.
+
+\bibitem[Homolya et~al.(2018)Homolya, Mitchell, Luporini, and
+  Ham]{homolya2018tsfc}
+Miklós Homolya, Lawrence Mitchell, Fabio Luporini, and David~A. Ham.
+\newblock Tsfc: A structure-preserving form compiler.
+\newblock \emph{SIAM Journal on Scientific Computing}, 40\penalty0
+  (3):\penalty0 C401--C428, 2018.
+\newblock \doi{10.1137/17m1130642}.
+\newblock URL \url{https://doi.org/10.1137/17m1130642}.
+
+\bibitem[Hu et~al.(2019)Hu, Anderson, Li, Sun, Carr, Ragan-Kelley, and
+  Durand]{hu2019difftaichi}
+Yuanming Hu, Luke Anderson, Tzu-Mao Li, Qi~Sun, Nathan Carr, Jonathan
+  Ragan-Kelley, and Frédo Durand.
+\newblock Difftaichi: Differentiable programming for physical simulation, 2019.
+\newblock URL \url{https://arxiv.org/abs/1910.00935}.
+
+\bibitem[Hughes et~al.(2019)Hughes, Williamson, Minkov, and
+  Fan]{hughes2019forward}
+Tyler~W. Hughes, Ian A.~D. Williamson, Momchil Minkov, and Shanhui Fan.
+\newblock Forward-mode differentiation of maxwell’s equations.
+\newblock \emph{ACS Photonics}, 6\penalty0 (11):\penalty0 3010--3016, 2019.
+\newblock \doi{10.1021/acsphotonics.9b01238}.
+\newblock URL \url{https://doi.org/10.1021/acsphotonics.9b01238}.
+
+\bibitem[Jiang et~al.(2024)Jiang, Wang, Wang, and Xie]{jiang2024fieldtnn}
+Jiantao Jiang, Yanli Wang, Yifan Wang, and Hehu Xie.
+\newblock Fieldtnn-based machine learning method for maxwell eigenvalue
+  problems, 2024.
+\newblock URL \url{https://arxiv.org/abs/2411.15828}.
+
+\bibitem[Kazdadi(2026)]{kazdadi2026faer}
+Sarah Qui{\~n}ones~El Kazdadi.
+\newblock faer: A linear algebra library for the rust programming language.
+\newblock \emph{Journal of Open Source Software}, 11\penalty0 (123):\penalty0
+  6099, 2026.
+\newblock \doi{10.21105/joss.06099}.
+\newblock URL \url{https://doi.org/10.21105/joss.06099}.
+
+\bibitem[Kim et~al.(2024)Kim, Jung, Kim, Octavian, Heo, Park, Shin, Nam, Park,
+  Park, Han, Lee, Kim, Jang, and Park]{kim2024meent}
+Yongha Kim, Anthony~W. Jung, Sanmun Kim, Kevin Octavian, Doyoung Heo, Chaejin
+  Park, Jeongmin Shin, Sunghyun Nam, Chanhyung Park, Juho Park, Sangjun Han,
+  Jinmyoung Lee, Seolho Kim, Min~Seok Jang, and Chan~Y. Park.
+\newblock Meent: Differentiable electromagnetic simulator for machine learning,
+  2024.
+\newblock URL \url{https://arxiv.org/abs/2406.12904}.
+
+\bibitem[Kirby and Logg(2006)]{kirby2006compiler}
+Robert~C. Kirby and Anders Logg.
+\newblock A compiler for variational forms.
+\newblock \emph{ACM Transactions on Mathematical Software}, 32\penalty0
+  (3):\penalty0 417--444, 2006.
+\newblock \doi{10.1145/1163641.1163644}.
+\newblock URL \url{https://doi.org/10.1145/1163641.1163644}.
+
+\bibitem[Koch et~al.(2007)Koch, Yu, Gambetta, Houck, Schuster, Majer, Blais,
+  Devoret, Girvin, and Schoelkopf]{koch2007}
+Jens Koch, Terri~M. Yu, Jay Gambetta, A.~A. Houck, D.~I. Schuster, J.~Majer,
+  Alexandre Blais, M.~H. Devoret, S.~M. Girvin, and R.~J. Schoelkopf.
+\newblock Charge-insensitive qubit design derived from the {Cooper} pair box.
+\newblock \emph{Physical Review A}, 76:\penalty0 042319, 2007.
+\newblock \doi{10.1103/PhysRevA.76.042319}.
+
+\bibitem[Kolev and
+  Vassilevski(2009)]{tzaniovkolevpanayotsvassilevski2018parallel}
+Tzanio~V. Kolev and Panayot~S. Vassilevski.
+\newblock Parallel auxiliary space {AMG} for {$H$(curl)} problems.
+\newblock \emph{Journal of Computational Mathematics}, 27\penalty0
+  (5):\penalty0 604--623, 2009.
+\newblock \doi{10.4208/jcm.2009.27.5.013}.
+\newblock URL \url{https://doi.org/10.4208/jcm.2009.27.5.013}.
+\newblock Crossref records the online-publication year 2018; print year 2009
+  used here (litsearch cosmetic fix, see version-dir refs.bib header).
+
+\bibitem[Lehoucq et~al.(1998)Lehoucq, Sorensen, and Yang]{arpack}
+Richard~B. Lehoucq, Danny~C. Sorensen, and Chao Yang.
+\newblock \emph{{ARPACK} Users' Guide: Solution of Large-Scale Eigenvalue
+  Problems with Implicitly Restarted {A}rnoldi Methods}.
+\newblock SIAM, 1998.
+\newblock \doi{10.1137/1.9780898719628}.
+
+\bibitem[Liang et~al.(2023)Liang, Liu, Elefteriades, and Sun]{liang2023pytorch}
+Liang Liang, Minliang Liu, John Elefteriades, and Wei Sun.
+\newblock Pytorch-fea: Autograd-enabled finite element analysis methods with
+  applications for biomechanical analysis of human aorta.
+\newblock \emph{Computer Methods and Programs in Biomedicine}, 238:\penalty0
+  107616, 2023.
+\newblock \doi{10.1016/j.cmpb.2023.107616}.
+\newblock URL \url{https://doi.org/10.1016/j.cmpb.2023.107616}.
+
+\bibitem[Logg and Wells(2010)]{logg2010dolfin}
+Anders Logg and Garth~N. Wells.
+\newblock Dolfin: Automated finite element computing.
+\newblock \emph{ACM Transactions on Mathematical Software}, 37\penalty0
+  (2):\penalty0 1--28, 2010.
+\newblock \doi{10.1145/1731022.1731030}.
+\newblock URL \url{https://doi.org/10.1145/1731022.1731030}.
+
+\bibitem[Mahlau et~al.(2026)Mahlau, Schubert, Berg, and
+  Rosenhahn]{mahlau2026fdtdx}
+Yannik Mahlau, Frederik Schubert, Lukas Berg, and Bodo Rosenhahn.
+\newblock Fdtdx: High-performance open-source fdtd simulation with automatic
+  differentiation.
+\newblock \emph{Journal of Open Source Software}, 11\penalty0 (117):\penalty0
+  8912, 2026.
+\newblock \doi{10.21105/joss.08912}.
+\newblock URL \url{https://doi.org/10.21105/joss.08912}.
+
+\bibitem[Manges and Cendes(1995)]{manges1995generalized}
+J.B. Manges and Z.J. Cendes.
+\newblock A generalized tree-cotree gauge for magnetic field computation.
+\newblock \emph{IEEE Transactions on Magnetics}, 31\penalty0 (3):\penalty0
+  1342--1347, 1995.
+\newblock \doi{10.1109/20.376275}.
+\newblock URL \url{https://doi.org/10.1109/20.376275}.
+
+\bibitem[Meng et~al.(2014)Meng, Nie, Wong, Macon, and Jin]{huantingmeng2014gpu}
+Huan-Ting Meng, Bao-Lin Nie, Steven Wong, Charles Macon, and Jian-Ming Jin.
+\newblock Gpu accelerated finite-element computation for electromagnetic
+  analysis.
+\newblock \emph{IEEE Antennas and Propagation Magazine}, 56\penalty0
+  (2):\penalty0 39--62, 2014.
+\newblock \doi{10.1109/map.2014.6837065}.
+\newblock URL \url{https://doi.org/10.1109/map.2014.6837065}.
+
+\bibitem[Minev et~al.(2021{\natexlab{a}})Minev, Leghtas, Mundhada, Christakis,
+  Pop, and Devoret]{minev2021}
+Zlatko~K. Minev, Zaki Leghtas, Shantanu~O. Mundhada, Lysander Christakis,
+  Ioan~M. Pop, and Michel~H. Devoret.
+\newblock Energy-participation quantization of {Josephson} circuits.
+\newblock \emph{npj Quantum Information}, 7:\penalty0 131, 2021{\natexlab{a}}.
+\newblock \doi{10.1038/s41534-021-00461-8}.
+
+\bibitem[Minev et~al.(2021{\natexlab{b}})Minev, McConkey, Takita, Corcoles, and
+  Gambetta]{minev2021circuit}
+Zlatko~K. Minev, Thomas~G. McConkey, Maika Takita, Antonio~D. Corcoles, and
+  Jay~M. Gambetta.
+\newblock Circuit quantum electrodynamics (cqed) with modular quasi-lumped
+  models, 2021{\natexlab{b}}.
+\newblock URL \url{https://arxiv.org/abs/2103.10344}.
+
+\bibitem[N{\'e}d{\'e}lec(1980)]{nedelec1980}
+Jean-Claude N{\'e}d{\'e}lec.
+\newblock Mixed finite elements in {$\mathbb{R}^3$}.
+\newblock \emph{Numerische Mathematik}, 35\penalty0 (3):\penalty0 315--341,
+  1980.
+\newblock \doi{10.1007/BF01396415}.
+
+\bibitem[Nigg et~al.(2012)Nigg, Paik, Vlastakis, Kirchmair, Shankar, Frunzio,
+  Devoret, Schoelkopf, and Girvin]{nigg2012}
+Simon~E. Nigg, Hanhee Paik, Brian Vlastakis, Gerhard Kirchmair, S.~Shankar,
+  Luigi Frunzio, M.~H. Devoret, R.~J. Schoelkopf, and S.~M. Girvin.
+\newblock Black-box superconducting circuit quantization.
+\newblock \emph{Physical Review Letters}, 108:\penalty0 240502, 2012.
+\newblock \doi{10.1103/PhysRevLett.108.240502}.
+
+\bibitem[Oberkampf and Roy(2010)]{oberkampf2010verification}
+William~L. Oberkampf and Christopher~J. Roy.
+\newblock \emph{Verification and Validation in Scientific Computing}.
+\newblock Cambridge University Press, 2010.
+\newblock \doi{10.1017/cbo9780511760396}.
+\newblock URL \url{https://doi.org/10.1017/cbo9780511760396}.
+
+\bibitem[{Palace developers, AWS Center for Quantum Computing}(2023)]{palace}
+{Palace developers, AWS Center for Quantum Computing}.
+\newblock {Palace}: {PA}rallel {LA}rge-scale {C}omputational
+  {E}lectromagnetics.
+\newblock \url{https://github.com/awslabs/palace}, 2023.
+\newblock Open-source 3D finite-element solver; v0.13-class, git fba6a5b used
+  in this work. No associated journal article exists as of 2026-07 (absence
+  re-confirmed by litsearch, 2026-07-14).
+
+\bibitem[Peairs(2025)]{devicelayout-juliacon}
+Greg Peairs.
+\newblock Schematic-driven design of a quantum processor with
+  {DeviceLayout.jl}.
+\newblock JuliaCon Global 2025,
+  \url{https://pretalx.com/juliacon-2025/talk/7EYFPN/}, 2025.
+\newblock Recording: \url{https://www.youtube.com/watch?v=-LohBVtFdwU}.
+
+\bibitem[Peairs and Carson(2025)]{devicelayout-blog}
+Greg Peairs and Hugh Carson.
+\newblock Design quantum integrated circuits with open-source software
+  {DeviceLayout.jl} from {AWS}.
+\newblock
+  \url{https://aws.amazon.com/blogs/quantum-computing/design-quantum-integrated-circuits-with-open-source-software-devicelayout-jl-from-aws/},
+  2025.
+\newblock AWS Quantum Technologies Blog; source of the transmon+resonator
+  geometry and the reference workflow reproduced here.
+
+\bibitem[Ragan-Kelley et~al.(2013)Ragan-Kelley, Barnes, Adams, Paris, Durand,
+  and Amarasinghe]{ragankelley2013halide}
+Jonathan Ragan-Kelley, Connelly Barnes, Andrew Adams, Sylvain Paris, Frédo
+  Durand, and Saman Amarasinghe.
+\newblock Halide.
+\newblock \emph{Proceedings of the 34th ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, pages 519--530, 2013.
+\newblock \doi{10.1145/2491956.2462176}.
+\newblock URL \url{https://doi.org/10.1145/2491956.2462176}.
+
+\bibitem[Rathgeber et~al.(2017)Rathgeber, Ham, Mitchell, Lange, Luporini,
+  Mcrae, Bercea, Markall, and Kelly]{rathgeber2017firedrake}
+Florian Rathgeber, David~A. Ham, Lawrence Mitchell, Michael Lange, Fabio
+  Luporini, Andrew T.~T. Mcrae, Gheorghe-Teodor Bercea, Graham~R. Markall, and
+  Paul H.~J. Kelly.
+\newblock Firedrake.
+\newblock \emph{ACM Transactions on Mathematical Software}, 43\penalty0
+  (3):\penalty0 1--27, 2017.
+\newblock \doi{10.1145/2998441}.
+\newblock URL \url{https://doi.org/10.1145/2998441}.
+
+\bibitem[Roache(1997)]{roache1997quantification}
+P.~J. Roache.
+\newblock Quantification of uncertainty in computational fluid dynamics.
+\newblock \emph{Annual Review of Fluid Mechanics}, 29\penalty0 (1):\penalty0
+  123--160, 1997.
+\newblock \doi{10.1146/annurev.fluid.29.1.123}.
+\newblock URL \url{https://doi.org/10.1146/annurev.fluid.29.1.123}.
+
+\bibitem[Schubert et~al.(2022)Schubert, Cheung, Williamson, Spyra, and
+  Alexander]{schubert2022inverse}
+Martin~F. Schubert, Alfred K.~C. Cheung, Ian A.~D. Williamson, Aleksandra
+  Spyra, and David~H. Alexander.
+\newblock Inverse design of photonic devices with strict foundry fabrication
+  constraints, 2022.
+\newblock URL \url{https://arxiv.org/abs/2201.12965}.
+
+\bibitem[Shanto et~al.(2024)Shanto, Kuo, Miyamoto, Zhang, Maurya, Vlachos,
+  Hecht, Shum, and Levenson-Falk]{shanto2024squadds}
+Sadman Shanto, Andre Kuo, Clark Miyamoto, Haimeng Zhang, Vivek Maurya,
+  Evangelos Vlachos, Malida Hecht, Chung~Wa Shum, and Eli Levenson-Falk.
+\newblock Squadds: A validated design database and simulation workflow for
+  superconducting qubit design.
+\newblock \emph{Quantum}, 8:\penalty0 1465, 2024.
+\newblock \doi{10.22331/q-2024-09-09-1465}.
+\newblock URL \url{https://doi.org/10.22331/q-2024-09-09-1465}.
+
+\bibitem[Sommers et~al.(2025)Sommers, Degnan, Gautam, Chen, Chiu, Fedorov, and
+  Pakkiam]{sommers2025open}
+David Sommers, Zach Degnan, Divita Gautam, Yi-Hsun Chen, Chun-Ching Chiu,
+  Arkady Fedorov, and Prasanna Pakkiam.
+\newblock Open-source highly parallel electromagnetic simulations for
+  superconducting circuits, 2025.
+\newblock URL \url{https://arxiv.org/abs/2511.01220}.
+
+\bibitem[{Tracel AI}(2024)]{burn}
+{Tracel AI}.
+\newblock Burn: a comprehensive deep-learning and tensor-computation framework
+  in {Rust}.
+\newblock \url{https://github.com/tracel-ai/burn}, 2024.
+\newblock v0.21.0 used. No journal/arXiv paper exists (litsearch check
+  2026-07-14): the repo CITATION.cff lists authors Simard, Fortier-Dubois,
+  Tadjibaev, Lagrange + Burn Framework Contributors, with no DOI and no
+  preferred-citation paper --- cited as software.
+
+\bibitem[Wen et~al.(2026)Wen, Chi, Yu, Moseley, Michelis, Ren, Sun, and
+  Mishra]{wen2026learning}
+Shizheng Wen, Mingyuan Chi, Tianwei Yu, Ben Moseley, Mike~Yan Michelis, Pu~Ren,
+  Hao Sun, and Siddhartha Mishra.
+\newblock Learning, solving and optimizing pdes with tensorgalerkin: an
+  efficient high-performance galerkin assembly algorithm, 2026.
+\newblock URL \url{https://arxiv.org/abs/2602.05052}.
+
+\bibitem[Xue et~al.(2023)Xue, Liao, Gan, Park, Xie, Liu, and Cao]{xue2023jax}
+Tianju Xue, Shuheng Liao, Zhengtao Gan, Chanwook Park, Xiaoyu Xie, Wing~Kam
+  Liu, and Jian Cao.
+\newblock Jax-fem: A differentiable gpu-accelerated 3d finite element solver
+  for automatic inverse design and mechanistic data science.
+\newblock \emph{Computer Physics Communications}, 291:\penalty0 108802, 2023.
+\newblock \doi{10.1016/j.cpc.2023.108802}.
+\newblock URL \url{https://doi.org/10.1016/j.cpc.2023.108802}.
+
+\bibitem[Ye et~al.(2025)Ye, Wang, and Liu]{ye2025electromagnetic}
+Jiale Ye, Jiaheng Wang, and Yu-xi Liu.
+\newblock Electromagnetic feature extraction in superconducting quantum
+  circuits: An open-source finite-element workflow using palace, 2025.
+\newblock URL \url{https://arxiv.org/abs/2511.09041}.
+
+\end{thebibliography}

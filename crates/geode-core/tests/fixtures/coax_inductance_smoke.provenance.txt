@@ -1,0 +1,17 @@
+fixture:        coax_inductance_smoke.msh
+sha256:         53e6e270b2e33416012adfe1f83f67ae5bd5de7e19e030c936d25d1bd984ff9f
+generated:      2026-09-29T04:33:20+00:00
+gmsh version:   4.15.2-git
+script:         reference/gmsh/coax_inductance.geo
+command:        gmsh reference/gmsh/coax_inductance.geo -3 -format msh41 -setnumber lc 0.35 -o crates/geode-core/tests/fixtures/coax_inductance_smoke.msh
+
+parameter values:
+  a:  1.0   (core radius, mesh units)
+  r1: 1.5   (tube inner radius)
+  r2: 2.2   (tube outer radius)
+  b:  3.0   (PEC shield radius)
+  L:  1.0   (length along z)
+  lc: 0.35   (uniform mesh size)
+
+nodes:          1202
+consumed by:    crates/geode-cli/tests/inductance_golden.rs (issue #714)

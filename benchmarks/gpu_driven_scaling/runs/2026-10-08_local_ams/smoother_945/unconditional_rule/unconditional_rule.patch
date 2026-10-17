@@ -1,0 +1,14 @@
+diff --git a/crates/geode-core/src/eigen/ams.rs b/crates/geode-core/src/eigen/ams.rs
+index 53f9da6d..42ac0957 100644
+--- a/crates/geode-core/src/eigen/ams.rs
++++ b/crates/geode-core/src/eigen/ams.rs
+@@ -376,7 +376,8 @@ fn choose_smooth_weight(
+             } else {
+                 SMOOTH_RITZ_SAFETY * theta_max
+             };
+-            if DEFAULT_SMOOTH_WEIGHT * theta_max < 2.0 {
++            // DIAG945 (throwaway): lower the weight without the proof condition.
++            if false {
+                 (rho_hat, DEFAULT_SMOOTH_WEIGHT, SmoothWeightSource::Default)
+             } else {
+                 (

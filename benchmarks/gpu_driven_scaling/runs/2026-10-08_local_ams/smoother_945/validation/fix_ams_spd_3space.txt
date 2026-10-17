@@ -1,0 +1,10 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0
+# test=eigen::ams::tests::full_three_space_apply_is_spd binary=geode_core-e13ad90a149508dd 
+# start=2026-10-08T13:14:18Z loadavg=12.99 12.55 12.00
+
+running 1 test
+test eigen::ams::tests::full_three_space_apply_is_spd ... # ams_smoother edge_dim=12 theta_max=1.776753 lanczos_steps=12 gershgorin=1.800000 rho_hat=1.800000 weight=0.600000 source=default estimate_ms=0.007 theta_ref=1.776753 ref_steps=12
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.00s
+

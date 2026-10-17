@@ -1,0 +1,179 @@
+[package]
+name = "geode-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "GEODE-FEM solver primitives: tensor ops over Burn."
+
+[dependencies]
+burn = { workspace = true, features = ["ndarray"] }
+
+# Bunsen standard library — machine-checked tensor shape contracts
+# (`shape_contract!` / `unpack_shape_contract!`) for the FEM assembly
+# pipeline (Epic #355). Non-optional: contracts are always-on shape guards on
+# the tensor surface, exercised on every backend/feature combo. Built
+# `std`-only (see the workspace `bunsen` line for the pinned rev + the two
+# upstream fixes it depends on); we deliberately do NOT enable `testing`
+# (pulls `burn/flex`) or default features (pull `reflection`/`train`/…).
+bunsen = { workspace = true }
+
+# `sparse-linalg` is added on top of the workspace base feature set
+# (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver.
+faer = { workspace = true, features = ["sparse-linalg"] }
+mshio = { workspace = true }
+thiserror = { workspace = true }
+# Optional: in-process 2-D CDT + Ruppert/Chew refinement for arbitrary
+# wave-port cross-sections (issue #582). Gated behind the `spade-mesh` feature
+# so the default dependency graph is unchanged (mirrors the `arpack` opt-in
+# pattern). 2-D only — not a Gmsh 3-D-tet replacement.
+spade = { workspace = true, optional = true }
+# Host-side assembly parallelism (issue #522). Optional and enabled by the
+# `faer-parallel` feature so `--no-default-features` builds a strictly
+# single-threaded assembler alongside the single-threaded faer factorization.
+rayon = { workspace = true, optional = true }
+# Backend-name matching for `testing::device_tolerances` (find/`is_match`
+# semantics over `Backend::name`). Only pulled in under the `testing`
+# feature; not part of the default solver build.
+regex = { workspace = true, optional = true }
+# Parses the [oracles.palace] block of the benchmark results TOMLs in
+# `src/palace.rs` (issue #239 — operator-assisted Palace 3D oracle
+# scaffolding). Same major as the existing dev-dep usage in the
+# benchmark tests.
+toml = { workspace = true }
+
+# Optional: link-time discovery of the system `libarpack` for the `arpack`
+# Cargo feature. Bindings to `dsaupd_c` / `dseupd_c` (the stable ARPACK
+# ICB C wrappers) are vendored as hand-written `extern "C"` declarations
+# in `src/arpack.rs`, so no `bindgen` / `clang` / `gfortran` toolchain is
+# required at build time. The build.rs script just runs pkg-config; see
+# `## System dependencies` in the README for the platform install
+# one-liners.
+[build-dependencies]
+pkg-config = { workspace = true, optional = true }
+
+[features]
+default = ["faer-parallel"]
+
+# Multi-threaded faer factorization for the sparse shift-invert Lanczos
+# eigensolve (issue #518). Enables faer's `rayon` feature (so `Par::rayon(n)`
+# / `Par::Rayon` exist) and gates the parallel arm of the RAII parallelism
+# guard in `src/eigen/parallel.rs`. On by default; disable with
+# `--no-default-features` to build a strictly single-threaded faer (the guard
+# then compiles to a no-op and the eigensolve runs serial regardless of
+# `GEODE_NUM_THREADS`).
+#
+# Also pulls in the direct `rayon` dependency and gates the parallel arms of
+# the host-side FEM assembler (`NedelecScatterMap::new`,
+# `sparsity_pattern_from_tet_edges`; issue #522). With this feature off the
+# assembler compiles to its original serial loops, so `--no-default-features`
+# yields a strictly single-threaded build for the correctness-gate baseline.
+faer-parallel = ["faer/rayon", "dep:rayon"]
+
+wgpu = ["burn/wgpu"]
+cuda = ["burn/cuda"]
+# Flex CPU backend (burn-flex, pure Rust) — SPIKE-ONLY wiring for issue #451.
+# Exposed solely to compile the `flex_precision_spike` example, which probes
+# whether Epic #374's proposed `flex` CPU migration can deliver the f64 precision
+# the ARPACK / cube-cavity oracles rely on. Off by default; not a supported
+# solver backend and not exercised by any production code path or CI lane. The
+# spike example itself opts into this feature via `required-features` below, so
+# it is skipped for the default (and every other) feature selection.
+flex = ["burn/flex"]
+# Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
+# is Burn's alias for its `Wgpu` backend pinned to the Metal graphics API / MSL
+# (`cubecl-msl`) shader pipeline, instantiated here as `Metal<f64>`
+# (`src/testing/mod.rs`); it shares the f32 GPU posture of `wgpu`/`cuda`.
+# Enabling it together with `wgpu` or `cuda` is not an error: a `cfg_select!`
+# picks the first enabled of `cuda`, `metal`, `wgpu`, falling back to `ndarray`.
+# Not exercised on CI (no Apple runner); verify locally with
+# `cargo test -p geode-core --features metal`.
+metal = ["burn/metal"]
+# Autodiff backend wrapper — opt-in (gradient tests / inverse design).
+autodiff = ["burn/autodiff"]
+# Enable the ARPACK-backed sparse eigensolver. Off by default — the
+# default sparse path is `geode_core::lanczos::SparseShiftInvertLanczos`
+# (pure Rust, faer sparse LU under the hood). Turning this on requires a
+# working system `libarpack` (Homebrew `arpack`, apt `libarpack2-dev`)
+# discoverable via pkg-config; we vendor the FFI declarations ourselves,
+# so no C headers or Fortran toolchain are needed at build time. See
+# README §System dependencies.
+arpack = ["dep:pkg-config"]
+
+# In-process 2-D constrained Delaunay meshing for arbitrary wave-port
+# cross-sections (issue #582). Off by default; pulls in the optional `spade`
+# dependency and compiles `analytic::spade_mesh`. Enable with
+# `--features spade-mesh`. 2-D only — does not affect 3-D tet meshing.
+spade-mesh = ["dep:spade"]
+
+testing = ["dep:regex"]
+
+[dev-dependencies]
+# Self-reference to enable the `autodiff` feature for the gradient tests
+# (tests/assembly.rs, tests/nedelec.rs, benches/assembly_p1.rs).
+# `default-features = false` is critical: without it this edge would
+# re-activate the package's default features (`faer-parallel` today) in
+# every test/bench build, defeating `--no-default-features`. The backend
+# comes solely from the top-level feature selection: `ndarray` by default,
+# or the first enabled of `cuda`, `metal`, `wgpu`.
+geode-core = { path = ".", default-features = false, features = ["testing", "autodiff"] }
+geode-util = { workspace = true }
+# Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
+toml = { workspace = true }
+# Performance benchmark harness (issue #50). Each `[[bench]]` below opts
+# out of the libtest harness and lets criterion own the entrypoint.
+criterion = { workspace = true }
+# Benches/tests need direct faer access (the trait surface we're
+# benching takes `MatRef<f64>` and `SparseColMatRef`). Same feature set as
+# the regular dependency line above (workspace base + `sparse-linalg`).
+faer = { workspace = true, features = ["sparse-linalg"] }
+# Parse the committed `benchmarks/*/baseline.json` perf baselines in the
+# `tests/spiral_inductor_benchmark.rs` and `tests/slcfet_3hp_benchmark.rs`
+# regression tests (`serde_json::Value`). The criterion → baseline.toml
+# extractor itself now lives in the standalone `examples/extract_baseline`
+# crate (Epic #398), which carries its own serde/serde_json dev-deps.
+serde_json = { workspace = true }
+# Panic-safe temp files in `tests/vtu_roundtrip.rs` (issue #766).
+tempfile = { workspace = true }
+# Pencil / mesh fingerprint (`pattern_sha256`, `mesh_sha256`) in the
+# dense-oracle fixture of `tests/sparse_complex_eigensolver.rs` (issue #710).
+# Same version geode-cli already pins (already in the lockfile).
+sha2 = "0.10"
+
+# SPIKE-ONLY (issue #451): probes f64 precision on the burn-flex CPU backend.
+# Gated behind the `flex` feature so it is skipped for the default build and
+# every non-`flex` feature selection; run explicitly with:
+#   cargo run -p geode-core --example flex_precision_spike \
+#       --no-default-features --features flex --release
+[[example]]
+name = "flex_precision_spike"
+required-features = ["flex"]
+
+[[bench]]
+name = "assembly_p1"
+harness = false
+
+[[bench]]
+name = "assembly_nedelec"
+harness = false
+
+[[bench]]
+name = "eigensolve_dense"
+harness = false
+
+[[bench]]
+name = "eigensolve_sparse"
+harness = false
+
+[[bench]]
+name = "mie_end_to_end"
+harness = false
+
+[lints.rust]
+# We intentionally allow scoped `unsafe` only inside the optional ARPACK
+# FFI module; every other module remains effectively unsafe-free via the
+# `#![deny(unsafe_code)]` inner attribute in `lib.rs`. The `forbid`
+# directive was incompatible with feature-gated FFI; `deny` keeps the
+# guarantee for the entire default build.
+unsafe_code = "deny"

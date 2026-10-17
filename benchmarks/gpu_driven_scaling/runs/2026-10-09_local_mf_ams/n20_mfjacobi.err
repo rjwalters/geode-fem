@@ -1,0 +1,2 @@
+[size n=20] edges=59660 interior=57180 tets=48000 reps=0 (fixture 0.69 s)
+warning: preconditioner `auto` (the default) fell back to `jacobi`: the matrix-free iterative path defaults to its on-device Jacobi (its AMS preconditioner runs on the host, CPU ndarray f64 only, and must be requested explicitly); set the preconditioner explicitly to silence this warning

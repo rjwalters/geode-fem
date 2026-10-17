@@ -1,0 +1,31 @@
+{
+  "patch": {
+    "patch_w": 38.0,
+    "patch_l": 29.0,
+    "h": 1.6,
+    "sub_pad": 12.0,
+    "probe_w": 1.6,
+    "probe_inset": 7.0
+  },
+  "domain": {
+    "air_margin": 40.0,
+    "pml_thick": 25.0
+  },
+  "materials": {
+    "substrate_eps_r": 4.4,
+    "substrate_tan_delta": 0.02,
+    "conductor_sigma_s_m": "5.8e7"
+  },
+  "band": {
+    "f_lo_ghz": 2.4,
+    "f_hi_ghz": 2.4835,
+    "f_ref_ghz": 2.4835
+  },
+  "bend_radius_mm": 100.0,
+  "port_resistance_ohm": 50.0,
+  "source": {
+    "commit": "571feba337e3f8bc77393277d5018a7d5d6a56aa",
+    "path": "reference/gmsh/patch_conformal_L0.yaml",
+    "sha256": "4b2bc0e2b7a4d59bb6ab0229083c11bdb1b8681317219e989a670e5c11f8c282"
+  }
+}

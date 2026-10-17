@@ -1,0 +1,18 @@
+# Triaxial coax (issue #705): terminals `inner` (r = a) and `shield`
+# (r = m, an interior surface), ground `outer` (r = b); eps_r = 2 in the
+# inner annulus, vacuum outside. Analytic Maxwell matrix per unit length:
+#   C1 = 2 pi eps0 * 2 / ln(m/a),  C2 = 2 pi eps0 / ln(b/m)
+#   C  = [[C1, -C1], [-C1, C1 + C2]]
+schema_version = 1
+
+[mesh]
+path = "../../../geode-core/tests/fixtures/coax_capacitance.msh"
+length_unit_m = 0.001
+
+[[materials]]
+physical_group = "dielectric_inner"
+eps_r = [2.0, 0.0]
+
+[capacitance]
+terminals = ["inner", "shield"]
+ground = ["outer"]

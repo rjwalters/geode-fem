@@ -1,0 +1,92 @@
+name: main-batch
+
+# Issue #899: runs the heavy suites (arpack.yml, integration-tests.yml) on
+# the newest main once per window, not on every merge. Every PR already runs
+# both, so a per-merge run on main repeated work the PR had done.
+#
+# Every 3 hours this workflow looks up main's newest commit. For each heavy
+# workflow it asks whether that commit already has a successful run.
+# If it has, nothing is dispatched. If it has not, the workflow is dispatched
+# on main with `workflow_dispatch`.
+#
+# The gate fails open: when the commit lookup or the run query fails or
+# returns something unexpected, the workflow is dispatched. A dispatch that
+# fails turns this job red.
+#
+# The gate lives here, and not as an `if:` inside the heavy workflows, for
+# two reasons. A manual dispatch or a PR run of a heavy workflow has no gate
+# in its path, so it can never be skipped. And scripts/ci-test-coverage.py
+# counts a test as run only when its job and step are unconditional, so a
+# gating `if:` on those jobs would make the coverage guard report every
+# target in them as not run.
+#
+# A failed run is not a successful run, so a red main is dispatched again in
+# the next window until it is green or a newer commit lands.
+#
+# Running this workflow by hand (`gh workflow run main-batch.yml`) applies
+# the same gate. To run a heavy workflow regardless of the gate, dispatch it
+# directly (`gh workflow run arpack.yml --ref main`).
+
+on:
+  schedule:
+    # Every 3 hours. Minute 17 keeps clear of the top-of-hour load on
+    # GitHub's scheduler.
+    - cron: "17 */3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dispatch:
+    name: dispatch heavy suites on newest main unless already green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Read to query workflow runs, write to create a workflow_dispatch.
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: main
+      WORKFLOWS: arpack.yml integration-tests.yml
+    steps:
+      - name: Dispatch each heavy workflow unless newest main is already green
+        run: |
+          # An empty sha means the lookup failed: dispatch everything.
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BRANCH}" --jq '.sha' || true)"
+          case "$sha" in
+            *[!0-9a-f]* | "")
+              echo "::warning::could not resolve ${BRANCH}; dispatching without the gate"
+              sha=""
+              ;;
+          esac
+          echo "newest ${BRANCH}: ${sha:-unknown}"
+
+          failed=0
+          for wf in $WORKFLOWS; do
+            green=""
+            if [ -n "$sha" ]; then
+              green="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/${wf}/runs" \
+                -f head_sha="$sha" -f status=success -f per_page=1 \
+                --jq '.total_count' || true)"
+            fi
+            case "$green" in
+              "" | *[!0-9]*)
+                echo "::warning::${wf}: run query gave no count; dispatching"
+                ;;
+              0)
+                echo "${wf}: no successful run on ${sha}; dispatching"
+                ;;
+              *)
+                echo "${wf}: ${sha} already has ${green} successful run(s); not dispatching"
+                continue
+                ;;
+            esac
+            if ! gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"; then
+              echo "::error::${wf}: dispatch failed"
+              failed=1
+            fi
+          done
+          exit "$failed"

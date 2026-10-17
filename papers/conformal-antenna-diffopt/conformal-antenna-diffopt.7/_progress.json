@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-16T17:00:00Z",
+      "completed": "2026-10-16T21:00:00Z"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-10-16T17:00:00Z",
+      "completed": "2026-10-16T21:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 7,
+    "max_iterations": 4,
+    "revised_from": 6,
+    "operator_override": true,
+    "operator_note": "Revision against the v6 reviews (Opus, Fable, Codex) and the tuned-baseline, design-C and Meep-diagnosis experiments; venue set to arxiv (Zenodo only, operator ruling 2026-10-16); no Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}

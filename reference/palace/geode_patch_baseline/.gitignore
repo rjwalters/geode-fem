@@ -1,0 +1,4 @@
+# Offline sidecar build artifacts (this crate is not part of the
+# geode workspace; see Cargo.toml).
+/target
+/Cargo.lock

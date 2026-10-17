@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/spiral_3p5_smoke.msh",
+    "length_unit_m": 1e-06
+  },
+  "materials": [
+    {
+      "physical_group": "substrate",
+      "eps_r": [
+        11.9,
+        -0.0595
+      ]
+    },
+    {
+      "physical_group": "dielectric",
+      "eps_r": [
+        4.0,
+        -0.004
+      ]
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "outer_boundary"
+    ],
+    "leontovich": [
+      {
+        "physical_group": "conductor_surface",
+        "conductivity_s_m": 58000000.0
+      }
+    ]
+  },
+  "ports": [
+    {
+      "physical_group": "port",
+      "e_hat": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "resistance_ohm": 50.0
+    }
+  ],
+  "frequencies": {
+    "unit": "ghz",
+    "values": [
+      5.0,
+      20.0
+    ]
+  },
+  "solver": {
+    "mode": "direct"
+  },
+  "sensitivity": {
+    "parameters": [
+      {
+        "kind": "eps_r",
+        "physical_group": "substrate"
+      },
+      {
+        "kind": "eps_r",
+        "physical_group": "dielectric"
+      }
+    ],
+    "fd_check": {}
+  }
+}

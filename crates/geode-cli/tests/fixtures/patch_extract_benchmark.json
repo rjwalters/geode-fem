@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/patch_2g4.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    {
+      "physical_group": "substrate",
+      "eps_r": [
+        4.4,
+        -0.088
+      ]
+    }
+  ],
+  "absorbing_regions": [
+    {
+      "physical_group": "upml",
+      "thickness": 25.0,
+      "sigma_0": 25.0
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "patch",
+      "ground",
+      "outer_boundary"
+    ]
+  },
+  "ports": [
+    {
+      "physical_group": "port",
+      "e_hat": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "resistance_ohm": 50.0
+    }
+  ],
+  "frequencies": {
+    "unit": "ghz",
+    "values": [
+      2.0,
+      2.1,
+      2.2,
+      2.3,
+      2.35,
+      2.4,
+      2.45,
+      2.5,
+      2.6,
+      2.7,
+      2.8,
+      2.9,
+      3.0
+    ]
+  },
+  "solver": {
+    "mode": "direct"
+  },
+  "extract": {}
+}

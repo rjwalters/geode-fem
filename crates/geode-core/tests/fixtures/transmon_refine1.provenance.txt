@@ -1,0 +1,33 @@
+fixture:        transmon_refine1.msh  (the 1.16M-DOF at-scale benchmark mesh)
+kind:           DERIVED — one uniform Gmsh refinement of transmon_smoke.msh
+NOT COMMITTED:  the 47 MB .msh blob is intentionally NOT in the repo. It is
+                regenerable in ~1.3 s from the committed base fixture with the
+                one-line recipe below, so it never needs to live as a single
+                copy on a remote box (see the 2026-07-15 recovery incident).
+
+recipe (deterministic; Gmsh 4.15.2):
+    gmsh crates/geode-core/tests/fixtures/transmon_smoke.msh \
+         -refine -format msh41 -o transmon_refine1.msh
+
+base fixture:   transmon_smoke.msh  (see transmon_smoke.provenance.txt —
+                DeviceLayout.jl v1.15.0 SingleTransmon, Tet4, MSH 4.1 ASCII)
+refinement:     one uniform 3-D subdivision (each tet -> 8 children)
+
+counts (base -> refined):
+    nodes:      22684    -> 179547
+    tets:       133314   -> 1066512   (8x)
+    elements:   (total)  -> 1125824   ($Elements header, tets + surface tris)
+
+solver-relevant (from the geode transmon pipeline at 4.5 GHz, 6 modes):
+    interior DOFs after PEC reduction: 1157564   (1249522 edges -> 1157564)
+    real-pencil nnz:                   20467522
+
+use:            the at-scale gate for epic #547 / #531 sub-phase 1c. Run via the
+                committed harness:
+                  GEODE_INNER=minres GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=6 \
+                    ./target/release/examples/transmon_bench transmon_refine1.msh
+                (matrixfree/plain-CG is invalid at sigma=4.5 — the ungauged
+                 pencil is indefinite; use the minres/MatrixFreeIndefinite path.)
+
+recovered-copy: /Users/rwalters/geode-recovery-2026-07-15/transmon_refine1.msh
+                (convenience cache only; the recipe above is the source of truth)

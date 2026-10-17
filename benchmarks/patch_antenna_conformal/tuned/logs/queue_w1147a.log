@@ -1,0 +1,30 @@
+=== s1 L1_copper_38_newuoa190_npt40 start 2026-10-15T21:09:02Z
+=== s2 L1_copper_38_cma190_sig15_s11 start 2026-10-15T21:09:04Z
+=== s3 L1_copper_38_cma190_sig15_s12 start 2026-10-15T21:09:06Z
+=== s4 L1_copper_38_cma190_sig15_s13 start 2026-10-15T21:09:08Z
+=== s2 L1_copper_38_cma190_sig15_s11 done rc=0 2026-10-15T21:40:24Z
+=== s2 L1_copper_38_fcma190_sig15_s11 start 2026-10-15T21:40:24Z
+=== s3 L1_copper_38_cma190_sig15_s12 done rc=0 2026-10-15T21:41:50Z
+=== s3 L1_copper_38_fcma190_sig05_s11 start 2026-10-15T21:41:50Z
+=== s4 L1_copper_38_cma190_sig15_s13 done rc=0 2026-10-15T21:43:18Z
+=== s4 L1_copper_38_cma190_sig10_s11 start 2026-10-15T21:43:18Z
+=== s2 L1_copper_38_fcma190_sig15_s11 done rc=0 2026-10-15T22:06:20Z
+=== s2 B5_rbG start 2026-10-15T22:06:20Z
+=== s2 B5_rbG done rc=0 2026-10-15T22:18:40Z
+=== s2 L1_copper_38_cma1000_sig15_s11 start 2026-10-15T22:18:40Z
+=== s4 L1_copper_38_cma190_sig10_s11 done rc=0 2026-10-15T23:55:16Z
+=== s4 L1_copper_14_cma190_sig15_s13 start 2026-10-15T23:55:16Z
+=== s3 L1_copper_38_fcma190_sig05_s11 done rc=0 2026-10-16T00:57:12Z
+=== s3 L1_copper_14_newuoa190_npt29 start 2026-10-16T00:57:12Z
+=== s1 L1_copper_38_newuoa190_npt40 done rc=0 2026-10-16T01:33:05Z
+=== s1 B5_rbGair60 start 2026-10-16T01:33:05Z
+=== s1 B5_rbGair60 done rc=0 2026-10-16T01:50:35Z
+=== s1 B5_rbGair80 start 2026-10-16T01:50:35Z
+=== s1 B5_rbGair80 done rc=0 2026-10-16T02:16:15Z
+=== s1 idle 2026-10-16T02:16:15Z
+=== s4 L1_copper_14_cma190_sig15_s13 done rc=0 2026-10-16T02:22:29Z
+=== s4 idle 2026-10-16T02:22:29Z
+=== s3 L1_copper_14_newuoa190_npt29 done rc=0 2026-10-16T05:07:34Z
+=== s3 idle 2026-10-16T05:07:34Z
+=== s2 L1_copper_38_cma1000_sig15_s11 done rc=0 2026-10-16T06:29:34Z
+=== s2 idle 2026-10-16T06:29:34Z

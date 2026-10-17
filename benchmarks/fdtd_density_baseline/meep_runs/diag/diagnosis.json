@@ -1,0 +1,932 @@
+{
+  "schema": "geode-meep-diagnosis/1",
+  "note": "Diagnosis of the Meep/GEODE disagreement on patch_conformal_L0 (#1088). No spatial convergence is claimed for any Meep run.",
+  "runs": {
+    "flat_R2": {
+      "final_time": 4433.5,
+      "checks_run": 4,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3351351097520303,
+          "s11_db": -17.731338793135365
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0005616932590765172,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 1682.5773062199996,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.34,
+      "min_s11_sample_db": -17.400953416883173,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3351351097520303,
+      "dip_parabolic_db": -17.731338793135365,
+      "max_re_z_ohm": 39.89306593616116,
+      "max_re_z_ghz": 2.33,
+      "max_norton_abs_z_ohm": 23.433606516607462,
+      "max_norton_abs_z_ghz": 2.3,
+      "at": {
+        "2.36": {
+          "s11_db": -11.859729236874442,
+          "z_ohm": [
+            30.586576367060413,
+            7.0395299314424635
+          ]
+        },
+        "2.40": {
+          "s11_db": -5.731363971416838,
+          "z_ohm": [
+            16.430658776252823,
+            8.451029478358523
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.0847814629147603,
+          "z_ohm": [
+            8.837708033277947,
+            3.7553383517667984
+          ]
+        }
+      }
+    },
+    "bent_R2": {
+      "final_time": 5033.5,
+      "checks_run": 5,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.0869402522209453,
+          "s11_db": -13.113136601663427
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0003551657539761205,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 1923.8759752389997,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.09,
+      "min_s11_sample_db": -13.041317503137693,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.0869402522209453,
+      "dip_parabolic_db": -13.113136601663427,
+      "max_re_z_ohm": 32.914190718865555,
+      "max_re_z_ghz": 2.08,
+      "max_norton_abs_z_ohm": 21.212042481835443,
+      "max_norton_abs_z_ghz": 2.05,
+      "at": {
+        "2.36": {
+          "s11_db": -1.3071145081977045,
+          "z_ohm": [
+            3.8098136340730306,
+            -6.018452234777536
+          ]
+        },
+        "2.40": {
+          "s11_db": -1.2430824877695765,
+          "z_ohm": [
+            3.6454112523458218,
+            -7.159963436280998
+          ]
+        },
+        "2.45": {
+          "s11_db": -1.202673964915829,
+          "z_ohm": [
+            3.5545203575671325,
+            -8.418871038870535
+          ]
+        }
+      }
+    },
+    "ctrl_R2": {
+      "final_time": 4433.5,
+      "checks_run": 4,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3353505099759264,
+          "s11_db": -17.4600420815259
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0005359398664861695,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 1659.0159826179997,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.34,
+      "min_s11_sample_db": -17.170085757728238,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3353505099759264,
+      "dip_parabolic_db": -17.4600420815259,
+      "max_re_z_ohm": 39.54922685738878,
+      "max_re_z_ghz": 2.33,
+      "max_norton_abs_z_ohm": 23.335771350869617,
+      "max_norton_abs_z_ghz": 2.3,
+      "at": {
+        "2.36": {
+          "s11_db": -11.866437523967004,
+          "z_ohm": [
+            30.526309807898485,
+            6.757851454568816
+          ]
+        },
+        "2.40": {
+          "s11_db": -5.769004954579668,
+          "z_ohm": [
+            16.517315171454335,
+            8.331166009698293
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.107439442656694,
+          "z_ohm": [
+            8.900517123417913,
+            3.727222537041536
+          ]
+        }
+      }
+    },
+    "inset_flat_R2": {
+      "final_time": 5633.5,
+      "checks_run": 6,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 1.6807232267247445,
+          "s11_db": -15.889441727194935
+        },
+        {
+          "f_ghz": 2.612794903105314,
+          "s11_db": -21.461355314968387
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0005943808672210441,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 2066.756432825,
+      "window_ghz": [
+        1.2,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.61,
+      "min_s11_sample_db": -21.282126811165387,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.612794903105314,
+      "dip_parabolic_db": -21.461355314968387,
+      "max_re_z_ohm": 59.18068054392111,
+      "max_re_z_ghz": 2.61,
+      "max_norton_abs_z_ohm": 27.232426364681892,
+      "max_norton_abs_z_ghz": 2.6,
+      "at": {
+        "2.36": {
+          "s11_db": -2.531553852021511,
+          "z_ohm": [
+            8.581561876890103,
+            -21.29876524849931
+          ]
+        },
+        "2.40": {
+          "s11_db": -2.9791071195399277,
+          "z_ohm": [
+            10.401338543217724,
+            -23.289949254959296
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.8018980816075985,
+          "z_ohm": [
+            13.94522933435979,
+            -26.313450712399906
+          ]
+        }
+      }
+    },
+    "cells_bent_R2": {
+      "final_time": 5033.5,
+      "checks_run": 5,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.332492542765185,
+          "s11_db": -13.221919312069076
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.00034822866526038716,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 1869.2734487800008,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.33,
+      "min_s11_sample_db": -13.171735724965782,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.332492542765185,
+      "dip_parabolic_db": -13.221919312069076,
+      "max_re_z_ohm": 33.01780941120261,
+      "max_re_z_ghz": 2.33,
+      "max_norton_abs_z_ohm": 21.37962555657093,
+      "max_norton_abs_z_ghz": 2.3,
+      "at": {
+        "2.36": {
+          "s11_db": -9.243896702771767,
+          "z_ohm": [
+            24.63191456139075,
+            4.689948784697442
+          ]
+        },
+        "2.40": {
+          "s11_db": -4.5678291758553495,
+          "z_ohm": [
+            12.995583705931434,
+            5.097774342305549
+          ]
+        },
+        "2.45": {
+          "s11_db": -2.5070508279240262,
+          "z_ohm": [
+            7.169203349352818,
+            1.014719674984625
+          ]
+        }
+      }
+    },
+    "map_inset_flat_R2": {
+      "final_time": 5633.5,
+      "checks_run": 6,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 1.6807232267247445,
+          "s11_db": -15.889441727194935
+        },
+        {
+          "f_ghz": 2.612794903105314,
+          "s11_db": -21.461355314968387
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0005943808672210441,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 2065.751180231,
+      "window_ghz": [
+        1.2,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.61,
+      "min_s11_sample_db": -21.282126811165387,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.612794903105314,
+      "dip_parabolic_db": -21.461355314968387,
+      "max_re_z_ohm": 59.18068054392111,
+      "max_re_z_ghz": 2.61,
+      "max_norton_abs_z_ohm": 27.232426364681892,
+      "max_norton_abs_z_ghz": 2.6,
+      "at": {
+        "2.36": {
+          "s11_db": -2.531553852021511,
+          "z_ohm": [
+            8.581561876890103,
+            -21.29876524849931
+          ]
+        },
+        "2.40": {
+          "s11_db": -2.9791071195399277,
+          "z_ohm": [
+            10.401338543217724,
+            -23.289949254959296
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.8018980816075985,
+          "z_ohm": [
+            13.94522933435979,
+            -26.313450712399906
+          ]
+        }
+      }
+    },
+    "map_flat_R2": {
+      "final_time": 4433.5,
+      "checks_run": 4,
+      "local_minima_below_6db": [
+        {
+          "f_ghz": 2.3351351097520303,
+          "s11_db": -17.731338793135365
+        }
+      ],
+      "max_complex_s11_temporal_change": 0.0005616932590765172,
+      "temporal_tolerance_met": true,
+      "wall_seconds": 1636.8971241239997,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "df_ghz": 0.01,
+      "min_s11_sample_ghz": 2.34,
+      "min_s11_sample_db": -17.400953416883173,
+      "min_is_interior": true,
+      "dip_parabolic_ghz": 2.3351351097520303,
+      "dip_parabolic_db": -17.731338793135365,
+      "max_re_z_ohm": 39.89306593616116,
+      "max_re_z_ghz": 2.33,
+      "max_norton_abs_z_ohm": 23.433606516607462,
+      "max_norton_abs_z_ghz": 2.3,
+      "at": {
+        "2.36": {
+          "s11_db": -11.859729236874442,
+          "z_ohm": [
+            30.586576367060413,
+            7.0395299314424635
+          ]
+        },
+        "2.40": {
+          "s11_db": -5.731363971416838,
+          "z_ohm": [
+            16.430658776252823,
+            8.451029478358523
+          ]
+        },
+        "2.45": {
+          "s11_db": -3.0847814629147603,
+          "z_ohm": [
+            8.837708033277947,
+            3.7553383517667984
+          ]
+        }
+      }
+    }
+  },
+  "grids": {
+    "flat_R2": {
+      "grid_cells": [
+        384,
+        366,
+        263
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.25
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 2.0,
+      "port_resistor_width_mm": 1.5,
+      "port_resistor_discrete_ohm": 66.66666666666667,
+      "source_share_on_metal_samples": 0.0031250000341796935,
+      "patch_ey_metal_y_mm": [
+        -14.25,
+        14.25
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "2.000": 38
+      },
+      "h_E_mm_histogram": {
+        "2.000": 39
+      },
+      "mean_inverse_h_H": 0.5,
+      "mean_inverse_h_E": 0.5,
+      "predicted_frequency_factor": 1.0
+    },
+    "bent_R2": {
+      "grid_cells": [
+        384,
+        366,
+        263
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.25
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 2.0,
+      "port_resistor_width_mm": 1.5,
+      "port_resistor_discrete_ohm": 66.66666666666667,
+      "source_share_on_metal_samples": 0.0031250000341796935,
+      "patch_ey_metal_y_mm": [
+        -14.25,
+        14.25
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "2.000": 32,
+        "2.500": 6
+      },
+      "h_E_mm_histogram": {
+        "1.500": 25,
+        "2.000": 14
+      },
+      "mean_inverse_h_H": 0.4842105263157894,
+      "mean_inverse_h_E": 0.6068376068376068,
+      "predicted_frequency_factor": 0.8932661352787749
+    },
+    "flat_R4": {
+      "grid_cells": [
+        768,
+        732,
+        526
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.125,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.125,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.125
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 1.5,
+      "port_resistor_width_mm": 1.75,
+      "port_resistor_discrete_ohm": 42.857142857142854,
+      "source_share_on_metal_samples": 0.07656250023925784,
+      "patch_ey_metal_y_mm": [
+        -14.375,
+        14.375
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "2.000": 76
+      },
+      "h_E_mm_histogram": {
+        "1.500": 77
+      },
+      "mean_inverse_h_H": 0.5,
+      "mean_inverse_h_E": 0.6666666666666666,
+      "predicted_frequency_factor": 0.8660254037844386
+    },
+    "bent_R4": {
+      "grid_cells": [
+        768,
+        732,
+        526
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.125,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.125,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.125
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 1.5,
+      "port_resistor_width_mm": 1.75,
+      "port_resistor_discrete_ohm": 42.857142857142854,
+      "source_share_on_metal_samples": 0.07656250023925784,
+      "patch_ey_metal_y_mm": [
+        -14.375,
+        14.375
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "1.750": 38,
+        "2.000": 38
+      },
+      "h_E_mm_histogram": {
+        "1.500": 48,
+        "1.750": 29
+      },
+      "mean_inverse_h_H": 0.5357142857142857,
+      "mean_inverse_h_E": 0.6307977736549165,
+      "predicted_frequency_factor": 0.9215555902290176
+    },
+    "ctrl_R2": {
+      "grid_cells": [
+        384,
+        366,
+        263
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.25
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 2.0,
+      "port_resistor_width_mm": 1.5,
+      "port_resistor_discrete_ohm": 66.66666666666667,
+      "source_share_on_metal_samples": 0.0031250000341796935,
+      "patch_ey_metal_y_mm": [
+        -14.25,
+        14.25
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "2.000": 38
+      },
+      "h_E_mm_histogram": {
+        "2.000": 39
+      },
+      "mean_inverse_h_H": 0.5,
+      "mean_inverse_h_E": 0.5,
+      "predicted_frequency_factor": 1.0
+    },
+    "inset_flat_R2": {
+      "grid_cells": [
+        384,
+        366,
+        263
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.25
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 1.0,
+      "port_resistor_width_mm": 1.5,
+      "port_resistor_discrete_ohm": 33.333333333333336,
+      "source_share_on_metal_samples": 0.3718749931298828,
+      "patch_ey_metal_y_mm": [
+        -14.25,
+        14.25
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "2.000": 38
+      },
+      "h_E_mm_histogram": {
+        "1.000": 39
+      },
+      "mean_inverse_h_H": 0.5,
+      "mean_inverse_h_E": 1.0,
+      "predicted_frequency_factor": 0.7071067811865476
+    },
+    "cells_bent_R2": {
+      "grid_cells": [
+        384,
+        366,
+        263
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.25,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.25
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -1.0,
+        1.0
+      ],
+      "port_tangential_gap_mm": 2.0,
+      "port_free_ez_height_mm": 2.0,
+      "port_resistor_width_mm": 1.5,
+      "port_resistor_discrete_ohm": 66.66666666666667,
+      "source_share_on_metal_samples": 0.0031250000341796935,
+      "patch_ey_metal_y_mm": [
+        -14.25,
+        14.25
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "1.500": 27,
+        "2.000": 11
+      },
+      "h_E_mm_histogram": {
+        "1.500": 31,
+        "2.000": 8
+      },
+      "mean_inverse_h_H": 0.618421052631579,
+      "mean_inverse_h_E": 0.6324786324786325,
+      "predicted_frequency_factor": 0.9888244669596505
+    },
+    "face_flat_R2p5": {
+      "grid_cells": [
+        480,
+        458,
+        329
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.2,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.2,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.2
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -0.8,
+        0.8
+      ],
+      "port_tangential_gap_mm": 1.6,
+      "port_free_ez_height_mm": 1.6,
+      "port_resistor_width_mm": 1.6,
+      "port_resistor_discrete_ohm": 49.99999999999999,
+      "source_share_on_metal_samples": 0.06250000097656254,
+      "patch_ey_metal_y_mm": [
+        -14.2,
+        14.2
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "1.600": 48
+      },
+      "h_E_mm_histogram": {
+        "1.600": 48
+      },
+      "mean_inverse_h_H": 0.6249999999999994,
+      "mean_inverse_h_E": 0.6249999999999994,
+      "predicted_frequency_factor": 1.0
+    },
+    "face_bent_R2p5": {
+      "grid_cells": [
+        480,
+        458,
+        329
+      ],
+      "sample_offsets_mm": {
+        "Ex": [
+          0.2,
+          0.0,
+          0.0
+        ],
+        "Ey": [
+          0.0,
+          0.2,
+          0.0
+        ],
+        "Ez": [
+          0.0,
+          0.0,
+          0.2
+        ]
+      },
+      "port_tangential_metal_planes_mm": [
+        -0.8,
+        0.8
+      ],
+      "port_tangential_gap_mm": 1.6,
+      "port_free_ez_height_mm": 1.6,
+      "port_resistor_width_mm": 1.6,
+      "port_resistor_discrete_ohm": 49.99999999999999,
+      "source_share_on_metal_samples": 0.06250000097656254,
+      "patch_ey_metal_y_mm": [
+        -14.2,
+        14.2
+      ],
+      "slice_conductor_components": 2,
+      "h_H_mm_histogram": {
+        "1.600": 42,
+        "2.000": 6
+      },
+      "h_E_mm_histogram": {
+        "1.200": 40,
+        "1.600": 8
+      },
+      "mean_inverse_h_H": 0.6093749999999994,
+      "mean_inverse_h_E": 0.7986111111111104,
+      "predicted_frequency_factor": 0.8735235991436463
+    }
+  },
+  "mode_shapes": {
+    "map_inset_flat_R2": [
+      {
+        "f_ghz": 1.69,
+        "correlation_with_flat_tm010": 0.9996994435341056,
+        "y_even_part_fraction": 0.07472618939222703
+      },
+      {
+        "f_ghz": 2.61,
+        "correlation_with_flat_tm010": 0.07645604213819869,
+        "y_even_part_fraction": 1.4130845096927291
+      }
+    ],
+    "map_flat_R2": [
+      {
+        "f_ghz": 2.34,
+        "correlation_with_flat_tm010": 1.0,
+        "y_even_part_fraction": 0.0918570868327774
+      }
+    ]
+  },
+  "harness_equivalence_bent_R2": {
+    "shared_snapshots": 5,
+    "max_complex_s11_difference_per_snapshot": [
+      0.005469379063276004,
+      0.0051177582556529485,
+      0.004431333661619338,
+      0.004485008369910351,
+      0.0045579815420132555
+    ]
+  },
+  "dft_window_equivalence_R1": {
+    "harness_worker_8_ranks_vs_committed_R1_4_ranks": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "diag_harness_window_vs_harness": [
+      3.17774068866721e-15,
+      2.8185236977198666e-15,
+      3.160725202785821e-15,
+      3.1130819905933367e-15
+    ],
+    "diag_wide_window_vs_harness": [
+      0.007052024658656445,
+      0.00615171634465358,
+      0.005813373954661898,
+      0.005815790760177891
+    ]
+  },
+  "eh_gap_model_tests": {
+    "bent_R2": {
+      "predicted_factor_vs_flat_R2": 0.8932661352787749,
+      "measured_factor_vs_flat_R2": 0.8937128492074957,
+      "predicted_dip_ghz": 2.085897114841974,
+      "measured_dip_ghz": 2.0869402522209453,
+      "relative_error": 0.0005000905229453068
+    },
+    "ctrl_R2": {
+      "predicted_factor_vs_flat_R2": 1.0,
+      "measured_factor_vs_flat_R2": 1.0000922431524397,
+      "predicted_dip_ghz": 2.3351351097520303,
+      "measured_dip_ghz": 2.3353505099759264,
+      "relative_error": 9.224315243971937e-05
+    },
+    "cells_bent_R2": {
+      "predicted_factor_vs_flat_R2": 0.9888244669596505,
+      "measured_factor_vs_flat_R2": 0.9988683451437952,
+      "predicted_dip_ghz": 2.3090387301793163,
+      "measured_dip_ghz": 2.332492542765185,
+      "relative_error": 0.010157392459176018
+    },
+    "inset_flat_R2": {
+      "predicted_factor_vs_flat_R2": 0.7071067811865476,
+      "measured_factor_vs_flat_R2": 0.7197541674165576,
+      "predicted_dip_ghz": 1.6511898710924537,
+      "measured_dip_ghz": 1.6807232267247445,
+      "relative_error": 0.017886105135050956,
+      "tm010_identified_by_map_at_ghz": 1.69
+    }
+  },
+  "eh_gap_model_unmeasured_factors": {
+    "flat_R4": 0.8660254037844386,
+    "bent_R4": 0.9215555902290176,
+    "face_flat_R2p5": 1.0,
+    "face_bent_R2p5": 0.8735235991436463
+  },
+  "flat_R2_vs_geode_flat": {
+    "meep_flat_R2_dip_ghz": 2.3351351097520303,
+    "geode_flat_dips_ghz": {
+      "L0_p1": 2.272698,
+      "L1_p1": 2.312786,
+      "L2_p1": 2.32984,
+      "L3_p1": 2.343357,
+      "L0_p2": 2.345918,
+      "L1_p2": 2.358023
+    },
+    "meep_minus_geode_P1_L3_mhz": -8.22189024796982,
+    "meep_minus_geode_P2_L1_mhz": -22.88789024796989
+  },
+  "meep_bend_shift_R2_mhz": {
+    "harness_shells": -248.19485753108506,
+    "cell_staircase": -2.642566986845285
+  },
+  "geode": {
+    "source": "benchmarks/patch_antenna_conformal/convergence.toml [s11.flat], [s11.bent], [detune]; v6/v6_summary.toml [x2]",
+    "flat": {
+      "L0_p1": 2.272698,
+      "L1_p1": 2.312786,
+      "L2_p1": 2.32984,
+      "L3_p1": 2.343357,
+      "L0_p2": 2.345918,
+      "L1_p2": 2.358023
+    },
+    "flat_lower_bound_dip_ghz": 2.358023,
+    "bent": {
+      "L0_p1": 2.271708,
+      "L1_p1": 2.311815,
+      "L2_p1": 2.328769,
+      "L3_p1": 2.342186,
+      "L0_p2": 2.344336,
+      "L1_p2": 2.356643
+    },
+    "bent_lower_bound_dip_ghz": 2.356643,
+    "detune_bent_minus_flat_mhz": {
+      "L0_p1": -0.99,
+      "L1_p1": -0.971,
+      "L2_p1": -1.071,
+      "L3_p1": -1.171,
+      "L0_p2": -1.582,
+      "L1_p2": -1.38
+    },
+    "x2_optimized_design_p1_dip_shift_bent_minus_flat_mhz": 0.337988
+  }
+}

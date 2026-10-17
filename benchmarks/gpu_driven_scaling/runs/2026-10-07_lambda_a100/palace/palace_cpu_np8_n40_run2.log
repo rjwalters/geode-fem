@@ -1,0 +1,126 @@
+>> /usr/lib64/mpich/bin/mpirun -n 8 /opt/palace/bin/palace-x86_64.bin /work/config.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: v0.17.0-99-gfba6a5b9d
+Running with 8 MPI processes, 1 OpenMP thread
+Detected 1 CUDA device
+Device configuration: omp,cpu
+Memory configuration: host-umpire
+libCEED backend: /cpu/self/opt/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+9600 mesh faces with no associated boundary element exist on the domain boundary!
+
+Added 9600 boundary elements for exterior boundaries to the mesh
+
+Characteristic length and time scales:
+ Lc = 1.000e+00 m, tc = 3.336e+00 ns
+Finished partitioning mesh into 8 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (+0.000e+00, +0.000e+00, +0.000e+00) m
+ (Xmax, Ymax, Zmax) = (+1.000e+00, +1.000e+00, +1.000e+00) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          7941        8615        9239       68921
+ edges            56104       57815       59781      462520
+ faces            95297       97200       98757      777600
+ elements         47161       48000       48439      384000
+ neighbors            3           4           6
+
+            minimum     maximum
+ h        0.0280616   0.0280616
+ kappa      2.41421     2.41421
+
+Estimated current per-rank memory usage is: Min. 421.6M, Max. 672.8M, Avg. 455.0M, Total 3.6G
+Estimated current per-node memory usage is: Min. 3.6G, Max. 3.6G, Avg. 3.6G, Total 3.6G
+
+Configuring Robin impedance BC for lumped ports at attributes:
+ 3: Rs = 3.767e+02 Ω/sq, n = (+0.0,+0.0,-1.0)
+
+Configuring lumped port circuit properties:
+ Index = 1: R = 3.767e+02 Ω
+
+Configuring lumped port excitation source term at attributes:
+ 3: Index = 1
+
+Configuring Dirichlet PEC BC at attributes:
+ 2
+
+Computing frequency response for:
+Excitation with index 1 has contributions from:
+ Lumped port  1
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 1): 68921, ND (p = 1): 462520, RT (p = 1): 777600
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 6, Q = 4 (quadrature order = 2)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 462520 unknowns
+ Level 0 (auxiliary) (p = 1): 68921 unknowns
+
+It 1/1: ω/2π = 4.771e-03 GHz (total elapsed time = 7.71e-01 s)
+
+   Residual norms for GMRES solve
+   0 (restart 0) KSP residual norm 8.651232e+00
+   1 (restart 0) KSP residual norm 3.370745e-01
+   2 (restart 0) KSP residual norm 2.190676e-03
+   3 (restart 0) KSP residual norm 5.297811e-06
+   4 (restart 0) KSP residual norm 9.139860e-08
+   5 (restart 0) KSP residual norm 9.974310e-09
+GMRES solver converged in 5 iterations (avg. reduction factor: 1.631e-02)
+ Sol. ||E|| = 8.535747e+00 (||RHS|| = 1.622755e-01)
+ Field energy E (7.408e-10 J) + H (9.903e-10 J) = 1.731e-09 J
+ S[1][1] = -3.340e-01+7.480e-03i, |S[1][1]| = -9.523e+00, arg(S[1][1]) = +1.787e+02
+ Updating solution error estimates
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 1.194e-02, global unknowns = 462520
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 1.9G, Max. 2.1G, Avg. 2.0G, Total 15.7G
+Estimated peak per-node memory usage is: Min. 15.7G, Max. 15.7G, Avg. 15.7G, Total 15.7G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                  12.981      18.870      18.133
+  Mesh Preprocessing             4.795      10.684       5.532
+Operator Construction            1.319       1.359       1.343
+Linear Solve                     0.543       0.568       0.561
+  Setup                          0.765       0.771       0.767
+  Preconditioner                26.509      26.534      26.517
+Estimation                       0.063       0.066       0.065
+  Construction                   3.590       3.593       3.591
+  Solve                          0.752       0.754       0.753
+Postprocessing                   0.361       0.362       0.362
+Disk IO                          1.912       1.912       1.912
+--------------------------------------------------------------
+Total                           59.603      59.604      59.603
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   61.4M       61.4M       61.4M
+  Mesh Preprocessing              1.6G        1.6G        1.7G
+Operator Construction           273.7M      273.7M        2.0G
+Linear Solve                     36.4M       36.4M        2.0G
+  Setup                        1022.3M     1022.3M        3.0G
+  Preconditioner                 10.3G       10.3G       13.3G
+Estimation                        0.0K        0.0K       13.3G
+  Construction                  545.1M      545.1M       13.9G
+  Solve                           0.0K        0.0K       13.9G
+Postprocessing                    0.0K        0.0K       13.9G
+Disk IO                         306.3M      306.3M       14.2G
+--------------------------------------------------------------
+Total                            14.2G       14.2G       14.2G
+

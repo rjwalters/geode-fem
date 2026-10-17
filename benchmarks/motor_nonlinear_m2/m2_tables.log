@@ -1,0 +1,133 @@
+
+running 8 tests
+test antiperiodic_sector_matches_full_machine ... 
+[1] sector vs full machine, nonlinear iron, unsplit mesh, rel_tol 1e-13
+    N/60deg | case             | nodes  | reduced | forced 0 | its | status        | max|B| iron (T) | max|dA|/max|A|
+         30 | full 360         |   4861 |    4681 |        0 |   4 | Tolerance |           1.686 | —
+         30 | antiperiodic 60  |    838 |     780 |        1 |   4 | Tolerance |           1.686 | 4.182e-16   (edge pairs 28, max match dist 0.0e0 m)
+         30 | periodic 120     |   1648 |    1561 |        0 |   4 | Tolerance |           1.686 | 5.227e-16   (edge pairs 28, max match dist 0.0e0 m)
+         60 | full 360         |   9721 |    9361 |        0 |   4 | Tolerance |           1.687 | —
+         60 | antiperiodic 60  |   1648 |    1560 |        1 |   4 | Tolerance |           1.687 | 4.180e-16   (edge pairs 28, max match dist 0.0e0 m)
+         60 | periodic 120     |   3268 |    3121 |        0 |   4 | Tolerance |           1.687 | 8.359e-16   (edge pairs 28, max match dist 0.0e0 m)
+ok
+test clockwise_triangles_match_ccw ... 
+[8] half-clockwise mesh vs CCW twin, nonlinear iron, rel_tol 1e-13
+    path              | k   | status        | max|dA|/max|A| | max|dB| (T) | T ccw (N)       | |dT|/T_scale
+    plain 360         |   — | Tolerance |      4.190e-16 |   3.117e-15 |  -1.389100854e2 | 8.184e-16
+    band 60 antiper.  |   0 | Tolerance |      2.001e-16 |   1.986e-15 |  -2.019276449e2 | 4.223e-16
+    band 60 antiper.  |  29 | Tolerance |      1.947e-16 |   3.662e-15 |   1.518832663e2 | 1.871e-16
+    band 60 antiper.  |  -7 | Tolerance |      1.932e-16 |   2.512e-15 |  -1.119880360e2 | 3.069e-16
+ok
+test malformed_sectors_fail_loudly ... 
+[7] malformed inputs are rejected
+    moved radial node: sector radial edge: node 157 at (3.833333333e-2, 0.000000000e0) has no partner at its image (1.916666667e-2, 3.319764048e-2): nearest free candidate is 1.000e-6 away, tolerance 5.700e-10. The two edges must be meshed as exact rotations of each other (gmsh `Periodic Curve`)
+    moved radial node (band): rotor radial edge: node 157 at (3.833333333e-2, 0.000000000e0) has no partner at its image (1.916666667e-2, 3.319764048e-2): nearest free candidate is 1.000e-6 away, tolerance 5.700e-10. The two edges must be meshed as exact rotations of each other (gmsh `Periodic Curve`)
+    missing radial node: sector constraint input: sector radial edge: low edge has 27 nodes and high edge 26; they must be equal and non-zero
+    skewed coupling node: sliding-band coupling circle: stator coupling node 189 at angle 0.523698775598 rad (from theta0) is off the uniform grid of step 0.087266462600 rad: deviation 4.249999999999531e-6 m, tolerance 5.7e-10 m
+    sector angle 45deg on a 60deg mesh: sliding-band coupling circle: rotor coupling node 197 at angle 0.087266462600 rad (from theta0) is off the uniform grid of step 0.065449846950 rad: deviation 9.272061651219875e-4 m, tolerance 5.7e-10 m
+    half-step angle: angle 4.363323129985824e-2 rad is not a whole number of coupling steps 8.726646259971647e-2 rad
+    unclassified tag: sector constraint input: triangle 372 has tag 14, which is in neither the rotor nor the stator tag set
+    tag in both sets: sector constraint input: tag 14 is in both the rotor and stator tag sets
+    unsplit mesh accepted: 13 coupling nodes split, N = 12
+    rotor/stator interface off the coupling circle: sector constraint input: node 170 at (4e-2, 0e0) is shared by rotor and stator triangles but is not on the coupling circle
+    link NodeLink { node: 0, master: 339, sign: 1.0 }: invalid node constraint: link 0: node 0 or master 339 out of range for 339 nodes
+    link NodeLink { node: 0, master: 1, sign: 0.5 }: invalid node constraint: link 0: sign must be +1 or -1, got 0.5
+ok
+test reduced_tangent_fd_symmetry_and_prolongation ... 
+[5] reduced tangent P^T K P with antiperiodic pairs: sliding-band sector, N = 24, k = 29 (wrapped), Brauer iron, saturated state
+    reduced unknowns 624 of 701 nodes, forced zero 1, max|B| iron 2.088 T, solve its 14
+    FD state: max|B| iron 2.297 T, max nu/nu_k3 in iron 897.0
+        h    | ||FD - (P^T K P) v|| / ||(P^T K P) v||
+         1e-2 | 1.755e0
+         1e-3 | 1.110e-2
+         1e-4 | 1.105e-4
+         1e-5 | 1.105e-6
+         1e-6 | 1.105e-8
+         1e-7 | 2.251e-10
+         1e-8 | 2.861e-9
+    max|K_r - K_r^T| / max|K_r| = 9.040e-17
+    u^T K_r w vs (Pu)^T K_full (Pw), 4 random pairs: max rel diff 1.503e-15; ||R_r - P^T R_full|| / ||P^T R_full|| = 6.382e-17
+    adjoint solve K_r^T lambda = v: residual 3.555e-15
+ok
+test sliding_band_linear_slotless_oracle ... 
+[4] linear slotless oracle (all air, A = 0 at r = 0.2 m) through the sliding band, antiperiodic 60deg sector; Arkkio x6 vs closed-form T(theta_r)
+    oracle amplitude |T| = 399.839065 N m/m
+    level | N/60deg | nodes | angles | Newton its (max) | Arkkio L2/amp | max|dT|/amp | gap B rel L2 (centroids)
+      k    | deg   | T_fem      | T_exact    | dT/amp
+         0 |   0.0 | -395.93254 | -399.83907 | +9.770e-3
+         5 |   5.0 | -382.16945 | -386.21488 | +1.012e-2
+        10 |  10.0 | -342.32571 | -346.27079 | +9.867e-3
+        15 |  15.0 | -279.11661 | -282.72891 | +9.034e-3
+        20 |  20.0 | -196.84974 | -199.91953 | +7.678e-3
+        25 |  25.0 | -101.13146 | -103.48596 | +5.889e-3
+        30 |  30.0 |    1.51520 |   -0.00000 | +3.790e-3
+        35 |  35.0 |  104.09503 |  103.48596 | +1.523e-3
+        40 |  40.0 |  199.61739 |  199.91953 | -7.557e-4
+        45 |  45.0 |  281.57258 |  282.72891 | -2.892e-3
+        50 |  50.0 |  344.37550 |  346.27079 | -4.740e-3
+        55 |  55.0 |  383.74623 |  386.21488 | -6.174e-3
+        60 |  60.0 |  397.00172 |  399.83907 | -7.096e-3
+        75 |  75.0 |  280.18579 |  282.72891 | -6.360e-3
+       105 | 105.0 | -280.50340 | -282.72891 | +5.566e-3
+       -10 | -10.0 | -343.30632 | -346.27079 | +7.414e-3
+        1 |      60 |  2685 |     16 |                1 |      9.155e-3 |    1.012e-2 | 3.320e-2
+        2 |     120 | 10528 |     16 |                1 |      2.507e-3 |    2.757e-3 | 1.654e-2
+ok
+test sliding_band_matches_fresh_mesh_under_refinement ... 
+[3] sliding band at k*Delta vs a fresh mesh with the rotor at k*Delta (unsplit, gap layers 3+1 instead of 2+2, jitter 0.3), nonlinear iron, antiperiodic sector
+    level | N/60deg | nodes band / fresh | angle (deg) | T band | T fresh | rel dT | rel L2 dB (360 pts)
+        1 |      60 |   1709 /   1648 |           7 | -200.176 | -200.216 | 2.03e-4 | 1.125e-1
+        1 |      60 |   1709 /   1648 |          23 | -81.713 | -81.677 | 4.45e-4 | 1.319e-1
+        1 |      60 |   1709 /   1648 |          41 | 125.749 | 126.028 | 2.22e-3 | 1.122e-1
+        2 |     120 |   6656 /   6535 |           7 | -200.716 | -200.814 | 4.89e-4 | 5.677e-2
+        2 |     120 |   6656 /   6535 |          23 | -82.369 | -82.351 | 2.20e-4 | 6.722e-2
+        2 |     120 |   6656 /   6535 |          41 | 125.005 | 125.196 | 1.53e-3 | 6.345e-2
+        4 |     240 |  26270 /  26029 |           7 | -200.851 | -200.883 | 1.58e-4 | 2.845e-2
+        4 |     240 |  26270 /  26029 |          23 | -82.533 | -82.527 | 7.37e-5 | 3.430e-2
+        4 |     240 |  26270 /  26029 |          41 | 124.819 | 124.889 | 5.61e-4 | 3.147e-2
+    worst over angles per level (rel dT, rel L2 dB): [(0.0022207222103194663, 0.13191996957963717), (0.0015298998818287352, 0.06721849129696815), (0.0005610951280610296, 0.03429606072960033)]
+ok
+test sliding_band_sector_matches_full_machine ... 
+[2] sliding band, antiperiodic 60deg sector vs full 360deg sliding band, nonlinear iron, N = 60 per 60deg (step 1 deg), rel_tol 1e-13
+    sector band: N = 60, r_c = 0.042500 m (dev 9.0e-17), spacing dev 4.7e-18 m, split 0, rotor pairs 17, stator pairs 12, max match 0.0e0 m (tol 5.7e-10)
+    k    | angle (deg) | wrap | sector its | full its | max|dA|/max|A| | T sector (N m/m) | T full (N m/m) | rel dT
+       0 |         0.0 |    0 |          6 |        6 |      2.995e-16 |      -203.924721 |    -203.924721 | 9.76e-16
+       7 |         7.0 |    1 |          5 |        5 |      5.085e-16 |      -200.175735 |    -200.175735 | 1.42e-16
+      23 |        23.0 |    1 |          4 |        4 |      8.997e-16 |       -81.713448 |     -81.713448 | 0.00e0
+      59 |        59.0 |    1 |          6 |        6 |      6.288e-16 |       206.559443 |     206.559443 | 9.63e-16
+      60 |        60.0 |    1 |          6 |        6 |      1.098e-15 |       205.386918 |     205.386918 | 2.77e-16
+      67 |        67.0 |    2 |          6 |        6 |      9.820e-16 |       183.395619 |     183.395619 | 1.55e-16
+     131 |       131.0 |    3 |          5 |        5 |      8.417e-16 |      -184.661654 |    -184.661654 | 1.54e-16
+      -5 |        -5.0 |    0 |          6 |        6 |      5.425e-16 |      -190.636309 |    -190.636309 | 5.96e-16
+    sector at [60, 120] deg (theta0 from the low edge):
+      k =   7: T [0,60] = -200.175734627, T [60,120] = -200.175734627, rel diff 2.84e-16
+      k =  67: T [0,60] = 183.395619460, T [60,120] = 183.395619460, rel diff 7.75e-16
+ok
+test warm_start_sweep_and_offset_invariance ... 
+[6a] warm-started 1deg sweep (k = 0..12), sliding-band antiperiodic sector, nonlinear iron, default config
+    k  | cold its | warm its | status warm | ||A_warm - A_cold|| / ||A_cold||
+     0 |        5 |        5 | Tolerance | 0.000e0
+     1 |        5 |        3 | Tolerance | 7.097e-12
+     2 |        5 |        3 | Tolerance | 9.872e-12
+     3 |        5 |        3 | Tolerance | 1.126e-11
+     4 |        5 |        3 | Tolerance | 8.218e-12
+     5 |        5 |        3 | Tolerance | 1.101e-11
+     6 |        5 |        3 | Tolerance | 1.162e-11
+     7 |        4 |        3 | Tolerance | 4.917e-9
+     8 |        4 |        3 | Tolerance | 2.407e-9
+     9 |        4 |        3 | Tolerance | 2.110e-9
+    10 |        4 |        3 | Tolerance | 8.360e-10
+    11 |        4 |        3 | Tolerance | 2.918e-10
+    12 |        4 |        3 | Tolerance | 7.855e-11
+    total Newton iterations: cold 59, warm 41
+    restart from the converged k = 12 solution: 0 iterations
+
+[6b] constant Dirichlet offset C on the outer circle: periodic 120deg sector (a constant is admissible) and antiperiodic 60deg sector (it is not: loud error)
+    C (Wb/m) | ref/ref(C=0) - 1 | status        | its | ||(A - C) - A0|| / ||A0||
+      4.0e-1 |        2.220e-16 | Tolerance |   5 | 1.635e-14
+       1.0e2 |          0.000e0 | Tolerance |   5 | 3.543e-12
+    antiperiodic, C = 0.4: Some(InvalidConstraint("Dirichlet values contradict the links: node 1647 implies -4e-1 but node 1587 implies 4e-1 for the same linked class"))
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.69s
+

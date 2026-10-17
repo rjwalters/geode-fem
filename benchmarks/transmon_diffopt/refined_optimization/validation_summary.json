@@ -1,0 +1,287 @@
+{
+  "record_type": "hand-assembled index (an ad-hoc script copied these numbers from results.json and palace_validation*.json); the generated artifacts are */summary.toml, */results.json and */design.json",
+  "source": {
+    "note": "generated from a working tree on top of base_commit; the sources are identified by Git blob hash, which the commit containing this file reproduces",
+    "base_commit": "2efa00576f8fbc61c80070b753cbb76a177f0911",
+    "git_blob_sha1": {
+      "crates/geode-core/examples/transmon_refined_optimize.rs": "bbbc37b4da1befe341bc65f40b08f3d058e2f3e9",
+      "crates/geode-core/src/shape/refined_capacitance.rs": "8f4c65b450db74d78f82567321f7207b1499632d",
+      "crates/geode-core/src/assembly/electrostatic.rs": "08f0dd53c807fb4bb35f71ebc49fa538b6106b91",
+      "scripts/transmon_refined_palace.py": "d377d5d202c7ec20484ff5c0d6be192fd60fff38"
+    }
+  },
+  "quantity": "scalar-permittivity electrostatic island capacitance, neutral floating feedline, no junction self-capacitance",
+  "native_dtype": "f64",
+  "anchor_ff": 89.9,
+  "working_tolerance_relative": 0.01,
+  "primary_run": {
+    "optimizer_target_ff": 89.9,
+    "status": "target_reached_on_optimization_mesh_held_out_series_recorded",
+    "optimization_tets": 448279,
+    "initial_ff": 78.38791846057883,
+    "optimized_ff": 89.90051826581268,
+    "accepted_steps": 3,
+    "min_volume_ratio_over_accepted_steps": 0.6141316811786526,
+    "final_min_volume_ratio": 0.61948502632339,
+    "worst_solved_fd_relative_error": 3.865935182328498e-07,
+    "held_out_series": [
+      {
+        "round": 0,
+        "n_tets": 448279,
+        "c_ff": 89.90051826581268,
+        "x0_c_ff": 78.38791846057883
+      },
+      {
+        "round": 1,
+        "n_tets": 528324,
+        "c_ff": 89.662754720766,
+        "x0_c_ff": 78.17769709958232
+      },
+      {
+        "round": 2,
+        "n_tets": 684646,
+        "c_ff": 89.47036579878908,
+        "x0_c_ff": 78.01192817494925
+      },
+      {
+        "round": 3,
+        "n_tets": 900226,
+        "c_ff": 89.32426142561053,
+        "x0_c_ff": 77.88204058879946
+      },
+      {
+        "round": 4,
+        "n_tets": 1239090,
+        "c_ff": 89.21684308330903,
+        "x0_c_ff": 77.7867737443476
+      },
+      {
+        "round": 5,
+        "n_tets": 1693481,
+        "c_ff": 89.12835896690966,
+        "x0_c_ff": 77.71017256024362
+      },
+      {
+        "round": 6,
+        "n_tets": 2369256,
+        "c_ff": 89.06559529339295,
+        "x0_c_ff": 77.65389038282268
+      },
+      {
+        "round": 7,
+        "n_tets": 3289543,
+        "c_ff": 89.01499831322374,
+        "x0_c_ff": 77.60994478609105
+      }
+    ],
+    "held_out_relative_shift_round_0_to_last": -0.009849998305579082,
+    "sensitivity_relative_shifts_round_0_to_last": [
+      -0.00931605467393282,
+      -0.00667184027180904,
+      -0.022597683122797533
+    ],
+    "rigorous_upper_bound_ff": 89.02,
+    "estimate_band_ff": [
+      88.77,
+      88.91
+    ],
+    "estimate_method": "union, rounded outward to 0.01 fF, of (1) the geometric tail c_last - d_last r/(1-r) at the largest and smallest observed decrement ratio and (2) free-rate least-squares fits c_inf + a n_tets^-alpha on rounds 2.., 3.., 4..; an estimate, not a bound",
+    "geometric_tail_ff": [
+      88.77854665653123,
+      88.89153028591335
+    ],
+    "free_rate_fits": [
+      {
+        "alpha": 1.0070000000000001,
+        "c_inf_ff": 88.90071799654235,
+        "first_round": 2,
+        "in_band": true
+      },
+      {
+        "alpha": 0.8605,
+        "c_inf_ff": 88.86379039082495,
+        "first_round": 3,
+        "in_band": true
+      },
+      {
+        "alpha": 0.9885,
+        "c_inf_ff": 88.89272636696505,
+        "first_round": 4,
+        "in_band": true
+      }
+    ],
+    "slow_rate_fits": [
+      {
+        "alpha": 0.3333333333333333,
+        "c_inf_ff": 88.3366856141459
+      },
+      {
+        "alpha": 0.5,
+        "c_inf_ff": 88.61819972626013
+      }
+    ],
+    "palace_p2_same_discretization_ff": 89.90029411534586,
+    "palace_p2_relative_difference": -2.4933167366292253e-06,
+    "palace_mesh_sha256": "dde0eac7a4728944c7db8f62c425b63c1f4b4b4d1dc6d6e11609ce44f3d1ddeb",
+    "x0_rigorous_upper_bound_ff": 77.61,
+    "x0_estimate_band_ff": [
+      77.42,
+      77.52
+    ]
+  },
+  "held_out_refinement_result": {
+    "statement": "The target is reached on the 448k-tet adapted P2 discretization only. Seven held-out refinement rounds of the same geometry lower the capacitance monotonically and it is still falling.",
+    "rigorous": "converged capacitance of this polygonal geometry < 89.02 fF (nested conforming spaces, energy minimum; last value rounded up); at least 0.98 % below the anchor (rounded down); no rigorous lower bound",
+    "estimate": "converged capacitance about 88.8 to 88.9 fF (computed band 88.77 to 88.91 fF); an estimate with the stated method, not a bound",
+    "optimized_value_overstates_estimate_relative": [
+      0.0111,
+      0.0128
+    ],
+    "one_percent_threshold": "not claimed. Rigorous shortfall against the anchor is at least 0.98 %, which does not decide it; the estimate (1.10 to 1.26 % below the anchor) says the threshold is not met. This is an inference from an extrapolation.",
+    "withdrawn_claim": "An earlier version ran one held-out round (528,324 tets, -0.264 %) and recorded a pass. That round is round 1 of the series."
+  },
+  "cross_solver": {
+    "meaning": "Palace P2 on the exported adapted mesh agrees with GEODE on the same discretization. This is solver agreement; it is not evidence about the discretization error.",
+    "palace_amr_ff": 89.90029411527276,
+    "palace_amr_initial_tets": 452056,
+    "palace_amr_final_tets": 475079,
+    "palace_amr_limit": "Feedline self-capacitance changes 1.90% while island capacitance barely changes; not counted as an island convergence check."
+  },
+  "resolution_corrected_run": {
+    "optimizer_target_ff": 90.978253,
+    "status": "target_reached_on_optimization_mesh_held_out_series_recorded",
+    "optimization_tets": 448279,
+    "initial_ff": 78.38791846057883,
+    "optimized_ff": 90.98010391938298,
+    "accepted_steps": 3,
+    "min_volume_ratio_over_accepted_steps": 0.5779088426660978,
+    "final_min_volume_ratio": 0.5875995917153344,
+    "worst_solved_fd_relative_error": 3.936837738736673e-07,
+    "held_out_series": [
+      {
+        "round": 0,
+        "n_tets": 448279,
+        "c_ff": 90.98010391938298
+      },
+      {
+        "round": 1,
+        "n_tets": 528677,
+        "c_ff": 90.73660227241626
+      },
+      {
+        "round": 2,
+        "n_tets": 684107,
+        "c_ff": 90.53864793053722
+      },
+      {
+        "round": 3,
+        "n_tets": 905316,
+        "c_ff": 90.39103738140189
+      },
+      {
+        "round": 4,
+        "n_tets": 1247811,
+        "c_ff": 90.28135645622937
+      },
+      {
+        "round": 5,
+        "n_tets": 1708342,
+        "c_ff": 90.1916059389198
+      },
+      {
+        "round": 6,
+        "n_tets": 2398139,
+        "c_ff": 90.12789946725431
+      },
+      {
+        "round": 7,
+        "n_tets": 3331618,
+        "c_ff": 90.0766914805722
+      }
+    ],
+    "held_out_relative_shift_round_0_to_last": -0.009929780247462666,
+    "sensitivity_relative_shifts_round_0_to_last": [
+      -0.009448622690915265,
+      -0.007390299431862755,
+      -0.023594526049805074
+    ],
+    "rigorous_upper_bound_ff": 90.08,
+    "estimate_band_ff": [
+      89.84,
+      89.96
+    ],
+    "estimate_method": "union, rounded outward to 0.01 fF, of (1) the geometric tail c_last - d_last r/(1-r) at the largest and smallest observed decrement ratio and (2) free-rate least-squares fits c_inf + a n_tets^-alpha on rounds 2.., 3.., 4..; an estimate, not a bound",
+    "geometric_tail_ff": [
+      89.84609192000593,
+      89.95143136556567
+    ],
+    "free_rate_fits": [
+      {
+        "alpha": 0.985,
+        "c_inf_ff": 89.95699739977518,
+        "first_round": 2,
+        "in_band": true
+      },
+      {
+        "alpha": 0.866,
+        "c_inf_ff": 89.9262106731182,
+        "first_round": 3,
+        "in_band": true
+      },
+      {
+        "alpha": 0.9825,
+        "c_inf_ff": 89.95274353787785,
+        "first_round": 4,
+        "in_band": true
+      }
+    ],
+    "slow_rate_fits": [
+      {
+        "alpha": 0.3333333333333333,
+        "c_inf_ff": 89.39484761749138
+      },
+      {
+        "alpha": 0.5,
+        "c_inf_ff": 89.67852495148657
+      }
+    ],
+    "palace_p2_same_discretization_ff": 90.97987707216096,
+    "palace_p2_relative_difference": -2.4933717620578832e-06,
+    "palace_mesh_sha256": "87b3eb7fcb55181321a146cab059cf4cd94af421c35d56154f6f36c06c71e991",
+    "label": "extrapolation-targeted design, not a continuum certificate",
+    "target_rule": "anchor * (primary round-0 value) / (primary geometric-tail midpoint), fixed by the primary run before this run",
+    "rigorous": "converged capacitance < 90.08 fF, at most 0.20 % above the anchor (rounded up); the last solved value is above the anchor, so nothing rigorous places the converged value near it",
+    "estimate": "band 89.84 to 89.96 fF, which contains the anchor; same method, same mesh family and element order as the primary run, so not an independent confirmation"
+  },
+  "continuum_error_certified": false,
+  "independent_scientific_review": "PR #1058 Judge review at 2efa0057 requested the multi-round series recorded here",
+  "reproduction": {
+    "status": "both runs repeated from the final source; identical",
+    "comparison": "summary.toml and design.json byte-identical; results.json identical in every field except solve_s; exported adapted mesh SHA-256 identical",
+    "generator_binary_sha256": "460be7678f581e8eb801bad48e94c9ba4e999dc7b8218529d29d8fdb3d40d0b5",
+    "primary_mesh_sha256": "dde0eac7a4728944c7db8f62c425b63c1f4b4b4d1dc6d6e11609ce44f3d1ddeb",
+    "resolution_corrected_mesh_sha256": "87b3eb7fcb55181321a146cab059cf4cd94af421c35d56154f6f36c06c71e991",
+    "commands": "the two generator commands of README.md, with REFINED_OPT_DIR pointing at a scratch directory",
+    "earlier_check": "rounds 0 and 1 and every pre-existing history entry also match the results.json committed at 2efa0057 bit for bit"
+  },
+  "resources": {
+    "host": "local, 96 GiB RAM, 28 CPUs; no cloud",
+    "primary_run_wall_s": [
+      1178,
+      1056
+    ],
+    "primary_run_peak_rss_gb": [
+      27.8,
+      29.4
+    ],
+    "resolution_corrected_run_wall_s": [
+      608,
+      608
+    ],
+    "resolution_corrected_run_peak_rss_gb": [
+      26.0,
+      26.2
+    ],
+    "note": "committed run then repetition; wall and peak RSS from /usr/bin/time -l (the committed runs are in validation_logs/); RSS rounded up"
+  }
+}

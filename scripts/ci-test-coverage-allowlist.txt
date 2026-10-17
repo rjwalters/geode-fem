@@ -1,0 +1,26 @@
+# Integration-test targets that no CI workflow runs (issue #785).
+#
+# Read by scripts/ci-test-coverage.py, which fails CI when
+#   * a test target is not run by any workflow and is NOT listed here
+#     (a new tests/*.rs file must be wired into a workflow step, or listed
+#     here deliberately), or
+#   * a target listed here is now run by a workflow, or no longer exists
+#     (delete the stale line).
+#
+# Issue #785 found 109 such targets. Issue #786 timed each one in release on
+# ubuntu-latest and moved 102 into .github/workflows/integration-tests.yml.
+# Every entry left here carries its reason. Shrink this file; do not grow it
+# without a reason.
+#
+# Format: <crate>/<target>, one per line. `#` starts a comment.
+
+# geode-core
+# Permanent exclusion. A wall-clock scaling benchmark (issue #501): it prints
+# a TOML timing table and is not a correctness check. Its one test is
+# #[ignore]d, so its default tier selects nothing. The --ignored tier passes
+# but takes 42 min on ubuntu-latest (#786), and its GPU cell needs
+# `--features cuda` on a rented box. What it exercises (Direct / assembled
+# COCG / matrix-free COCG agree on the same driven pencil) is already
+# asserted by driven_matrix_free_equivalence and iterative_sweep in
+# arpack.yml.
+geode-core/gpu_driven_scaling

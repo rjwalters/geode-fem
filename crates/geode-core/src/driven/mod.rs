@@ -1,0 +1,61 @@
+//! Frequency-domain **driven** (forced) solver and its port, extraction,
+//! and scattering satellites.
+//!
+//! This module groups the time-harmonic forced problem `A(ω) x = b` and
+//! everything built directly on top of it under one namespace:
+//!
+//! - [`solve`] — the driven solver core: operators, materials, boundary
+//!   conditions, and the `driven_solve*` entry points.
+//! - [`adjoint`] — discrete-adjoint **material** design sensitivities
+//!   `∂(scalar EM observable)/∂ε` through the complex driven Nédélec solve
+//!   (one forward + one adjoint solve, FD-validated; Epic #569 / issue #576).
+//! - [`shape`] — discrete-adjoint **geometry / shape** design sensitivities
+//!   `∂(scalar EM observable)/∂(node coords)` through the same solve, with an
+//!   exact dual-number Nédélec geometry Jacobian (`∂A/∂X`, `∂b/∂X`) chained to
+//!   a node-motion map, FD-validated (Epic #569 / issue #577).
+//! - [`s_sensitivity`] — **N-port S-matrix** sensitivities `∂S_qp/∂θ`
+//!   (material `ε′`/`ε″`, filled ports, pinned-port shape) through lumped,
+//!   wave, mixed and walled specs, at zero extra solves on the
+//!   complex-symmetric operator (Epic #841 Phase 1 / issue #842).
+//! - [`ports`] — lumped and waveguide port models (excitation, current /
+//!   voltage / impedance extraction, and waveguide mode reduction).
+//! - [`extraction`] — frequency sweeps, S-parameters, port-circuit and
+//!   self-resonance extraction built on the driven solver.
+//! - [`scattering`] — plane-wave scattering with a matched UPML, Mie
+//!   polarization sources, and radiated/extinction power integrals.
+//! - [`matrix_free`] — the GPU-resident matrix-free Krylov back-solve
+//!   ([`crate::driven::solve::SolverMode::IterativeMatrixFree`]): the Burn
+//!   volume pencil ([`crate::solver::ksp_burn`]) plus an on-device COO
+//!   correction for the small lumped-port / Leontovich surface terms.
+//! - [`periodic`] — the **periodic** direct driven solve (issue #839, Epic
+//!   #837 Phase 1; complex Bloch phase since issue #870): a
+//!   [`solve::DrivenOperator`] reduced by a
+//!   [`crate::assembly::periodic::PeriodicConstraint`].
+//! - [`floquet`] — **Floquet ports** (analytic TE + TM modes per
+//!   diffraction order) and oblique plane-wave drive on a Bloch-phased
+//!   unit cell (issue #870, Epic #837 Phase 3a).
+//! - [`transient`] — implicit second-order (generalized-α / Newmark-β)
+//!   time integration of the same `K`/`C`/`M` matrices the driven path
+//!   assembles, with a lumped-port time-domain drive and broadband
+//!   S-parameter extraction via a direct DFT.
+//! - [`rom`] — the adaptive **fast frequency sweep**: a Galerkin
+//!   projection reduced-order model over the same `K`/`C`/`M` (+ port
+//!   admittance) matrices, with greedy residual-driven snapshot
+//!   sampling — a few full-order solves stand in for the whole band.
+//!
+//! The submodules keep their items canonical (`driven::solve::Foo`,
+//! `driven::ports::Bar`, …); the group root does **not** re-export them up
+//! a level, matching [`crate::eigen`].
+
+pub mod adjoint;
+pub mod extraction;
+pub mod floquet;
+pub mod matrix_free;
+pub mod periodic;
+pub mod ports;
+pub mod rom;
+pub mod s_sensitivity;
+pub mod scattering;
+pub mod shape;
+pub mod solve;
+pub mod transient;

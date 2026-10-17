@@ -1,0 +1,19 @@
+{
+  "version_dir": "conformal-antenna-diffopt.2",
+  "critic_id": "paper-review-venue",
+  "rubric": "anvil-pub-neurips-v1",
+  "scores": [
+    { "id": "soundness", "dimension": "Soundness", "score": 3, "max": 4 },
+    { "id": "presentation", "dimension": "Presentation", "score": 2, "max": 2 },
+    { "id": "contribution", "dimension": "Contribution / significance", "score": 3, "max": 4 },
+    { "id": "novelty", "dimension": "Novelty", "score": 2, "max": 3 },
+    { "id": "reproducibility", "dimension": "Reproducibility", "score": 3, "max": 3 }
+  ],
+  "findings": [
+    { "severity": "major", "section": "Evaluation / significance", "note": "Significance rests on a single GEODE fixture plus a measured-but-indirect intractability argument; a NeurIPS reviewer would ask for a converged head-to-head and/or a sweep across bend radii/bands." },
+    { "severity": "minor", "section": "Soundness", "note": "'computationally intractable' is shown against single-process Meep on one instance; distributed/GPU FDTD would move the RAM wall. Scope the categorical claim." },
+    { "severity": "minor", "section": "Presentation", "note": "Rendered figures are clean and measured-vs-projected is well distinguished, but three captions carry stale placeholder text." }
+  ],
+  "critical_flags": [],
+  "total": 13
+}

@@ -1,0 +1,13 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=spiral_ds_ams_matches_direct binary=dispersive_golden-746a9e69e42b8b65 --ignored
+# start=2026-10-08T13:13:24Z loadavg=12.01 12.20 11.85
+
+running 1 test
+test spiral_ds_ams_matches_direct ... ams   1.0 GHz: iters [112], |ΔZ|/|Z| vs direct 4.4e-13
+ams   5.0 GHz: iters [131], |ΔZ|/|Z| vs direct 2.4e-12
+ams  10.0 GHz: iters [145], |ΔZ|/|Z| vs direct 1.7e-12
+ams  20.0 GHz: iters [159], |ΔZ|/|Z| vs direct 4.3e-13
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 5.65s
+

@@ -1,0 +1,16 @@
+Using MPI version 4.1, 2 processes
+-----------
+Initializing structure...
+Splitting into 2 chunks by voxels
+time for choose_chunkdivision = 0.000138303 s
+Working in 3D dimensions.
+Computational cell is 2 x 2 x 2 with resolution 5
+time for set_epsilon = 0.000243932 s
+time for set_conductivity = 2.0902e-05 s
+-----------
+Meep: using complex fields.
+run 0 finished at t = 933.4000000000001 (9334 timesteps)
+run 1 finished at t = 1033.4 (10334 timesteps)
+V2_RESULT /results/rc_point_R5.json mode rc_oracle wall 0.8183119260002059 drift 0.0 rc 8.821970724080443e-05
+
+Elapsed run time = 0.7870 s

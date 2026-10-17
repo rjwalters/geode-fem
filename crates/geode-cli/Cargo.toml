@@ -1,0 +1,55 @@
+[package]
+name = "geode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "`geode`: headless JSON-in / JSON-out command-line driver for GEODE-FEM solves (issue #673)."
+
+[[bin]]
+name = "geode"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+geode-app = { workspace = true }
+# Default features keep the headless-host posture: ndarray CPU backend +
+# `faer-parallel`. GPU backends are opt-in via this crate's own features.
+geode-core = { workspace = true }
+# `edge_field_to_nodes` (Whitney-average nodal E) for `--outdir` field
+# export. Workspace base features only: backend selection stays with
+# geode-core (above).
+geode-util = { workspace = true }
+# `Backend` / `BackendTypes` for the compile-time backend alias.
+burn = { workspace = true }
+# `faer::c64` for the complex impedance / S-matrix arithmetic.
+faer = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# TOML problem specs go through the same `serde::Deserialize` impl as JSON.
+toml = { workspace = true }
+thiserror = { workspace = true }
+# `mesh_sha256` provenance field (already in the lockfile transitively).
+sha2 = "0.10"
+# `geode schema spec|report|layout` (issue #709): JSON Schema derived from the
+# same serde types the binary parses / emits.
+schemars = { workspace = true }
+
+[dev-dependencies]
+# Validates committed fixtures and emitted reports against the committed
+# schemas (tests/schema.rs). Dev-only: not in the binary's dependency tree.
+jsonschema = { workspace = true }
+# Panic-safe test scratch dirs (issue #766; tests/support/scratch.rs).
+tempfile = { workspace = true }
+
+[features]
+# Backend selection is a COMPILE-TIME choice (mirrors geode-core): the
+# default binary is the ndarray CPU backend with zero GPU dependencies.
+# `--backend` at runtime only confirms the compiled-in backend (Phase 1).
+wgpu = ["geode-core/wgpu"]
+cuda = ["geode-core/cuda"]
+metal = ["geode-core/metal"]
+
+[lints.rust]
+unsafe_code = "deny"

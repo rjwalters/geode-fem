@@ -1,0 +1,126 @@
+{
+  "Boundaries": {
+    "Absorbing": {
+      "Attributes": [
+        3
+      ],
+      "Order": 1
+    },
+    "LumpedPort": [
+      {
+        "Attributes": [
+          6
+        ],
+        "Direction": "+X",
+        "Index": 1,
+        "R": 50
+      },
+      {
+        "Attributes": [
+          7
+        ],
+        "Direction": "+X",
+        "Index": 2,
+        "R": 50
+      },
+      {
+        "Attributes": [
+          4
+        ],
+        "C": 5.5e-15,
+        "Direction": "+Y",
+        "Index": 3,
+        "L": 1.486e-8
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        5
+      ]
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          2
+        ],
+        "Permeability": 1.0,
+        "Permittivity": 1.0
+      },
+      {
+        "Attributes": [
+          1
+        ],
+        "LossTan": [
+          3.0e-5,
+          3.0e-5,
+          8.6e-5
+        ],
+        "MaterialAxes": [
+          [
+            0.8,
+            0.6,
+            0.0
+          ],
+          [
+            -0.6,
+            0.8,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "Permeability": [
+          0.99999975,
+          0.99999975,
+          0.99999979
+        ],
+        "Permittivity": [
+          9.3,
+          9.3,
+          11.5
+        ]
+      }
+    ],
+    "Postprocessing": {
+      "Energy": [
+        {
+          "Attributes": [
+            1
+          ],
+          "Index": 1
+        }
+      ]
+    }
+  },
+  "Model": {
+    "L0": 1.0e-6,
+    "Mesh": "/work/pa2_o2.msh2",
+    "Refinement": {
+      "MaxIts": 0
+    }
+  },
+  "Problem": {
+    "Output": "/work/postpro/dl_pa2",
+    "Type": "Eigenmode",
+    "Verbose": 2
+  },
+  "Solver": {
+    "Eigenmode": {
+      "N": 2,
+      "Save": 0,
+      "Target": 2.5,
+      "Tol": 1.0e-6
+    },
+    "Linear": {
+      "MaxIts": 500,
+      "Tol": 1.0e-7,
+      "Type": "Default"
+    },
+    "Order": 2
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "record_type": "hand-assembled record of failed Palace attempts; not written by a generator",
+  "mesh_name_note": "both attempts ran when the adapted mesh was named final_coarse.msh; it is now final_adapted.msh with the same SHA-256, and the retained logs and resolved configurations still show the old name",
+  "image_id": "sha256:bbe02bf83f5b26bdcf04101640873a82584495a64033ffdf079fb4bff7a83176",
+  "mesh_sha256": "dde0eac7a4728944c7db8f62c425b63c1f4b4b4d1dc6d6e11609ce44f3d1ddeb",
+  "attempts": [
+    {
+      "order": 3,
+      "exit_code": 9,
+      "status": "incomplete_no_capacitance_matrix",
+      "log": "palace_p3.log",
+      "stage": "mandatory flux-error estimation after first terminal solve",
+      "memory_limit": "12g",
+      "cause": "Process killed; out-of-memory not independently established"
+    },
+    {
+      "order": 2,
+      "amr_steps": 2,
+      "save_adapt_iterations": true,
+      "exit_code": 15,
+      "status": "failed_before_first_refinement",
+      "log": "palace_p2_amr_save_failure.log",
+      "cause": "std::filesystem::copy permission denied on Docker bind mount"
+    }
+  ]
+}

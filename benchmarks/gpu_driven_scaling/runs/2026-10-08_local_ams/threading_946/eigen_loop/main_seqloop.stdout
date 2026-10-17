@@ -1,0 +1,28 @@
+
+running 1 test
+test diag946_eigen_loop ... diag946 solve_user_s=3.580 solve_sys_s=4.418
+diag946 n=30 dofs=24389 nev=20 seq_loop=true solve_s=2.416 par_after=Seq
+diag946 lambda[0] = 2.97441741738862859e1
+diag946 lambda[1] = 5.96267818050720777e1
+diag946 lambda[2] = 5.96267818050722767e1
+diag946 lambda[3] = 5.98622553014320857e1
+diag946 lambda[4] = 8.98715561920851655e1
+diag946 lambda[5] = 8.98715561920854498e1
+diag946 lambda[6] = 9.02172147070226629e1
+diag946 lambda[7] = 1.10004376289225206e2
+diag946 lambda[8] = 1.10004376289868375e2
+diag946 lambda[9] = 1.10016834562730637e2
+diag946 lambda[10] = 1.20578827378915520e2
+diag946 lambda[11] = 1.40055009612044245e2
+diag946 lambda[12] = 1.40293249421056345e2
+diag946 lambda[13] = 1.41356098227026990e2
+diag946 lambda[14] = 1.41637396046188854e2
+diag946 lambda[15] = 1.71236666967054163e2
+diag946 lambda[16] = 1.73394332956949228e2
+diag946 lambda[17] = 1.81159148734756769e2
+diag946 lambda[18] = 1.81274455290002436e2
+diag946 lambda[19] = 1.92442694127400785e2
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.99s
+

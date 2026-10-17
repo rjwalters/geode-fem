@@ -1,0 +1,11 @@
+# Build context for docker/geode-cli/Dockerfile (BuildKit picks up
+# <Dockerfile>.dockerignore automatically). Whitelist only the Cargo
+# workspace: the repo root also carries large reference/, papers/ and
+# benchmarks/ trees the build never reads.
+*
+!Cargo.toml
+!Cargo.lock
+!LICENSE
+!crates/
+!examples/
+**/target

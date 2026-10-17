@@ -1,0 +1,4 @@
+d51b4b6e8a5d9bc1977d3b98814fc5574339236b
+ crates/geode-core/src/assembly/nedelec_matvec.rs |  28 +-
+ crates/geode-core/tests/gpu_driven_scaling.rs    | 703 +++++++++++++++++------
+ 2 files changed, 543 insertions(+), 188 deletions(-)

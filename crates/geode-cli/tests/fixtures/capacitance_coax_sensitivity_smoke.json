@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/coax_capacitance_smoke.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    {"physical_group": "dielectric_inner", "eps_r": [2.0, 0.0]}
+  ],
+  "capacitance": {
+    "terminals": ["inner"],
+    "ground": ["outer"]
+  },
+  "sensitivity": {
+    "parameters": [
+      {"kind": "eps_r", "physical_group": "dielectric_inner"},
+      {"kind": "eps_r", "physical_group": "dielectric_outer"}
+    ],
+    "fd_check": {}
+  }
+}

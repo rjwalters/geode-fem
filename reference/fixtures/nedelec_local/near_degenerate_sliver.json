@@ -1,0 +1,201 @@
+{
+  "schema_version": "1",
+  "fixture_id": "nedelec_local/near_degenerate_sliver",
+  "description": "N\u00e9d\u00e9lec edge-element local matrices for a near-coplanar sliver tet (v3.z = 1e-6) \u2014 small but strictly positive volume. Stress case for numerical stability of the closed-form K/M; K entries reach O(1e6) and M entries O(1e4) here as 1/|det| amplifies the gram values through both the curl-curl gradient products and the Whitney mass (V/20) G_pq = gg_pq / (120 |det|) lift.",
+  "units": "dimensionless",
+  "inputs": {
+    "coords": {
+      "shape": [
+        1,
+        4,
+        3
+      ],
+      "dtype": "f64",
+      "description": "Per-element vertex coordinates [n_elem, 4 vertices, 3 spatial dims].",
+      "data": [
+        [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.3,
+            0.3,
+            1e-06
+          ]
+        ]
+      ]
+    },
+    "tet_local_edge_signs": {
+      "shape": [
+        1,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Per-element, per-edge sign s_i in {+1, -1} recording whether each local edge's orientation (lower local vertex index \u2192 higher) agrees with the global edge direction. NumPy reference always uses +1 for all six edges; the Rust harness multiplies the Burn output's [i, j] entry by s_i * s_j before comparing (per nedelec.rs:30-34). Edge order is canonical: [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)].",
+      "data": [
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      ]
+    }
+  },
+  "outputs": {
+    "k_local": {
+      "shape": [
+        1,
+        6,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Local curl-curl K_{ij} = 4 V (G_ac G_bd - G_ad G_bc) for the 6 edges in TET_LOCAL_EDGES order. Tolerance is loose absolute (f32-friendly tripwire); the Rust comparator layers a backend-aware mixed abs/rel check on top.",
+      "tolerance_abs": 100.0,
+      "data": [
+        [
+          [
+            386666.39334827836,
+            280001.7162574164,
+            -666665.79664106,
+            -79998.50781814643,
+            466663.7446841074,
+            200002.05195695267
+          ],
+          [
+            280001.7162574164,
+            386669.8627952303,
+            -666665.79664106,
+            80001.9772650984,
+            199997.4260276834,
+            466672.99654264597
+          ],
+          [
+            -666665.79664106,
+            -666665.79664106,
+            1333322.3414235818,
+            -4.625929269271485,
+            -666661.1707117909,
+            -666670.4225703294
+          ],
+          [
+            -79998.50781814643,
+            80001.9772650984,
+            -4.625929269271485,
+            120000.07469185429,
+            -199997.4260276834,
+            199999.73899231805
+          ],
+          [
+            466663.7446841074,
+            199997.4260276834,
+            -666661.1707117909,
+            -199997.4260276834,
+            666661.1707117909,
+            0.0
+          ],
+          [
+            200002.05195695267,
+            466672.99654264597,
+            -666670.4225703294,
+            199999.73899231805,
+            0.0,
+            666670.4225703294
+          ]
+        ]
+      ]
+    },
+    "m_local": {
+      "shape": [
+        1,
+        6,
+        6
+      ],
+      "dtype": "f64",
+      "description": "Local Whitney 1-form mass M_{ij} per nedelec.rs:67-74. Same edge order and sign convention as k_local.",
+      "tolerance_abs": 10.0,
+      "data": [
+        [
+          [
+            2166.6666667333334,
+            833.3333333666668,
+            -1333.3333333083328,
+            -999.9999999999997,
+            4416.6666666500005,
+            1083.333333325
+          ],
+          [
+            833.3333333666668,
+            2166.666666733334,
+            -1333.3333333083328,
+            1000.0000000000002,
+            1083.3333333250002,
+            4416.6666666500005
+          ],
+          [
+            -1333.3333333083328,
+            -1333.3333333083328,
+            26000.000000033335,
+            1.1564823173178715e-13,
+            16166.666666650002,
+            16166.666666650002
+          ],
+          [
+            -999.9999999999997,
+            1000.0000000000002,
+            3.469446951953614e-13,
+            1500.0000000333334,
+            -2499.9999999916663,
+            2499.9999999916663
+          ],
+          [
+            4416.66666665,
+            1083.3333333250002,
+            16166.66666665,
+            -2499.9999999916668,
+            23166.66666668333,
+            14833.333333333334
+          ],
+          [
+            1083.3333333250002,
+            4416.66666665,
+            16166.66666665,
+            2499.9999999916663,
+            14833.333333333334,
+            23166.66666668333
+          ]
+        ]
+      ]
+    },
+    "signed_volume": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Signed element volume V = det(J)/6. Negative for inverted tets; use |signed_volume| for assembly weighting.",
+      "tolerance_abs": 1e-11,
+      "data": [
+        1.6666666666666665e-07
+      ]
+    }
+  },
+  "provenance": {
+    "source": "reference/numpy/nedelec_local_matrices.py via reference/numpy/gen_nedelec_local_per_case.py @ acb7be7",
+    "verified_against": "crates/geode-validation/tests/nedelec_local_numpy_reference.rs",
+    "issue": "#117 (Epic #88 Phase G.1)"
+  }
+}

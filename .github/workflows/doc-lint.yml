@@ -1,0 +1,77 @@
+name: doc-lint
+
+# Issue #346 — enforce warning-free rustdoc so broken intra-doc links
+# can't accumulate.
+#
+# Before this gate existed, geode-core had drifted to ~40 broken
+# intra-doc-link warnings (mostly private-item links in
+# waveguide_modes.rs) that only surfaced under
+# `RUSTDOCFLAGS="-D warnings"`. Because docs were never built with
+# `-D warnings` in CI, the backlog grew silently. This gate builds the
+# crate docs with warnings-as-errors so any regression fails the PR.
+#
+# Like rustfmt.yml, this is a repo-wide lint gate (no path filter).
+#
+# Backend note (mirrors arpack.yml): the runner is headless
+# `ubuntu-latest` with no Vulkan/CUDA adapter, so we build against the
+# CPU `ndarray` backend. The intra-doc links being
+# guarded are backend-independent doc comments, so the CPU backend
+# exercises the identical rustdoc surface. The `arpack` combo
+# additionally needs libarpack2-dev.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUSTDOCFLAGS: "-D warnings"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  doc:
+    name: cargo doc --workspace (-D warnings)
+    runs-on: ubuntu-latest
+    # Doc build of the whole workspace (default features), plus a second
+    # geode-core-only build with arpack. The workspace build was
+    # previously scoped to `-p geode-core`, which let geode-validation
+    # drift to broken intra-doc links unnoticed (the exact silent-drift
+    # this gate exists to prevent) — so the default build now covers all
+    # crates. A 10-min cap bounds queue-wait while leaving room for a
+    # cold dependency build (issue #354).
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libarpack2-dev and pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarpack2-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build docs (workspace, CPU backend)
+        run: |
+          cargo doc --workspace --no-deps
+
+      - name: Build docs (geode-core --features arpack, CPU backend)
+        run: |
+          cargo doc -p geode-core --no-deps --features arpack

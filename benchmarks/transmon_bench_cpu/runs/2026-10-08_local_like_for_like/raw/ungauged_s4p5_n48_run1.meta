@@ -1,0 +1,8 @@
+cell=ungauged_s4p5_n48
+run=1
+env=GEODE_INNER=direct GEODE_GAUGE=none GEODE_SIGMA_GHZ=4.5 GEODE_NMODES=48 GEODE_NUM_THREADS=1 RAYON_NUM_THREADS=1
+start_utc=2026-10-08T08:44:27Z
+loadavg_before=52.26 53.80 69.80
+end_utc=2026-10-08T08:44:49Z
+loadavg_after=43.96 51.78 68.70
+exit=0

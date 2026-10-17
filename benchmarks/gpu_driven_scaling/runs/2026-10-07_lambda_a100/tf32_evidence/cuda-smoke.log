@@ -1,0 +1,65 @@
+   Compiling cudarc v0.19.7
+   Compiling cubecl-cuda v0.10.0
+   Compiling cubecl v0.10.0
+   Compiling burn-std v0.21.0
+   Compiling cubek-std v0.2.0
+   Compiling cubek-fft v0.2.0
+   Compiling cubek-quant v0.2.0
+   Compiling cubek-random v0.2.0
+   Compiling burn-backend v0.21.0
+   Compiling burn-ir v0.21.0
+   Compiling burn-tensor v0.21.0
+   Compiling burn-autodiff v0.21.0
+   Compiling cubek-matmul v0.2.0
+   Compiling cubek-reduce v0.2.0
+   Compiling burn-core v0.21.0
+   Compiling burn-nn v0.21.0
+   Compiling burn-optim v0.21.0
+   Compiling burn-fusion v0.21.0
+   Compiling burn-ndarray v0.21.0
+   Compiling cubek-attention v0.2.0
+   Compiling cubek-convolution v0.2.0
+   Compiling cubek v0.2.0
+   Compiling burn-cubecl-fusion v0.21.0
+   Compiling burn-cubecl v0.21.0
+   Compiling burn-cuda v0.21.0
+   Compiling burn v0.21.0
+   Compiling bunsen v0.28.0
+   Compiling geode-core v0.8.0 (/home/ubuntu/geode-520/crates/geode-core)
+   Compiling geode-util v0.8.0 (/home/ubuntu/geode-520/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 6m 06s
+     Running tests/gpu_driven_scaling.rs (target-cuda/release/deps/gpu_driven_scaling-519a7399fdf68d23)
+
+running 1 test
+# ---- gpu_driven_scaling TOML fragment (issue #501 / #520) ----
+# matrix-free backend/dtype for this run: Cuda / f32
+# configs: 1=Direct(faer LU, CPU f64)  2=Iterative(assembled COCG+Jacobi, CPU f64)  3=IterativeMatrixFree(Cuda f32)
+# single-ω = 0.1; sweep ω = [0.05, 0.075, 0.1, 0.15, 0.2]
+# iter tol: f64 configs = 1e-8, matrix-free (f32) = 1e-6; iter max = 20000
+# knobs: sizes = [6], reps = 1, configs = [direct=false, iterative=false, matrix_free=true], skip_e2e = true, skip_sweep = true
+
+[size n=6] edges=1854 interior=1614 tets=1296 reps=1 (fixture 8.30 s)
+test gpu_driven_scaling_benchmark has been running for over 60 seconds
+[[cell]]
+size_n = 6
+n_edges = 1854
+n_interior = 1614
+config = "3_matrix_free"
+method = "burn_cocg"
+device = "gpu"
+dtype = "f32"
+tol = 1e-6
+converged = false
+reps = 1
+dnf_attempt_s = 158.356391
+iterations = 20000
+residual_rel = 1.626e-1
+accuracy_rel_l2_vs_direct = nan
+sweep5_converged = false
+# dnf: sparse solve failed: matrix-free COCG: COCG did not converge in 20000 iterations: relative residual 0.16255283428820552 > tol 0.000001
+
+# ---- end fragment ----
+test gpu_driven_scaling_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 166.66s
+

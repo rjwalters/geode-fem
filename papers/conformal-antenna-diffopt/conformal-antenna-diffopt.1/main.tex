@@ -1,0 +1,415 @@
+%% main.tex — Anvil paper (thread: conformal-antenna-diffopt, version .1)
+%% Drafted by anvil:paper-draft. Numbers trace to the committed artifact
+%% benchmarks/patch_antenna_conformal/conformal_results.toml (branch
+%% feature/issue-650, commit 524db3b) and crates/geode-core source.
+
+\documentclass{anvil-paper}
+
+\title{Differentiable-by-Construction FEM for Freeform Open-Radiator Design:
+A Curved Conformal Antenna Structured-Grid Inverse Design Cannot Reach}
+\author{Robb Walters}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Differentiable electromagnetic (EM) simulators have made photonic inverse
+design routine, but the dominant tools optimize a permittivity \emph{density}
+field on a structured Yee/Cartesian grid, a representation that staircases
+curved metal and is a poor fit for open radiators terminated by a perfectly
+matched layer (PML). We present a tensor-compiled, differentiable-by-construction
+3-D N\'ed\'elec H(curl) finite-element method (FEM) that exposes an exact,
+single-factorization discrete \emph{shape} (moving-boundary / node-motion)
+adjoint through the full open-radiator forward: a matched box-UPML tensor
+material, lossy complex-$\varepsilon$ FR-4, and a lumped feed port assembled into
+one complex-symmetric pencil $A(\omega)=K(\nu)-\omega^2 M(\varepsilon)+(j\omega/Z_s)S_p$.
+Forward-mode ``Dual-twin'' element kernels give exact
+$\partial K/\partial X,\ \partial M/\partial X,\ \partial b/\partial X$, so the
+transpose adjoint reuses the single forward factorization
+($n_{\text{fact}}=1$ per band frequency). We drive a high-DOF harmonic
+mesh-morph parametrization (73 active boundary DOFs) to gradient-design a
+\emph{freeform curved-metal conformal} radiator, a geometry class density-based
+differentiable EM represents poorly. The optimizer reaches a genuine
+target-hit terminal that drives the entire design band below $-10$~dB return
+loss (worst-of-band $-5.51 \to -12.06$~dB), with the band gradient FD-validated
+at relative error $1.17\times10^{-10}$, enforced passivity $|S_{11}|\le1$, and a
+non-inversion guard. We position the narrow, honestly-scoped novelty against
+prior EM shape adjoints and the structured-grid density ecosystem.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Inverse design has become the default workflow for nanophotonic components:
+given a differentiable forward Maxwell solver, one back-propagates a
+figure-of-merit to a large parameter vector and lets gradient descent discover
+non-intuitive structures. The canonical ``killer'' demonstrations --- the
+compact wavelength demultiplexer of Piggott et al.~\cite{piggott2015} and the
+high-NA achromatic metalens of Chung and Miller~\cite{chung2020} --- are
+guided-wave or periodic \emph{photonic} problems, and the workhorse tools
+(\textsc{ceviche}, Meep's adjoint solver, SPINS-B~\cite{su_spinsb},
+FDTDX~\cite{fdtdx}, invrs-gym~\cite{invrsgym}) optimize a permittivity
+\emph{density} field discretized on a structured Yee/Cartesian grid. This
+representation is a superb fit for topology optimization of dielectric
+photonics, but it has two structural mismatches with a large and practically
+important class of RF/antenna problems: (i) it \emph{staircases} curved metal,
+so a conformal radiator wrapped around a cylinder is only ever approximated at a
+density-limited grid cost; and (ii) it optimizes ``where is there material''
+rather than ``where is the metal boundary,'' which is the natural design
+variable for a driven, PML-terminated \emph{open radiator}.
+
+We take the differentiable-simulation lens to that underserved corner. The
+substrate is a tensor-compiled, differentiable-by-construction 3-D N\'ed\'elec
+H(curl) FEM on \emph{unstructured} tetrahedral meshes; the payload is a
+moving-boundary shape-adjoint geometry class that treats the positions of the
+conductor boundary nodes as the design variables and moves them --- the metal
+boundary is represented exactly, at every step, on a body-fitted mesh. The
+headline is a design result: end-to-end gradient design of a freeform
+curved-metal conformal antenna that drives the entire design band below
+$-10$~dB return loss.
+
+We are deliberately narrow about the novelty. Node-motion EM shape adjoints on
+unstructured meshes already exist (Section~\ref{sec:related}); this is
+explicitly \emph{not} a claim of ``first shape adjoint in EM.'' The contribution
+is a specific, previously-unoccupied \emph{combination}: a 3-D frequency-domain
+N\'ed\'elec shape adjoint through the \emph{full} open-radiator forward
+(box-UPML tensor material $+$ lumped ports $+$ lossy complex-$\varepsilon$ $+$ a
+passive $|S_{11}|$ constraint), differentiable-by-construction with
+single-factorization reuse, applied to a \emph{freeform, high-DOF} curved-metal
+conformal design.
+
+Our contributions are:
+\begin{itemize}
+  \item A differentiable-by-construction open-radiator FEM \emph{shape} adjoint:
+  forward-mode AD Dual-twin element kernels yield exact
+  $\partial K/\partial X$, $\partial M/\partial X$, $\partial b/\partial X$
+  through the radiating complex-symmetric pencil
+  $A(\omega)=K(\nu)-\omega^2 M(\varepsilon)+(j\omega/Z_s)S_p$, so the transpose
+  adjoint reuses the \emph{single} forward factorization per band frequency
+  ($n_{\text{fact}}=1$), with enforced passivity $|S_{11}|\le 1$ and a
+  non-inversion / mesh-distortion guard (Section~\ref{sec:method}).
+  \item A high-DOF freeform boundary parametrization (harmonic / P1-Laplace
+  mesh-morph, 73 active boundary DOFs) that generalizes single-parameter tuning
+  to freeform shape while keeping the volumetric mesh valid, FD-validated to
+  relative error $\sim\!10^{-10}$ (Section~\ref{sec:method}).
+  \item A headline result: end-to-end gradient design of a curved-metal
+  conformal radiator that drives the entire band below $-10$~dB return loss
+  (worst-of-band $-5.51 \to -12.06$~dB) on a geometry a Yee-grid density method
+  staircases (Section~\ref{sec:results}).
+  \item Honest positioning of the narrow white space relative to prior EM
+  shape-adjoint and differentiable-FEM work, and an explicit
+  \emph{planned}-evaluation protocol for the head-to-head comparisons we have
+  not yet run (Sections~\ref{sec:related},~\ref{sec:planned}).
+\end{itemize}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Structured-grid density-based differentiable EM (the contrast class).}
+The dominant differentiable-EM tools optimize a permittivity/density field on a
+Yee/Cartesian grid: Meep's adjoint solver, \textsc{ceviche} and its
+challenge suite, SPINS-B~\cite{su_spinsb}, the JAX-based 3-D FDTD framework
+FDTDX~\cite{fdtdx}, and the invrs-gym benchmark toolkit~\cite{invrsgym}. These
+methods perform topology optimization of a continuous density that is later
+binarized. Their canonical successes --- the Piggott et al.\ WDM
+demultiplexer~\cite{piggott2015} and the Chung--Miller achromatic
+metalens~\cite{chung2020} --- are guided or periodic photonics, not open
+radiators terminated by PML. Two references we would like to cite directly ---
+the \textsc{ceviche} forward-mode-differentiation-of-Maxwell paper (Hughes et
+al., ACS Photonics 2019) and the Meep adjoint-solver documentation --- are not
+yet in our verified bibliography and are flagged as citation gaps
+(Section~\ref{sec:planned}); we name them here for the reader but do not cite an
+unresolved key.
+
+\paragraph{AD shape optimization still on a rectilinear grid.}
+Hooten et al.~\cite{hooten2025} accelerate shape optimization with automatic
+differentiation, but map shape parameters to a permittivity distribution
+\emph{painted on a fixed rectilinear grid}. This reinforces, rather than closes,
+the white space we target: the design variable is boundary shape, but the
+discretization remains structured and the metal boundary is still resolved by a
+density field rather than a body-fitted mesh.
+
+\paragraph{True EM shape (node-motion) adjoints on unstructured meshes exist.}
+We are explicit that node-motion EM shape adjoints are not new. Wang and
+Anderson~\cite{wang2011} present a discrete Maxwell shape adjoint on
+unstructured meshes, but in 2-D, time-domain, lossless, PEC-walled, with
+\emph{no PML, no ports, and no S-parameters}. Ghassemi et
+al.~\cite{ghassemi2013} evolve a microstrip \emph{antenna} geometry via an FEM
+adjoint sensitivity, but with a handful of \emph{low-DOF control vertices} and a
+\emph{hand-derived} adjoint. Ham, Mitusch, and Schmidt~\cite{ham2020} provide
+\emph{automatic} FEM shape derivatives (Firedrake pyadjoint) for transient PDEs
+in general, but not the assembled open-radiator EM forward.
+
+\paragraph{Defensible white space, stated precisely.}
+No found work occupies this exact combination: a 3-D frequency-domain N\'ed\'elec
+H(curl) FEM shape adjoint through the \emph{full} open-radiator forward
+(box-UPML tensor material $+$ lumped ports $+$ lossy complex-$\varepsilon$ $+$
+passive $|S_{11}|$), differentiable-by-construction with single-factorization
+reuse, applied to a \emph{freeform, high-DOF curved-metal conformal} design. The
+three stacked differentiators versus the prior art are: (1) freeform / high-DOF
+versus a few control points; (2) full open-radiator physics versus lossless
+PEC; and (3) differentiable-by-construction and composable versus a hand-derived
+adjoint.
+
+\section{Method}
+\label{sec:method}
+
+\subsection{The open-radiator forward pencil}
+\label{sec:pencil}
+
+The forward problem is the driven, frequency-domain Maxwell curl-curl equation
+discretized with first-order N\'ed\'elec (edge) elements on an unstructured
+tetrahedral mesh. At natural frequency $\omega$ the assembled linear system is
+the complex-symmetric pencil
+\begin{equation}
+  A(\omega)\,\mathbf{x} \;=\; \Big[\,K(\nu)\;-\;\omega^2 M(\varepsilon)\;+\;\tfrac{j\omega}{Z_s}\,S_p\,\Big]\,\mathbf{x}
+  \;=\; \mathbf{b},
+  \label{eq:pencil}
+\end{equation}
+where $K(\nu)$ is the curl-curl stiffness with reluctivity $\nu=\Lambda^{-1}$,
+$M(\varepsilon)$ is the mass matrix with permittivity $\varepsilon=\varepsilon_r\Lambda$,
+and $S_p$ is the lumped-port surface term with feed reference impedance
+$Z_s$. The radiating boundary is a \emph{matched box-UPML}: an anisotropic
+tensor-material absorber whose per-tet real weights $\Lambda$ enter both $K$ and
+$M$. Losses in the FR-4 substrate enter as a complex $\varepsilon_r$, making the
+pencil genuinely complex-symmetric rather than merely real-shifted. All
+frequencies in this work are dimensionless \emph{natural units} as recorded by
+the solver; we do not assign physical GHz values.
+
+The scattering parameter is extracted from the port voltage and current,
+\begin{equation}
+  S_{11} \;=\; \frac{Z-Z_0}{Z+Z_0}, \qquad Z=\frac{V}{I}, \qquad
+  I=\frac{2V_{\text{inc}}-V}{R}, \qquad Z_0=R,
+  \label{eq:s11}
+\end{equation}
+with port resistance $R=50$ (dimensionless). Passivity requires
+$|S_{11}|\le 1$; we assert this at every forward, gradient, and line-search
+evaluation as a physics tripwire.
+
+\subsection{Dual-twin element kernels and the single-factorization shape adjoint}
+\label{sec:adjoint}
+
+The design variables are the physical coordinates $X$ of the conductor boundary
+nodes. The shape derivative of the objective therefore requires exact
+$\partial K/\partial X$, $\partial M/\partial X$, and $\partial b/\partial X$
+--- the element-kernel Jacobians with respect to node motion. We obtain these by
+\emph{forward-mode automatic differentiation of the closed-form element
+kernels}: each entry of the N\'ed\'elec local curl-curl, mass, and current-RHS
+kernels is re-evaluated in first-order dual arithmetic $r+d\,\epsilon$
+($\epsilon^2=0$). Seeding one node coordinate's tangent with $d=1$ (all others
+$0$) returns, in the dual parts, the exact partials of every local matrix entry
+with respect to that coordinate. These ``Dual-twin'' kernels mirror the real
+$f_{64}$ element kernels entry-for-entry (so their real parts reproduce the
+forward assembly), and are shared with the eigenvalue-sensitivity path that
+reuses the same element JVP. The tensor-material (box-UPML) twin carries the
+fixed real $3\times 3$ per-tet weights $\Lambda$ as lifted constants (zero
+tangent), so the tangent flows only through geometry --- the ``fixed $\Lambda$''
+convention of the box-UPML shape adjoint.
+
+Because the pencil~\eqref{eq:pencil} is complex-symmetric, the transpose adjoint
+system uses the \emph{same} operator as the forward solve. We therefore factor
+$A(\omega)$ \emph{once} per band frequency (a single complex LU) and reuse that
+factorization for both the forward solve and the adjoint solve:
+$n_{\text{fact}}=1$ per frequency. The nodal shape gradient at each band
+frequency is $\lambda^{\!\top}(\partial A/\partial X)\,\mathbf{x}$ assembled from
+the Dual-twin element Jacobians, where $\lambda$ is the adjoint solution.
+
+\subsection{High-DOF freeform boundary parametrization}
+\label{sec:morph}
+
+To move from single-parameter tuning to freeform shape, we parametrize the
+boundary with a harmonic mesh-morph. Each free patch-conductor node is an
+independent radial-normal design DOF; the interior is extended by a P1-Laplace
+mesh-morph regularizer so the volumetric tetrahedra deform gracefully and stay
+non-inverted under large boundary deformation. The PML shell, the pinned feed
+port, the ground plane, and the outer boundary are held fixed
+(\texttt{fixed\_zero}). The multi-DOF design gradient is the per-column
+contraction $\partial g/\partial X_p = \langle \text{grad}_{\text{node}}, D_p\rangle$
+of the nodal adjoint gradient against the morph columns $D_p$. On the reported
+fixture this yields $73$ active freeform boundary DOFs.
+
+The band objective is the frequency-weighted sum of squared reflection
+magnitudes,
+\begin{equation}
+  G(X) \;=\; \sum_{f} w_f\,\big|S_{11}(f;X)\big|^2 ,
+  \label{eq:objective}
+\end{equation}
+with uniform band weights over $\omega\in\{0.30,0.35,0.40\}$ (the v1 spec:
+impedance match $+$ bandwidth only). The band nodal gradients are
+frequency-weighted, summed, and contracted through the morph columns in one
+shot.
+
+\subsection{Guards and validation}
+\label{sec:guards}
+
+Two guards run at every evaluation. \emph{Passivity}: $|S_{11}|\le 1$ across the
+whole band. \emph{Non-inversion}: a per-tet signed-volume ratio
+$|\det(X)/\det(0)|\ge \texttt{min\_vol\_ratio}$ (budget $0.25$) rejects
+near-inverted tetrahedra produced by the morph. The full multi-DOF,
+multi-frequency band gradient is FD-validated before descent begins: the
+analytic directional derivative $\nabla G\cdot\hat d$ is compared against a
+central finite difference of the \emph{entire} port $+$ UPML $+$ lossy pipeline
+through the public \texttt{driven\_solve\_with\_ports(MatchedUpml)} path, on the
+curved mesh, along the steepest-descent direction at $X=0$.
+
+Figure~\ref{fig:setup} sketches the curved conformal radiator inside the
+box-UPML with the pinned feed port.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.72\linewidth]{figures/setup_schematic}
+  \caption{Schematic of the freeform curved-metal conformal radiator: an FR-4 +
+  PEC patch/ground slab wrapped around a cylinder of bend radius $40$ (natural
+  units, as recorded) inside a matched box-UPML shell, driven by a pinned-feed
+  lumped port on the $x=0$ plane. The free patch-conductor nodes (73 active
+  DOFs) move along their radial normals; the PML shell, port plane, ground
+  plane, and outer boundary are held fixed. (Placeholder --- rendered by
+  \texttt{paper-figures} from \texttt{figures/src/}.)}
+  \label{fig:setup}
+\end{figure}
+
+\section{Results}
+\label{sec:results}
+
+\paragraph{Fixture.}
+The reported design is the \texttt{bent\_conformal} fixture: a flat FR-4 + PEC
+patch/ground slab wrapped around a cylinder of bend radius $40$ (natural units)
+about the $y$-axis to produce genuinely curved conformal metal, with an $8$
+(natural units) box-UPML shell and an $x=0$ port plane. The discretization has
+$6173$ edges, $997$ nodes, and $4875$ tetrahedra; the design vector has $73$
+active freeform boundary DOFs and a $50$ (dimensionless) port resistance.
+
+\paragraph{Gradient correctness.}
+The full band gradient matches a central finite difference of the public driven
+pipeline on the curved mesh to relative error $1.17\times10^{-10}$ (analytic and
+central directional derivatives both $1.751288204\times10^{-1}$, FD step
+$10^{-6}$, tolerance $5\times10^{-3}$), with one factorization per band
+frequency.
+
+\paragraph{Headline design result.}
+Bounded backtracking steepest descent (Armijo line search) on the 73-DOF design
+vector reaches a genuine \texttt{target\_reached} terminal in $6$ accepted
+steps (of a $600$-step cap --- a true target hit, not a step cap), with $0$
+total backtracks. The band objective~\eqref{eq:objective} falls from
+$1.897943102\times10^{-1}$ to $3.411688781\times10^{-2}$, a reduction factor of
+$5.56$. The worst-of-band return loss improves from $-5.51$~dB to $-12.06$~dB,
+driving the \emph{entire} design band below the $-10$~dB spec. The final
+per-frequency reflection is
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+$\omega$ & $0.30$ & $0.35$ & $0.40$ \\
+\midrule
+$|S_{11}|$ (dB) & $-12.06$ & $-23.92$ & $-14.42$ \\
+$|S_{11}|$ (mag) & $0.2494$ & $0.0637$ & $0.1900$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Figure~\ref{fig:s11band} shows the convergence trajectory and the final
+per-frequency return loss against the $-10$~dB target.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figures/s11_band}
+  \caption{Left: worst-of-band return loss versus optimization step
+  ($-5.51 \to -12.06$~dB over $6$ accepted steps). Right: final per-frequency
+  $|S_{11}|$ (dB) at $\omega\in\{0.30,0.35,0.40\}$ against the $-10$~dB spec
+  (dashed). All values from the committed artifact
+  \texttt{conformal\_results.toml}. (Placeholder --- rendered by
+  \texttt{paper-figures} from \texttt{figures/src/plot\_s11\_band.py}.)}
+  \label{fig:s11band}
+\end{figure}
+
+\paragraph{Guards and determinism.}
+The non-inversion guard never bound: the worst per-tet signed-volume ratio was
+$0.572$ against the $0.25$ budget, at a maximum nodal displacement of $0.560$
+(natural units). Passivity $|S_{11}|\le 1$ held at every evaluation. The
+gradient norm fell from $1.751\times10^{-1}$ to $8.987\times10^{-2}$. An
+independent fresh forward band solve at the final design (public
+\texttt{driven\_solve\_with\_ports}, no adjoint) reproduces the optimizer's
+final band objective to relative $0.0$, and the run is bit-identical on re-run.
+
+\paragraph{Methodological foundation.}
+The composed driven SHAPE-adjoint stack --- lossy complex-$\varepsilon$ adjoint,
+pinned/moving-feed lumped-port adjoint, box-UPML tensor-material adjoint --- was
+validated by a prior single-DOF capstone that retuned a flat patch, at
+FD relative error $\sim\!10^{-9}$. The conformal result extends that from $1$
+DOF to $73$ freeform DOFs on curved geometry.
+
+\section{Discussion}
+\label{sec:discussion}
+
+The result substantiates a narrow but clean claim: a differentiable-by-construction
+open-radiator FEM can \emph{reach} a freeform curved-conformal $-10$~dB design
+by moving conductor-boundary nodes on a body-fitted mesh, with an exact,
+single-factorization shape adjoint and enforced physics guards. The design space
+is genuinely high-dimensional (73 independent DOFs; not one parametric knob),
+and the geometry is genuinely curved --- the two properties that motivate a
+body-fitted node-motion adjoint over a structured density field.
+
+\paragraph{Limitations and threats to validity.}
+The scope of v1 is impedance match $+$ bandwidth only; radiation pattern and
+gain (a near-to-far-field adjoint) are not addressed here
+(Section~\ref{sec:planned}). The reported design is a single fixture at one bend
+radius and one band; we have not swept mesh resolution, bend radius, or band
+placement, so we make no claim about generality across radiator families. The
+comparative superiority over structured-grid density methods is
+\emph{not} yet quantified --- we claim reachability, not a measured win
+(Section~\ref{sec:planned}). We also note a reproducibility detail in the spirit
+of full disclosure: an initial optimization run mis-recorded a premature
+(step-cap) stop as a physics limit; a corrected line search reached the true
+\texttt{target\_reached} terminal, which is the run reported here.
+
+\section{Planned Evaluation (Future Work)}
+\label{sec:planned}
+
+The following evaluations are \emph{planned and not yet run}; we report
+\emph{no} baseline numbers for them and make no comparative claim beyond
+reachability.
+
+\paragraph{Three-way head-to-head.}
+The intended comparison pits the present body-fitted node-motion adjoint against
+(i) an FDTD/FDFD-density optimizer (e.g.\ Meep-adjoint or \textsc{ceviche})
+forced to staircase the curved conformal geometry, and (ii) a low-DOF
+parametric antenna sweep. The metric is match quality at fixed compute /
+resolution budget. This is the announced next step; the honest claim today is
+that GEODE reaches a freeform curved-conformal $-10$~dB design, while the
+quantified superiority over FDTD-density remains to be measured.
+
+\paragraph{Radiation pattern / gain.}
+A near-to-far-field (NTFF) shape adjoint extending the objective from
+$|S_{11}|$ to pattern/gain is future work and is not claimed here.
+
+\paragraph{Citation gaps.}
+Three references are named in the text but are \emph{not} yet in our
+resolver-verified bibliography, and are surfaced here as gaps for a dedicated
+literature-search pass rather than cited from an unresolved key: (1) the
+\textsc{ceviche} forward-mode-differentiation-of-Maxwell paper (Hughes et al.,
+ACS Photonics 2019) --- needs a resolvable DOI/arXiv id; (2) the Meep
+adjoint-solver reference / documentation; and (3) a canonical antenna
+shape/topology-optimization reference beyond Ghassemi et al.\ that would
+strengthen the parametric-baseline framing.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented a tensor-compiled, differentiable-by-construction 3-D N\'ed\'elec
+H(curl) FEM that exposes an exact, single-factorization discrete shape adjoint
+through the full open-radiator forward --- matched box-UPML tensor material,
+lumped ports, lossy complex-$\varepsilon$, and a passive $|S_{11}|$ --- on
+unstructured tetrahedral meshes. Driving a 73-DOF harmonic freeform boundary
+morph, we gradient-designed a curved-metal conformal radiator that drives the
+entire design band below $-10$~dB return loss (worst-of-band $-5.51 \to
+-12.06$~dB), with the band gradient FD-validated to relative error
+$1.17\times10^{-10}$, enforced passivity, and a non-inversion guard. The
+contribution is a narrow, previously-unoccupied combination --- freeform /
+high-DOF, full open-radiator physics, differentiable-by-construction with
+single-factorization reuse --- explicitly not a first EM shape adjoint. The
+quantified head-to-head against structured-grid density methods, and a
+pattern/gain NTFF adjoint, are the announced next steps.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

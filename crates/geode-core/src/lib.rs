@@ -1,0 +1,35 @@
+//! GEODE-FEM core: solver primitives over Burn tensor IR.
+//!
+//! This is the bootstrap surface (issue #2). The traits below are
+//! intentionally thin placeholders that establish the directional
+//! shape of the API; concrete implementations arrive with scalar
+//! Helmholtz (#3) and the eigenmode solver work that follows.
+
+pub mod adapt;
+pub mod adjoint;
+pub mod analytic;
+pub mod assembly;
+pub mod constants;
+pub mod derham;
+pub mod driven;
+pub mod eigen;
+pub mod elements;
+pub mod interop;
+pub mod mesh;
+pub mod postproc;
+pub mod prelude;
+pub mod quantum;
+pub mod shape;
+pub mod solver;
+pub mod traits;
+
+#[cfg(feature = "testing")]
+pub mod testing;
+
+// Core traits stay reachable at the crate root WITHOUT deprecation (epic
+// #377 open-question 1): they are the crate's conceptual entry point and
+// this preserves the intra-doc link `[`Mesh`](crate::traits::Mesh)` in
+// `mesh/mod.rs`. Every other former flat-root re-export has moved to its
+// canonical module home (`geode_core::<module>::<item>` or
+// `geode_core::prelude::*`) — see epic #377.
+pub use traits::{Element, Mesh, Operator};

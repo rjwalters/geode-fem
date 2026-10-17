@@ -1,0 +1,5 @@
+# The 1.16M-DOF at-scale mesh is DERIVED and intentionally NOT committed
+# (47 MB blob). Regenerate in ~1.3 s from transmon_smoke.msh per the recipe in
+# transmon_refine1.provenance.txt. This rule prevents accidental commits of the
+# regenerated file. See issue #556.
+transmon_refine1.msh

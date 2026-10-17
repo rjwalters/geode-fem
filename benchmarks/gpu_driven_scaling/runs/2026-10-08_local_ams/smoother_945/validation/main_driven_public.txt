@@ -1,0 +1,9 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct binary=geode_core-e13ad90a149508dd 
+# start=2026-10-08T13:14:10Z loadavg=13.82 12.69 12.04
+
+running 1 test
+test driven::solve::tests::ams_selectable_on_public_iterative_path_matches_direct ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 685 filtered out; finished in 0.02s
+

@@ -1,0 +1,12 @@
+# tree=fix git=11d1d60c15ccf4f1f68e902b1df6332db58d6ad9 dirty=0
+# test=synthetic_three_space_vs_gradient_only_inner_iterations binary=transmon_eigenmode-ac55df93e8f8ac48 
+# start=2026-10-08T13:14:15Z loadavg=13.51 12.65 12.03
+
+running 1 test
+test synthetic_three_space_vs_gradient_only_inner_iterations ... # ams_smoother edge_dim=1302 theta_max=3.327235 lanczos_steps=30 gershgorin=3.997230 rho_hat=3.659959 weight=0.600000 source=default estimate_ms=0.828 theta_ref=3.327236 ref_steps=600
+# ams_smoother edge_dim=1302 theta_max=3.327235 lanczos_steps=30 gershgorin=3.997230 rho_hat=3.659959 weight=0.600000 source=default estimate_ms=0.814 theta_ref=3.327236 ref_steps=600
+inner-CG iterations (synthetic n=6, σ=-0.5): gradient-only AMS = 6264, three-space AMS = 3719, reduction = 1.684×
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 1.15s
+

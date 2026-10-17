@@ -1,0 +1,5991 @@
+//! Deterministic **driven** frequency-domain solve `A(ω) x = b` with a
+//! volumetric current source (Epic #193, issue #194).
+//!
+//! Where the eigenpencil path solves `(K − k² M) x = 0` for resonances,
+//! this module solves the *forced* problem at a prescribed frequency ω:
+//!
+//! ```text
+//! A(ω) x = b,        A(ω) = K + iω C(σ) − (ω/c)² M(ε),
+//! b_i = i ω μ₀ ∫_Ω N_i · J dV,
+//! ```
+//!
+//! in the codebase's natural units (`c = μ₀ = ε₀ = 1`, so `ω ≡ k₀` and
+//! eigenvalues of the pencil are `k²`). `K` is the Nédélec curl-curl
+//! stiffness, `M(ε)` the (possibly complex / anisotropic-diagonal) mass,
+//! `C(σ)` the σ-weighted conductivity damping matrix (issue #196 — see
+//! [`crate::assembly::nedelec::assemble_nedelec_sigma_damping`] for the
+//! form choice: `K`, `M`, `C` are all ω-independent so frequency sweeps
+//! re-form `A(ω)` by linear combination; equivalently
+//! `A(ω) = K − ω² M(ε − iσ/ω)`), and `J` a per-tet piecewise-constant
+//! current density. All three matrices are real- or complex-**symmetric**,
+//! so `A(ω)ᵀ = A(ω)` with or without conductivity.
+//!
+//! # Boundary conditions
+//!
+//! BCs compose with the driven system exactly as they do with the
+//! eigenpencil:
+//!
+//! - **PEC** — row/column elimination via a per-edge interior mask
+//!   (same face-exact mask helpers as the eigen path:
+//!   [`crate::assembly::nedelec::boundary_pec_interior_edges`],
+//!   [`crate::assembly::nedelec::cube_pec_interior_edges`],
+//!   [`crate::assembly::nedelec::sphere_pec_interior_edges`],
+//!   [`crate::mesh::pec_interior_mask_from_triangles`]). Eliminated
+//!   edge DOFs are returned as exact zeros in the full-length solution.
+//! - **UPML / scalar PML** — enters through the *material*: a complex
+//!   scalar ε ([`crate::assembly::nedelec::build_complex_epsilon_r_pml`])
+//!   or a diagonal anisotropic tensor ε
+//!   ([`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`])
+//!   makes `M` complex, which makes `A(ω)` invertible for real ω and
+//!   absorbs outgoing radiation.
+//! - **Matched (full Sacks) UPML** — also a material
+//!   ([`DrivenMaterials::MatchedUpml`], issue #199): both constitutive
+//!   tensors are stretched (`ε = ε_r·Λ`, `μ = Λ`), so the curl-curl
+//!   stiffness gains a complex full-3×3 weight `ν = Λ⁻¹` and the system
+//!   is `A(ω) = K(ν) + iωC(σ) − ω²M(ε)`. `Λ` is symmetric, so
+//!   `A(ω)ᵀ = A(ω)` still holds. Per-tet tensors come from
+//!   [`crate::driven::scattering::build_matched_upml_materials`]; the
+//!   host-assembled oracle is
+//!   [`crate::driven::scattering::solve_scattered_field_matched_upml`].
+//! - **Lumped port** (issue #202) — a Palace-style uniform port on a
+//!   boundary surface Γ_p ([`crate::driven::ports::LumpedPort`], passed
+//!   to [`driven_solve_with_ports`]): a resistive termination adds the
+//!   iω-scaled tangential surface mass `(jω/Z_s) S_p` to `A(ω)`
+//!   (`Z_s = R·w/l`; real symmetric `S_p`, so `A(ω)ᵀ = A(ω)` is
+//!   preserved), and a non-zero incident voltage `V_inc` adds the
+//!   surface drive `b_i += (2jω/Z_s)(V_inc/l) ∮ N_i · ê dS` to the
+//!   RHS. See `lumped_port.rs` for the derivation and the V/I
+//!   bookkeeping helpers.
+//! - **Surface impedance (Leontovich)** — Epic #193, issue #204: thick
+//!   conductors whose skin depth the mesh cannot afford to resolve are
+//!   replaced by the impedance condition `E_t = −Z_s(ω) n̂ × H` on the
+//!   conductor surface, which adds the complex-scaled surface mass
+//!   `+ (iω / Z_s(ω)) S_Γ` to `A(ω)` (see
+//!   [`driven_solve_with_surface_impedance`]). Silver-Müller is the
+//!   `Z_s = η₀` special case of the same term. The scalar coefficient
+//!   is **ω-dependent** (for the good-conductor model it is
+//!   `(1+i)√(ωσ/2)` ∝ `√ω·(1+i)`), so unlike `K`/`M`/`C` the surface
+//!   block cannot be folded into an ω-independent linear combination
+//!   across a frequency sweep — sweep drivers must re-apply the scalar
+//!   coefficient at every ω (the real matrix `S_Γ` itself is
+//!   ω-independent and cacheable).
+//!
+//! # Element order (issue #838, Epic #836 Phase 1a)
+//!
+//! Every entry point above is first order (Whitney edges, one DOF per
+//! edge). [`DrivenOperator::assemble_with_space`] takes an
+//! order-pluggable [`crate::assembly::hcurl_space::HcurlSpace`] instead:
+//! with a p=1 space it runs the same Burn assembly verbatim (bit-identical
+//! results), and with a p=2 space it assembles the 20-DOF element on the
+//! host for the volume physics — complex scalar / diagonal-tensor /
+//! matched-UPML ε, σ damping, volume J, tagged face-exact PEC — and (issue
+//! #857, Phase 1b) the surface terms on the p=2 tangential trace: lumped
+//! ports and every impedance-surface model (Leontovich, rough conductor,
+//! London, Silver-Müller). Geometric wave ports join at p=2 through the
+//! `*_on_space` sweeps of [`crate::driven::ports`] (issue #884, Phase 3a).
+//! Every feature without a p=2 path yet (the matrix-free solver, AMS,
+//! hybrid wave ports, the transient solver) returns
+//! [`DrivenError::UnsupportedAtOrder`]; nothing is silently solved at another
+//! order.
+//!
+//! # Solver
+//!
+//! Reuses the existing sparse complex factorization machinery from the
+//! shift-and-invert Lanczos path ([`crate::eigen::complex`]): the
+//! interior-reduced `A(ω)` is built as a `faer` sparse CSC matrix from
+//! the assembly [`crate::assembly::p1::SparsityPattern`], factored once with
+//! `sp_lu`, and solved directly. A direct sparse solve is sufficient at
+//! the mesh sizes this crate targets; iterative solvers are out of scope
+//! (issue #194).
+//!
+//! # Sign / time convention
+//!
+//! `exp(+jωt)` time convention, consistent with the rest of the codebase
+//! (see `silvermuller.rs` and the PML builders, which produce
+//! `Im(ε) < 0` for absorption). The strong form corresponding to the
+//! discrete system above is
+//!
+//! ```text
+//! ∇×∇×E − ω² ε E = i ω J,
+//! ```
+//!
+//! i.e. the source phase convention follows the issue statement
+//! (`b = iωμ₀ ∫ N · J`). A global phase flip of `J` only flips the phase
+//! of `x`; absorption direction is set by `Im(ε)` in `A`, not by `b`.
+//!
+//! # Autodiff
+//!
+//! The assembly of `K`, `M`, and `b` runs through the batched-local-
+//! kernel + `scatter(Add)` Burn path and preserves autodiff up to the
+//! host transfer. The sparse factorization itself is faer (CPU) and
+//! breaks the tape — same trade-off as the eigensolver layer
+//! ([`crate::eigen::dense`]).
+
+use burn::tensor::backend::Backend;
+use faer::c64;
+use faer::sparse::linalg::solvers::Lu;
+use faer::sparse::{SparseColMat, Triplet};
+
+use crate::assembly::nedelec::{
+    NedelecScatterMap, assemble_global_nedelec_with_anisotropic_epsilon_sparse,
+    assemble_global_nedelec_with_complex_epsilon_sparse,
+    assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
+    assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
+};
+use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
+use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::mesh::TetMesh;
+
+#[path = "solve_ams.rs"]
+mod ams;
+#[path = "solve_p2.rs"]
+mod p2;
+pub use ams::{
+    AMS_PI_COARSE_SWEEPS, AmsCoarseSolve, DRIVEN_AMS_CYCLE_ENV, DRIVEN_AMS_PI_COARSE_ENV,
+    DRIVEN_AMS_SMOOTHER_ENV, DrivenAms, PiCoarseSolve,
+};
+
+/// Errors produced by the driven-solve layer.
+#[derive(Debug, thiserror::Error)]
+pub enum DrivenError {
+    #[error(
+        "PEC interior mask length {got} disagrees with the space's DOF count {want} \
+         (the edge count at p=1)"
+    )]
+    MaskDimMismatch { got: usize, want: usize },
+    #[error("source has {got} per-tet entries but mesh has {want} tets")]
+    SourceDimMismatch { got: usize, want: usize },
+    #[error("material has {got} per-tet entries but mesh has {want} tets")]
+    MaterialDimMismatch { got: usize, want: usize },
+    #[error("sigma has {got} per-tet entries but mesh has {want} tets")]
+    SigmaDimMismatch { got: usize, want: usize },
+    #[error(
+        "surface impedance Z_s(ω) = {z_re} + {z_im}i is singular or non-finite at ω = {omega} \
+         (|Z_s| must be positive and finite; the Z_s → 0 PEC limit is expressed by eliminating \
+         the surface edges through the PEC mask instead)"
+    )]
+    SurfaceImpedanceSingular { z_re: f64, z_im: f64, omega: f64 },
+    #[error("driven system has no interior DOFs after PEC elimination")]
+    EmptyInterior,
+    #[error("invalid lumped port {index}: {reason}")]
+    InvalidPort { index: usize, reason: String },
+    #[error("sparse system assembly failed: {0}")]
+    SparseAssembly(String),
+    #[error("sparse LU factorization of A(ω) failed: {0}")]
+    Factorization(String),
+    #[error("sparse solve failed: {0}")]
+    Solve(String),
+    #[error(
+        "matrix-free solver (SolverMode::IterativeMatrixFree) does not support this \
+         configuration: {reason}"
+    )]
+    UnsupportedMatrixFree { reason: String },
+    /// A feature was requested on an operator whose H(curl) space has an
+    /// element order that feature does not support yet (issue #838, Epic
+    /// #836). Returned instead of solving at a different order or silently
+    /// dropping the feature (the #804 rule).
+    #[error(
+        "{feature} is not supported at element order {order} yet (Epic #836; use an \
+         ElementOrder::P1 space for this configuration)"
+    )]
+    UnsupportedAtOrder {
+        /// The order of the space the operator was built on.
+        order: ElementOrder,
+        /// The unsupported feature, e.g. `"lumped ports"`.
+        feature: &'static str,
+    },
+    /// An [`crate::assembly::hcurl_space::HcurlSpace`] was used with a mesh
+    /// it was not built on (issue #838). Spaces are mesh-specific: rebuild
+    /// one per mesh.
+    #[error(
+        "the H(curl) space was built on a mesh with {space_nodes} nodes / {space_tets} tets, \
+         but the operator mesh has {mesh_nodes} / {mesh_tets}; rebuild the space for this mesh"
+    )]
+    SpaceMeshMismatch {
+        /// Node count of the space's mesh.
+        space_nodes: usize,
+        /// Tet count of the space's mesh.
+        space_tets: usize,
+        /// Node count of the operator mesh.
+        mesh_nodes: usize,
+        /// Tet count of the operator mesh.
+        mesh_tets: usize,
+    },
+    /// A caller-supplied surface or port triangle list contains triangles
+    /// that are not faces of any tet in the mesh (issue #725). The surface
+    /// kernels cannot integrate over such a triangle (its edges are not all
+    /// mesh edges), so the entry point rejects the input before assembly.
+    #[error(
+        "{surface}: triangle {triangle:?} is not a face of any tet in the mesh \
+         ({dangling} of {total} triangles on this surface are not tet faces)"
+    )]
+    SurfaceNotOnMesh {
+        /// Which surface, e.g. `"impedance surface 0"` or `"lumped port 1"`.
+        surface: String,
+        /// The first offending triangle (caller's node order).
+        triangle: [u32; 3],
+        /// Number of offending triangles on that surface.
+        dangling: usize,
+        /// Total number of triangles on that surface.
+        total: usize,
+    },
+}
+
+/// Reject any triangle list in `surfaces` that is not made of tet faces
+/// (issue #725), naming it `"{kind} {index}"` in the returned
+/// [`DrivenError::SurfaceNotOnMesh`]. Called once per surface kind at every
+/// driven entry point that accepts caller-supplied triangles, ahead of the
+/// (panicking-on-bad-input) Whitney surface kernels.
+pub(crate) fn validate_driven_surfaces<'a, I>(
+    mesh: &TetMesh,
+    kind: &str,
+    surfaces: I,
+) -> Result<(), DrivenError>
+where
+    I: IntoIterator<Item = &'a [[u32; 3]]>,
+{
+    crate::elements::whitney::validate_surface_faces(mesh, surfaces).map_err(|d| {
+        DrivenError::SurfaceNotOnMesh {
+            surface: format!("{kind} {}", d.surface),
+            triangle: d.triangle,
+            dangling: d.dangling,
+            total: d.total,
+        }
+    })
+}
+
+/// Validate lumped-port specifications with exactly the checks (and error
+/// texts) of the p=1 [`DrivenOperator::assemble`]: non-empty faces, finite
+/// positive `R`, `w`, `l`, unit `ê`, in-range face nodes. Used by the p=2
+/// operator assembly (issue #857); the p=1 path keeps its inline copy so
+/// its code path is untouched.
+pub(crate) fn validate_lumped_ports(
+    mesh: &TetMesh,
+    ports: &[LumpedPort<'_>],
+) -> Result<(), DrivenError> {
+    for (index, port) in ports.iter().enumerate() {
+        let invalid = |reason: &str| DrivenError::InvalidPort {
+            index,
+            reason: reason.to_string(),
+        };
+        if port.faces.is_empty() {
+            return Err(invalid("port has no faces"));
+        }
+        if !(port.resistance.is_finite() && port.resistance > 0.0) {
+            return Err(invalid("resistance must be finite and positive"));
+        }
+        if !(port.width.is_finite() && port.width > 0.0) {
+            return Err(invalid("width must be finite and positive"));
+        }
+        if !(port.length.is_finite() && port.length > 0.0) {
+            return Err(invalid("length must be finite and positive"));
+        }
+        let e_norm = (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+        if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+            return Err(invalid("e_hat must be a unit vector"));
+        }
+        let n_nodes = mesh.n_nodes() as u32;
+        if port
+            .faces
+            .iter()
+            .any(|f| f.iter().any(|&node| node >= n_nodes))
+        {
+            return Err(invalid("face node index out of range"));
+        }
+    }
+    Ok(())
+}
+
+/// Linear-solver selection for the per-ω back-solves used by the
+/// driven frequency-sweep pipelines (issue #264).
+///
+/// The direct path factors `A(ω)` once per frequency and back-substitutes
+/// cheaply across multi-RHS (the historical default — the N-port
+/// S-matrix path of issue #214 and the rank-N wave-port SMW of issue
+/// #255 both lean on this). The iterative path
+/// ([`crate::solver::ksp::Cocg`] + [`crate::solver::ksp::JacobiPreconditioner`],
+/// landed in PR #243) avoids the factorization entirely — each RHS at a
+/// fixed ω runs a fresh COCG iteration against the cached sparse
+/// `A(ω)`. The preconditioner is built once per ω from the assembled
+/// `A(ω)` and reused for every RHS at that ω, so the per-ω setup cost
+/// of the iterative path is one diagonal extraction.
+///
+/// # Trade-off (documented for issue #264)
+///
+/// **Direct (LU)** — one factorization per ω, every back-solve is the
+/// triangular machinery. Memory grows with sparse LU fill-in, so the
+/// 46k-edge benchmark of issue #218 is the practical ceiling on the
+/// fixtures the test suite carries today.
+///
+/// **Iterative (COCG)** — no factor, no fill-in: memory tracks the
+/// assembled `A(ω)` itself, lifting the issue-#218 cap. The price is
+/// the per-RHS factor-once amortization: every RHS at a fixed ω pays
+/// the full COCG iteration count. For multi-RHS workloads
+/// (`s_parameter_frequency_sweep` and `solve_wave_port_sweep`, both
+/// N-RHS-per-ω), this is the dominant cost; a single-RHS sweep at the
+/// same ω makes both paths roughly equivalent at small-mesh sizes.
+/// Iteration counts depend on conditioning — high frequencies,
+/// ill-conditioned matrix-loaded structures, or evanescent-mode-rich
+/// wave-port problems can blow iteration counts up (the
+/// per-ω `iters_per_rhs` log surfaces this in the
+/// regression).
+///
+/// # Default
+///
+/// [`SolverMode::Direct`] preserves the historical entry points'
+/// behavior bit-for-bit — `driven_frequency_sweep` and
+/// `solve_wave_port_sweep` delegate to the `_with_mode` variants with
+/// `SolverMode::Direct`.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SolverMode {
+    /// Sparse-LU direct path (the default). Factor `A(ω)` once at each
+    /// ω, back-substitute cheaply per RHS.
+    #[default]
+    Direct,
+    /// COCG iterative path (issue #238 / PR #243). No factor — each RHS
+    /// at a fixed ω is solved by a fresh COCG iteration against the
+    /// cached sparse `A(ω)`, with the preconditioner selected by
+    /// [`IterativeSettings::preconditioner`] (by default
+    /// [`IterativePreconditioner::Auto`]: AMS where supported, Jacobi with
+    /// a warning otherwise, issue #930) built once per ω and reused across
+    /// RHS.
+    Iterative(IterativeSettings),
+    /// **GPU-resident matrix-free** COCG path (issue #302 Phase 3 / PR
+    /// #487's [`crate::solver::ksp_burn::BurnCocg`]). Like
+    /// [`SolverMode::Iterative`] it never factors `A(ω)`, but it also
+    /// never *assembles* the volume pencil: the `K − ω²M(ε) + iωC(σ)`
+    /// matvec runs element-locally on Burn tensors
+    /// ([`crate::solver::ksp_burn::ComplexMatrixFreeOperator`]) with the
+    /// small port / Leontovich surface terms applied as an on-device COO
+    /// correction ([`crate::driven::matrix_free`]). The Krylov vectors
+    /// stay on-device; only O(1) scalars cross the host boundary per
+    /// iteration.
+    ///
+    /// **Opt-in and restricted (v1)**: only scalar **real** ε materials
+    /// are supported — [`DrivenMaterials::DiagTensor`] /
+    /// [`DrivenMaterials::MatchedUpml`] and wave-port sweeps are rejected
+    /// with a clean [`DrivenError`]; lumped ports and Leontovich surfaces
+    /// are handled. The default remains [`SolverMode::Direct`].
+    ///
+    /// Preconditioners: the on-device Jacobi (what
+    /// [`IterativePreconditioner::Auto`] resolves to here, with a warning)
+    /// or, on the CPU ndarray f64 backend only, an explicit
+    /// [`IterativePreconditioner::Ams`]: the assembled path's AMS, applied on
+    /// the host between the matrix-free operator applies (issue #966; see
+    /// [`crate::driven::matrix_free`]).
+    IterativeMatrixFree(IterativeSettings),
+}
+
+/// Tunable knobs for [`SolverMode::Iterative`].
+///
+/// Mirrors [`crate::solver::ksp::Cocg`]'s tolerance / iteration budget,
+/// but lives in the driven layer because the iterative back-solve is a
+/// per-ω internal — callers parameterize the sweep with these, not a
+/// constructed [`crate::solver::ksp::Cocg`] (the breakdown threshold uses
+/// the COCG default).
+#[derive(Debug, Clone, Copy)]
+pub struct IterativeSettings {
+    /// Relative-residual stopping criterion `‖A x − b‖₂ ≤ tol · ‖b‖₂`
+    /// for each per-RHS COCG iteration. Default `1e-10`.
+    pub tol: f64,
+    /// Maximum COCG iterations per RHS. Default `5000`.
+    pub max_iters: usize,
+    /// Preconditioner built once per ω from the assembled `A(ω)` on the
+    /// [`SolverMode::Iterative`] path (issue #708 Phase 6b). Default
+    /// [`IterativePreconditioner::Auto`] (issue #930): AMS wherever it is
+    /// supported, Jacobi with a warning where it is not (see
+    /// [`DrivenOperator::resolve_preconditioner`]). Set
+    /// [`IterativePreconditioner::Jacobi`] explicitly for the pre-#930
+    /// behavior. The matrix-free path ([`SolverMode::IterativeMatrixFree`])
+    /// resolves `Auto` to its on-device Jacobi with a warning, accepts an
+    /// explicit [`IterativePreconditioner::Ams`] on the CPU ndarray f64
+    /// backend (a host-side AMS, issue #966), and rejects every other
+    /// explicit choice with [`DrivenError::UnsupportedMatrixFree`].
+    pub preconditioner: IterativePreconditioner,
+    /// Residual-replacement cap of the per-RHS COCG solve (issue #943),
+    /// passed to [`crate::solver::ksp::Cocg::max_replacements`] on the
+    /// [`SolverMode::Iterative`] path and to
+    /// [`crate::solver::ksp_burn::BurnCocg::max_replacements`] on the
+    /// [`SolverMode::IterativeMatrixFree`] path. Default
+    /// [`crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS`] (3).
+    ///
+    /// `0` restores the pre-#943 single check: the solve stops the first
+    /// time its recursive residual meets `tol`, and a drifted explicit
+    /// residual is reported as a [`DrivenError::Solve`] at that first
+    /// crossing. Measurement harnesses that record first-crossing drift
+    /// (issue #987) pin it to `0`; production solves should keep the
+    /// default, which repairs a drift of a hair above `tol` instead of
+    /// failing.
+    pub max_replacements: usize,
+}
+
+impl Default for IterativeSettings {
+    fn default() -> Self {
+        // Match Cocg::default() for tol; 5000 iters is the practical
+        // ceiling on the fixtures the test suite covers.
+        Self {
+            tol: 1e-10,
+            max_iters: 5000,
+            preconditioner: IterativePreconditioner::Auto,
+            max_replacements: crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS,
+        }
+    }
+}
+
+impl IterativeSettings {
+    /// Convenience constructor — `tol` and `max_iters` only, with the
+    /// default [`IterativePreconditioner::Auto`] and the default
+    /// residual-replacement cap
+    /// ([`crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS`]).
+    pub fn new(tol: f64, max_iters: usize) -> Self {
+        Self {
+            tol,
+            max_iters,
+            ..Self::default()
+        }
+    }
+
+    /// Builder-style override of the preconditioner choice.
+    pub fn with_preconditioner(mut self, preconditioner: IterativePreconditioner) -> Self {
+        self.preconditioner = preconditioner;
+        self
+    }
+
+    /// Builder-style override of the residual-replacement cap
+    /// ([`Self::max_replacements`], issue #987). `0` restores the pre-#943
+    /// first-crossing check.
+    pub fn with_max_replacements(mut self, max_replacements: usize) -> Self {
+        self.max_replacements = max_replacements;
+        self
+    }
+}
+
+/// Preconditioner selection for the assembled-CSR
+/// [`SolverMode::Iterative`] path (issue #708 Phase 6b).
+///
+/// Every variant is built once per ω from the assembled interior `A(ω)`
+/// and reused across every RHS at that ω. All of them are applied with
+/// plain (non-conjugating) complex arithmetic, so they compose with the
+/// COCG bilinear form.
+///
+/// # Default (issue #930)
+///
+/// The default is [`Self::Auto`], which [`DrivenOperator::prepare_at`]
+/// resolves to [`Self::AMS`] wherever AMS is supported and to
+/// [`Self::Jacobi`], with a [`PreconditionerFallback`] warning, where it
+/// is not. The evidence for AMS over Jacobi is the at-scale run of PR #967
+/// (`benchmarks/gpu_driven_scaling/README.md`); AMS costs more memory than
+/// Jacobi (it holds an exact sparse LU of the nodal coarse operator).
+/// Every explicit variant, Jacobi included, is honoured as given, without
+/// a warning.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IterativePreconditioner {
+    /// AMS where it is supported, Jacobi otherwise (issue #930). The
+    /// default. Resolved per [`DrivenOperator::prepare_at`] call by
+    /// [`DrivenOperator::resolve_preconditioner`]:
+    ///
+    /// - [`SolverMode::Iterative`] on a p=1 operator without matched-UPML
+    ///   materials: [`Self::AMS`];
+    /// - a higher-order operator (AMS returns
+    ///   [`DrivenError::UnsupportedAtOrder`] there), matched-UPML materials
+    ///   (AMS stalls far above Jacobi on the radiating UPML patch, issue
+    ///   #744; see [`PreconditionerFallbackReason::MatchedUpml`]), or
+    ///   [`SolverMode::IterativeMatrixFree`] (where AMS is host-side and
+    ///   opt-in, issue #966): [`Self::Jacobi`], with a [`PreconditionerFallback`] that is
+    ///   printed once per process on stderr as `warning: …` and returned by
+    ///   [`DrivenLinearSolver::preconditioner_fallback`].
+    ///
+    /// [`Self::build`] (which sees only `A(ω)`) rejects it.
+    #[default]
+    Auto,
+    /// Diagonal scaling ([`crate::solver::ksp::JacobiPreconditioner`]):
+    /// `O(n)` setup and memory. The default before issue #930, and what
+    /// [`Self::Auto`] falls back to.
+    Jacobi,
+    /// Incomplete LU with zero fill
+    /// ([`crate::solver::ksp::IluPreconditioner`], issue #267): one
+    /// factorization on `A(ω)`'s own sparsity pattern per ω (an extra
+    /// `nnz(A)` complex values plus a row index), two `O(nnz)`
+    /// triangular solves per application. Errors at setup with
+    /// [`DrivenError::Solve`] if a pivot vanishes.
+    Ilu0,
+    /// Degree-`k` first-kind Chebyshev polynomial smoother on the
+    /// Jacobi-scaled operator
+    /// ([`crate::solver::ksp::ChebyshevPreconditioner`], default
+    /// [`crate::solver::ksp::ChebyshevConfig`]). `degree = 0` is Jacobi.
+    Chebyshev {
+        /// Polynomial degree (number of Chebyshev steps, i.e. SpMVs per
+        /// application).
+        degree: usize,
+    },
+    /// Hiptmair–Xu **auxiliary-space Maxwell** (AMS) V-cycle on a real
+    /// SPD proxy of `A(ω)` (issue #744; see [`DrivenAms`] and the
+    /// `solve_ams` module docs for the proxy, the measurements and the
+    /// coarse-solve choice). Converges the low-frequency spiral (#676)
+    /// where Jacobi / ILU(0) stall, in an outer iteration count that
+    /// stays flat with mesh size.
+    ///
+    /// Needs the operator's mesh geometry (the discrete gradient), so it
+    /// is only built by [`DrivenOperator::prepare_at`];
+    /// [`IterativePreconditioner::build`] (which sees only `A(ω)`)
+    /// rejects it.
+    Ams {
+        /// Auxiliary-space coarse solver ([`AmsCoarseSolve::Auto`] by
+        /// default: exact sparse LU of the nodal block at every size).
+        coarse: AmsCoarseSolve,
+    },
+}
+
+impl IterativePreconditioner {
+    /// The AMS preconditioner with the default
+    /// ([`AmsCoarseSolve::Auto`]) coarse solve.
+    pub const AMS: Self = Self::Ams {
+        coarse: AmsCoarseSolve::Auto,
+    };
+
+    /// Short stable name (`"auto"`, `"jacobi"`, `"ilu0"`, `"chebyshev"`,
+    /// `"ams"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Jacobi => "jacobi",
+            Self::Ilu0 => "ilu0",
+            Self::Chebyshev { .. } => "chebyshev",
+            Self::Ams { .. } => "ams",
+        }
+    }
+
+    /// Build the selected preconditioner from the assembled interior
+    /// `A(ω)`.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] wrapping the setup failure (a zero /
+    /// non-finite diagonal for Jacobi / Chebyshev, a vanishing ILU(0)
+    /// pivot), or for [`Self::Ams`], which needs the operator's mesh
+    /// geometry and is built by [`DrivenOperator::prepare_at`] instead, and
+    /// for [`Self::Auto`], which only [`DrivenOperator::prepare_at`] can
+    /// resolve (it depends on the operator's order and materials).
+    pub fn build(
+        self,
+        a: faer::sparse::SparseColMatRef<'_, usize, c64>,
+    ) -> Result<DrivenPreconditioner, DrivenError> {
+        use crate::solver::ksp::{
+            ChebyshevPreconditioner, IluPreconditioner, JacobiPreconditioner,
+        };
+        let setup = |e: crate::solver::ksp::KspError| {
+            DrivenError::Solve(format!("{} preconditioner setup: {e}", self.name()))
+        };
+        Ok(match self {
+            Self::Jacobi => {
+                DrivenPreconditioner::Jacobi(JacobiPreconditioner::new(a).map_err(setup)?)
+            }
+            Self::Ilu0 => DrivenPreconditioner::Ilu0(IluPreconditioner::new(a, 0).map_err(setup)?),
+            Self::Chebyshev { degree } => DrivenPreconditioner::Chebyshev(
+                ChebyshevPreconditioner::new(a, degree).map_err(setup)?,
+            ),
+            Self::Ams { .. } => {
+                return Err(DrivenError::Solve(
+                    "ams preconditioner setup: AMS needs the operator's mesh geometry \
+                     (discrete gradient), so it is built by DrivenOperator::prepare_at, \
+                     not from A(ω) alone"
+                        .to_string(),
+                ));
+            }
+            Self::Auto => {
+                return Err(DrivenError::Solve(
+                    "auto preconditioner setup: `auto` resolves to AMS or Jacobi from the \
+                     operator's order and materials, so it is resolved by \
+                     DrivenOperator::prepare_at, not from A(ω) alone"
+                        .to_string(),
+                ));
+            }
+        })
+    }
+}
+
+/// Why [`IterativePreconditioner::Auto`] did not resolve to AMS (issue
+/// #930).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreconditionerFallbackReason {
+    /// The operator is not p=1: the AMS auxiliary space is built on the
+    /// Whitney edge layout, and AMS returns
+    /// [`DrivenError::UnsupportedAtOrder`] at this order.
+    Order(ElementOrder),
+    /// [`SolverMode::IterativeMatrixFree`]: the matrix-free path's default
+    /// is its on-device Jacobi. Its AMS (issue #966) runs on the host, CPU
+    /// ndarray f64 only, so it is opt-in: request
+    /// [`IterativePreconditioner::Ams`] explicitly.
+    MatrixFree,
+    /// Matched-UPML materials: on the radiating UPML patch (issue #744)
+    /// AMS stalls far above where Jacobi gets. With only the outer
+    /// boundary PEC, after 5 000 iterations at tol 1e-8 AMS is at a
+    /// residual of 4.3e-2 and Jacobi at 1.6e-6 (PR #973 review). Neither
+    /// converges that fixture at the default budget (Jacobi reaches
+    /// ~1.9e-4 at tol 1e-10, PR #752); [`SolverMode::Direct`] is the
+    /// robust choice there. Jacobi is the fallback only because it is the
+    /// lesser failure.
+    MatchedUpml,
+}
+
+/// The warning [`IterativePreconditioner::Auto`] raises when it falls back
+/// from AMS (issue #930): the reason and the preconditioner actually used.
+/// Its [`std::fmt::Display`] is the warning text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreconditionerFallback {
+    /// Why AMS was not used.
+    pub reason: PreconditionerFallbackReason,
+    /// The preconditioner actually used (always
+    /// [`IterativePreconditioner::Jacobi`] today).
+    pub used: IterativePreconditioner,
+}
+
+impl std::fmt::Display for PreconditionerFallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let why = match self.reason {
+            PreconditionerFallbackReason::Order(order) => format!(
+                "the AMS preconditioner is not supported at element order p={}",
+                order.degree()
+            ),
+            PreconditionerFallbackReason::MatrixFree => {
+                "the matrix-free iterative path defaults to its on-device Jacobi (its AMS \
+                 preconditioner runs on the host, CPU ndarray f64 only, and must be requested \
+                 explicitly)"
+                    .to_string()
+            }
+            PreconditionerFallbackReason::MatchedUpml => {
+                "the AMS preconditioner stalls far above Jacobi with matched-UPML \
+                 absorbing regions (issue #744); Jacobi may not converge there either, \
+                 and the direct solver is the robust choice"
+                    .to_string()
+            }
+        };
+        write!(
+            f,
+            "preconditioner `auto` (the default) fell back to `{}`: {why}; set the \
+             preconditioner explicitly to silence this warning",
+            self.used.name()
+        )
+    }
+}
+
+impl PreconditionerFallbackReason {
+    /// Index into the once-per-process stderr guard.
+    fn slot(self) -> usize {
+        match self {
+            Self::Order(_) => 0,
+            Self::MatrixFree => 1,
+            Self::MatchedUpml => 2,
+        }
+    }
+}
+
+/// Print `fallback` on stderr as `warning: …`, once per process per
+/// [`PreconditionerFallbackReason`] kind, so a frequency sweep (one
+/// [`DrivenOperator::prepare_at`] per ω) warns once rather than per point.
+fn warn_preconditioner_fallback(fallback: &PreconditionerFallback) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: [AtomicBool; 3] = [
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ];
+    if !WARNED[fallback.reason.slot()].swap(true, Ordering::Relaxed) {
+        eprintln!("warning: {fallback}");
+    }
+}
+
+/// A built [`IterativePreconditioner`] — the concrete preconditioner
+/// the [`SolverMode::Iterative`] back-solve applies. Static dispatch
+/// over the [`crate::solver::ksp`] implementations and the driven AMS.
+#[derive(Debug, Clone)]
+pub enum DrivenPreconditioner {
+    /// [`crate::solver::ksp::JacobiPreconditioner`].
+    Jacobi(crate::solver::ksp::JacobiPreconditioner),
+    /// [`crate::solver::ksp::IluPreconditioner`] (ILU(0)).
+    Ilu0(crate::solver::ksp::IluPreconditioner),
+    /// [`crate::solver::ksp::ChebyshevPreconditioner`].
+    Chebyshev(crate::solver::ksp::ChebyshevPreconditioner),
+    /// [`DrivenAms`] (issue #744), shared because its coarse factors are
+    /// not cheaply clonable.
+    Ams(std::sync::Arc<DrivenAms>),
+}
+
+impl DrivenPreconditioner {
+    /// The faer sequential scope a Krylov solve with this preconditioner
+    /// must hold, if any (issue #946). Bind the result for the whole solve:
+    ///
+    /// ```ignore
+    /// let _seq = precond.sequential_solve_scope();
+    /// ksp.solve(a, b, x, &precond)?;
+    /// ```
+    ///
+    /// `Some` for [`Self::Ams`] only. Each AMS application runs the cached
+    /// sparse LU of its coarse operators through faer's
+    /// `Lu::solve_in_place`, twice per COCG iteration (real and imaginary
+    /// part). That call takes its thread count from faer's process-global
+    /// parallelism, which defaults to every core, and the solves are far too
+    /// small to share out: on a 28-CPU machine a 102k-edge solve spent 646 s
+    /// in the kernel against 0.6 s with one thread. Jacobi, ILU(0) and
+    /// Chebyshev never call faer, so they get `None` and the global is left
+    /// alone.
+    ///
+    /// The scope covers the Krylov solve only. The preconditioner setup
+    /// (`prepare_at`, which factors the coarse operators) and the direct
+    /// solver keep the caller's parallelism.
+    pub fn sequential_solve_scope(&self) -> Option<crate::eigen::parallel::SequentialSolveScope> {
+        matches!(self, Self::Ams(_)).then(crate::eigen::parallel::SequentialSolveScope::enter)
+    }
+}
+
+impl crate::solver::ksp::Preconditioner for DrivenPreconditioner {
+    fn apply(&self, r: &[c64], z: &mut [c64]) {
+        match self {
+            Self::Jacobi(p) => p.apply(r, z),
+            Self::Ilu0(p) => p.apply(r, z),
+            Self::Chebyshev(p) => p.apply(r, z),
+            Self::Ams(p) => p.apply(r, z),
+        }
+    }
+
+    fn dim(&self) -> usize {
+        match self {
+            Self::Jacobi(p) => p.dim(),
+            Self::Ilu0(p) => p.dim(),
+            Self::Chebyshev(p) => p.dim(),
+            Self::Ams(p) => p.dim(),
+        }
+    }
+}
+
+/// Per-tet material description for the driven solve.
+///
+/// Mirrors the material inputs the eigenpencil path accepts: a complex
+/// scalar relative permittivity per tet, or the diagonal-anisotropic
+/// UPML tensor per tet. The stiffness `K` is permittivity-independent
+/// in both cases.
+#[derive(Debug, Clone, Copy)]
+pub enum DrivenMaterials<'a> {
+    /// Scalar complex relative permittivity per tet (`ε_r ∈ ℂ`). Use
+    /// real values for plain dielectrics / PEC cavities and
+    /// [`crate::assembly::nedelec::build_complex_epsilon_r_pml`] for the
+    /// scalar-PML profile.
+    Scalar(&'a [c64]),
+    /// Diagonal anisotropic complex permittivity per tet in the global
+    /// Cartesian basis (`[ε_x, ε_y, ε_z]`), as produced by
+    /// [`crate::assembly::nedelec::build_anisotropic_pml_tensor_diag`]
+    /// for the UPML shell.
+    DiagTensor(&'a [[c64; 3]]),
+    /// Matched (full Sacks) UPML materials (issue #199): full 3×3
+    /// complex per-tet tensors for **both** constitutive weights, as
+    /// produced by [`crate::driven::scattering::build_matched_upml_materials`].
+    /// The system becomes `A(ω) = K(ν) + iωC(σ) − ω²M(ε)` with
+    /// `ε = ε_r·Λ` and `ν = Λ⁻¹` — the stiffness is complex too, but
+    /// `Λ` is symmetric so the complex-symmetry invariant
+    /// `A(ω)ᵀ = A(ω)` is preserved.
+    MatchedUpml {
+        /// Per-tet full 3×3 complex permittivity tensor `ε = ε_r·Λ`
+        /// (mass weight) in the global Cartesian basis.
+        epsilon_tensor: &'a [[[c64; 3]; 3]],
+        /// Per-tet full 3×3 complex inverse-permeability tensor
+        /// `ν = μ⁻¹ = Λ⁻¹` (curl-curl weight).
+        nu_tensor: &'a [[[c64; 3]; 3]],
+    },
+}
+
+/// Boundary conditions for the driven solve.
+///
+/// Currently the PEC interior-edge mask; the UPML/scalar-PML absorbing
+/// boundary is a *material* (see [`DrivenMaterials`]) and composes with
+/// the PEC outer wall exactly as in the eigenpencil tests. Impedance
+/// surfaces (Leontovich, issue #204) are passed separately to
+/// [`driven_solve_with_surface_impedance`] because their contribution
+/// is rebuilt per frequency.
+#[derive(Debug, Clone)]
+pub struct DrivenBcs<'a> {
+    /// Per-DOF mask over the H(curl) space's `n_dofs()` (issue #838):
+    /// `true` = kept interior DOF, `false` = PEC-eliminated (forced to
+    /// zero). At p=1 (every pre-#838 entry point) this is unchanged: one
+    /// entry per edge in `mesh.edges()` order. For a p=2 space build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`].
+    pub pec_interior_mask: &'a [bool],
+}
+
+/// Surface-impedance model `Z_s(ω)` for the Leontovich boundary
+/// condition (Epic #193, issue #204).
+///
+/// The Leontovich BC replaces a thick-conductor interior (skin depth
+/// `δ = √(2/ωμσ)` too fine to mesh) with the impedance condition
+/// `E_t = −Z_s(ω) n̂ × H` on the conductor surface (`n̂` the outward
+/// normal of the *computational* domain, pointing into the conductor).
+/// In the weak form this is the surface term `+(iω/Z_s) ∮ v · E_t dS`
+/// — the Silver-Müller term with `1/η₀ → 1/Z_s(ω)`.
+#[derive(Debug, Clone, Copy)]
+pub enum SurfaceImpedanceModel {
+    /// Frequency-independent complex surface impedance. `Fixed(η₀)`
+    /// (`= 1` in natural units) reproduces the first-order
+    /// Silver-Müller absorbing boundary exactly.
+    Fixed(c64),
+    /// Built-in **good-conductor** model
+    ///
+    /// ```text
+    /// Z_s(ω) = (1 + i) √(ωμ / 2σ) = (1 + i) / (σ δ),   δ = √(2 / ωμσ),
+    /// ```
+    ///
+    /// in natural units (`μ = 1`). `sigma` is the conductor's electrical
+    /// conductivity in natural units `1/length`
+    /// (`σ_nat = σ_SI · Z₀ · L_unit`), the same normalization as the
+    /// volumetric `sigma_tet` of [`driven_solve_with_sigma`]. Note the
+    /// **ω-dependence**: `Z_s ∝ √ω · (1+i)`, so the weak-form
+    /// coefficient `iω/Z_s = (1+i)√(ωσ/2) = (1+i)/δ` scales as `√ω`.
+    GoodConductor {
+        /// Conductivity σ in natural units (`1/length`). Must be `> 0`.
+        sigma: f64,
+    },
+    /// Built-in **London superconductor** model (Epic #475, issue #604)
+    ///
+    /// ```text
+    /// Z_s(ω) = iωμλ_L,   μ = 1 natural units,
+    /// ```
+    ///
+    /// the purely reactive (kinetic-inductance) surface impedance of a
+    /// superconductor in the local London limit, with `λ_L` the London
+    /// penetration depth. Unlike the good-conductor `√ω (1+i)` dispersion,
+    /// the London impedance is **frequency-linear and lossless**.
+    ///
+    /// `lambda_l` is a **length** in natural (mesh) units, the same
+    /// normalization as the mesh coordinates: `λ_L_nat = λ_L_SI / L_unit`
+    /// (e.g. λ_L = 90 nm on a micrometre-unit mesh is `lambda_l = 0.09`)
+    /// — the length-based sibling of the `GoodConductor` σ normalization
+    /// `σ_nat = σ_SI · Z₀ · L_unit` above.
+    ///
+    /// The weak-form coefficient is special: `iω/Z_s = iω/(iωλ_L) = 1/λ_L`
+    /// — **real, positive and frequency-independent** (the iω cancels
+    /// exactly), so [`Self::weak_coefficient`] returns `1/λ_L` directly
+    /// instead of evaluating the `iω/Z_s` quotient numerically (which
+    /// would degrade to 0/0 as ω → 0 and trip the `|Z_s| = 0` singular
+    /// guard).
+    ///
+    /// `lambda_l` must be strictly positive and finite: the `λ_L → 0` PEC
+    /// limit must be expressed through the PEC edge mask (exactly like
+    /// `Z_s → 0` for the other models), not through a vanishing
+    /// penetration depth.
+    London {
+        /// London penetration depth λ_L in natural units (mesh length
+        /// unit): `λ_L_nat = λ_L_SI / L_unit`. Must be `> 0` and finite.
+        lambda_l: f64,
+    },
+    /// **Rough good conductor** (Epic #756, issue #758): the
+    /// [`Self::GoodConductor`] impedance scaled by a real, frequency-
+    /// dependent roughness loss factor `K(ω) ≥ 1`
+    /// ([`SurfaceRoughness::loss_factor`]):
+    ///
+    /// ```text
+    /// Z_s,rough(ω) = K(ω) · (1 + i) √(ωμ / 2σ).
+    /// ```
+    ///
+    /// The **whole complex** `Z_s` is scaled — resistive and reactive
+    /// (internal-inductance) parts alike — the convention of the
+    /// Hammerstad–Jensen (1980) and Huray (2010) papers, which define `K`
+    /// as a multiplier on the conductor's surface impedance, and of the
+    /// common SI field solvers. Every consumer (dense / direct assembly,
+    /// the AMS SPD proxy, the matrix-free operator and the PROM sweep)
+    /// reads `Z_s` through [`Self::weak_coefficient`], so roughness
+    /// composes with all of them without further changes: since `K` is
+    /// real and positive, `iω/Z_s,rough = (1/K)·iω/Z_s,smooth`.
+    ///
+    /// With `K ≡ 1` (zero RMS roughness, zero Huray spheres) this is
+    /// **bit-identical** to [`Self::GoodConductor`].
+    RoughConductor {
+        /// Conductivity σ in natural units (`1/length`), as for
+        /// [`Self::GoodConductor`]. Must be `> 0`.
+        sigma: f64,
+        /// The roughness model and its parameters (natural units).
+        roughness: SurfaceRoughness,
+    },
+}
+
+/// Conductor surface-roughness model (Epic #756, issue #758): a real
+/// loss factor `K(ω) = P_rough / P_smooth ≥ 1` multiplying a good
+/// conductor's surface impedance (see
+/// [`SurfaceImpedanceModel::RoughConductor`]).
+///
+/// Both models depend on frequency only through the skin depth
+///
+/// ```text
+/// δ(ω) = √(2 / ωμσ)        (μ = 1 natural units; δ_SI = 1/√(π f μ₀ σ)),
+/// ```
+///
+/// and all lengths are in natural (mesh) units, the same normalization as
+/// the mesh coordinates: `ℓ_nat = ℓ_SI / L_unit` (areas `/ L_unit²`). In
+/// these units `δ_nat = δ_SI / L_unit` exactly, since
+/// `ω_nat · σ_nat = (ω L/c)(σ η₀ L) = ω μ₀ σ L²`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SurfaceRoughness {
+    /// **Hammerstad–Jensen** empirical model (E. Hammerstad and
+    /// Ø. Jensen, "Accurate models for microstrip computer-aided design,"
+    /// *IEEE MTT-S Int. Microwave Symp. Digest*, 1980, pp. 407–409):
+    ///
+    /// ```text
+    /// K = 1 + (2/π) · atan(1.4 · (Δ/δ)²),
+    /// ```
+    ///
+    /// with `Δ` the RMS surface roughness. `K → 1` as `Δ/δ → 0` (low
+    /// frequency or smooth foil) and saturates at `K → 2` as
+    /// `Δ/δ → ∞`.
+    HammerstadJensen {
+        /// RMS roughness `Δ` in natural (mesh) length units. Must be
+        /// finite and `≥ 0` (`0` reproduces the smooth conductor
+        /// exactly).
+        rms: f64,
+    },
+    /// **Huray "snowball" model**, single sphere size, on a flat base
+    /// (P. G. Huray, O. Oluwafemi, J. Loyer, E. Bogatin and X. Ye,
+    /// "Impact of copper surface texture on loss: a model that works,"
+    /// *DesignCon* 2010; P. G. Huray, *The Foundations of Signal
+    /// Integrity*, Wiley 2009, ch. 6), in the "cannonball" form of
+    /// Y. Shlepnev and C. Nwachukwu, "Roughness characterization for
+    /// interconnect analysis," *IEEE Int. Symp. EMC*, 2011:
+    ///
+    /// ```text
+    /// K = A_matte/A_flat + (3/2) · (N · 4πa² / A_tile) / (1 + δ/a + δ²/(2a²)),
+    /// ```
+    ///
+    /// implemented with the flat-base ratio `A_matte/A_flat = 1` (the
+    /// cannonball convention) and one sphere radius `a`, `N` spheres per
+    /// tile of area `A_tile`. The `3/2` is the high-frequency loss of a
+    /// conducting sphere in a uniform tangential field (`6πa²` of
+    /// flat-surface loss per sphere, i.e. `3/2` of its surface area).
+    /// `K → 1` as `δ/a → ∞` (low frequency) or `N → 0`, and `K` increases
+    /// monotonically with frequency to `1 + (3/2)·N·4πa²/A_tile`.
+    Huray {
+        /// Sphere ("snowball") radius `a` in natural (mesh) length units.
+        /// Must be finite and `> 0`.
+        ball_radius: f64,
+        /// Number of spheres `N` per tile (real; fitted values are often
+        /// fractional). Must be finite and `≥ 0` (`0` is smooth).
+        n_balls: f64,
+        /// Tile (flat base) area `A_tile` in natural units (mesh length
+        /// squared). Must be finite and `> 0`.
+        tile_area: f64,
+    },
+}
+
+impl SurfaceRoughness {
+    /// Skin depth `δ = √(2/ωσ)` (natural units, `μ = 1`) of a conductor
+    /// of natural-unit conductivity `sigma` at natural angular frequency
+    /// `omega` (`k₀`). `+∞` at `ω = 0`.
+    pub fn skin_depth(omega: f64, sigma: f64) -> f64 {
+        (2.0 / (omega * sigma)).sqrt()
+    }
+
+    /// The roughness loss factor `K` at skin depth `delta` (same length
+    /// unit as the model's parameters). `delta = +∞` (DC) gives exactly
+    /// `1`.
+    pub fn loss_factor_at_skin_depth(&self, delta: f64) -> f64 {
+        match *self {
+            SurfaceRoughness::HammerstadJensen { rms } => {
+                let r = rms / delta;
+                1.0 + std::f64::consts::FRAC_2_PI * (1.4 * r * r).atan()
+            }
+            SurfaceRoughness::Huray {
+                ball_radius: a,
+                n_balls,
+                tile_area,
+            } => {
+                let ratio = n_balls * 4.0 * std::f64::consts::PI * a * a / tile_area;
+                let d = delta / a;
+                1.0 + 1.5 * ratio / (1.0 + d + 0.5 * d * d)
+            }
+        }
+    }
+
+    /// The roughness loss factor `K(ω)` of a conductor of natural-unit
+    /// conductivity `sigma` at natural angular frequency `omega`.
+    pub fn loss_factor(&self, omega: f64, sigma: f64) -> f64 {
+        self.loss_factor_at_skin_depth(Self::skin_depth(omega, sigma))
+    }
+
+    /// `true` when every parameter is finite and in range (`rms ≥ 0`;
+    /// `ball_radius > 0`, `n_balls ≥ 0`, `tile_area > 0`).
+    pub fn is_valid(&self) -> bool {
+        match *self {
+            SurfaceRoughness::HammerstadJensen { rms } => rms.is_finite() && rms >= 0.0,
+            SurfaceRoughness::Huray {
+                ball_radius,
+                n_balls,
+                tile_area,
+            } => {
+                ball_radius.is_finite()
+                    && ball_radius > 0.0
+                    && n_balls.is_finite()
+                    && n_balls >= 0.0
+                    && tile_area.is_finite()
+                    && tile_area > 0.0
+            }
+        }
+    }
+}
+
+impl SurfaceImpedanceModel {
+    /// Evaluate `Z_s(ω)`.
+    pub fn z_s(&self, omega: f64) -> c64 {
+        match *self {
+            SurfaceImpedanceModel::Fixed(z) => z,
+            SurfaceImpedanceModel::GoodConductor { sigma } => {
+                // (1 + i) √(ωμ / 2σ), μ = 1 natural units.
+                let a = (omega / (2.0 * sigma)).sqrt();
+                c64::new(a, a)
+            }
+            // iωμλ_L, μ = 1 natural units: purely reactive.
+            SurfaceImpedanceModel::London { lambda_l } => c64::new(0.0, omega * lambda_l),
+            SurfaceImpedanceModel::RoughConductor { sigma, roughness } => {
+                // K(ω) · (1 + i) √(ωμ / 2σ): the full complex Z_s scaled.
+                if !roughness.is_valid() {
+                    // Poison Z_s so `weak_coefficient` reports it singular.
+                    return c64::new(f64::NAN, f64::NAN);
+                }
+                let a = (omega / (2.0 * sigma)).sqrt();
+                let k = roughness.loss_factor(omega, sigma);
+                c64::new(k * a, k * a)
+            }
+        }
+    }
+
+    /// The weak-form surface coefficient `iω / Z_s(ω)` multiplying the
+    /// real surface mass `S_Γ`. For [`SurfaceImpedanceModel::Fixed`]
+    /// with `Z_s = η₀ = 1` this is `i k₀` — exactly the Silver-Müller
+    /// factor; for the good-conductor model it is
+    /// `(1+i)√(ωσ/2) = (1+i)/δ` (divided by `K(ω)` for the rough
+    /// conductor); for the London model it is the real,
+    /// frequency-independent `1/λ_L` (evaluated **directly**, not as the
+    /// `iω/(iωλ_L)` quotient, so it stays finite and exact at any ω,
+    /// including ω = 0).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrivenError::SurfaceImpedanceSingular`] when `Z_s(ω)`
+    /// is zero or non-finite (e.g. `Fixed(0)`, `GoodConductor` with
+    /// `σ ≤ 0`, `RoughConductor` with out-of-range roughness parameters
+    /// ([`SurfaceRoughness::is_valid`]), or `London` with `λ_L ≤ 0` /
+    /// non-finite). The
+    /// `Z_s → 0` (`λ_L → 0`) PEC limit must be expressed through the
+    /// PEC edge mask, not through a vanishing impedance.
+    pub fn weak_coefficient(&self, omega: f64) -> Result<c64, DrivenError> {
+        if let SurfaceImpedanceModel::London { lambda_l } = *self {
+            // iω/Z_s = iω/(iωλ_L) = 1/λ_L exactly — real and
+            // ω-independent. Returned directly so the quotient never
+            // degrades to 0/0 at small ω.
+            if !(lambda_l.is_finite() && lambda_l > 0.0) {
+                return Err(DrivenError::SurfaceImpedanceSingular {
+                    z_re: 0.0,
+                    z_im: omega * lambda_l,
+                    omega,
+                });
+            }
+            return Ok(c64::new(1.0 / lambda_l, 0.0));
+        }
+        let z = self.z_s(omega);
+        let singular = |z: c64| DrivenError::SurfaceImpedanceSingular {
+            z_re: z.re,
+            z_im: z.im,
+            omega,
+        };
+        if !(z.re.is_finite() && z.im.is_finite()) {
+            return Err(singular(z));
+        }
+        let abs2 = z.re * z.re + z.im * z.im;
+        if abs2 == 0.0 {
+            return Err(singular(z));
+        }
+        // iω / Z_s = iω · conj(Z_s) / |Z_s|².
+        Ok(c64::new(omega * z.im / abs2, omega * z.re / abs2))
+    }
+}
+
+/// One Leontovich impedance surface: a set of conforming boundary
+/// triangles sharing a surface-impedance model.
+///
+/// Multiple [`SurfaceImpedanceBc`]s with different models may be passed
+/// to [`driven_solve_with_surface_impedance`] (per-surface `Z_s(ω)`,
+/// e.g. different conductor metals on different walls).
+#[derive(Debug, Clone, Copy)]
+pub struct SurfaceImpedanceBc<'a> {
+    /// Boundary triangles (0-based node indices into `mesh.nodes`,
+    /// any winding). Each triangle must be a face of the tet mesh —
+    /// its three edges must appear in the global edge table.
+    pub triangles: &'a [[u32; 3]],
+    /// Surface impedance `Z_s(ω)` on these triangles.
+    pub model: SurfaceImpedanceModel,
+}
+
+/// Volumetric current source, piecewise constant per tet.
+#[derive(Debug, Clone)]
+pub struct CurrentSource {
+    /// `[n_tets][3]` complex current density `J` per tet, in `mesh.tets`
+    /// order.
+    pub j_tet: Vec<[c64; 3]>,
+}
+
+impl CurrentSource {
+    /// Sample a continuous current density `J(x)` at every tet centroid.
+    pub fn from_centroids(mesh: &TetMesh, f: impl Fn([f64; 3]) -> [c64; 3]) -> Self {
+        let j_tet = tet_centroids(mesh).into_iter().map(f).collect();
+        Self { j_tet }
+    }
+}
+
+/// Volumetric current source sampled at the **degree-2 (4-point)** tet
+/// quadrature points (issue #199) — for spatially varying `J(x)` whose
+/// per-tet variation matters (e.g. the plane-wave phase of the Mie
+/// scattered-field polarization current). The RHS is integrated with
+/// the same rule the host-side matched-UPML oracle uses
+/// ([`crate::driven::scattering::solve_scattered_field_matched_upml`]), so the
+/// two paths agree to round-off for the same `J`.
+///
+/// For a per-tet-constant `J` this reduces exactly to
+/// [`CurrentSource`] (the rule integrates constant and linear
+/// integrands exactly).
+#[derive(Debug, Clone)]
+pub struct QuadCurrentSource {
+    /// `[n_tets][4][3]` complex current density at the four degree-2
+    /// quadrature points of each tet, in `mesh.tets` order. Point `q`
+    /// of a tet has barycentric weight
+    /// [`crate::elements::nedelec::TET_QUAD4_A`] on vertex `q` and
+    /// [`crate::elements::nedelec::TET_QUAD4_B`] on the other three.
+    pub j_quad: Vec<[[c64; 3]; 4]>,
+}
+
+impl QuadCurrentSource {
+    /// Sample `J(tet, x)` at every degree-2 quadrature point of every
+    /// tet. The closure signature matches the `j_at` argument of
+    /// [`crate::driven::scattering::solve_scattered_field_matched_upml`], so a
+    /// host-oracle source closure (e.g.
+    /// [`crate::driven::scattering::plane_wave_polarization_current`]) can be
+    /// passed directly.
+    pub fn from_fn(mesh: &TetMesh, f: impl Fn(usize, [f64; 3]) -> [c64; 3]) -> Self {
+        use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
+        let j_quad = mesh
+            .tets
+            .iter()
+            .enumerate()
+            .map(|(t, tet)| {
+                let verts: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
+                std::array::from_fn(|q| {
+                    let x_q: [f64; 3] = std::array::from_fn(|k| {
+                        (0..4)
+                            .map(|v| {
+                                let lam = if v == q { TET_QUAD4_A } else { TET_QUAD4_B };
+                                lam * verts[v][k]
+                            })
+                            .sum::<f64>()
+                    });
+                    f(t, x_q)
+                })
+            })
+            .collect();
+        Self { j_quad }
+    }
+}
+
+/// The volumetric current source of an order-generic
+/// [`DrivenOperator::assemble_with_space`] (issue #838).
+///
+/// | variant | p=1 | p=2 |
+/// |---|---|---|
+/// | [`Self::Constant`] | the pre-#838 constant-J path, verbatim | exact per-tet-constant moments (degree-4 rule) |
+/// | [`Self::Quad`] | the pre-#838 degree-2 quadrature path, verbatim | the same four samples with the degree-2 rule (see below) |
+/// | [`Self::Function`] | sampled into a [`QuadCurrentSource`] (degree 2) | sampled at the degree-≥4 rule |
+///
+/// At p=2 [`Self::Quad`] integrates `N_i · J` with the four stored
+/// degree-2 samples, which is exact for `J` constant per tet and is the
+/// minimum Strang-lemma degree (`2k − 2 = 2`) that keeps the p=2 energy rate;
+/// prefer [`Self::Function`] at p=2 so the moments are sampled at the rule
+/// the element's mass uses.
+#[derive(Clone, Copy)]
+pub enum DrivenSource<'a> {
+    /// Per-tet-constant `J` ([`CurrentSource`]).
+    Constant(&'a CurrentSource),
+    /// `J` sampled at the four degree-2 points of every tet
+    /// ([`QuadCurrentSource`]).
+    Quad(&'a QuadCurrentSource),
+    /// `J(t, x)` evaluated wherever the space's rule needs it (tet index,
+    /// physical point).
+    Function(&'a (dyn Fn(usize, [f64; 3]) -> [c64; 3] + Sync)),
+}
+
+impl std::fmt::Debug for DrivenSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Constant(s) => f.debug_tuple("Constant").field(s).finish(),
+            Self::Quad(s) => f.debug_tuple("Quad").field(s).finish(),
+            Self::Function(_) => f.write_str("Function(..)"),
+        }
+    }
+}
+
+/// Internal RHS dispatch: per-tet-constant samples (centroid `J`) or
+/// degree-2 quadrature samples.
+enum RhsSamples<'a> {
+    Constant(&'a [[c64; 3]]),
+    Quad(&'a [[[c64; 3]; 4]]),
+}
+
+impl RhsSamples<'_> {
+    fn len(&self) -> usize {
+        match self {
+            RhsSamples::Constant(j) => j.len(),
+            RhsSamples::Quad(j) => j.len(),
+        }
+    }
+}
+
+/// Solution of the driven system.
+///
+/// The field vector is **order-tagged** (issue #838): [`Self::order`] is
+/// the element order of the H(curl) space it lives in, and
+/// [`Self::e_edges`] is laid out over that space's `n_dofs()`. At p=1 —
+/// every pre-#838 entry point — that is exactly the historical edge vector
+/// in `mesh.edges()` order. At p=2 it is the
+/// [`crate::assembly::hcurl_space::HcurlSpace`] layout (`2·n_edges +
+/// 2·n_faces`); evaluate it with
+/// [`crate::assembly::hcurl_space::HcurlSpace::field_at`], never with a p=1
+/// edge post-processor.
+#[derive(Debug, Clone)]
+pub struct DrivenSolution {
+    /// Full-length complex DOF vector over the space's `n_dofs()`: at p=1
+    /// the `[n_edges]` edge vector in `mesh.edges()` order (the historical
+    /// meaning, unchanged), at p=2 the `HcurlSpace` layout. PEC-eliminated
+    /// DOFs carry exact zeros. The name is kept so the ~185 p=1 call sites
+    /// compile unchanged; [`Self::dofs`] is the order-neutral accessor.
+    pub e_edges: Vec<c64>,
+    /// Element order of the space [`Self::e_edges`] lives in.
+    pub order: ElementOrder,
+    /// Number of interior (kept) DOFs after PEC elimination.
+    pub n_interior: usize,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior system,
+    /// computed post-solve as a numerical health check. For a healthy
+    /// direct sparse solve this is at the round-off floor.
+    pub residual_rel: f64,
+}
+
+impl DrivenSolution {
+    /// The full-length DOF vector in the space's layout (the same data as
+    /// [`Self::e_edges`], under an order-neutral name).
+    pub fn dofs(&self) -> &[c64] {
+        &self.e_edges
+    }
+}
+
+/// Deterministic driven frequency-domain solve `A(ω) x = b` with a
+/// volumetric current source (issue #194).
+///
+/// Assembles the Nédélec curl-curl pencil `(K, M(ε))` on `mesh`, the
+/// current-source RHS `b_i = iω ∫ N_i · J dV` (natural units, `μ₀ = 1`),
+/// applies the PEC reduction from `bcs`, factors the interior
+/// `A(ω) = K − ω² M` once with faer's complex sparse LU, and returns the
+/// full-length edge field with zeros on eliminated edges.
+///
+/// `omega` is `ω/c = k₀` in the mesh's length units (the same
+/// normalization in which the eigenpencil's eigenvalues are `k²`).
+///
+/// # Errors
+///
+/// Returns [`DrivenError`] on input-shape mismatches or if the sparse
+/// factorization/solve fails (e.g. `ω²` collides with a real eigenvalue
+/// of a lossless pencil, making `A(ω)` singular).
+pub fn driven_solve<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_with_sigma::<B>(mesh, materials, None, bcs, omega, source, device)
+}
+
+/// [`driven_solve`] with an optional per-tet electrical conductivity
+/// `σ(x)` for lossy volumetric materials (issue #196).
+///
+/// When `sigma_tet` is `Some`, the σ-weighted damping matrix
+/// `C_ij = ∫ N_i · N_j σ dV` is assembled through the same autodiff-
+/// preserving Burn scatter path as `M`
+/// ([`crate::assembly::nedelec::assemble_nedelec_sigma_damping`]) and
+/// the interior system becomes
+///
+/// ```text
+/// A(ω) = K + iω C(σ) − ω² M(ε)   ( ≡ K − ω² M(ε − iσ/ω) ),
+/// ```
+///
+/// in natural units (`μ₀ = 1`; `exp(+jωt)` convention, so conduction
+/// loss enters with `+iωC`, i.e. `Im(ε_eff) = −σ/ω < 0` — absorption).
+/// `C` is real symmetric, so the complex-symmetry invariant
+/// `A(ω)ᵀ = A(ω)` is preserved. `sigma_tet = None` (or an all-zero σ)
+/// reproduces [`driven_solve`] exactly.
+///
+/// `σ` is in natural units `1/length`
+/// (`σ_nat = σ_SI · Z₀ · L_unit`); the analytic skin depth is
+/// `δ = √(2/(ω σ))`.
+pub fn driven_solve_with_sigma<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        &[],
+        &[],
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve_with_sigma`] with **lumped ports** (issue #202).
+///
+/// Each [`LumpedPort`] contributes two boundary-surface terms on its
+/// port surface Γ_p (Palace-style uniform port, surface impedance
+/// `Z_s = R·w/l`):
+///
+/// ```text
+/// A(ω) += (jω/Z_s) S_p,                        S_p = ∮ (n×N_i)·(n×N_j) dS
+/// b_i  += (2jω/Z_s) (V_inc/l) ∮ N_i · ê dS     (only if V_inc ≠ 0)
+/// ```
+///
+/// The admittance term is a real-symmetric surface mass scaled by `jω`,
+/// so the complex-symmetry invariant `A(ω)ᵀ = A(ω)` (PR #55) is
+/// preserved with ports present. Ports compose with PEC walls the same
+/// way the other surface terms do: PEC-eliminated edges are dropped
+/// from both the port matrix rows/columns and the port RHS.
+///
+/// Port voltage / current / input impedance are read off the solution
+/// with [`crate::driven::ports::port_voltage`],
+/// [`crate::driven::ports::port_current`] and
+/// [`crate::driven::ports::port_input_impedance`].
+///
+/// An empty `ports` slice reproduces [`driven_solve_with_sigma`]
+/// exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn driven_solve_with_ports<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        ports,
+        &[],
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve_with_sigma`] with **Leontovich surface-impedance
+/// boundaries** (Epic #193, issue #204) for thick conductors whose skin
+/// depth is too fine to mesh.
+///
+/// Each [`SurfaceImpedanceBc`] in `surfaces` contributes the surface
+/// term
+///
+/// ```text
+/// A(ω) = K + iωC(σ) − ω²M(ε) + Σ_Γ (iω / Z_s,Γ(ω)) · S_Γ,
+/// S_Γij = ∮_Γ (n × N_i) · (n × N_j) dS,
+/// ```
+///
+/// with `S_Γ` the real-symmetric tangential surface mass
+/// ([`crate::assembly::surface::assemble_surface_mass_triplets`]) over the surface's
+/// triangles. The complex weight is a *scalar* per surface, so the
+/// complex-symmetry invariant `A(ω)ᵀ = A(ω)` is preserved.
+///
+/// # Frequency sweeps: the surface block does NOT fold into K/M/C
+///
+/// `K`, `M`, and `C` are ω-independent, so a sweep can assemble them
+/// once and re-form `A(ω)` by linear combination. The Leontovich
+/// coefficient `iω/Z_s(ω)` is **not** a fixed polynomial in ω (for the
+/// good-conductor model it is `(1+i)√(ωσ/2)` ∝ `√ω·(1+i)`), so the
+/// surface contribution must be re-applied at every frequency. This
+/// function does exactly that — it is a single-ω solve, and repeated
+/// calls re-form the (small) surface block each time. A sweep driver
+/// that re-forms `A(ω)` itself must cache `S_Γ` (ω-independent, real)
+/// and rescale by `iω/Z_s(ω)` per frequency.
+///
+/// # Limits
+///
+/// - `Z_s = η₀` (`Fixed(1)` in natural units) reproduces the
+///   first-order Silver-Müller absorbing term `+ i k₀ S`.
+/// - `Z_s → 0` approaches PEC behavior on the surface (`E_t → 0`); the
+///   exact PEC limit is expressed by eliminating the surface edges via
+///   `bcs.pec_interior_mask` instead (a literal `Z_s = 0` is rejected
+///   as [`DrivenError::SurfaceImpedanceSingular`]).
+/// - `surfaces = &[]` reproduces [`driven_solve_with_sigma`] exactly.
+///
+/// # Errors
+///
+/// In addition to the [`driven_solve`] errors, returns
+/// [`DrivenError::SurfaceImpedanceSingular`] if any model evaluates to
+/// a zero or non-finite `Z_s(ω)`, and [`DrivenError::SurfaceNotOnMesh`]
+/// if a triangle in `surfaces` is not a face of any tet of `mesh`
+/// (issue #725 — previously a panic inside the surface assembly).
+#[allow(clippy::too_many_arguments)]
+pub fn driven_solve_with_surface_impedance<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omega: f64,
+    source: &CurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        &[],
+        surfaces,
+        omega,
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )
+}
+
+/// [`driven_solve`] with a degree-2 quadrature source
+/// ([`QuadCurrentSource`]) for spatially varying `J(x)` (issue #199).
+/// Everything else (materials, σ, BCs, solver) is identical to
+/// [`driven_solve_with_sigma`].
+pub fn driven_solve_quad<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &QuadCurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_with_sigma_quad::<B>(mesh, materials, None, bcs, omega, source, device)
+}
+
+/// [`driven_solve_quad`] with an optional per-tet conductivity — the
+/// quadrature-source counterpart of [`driven_solve_with_sigma`].
+pub fn driven_solve_with_sigma_quad<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &QuadCurrentSource,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    driven_solve_impl::<B>(
+        mesh,
+        materials,
+        sigma_tet,
+        bcs,
+        &[],
+        &[],
+        omega,
+        RhsSamples::Quad(&source.j_quad),
+        device,
+    )
+}
+
+/// Element order of the H(curl) space (issue #616; unified by issue #838).
+///
+/// Re-export of the crate-level [`crate::elements::ElementOrder`], kept at
+/// this historical path so existing callers compile unchanged.
+/// [`ElementOrder::P1`] is the default and routes to the existing,
+/// byte-identical first-order pipeline. [`ElementOrder::P2`] is selected by
+/// building a p=2 [`crate::assembly::hcurl_space::HcurlSpace`] and passing
+/// it to [`DrivenOperator::assemble_with_space`] (the order-generic
+/// operator: complex scalar / diagonal-tensor / matched-UPML ε, σ damping,
+/// volume J, tagged face-exact PEC), or through the narrower standalone
+/// [`driven_solve_p2`] (real ε, caller-built mask and RHS).
+pub use crate::elements::ElementOrder;
+
+/// Solution of the opt-in second-order (`p=2`) driven forward path
+/// ([`driven_solve_p2`]).
+///
+/// The DOF layout is the `edges×2 + faces×2` global numbering of
+/// [`crate::assembly::nedelec_p2::P2DofMap`] — distinct from the `p=1`
+/// [`DrivenSolution`] (which is `[n_edges]`), so the p=2 result has its own
+/// type rather than overloading the p=1 one.
+#[derive(Debug, Clone)]
+pub struct P2DrivenSolution {
+    /// Full-length `[n_dofs]` complex DOF vector in the `p=2` global numbering.
+    /// PEC-eliminated DOFs carry exact zeros.
+    pub x: Vec<c64>,
+    /// Total `p=2` DOF count (`2·n_edges + 2·n_faces`).
+    pub n_dofs: usize,
+    /// Number of interior (kept) DOFs after PEC elimination.
+    pub n_interior: usize,
+    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior system.
+    pub residual_rel: f64,
+}
+
+/// Second-order (`p=2`) driven frequency-domain solve `A(ω) x = b`,
+/// `A(ω) = K − ω² M(ε)`, on the shipped 20-DOF Nédélec element (issue #616,
+/// Epic #475/#569) — the opt-in [`ElementOrder::P2`] forward path.
+///
+/// # Arguments
+///
+/// * `mesh` — tetrahedral mesh.
+/// * `eps_tet` — per-tet **real** relative permittivity (length
+///   `mesh.n_tets()`; per-tet constant, so the deg-4 element rule integrates
+///   the ε-weighted mass exactly).
+/// * `interior_dof_mask` — length `n_dofs` (`= 2·n_edges + 2·n_faces`): `true`
+///   keeps a DOF, `false` PEC-eliminates it. Build it for a cube cavity with
+///   [`crate::assembly::nedelec_p2::cube_pec_interior_p2_dofs`].
+/// * `omega` — drive frequency `ω = k₀` (natural units); away from a resonance
+///   so `A(ω)` is non-singular.
+/// * `rhs_full` — the length-`n_dofs` complex RHS moment vector `b`
+///   (e.g. `∫ N_i · f dV` from
+///   [`crate::assembly::nedelec_p2::assemble_p2_rhs_quad`], with any `iω`
+///   scaling folded in by the caller). PEC-eliminated entries are ignored.
+///
+/// The complex-symmetric pencil is factored once with faer's sparse LU and
+/// back-solved directly, mirroring the p=1 direct path.
+///
+/// This is the narrow #621 entry point (real ε, caller-built mask and RHS)
+/// and is kept as is. The production p=2 path — complex / tensor ε, σ,
+/// frequency sweeps, the PROM — is the order-generic
+/// [`DrivenOperator::assemble_with_space`] on a p=2
+/// [`crate::assembly::hcurl_space::HcurlSpace`] (issue #838); the two agree
+/// to round-off on the same system
+/// (`tests/driven_p2_operator.rs::generic_p2_operator_matches_the_standalone_driven_solve_p2`).
+///
+/// # Errors
+///
+/// [`DrivenError`] on shape mismatches, an empty interior, or a sparse
+/// factorization/solve failure (e.g. `ω²` at a resonance of the lossless
+/// pencil).
+pub fn driven_solve_p2(
+    mesh: &TetMesh,
+    eps_tet: &[f64],
+    interior_dof_mask: &[bool],
+    omega: f64,
+    rhs_full: &[c64],
+) -> Result<P2DrivenSolution, DrivenError> {
+    use crate::assembly::nedelec_p2::{P2DofMap, p2_interior_km};
+
+    let n_tets = mesh.n_tets();
+    if eps_tet.len() != n_tets {
+        return Err(DrivenError::MaterialDimMismatch {
+            got: eps_tet.len(),
+            want: n_tets,
+        });
+    }
+    let dofs = P2DofMap::build(mesh);
+    if interior_dof_mask.len() != dofs.n_dofs {
+        return Err(DrivenError::MaskDimMismatch {
+            got: interior_dof_mask.len(),
+            want: dofs.n_dofs,
+        });
+    }
+    if rhs_full.len() != dofs.n_dofs {
+        return Err(DrivenError::SourceDimMismatch {
+            got: rhs_full.len(),
+            want: dofs.n_dofs,
+        });
+    }
+
+    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_tet, interior_dof_mask);
+    if n_interior == 0 {
+        return Err(DrivenError::EmptyInterior);
+    }
+
+    // A(ω) = K − ω² M(ε), interior, as complex triplets (duplicates summed).
+    let omega2 = omega * omega;
+    let triplets: Vec<Triplet<usize, usize, c64>> = kept
+        .iter()
+        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
+        .collect();
+    let a_int =
+        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
+            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
+    let lu = a_int
+        .as_ref()
+        .sp_lu()
+        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+
+    // Interior-filtered RHS.
+    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            b_int[ri as usize] = rhs_full[g];
+        }
+    }
+
+    // Forward solve A x = b.
+    let mut fwd: faer::Mat<c64> = faer::Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
+    use faer::linalg::solvers::Solve;
+    lu.solve_in_place(fwd.as_mut());
+    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
+
+    // Residual ‖A x − b‖ / ‖b‖ via a triplet accumulation spmv (duplicates sum).
+    let residual_rel = {
+        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
+        for &(r, c, k, m) in &kept {
+            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
+        }
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..n_interior {
+            let d = ax[i] - b_int[i];
+            res2 += d.re * d.re + d.im * d.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        }
+    };
+
+    // Scatter to full length (PEC DOFs = 0).
+    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
+    for (g, &ri) in remap.iter().enumerate() {
+        if ri >= 0 {
+            x[g] = x_int[ri as usize];
+        }
+    }
+
+    Ok(P2DrivenSolution {
+        x,
+        n_dofs: dofs.n_dofs,
+        n_interior,
+        residual_rel,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn driven_solve_impl<B: Backend>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    sigma_tet: Option<&[f64]>,
+    bcs: &DrivenBcs<'_>,
+    ports: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    omega: f64,
+    rhs: RhsSamples<'_>,
+    device: &B::Device,
+) -> Result<DrivenSolution, DrivenError> {
+    let op = DrivenOperator::assemble_impl::<B>(
+        mesh, materials, sigma_tet, bcs, ports, surfaces, rhs, device,
+    )?;
+    op.solve_at(omega)
+}
+
+/// Iterative-solver entry point parallel to [`driven_solve`] —
+/// **Krylov path** (issue #238).
+///
+/// Assembles the driven operator exactly as [`driven_solve`] does and
+/// dispatches to [`DrivenOperator::solve_at_iterative`] with the
+/// supplied [`crate::solver::ksp::KspSolve`] solver and Jacobi preconditioner. Returns
+/// both the solution and the Krylov [`crate::solver::ksp::KspReport`] (iteration count,
+/// final relative residual) — the report is what issue #238's
+/// acceptance criteria call out as "iteration counts reported".
+///
+/// The returned `DrivenSolution` is shape-identical to the direct
+/// path's: PEC-eliminated edges carry exact zeros, `residual_rel` is
+/// `‖A x − b‖₂ / ‖b‖₂` with the same definition. On a small driven
+/// fixture the two paths agree to the documented Krylov tolerance
+/// (see the regression test `iterative_matches_direct_lu` in this
+/// module).
+///
+/// # Solver / preconditioner choice
+///
+/// The default `KspSolve` for the complex-symmetric driven pencil is
+/// [`crate::solver::ksp::Cocg`] (conjugate orthogonal CG, the natural
+/// choice for `A^T = A` without conjugation; see the module docs).
+/// The default preconditioner is
+/// [`crate::solver::ksp::JacobiPreconditioner`] — diagonal scaling,
+/// cheap, and sufficient for the driven curl-curl pencil at the
+/// frequencies the patch / parallel-plate fixtures exercise. Pass
+/// [`crate::solver::ksp::IdentityPreconditioner::new`] via
+/// [`DrivenOperator::solve_at_iterative`] directly for the
+/// unpreconditioned baseline.
+///
+/// # Errors
+///
+/// Returns the assembly errors of [`driven_solve`] plus
+/// [`DrivenError::Solve`] wrapping any [`crate::solver::ksp::KspError`]
+/// (breakdown, non-convergence, dimension mismatch).
+pub fn driven_solve_iterative<B: Backend, K>(
+    mesh: &TetMesh,
+    materials: DrivenMaterials<'_>,
+    bcs: &DrivenBcs<'_>,
+    omega: f64,
+    source: &CurrentSource,
+    ksp: &K,
+    device: &B::Device,
+) -> Result<(DrivenSolution, crate::solver::ksp::KspReport), DrivenError>
+where
+    K: crate::solver::ksp::KspSolve,
+{
+    let op = DrivenOperator::assemble_impl::<B>(
+        mesh,
+        materials,
+        None,
+        bcs,
+        &[],
+        &[],
+        RhsSamples::Constant(&source.j_tet),
+        device,
+    )?;
+    op.solve_at_iterative(omega, ksp, |a| {
+        crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
+    })
+}
+
+/// One lumped port of a [`DrivenOperator`]: the ω-independent pieces of
+/// the port's system / RHS / readout contributions, cached at assembly
+/// time.
+struct OperatorPort {
+    /// Interior-remapped triplets of the tangential surface mass `S_p`
+    /// (PEC-eliminated pairs already dropped).
+    mass_triplets: Vec<(usize, usize, f64)>,
+    /// Full-length port flux functional `f_i = ∮ N_i · ê dS` — drives
+    /// the excitation and reads back the port voltage.
+    flux: Vec<f64>,
+    /// Surface impedance `Z_s = R·w/l`.
+    z_s: f64,
+    /// Incident (drive) voltage.
+    v_inc: c64,
+    /// Gap length `l`.
+    length: f64,
+    /// Port width `w`.
+    width: f64,
+    /// Lumped resistance `R`.
+    resistance: f64,
+}
+
+/// One Leontovich impedance surface of a [`DrivenOperator`]: the
+/// ω-independent real surface mass values plus the model whose scalar
+/// coefficient `iω/Z_s(ω)` is re-evaluated at every frequency.
+struct OperatorSurface {
+    /// `S_Γ` values aligned with the operator's interior-filtered
+    /// sparsity entries.
+    s_vals: Vec<f64>,
+    /// Surface-impedance model (ω-dependent coefficient).
+    model: SurfaceImpedanceModel,
+}
+
+/// Pre-assembled driven frequency-domain operator for **frequency
+/// sweeps** (Epic #193, issue #203).
+///
+/// `A(ω) = K + iωC − ω²M + Σ_p (iω/Z_s,p) S_p + Σ_Γ (iω/Z_s,Γ(ω)) S_Γ`
+/// re-forms per frequency by linear combination of ω-independent
+/// matrices (the design rationale recorded in PR #198), so a sweep
+/// should run the (expensive) Burn volume assembly **once** and then
+/// re-form + re-factor the sparse system at every ω. This type caches
+/// everything ω-independent:
+///
+/// - the interior-filtered sparsity pattern with aligned `K`, `M`, and
+///   `C(σ)` values,
+/// - per-port surface-mass triplets and flux functionals (the port
+///   scalar `iω/Z_s` and the drive `(2iω/Z_s)(V_inc/l)` are applied per
+///   ω),
+/// - per-surface Leontovich masses `S_Γ` (their scalar `iω/Z_s(ω)` is
+///   **not** a fixed polynomial in ω — e.g. `∝ √ω(1+i)` for the
+///   good-conductor model — so it is re-evaluated at every frequency,
+///   as required by the issue-#204 caveat),
+/// - the raw current-source moments `∫ N_i · J dV` (scaled by `iω` per
+///   frequency).
+///
+/// [`DrivenOperator::solve_at`] then builds and LU-factors `A(ω)` and
+/// solves — *re-factorize per ω, never re-assemble*. A single
+/// `assemble` + `solve_at(ω)` pair reproduces
+/// [`driven_solve_with_ports`] / [`driven_solve_with_surface_impedance`]
+/// exactly (the single-ω entry points are implemented on top of this
+/// type).
+pub struct DrivenOperator {
+    /// Element order of the H(curl) space the operator was assembled on
+    /// (issue #838). `P1` for every pre-#838 entry point.
+    order: ElementOrder,
+    /// Full DOF count of the space (`n_edges` at p=1).
+    n_dofs: usize,
+    n_interior: usize,
+    /// Full DOF index → interior index (−1 = PEC-eliminated).
+    remap: Vec<i64>,
+    /// Owned copy of the PEC interior mask (RHS reduction per ω).
+    pec_interior_mask: Vec<bool>,
+    /// Interior-remapped row/col of every kept sparsity entry, in the
+    /// recorded assembly-pattern order.
+    rows: Vec<usize>,
+    cols: Vec<usize>,
+    /// Stiffness values aligned with `rows`/`cols` (complex for the
+    /// matched-UPML material, real otherwise).
+    k_vals: Vec<c64>,
+    /// Mass values `M(ε)` aligned with `rows`/`cols`.
+    m_vals: Vec<c64>,
+    /// Conductivity damping values `C(σ)`, if a σ was supplied.
+    c_vals: Option<Vec<f64>>,
+    /// Leontovich impedance surfaces (issue #204).
+    surfaces: Vec<OperatorSurface>,
+    /// Lumped ports (issue #202).
+    ports: Vec<OperatorPort>,
+    /// Raw current-source moments `∫ N_i · J dV` (real / imaginary
+    /// parts), full edge length; `b(ω) = iω (rhs_re + i·rhs_im)`.
+    rhs_re: Vec<f64>,
+    rhs_im: Vec<f64>,
+    /// Which [`DrivenMaterials`] variant this operator was assembled
+    /// with. The matrix-free path ([`SolverMode::IterativeMatrixFree`])
+    /// only supports scalar-real ε; the guard reads this flag rather than
+    /// sniffing `k_vals` for a nonzero imaginary part (issue #493).
+    materials_kind: MaterialsKind,
+    /// Host-side ingredients for the matrix-free Krylov path, retained
+    /// only when the material is scalar-**real** (so the Burn
+    /// [`crate::solver::ksp_burn::ComplexMatrixFreeOperator`] — which
+    /// takes real per-tet ε/σ — can be rebuilt per ω without re-uploading
+    /// the mesh). `None` for tensor / matched-UPML materials, which the
+    /// matrix-free path rejects.
+    matrix_free: Option<crate::driven::matrix_free::MatrixFreeIngredients>,
+    /// Mesh edge incidence + node coordinates for the AMS preconditioner
+    /// (issue #744); the discrete gradient is built from them lazily, on
+    /// the first [`IterativePreconditioner::Ams`] setup.
+    ams_geometry: Option<ams::AmsGeometry>,
+}
+
+/// Which [`DrivenMaterials`] variant a [`DrivenOperator`] was assembled
+/// with — a small stored flag so [`SolverMode::IterativeMatrixFree`] can
+/// reject anisotropic / matched-UPML materials at solver-prep time
+/// without inspecting the already-combined value tensors (issue #493).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaterialsKind {
+    /// Scalar complex relative permittivity (may still be complex-valued;
+    /// the matrix-free path additionally requires it to be purely real,
+    /// tracked separately by whether `matrix_free` is populated).
+    Scalar,
+    /// Diagonal anisotropic ε tensor.
+    DiagTensor,
+    /// Matched (full Sacks) UPML materials.
+    MatchedUpml,
+}
+
+/// Borrowed view of one port's ω-independent data, handed to the
+/// transient time-domain solver ([`crate::driven::transient`]) via
+/// [`DrivenOperator::port_transient_data`].
+pub(crate) struct PortTransientData<'a> {
+    /// Interior-remapped tangential-surface-mass triplets `S_p`.
+    pub(crate) mass_triplets: &'a [(usize, usize, f64)],
+    /// Full-length port flux functional `f_i = ∮ N_i · ê dS`.
+    pub(crate) flux: &'a [f64],
+    /// Surface impedance `Z_s = R·w/ℓ`.
+    pub(crate) z_s: f64,
+    /// Gap length `ℓ`.
+    pub(crate) length: f64,
+    /// Lumped resistance `R`.
+    pub(crate) resistance: f64,
+}
+
+impl DrivenOperator {
+    /// Assemble the ω-independent operator: Burn volume assembly of
+    /// `K`, `M(ε)`, `C(σ)` and the source moments, host-side port /
+    /// impedance-surface masses and port flux functionals, and the PEC
+    /// interior reduction. Inputs are validated exactly as in
+    /// [`driven_solve_with_ports`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same shape-mismatch / invalid-port / empty-interior
+    /// errors as the single-ω entry points. (Surface-impedance models
+    /// are evaluated per frequency inside [`DrivenOperator::solve_at`],
+    /// so a singular `Z_s(ω)` surfaces there.)
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble<B: Backend>(
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: &CurrentSource,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        Self::assemble_impl::<B>(
+            mesh,
+            materials,
+            sigma_tet,
+            bcs,
+            ports,
+            surfaces,
+            RhsSamples::Constant(&source.j_tet),
+            device,
+        )
+    }
+
+    /// The **order-generic** assembly (issue #838, Epic #836 Phase 1a):
+    /// assemble the ω-independent operator on the H(curl) `space`.
+    ///
+    /// - **p=1 space:** dispatches to the pre-#838 Burn-tensor assembly of
+    ///   [`DrivenOperator::assemble`] (and its quadrature-source twin)
+    ///   **verbatim** — same tables, same triplet order, so the operator,
+    ///   every solve and every sweep / PROM built on it are bit-identical
+    ///   to the p=1 entry points. All features are available.
+    /// - **p=2 space:** host-side faer assembly from the 20-DOF element on
+    ///   ascending-sorted coords with unit-sign scatter (#616 red flag 1:
+    ///   never the p=1 `sign_outer_tensor`): `K` (`K(ν)` for the matched
+    ///   UPML), `M(ε)` for complex scalar / diagonal-tensor / full matched
+    ///   UPML ε, `C(σ)`, and the [`DrivenSource`] moments, all with the
+    ///   degree-≥4 rule (exact for per-tet-constant coefficients), plus the
+    ///   surface terms on the 8-DOF p=2 tangential trace of each boundary
+    ///   triangle ([`crate::assembly::surface_p2`], issue #857): lumped-port
+    ///   admittance masses and flux functionals, and the surface mass of
+    ///   every [`SurfaceImpedanceModel`] (Leontovich good / rough conductor,
+    ///   London, `Fixed` incl. the Silver-Müller `Z_s = η₀`). The
+    ///   result is solved by [`DrivenOperator::solve_at`] /
+    ///   [`DrivenOperator::factor_at`] / [`DrivenOperator::prepare_at`]
+    ///   (direct LU, or assembled-matrix Krylov with Jacobi / ILU(0) /
+    ///   Chebyshev) and the adaptive PROM ([`crate::driven::rom`]) exactly
+    ///   as at p=1.
+    ///
+    /// `bcs.pec_interior_mask` is over `space.n_dofs()` (build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`]).
+    ///
+    /// This is the solve that order-generic sensitivities are written
+    /// against (Diff-EDA #841, #836 Phase 4): `A(ω)ᵀ = A(ω)`, so the adjoint
+    /// solve is [`FactoredDrivenOperator::back_solve`] on the same
+    /// factorization, with interior ↔ full DOF maps
+    /// [`DrivenOperator::interior_to_full`] /
+    /// [`DrivenOperator::interior_index`].
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`DrivenOperator::assemble`];
+    /// [`DrivenError::SpaceMeshMismatch`] if `space` was built on another
+    /// mesh. The solver-side p=2 limits (matrix-free, AMS) are reported by
+    /// [`DrivenOperator::prepare_at`]. Geometric wave ports run at p=2 through
+    /// the `*_on_space` sweeps of [`crate::driven::ports`] and the adaptive
+    /// PROM (issue #884, Epic #836 Phase 3a); hybrid ports at p=2 are
+    /// Phase 3b.
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_with_space<B: Backend>(
+        space: &crate::assembly::hcurl_space::HcurlSpace,
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: DrivenSource<'_>,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        if space.n_nodes() != mesh.n_nodes() || space.n_tets() != mesh.n_tets() {
+            return Err(DrivenError::SpaceMeshMismatch {
+                space_nodes: space.n_nodes(),
+                space_tets: space.n_tets(),
+                mesh_nodes: mesh.n_nodes(),
+                mesh_tets: mesh.n_tets(),
+            });
+        }
+        match space.order() {
+            ElementOrder::P1 => match source {
+                DrivenSource::Constant(src) => Self::assemble_impl::<B>(
+                    mesh,
+                    materials,
+                    sigma_tet,
+                    bcs,
+                    ports,
+                    surfaces,
+                    RhsSamples::Constant(&src.j_tet),
+                    device,
+                ),
+                DrivenSource::Quad(src) => Self::assemble_impl::<B>(
+                    mesh,
+                    materials,
+                    sigma_tet,
+                    bcs,
+                    ports,
+                    surfaces,
+                    RhsSamples::Quad(&src.j_quad),
+                    device,
+                ),
+                DrivenSource::Function(f) => {
+                    let src = QuadCurrentSource::from_fn(mesh, f);
+                    Self::assemble_impl::<B>(
+                        mesh,
+                        materials,
+                        sigma_tet,
+                        bcs,
+                        ports,
+                        surfaces,
+                        RhsSamples::Quad(&src.j_quad),
+                        device,
+                    )
+                }
+            },
+            // Issue #857 (Epic #836 Phase 1b): lumped ports and every
+            // impedance-surface model (Leontovich / rough conductor /
+            // London / Silver-Müller) run at p=2 through the trace kernel
+            // of `crate::assembly::surface_p2`.
+            ElementOrder::P2 => p2::assemble(
+                space, mesh, materials, sigma_tet, bcs, ports, surfaces, source,
+            ),
+        }
+    }
+
+    /// Element order of the H(curl) space this operator was assembled on
+    /// (`P1` for every pre-#838 entry point).
+    pub fn order(&self) -> ElementOrder {
+        self.order
+    }
+
+    /// Full DOF count of the operator's space (`n_edges` at p=1): the
+    /// length of [`DrivenSolution::e_edges`] and of the PEC mask.
+    pub fn n_dofs(&self) -> usize {
+        self.n_dofs
+    }
+
+    /// The interior index of full DOF `dof`, or `None` if it is
+    /// PEC-eliminated.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dof ≥ self.n_dofs()`.
+    pub fn interior_index(&self, dof: usize) -> Option<usize> {
+        let r = self.remap[dof];
+        (r >= 0).then_some(r as usize)
+    }
+
+    /// The interior system matrix `A(ω)` (CSC, `n_interior × n_interior`)
+    /// exactly as [`DrivenOperator::factor_at`] factors it — for
+    /// symmetry / conditioning checks and adjoint consumers.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] or a sparse-assembly
+    /// failure, as [`DrivenOperator::factor_at`].
+    pub fn matrix_at(&self, omega: f64) -> Result<SparseColMat<usize, c64>, DrivenError> {
+        self.assemble_a_at(omega)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assemble_impl<B: Backend>(
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        sigma_tet: Option<&[f64]>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        rhs: RhsSamples<'_>,
+        device: &B::Device,
+    ) -> Result<Self, DrivenError> {
+        let n_tets = mesh.n_tets();
+        let edges = mesh.edges();
+        let n_edges = edges.len();
+
+        // --- Input validation -------------------------------------------------
+        if bcs.pec_interior_mask.len() != n_edges {
+            return Err(DrivenError::MaskDimMismatch {
+                got: bcs.pec_interior_mask.len(),
+                want: n_edges,
+            });
+        }
+        if rhs.len() != n_tets {
+            return Err(DrivenError::SourceDimMismatch {
+                got: rhs.len(),
+                want: n_tets,
+            });
+        }
+        let materials_kind = match materials {
+            DrivenMaterials::Scalar(_) => MaterialsKind::Scalar,
+            DrivenMaterials::DiagTensor(_) => MaterialsKind::DiagTensor,
+            DrivenMaterials::MatchedUpml { .. } => MaterialsKind::MatchedUpml,
+        };
+        let material_len = match materials {
+            DrivenMaterials::Scalar(eps) => eps.len(),
+            DrivenMaterials::DiagTensor(eps) => eps.len(),
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            } => {
+                if nu_tensor.len() != n_tets {
+                    return Err(DrivenError::MaterialDimMismatch {
+                        got: nu_tensor.len(),
+                        want: n_tets,
+                    });
+                }
+                epsilon_tensor.len()
+            }
+        };
+        if material_len != n_tets {
+            return Err(DrivenError::MaterialDimMismatch {
+                got: material_len,
+                want: n_tets,
+            });
+        }
+        if let Some(sigma) = sigma_tet
+            && sigma.len() != n_tets
+        {
+            return Err(DrivenError::SigmaDimMismatch {
+                got: sigma.len(),
+                want: n_tets,
+            });
+        }
+        for (index, port) in ports.iter().enumerate() {
+            let invalid = |reason: &str| DrivenError::InvalidPort {
+                index,
+                reason: reason.to_string(),
+            };
+            if port.faces.is_empty() {
+                return Err(invalid("port has no faces"));
+            }
+            if !(port.resistance.is_finite() && port.resistance > 0.0) {
+                return Err(invalid("resistance must be finite and positive"));
+            }
+            if !(port.width.is_finite() && port.width > 0.0) {
+                return Err(invalid("width must be finite and positive"));
+            }
+            if !(port.length.is_finite() && port.length > 0.0) {
+                return Err(invalid("length must be finite and positive"));
+            }
+            let e_norm =
+                (port.e_hat[0].powi(2) + port.e_hat[1].powi(2) + port.e_hat[2].powi(2)).sqrt();
+            if (e_norm - 1.0).abs() >= 1e-8 || e_norm.is_nan() {
+                return Err(invalid("e_hat must be a unit vector"));
+            }
+            let n_nodes = mesh.n_nodes() as u32;
+            if port
+                .faces
+                .iter()
+                .any(|f| f.iter().any(|&node| node >= n_nodes))
+            {
+                return Err(invalid("face node index out of range"));
+            }
+        }
+        // Every surface / port triangle must be a tet face (issue #725): the
+        // Whitney surface kernels below `expect` its edges in the edge table
+        // and its mass pairs in the volume sparsity pattern.
+        validate_driven_surfaces(
+            mesh,
+            "impedance surface",
+            surfaces.iter().map(|bc| bc.triangles),
+        )?;
+        validate_driven_surfaces(mesh, "lumped port", ports.iter().map(|p| p.faces))?;
+
+        // --- Edge tables ------------------------------------------------------
+        let tet_edges = mesh.tet_edges();
+        let tet_idx: Vec<[u32; 6]> = tet_edges
+            .iter()
+            .map(|row| std::array::from_fn(|i| row[i].0))
+            .collect();
+        let tet_sign: Vec<[i8; 6]> = tet_edges
+            .iter()
+            .map(|row| std::array::from_fn(|i| row[i].1))
+            .collect();
+
+        // --- Pattern-slot scatter map (issue #218) ------------------------------
+        // All volume assembly below scatters into flat [nnz] value tensors
+        // aligned with this sorted sparsity pattern: O(nnz) peak memory
+        // instead of O(n_edges²), and no i32 linear-index overflow for
+        // n_edges > 46_340 (the 54k-edge spiral benchmark fixture).
+        let scatter = NedelecScatterMap::new(&tet_idx);
+        let nnz = scatter.nnz();
+
+        // --- Leontovich impedance surfaces (issue #204) -------------------------
+        // The real surface mass S_Γ is ω-independent and cached; its weak
+        // coefficient iω/Z_s(ω) is ω-dependent (∝ √ω·(1+i) for the
+        // good-conductor model), so it is re-evaluated inside `solve_at` at
+        // every frequency. Every (i, j) pair S_Γ couples lies within the
+        // 6×6 edge block of the tet owning the boundary face, so the
+        // surface entries are a subset of the volume sparsity pattern —
+        // accumulate the face-block triplets straight into [nnz] vectors
+        // aligned with the pattern (no dense [n_edges²] matrix, issue #218).
+        let surface_masses: Vec<(Vec<f64>, SurfaceImpedanceModel)> = surfaces
+            .iter()
+            .map(|bc| {
+                let mut vals = vec![0.0_f64; nnz];
+                for (r, c, v) in crate::assembly::surface::assemble_surface_mass_triplets(
+                    mesh,
+                    bc.triangles,
+                    &edges,
+                ) {
+                    let slot = scatter
+                        .slot_of(r as u32, c as u32)
+                        .expect("surface-mass entry must lie within the volume sparsity pattern");
+                    vals[slot] += v;
+                }
+                (vals, bc.model)
+            })
+            .collect();
+
+        // --- Assemble K, M(ε) on the Burn backend ------------------------------
+        // The stiffness imaginary part is `None` for the ε-only material
+        // models (K is real there); the matched UPML stretches μ too, so
+        // its `K(Λ⁻¹)` carries an imaginary part. Everything lands in flat
+        // [nnz] pattern-aligned value tensors.
+        let (nodes_t, tets_t) = crate::assembly::p1::upload_mesh::<B>(mesh, device);
+        let (k_re_t, k_im_t, m_re_t, m_im_t) = match materials {
+            DrivenMaterials::Scalar(eps) => {
+                let sys = assemble_global_nedelec_with_complex_epsilon_sparse(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_sign,
+                    &scatter,
+                    eps,
+                );
+                (sys.k_vals, None, sys.m_re_vals, sys.m_im_vals)
+            }
+            DrivenMaterials::DiagTensor(eps) => {
+                let sys = assemble_global_nedelec_with_anisotropic_epsilon_sparse(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_sign,
+                    &scatter,
+                    eps,
+                );
+                (sys.k_vals, None, sys.m_re_vals, sys.m_im_vals)
+            }
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            } => {
+                let sys = assemble_global_nedelec_with_full_tensors_sparse(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_sign,
+                    &scatter,
+                    epsilon_tensor,
+                    nu_tensor,
+                );
+                (
+                    sys.k_re_vals,
+                    Some(sys.k_im_vals),
+                    sys.m_re_vals,
+                    sys.m_im_vals,
+                )
+            }
+        };
+
+        // --- Assemble the conductivity damping matrix C(σ), if any -------------
+        // C shares the (K, M) sparsity pattern — it is a σ-weighted mass
+        // assembled over the same tet→edge scatter slots — so its values
+        // align with the pattern directly.
+        let c_burn = sigma_tet.map(|sigma| {
+            assemble_nedelec_sigma_damping_sparse::<B>(
+                nodes_t.clone(),
+                tets_t.clone(),
+                &tet_sign,
+                &scatter,
+                sigma,
+            )
+        });
+
+        // --- Assemble the current-source RHS -----------------------------------
+        // The Burn RHS kernels are real-valued; a complex J runs as two
+        // passes (Re(J), Im(J)) — same split as the complex-ε mass assembly.
+        let (rhs_re, rhs_im) = match rhs {
+            RhsSamples::Constant(j_tet) => {
+                let j_re: Vec<[f64; 3]> =
+                    j_tet.iter().map(|j| [j[0].re, j[1].re, j[2].re]).collect();
+                let j_im: Vec<[f64; 3]> =
+                    j_tet.iter().map(|j| [j[0].im, j[1].im, j[2].im]).collect();
+                let rhs_re = assemble_nedelec_current_rhs(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    &j_re,
+                );
+                let rhs_im = assemble_nedelec_current_rhs(
+                    nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
+                );
+                (rhs_re, rhs_im)
+            }
+            RhsSamples::Quad(j_quad) => {
+                let j_re: Vec<[[f64; 3]; 4]> = j_quad
+                    .iter()
+                    .map(|t| t.map(|q| [q[0].re, q[1].re, q[2].re]))
+                    .collect();
+                let j_im: Vec<[[f64; 3]; 4]> = j_quad
+                    .iter()
+                    .map(|t| t.map(|q| [q[0].im, q[1].im, q[2].im]))
+                    .collect();
+                let rhs_re = assemble_nedelec_current_rhs_quad4(
+                    nodes_t.clone(),
+                    tets_t.clone(),
+                    &tet_idx,
+                    &tet_sign,
+                    n_edges,
+                    &j_re,
+                );
+                let rhs_im = assemble_nedelec_current_rhs_quad4(
+                    nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &j_im,
+                );
+                (rhs_re, rhs_im)
+            }
+        };
+        let rhs_re: Vec<f64> = rhs_re.into_data().iter::<f64>().collect();
+        let rhs_im: Vec<f64> = rhs_im.into_data().iter::<f64>().collect();
+
+        // --- Lumped-port flux + surface mass (issue #202) ------------------------
+        // The flux vector f_i = ∮ N_i · ê dS serves both the per-ω
+        // excitation `b_i += (2jω/Z_s)(V_inc/l) f_i` and the port-voltage
+        // readout (see lumped_port.rs). Both it and the tangential surface
+        // mass S_p are ω-independent.
+        let port_fluxes: Vec<Vec<f64>> = ports
+            .iter()
+            .map(|port| assemble_port_flux(mesh, port.faces, port.e_hat, &edges))
+            .collect();
+
+        // --- Host transfer ------------------------------------------------------
+        // [nnz] pattern-aligned value vectors — no dense [n_edges²] faer
+        // intermediates (issue #218). `iter::<f64>` upcasts losslessly from
+        // whatever float dtype the backend stores.
+        let k_re_host: Vec<f64> = k_re_t.into_data().iter::<f64>().collect();
+        let k_im_host: Option<Vec<f64>> = k_im_t.map(|t| t.into_data().iter::<f64>().collect());
+        let m_re_host: Vec<f64> = m_re_t.into_data().iter::<f64>().collect();
+        let m_im_host: Vec<f64> = m_im_t.into_data().iter::<f64>().collect();
+        let c_host: Option<Vec<f64>> = c_burn.map(|t| t.into_data().iter::<f64>().collect());
+
+        // Remap full edge indices → contiguous interior indices.
+        let mut remap = vec![-1_i64; n_edges];
+        let mut n_interior = 0_usize;
+        for (i, &keep) in bcs.pec_interior_mask.iter().enumerate() {
+            if keep {
+                remap[i] = n_interior as i64;
+                n_interior += 1;
+            }
+        }
+        if n_interior == 0 {
+            return Err(DrivenError::EmptyInterior);
+        }
+
+        // --- Cache interior-filtered values over the recorded sparsity pattern --
+        // One aligned value per kept (interior, interior) entry, in pattern
+        // order, so `solve_at` re-forms A(ω) = K + iωC − ω²M + Σ coeff·S by
+        // pure linear combination — no re-assembly.
+        let pattern = scatter.pattern();
+        let n_entries = pattern.nnz();
+        let mut rows = Vec::with_capacity(n_entries);
+        let mut cols = Vec::with_capacity(n_entries);
+        let mut k_vals = Vec::with_capacity(n_entries);
+        let mut m_vals = Vec::with_capacity(n_entries);
+        let mut c_vals = c_host.as_ref().map(|_| Vec::with_capacity(n_entries));
+        let mut surface_vals: Vec<Vec<f64>> = surface_masses
+            .iter()
+            .map(|_| Vec::with_capacity(n_entries))
+            .collect();
+        for (idx, (&r_u32, &c_u32)) in pattern.rows.iter().zip(pattern.cols.iter()).enumerate() {
+            let (r, c) = (r_u32 as usize, c_u32 as usize);
+            let (rr, cc) = (remap[r], remap[c]);
+            if rr < 0 || cc < 0 {
+                continue;
+            }
+            rows.push(rr as usize);
+            cols.push(cc as usize);
+            let k_im_val = k_im_host.as_ref().map_or(0.0, |v| v[idx]);
+            k_vals.push(c64::new(k_re_host[idx], k_im_val));
+            m_vals.push(c64::new(m_re_host[idx], m_im_host[idx]));
+            if let (Some(vals), Some(ch)) = (c_vals.as_mut(), c_host.as_ref()) {
+                vals.push(ch[idx]);
+            }
+            for (vals, (s, _)) in surface_vals.iter_mut().zip(surface_masses.iter()) {
+                vals.push(s[idx]);
+            }
+        }
+
+        // --- Lumped-port admittance masses (issue #202) --------------------------
+        // S_p triplets, interior-remapped. The port faces are boundary faces
+        // of mesh tets, so every (r, c) pair below already exists in the
+        // volume sparsity pattern; faer's `try_new_from_triplets` sums
+        // duplicate entries at solve time.
+        let operator_ports: Vec<OperatorPort> = ports
+            .iter()
+            .zip(port_fluxes)
+            .map(|(port, flux)| {
+                let mass_triplets = assemble_port_surface_mass(mesh, port.faces, &edges)
+                    .into_iter()
+                    .filter_map(|(r, c, v)| {
+                        let (rr, cc) = (remap[r], remap[c]);
+                        if rr < 0 || cc < 0 {
+                            None
+                        } else {
+                            Some((rr as usize, cc as usize, v))
+                        }
+                    })
+                    .collect();
+                OperatorPort {
+                    mass_triplets,
+                    flux,
+                    z_s: port.surface_impedance(),
+                    v_inc: port.v_inc,
+                    length: port.length,
+                    width: port.width,
+                    resistance: port.resistance,
+                }
+            })
+            .collect();
+
+        let operator_surfaces: Vec<OperatorSurface> = surface_vals
+            .into_iter()
+            .zip(surface_masses.iter())
+            .map(|(s_vals, (_, model))| OperatorSurface {
+                s_vals,
+                model: *model,
+            })
+            .collect();
+
+        // --- Matrix-free ingredients (issue #302 Phase 3) ---------------------
+        // Retain the host-side mesh + real per-tet ε/σ + interior mask needed
+        // to rebuild the Burn `ComplexMatrixFreeOperator` per ω, but only for
+        // scalar-**real** ε: the Burn operator takes real scalar ε/σ, so
+        // complex-ε (scalar PML), anisotropic, and matched-UPML materials are
+        // out of scope for the matrix-free path and leave `matrix_free = None`
+        // (the guard in `prepare_at` rejects them with a clean error).
+        let matrix_free = match materials {
+            DrivenMaterials::Scalar(eps) if eps.iter().all(|e| e.im == 0.0) => {
+                let epsilon_r: Vec<f64> = eps.iter().map(|e| e.re).collect();
+                let sigma = sigma_tet
+                    .map(|s| s.to_vec())
+                    .unwrap_or_else(|| vec![0.0_f64; n_tets]);
+                Some(crate::driven::matrix_free::MatrixFreeIngredients {
+                    nodes: mesh.nodes.clone(),
+                    tets: mesh.tets.clone(),
+                    tet_edge_idx: tet_idx.clone(),
+                    tet_edge_sign: tet_sign.clone(),
+                    n_edges,
+                    epsilon_r,
+                    sigma,
+                    interior_mask: bcs.pec_interior_mask.to_vec(),
+                })
+            }
+            _ => None,
+        };
+
+        Ok(DrivenOperator {
+            order: ElementOrder::P1,
+            n_dofs: n_edges,
+            n_interior,
+            remap,
+            pec_interior_mask: bcs.pec_interior_mask.to_vec(),
+            rows,
+            cols,
+            k_vals,
+            m_vals,
+            c_vals,
+            surfaces: operator_surfaces,
+            ports: operator_ports,
+            rhs_re,
+            rhs_im,
+            materials_kind,
+            matrix_free,
+            ams_geometry: Some(ams::AmsGeometry::new(edges, mesh.nodes.clone())),
+        })
+    }
+
+    /// Number of lumped ports the operator was assembled with.
+    pub fn n_ports(&self) -> usize {
+        self.ports.len()
+    }
+
+    /// Number of interior (kept) DOFs after PEC elimination.
+    pub fn n_interior(&self) -> usize {
+        self.n_interior
+    }
+
+    /// Port voltage `V = (1/w) ∮ E · ê dS` of port `port` read off a
+    /// solution's full-length edge vector, using the cached flux
+    /// functional — identical to [`crate::driven::ports::port_voltage`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()` or `e_edges` has the wrong
+    /// length.
+    pub fn port_voltage(&self, port: usize, e_edges: &[c64]) -> c64 {
+        let p = &self.ports[port];
+        assert_eq!(e_edges.len(), self.n_dofs, "edge vector length mismatch");
+        let mut v = c64::new(0.0, 0.0);
+        for (f, e) in p.flux.iter().zip(e_edges.iter()) {
+            v += *e * *f;
+        }
+        v * (1.0 / p.width)
+    }
+
+    /// Port current from the Thevenin admittance relation
+    /// `I = (2 V_inc − V) / R` of port `port` — identical to
+    /// [`crate::driven::ports::port_current`], using the port's **baked**
+    /// `V_inc`. For per-excitation bookkeeping (where a port may be
+    /// driven in one solve and passively terminated in another), use
+    /// [`DrivenOperator::port_current_with_v_inc`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_current(&self, port: usize, v_port: c64) -> c64 {
+        self.port_current_with_v_inc(port, self.ports[port].v_inc, v_port)
+    }
+
+    /// Port current `I = (2 V_inc − V) / R` with an **explicit**
+    /// incident voltage instead of the port's baked `v_inc` — the
+    /// per-excitation readback for multi-port S-parameter extraction
+    /// (issue #214), where port `p` is driven (`v_inc ≠ 0`) in its own
+    /// excitation solve and passively terminated (`v_inc = 0`) in all
+    /// others. `port_current_with_v_inc(p, self.port_v_inc(p), v)`
+    /// reproduces [`DrivenOperator::port_current`] exactly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_current_with_v_inc(&self, port: usize, v_inc: c64, v_port: c64) -> c64 {
+        let p = &self.ports[port];
+        (v_inc * 2.0 - v_port) * (1.0 / p.resistance)
+    }
+
+    /// Baked incident (drive) voltage `V_inc` of port `port`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_v_inc(&self, port: usize) -> c64 {
+        self.ports[port].v_inc
+    }
+
+    /// Lumped resistance `R` of port `port` (the natural per-port
+    /// reference impedance for S-parameters).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_resistance(&self, port: usize) -> f64 {
+        self.ports[port].resistance
+    }
+
+    /// Re-form `A(ω)`, factor it, and solve at one frequency.
+    ///
+    /// This is the sweep workhorse: only per-ω scalar work plus the
+    /// sparse LU happen here — the Burn volume assembly ran once in
+    /// [`DrivenOperator::assemble`]. A single `assemble` + `solve_at`
+    /// pair reproduces the corresponding single-ω entry point exactly
+    /// (same arithmetic, same triplet stream).
+    ///
+    /// Implemented as [`DrivenOperator::factor_at`] followed by
+    /// [`FactoredDrivenOperator::solve`] — multi-RHS callers (one
+    /// excitation per port at fixed ω, issue #214) should hold the
+    /// factorization and back-substitute per excitation instead of
+    /// calling this once per excitation.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] if a Leontovich model
+    /// evaluates to a zero/non-finite `Z_s(ω)`, plus the sparse
+    /// assembly / factorization / solve failures of [`driven_solve`].
+    pub fn solve_at(&self, omega: f64) -> Result<DrivenSolution, DrivenError> {
+        self.factor_at(omega)?.solve()
+    }
+
+    /// Re-form `A(ω)` and LU-factor it **once**, returning a handle
+    /// that back-substitutes any number of RHS vectors at this
+    /// frequency (issue #214: an N-port S-matrix costs one
+    /// factorization + N solves per ω).
+    ///
+    /// The triplet stream and factorization are exactly those of
+    /// [`DrivenOperator::solve_at`] (which delegates here), so
+    /// `factor_at(ω)?.solve()` is bit-for-bit identical to
+    /// `solve_at(ω)`.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`] if a Leontovich model
+    /// evaluates to a zero/non-finite `Z_s(ω)`, plus the sparse
+    /// assembly / factorization failures of [`driven_solve`].
+    pub fn factor_at(&self, omega: f64) -> Result<FactoredDrivenOperator<'_>, DrivenError> {
+        let a_int = self.assemble_a_at(omega)?;
+
+        // --- Factor once (same machinery as complex Lanczos) ----------------
+        // Fill-reducing ordering: `sp_lu` uses faer's default COLAMD. Since
+        // faier 0.25 (issue #972) a caller-supplied ordering can be injected
+        // via `LuColOrdering::Custom`, as the eigensolve's
+        // `InnerSolver::DirectCustomOrder` does (`crate::eigen::ordering`).
+        // The driven path has not been switched: that changes factor memory
+        // and timing and needs its own measurement first.
+        let lu = a_int
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+
+        Ok(FactoredDrivenOperator {
+            op: self,
+            omega,
+            a_int,
+            lu,
+        })
+    }
+
+    /// Re-form the interior `A(ω) = K + iωC − ω²M + Σ coeff·S + (jω/Z_s) S_p`
+    /// as a sparse CSC matrix at frequency `omega`, by linear
+    /// combination of the ω-independent value tensors cached at
+    /// assembly time. Shared between [`DrivenOperator::factor_at`]
+    /// (direct path) and [`DrivenOperator::solve_at_iterative`] (Krylov
+    /// path) so the two solver families see bit-for-bit the same
+    /// matrix.
+    fn assemble_a_at(&self, omega: f64) -> Result<SparseColMat<usize, c64>, DrivenError> {
+        // Leontovich coefficients iω/Z_s(ω) — ω-dependent, re-evaluated
+        // here at every frequency (issue #204 sweep caveat).
+        let surface_coeffs: Vec<c64> = self
+            .surfaces
+            .iter()
+            .map(|s| s.model.weak_coefficient(omega))
+            .collect::<Result<_, DrivenError>>()?;
+
+        // --- Sparse A(ω) = K + iωC − ω²M + Σ coeff·S by linear combination --
+        let omega2 = omega * omega;
+        let n_port_entries: usize = self.ports.iter().map(|p| p.mass_triplets.len()).sum();
+        let mut triplets: Vec<Triplet<usize, usize, c64>> =
+            Vec::with_capacity(self.rows.len() + n_port_entries);
+        for idx in 0..self.rows.len() {
+            let mut a_val = self.k_vals[idx] - self.m_vals[idx] * omega2;
+            if let Some(c_vals) = &self.c_vals {
+                // Conduction loss: + iω C (exp(+jωt) convention).
+                a_val += c64::new(0.0, omega * c_vals[idx]);
+            }
+            for (s, coeff) in self.surfaces.iter().zip(surface_coeffs.iter()) {
+                // Leontovich surface loss: + (iω/Z_s) S_Γ (issue #204).
+                a_val += *coeff * s.s_vals[idx];
+            }
+            triplets.push(Triplet::new(self.rows[idx], self.cols[idx], a_val));
+        }
+
+        // Port admittance: A(ω) += (jω/Z_s) S_p per port (issue #202).
+        // S_p is real symmetric, so A(ω)ᵀ = A(ω) is preserved.
+        for port in &self.ports {
+            let scale = c64::new(0.0, omega / port.z_s);
+            for &(rr, cc, v) in &port.mass_triplets {
+                triplets.push(Triplet::new(rr, cc, scale * v));
+            }
+        }
+
+        SparseColMat::<usize, c64>::try_new_from_triplets(
+            self.n_interior,
+            self.n_interior,
+            &triplets,
+        )
+        .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))
+    }
+
+    /// Build the interior RHS `b(ω) = iω ∫ N · J dV (+ port drives)` at
+    /// frequency `omega`. `excited`, when `Some(p)`, restricts the
+    /// port drive contributions to port `p` (the matched-source /
+    /// S-parameter convention of
+    /// [`FactoredDrivenOperator::solve_excited`]). Returns the
+    /// interior-filtered vector ready for either an LU back-solve or
+    /// a Krylov iteration.
+    pub(crate) fn assemble_b_at(&self, omega: f64, excited: Option<usize>) -> Vec<c64> {
+        // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
+        let mut b_full: Vec<c64> = self
+            .rhs_re
+            .iter()
+            .zip(self.rhs_im.iter())
+            .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+            .collect();
+
+        // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) f_i —
+        // restricted to the excited port when one is selected.
+        for (p, port) in self.ports.iter().enumerate() {
+            if excited.is_some_and(|j| j != p) {
+                continue;
+            }
+            if port.v_inc == c64::new(0.0, 0.0) {
+                continue;
+            }
+            let e_inc = port.v_inc * (1.0 / port.length);
+            let drive = c64::new(0.0, 2.0 * omega / port.z_s) * e_inc;
+            for (b, f) in b_full.iter_mut().zip(port.flux.iter()) {
+                *b += drive * *f;
+            }
+        }
+
+        // Interior-filter through the PEC mask.
+        self.pec_interior_mask
+            .iter()
+            .zip(b_full.iter())
+            .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+            .collect()
+    }
+
+    /// Scatter an interior-DOF solution `x_int` back into the
+    /// full-length `[n_edges]` complex edge vector (zeros on PEC-
+    /// eliminated edges).
+    fn scatter_to_full(&self, x_int: &[c64]) -> Vec<c64> {
+        let mut e_edges = vec![c64::new(0.0, 0.0); self.n_dofs];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                e_edges[full_idx] = x_int[ri as usize];
+            }
+        }
+        e_edges
+    }
+
+    // ---- Crate-internal accessors for the transient time-domain solver ----
+    //
+    // The transient integrator ([`crate::driven::transient`]) reuses the
+    // ω-independent K / M / C(σ) value tensors and the per-port surface
+    // masses this operator caches, folding them into a real second-order
+    // ODE system `M ẍ + C_total ẋ + K x = f(t)`. These `pub(crate)`
+    // accessors expose exactly the ω-independent data that folding needs —
+    // no behaviour change to the driven path, and nothing leaks past the
+    // crate boundary. See the module-level docs of `transient.rs` for the
+    // mapping from `assemble_a_at`'s frequency-domain combination to the
+    // time-domain matrices.
+
+    /// Interior-remapped `(row, col)` indices of every kept sparsity
+    /// entry, aligned with [`DrivenOperator::k_vals`] /
+    /// [`DrivenOperator::m_vals`] / [`DrivenOperator::c_vals`].
+    pub(crate) fn rows(&self) -> &[usize] {
+        &self.rows
+    }
+
+    /// Column indices aligned with [`DrivenOperator::rows`].
+    pub(crate) fn cols(&self) -> &[usize] {
+        &self.cols
+    }
+
+    /// Complex stiffness values `K` aligned with the sparsity entries.
+    pub(crate) fn k_vals(&self) -> &[c64] {
+        &self.k_vals
+    }
+
+    /// Complex mass values `M(ε)` aligned with the sparsity entries.
+    pub(crate) fn m_vals(&self) -> &[c64] {
+        &self.m_vals
+    }
+
+    /// Real conductivity-damping values `C(σ)` aligned with the sparsity
+    /// entries, if a σ was supplied at assembly.
+    pub(crate) fn c_vals(&self) -> Option<&[f64]> {
+        self.c_vals.as_deref()
+    }
+
+    /// Whether any Leontovich impedance surface is present (its
+    /// ω-dependent coefficient makes the operator non-polynomial in iω,
+    /// so the transient constructor rejects it).
+    pub(crate) fn has_surfaces(&self) -> bool {
+        !self.surfaces.is_empty()
+    }
+
+    /// Per-port ω-independent transient data: the interior-remapped
+    /// tangential-surface-mass triplets `S_p`, the full-length flux
+    /// functional `f_i = ∮ N_i · ê dS`, the surface impedance
+    /// `Z_s = R·w/l`, the gap length `ℓ`, and the lumped resistance `R`.
+    /// Folded by the transient solver into `C_total += S_p / Z_p` and
+    /// the drive `f(t) = (2/(Z_p·ℓ)) f_i · dV_inc/dt`.
+    pub(crate) fn port_transient_data(&self, p: usize) -> PortTransientData<'_> {
+        let port = &self.ports[p];
+        PortTransientData {
+            mass_triplets: &port.mass_triplets,
+            flux: &port.flux,
+            z_s: port.z_s,
+            length: port.length,
+            resistance: port.resistance,
+        }
+    }
+
+    /// Interior → full DOF-index map: `interior_to_full()[i]` is the
+    /// full DOF index (the `[n_edges]` edge index at p=1) of the `i`-th kept interior DOF, in
+    /// contiguous interior order (the inverse of the private `remap`
+    /// full→interior table on its non-eliminated entries).
+    ///
+    /// The matrix-free Krylov path ([`crate::driven::matrix_free`]) runs
+    /// in **full-edge** space (with an interior mask), while every stored
+    /// surface triplet (`port.mass_triplets`, `OperatorSurface::s_vals`)
+    /// is **interior-remapped**; this map lifts those interior indices
+    /// back to full-edge space at setup time (issue #493 Gap 1).
+    pub fn interior_to_full(&self) -> Vec<usize> {
+        let mut inv = vec![0_usize; self.n_interior];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                inv[ri as usize] = full_idx;
+            }
+        }
+        inv
+    }
+
+    /// Number of Leontovich impedance surfaces.
+    pub(crate) fn n_surfaces(&self) -> usize {
+        self.surfaces.len()
+    }
+
+    /// Leontovich surface `i` as interior-remapped `(row, col, value)`
+    /// triplets of its real, ω-independent mass `S_Γ` (the nonzero subset
+    /// of the dense `s_vals` aligned with [`DrivenOperator::rows`] /
+    /// [`DrivenOperator::cols`]), together with its ω-dependent surface
+    /// model. The complex weak coefficient `iω/Z_s(ω)` is obtained from
+    /// the model via [`SurfaceImpedanceModel::weak_coefficient`] per ω, so
+    /// the matrix-free path re-applies it exactly as `assemble_a_at` does
+    /// (issue #493 Gap 2).
+    pub(crate) fn surface_mass_triplets(
+        &self,
+        i: usize,
+    ) -> (Vec<(usize, usize, f64)>, SurfaceImpedanceModel) {
+        let s = &self.surfaces[i];
+        let triplets = self
+            .rows
+            .iter()
+            .zip(self.cols.iter())
+            .zip(s.s_vals.iter())
+            .filter_map(|((&r, &c), &v)| if v != 0.0 { Some((r, c, v)) } else { None })
+            .collect();
+        (triplets, s.model)
+    }
+
+    /// Raw real parts of the baked current-source moments
+    /// `∫ N_i · J dV`, full edge length. Together with
+    /// [`DrivenOperator::rhs_im`] these determine the volume-source part
+    /// of the RHS as `b(ω) = iω (rhs_re + i·rhs_im)` — exactly linear in
+    /// ω, which the PROM sweep ([`crate::driven::rom`]) exploits by
+    /// projecting the fixed vector `b̂ = −rhs_im + i·rhs_re` once
+    /// (issue #603).
+    pub(crate) fn rhs_re(&self) -> &[f64] {
+        &self.rhs_re
+    }
+
+    /// Raw imaginary parts of the baked current-source moments, aligned
+    /// with [`DrivenOperator::rhs_re`].
+    pub(crate) fn rhs_im(&self) -> &[f64] {
+        &self.rhs_im
+    }
+
+    /// Interior-filter a full-length real vector through the PEC mask,
+    /// dropping the eliminated entries (same filtering the RHS uses).
+    pub(crate) fn filter_interior_real(&self, full: &[f64]) -> Vec<f64> {
+        self.pec_interior_mask
+            .iter()
+            .zip(full.iter())
+            .filter_map(|(&keep, &v)| if keep { Some(v) } else { None })
+            .collect()
+    }
+
+    /// Scatter an interior-DOF **real** solution back into the
+    /// full-length `[n_edges]` edge vector (zeros on PEC edges).
+    pub(crate) fn scatter_to_full_real(&self, x_int: &[f64]) -> Vec<f64> {
+        let mut e_edges = vec![0.0_f64; self.n_dofs];
+        for (full_idx, &ri) in self.remap.iter().enumerate() {
+            if ri >= 0 {
+                e_edges[full_idx] = x_int[ri as usize];
+            }
+        }
+        e_edges
+    }
+
+    /// Solve `A(ω) x = b` at one frequency through a **Krylov
+    /// iterative** solver instead of the direct LU factorization
+    /// (issue #238). The iterative analog of
+    /// [`DrivenOperator::solve_at`]: assembles the same interior
+    /// `A(ω)` and `b(ω)` as the direct path (sharing
+    /// `DrivenOperator::assemble_a_at` and
+    /// `DrivenOperator::assemble_b_at`) and hands the pair off to
+    /// `ksp` with `precond` as a left-preconditioner.
+    ///
+    /// The returned [`DrivenSolution`] has the same shape and
+    /// invariants as the direct-path output (full-length edge vector,
+    /// PEC zeros, post-solve residual `‖A x − b‖ / ‖b‖` — computed by
+    /// the Krylov solver in this case, but using the same definition,
+    /// so [`DrivenSolution::residual_rel`] is directly comparable
+    /// across solvers). The Krylov iteration count is reported
+    /// separately in the second tuple slot — issue #238 calls this
+    /// figure out explicitly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrivenError::SurfaceImpedanceSingular`] if a
+    /// Leontovich model evaluates to a singular `Z_s(ω)`,
+    /// [`DrivenError::SparseAssembly`] on triplet assembly failure,
+    /// and [`DrivenError::Solve`] (wrapping the Krylov error) for
+    /// iteration breakdown or non-convergence — including the
+    /// recursive-residual drift case where COCG's recursive residual met
+    /// the tolerance but the explicit residual did not, even after
+    /// residual replacement (issues #744, #943). A zero RHS is treated
+    /// as a trivial all-zero solution (one iteration recorded) rather
+    /// than an error — to match the direct path's
+    /// `zero_source_gives_zero_field` semantics.
+    pub fn solve_at_iterative<K, P>(
+        &self,
+        omega: f64,
+        ksp: &K,
+        precond_factory: impl FnOnce(
+            &SparseColMat<usize, c64>,
+        ) -> Result<P, crate::solver::ksp::KspError>,
+    ) -> Result<(DrivenSolution, crate::solver::ksp::KspReport), DrivenError>
+    where
+        K: crate::solver::ksp::KspSolve,
+        P: crate::solver::ksp::Preconditioner,
+    {
+        use crate::eigen::complex::spmv;
+
+        let a_int = self.assemble_a_at(omega)?;
+        let b_int = self.assemble_b_at(omega, None);
+
+        // Build the preconditioner from the assembled A(ω).
+        let precond = precond_factory(&a_int)
+            .map_err(|e| DrivenError::Solve(format!("preconditioner setup: {e}")))?;
+
+        let mut x_int = vec![c64::new(0.0, 0.0); self.n_interior];
+
+        // Zero RHS: trivially x = 0. Report zero iterations and a
+        // healthy "residual" (0 / 0 collapses to 0 in our metric).
+        let b_norm2: f64 = b_int.iter().map(|b| b.re * b.re + b.im * b.im).sum();
+        if b_norm2 == 0.0 {
+            return Ok((
+                DrivenSolution {
+                    e_edges: vec![c64::new(0.0, 0.0); self.n_dofs],
+                    order: self.order,
+                    n_interior: self.n_interior,
+                    residual_rel: 0.0,
+                },
+                crate::solver::ksp::KspReport {
+                    iters: 0,
+                    residual_rel: 0.0,
+                    converged: true,
+                    replacements: 0,
+                },
+            ));
+        }
+
+        let report = ksp
+            .solve(a_int.as_ref(), &b_int, &mut x_int, &precond)
+            .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
+        let report = require_converged(report, "iterative solve")?;
+
+        // Post-solve residual check (same definition as the direct
+        // path; the Krylov reporter already computes this, but we
+        // recompute explicitly here so the DrivenSolution exposes the
+        // same residual_rel field across solver paths).
+        let mut ax = vec![c64::new(0.0, 0.0); self.n_interior];
+        spmv(a_int.as_ref(), &x_int, &mut ax);
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..self.n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        let residual_rel = if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        };
+
+        let e_edges = self.scatter_to_full(&x_int);
+
+        Ok((
+            DrivenSolution {
+                e_edges,
+                order: self.order,
+                n_interior: self.n_interior,
+                residual_rel,
+            },
+            report,
+        ))
+    }
+}
+
+/// `A(ω)` re-formed and LU-factored at one frequency, holding a borrow
+/// of its [`DrivenOperator`] (issue #214).
+///
+/// Each `solve*` call only builds an RHS and back-substitutes through
+/// the cached factorization, so N excitations at a fixed ω cost one
+/// factorization + N triangular solves — the multi-RHS structure the
+/// N-port S-matrix extraction needs (one solve per excited port; see
+/// [`crate::driven::extraction::s_parameter_frequency_sweep`]).
+pub struct FactoredDrivenOperator<'a> {
+    op: &'a DrivenOperator,
+    omega: f64,
+    a_int: SparseColMat<usize, c64>,
+    lu: Lu<usize, c64>,
+}
+
+impl FactoredDrivenOperator<'_> {
+    /// The frequency `ω` this factorization was formed at.
+    pub fn omega(&self) -> f64 {
+        self.omega
+    }
+
+    /// Solve with **all** baked excitations active (the volume current
+    /// source plus every port's `v_inc` drive) — exactly the RHS of the
+    /// pre-split [`DrivenOperator::solve_at`], which now delegates
+    /// here.
+    ///
+    /// # Errors
+    ///
+    /// The sparse solve failures of [`driven_solve`].
+    pub fn solve(&self) -> Result<DrivenSolution, DrivenError> {
+        self.solve_with_excitation(None)
+    }
+
+    /// Solve with **only port `excited` driven** (at its baked
+    /// `v_inc`): all other ports keep their resistive termination
+    /// (already in the factored `A(ω)`) but contribute no drive. The
+    /// volume current-source moments are still applied — pass a zero
+    /// [`CurrentSource`] at assembly time for pure port-driven
+    /// S-parameter extraction (issue #214).
+    ///
+    /// With a single port, `solve_excited(0)` is bit-for-bit identical
+    /// to [`FactoredDrivenOperator::solve`].
+    ///
+    /// # Errors
+    ///
+    /// The sparse solve failures of [`driven_solve`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `excited ≥ n_ports`, or if port `excited` has a zero
+    /// baked `v_inc` (its excitation would be identically zero —
+    /// almost certainly a setup bug).
+    pub fn solve_excited(&self, excited: usize) -> Result<DrivenSolution, DrivenError> {
+        assert!(
+            excited < self.op.ports.len(),
+            "excited port index {excited} out of range ({} ports)",
+            self.op.ports.len()
+        );
+        assert!(
+            self.op.ports[excited].v_inc != c64::new(0.0, 0.0),
+            "excited port {excited} has v_inc = 0 (no drive)"
+        );
+        self.solve_with_excitation(Some(excited))
+    }
+
+    /// Back-substitute an arbitrary interior-length RHS `b` through the
+    /// cached LU factorization, writing into `out` (also interior
+    /// length). Both vectors must have length [`DrivenOperator::n_interior`].
+    ///
+    /// Bypasses the baked volume source and port drives — for callers
+    /// (wave-port BC, Epic #234 Phase 2) that build their own
+    /// excitations on top of the same factorization.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] on factorization back-substitution failure.
+    pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        solve_with_lu(&self.lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))
+    }
+
+    /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` —
+    /// re-uses the factorization's interior `A_int` directly. Used by
+    /// the wave-port BC residual check (it builds an additional rank-1
+    /// modal correction on top of `A(ω)` and needs the base `A x` to
+    /// compute the corrected residual).
+    pub fn spmv_a(&self, x: &[c64], out: &mut [c64]) {
+        assert_eq!(x.len(), self.op.n_interior, "x length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        spmv(self.a_int.as_ref(), x, out);
+    }
+
+    /// Build the RHS (volume source + port drives restricted to
+    /// `excited` if given) and back-substitute through the cached LU.
+    fn solve_with_excitation(&self, excited: Option<usize>) -> Result<DrivenSolution, DrivenError> {
+        let op = self.op;
+        let omega = self.omega;
+
+        // b = iωμ₀ ∫ N · J dV with μ₀ = 1:  iω (re + i·im) = ω(−im + i·re).
+        let mut b_full: Vec<c64> = op
+            .rhs_re
+            .iter()
+            .zip(op.rhs_im.iter())
+            .map(|(&re, &im)| c64::new(-omega * im, omega * re))
+            .collect();
+
+        // Matched-source port drive: b_i += (2jω/Z_s)(V_inc/l) f_i —
+        // restricted to the excited port when one is selected.
+        for (p, port) in op.ports.iter().enumerate() {
+            if excited.is_some_and(|j| j != p) {
+                continue;
+            }
+            if port.v_inc == c64::new(0.0, 0.0) {
+                continue;
+            }
+            let e_inc = port.v_inc * (1.0 / port.length);
+            let drive = c64::new(0.0, 2.0 * omega / port.z_s) * e_inc;
+            for (b, f) in b_full.iter_mut().zip(port.flux.iter()) {
+                *b += drive * *f;
+            }
+        }
+
+        let b_int: Vec<c64> = op
+            .pec_interior_mask
+            .iter()
+            .zip(b_full.iter())
+            .filter_map(|(&keep, &b)| if keep { Some(b) } else { None })
+            .collect();
+
+        // --- Direct solve through the cached factorization ------------------
+        let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
+        solve_with_lu(&self.lu, &b_int, &mut x_int)
+            .map_err(|e| DrivenError::Solve(format!("{e}")))?;
+
+        // --- Post-solve residual check --------------------------------------
+        let mut ax = vec![c64::new(0.0, 0.0); op.n_interior];
+        spmv(self.a_int.as_ref(), &x_int, &mut ax);
+        let mut res2 = 0.0_f64;
+        let mut b2 = 0.0_f64;
+        for i in 0..op.n_interior {
+            let r = ax[i] - b_int[i];
+            res2 += r.re * r.re + r.im * r.im;
+            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
+        }
+        let residual_rel = if b2 > 0.0 {
+            (res2 / b2).sqrt()
+        } else {
+            res2.sqrt()
+        };
+
+        // --- Scatter back to the full edge vector ---------------------------
+        let mut e_edges = vec![c64::new(0.0, 0.0); op.n_dofs];
+        for (full_idx, &ri) in op.remap.iter().enumerate() {
+            if ri >= 0 {
+                e_edges[full_idx] = x_int[ri as usize];
+            }
+        }
+
+        Ok(DrivenSolution {
+            e_edges,
+            order: op.order,
+            n_interior: op.n_interior,
+            residual_rel,
+        })
+    }
+}
+
+/// Per-RHS back-solve report — issue #264's "iteration counts reported
+/// per ω + per RHS" channel for the iterative path.
+///
+/// Returned by [`DrivenLinearSolver::back_solve`] alongside the
+/// solution. For [`SolverMode::Direct`] the count is always `0` (the
+/// triangular back-substitution has no Krylov iterations) and
+/// `residual_rel` is the LU back-substitution's own residual on this
+/// RHS; for [`SolverMode::Iterative`] both fields come from the COCG
+/// [`crate::solver::ksp::KspReport`].
+#[derive(Debug, Clone, Copy)]
+pub struct BackSolveReport {
+    /// Krylov iterations executed for this RHS (0 on the direct path).
+    pub iters: usize,
+    /// `‖A x − b‖₂ / ‖b‖₂` after the back-solve (same definition on
+    /// both paths).
+    pub residual_rel: f64,
+    /// Whether the solve met its convergence criterion on the
+    /// **explicitly recomputed** residual (issue #744).
+    ///
+    /// Always `true` on a returned `Ok` report: the direct path has no
+    /// non-convergence mode, and on the iterative paths a Krylov solve
+    /// whose recursively-maintained residual met the tolerance but
+    /// whose explicit residual `‖A x − b‖ / ‖b‖` did not (the "drift"
+    /// case) is turned into [`DrivenError::Solve`] by
+    /// [`DrivenLinearSolver::back_solve`] rather than reported as a
+    /// silently-accepted near miss. The field is carried so callers
+    /// can assert the invariant and so future soft-accept policies
+    /// have a channel.
+    pub converged: bool,
+}
+
+/// Turn a Krylov report whose explicit residual missed the tolerance
+/// into a hard [`DrivenError::Solve`] (issue #744).
+///
+/// Both [`crate::solver::ksp::Cocg`] and the matrix-free
+/// [`crate::solver::ksp_burn::BurnCocg`] return
+/// `Ok(KspReport { converged: false, .. })` in exactly one situation:
+/// the recursively-maintained residual crossed `tol` but the true
+/// residual recomputed with an explicit SpMV did not (recursive-residual
+/// drift on an ill-conditioned / poorly-preconditioned system), and
+/// residual replacement (issue #943) could not repair it — either the
+/// replacement cap was spent or a replacement failed to reduce the
+/// explicit residual. A drift of a hair above `tol` is no longer a
+/// failure: the solver replaces the recursive residual with the explicit
+/// one and iterates on until the explicit residual meets `tol`.
+/// Max-iteration exhaustion is already an `Err(KspError::NotConverged)`.
+/// Accepting the drift case would report a `Z`/`S` value from an
+/// unconverged field as success, so every driven iterative back-solve
+/// funnels its report through this check.
+fn require_converged(
+    report: crate::solver::ksp::KspReport,
+    path: &str,
+) -> Result<crate::solver::ksp::KspReport, DrivenError> {
+    if report.converged {
+        Ok(report)
+    } else {
+        Err(DrivenError::Solve(format!(
+            "{path}: Krylov solve did not converge — the recursive residual met the \
+             tolerance after {} iterations but the explicitly recomputed residual \
+             ‖Ax − b‖/‖b‖ = {:.3e} did not, even after {} residual replacement(s) \
+             (recursive-residual drift; loosen solver.tol to a level the explicit \
+             residual can reach, use a stronger preconditioner, or use \
+             solver.mode = \"direct\")",
+            report.iters, report.residual_rel, report.replacements
+        )))
+    }
+}
+
+/// Per-ω back-solve handle that abstracts the direct (LU) and iterative
+/// (COCG) paths behind one API (issue #264). Built by
+/// [`DrivenOperator::prepare_at`].
+///
+/// The handle owns:
+/// - the cached complex sparse `A(ω)` (shared by both backends, so
+///   [`DrivenLinearSolver::spmv_a`] and the residual checks are
+///   identical),
+/// - either an LU factorization (direct) **or** the preconditioner +
+///   COCG knobs (iterative; [`Self::preconditioner`] names the one used
+///   and [`Self::preconditioner_fallback`] reports a fallback of the
+///   default [`IterativePreconditioner::Auto`], issue #930).
+///
+/// Multi-RHS callers at the same ω
+/// ([`crate::driven::extraction::s_parameter_frequency_sweep`],
+/// [`crate::driven::ports::solve_wave_port_sweep`]) reuse one handle across
+/// every RHS; on the iterative path the preconditioner is built
+/// once at construction and reused across every
+/// [`DrivenLinearSolver::back_solve`] call.
+pub struct DrivenLinearSolver<'a, B: Backend> {
+    op: &'a DrivenOperator,
+    omega: f64,
+    a_int: SparseColMat<usize, c64>,
+    backend: SolverBackend<B>,
+    /// The resolved preconditioner (`None` on the direct path).
+    preconditioner: Option<IterativePreconditioner>,
+    /// Set when the default [`IterativePreconditioner::Auto`] fell back
+    /// from AMS (issue #930).
+    fallback: Option<PreconditionerFallback>,
+}
+
+enum SolverBackend<B: Backend> {
+    Direct {
+        // Boxed because the faer `Lu` factorization is large (~300 B);
+        // boxing keeps the `SolverBackend` enum compact so the
+        // iterative variant doesn't pay the direct variant's memory
+        // footprint (clippy: large_enum_variant).
+        lu: Box<Lu<usize, c64>>,
+    },
+    Iterative {
+        precond: DrivenPreconditioner,
+        ksp: crate::solver::ksp::Cocg,
+    },
+    /// GPU-resident matrix-free COCG (issue #302 Phase 3): the Burn
+    /// volume pencil plus the on-device COO surface correction, boxed to
+    /// keep the enum compact.
+    MatrixFree {
+        solver: Box<crate::driven::matrix_free::MatrixFreeSolver<B>>,
+    },
+}
+
+impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
+    /// The frequency `ω` this handle was prepared at.
+    pub fn omega(&self) -> f64 {
+        self.omega
+    }
+
+    /// The preconditioner this handle's iterative back-solve actually
+    /// applies — never [`IterativePreconditioner::Auto`], which
+    /// [`DrivenOperator::prepare_at`] resolved — or `None` on the direct
+    /// path.
+    pub fn preconditioner(&self) -> Option<IterativePreconditioner> {
+        self.preconditioner
+    }
+
+    /// The warning raised when the default
+    /// [`IterativePreconditioner::Auto`] fell back from AMS to Jacobi at
+    /// this ω (issue #930), or `None` (AMS was used, the preconditioner was
+    /// chosen explicitly, or the path is direct). The same text is printed
+    /// once per process on stderr.
+    pub fn preconditioner_fallback(&self) -> Option<&PreconditionerFallback> {
+        self.fallback.as_ref()
+    }
+
+    /// The built AMS preconditioner, when this handle's iterative back-solve
+    /// uses one (issue #963; on [`SolverMode::IterativeMatrixFree`] too, where
+    /// it is the host-side AMS of issue #966), else `None`. Its
+    /// [`DrivenAms::smoother`] is the edge-smoother estimate of this ω
+    /// (Lanczos Ritz value, Gershgorin bound, chosen weight and its source,
+    /// and [`crate::eigen::ams::SmootherWeight::near_switch`]), and
+    /// [`DrivenAms::vcycle`] / [`DrivenAms::pi_coarse`] the cycle structure.
+    pub fn ams(&self) -> Option<&DrivenAms> {
+        match &self.backend {
+            SolverBackend::Iterative {
+                precond: DrivenPreconditioner::Ams(ams),
+                ..
+            } => Some(ams),
+            SolverBackend::MatrixFree { solver } => solver.ams(),
+            _ => None,
+        }
+    }
+
+    /// `true` if this handle uses an iterative (COCG) back-solve path —
+    /// either the assembled-CSR [`SolverMode::Iterative`] or the
+    /// matrix-free [`SolverMode::IterativeMatrixFree`] — `false` for the
+    /// direct LU path.
+    pub fn is_iterative(&self) -> bool {
+        matches!(
+            self.backend,
+            SolverBackend::Iterative { .. } | SolverBackend::MatrixFree { .. }
+        )
+    }
+
+    /// Solve with **all** baked excitations active (volume current
+    /// source plus every port's `v_inc` drive) — the per-ω analog of
+    /// [`DrivenOperator::solve_at`] / [`FactoredDrivenOperator::solve`].
+    ///
+    /// On the iterative path the per-RHS iteration count is the second
+    /// tuple slot (`0` on the direct path, where the back-solve is a
+    /// single triangular sweep).
+    pub fn solve(&self) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        self.solve_with_excitation(None)
+    }
+
+    /// Solve with **only port `excited` driven** — the per-ω analog of
+    /// [`FactoredDrivenOperator::solve_excited`], including the
+    /// matched-source convention (issue #214).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `excited ≥ n_ports` or port `excited` has a zero baked
+    /// `v_inc`.
+    pub fn solve_excited(
+        &self,
+        excited: usize,
+    ) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        assert!(
+            excited < self.op.ports.len(),
+            "excited port index {excited} out of range ({} ports)",
+            self.op.ports.len()
+        );
+        assert!(
+            self.op.ports[excited].v_inc != c64::new(0.0, 0.0),
+            "excited port {excited} has v_inc = 0 (no drive)"
+        );
+        self.solve_with_excitation(Some(excited))
+    }
+
+    /// Back-substitute an interior-length RHS `b` through the cached
+    /// solver, writing into `out` (also interior length). The iterative
+    /// analog of [`FactoredDrivenOperator::back_solve`]; both vectors
+    /// must have length [`DrivenOperator::n_interior`].
+    ///
+    /// Bypasses the baked volume source / port drives — for callers
+    /// (wave-port SMW, see [`crate::driven::ports::solve_wave_port_sweep`])
+    /// that build their own RHS on top of the same operator.
+    pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<BackSolveReport, DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+
+        match &self.backend {
+            SolverBackend::Direct { lu } => {
+                solve_with_lu(lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+                // Direct back-substitution: compute the per-RHS residual
+                // for symmetry with the iterative path's BackSolveReport.
+                let mut ax = vec![c64::new(0.0, 0.0); self.op.n_interior];
+                spmv(self.a_int.as_ref(), out, &mut ax);
+                let mut res2 = 0.0_f64;
+                let mut b2 = 0.0_f64;
+                for i in 0..self.op.n_interior {
+                    let r = ax[i] - b[i];
+                    res2 += r.re * r.re + r.im * r.im;
+                    b2 += b[i].re * b[i].re + b[i].im * b[i].im;
+                }
+                let residual_rel = if b2 > 0.0 {
+                    (res2 / b2).sqrt()
+                } else {
+                    res2.sqrt()
+                };
+                Ok(BackSolveReport {
+                    iters: 0,
+                    residual_rel,
+                    converged: true,
+                })
+            }
+            SolverBackend::Iterative { precond, ksp } => {
+                use crate::solver::ksp::KspSolve;
+                // Zero RHS: the direct path silently produces x = 0 via
+                // the triangular sweep; mirror that on the iterative
+                // path so the two are interchangeable in callers that
+                // sometimes have all-zero excitations (e.g. an
+                // S-parameter excitation column with no drive).
+                let b_norm2: f64 = b.iter().map(|c| c.re * c.re + c.im * c.im).sum();
+                if b_norm2 == 0.0 {
+                    for o in out.iter_mut() {
+                        *o = c64::new(0.0, 0.0);
+                    }
+                    return Ok(BackSolveReport {
+                        iters: 0,
+                        residual_rel: 0.0,
+                        converged: true,
+                    });
+                }
+                // Start each RHS from a zero guess — COCG's standard
+                // entry condition (r_0 = b).
+                for o in out.iter_mut() {
+                    *o = c64::new(0.0, 0.0);
+                }
+                // One sequential scope for the whole Krylov solve, not one
+                // per preconditioner application (issue #946; see
+                // `DrivenPreconditioner::sequential_solve_scope`). It drops
+                // at the end of this arm, including on the `?` returns below.
+                let _seq = precond.sequential_solve_scope();
+                #[cfg(test)]
+                tests::KRYLOV_SOLVE_SCOPED.with(|p| p.set(Some(_seq.is_some())));
+                let report = ksp
+                    .solve(self.a_int.as_ref(), b, out, precond)
+                    .map_err(|e| DrivenError::Solve(format!("Krylov solve: {e}")))?;
+                let report = require_converged(report, "iterative back-solve")?;
+                Ok(BackSolveReport {
+                    iters: report.iters,
+                    residual_rel: report.residual_rel,
+                    converged: report.converged,
+                })
+            }
+            SolverBackend::MatrixFree { solver } => {
+                // The matrix-free solver handles the zero-RHS shortcut and
+                // the interior↔full lift internally (issue #302 Phase 3).
+                let report = solver.back_solve(b, out)?;
+                let report = require_converged(report, "matrix-free back-solve")?;
+                Ok(BackSolveReport {
+                    iters: report.iters,
+                    residual_rel: report.residual_rel,
+                    converged: report.converged,
+                })
+            }
+        }
+    }
+
+    /// Back-substitute an interior-length RHS through the **transpose**
+    /// `A(ω)ᵀ` of the cached factorization (`Aᵀ out = b`), with no new
+    /// factorization — the explicit adjoint solve of issue #842 (Epic #841).
+    ///
+    /// The driven pencil assembled today is complex-symmetric (`Aᵀ = A`),
+    /// so this equals [`Self::back_solve`] up to round-off; it exists so
+    /// adjoint consumers do not hard-wire that symmetry (a Bloch-periodic
+    /// operator, #837, has `A(k)ᵀ = A(−k) ≠ A(k)`).
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::Solve`] on the iterative and matrix-free paths
+    /// (COCG has no transpose solve; adjoints stay direct-LU, Epic #841
+    /// non-goal), or on a back-substitution failure.
+    pub fn back_solve_transpose(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
+        assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        match &self.backend {
+            SolverBackend::Direct { lu } => {
+                use faer::linalg::solvers::Solve;
+                let mut work = faer::Mat::<c64>::from_fn(b.len(), 1, |i, _| b[i]);
+                lu.solve_transpose_in_place(work.as_mut());
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = work[(i, 0)];
+                }
+                Ok(())
+            }
+            SolverBackend::Iterative { .. } | SolverBackend::MatrixFree { .. } => {
+                Err(DrivenError::Solve(
+                    "transpose (adjoint) back-solve needs SolverMode::Direct: the Krylov paths \
+                     have no transpose solve"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` — the
+    /// iterative analog of [`FactoredDrivenOperator::spmv_a`], shared
+    /// across both backends (the matrix is the same).
+    pub fn spmv_a(&self, x: &[c64], out: &mut [c64]) {
+        assert_eq!(x.len(), self.op.n_interior, "x length mismatch");
+        assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
+        spmv(self.a_int.as_ref(), x, out);
+    }
+
+    /// Build the RHS and dispatch to [`Self::back_solve`].
+    fn solve_with_excitation(
+        &self,
+        excited: Option<usize>,
+    ) -> Result<(DrivenSolution, BackSolveReport), DrivenError> {
+        let op = self.op;
+        let b_int = op.assemble_b_at(self.omega, excited);
+
+        let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
+        let report = self.back_solve(&b_int, &mut x_int)?;
+
+        let e_edges = op.scatter_to_full(&x_int);
+        Ok((
+            DrivenSolution {
+                e_edges,
+                order: op.order,
+                n_interior: op.n_interior,
+                residual_rel: report.residual_rel,
+            },
+            report,
+        ))
+    }
+}
+
+impl DrivenOperator {
+    /// Re-form `A(ω)` and prepare a per-ω solver handle in the requested
+    /// [`SolverMode`] — the unified entry point for issue #264's
+    /// direct/iterative knob.
+    ///
+    /// - [`SolverMode::Direct`]: factor `A(ω)` once with sparse LU; the
+    ///   resulting handle's [`DrivenLinearSolver::back_solve`] is a
+    ///   triangular back-substitution per RHS.
+    /// - [`SolverMode::Iterative`]: build the selected
+    ///   [`IterativePreconditioner`] (by default
+    ///   [`IterativePreconditioner::Auto`], resolved by
+    ///   [`Self::resolve_preconditioner`]: AMS where supported, Jacobi with
+    ///   a warning otherwise) from `A(ω)`; the handle's `back_solve` runs a
+    ///   fresh [`crate::solver::ksp::Cocg`] iteration per RHS.
+    /// - [`SolverMode::IterativeMatrixFree`]: build the Burn matrix-free
+    ///   volume pencil plus the on-device COO surface correction at ω
+    ///   ([`crate::driven::matrix_free`]); the handle's `back_solve` runs
+    ///   a [`crate::solver::ksp_burn::BurnCocg`] iteration per RHS with the
+    ///   Krylov vectors on-device. With an explicit
+    ///   [`IterativePreconditioner::Ams`] the same AMS the assembled path
+    ///   builds is built here too and applied on the host between operator
+    ///   applies (issue #966, CPU ndarray f64 only).
+    ///
+    /// The cached sparse `A(ω)` is held by the handle in all three modes,
+    /// so [`DrivenLinearSolver::spmv_a`] is identical across modes. On the
+    /// matrix-free path the *solve* never touches `a_int` — it is retained
+    /// only so `spmv_a` (the wave-port residual check) keeps working; the
+    /// volume matvec runs element-locally on Burn tensors.
+    ///
+    /// # Matrix-free restrictions (v1)
+    ///
+    /// [`SolverMode::IterativeMatrixFree`] requires a scalar-**real** ε
+    /// material — [`DrivenMaterials::DiagTensor`] and
+    /// [`DrivenMaterials::MatchedUpml`] are rejected with
+    /// [`DrivenError::UnsupportedMatrixFree`]. Wave-port sweeps are guarded
+    /// at the `solve_wave_port_sweep_with_mode` call site, not here.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::SurfaceImpedanceSingular`], the sparse assembly
+    /// failures, the LU-factorization failure on the direct path,
+    /// [`DrivenError::Solve`] wrapping a preconditioner setup error (a
+    /// zero / non-finite diagonal, a vanishing ILU(0) pivot) on the
+    /// iterative path, or [`DrivenError::UnsupportedMatrixFree`] on the
+    /// matrix-free path for an explicit preconditioner other than Jacobi or
+    /// AMS, for AMS on a backend other than CPU ndarray f64, or for an
+    /// unsupported material.
+    pub fn prepare_at<B: Backend>(
+        &self,
+        omega: f64,
+        mode: SolverMode,
+        device: &B::Device,
+    ) -> Result<DrivenLinearSolver<'_, B>, DrivenError> {
+        // Order guards (issue #838): the matrix-free volume pencil and the
+        // AMS auxiliary space are built on the p=1 Whitney edge layout, so
+        // a higher-order operator is rejected loudly, never solved at a
+        // different order. Jacobi / ILU(0) / Chebyshev only read the
+        // assembled A(ω) and are order-agnostic.
+        if self.order != ElementOrder::P1 {
+            match mode {
+                SolverMode::IterativeMatrixFree(_) => {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: self.order,
+                        feature: "the matrix-free iterative solver (SolverMode::IterativeMatrixFree)",
+                    });
+                }
+                // Explicit AMS only: the default `Auto` falls back to Jacobi
+                // below (issue #930).
+                SolverMode::Iterative(IterativeSettings {
+                    preconditioner: IterativePreconditioner::Ams { .. },
+                    ..
+                }) => {
+                    return Err(DrivenError::UnsupportedAtOrder {
+                        order: self.order,
+                        feature: "the AMS preconditioner (IterativePreconditioner::Ams)",
+                    });
+                }
+                _ => {}
+            }
+        }
+        let (preconditioner, fallback) = match self.resolve_preconditioner(mode) {
+            Some((pc, fallback)) => (Some(pc), fallback),
+            None => (None, None),
+        };
+        let a_int = self.assemble_a_at(omega)?;
+        let backend = match mode {
+            SolverMode::Direct => {
+                let lu = a_int
+                    .as_ref()
+                    .sp_lu()
+                    .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+                SolverBackend::Direct { lu: Box::new(lu) }
+            }
+            SolverMode::Iterative(settings) => {
+                let resolved = preconditioner.expect("iterative mode resolves a preconditioner");
+                let precond = match resolved {
+                    IterativePreconditioner::Ams { coarse } => {
+                        DrivenPreconditioner::Ams(ams::build(self, omega, coarse)?)
+                    }
+                    other => other.build(a_int.as_ref())?,
+                };
+                let ksp = crate::solver::ksp::Cocg {
+                    max_replacements: settings.max_replacements,
+                    ..crate::solver::ksp::Cocg::new(settings.tol, settings.max_iters)
+                };
+                SolverBackend::Iterative { precond, ksp }
+            }
+            SolverMode::IterativeMatrixFree(settings) => {
+                // `Auto` is resolved (to Jacobi) by `resolve_preconditioner`.
+                let resolved = preconditioner.expect("iterative mode resolves a preconditioner");
+                if !matches!(
+                    resolved,
+                    IterativePreconditioner::Jacobi | IterativePreconditioner::Ams { .. }
+                ) {
+                    return Err(DrivenError::UnsupportedMatrixFree {
+                        reason: format!(
+                            "the matrix-free path has only the on-device Jacobi and the \
+                             host-side AMS (CPU ndarray f64) preconditioners; `{}` needs \
+                             the assembled-CSR SolverMode::Iterative path",
+                            resolved.name()
+                        ),
+                    });
+                }
+                let ing = self.matrix_free.as_ref().ok_or_else(|| {
+                    DrivenError::UnsupportedMatrixFree {
+                        reason: match self.materials_kind {
+                            MaterialsKind::Scalar => {
+                                "complex (lossy / PML) scalar ε is not supported by the \
+                                 matrix-free path (v1): it takes real per-tet ε only"
+                            }
+                            MaterialsKind::DiagTensor => {
+                                "anisotropic (DiagTensor) ε is not supported by the \
+                                 matrix-free path (v1)"
+                            }
+                            MaterialsKind::MatchedUpml => {
+                                "matched-UPML materials are not supported by the \
+                                 matrix-free path (v1)"
+                            }
+                        }
+                        .to_string(),
+                    }
+                })?;
+                // Host-side AMS (issue #966): CPU ndarray f64 only, checked
+                // before any setup work.
+                let mf_ams = match resolved {
+                    IterativePreconditioner::Ams { coarse } => {
+                        if !crate::driven::matrix_free::host_ams_supported::<B>(device) {
+                            return Err(DrivenError::UnsupportedMatrixFree {
+                                reason: format!(
+                                    "the matrix-free AMS preconditioner runs on the host and \
+                                     is supported on the CPU ndarray backend with f64 only \
+                                     (this backend: {}, {}-byte float); use Jacobi here, or \
+                                     SolverMode::Iterative for an assembled AMS solve",
+                                    B::name(device),
+                                    std::mem::size_of::<B::FloatElem>()
+                                ),
+                            });
+                        }
+                        Some(ams::build(self, omega, coarse)?)
+                    }
+                    _ => None,
+                };
+                let mut solver = crate::driven::matrix_free::MatrixFreeSolver::<B>::new(
+                    self,
+                    ing,
+                    omega,
+                    settings.tol,
+                    settings.max_iters,
+                    device,
+                )?
+                .with_max_replacements(settings.max_replacements);
+                if let Some(a) = mf_ams {
+                    solver = solver.with_ams(a);
+                }
+                SolverBackend::MatrixFree {
+                    solver: Box::new(solver),
+                }
+            }
+        };
+        // Warn only once the solver is built, so a setup error is not
+        // preceded by a fallback note about a solve that never runs.
+        if let Some(fallback) = &fallback {
+            warn_preconditioner_fallback(fallback);
+        }
+        Ok(DrivenLinearSolver {
+            op: self,
+            omega,
+            a_int,
+            backend,
+            preconditioner,
+            fallback,
+        })
+    }
+
+    /// The preconditioner [`Self::prepare_at`] uses in `mode`, with the
+    /// fallback warning when the default [`IterativePreconditioner::Auto`]
+    /// could not resolve to AMS (issue #930); `None` for
+    /// [`SolverMode::Direct`]. An explicit choice is returned unchanged,
+    /// without a warning (an unsupported one is rejected by `prepare_at`,
+    /// not here).
+    ///
+    /// `Auto` resolves to [`IterativePreconditioner::AMS`] on the assembled
+    /// [`SolverMode::Iterative`] path of a p=1 operator without
+    /// matched-UPML materials, and to [`IterativePreconditioner::Jacobi`]
+    /// otherwise: at a higher element order, with matched-UPML materials,
+    /// and on [`SolverMode::IterativeMatrixFree`] (the reasons are
+    /// [`PreconditionerFallbackReason`]). There is no mesh-size threshold.
+    ///
+    /// Unlike the `geode` CLI, the library does not fall back for a scalar
+    /// `Re ε ≤ 0` operator or for floating PEC conductors: `Auto` resolves
+    /// to AMS there, as an explicit AMS would. AMS may then fail to
+    /// converge, which surfaces as a loud [`DrivenError::Solve`], never a
+    /// wrong answer. The CLI, which sees the spec's materials and PEC
+    /// topology, resolves `auto` to Jacobi with a warning in those cases.
+    pub fn resolve_preconditioner(
+        &self,
+        mode: SolverMode,
+    ) -> Option<(IterativePreconditioner, Option<PreconditionerFallback>)> {
+        let fallback = |reason| {
+            let used = IterativePreconditioner::Jacobi;
+            (used, Some(PreconditionerFallback { reason, used }))
+        };
+        match mode {
+            SolverMode::Direct => None,
+            SolverMode::Iterative(IterativeSettings {
+                preconditioner: IterativePreconditioner::Auto,
+                ..
+            }) => Some(if self.order != ElementOrder::P1 {
+                fallback(PreconditionerFallbackReason::Order(self.order))
+            } else if matches!(self.materials_kind, MaterialsKind::MatchedUpml) {
+                fallback(PreconditionerFallbackReason::MatchedUpml)
+            } else {
+                (IterativePreconditioner::AMS, None)
+            }),
+            SolverMode::IterativeMatrixFree(IterativeSettings {
+                preconditioner: IterativePreconditioner::Auto,
+                ..
+            }) => Some(fallback(PreconditionerFallbackReason::MatrixFree)),
+            SolverMode::Iterative(s) | SolverMode::IterativeMatrixFree(s) => {
+                Some((s.preconditioner, None))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assembly::nedelec::cube_pec_interior_edges;
+    use crate::mesh::cube_tet_mesh;
+    use crate::testing::TestBackend;
+    use burn::tensor::backend::BackendTypes;
+
+    type B = TestBackend;
+
+    fn device() -> <B as BackendTypes>::Device {
+        <B as BackendTypes>::Device::default()
+    }
+
+    fn vacuum(mesh: &TetMesh) -> Vec<c64> {
+        vec![c64::new(1.0, 0.0); mesh.n_tets()]
+    }
+
+    /// A zero current source must produce an exactly-zero field.
+    #[test]
+    fn zero_source_gives_zero_field() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let sol = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            1.0,
+            &source,
+            &device(),
+        )
+        .expect("driven solve");
+        assert!(sol.e_edges.iter().all(|e| e.re == 0.0 && e.im == 0.0));
+    }
+
+    /// Linearity: doubling J doubles the field (up to round-off).
+    #[test]
+    fn solution_is_linear_in_source() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let s1 = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let s2 = CurrentSource {
+            j_tet: s1.j_tet.iter().map(|j| j.map(|x| x * 2.0)).collect(),
+        };
+        let omega = 1.0;
+        let sol1 = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &s1,
+            &device(),
+        )
+        .expect("solve s1");
+        let sol2 = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &s2,
+            &device(),
+        )
+        .expect("solve s2");
+
+        let norm1: f64 = sol1
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        assert!(norm1 > 0.0, "nonzero source must excite a nonzero field");
+        for (a, b) in sol1.e_edges.iter().zip(sol2.e_edges.iter()) {
+            let d = *b - *a * 2.0;
+            assert!(
+                d.re.hypot(d.im) <= 1e-9 * norm1,
+                "linearity violated: 2·{a} vs {b}"
+            );
+        }
+    }
+
+    /// The post-solve residual must sit at the direct-solve round-off
+    /// floor, and PEC-eliminated edges must be exactly zero.
+    #[test]
+    fn residual_is_small_and_pec_edges_are_zero() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |_| {
+            [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(1.0, 0.0)]
+        });
+        let sol = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            1.5,
+            &source,
+            &device(),
+        )
+        .expect("driven solve");
+        assert!(
+            sol.residual_rel < 1e-10,
+            "direct-solve residual too large: {}",
+            sol.residual_rel
+        );
+        for (i, &keep) in interior.iter().enumerate() {
+            if !keep {
+                assert_eq!(sol.e_edges[i], c64::new(0.0, 0.0));
+            }
+        }
+        assert!(
+            sol.e_edges
+                .iter()
+                .all(|e| e.re.is_finite() && e.im.is_finite())
+        );
+    }
+
+    /// An isotropic DiagTensor material must agree with the Scalar
+    /// material path (the two assembly kernels are independent
+    /// implementations of the same integral).
+    #[test]
+    fn diag_tensor_matches_scalar_for_isotropic_epsilon() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps_scalar: Vec<c64> = vec![c64::new(1.8, -0.05); mesh.n_tets()];
+        let eps_diag: Vec<[c64; 3]> = eps_scalar.iter().map(|&e| [e, e, e]).collect();
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(c[1], 0.0),
+                c64::new(0.0, -0.5),
+                c64::new(1.0, c[0]),
+            ]
+        });
+        let omega = 2.0;
+        let sol_s = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps_scalar),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("scalar solve");
+        let sol_d = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::DiagTensor(&eps_diag),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("diag solve");
+
+        let norm: f64 = sol_s
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        assert!(norm > 0.0);
+        let mut max_rel = 0.0_f64;
+        for (a, b) in sol_s.e_edges.iter().zip(sol_d.e_edges.iter()) {
+            let d = *a - *b;
+            max_rel = max_rel.max(d.re.hypot(d.im) / norm);
+        }
+        assert!(
+            max_rel < 1e-4,
+            "scalar vs diag-tensor isotropic mismatch: max relative diff {max_rel}"
+        );
+    }
+
+    /// The built-in good-conductor model must match the analytic
+    /// formulas: `Z_s = (1+i)√(ω/2σ)` and weak coefficient
+    /// `iω/Z_s = (1+i)√(ωσ/2) = (1+i)/δ` with `δ = √(2/(ωσ))`.
+    #[test]
+    fn good_conductor_model_matches_skin_depth_formula() {
+        let omega = 2.5;
+        let sigma = 12.0;
+        let model = SurfaceImpedanceModel::GoodConductor { sigma };
+
+        let a = (omega / (2.0 * sigma)).sqrt();
+        let z = model.z_s(omega);
+        assert!((z.re - a).abs() < 1e-15 && (z.im - a).abs() < 1e-15);
+
+        let delta = (2.0 / (omega * sigma)).sqrt();
+        let coeff = model.weak_coefficient(omega).expect("finite Z_s");
+        assert!(
+            (coeff.re - 1.0 / delta).abs() < 1e-12 * (1.0 / delta),
+            "Re(iω/Z_s) = {} must equal 1/δ = {}",
+            coeff.re,
+            1.0 / delta
+        );
+        assert!(
+            (coeff.im - 1.0 / delta).abs() < 1e-12 * (1.0 / delta),
+            "Im(iω/Z_s) = {} must equal 1/δ = {}",
+            coeff.im,
+            1.0 / delta
+        );
+    }
+
+    /// `Fixed(η₀ = 1)` must reproduce the Silver-Müller factor `i k₀`
+    /// exactly (Silver-Müller is the `Z_s = η₀` special case).
+    #[test]
+    fn fixed_eta0_weak_coefficient_is_silver_muller_factor() {
+        let omega = 1.75;
+        let coeff = SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0))
+            .weak_coefficient(omega)
+            .expect("finite Z_s");
+        assert_eq!(coeff.re, 0.0);
+        assert_eq!(coeff.im, omega);
+    }
+
+    /// Zero or non-finite `Z_s(ω)` must error, not divide by zero.
+    #[test]
+    fn singular_surface_impedance_errors() {
+        let zero = SurfaceImpedanceModel::Fixed(c64::new(0.0, 0.0));
+        assert!(matches!(
+            zero.weak_coefficient(1.0),
+            Err(DrivenError::SurfaceImpedanceSingular { .. })
+        ));
+        // Negative σ → √(negative) = NaN → non-finite Z_s.
+        let bad = SurfaceImpedanceModel::GoodConductor { sigma: -3.0 };
+        assert!(matches!(
+            bad.weak_coefficient(1.0),
+            Err(DrivenError::SurfaceImpedanceSingular { .. })
+        ));
+
+        // The solver surfaces the same error.
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let tris: Vec<[u32; 3]> = vec![];
+        let err = driven_solve_with_surface_impedance::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[SurfaceImpedanceBc {
+                triangles: &tris,
+                model: zero,
+            }],
+            1.0,
+            &source,
+            &device(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DrivenError::SurfaceImpedanceSingular { .. }));
+    }
+
+    /// An empty surface list must reproduce [`driven_solve`] bitwise
+    /// (the no-op guarantee for existing callers).
+    #[test]
+    fn empty_surface_list_matches_plain_driven_solve() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(c[2], 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 1.3;
+        let sol_s = driven_solve_with_surface_impedance::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &[],
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("surface-impedance path");
+        let sol_p = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("plain path");
+        for (a, b) in sol_s.e_edges.iter().zip(sol_p.e_edges.iter()) {
+            assert_eq!(a.re, b.re);
+            assert_eq!(a.im, b.im);
+        }
+    }
+
+    /// Shape-mismatch inputs must error, not panic.
+    #[test]
+    fn input_validation_errors() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let good_source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+
+        let bad_mask = vec![true; 3];
+        let err = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &DrivenBcs {
+                pec_interior_mask: &bad_mask,
+            },
+            1.0,
+            &good_source,
+            &device(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DrivenError::MaskDimMismatch { .. }));
+
+        let bad_source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; 2],
+        };
+        let err = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            1.0,
+            &bad_source,
+            &device(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DrivenError::SourceDimMismatch { .. }));
+
+        let bad_eps = vec![c64::new(1.0, 0.0); 1];
+        let err = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&bad_eps),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            1.0,
+            &good_source,
+            &device(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DrivenError::MaterialDimMismatch { .. }));
+    }
+
+    // ---------------------------------------------------------------------
+    // Iterative-solver regression (issue #238)
+    // ---------------------------------------------------------------------
+
+    /// **Issue #238 regression**: the COCG iterative path must agree
+    /// with the direct sparse LU to a documented tolerance on a small
+    /// driven fixture (cube cavity, scalar ε, real volumetric source).
+    /// The Krylov solver is preconditioned-COCG with Jacobi; iteration
+    /// counts are reported through [`KspReport`].
+    #[test]
+    fn iterative_matches_direct_lu() {
+        use crate::solver::ksp::Cocg;
+
+        // Small cube cavity (same fixture the residual / linearity
+        // tests use). PEC walls, vacuum interior, smooth real source.
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 1.5;
+
+        // Direct sparse LU path (the existing solver).
+        let sol_lu = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("direct LU solve");
+
+        // COCG iterative path (issue #238). Jacobi preconditioner is
+        // wired in by `driven_solve_iterative`. A tight Krylov tol
+        // ensures the iterative residual is at the same floor as the
+        // direct path's.
+        let ksp = Cocg::new(1e-12, 5000);
+        let (sol_ksp, report) = super::driven_solve_iterative::<B, _>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &ksp,
+            &device(),
+        )
+        .expect("COCG iterative solve");
+
+        // The iterative path's own residual must clear the requested
+        // tolerance, and so must the post-solve residual reported on
+        // the DrivenSolution (the two are the same definition).
+        assert!(report.converged, "COCG did not converge: {:?}", report);
+        assert!(
+            report.residual_rel < 1e-10,
+            "COCG residual too large: {}",
+            report.residual_rel
+        );
+        assert!(
+            sol_ksp.residual_rel < 1e-10,
+            "iterative DrivenSolution residual too large: {}",
+            sol_ksp.residual_rel
+        );
+
+        // Iteration count must be reported (the acceptance criterion).
+        assert!(report.iters > 0, "no iterations recorded");
+        // Issue-#238 tolerance contract: iterative vs direct LU agree
+        // to 1e-8 (relative, in the L2 norm) on this fixture. The
+        // direct path floors at machine epsilon and Krylov tolerance
+        // we asked for is 1e-12, so 1e-8 is a documented safety
+        // margin that survives both solvers' round-off.
+        let norm_lu: f64 = sol_lu
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        assert!(norm_lu > 0.0, "direct solution must be non-trivial");
+        let mut diff2 = 0.0_f64;
+        for (a, b) in sol_lu.e_edges.iter().zip(sol_ksp.e_edges.iter()) {
+            let d = *a - *b;
+            diff2 += d.re * d.re + d.im * d.im;
+        }
+        let rel_diff = diff2.sqrt() / norm_lu;
+        const ITERATIVE_DIRECT_TOL: f64 = 1e-8;
+        assert!(
+            rel_diff < ITERATIVE_DIRECT_TOL,
+            "iterative vs LU solutions disagree: rel_diff = {} (tol {}) over {} edges, COCG report = {:?}",
+            rel_diff,
+            ITERATIVE_DIRECT_TOL,
+            sol_lu.e_edges.len(),
+            report,
+        );
+
+        // PEC-eliminated edges must be exactly zero in both paths.
+        for (i, &keep) in interior.iter().enumerate() {
+            if !keep {
+                assert_eq!(sol_ksp.e_edges[i], c64::new(0.0, 0.0));
+            }
+        }
+
+        // Iteration-count + cost report for the issue's acceptance
+        // criteria. Printed at INFO level (cargo test --nocapture).
+        eprintln!(
+            "[issue #238] cube cavity grid=3, n_interior={}, COCG iters={}, residual_rel={:.3e}, rel_diff_vs_LU={:.3e}",
+            sol_ksp.n_interior, report.iters, report.residual_rel, rel_diff,
+        );
+    }
+
+    /// **Issue #238 supporting**: identity preconditioner produces
+    /// the same solution as Jacobi on the regression fixture (just
+    /// more iterations). Cross-checks that the iterative path works
+    /// even without preconditioning, so the preconditioner is
+    /// genuinely a separate concern from the Krylov core.
+    #[test]
+    fn identity_preconditioner_also_converges() {
+        use crate::solver::ksp::{Cocg, IdentityPreconditioner};
+
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 1.2;
+
+        let sol_lu = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("direct LU solve");
+
+        // Use the operator-level entry point with an explicit identity
+        // preconditioner factory — the per-solver-path lever the issue
+        // calls for.
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-12, 5000);
+        let (sol_ksp, report) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                Ok::<_, crate::solver::ksp::KspError>(IdentityPreconditioner::new(a.nrows()))
+            })
+            .expect("identity-preconditioned COCG");
+        assert!(report.converged);
+
+        let norm_lu: f64 = sol_lu
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        let mut diff2 = 0.0_f64;
+        for (a, b) in sol_lu.e_edges.iter().zip(sol_ksp.e_edges.iter()) {
+            let d = *a - *b;
+            diff2 += d.re * d.re + d.im * d.im;
+        }
+        let rel_diff = diff2.sqrt() / norm_lu;
+        assert!(
+            rel_diff < 1e-8,
+            "identity-preconditioned COCG disagrees with LU: rel_diff = {}",
+            rel_diff
+        );
+        eprintln!(
+            "[issue #238] identity preconditioner: COCG iters={}, residual_rel={:.3e}",
+            report.iters, report.residual_rel
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // ILU(0) preconditioner regression (issue #267)
+    // ---------------------------------------------------------------------
+
+    /// **Issue #267 regression**: ILU(0) on the cube-cavity fixture
+    /// (the same fixture as [`iterative_matches_direct_lu`]) must
+    ///
+    /// 1. converge COCG to the same tolerance Jacobi reaches, with
+    ///    the iterative residual `< 1e-10` and
+    /// 2. agree with the direct LU solution within `1e-8` relative,
+    /// 3. record a **lower** iteration count than Jacobi.
+    ///
+    /// The iteration counts and the iteration-count ratio are printed
+    /// to stderr so future runs surface any preconditioner regression.
+    #[test]
+    fn ilu_vs_jacobi_cube_cavity_regression() {
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
+
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 1.5;
+
+        let sol_lu = driven_solve::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("direct LU solve");
+
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+
+        let ksp = Cocg::new(1e-12, 5000);
+
+        // Jacobi run (the existing landing preconditioner).
+        let (sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| JacobiPreconditioner::new(a.as_ref()))
+            .expect("Jacobi-preconditioned COCG");
+        assert!(report_jac.converged);
+
+        // ILU(0) run.
+        let (sol_ilu, report_ilu) = op
+            .solve_at_iterative(omega, &ksp, |a| IluPreconditioner::new(a.as_ref(), 0))
+            .expect("ILU(0)-preconditioned COCG");
+        assert!(report_ilu.converged);
+
+        let norm_lu: f64 = sol_lu
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        let mut diff_jac2 = 0.0_f64;
+        let mut diff_ilu2 = 0.0_f64;
+        for ((a, j), i) in sol_lu
+            .e_edges
+            .iter()
+            .zip(sol_jac.e_edges.iter())
+            .zip(sol_ilu.e_edges.iter())
+        {
+            let dj = *a - *j;
+            let di = *a - *i;
+            diff_jac2 += dj.re * dj.re + dj.im * dj.im;
+            diff_ilu2 += di.re * di.re + di.im * di.im;
+        }
+        let rel_diff_jac = diff_jac2.sqrt() / norm_lu;
+        let rel_diff_ilu = diff_ilu2.sqrt() / norm_lu;
+
+        const ITERATIVE_DIRECT_TOL: f64 = 1e-8;
+        assert!(rel_diff_jac < ITERATIVE_DIRECT_TOL);
+        assert!(rel_diff_ilu < ITERATIVE_DIRECT_TOL);
+
+        // ILU(0) must beat Jacobi on iteration count for this
+        // moderately conditioned cube fixture. Even when the gap is
+        // small, ILU(0) folds in off-diagonal sparsity information
+        // that pure diagonal preconditioning lacks.
+        assert!(
+            report_ilu.iters <= report_jac.iters,
+            "ILU iters ({}) must not exceed Jacobi iters ({}) on cube cavity",
+            report_ilu.iters,
+            report_jac.iters,
+        );
+
+        eprintln!(
+            "[issue #267] cube cavity grid=3, n_interior={}, \
+             Jacobi: iters={}, residual_rel={:.3e}, rel_diff_vs_LU={:.3e} | \
+             ILU(0): iters={}, residual_rel={:.3e}, rel_diff_vs_LU={:.3e} | \
+             iter ratio (ILU/Jacobi) = {:.3}",
+            sol_ilu.n_interior,
+            report_jac.iters,
+            report_jac.residual_rel,
+            rel_diff_jac,
+            report_ilu.iters,
+            report_ilu.residual_rel,
+            rel_diff_ilu,
+            report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
+        );
+    }
+
+    /// **Issue #267 stress fixture**: a higher-condition-number
+    /// fixture — fine mesh with σ damping at low ω, where Jacobi
+    /// converges slowly and ILU(0)'s factored off-diagonal coupling
+    /// pays off more visibly. The σ-damped resistor fixture exhibits
+    /// extra spectral spread from the iωσ term, so it amplifies the
+    /// ILU vs Jacobi gap without needing a heavy mesh.
+    ///
+    /// The test enforces `iters(ILU(0)) ≤ iters(Jacobi)` and reports
+    /// the ratio for future regression awareness.
+    #[test]
+    fn ilu_vs_jacobi_sigma_damped_resistor_regression() {
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
+
+        // σ-filled resistor cube — same family as the regression
+        // fixture in `extraction.rs`, but assembled directly here so
+        // the iteration-count comparison is self-contained.
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        // Large σ → strong off-diagonal coupling through the iωσ damping
+        // term, which Jacobi (diagonal-only) cannot capture.
+        let sigma_tet = vec![5.0_f64; mesh.n_tets()];
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        // Low ω → mass term shrinks relative to stiffness + damping;
+        // the off-diagonal contribution from `iωσ·C` dominates the
+        // diagonal correction by a wider margin, sharpening the
+        // ILU-vs-Jacobi separation.
+        let omega = 0.3;
+
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-10, 10_000);
+
+        let (sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| JacobiPreconditioner::new(a.as_ref()))
+            .expect("Jacobi-preconditioned COCG");
+        let (_sol_ilu, report_ilu) = op
+            .solve_at_iterative(omega, &ksp, |a| IluPreconditioner::new(a.as_ref(), 0))
+            .expect("ILU(0)-preconditioned COCG");
+
+        assert!(report_jac.converged);
+        assert!(report_ilu.converged);
+
+        // The stress fixture's acceptance: ILU(0) must outperform
+        // Jacobi by at least a factor of 1.0×, with the empirically
+        // observed gap reported for the issue's documentation
+        // requirement.
+        assert!(
+            report_ilu.iters <= report_jac.iters,
+            "ILU(0) ({}) must beat Jacobi ({}) on σ-damped resistor",
+            report_ilu.iters,
+            report_jac.iters,
+        );
+
+        eprintln!(
+            "[issue #267 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
+             n_interior={}, Jacobi iters={}, ILU(0) iters={}, ratio={:.3}",
+            omega,
+            sol_jac.n_interior,
+            report_jac.iters,
+            report_ilu.iters,
+            report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
+        );
+    }
+
+    /// **Issue #708 Phase 6b**: the preconditioner choice reaches the
+    /// **public** [`SolverMode::Iterative`] path (`prepare_at`), and on a
+    /// loss-dominated low-ω fixture ILU(0) converges inside a budget that
+    /// Jacobi exhausts (measured on this fixture: Jacobi 270 vs ILU(0) 70
+    /// COCG iterations), with the ILU(0) answer matching direct LU. The
+    /// budget sits between the two counts so a regression that silently
+    /// fell back to Jacobi fails here.
+    #[test]
+    fn ilu0_selectable_on_public_iterative_path_converges_where_jacobi_stalls() {
+        let mesh = cube_tet_mesh(5, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        // Every third tet lossy: a heterogeneous iωσ term with strong
+        // off-diagonal coupling that diagonal scaling cannot capture.
+        let sigma_tet: Vec<f64> = (0..mesh.n_tets())
+            .map(|t| if t % 3 == 0 { 5.0 } else { 0.0 })
+            .collect();
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.01;
+        let budget = 150;
+
+        // Jacobi pinned explicitly: since issue #930 the default is
+        // `Auto`, which resolves to AMS on this p=1 operator.
+        let jacobi = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(
+                    IterativeSettings::new(1e-10, budget)
+                        .with_preconditioner(IterativePreconditioner::Jacobi),
+                ),
+                &device(),
+            )
+            .expect("Jacobi setup");
+        let err = jacobi.solve().expect_err("Jacobi must exhaust the budget");
+        assert!(
+            matches!(&err, DrivenError::Solve(m) if m.contains("did not converge")),
+            "unexpected Jacobi failure: {err:?}"
+        );
+
+        let ilu = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(
+                    IterativeSettings::new(1e-10, budget)
+                        .with_preconditioner(IterativePreconditioner::Ilu0),
+                ),
+                &device(),
+            )
+            .expect("ILU(0) setup");
+        let (sol_ilu, report) = ilu.solve().expect("ILU(0) converges inside the budget");
+        assert!(report.iters > 0 && report.iters <= budget);
+        assert!(report.residual_rel <= 1e-10);
+
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol_ilu
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        let rel = (num / den).sqrt();
+        assert!(rel < 1e-6, "ILU(0) vs direct LU rel err {rel:.3e}");
+        eprintln!(
+            "[issue #708 6b] grid=5 σ=5 (1/3 tets) ω={omega}: ILU(0) iters={} (Jacobi > {budget}), \
+             rel err vs LU {rel:.2e}",
+            report.iters
+        );
+    }
+
+    /// The matrix-free path only has an on-device Jacobi: a non-Jacobi
+    /// preconditioner request is a clean `UnsupportedMatrixFree` error,
+    /// never a silent fallback.
+    #[test]
+    fn matrix_free_rejects_non_jacobi_preconditioner() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |_| {
+            [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(1.0, 0.0)]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let settings =
+            IterativeSettings::default().with_preconditioner(IterativePreconditioner::Ilu0);
+        let err = op
+            .prepare_at::<B>(1.0, SolverMode::IterativeMatrixFree(settings), &device())
+            .err()
+            .expect("matrix-free must reject ILU(0)");
+        assert!(
+            matches!(&err, DrivenError::UnsupportedMatrixFree { reason } if reason.contains("ilu0")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// A vacuum PEC cube (`n` cells a side) with a volume source, for the
+    /// issue #930 default-preconditioner tests.
+    fn default_pc_cube(n: usize) -> (TetMesh, DrivenOperator) {
+        let mesh = cube_tet_mesh(n, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        (mesh, op)
+    }
+
+    /// Issue #930: the default preconditioner is `Auto`, and on a p=1
+    /// assembled iterative solve it selects AMS, with no fallback warning;
+    /// the AMS solve converges and matches direct LU.
+    #[test]
+    fn default_preconditioner_selects_ams_on_p1_assembled_iterative() {
+        assert_eq!(
+            IterativePreconditioner::default(),
+            IterativePreconditioner::Auto
+        );
+        assert_eq!(
+            IterativeSettings::default().preconditioner,
+            IterativePreconditioner::Auto
+        );
+        assert_eq!(
+            IterativeSettings::new(1e-10, 500).preconditioner,
+            IterativePreconditioner::Auto
+        );
+        let (_mesh, op) = default_pc_cube(4);
+        let omega = 0.05;
+        let mode = SolverMode::Iterative(IterativeSettings::new(1e-10, 500));
+        assert_eq!(
+            op.resolve_preconditioner(mode),
+            Some((IterativePreconditioner::AMS, None))
+        );
+        let solver = op.prepare_at::<B>(omega, mode, &device()).expect("setup");
+        assert_eq!(solver.preconditioner(), Some(IterativePreconditioner::AMS));
+        assert_eq!(solver.preconditioner_fallback(), None);
+        assert!(matches!(
+            solver.backend,
+            SolverBackend::Iterative {
+                precond: DrivenPreconditioner::Ams(_),
+                ..
+            }
+        ));
+        let (sol, report) = solver.solve().expect("AMS converges");
+        assert!(report.converged);
+        let (lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol
+            .e_edges
+            .iter()
+            .zip(&lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        assert!((num / den).sqrt() < 1e-6);
+        // The direct path has no preconditioner.
+        assert_eq!(op.resolve_preconditioner(SolverMode::Direct), None);
+    }
+
+    /// Issue #930: the matrix-free path has only an on-device Jacobi, so
+    /// the default preconditioner falls back to Jacobi there, with a
+    /// warning that says why (matrix-free) and names `jacobi`.
+    #[test]
+    fn default_preconditioner_falls_back_to_jacobi_with_a_warning_on_matrix_free() {
+        let (_mesh, op) = default_pc_cube(2);
+        let mode = SolverMode::IterativeMatrixFree(IterativeSettings::new(1e-10, 5000));
+        let solver = op
+            .prepare_at::<B>(1.0, mode, &device())
+            .expect("matrix-free setup with the default preconditioner");
+        assert_eq!(
+            solver.preconditioner(),
+            Some(IterativePreconditioner::Jacobi)
+        );
+        let fallback = solver
+            .preconditioner_fallback()
+            .copied()
+            .expect("a matrix-free fallback must carry a warning");
+        assert_eq!(
+            fallback,
+            PreconditionerFallback {
+                reason: PreconditionerFallbackReason::MatrixFree,
+                used: IterativePreconditioner::Jacobi,
+            }
+        );
+        let msg = fallback.to_string();
+        assert!(
+            msg.contains("matrix-free") && msg.contains("`jacobi`"),
+            "{msg}"
+        );
+        let (_, report) = solver.solve().expect("matrix-free Jacobi converges");
+        assert!(report.converged);
+    }
+
+    /// Issue #930: an explicit Jacobi is honoured, with no fallback
+    /// warning, on both the assembled and the matrix-free path.
+    #[test]
+    fn explicit_jacobi_is_honoured_without_a_warning() {
+        let (_mesh, op) = default_pc_cube(3);
+        let jacobi = IterativeSettings::new(1e-10, 5000)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+        for mode in [
+            SolverMode::Iterative(jacobi),
+            SolverMode::IterativeMatrixFree(jacobi),
+        ] {
+            assert_eq!(
+                op.resolve_preconditioner(mode),
+                Some((IterativePreconditioner::Jacobi, None))
+            );
+            let solver = op.prepare_at::<B>(0.5, mode, &device()).expect("setup");
+            assert_eq!(
+                solver.preconditioner(),
+                Some(IterativePreconditioner::Jacobi)
+            );
+            assert_eq!(solver.preconditioner_fallback(), None, "{mode:?}");
+            if let SolverBackend::Iterative { precond, .. } = &solver.backend {
+                assert!(matches!(precond, DrivenPreconditioner::Jacobi(_)));
+            }
+            let (_, report) = solver.solve().expect("Jacobi converges");
+            assert!(report.converged);
+        }
+        // `build` cannot resolve `Auto` from A(ω) alone.
+        let a = op.assemble_a_at(0.5).expect("A(ω)");
+        assert!(matches!(
+            IterativePreconditioner::Auto.build(a.as_ref()),
+            Err(DrivenError::Solve(m)) if m.contains("prepare_at")
+        ));
+    }
+
+    /// **Issue #744 regression — recursive-residual drift is a hard error.**
+    ///
+    /// COCG stops when its *recursively maintained* residual crosses
+    /// `tol`, then recomputes the true residual with an explicit SpMV.
+    /// With `tol` below what f64 can actually deliver on this operator,
+    /// the recursive residual keeps shrinking geometrically while the
+    /// explicit residual stalls at the rounding floor — so `Cocg::solve`
+    /// returns `Ok(KspReport { converged: false, .. })`. Before #744 the
+    /// driven layer discarded that flag and accepted the near-miss as a
+    /// successful solve; now every driven iterative path
+    /// (`prepare_at(..).solve()`/`back_solve` and `solve_at_iterative`)
+    /// must surface it as [`DrivenError::Solve`].
+    #[test]
+    fn iterative_recursive_residual_drift_is_a_hard_error() {
+        use crate::solver::ksp::{Cocg, KspSolve};
+
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 1.0;
+        // Far below the f64 rounding floor of ‖Ax − b‖/‖b‖ on this
+        // operator, but reachable by the recursive residual.
+        let tol = 1e-30;
+        let max_iters = 5000;
+
+        // Precondition: the raw KSP really does hit the drift case
+        // (recursive residual crossed tol, explicit residual did not) —
+        // not max-iters exhaustion or breakdown.
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        let b = op.assemble_b_at(omega, None);
+        let pc = crate::solver::ksp::JacobiPreconditioner::new(a.as_ref()).expect("jacobi");
+        let mut x = vec![c64::new(0.0, 0.0); b.len()];
+        let raw = Cocg::new(tol, max_iters)
+            .solve(a.as_ref(), &b, &mut x, &pc)
+            .expect("COCG returns Ok in the drift case");
+        assert!(!raw.converged, "fixture must drift: {raw:?}");
+        // Issue #943: residual replacement was tried and could not
+        // reach a sub-rounding-floor tol, so the failure is honest.
+        assert!(raw.replacements >= 1, "{raw:?}");
+        assert!(raw.iters < max_iters, "{raw:?}");
+        assert!(raw.residual_rel > tol, "{raw:?}");
+
+        let expect_drift_err = |r: Result<(), DrivenError>, path: &str| match r {
+            Err(DrivenError::Solve(msg)) => assert!(
+                msg.contains("explicitly recomputed residual"),
+                "{path}: unexpected solve error {msg}"
+            ),
+            other => panic!("{path}: drift must be DrivenError::Solve, got {other:?}"),
+        };
+
+        // Public per-ω handle (the path every sweep consumer funnels through).
+        // Jacobi pinned: the drift precondition above is established with
+        // Jacobi, and the default (issue #930) would build AMS.
+        let settings = IterativeSettings::new(tol, max_iters)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("iterative setup");
+        expect_drift_err(solver.solve().map(|_| ()), "prepare_at().solve()");
+        let mut out = vec![c64::new(0.0, 0.0); b.len()];
+        expect_drift_err(solver.back_solve(&b, &mut out).map(|_| ()), "back_solve");
+
+        // The one-shot iterative entry point.
+        expect_drift_err(
+            op.solve_at_iterative(omega, &Cocg::new(tol, max_iters), |a| {
+                crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
+            })
+            .map(|_| ()),
+            "solve_at_iterative",
+        );
+
+        // A reachable tolerance on the same handle type still succeeds and
+        // reports `converged = true`.
+        let (_, ok) = op
+            .prepare_at::<B>(
+                omega,
+                SolverMode::Iterative(IterativeSettings {
+                    tol: 1e-10,
+                    ..settings
+                }),
+                &device(),
+            )
+            .expect("iterative setup")
+            .solve()
+            .expect("tol = 1e-10 converges");
+        assert!(ok.converged);
+        assert!(ok.residual_rel <= 1e-10);
+    }
+
+    /// The vacuum PEC cube of
+    /// [`iterative_recursive_residual_drift_is_a_hard_error`], reused by
+    /// the residual-replacement plumbing tests (issue #987).
+    fn drift_cube() -> DrivenOperator {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly")
+    }
+
+    /// `(iterations, replacements)` parsed from a drift
+    /// [`DrivenError::Solve`] message (see `require_converged`), or `None`
+    /// for any other outcome.
+    fn drift_counts<T>(r: &Result<T, DrivenError>) -> Option<(usize, usize)> {
+        let Err(DrivenError::Solve(msg)) = r else {
+            return None;
+        };
+        if !msg.contains("explicitly recomputed residual") {
+            return None;
+        }
+        let iters = msg
+            .split("tolerance after ")
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
+        let replacements = msg
+            .split("even after ")
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
+        Some((iters, replacements))
+    }
+
+    /// **Issue #987**: `IterativeSettings::max_replacements` defaults to
+    /// the library cap and is the only knob the builder changes.
+    #[test]
+    fn iterative_settings_max_replacements_defaults_to_the_cocg_cap() {
+        use crate::solver::ksp::DEFAULT_MAX_RESIDUAL_REPLACEMENTS;
+        assert_eq!(DEFAULT_MAX_RESIDUAL_REPLACEMENTS, 3);
+        let d = IterativeSettings::default();
+        assert_eq!(d.max_replacements, DEFAULT_MAX_RESIDUAL_REPLACEMENTS);
+        let n = IterativeSettings::new(1e-8, 77);
+        assert_eq!(n.max_replacements, DEFAULT_MAX_RESIDUAL_REPLACEMENTS);
+        assert_eq!((n.tol, n.max_iters), (1e-8, 77));
+        assert_eq!(n.preconditioner, IterativePreconditioner::Auto);
+        let z = n.with_max_replacements(0);
+        assert_eq!(z.max_replacements, 0);
+        assert_eq!(
+            (z.tol, z.max_iters, z.preconditioner),
+            (1e-8, 77, n.preconditioner)
+        );
+    }
+
+    /// **Issue #987**: `max_replacements` reaches the assembled `Cocg` and
+    /// the matrix-free `BurnCocg`. At a `tol` below the rounding floor,
+    /// `0` reports the drift at the first crossing with zero replacements
+    /// — the pre-#943 outcome, at the same iteration as a raw single-check
+    /// `Cocg` — while the default replaces at least once before giving up.
+    #[test]
+    fn iterative_max_replacements_reaches_both_krylov_paths() {
+        use crate::solver::ksp::{Cocg, KspSolve};
+
+        let op = drift_cube();
+        let omega = 1.0;
+        let tol = 1e-30;
+        let max_iters = 5000;
+        let jacobi = IterativeSettings::new(tol, max_iters)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+
+        // Raw single-check reference on the assembled operator.
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        let b = op.assemble_b_at(omega, None);
+        let pc = crate::solver::ksp::JacobiPreconditioner::new(a.as_ref()).expect("jacobi");
+        let mut x = vec![c64::new(0.0, 0.0); b.len()];
+        let single = Cocg {
+            max_replacements: 0,
+            ..Cocg::new(tol, max_iters)
+        }
+        .solve(a.as_ref(), &b, &mut x, &pc)
+        .expect("single check returns Ok in the drift case");
+        assert!(!single.converged && single.replacements == 0, "{single:?}");
+
+        for (path, mode_of) in [
+            (
+                "assembled",
+                SolverMode::Iterative as fn(IterativeSettings) -> SolverMode,
+            ),
+            ("matrix-free", SolverMode::IterativeMatrixFree),
+        ] {
+            let run = |s: IterativeSettings| {
+                op.prepare_at::<B>(omega, mode_of(s), &device())
+                    .expect("iterative setup")
+                    .solve()
+            };
+            let first = run(jacobi.with_max_replacements(0));
+            let (iters0, reps0) = drift_counts(&first)
+                .unwrap_or_else(|| panic!("{path}: 0 must be a drift error, got {first:?}"));
+            assert_eq!(reps0, 0, "{path}");
+            if path == "assembled" {
+                assert_eq!(iters0, single.iters, "{path}: first crossing");
+            }
+            // The default cap: never the zero-replacement first crossing.
+            let default = run(jacobi);
+            assert!(default.is_err(), "{path}: tol 1e-30 is unreachable");
+            if let Some((iters, reps)) = drift_counts(&default) {
+                assert!(reps >= 1, "{path}: default must replace: {default:?}");
+                assert!(iters > iters0, "{path}: {iters} vs {iters0}");
+            }
+        }
+    }
+
+    /// **Issue #987**: on a drift case the default cap repairs, `max_replacements:
+    /// 0` reproduces the pre-#943 first-crossing failure through the driven
+    /// layer, and the default (3) still converges. Which `tol` drifts depends
+    /// on last-bit round-off, so the fixture scans a band near the rounding
+    /// floor (like the #943 `Cocg` test) and requires at least one repair.
+    #[test]
+    fn iterative_max_replacements_zero_restores_first_crossing_drift() {
+        let op = drift_cube();
+        let omega = 1.0;
+        let mut drifted = 0;
+        let mut repaired = 0;
+        for e in 0..=24 {
+            let tol = 10_f64.powf(-12.0 - 0.125 * e as f64);
+            let settings = IterativeSettings::new(tol, 5000)
+                .with_preconditioner(IterativePreconditioner::Jacobi);
+            let solve = |s: IterativeSettings| {
+                op.prepare_at::<B>(omega, SolverMode::Iterative(s), &device())
+                    .expect("iterative setup")
+                    .solve()
+            };
+            let single = solve(settings.with_max_replacements(0));
+            let Some((iters0, reps0)) = drift_counts(&single) else {
+                let (_, rep) = single.expect("a non-drift single check converges");
+                assert!(rep.converged, "{rep:?}");
+                continue;
+            };
+            drifted += 1;
+            assert_eq!(reps0, 0, "tol {tol:e}");
+            match solve(settings) {
+                Ok((_, rep)) => {
+                    assert!(rep.converged && rep.residual_rel <= tol, "{rep:?}");
+                    // Iterating past the first crossing is the replacement.
+                    assert!(rep.iters > iters0, "{rep:?} vs first crossing {iters0}");
+                    repaired += 1;
+                }
+                Err(e) => eprintln!("tol {tol:.3e}: default cap could not repair: {e}"),
+            }
+        }
+        eprintln!("first-crossing drift cases: {drifted}, repaired by the default cap: {repaired}");
+        assert!(drifted >= 1, "the scan found no first-crossing drift case");
+        assert!(repaired >= 1, "the default cap repaired no drift case");
+    }
+
+    thread_local! {
+        /// Whether the calling thread's last [`SolverMode::Iterative`]
+        /// back-solve held a `SequentialSolveScope` when it started its
+        /// Krylov solve (issue #946). Test-only probe, set by `back_solve`.
+        pub(super) static KRYLOV_SOLVE_SCOPED: std::cell::Cell<Option<bool>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    /// Issue #946: an AMS back-solve holds a faer sequential scope while its
+    /// Krylov solve runs, both when the solve converges and when it returns an
+    /// error, and a Jacobi back-solve holds none. What a live scope does to
+    /// faer's global parallelism, and that the caller's value comes back, is
+    /// asserted in `tests/faer_global_parallelism.rs`, which has the process
+    /// to itself.
+    #[test]
+    fn ams_back_solve_holds_a_sequential_scope_and_jacobi_does_not() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.05;
+        let probe = || KRYLOV_SOLVE_SCOPED.with(|p| p.replace(None));
+        let ams = |max_iters| {
+            IterativeSettings::new(1e-10, max_iters)
+                .with_preconditioner(IterativePreconditioner::AMS)
+        };
+
+        // Setup alone runs no Krylov solve and takes no scope.
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams(500)), &device())
+            .expect("AMS setup");
+        assert_eq!(probe(), None, "prepare_at must not run a Krylov solve");
+        let (_, report) = solver.solve().expect("AMS converges");
+        assert!(report.converged && report.iters > 1);
+        assert_eq!(probe(), Some(true), "converging AMS solve had no scope");
+
+        // One iteration allowed: the solve returns an error from inside the
+        // scope.
+        let failed = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams(1)), &device())
+            .expect("AMS setup")
+            .solve();
+        assert!(
+            matches!(failed, Err(DrivenError::Solve(_))),
+            "one iteration must not reach tol = 1e-10"
+        );
+        assert_eq!(probe(), Some(true), "failing AMS solve had no scope");
+
+        // Jacobi makes no faer solve per application, so it takes no scope.
+        let jacobi = IterativeSettings::new(1e-10, 5000)
+            .with_preconditioner(IterativePreconditioner::Jacobi);
+        op.prepare_at::<B>(omega, SolverMode::Iterative(jacobi), &device())
+            .expect("Jacobi setup")
+            .solve()
+            .expect("Jacobi converges");
+        assert_eq!(probe(), Some(false), "a Jacobi solve must take no scope");
+    }
+
+    /// Issue #963: the AMS smoother estimate is reported through the solve
+    /// handle. `DrivenLinearSolver::ams` is `Some` exactly when the iterative
+    /// back-solve uses AMS, and carries the Lanczos Ritz value, the
+    /// Gershgorin bound and the weight of this ω, consistent with each other,
+    /// plus the default V-cycle structure; it is `None` for Jacobi and Direct.
+    #[test]
+    fn solve_handle_reports_ams_smoother_estimate() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.05;
+        let ams_settings =
+            IterativeSettings::new(1e-10, 500).with_preconditioner(IterativePreconditioner::AMS);
+        let solver = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(ams_settings), &device())
+            .expect("AMS setup");
+        let ams = solver.ams().expect("AMS handle reports its preconditioner");
+        let sm = ams.smoother();
+        assert!(sm.theta_max().is_finite() && sm.theta_max() > 0.0);
+        assert!(
+            sm.gershgorin() >= sm.theta_max(),
+            "Ritz value above the Gershgorin bound"
+        );
+        assert!(sm.weight() > 0.0 && sm.weight() <= 0.6);
+        assert!(sm.lanczos_steps() > 0);
+        assert_eq!(
+            sm.near_switch(),
+            ((0.6 * sm.theta_max() - 2.0) / 2.0).abs() <= 0.03
+        );
+        // No GEODE_DRIVEN_AMS_* knob is set in the test environment.
+        if std::env::var_os(DRIVEN_AMS_SMOOTHER_ENV).is_none()
+            && std::env::var_os(DRIVEN_AMS_CYCLE_ENV).is_none()
+            && std::env::var_os(DRIVEN_AMS_PI_COARSE_ENV).is_none()
+        {
+            assert_eq!(ams.vcycle(), crate::eigen::ams::VCycleOptions::default());
+            assert_eq!(
+                ams.pi_coarse(),
+                PiCoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS)
+            );
+        }
+
+        let jacobi =
+            IterativeSettings::new(1e-10, 500).with_preconditioner(IterativePreconditioner::Jacobi);
+        assert!(
+            op.prepare_at::<B>(omega, SolverMode::Iterative(jacobi), &device())
+                .expect("Jacobi setup")
+                .ams()
+                .is_none()
+        );
+        assert!(
+            op.prepare_at::<B>(omega, SolverMode::Direct, &device())
+                .expect("LU")
+                .ams()
+                .is_none()
+        );
+    }
+
+    /// Issue #963: the `GEODE_DRIVEN_AMS_PI_COARSE` syntax round-trips and
+    /// rejects malformed values; the default is the shipped 4-sweep SGS.
+    #[test]
+    fn pi_coarse_parse_round_trips_and_rejects_bad_values() {
+        for p in [
+            PiCoarseSolve::SymmetricGaussSeidel(4),
+            PiCoarseSolve::SymmetricGaussSeidel(16),
+            PiCoarseSolve::Direct,
+            PiCoarseSolve::Amg(2),
+            PiCoarseSolve::Amg(4),
+        ] {
+            assert_eq!(PiCoarseSolve::parse(&p.name()), Ok(p));
+        }
+        assert_eq!(PiCoarseSolve::parse("sgs"), Ok(PiCoarseSolve::default()));
+        assert_eq!(PiCoarseSolve::parse("amg"), Ok(PiCoarseSolve::Amg(2)));
+        assert_eq!(
+            PiCoarseSolve::default(),
+            PiCoarseSolve::SymmetricGaussSeidel(AMS_PI_COARSE_SWEEPS)
+        );
+        for bad in ["lu", "sgs:0", "amg:x", "direct:2", ""] {
+            assert!(PiCoarseSolve::parse(bad).is_err(), "{bad:?} accepted");
+        }
+    }
+
+    /// Issue #744: [`IterativePreconditioner::Ams`] is built by
+    /// `prepare_at` (from the operator's mesh geometry), converges COCG on a
+    /// PEC cube with a lumped-port-free volume source, and matches direct
+    /// LU; the bare `IterativePreconditioner::build` (which only sees
+    /// `A(ω)`) rejects it with a clean error.
+    #[test]
+    fn ams_selectable_on_public_iterative_path_matches_direct() {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[2]).sin(), 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.3),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        // Low frequency: the near-static regime AMS exists for.
+        let omega = 0.05;
+
+        for coarse in [AmsCoarseSolve::Auto, AmsCoarseSolve::Direct] {
+            let settings = IterativeSettings::new(1e-10, 500)
+                .with_preconditioner(IterativePreconditioner::Ams { coarse });
+            let (sol, report) = op
+                .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+                .expect("AMS setup")
+                .solve()
+                .expect("AMS converges");
+            assert!(report.converged && report.iters > 0);
+            assert!(report.residual_rel <= 1e-10);
+            let (sol_lu, _) = op
+                .prepare_at::<B>(omega, SolverMode::Direct, &device())
+                .expect("LU")
+                .solve()
+                .expect("direct solve");
+            let num: f64 = sol
+                .e_edges
+                .iter()
+                .zip(&sol_lu.e_edges)
+                .map(|(a, b)| (a - b).norm_sqr())
+                .sum();
+            let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+            let rel = (num / den).sqrt();
+            assert!(
+                rel < 1e-6,
+                "AMS ({coarse:?}) vs direct LU rel err {rel:.3e}"
+            );
+        }
+
+        let a = op.assemble_a_at(omega).expect("A(ω)");
+        assert!(matches!(
+            IterativePreconditioner::AMS.build(a.as_ref()),
+            Err(DrivenError::Solve(msg)) if msg.contains("prepare_at")
+        ));
+        assert_eq!(IterativePreconditioner::AMS.name(), "ams");
+        // `Auto` is always the exact gradient-space LU (an AMG coarse solve
+        // drifts); explicit choices pass through.
+        assert_eq!(AmsCoarseSolve::Auto.resolve(), AmsCoarseSolve::Direct);
+        assert_eq!(AmsCoarseSolve::Amg.resolve(), AmsCoarseSolve::Amg);
+    }
+
+    /// Issue #945: on the structured Kuhn-tet cube of the #520 scaling
+    /// fixture (σ-lossy, PEC on the two y-planes, one lumped port) the old
+    /// fixed AMS smoother weight 0.6 is above the damped-Jacobi stability
+    /// bound `2/λ_max(D⁻¹P)`. The weight chosen at build time must be below
+    /// that bound, and the COCG iteration count must be the low one (26 at
+    /// this size; 70 with the weight at 0.6, growing with the mesh).
+    ///
+    /// `λ_max` is checked two ways that do not use the build's own short
+    /// Lanczos run: a 3000-step power iteration (a converged lower bound)
+    /// and the Gershgorin row-sum bound (a rigorous upper bound).
+    #[test]
+    fn ams_smoother_weight_is_below_stability_bound_on_structured_cube() {
+        let n = 6;
+        let mesh = cube_tet_mesh(n, 1.0);
+        let edges = mesh.edges();
+        let on_plane = |node: u32, axis: usize, value: f64| {
+            (mesh.nodes[node as usize][axis] - value).abs() < 1e-12
+        };
+        let port_faces: Vec<[u32; 3]> = mesh
+            .faces()
+            .into_iter()
+            .filter(|f| f.iter().all(|&v| on_plane(v, 2, 0.0)))
+            .collect();
+        let mask: Vec<bool> = edges
+            .iter()
+            .map(|e| {
+                ![0.0, 1.0]
+                    .iter()
+                    .any(|&y| on_plane(e[0], 1, y) && on_plane(e[1], 1, y))
+            })
+            .collect();
+        let eps = vacuum(&mesh);
+        let sigma_tet = vec![2.0_f64; mesh.n_tets()];
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.0,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.0),
+        };
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            std::slice::from_ref(&port),
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 0.10;
+
+        // λ_max(D⁻¹P) of the proxy the V-cycle smooths, by power iteration.
+        let p = ams::proxy(&op, omega).expect("proxy");
+        let pr = p.as_ref();
+        let dim = pr.nrows();
+        let (cp, ri, va) = (pr.col_ptr(), pr.row_idx(), pr.val());
+        let mut diag = vec![0.0_f64; dim];
+        let mut gershgorin = vec![0.0_f64; dim];
+        for j in 0..dim {
+            for k in cp[j]..cp[j + 1] {
+                gershgorin[j] += va[k].abs();
+                if ri[k] == j {
+                    diag[j] += va[k];
+                }
+            }
+        }
+        assert!(diag.iter().all(|&d| d > 0.0));
+        let gershgorin = gershgorin
+            .iter()
+            .zip(&diag)
+            .map(|(s, d)| s / d)
+            .fold(0.0_f64, f64::max);
+        let mut x: Vec<f64> = (0..dim).map(|i| ((i as f64) * 1.7).sin() + 0.1).collect();
+        let mut y = vec![0.0_f64; dim];
+        let mut lambda_power = 0.0;
+        for _ in 0..3000 {
+            y.iter_mut().for_each(|v| *v = 0.0);
+            for j in 0..dim {
+                for k in cp[j]..cp[j + 1] {
+                    y[ri[k]] += va[k] * x[j];
+                }
+            }
+            let xpx: f64 = x.iter().zip(&y).map(|(a, b)| a * b).sum();
+            let xdx: f64 = x.iter().zip(&diag).map(|(a, d)| a * a * d).sum();
+            lambda_power = xpx / xdx;
+            let mut norm = 0.0_f64;
+            for i in 0..dim {
+                x[i] = y[i] / diag[i];
+                norm += x[i] * x[i];
+            }
+            let norm = norm.sqrt();
+            x.iter_mut().for_each(|v| *v /= norm);
+        }
+        assert!(
+            lambda_power <= gershgorin,
+            "power-iteration lower bound {lambda_power} above Gershgorin {gershgorin}"
+        );
+        assert!(
+            0.6 > 2.0 / lambda_power,
+            "fixture must make 0.6 unstable: λ_max ≥ {lambda_power}, bound {}",
+            2.0 / lambda_power
+        );
+
+        let built = ams::build(&op, omega, AmsCoarseSolve::Auto).expect("AMS build");
+        let sw = built.smoother();
+        eprintln!(
+            "[issue #945] cube n={n}: λ_max(D⁻¹P) ≥ {lambda_power:.6} (power), ≤ {gershgorin:.6} \
+             (Gershgorin); build: θ = {:.6}, ρ̂ = {:.6}, weight = {:.6} ({})",
+            sw.theta_max(),
+            sw.rho_hat(),
+            sw.weight(),
+            sw.source().name()
+        );
+        assert_eq!(sw.source(), crate::eigen::ams::SmoothWeightSource::Estimate);
+        assert!(sw.warning().is_none());
+        // The build's 30-step Ritz value is a lower bound within 1 % of the
+        // converged power-iteration value, and reports the same Gershgorin bound.
+        assert!(sw.theta_max() <= lambda_power * (1.0 + 1e-9));
+        assert!(sw.theta_max() > 0.99 * lambda_power);
+        assert!((sw.gershgorin() - gershgorin).abs() < 1e-9 * gershgorin);
+        // Rigorous: the weight is below 2 / Gershgorin ≤ 2 / λ_max.
+        assert!(
+            sw.weight() < 2.0 / gershgorin,
+            "weight {} is not below the rigorous bound 2/Gershgorin = {}",
+            sw.weight(),
+            2.0 / gershgorin
+        );
+        assert!(sw.weight() < 2.0 / lambda_power);
+
+        let settings =
+            IterativeSettings::new(1e-8, 2000).with_preconditioner(IterativePreconditioner::AMS);
+        let (sol, report) = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("AMS setup")
+            .solve()
+            .expect("AMS converges");
+        eprintln!(
+            "[issue #945] cube n={n}: COCG+AMS iterations = {}",
+            report.iters
+        );
+        assert!(report.converged && report.residual_rel <= 1e-8);
+        assert!(
+            report.iters <= 40,
+            "COCG+AMS took {} iterations (26 with a stable smoother, 70 at weight 0.6)",
+            report.iters
+        );
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        assert!((num / den).sqrt() < 1e-5, "AMS vs direct LU");
+    }
+
+    /// Smoke test: [`IterativePreconditioner::Chebyshev`] also reaches the
+    /// **public** [`SolverMode::Iterative`] path (`prepare_at`) — the same
+    /// path exercised for ILU(0) above — and converges to an answer that
+    /// matches direct LU.
+    #[test]
+    fn chebyshev_selectable_on_public_iterative_path_converges() {
+        let mesh = cube_tet_mesh(3, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let omega = 1.0;
+
+        let settings = IterativeSettings::new(1e-10, 500)
+            .with_preconditioner(IterativePreconditioner::Chebyshev { degree: 3 });
+        let (sol_cheb, report) = op
+            .prepare_at::<B>(omega, SolverMode::Iterative(settings), &device())
+            .expect("Chebyshev setup")
+            .solve()
+            .expect("Chebyshev converges");
+        assert!(report.iters > 0);
+        assert!(report.residual_rel <= 1e-10);
+
+        let (sol_lu, _) = op
+            .prepare_at::<B>(omega, SolverMode::Direct, &device())
+            .expect("LU")
+            .solve()
+            .expect("direct solve");
+        let num: f64 = sol_cheb
+            .e_edges
+            .iter()
+            .zip(&sol_lu.e_edges)
+            .map(|(a, b)| (a - b).norm_sqr())
+            .sum();
+        let den: f64 = sol_lu.e_edges.iter().map(|b| b.norm_sqr()).sum();
+        let rel = (num / den).sqrt();
+        assert!(rel < 1e-6, "Chebyshev vs direct LU rel err {rel:.3e}");
+    }
+
+    /// **Issue #299 regression**: the Chebyshev polynomial smoother on
+    /// the same σ-damped resistor stress fixture used for the ILU(0)
+    /// comparison. The smoother must
+    ///
+    /// 1. converge COCG to the requested tolerance, and
+    /// 2. record a **lower** COCG iteration count than both the
+    ///    unpreconditioned (identity) and the Jacobi runs.
+    ///
+    /// The Chebyshev preconditioner trades a heavier per-apply cost
+    /// (`degree` SpMVs instead of Jacobi's one diagonal multiply) for a
+    /// shorter Krylov run — the iteration counts and the wallclock for
+    /// each run are printed to stderr so the trade-off is visible, in
+    /// the same reporting style as the #267 ILU(0) test.
+    #[test]
+    fn chebyshev_vs_jacobi_sigma_damped_resistor_regression() {
+        use crate::solver::ksp::{
+            ChebyshevConfig, ChebyshevKind, ChebyshevPreconditioner, Cocg, IdentityPreconditioner,
+        };
+        use std::time::Instant;
+
+        // Same σ-damped resistor cube as the ILU(0) stress fixture.
+        let mesh = cube_tet_mesh(4, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let sigma_tet = vec![5.0_f64; mesh.n_tets()];
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new((std::f64::consts::PI * c[0]).sin(), 0.0),
+            ]
+        });
+        let omega = 0.3;
+
+        let op = DrivenOperator::assemble::<B>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sigma_tet),
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-10, 10_000);
+
+        let t_id = Instant::now();
+        let (sol_id, report_id) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                Ok::<_, crate::solver::ksp::KspError>(IdentityPreconditioner::new(a.nrows()))
+            })
+            .expect("unpreconditioned COCG");
+        let dt_id = t_id.elapsed();
+
+        let t_jac = Instant::now();
+        let (_sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                crate::solver::ksp::JacobiPreconditioner::new(a.as_ref())
+            })
+            .expect("Jacobi-preconditioned COCG");
+        let dt_jac = t_jac.elapsed();
+
+        // Degree-3 first-kind Chebyshev smoother (default config).
+        let t_cheb = Instant::now();
+        let (sol_cheb, report_cheb) = op
+            .solve_at_iterative(omega, &ksp, |a| ChebyshevPreconditioner::new(a.as_ref(), 3))
+            .expect("Chebyshev-preconditioned COCG");
+        let dt_cheb = t_cheb.elapsed();
+
+        // Degree-3 fourth-kind Chebyshev smoother (Lottes 2022, issue
+        // #348) — same degree, only λ_max (no ratio/λ_min).
+        let t_cheb4 = Instant::now();
+        let (sol_cheb4, report_cheb4) = op
+            .solve_at_iterative(omega, &ksp, |a| {
+                let cfg = ChebyshevConfig {
+                    kind: ChebyshevKind::Fourth,
+                    ..ChebyshevConfig::default()
+                };
+                ChebyshevPreconditioner::with_config(a.as_ref(), 3, cfg)
+            })
+            .expect("fourth-kind Chebyshev-preconditioned COCG");
+        let dt_cheb4 = t_cheb4.elapsed();
+
+        assert!(report_id.converged);
+        assert!(report_jac.converged);
+        assert!(report_cheb.converged);
+        assert!(report_cheb4.converged);
+
+        // Acceptance: Chebyshev reduces the iteration count vs both the
+        // unpreconditioned and Jacobi baselines on the σ-damped fixture.
+        assert!(
+            report_cheb.iters <= report_id.iters,
+            "Chebyshev ({}) must beat unpreconditioned ({}) on σ-damped resistor",
+            report_cheb.iters,
+            report_id.iters,
+        );
+        assert!(
+            report_cheb.iters <= report_jac.iters,
+            "Chebyshev ({}) must beat Jacobi ({}) on σ-damped resistor",
+            report_cheb.iters,
+            report_jac.iters,
+        );
+        // Fourth-kind: must converge and beat the unpreconditioned
+        // baseline on the σ-damped fixture (issue #348).
+        assert!(
+            report_cheb4.iters <= report_id.iters,
+            "fourth-kind Chebyshev ({}) must beat unpreconditioned ({}) on σ-damped resistor",
+            report_cheb4.iters,
+            report_id.iters,
+        );
+
+        // Solutions must agree with the Jacobi run (same linear system).
+        let norm: f64 = sol_cheb
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        let mut diff2 = 0.0_f64;
+        for (c, i) in sol_cheb.e_edges.iter().zip(sol_id.e_edges.iter()) {
+            let d = *c - *i;
+            diff2 += d.re * d.re + d.im * d.im;
+        }
+        assert!(diff2.sqrt() / norm < 1e-7);
+        // Fourth-kind solution must also agree with the unpreconditioned run.
+        let mut diff2_c4 = 0.0_f64;
+        for (c, i) in sol_cheb4.e_edges.iter().zip(sol_id.e_edges.iter()) {
+            let d = *c - *i;
+            diff2_c4 += d.re * d.re + d.im * d.im;
+        }
+        assert!(diff2_c4.sqrt() / norm < 1e-7);
+
+        eprintln!(
+            "[issue #348 / stress: σ-damped resistor] grid=4, σ=5, ω={:.2}, \
+             n_interior={}, \
+             identity: iters={} ({:?}), \
+             Jacobi: iters={} ({:?}), \
+             Chebyshev-1st(deg=3): iters={} ({:?}), \
+             Chebyshev-4th(deg=3): iters={} ({:?}), \
+             iter ratio (1st/Jacobi)={:.3}, iter ratio (4th/Jacobi)={:.3}",
+            omega,
+            sol_cheb.n_interior,
+            report_id.iters,
+            dt_id,
+            report_jac.iters,
+            dt_jac,
+            report_cheb.iters,
+            dt_cheb,
+            report_cheb4.iters,
+            dt_cheb4,
+            report_cheb.iters as f64 / report_jac.iters.max(1) as f64,
+            report_cheb4.iters as f64 / report_jac.iters.max(1) as f64,
+        );
+    }
+
+    /// A zero current source through the iterative path must produce
+    /// the exact-zero field — matches the direct path's
+    /// `zero_source_gives_zero_field` semantics.
+    #[test]
+    fn iterative_zero_source_gives_zero_field() {
+        use crate::solver::ksp::Cocg;
+
+        let mesh = cube_tet_mesh(2, 1.0);
+        let (_, interior) = cube_pec_interior_edges(&mesh, 1.0);
+        let eps = vacuum(&mesh);
+        let source = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+        };
+        let ksp = Cocg::default();
+        let (sol, report) = super::driven_solve_iterative::<B, _>(
+            &mesh,
+            DrivenMaterials::Scalar(&eps),
+            &DrivenBcs {
+                pec_interior_mask: &interior,
+            },
+            1.0,
+            &source,
+            &ksp,
+            &device(),
+        )
+        .expect("iterative driven solve with zero source");
+        assert!(sol.e_edges.iter().all(|e| e.re == 0.0 && e.im == 0.0));
+        assert_eq!(report.iters, 0);
+        assert!(report.converged);
+    }
+
+    /// **Issue #238 heavy benchmark**: the iterative path must scale
+    /// to the patch fixture (~30k interior edges) and converge to a
+    /// documented tolerance vs the direct LU. `#[ignore]`d because
+    /// it requires the patch fixture and is expensive — run with
+    /// `cargo test --release -- --ignored iterative_patch_benchmark`.
+    #[test]
+    #[ignore = "heavy fixture; opt-in with `cargo test --release -- --ignored iterative_patch_benchmark`"]
+    fn iterative_patch_benchmark() {
+        use crate::mesh::{pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+        use crate::solver::ksp::Cocg;
+
+        let fixture = read_patch_smoke_fixture().expect("patch fixture");
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = fixture.mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let mesh = &fixture.mesh;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let eps = fixture.epsilon_r_default();
+        let source = CurrentSource::from_centroids(mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new(c[0].sin(), 0.0),
+            ]
+        });
+        // Patch smoke fixture: pick a representative ω near the
+        // operating band's normalized frequency (the smoke fixture is
+        // small and tolerant of any moderate ω).
+        let omega = 0.1;
+
+        let t_lu = std::time::Instant::now();
+        let sol_lu = driven_solve::<B>(
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &device(),
+        )
+        .expect("direct LU patch solve");
+        let lu_secs = t_lu.elapsed().as_secs_f64();
+
+        let ksp = Cocg::new(1e-8, 20_000);
+        let t_it = std::time::Instant::now();
+        let (sol_ksp, report) = super::driven_solve_iterative::<B, _>(
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            &bcs,
+            omega,
+            &source,
+            &ksp,
+            &device(),
+        )
+        .expect("COCG patch solve");
+        let it_secs = t_it.elapsed().as_secs_f64();
+
+        let norm_lu: f64 = sol_lu
+            .e_edges
+            .iter()
+            .map(|e| e.re * e.re + e.im * e.im)
+            .sum::<f64>()
+            .sqrt();
+        let mut diff2 = 0.0_f64;
+        for (a, b) in sol_lu.e_edges.iter().zip(sol_ksp.e_edges.iter()) {
+            let d = *a - *b;
+            diff2 += d.re * d.re + d.im * d.im;
+        }
+        let rel_diff = diff2.sqrt() / norm_lu;
+
+        eprintln!(
+            "[issue #238 / patch] n_interior={}, COCG iters={}, residual_rel={:.3e}, \
+             rel_diff_vs_LU={:.3e}, LU_secs={:.3}, COCG_secs={:.3}, speedup={:.2}x",
+            sol_ksp.n_interior,
+            report.iters,
+            report.residual_rel,
+            rel_diff,
+            lu_secs,
+            it_secs,
+            lu_secs / it_secs.max(1e-12),
+        );
+        assert!(report.converged);
+        // Loose tol for the heavy fixture — the direct LU residual
+        // floor + Krylov tol stack up — but COCG must reach the same
+        // solution to a few-digit agreement.
+        assert!(
+            rel_diff < 1e-4,
+            "patch iterative vs LU rel_diff = {}",
+            rel_diff
+        );
+    }
+
+    /// **Issue #267 heavy benchmark**: patch fixture under
+    /// Jacobi-preconditioned vs ILU(0)-preconditioned COCG. Reports
+    /// both iteration counts and per-iteration wall clock to
+    /// characterise the Jacobi setup vs ILU setup trade-off explicitly
+    /// (the documentation requirement in issue #267).
+    ///
+    /// `#[ignore]`d for the same reason as
+    /// [`iterative_patch_benchmark`] — opt-in with
+    /// `cargo test --release -- --ignored ilu_patch_benchmark`.
+    #[test]
+    #[ignore = "heavy fixture; opt-in with `cargo test --release -- --ignored ilu_patch_benchmark`"]
+    fn ilu_patch_benchmark() {
+        use crate::mesh::{pec_interior_mask_from_triangles, read_patch_smoke_fixture};
+        use crate::solver::ksp::{Cocg, IluPreconditioner, JacobiPreconditioner};
+
+        let fixture = read_patch_smoke_fixture().expect("patch fixture");
+        let patch_tris = fixture.patch_triangles();
+        let ground_tris = fixture.ground_triangles();
+        let outer_tris = fixture.outer_boundary_triangles();
+        let edges = fixture.mesh.edges();
+        let interior = pec_interior_mask_from_triangles(
+            &edges,
+            &[
+                patch_tris.as_slice(),
+                ground_tris.as_slice(),
+                outer_tris.as_slice(),
+            ],
+        );
+        let mesh = &fixture.mesh;
+        let bcs = DrivenBcs {
+            pec_interior_mask: &interior,
+        };
+        let eps = fixture.epsilon_r_default();
+        let source = CurrentSource::from_centroids(mesh, |c| {
+            [
+                c64::new(0.0, 0.0),
+                c64::new(0.0, 0.0),
+                c64::new(c[0].sin(), 0.0),
+            ]
+        });
+        let omega = 0.1;
+
+        let op = DrivenOperator::assemble::<B>(
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &[],
+            &[],
+            &source,
+            &device(),
+        )
+        .expect("operator assembly");
+        let ksp = Cocg::new(1e-8, 20_000);
+
+        // Jacobi run.
+        let t_jac = std::time::Instant::now();
+        let (sol_jac, report_jac) = op
+            .solve_at_iterative(omega, &ksp, |a| JacobiPreconditioner::new(a.as_ref()))
+            .expect("Jacobi-preconditioned COCG");
+        let jac_secs = t_jac.elapsed().as_secs_f64();
+
+        // ILU(0) run — note the setup cost is folded into the same
+        // wall-clock measurement, so the print line below makes the
+        // setup/per-iter trade-off explicit.
+        let t_ilu = std::time::Instant::now();
+        let (_sol_ilu, report_ilu) = op
+            .solve_at_iterative(omega, &ksp, |a| IluPreconditioner::new(a.as_ref(), 0))
+            .expect("ILU(0)-preconditioned COCG");
+        let ilu_secs = t_ilu.elapsed().as_secs_f64();
+
+        assert!(report_jac.converged);
+        assert!(report_ilu.converged);
+
+        eprintln!(
+            "[issue #267 / patch ILU vs Jacobi] n_interior={}, \
+             Jacobi: iters={}, residual_rel={:.3e}, total_secs={:.3} ({:.4} ms/iter) | \
+             ILU(0): iters={}, residual_rel={:.3e}, total_secs={:.3} ({:.4} ms/iter) | \
+             iter ratio (ILU/Jacobi) = {:.3}, wallclock speedup = {:.2}×",
+            sol_jac.n_interior,
+            report_jac.iters,
+            report_jac.residual_rel,
+            jac_secs,
+            1000.0 * jac_secs / report_jac.iters.max(1) as f64,
+            report_ilu.iters,
+            report_ilu.residual_rel,
+            ilu_secs,
+            1000.0 * ilu_secs / report_ilu.iters.max(1) as f64,
+            report_ilu.iters as f64 / report_jac.iters.max(1) as f64,
+            jac_secs / ilu_secs.max(1e-12),
+        );
+
+        // ILU(0) must reduce iteration count on the patch fixture
+        // — the documented acceptance for the heavy benchmark.
+        assert!(
+            report_ilu.iters <= report_jac.iters,
+            "ILU(0) iters ({}) must not exceed Jacobi iters ({}) on patch fixture",
+            report_ilu.iters,
+            report_jac.iters,
+        );
+    }
+}

@@ -1,0 +1,72 @@
+{
+  "schema_version": "1",
+  "fixture_id": "cube_cavity/n4_first_five_modes",
+  "description": "Lowest 5 scalar Helmholtz eigenvalues of the unit cube with homogeneous Dirichlet BC, on a programmatic cube_tet_mesh of n=4 (27 interior DOFs). JAX baseline ships in #93 in parallel with #92's NumPy canonical baseline; values are cross-checked at fixture-gen time.",
+  "units": "dimensionless (k^2 with side normalized to 1)",
+  "inputs": {
+    "n": {
+      "shape": [
+        1
+      ],
+      "dtype": "i64",
+      "description": "Cells per side of the programmatic cube_tet_mesh.",
+      "data": [
+        4
+      ]
+    },
+    "side": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "Cube edge length.",
+      "data": [
+        1.0
+      ]
+    }
+  },
+  "outputs": {
+    "eigenvalues": {
+      "shape": [
+        5
+      ],
+      "dtype": "f64",
+      "description": "Lowest 5 eigenvalues, ascending. Cross-language f64 reproducibility allows ~1e-5 relative drift per #88 framing; this fixture uses 1e-8 absolute since the in-tree NumPy and JAX values agree to ~1e-13.",
+      "tolerance_abs": 1e-08,
+      "data": [
+        37.4992104597512,
+        82.89604040710594,
+        82.89604040710597,
+        99.31209153782524,
+        146.09399124637642
+      ]
+    },
+    "k_diag_sum": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "trace(K_int) \u2014 interior-DOF stiffness diagonal sum; autodiff anchor.",
+      "tolerance_abs": 1e-12,
+      "data": [
+        40.50000000000001
+      ]
+    },
+    "m_diag_sum": {
+      "shape": [
+        1
+      ],
+      "dtype": "f64",
+      "description": "trace(M_int) \u2014 interior-DOF mass diagonal sum.",
+      "tolerance_abs": 1e-12,
+      "data": [
+        0.16875
+      ]
+    }
+  },
+  "provenance": {
+    "source": "reference/jax/cube_cavity.py (Epic #88 / #93)",
+    "verified_against": "reference/numpy/cube_cavity_minimal.py \u2014 eigenvalues agree to 7.8e-15 relative at fixture-gen time",
+    "issue": "#93 (cube-cavity JAX + TF-Java reference)"
+  }
+}

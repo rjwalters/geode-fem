@@ -1,0 +1,3 @@
+[size n=6] edges=1854 interior=1614 tets=1296 reps=0 (fixture 0.03 s)
+warning: AMS edge smoother: the GEODE_AMS_SMOOTH_WEIGHT override 0.6 is above the estimated damped-Jacobi stability bound 2/rho = 0.5381 (rho estimate 3.7166; Lanczos Ritz value 3.3788, Gershgorin bound 3.9997). The override is used as given. Above the true bound the V-cycle is not a contraction on the highest edge modes and the outer iteration count grows with mesh size; the automatic weight for this operator would be 0.4036. Unset GEODE_AMS_SMOOTH_WEIGHT to use it.
+# ams_smoother edge_dim=1614 theta_max=3.378769 lanczos_steps=30 gershgorin=3.999715 rho_hat=3.716646 weight=0.600000 source=override estimate_ms=0.587

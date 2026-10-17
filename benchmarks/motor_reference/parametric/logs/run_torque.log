@@ -1,0 +1,39 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 5.27s
+== opt120moved_L0_h45: --level 0 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L0.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 3.86 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120moved_L0_h45.json
+== opt120scalar_L0_h45: --level 0 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120scalar_sector_L0.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 2.64 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120scalar_L0_h45.json
+== opt120_L0_h45: --level 0 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120_sector_L0.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 2.40 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120_L0_h45.json
+== opt120moved_L1_h45: --level 1 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L1.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 13.13 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120moved_L1_h45.json
+== opt120scalar_L1_h45: --level 1 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120scalar_sector_L1.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 12.05 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120scalar_L1_h45.json
+== opt120_L1_h45: --level 1 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120_sector_L1.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 12.06 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120_L1_h45.json
+== opt120moved_L2_h45: --level 2 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L2.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 129.46 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120moved_L2_h45.json
+== opt120scalar_L2_h45: --level 2 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120scalar_sector_L2.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 123.25 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120scalar_L2_h45.json
+== opt120_L2_h45: --level 2 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120_sector_L2.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 118.44 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120_L2_h45.json
+== opt120moved_L3_h45: --level 3 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L3.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 741.48 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120moved_L3_h45.json
+== opt120scalar_L3_h45: --level 3 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120scalar_sector_L3.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 751.18 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120scalar_L3_h45.json
+== opt120_L3_h45: --level 3 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120_sector_L3.msh --coupling harmonic:3:6:45 --i-peak 11.048494105125824 --phi0-deg -11.646272734037339
+  total solve wall time 762.81 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120_L3_h45.json
+== opt120moved_L0_h45_scaled: --level 0 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L0.msh --coupling harmonic:3:6:45 --i-peak 11.57569753783308 --phi0-deg -11.646272734037339 --scale-mesh 1.0477172207986847

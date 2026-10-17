@@ -1,0 +1,497 @@
+{
+  "provenance": {
+    "upstream_repository": "https://github.com/MichaelWiesheu/ICEMsnapshot",
+    "upstream_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+    "exports_sha256": {
+      "results/plots/final/RotorOpt0.txt": "94a138061df5bc05a388a1361bc07f871af135bedb04dc1190262bbf1668a15b",
+      "results/plots/final/StatorOpt0.txt": "9a082d9015640fc150bad70430e3d2b1b2ee31ee6a43547674c4a4e5055a85d3"
+    },
+    "license": "upstream data GPL-3.0-or-later; see ../UPSTREAM_LICENSE.txt",
+    "generator": "benchmarks/motor_reference/geometry/build_sector_mesh.py"
+  },
+  "coordinate_convention_check_max_radius_dev_m": {
+    "cartesian": 0.0014887983966669974,
+    "premultiplied": 3.400058012914542e-16
+  },
+  "regions": {
+    "rotor_iron": {
+      "tag": 1,
+      "patches": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        9,
+        10,
+        11
+      ],
+      "area_green_m2": 0.0007024145084401978,
+      "green_nq8_vs_nq16_rel": 4.630608392015345e-16,
+      "tensor_quadrature_vs_green_rel": 4.630608392015345e-16
+    },
+    "magnet": {
+      "tag": 2,
+      "patches": [
+        8
+      ],
+      "area_green_m2": 0.00013299999999999993,
+      "green_nq8_vs_nq16_rel": 0.0,
+      "tensor_quadrature_vs_green_rel": 2.4455688101176805e-15
+    },
+    "rotor_air": {
+      "tag": 3,
+      "patches": [
+        7,
+        12
+      ],
+      "area_green_m2": 4.423143456494355e-05,
+      "green_nq8_vs_nq16_rel": 1.5320017640587802e-15,
+      "tensor_quadrature_vs_green_rel": 1.0724012348411461e-15
+    },
+    "airgap_inner": {
+      "tag": 4,
+      "patches": [
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "area_green_m2": 2.316924582022464e-05,
+      "green_nq8_vs_nq16_rel": 9.797678855217546e-15,
+      "tensor_quadrature_vs_green_rel": 1.316106114879969e-15
+    },
+    "airgap_outer": {
+      "tag": 5,
+      "patches": [
+        1,
+        2,
+        3,
+        20,
+        21,
+        22,
+        39,
+        40,
+        41,
+        58,
+        59,
+        60,
+        77,
+        78,
+        79,
+        96,
+        97,
+        98
+      ],
+      "area_green_m2": 2.3431045208025603e-05,
+      "green_nq8_vs_nq16_rel": 7.808406111745356e-15,
+      "tensor_quadrature_vs_green_rel": 4.3380033954140874e-16
+    },
+    "stator_iron": {
+      "tag": 6,
+      "patches": [
+        4,
+        6,
+        15,
+        16,
+        17,
+        18,
+        19,
+        23,
+        25,
+        34,
+        35,
+        36,
+        37,
+        38,
+        42,
+        44,
+        53,
+        54,
+        55,
+        56,
+        57,
+        61,
+        63,
+        72,
+        73,
+        74,
+        75,
+        76,
+        80,
+        82,
+        91,
+        92,
+        93,
+        94,
+        95,
+        99,
+        101,
+        110,
+        111,
+        112,
+        113,
+        114
+      ],
+      "area_green_m2": 0.0009066564314059895,
+      "green_nq8_vs_nq16_rel": 5.979123595936927e-15,
+      "tensor_quadrature_vs_green_rel": 5.979123595936927e-16
+    },
+    "slot_air": {
+      "tag": 7,
+      "patches": [
+        5,
+        24,
+        43,
+        62,
+        81,
+        100
+      ],
+      "area_green_m2": 1.3664784614833315e-05,
+      "green_nq8_vs_nq16_rel": 1.8595967030497523e-15,
+      "tensor_quadrature_vs_green_rel": 1.2397311353665015e-15
+    },
+    "winding_01_U+": {
+      "tag": 11,
+      "patches": [
+        8,
+        10,
+        13,
+        14
+      ],
+      "area_green_m2": 3.6291215073371265e-05,
+      "green_nq8_vs_nq16_rel": 9.52267488925526e-15,
+      "tensor_quadrature_vs_green_rel": 2.24062938570712e-15
+    },
+    "winding_02_U+": {
+      "tag": 12,
+      "patches": [
+        7,
+        9,
+        11,
+        12
+      ],
+      "area_green_m2": 3.121514904535939e-05,
+      "green_nq8_vs_nq16_rel": 4.5587331629248696e-14,
+      "tensor_quadrature_vs_green_rel": 2.1708253156785095e-16
+    },
+    "winding_03_U+": {
+      "tag": 13,
+      "patches": [
+        26,
+        28,
+        30,
+        31
+      ],
+      "area_green_m2": 3.121514904535973e-05,
+      "green_nq8_vs_nq16_rel": 4.428483643984111e-14,
+      "tensor_quadrature_vs_green_rel": 2.1708253156784858e-16
+    },
+    "winding_04_U-": {
+      "tag": 14,
+      "patches": [
+        103,
+        105,
+        108,
+        109
+      ],
+      "area_green_m2": 3.629121507337009e-05,
+      "green_nq8_vs_nq16_rel": 5.228135233316782e-15,
+      "tensor_quadrature_vs_green_rel": 1.8671911547559937e-16
+    },
+    "winding_05_W-": {
+      "tag": 15,
+      "patches": [
+        27,
+        29,
+        32,
+        33
+      ],
+      "area_green_m2": 3.629121507336987e-05,
+      "green_nq8_vs_nq16_rel": 7.468764619024022e-15,
+      "tensor_quadrature_vs_green_rel": 7.46876461902402e-16
+    },
+    "winding_06_W-": {
+      "tag": 16,
+      "patches": [
+        46,
+        48,
+        51,
+        52
+      ],
+      "area_green_m2": 3.62912150733712e-05,
+      "green_nq8_vs_nq16_rel": 8.58907931187731e-15,
+      "tensor_quadrature_vs_green_rel": 1.3070338083291559e-15
+    },
+    "winding_07_W-": {
+      "tag": 17,
+      "patches": [
+        45,
+        47,
+        49,
+        50
+      ],
+      "area_green_m2": 3.1215149045359474e-05,
+      "green_nq8_vs_nq16_rel": 4.2982341250434375e-14,
+      "tensor_quadrature_vs_green_rel": 8.683301262714015e-16
+    },
+    "winding_08_W-": {
+      "tag": 18,
+      "patches": [
+        64,
+        66,
+        68,
+        69
+      ],
+      "area_green_m2": 3.1215149045359474e-05,
+      "green_nq8_vs_nq16_rel": 4.3633588845137924e-14,
+      "tensor_quadrature_vs_green_rel": 8.683301262714015e-16
+    },
+    "winding_09_V+": {
+      "tag": 19,
+      "patches": [
+        65,
+        67,
+        70,
+        71
+      ],
+      "area_green_m2": 3.6291215073371204e-05,
+      "green_nq8_vs_nq16_rel": 8.589079311877309e-15,
+      "tensor_quadrature_vs_green_rel": 1.6804720392803428e-15
+    },
+    "winding_10_V+": {
+      "tag": 20,
+      "patches": [
+        83,
+        85,
+        87,
+        88
+      ],
+      "area_green_m2": 3.121514904535834e-05,
+      "green_nq8_vs_nq16_rel": 4.667274428708952e-14,
+      "tensor_quadrature_vs_green_rel": 2.1708253156785824e-15
+    },
+    "winding_11_V+": {
+      "tag": 21,
+      "patches": [
+        84,
+        86,
+        89,
+        90
+      ],
+      "area_green_m2": 3.62912150733702e-05,
+      "green_nq8_vs_nq16_rel": 4.854697002365569e-15,
+      "tensor_quadrature_vs_green_rel": 1.1203146928535929e-15
+    },
+    "winding_12_V+": {
+      "tag": 22,
+      "patches": [
+        102,
+        104,
+        106,
+        107
+      ],
+      "area_green_m2": 3.121514904535749e-05,
+      "green_nq8_vs_nq16_rel": 4.7106909350226526e-14,
+      "tensor_quadrature_vs_green_rel": 1.5195777209750494e-15
+    }
+  },
+  "magnet_vs_MWxMH": {
+    "area_m2": 0.00013299999999999993,
+    "MW_x_MH_m2": 0.000133,
+    "rel_err": -6.113922025294197e-16
+  },
+  "inner_band_vs_annulus": {
+    "area_m2": 2.316924582022464e-05,
+    "annulus_m2": 2.3169245820224735e-05
+  },
+  "outer_band_area_m2": 2.3431045208025603e-05,
+  "rotor_total_vs_annulus_rel": -1.0808213766391354e-15,
+  "stator_total_vs_annulus_rel": 6.1091302475380526e-15,
+  "sector_total_vs_annulus_rel": 3.659582470241969e-15,
+  "winding_groups": [
+    {
+      "group": 1,
+      "name": "winding_01_U+",
+      "phase": "U",
+      "sign": 1,
+      "patches": [
+        8,
+        10,
+        13,
+        14
+      ],
+      "area_m2": 3.6291215073371265e-05,
+      "J_per_A_A_per_m2": 330658.5347373783,
+      "J_at_initial_peak_A_per_m2": 3200000.007034188
+    },
+    {
+      "group": 2,
+      "name": "winding_02_U+",
+      "phase": "U",
+      "sign": 1,
+      "patches": [
+        7,
+        9,
+        11,
+        12
+      ],
+      "area_m2": 3.121514904535939e-05,
+      "J_per_A_A_per_m2": 384428.7266596916,
+      "J_at_initial_peak_A_per_m2": 3720369.501401822
+    },
+    {
+      "group": 3,
+      "name": "winding_03_U+",
+      "phase": "U",
+      "sign": 1,
+      "patches": [
+        26,
+        28,
+        30,
+        31
+      ],
+      "area_m2": 3.121514904535973e-05,
+      "J_per_A_A_per_m2": 384428.72665968747,
+      "J_at_initial_peak_A_per_m2": 3720369.5014017816
+    },
+    {
+      "group": 4,
+      "name": "winding_04_U-",
+      "phase": "U",
+      "sign": -1,
+      "patches": [
+        103,
+        105,
+        108,
+        109
+      ],
+      "area_m2": 3.629121507337009e-05,
+      "J_per_A_A_per_m2": -330658.534737389,
+      "J_at_initial_peak_A_per_m2": -3200000.0070342915
+    },
+    {
+      "group": 5,
+      "name": "winding_05_W-",
+      "phase": "W",
+      "sign": -1,
+      "patches": [
+        27,
+        29,
+        32,
+        33
+      ],
+      "area_m2": 3.629121507336987e-05,
+      "J_per_A_A_per_m2": -330658.53473739105,
+      "J_at_initial_peak_A_per_m2": -3200000.007034311
+    },
+    {
+      "group": 6,
+      "name": "winding_06_W-",
+      "phase": "W",
+      "sign": -1,
+      "patches": [
+        46,
+        48,
+        51,
+        52
+      ],
+      "area_m2": 3.62912150733712e-05,
+      "J_per_A_A_per_m2": -330658.53473737894,
+      "J_at_initial_peak_A_per_m2": -3200000.007034194
+    },
+    {
+      "group": 7,
+      "name": "winding_07_W-",
+      "phase": "W",
+      "sign": -1,
+      "patches": [
+        45,
+        47,
+        49,
+        50
+      ],
+      "area_m2": 3.1215149045359474e-05,
+      "J_per_A_A_per_m2": -384428.7266596906,
+      "J_at_initial_peak_A_per_m2": -3720369.5014018123
+    },
+    {
+      "group": 8,
+      "name": "winding_08_W-",
+      "phase": "W",
+      "sign": -1,
+      "patches": [
+        64,
+        66,
+        68,
+        69
+      ],
+      "area_m2": 3.1215149045359474e-05,
+      "J_per_A_A_per_m2": -384428.7266596906,
+      "J_at_initial_peak_A_per_m2": -3720369.5014018123
+    },
+    {
+      "group": 9,
+      "name": "winding_09_V+",
+      "phase": "V",
+      "sign": 1,
+      "patches": [
+        65,
+        67,
+        70,
+        71
+      ],
+      "area_m2": 3.6291215073371204e-05,
+      "J_per_A_A_per_m2": 330658.5347373789,
+      "J_at_initial_peak_A_per_m2": 3200000.0070341937
+    },
+    {
+      "group": 10,
+      "name": "winding_10_V+",
+      "phase": "V",
+      "sign": 1,
+      "patches": [
+        83,
+        85,
+        87,
+        88
+      ],
+      "area_m2": 3.121514904535834e-05,
+      "J_per_A_A_per_m2": 384428.7266597046,
+      "J_at_initial_peak_A_per_m2": 3720369.5014019473
+    },
+    {
+      "group": 11,
+      "name": "winding_11_V+",
+      "phase": "V",
+      "sign": 1,
+      "patches": [
+        84,
+        86,
+        89,
+        90
+      ],
+      "area_m2": 3.62912150733702e-05,
+      "J_per_A_A_per_m2": 330658.534737388,
+      "J_at_initial_peak_A_per_m2": 3200000.007034282
+    },
+    {
+      "group": 12,
+      "name": "winding_12_V+",
+      "phase": "V",
+      "sign": 1,
+      "patches": [
+        102,
+        104,
+        106,
+        107
+      ],
+      "area_m2": 3.121514904535749e-05,
+      "J_per_A_A_per_m2": 384428.72665971506,
+      "J_at_initial_peak_A_per_m2": 3720369.501402049
+    }
+  ],
+  "initial_peak_current_A": 9.677657374172274
+}

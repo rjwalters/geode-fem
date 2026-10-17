@@ -1,0 +1,18 @@
+# tree=main git=61e8571ee7383885d1896cf64169e93994fa9609 dirty=0
+# test=real_transmon_ams_beats_jacobi binary=transmon_eigenmode-ac55df93e8f8ac48 --ignored
+# start=2026-10-08T13:14:18Z loadavg=12.99 12.55 12.00
+
+running 1 test
+test real_transmon_ams_beats_jacobi ... 
+thread 'real_transmon_ams_beats_jacobi' (368000865) panicked at crates/geode-core/tests/transmon_eigenmode.rs:2915:6:
+real transmon matrix-free eigensolve (instrumented): FaerGevd("matrix-free inner CG failed to converge: ‖r‖/‖b‖ = 6.886e-1 > tol = 1.000e-10 after 266216 iters (is (K − σM) SPD? place σ below the spectrum)")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    real_transmon_ams_beats_jacobi
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 1094.89s
+

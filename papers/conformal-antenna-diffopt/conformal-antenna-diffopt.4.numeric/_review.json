@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "kind": "tool_evidence",
+  "version_dir": "conformal-antenna-diffopt.4",
+  "critic_id": "numeric",
+  "model": null,
+  "rubric": null,
+  "scores": [
+    {
+      "dimension": "numeric_consistency",
+      "score": null,
+      "max": 1,
+      "critical": false,
+      "evidence_span": null,
+      "fix": null,
+      "justification": "numeric-consistency is a deterministic claim-vs-claim arithmetic check; owns no rubric dim."
+    }
+  ],
+  "findings": [],
+  "critical_flags": [],
+  "total": null,
+  "threshold": null,
+  "verdict": null,
+  "rendered_artifact": null,
+  "unscored": false
+}

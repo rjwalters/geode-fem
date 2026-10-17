@@ -1,0 +1,31 @@
+THROWAWAY build for issue #945. NOT shipped code.
+
+Question: what does the rule first proposed for #945,
+    weight = min(0.6, 1.5 / rho_hat),   rho_hat = min(1.1 * theta, gershgorin),
+do on the problems where the fixed weight 0.6 is already inside the stability
+bound? The shipped rule applies that formula only when 0.6 * theta >= 2 (the
+Ritz value proves 0.6 unstable) and keeps 0.6 otherwise.
+
+unconditional_rule.patch removes that condition from choose_smooth_weight in
+crates/geode-core/src/eigen/ams.rs (one line). It was applied to the branch at
+commit 11d1d60c, the tests below were built and run once each, and it was
+reverted. Same driver, header and path scrubbing as ../validation/, with
+GEODE_AMS_SMOOTH_REPORT=1.
+
+  uncond_spiral_smoke.txt      spiral_golden::spiral_smoke_ams_matches_direct_lu
+  uncond_spiral_benchmark.txt  spiral_golden::spiral_benchmark_ams_matches_direct_lu
+  uncond_spiral_ds.txt         dispersive_golden::spiral_ds_ams_matches_direct
+  uncond_spiral_debye.txt      dispersive_golden::spiral_debye_ams_matches_direct
+  uncond_spiral_drude.txt      dispersive_golden::spiral_drude_ams_matches_direct
+  uncond_rough.txt             roughness_golden::rough_ams_matches_direct
+  uncond_transmon_5x.txt       transmon_eigenmode::synthetic_ams_beats_jacobi_inner_iterations
+  uncond_transmon_3space.txt   transmon_eigenmode::synthetic_three_space_vs_gradient_only_inner_iterations
+
+Compare with ../validation/main_<name>.txt and fix_<name>.txt, which agree
+with each other. Summarized as the unconditional_rule_* keys of
+[[smoother_weight_validation]] in results_ams_cpu_local.toml.
+
+Single runs on one machine (macOS, aarch64). Which solve lands within a few
+percent of the explicit-residual tolerance depends on roundoff and so on the
+platform (issue #943): the pass / fail pattern of the two dispersive tests
+here says only that changing the spiral's weight moves it.

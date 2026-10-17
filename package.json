@@ -1,0 +1,12 @@
+{
+  "name": "loom-workspace",
+  "description": "Loom-managed workspace with AI development orchestration",
+  "private": true,
+  "scripts": {
+    "worktree:return": "./.loom/scripts/worktree-return.sh",
+    "check:ci": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "check:all": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "test": "cargo test",
+    "lint": "cargo fmt --check && cargo clippy --all-targets -- -D warnings"
+  }
+}

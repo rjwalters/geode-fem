@@ -1,0 +1,16 @@
+patch_conformal_nested_dof [gap_1]: patch_conformal_L3 (844238 edges, 123372 nodes, 712863 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 1 radial + 0 outline = 1; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 1.5 s
+  verify-only: design initial on L3 at p1
+    worst tet: tet 0 ratio 1.000 in substrate at (s, y) = (-3.08, +4.11) mm, dr -1.38 mm from the substrate top, 4.58 mm from the feed, 19.01 mm from a corner, 0.00 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.00 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 7.50 mm from the feed
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.4846 ( -6.29 dB), Z = 17.8 -7.3i ohm
+    sweep 2.4104 GHz: |S11| = 0.5449 ( -5.27 dB), Z = 15.0 -6.2i ohm
+    sweep 2.4209 GHz: |S11| = 0.5973 ( -4.48 dB), Z = 12.7 -5.0i ohm
+    sweep 2.4313 GHz: |S11| = 0.6426 ( -3.84 dB), Z = 10.9 -3.8i ohm
+    sweep 2.4417 GHz: |S11| = 0.6817 ( -3.33 dB), Z = 9.5 -2.6i ohm
+    sweep 2.4522 GHz: |S11| = 0.7153 ( -2.91 dB), Z = 8.3 -1.5i ohm
+    sweep 2.4626 GHz: |S11| = 0.7443 ( -2.56 dB), Z = 7.3 -0.5i ohm
+    sweep 2.4731 GHz: |S11| = 0.7693 ( -2.28 dB), Z = 6.5 +0.5i ohm
+    sweep 2.4835 GHz: |S11| = 0.7910 ( -2.04 dB), Z = 5.8 +1.4i ohm
+  verify initial on L3 (p1): worst -2.04 dB, best -6.29 dB over 9 points; reached -10 dB = false; min vol ratio 1.000; no wide sweep; 4096 s, peak RSS 68.8 GiB
+patch_conformal_nested_dof [verify initial on L3 p1]: <out>/verify/initial_on_L3.toml

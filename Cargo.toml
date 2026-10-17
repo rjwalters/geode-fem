@@ -1,0 +1,127 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/*",
+    "examples/*",
+]
+
+[workspace.package]
+version = "0.8.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/rjwalters/geode-fem"
+rust-version = "1.96.0"
+
+[workspace.dependencies]
+# Third-party dependencies — all versions are defined here and referenced
+# from child crates via `dep = { workspace = true }` (issue #361). Per-crate
+# `features` / `optional` / `default-features` overrides live on the child
+# reference and are unioned with the base settings declared here.
+burn = { version = "0.21", default-features = false, features = ["std"] }
+# Bunsen standard library — machine-checked shape contracts for the FEM
+# tensor pipeline (Epic #355, Phase 1: #358). Pinned to the crates.io release
+# that carries both upstream fixes this integration depends on:
+#   - #95 (hashbrown gated behind `train`, shipped in 0.25.0) — required so a
+#     `default-features = false, features = ["std"]` build compiles at all.
+#   - #112 (downloader + directories-next made optional behind `cache`, first
+#     released in 0.26.0) — required so the no-drag gate holds (no
+#     network-download machinery in a deterministic solver's dep tree).
+# Built `std`-only: NOT the `testing` feature (would pull `burn/flex`) and NOT
+# default features (would pull `reflection`/`train`/`xot`/`xee-xpath`/…).
+# `burn` req stayed `^0.21.0` across the whole 0.21.0→0.28.0 range, so 0.28.0
+# (latest, superset of the 0.26.0 fix) keeps the burn 0.21 pin intact.
+bunsen = { version = "0.28.0", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+criterion = "0.5"
+# Dense / sparse linear algebra comes from `faier`, our maintained fork of
+# faer (https://github.com/rjwalters/faier, issues #867 / #907). Upstream faer
+# does not accept AI-assisted contributions, so fixes we need land in the
+# fork. `faier` is upstream faer with the crates renamed `faer` → `faier` and
+# `faer-traits` → `faier-traits`; its library name is still `faer`, so the
+# `package = "faier"` rename below keeps every `use faer::…` path and every
+# `faer/<feature>` feature reference unchanged.
+#
+# Resolved from crates.io (issue #972; previously a git `rev` pin, #908).
+# 0.25 carries the #867 QZ / divide-and-conquer fixes plus the sparse-LU
+# `LuColOrdering::Custom` hook that `InnerSolver::DirectCustomOrder`
+# (`crates/geode-core/src/eigen/ordering.rs`) is built on. Renovate is
+# configured to leave this dependency alone (`renovate.json5`): read faier's
+# CHANGELOG / FORK.md for API and numerical-behaviour changes before bumping.
+#
+# Base faer feature set shared by every consumer; geode-core additionally
+# enables `sparse-linalg` on its own reference.
+#
+# `rayon` enables faer's multi-threaded factorization path (issue #518). It is
+# required so `Par::rayon(n)` / `Par::Rayon` exist and so the sparse LU that
+# fronts the shift-invert Lanczos eigensolve can use more than one core. The
+# eigensolve scopes parallelism to the factorization via a panic-safe RAII
+# guard (`crate::eigen::parallel::ParallelismGuard`) and reverts to serial for
+# the latency-bound single-RHS triangular-solve loop, so enabling the feature
+# does not by itself parallelize any hot loop that regresses under rayon.
+faer = { package = "faier", version = "0.25.2", default-features = false, features = ["std", "linalg", "rayon"] }
+mshio = "0.4"
+# In-process 2-D constrained Delaunay triangulation + Ruppert/Chew quality
+# refinement for arbitrary wave-port cross-sections (issue #582). Optional,
+# pulled in by geode-core only under the `spade-mesh` feature. Dual
+# MIT/Apache-2.0 with a fully permissive transitive tree (hashbrown, num-traits,
+# robust, smallvec, allocator-api2, equivalent, foldhash, autocfg) — no GPL
+# exposure. 2-D only: this does NOT replace offline Gmsh for 3-D tet meshing.
+spade = "2.15"
+# Direct rayon dependency for host-side assembly parallelism (issue #522).
+# faer pulls rayon in transitively for its factorization, but the FEM
+# assembler's serial host loops (`NedelecScatterMap::new`,
+# `sparsity_pattern_from_tet_edges`) need to drive rayon themselves. Gated in
+# geode-core behind the `faer-parallel` feature so `--no-default-features`
+# stays strictly single-threaded.
+rayon = "1"
+num-complex = { version = "0.4", default-features = false, features = ["std"] }
+pkg-config = "0.3"
+regex = "1"
+# JSON Schema (draft 2020-12) generation for the `geode` CLI's spec / layout /
+# report contracts (issue #709): derived from the serde types so the published
+# schemas cannot drift from what the binary accepts / emits. Pure Rust, no I/O.
+schemars = "1.2"
+# JSON Schema validator — geode-cli DEV-dependency only (issue #709): validates
+# every committed fixture and emitted report against the committed schemas.
+# `default-features = false` drops the HTTP / file `$ref` resolvers (reqwest,
+# rustls, aws-lc): the schemas are self-contained, and the shipped binary's
+# dependency tree never sees this crate.
+jsonschema = { version = "0.58", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Panic-safe scratch dirs for tests — DEV-dependency only (issue #766): a
+# `TempDir` is removed on drop, including during a failing test's unwind,
+# so `cargo test` no longer leaks scratch dirs into `$TMPDIR`.
+tempfile = "3"
+thiserror = "2"
+toml = "0.8"
+
+# Workspace-internal crates (path dependencies).
+geode-core = { path = "crates/geode-core" }
+geode-util = { path = "crates/geode-util" }
+geode-app = { path = "crates/geode-app" }
+geode-validation = { path = "crates/geode-validation" }
+geode-optimize = { path = "crates/geode-optimize" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Dense linear algebra (faer) and tensor backends (burn, wgpu) become
+# unusably slow without optimization. Keep them optimized even in debug
+# builds; only our own crates compile with no-opt for fast iteration.
+#
+# There is no workspace-wide `overflow-checks = false` any more: it existed
+# only because upstream faer 0.24's real QZ wrapped a `usize` subtraction in
+# its aggressive early deflation and panicked under overflow checks (issues
+# #244 / #354). The `faier` fork fixes that subtraction (rjwalters/faier#1,
+# issue #908); `crates/geode-core/tests/faer_qz_debug_overflow_guard.rs`
+# keeps the debug-profile QZ path covered.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[profile.test.package."*"]
+opt-level = 3
+debug = false
