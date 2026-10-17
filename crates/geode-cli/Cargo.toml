@@ -31,7 +31,7 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
 # `mesh_sha256` provenance field (already in the lockfile transitively).
-sha2 = "0.10"
+sha2 = "0.11"
 # `geode schema spec|report|layout` (issue #709): JSON Schema derived from the
 # same serde types the binary parses / emits.
 schemars = { workspace = true }
