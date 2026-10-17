@@ -148,18 +148,39 @@ rotor circle it is capped at 0.5 mm, because the nearest export curve there
 is the coupling circle. The export → GEODE number, 1.403 mm, is the
 deviation of the rotor surface.
 
-**Why Opt120 is not reproduced.** The reference optimization also moves
-free-form control points: `results/PMSM_optimization_nonlin.m` registers 7
-rotor control-point groups (18 points, offsets in [−1.5, 0] mm) and 3 stator
-groups (37 points, [0, 0.5] mm), next to the 12 scalars. The history file
-stores only the 12 scalars. The 18 rotor points are the rotor-surface
-control points: the Opt120 rotor surface lies at r = 43.0 mm over most of
-the pole and reaches 42.6 mm near the sector edges, against 44.0 mm in every
-scalar geometry. The stator offsets at iteration 120 are below 1.5e-7 m, on
-the bore. Every interface that only the 9 scalars move (magnet, pockets,
-slot opening end, slot top, flanks, fillets, bottom, coil divider, outer
-circle) matches Opt120 to ≤ 7e-16 m. So the residual is the free-form
-motion, and the construction is right where the scalars act.
+**Why Opt120 is not reproduced.** The reference's design vector is not
+only the 12 scalars. `results/PMSM_optimization_nonlin.m` (lines 114-124,
+read as data) also registers free-form control-point offsets:
+
+- 7 rotor groups, 18 control points, offsets in [−1.5, 0] mm
+  (`addOptimizationControlPointRotor`);
+- 3 stator groups, 37 control points, offsets in [0, 0.5] mm
+  (`addOptimizationControlPointStator`).
+
+`classes/MotorOptimizationFull.m` (lines 58-59) stacks the bounds as
+`[12 scalars; rotor offsets; stator offsets]`, so the optimizer's design
+vector has 12 + 7 + 3 entries. The history file
+(`OptimizationHistory.mat`, iteration 120) saves only the 12 scalars.
+
+The 18 rotor points are the rotor-surface control points. In the Opt120
+export the surface is no longer the 44 mm circle:
+
+- it keeps r = 44.0 mm on the pole axis;
+- it tapers smoothly to about 43.48 mm at ±15° from the axis and 43.0 mm
+  at ±21.2°;
+- it meets the ±30° sector edges at 42.616 mm, with a minimum of
+  42.596 mm just inside the edges.
+
+It is exactly 43.0 mm only on two strips about 0.3° wide, next to the iron
+bridges (rotor patches 2 and 5). The outer-row control points of patch 3
+lie at r = 43.000, 43.269, 43.647, 43.857, 44.048 mm and so on, against
+44.0 mm on the circle. The stator offsets at iteration 120 are below
+1.5e-7 m, on the bore.
+
+Every interface that only the 9 scalars move matches Opt120 to ≤ 7e-16 m:
+magnet, pockets, slot opening end, slot top, flanks, fillets, bottom, coil
+divider and outer circle. So the residual is the free-form motion, and the
+construction is right where the scalars act.
 
 ## Node motion
 
