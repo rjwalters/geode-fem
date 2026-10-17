@@ -95,9 +95,10 @@ fn tags_round_trip() {
 }
 
 /// Judge finding on PR #1164: gmsh wrote 3051 of the 5938 L0 triangles
-/// clockwise (patch parametrisations of both orientations). The reader must
-/// hand every consumer counter-clockwise triangles, as the magnetostatic
-/// assemblers assert `signed_area > 0`, without changing tags or areas.
+/// clockwise (patch parametrisations of both orientations). The reader hands
+/// every consumer counter-clockwise triangles without changing tags or areas.
+/// (The magnetostatic assemblers have accepted either orientation since
+/// #1166, so this normalisation is now redundant for them.)
 #[test]
 fn every_triangle_is_counter_clockwise_after_loading() {
     let (m, report) = load();
