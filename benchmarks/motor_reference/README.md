@@ -21,6 +21,10 @@ not implement or validate a GEODE motor solve.
   reference's harmonic-truncated rotor-stator coupling, orders n = 3:6:45
   (issue #1170). With it, the L3 load ripple is within 1.3% to 1.7% of the
   reference. Cogging matches in shape but is 13% larger in amplitude.
+- [`parametric/`](parametric/README.md): the 9 geometric design parameters as
+  fixed-topology node motion `θ ↦ X(θ)` with its Jacobian
+  (`geode_core::mesh::icem_parametric`), and the forward check of the
+  optimized design on moved and fresh meshes (issue #1173).
 
 The source is the authors' [ICEM snapshot at b145aaf4](https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458),
 associated with [Wiesheu et al., arXiv:2402.19065](https://arxiv.org/abs/2402.19065).

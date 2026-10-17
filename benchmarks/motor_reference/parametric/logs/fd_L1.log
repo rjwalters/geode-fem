@@ -1,0 +1,20 @@
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (73 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.045 s
+  initial   MAG : max |dX/dtheta| = 1.0000e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 5.23e-13, 1e-4: 5.41e-12, 1e-5: 7.54e-11, 1e-6: 4.94e-10, 1e-7: 5.59e-9
+  initial   MH  : max |dX/dtheta| = 1.0000e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 6.65e-13, 1e-4: 5.44e-12, 1e-5: 4.96e-11, 1e-6: 5.05e-10, 1e-7: 5.30e-9
+  initial   MW  : max |dX/dtheta| = 5.0000e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.85e-13, 1e-4: 1.82e-12, 1e-5: 1.83e-11, 1e-6: 1.85e-10, 1e-7: 1.95e-9
+  initial   SW1 : max |dX/dtheta| = 8.1720e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 2.62e-7, 1e-4: 2.44e-9, 1e-5: 1.63e-9, 1e-6: 1.14e-8, 1e-7: 2.54e-7
+  initial   SW2 : max |dX/dtheta| = 5.0016e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 2.47e-7, 1e-4: 2.32e-9, 1e-5: 1.12e-8, 1e-6: 5.05e-8, 1e-7: 3.69e-7
+  initial   SW3 : max |dX/dtheta| = 1.0949e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 9.85e-11, 1e-4: 7.30e-11, 1e-5: 8.60e-10, 1e-6: 1.87e-8, 1e-7: 8.61e-7
+  initial   SW4 : max |dX/dtheta| = 1.0038e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 9.10e-13, 1e-4: 1.18e-11, 1e-5: 9.53e-11, 1e-6: 1.09e-9, 1e-7: 8.35e-9
+  initial   SD1 : max |dX/dtheta| = 5.0191e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.36e-13, 1e-4: 1.32e-12, 1e-5: 1.75e-11, 1e-6: 1.91e-10, 1e-7: 1.55e-9
+  initial   Sr1 : max |dX/dtheta| = 1.0913e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 6.46e-12, 1e-4: 8.62e-11, 1e-5: 7.19e-10, 1e-6: 6.13e-9, 1e-7: 6.01e-8
+  optimized MAG : max |dX/dtheta| = 1.0000e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 7.67e-13, 1e-4: 6.89e-12, 1e-5: 7.41e-11, 1e-6: 9.61e-10, 1e-7: 8.15e-9
+  optimized MH  : max |dX/dtheta| = 1.0000e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.31e-12, 1e-4: 1.48e-11, 1e-5: 1.70e-10, 1e-6: 1.64e-9, 1e-7: 1.39e-8
+  optimized MW  : max |dX/dtheta| = 5.0000e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.59e-13, 1e-4: 1.64e-12, 1e-5: 1.58e-11, 1e-6: 1.73e-10, 1e-7: 1.68e-9
+  optimized SW1 : max |dX/dtheta| = 7.4771e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 2.87e-8, 1e-4: 4.14e-10, 1e-5: 1.46e-9, 1e-6: 5.12e-9, 1e-7: 2.49e-7
+  optimized SW2 : max |dX/dtheta| = 5.0003e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 9.98e-9, 1e-4: 6.63e-10, 1e-5: 5.20e-9, 1e-6: 9.68e-8, 1e-7: 9.84e-7
+  optimized SW3 : max |dX/dtheta| = 1.0791e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.69e-10, 1e-4: 8.07e-10, 1e-5: 1.17e-8, 1e-6: 2.08e-8, 1e-7: 9.13e-7
+  optimized SW4 : max |dX/dtheta| = 1.0038e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.50e-12, 1e-4: 1.22e-11, 1e-5: 1.28e-10, 1e-6: 1.62e-9, 1e-7: 1.35e-8
+  optimized SD1 : max |dX/dtheta| = 5.0191e-1; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 1.66e-13, 1e-4: 1.28e-12, 1e-5: 1.34e-11, 1e-6: 1.71e-10, 1e-7: 1.12e-9
+  optimized Sr1 : max |dX/dtheta| = 1.0913e0; max |FD - dual| / max|dX/dtheta| at h/theta = 1e-3: 3.69e-12, 1e-4: 3.21e-11, 1e-5: 2.97e-10, 1e-6: 3.05e-9, 1e-7: 3.08e-8
+wrote benchmarks/motor_reference/parametric/runs/fd_L1.json

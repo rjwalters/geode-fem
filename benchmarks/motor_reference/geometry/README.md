@@ -32,6 +32,13 @@ uv run --with numpy==2.5.4 --with gmsh==4.15.2 --with matplotlib==3.11.2 --with 
     benchmarks/motor_reference/geometry/icem_initial_sector_L0.png
 ```
 
+`--design optimized` and `--design optimized-scalar` (issue #1173) mesh the
+iteration-120 geometry with the same tags and rules, into
+`../parametric/meshes/` (`icem_opt120_sector_L*.msh`,
+`icem_opt120scalar_sector_L*.msh`); see [`../parametric/`](../parametric/README.md).
+The default stays the initial design, and its outputs are byte-identical to
+before.
+
 Meshing runs single-threaded with a fixed seed. The L0 file is byte-identical
 across runs (sha256 `4d0124a292ffb657...`, recorded in its report). The
 generator stops with `FAIL:` if a hash, a patch partition, a shared side, a

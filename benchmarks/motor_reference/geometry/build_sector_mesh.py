@@ -23,6 +23,13 @@ identical positions at rotor angle 0 (sliding-band convention, #1161).
 Each level writes ``icem_initial_sector_L{level}.msh`` (MSH 4.1 ASCII) and a
 ``..._report.json`` with areas, quality and family statistics. See README.md
 for the tag table and conventions.
+
+``--design`` (issue #1173) selects other inputs with the same tags and mesh
+rules: ``optimized`` meshes the iteration-120 exports (``icem_opt120_sector``),
+and ``optimized-scalar`` meshes the iteration-120 geometry without the
+free-form pole-surface motion (``icem_opt120scalar_sector``): rotor patches
+1, 2, 3, 5, 6 and 13-17, which no scalar parameter moves, are taken from the
+iteration-0 export. See ../parametric/README.md.
 """
 
 import argparse
@@ -46,6 +53,47 @@ STATOR_EXPORT = "results/plots/final/StatorOpt0.txt"
 
 # Radii of the initial design (conventions.json, meters).
 R_I, R_ROTOR, R_C, R_BORE, R_O = 0.016, 0.044, 0.0445, 0.045, 0.0675
+
+# Mesh inputs per design (issue #1173). ``restore`` lists rotor patches taken
+# from the iteration-0 export: those that no scalar parameter moves, whose
+# iteration-120 shape differs only by the optimizer's free-form control-point
+# offsets on the rotor surface (../parametric/README.md).
+ROTOR_EXPORT_OPT = "results/plots/final/RotorOpt120.txt"
+STATOR_EXPORT_OPT = "results/plots/final/StatorOpt120.txt"
+SCALAR_FIXED_ROTOR_PATCHES = [1, 2, 3, 5, 6, 13, 14, 15, 16, 17]
+DESIGNS = {
+    "initial": {"prefix": "icem_initial_sector", "rotor": ROTOR_EXPORT,
+                "stator": STATOR_EXPORT, "restore": [], "reference": "initial"},
+    "optimized": {"prefix": "icem_opt120_sector", "rotor": ROTOR_EXPORT_OPT,
+                  "stator": STATOR_EXPORT_OPT, "restore": [], "reference": "optimized"},
+    "optimized-scalar": {"prefix": "icem_opt120scalar_sector", "rotor": ROTOR_EXPORT_OPT,
+                         "stator": STATOR_EXPORT_OPT, "restore": SCALAR_FIXED_ROTOR_PATCHES,
+                         "reference": "optimized"},
+}
+
+
+def load_design(name):
+    """(rotor multipatch, stator multipatch) of design ``name``."""
+    d = DESIGNS[name]
+    rotor = gn.read_multipatch(UPSTREAM / d["rotor"])
+    if d["restore"]:
+        init = gn.read_multipatch(UPSTREAM / ROTOR_EXPORT)
+        for i in d["restore"]:
+            a, b = init.patches[i - 1], rotor.patches[i - 1]
+            require(a.degree == b.degree and a.ncp == b.ncp
+                    and all(np.array_equal(x, y) for x, y in zip(a.knots, b.knots)),
+                    f"rotor patch {i}: structure differs between exports")
+            rotor.patches[i - 1] = a
+    return rotor, gn.read_multipatch(UPSTREAM / d["stator"])
+
+
+def outer_radius(name):
+    """Stator outer radius SD1/2 of design ``name`` (m)."""
+    if name == "initial":
+        return R_O
+    params = json.loads((REF / "reference_data.json").read_text())
+    return params["designs"][DESIGNS[name]["reference"]][
+        "parameters_by_source_registration_order"]["SD1"] / 2
 SECTOR = math.pi / 3
 THETA_LO, THETA_HI = math.pi / 3, 2 * math.pi / 3
 
@@ -87,17 +135,19 @@ def require(cond, msg):
         raise SystemExit(f"FAIL: {msg}")
 
 
-def verify_sources():
+def verify_sources(design="initial"):
+    d = DESIGNS[design]
+    files = {d["rotor"], d["stator"]} | ({ROTOR_EXPORT} if d["restore"] else set())
     manifest = json.loads((REF / "sources.json").read_text())
     out = {}
     for entry in manifest["files"]:
-        if entry["path"] in (ROTOR_EXPORT, STATOR_EXPORT):
+        if entry["path"] in files:
             raw = (UPSTREAM / entry["path"]).read_bytes()
             digest = hashlib.sha256(raw).hexdigest()
             require(len(raw) == entry["bytes"] and digest == entry["sha256"],
                     f"hash mismatch for {entry['path']}; rerun extract_reference.py --fetch")
             out[entry["path"]] = digest
-    require(len(out) == 2, "exports missing from sources.json")
+    require(len(out) == len(files), "exports missing from sources.json")
     return manifest["commit"], out
 
 
@@ -344,7 +394,7 @@ def radial_order(gmsh, curves):
     return sorted(curves, key=rmid)
 
 
-def build_level(level, n_base, out_dir, conv, provenance, exact):
+def build_level(level, n_base, out_dir, conv, provenance, exact, design="initial"):
     import gmsh
 
     n_seg = n_base * 2 ** level
@@ -352,10 +402,10 @@ def build_level(level, n_base, out_dir, conv, provenance, exact):
     h_max = 6.0 * ds
     gmsh.initialize(["-noenv"])
     gmsh.option.setNumber("General.Terminal", 0)
-    gmsh.model.add(f"icem_initial_sector_L{level}")
+    prefix = DESIGNS[design]["prefix"]
+    gmsh.model.add(f"{prefix}_L{level}")
     occ = gmsh.model.occ
-    rotor_mp = gn.read_multipatch(UPSTREAM / ROTOR_EXPORT)
-    stator_mp = gn.read_multipatch(UPSTREAM / STATOR_EXPORT)
+    rotor_mp, stator_mp = load_design(design)
     bnd = conv["boundaries"]
     s_regions, _ = stator_regions()
     rotor = Part(occ, "rotor", rotor_mp, ROTOR_REGIONS, set(bnd["rotor_coupling"]))
@@ -420,21 +470,22 @@ def build_level(level, n_base, out_dir, conv, provenance, exact):
     gmsh.option.setNumber("Mesh.SaveAll", 0)
     gmsh.model.mesh.generate(2)
 
-    report = analyse(gmsh, level, n_seg, ds, h_max, rotor, stator, edges, exact)
+    report = analyse(gmsh, level, n_seg, ds, h_max, rotor, stator, edges, exact,
+                     outer_radius(design))
     report["provenance"] = provenance
     out_dir.mkdir(parents=True, exist_ok=True)
-    msh = out_dir / f"icem_initial_sector_L{level}.msh"
+    msh = out_dir / f"{prefix}_L{level}.msh"
     gmsh.write(str(msh))
     report["msh_file"] = msh.name
     report["msh_bytes"] = msh.stat().st_size
     report["msh_sha256"] = hashlib.sha256(msh.read_bytes()).hexdigest()
     gmsh.finalize()
-    (out_dir / f"icem_initial_sector_L{level}_report.json").write_text(
+    (out_dir / f"{prefix}_L{level}_report.json").write_text(
         json.dumps(report, indent=2) + "\n")
     return report
 
 
-def analyse(gmsh, level, n_seg, ds, h_max, rotor, stator, edges, exact):
+def analyse(gmsh, level, n_seg, ds, h_max, rotor, stator, edges, exact, r_o=R_O):
     mesh = gmsh.model.mesh
     node_tags, coords, _ = mesh.getNodes()
     xyz = dict(zip(node_tags.tolist(), coords.reshape(-1, 3)[:, :2]))
@@ -514,7 +565,7 @@ def analyse(gmsh, level, n_seg, ds, h_max, rotor, stator, edges, exact):
     rep["conformity"] = {"edges": len(ecount), "boundary_edges": len(boundary_edges),
                          "boundary_equals_tagged_lines": True}
     # total area
-    total_exact = math.pi * (R_O ** 2 - R_I ** 2) / 6
+    total_exact = math.pi * (r_o ** 2 - R_I ** 2) / 6
     total_mesh = sum(r["area_mesh_m2"] for r in regions.values())
     total_nurbs = sum(r["area_exact_m2"] for r in regions.values())
     rep["total_area"] = {"annulus_exact_m2": total_exact,
@@ -564,18 +615,22 @@ def main():
     ap.add_argument("--n-base", type=int, default=120,
                     help="coupling segments at level 0 (doubled per level; multiple of 60)")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--design", choices=sorted(DESIGNS), default="initial",
+                    help="input geometry (issue #1173); default: the initial design")
     ap.add_argument("--areas-out", type=Path, default=None,
                     help="write the exact NURBS region-area table (JSON) here")
     args = ap.parse_args()
     require(args.n_base % 60 == 0, "n-base must be a multiple of 60 (1 degree conforming)")
-    commit, hashes = verify_sources()
+    commit, hashes = verify_sources(args.design)
     conv = json.loads((REF / "conventions.json").read_text())
     provenance = {"upstream_repository": "https://github.com/MichaelWiesheu/ICEMsnapshot",
                   "upstream_commit": commit, "exports_sha256": hashes,
                   "license": "upstream data GPL-3.0-or-later; see ../UPSTREAM_LICENSE.txt",
                   "generator": "benchmarks/motor_reference/geometry/build_sector_mesh.py"}
-    rotor_mp = gn.read_multipatch(UPSTREAM / ROTOR_EXPORT)
-    stator_mp = gn.read_multipatch(UPSTREAM / STATOR_EXPORT)
+    rotor_mp, stator_mp = load_design(args.design)
+    if args.design != "initial":
+        provenance["design"] = args.design
+        provenance["rotor_patches_from_iteration_0"] = DESIGNS[args.design]["restore"]
     s_regions, groups = stator_regions()
     for mp, regs, n in ((rotor_mp, ROTOR_REGIONS, 17), (stator_mp, s_regions, 114)):
         ids = sorted(i for _t, ii in regs.values() for i in ii)
@@ -583,6 +638,7 @@ def main():
     exact = region_exact_areas(rotor_mp, ROTOR_REGIONS)
     exact.update(region_exact_areas(stator_mp, s_regions))
     if args.areas_out:
+        require(args.design == "initial", "--areas-out is for the initial design only")
         conv_check = gn.check_coordinate_convention(UPSTREAM / ROTOR_EXPORT, [(3, 4, R_ROTOR)])
         mag = exact["magnet"]["area_green_m2"]
         params = json.loads((REF / "reference_data.json").read_text())
@@ -620,7 +676,7 @@ def main():
         }
         args.areas_out.write_text(json.dumps(table, indent=2) + "\n")
     for level in args.levels:
-        rep = build_level(level, args.n_base, args.out, conv, provenance, exact)
+        rep = build_level(level, args.n_base, args.out, conv, provenance, exact, args.design)
         m = rep["mesh"]
         worst = max(abs(r["area_mesh_rel_err"]) for r in rep["regions"].values())
         print(f"L{level} N={rep['coupling_segments_N']} nodes={m['nodes']} tris={m['triangles']} "

@@ -288,6 +288,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
               --test motor_shape_gradient \
               --test motor_torque_benchmark \
@@ -374,6 +375,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
               --test motor_shape_gradient \
               --test motor_torque_benchmark \
