@@ -1,0 +1,98 @@
+{
+  "area_mode": "mesh",
+  "commit": "258c670ccd7c1bfd29b4db0f3ba3d69fda1f3c30",
+  "coupling": "conforming",
+  "coupling_spec": "conforming",
+  "current_rule": "fixed",
+  "current_rule_definition": "fixed peak current in the unscaled geometry: I_peak = 9.6777 A * f for every design (Prescribed rule of icem_design.rs); physical current = ScaleR * I_peak",
+  "design": {
+    "name": "opt120",
+    "offsets_m": {
+      "CPR1": -0.0013836505419531592,
+      "CPR2": -0.0014998255544092808,
+      "CPR3": -0.0009999722849086056,
+      "CPR4": -0.0007771495844951707,
+      "CPR5": -0.00039965919663387375,
+      "CPR6": -0.00019113154126502996,
+      "CPR7": -1.0483898713635661e-8,
+      "CPS1": 1.3231355683776634e-8,
+      "CPS2": 5.893668755087296e-8,
+      "CPS3": 1.4956648032908394e-7
+    },
+    "scalars": {
+      "LENGTH": 0.08000054006074021,
+      "MAG": 0.006101140437692928,
+      "MH": 0.002744388823008497,
+      "MW": 0.02073401098270657,
+      "OPERATING_ANGLE": -11.64627273403734,
+      "SD1": 0.13029310300892785,
+      "SW1": 0.004061891789481664,
+      "SW2": 0.0010000807836534071,
+      "SW3": 0.0005003810507689823,
+      "SW4": 0.005433642791659718,
+      "ScaleR": 1.047717220798685,
+      "Sr1": 0.0019998386554266516
+    }
+  },
+  "design_vector": [
+    0.006101140437692928,
+    0.002744388823008497,
+    0.02073401098270657,
+    0.004061891789481664,
+    0.0010000807836534071,
+    0.0005003810507689823,
+    0.005433642791659718,
+    0.13029310300892785,
+    0.0019998386554266516,
+    0.08000054006074021,
+    -11.64627273403734,
+    1.047717220798685,
+    -0.0013836505419531592,
+    -0.0014998255544092808,
+    -0.0009999722849086056,
+    -0.0007771495844951707,
+    -0.00039965919663387375,
+    -0.00019113154126502996,
+    -1.0483898713635661e-8,
+    1.3231355683776634e-8,
+    5.893668755087296e-8,
+    1.4956648032908394e-7
+  ],
+  "design_vector_order": "MAG MH MW SW1 SW2 SW3 SW4 SD1 Sr1 LENGTH OPERATING_ANGLE ScaleR CPR1..CPR7 CPS1..CPS3",
+  "issue": 1181,
+  "law": "table",
+  "level": 3,
+  "mesh_family": "moved",
+  "mesh_quality": {
+    "inverted": 4,
+    "max_angle_deg": 164.66498699785643,
+    "max_area_ratio": 3.792341682191368,
+    "min_angle_deg": 5.438437660978614,
+    "min_area_ratio": -0.21421052994008022
+  },
+  "mesh_source": "moved",
+  "motion": {
+    "base_mesh": "icem_initial_sector_L3.msh",
+    "motion_s": 1.528243917,
+    "options": "MotionOptions { edges: Slide, stiffening: 0.0 }",
+    "quality": {
+      "inverted": 4,
+      "max_angle_deg": 164.66498699785643,
+      "max_area_ratio": 3.792341682191368,
+      "min_angle_deg": 5.438437660978614,
+      "min_area_ratio": -0.21421052994008022
+    }
+  },
+  "n_max": null,
+  "note": "moved mesh has inverted triangles; no field is computed or reported",
+  "rel_tol": 1e-8,
+  "status": "invalid_mesh",
+  "threads": {
+    "GEODE_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "available_parallelism": 28,
+    "faer_par": "Seq",
+    "threads_arg": 1
+  },
+  "torque_unit": "N m per modelled 60 deg sector, times ScaleR^2 * LENGTH / 0.1"
+}
