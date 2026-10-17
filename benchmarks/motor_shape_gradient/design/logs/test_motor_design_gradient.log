@@ -1,0 +1,88 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1177/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 7.07s
+     Running tests/motor_design_gradient.rs (/Volumes/Stripe/cargo-target-1177/release/deps/motor_design_gradient-0daf2c5eaf478f89)
+
+running 4 tests
+conforming/Arkkio prescribed: mean 1.443881697e0, std 9.108536444e-2
+h45/coupling prescribed: mean 1.447506128e0, std 8.267038319e-2
+h45/coupling jinit: mean 1.447506128e0, std 8.267038319e-2
+h45/coupling prescribed: mean 6.579969905e-1, std 2.065264704e-2
+  SW2              mean: adjoint -4.649867623448e1 FD(3e-7) -4.649867486273e1 rel 2.95e-8
+  SW2              mean: remainder/h^2 5.4812e3 (1e-5), 5.6177e3 (1e-6)
+  SW2              std : adjoint +6.643990923730e1 FD(3e-7) +6.643990913142e1 rel 1.59e-9
+  SW2              std : remainder/h^2 6.5781e3 (1e-5), 6.5882e3 (1e-6)
+  SW1              mean: adjoint -2.217398768253e2 FD(3e-7) -2.217398764592e2 rel 1.65e-9
+  SW1              mean: remainder/h^2 8.1528e3 (1e-5), 8.1966e3 (1e-6)
+  SW1              std : adjoint -1.162293551992e1 FD(3e-7) -1.162293561778e1 rel 8.42e-9
+  SW1              std : remainder/h^2 1.2473e2 (1e-5), 1.1730e2 (1e-6)
+  MAG              mean: adjoint -6.820712361783e1 FD(3e-7) -6.820712362132e1 rel 5.12e-11
+  MAG              mean: remainder/h^2 2.1990e3 (1e-5), 2.2040e3 (1e-6)
+  MAG              std : adjoint +2.096638895516e0 FD(3e-7) +2.096639017656e0 rel 5.83e-8
+  MAG              std : remainder/h^2 3.5327e3 (1e-5), 3.5387e3 (1e-6)
+  MW               mean: adjoint +4.553211514518e1 FD(3e-7) +4.553211513917e1 rel 1.32e-10
+  MW               mean: remainder/h^2 3.2466e2 (1e-5), 3.2421e2 (1e-6)
+  MW               std : adjoint +2.126126267825e0 FD(3e-7) +2.126126261078e0 rel 3.17e-9
+  MW               std : remainder/h^2 1.1447e2 (1e-5), 1.1445e2 (1e-6)
+  MAG              mean: adjoint -6.809280892792e1 FD(3e-7) -6.809280906757e1 rel 2.05e-9
+  MAG              mean: remainder/h^2 2.0734e3 (1e-5), 2.0797e3 (1e-6)
+  MAG              std : adjoint +2.948701060040e0 FD(3e-7) +2.948701157297e0 rel 3.30e-8
+  MAG              std : remainder/h^2 3.9559e3 (1e-5), 3.9650e3 (1e-6)
+  LENGTH           mean: adjoint +1.443881697288e1 FD(1e-6) +1.443881697272e1 rel 1.15e-11
+  LENGTH           std : adjoint +9.108536444342e-1 FD(1e-6) +9.108536444466e-1 rel 1.36e-11
+test conforming_arkkio_band_moving_parameter ... ok
+  SD1              mean: adjoint -6.628682887999e-2 FD(3e-6) -6.628683026551e-2 rel 2.09e-8
+  SD1              mean: remainder/h^2 1.3774e-1 (1e-4), 1.3775e-1 (1e-5)
+  SD1              std : adjoint -1.101548053564e-3 FD(3e-6) -1.101548178483e-3 rel 1.13e-7
+  SD1              std : remainder/h^2 1.2454e-2 (1e-4), 1.2350e-2 (1e-5)
+  MH               mean: adjoint +2.140266529847e1 FD(3e-7) +2.140266534815e1 rel 2.32e-9
+  MH               mean: remainder/h^2 2.9821e3 (1e-5), 2.9855e3 (1e-6)
+  MH               std : adjoint +1.352219709189e0 FD(3e-7) +1.352219715691e0 rel 4.81e-9
+  MH               std : remainder/h^2 1.9128e2 (1e-5), 1.9148e2 (1e-6)
+  SD1              mean: adjoint +8.701754472253e1 FD(3e-6) +8.701754480944e1 rel 9.99e-10
+  SD1              mean: remainder/h^2 1.4090e3 (1e-4), 1.4082e3 (1e-5)
+  SD1              std : adjoint +4.424998663386e0 FD(3e-6) +4.424998652821e0 rel 2.39e-9
+  SD1              std : remainder/h^2 5.2516e1 (1e-4), 5.2525e1 (1e-5)
+  OPERATING_ANGLE  mean: adjoint +1.455656183537e-3 FD(1e-3) +1.455656184313e-3 rel 5.33e-10
+  OPERATING_ANGLE  std : adjoint -2.938168226170e-5 FD(1e-3) -2.938167836981e-5 rel 1.32e-7
+test h45_half_current_perturbed_design ... ok
+  ScaleR           mean: adjoint +4.584660858281e0 FD(1e-5) +4.584660858942e0 rel 1.44e-10
+  ScaleR           std : adjoint +2.512993437051e-1 FD(1e-5) +2.512993432145e-1 rel 1.95e-9
+test h45_full_current_jinit_rule ... ok
+  MW               mean: adjoint +9.444930428456e1 FD(3e-7) +9.444930427945e1 rel 5.41e-11
+  MW               mean: remainder/h^2 8.9706e2 (1e-5), 8.9573e2 (1e-6)
+  MW               std : adjoint +5.806099697991e0 FD(3e-7) +5.806099706088e0 rel 1.39e-9
+  MW               std : remainder/h^2 5.5449e1 (1e-5), 5.5165e1 (1e-6)
+  SW1              mean: adjoint +1.730358620435e0 FD(3e-7) +1.730358784776e0 rel 9.50e-8
+  SW1              mean: remainder/h^2 1.4699e3 (1e-5), 1.4878e3 (1e-6)
+  SW1              std : adjoint -2.541908708703e-1 FD(3e-7) -2.541908954619e-1 rel 9.67e-8
+  SW1              std : remainder/h^2 2.1101e2 (1e-5), 2.1627e2 (1e-6)
+  SW2              mean: adjoint -4.978114723133e1 FD(3e-7) -4.978114720925e1 rel 4.43e-10
+  SW2              mean: remainder/h^2 9.5608e3 (1e-5), 9.5650e3 (1e-6)
+  SW2              std : adjoint +6.410314300601e1 FD(3e-7) +6.410314274198e1 rel 4.12e-9
+  SW2              std : remainder/h^2 8.4253e3 (1e-5), 8.4543e3 (1e-6)
+  SW3              mean: adjoint -7.839739680371e-1 FD(3e-7) -7.839737559134e-1 rel 2.71e-7
+  SW3              mean: remainder/h^2 3.0152e3 (1e-5), 3.0366e3 (1e-6)
+  SW3              std : adjoint +6.796730324760e-1 FD(3e-7) +6.796727348990e-1 rel 4.38e-7
+  SW3              std : remainder/h^2 4.3557e3 (1e-5), 4.3863e3 (1e-6)
+  SW4              mean: adjoint +1.068074311077e0 FD(3e-7) +1.068074344523e0 rel 3.13e-8
+  SW4              mean: remainder/h^2 2.5270e2 (1e-5), 2.5348e2 (1e-6)
+  SW4              std : adjoint +7.546508869091e-2 FD(3e-7) +7.546507599376e-2 rel 1.68e-7
+  SW4              std : remainder/h^2 2.0385e1 (1e-5), 2.0487e1 (1e-6)
+  SD1              mean: adjoint -1.757224690045e-1 FD(3e-6) -1.757224693903e-1 rel 2.20e-9
+  SD1              mean: remainder/h^2 4.1166e-1 (1e-4), 4.1189e-1 (1e-5)
+  SD1              std : adjoint -1.084035490601e-2 FD(3e-6) -1.084035649671e-2 rel 1.47e-7
+  SD1              std : remainder/h^2 4.0425e-2 (1e-4), 4.0574e-2 (1e-5)
+  Sr1              mean: adjoint +3.239745267294e-1 FD(1e-6) +3.239745255401e-1 rel 3.67e-9
+  Sr1              mean: remainder/h^2 2.1535e1 (1e-5), 2.1538e1 (1e-6)
+  Sr1              std : adjoint +1.868103613092e-2 FD(1e-6) +1.868103580160e-2 rel 1.76e-8
+  Sr1              std : remainder/h^2 2.6423e0 (1e-5), 2.6456e0 (1e-6)
+  LENGTH           mean: adjoint +1.447506127763e1 FD(1e-6) +1.447506127761e1 rel 1.41e-12
+  LENGTH           std : adjoint +8.267038319462e-1 FD(1e-6) +8.267038319673e-1 rel 2.56e-11
+  OPERATING_ANGLE  mean: adjoint +6.159543235982e-3 FD(1e-3) +6.159543235129e-3 rel 1.39e-10
+  OPERATING_ANGLE  std : adjoint +2.544093884363e-4 FD(1e-3) +2.544093848922e-4 rel 1.39e-8
+  ScaleR           mean: adjoint +2.895012255526e0 FD(1e-5) +2.895012255533e0 rel 2.42e-12
+  ScaleR           std : adjoint +1.653407663892e-1 FD(1e-5) +1.653407663914e-1 rel 1.30e-11
+test h45_full_current_initial_all_parameters ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.28s
+
