@@ -13,6 +13,10 @@ not implement or validate a GEODE motor solve.
 - `extract_reference.py`: source-hash verification and deterministic extraction.
 - [`geometry/`](geometry/README.md): initial-design NURBS export converted to a tagged
   gmsh 60-degree sector mesh family (issue #1162). It holds the tag table, exact areas and mesh stats.
+- [`forward/`](forward/README.md): the GEODE forward reproduction of the initial
+  design's torque waveforms, with L0 to L3 convergence and sensitivity (issue #1168).
+  It is the reproduction gate. Mean torque agrees to 0.16%. Ripple does not
+  agree: it is 10% to 11% higher under load and 29% lower for cogging.
 
 The source is the authors' [ICEM snapshot at b145aaf4](https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458),
 associated with [Wiesheu et al., arXiv:2402.19065](https://arxiv.org/abs/2402.19065).

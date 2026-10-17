@@ -99,8 +99,11 @@ pub fn tri_signed_area(mesh: &TriMesh, t: usize) -> f64 {
 ///
 /// **Orientation is normalised:** every triangle with negative signed area
 /// in the file has its last two nodes swapped, so all triangles of the
-/// returned mesh are counter-clockwise (positive [`tri_signed_area`]), as
-/// the 2-D magnetostatic assemblers require. Gmsh does not guarantee this:
+/// returned mesh are counter-clockwise (positive [`tri_signed_area`]). The
+/// 2-D magnetostatic assemblers no longer depend on it (since #1166 their
+/// magnetization load is orientation-independent), so for them this is a
+/// harmless redundancy; it remains a convenience for any consumer that
+/// assumes counter-clockwise triangles. Gmsh does not guarantee this:
 /// a surface's triangles follow its parametrisation, and multipatch CAD
 /// (e.g. the ICEM motor sector) mixes both orientations. The swap keeps
 /// the triangle index, so per-triangle tags stay aligned; line elements are
