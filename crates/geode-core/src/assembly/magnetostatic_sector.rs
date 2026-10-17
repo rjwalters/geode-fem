@@ -420,10 +420,11 @@ pub struct SlidingBandReport {
     pub max_spacing_deviation: f64,
     /// Coupling nodes that were shared by both sides and split here.
     pub n_split: usize,
-    /// Clockwise input triangles that were reoriented counter-clockwise
-    /// (the magnetization load of
-    /// [`assemble_magnetization_rhs`](crate::assembly::magnetostatic::assemble_magnetization_rhs)
-    /// assumes CCW triangles).
+    /// Clockwise input triangles that were relabelled counter-clockwise.
+    /// This is a canonicalisation only: every per-element term the band
+    /// solve uses (stiffness, tangent, current and magnetization loads, `B`
+    /// recovery, Arkkio torque) is orientation-independent (#1166), so the
+    /// solution does not depend on it.
     pub n_reoriented: usize,
     /// Rotor radial-edge pairs.
     pub n_rotor_pairs: usize,
@@ -595,8 +596,10 @@ impl SlidingBand {
             }
         }
         let mut tris = mesh.tris.clone();
-        // The magnetization load uses the signed area, so every triangle is
-        // made counter-clockwise (a pure relabelling within the triangle).
+        // Canonicalise every triangle to counter-clockwise (a pure relabelling
+        // within the triangle). The assemblers no longer need it (#1166: all
+        // per-element terms use |T| and true gradients), but a consistent
+        // orientation keeps the band's reported mesh canonical.
         let mut n_reoriented = 0usize;
         for tri in tris.iter_mut() {
             let [a, b, c] = tri.map(|i| mesh.nodes[i as usize]);
