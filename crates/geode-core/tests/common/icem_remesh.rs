@@ -730,7 +730,11 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
     ///
     /// # Errors
     ///
-    /// [`EvalError`]; the reference is unchanged on a mesh error.
+    /// [`EvalError`]. On a mesh error the reference is unchanged. A solve
+    /// error after a successful remesh does **not** undo the remesh: the
+    /// fresh mesh is already the reference and the event is already in
+    /// [`events`](Self::events) (its cost was spent). No field is returned
+    /// either way, and the warm-start state is left as it was.
     pub fn evaluate(
         &mut self,
         p: &Sp::Point,

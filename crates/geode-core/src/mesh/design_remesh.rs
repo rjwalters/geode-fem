@@ -454,6 +454,12 @@ impl<S: MovingMesh, R: Remesher<S>> RemeshingReference<S, R> {
             .map_err(|message| RemeshError::Remesh { trigger, message })?;
         let setup_seconds = t_setup.elapsed().as_secs_f64();
         let t1 = Instant::now();
+        // The fresh mesh is checked at its own design, where the moved
+        // positions are its node positions and every area ratio is 1. In
+        // practice this is therefore a minimum-angle check: a clockwise
+        // triangle from the mesher would not count as inverted here. That is
+        // the `MovingMesh` contract (the reference mesh is counter-clockwise,
+        // which `read_tagged_tri_mesh` enforces on load).
         let (xf, qf, tf) = self.moved(&fresh, theta)?;
         if let Some(tf) = tf {
             return Err(RemeshError::FreshInvalid {
@@ -952,6 +958,42 @@ mod tests {
         // No geometry: an error, the reference is unchanged.
         assert!(matches!(r.prepare(&20.0), Err(RemeshError::NoGeometry(_))));
         assert_eq!(r.generation(), 1);
+    }
+
+    #[test]
+    fn fresh_mesh_failing_the_policy_keeps_the_old_reference() {
+        // At 50° both the moved mesh and the toy's fresh square (45°) fail.
+        let base = Fold {
+            mesh: square(3, 0.0),
+            theta0: 0.0,
+        };
+        let mut r = RemeshingReference::new(
+            base,
+            RemeshPolicy {
+                min_angle_deg: 50.0,
+            },
+            ToyRemesher {
+                fail: false,
+                calls: 0,
+            },
+        )
+        .with_retired(true);
+        match r.prepare(&0.05) {
+            Err(RemeshError::FreshInvalid { trigger, moved }) => {
+                assert!(matches!(
+                    trigger,
+                    RemeshTrigger::MinAngle { min_angle_deg, .. }
+                        if (min_angle_deg - 45.0).abs() < 1e-9
+                ));
+                assert!(matches!(moved, RemeshTrigger::MinAngle { .. }));
+            }
+            other => panic!("expected FreshInvalid, got {other:?}"),
+        }
+        assert_eq!(r.remesher_mut().calls, 1);
+        assert_eq!(r.generation(), 0);
+        assert!(r.events().is_empty());
+        assert_eq!(r.current().reference_design(), 0.0);
+        assert!(r.reference(1).is_none());
     }
 
     #[test]
