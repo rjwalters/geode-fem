@@ -15,6 +15,9 @@
 //!   `h = 1e-4 .. 1e-7` m, conforming (full current, Arkkio) and harmonic
 //!   (half current, coupling torque), and a central difference agrees with
 //!   the adjoint;
+//! - the same with a velocity that moves the band nodes off the coupling
+//!   circle, which exercises the explicit Arkkio `∂T/∂X` (conforming, full
+//!   current);
 //! - the air-gap rule: the coupling circle cannot move, a velocity that
 //!   moves it is rejected, and an inverting move is rejected;
 //! - `design_gradient` is the directional derivative.
@@ -84,18 +87,25 @@ fn forward_reproduces_icem_model() {
 }
 
 /// `remainder / h²` over `h = 1e-4 .. 1e-7` stays within 25% of its value
-/// at `h = 1e-5`, for both objectives; the central difference at
-/// `h = 1e-6` agrees with the adjoint to `fd_tol`.
-fn check_taylor(m: &IcemModel, level: usize, torque: ShapeTorque, fd_tol: f64) {
+/// at `h = 1e-5`, for both objectives; the central difference at `fd_h`
+/// agrees with the adjoint to `fd_tol`.
+fn check_taylor(
+    m: &IcemModel,
+    level: usize,
+    torque: ShapeTorque,
+    support: Support,
+    fd_h: f64,
+    fd_tol: f64,
+) {
     let p = shape_problem(m).unwrap();
     let cfg = tight();
     let ops = icem_shape::operating_points(m, LEVELS[level] * I_PEAK_INITIAL, 0.0, &OPT_DEGREES);
     let base = Base::new(&p, &ops, &torque, &cfg).unwrap();
-    let v = smooth_velocity(m, 1, Support::OffBand);
+    let v = smooth_velocity(m, 1, support);
     p.check_velocity(&v).unwrap();
     let hs = [1e-4, 1e-5, 1e-6, 1e-7];
     let rows = taylor(&p, &base, &ops, &torque, &cfg, &v, &hs).unwrap();
-    let fd = central_differences(&p, &base, &ops, &torque, &cfg, &v, &[1e-6]).unwrap();
+    let fd = central_differences(&p, &base, &ops, &torque, &cfg, &v, &[fd_h]).unwrap();
     for (oi, o) in [Objective::Mean, Objective::Std].iter().enumerate() {
         let c_mid = rows[oi][1].remainder / (rows[oi][1].h * rows[oi][1].h);
         for r in &rows[oi] {
@@ -129,13 +139,53 @@ fn check_taylor(m: &IcemModel, level: usize, torque: ShapeTorque, fd_tol: f64) {
 #[test]
 fn taylor_conforming_arkkio_full_current() {
     let m = model(CouplingMode::Conforming);
-    check_taylor(&m, 2, icem_shape::arkkio_spec(), 1e-7);
+    check_taylor(
+        &m,
+        2,
+        icem_shape::arkkio_spec(),
+        Support::OffBand,
+        1e-6,
+        1e-7,
+    );
 }
 
 #[test]
 fn taylor_harmonic_coupling_torque_half_current() {
     let m = model(CouplingMode::Harmonic(icem::REFERENCE_HARMONICS.to_vec()));
-    check_taylor(&m, 1, icem_shape::coupling_spec(), 1e-7);
+    check_taylor(
+        &m,
+        1,
+        icem_shape::coupling_spec(),
+        Support::OffBand,
+        1e-6,
+        1e-7,
+    );
+}
+
+/// Central-difference step of the band-motion check. The std objective
+/// has a large curvature under band motion (`remainder / h²` about 1.5e3),
+/// so the central difference is truncation-limited at `h = 1e-6`
+/// (1.7e-7 relative); measured errors were 1.8e-8 at 3e-7, 8.9e-9 at 1e-7
+/// and 1.3e-8 at 3e-8 (round-off below).
+const FD_H_BAND: f64 = 1e-7;
+
+/// A velocity that also moves the band nodes off the coupling circle (the
+/// 44.0 and 45.0 mm circles), so the explicit Arkkio `∂T/∂X` enters the
+/// gradient. Without that term the Taylor remainder is O(h), not O(h²).
+#[test]
+fn taylor_conforming_arkkio_band_motion_full_current() {
+    let m = model(CouplingMode::Conforming);
+    // The explicit part is a non-trivial share of dT·V here.
+    let p = shape_problem(&m).unwrap();
+    let v = smooth_velocity(&m, 1, Support::WithBand);
+    let ops = icem_shape::operating_points(&m, I_PEAK_INITIAL, 0.0, &[0]);
+    let torque = icem_shape::arkkio_spec();
+    let s = p.solve(&ops[0], &torque, &tight(), None).unwrap();
+    let g = p.torque_gradient(&s, &torque).unwrap();
+    let (e, t) = (directional(&g.explicit, &v), directional(&g.grad, &v));
+    println!("0 deg: explicit {e:+.6e} of total {t:+.6e}");
+    assert!(e.abs() >= 0.1 * t.abs());
+    check_taylor(&m, 2, torque, Support::WithBand, FD_H_BAND, 1e-7);
 }
 
 #[test]

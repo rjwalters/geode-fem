@@ -267,8 +267,16 @@ unchanged and passing: `magnetostatic_nonlinear`,
 - Taylor tests (`remainder / h²` within 25% over h = 1e-4 .. 1e-7 m, and
   central FD ≤ 1e-7) at full current (conforming, Arkkio) and half
   current (h45, coupling torque);
+- a Taylor test with the band-moving velocity (conforming, Arkkio, full
+  current), which exercises the explicit Arkkio `∂T/∂X` (central FD at
+  h = 1e-7: the std is truncation-limited at 1e-6);
 - the air-gap rule and velocity admissibility;
 - `design_gradient` linearity.
+
+**Mutation check** (`logs/mutation_explicit_arkkio.log`). Deleting the
+line that adds the explicit Arkkio term to the gradient leaves the five
+off-band tests green. The band-motion test fails: `remainder / h²` grows
+about 10x per decade of h, so the remainder is O(h).
 
 The lib unit tests in `magnetostatic_shape.rs` check the element-level
 `ψᵀ ∂R/∂X` against central differences. They cover a Brauer law, both
