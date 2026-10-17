@@ -1,0 +1,32 @@
+  L2 opt120 current 1 CPR1 done
+  L2 opt120 current 1 CPR2 done
+  L2 opt120 current 1 CPR3 done
+  L2 opt120 current 1 CPR4 done
+  L2 opt120 current 1 CPR5 done
+  L2 opt120 current 1 CPR6 done
+  L2 opt120 current 1 CPR7 done
+  L2 opt120 current 1 CPS1 done
+  L2 opt120 current 1 CPS2 done
+  L2 opt120 current 1 CPS3 done
+# Control-point design gradients: L2 (36083 nodes), h45/coupling, design opt120
+
+Moved mesh: min angle 1.33 deg, 0 inverted; shape map set-up 0.326 s
+
+## Current level 1 (I_peak = 11.048494 A): mean 1.498564722 N m, std 0.000295681 N m (gradient 17.806 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | -2.443148e0 | 3.0e-8 (1e-7) | 1e-4 .. 1e-8, 4.0 | +8.054755e-1 | 7.0e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR2 | -1.190081e1 | 6.7e-9 (1e-7) | 1e-4 .. 1e-8, 4.0 | -3.298182e0 | 1.5e-7 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR3 | -1.521149e2 | 2.8e-9 (1e-8) | 1e-5 .. 1e-9, 4.0 | -3.290626e0 | 2.4e-7 (1e-8) | 1e-5 .. 1e-9, 4.0 | [0.001, 0.0001] |
+| CPR4 | -3.621870e1 | 2.6e-9 (1e-7) | 1e-5 .. 1e-9, 4.0 | +2.913540e0 | 3.3e-7 (1e-8) | 1e-5 .. 1e-9, 4.0 | [0.001, 0.0001] |
+| CPR5 | +5.275910e1 | 4.0e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | +7.030279e0 | 4.2e-7 (1e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPR6 | +1.385688e2 | 5.8e-10 (1e-7) | 1e-4 .. 1e-9, 5.0 | -6.511972e0 | 6.1e-7 (1e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPR7 | +2.120418e2 | 3.5e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | +2.666040e0 | 8.6e-7 (1e-8) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPS1 | -1.664703e2 | 1.2e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | -2.949988e1 | 3.8e-7 (1e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPS2 | -1.398699e2 | 1.7e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | +3.026100e0 | 5.0e-7 (1e-8) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPS3 | -1.340981e2 | 3.3e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | +2.535009e1 | 2.6e-7 (1e-9) | 1e-5 .. 1e-6, 1.0 | [0.001] |
+
+wrote benchmarks/motor_reference/parametric_cp/runs/gradient_L2_opt120.json

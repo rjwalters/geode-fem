@@ -529,6 +529,9 @@ fn curves_json(d: &IcemDesign) -> Value {
                     b,
                 } => json!({"name": c.name, "kind": "arc", "c": cc, "r": r,
                     "phi_a": phi_a, "phi_b": phi_b, "a": a, "b": b}),
+                CurveShape::Spline { .. } => {
+                    unreachable!("the 9-parameter construction has no splines")
+                }
             })
             .collect::<Vec<_>>()
     )

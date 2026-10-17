@@ -401,7 +401,7 @@ pub struct DesignGradient {
 }
 
 /// `dI_g/dφ0` (A·turns per rad) at an operating angle `beta` (rad).
-fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
+pub fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
     WINDING_GROUPS
         .iter()
         .map(|&(ph, sign)| i_peak * (phi0 + POLE_PAIRS * beta + ph.offset()).cos() * TURNS * sign)
@@ -409,7 +409,7 @@ fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
 }
 
 /// Mean/std derivatives from per-point scalar derivatives, scaled by `s2`.
-fn objective_pair(t: &[f64], dt: &[f64]) -> [f64; 2] {
+pub fn objective_pair(t: &[f64], dt: &[f64]) -> [f64; 2] {
     let (m, s) = mean_std_parameter_gradient(t, dt);
     [m, s]
 }
