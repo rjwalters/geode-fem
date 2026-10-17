@@ -1,5 +1,5 @@
 
-running 7 tests
+running 8 tests
 test antiperiodic_sector_matches_full_machine ... 
 [1] sector vs full machine, nonlinear iron, unsplit mesh, rel_tol 1e-13
     N/60deg | case             | nodes  | reduced | forced 0 | its | status        | max|B| iron (T) | max|dA|/max|A|
@@ -9,6 +9,14 @@ test antiperiodic_sector_matches_full_machine ...
          60 | full 360         |   9721 |    9361 |        0 |   4 | Tolerance |           1.687 | —
          60 | antiperiodic 60  |   1648 |    1560 |        1 |   4 | Tolerance |           1.687 | 4.180e-16   (edge pairs 28, max match dist 0.0e0 m)
          60 | periodic 120     |   3268 |    3121 |        0 |   4 | Tolerance |           1.687 | 8.359e-16   (edge pairs 28, max match dist 0.0e0 m)
+ok
+test clockwise_triangles_match_ccw ... 
+[8] half-clockwise mesh vs CCW twin, nonlinear iron, rel_tol 1e-13
+    path              | k   | status        | max|dA|/max|A| | max|dB| (T) | T ccw (N)       | |dT|/T_scale
+    plain 360         |   — | Tolerance |      4.190e-16 |   3.117e-15 |  -1.389100854e2 | 8.184e-16
+    band 60 antiper.  |   0 | Tolerance |      2.001e-16 |   1.986e-15 |  -2.019276449e2 | 4.223e-16
+    band 60 antiper.  |  29 | Tolerance |      1.947e-16 |   3.662e-15 |   1.518832663e2 | 1.871e-16
+    band 60 antiper.  |  -7 | Tolerance |      1.932e-16 |   2.512e-15 |  -1.119880360e2 | 3.069e-16
 ok
 test malformed_sectors_fail_loudly ... 
 [7] malformed inputs are rejected
@@ -121,5 +129,5 @@ test warm_start_sweep_and_offset_invariance ...
     antiperiodic, C = 0.4: Some(InvalidConstraint("Dirichlet values contradict the links: node 1647 implies -4e-1 but node 1587 implies 4e-1 for the same linked class"))
 ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.45s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.69s
 

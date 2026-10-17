@@ -28,6 +28,9 @@
 //!    the tolerance reference (the #1159 pitfalls).
 //! 7. **Loud failures**: unmatched nodes, non-uniform coupling, off-grid
 //!    angles, contradictory Dirichlet data, unclassified tags.
+//! 8. **Clockwise triangles** (#1166): a half-clockwise mesh matches its CCW
+//!    twin to ≤1e-12 in `A_z` and torque, through the plain nonlinear system
+//!    and through the sliding band.
 //!
 //! Every test prints its measured table; the committed
 //! `benchmarks/motor_nonlinear_m2/m2_tables.log` is this file's
@@ -1185,4 +1188,112 @@ fn malformed_sectors_fail_loudly() {
     .solve_at(3, &NewtonConfig::default(), None)
     .unwrap();
     assert_eq!(ok.status(), ConvergenceStatus::Tolerance);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 8. Clockwise triangles (#1166)
+// ─────────────────────────────────────────────────────────────────────
+
+/// `m` with every other triangle relabelled clockwise (vertices 1 ↔ 2).
+fn half_clockwise(m: &PolarSectorMesh) -> PolarSectorMesh {
+    let mut cw = m.clone();
+    for (t, tri) in cw.mesh.tris.iter_mut().enumerate() {
+        if t % 2 == 0 {
+            tri.swap(1, 2);
+        }
+    }
+    cw
+}
+
+fn max_rel_diff(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max)
+        / max_abs(a)
+}
+
+/// The same machine with half of its triangles clockwise gives the same
+/// `A_z`, `B` and Arkkio torque, through the plain nonlinear system (which
+/// does not reorient anything) and through the sliding band. Before #1166
+/// the plain path took the magnetization load with the signed area and was
+/// ~100 % wrong while still reporting `Tolerance`.
+#[test]
+fn clockwise_triangles_match_ccw() {
+    println!("\n[8] half-clockwise mesh vs CCW twin, nonlinear iron, rel_tol 1e-13");
+    println!(
+        "    path              | k   | status        | max|dA|/max|A| | max|dB| (T) | T ccw (N)       | |dT|/T_scale"
+    );
+
+    // Plain nonlinear system: the 360° machine, J and M loads, no band.
+    let full = polar_sector_mesh(&mesh_spec(Variant::Iron, 144, TAU, 1, false, [2, 2], 0.0));
+    let fcw = half_clockwise(&full);
+    let n_cw = fcw
+        .mesh
+        .tris
+        .iter()
+        .filter(|tri| {
+            let [a, b, c] = tri.map(|i| fcw.mesh.nodes[i as usize]);
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0.0
+        })
+        .count();
+    assert_eq!(
+        n_cw,
+        fcw.mesh.n_tris() / 2,
+        "fixture must be half clockwise"
+    );
+    let theta_r = 0.3;
+    let (_s1, p1) = solve_plain(Variant::Iron, &full, &[], theta_r, &tight());
+    let (_s2, p2) = solve_plain(Variant::Iron, &fcw, &[], theta_r, &tight());
+    assert_eq!(p2.status, ConvergenceStatus::Tolerance);
+    let d = max_rel_diff(&p1.a_z, &p2.a_z);
+    let (b1, b2) = (
+        recover_b_field(&full.mesh, &p1.a_z),
+        recover_b_field(&fcw.mesh, &p2.a_z),
+    );
+    let db = b1
+        .iter()
+        .zip(&b2)
+        .map(|(x, y)| (x[0] - y[0]).hypot(x[1] - y[1]))
+        .fold(0.0, f64::max);
+    let t1 = arkkio_machine(&full.mesh, &full.tri_tags, &b1, TAU);
+    let t2 = arkkio_machine(&fcw.mesh, &fcw.tri_tags, &b2, TAU);
+    let dt = (t1 - t2).abs() / t1.abs();
+    println!(
+        "    plain 360         |   — | {:13?} | {d:14.3e} | {db:11.3e} | {t1:15.9e} | {dt:.3e}",
+        p2.status
+    );
+    assert!(t1.abs() > 1e-3, "torque must be non-trivial, got {t1}");
+    assert!(d <= 1e-12, "plain path: half-CW A_z differs by {d:e}");
+    assert!(dt <= 1e-12, "plain path: half-CW torque differs by {dt:e}");
+
+    // Sliding-band 60° antiperiodic sector, including a wrapped k and k < 0.
+    let sec = polar_sector_mesh(&mesh_spec(Variant::Iron, 24, SECTOR, 1, true, [2, 2], 0.0));
+    let scw = half_clockwise(&sec);
+    let a = band_problem(Variant::Iron, &sec, SECTOR);
+    let b = band_problem(Variant::Iron, &scw, SECTOR);
+    assert_eq!(a.band().report().n_reoriented, 0);
+    assert_eq!(b.band().report().n_reoriented, scw.mesh.n_tris() / 2);
+    for k in [0i64, 29, -7] {
+        let sa = a.solve_at(k, &tight(), None).unwrap();
+        let sb = b.solve_at(k, &tight(), None).unwrap();
+        assert_eq!(sb.status(), ConvergenceStatus::Tolerance);
+        let d = max_rel_diff(sa.a_z(), sb.a_z());
+        let db =
+            sa.b.iter()
+                .zip(&sb.b)
+                .map(|(x, y)| (x[0] - y[0]).hypot(x[1] - y[1]))
+                .fold(0.0, f64::max);
+        let ta = arkkio_machine(&sa.mesh, a.band().tri_tags(), &sa.b, SECTOR);
+        let tb = arkkio_machine(&sb.mesh, b.band().tri_tags(), &sb.b, SECTOR);
+        // Relative to the plain-path torque scale: at k = 0 the rotor is
+        // aligned with the winding and T itself is ~0.
+        let dt = (ta - tb).abs() / t1.abs().max(ta.abs());
+        println!(
+            "    band 60 antiper.  | {k:3} | {:13?} | {d:14.3e} | {db:11.3e} | {ta:15.9e} | {dt:.3e}",
+            sb.status()
+        );
+        assert!(d <= 1e-12, "band k={k}: half-CW A_z differs by {d:e}");
+        assert!(dt <= 1e-12, "band k={k}: half-CW torque differs by {dt:e}");
+    }
 }
