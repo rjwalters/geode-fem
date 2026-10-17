@@ -286,6 +286,7 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_arkkio_band_guard \
               --test motor_cp_design_gradient \
               --test motor_design_gradient \
               --test motor_icem_controlpoints \
@@ -376,6 +377,7 @@ jobs:
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_arkkio_band_guard \
               --test motor_cp_design_gradient \
               --test motor_design_gradient \
               --test motor_icem_controlpoints \
