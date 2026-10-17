@@ -28,6 +28,7 @@ pub mod polar_sector;
 pub mod red_refine;
 pub mod sphere;
 pub mod spiral;
+pub mod tagged_tri;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
@@ -38,6 +39,7 @@ pub use sphere::{
     PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
     read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
+pub use tagged_tri::{TaggedTriMesh, read_tagged_tri_mesh};
 // The spiral fixture's PHYS_* tag constants stay namespaced under
 // `mesh::spiral` — several names (e.g. `PHYS_OUTER_BOUNDARY`) would
 // collide with the sphere fixture's crate-root re-exports above.
@@ -411,6 +413,14 @@ pub enum MeshError {
     Parse(String),
     #[error("unsupported element type {0:?}; only Tet4 is supported")]
     UnsupportedElement(ElementType),
+    /// An element block of a gmsh type the 2-D tagged reader does not
+    /// parse ([`read_tagged_tri_mesh`] accepts only 2-node lines, 3-node
+    /// triangles and points). `count` is the number of such elements.
+    #[error(
+        "unsupported gmsh element type {gmsh_type} ({count} elements); the 2-D tagged reader \
+         accepts only 2-node lines (1), 3-node triangles (2) and points (15)"
+    )]
+    UnsupportedGmshElement { gmsh_type: i32, count: usize },
     #[error("element references node tag {0} not present in node section")]
     InvalidNodeRef(u64),
     #[error("node tag {0} does not fit in u32")]
@@ -439,7 +449,9 @@ pub struct TaggedTetMesh {
     /// whose owning entity carries no physical group).
     pub tet_physical_tags: Vec<i32>,
     /// Physically tagged surface triangles (0-based node indices into
-    /// `mesh.nodes`).
+    /// `mesh.nodes`), in the node order and orientation written in the
+    /// file. Gmsh may write clockwise triangles; 2-D users should load with
+    /// [`read_tagged_tri_mesh`], which normalises orientation.
     pub boundary_triangles: Vec<[u32; 3]>,
     /// Per-triangle 2D physical tag (parallel to `boundary_triangles`).
     pub triangle_physical_tags: Vec<i32>,

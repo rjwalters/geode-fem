@@ -11,6 +11,8 @@ not implement or validate a GEODE motor solve.
 - `conventions.json`: units, sector normalization, phase/angle conventions,
   boundary identifiers, material interpretation and reproduction caveats.
 - `extract_reference.py`: source-hash verification and deterministic extraction.
+- [`geometry/`](geometry/README.md): initial-design NURBS export converted to a tagged
+  gmsh 60-degree sector mesh family (issue #1162). It holds the tag table, exact areas and mesh stats.
 
 The source is the authors' [ICEM snapshot at b145aaf4](https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458),
 associated with [Wiesheu et al., arXiv:2402.19065](https://arxiv.org/abs/2402.19065).

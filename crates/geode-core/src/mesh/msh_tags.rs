@@ -262,6 +262,101 @@ pub(super) fn parse_elements_with_entity_tags(
     Ok((tet_tags, triangles, tri_tags))
 }
 
+/// Walk `$Elements` and return every 2-node line element (MSH type 1)
+/// with the physical tag of its owning curve entity (`0` if untagged),
+/// node tags translated to 0-based indices (issue #1162).
+///
+/// The tet scanner above skips line rows; 2-D meshes need them for
+/// tagged boundary curves (Dirichlet arcs, periodic edges, the sliding-
+/// band coupling circle).
+pub(super) fn parse_line_elements_with_entity_tags(
+    text: &str,
+    entity_phys: &BTreeMap<(i32, i32), i32>,
+) -> Result<(Vec<[u32; 2]>, Vec<i32>), MeshError> {
+    let tag_to_index = build_node_tag_map(text)?;
+    let Some(start) = text.find("$Elements") else {
+        return Err(MeshError::Parse("missing $Elements section".into()));
+    };
+    let after_header = &text[start + "$Elements".len()..];
+    let Some(end_offset) = after_header.find("$EndElements") else {
+        return Err(MeshError::Parse("missing $EndElements terminator".into()));
+    };
+    let mut lines = after_header[..end_offset]
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    let header = next_line(&mut lines, "$Elements header")?;
+    let mut hdr = header.split_ascii_whitespace();
+    let n_blocks: usize = parse_next(&mut hdr, "numEntityBlocks")?;
+    let mut segments = Vec::new();
+    let mut tags = Vec::new();
+    for _ in 0..n_blocks {
+        let block_header = next_line(&mut lines, "element block header")?;
+        let mut bh = block_header.split_ascii_whitespace();
+        let entity_dim: i32 = parse_next(&mut bh, "entityDim")?;
+        let entity_tag: i32 = parse_next(&mut bh, "entityTag")?;
+        let elem_type: i32 = parse_next(&mut bh, "elementType")?;
+        let num_in_block: usize = parse_next(&mut bh, "numElementsInBlock")?;
+        let phys = entity_phys
+            .get(&(entity_dim, entity_tag))
+            .copied()
+            .unwrap_or(0);
+        for _ in 0..num_in_block {
+            let row = next_line(&mut lines, "element row")?;
+            if elem_type != 1 {
+                continue;
+            }
+            let mut it = row.split_ascii_whitespace();
+            it.next(); // element tag
+            let mut nodes = [0u32; 2];
+            for slot in nodes.iter_mut() {
+                let tag: u64 = parse_next(&mut it, "line node")?;
+                *slot = *tag_to_index
+                    .get(&tag)
+                    .ok_or(MeshError::InvalidNodeRef(tag))?;
+            }
+            segments.push(nodes);
+            tags.push(phys);
+        }
+    }
+    Ok((segments, tags))
+}
+
+/// Count the elements of each gmsh element type in `$Elements`
+/// (`elementType -> numElements`, summed over blocks). Used by the 2-D
+/// tagged reader to reject element types it does not parse instead of
+/// silently skipping them (issue #1162 review).
+pub(super) fn element_type_counts(text: &str) -> Result<BTreeMap<i32, usize>, MeshError> {
+    let Some(start) = text.find("$Elements") else {
+        return Err(MeshError::Parse("missing $Elements section".into()));
+    };
+    let after_header = &text[start + "$Elements".len()..];
+    let Some(end_offset) = after_header.find("$EndElements") else {
+        return Err(MeshError::Parse("missing $EndElements terminator".into()));
+    };
+    let mut lines = after_header[..end_offset]
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty());
+    let header = next_line(&mut lines, "$Elements header")?;
+    let mut hdr = header.split_ascii_whitespace();
+    let n_blocks: usize = parse_next(&mut hdr, "numEntityBlocks")?;
+    let mut counts = BTreeMap::new();
+    for _ in 0..n_blocks {
+        let block_header = next_line(&mut lines, "element block header")?;
+        let mut bh = block_header.split_ascii_whitespace();
+        let _entity_dim: i32 = parse_next(&mut bh, "entityDim")?;
+        let _entity_tag: i32 = parse_next(&mut bh, "entityTag")?;
+        let elem_type: i32 = parse_next(&mut bh, "elementType")?;
+        let num_in_block: usize = parse_next(&mut bh, "numElementsInBlock")?;
+        for _ in 0..num_in_block {
+            next_line(&mut lines, "element row")?;
+        }
+        *counts.entry(elem_type).or_insert(0) += num_in_block;
+    }
+    Ok(counts)
+}
+
 /// Build a `(node_tag -> 0-based index)` map by hand-scanning `$Nodes`.
 ///
 /// We replicate the same node-ordering convention as the `mshio`-backed

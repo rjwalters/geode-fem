@@ -1,0 +1,3 @@
+meshes/*.msh
+!meshes/icem_initial_sector_L0.msh
+__pycache__/
