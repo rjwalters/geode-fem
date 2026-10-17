@@ -230,20 +230,25 @@ impl Real for f64 {
     }
 }
 
-/// Forward-mode dual number: a value and its gradient with respect to the 9
-/// design parameters.
+/// Forward-mode dual number: a value and its gradient with respect to `N`
+/// design variables. [`Dual`] is the 9-parameter instance used by
+/// [`sector_curves_dual`]; the control-point design space of
+/// [`super::icem_controlpoints`] uses a wider one.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Dual {
+pub struct DualN<const N: usize> {
     /// Value.
     pub v: f64,
-    /// `∂v/∂θ_k`, `k` in [`PARAM_NAMES`] order.
-    pub d: [f64; N_PARAMS],
+    /// `∂v/∂θ_k`, `k` in the design space's parameter order.
+    pub d: [f64; N],
 }
 
-impl Dual {
+/// [`DualN`] over the 9 geometric parameters, in [`PARAM_NAMES`] order.
+pub type Dual = DualN<N_PARAMS>;
+
+impl<const N: usize> DualN<N> {
     /// The independent variable `θ_k` with value `v`.
     pub fn var(v: f64, k: usize) -> Self {
-        let mut d = [0.0; N_PARAMS];
+        let mut d = [0.0; N];
         d[k] = 1.0;
         Self { v, d }
     }
@@ -256,7 +261,7 @@ impl Dual {
     }
 }
 
-impl Add for Dual {
+impl<const N: usize> Add for DualN<N> {
     type Output = Self;
     fn add(self, o: Self) -> Self {
         let mut d = self.d;
@@ -267,7 +272,7 @@ impl Add for Dual {
     }
 }
 
-impl Sub for Dual {
+impl<const N: usize> Sub for DualN<N> {
     type Output = Self;
     fn sub(self, o: Self) -> Self {
         let mut d = self.d;
@@ -278,10 +283,10 @@ impl Sub for Dual {
     }
 }
 
-impl Mul for Dual {
+impl<const N: usize> Mul for DualN<N> {
     type Output = Self;
     fn mul(self, o: Self) -> Self {
-        let mut d = [0.0; N_PARAMS];
+        let mut d = [0.0; N];
         for (k, dk) in d.iter_mut().enumerate() {
             *dk = self.d[k] * o.v + self.v * o.d[k];
         }
@@ -289,11 +294,11 @@ impl Mul for Dual {
     }
 }
 
-impl Div for Dual {
+impl<const N: usize> Div for DualN<N> {
     type Output = Self;
     fn div(self, o: Self) -> Self {
         let v = self.v / o.v;
-        let mut d = [0.0; N_PARAMS];
+        let mut d = [0.0; N];
         for (k, dk) in d.iter_mut().enumerate() {
             *dk = (self.d[k] - v * o.d[k]) / o.v;
         }
@@ -301,7 +306,7 @@ impl Div for Dual {
     }
 }
 
-impl Neg for Dual {
+impl<const N: usize> Neg for DualN<N> {
     type Output = Self;
     fn neg(self) -> Self {
         Self {
@@ -311,12 +316,9 @@ impl Neg for Dual {
     }
 }
 
-impl Real for Dual {
+impl<const N: usize> Real for DualN<N> {
     fn cst(x: f64) -> Self {
-        Self {
-            v: x,
-            d: [0.0; N_PARAMS],
-        }
+        Self { v: x, d: [0.0; N] }
     }
     fn value(self) -> f64 {
         self.v
@@ -336,7 +338,7 @@ impl Real for Dual {
     }
     fn atan2(self, x: Self) -> Self {
         let r2 = x.v * x.v + self.v * self.v;
-        let mut d = [0.0; N_PARAMS];
+        let mut d = [0.0; N];
         for (k, dk) in d.iter_mut().enumerate() {
             *dk = (x.v * self.d[k] - self.v * x.d[k]) / r2;
         }
@@ -350,7 +352,7 @@ impl Real for Dual {
 // ── Curves ──────────────────────────────────────────────────────────────
 
 /// Shape of one boundary or interface curve.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CurveShape<T> {
     /// Segment from `a` to `b`.
     Line {
@@ -376,6 +378,23 @@ pub enum CurveShape<T> {
         /// End point.
         b: [T; 2],
     },
+    /// Rational B-spline (NURBS) curve on the parameter interval `[0, 1]`:
+    /// `C(t) = Σ N_i(t) w_i P_i / Σ N_i(t) w_i`, with `N_i` the B-spline
+    /// basis of `degree` on the clamped knot vector `knots`
+    /// (`knots.len() = cps.len() + degree + 1`, the first `degree + 1` knots
+    /// 0 and the last `degree + 1` knots 1). The curve interpolates its first
+    /// and last control points. [`sector_curves`] makes none; the free-form
+    /// control-point design space ([`super::icem_controlpoints`]) does.
+    Spline {
+        /// Polynomial degree (at least 1).
+        degree: usize,
+        /// Clamped knot vector on `[0, 1]`.
+        knots: Vec<f64>,
+        /// Cartesian control points.
+        cps: Vec<[T; 2]>,
+        /// Positive weights, parallel to `cps`.
+        weights: Vec<T>,
+    },
 }
 
 /// A named curve of the construction.
@@ -387,24 +406,133 @@ pub struct Curve<T> {
     pub shape: CurveShape<T>,
 }
 
+/// Index `s` of the knot span `[knots[s], knots[s + 1])` that contains `t`
+/// (the last non-empty span at the right end), for a clamped knot vector of
+/// `n` basis functions of `degree`.
+fn knot_span(knots: &[f64], degree: usize, n: usize, t: f64) -> usize {
+    if t >= knots[n] {
+        let mut s = n - 1;
+        while s > degree && knots[s] == knots[s + 1] {
+            s -= 1;
+        }
+        return s;
+    }
+    let mut s = degree;
+    while s + 1 < n && t >= knots[s + 1] {
+        s += 1;
+    }
+    s
+}
+
+/// The `degree + 1` B-spline basis functions `N_{s−degree}, …, N_s` that
+/// are nonzero on span `s`, at `t` (the triangular Cox–de Boor scheme).
+fn basis(knots: &[f64], degree: usize, s: usize, t: f64) -> Vec<f64> {
+    let mut n = vec![0.0; degree + 1];
+    let mut left = vec![0.0; degree + 1];
+    let mut right = vec![0.0; degree + 1];
+    n[0] = 1.0;
+    for j in 1..=degree {
+        left[j] = t - knots[s + 1 - j];
+        right[j] = knots[s + j] - t;
+        let mut saved = 0.0;
+        for r in 0..j {
+            let den = right[r + 1] + left[j - r];
+            let tmp = if den != 0.0 { n[r] / den } else { 0.0 };
+            n[r] = saved + right[r + 1] * tmp;
+            saved = left[j - r] * tmp;
+        }
+        n[j] = saved;
+    }
+    n
+}
+
+/// First derivatives of the [`basis`] functions on span `s` at `t`, from the
+/// degree `degree − 1` functions.
+fn basis_derivative(knots: &[f64], degree: usize, s: usize, t: f64) -> Vec<f64> {
+    let lower = basis(knots, degree - 1, s, t); // N_{s−degree+1 .. s, degree−1}
+    let p = degree as f64;
+    (0..=degree)
+        .map(|r| {
+            let i = s - degree + r;
+            let a = if r >= 1 {
+                let den = knots[i + degree] - knots[i];
+                if den != 0.0 { lower[r - 1] / den } else { 0.0 }
+            } else {
+                0.0
+            };
+            let b = if r < degree {
+                let den = knots[i + degree + 1] - knots[i + 1];
+                if den != 0.0 { lower[r] / den } else { 0.0 }
+            } else {
+                0.0
+            };
+            p * (a - b)
+        })
+        .collect()
+}
+
+/// Point of a rational B-spline at `t ∈ [0, 1]`.
+fn spline_point<T: Real>(degree: usize, knots: &[f64], cps: &[[T; 2]], w: &[T], t: f64) -> [T; 2] {
+    let s = knot_span(knots, degree, cps.len(), t);
+    let nb = basis(knots, degree, s, t);
+    let z = T::cst(0.0);
+    let (mut x, mut y, mut den) = (z, z, z);
+    for (r, &nr) in nb.iter().enumerate() {
+        let i = s - degree + r;
+        let c = T::cst(nr) * w[i];
+        x = x + c * cps[i][0];
+        y = y + c * cps[i][1];
+        den = den + c;
+    }
+    [x / den, y / den]
+}
+
+/// Point and first derivative of an `f64` rational B-spline at `t`.
+fn spline_point_derivative(
+    degree: usize,
+    knots: &[f64],
+    cps: &[[f64; 2]],
+    w: &[f64],
+    t: f64,
+) -> ([f64; 2], [f64; 2]) {
+    let s = knot_span(knots, degree, cps.len(), t);
+    let nb = basis(knots, degree, s, t);
+    let db = basis_derivative(knots, degree, s, t);
+    let (mut a, mut da, mut den, mut dden) = ([0.0; 2], [0.0; 2], 0.0, 0.0);
+    for r in 0..=degree {
+        let i = s - degree + r;
+        for c in 0..2 {
+            a[c] += nb[r] * w[i] * cps[i][c];
+            da[c] += db[r] * w[i] * cps[i][c];
+        }
+        den += nb[r] * w[i];
+        dden += db[r] * w[i];
+    }
+    let p = [a[0] / den, a[1] / den];
+    let dp = [(da[0] - dden * p[0]) / den, (da[1] - dden * p[1]) / den];
+    (p, dp)
+}
+
 impl<T: Real> Curve<T> {
     /// Start point.
     pub fn start(&self) -> [T; 2] {
-        match self.shape {
-            CurveShape::Line { a, .. } | CurveShape::Arc { a, .. } => a,
+        match &self.shape {
+            CurveShape::Line { a, .. } | CurveShape::Arc { a, .. } => *a,
+            CurveShape::Spline { cps, .. } => cps[0],
         }
     }
 
     /// End point.
     pub fn end(&self) -> [T; 2] {
-        match self.shape {
-            CurveShape::Line { b, .. } | CurveShape::Arc { b, .. } => b,
+        match &self.shape {
+            CurveShape::Line { b, .. } | CurveShape::Arc { b, .. } => *b,
+            CurveShape::Spline { cps, .. } => cps[cps.len() - 1],
         }
     }
 
     /// Point at parameter `t ∈ [0, 1]` (fraction of length on a line, of
-    /// angle on an arc). `t = 0` and `t = 1` return the constructed end
-    /// points exactly.
+    /// angle on an arc, the knot parameter on a spline). `t = 0` and `t = 1`
+    /// return the constructed end points exactly.
     pub fn point(&self, t: f64) -> [T; 2] {
         if t == 0.0 {
             return self.start();
@@ -413,14 +541,20 @@ impl<T: Real> Curve<T> {
             return self.end();
         }
         let tt = T::cst(t);
-        match self.shape {
+        match &self.shape {
             CurveShape::Line { a, b } => [a[0] + tt * (b[0] - a[0]), a[1] + tt * (b[1] - a[1])],
             CurveShape::Arc {
                 c, r, phi_a, phi_b, ..
             } => {
-                let phi = phi_a + tt * (phi_b - phi_a);
-                [c[0] + r * phi.cos(), c[1] + r * phi.sin()]
+                let phi = *phi_a + tt * (*phi_b - *phi_a);
+                [c[0] + *r * phi.cos(), c[1] + *r * phi.sin()]
             }
+            CurveShape::Spline {
+                degree,
+                knots,
+                cps,
+                weights,
+            } => spline_point(*degree, knots, cps, weights, t),
         }
     }
 }
@@ -428,11 +562,13 @@ impl<T: Real> Curve<T> {
 impl Curve<f64> {
     /// `(distance, t)` of `p` to the curve, with `t` the parameter of the
     /// closest point when it lies within the curve (`t ∈ [0, 1]` up to
-    /// `1e-9`); `None` when the projection falls outside it.
+    /// `1e-9` on lines and arcs; strictly inside on a spline, whose end
+    /// points are matched as vertices); `None` when the projection falls
+    /// outside it.
     pub fn locate(&self, p: [f64; 2]) -> Option<(f64, f64)> {
         const T_SLACK: f64 = 1e-9;
-        match self.shape {
-            CurveShape::Line { a, b } => {
+        match &self.shape {
+            &CurveShape::Line { a, b } => {
                 let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
                 let l2 = dx * dx + dy * dy;
                 let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2;
@@ -443,7 +579,7 @@ impl Curve<f64> {
                 let q = [a[0] + t * dx, a[1] + t * dy];
                 Some(((p[0] - q[0]).hypot(p[1] - q[1]), t))
             }
-            CurveShape::Arc {
+            &CurveShape::Arc {
                 c, r, phi_a, phi_b, ..
             } => {
                 let mut phi = (p[1] - c[1]).atan2(p[0] - c[0]);
@@ -461,6 +597,12 @@ impl Curve<f64> {
                 let dist = ((p[0] - c[0]).hypot(p[1] - c[1]) - r).abs();
                 Some((dist, t.clamp(0.0, 1.0)))
             }
+            CurveShape::Spline {
+                degree,
+                knots,
+                cps,
+                weights,
+            } => locate_spline(*degree, knots, cps, weights, p),
         }
     }
 
@@ -478,16 +620,78 @@ impl Curve<f64> {
     }
 }
 
-fn rot<T: Real>(p: [T; 2], angle: f64) -> [T; 2] {
+/// Closest point of a rational B-spline to `p`: dense sampling per knot
+/// span, then Gauss–Newton on `(C(t) − p) · C'(t) = 0`. Returns `None` when
+/// `p` is farther than `1e-6` m from the control polygon's bounding box (the
+/// curve lies in the convex hull of its control points) or the closest point
+/// is an end point.
+fn locate_spline(
+    degree: usize,
+    knots: &[f64],
+    cps: &[[f64; 2]],
+    w: &[f64],
+    p: [f64; 2],
+) -> Option<(f64, f64)> {
+    const BOX_SLACK: f64 = 1e-6;
+    const SAMPLES_PER_SPAN: usize = 16;
+    let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for q in cps {
+        for c in 0..2 {
+            lo[c] = lo[c].min(q[c]);
+            hi[c] = hi[c].max(q[c]);
+        }
+    }
+    if (0..2).any(|c| p[c] < lo[c] - BOX_SLACK || p[c] > hi[c] + BOX_SLACK) {
+        return None;
+    }
+    let mut best = (f64::INFINITY, 0.0);
+    for s in degree..cps.len() {
+        let (a, b) = (knots[s], knots[s + 1]);
+        if b <= a {
+            continue;
+        }
+        for j in 0..=SAMPLES_PER_SPAN {
+            let t = a + (b - a) * j as f64 / SAMPLES_PER_SPAN as f64;
+            let q = spline_point(degree, knots, cps, w, t);
+            let d = (q[0] - p[0]).hypot(q[1] - p[1]);
+            if d < best.0 {
+                best = (d, t);
+            }
+        }
+    }
+    let mut t = best.1;
+    for _ in 0..60 {
+        let (q, dq) = spline_point_derivative(degree, knots, cps, w, t);
+        let g = (q[0] - p[0]) * dq[0] + (q[1] - p[1]) * dq[1];
+        let h = dq[0] * dq[0] + dq[1] * dq[1];
+        if h == 0.0 {
+            break;
+        }
+        let step = g / h;
+        let tn = (t - step).clamp(0.0, 1.0);
+        let moved = (tn - t).abs();
+        t = tn;
+        if moved < 1e-16 {
+            break;
+        }
+    }
+    if t <= 0.0 || t >= 1.0 {
+        return None;
+    }
+    let q = spline_point(degree, knots, cps, w, t);
+    Some(((q[0] - p[0]).hypot(q[1] - p[1]), t))
+}
+
+pub(crate) fn rot<T: Real>(p: [T; 2], angle: f64) -> [T; 2] {
     let (c, s) = (T::cst(angle.cos()), T::cst(angle.sin()));
     [c * p[0] - s * p[1], s * p[0] + c * p[1]]
 }
 
-fn polar<T: Real>(r: T, phi: T) -> [T; 2] {
+pub(crate) fn polar<T: Real>(r: T, phi: T) -> [T; 2] {
     [r * phi.cos(), r * phi.sin()]
 }
 
-fn line<T: Real>(name: String, a: [T; 2], b: [T; 2]) -> Curve<T> {
+pub(crate) fn line<T: Real>(name: String, a: [T; 2], b: [T; 2]) -> Curve<T> {
     Curve {
         name,
         shape: CurveShape::Line { a, b },
@@ -552,6 +756,17 @@ fn rotate_curve<T: Real>(c: Curve<T>, angle: f64) -> Curve<T> {
             a: rot(a, angle),
             b: rot(b, angle),
         },
+        CurveShape::Spline {
+            degree,
+            knots,
+            cps,
+            weights,
+        } => CurveShape::Spline {
+            degree,
+            knots,
+            cps: cps.into_iter().map(|q| rot(q, angle)).collect(),
+            weights,
+        },
     };
     Curve {
         name: c.name,
@@ -559,7 +774,7 @@ fn rotate_curve<T: Real>(c: Curve<T>, angle: f64) -> Curve<T> {
     }
 }
 
-fn mirror<T: Real>(p: [T; 2]) -> [T; 2] {
+pub(crate) fn mirror<T: Real>(p: [T; 2]) -> [T; 2] {
     [p[0], -p[1]]
 }
 
@@ -893,9 +1108,11 @@ enum Dof {
     Slide(usize, [f64; 2]),
 }
 
-/// The fixed-topology node motion `θ ↦ X(θ)` of a tagged ICEM sector mesh.
-pub struct IcemShapeMap {
-    theta0: IcemDesign,
+/// Attachment of a tagged sector mesh to a curve set and the factored
+/// interior extension: the parametrization-independent part of
+/// [`IcemShapeMap`] and of the control-point map
+/// ([`super::icem_controlpoints::IcemCpShapeMap`]).
+pub(crate) struct MotionCore {
     options: MotionOptions,
     base: TriMesh,
     tri_tags: Vec<i32>,
@@ -917,32 +1134,18 @@ pub struct IcemShapeMap {
 /// the exact CAD curves to round-off; the finest mesh spacing is 2.6e-5 m.
 pub const ATTACH_TOL: f64 = 1e-9;
 
-impl IcemShapeMap {
-    /// Attach `tagged` (meshed at `theta0`) to the curves and factor the
-    /// extension operator.
-    ///
-    /// # Errors
-    ///
-    /// [`IcemParamError::Classification`] if a node on a material interface
-    /// or on the mesh boundary lies on no curve, if an unattached node
-    /// touches two regions, or if a node lies on two curves away from their
-    /// end points; [`IcemParamError::Construction`] /
-    /// [`IcemParamError::Solve`] from the curves and the factorization.
-    pub fn new(tagged: &TaggedTriMesh, theta0: IcemDesign) -> Result<Self, IcemParamError> {
-        Self::with_options(tagged, theta0, MotionOptions::default())
-    }
-
-    /// [`IcemShapeMap::new`] with explicit [`MotionOptions`].
-    ///
-    /// # Errors
-    ///
-    /// As [`IcemShapeMap::new`].
-    pub fn with_options(
+impl MotionCore {
+    /// Attach `tagged` to `curves` (the construction at the mesh's own
+    /// design) and factor the extension operator. Each `(lo, hi)` in
+    /// `slide_edges` names a radial sector-edge pair whose interior nodes
+    /// slide under [`EdgeRule::Slide`] (`lo` at [`SECTOR_LO`], `hi` at
+    /// [`SECTOR_HI`]).
+    pub(crate) fn build(
         tagged: &TaggedTriMesh,
-        theta0: IcemDesign,
+        curves: &[Curve<f64>],
         options: MotionOptions,
+        slide_edges: &[(&str, &str)],
     ) -> Result<Self, IcemParamError> {
-        let curves = sector_curves_f64(&theta0)?;
         let base = tagged.mesh.clone();
         let tri_tags = tagged.tri_physical_tags.clone();
         let n = base.n_nodes();
@@ -1063,12 +1266,8 @@ impl IcemShapeMap {
             }
         }
 
-        // Sliding sector-edge pairs (stator iron part of the radial edges).
+        // Sliding sector-edge pairs (iron parts of the radial edges).
         let idx = |name: &str| curves.iter().position(|c| c.name == name);
-        let (lo_c, hi_c) = (
-            idx("stator.edge_lo_iron").expect("curve"),
-            idx("stator.edge_hi_iron").expect("curve"),
-        );
         let mut dof = vec![Dof::Unused; n];
         let mut n_red = 0;
         let mut slide_pairs = 0;
@@ -1086,30 +1285,40 @@ impl IcemShapeMap {
                 });
                 v
             };
-            let (lo, hi) = (on(lo_c), on(hi_c));
-            if lo.len() != hi.len() {
-                return Err(IcemParamError::Classification(format!(
-                    "stator radial edges carry {} and {} interior nodes",
-                    lo.len(),
-                    hi.len()
-                )));
-            }
             let (e_lo, e_hi) = (
                 [SECTOR_LO.cos(), SECTOR_LO.sin()],
                 [SECTOR_HI.cos(), SECTOR_HI.sin()],
             );
-            for (&a, &b) in lo.iter().zip(&hi) {
-                let q = rot(base.nodes[a], SECTOR_HI - SECTOR_LO);
-                let pb = base.nodes[b];
-                if (q[0] - pb[0]).hypot(q[1] - pb[1]) > ATTACH_TOL {
+            for &(lo_name, hi_name) in slide_edges {
+                let (lo_c, hi_c) = (
+                    idx(lo_name).ok_or_else(|| {
+                        IcemParamError::Classification(format!("no curve {lo_name}"))
+                    })?,
+                    idx(hi_name).ok_or_else(|| {
+                        IcemParamError::Classification(format!("no curve {hi_name}"))
+                    })?,
+                );
+                let (lo, hi) = (on(lo_c), on(hi_c));
+                if lo.len() != hi.len() {
                     return Err(IcemParamError::Classification(format!(
-                        "stator edge nodes {a} and {b} are not antiperiodic images"
+                        "radial edges {lo_name} and {hi_name} carry {} and {} interior nodes",
+                        lo.len(),
+                        hi.len()
                     )));
                 }
-                dof[a] = Dof::Slide(n_red, e_lo);
-                dof[b] = Dof::Slide(n_red, e_hi);
-                n_red += 1;
-                slide_pairs += 1;
+                for (&a, &b) in lo.iter().zip(&hi) {
+                    let q = rot(base.nodes[a], SECTOR_HI - SECTOR_LO);
+                    let pb = base.nodes[b];
+                    if (q[0] - pb[0]).hypot(q[1] - pb[1]) > ATTACH_TOL {
+                        return Err(IcemParamError::Classification(format!(
+                            "edge nodes {a} and {b} are not antiperiodic images"
+                        )));
+                    }
+                    dof[a] = Dof::Slide(n_red, e_lo);
+                    dof[b] = Dof::Slide(n_red, e_hi);
+                    n_red += 1;
+                    slide_pairs += 1;
+                }
             }
         }
         let mut boundary = Vec::new();
@@ -1127,7 +1336,7 @@ impl IcemShapeMap {
         }
         let xb0 = boundary
             .iter()
-            .map(|&i| attached_point(&curves, attach[i]))
+            .map(|&i| attached_point(curves, attach[i]))
             .collect();
 
         // Weighted P1 Laplacian of the θ0 mesh, in the reduced unknowns.
@@ -1192,11 +1401,10 @@ impl IcemShapeMap {
             None
         };
         Ok(Self {
-            theta0,
             options,
             base,
             tri_tags,
-            curve_names: curves.into_iter().map(|c| c.name).collect(),
+            curve_names: curves.iter().map(|c| c.name.clone()).collect(),
             attach,
             boundary,
             xb0,
@@ -1207,46 +1415,6 @@ impl IcemShapeMap {
             slide_pairs,
             report,
         })
-    }
-
-    /// The design the mesh was generated at.
-    pub fn theta0(&self) -> IcemDesign {
-        self.theta0
-    }
-
-    /// The extension options.
-    pub fn options(&self) -> MotionOptions {
-        self.options
-    }
-
-    /// Number of sliding antiperiodic node pairs on the stator radial edges.
-    pub fn slide_pairs(&self) -> usize {
-        self.slide_pairs
-    }
-
-    /// The `θ0` mesh (counter-clockwise triangles).
-    pub fn base(&self) -> &TriMesh {
-        &self.base
-    }
-
-    /// Per-triangle physical tags.
-    pub fn tri_tags(&self) -> &[i32] {
-        &self.tri_tags
-    }
-
-    /// Curve names, parallel to [`sector_curves`].
-    pub fn curve_names(&self) -> &[String] {
-        &self.curve_names
-    }
-
-    /// Per-node attachment.
-    pub fn attachments(&self) -> &[NodeAttachment] {
-        &self.attach
-    }
-
-    /// Attachment statistics.
-    pub fn report(&self) -> &AttachmentReport {
-        &self.report
     }
 
     /// Extend boundary displacement fields (one `[dx, dy]` per prescribed
@@ -1277,30 +1445,159 @@ impl IcemShapeMap {
         out
     }
 
+    /// Node coordinates for the moved curve set `curves` (same list as at
+    /// construction): `X0 + E (X_b − X_b0)`.
+    pub(crate) fn positions_from(&self, curves: &[Curve<f64>]) -> Vec<[f64; 2]> {
+        let field: Vec<[f64; 2]> = self
+            .boundary
+            .iter()
+            .zip(&self.xb0)
+            .map(|(&i, x0)| {
+                let q = attached_point(curves, self.attach[i]);
+                [q[0] - x0[0], q[1] - x0[1]]
+            })
+            .collect();
+        let d = self.extend(&[field]).pop().expect("one field");
+        self.base
+            .nodes
+            .iter()
+            .zip(&d)
+            .map(|(x, u)| [x[0] + u[0], x[1] + u[1]])
+            .collect()
+    }
+
+    /// `∂X/∂θ_k` for every design variable `k` of the dual curve set.
+    pub(crate) fn jacobian_from<const N: usize>(
+        &self,
+        curves: &[Curve<DualN<N>>],
+    ) -> Vec<Vec<[f64; 2]>> {
+        let q: Vec<[DualN<N>; 2]> = self
+            .boundary
+            .iter()
+            .map(|&i| attached_point(curves, self.attach[i]))
+            .collect();
+        let fields: Vec<Vec<[f64; 2]>> = (0..N)
+            .map(|k| q.iter().map(|p| [p[0].d[k], p[1].d[k]]).collect())
+            .collect();
+        self.extend(&fields)
+    }
+
+    pub(crate) fn options(&self) -> MotionOptions {
+        self.options
+    }
+
+    pub(crate) fn slide_pairs(&self) -> usize {
+        self.slide_pairs
+    }
+
+    pub(crate) fn base(&self) -> &TriMesh {
+        &self.base
+    }
+
+    pub(crate) fn tri_tags(&self) -> &[i32] {
+        &self.tri_tags
+    }
+
+    pub(crate) fn curve_names(&self) -> &[String] {
+        &self.curve_names
+    }
+
+    pub(crate) fn attachments(&self) -> &[NodeAttachment] {
+        &self.attach
+    }
+
+    pub(crate) fn report(&self) -> &AttachmentReport {
+        &self.report
+    }
+}
+
+/// The fixed-topology node motion `θ ↦ X(θ)` of a tagged ICEM sector mesh.
+pub struct IcemShapeMap {
+    theta0: IcemDesign,
+    core: MotionCore,
+}
+
+/// The radial sector-edge pair of [`EdgeRule::Slide`] for the 9-parameter
+/// construction: the stator iron part.
+const SCALAR_SLIDE_EDGES: [(&str, &str); 1] = [("stator.edge_lo_iron", "stator.edge_hi_iron")];
+
+impl IcemShapeMap {
+    /// Attach `tagged` (meshed at `theta0`) to the curves and factor the
+    /// extension operator.
+    ///
+    /// # Errors
+    ///
+    /// [`IcemParamError::Classification`] if a node on a material interface
+    /// or on the mesh boundary lies on no curve, if an unattached node
+    /// touches two regions, or if a node lies on two curves away from their
+    /// end points; [`IcemParamError::Construction`] /
+    /// [`IcemParamError::Solve`] from the curves and the factorization.
+    pub fn new(tagged: &TaggedTriMesh, theta0: IcemDesign) -> Result<Self, IcemParamError> {
+        Self::with_options(tagged, theta0, MotionOptions::default())
+    }
+
+    /// [`IcemShapeMap::new`] with explicit [`MotionOptions`].
+    ///
+    /// # Errors
+    ///
+    /// As [`IcemShapeMap::new`].
+    pub fn with_options(
+        tagged: &TaggedTriMesh,
+        theta0: IcemDesign,
+        options: MotionOptions,
+    ) -> Result<Self, IcemParamError> {
+        let curves = sector_curves_f64(&theta0)?;
+        let core = MotionCore::build(tagged, &curves, options, &SCALAR_SLIDE_EDGES)?;
+        Ok(Self { theta0, core })
+    }
+
+    /// The design the mesh was generated at.
+    pub fn theta0(&self) -> IcemDesign {
+        self.theta0
+    }
+
+    /// The extension options.
+    pub fn options(&self) -> MotionOptions {
+        self.core.options()
+    }
+
+    /// Number of sliding antiperiodic node pairs on the stator radial edges.
+    pub fn slide_pairs(&self) -> usize {
+        self.core.slide_pairs()
+    }
+
+    /// The `θ0` mesh (counter-clockwise triangles).
+    pub fn base(&self) -> &TriMesh {
+        self.core.base()
+    }
+
+    /// Per-triangle physical tags.
+    pub fn tri_tags(&self) -> &[i32] {
+        self.core.tri_tags()
+    }
+
+    /// Curve names, parallel to [`sector_curves`].
+    pub fn curve_names(&self) -> &[String] {
+        self.core.curve_names()
+    }
+
+    /// Per-node attachment.
+    pub fn attachments(&self) -> &[NodeAttachment] {
+        self.core.attachments()
+    }
+
+    /// Attachment statistics.
+    pub fn report(&self) -> &AttachmentReport {
+        self.core.report()
+    }
+
     /// Node coordinates `X(θ)`.
     ///
     /// # Errors
     ///
     /// [`IcemParamError::Construction`] if `theta` defines no geometry.
     pub fn positions(&self, theta: &IcemDesign) -> Result<Vec<[f64; 2]>, IcemParamError> {
-        let curves = sector_curves_f64(theta)?;
-        let field: Vec<[f64; 2]> = self
-            .boundary
-            .iter()
-            .zip(&self.xb0)
-            .map(|(&i, x0)| {
-                let q = attached_point(&curves, self.attach[i]);
-                [q[0] - x0[0], q[1] - x0[1]]
-            })
-            .collect();
-        let d = self.extend(&[field]).pop().expect("one field");
-        Ok(self
-            .base
-            .nodes
-            .iter()
-            .zip(&d)
-            .map(|(x, u)| [x[0] + u[0], x[1] + u[1]])
-            .collect())
+        Ok(self.core.positions_from(&sector_curves_f64(theta)?))
     }
 
     /// `∂X/∂θ_k` at `θ`: `out[k][node] = [∂x/∂θ_k, ∂y/∂θ_k]`, `k` in
@@ -1310,16 +1607,7 @@ impl IcemShapeMap {
     ///
     /// [`IcemParamError::Construction`] if `theta` defines no geometry.
     pub fn jacobian(&self, theta: &IcemDesign) -> Result<Vec<Vec<[f64; 2]>>, IcemParamError> {
-        let curves = sector_curves_dual(theta)?;
-        let q: Vec<[Dual; 2]> = self
-            .boundary
-            .iter()
-            .map(|&i| attached_point(&curves, self.attach[i]))
-            .collect();
-        let fields: Vec<Vec<[f64; 2]>> = (0..N_PARAMS)
-            .map(|k| q.iter().map(|p| [p[0].d[k], p[1].d[k]]).collect())
-            .collect();
-        Ok(self.extend(&fields))
+        Ok(self.core.jacobian_from(&sector_curves_dual(theta)?))
     }
 
     /// The `θ0` mesh with its nodes at `X(θ)`.
@@ -1330,7 +1618,7 @@ impl IcemShapeMap {
     pub fn moved_mesh(&self, theta: &IcemDesign) -> Result<TriMesh, IcemParamError> {
         Ok(TriMesh {
             nodes: self.positions(theta)?,
-            tris: self.base.tris.clone(),
+            tris: self.base().tris.clone(),
         })
     }
 }

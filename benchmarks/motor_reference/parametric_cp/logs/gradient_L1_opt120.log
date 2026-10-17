@@ -1,0 +1,59 @@
+  L1 opt120 current 0.5 CPR1 done
+  L1 opt120 current 0.5 CPR2 done
+  L1 opt120 current 0.5 CPR3 done
+  L1 opt120 current 0.5 CPR4 done
+  L1 opt120 current 0.5 CPR5 done
+  L1 opt120 current 0.5 CPR6 done
+  L1 opt120 current 0.5 CPR7 done
+  L1 opt120 current 0.5 CPS1 done
+  L1 opt120 current 0.5 CPS2 done
+  L1 opt120 current 0.5 CPS3 done
+  L1 opt120 current 1 CPR1 done
+  L1 opt120 current 1 CPR2 done
+  L1 opt120 current 1 CPR3 done
+  L1 opt120 current 1 CPR4 done
+  L1 opt120 current 1 CPR5 done
+  L1 opt120 current 1 CPR6 done
+  L1 opt120 current 1 CPR7 done
+  L1 opt120 current 1 CPS1 done
+  L1 opt120 current 1 CPS2 done
+  L1 opt120 current 1 CPS3 done
+# Control-point design gradients: L1 (9937 nodes), h45/coupling, design opt120
+
+Moved mesh: min angle 2.18 deg, 0 inverted; shape map set-up 0.070 s
+
+## Current level 0.5 (I_peak = 5.524247 A): mean 0.749023289 N m, std 0.000569000 N m (gradient 4.096 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | +2.565580e-1 | 2.7e-8 (3e-7) | 1e-3 .. 1e-8, 5.0 | +5.520418e-1 | 2.4e-8 (3e-7) | 1e-3 .. 1e-8, 5.0 |  |
+| CPR2 | -4.116037e0 | 9.6e-9 (3e-8) | 1e-3 .. 1e-8, 5.0 | -4.746075e-1 | 1.4e-7 (1e-7) | 1e-3 .. 1e-9, 6.0 |  |
+| CPR3 | -8.442396e1 | 3.4e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -2.181805e0 | 7.5e-9 (1e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR4 | -2.123574e1 | 2.0e-9 (3e-8) | 1e-3 .. 1e-9, 6.0 | +5.213668e0 | 2.7e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| CPR5 | +3.004084e1 | 1.2e-9 (1e-7) | 3e-4 .. 3e-9, 5.0 | -7.102180e0 | 4.1e-8 (1e-9) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR6 | +7.739671e1 | 1.3e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +1.293450e1 | 1.6e-8 (1e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR7 | +1.175921e2 | 1.9e-9 (1e-8) | 3e-4 .. 1e-9, 5.5 | -9.361812e0 | 1.6e-8 (3e-9) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS1 | -9.547265e1 | 1.7e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | -9.538601e-1 | 4.9e-7 (1e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPS2 | -7.784021e1 | 4.4e-10 (1e-8) | 3e-4 .. 1e-9, 5.5 | -6.818154e-1 | 1.9e-7 (1e-7) | 3e-4 .. 3e-9, 5.0 | [0.001] |
+| CPS3 | -7.459494e1 | 1.3e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | +8.361416e-1 | 6.0e-9 (1e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+
+## Current level 1 (I_peak = 11.048494 A): mean 1.499055043 N m, std 0.000282658 N m (gradient 4.245 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | -2.538906e0 | 3.5e-9 (3e-7) | 1e-3 .. 3e-9, 5.5 | +8.917449e-1 | 3.2e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| CPR2 | -1.177395e1 | 2.7e-9 (3e-8) | 1e-3 .. 3e-9, 5.5 | -2.888765e0 | 5.9e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| CPR3 | -1.522390e2 | 2.6e-11 (3e-7) | 3e-4 .. 1e-9, 5.5 | -3.493534e0 | 5.6e-8 (1e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR4 | -3.633461e1 | 4.6e-9 (3e-8) | 1e-3 .. 3e-9, 5.5 | +3.941836e0 | 1.4e-7 (3e-9) | 3e-5 .. 1e-9, 4.5 |  |
+| CPR5 | +5.265783e1 | 1.4e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | +4.157958e0 | 2.2e-7 (3e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPR6 | +1.384336e2 | 1.2e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | +1.176781e0 | 1.4e-6 (3e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPR7 | +2.118970e2 | 5.9e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -4.675174e0 | 2.1e-7 (1e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPS1 | -1.660466e2 | 1.8e-11 (1e-8) | 3e-4 .. 1e-9, 5.5 | -2.287751e1 | 1.0e-7 (3e-9) | 1e-5 .. 1e-9, 4.0 | [0.001] |
+| CPS2 | -1.396695e2 | 1.7e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | +2.348764e0 | 5.9e-8 (1e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPS3 | -1.343526e2 | 5.4e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +2.041739e1 | 6.6e-8 (1e-9) | 1e-5 .. 3e-7, 1.5 | [0.001] |
+
+wrote benchmarks/motor_reference/parametric_cp/runs/gradient_L1_opt120.json

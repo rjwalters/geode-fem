@@ -9,7 +9,8 @@ The remeshed cross-check of the design gradients needs meshes of the
 geometry at ``theta0 +- h e_k``, which no upstream export provides. This
 builder meshes the construction of ``geode_core::mesh::icem_parametric``
 directly: ``PLAN.json`` (``icem_design_gradient plan``) lists, per design,
-every material interface and boundary as an exact line or circular arc.
+every material interface and boundary as an exact line or circular arc
+(or, for the control-point plans of issue #1179, an exact rational B-spline).
 Each region is a plane surface bounded by a closed loop of those curves;
 rotor and stator are disjoint parts that meet on two coincident coupling
 arcs, as in ``../../motor_reference/geometry/build_sector_mesh.py``, whose
@@ -76,6 +77,22 @@ class Part:
         require(va != vb, f"{name}: degenerate curve")
         if c["kind"] == "line":
             tag = self.occ.addLine(va, vb)
+        elif c["kind"] == "nurbs":
+            # Free-form control-point plans (issue #1179): an exact rational
+            # B-spline; its end points are the shared vertices, the interior
+            # control points are temporary.
+            inner = [self.occ.addPoint(float(x), float(y), 0.0) for x, y in c["cps"][1:-1]]
+            knots, mults = [], []
+            for k in c["knots"]:
+                if knots and k == knots[-1]:
+                    mults[-1] += 1
+                else:
+                    knots.append(float(k))
+                    mults.append(1)
+            tag = self.occ.addBSpline([va] + inner + [vb], degree=int(c["degree"]),
+                                      weights=[float(w) for w in c["weights"]],
+                                      knots=knots, multiplicities=mults)
+            self.occ.remove([(0, t) for t in inner])
         else:
             centre = self.occ.addPoint(float(c["c"][0]), float(c["c"][1]), 0.0)
             tag = self.occ.addCircleArc(va, centre, vb)
@@ -156,11 +173,18 @@ def build(design, level, n_base, out_dir, wtags):
     stator = Part(occ, "stator", dict(curves))
 
     # ---- rotor: radial edges split at the rotor surface
-    surf = curves["rotor.surface"]
-    for side, end in (("lo", "a"), ("hi", "b")):
-        e = curves[f"rotor.edge_{side}"]
-        rotor.line(f"rotor.edge_{side}_iron", e["a"], surf[end])
-        rotor.line(f"rotor.edge_{side}_gap", surf[end], e["b"])
+    if "rotor.surface" in curves:
+        surface = ["rotor.surface"]
+        surf = curves["rotor.surface"]
+        for side, end in (("lo", "a"), ("hi", "b")):
+            e = curves[f"rotor.edge_{side}"]
+            rotor.line(f"rotor.edge_{side}_iron", e["a"], surf[end])
+            rotor.line(f"rotor.edge_{side}_gap", surf[end], e["b"])
+    else:
+        # Control-point plans (issue #1179): the surface comes in NURBS
+        # pieces and the radial edges are already split at it.
+        surface = [n for n in curves if n.startswith("rotor.surface_")]
+        require(len(surface) == 5, f"expected 5 rotor surface pieces, got {surface}")
     rotor.curves["rotor.coupling"] = dict(curves["coupling"])
     surfaces = {}
     r = "rotor."
@@ -169,10 +193,10 @@ def build(design, level, n_base, out_dir, wtags):
     surfaces["rotor_air"] = [
         rotor.surface([r + f"pocket_{s}_inner", r + f"magnet_side_{s}",
                        r + f"pocket_{s}_outer", r + f"pocket_{s}_bridge"]) for s in ("lo", "hi")]
-    surfaces["airgap_inner"] = [rotor.surface([r + "surface", r + "edge_lo_gap",
-                                               r + "coupling", r + "edge_hi_gap"])]
+    surfaces["airgap_inner"] = [rotor.surface(surface + [r + "edge_lo_gap",
+                                                         r + "coupling", r + "edge_hi_gap"])]
     surfaces["rotor_iron"] = [rotor.surface(
-        [r + "shaft", r + "edge_lo_iron", r + "surface", r + "edge_hi_iron"],
+        [r + "shaft", r + "edge_lo_iron"] + surface + [r + "edge_hi_iron"],
         [[r + "magnet_inner", r + "pocket_lo_inner", r + "pocket_lo_bridge",
           r + "pocket_lo_outer", r + "magnet_outer", r + "pocket_hi_outer",
           r + "pocket_hi_bridge", r + "pocket_hi_inner"]])]
