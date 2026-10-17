@@ -25,6 +25,12 @@ not implement or validate a GEODE motor solve.
   fixed-topology node motion `θ ↦ X(θ)` with its Jacobian
   (`geode_core::mesh::icem_parametric`), and the forward check of the
   optimized design on moved and fresh meshes (issue #1173).
+- [`reference_refinement/`](reference_refinement/README.md): the reference's
+  own MATLAB code rerun under Octave at 3x3 to 24x24 IGA subdivisions per
+  patch (issue #1189). The 3x3 rerun reproduces the saved arrays to 1e-12 N m.
+  Refined, the reference's cogging std rises from 0.01071 to 0.01208 N m,
+  within 0.1% of GEODE's harmonic-coupling L3 value. The +12.9% cogging gap is
+  the saved reference's coarse discretization.
 
 The source is the authors' [ICEM snapshot at b145aaf4](https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458),
 associated with [Wiesheu et al., arXiv:2402.19065](https://arxiv.org/abs/2402.19065).
