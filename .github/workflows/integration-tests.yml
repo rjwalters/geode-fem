@@ -288,6 +288,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \
@@ -373,6 +374,7 @@ jobs:
               --test mixed_precision_refinement \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
+              --test motor_icem_parametric \
               --test motor_reference_mesh \
               --test motor_torque_benchmark \
               --test nedelec \

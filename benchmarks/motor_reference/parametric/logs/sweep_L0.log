@@ -1,0 +1,22 @@
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (73 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.012 s
+theta0: min angle 13.198 deg, max 136.812 deg, area ratio [1.000000, 1.000000]
+  MAG  down: valid from 7.000000e-3 to 6.000000e-3 (bound 6.000000e-3)
+  MAG  up  : valid from 7.000000e-3 to 1.236000e-2 (bound 1.500000e-2); first failure at 1.240000e-2: 1 inverted
+  MH   down: valid from 7.000000e-3 to 2.000000e-3 (bound 2.000000e-3)
+  MH   up  : valid from 7.000000e-3 to 1.200000e-2 (bound 1.200000e-2)
+  MW   down: valid from 1.900000e-2 to 1.000000e-2 (bound 1.000000e-2)
+  MW   up  : valid from 1.900000e-2 to 2.500000e-2 (bound 2.500000e-2)
+  SW1  down: valid from 4.000000e-3 to 2.000000e-3 (bound 2.000000e-3)
+  SW1  up  : valid from 4.000000e-3 to 5.720000e-3 (bound 6.000000e-3); first failure at 5.730000e-3: construction: no slot-top arc through the opening tangent to both flanks (discriminant -6.272e-9)
+  SW2  down: valid from 2.300000e-3 to 1.000000e-3 (bound 1.000000e-3)
+  SW2  up  : valid from 2.300000e-3 to 4.000000e-3 (bound 4.000000e-3)
+  SW3  down: valid from 1.000000e-3 to 5.000000e-4 (bound 5.000000e-4)
+  SW3  up  : valid from 1.000000e-3 to 1.500000e-3 (bound 1.500000e-3)
+  SW4  down: valid from 8.250000e-3 to 2.093750e-3 (bound 2.000000e-3); first failure at 2.062500e-3: 3 inverted
+  SW4  up  : valid from 8.250000e-3 to 1.676875e-2 (bound 2.000000e-2); first failure at 1.682750e-2: 24 inverted
+  SD1  down: valid from 1.350000e-1 to 1.179000e-1 (bound 9.000000e-2); first failure at 1.176750e-1: 24 inverted
+  SD1  up  : valid from 1.350000e-1 to 1.600000e-1 (bound 1.600000e-1)
+  Sr1  down: valid from 1.000000e-3 to 5.000000e-4 (bound 5.000000e-4)
+  Sr1  up  : valid from 1.000000e-3 to 2.000000e-3 (bound 2.000000e-3)
+  optimized design (all 9 at once): {"min_angle_deg": 13.160613, "max_angle_deg": 138.851888, "min_area_ratio": 1.675930e-1, "max_area_ratio": 2.523767e0, "inverted": 0}
+wrote benchmarks/motor_reference/parametric/runs/sweep_L0.json

@@ -19,6 +19,16 @@
 //!       [--out FILE.json]
 //! ```
 //!
+//! Other designs (issue #1173): `--mesh FILE` solves on any mesh with the
+//! same tags (for example a moved or fresh mesh of the optimized design from
+//! `benchmarks/motor_reference/parametric/`), `--i-peak A` and
+//! `--phi0-deg D` set the peak current and load angle, and `--scale-mesh S`
+//! multiplies every node coordinate by `S` (the reference's `ScaleR`
+//! similarity). Torques are always reported for axial length 0.1 m; a
+//! scaled mesh keeps the Arkkio radii of the unscaled design (the Maxwell
+//! circles are scaled), so `T_arkkio*` is not meaningful there
+//! (`arkkio_valid: false`).
+//!
 //! `--coupling harmonic:3:6:45` replaces the conforming band by the
 //! reference's harmonic coupling (issue #1170): weak continuity of the sine
 //! and cosine moments of orders 3, 9, ..., 45 only, with Lagrange
@@ -42,6 +52,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_sector::CouplingMode;
+use geode_core::mesh::icem_parametric::rewrite_msh_nodes;
+use geode_core::mesh::read_tagged_tri_mesh;
 use icem::{AreaMode, I_PEAK_INITIAL, IcemModel, IronLaw, LEVELS, PHI0_INITIAL_DEG};
 
 struct Args {
@@ -56,6 +68,10 @@ struct Args {
     harmonics: Option<Option<Vec<usize>>>,
     coupling_name: String,
     free_ends: bool,
+    mesh: Option<PathBuf>,
+    i_peak: f64,
+    phi0_deg: f64,
+    scale_mesh: f64,
     out: Option<PathBuf>,
 }
 
@@ -84,6 +100,10 @@ fn parse_args() -> Args {
         harmonics: None,
         coupling_name: "conforming".into(),
         free_ends: false,
+        mesh: None,
+        i_peak: I_PEAK_INITIAL,
+        phi0_deg: PHI0_INITIAL_DEG,
+        scale_mesh: 1.0,
         out: None,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -146,6 +166,10 @@ fn parse_args() -> Args {
                     o => panic!("unknown --ends {o}"),
                 }
             }
+            "--mesh" => a.mesh = Some(PathBuf::from(&val)),
+            "--i-peak" => a.i_peak = val.parse().expect("--i-peak A"),
+            "--phi0-deg" => a.phi0_deg = val.parse().expect("--phi0-deg D"),
+            "--scale-mesh" => a.scale_mesh = val.parse().expect("--scale-mesh S"),
             "--out" => a.out = Some(PathBuf::from(&val)),
             o => panic!("unknown argument {o}"),
         }
@@ -168,14 +192,34 @@ fn main() {
     let args = parse_args();
     let reference = icem::load_reference();
     let exact = icem::load_exact_areas();
-    let path = icem::mesh_path(args.level);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| {
+    let path = args
+        .mesh
+        .clone()
+        .unwrap_or_else(|| icem::mesh_path(args.level));
+    assert!(
+        args.mesh.is_none() || args.out.is_some(),
+        "--mesh needs --out (the default record paths are for the initial design)"
+    );
+    let mut bytes = std::fs::read(&path).unwrap_or_else(|e| {
         panic!(
             "read {}: {e}. L1-L3 are gitignored; regenerate them with the \
              benchmarks/motor_reference/geometry/README.md command",
             path.display()
         )
     });
+    if args.scale_mesh != 1.0 {
+        let text = String::from_utf8(bytes).expect("UTF-8 mesh");
+        let tagged = read_tagged_tri_mesh(text.as_bytes()).expect("mesh");
+        let scaled: Vec<[f64; 2]> = tagged
+            .mesh
+            .nodes
+            .iter()
+            .map(|p| [p[0] * args.scale_mesh, p[1] * args.scale_mesh])
+            .collect();
+        bytes = rewrite_msh_nodes(&text, &scaled)
+            .expect("scale mesh")
+            .into_bytes();
+    }
     let t_setup = Instant::now();
     let mut model = IcemModel::new(
         args.level,
@@ -215,6 +259,13 @@ fn main() {
     };
     let cfg = icem::newton_config(args.tight);
     let n_maxwell = 8 * rep.n_coupling;
+    println!(
+        "mesh {}, scale {}, I_peak {:.9} A, phi0 {:.9} deg",
+        path.display(),
+        args.scale_mesh,
+        args.i_peak,
+        args.phi0_deg
+    );
     println!(
         "ICEM initial design, L{}: {} nodes, {} triangles ({} reoriented on read), N = {} \
          coupling steps ({} per degree), r_c = {:.6} m, rotor/stator edge pairs {}/{}, \
@@ -258,7 +309,7 @@ fn main() {
     let mut rows = String::new();
     let t_all = Instant::now();
     for &ci in &args.currents {
-        let i_peak = LEVELS[ci] * I_PEAK_INITIAL;
+        let i_peak = LEVELS[ci] * args.i_peak;
         let mut prev: Option<Vec<f64>> = None;
         println!("  current level {} (I_peak = {:.9} A)", LEVELS[ci], i_peak);
         println!(
@@ -269,7 +320,7 @@ fn main() {
             let (s, wall) = model
                 .solve_degree(
                     i_peak,
-                    PHI0_INITIAL_DEG.to_radians(),
+                    args.phi0_deg.to_radians(),
                     deg,
                     &cfg,
                     prev.as_deref(),
@@ -280,7 +331,7 @@ fn main() {
             let to = model.arkkio(&s, 1);
             let tm: Vec<f64> = MAXWELL_RADII
                 .iter()
-                .map(|&r| model.maxwell(&s, r, n_maxwell))
+                .map(|&r| model.maxwell(&s, r * args.scale_mesh, n_maxwell))
                 .collect();
             let spectrum = if args.spectrum {
                 let (full, part) =
@@ -350,12 +401,24 @@ fn main() {
         write!(areas, "{:.17e}", model.group_areas[g]).unwrap();
     }
     let json = format!(
-        "{{\n  \"issue\": {},\n  \"coupling\": \"{}\",\n  \"coupling_orders\": {},\n  \"level\": {},\n  \"nodes\": {},\n  \"triangles\": {},\n  \
+        "{{\n  \"issue\": {},\n  \"mesh_file\": \"{}\",\n  \"scale_mesh\": {:.17e},\n  \
+         \"i_peak_full_A\": {:.17e},\n  \"phi0_deg\": {:.17e},\n  \"arkkio_valid\": {},\n  \"coupling\": \"{}\",\n  \"coupling_orders\": {},\n  \"level\": {},\n  \"nodes\": {},\n  \"triangles\": {},\n  \
          \"reoriented_triangles\": {},\n  \"n_coupling\": {},\n  \"law\": \"{}\",\n  \
          \"rel_tol\": {:e},\n  \"area_mode\": \"{}\",\n  \"group_areas_m2\": [{}],\n  \
          \"magnet_hc_A_per_m\": {:.17e},\n  \"maxwell_radii_m\": [{}],\n  \"maxwell_samples\": {},\n  \
          \"setup_s\": {:.4},\n  \"total_solve_s\": {:.4},\n  \"rows\": [\n{}\n  ]\n}}\n",
-        if orders.is_some() { 1170 } else { 1168 },
+        if args.mesh.is_some() {
+            1173
+        } else if orders.is_some() {
+            1170
+        } else {
+            1168
+        },
+        path.file_name().unwrap().to_string_lossy(),
+        args.scale_mesh,
+        args.i_peak,
+        args.phi0_deg,
+        args.scale_mesh == 1.0,
         coupling_name,
         match &orders {
             Some(o) => format!("{o:?}"),
@@ -371,7 +434,9 @@ fn main() {
         area_name,
         areas,
         icem::magnet_hc(),
-        MAXWELL_RADII.map(|r| format!("{r}")).join(", "),
+        MAXWELL_RADII
+            .map(|r| format!("{}", r * args.scale_mesh))
+            .join(", "),
         n_maxwell,
         setup_s,
         total,
