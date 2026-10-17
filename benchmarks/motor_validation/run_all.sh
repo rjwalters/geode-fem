@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2086 # COMMON is split into words on purpose
 # Motor experiment 1 (issue #1181): validate the optimization target at θ0
 # and Opt120 across level, coupling, angle grid and current. From the
 # repository root:
 #
-#   benchmarks/motor_validation/run_all.sh [meshes|eval|analyze|all]
+#   benchmarks/motor_validation/run_all.sh [meshes|eval|slot|threads|analyze|all]
 #
 # Needs the upstream cache (benchmarks/motor_reference/extract_reference.py
 # --fetch) for the export meshes, and gmsh 4.15.2 through uv. Every eval job
@@ -124,6 +125,30 @@ if [[ "$STAGE" == eval || "$STAGE" == all ]]; then
     # shellcheck disable=SC2016
     xargs -P "$JOBS" -L 1 bash -c 'run_one "$@"' _ <"$JOBFILE" | tee "$V/logs/eval.log"
     echo "eval wall $(($(date +%s) - T0)) s with $JOBS concurrent jobs" | tee -a "$V/logs/eval.log"
+fi
+
+if [[ "$STAGE" == slot || "$STAGE" == all ]]; then
+    # The candidate slot: the Opt120 vector through file: and vector: input,
+    # against the opt120 record (must be identical torques).
+    VEC=$(python3 -I -c 'import json,sys; print(",".join(repr(x) for x in json.load(open(sys.argv[1]))["design_vector"]))' \
+        "$V/runs/opt120_moved_L0_h45_fixed.json")
+    for S in "file:$V/candidate_template.json" "vector:candidate_vector:$VEC"; do
+        n=slotcheck_${S%%:*}_L0
+        env RAYON_NUM_THREADS=1 GEODE_NUM_THREADS=1 GEODE_COMMIT="$COMMIT" "$EX/icem_validation" eval \
+            --design "$S" --level 0 --source moved --family moved --angles 0:0.5:40 --threads 1 \
+            --out "$V/runs/$n.json" >"$V/logs/$n.log" 2>&1
+        tail -1 "$V/logs/$n.log"
+    done
+fi
+
+if [[ "$STAGE" == threads || "$STAGE" == all ]]; then
+    # Thread scaling of one L3 h45 solve chain (theta0, f = 1, 8 angles).
+    for T in 1 4 8; do
+        env RAYON_NUM_THREADS=$T GEODE_NUM_THREADS=$T GEODE_COMMIT="$COMMIT" "$EX/icem_validation" eval \
+            --design initial --level 3 --source nurbs --angles 0:0.5:8 --currents 1 --threads $T \
+            --out "$V/runs/threads_L3_t$T.json" >"$V/logs/threads_L3_t$T.log" 2>&1
+        tail -1 "$V/logs/threads_L3_t$T.log"
+    done
 fi
 
 if [[ "$STAGE" == analyze || "$STAGE" == all ]]; then
