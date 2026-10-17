@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1175",
-  "loom_commit": "f32f9db803088a124fa2644db9f9ebf5f9c5d604",
+  "loom_version": "0.19.1176",
+  "loom_commit": "43b0f18afd7bec755a0484f9a82e81f336f7742c",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -775,6 +775,6 @@
     ".loom/scripts/tests/test-champion-epic-child-discovery.sh",
     ".loom/scripts/tests/test-champion-tracker-marker-skip.sh"
   ],
-  "last_resync": "2026-10-16",
+  "last_resync": "2026-10-17",
   "requires_daemon": "0.19.1088"
 }
