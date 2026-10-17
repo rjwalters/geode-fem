@@ -32,8 +32,8 @@ labelled *Hypothesis* has not been tested.
     designs.
 - **Spatial refinement.** Across all fresh and multipatch families and
   all couplings,
-  `|F_train(L3) − F_train(L2)| / F_train` is at most 1.4% for θ0 and at
-  most 3.2% for Opt120. For Opt120 the increments do not shrink:
+  `|F_train(L3) − F_train(L2)| / F_train(L3)` is at most 1.4% for θ0 and
+  at most 3.2% for Opt120 (3.33% when divided by `F_train(L2)` instead). For Opt120 the increments do not shrink:
   L1→L2 is +3.05e-8 and L2→L3 is +2.90e-8 (h45, fresh export mesh). L3
   is therefore not shown to be in the asymptotic range for Opt120. For
   the loaded mean torque, L3−L2 is at most 1.3e-3 relative (conforming)
@@ -44,10 +44,17 @@ labelled *Hypothesis* has not been tested.
     0.3%. At L0–L1, g20s−g20 reaches 3.8% (conforming L0) and 0.9%
     (harmonic).
   - g10 is the reference optimizer's grid
-    (`history_optimization_angles_degrees` = 0, 2, …, 18). It
-    underestimates Opt120's `F_train` at L3 against g40 by 1.0% (h45),
-    5.9% (h93) and 17% (conforming). For θ0 the shortfall is 0.02% to
-    1.0%.
+    (`history_optimization_angles_degrees` = 0, 2, …, 18). Against g40,
+    the sign of its error depends on the coupling. Across Opt120's mesh
+    sources at L2–L3:
+    - h45: g10 reads high, by +0.62% (moved, L2) to +1.05% (export,
+      L3);
+    - h93: g10 reads low, by −5.9% to −6.3%;
+    - conforming: g10 reads low, by −16.1% (export, L2) to −20.8%
+      (moved, L2). At L3 the values are −17.1% (export) and −18.5%
+      (construction).
+
+    For θ0, g10 reads low by 0.02% to 1.05%.
 - **Rotation support.** Every mesh supports every selected angle,
   already at L0. The coupling step is `0.5°/2^L`, so all of g10, g20,
   g40 and g20s (all multiples of 0.5°) fall on the grid at every level,
@@ -127,7 +134,8 @@ these margins can be rescaled to any frozen `T_ref` and weights.
    denser):** `δF = max(0.10 · F, 2.5e-7 N m²)`. An improvement smaller
    than δF counts as unresolved. Basis:
    - roughly 3× the largest observed L3−L2 increment at Opt120: 3.2%
-     relative and 7.5e-8 N m² absolute. The factor 3 is there because
+     relative to F(L3) (3.33% relative to F(L2)) and 7.5e-8 N m²
+     absolute. The factor 3 is there because
      those increments are not shrinking;
    - the angle-grid term: g20s−g20 at most 1.4% at L2–L3;
    - the mesh-family term: construction against export at most 1.4%
@@ -140,7 +148,9 @@ these margins can be rescaled to any frozen `T_ref` and weights.
      model for validation. The suggestion is h93, or the conforming
      band, which agrees with h93 to within 2.6% on F, at L3 (or L2 if
      cost requires), with g20 or g40;
-   - do not use g10 as the validation grid (up to 17% low).
+   - do not use g10 as the validation grid. Against g40 it reads Opt120
+     between +1.05% high (h45) and −20.8% low (conforming), depending on
+     the coupling and the mesh source.
 
    Whether an optimizer run should also *train* on h93 is a protocol
    decision for experiment 2. It is not settled here.
@@ -155,11 +165,16 @@ these margins can be rescaled to any frozen `T_ref` and weights.
    The current rule must be frozen first, because it moves Opt120's mean
    by 14%.
 4. **Geometric feasibility:**
-   - no inverted triangle on the mesh that is evaluated;
-   - a candidate whose moved mesh falls below about 5° minimum angle at
-     the validation level is re-evaluated on a fresh mesh. Basis: at 1.3°
-     the moved mesh shifted the conforming `F` by 9.4% while h45 shifted
-     by only 0.55%;
+   - the primary remesh trigger is any inverted triangle on the moved
+     mesh at the validation level. The candidate is then evaluated on a
+     fresh mesh, and the invalid moved mesh is recorded without a field.
+     Minimum angle alone does not detect inversion: Opt120 moved at L3
+     inverts 4 triangles but reports a 5.44° minimum angle, because the
+     angle is taken over positive-area triangles only;
+   - secondary trigger: re-evaluate on a fresh mesh when the moved
+     minimum angle at the validation level is below about 5°. Basis: at
+     1.3° the moved mesh shifted the conforming `F` by 9.4% while h45
+     shifted by only 0.55%;
    - air gap: recorded as a mesh-node measurement (θ0 1.000 mm, Opt120
      1.048 mm scaled). No margin is proposed;
    - bridge thickness: GEODE has no functional for it, so it is not
