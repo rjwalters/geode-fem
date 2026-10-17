@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1177",
-  "loom_commit": "9f78359079053fae40e7a50b427a827089135c6c",
+  "loom_version": "0.19.1180",
+  "loom_commit": "2b58988b8fc372abff824eaf75670461d0838c41",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -711,7 +711,6 @@
     ".claude/commands/loom/curator-estimate.md",
     ".loom/docs/unnamed-block-review.md",
     ".loom/hooks/guard-uncommitted-work.sh",
-    ".loom/hooks/presence-beat.sh",
     ".loom/roles/curator-estimate.md",
     ".loom/scripts/tests/test-loom-daemon-update-otlp-probe.sh",
     ".loom/scripts/tests/test-merge-pr-pr-state.sh",
@@ -774,7 +773,9 @@
     ".loom/scripts/tests/test-champion-epic-escalation-evaluations.sh",
     ".loom/scripts/tests/test-champion-epic-child-discovery.sh",
     ".loom/scripts/tests/test-champion-tracker-marker-skip.sh",
-    ".loom/scripts/tests/test-champion-followon-out-of-scope.sh"
+    ".loom/scripts/tests/test-champion-followon-out-of-scope.sh",
+    ".loom/scripts/tests/test-judge-spec-reconcile.sh",
+    ".loom/scripts/tests/test-merge-pr-feature-branch-close.sh"
   ],
   "last_resync": "2026-10-17",
   "requires_daemon": "0.19.1088"
