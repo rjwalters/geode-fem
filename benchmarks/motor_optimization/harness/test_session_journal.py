@@ -94,7 +94,11 @@ class JournalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); out = root / "session"; meshes = root / "meshes"; meshes.mkdir()
             import export_queue
-            export_queue.export(root / "planned-queue.json")
+            # This test binds queue identity; the CLI suite checks real Git provenance.
+            # Keep this scheduler fixture usable in isolated mutation copies.
+            with patch.object(export_queue.recovery_bindings, "sources", return_value={
+                    "commit": "a" * 40, "tree_clean": True, "files": {}}):
+                export_queue.export(root / "planned-queue.json")
             planned_jobs = json.loads((root / "planned-queue.json").read_text())["jobs"]
             binary = root / "eval"; binary.write_bytes(b"fixture")
             for level in (0, 1, 2):

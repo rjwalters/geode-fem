@@ -10,8 +10,8 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 MUTATIONS = (
     ("startup_cleanup_missing",
-     "            self.kill()\n            self._close_streams()\n            exc.evaluator_resources",
-     "            self._close_streams()\n            exc.evaluator_resources"),
+     "            try:\n                self.kill()\n            except BaseException as cleanup_error:",
+     "            try:\n                pass  # deliberate missing cleanup\n            except BaseException as cleanup_error:"),
     ("forced_exit_receipt_dropped", "        self._reap(block=True)",
      "        self.proc.wait()"),
     ("killed_child_falsely_complete", '            receipt["cpu_complete"] &= receipt["returncode"] == 0',
