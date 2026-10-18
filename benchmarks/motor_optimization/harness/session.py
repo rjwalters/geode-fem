@@ -125,6 +125,7 @@ def host_record():
 
 
 def provenance(binary):
+    import recovery_bindings
     lock = HERE / "requirements.lock"
     dirty = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "crates",
                             "benchmarks/motor_optimization/harness"], cwd=ROOT).returncode != 0
@@ -136,6 +137,8 @@ def provenance(binary):
             # The optimizers' paths depend on BLAS/LAPACK at the bit level.
             "linear_algebra": linalg_fingerprint(),
             "evaluator": {"binary": str(binary), "sha256": sha256(binary)},
+            "source": recovery_bindings.sources(ROOT),
+            "runtime": recovery_bindings.runtime(ROOT),
             "threads": {"RAYON_NUM_THREADS": "1", "GEODE_NUM_THREADS": "1",
                         "faer": "Par::Seq (set by the evaluator)"}}
 
@@ -760,6 +763,18 @@ def _main(argv=None, stop=None):
                                  "session_file": f"session_{tag}.json"})
         session_journal.freeze(out / "queue.json", {"jobs": jobs})
         pinned = ["session.json", "queue.json", "calibration_primary.json"]
+        # Freeze content-level bindings after setup, before any optimization.
+        # Recovery must reuse these inputs and the measured unit, not recapture
+        # a new baseline after the original session has been interrupted.
+        import recovery_bindings
+        recovery_inputs = recovery_bindings.capture(session)
+        session_journal.freeze(out / "recovery-inputs.json", recovery_inputs)
+        pinned.append("recovery-inputs.json")
+        recovery_bindings.validate_setup(recovery_inputs, prov, meshes)
+        if a.main and recovery_inputs.get("source", {}).get("tree_clean") is not True:
+            raise SystemExit("main dispatch requires clean, frozen experiment sources")
+        for name in sorted({job["session_file"] for job in jobs if "session_file" in job}):
+            pinned.append(name)
         if secondary_cal is not None:
             pinned.append("calibration_secondary.json")
         if preflight is not None:

@@ -107,11 +107,21 @@ class JournalTests(unittest.TestCase):
                  patch.object(session, "provenance", return_value={}), \
                  patch.object(session, "MESHES", meshes), patch.object(session, "OPT", root), \
                  patch.object(session, "HERE", root), \
+                 patch("recovery_bindings.capture", return_value={"schema": 1, "source": {"tree_clean": True}}) as capture, \
+                 patch("recovery_bindings.validate_setup"), \
                  patch("start_preflight.verify", side_effect=preflight), \
-                 patch.object(session, "gated_calibration", side_effect=[good_cal(), good_cal()]), \
-                 patch.object(session, "schedule", side_effect=schedule), contextlib.redirect_stdout(io.StringIO()):
+                 patch.object(session, "gated_calibration", side_effect=[good_cal() for _ in range(4)]), \
+                 patch.object(session, "schedule", side_effect=schedule) as dispatch, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(session.main(["--main", "--procs", "1", "--out", str(out),
                                                "--binary", str(binary)]), 0)
+                count = dispatch.call_count
+                capture.return_value = {"schema": 1, "source": {"tree_clean": False}}
+                with self.assertRaisesRegex(SystemExit, "clean, frozen"):
+                    session.main(["--main", "--procs", "1", "--out", str(root / "dirty"),
+                                  "--binary", str(binary)])
+                self.assertEqual(dispatch.call_count, count)
+                self.assertFalse(any(e["kind"] == "session_ready" for e in
+                                     read_events(root / "dirty/events.jsonl")["events"]))
             manifest = json.loads((out / "manifest.json").read_text())
             self.assertTrue(manifest["complete"])
             self.assertEqual(manifest["unresolved_jobs"], [])
@@ -121,6 +131,7 @@ class JournalTests(unittest.TestCase):
             from session_journal import digest
             for name, sha in bindings["files"].items():
                 self.assertEqual(digest(out / name), sha)
+            self.assertIn("recovery-inputs.json", bindings["files"])
             self.assertEqual(set(bindings["meshes"]["training_models"]), {"L0", "L1"})
 
     def test_load_samples_are_saved_before_monitor_stop(self):

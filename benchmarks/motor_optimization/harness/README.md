@@ -887,3 +887,40 @@ records preparation failures, prevents launch after a pending stop, and exercise
 SIGTERM against a real tracked evaluator and child. Six tests and five private-copy
 mutations pass, including a deliberate optimizer reentry. This is controlled
 recovery-component evidence, not main-run performance data.
+
+### Frozen inputs for recovery (#1202)
+
+Before dispatch, `session.py` freezes `recovery-inputs.json` and includes its hash
+in the session bindings. This records the exact session settings, original unit,
+worker count, stable host fields, evaluator and mesh/anchor/start hashes, tracked
+experiment-source contents and commit, and the numerical runtimes. Source and
+runtime observations are taken before setup and checked again after calibration;
+the binary and primary input hashes must also match their setup observations.
+Main dispatch requires clean experiment sources. Alternate smoke session files
+are also included in the frozen file bindings.
+
+The runtime fingerprint includes each Python executable, the installed NumPy/SciPy
+or NumPy/Gmsh distribution files, Gmsh's loaded native library, `uv`, the numerical
+thread environment and the working directory. UV environment values are retained
+only as a digest. The mesher probe follows the evaluator's existing package and
+interpreter request: its Python version can differ from the locked harness's,
+so both are recorded independently. The probe runs offline; prepare the existing
+pinned mesher environment before launching the session if it is not cached:
+
+```sh
+uv run -q --with numpy==2.5.4 --with gmsh==4.15.2 python -I benchmarks/motor_optimization/harness/runtime_fingerprint.py numpy gmsh > /tmp/motor-remesher-runtime.json
+```
+
+`recovery_bindings.verify` compares fresh observations with the original frozen
+record. It rejects changed source/runtime/input/settings/host state and never
+recalibrates. The registered unit is reused verbatim. Its result keeps
+`can_launch: false`: the recovery launcher must additionally verify process
+absence, exclusive ownership, queue order and retry eligibility. These bindings
+do not themselves establish that a binary was built from a particular source
+revision; the reviewed rebuild and its provenance remain required.
+
+Seven binding tests cover real Git content changes, missing inputs, changed
+installed package contents with unchanged version labels, host/settings/unit
+changes, failed probes and changes during calibration. Six private-copy mutations
+are detected. The journal integration test also verifies that a dirty-source
+refusal cannot dispatch or emit `session_ready`.
