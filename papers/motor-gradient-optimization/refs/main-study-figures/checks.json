@@ -1,0 +1,35 @@
+{
+  "scope": "Synthetic presentation checks only; no main-study outcomes or final manuscript approval.",
+  "producer_interface_commit": "19cc493ed9992885cefcc3192657255ef1eeddc2",
+  "stdlib_test_command": "python3 -I -m unittest discover -s papers/motor-gradient-optimization/refs/main-study-figures -p 'test_*.py'",
+  "stdlib_tests_passed": 9,
+  "synthetic_render": {
+    "runs": 100,
+    "target_cells": 300,
+    "timing_repeat_figures": 2,
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "synthetic_selection_sha256": "fc8821fd28149c8c80624c9efd1f859a7e22b18865c68cb399cfb1ccf2de2dbd",
+    "both_pngs_visually_inspected": true
+  },
+  "existing_pipeline_synthetic_selection": {
+    "sha256": "8320d22dc143e0d1099dbf43708ef863fe71aedfb6b51068fa92a50ecc39f778",
+    "runs": 100,
+    "target_cells": 300,
+    "unit_seconds": 70.935572288,
+    "scope": "Schema compatibility with retained synthetic public selection, not actual main evidence."
+  },
+  "files_sha256": {
+    "prepare.py": "9453ea2f1b31d50c774df9b3f0cbaa5dfe3680544c92276f161dd4d977bef8ce",
+    "render.py": "ae62b157b245c19ee624c840eaabb752573c3628bab0a05710678322e662abac",
+    "test_prepare.py": "1ac6cdc2de880e398d01b18ef3181ea7a5126ce789b9785f4e33c7329324e82b",
+    "synthetic-layout.png": "8c840a06bf0c2a81f974ddde6dfc4a5f22da23e65bdcf585babceca145f48b3a"
+  },
+  "remaining": [
+    "Independent presentation review",
+    "Run on completed authenticated main selection",
+    "Final-refinement analysis alongside these histories",
+    "Real-data visual inspection at final manuscript size",
+    "Separate end-to-end costs and scoped CPU/RSS analysis"
+  ]
+}
