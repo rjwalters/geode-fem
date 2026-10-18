@@ -10,7 +10,10 @@ PR #1204 at `5c998bda`. At `bc1527e8`, post-rebase verification passed the
 222-test Python suite, 98 safeguard mutations, native starts/gradient checks
 and both-space L0/L2 smokes. The subsequently adopted cross-platform anchor
 gate is implemented at `d54c66b2`, with a test-only follow-up at `728b38b2`;
-its native verification is in progress before the #1202 PR. Claude reports
+its native verification passed, including the anchor check and both-space
+mixed-model smokes. PR #1206 is open at `848fa480` for independent review;
+the exact-head recorded build is verified. Evidence bundles and their
+source scopes are linked from the PR. Claude reports
 operator approval for the cloud run with
 a $50 total cap (Squad message 862, 2026-10-18). Main execution remains
 conditional on reviewed #1202 integration and host checks below. This file

@@ -7,7 +7,8 @@
 This supplement records the adopted experiment definitions and their source
 provenance before main results. Geometry tables use merged source
 \texttt{43db1c62}; additional implementation observations use provisional,
-unmerged source \texttt{116d08c7}. Those observations require reconciliation
+unmerged sources \texttt{116d08c7} (optimizer options) and
+\texttt{848fa480} (anchor preflight). Those observations require reconciliation
 with the reviewed merge before execution. The accompanying JSON records full
 commit identifiers and file SHA-256 hashes. No main-run manifest or outcome
 is supplied here.
@@ -109,6 +110,17 @@ The common validator is L2/$h93$/g20, using the same exact anchor for all
 methods. The main study must retain the numerical material/solver options,
 mesh hashes and model constants in its frozen manifest; this model label
 alone is not a reproducible configuration.
+
+The separately adopted platform check precedes calibration: the relative
+errors in the recomputed $F_0$ and full-current mean must each be at most
+$10^{-9}$, and each torque sample's absolute error must be at most
+$10^{-9}\,\mathrm{N\,m}$. The source snapshot and numeric verifier bind these
+limits to the proposed implementation; they do not establish execution on
+the main host. The canonical anchor, strict file parsing, input identities
+and same-host checks remain fixed. Newton counts are recorded without a
+cross-platform equality requirement. Python is pinned to the 3.12 minor
+series; the actual interpreter and numerical libraries are recorded and
+frozen within the session and all recovery attempts.
 
 \begin{table}[ht]
 \centering\small

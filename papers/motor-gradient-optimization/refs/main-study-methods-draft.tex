@@ -5,6 +5,7 @@
 % refs/amendment8-physical-baseline.md.
 % Final selection: comments 6247383821 + 6247421487 + 6248492318.
 % Repair/admissibility: comment 6248970362; recovery: comment 6249073475.
+% Cross-platform anchor: comment 6252347196; refs/cross-platform-anchor-protocol.json.
 % Start sampling: comment 6247585770 + subsequent rationale correction.
 % Scope decisions: Squad reviews 18, 19, 21; EXPERIMENTS.md.
 % Before incorporation: verify against merged implementation and main manifests;
@@ -274,6 +275,21 @@ Each makes three cold initial-design validation evaluations; the common unit
 is the median of all $3N$ timings. The single-process median is retained as a
 diagnostic, not used as the session unit. L0 and L1 reference computations
 are recorded separately without introducing a second validation-time unit.
+Before calibration, the host will recompute the initial design's complete
+validation waveforms in both spaces, with the registered mesh and physics.
+Relative differences from the canonical anchor in $F_0$ and $\mu_0$ must each
+be at most $10^{-9}$; every corresponding torque sample, at every current,
+must differ by at most $10^{-9}\,\mathrm{N\,m}$. Failure of any check refuses
+the session before calibration. This separately recorded platform check
+retains the four-ulp anchor-file parsing check, exact input identities,
+and same-host determinism and bitwise agreement between spaces.
+Newton iteration counts are retained but need not match across platforms.
+Calibration must reproduce this host's preflight objective and mean exactly.
+The canonical anchor continues to determine all targets and the mean floor;
+recomputation never resets the acceptance rule or its uncertainty allowance.
+The check's full waveforms, differences and costs are retained outside
+individual run budgets.
+
 Reference constants and common calibration define the session and sit outside
 individual run budgets; their costs remain in the end-to-end totals.
 All methods use the same thread limits. Post-run diagnostics have a separate
@@ -301,8 +317,9 @@ diagnostic is repaired independently, without repeating completed optimization.
 All original records and partial costs are retained, with incomplete accounting
 identified. The report will list every replacement, reason, supporting evidence
 and original partial cost, and count the affected jobs. These are adopted
-rules. A private implementation now has controlled recovery checks; its
-reviewed integration and native verification remain pending.
+rules. The proposed implementation has controlled recovery checks and
+recorded native verification; independent review and merged integration
+remain pending.
 
 The execution record will bind the evaluator to a recorded build of the clean
 source revision and retain the build log and a separate executable copy.

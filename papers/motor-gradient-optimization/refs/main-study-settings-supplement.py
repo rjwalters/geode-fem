@@ -77,7 +77,19 @@ def main():
                                      "maxiter": expected["COBYQA_maxiter"], "scale": expected["COBYQA_scale"]}
     assert options["run_surrogate"] == {"maxiter": expected["C_subproblem_maxiter"],
                                         "ftol": expected["C_subproblem_ftol"]}
-    print(json.dumps({"status": "PASS", "scope": "source hashes, scalar/group numeric tables, optimizer options",
+    gate = ast.parse(sources["benchmarks/motor_optimization/harness/anchor_preflight.py"])
+    assignments = {n.targets[0].id: ast.literal_eval(n.value) for n in gate.body
+                   if isinstance(n, ast.Assign) and len(n.targets) == 1
+                   and isinstance(n.targets[0], ast.Name)
+                   and n.targets[0].id in ("TOLERANCE", "RULE")}
+    rule = data["cross_platform_anchor"]
+    assert assignments["RULE"] == rule["url"]
+    for key in ("relative_F0", "relative_full_current_mean", "absolute_each_torque_Nm"):
+        assert rule[key] == assignments["TOLERANCE"] == 1e-9
+    snapshot = json.loads((HERE / rule["protocol_snapshot"]).read_text())
+    assert snapshot["html_url"] == rule["url"]
+    assert hashlib.sha256(snapshot["body"].encode()).hexdigest() == snapshot["body_sha256"]
+    print(json.dumps({"status": "PASS", "scope": "source hashes, scalar/group numeric tables, optimizer options, anchor tolerance and protocol snapshot",
                       "source_files": len(sources), "scalar_rows": 8, "group_rows": 10,
                       "limitations": "No runtime, group-topology, protocol or publication verdict"}, indent=2))
 

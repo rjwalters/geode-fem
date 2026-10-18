@@ -38,6 +38,11 @@
     "crates/geode-core/tests/common/icem_remesh.rs": {
       "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
       "sha256": "6ec7a63da77a014de90a90988516c4062fb371d25139bde222ab8b1b6570d209"
+    },
+    "benchmarks/motor_optimization/harness/anchor_preflight.py": {
+      "commit": "848fa480a3c7c54773afca036b47af9ceced3eab",
+      "sha256": "11697536e6811044d336ed97c0aa203bbf9ef2d95880bfea85384d694eaf9c31",
+      "review_status": "PR #1206 awaiting independent review; adopted rule recorded separately"
     }
   },
   "scalar_parameters": [
@@ -266,5 +271,16 @@
     "postrun_diagnostic": "repair only diagnostic, never repeat optimizer",
     "report": "each replacement reason, evidence, original partial cost and affected job count",
     "implementation_status": "Policy adopted; recovery execution pending"
+  },
+  "cross_platform_anchor": {
+    "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196",
+    "protocol_snapshot": "cross-platform-anchor-protocol.json",
+    "relative_F0": 1e-09,
+    "relative_full_current_mean": 1e-09,
+    "absolute_each_torque_Nm": 1e-09,
+    "stage": "before calibration",
+    "canonical_anchor_unchanged": true,
+    "newton_iteration_counts": "record only; no cross-platform equality requirement",
+    "same_host": "deterministic; A/B bitwise; calibration F and mean exactly match host preflight"
   }
 }
