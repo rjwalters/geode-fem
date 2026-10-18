@@ -53,7 +53,13 @@ class TrapEvaluator(th.FakeEvaluator):
                      construction_error="slot flank degenerates (trap)")
         return d
 
+    #: A runaway guard: no test needs more than ~200 requests, so a method
+    #: that loops (a mutant that never shrinks its step) fails fast.
+    MAX_REQUESTS = 5000
+
     def request(self, op, timeout=None, **f):
+        if len(self.requests) >= self.MAX_REQUESTS:
+            raise AssertionError(f"runaway: more than {self.MAX_REQUESTS} requests")
         if op in self.transport_fail:
             raise EvaluatorFailure(op, "evaluator gone: broken pipe")
         if op in self.fail_ops:

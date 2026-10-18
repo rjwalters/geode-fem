@@ -263,8 +263,13 @@ MUTATIONS = [
 def run_python():
     rc, failed, crashed = 0, [], False
     for t in ("test_harness.py", "test_safeguards.py"):
-        p = subprocess.run([sys.executable, "-I", str(HERE / t)], cwd=ROOT,
-                           capture_output=True, text=True, timeout=600)
+        try:
+            # The suites take seconds; a mutant that loops is killed by
+            # the timeout.
+            p = subprocess.run([sys.executable, "-I", str(HERE / t)], cwd=ROOT,
+                               capture_output=True, text=True, timeout=180)
+        except subprocess.TimeoutExpired:
+            return -1, failed + [f"({t} timeout)"], False
         out = p.stdout + p.stderr
         f = sorted(set(re.findall(r"^(test_\w+) \(.*\) \.\.\. (?:FAIL|ERROR)", out, re.M)))
         rc = rc or p.returncode
@@ -285,7 +290,9 @@ def cargo(*args):
 
 
 def run_rust():
-    return cargo("--test", "motor_experiment2_harness")
+    """The evaluator target and the domain target (the evaluator's
+    refusals are bound in both)."""
+    return cargo("--test", "motor_experiment2_harness", "--test", "motor_experiment2_domain")
 
 
 def run_domain():
@@ -314,7 +321,13 @@ def run_remesher():
 RUNNERS = {RS: run_rust, DOM: run_domain, LOOP: run_loop, REM: run_remesher}
 
 
-def main():
+def main(argv=None):
+    """All mutations, or `--only NAME [NAME ...]` (a spot check; the
+    committed log is always a full run)."""
+    argv = sys.argv[1:] if argv is None else argv
+    muts = MUTATIONS
+    if argv[:1] == ["--only"]:
+        muts = [m for m in MUTATIONS if m[0] in set(argv[1:])]
     originals = {f: f.read_text() for f in {m[1] for m in MUTATIONS}}
     try:
         for name, runner in (("python", run_python), ("rust", run_rust),
@@ -323,7 +336,7 @@ def main():
             print(f"baseline {name}: exit {rc}, failed {failed}", flush=True)
             assert rc == 0 and not failed, f"{name} baseline must pass"
         killed = 0
-        for name, path, old, new in MUTATIONS:
+        for name, path, old, new in muts:
             src = originals[path]
             assert src.count(old) == 1, f"{name}: snippet occurs {src.count(old)} times"
             path.write_text(src.replace(old, new))
@@ -337,8 +350,8 @@ def main():
             where = {RS: "rust", DOM: "domain", LOOP: "loop", REM: "remesher"}.get(path,
                                                                                 "python")
             print(f"{name} ({where}): {'KILLED' if ok else 'SURVIVED'} ({why})", flush=True)
-        print(f"{killed}/{len(MUTATIONS)} mutations killed")
-        return 0 if killed == len(MUTATIONS) else 1
+        print(f"{killed}/{len(muts)} mutations killed")
+        return 0 if killed == len(muts) else 1
     finally:
         for f, src in originals.items():
             f.write_text(src)
