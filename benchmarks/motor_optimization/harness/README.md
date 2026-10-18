@@ -487,6 +487,34 @@ unedited run.
 
 ## Reproduce
 
+### Amendment-8 preparation (#1202, not integrated)
+
+`main_schedule.py` defines the prospective 100-job queue from an explicit
+A–E method registry: rotate ABCDE by start index for repeat 1, then reverse
+that rotation for repeat 2. It launches nothing. `resource_usage.py` supplies
+process-local self/reaped-child CPU deltas and separate RSS high-water
+observations. Its child totals remain explicitly incomplete unless the caller
+establishes that all owned descendants were reaped. Request CPU must not be
+added again to inclusive run totals, and RSS observations are not memory deltas
+or a sum of simultaneous process peaks.
+
+These helpers are not wired into `session.py`, `run.py` or the Rust evaluator.
+The resource adapter inside the evaluator and the five-method integration
+still await #1201's reviewed merge. Do not launch the main study using these
+helpers alone. Their isolated checks are:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/test_main_preparation.py
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/main_preparation_mutations.py
+```
+
+Nine tests cover queue completeness/order, CPU attribution across child
+lifetimes, RSS units and incomplete accounting; ten semantic mutations must
+be detected. `main-preparation-checks.json` retains raw output and exact source
+hashes. These are synthetic/process-accounting fixtures, not motor outcomes.
+
+### Existing harness commands
+
 ```bash
 export CARGO_TARGET_DIR=/path/to/private/target
 cargo build -p geode-core --release --example icem_harness_eval
