@@ -135,9 +135,11 @@ class BindingTests(unittest.TestCase):
         with mock.patch.object(bindings.shutil, "which", return_value=None):
             with self.assertRaisesRegex(ValueError, "uv runtime"):
                 bindings.runtime()
-        with mock.patch.object(bindings, "command", side_effect=RuntimeError("probe failed")):
+        with mock.patch.object(bindings.shutil, "which", return_value="/fixture/uv"), \
+             mock.patch.object(bindings, "command", side_effect=RuntimeError("probe failed")) as probe:
             with self.assertRaisesRegex(RuntimeError, "probe failed"):
                 bindings.runtime()
+            probe.assert_called_once()
 
     def test_sources_and_primary_inputs_cannot_change_during_calibration(self):
         source = {"commit": "first", "files": {"a": "b"}, "tree_clean": True}
