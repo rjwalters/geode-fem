@@ -699,3 +699,53 @@ The synthetic public API/CLI tests prepare three designs, twenty-one native
 requests and three geometry queries, with no `results` directory. All 200 Python
 tests pass, including twelve preparation tests. Source, mesh, request, plan and
 census mismatches are rejected. The main study has not been selected or refined.
+
+
+`refinement_build.record` records both `icem_harness_eval` (geometry queries)
+and `icem_final_refinement` from one clean, pinned executor worktree. It uses the
+existing build recorder's exact function bodies from the supplied Git revision,
+with its example-name global set explicitly for each executable. Source-only
+process/journal helpers are loaded from the same revision. It does not import
+optimizer numerical packages, calibrate, mesh, query geometry or solve FEM.
+
+```sh
+# Run from the pinned executor worktree; retain it for source/runtime checks.
+python3 -I -B benchmarks/motor_optimization/final_refinement/refinement_build.py \
+  --repo "$PWD" --reviewed-commit "$EXECUTOR_COMMIT" --out /path/to/new-executors
+```
+
+Each build retains its compiler/environment inputs, Cargo log, immutable binary,
+process journal and build receipt. The worktree's private target (or its Loom-owned
+target) is used. A final `executors.json` binds both builds and their complete
+census. Failure preserves partial evidence with an explicit failure marker and
+publishes no successful pair receipt. The command returns the manifest SHA-256.
+
+`refinement_build.verify` requires that separately retained digest, verifies the
+full source census against Git and normally checks the original worktree, then
+replays the production build verifier for each fixed example name. Offline
+`check_worktree=False` permits archived source analysis but does not establish a
+current execution environment. `can_launch` remains false: numerical-runtime,
+input and process-absence checks are still required before final execution.
+Seven controlled-child tests exercise the real recorder/verifier functions
+without Cargo. The retained actual build at source `1c6784e7e1fc8fe0564b1d793a6c4061588028f5`
+compiled both release examples from a clean 1,502-file source census. Original
+worktree verification passed; observed build owner/process groups were absent
+after completion. These are local candidate-build observations, not independent
+review approval or permission to execute a cohort.
+
+The 18-file `smoke/paired_build_1c6784e7.tar.gz` archive (SHA-256
+`bcda844984de44312be6c2655285f11f24a37127f0603f79da056d57049b4063`)
+retains compiler inputs/logs, both binaries, receipts, process observations and
+`replay.py`. After checking the archive digest and regular relative members,
+extract with ordinary file modes preserved, including executable mode 0555.
+Run `python3 -I replay.py /path/to/geode-fem` from the extracted directory. This
+replays copied build evidence and the historical process table; it neither
+executes a binary nor asserts current runtime or process state. The corresponding
+archive regression test also pins both executable hashes. Full results and
+limitations are recorded in `refinement-build-checks.json`. All 208 tests pass
+with `python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'`.
+
+Keep the original pinned executor worktree available for later runtime checks:
+these native binaries resolve reference data and mesher sources through their
+compiled source paths. Moving the evidence archive is supported for verification;
+it does not make the executable runtime portable.
