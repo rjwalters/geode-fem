@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_commit": "67fb92147e22c5b3ce7511a821343509677f1d71",
+  "scope": "Synthetic 100-job capture roundtrip. Build/runtime/optimizer evidence is fixture data; real reviewed Git, policy and process verifier used. No main capture, scientific selection or FEM result.",
+  "source_sha256": {
+    "capture_archive.py": "4d207bc9cc3a6b85b9e4b201c83326a34613d2ea298ffcee8a70f2b8deea1453",
+    "test_capture_archive.py": "8dd7b1d93bbae0085f5b0d48098efa6fc5d856c2915640ebdca4d79b96e20689",
+    "closed_capture.py": "bc699c853e58a600f2a93c89cb673a269b567342fbde6d407138bc9e39da31d9",
+    "producer_source.py": "953d0bc2e0c5f576f5b74f2c42f0f458182d2808671839885afed7b1625c86b4",
+    "recovery_evidence.py": "434f455f11730e319743fc752ff82efabc87f6ce4779949524164bdab3be861c",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03"
+  },
+  "tests": {
+    "command": "python3 -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 162,
+    "new_tests": 14,
+    "exit_code": 0
+  },
+  "roundtrip": {
+    "scope": "Synthetic 100-job capture roundtrip. Build/runtime/optimizer evidence is fixture data; real reviewed Git, policy and process verifier used. No main capture, scientific selection or FEM result.",
+    "manifest_sha256": "cbe67cfc46186f6a8c123ce3d8d1fdca7cfcf0a34a29b5906a5c879be5a34913",
+    "reviewed_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+    "capture_tool_commit": "01350accb689c9dcb3a6add977e17f3d5e5be523",
+    "jobs": 100,
+    "capture_verified": true,
+    "can_select": false,
+    "can_launch": false
+  },
+  "archive": {
+    "file": "smoke/synthetic_capture_roundtrip_67fb9214.tar.gz",
+    "sha256": "4f39a22361c5f195cdae93a9c62107095e1120df96379c5582ec2a2a7e623856",
+    "files": 128
+  },
+  "remaining": [
+    "Original setup/calibration and per-validation scientific/design/mesh/credit integration.",
+    "Independently reviewed full driver and actual closed main capture.",
+    "Final selected-cohort execution and main-study performance evidence."
+  ]
+}
