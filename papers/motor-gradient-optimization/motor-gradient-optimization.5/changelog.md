@@ -1,0 +1,33 @@
+# Revision 4 → 5
+
+V4 remains unchanged at its reviewed content. Both independent reviews (Opus 38/44, Fable 36/44) blocked on the missing committed evidence log; their full original reports are archived verbatim in `.4.review/`. No v4 audit was run. This revision follows the operator's ongoing instruction to improve the paper, with a one-version extension of the configured cap. Fresh review and audit are required.
+
+| Source | Note | Resolution |
+|---|---|---|
+| .4.review Opus B1 / Fable S1, generic critical | Missing committed `m1_tables.log`; local preflight did not prove checkout reproducibility | V5 explicitly includes the SHA-pinned log and a narrow ignore exception. Verify all inputs against pinned Git blobs and the staged tree; run the complete verifier from a clean Git archive. Preserve the flawed v4 package as reviewed. |
+| .4.review Opus S1 / Fable M1, generic major | Mean-torque conclusion ignores size changes | State LENGTH, ScaleR, SD1 and angle, add Opt120 to the parameter table, separate same-geometry current-policy differences from changed-size comparisons, and correct abstract/discussion/conclusion/brief framing. |
+| .4.review Fable M1 suggested normalization, generic major | 1.497 N m called “per unit length” | Correct the proposed wording: 1.4971 removes both explicit factors s²L/L0. Normalizing length alone gives 1.6434 N m at 100 mm. Both are algebraic normalizations, not additional optimized designs. Independently checked from raw records; room 496, accepted by Claude in 502. |
+| .4.review Fable M2, generic major | Missing saved Opt120 comparison | Add matched reference-current mean, full/half ripple and pointwise gap, and state that reference refinement covered only the initial design. |
+| .4.review Fable M2 proposed ratio, generic major | 7,631 vs 11,982 mixes current policies | Recompute: matched reference-current GEODE ratio is 10,169.626, rounded 10,170, versus saved 11,982. Keep 7,631 explicitly as the fixed-unscaled-current result. All reconstructed independently in verify.py. |
+| .4.review Opus S3 / Fable M3, generic major | Candidate refinement increments do not establish convergence | Add raw L1 export h45 record and alternate-construction L2/L3 h45 records. State increments 3.05e-8 and 2.90e-8, alternate-family 3.22%, and interface effect 96 times the final export increment. No error-bound claim. |
+| .4.review Opus S2 / Fable m2, generic major | 0.10% looks like accuracy; half-current remainder understated | Put finite-convergence caveat in abstract and conclusion; leave half-current remaining error unestimated because its increments do not shrink. Add the GEODE refinement band to Fig. 4(a). |
+| .4.review Opus S4, generic major | ×3.6 lacks context | Abstract includes initial +16% and retained >2,400-fold reduction; conclusion retains that context. |
+| .4.review Opus S5, generic major | Saved-reference display captions imply resolved reference | Table 1 and Figs. 2–3 point to independent reference refinement. |
+| .4.review Opus S6, generic major | L2-only component picture hides L3 movement | Quote all four L3 MAG ripple components and note the perturbed component change despite small norm change; retain L2 figure with an explicit caption pointer to L3 text. |
+| .4.review Fable m1, generic minor | Paired estimator check absent | Report full-current outer-band/coupling mean and ripple discrepancies on the same Opt120 harmonic field, with a geometry-specific limit. |
+| .4.review Fable m3, generic minor | Mechanism unstated | Add explicitly conjectural cancellation under truncated optimization; contrast loaded/cogging response. No causal ablation claimed. |
+| .4.review Fable m4, generic positioning lead | De Gersem–Weiland 2004 missing | Resolve DOI via anvil.lib.cite/Crossref; save original metadata and claim-support limitation. Add narrow historical sentence, not a priority or performance claim. |
+| .4.review Fable m5 / Opus D6, generic minor | Lines join categorical models; no waveform; finest reference zero unexplained | Replace Fig. 4(c) lines with markers. Add standalone `opt120-waveforms.pdf` supplement with full and centered 40-angle curves; README defines estimators/current rule. Caption explains zero by construction in Fig. 4(b). Keep six main figures to avoid another full-page interruption. |
+| .4.review Fable m6 / Opus m7, generic layout | Forced table gap; overlapping initial label | Permit sensitivity table to float and move the initial-mean label away from bar value. Expand design table with wrapped, ragged-right descriptions. Inspect changed figures and all pages. |
+| .4.review Fable m7 / Opus D9, generic minor | Prospective protocol too long | Compress to one paragraph on spaces, methods, common validation, targets and censored budget. Full protocol remains in the experiment handoff. |
+| .4.review Fable m8, generic optional | Combine derivative caveats into a list | Declined: retain connected paragraphs because zero-current normalization, mesh refinement and remeshing test distinct failure modes. Trimmed the prospective protocol instead. |
+| .4.review Fable m9, generic minor | GEODE toolchain provenance unclear | Code/data section explicitly points to benchmark READMEs for Gmsh and Rust versions. |
+| .4.review Fable m10, generic minor | Candidate solve convergence unstated | Verify and report 3,240 tolerance-stopped rows across all 18 successful records now used; reviewer’s 2,560/14 count excluded the new reference-current and refinement records. |
+| .4.review Opus m1 / Fable procedural, generic minor | Amendments 5/6 omitted | Update mutable BRIEF/EXPERIMENTS and v5 documentation to amendments 1–6 plus the interpolation addendum. No smoke result or reduced-physical-model win claimed. |
+| .4.review Opus m2 / Fable m11, generic provenance | “Matches main” overstates snapshot identity | Explicitly pin source commits rather than current main; note harmonic README’s later update. |
+| .4.review Opus m3/m4/m5, generic prose | GEODE, L1 and SD1 not glossed | Introduce our GEODE implementation; name second-coarsest mesh in abstract and SD1 beside outer diameter. |
+| .4.review Opus m6/m8, generic nits | Bound wording and long source line | Use “differences at most 9.8e-13”; split the abstract source line. Preserve 1.3e-9 true upper bound. |
+
+## Scope
+
+115 pinned inputs, six main figures and one new waveform supplement. No new field solve or optimizer run was performed for this revision. The numerical-consistency heuristic still mispairs the full-current 0.27% comparison with an earlier cogging pair; raw-array checks verify the claim. Author checks are not independent approval.

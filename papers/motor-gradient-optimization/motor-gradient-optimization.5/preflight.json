@@ -1,0 +1,104 @@
+{
+  "gate": "render_gate",
+  "pdf_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.5/main.pdf",
+  "log_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.5/compile-log.txt",
+  "pages": 17,
+  "page_cap": null,
+  "overfull_boxes": [],
+  "overfull_threshold_pt": 5.0,
+  "compile": {
+    "status": "ok",
+    "exit_code": 0
+  },
+  "placeholders": [],
+  "findings": [],
+  "pass": true,
+  "reasons": [],
+  "engine_used": null,
+  "template_used": null,
+  "bib_lint": {
+    "ok": true,
+    "issues": []
+  },
+  "artifact_verify": "PASS: 115 evidence hashes; 500 + 1140 forward solve statuses; raw means/ripple, coupling/estimator controls, sensitivity and cost tables; 704 distinct loaded FD cases (96 duplicate records identified), 592 recomputed Taylor windows, cross-model sensitivities, slotless rounding and zero-current sweeps; citations/figure assets.\nRecorded-artifact verification only; not a new FEM run or independent scientific review.\nPASS: reference reruns, 60-sample reproduction, refined-model gaps, candidate objectives/current rules/angular aliasing, invalid moved mesh and L3 gradient comparisons independently reconstructed.\nPASS: v5 size/current normalization, matched-policy reference ratios, candidate refinement increments, paired estimators, L3 MAG components, and 3240 candidate solve statuses.\n",
+  "artifact_verify_source": "clean Git archive of staged artifact files, not the author working tree",
+  "clean_archive_tree_before_metadata_refresh": "0b717e6c0f97efef7c7f0facd7dcb420930c817a",
+  "checked_at": "2026-10-18T03:37:59.801754+00:00",
+  "pdf_sha256": "f332a188960565fb2aad45e6a038fbae233046e49756cb72fda88fd73fb18ec0",
+  "source_provenance": "115 inputs byte-identical to pinned source Git blobs; all present in staged Git tree; three original v4 review/handoff reports byte-identical to source files.",
+  "independent_review": "pending",
+  "numeric_consistency": {
+    "raw_result": {
+      "check": "numeric_consistency",
+      "version_dir": "motor-gradient-optimization.5",
+      "body_path": "main.tex",
+      "numbers_extracted": 419,
+      "claims_checked": 1,
+      "findings": [
+        {
+          "code": "percent_mismatch",
+          "severity": "warning",
+          "line": 437,
+          "claim": "0.27\\% higher",
+          "claimed": 0.27,
+          "computed": 12.21311475409836,
+          "message": "claim '0.27\\\\% higher' asserts 0.27% but the window pair 'from 0.01071 to 0.01220' (0.01071 vs 0.0122) computes a 12.2% change (base 0.0122), not 0.27%.",
+          "suppressed": false
+        }
+      ],
+      "pass": false
+    },
+    "adjudication": "One known false positive: 0.27% compares full-current GEODE and finest-reference std, not the earlier cogging refinement pair. Raw torque reconstruction in verify.py passes."
+  },
+  "audience_check": {
+    "check": "audience_check",
+    "version_dir": "motor-gradient-optimization.5",
+    "body_path": "main.tex",
+    "files": [
+      "main.tex",
+      "tables/coupling.tex",
+      "tables/gradient-cost.tex",
+      "tables/design-points.tex"
+    ],
+    "declared_audience": [
+      "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
+    ],
+    "public_repo_url": "https://github.com/rjwalters/geode-fem",
+    "public_repo_url_source": "anvil_json",
+    "public_repo_url_declared": true,
+    "hits": [],
+    "counts": {
+      "governance_vocabulary": 0,
+      "private_locator": 0,
+      "unlinked_artifact_path": 0
+    },
+    "suppressed_count": 0,
+    "advisory": true,
+    "pass": true
+  },
+  "deterministic_regeneration": "24 generated figures/tables/statistics reproduce byte-identically.",
+  "visual_check": {
+    "pages_inspected": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "figures": 6,
+    "new_supplement": "opt120-waveforms.pdf",
+    "result": "Author inspected all 17 pages at overview resolution, the expanded parameter table and changed validation figure at readable resolution, and the waveform supplement. Fixed overlap in initial-mean label and eliminated an orphaned bibliography tail. Fresh independent visual review pending."
+  }
+}
