@@ -8,6 +8,11 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MUTATIONS = (
+    ("boundary_direction_points_outward", "l0_gradient_check.py",
+     'result[k] = -abs(result[k])', 'result[k] = abs(result[k])'),
+    ("boundary_stencil_is_first_order", "l0_gradient_check.py",
+     '(-3 * base + 4 * first - second) / (2 * h) if boundary',
+     '(first - base) / h if boundary'),
     ("wrong_design_bits_accepted", "start_preflight.py",
      'if reply.get("x_bits") != to_bits(x):', 'if False:'),
     ("lower_start_quality_floor", "start_preflight.py", 'angle < 5.0', 'angle < 4.0'),

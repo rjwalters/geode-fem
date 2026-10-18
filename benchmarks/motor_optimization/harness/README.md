@@ -691,3 +691,24 @@ passed in `../smoke/start_preflight_1202_final.json`, with zero reported FEM sol
 The main launcher runs this gate before calibration or optimizer dispatch; the
 test suite verifies that a failure prevents both. `setup_validation_mutations.py`
 detects four deliberate point/quality/gate/FD-step regressions.
+
+An additive **boundary start, one-sided** check covers B/theta0, where all
+control-point offsets lie on bounds. Its plan was recorded before execution in
+[#1202 comment 6248960725](https://github.com/rjwalters/geode-fem/issues/1202#issuecomment-6248960725),
+following Claude's review. `l0_gradient_check.py --boundary-start --space b`
+flips only the bound-active offset signs inward, keeps the scalar components,
+and uses (-3 f(0) + 4 f(h) - f(2h))/(2h) at the same three steps. Both default
+and tight Newton cases pass the fixed h=1e-4 criterion:
+
+| Newton | Relative dF | Relative full-current mean | Observed order F / mean, 1e-3 to 1e-4 |
+|---|---|---|---|
+| default | 1.84e-7 | 2.69e-9 | 2.10 / 2.97 |
+| tight | 1.66e-7 | 1.62e-8 | 2.15 / 2.19 |
+
+The smaller-step orders decline (the default mean error increases), consistent
+with a numerical/cancellation floor; no best-step selection is made. Raw values,
+orders and process receipts are retained in
+`../smoke/l0_gradient_b_boundary_{default,tight}_1202.json`. The central-stencil
+rejections and all earlier central records are unchanged from commit653f029f.
+The original setup runtime receipt binds that earlier source; the additive
+`boundary-gradient-runtime-checks.json` binds the new boundary-check source.

@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -29,6 +30,38 @@ def plan(space):
     return [("theta0", list(x0), direction), ("interior", interior, direction)]
 
 
+def inward_direction(space, direction):
+    """Preserve the scalars; flip each bound-active offset into its interval."""
+    result = list(direction)
+    for k, name in enumerate(space["free"]):
+        if not name.startswith(("CPR", "CPS")):
+            continue
+        x, lo, hi = space["x0"][k], space["lower"][k], space["upper"][k]
+        if x == lo and lo < hi:
+            result[k] = abs(result[k])
+        elif x == hi and lo < hi:
+            result[k] = -abs(result[k])
+        else:
+            raise ValueError(f"{name}: expected a bound-active theta0 offset")
+    return result
+
+
+def difference(base, first, second, h, boundary=False):
+    return (-3 * base + 4 * first - second) / (2 * h) if boundary else (first - second) / (2 * h)
+
+
+def observed_orders(rows):
+    result = []
+    for a, b in zip(rows, rows[1:]):
+        row = {"from_h": a["h"], "to_h": b["h"]}
+        for key in ("dF", "dmean_full"):
+            ea = abs(a["fd_" + key] - a["adjoint_" + key])
+            eb = abs(b["fd_" + key] - b["adjoint_" + key])
+            row[key] = math.log(ea / eb) / math.log(a["h"] / b["h"]) if ea > 0 and eb > 0 else None
+        result.append(row)
+    return result
+
+
 def assess(rows):
     selected = next(row for row in rows if row["h"] == 1e-4)
     return all(selected[key] is not None and selected[key] < REL_TOL
@@ -45,7 +78,11 @@ def main():
     ap.add_argument("--space", choices=("a", "b"), required=True)
     ap.add_argument("--newton", choices=("default", "tight"), required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--boundary-start", action="store_true",
+                    help="additive B/theta0 inward one-sided second-order check")
     a = ap.parse_args()
+    if a.boundary_start and a.space != "b":
+        raise SystemExit("the boundary-start check is registered for space B")
     if a.out.exists():
         raise SystemExit("refusing to overwrite an existing gradient check")
     root = HERE.parents[2]
@@ -58,6 +95,7 @@ def main():
                 root / "crates/geode-core/tests/common/motor_resources.rs"]
     record = {"issue": 1202, "label": "setup_gradient_check", "space": a.space,
               "newton": a.newton, "steps": list(STEPS), "status": "running",
+              "stencil": "boundary start, one-sided second order" if a.boundary_start else "central",
               "criterion": {"h": 1e-4, "relative_error_below": REL_TOL,
                             "source": "existing motor_experiment2_harness CI criterion",
                             "observables": ["F", "full_current_mean"],
@@ -73,7 +111,7 @@ def main():
     save()
     started = time.monotonic()
     try:
-        for point_index in (0, 1):
+        for point_index in ((0,) if a.boundary_start else (0, 1)):
             item = {"point": ("theta0", "interior")[point_index], "status": "running",
                     "requests": [], "directional": []}
             record["points"].append(item)
@@ -88,6 +126,8 @@ def main():
                                stderr_path=a.out.with_suffix(".stderr.log"))
                 item["ready"] = ev.ready
                 name, x, direction = plan(ev.ready["space"])[point_index]
+                if a.boundary_start:
+                    direction = inward_direction(ev.ready["space"], direction)
                 item.update(point=name, x=x, x_bits=to_bits(x), direction=direction)
                 assert ev.ready["train_msh_sha256"] == record["mesh_sha256"]
                 def request(op, xs, **kwargs):
@@ -107,7 +147,8 @@ def main():
                         save()
                         raise
                 stencils = [(h, [v + h * d for v, d in zip(x, direction)],
-                             [v - h * d for v, d in zip(x, direction)]) for h in STEPS]
+                             [v + (2 if a.boundary_start else -1) * h * d
+                              for v, d in zip(x, direction)]) for h in STEPS]
                 for xs in [x, *[p for _, plus, minus in stencils for p in (plus, minus)]]:
                     checked = request("check", xs)
                     if verdict(checked) is not None:
@@ -126,12 +167,13 @@ def main():
                 ad_m = sum(v * d for v, d in zip(dm, direction))
                 for h, plus, minus in stencils:
                     rp, rm = train(plus), train(minus)
-                    fd_f = (rp["F"] - rm["F"]) / (2 * h)
-                    fd_m = (rp["mean_full"] - rm["mean_full"]) / (2 * h)
+                    fd_f = difference(base["F"], rp["F"], rm["F"], h, a.boundary_start)
+                    fd_m = difference(base["mean_full"], rp["mean_full"], rm["mean_full"], h, a.boundary_start)
                     item["directional"].append({"h": h, "adjoint_dF": ad_f, "fd_dF": fd_f,
                         "rel_dF": relative(fd_f, ad_f), "adjoint_dmean_full": ad_m,
                         "fd_dmean_full": fd_m, "rel_dmean_full": relative(fd_m, ad_m)})
                     save()
+                item["observed_error_orders"] = observed_orders(item["directional"])
                 item["criterion_passed"] = assess(item["directional"])
                 item["status"] = "PASS" if item["criterion_passed"] else "criterion_failed"
             except Exception as error:
