@@ -55,6 +55,8 @@ A [pilot-only figure preview](refs/pilot-figure-preview/README.md) separates des
 
 A [prospective methods fragment](refs/main-study-methods-draft.tex) prepares the next manuscript from the adopted protocol. It explicitly contains no main-study result and retains a pending execution-metadata marker. It must be reconciled with the merged implementation and actual manifests, then reviewed with the new manuscript; it is not part of the audited v6 text.
 
+The [prospective main-run runbook](refs/main-run-runbook.md) covers host preflight, calibration and scheduling, contamination handling, interruption recovery, evidence archiving and the #1203 handoff. Its command templates must be bound to the reviewed #1201/#1202 merges. The current draft has no demonstrated session resume; recovery and clean-calibration sequencing are explicit pre-launch checks, not claimed capabilities.
+
 ## Publication-readiness goal (operator, 2026-10-18)
 
 The operator asked Codex to keep working with Claude until paper 3 is as ready to publish as the first two. This retains the stronger research objective already in the brief; it does not turn the passing v6 audit into evidence of optimization speedup. The first two portfolio entries are themselves revised drafts with older audited versions, so their current status is context rather than a reason to lower the motor paper's evidence requirements.
