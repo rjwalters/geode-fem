@@ -1,11 +1,18 @@
-# Motor experiment 2: the optimizer harness (issue #1195)
+# Motor experiment 2: the optimizer harness (issues #1195, #1201)
 
 This directory compares three optimizers on the frozen spaces A and B of
 experiment 2 (#1185). The comparison follows the pre-registration and
 amendments 1–3, **amendment 4** (adopted with additions 6 and 7, comment
 6244746246), **amendment 5** (validation trigger, method C edge cases,
-recording a hang; comment 6245006308) and **amendment 6** (method C's label
-and held-out currents; comment 6245012709). §2–§6 below follow them.
+recording a hang; comment 6245006308), **amendment 6** (method C's label
+and held-out currents; comment 6245012709) and **amendment 7** (the
+geometry domain, the method safeguards, mesh repair, the 120-FE budget,
+the starts and the host rule; revision 1, comment 6247097203, with the
+adoption corrections, comment 6247152017, which govern). §2–§7 below follow
+them. Amendment 8 (methods D and E on L0; comment 6247152174) is not wired
+here: its extension points are the method specs (`driver.METHOD_SPECS`,
+(optimizer, resolution)) and the session's per-resolution model records
+(`session.json` `models`); its start rule (eligible at L0 and L1) is.
 
 Every cost is charged. Every new incumbent is validated on the validation
 model and scored against the anchor; no start is ever validated.
@@ -32,7 +39,12 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `session.py` | The run manifest: calibrates the unit, then launches every job (`--procs N --out DIR`; the pilot by default, `--smoke` for the smoke). |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
-| `lhs.py`, `make_starts.py`, `starts.json` | The deterministic LHS starts (committed). |
+| `lhs.py`, `make_starts.py`, `starts.json` | The deterministic LHS starts (committed; seeds 1–4, amendment 7 §5). |
+| `crates/geode-core/src/mesh/icem_domain.rs` | The geometry domain (amendment 7 §1): the guard inventory, raw margins, scales, `h`, `∂h/∂x`, buildable and admissible. |
+| `crates/geode-core/tests/motor_experiment2_domain.rs` | CI target of the domain (no FEM): guard/construction agreement, Jacobian against FD, the pilot designs, θ0 and Opt120, the zero discriminant, the gmsh attempts, the inventory record. |
+| `domain_inventory.json` | The guard inventory, every scale and τ floor, and the designs each excludes (written by that target). |
+| `recover_pilot_failures.py`, `pilot_failures.json` | The design points of the pilot's 13 failed requests, recovered by re-driving the pilot's own harness on its traces. |
+| `test_safeguards.py` | The amendment-7 safeguard tests, the host rule, and #1197 (K2, K4). |
 | `fd_check.py` | FD check of the gradient replies through the process. |
 | `mutation_checks.py` | Mutations of the harness wiring. |
 | `test_harness.py` | Driver tests on a fake evaluator with a fake clock. |
@@ -53,7 +65,24 @@ and carries `ok` and `charges`.
   - `calibrate_unit`: measures the unit and the weights (§5).
   - `anchor`: computes an anchor (smoke only).
   - `check`: reports whether `x` is in the box, whether its geometry exists,
-    and the quality of the moved mesh.
+    the quality of the moved mesh, and its geometry domain.
+  - `geometry` (amendment 7 §1): the domain at `x` (every guard's raw
+    margin with its unit, scale, `c`, `h`, `∂h/∂x` over the free
+    components, pass/fail; the discrete guards; buildable, admissible,
+    `jacobian_defined`). Charged `geometry_check`. No mesh, no solve.
+  - `mesh_check` (amendment 7 §3): the training-mesh step alone at `x`
+    (move; if the policy fires, remesh with repair). A fresh mesh that
+    passes becomes the training reference, as a `train` at `x` would make
+    it. The restoration probe of a mesh-infeasible request.
+- **Refusals before any mesh or solve.** `train`, `validate` and
+  `mesh_check` refuse a design that is not buildable (`refused: not
+  buildable`, charged its geometry check only). A gradient `train` where
+  the design derivative is undefined (a zero slot-top discriminant) replies
+  `status: derivative_undefined` with no value. A `train` or `validate`
+  whose every repair attempt fails replies `status: mesh_infeasible` with
+  the attempts (each one's outcome, `.msh` SHA-256 and times), charged to
+  `remesh`. A failed request's reply carries its `x_bits` and the attempt
+  history.
 - **Exact `x`.** `x` travels as IEEE-754 bit patterns (`x_bits`), and every
   reply echoes them. The reason: `serde_json`'s decimal float parse is not
   always correctly rounded, and it moved a committed start by one ulp. For
@@ -172,34 +201,119 @@ Every validation is charged to the method.
 - **No exclusions.** The driver charges the remaining wall time as
   `overhead`: process start-up, I/O, the optimizer's own work. So the total
   charged equals the run's wall time.
-- **Budget stop.** A request still running at 60 × unit is aborted, and the
+- **Budget (amendment 7 §4).** 120 × unit for every method. The 60-FE
+  checkpoint (`checkpoint_60` in every trace) counts only validations that
+  *completed* by 60 FE; work in flight at 60 FE that finishes later earns
+  nothing there. Full curves to 120 FE are kept.
+- **Budget stop.** A request still running at the budget is aborted, and the
   evaluator's whole process group (gmsh included) is killed. The exact
   remainder is charged to the request's category, so an exhausted run is
   charged the budget exactly. Nothing after the stop is charged. The run is
   recorded as `stop_reason: budget` with `aborted_request` naming the
-  request in flight (its category and op), for a gmsh hang as for a slow
+  request in flight (its category, op and x), for a gmsh hang as for a slow
   request (amendment 5 §3). `failed` is reserved for error replies.
 - **Attainment.** A target counts only from a validation that completed
   within the budget. It is stamped with the cumulative wall-time FE and
   solve-count FE after that validation's charges.
-- **Failures.** A failed request ends the run as `failed`. A method that
-  stops on its own ends as `converged`. Both are recorded.
+- **Failures.** A failed request ends the run as `failed` (a real solver or
+  infrastructure error only), with its design point in `events`. A method
+  that stops on its own ends as `converged`; `restoration_failed` is
+  amendment 7 §2. All are recorded.
+- **Wall time.** `in_run_wall_seconds` (the ledger: the budgeted quantity)
+  and `post_run_wall_seconds` (C's diagnostic) are separate (the #1200
+  Judge's finding 3).
 
-## 6. Starts (§6)
+## 6. Starts (§6; amendment 7 §5 and amendment 8)
 
 - **Generator.** `lhs.py` is a SplitMix64 Latin hypercube, with the same
-  arithmetic as `latin_hypercube` in `icem_harness.rs`.
-- **Rule.** Seeds 1 and 2 each draw 10 points in space B's 18-dimensional
-  unit box; space A takes the first 8 components. The start is the first
-  valid point: geometry exists in both spaces, and the moved L0 θ0 mesh
-  passes the remesh policy.
-- **Result.**
-  - lhs1 = index 1. Index 0's slot flank degenerates.
-  - lhs2 = index 4. Indices 0–3 invert the moved mesh.
-- **Why the policy condition.** At seed 2's index 0, gmsh fails in space A
-  ("Cannot find periodic counterpart") and had not returned in space B after
-  10 minutes.
-- **CI.** The CI target re-derives both starts bit for bit and checks them.
+  arithmetic as `latin_hypercube` in `icem_harness.rs`. Seeds 1–4 each
+  draw 10 points in space B's 18-dimensional unit box; space A takes the
+  first 8 components (scalars matched across spaces).
+- **Rule.** A start is valid when, in both spaces and on both the L0 and
+  L1 θ0 meshes, it is admissible (the actual strict guards), buildable,
+  and the θ0 mesh *moved* to it passes the policy without a remesh. Seeds 1
+  and 2 keep the pilot indices 1 and 4 if valid, else the next valid index;
+  seeds 3 and 4 take their first valid index. Every tried index and its
+  reasons are in `starts.json`; the preflight is geometry and mesh motion
+  only (no FEM), its cost recorded there outside every run budget.
+- **Result** (`../logs/make_starts.log`).
+  - lhs1 = index 1, lhs2 = index 4: both pilot starts kept (min h 0.547
+    and 0.561).
+  - lhs3 = index 0 (min h 0.327).
+  - lhs4 = index 7 (min h 0.502). Indices 0, 1, 3–6 fail the moved-mesh
+    policy at L0 or L1 in some space; index 2 has no slot-top arc.
+- **CI.** The CI targets re-derive every start bit for bit and check it at
+  L0 (the L1 meshes are gitignored; the L1 half is the log).
+
+## 7. Amendment 7: the domain and the safeguards
+
+- **Domain (§1).** `icem_domain.rs` lists every guard of the two
+  constructions (`domain_inventory.json`): 11 smooth guards in space A
+  (the magnet, the opening, the slot-top discriminant (m², non-strict),
+  the arc centre and radius, the fillet radius and centre, the flank
+  length), plus the 55 control-point coupling guards in space B, and one
+  discrete guard (`components_finite`). Each smooth margin has the
+  construction's own strictness (no epsilon); buildable is "the
+  construction succeeds", which a CI test checks agrees with the guards on
+  8000 points. Scales are `|m_i(θ0)|`; no θ0 margin is zero, so there are
+  no zero-reference scales. A margin behind a failed prerequisite (the
+  arcsine of the opening, the square root of the discriminant) is never
+  computed: its safe value is `c = −1` with a zero derivative. At a zero
+  discriminant the derivatives behind the root are undefined: they are
+  `null`, never invented, and a gradient request there is refused. The
+  space-B channel wall (moved corner to the opening end) has no
+  construction guard; it is recorded as a known meshing risk handled by
+  mesh repair and mesh-infeasible handling, not a new constraint.
+- **Credit (correction 2).** A target, and the best feasible point, need
+  admissibility (every `h_i ≥ 0`, the discrete guard, a valid validation
+  mesh) on top of the F and mean rule, on both sides (Rust
+  `Acceptance::with_admissibility`, `acceptance.rule`). A validation that
+  is mesh-infeasible has no value and no credit.
+- **Refused points (§2).** Not buildable, mesh-infeasible, or a gradient
+  where the derivative is undefined. No FEM value or gradient is made up or
+  returned for another point; each refusal is recorded with its x, its
+  geometry (margins, scales, h, discrete guards) and its costs.
+- **Restoration (§2, correction 1).** From the last *admissible* evaluated
+  point toward the refused x: `y_k = x_v + 2^-k (x − x_v)`, k = 1..20; the
+  first admissible `y_k` (for a mesh-infeasible x, also one whose
+  `mesh_check` passes, its attempts charged) is restored. None:
+  `restoration_failed`.
+- **A, safeguarded SLSQP with restarts.** SLSQP sees the mean constraint
+  and every `h_i ≥ 0` with their gradients. A refused request aborts the
+  `minimize` call; restoration; a new `minimize` from the actual `y` with
+  fresh state. At most 20 restarts. Each restart records the rejected x,
+  the restored y, the restoration's probes and costs.
+- **B, COBYQA.** A refused x returns NaN for the objective and the mean
+  constraint (the pinned scipy's extreme barrier); the geometry constraints
+  are their real values. The initial set is COBYQA's own 2n + 1 points, a
+  refused one counting in it. Results come only from validated attainment.
+- **C.** Refused points are skipped and never fitted; a refused candidate
+  or geometry point counts as a rejection (Δ halved). The initial set tries
+  +σ, −σ, then σ/2, σ/4, σ/8 each way (+ first unless it leaves the box); a
+  coordinate with no buildable step is `restoration_failed`. The subproblem
+  includes `h ≥ 0`. The feasible-first ordering uses the total violation:
+  the mean-floor violation plus Σ max(0, −h_i), and a failed discrete
+  guard is infeasible.
+- **Mesh repair (§3).** At most 4 attempts, each from the defaults plus its
+  own options only (`icem_remesh::MESH_REPAIR_ATTEMPTS`): the default;
+  `Mesh.Optimize = 1` with `Mesh.OptimizeNetgen = 1`; `Mesh.MeshSizeFactor
+  = 0.9`; `= 0.8`. Every attempt is charged and recorded (outcome, `.msh`
+  SHA-256, times). **Note:** in gmsh both options of attempt 2 act on
+  tetrahedra only, so on this 2-D sector attempt 2 gives the default's
+  mesh byte for byte (`../logs/mesh_repair_attempts_L0.log`); it is still
+  made and charged as registered. All 4 failing is `mesh_infeasible`;
+  `failed` stays for real errors.
+- **Host (§6).** `session.py`: the pre-run 1-minute load must be at most
+  N + 1; a run that cannot start within `--max-wait` is `deferred` (not
+  started) and requeued, up to `--max-deferrals`. A run whose in-run phase
+  (trace `in_run_start_time`..`in_run_end_time`, not C's diagnostic) has
+  load above 1.5 N for more than 60 s is `host_contaminated` and re-run at
+  the end of the session; both records are kept. The unit calibration is
+  gated and monitored the same way. `host_idle: true` only if nothing was
+  contaminated or every contaminated run was re-run cleanly.
+- **#1200 Judge's gaps.** Every training remesh `.msh` SHA-256 is in the
+  trace (`remesh_meshes`, per attempt); every failed, refused or aborted
+  request records its x; in-run and post-run wall time are separate.
 
 ## Checks
 
@@ -237,7 +351,8 @@ error of the reply against central differences.
   - A refused request charges its handling time.
   - `diagnose` runs both models at the requested currents only, and leaves
     the session's currents (and so the primary validation model) intact.
-- **Python (`test_harness.py`, 31 tests, CI job `motor-harness-driver`).**
+- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 34 tests; CI job
+  `motor-harness-driver`).**
   - Every request category, plus the driver's `setup_calibration`,
     `surrogate_update` and `overhead`, reaches the ledger in full, and the
     total equals the wall time.
@@ -281,12 +396,34 @@ unedited run.
 
 ### Smoke run (`../smoke/`, labelled smoke)
 
-- **What.** Both models at L0, an L0 anchor computed for the session,
-  θ0 in both spaces, the three methods, budget 20 × unit, six processes,
-  under amendments 4–6 (the unit under six-way concurrency).
-- **Host.** Loaded: load 9.8–12.5 on 28 cores.
-- **Not pilot data.** It is stored apart from `runs/`, and it shows only
-  that the harness runs end to end. `../smoke/SUMMARY.md` has the table.
+- **Amendments 4–6** (`../smoke/`): θ0, both spaces, the three methods,
+  budget 20 × unit, six processes; host loaded.
+- **Amendment 7** (`../smoke/amendment7/`, `SUMMARY.md`): both models at
+  L0, an L0 anchor, budget 20 × unit (unit 3.358 s, six-way), six
+  processes, 21 runs. Host shared (load 17–22 on 28 cores), so the gate
+  was **off** (`--host-gate off`, smoke only) and contamination was only
+  recorded. The safeguards it exercised:
+  - B's NaN barrier at non-buildable (4) and mesh-infeasible (1) points;
+    C skipping non-buildable (2) and mesh-infeasible (7) points, its −σ
+    initial-set retry (2) and refused steps counted as rejections (7);
+  - A's restoration of mesh-infeasible requests: 7 restorations with
+    `mesh_check` and 7 restarts at the restored y, then one
+    `restoration_failed` (the injected mesher failure in every attempt);
+  - mesh repair succeeding after a failed attempt (5, the `repairdrill`);
+    a real, not injected, mesh-infeasible point (all 4 gmsh attempts at a
+    4.017° minimum angle that no size factor changes: the angle is the
+    geometry's);
+  - inadmissible validations denied credit (6; 4 of them would have
+    attained T50 on F and the mean alone);
+  - the gate drill (deferred twice, never started) and the gated,
+    monitored calibration.
+  - **Not exercised by the smoke:** A never asked for a non-buildable
+    point (its `h` constraints kept it inside; from the boundary start it
+    stopped on the boundary), and no design hit a zero discriminant. Both
+    paths are bound by the tests (`test_safeguards.py`,
+    `motor_experiment2_domain`).
+- **Not data.** It is stored apart from `runs/` and shows only that the
+  harness and its safeguards run end to end.
 
 ## Reproduce
 
@@ -295,13 +432,20 @@ export CARGO_TARGET_DIR=/path/to/private/target
 cargo build -p geode-core --release --example icem_harness_eval
 H=benchmarks/motor_optimization/harness
 $H/pyrun.sh $H/test_harness.py
-cargo test -p geode-core --release --test motor_experiment2_harness
+$H/pyrun.sh $H/test_safeguards.py
+cargo test -p geode-core --release --test motor_experiment2_harness --test motor_experiment2_domain
+GEODE_WRITE_DOMAIN_INVENTORY=1 cargo test -p geode-core --release --test motor_experiment2_domain \
+    the_domain_inventory_is_the_committed_record
+cargo test -p geode-core --release --test motor_experiment2_domain -- --ignored   # gmsh attempts
+# The L1/L2 θ0 meshes (gitignored): run_all.sh meshes, or build_sector_mesh.py --levels 1 2
 $H/pyrun.sh $H/make_starts.py --binary $CARGO_TARGET_DIR/release/examples/icem_harness_eval
-$H/pyrun.sh $H/fd_check.py --binary ... --space a --level 1 --newton tight --out ...
-$H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 --out benchmarks/motor_optimization/smoke
-$H/pyrun.sh $H/summarize_session.py benchmarks/motor_optimization/smoke
+# The pilot failures: the pilot's evaluator (SHA-256 in runs/pilot/manifest.json) and its
+# compile-time reference path; --check re-derives the replay-mode ones (CI).
+$H/pyrun.sh $H/recover_pilot_failures.py --binary PILOT_EVALUATOR
+$H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 [--host-gate off] \
+    --out benchmarks/motor_optimization/smoke/amendment7
+$H/pyrun.sh $H/summarize_session.py benchmarks/motor_optimization/smoke/amendment7
 $H/pyrun.sh $H/mutation_checks.py
-# The pilot (#1198; needs the L1 and L2 θ0 meshes, run_all.sh meshes):
-# $H/pyrun.sh $H/session.py --procs 6 --out benchmarks/motor_optimization/runs/pilot
-# $H/pyrun.sh $H/summarize_pilot.py benchmarks/motor_optimization/runs/pilot
+# Main runs (not run here; they need the operator's host):
+# $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main
 ```

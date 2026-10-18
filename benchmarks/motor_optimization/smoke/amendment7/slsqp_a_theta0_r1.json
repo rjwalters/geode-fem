@@ -1,0 +1,3774 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "method": "slsqp",
+ "method_label": "safeguarded SLSQP with restarts (adjoint)",
+ "method_spec": {
+  "letter": "A",
+  "optimizer": "slsqp",
+  "resolution": null,
+  "label": "safeguarded SLSQP with restarts (adjoint)"
+ },
+ "space": "a",
+ "start": "theta0",
+ "repeat": 1,
+ "order_position": 0,
+ "session": "smoke-20261018T084413Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.339084521,
+ "started_utc": "2026-10-18T08:44:14Z",
+ "load_before": [
+  19.8828125,
+  20.5107421875,
+  21.93115234375
+ ],
+ "x_start": [
+  0.007,
+  0.007,
+  0.019,
+  0.004,
+  0.0023,
+  0.001,
+  0.00825,
+  0.001
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "wall_fe": 4.638557335881024,
+   "solve_fe": 4.856752446818342,
+   "seconds": 15.488535000011325,
+   "validation": 1,
+   "x": [
+    0.006,
+    0.006789918058729481,
+    0.01794950719531676,
+    0.004159756860797257,
+    0.001,
+    0.0009729768844028264,
+    0.008405189095243609,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366722547,
+   "mean_full": 1.451179503761058,
+   "attained": true,
+   "censored": false
+  },
+  "T90": {
+   "wall_fe": 4.638557335881024,
+   "solve_fe": 4.856752446818342,
+   "seconds": 15.488535000011325,
+   "validation": 1,
+   "x": [
+    0.006,
+    0.006789918058729481,
+    0.01794950719531676,
+    0.004159756860797257,
+    0.001,
+    0.0009729768844028264,
+    0.008405189095243609,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366722547,
+   "mean_full": 1.451179503761058,
+   "attained": true,
+   "censored": false
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "checkpoint_60": {
+  "fe": 60.0,
+  "rule": "validations completed by the checkpoint",
+  "targets": {
+   "T50": {
+    "attained": true,
+    "wall_fe": 4.638557335881024,
+    "validation": 1
+   },
+   "T90": {
+    "attained": true,
+    "wall_fe": 4.638557335881024,
+    "validation": 1
+   },
+   "T99": {
+    "attained": false,
+    "censored": true
+   }
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 2.8039439101305597,
+   "solve_fe": 2.9045016312122276,
+   "seconds": 9.362605708069168,
+   "index": 0,
+   "x": [
+    0.006,
+    0.0068644880972027885,
+    0.017658952278578006,
+    0.00413266251974023,
+    0.0010000000000000204,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.0004892423414341254,
+   "mean_full": 1.4220003638428897,
+   "stds": [
+    0.001028220686716133,
+    0.010437870875865783,
+    0.019473981494093275
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.03933223170307,
+     "max_area_ratio": 1.3863225350911195,
+     "min_angle_deg": 13.137187536104891,
+     "min_area_ratio": 0.35122652553120365
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.38478260869566105,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01513551190279721,
+      "scale": 0.013999999999999999,
+      "c": 1.0811079930569436,
+      "h": 1.0311079930569436,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.0068644880972027885,
+      "scale": 0.007,
+      "c": 0.9806411567432555,
+      "h": 0.9306411567432554,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.008829476139289003,
+      "scale": 0.0095,
+      "c": 0.9294185409777899,
+      "h": 0.8794185409777898,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005000000000000102,
+      "scale": 0.00115,
+      "c": 0.43478260869566104,
+      "h": 0.38478260869566105,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644607,
+      "scale": 0.002772008423644617,
+      "c": 1.2344870219208695,
+      "h": 1.1844870219208694,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 3.5196321625050736e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.2943911799980803,
+      "h": 1.2443911799980802,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.002060898065810862,
+      "scale": 0.0018379416028071888,
+      "c": 1.12130769697097,
+      "h": 1.07130769697097,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.001620684049466836,
+      "scale": 0.0010180704175208324,
+      "c": 1.591917436726495,
+      "h": 1.541917436726495,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010002226574176679,
+      "scale": 0.001,
+      "c": 1.0002226574176678,
+      "h": 0.9502226574176678,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0020161493864139144,
+      "scale": 0.002084755137755031,
+      "c": 0.9670916981574177,
+      "h": 0.9170916981574176,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010286494866519016,
+      "scale": 0.010528559286427139,
+      "c": 0.9770087802782116,
+      "h": 0.9270087802782115,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 4.8924234143412545e-05,
+   "F_upper": 0.000538166575577538,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00038489814426406136,
+   "mean_train": 1.4218762353290835
+  },
+  {
+   "wall_fe": 4.638557335881024,
+   "solve_fe": 4.856752446818342,
+   "seconds": 15.488535000011325,
+   "index": 1,
+   "x": [
+    0.006,
+    0.006789918058729481,
+    0.01794950719531676,
+    0.004159756860797257,
+    0.001,
+    0.0009729768844028264,
+    0.008405189095243609,
+    0.0010005700793935157
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.0005069296366722547,
+   "mean_full": 1.451179503761058,
+   "stds": [
+    0.001108221760183902,
+    0.010633479316962662,
+    0.019814908498861073
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.03048526111988,
+     "max_area_ratio": 1.3645863884376759,
+     "min_angle_deg": 13.144063139850422,
+     "min_area_ratio": 0.3483468963348114
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.38478260869565223,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.015210081941270517,
+      "scale": 0.013999999999999999,
+      "c": 1.0864344243764656,
+      "h": 1.0364344243764656,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.006789918058729481,
+      "scale": 0.007,
+      "c": 0.9699882941042116,
+      "h": 0.9199882941042116,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.00897475359765838,
+      "scale": 0.0095,
+      "c": 0.9447109050166715,
+      "h": 0.8947109050166715,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 3.464027258269324e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.2739417425897788,
+      "h": 1.2239417425897787,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0020446430632681672,
+      "scale": 0.0018379416028071888,
+      "c": 1.1124635625774355,
+      "h": 1.0624635625774355,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0016048907943573324,
+      "scale": 0.0010180704175208324,
+      "c": 1.5764045067388397,
+      "h": 1.5264045067388397,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010005700793935157,
+      "scale": 0.001,
+      "c": 1.0005700793935157,
+      "h": 0.9505700793935157,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0019903721657039733,
+      "scale": 0.002084755137755031,
+      "c": 0.954727070656032,
+      "h": 0.904727070656032,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.01017564663335313,
+      "scale": 0.010528559286427139,
+      "c": 0.9664804420554515,
+      "h": 0.9164804420554514,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 5.069296366722547e-05,
+   "F_upper": 0.0005576226003394802,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00040054853750910713,
+   "mean_train": 1.451073094485083
+  },
+  {
+   "wall_fe": 6.471496263157703,
+   "solve_fe": 6.809003262424455,
+   "seconds": 21.60887300001923,
+   "index": 2,
+   "x": [
+    0.006,
+    0.006662928866887034,
+    0.017973772040991466,
+    0.004192015324797005,
+    0.001,
+    0.0009612084933041439,
+    0.008563536365558575,
+    0.0010009801977646693
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.0005030819403707066,
+   "mean_full": 1.4511589449662246,
+   "stds": [
+    0.0011129562265858519,
+    0.01060069440337164,
+    0.019734957486012873
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.04157765863863,
+     "max_area_ratio": 1.3388927343135884,
+     "min_angle_deg": 13.14278606468942,
+     "min_area_ratio": 0.34478564586275967
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.38478260869565223,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.015337071133112966,
+      "scale": 0.013999999999999999,
+      "c": 1.0955050809366405,
+      "h": 1.0455050809366404,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.006662928866887034,
+      "scale": 0.007,
+      "c": 0.951846980983862,
+      "h": 0.901846980983862,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.008986886020495733,
+      "scale": 0.0095,
+      "c": 0.9459880021574456,
+      "h": 0.8959880021574456,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 3.39821719809192e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.2497392243959042,
+      "h": 1.1997392243959042,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.002025236151970304,
+      "scale": 0.0018379416028071888,
+      "c": 1.101904515832848,
+      "h": 1.051904515832848,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0015860444557217043,
+      "scale": 0.0010180704175208324,
+      "c": 1.5578926844608463,
+      "h": 1.5078926844608462,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010009801977646693,
+      "scale": 0.001,
+      "c": 1.0009801977646693,
+      "h": 0.9509801977646692,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0019598801659404417,
+      "scale": 0.002084755137755031,
+      "c": 0.9401008926405329,
+      "h": 0.8901008926405328,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010046386236250447,
+      "scale": 0.010528559286427139,
+      "c": 0.9542033209806509,
+      "h": 0.9042033209806508,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 5.0308194037070665e-05,
+   "F_upper": 0.0005533901344077773,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00039739500473577675,
+   "mean_train": 1.4510548648847719
+  },
+  {
+   "wall_fe": 8.293383595973223,
+   "solve_fe": 8.761254078030568,
+   "seconds": 27.692308792029507,
+   "index": 3,
+   "x": [
+    0.006,
+    0.0060033697892021365,
+    0.018105489472722808,
+    0.004345178938577015,
+    0.0010000000000000002,
+    0.000902494968312319,
+    0.009320672509166237,
+    0.0010029679075644173
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.0004831299324032634,
+   "mean_full": 1.4493347191017514,
+   "stds": [
+    0.0011279729955037873,
+    0.010433614583916607,
+    0.019313137912803303
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.09880070332247,
+     "max_area_ratio": 1.4183584451171685,
+     "min_angle_deg": 13.136313846540437,
+     "min_area_ratio": 0.3252917295340032
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.3847826086956523,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.015996630210797863,
+      "scale": 0.013999999999999999,
+      "c": 1.142616443628419,
+      "h": 1.092616443628419,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.0060033697892021365,
+      "scale": 0.007,
+      "c": 0.8576242556003052,
+      "h": 0.8076242556003052,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009052744736361404,
+      "scale": 0.0095,
+      "c": 0.9529204985643583,
+      "h": 0.9029204985643583,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005000000000000001,
+      "scale": 0.00115,
+      "c": 0.4347826086956523,
+      "h": 0.3847826086956523,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 3.0928778692145e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.1374466563213574,
+      "h": 1.0874466563213574,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0019326448534730672,
+      "scale": 0.0018379416028071888,
+      "c": 1.051526800699888,
+      "h": 1.0015268006998879,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0014962755645592063,
+      "scale": 0.0010180704175208324,
+      "c": 1.4697171618078064,
+      "h": 1.4197171618078064,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010029679075644173,
+      "scale": 0.001,
+      "c": 1.0029679075644173,
+      "h": 0.9529679075644173,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0018145957950758103,
+      "scale": 0.002084755137755031,
+      "c": 0.8704119549645807,
+      "h": 0.8204119549645806,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.009430570091623236,
+      "scale": 0.010528559286427139,
+      "c": 0.895713253358475,
+      "h": 0.8457132533584749,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 4.831299324032634e-05,
+   "F_upper": 0.0005314429256435897,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00038090070905980093,
+   "mean_train": 1.4492410954035513
+  },
+  {
+   "wall_fe": 10.096433816826616,
+   "solve_fe": 10.713504893636681,
+   "seconds": 33.712845875066705,
+   "index": 4,
+   "x": [
+    0.006000000000000001,
+    0.002400159267740982,
+    0.01904703099441478,
+    0.005129204192447981,
+    0.001,
+    0.0005928760816227902,
+    0.013214137648943258,
+    0.0010132685140514372
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.00029553700721568737,
+   "mean_full": 1.3176533349502604,
+   "stds": [
+    0.0009195759551752247,
+    0.00872408791793178,
+    0.014784508016114289
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 139.3077926965038,
+     "max_area_ratio": 2.035925021489373,
+     "min_angle_deg": 11.77470453370146,
+     "min_area_ratio": 0.2041383148206542
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.29287989539156883,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.019599840732259018,
+      "scale": 0.013999999999999999,
+      "c": 1.3999886237327872,
+      "h": 1.3499886237327872,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.002400159267740982,
+      "scale": 0.007,
+      "c": 0.3428798953915688,
+      "h": 0.29287989539156883,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.00952351549720739,
+      "scale": 0.0095,
+      "c": 1.0024753154955148,
+      "h": 0.9524753154955148,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.7367200920402615e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.6387017351444969,
+      "h": 0.5887017351444969,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001451661982797385,
+      "scale": 0.0018379416028071888,
+      "c": 0.7898303083080455,
+      "h": 0.7398303083080454,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.001035357454242955,
+      "scale": 0.0010180704175208324,
+      "c": 1.0169801974643555,
+      "h": 0.9669801974643555,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010132685140514372,
+      "scale": 0.001,
+      "c": 1.013268514051437,
+      "h": 0.963268514051437,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0010692105426011722,
+      "scale": 0.002084755137755031,
+      "c": 0.512871043336318,
+      "h": 0.46287104333631807,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.006276336685464817,
+      "scale": 0.010528559286427139,
+      "c": 0.5961249316946848,
+      "h": 0.5461249316946848,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 2.9553700721568738e-05,
+   "F_upper": 0.0003250907079372561,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00022185575737798576,
+   "mean_train": 1.3176204179346667
+  },
+  {
+   "wall_fe": 12.824689304106304,
+   "solve_fe": 13.618006524848909,
+   "seconds": 42.822721541975625,
+   "index": 5,
+   "x": [
+    0.006000000000000003,
+    0.002,
+    0.019811549655131398,
+    0.005257411553760298,
+    0.0010000000000000013,
+    0.0005415655995320952,
+    0.01384299670086755,
+    0.0010149493715988574
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.00029060785727976754,
+   "mean_full": 1.3199794253433095,
+   "stds": [
+    0.0009434026907260974,
+    0.008701292744861769,
+    0.01462892180617267
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 149.64603482933603,
+     "max_area_ratio": 2.121795280241008,
+     "min_angle_deg": 11.111121637758526,
+     "min_area_ratio": 0.16554086505552001
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.2357142857142857,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01999999999999999,
+      "scale": 0.013999999999999999,
+      "c": 1.428571428571428,
+      "h": 1.378571428571428,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.002,
+      "scale": 0.007,
+      "c": 0.2857142857142857,
+      "h": 0.2357142857142857,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009905774827565699,
+      "scale": 0.0095,
+      "c": 1.042713139743758,
+      "h": 0.9927131397437579,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005000000000000007,
+      "scale": 0.00115,
+      "c": 0.4347826086956528,
+      "h": 0.3847826086956528,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0034220084236446166,
+      "scale": 0.002772008423644617,
+      "c": 1.2344870219208728,
+      "h": 1.1844870219208727,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.5481988258178765e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.5693705513804966,
+      "h": 0.5193705513804966,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0013714958836299057,
+      "scale": 0.0018379416028071888,
+      "c": 0.7462129817047206,
+      "h": 0.6962129817047206,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.000959794834493317,
+      "scale": 0.0010180704175208324,
+      "c": 0.9427587895448077,
+      "h": 0.8927587895448077,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010149493715988574,
+      "scale": 0.001,
+      "c": 1.0149493715988573,
+      "h": 0.9649493715988573,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0009480096241693551,
+      "scale": 0.002084755137755031,
+      "c": 0.4547342788612668,
+      "h": 0.40473427886126684,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.005770541144615046,
+      "scale": 0.010528559286427139,
+      "c": 0.5480845942572715,
+      "h": 0.49808459425727153,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 2.9060785727976754e-05,
+   "F_upper": 0.0003196686430077443,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00022028597251285095,
+   "mean_train": 1.3199789431586886
+  },
+  {
+   "wall_fe": 15.549334270673457,
+   "solve_fe": 16.522508156061136,
+   "seconds": 51.920541375060566,
+   "index": 6,
+   "x": [
+    0.006,
+    0.0020000000000000026,
+    0.02055680745297954,
+    0.005331589327064538,
+    0.001,
+    0.0005113581589237435,
+    0.01420772199119631,
+    0.0010159478994299386
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.0003462496631021638,
+   "mean_full": 1.3819296551718745,
+   "stds": [
+    0.001123056043790569,
+    0.009261516006174196,
+    0.016100084766610654
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 150.76431785420422,
+     "max_area_ratio": 2.201611574552314,
+     "min_angle_deg": 10.757621190887434,
+     "min_area_ratio": 0.1719140158571497
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.2357142857142861,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.019999999999999997,
+      "scale": 0.013999999999999999,
+      "c": 1.4285714285714286,
+      "h": 1.3785714285714286,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.0020000000000000026,
+      "scale": 0.007,
+      "c": 0.2857142857142861,
+      "h": 0.2357142857142861,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.01027840372648977,
+      "scale": 0.0095,
+      "c": 1.0819372343673441,
+      "h": 1.031937234367344,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.4433019009971008e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.5307933228441217,
+      "h": 0.48079332284412174,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0013247877376177941,
+      "scale": 0.0018379416028071888,
+      "c": 0.7207996900414971,
+      "h": 0.6707996900414971,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0009160023127604187,
+      "scale": 0.0010180704175208324,
+      "c": 0.8997435707748328,
+      "h": 0.8497435707748328,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010159478994299386,
+      "scale": 0.001,
+      "c": 1.0159478994299387,
+      "h": 0.9659478994299386,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0008777800338799795,
+      "scale": 0.002084755137755031,
+      "c": 0.4210470659039685,
+      "h": 0.3710470659039685,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.005477829115882467,
+      "scale": 0.010528559286427139,
+      "c": 0.5202828769691399,
+      "h": 0.4702828769691399,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 3.462496631021638e-05,
+   "F_upper": 0.0003808746294123802,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00027198500509296775,
+   "mean_train": 1.381958234243659
+  },
+  {
+   "wall_fe": 18.309810428148122,
+   "solve_fe": 19.427009787273363,
+   "seconds": 61.13800458307378,
+   "index": 7,
+   "x": [
+    0.006,
+    0.0028597987890992185,
+    0.019900238265933838,
+    0.005126362277913899,
+    0.0010000000000000002,
+    0.0005909316409096973,
+    0.013201773231918429,
+    0.0010132952784189491
+   ],
+   "note": "slsqp iterate",
+   "status": "ok",
+   "F_val": 0.00039876532309675197,
+   "mean_full": 1.4510746676311244,
+   "stds": [
+    0.0012830593267848,
+    0.00979004412035101,
+    0.017357249724028377
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.30503156164954,
+     "max_area_ratio": 1.9759690805274168,
+     "min_angle_deg": 11.78723458907661,
+     "min_area_ratio": 0.2033696711067164
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.3585426841570312,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01914020121090078,
+      "scale": 0.013999999999999999,
+      "c": 1.3671572293500558,
+      "h": 1.3171572293500557,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.0028597987890992185,
+      "scale": 0.007,
+      "c": 0.4085426841570312,
+      "h": 0.3585426841570312,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009950119132966919,
+      "scale": 0.0095,
+      "c": 1.047380961364939,
+      "h": 0.9973809613649389,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005000000000000001,
+      "scale": 0.00115,
+      "c": 0.4347826086956523,
+      "h": 0.3847826086956523,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.7402479431613029e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.6399991489549709,
+      "h": 0.5899991489549709,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0014531199436246742,
+      "scale": 0.0018379416028071888,
+      "c": 0.7906235657353011,
+      "h": 0.7406235657353011,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0010367360119942167,
+      "scale": 0.0010180704175208324,
+      "c": 1.0183342862656182,
+      "h": 0.9683342862656181,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010132952784189491,
+      "scale": 0.001,
+      "c": 1.013295278418949,
+      "h": 0.963295278418949,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.001071689465833118,
+      "scale": 0.002084755137755031,
+      "c": 0.5140601149865336,
+      "h": 0.4640601149865336,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.006289278634564341,
+      "scale": 0.010528559286427139,
+      "c": 0.5973541548720864,
+      "h": 0.5473541548720864,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 3.98765323096752e-05,
+   "F_upper": 0.00043864185540642715,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00031560563723569796,
+   "mean_train": 1.4510771882175217
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 18.309810428148122,
+  "solve_fe": 19.427009787273363,
+  "seconds": 61.13800458307378,
+  "index": 7,
+  "x": [
+   0.006,
+   0.0028597987890992185,
+   0.019900238265933838,
+   0.005126362277913899,
+   0.0010000000000000002,
+   0.0005909316409096973,
+   0.013201773231918429,
+   0.0010132952784189491
+  ],
+  "note": "slsqp iterate",
+  "status": "ok",
+  "F_val": 0.00039876532309675197,
+  "mean_full": 1.4510746676311244,
+  "stds": [
+   0.0012830593267848,
+   0.00979004412035101,
+   0.017357249724028377
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": true,
+   "T90": true,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30503156164954,
+    "max_area_ratio": 1.9759690805274168,
+    "min_angle_deg": 11.78723458907661,
+    "min_area_ratio": 0.2033696711067164
+   }
+  },
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "min_h": 0.3585426841570312,
+  "geometry": {
+   "buildable": true,
+   "admissible": true,
+   "construction_error": null,
+   "guards": [
+    {
+     "name": "magnet_shaft_clearance",
+     "unit": "m",
+     "margin": 0.01914020121090078,
+     "scale": 0.013999999999999999,
+     "c": 1.3671572293500558,
+     "h": 1.3171572293500557,
+     "pass": true
+    },
+    {
+     "name": "magnet_height",
+     "unit": "m",
+     "margin": 0.0028597987890992185,
+     "scale": 0.007,
+     "c": 0.4085426841570312,
+     "h": 0.3585426841570312,
+     "pass": true
+    },
+    {
+     "name": "magnet_half_width",
+     "unit": "m",
+     "margin": 0.009950119132966919,
+     "scale": 0.0095,
+     "c": 1.047380961364939,
+     "h": 0.9973809613649389,
+     "pass": true
+    },
+    {
+     "name": "opening_half_width",
+     "unit": "m",
+     "margin": 0.0005000000000000001,
+     "scale": 0.00115,
+     "c": 0.4347826086956523,
+     "h": 0.3847826086956523,
+     "pass": true
+    },
+    {
+     "name": "opening_vs_pitch",
+     "unit": "m",
+     "margin": 0.003422008423644617,
+     "scale": 0.002772008423644617,
+     "c": 1.234487021920873,
+     "h": 1.184487021920873,
+     "pass": true
+    },
+    {
+     "name": "slot_top_discriminant",
+     "unit": "m^2",
+     "margin": 1.7402479431613029e-06,
+     "scale": 2.7191410269886834e-06,
+     "c": 0.6399991489549709,
+     "h": 0.5899991489549709,
+     "pass": true
+    },
+    {
+     "name": "arc_centre_beyond_opening",
+     "unit": "m",
+     "margin": 0.0014531199436246742,
+     "scale": 0.0018379416028071888,
+     "c": 0.7906235657353011,
+     "h": 0.7406235657353011,
+     "pass": true
+    },
+    {
+     "name": "arc_radius_vs_opening",
+     "unit": "m",
+     "margin": 0.0010367360119942167,
+     "scale": 0.0010180704175208324,
+     "c": 1.0183342862656182,
+     "h": 0.9683342862656181,
+     "pass": true
+    },
+    {
+     "name": "fillet_radius",
+     "unit": "m",
+     "margin": 0.0010132952784189491,
+     "scale": 0.001,
+     "c": 1.013295278418949,
+     "h": 0.963295278418949,
+     "pass": true
+    },
+    {
+     "name": "fillet_centre_y",
+     "unit": "m",
+     "margin": 0.001071689465833118,
+     "scale": 0.002084755137755031,
+     "c": 0.5140601149865336,
+     "h": 0.4640601149865336,
+     "pass": true
+    },
+    {
+     "name": "flank_length",
+     "unit": "m",
+     "margin": 0.006289278634564341,
+     "scale": 0.010528559286427139,
+     "c": 0.5973541548720864,
+     "h": 0.5473541548720864,
+     "pass": true
+    }
+   ],
+   "discrete": [
+    {
+     "name": "components_finite",
+     "pass": true
+    }
+   ]
+  },
+  "delta_F": 3.98765323096752e-05,
+  "F_upper": 0.00043864185540642715,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "admissible": true,
+  "F_train": 0.00031560563723569796,
+  "mean_train": 1.4510771882175217
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.9699632302301118,
+   "solve_fe": 0.9522508156061138,
+   "seconds": 3.238789208000526,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008584802316481453,
+   "mean_full": 1.4475011967377915,
+   "stds": [
+    0.010143707533009428,
+    0.0405590283375799,
+    0.08268538404263241
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 1.8963430201215912,
+   "solve_fe": 1.9045016312122276,
+   "seconds": 6.332049624994397,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0068644880972027885,
+    0.017658952278578006,
+    0.00413266251974023,
+    0.0010000000000000204,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "F": 0.00038489814426406136,
+   "mean_full": 1.4218762353290835,
+   "stds": [
+    0.0019835448128745115,
+    0.009066870137540543,
+    0.01728454685979229
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.03933223170307,
+    "max_area_ratio": 1.3863225350911195,
+    "min_angle_deg": 13.137187536104891,
+    "min_area_ratio": 0.35122652553120365
+   },
+   "newton_iterations": 177,
+   "admissible": true,
+   "min_h": 0.38478260869566105,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.8039439101305597,
+   "solve_fe": 2.9045016312122276,
+   "seconds": 9.362605708069168,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.0068644880972027885,
+    0.017658952278578006,
+    0.00413266251974023,
+    0.0010000000000000204,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "F_val": 0.0004892423414341254,
+   "mean_full": 1.4220003638428897,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 3.7270447824177744,
+   "solve_fe": 3.8567524468183416,
+   "seconds": 12.444917542045005,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.006789918058729481,
+    0.01794950719531676,
+    0.004159756860797257,
+    0.001,
+    0.0009729768844028264,
+    0.008405189095243609,
+    0.0010005700793935157
+   ],
+   "F": 0.00040054853750910713,
+   "mean_full": 1.451073094485083,
+   "stds": [
+    0.002169194871311701,
+    0.009249665745432723,
+    0.017614959969217945
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.03048526111988,
+    "max_area_ratio": 1.3645863884376759,
+    "min_angle_deg": 13.144063139850422,
+    "min_area_ratio": 0.3483468963348114
+   },
+   "newton_iterations": 177,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.638557335881024,
+   "solve_fe": 4.856752446818342,
+   "seconds": 15.488535000011325,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.006789918058729481,
+    0.01794950719531676,
+    0.004159756860797257,
+    0.001,
+    0.0009729768844028264,
+    0.008405189095243609,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366722547,
+   "mean_full": 1.451179503761058,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 5.55634679694724,
+   "solve_fe": 5.809003262424455,
+   "seconds": 18.55311158299446,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.006662928866887034,
+    0.017973772040991466,
+    0.004192015324797005,
+    0.001,
+    0.0009612084933041439,
+    0.008563536365558575,
+    0.0010009801977646693
+   ],
+   "F": 0.00039739500473577675,
+   "mean_full": 1.4510548648847719,
+   "stds": [
+    0.0021733562700383033,
+    0.009219432462764892,
+    0.01754062690794656
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.04157765863863,
+    "max_area_ratio": 1.3388927343135884,
+    "min_angle_deg": 13.14278606468942,
+    "min_area_ratio": 0.34478564586275967
+   },
+   "newton_iterations": 177,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 6.471496263157703,
+   "solve_fe": 6.809003262424455,
+   "seconds": 21.60887300001923,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.006662928866887034,
+    0.017973772040991466,
+    0.004192015324797005,
+    0.001,
+    0.0009612084933041439,
+    0.008563536365558575,
+    0.0010009801977646693
+   ],
+   "F_val": 0.0005030819403707066,
+   "mean_full": 1.4511589449662246,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 7.38976945233237,
+   "solve_fe": 7.761254078030569,
+   "seconds": 24.675064792041667,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0060033697892021365,
+    0.018105489472722808,
+    0.004345178938577015,
+    0.0010000000000000002,
+    0.000902494968312319,
+    0.009320672509166237,
+    0.0010029679075644173
+   ],
+   "F": 0.00038090070905980093,
+   "mean_full": 1.4492410954035513,
+   "stds": [
+    0.002180992234810874,
+    0.009064595009796481,
+    0.017145760386750666
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.09880070332247,
+    "max_area_ratio": 1.4183584451171685,
+    "min_angle_deg": 13.136313846540437,
+    "min_area_ratio": 0.3252917295340032
+   },
+   "newton_iterations": 176,
+   "admissible": true,
+   "min_h": 0.3847826086956523,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.293383595973223,
+   "solve_fe": 8.761254078030568,
+   "seconds": 27.692308792029507,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.0060033697892021365,
+    0.018105489472722808,
+    0.004345178938577015,
+    0.0010000000000000002,
+    0.000902494968312319,
+    0.009320672509166237,
+    0.0010029679075644173
+   ],
+   "F_val": 0.0004831299324032634,
+   "mean_full": 1.4493347191017514,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 9.200823938046373,
+   "solve_fe": 9.713504893636681,
+   "seconds": 30.722328791976906,
+   "kind": "train",
+   "x": [
+    0.006000000000000001,
+    0.002400159267740982,
+    0.01904703099441478,
+    0.005129204192447981,
+    0.001,
+    0.0005928760816227902,
+    0.013214137648943258,
+    0.0010132685140514372
+   ],
+   "F": 0.00022185575737798576,
+   "mean_full": 1.3176204179346667,
+   "stds": [
+    0.0015607026486035452,
+    0.007443724298759833,
+    0.012806675336896773
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 139.3077926965038,
+    "max_area_ratio": 2.035925021489373,
+    "min_angle_deg": 11.77470453370146,
+    "min_area_ratio": 0.2041383148206542
+   },
+   "newton_iterations": 172,
+   "admissible": true,
+   "min_h": 0.29287989539156883,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.096433816826616,
+   "solve_fe": 10.713504893636681,
+   "seconds": 33.712845875066705,
+   "kind": "validate",
+   "x": [
+    0.006000000000000001,
+    0.002400159267740982,
+    0.01904703099441478,
+    0.005129204192447981,
+    0.001,
+    0.0005928760816227902,
+    0.013214137648943258,
+    0.0010132685140514372
+   ],
+   "F_val": 0.00029553700721568737,
+   "mean_full": 1.3176533349502604,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 11.016557375751942,
+   "solve_fe": 11.665755709242795,
+   "seconds": 36.78521620808169,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.004545081191105301,
+    0.018486549435092522,
+    0.004662489037870456,
+    0.001,
+    0.0007771862500108191,
+    0.010896432733723392,
+    0.001007136761119888
+   ],
+   "F": 0.0003395067312230105,
+   "mean_full": 1.4364638693437164,
+   "stds": [
+    0.002143793706664445,
+    0.008683005947464247,
+    0.01610950922537918
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.2198944523327,
+    "max_area_ratio": 1.6647976540251064,
+    "min_angle_deg": 13.124500792193617,
+    "min_area_ratio": 0.27699639170205004
+   },
+   "newton_iterations": 175,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 11.92618888726165,
+   "solve_fe": 12.618006524848909,
+   "seconds": 39.82255270797759,
+   "kind": "train",
+   "x": [
+    0.006000000000000003,
+    0.002,
+    0.019811549655131398,
+    0.005257411553760298,
+    0.0010000000000000013,
+    0.0005415655995320952,
+    0.01384299670086755,
+    0.0010149493715988574
+   ],
+   "F": 0.00022028597251285095,
+   "mean_full": 1.3199789431586886,
+   "stds": [
+    0.0016449989132863235,
+    0.007429605189028988,
+    0.012742877140712426
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 149.64603482933603,
+    "max_area_ratio": 2.121795280241008,
+    "min_angle_deg": 11.111121637758526,
+    "min_area_ratio": 0.16554086505552001
+   },
+   "newton_iterations": 172,
+   "admissible": true,
+   "min_h": 0.2357142857142857,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.824689304106304,
+   "solve_fe": 13.618006524848909,
+   "seconds": 42.822721541975625,
+   "kind": "validate",
+   "x": [
+    0.006000000000000003,
+    0.002,
+    0.019811549655131398,
+    0.005257411553760298,
+    0.0010000000000000013,
+    0.0005415655995320952,
+    0.01384299670086755,
+    0.0010149493715988574
+   ],
+   "F_val": 0.00029060785727976754,
+   "mean_full": 1.3199794253433095,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 13.737987813588347,
+   "solve_fe": 14.570257340455022,
+   "seconds": 45.872302458039485,
+   "kind": "train",
+   "x": [
+    0.006000000000000001,
+    0.0033453680709615167,
+    0.019111134675724346,
+    0.004942926593370218,
+    0.0010000000000000007,
+    0.0006661182075672011,
+    0.012285398815858687,
+    0.001010819508580735
+   ],
+   "F": 0.00030260312512222175,
+   "mean_full": 1.4233016976072967,
+   "stds": [
+    0.0021259511297011483,
+    0.008344712249664349,
+    0.015114537187312285
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30177746287805,
+    "max_area_ratio": 1.85783681391065,
+    "min_angle_deg": 12.798472424612836,
+    "min_area_ratio": 0.23309116451321799
+   },
+   "newton_iterations": 175,
+   "admissible": true,
+   "min_h": 0.3847826086956525,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.650499069235517,
+   "solve_fe": 15.522508156061136,
+   "seconds": 48.91925466700923,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0020000000000000026,
+    0.02055680745297954,
+    0.005331589327064538,
+    0.001,
+    0.0005113581589237435,
+    0.01420772199119631,
+    0.0010159478994299386
+   ],
+   "F": 0.00027198500509296775,
+   "mean_full": 1.381958234243659,
+   "stds": [
+    0.0020792419822521255,
+    0.007983356087974023,
+    0.01428032854820981
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 150.76431785420422,
+    "max_area_ratio": 2.201611574552314,
+    "min_angle_deg": 10.757621190887434,
+    "min_area_ratio": 0.1719140158571497
+   },
+   "newton_iterations": 174,
+   "admissible": true,
+   "min_h": 0.2357142857142861,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 15.549334270673457,
+   "solve_fe": 16.522508156061136,
+   "seconds": 51.920541375060566,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.0020000000000000026,
+    0.02055680745297954,
+    0.005331589327064538,
+    0.001,
+    0.0005113581589237435,
+    0.01420772199119631,
+    0.0010159478994299386
+   ],
+   "F_val": 0.0003462496631021638,
+   "mean_full": 1.3819296551718745,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 16.464476948463094,
+   "solve_fe": 17.47475897166725,
+   "seconds": 54.97628012497444,
+   "kind": "train",
+   "x": [
+    0.006000000000000001,
+    0.0027940491067896785,
+    0.019703557548907395,
+    0.005102196863252129,
+    0.0010000000000000005,
+    0.0006026990202422662,
+    0.013073148462000674,
+    0.0010129210740867684
+   ],
+   "F": 0.0002954778716070924,
+   "mean_full": 1.4255654168815741,
+   "stds": [
+    0.0022098517489838342,
+    0.008276260762199979,
+    0.014902950535067697
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.3223151479448,
+    "max_area_ratio": 1.968200357156654,
+    "min_angle_deg": 11.919666945996722,
+    "min_area_ratio": 0.20802135428355284
+   },
+   "newton_iterations": 175,
+   "admissible": true,
+   "min_h": 0.3491498723985255,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 17.394804913666476,
+   "solve_fe": 18.427009787273363,
+   "seconds": 58.08272383303847,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0028597987890992185,
+    0.019900238265933838,
+    0.005126362277913899,
+    0.0010000000000000002,
+    0.0005909316409096973,
+    0.013201773231918429,
+    0.0010132952784189491
+   ],
+   "F": 0.00031560563723569796,
+   "mean_full": 1.4510771882175217,
+   "stds": [
+    0.002393118549386939,
+    0.0084798185262934,
+    0.015426318374952896
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30503156164954,
+    "max_area_ratio": 1.9759690805274168,
+    "min_angle_deg": 11.78723458907661,
+    "min_area_ratio": 0.2033696711067164
+   },
+   "newton_iterations": 176,
+   "admissible": true,
+   "min_h": 0.3585426841570312,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.309810428148122,
+   "solve_fe": 19.427009787273363,
+   "seconds": 61.13800458307378,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.0028597987890992185,
+    0.019900238265933838,
+    0.005126362277913899,
+    0.0010000000000000002,
+    0.0005909316409096973,
+    0.013201773231918429,
+    0.0010132952784189491
+   ],
+   "F_val": 0.00039876532309675197,
+   "mean_full": 1.4510746676311244,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 19.240845747993795,
+   "solve_fe": 20.379260602879476,
+   "seconds": 64.24681020807475,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0028111006459295173,
+    0.019958139768377764,
+    0.005176199374447728,
+    0.0010000000000000002,
+    0.0005665157426844597,
+    0.013471950157181216,
+    0.001014069551178328
+   ],
+   "F": 0.0003146531338797902,
+   "mean_full": 1.4510222725460973,
+   "stds": [
+    0.002402771685407265,
+    0.008463030074882949,
+    0.015403147212801092
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30653557897404,
+    "max_area_ratio": 1.9905413670862582,
+    "min_angle_deg": 11.518233223035764,
+    "min_area_ratio": 0.19371798743002325
+   },
+   "newton_iterations": 176,
+   "admissible": true,
+   "min_h": 0.3515858065613596,
+   "remesh_meshes": [],
+   "attempts": null
+  }
+ ],
+ "refusals": [],
+ "restorations": [],
+ "restarts": [],
+ "surrogate_initial_set": null,
+ "surrogate_steps": null,
+ "assessment": null,
+ "aborted_request": {
+  "category": "validation",
+  "op": "validate",
+  "x": [
+   0.006,
+   0.0028111006459295173,
+   0.019958139768377764,
+   0.005176199374447728,
+   0.0010000000000000002,
+   0.0005665157426844597,
+   0.013471950157181216,
+   0.001014069551178328
+  ]
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.339084521
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 66.78169042,
+  "total_fe": 20.0,
+  "total_seconds": 66.78169042,
+  "elapsed_seconds": 66.79418412502855,
+  "solve_fe": 20.379260602879476,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.777584695496841,
+   "adjoint_eval": 0.17466612010927285,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.012959744924947348,
+   "adjoint_solve": 0.0029111020018212142,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 24.959839883999997,
+    "fe": 7.475054832252327,
+    "entries": 10,
+    "forward_solves": 600,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 7.619078776000001,
+    "fe": 2.2817867376768928,
+    "entries": 13,
+    "forward_solves": 0,
+    "adjoint_solves": 780
+   },
+   "line_search": {
+    "seconds": 7.417043798,
+    "fe": 2.2212806388556823,
+    "entries": 3,
+    "forward_solves": 180,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.008481541,
+    "fe": 0.002540079757388088,
+    "entries": 21,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 26.72312500295919,
+    "fe": 8.003129251414116,
+    "entries": 9,
+    "forward_solves": 480,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "geometry_check": {
+    "seconds": 0.000621707,
+    "fe": 0.00018619085443629594,
+    "entries": 34,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.053499711040808,
+    "fe": 0.016022269189156592,
+    "entries": 70,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.03990095807239413,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.0014837499475106597,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "geometry_check",
+    "seconds": 1.9666e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 3,
+    "category": "overhead",
+    "seconds": 0.00022254306198024598,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 0.000699999975040555,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 5,
+    "category": "geometry_check",
+    "seconds": 1.6209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 6,
+    "category": "mesh_motion",
+    "seconds": 0.0004285,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 7,
+    "category": "forward",
+    "seconds": 2.6076530829999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 8,
+    "category": "adjoint",
+    "seconds": 0.5880750429999999,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 9,
+    "category": "overhead",
+    "seconds": 0.0002894559436006361,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 10,
+    "category": "overhead",
+    "seconds": 0.0004941250663250685,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 11,
+    "category": "geometry_check",
+    "seconds": 1.5833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 0.00015308400215641171,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 13,
+    "category": "overhead",
+    "seconds": 2.9916991479694843e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 14,
+    "category": "geometry_check",
+    "seconds": 9.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 15,
+    "category": "mesh_motion",
+    "seconds": 0.000395834,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 16,
+    "category": "forward",
+    "seconds": 2.5037316639999996,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 17,
+    "category": "adjoint",
+    "seconds": 0.5882285860000002,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 18,
+    "category": "overhead",
+    "seconds": 0.0002016239339104331,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 19,
+    "category": "overhead",
+    "seconds": 0.0001223330618813634,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 20,
+    "category": "geometry_check",
+    "seconds": 2.2875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 21,
+    "category": "mesh_motion",
+    "seconds": 0.000476291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 22,
+    "category": "validation",
+    "seconds": 3.029747041,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 23,
+    "category": "overhead",
+    "seconds": 0.00018754301289014563,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 24,
+    "category": "overhead",
+    "seconds": 0.00019587494898587465,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 25,
+    "category": "geometry_check",
+    "seconds": 2.6167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 26,
+    "category": "overhead",
+    "seconds": 0.00018954197661180672,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 27,
+    "category": "overhead",
+    "seconds": 3.3125048503279686e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 28,
+    "category": "geometry_check",
+    "seconds": 1.7625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 29,
+    "category": "mesh_motion",
+    "seconds": 0.000381041,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 30,
+    "category": "forward",
+    "seconds": 2.4961714959999997,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 31,
+    "category": "adjoint",
+    "seconds": 0.5850667960000002,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 32,
+    "category": "overhead",
+    "seconds": 0.00023016700173528193,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 0.00010120798833668232,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 34,
+    "category": "geometry_check",
+    "seconds": 1.8292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 35,
+    "category": "mesh_motion",
+    "seconds": 0.00039425,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 36,
+    "category": "validation",
+    "seconds": 3.042904208,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 37,
+    "category": "overhead",
+    "seconds": 0.0001994999779846296,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 38,
+    "category": "overhead",
+    "seconds": 0.00019741698633879423,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 39,
+    "category": "geometry_check",
+    "seconds": 1.8e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 40,
+    "category": "overhead",
+    "seconds": 0.0001694580048017258,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 41,
+    "category": "overhead",
+    "seconds": 3.075005952268839e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 42,
+    "category": "geometry_check",
+    "seconds": 1.1334e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 43,
+    "category": "mesh_motion",
+    "seconds": 0.000380333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 44,
+    "category": "forward",
+    "seconds": 2.479786252,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 45,
+    "category": "adjoint",
+    "seconds": 0.5837609980000003,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 46,
+    "category": "overhead",
+    "seconds": 0.0002220409324742434,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 47,
+    "category": "overhead",
+    "seconds": 0.00010391708929091692,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 48,
+    "category": "geometry_check",
+    "seconds": 1.3917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 49,
+    "category": "mesh_motion",
+    "seconds": 0.000383708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 50,
+    "category": "validation",
+    "seconds": 3.055091625,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 0.0001682499354771494,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 52,
+    "category": "overhead",
+    "seconds": 0.00017195800319314003,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 53,
+    "category": "geometry_check",
+    "seconds": 1.7667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 54,
+    "category": "overhead",
+    "seconds": 0.0001760830201149588,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 55,
+    "category": "overhead",
+    "seconds": 2.970895729959011e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 56,
+    "category": "geometry_check",
+    "seconds": 1.8583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 57,
+    "category": "mesh_motion",
+    "seconds": 0.000387625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 58,
+    "category": "forward",
+    "seconds": 2.4818152949999996,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 59,
+    "category": "adjoint",
+    "seconds": 0.5832722880000002,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 0.00030258404182959,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 61,
+    "category": "overhead",
+    "seconds": 0.00010220799595117569,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 62,
+    "category": "geometry_check",
+    "seconds": 1.8e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 63,
+    "category": "mesh_motion",
+    "seconds": 0.000390625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 64,
+    "category": "validation",
+    "seconds": 3.016543667,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 65,
+    "category": "overhead",
+    "seconds": 0.0001894999918867768,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 66,
+    "category": "overhead",
+    "seconds": 0.00018570804968476295,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 67,
+    "category": "geometry_check",
+    "seconds": 1.5875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 0.00016937495539437464,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 69,
+    "category": "overhead",
+    "seconds": 3.487500362098217e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 70,
+    "category": "geometry_check",
+    "seconds": 1.7583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 71,
+    "category": "mesh_motion",
+    "seconds": 0.000389792,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 72,
+    "category": "forward",
+    "seconds": 2.4438371699999997,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 73,
+    "category": "adjoint",
+    "seconds": 0.5851291630000002,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 74,
+    "category": "overhead",
+    "seconds": 0.00024045893869839574,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 0.00011100003030151129,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 76,
+    "category": "geometry_check",
+    "seconds": 1.5666e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 77,
+    "category": "mesh_motion",
+    "seconds": 0.000383333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 78,
+    "category": "validation",
+    "seconds": 2.989811416,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 79,
+    "category": "overhead",
+    "seconds": 0.00019566805949722266,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 80,
+    "category": "overhead",
+    "seconds": 0.00015883299056440592,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 81,
+    "category": "geometry_check",
+    "seconds": 1.8541e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 82,
+    "category": "overhead",
+    "seconds": 0.00019600091300731037,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 83,
+    "category": "overhead",
+    "seconds": 3.2458105124533176e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 84,
+    "category": "geometry_check",
+    "seconds": 1.0333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 85,
+    "category": "mesh_motion",
+    "seconds": 0.000422833,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 86,
+    "category": "line_search",
+    "seconds": 2.483968628,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 87,
+    "category": "adjoint",
+    "seconds": 0.587280538,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 88,
+    "category": "overhead",
+    "seconds": 0.0002821680062865539,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 89,
+    "category": "overhead",
+    "seconds": 0.00021420896518975496,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 90,
+    "category": "geometry_check",
+    "seconds": 1.8375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 91,
+    "category": "overhead",
+    "seconds": 0.0002252079956051034,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 5.791697185486555e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 93,
+    "category": "geometry_check",
+    "seconds": 1.8e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 94,
+    "category": "mesh_motion",
+    "seconds": 0.000393166,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 95,
+    "category": "forward",
+    "seconds": 2.4499680469999996,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 96,
+    "category": "adjoint",
+    "seconds": 0.5862050780000001,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 97,
+    "category": "overhead",
+    "seconds": 0.0002364999632504805,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 98,
+    "category": "overhead",
+    "seconds": 0.00010033405851572752,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 99,
+    "category": "geometry_check",
+    "seconds": 4.3667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 100,
+    "category": "mesh_motion",
+    "seconds": 0.000371292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 101,
+    "category": "validation",
+    "seconds": 2.999431334,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 102,
+    "category": "overhead",
+    "seconds": 0.00022220693951879866,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 103,
+    "category": "overhead",
+    "seconds": 0.0001628330210223794,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 104,
+    "category": "geometry_check",
+    "seconds": 1.9291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 105,
+    "category": "overhead",
+    "seconds": 0.00017820899046228078,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 106,
+    "category": "overhead",
+    "seconds": 3.458303399384022e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 107,
+    "category": "geometry_check",
+    "seconds": 1.2583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 108,
+    "category": "mesh_motion",
+    "seconds": 0.000389042,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 109,
+    "category": "line_search",
+    "seconds": 2.464561338,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 110,
+    "category": "adjoint",
+    "seconds": 0.584005579,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 111,
+    "category": "overhead",
+    "seconds": 0.00021745801837624867,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 112,
+    "category": "overhead",
+    "seconds": 0.00018550001550465822,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 113,
+    "category": "geometry_check",
+    "seconds": 1.3792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 114,
+    "category": "overhead",
+    "seconds": 0.000157291956959682,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 115,
+    "category": "overhead",
+    "seconds": 2.7291011065244675e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 116,
+    "category": "geometry_check",
+    "seconds": 1.1208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 117,
+    "category": "mesh_motion",
+    "seconds": 0.0003855,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 118,
+    "category": "forward",
+    "seconds": 2.459706754,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 119,
+    "category": "adjoint",
+    "seconds": 0.5862395789999999,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 120,
+    "category": "overhead",
+    "seconds": 0.00022529298621520866,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 121,
+    "category": "overhead",
+    "seconds": 0.00010483304504305124,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 122,
+    "category": "geometry_check",
+    "seconds": 1.6334e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 123,
+    "category": "mesh_motion",
+    "seconds": 0.000391958,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 124,
+    "category": "validation",
+    "seconds": 3.000579583,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 125,
+    "category": "overhead",
+    "seconds": 0.0001940000062958802,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 126,
+    "category": "overhead",
+    "seconds": 0.00014387501869350672,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 127,
+    "category": "geometry_check",
+    "seconds": 1.8917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 128,
+    "category": "overhead",
+    "seconds": 0.0001889579239460204,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 129,
+    "category": "overhead",
+    "seconds": 3.3667078241705894e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 130,
+    "category": "geometry_check",
+    "seconds": 1.2084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 131,
+    "category": "mesh_motion",
+    "seconds": 0.000418875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 132,
+    "category": "line_search",
+    "seconds": 2.468513832,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 133,
+    "category": "adjoint",
+    "seconds": 0.586174459,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 134,
+    "category": "overhead",
+    "seconds": 0.000234082892994536,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 135,
+    "category": "overhead",
+    "seconds": 0.00023133307695388794,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 136,
+    "category": "geometry_check",
+    "seconds": 1.7833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 137,
+    "category": "overhead",
+    "seconds": 0.0001756669600041505,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 138,
+    "category": "overhead",
+    "seconds": 6.716698408126831e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 139,
+    "category": "geometry_check",
+    "seconds": 9.791e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 140,
+    "category": "mesh_motion",
+    "seconds": 0.000386667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 141,
+    "category": "forward",
+    "seconds": 2.517588912,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 142,
+    "category": "adjoint",
+    "seconds": 0.587593922,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 143,
+    "category": "overhead",
+    "seconds": 0.0003724160429925405,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 144,
+    "category": "overhead",
+    "seconds": 0.0002257919404655695,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 145,
+    "category": "geometry_check",
+    "seconds": 5.875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 146,
+    "category": "mesh_motion",
+    "seconds": 0.000529959,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 147,
+    "category": "validation",
+    "seconds": 3.054246584,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 148,
+    "category": "overhead",
+    "seconds": 0.0002196650948462775,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 149,
+    "category": "overhead",
+    "seconds": 0.0002079169498756528,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 150,
+    "category": "geometry_check",
+    "seconds": 1.8958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 151,
+    "category": "overhead",
+    "seconds": 0.00021720899036381525,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 152,
+    "category": "overhead",
+    "seconds": 4.924996756017208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 153,
+    "category": "geometry_check",
+    "seconds": 1.0208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 154,
+    "category": "mesh_motion",
+    "seconds": 0.000400917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 155,
+    "category": "forward",
+    "seconds": 2.5195812109999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 156,
+    "category": "adjoint",
+    "seconds": 0.588046747,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 157,
+    "category": "overhead",
+    "seconds": 0.00027320809316222494,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 158,
+    "category": "overhead",
+    "seconds": 0.00011066696606576443,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 159,
+    "category": "validation",
+    "seconds": 2.5347695449591896,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "validate aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "file_sha256": "687d57c75c51c9e427899d2c6f815ff38563293a89472706a746f2a31af5ab32",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "in_run_start_time": 1792313054.319241,
+ "in_run_end_time": 1792313121.1139379,
+ "post_run_end_time": 1792313121.1139379,
+ "in_run_wall_seconds": 66.78169042,
+ "post_run_wall_seconds": 0.0,
+ "load_after": [
+  23.30712890625,
+  21.4619140625,
+  22.1796875
+ ],
+ "finished_utc": "2026-10-18T08:45:21Z",
+ "host_contaminated": true,
+ "pre_run_load": 19.8828125,
+ "pre_run_wait_s": 0.0,
+ "host_gate": false,
+ "longest_overload_s": 64.77498483657837,
+ "in_run_load": {
+  "samples": 13,
+  "max": 23.32568359375,
+  "mean": 22.255220853365383
+ },
+ "diagnostic_load": {
+  "samples": 0,
+  "max": null,
+  "mean": null
+ }
+}

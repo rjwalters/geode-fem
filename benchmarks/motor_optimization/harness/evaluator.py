@@ -89,7 +89,9 @@ class Evaluator:
         flight runs in a child process): its whole process group."""
         try:
             os.killpg(self.proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # Already gone (macOS reports EPERM for the group of a process
+            # that has exited but not been reaped).
             pass
         self.proc.wait()
 

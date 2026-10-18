@@ -1,0 +1,2337 @@
+{
+  "amendment": "#1185 amendment 7 §1 (revision 1 with the adoption corrections)",
+  "designs": [
+    {
+      "admissible": true,
+      "buildable": true,
+      "construction_ok": true,
+      "design": "theta0 (space A)",
+      "failed_guards": [],
+      "inadmissible_guards": [],
+      "min_h": 0.95
+    },
+    {
+      "admissible": true,
+      "buildable": true,
+      "construction_ok": true,
+      "design": "theta0 (space B)",
+      "failed_guards": [],
+      "inadmissible_guards": [],
+      "min_h": 0.95
+    },
+    {
+      "admissible": true,
+      "buildable": true,
+      "construction_ok": true,
+      "design": "Opt120 scalars (12-scalar map)",
+      "failed_guards": [],
+      "inadmissible_guards": [],
+      "min_h": 0.34205554614407097
+    },
+    {
+      "admissible": true,
+      "buildable": true,
+      "construction_ok": true,
+      "design": "Opt120 with its offsets (control-point map)",
+      "failed_guards": [],
+      "inadmissible_guards": [],
+      "min_h": 0.34205554614407097
+    }
+  ],
+  "discrete_guards": [
+    {
+      "kind": "discrete",
+      "name": "components_finite",
+      "note": "the larger root of the slot-top quadratic is a fixed rule, not a pass/fail test; its validity is arc_centre_beyond_opening",
+      "source": "sector_curves discriminant is_nan test; FrozenSpace::embed"
+    }
+  ],
+  "geometry_reply_at_theta0_a": {
+    "admissible": true,
+    "buildable": true,
+    "construction_error": null,
+    "construction_ok": true,
+    "discrete": [
+      {
+        "kind": "discrete",
+        "name": "components_finite",
+        "pass": true,
+        "source": "sector_curves discriminant is_nan test; FrozenSpace::embed"
+      }
+    ],
+    "discrete_pass": true,
+    "guards": [
+      {
+        "c": 1.0,
+        "dh_dx": [
+          -71.42857142857143,
+          -71.42857142857143,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor": 0.0007,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.013999999999999999,
+        "name": "magnet_shaft_clearance",
+        "pass": true,
+        "requires": [],
+        "scale": 0.013999999999999999,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          142.85714285714286,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor": 0.00035000000000000005,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.007,
+        "name": "magnet_height",
+        "pass": true,
+        "requires": [],
+        "scale": 0.007,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          52.631578947368425,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor": 0.000475,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.0095,
+        "name": "magnet_half_width",
+        "pass": true,
+        "requires": [],
+        "scale": 0.0095,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          434.7826086956522,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor": 0.0000575,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.00115,
+        "name": "opening_half_width",
+        "pass": true,
+        "requires": [],
+        "scale": 0.00115,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -180.3746322468254,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor": 0.00013860042118223086,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.002772008423644617,
+        "name": "opening_vs_pitch",
+        "pass": true,
+        "requires": [],
+        "scale": 0.002772008423644617,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          -738.4255660417083,
+          -421.36030938155665,
+          128.7160573444481,
+          0.0,
+          0.0
+        ],
+        "floor": 1.3595705134943418e-7,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 2.7191410269886834e-6,
+        "name": "slot_top_discriminant",
+        "pass": true,
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 2.7191410269886834e-6,
+        "source": "slot-top arc: discriminant not NaN and >= 0 (before the square root)",
+        "strict": false,
+        "unit": "m^2"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          -357.680952466551,
+          -190.52005309411794,
+          62.34789815782322,
+          0.0,
+          0.0
+        ],
+        "floor": 0.00009189708014035944,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.0018379416028071888,
+        "name": "arc_centre_beyond_opening",
+        "pass": true,
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0018379416028071888,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          -547.404077699293,
+          -522.1965776419737,
+          95.41881794995716,
+          0.0,
+          0.0
+        ],
+        "floor": 0.00005090352087604162,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.0010180704175208324,
+        "name": "arc_radius_vs_opening",
+        "pass": true,
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0010180704175208324,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1000.0
+        ],
+        "floor": 0.00005,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.001,
+        "name": "fillet_radius",
+        "pass": true,
+        "requires": [],
+        "scale": 0.001,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          -240.75245561555755,
+          0.0,
+          0.0,
+          -41.96591817499305,
+          -523.4708294061081
+        ],
+        "floor": 0.00010423775688775156,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.002084755137755031,
+        "name": "fillet_centre_y",
+        "pass": true,
+        "requires": [],
+        "scale": 0.002084755137755031,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "strict": true,
+        "unit": "m"
+      },
+      {
+        "c": 1.0,
+        "dh_dx": [
+          0.0,
+          0.0,
+          0.0,
+          57.82606609244354,
+          34.21072973396921,
+          -105.05950423540676,
+          -94.97975675448274,
+          -103.25778800041158
+        ],
+        "floor": 0.0005264279643213569,
+        "h": 0.95,
+        "kind": "smooth",
+        "margin": 0.010528559286427139,
+        "name": "flank_length",
+        "pass": true,
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.010528559286427139,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "strict": true,
+        "unit": "m"
+      }
+    ],
+    "guards_pass": true,
+    "h": [
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95,
+      0.95
+    ],
+    "inadmissible_guards": [],
+    "jacobian_defined": true,
+    "min_h": 0.95,
+    "tau": 0.05
+  },
+  "guards": {
+    "space_a": [
+      {
+        "kind": "smooth",
+        "name": "magnet_shaft_clearance",
+        "requires": [],
+        "scale": 0.013999999999999999,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.0007,
+        "test": "> 0",
+        "theta0_margin": 0.013999999999999999,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "magnet_height",
+        "requires": [],
+        "scale": 0.007,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.00035000000000000005,
+        "test": "> 0",
+        "theta0_margin": 0.007,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "magnet_half_width",
+        "requires": [],
+        "scale": 0.0095,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.000475,
+        "test": "> 0",
+        "theta0_margin": 0.0095,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "opening_half_width",
+        "requires": [],
+        "scale": 0.00115,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "tau_floor": 0.0000575,
+        "test": "> 0",
+        "theta0_margin": 0.00115,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "opening_vs_pitch",
+        "requires": [],
+        "scale": 0.002772008423644617,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "tau_floor": 0.00013860042118223086,
+        "test": "> 0",
+        "theta0_margin": 0.002772008423644617,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "slot_top_discriminant",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 2.7191410269886834e-6,
+        "source": "slot-top arc: discriminant not NaN and >= 0 (before the square root)",
+        "tau_floor": 1.3595705134943418e-7,
+        "test": ">= 0",
+        "theta0_margin": 2.7191410269886834e-6,
+        "unit": "m^2",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "arc_centre_beyond_opening",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0018379416028071888,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "tau_floor": 0.00009189708014035944,
+        "test": "> 0",
+        "theta0_margin": 0.0018379416028071888,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "arc_radius_vs_opening",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0010180704175208324,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "tau_floor": 0.00005090352087604162,
+        "test": "> 0",
+        "theta0_margin": 0.0010180704175208324,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "fillet_radius",
+        "requires": [],
+        "scale": 0.001,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.00005,
+        "test": "> 0",
+        "theta0_margin": 0.001,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "fillet_centre_y",
+        "requires": [],
+        "scale": 0.002084755137755031,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.00010423775688775156,
+        "test": "> 0",
+        "theta0_margin": 0.002084755137755031,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "flank_length",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.010528559286427139,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.0005264279643213569,
+        "test": "> 0",
+        "theta0_margin": 0.010528559286427139,
+        "unit": "m",
+        "zero_reference": false
+      }
+    ],
+    "space_b": [
+      {
+        "kind": "smooth",
+        "name": "magnet_shaft_clearance",
+        "requires": [],
+        "scale": 0.013999999999999999,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.0007,
+        "test": "> 0",
+        "theta0_margin": 0.013999999999999999,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "magnet_height",
+        "requires": [],
+        "scale": 0.007,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.00035000000000000005,
+        "test": "> 0",
+        "theta0_margin": 0.007,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "magnet_half_width",
+        "requires": [],
+        "scale": 0.0095,
+        "source": "magnet guard: x_in > R_SHAFT && MH > 0 && MW/2 > 0",
+        "tau_floor": 0.000475,
+        "test": "> 0",
+        "theta0_margin": 0.0095,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "opening_half_width",
+        "requires": [],
+        "scale": 0.00115,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "tau_floor": 0.0000575,
+        "test": "> 0",
+        "theta0_margin": 0.00115,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "opening_vs_pitch",
+        "requires": [],
+        "scale": 0.002772008423644617,
+        "source": "opening guard: SW2/2 > 0 && SW2/2 < R_BORE sin(alpha)",
+        "tau_floor": 0.00013860042118223086,
+        "test": "> 0",
+        "theta0_margin": 0.002772008423644617,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "slot_top_discriminant",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 2.7191410269886834e-6,
+        "source": "slot-top arc: discriminant not NaN and >= 0 (before the square root)",
+        "tau_floor": 1.3595705134943418e-7,
+        "test": ">= 0",
+        "theta0_margin": 2.7191410269886834e-6,
+        "unit": "m^2",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "arc_centre_beyond_opening",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0018379416028071888,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "tau_floor": 0.00009189708014035944,
+        "test": "> 0",
+        "theta0_margin": 0.0018379416028071888,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "arc_radius_vs_opening",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.0010180704175208324,
+        "source": "slot-top arc: u > x_c && rho > SW2/2",
+        "tau_floor": 0.00005090352087604162,
+        "test": "> 0",
+        "theta0_margin": 0.0010180704175208324,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "fillet_radius",
+        "requires": [],
+        "scale": 0.001,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.00005,
+        "test": "> 0",
+        "theta0_margin": 0.001,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "fillet_centre_y",
+        "requires": [],
+        "scale": 0.002084755137755031,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.00010423775688775156,
+        "test": "> 0",
+        "theta0_margin": 0.002084755137755031,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "flank_length",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch",
+          "slot_top_discriminant"
+        ],
+        "scale": 0.010528559286427139,
+        "source": "flank guard: Sr1 > 0 && y_f > 0 && f_hi.x > t_hi.x",
+        "tau_floor": 0.0005264279643213569,
+        "test": "> 0",
+        "theta0_margin": 0.010528559286427139,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p00",
+        "requires": [],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p01",
+        "requires": [],
+        "scale": 0.00037922180097311325,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000018961090048655663,
+        "test": "> 0",
+        "theta0_margin": 0.00037922180097311325,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p02",
+        "requires": [],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p03",
+        "requires": [],
+        "scale": 0.0004998287492445699,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.0000249914374622285,
+        "test": "> 0",
+        "theta0_margin": 0.0004998287492445699,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p04",
+        "requires": [],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p05",
+        "requires": [],
+        "scale": 0.0004543027704339078,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002271513852169539,
+        "test": "> 0",
+        "theta0_margin": 0.0004543027704339078,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p06",
+        "requires": [],
+        "scale": 0.0004531110024680665,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000022655550123403326,
+        "test": "> 0",
+        "theta0_margin": 0.0004531110024680665,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p07",
+        "requires": [],
+        "scale": 0.0004522904054248683,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000022614520271243416,
+        "test": "> 0",
+        "theta0_margin": 0.0004522904054248683,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p08",
+        "requires": [],
+        "scale": 0.00045187200657748755,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002259360032887438,
+        "test": "> 0",
+        "theta0_margin": 0.00045187200657748755,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p09",
+        "requires": [],
+        "scale": 0.00045187200657750143,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000022593600328875073,
+        "test": "> 0",
+        "theta0_margin": 0.00045187200657750143,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p10",
+        "requires": [],
+        "scale": 0.0004522904054248614,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002261452027124307,
+        "test": "> 0",
+        "theta0_margin": 0.0004522904054248614,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p11",
+        "requires": [],
+        "scale": 0.0004531110024680596,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002265555012340298,
+        "test": "> 0",
+        "theta0_margin": 0.0004531110024680596,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p12",
+        "requires": [],
+        "scale": 0.0004543027704339078,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002271513852169539,
+        "test": "> 0",
+        "theta0_margin": 0.0004543027704339078,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p13",
+        "requires": [],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p14",
+        "requires": [],
+        "scale": 0.0004998287492445699,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.0000249914374622285,
+        "test": "> 0",
+        "theta0_margin": 0.0004998287492445699,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p15",
+        "requires": [],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p16",
+        "requires": [],
+        "scale": 0.0003792218009731202,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000018961090048656012,
+        "test": "> 0",
+        "theta0_margin": 0.0003792218009731202,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.rotor.p17",
+        "requires": [],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth0",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot0.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot0.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot0.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot0.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot0.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth1",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot1.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941906,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709533,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941906,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot1.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot1.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot1.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot1.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941975,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002607139477470988,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941975,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth2",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot2.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot2.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot2.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot2.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot2.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth3",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot3.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot3.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot3.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot3.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot3.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941837,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709184,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941837,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth4",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot4.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941975,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002607139477470988,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941975,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot4.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot4.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot4.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000004,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000025000000000000025,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000004,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot4.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941906,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709533,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941906,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth5",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot5.mid_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941906,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709533,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941906,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot5.corner_lo",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot5.open_mid",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005147016459204554,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002573508229602277,
+        "test": "> 0",
+        "theta0_margin": 0.0005147016459204554,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot5.corner_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005000000000000074,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.00002500000000000037,
+        "test": "> 0",
+        "theta0_margin": 0.0005000000000000074,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.slot5.mid_hi",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0005214278954941906,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000026071394774709533,
+        "test": "> 0",
+        "theta0_margin": 0.0005214278954941906,
+        "unit": "m",
+        "zero_reference": false
+      },
+      {
+        "kind": "smooth",
+        "name": "cp_coupling.tooth6",
+        "requires": [
+          "opening_half_width",
+          "opening_vs_pitch"
+        ],
+        "scale": 0.0004999999999999935,
+        "source": "sector_curves_cp: rotor point |P| < r_c, stator point |P| > r_c",
+        "tau_floor": 0.000024999999999999676,
+        "test": "> 0",
+        "theta0_margin": 0.0004999999999999935,
+        "unit": "m",
+        "zero_reference": false
+      }
+    ]
+  },
+  "issue": 1201,
+  "known_unguarded": [
+    {
+      "guarded_by_construction": false,
+      "handling": "not a geometry guard (amendment 7: no invented constraint); a mesh that degenerates there fires the remesh policy, then mesh repair, then mesh-infeasible handling (§3)",
+      "length_m_at_SW3_min_CPS1_max": 1.6329827126626562e-7,
+      "length_m_at_theta0": 0.0010000000000000009,
+      "name": "space B channel wall (moved slot-opening corner to the opening end)",
+      "where": "sector_curves_cp: channel_lo/channel_hi start at the moved corner"
+    }
+  ],
+  "lhs_candidates": [
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.1366167299340973
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.1366167299340973
+      },
+      "index": 0,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5468899234148358
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5468899234148358
+      },
+      "index": 1,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.21123353534832928
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.21123353534832928
+      },
+      "index": 2,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.6015784655168699
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.6015784655168699
+      },
+      "index": 3,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5232685461131307
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5232685461131307
+      },
+      "index": 4,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4834746007495571
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4834746007495571
+      },
+      "index": 5,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.07447182342086854
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.07447182342086854
+      },
+      "index": 6,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "fillet_centre_y",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "fillet_centre_y",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "index": 7,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.17571101410982837
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.17571101410982837
+      },
+      "index": 8,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.14394485047086894
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.14394485047086894
+      },
+      "index": 9,
+      "seed": 1
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.10953471926700346
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.10953471926700346
+      },
+      "index": 0,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.10139097981390317
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.10139097981390317
+      },
+      "index": 1,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.02951120886532209
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.02951120886532209
+      },
+      "index": 2,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "index": 3,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5604973369522533
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5604973369522533
+      },
+      "index": 4,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.314479705022538
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.314479705022538
+      },
+      "index": 5,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "index": 6,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4349482745391123
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4349482745391123
+      },
+      "index": 7,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4423843157629342
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4423843157629342
+      },
+      "index": 8,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.48611888230331196
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.48611888230331196
+      },
+      "index": 9,
+      "seed": 2
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.32731689925152535
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.32731689925152535
+      },
+      "index": 0,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.38567395184102976
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.38567395184102976
+      },
+      "index": 1,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.461900362523135
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.461900362523135
+      },
+      "index": 2,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.11157461343917006
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.11157461343917006
+      },
+      "index": 3,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.004515754299338981
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.004515754299338981
+      },
+      "index": 4,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "index": 5,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4397599059513039
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4397599059513039
+      },
+      "index": 6,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.14327232545112578
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.14327232545112578
+      },
+      "index": 7,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.1880755196131378
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.1880755196131378
+      },
+      "index": 8,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.23763035396524207
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.23763035396524207
+      },
+      "index": 9,
+      "seed": 3
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.2713899835325823
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.2713899835325823
+      },
+      "index": 0,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.048860112770527736
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.048860112770527736
+      },
+      "index": 1,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "b": {
+        "admissible": false,
+        "buildable": false,
+        "inadmissible_guards": [
+          "slot_top_discriminant",
+          "arc_centre_beyond_opening",
+          "arc_radius_vs_opening",
+          "flank_length"
+        ],
+        "min_h": -1.05
+      },
+      "index": 2,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.6157539853411943
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.6157539853411943
+      },
+      "index": 3,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.15813321751515935
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.15813321751515935
+      },
+      "index": 4,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.42522093216208234
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.42522093216208234
+      },
+      "index": 5,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.052801056497290375
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.052801056497290375
+      },
+      "index": 6,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5024282740854005
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5024282740854005
+      },
+      "index": 7,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4238855471466014
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.4238855471466014
+      },
+      "index": 8,
+      "seed": 4
+    },
+    {
+      "a": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5340383087111576
+      },
+      "b": {
+        "admissible": true,
+        "buildable": true,
+        "inadmissible_guards": [],
+        "min_h": 0.5340383087111576
+      },
+      "index": 9,
+      "seed": 4
+    }
+  ],
+  "opening_vs_pitch_limit_m": 0.003922008423644617,
+  "pilot_failures": [
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "cobyqa_a_lhs2_r1",
+        "cobyqa_a_lhs2_r2"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "flank_length"
+        ],
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.06622107445060155
+      }
+    },
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "slsqp_a_lhs1_r1",
+        "slsqp_a_lhs1_r2"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "fillet_centre_y",
+          "flank_length"
+        ],
+        "inadmissible_guards": [
+          "fillet_centre_y",
+          "flank_length"
+        ],
+        "min_h": -0.20174919541874337
+      }
+    },
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "slsqp_a_lhs2_r1",
+        "slsqp_a_lhs2_r2"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "flank_length"
+        ],
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.07504047681802695
+      }
+    },
+    {
+      "kind": "fresh_mesh_policy",
+      "runs": [
+        "slsqp_a_theta0_r1",
+        "slsqp_a_theta0_r2"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": true,
+        "construction_ok": true,
+        "design": "pilot failure",
+        "failed_guards": [],
+        "inadmissible_guards": [
+          "fillet_centre_y",
+          "flank_length"
+        ],
+        "min_h": -0.04557959654834913
+      }
+    },
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "surrogate_a_lhs1_r1",
+        "surrogate_a_lhs1_r2"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "fillet_centre_y"
+        ],
+        "inadmissible_guards": [
+          "fillet_centre_y"
+        ],
+        "min_h": -0.4133779306301669
+      }
+    },
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "surrogate_a_lhs2_r1"
+      ],
+      "space": "a",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "flank_length"
+        ],
+        "inadmissible_guards": [
+          "flank_length"
+        ],
+        "min_h": -0.0775726298096018
+      }
+    },
+    {
+      "kind": "slot_flank",
+      "runs": [
+        "surrogate_b_lhs1_r1",
+        "surrogate_b_lhs1_r2"
+      ],
+      "space": "b",
+      "summary": {
+        "admissible": false,
+        "buildable": false,
+        "construction_ok": false,
+        "design": "pilot failure",
+        "failed_guards": [
+          "fillet_centre_y"
+        ],
+        "inadmissible_guards": [
+          "fillet_centre_y"
+        ],
+        "min_h": -0.30464649405048116
+      }
+    }
+  ],
+  "rule": "buildable: the construction succeeds and every discrete guard passes (every smooth guard as the construction tests it); admissible: buildable and every h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|",
+  "sw2_generator_default_m": 0.0023,
+  "tau": 0.05,
+  "theta0_x": {
+    "a": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+    ],
+    "b": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "zero_reference_scales": []
+}

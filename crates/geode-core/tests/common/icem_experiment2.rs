@@ -70,7 +70,9 @@ use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_sector::SectorError;
 use geode_core::assembly::magnetostatic_shape::OperatingPoint;
-use geode_core::mesh::design_remesh::{MovingMesh, RemeshTrigger, Remesher};
+use geode_core::mesh::design_remesh::{
+    AttemptError, AttemptOutcome, MovingMesh, RemeshAttempt, RemeshTrigger, Remesher,
+};
 use geode_core::mesh::icem_controlpoints::{N_OFFSETS, OFFSET_BOUNDS, OFFSET_NAMES};
 use geode_core::mesh::icem_parametric::{MotionQuality, motion_quality};
 use serde_json::{Value, json};
@@ -478,12 +480,16 @@ impl ValidationConfig {
             "newton_rel_tol": self.eval.newton.rel_tol,
             "newton_max_iterations": self.eval.newton.max_iterations,
             "policy_min_angle_deg": self.eval.policy.min_angle_deg,
+            "mesh_repair": self.eval.mesh_repair,
             "start": "cold",
         })
     }
 }
 
 /// The mesh a validation value lives on.
+// One per validation, never in a hot loop: the fresh variant's record and
+// attempt history are kept inline.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ValidationMesh {
     /// The θ0 mesh of the level moved to the candidate; it passed the policy.
@@ -499,6 +505,9 @@ pub enum ValidationMesh {
         quality: MotionQuality,
         sha256: String,
         record: FreshMeshRecord,
+        /// Every mesh-repair attempt (#1185 amendment 7 §3); the last one
+        /// passed. One with the repair off.
+        attempts: Vec<RemeshAttempt>,
     },
     /// The θ0 mesh at θ0 (no motion: the geometry is the mesh's own).
     Own { quality: MotionQuality },
@@ -524,12 +533,14 @@ impl ValidationMesh {
                 quality,
                 sha256,
                 record,
+                attempts,
             } => json!({
                 "kind": "fresh", "trigger": trigger.as_ref().map(trigger_json),
                 "moved_quality": moved_quality.as_ref().map(quality_json),
                 "quality": quality_json(quality), "msh_sha256": sha256,
                 "file": record.file.as_ref().map(|f| f.display().to_string()),
                 "mesh_s": record.seconds,
+                "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>(),
             }),
         }
     }
@@ -613,10 +624,22 @@ pub fn validation_json<Sp: Space>(v: &Validation<Sp::Point>) -> Value {
 pub enum ValidationError {
     #[error("no geometry at the candidate: {0}")]
     NoGeometry(String),
-    #[error("fresh mesh failed: {0}")]
-    Remesh(String),
-    #[error("fresh mesh of the candidate fires the policy at its own design: {0:?}")]
-    FreshInvalid(RemeshTrigger),
+    #[error("fresh mesh failed: {message}")]
+    Remesh {
+        message: String,
+        /// Every attempt made, the failing one last.
+        attempts: Vec<RemeshAttempt>,
+    },
+    #[error("fresh mesh of the candidate fires the policy at its own design: {trigger:?}")]
+    FreshInvalid {
+        trigger: RemeshTrigger,
+        /// The attempt (one: the repair is off).
+        attempts: Vec<RemeshAttempt>,
+    },
+    /// Every mesh-repair attempt failed (#1185 amendment 7 §3): the
+    /// candidate is mesh-infeasible on the validation mesh.
+    #[error("candidate is mesh-infeasible after {} attempts", attempts.len())]
+    MeshInfeasible { attempts: Vec<RemeshAttempt> },
     #[error(
         "conforming outer-band check is defined only for zero stator offsets on a fresh mesh \
          (#1185 amendment 1)"
@@ -751,7 +774,8 @@ impl<Sp: Space> Validator<Sp> {
         source: MeshSource,
     ) -> Result<Self, SectorError> {
         let remesher =
-            IcemRemesher::<Sp>::new(cfg.eval.level, reference, cfg.eval.mode, &[], source);
+            IcemRemesher::<Sp>::new(cfg.eval.level, reference, cfg.eval.mode, &[], source)
+                .with_repair(cfg.eval.mesh_repair);
         let base = remesher.setup_on(msh, theta0)?;
         let n = Sp::model(&base).band.report().n_coupling;
         let expected = COUPLING_SEGMENTS_L0 << cfg.eval.level;
@@ -830,22 +854,73 @@ impl<Sp: Space> Validator<Sp> {
                 t0,
             ));
         }
-        let t_mesh = Instant::now();
-        let msh = self
-            .remesher
-            .fresh_mesh(&geo)
-            .map_err(ValidationError::Remesh)?;
-        let remesh_mesh_seconds = t_mesh.elapsed().as_secs_f64();
-        let t_setup = Instant::now();
-        let fresh = self
-            .remesher
-            .reference_on(&msh, &geo)
-            .map_err(ValidationError::Remesh)?;
-        let remesh_setup_seconds = t_setup.elapsed().as_secs_f64();
-        let quality = self_quality(&fresh);
-        if let Some(tf) = self.cfg.eval.policy.trigger(&quality) {
-            return Err(ValidationError::FreshInvalid(tf));
+        let n = self.remesher.attempts.len().max(1);
+        let mut attempts: Vec<RemeshAttempt> = Vec::with_capacity(n);
+        let mut found = None;
+        for k in 0..n {
+            let label = self.remesher.attempt_label(k);
+            let t_a = Instant::now();
+            let produced = self.remesher.fresh_mesh_attempt(&geo, k);
+            let mesh_seconds = t_a.elapsed().as_secs_f64();
+            let msh_sha256 = self.remesher.last_mesh_sha256();
+            let record = |outcome, setup_seconds| RemeshAttempt {
+                attempt: k,
+                label: label.clone(),
+                outcome,
+                mesh_seconds,
+                setup_seconds,
+                msh_sha256: msh_sha256.clone(),
+            };
+            let msh = match produced {
+                Ok(m) => m,
+                Err(AttemptError::Fatal(message)) => {
+                    attempts.push(record(AttemptOutcome::Fatal(message.clone()), 0.0));
+                    return Err(ValidationError::Remesh { message, attempts });
+                }
+                Err(AttemptError::Failed(message)) => {
+                    attempts.push(record(AttemptOutcome::MesherFailed(message.clone()), 0.0));
+                    if n == 1 {
+                        return Err(ValidationError::Remesh { message, attempts });
+                    }
+                    continue;
+                }
+            };
+            let t_setup = Instant::now();
+            let fresh = match self.remesher.reference_on(&msh, &geo) {
+                Ok(f) => f,
+                Err(message) => {
+                    attempts.push(record(
+                        AttemptOutcome::SetupFailed(message.clone()),
+                        t_setup.elapsed().as_secs_f64(),
+                    ));
+                    return Err(ValidationError::Remesh { message, attempts });
+                }
+            };
+            let quality = self_quality(&fresh);
+            let tf = self.cfg.eval.policy.trigger(&quality);
+            let setup_seconds = t_setup.elapsed().as_secs_f64();
+            match tf {
+                None => {
+                    attempts.push(record(AttemptOutcome::Passed, setup_seconds));
+                    found = Some((msh, fresh, quality));
+                    break;
+                }
+                Some(t) => {
+                    attempts.push(record(AttemptOutcome::PolicyFailed(t), setup_seconds));
+                    if n == 1 {
+                        return Err(ValidationError::FreshInvalid {
+                            trigger: t,
+                            attempts,
+                        });
+                    }
+                }
+            }
         }
+        let Some((msh, fresh, quality)) = found else {
+            return Err(ValidationError::MeshInfeasible { attempts });
+        };
+        let remesh_mesh_seconds: f64 = attempts.iter().map(|a| a.mesh_seconds).sum();
+        let remesh_setup_seconds: f64 = attempts.iter().map(|a| a.setup_seconds).sum();
         let (currents, solve_seconds) = forward_on::<Sp>(&self.cfg, &fresh, p)?;
         let record = self.remesher.records.last().cloned().expect("fresh record");
         let mesh = ValidationMesh::Fresh {
@@ -854,6 +929,7 @@ impl<Sp: Space> Validator<Sp> {
             quality,
             sha256: sha256_hex(msh.as_bytes()),
             record,
+            attempts,
         };
         Ok(self.finish(
             p,
@@ -938,6 +1014,20 @@ impl<Sp: Space> Validator<Sp> {
 fn self_quality<S: MovingMesh>(s: &S) -> MotionQuality {
     let m = s.reference_mesh();
     motion_quality(m, &m.nodes)
+}
+
+/// JSON of one mesh-repair attempt (the record of amendment 7 §3: every
+/// attempt's outcome, mesh hash and wall times).
+pub fn attempt_json(a: &RemeshAttempt) -> Value {
+    let (outcome, detail) = match &a.outcome {
+        AttemptOutcome::Passed => ("passed", Value::Null),
+        AttemptOutcome::MesherFailed(m) => ("mesher_failed", json!(m)),
+        AttemptOutcome::PolicyFailed(t) => ("policy_failed", trigger_json(t)),
+        AttemptOutcome::SetupFailed(m) => ("setup_failed", json!(m)),
+        AttemptOutcome::Fatal(m) => ("fatal", json!(m)),
+    };
+    json!({"attempt": a.attempt, "label": a.label, "outcome": outcome, "detail": detail,
+        "msh_sha256": a.msh_sha256, "mesh_s": a.mesh_seconds, "setup_s": a.setup_seconds})
 }
 
 // ── Acceptance ──────────────────────────────────────────────────────────
@@ -1088,9 +1178,26 @@ pub struct Acceptance {
     pub mean_floor: f64,
     pub mean_ok: bool,
     pub targets: Vec<TargetCheck>,
+    /// The candidate's admissibility (#1185 amendment 7, adoption
+    /// correction 2), once applied by
+    /// [`with_admissibility`](Self::with_admissibility); `None` under the
+    /// amendment-2 rule alone.
+    pub admissible: Option<bool>,
 }
 
 impl Acceptance {
+    /// Target credit requires admissibility (amendment 7, correction 2):
+    /// `h ≥ 0`, every discrete guard, and the mesh policy on the validation
+    /// mesh (which a validation value always satisfies). An inadmissible
+    /// candidate attains nothing, whatever its `F` and mean.
+    pub fn with_admissibility(mut self, admissible: bool) -> Self {
+        self.admissible = Some(admissible);
+        for t in &mut self.targets {
+            t.attained = t.attained && admissible;
+        }
+        self
+    }
+
     /// Whether target `name` was attained.
     pub fn attained(&self, name: &str) -> bool {
         self.targets.iter().any(|t| t.name == name && t.attained)
@@ -1100,6 +1207,7 @@ impl Acceptance {
         json!({
             "F_val": self.f_val, "delta_F": self.delta_f, "F_upper": self.f_upper,
             "mean_full": self.mean_full, "mean_floor": self.mean_floor, "mean_ok": self.mean_ok,
+            "admissible": self.admissible,
             "targets": self.targets.iter().map(|t| json!({"name": t.name, "T": t.target,
                 "F_ok": t.f_ok, "attained": t.attained, "slack": t.slack})).collect::<Vec<_>>(),
         })
@@ -1135,6 +1243,7 @@ pub fn accept(anchor: &Anchor, f_val: f64, mean_full: f64) -> Acceptance {
         mean_floor,
         mean_ok,
         targets,
+        admissible: None,
     }
 }
 
@@ -1159,10 +1268,13 @@ pub enum CostCategory {
     Validation,
     /// Surrogate updates.
     SurrogateUpdate,
+    /// Geometry-domain requests (margins and their Jacobian, no mesh and
+    /// no solve; #1185 amendment 7 §1).
+    GeometryCheck,
 }
 
 impl CostCategory {
-    pub const ALL: [CostCategory; 8] = [
+    pub const ALL: [CostCategory; 9] = [
         CostCategory::SetupCalibration,
         CostCategory::Forward,
         CostCategory::Adjoint,
@@ -1171,6 +1283,7 @@ impl CostCategory {
         CostCategory::Remesh,
         CostCategory::Validation,
         CostCategory::SurrogateUpdate,
+        CostCategory::GeometryCheck,
     ];
 
     pub fn key(self) -> &'static str {
@@ -1183,6 +1296,7 @@ impl CostCategory {
             CostCategory::Remesh => "remesh",
             CostCategory::Validation => "validation",
             CostCategory::SurrogateUpdate => "surrogate_update",
+            CostCategory::GeometryCheck => "geometry_check",
         }
     }
 }

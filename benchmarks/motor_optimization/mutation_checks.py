@@ -34,7 +34,7 @@ MUTATIONS = [
     ("conforming_on_moved_mesh", "let need_fresh = trigger.is_some() || (arkkio && !own);", "let need_fresh = trigger.is_some();"),
     ("stator_offset_guard_removed", "if arkkio && !Sp::stator_offsets_zero(&geo) {", "if false && arkkio && !Sp::stator_offsets_zero(&geo) {"),
     ("policy_ignored", "(Some(q), self.cfg.eval.policy.trigger(&q))", "(Some(q), None)"),
-    ("fresh_mesh_not_checked", "if let Some(tf) = self.cfg.eval.policy.trigger(&quality) {", "if let Some(tf) = None::<RemeshTrigger> {"),
+    ("fresh_mesh_not_checked", "let tf = self.cfg.eval.policy.trigger(&quality);", "let tf = None::<RemeshTrigger>;"),
     ("level_check_removed", "        if n != expected {", "        if false && n != expected {"),
     ("primary_check_removed", "if !self.cfg.is_primary_model() || self.cfg.eval.level != anchor.level {", "if false {"),
     ("line_search_to_forward", "Purpose::LineSearch => CostCategory::LineSearch,", "Purpose::LineSearch => CostCategory::Forward,"),

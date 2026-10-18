@@ -1,0 +1,7193 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "method": "surrogate",
+ "method_label": "empirical RBF surrogate (trust region)",
+ "method_spec": {
+  "letter": "C",
+  "optimizer": "surrogate",
+  "resolution": null,
+  "label": "empirical RBF surrogate (trust region)"
+ },
+ "space": "a",
+ "start": "theta0",
+ "repeat": 1,
+ "order_position": 2,
+ "session": "smoke-20261018T084413Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.339084521,
+ "started_utc": "2026-10-18T08:44:14Z",
+ "load_before": [
+  19.8828125,
+  20.5107421875,
+  21.93115234375
+ ],
+ "x_start": [
+  0.007,
+  0.007,
+  0.019,
+  0.004,
+  0.0023,
+  0.001,
+  0.00825,
+  0.001
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "attained": false,
+   "censored": true
+  },
+  "T90": {
+   "attained": false,
+   "censored": true
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "checkpoint_60": {
+  "fe": 60.0,
+  "rule": "validations completed by the checkpoint",
+  "targets": {
+   "T50": {
+    "attained": false,
+    "censored": true
+   },
+   "T90": {
+    "attained": false,
+    "censored": true
+   },
+   "T99": {
+    "attained": false,
+    "censored": true
+   }
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 8.073701263769253,
+   "solve_fe": 7.998262259471567,
+   "seconds": 26.95877091703005,
+   "index": 0,
+   "x": [
+    0.007,
+    0.008,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "note": "surrogate doe incumbent",
+   "status": "ok",
+   "F_val": 0.010249123762798826,
+   "mean_full": 1.4637941731060233,
+   "stds": [
+    0.006127827455649716,
+    0.04397177351238927,
+    0.0909838261871183
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.7138578738431,
+     "max_area_ratio": 1.1683193959108782,
+     "min_angle_deg": 13.213449526549,
+     "min_area_ratio": 0.8146835572003311
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.8785714285714284,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.012999999999999998,
+      "scale": 0.013999999999999999,
+      "c": 0.9285714285714285,
+      "h": 0.8785714285714284,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008,
+      "scale": 0.007,
+      "c": 1.1428571428571428,
+      "h": 1.0928571428571427,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.0095,
+      "scale": 0.0095,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.00115,
+      "scale": 0.00115,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.002772008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.7191410269886834e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0018379416028071888,
+      "scale": 0.0018379416028071888,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0010180704175208324,
+      "scale": 0.0010180704175208324,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001,
+      "scale": 0.001,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.002084755137755031,
+      "scale": 0.002084755137755031,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010528559286427139,
+      "scale": 0.010528559286427139,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 0.0010249123762798827,
+   "F_upper": 0.01127403613907871,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.008843949403996135,
+   "mean_train": 1.4662534508369254
+  },
+  {
+   "wall_fe": 10.604421981347611,
+   "solve_fe": 10.55343165046525,
+   "seconds": 35.409061292069964,
+   "index": 1,
+   "x": [
+    0.00655,
+    0.008499999999999999,
+    0.01838039529884949,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.007165437316425557,
+   "mean_full": 1.4494956823992107,
+   "stds": [
+    0.006172577553432368,
+    0.036471481870879334,
+    0.07613913325560345
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.76178188261093,
+     "max_area_ratio": 1.3170358103697104,
+     "min_angle_deg": 13.194205716646685,
+     "min_area_ratio": 0.7921906128305138
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.8248198703139381,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.012949999999999996,
+      "scale": 0.013999999999999999,
+      "c": 0.9249999999999998,
+      "h": 0.8749999999999998,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008499999999999999,
+      "scale": 0.007,
+      "c": 1.2142857142857142,
+      "h": 1.1642857142857141,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009190197649424746,
+      "scale": 0.0095,
+      "c": 0.9673892262552364,
+      "h": 0.9173892262552363,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0010750000000000002,
+      "scale": 0.00115,
+      "c": 0.9347826086956523,
+      "h": 0.8847826086956523,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0028470084236446166,
+      "scale": 0.002772008423644617,
+      "c": 1.0270561948370236,
+      "h": 0.9770561948370236,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.477177904314839e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.9110148681983564,
+      "h": 0.8610148681983564,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.00175313963315233,
+      "scale": 0.0018379416028071888,
+      "c": 0.9538603568658894,
+      "h": 0.9038603568658894,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0009814833024679745,
+      "scale": 0.0010180704175208324,
+      "c": 0.9640622942939905,
+      "h": 0.9140622942939904,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001074999999999998,
+      "scale": 0.001,
+      "c": 1.074999999999998,
+      "h": 1.024999999999998,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0018237852192471726,
+      "scale": 0.002084755137755031,
+      "c": 0.8748198703139382,
+      "h": 0.8248198703139381,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.009670244383288645,
+      "scale": 0.010528559286427139,
+      "c": 0.9184774592811584,
+      "h": 0.8684774592811584,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 0.0007165437316425557,
+   "F_upper": 0.007881981048068113,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.006185168112083424,
+   "mean_train": 1.4516125864435563
+  },
+  {
+   "wall_fe": 19.327637114633625,
+   "solve_fe": 19.329278605433664,
+   "seconds": 64.53661391697824,
+   "index": 2,
+   "x": [
+    0.006535937500000001,
+    0.008484374999999999,
+    0.01836694151899295,
+    0.004206249999999999,
+    0.0021453125000000005,
+    0.0009484375000000002,
+    0.00912187500000001,
+    0.0010769820744377981
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.00707963217956598,
+   "mean_full": 1.4490607996544667,
+   "stds": [
+    0.0061694215800045605,
+    0.03624419160227541,
+    0.0756830826012769
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.76603523499048,
+     "max_area_ratio": 1.3160268546901877,
+     "min_angle_deg": 13.193286702700602,
+     "min_area_ratio": 0.7965606350131047
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.8234579007651117,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.0129796875,
+      "scale": 0.013999999999999999,
+      "c": 0.9271205357142858,
+      "h": 0.8771205357142857,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008484374999999999,
+      "scale": 0.007,
+      "c": 1.2120535714285712,
+      "h": 1.1620535714285711,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009183470759496475,
+      "scale": 0.0095,
+      "c": 0.9666811325785764,
+      "h": 0.9166811325785763,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0010726562500000003,
+      "scale": 0.00115,
+      "c": 0.9327445652173916,
+      "h": 0.8827445652173915,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.002849352173644617,
+      "scale": 0.002772008423644617,
+      "c": 1.0279017009256808,
+      "h": 0.9779017009256807,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.4697858699443756e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.9082963499982726,
+      "h": 0.8582963499982725,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0017504856028830035,
+      "scale": 0.0018379416028071888,
+      "c": 0.952416333690576,
+      "h": 0.902416333690576,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0009803394335231403,
+      "scale": 0.0010180704175208324,
+      "c": 0.962938728649465,
+      "h": 0.9129387286494649,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010769820744377981,
+      "scale": 0.001,
+      "c": 1.076982074437798,
+      "h": 1.026982074437798,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.001820945846232791,
+      "scale": 0.002084755137755031,
+      "c": 0.8734579007651118,
+      "h": 0.8234579007651117,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.009700071179451944,
+      "scale": 0.010528559286427139,
+      "c": 0.9213104011255141,
+      "h": 0.8713104011255141,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 0.000707963217956598,
+   "F_upper": 0.007787595397522578,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0061112350418696445,
+   "mean_train": 1.4511677022132707
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 19.327637114633625,
+  "solve_fe": 19.329278605433664,
+  "seconds": 64.53661391697824,
+  "index": 2,
+  "x": [
+   0.006535937500000001,
+   0.008484374999999999,
+   0.01836694151899295,
+   0.004206249999999999,
+   0.0021453125000000005,
+   0.0009484375000000002,
+   0.00912187500000001,
+   0.0010769820744377981
+  ],
+  "note": "surrogate acceptance",
+  "status": "ok",
+  "F_val": 0.00707963217956598,
+  "mean_full": 1.4490607996544667,
+  "stds": [
+   0.0061694215800045605,
+   0.03624419160227541,
+   0.0756830826012769
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": false,
+   "T90": false,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76603523499048,
+    "max_area_ratio": 1.3160268546901877,
+    "min_angle_deg": 13.193286702700602,
+    "min_area_ratio": 0.7965606350131047
+   }
+  },
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "min_h": 0.8234579007651117,
+  "geometry": {
+   "buildable": true,
+   "admissible": true,
+   "construction_error": null,
+   "guards": [
+    {
+     "name": "magnet_shaft_clearance",
+     "unit": "m",
+     "margin": 0.0129796875,
+     "scale": 0.013999999999999999,
+     "c": 0.9271205357142858,
+     "h": 0.8771205357142857,
+     "pass": true
+    },
+    {
+     "name": "magnet_height",
+     "unit": "m",
+     "margin": 0.008484374999999999,
+     "scale": 0.007,
+     "c": 1.2120535714285712,
+     "h": 1.1620535714285711,
+     "pass": true
+    },
+    {
+     "name": "magnet_half_width",
+     "unit": "m",
+     "margin": 0.009183470759496475,
+     "scale": 0.0095,
+     "c": 0.9666811325785764,
+     "h": 0.9166811325785763,
+     "pass": true
+    },
+    {
+     "name": "opening_half_width",
+     "unit": "m",
+     "margin": 0.0010726562500000003,
+     "scale": 0.00115,
+     "c": 0.9327445652173916,
+     "h": 0.8827445652173915,
+     "pass": true
+    },
+    {
+     "name": "opening_vs_pitch",
+     "unit": "m",
+     "margin": 0.002849352173644617,
+     "scale": 0.002772008423644617,
+     "c": 1.0279017009256808,
+     "h": 0.9779017009256807,
+     "pass": true
+    },
+    {
+     "name": "slot_top_discriminant",
+     "unit": "m^2",
+     "margin": 2.4697858699443756e-06,
+     "scale": 2.7191410269886834e-06,
+     "c": 0.9082963499982726,
+     "h": 0.8582963499982725,
+     "pass": true
+    },
+    {
+     "name": "arc_centre_beyond_opening",
+     "unit": "m",
+     "margin": 0.0017504856028830035,
+     "scale": 0.0018379416028071888,
+     "c": 0.952416333690576,
+     "h": 0.902416333690576,
+     "pass": true
+    },
+    {
+     "name": "arc_radius_vs_opening",
+     "unit": "m",
+     "margin": 0.0009803394335231403,
+     "scale": 0.0010180704175208324,
+     "c": 0.962938728649465,
+     "h": 0.9129387286494649,
+     "pass": true
+    },
+    {
+     "name": "fillet_radius",
+     "unit": "m",
+     "margin": 0.0010769820744377981,
+     "scale": 0.001,
+     "c": 1.076982074437798,
+     "h": 1.026982074437798,
+     "pass": true
+    },
+    {
+     "name": "fillet_centre_y",
+     "unit": "m",
+     "margin": 0.001820945846232791,
+     "scale": 0.002084755137755031,
+     "c": 0.8734579007651118,
+     "h": 0.8234579007651117,
+     "pass": true
+    },
+    {
+     "name": "flank_length",
+     "unit": "m",
+     "margin": 0.009700071179451944,
+     "scale": 0.010528559286427139,
+     "c": 0.9213104011255141,
+     "h": 0.8713104011255141,
+     "pass": true
+    }
+   ],
+   "discrete": [
+    {
+     "name": "components_finite",
+     "pass": true
+    }
+   ]
+  },
+  "delta_F": 0.000707963217956598,
+  "F_upper": 0.007787595397522578,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "admissible": true,
+  "F_train": 0.0061112350418696445,
+  "mean_train": 1.4511677022132707
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.7936495094198769,
+   "solve_fe": 0.777584695496841,
+   "seconds": 2.6500627920031548,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008584802316481453,
+   "mean_full": 1.4475011967377915,
+   "stds": [
+    0.010143707533009428,
+    0.0405590283375799,
+    0.08268538404263241
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe start",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 1.5691005052822256,
+   "solve_fe": 1.555169390993682,
+   "seconds": 5.239359209081158,
+   "kind": "train",
+   "x": [
+    0.0079,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008428565744452911,
+   "mean_full": 1.3875307032671116,
+   "stds": [
+    0.005394160431443069,
+    0.04022811716419203,
+    0.08234784373082761
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 0",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.688366002342,
+    "max_area_ratio": 1.3201740017247732,
+    "min_angle_deg": 13.217428897298044,
+    "min_area_ratio": 0.8332164659941316
+   },
+   "newton_iterations": 185,
+   "admissible": true,
+   "min_h": 0.8857142857142853,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.351199430745552,
+   "solve_fe": 2.3327540864905227,
+   "seconds": 7.850853624986485,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.008,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008843949403996135,
+   "mean_full": 1.4662534508369254,
+   "stds": [
+    0.010676308281759249,
+    0.04118504828025672,
+    0.08386750052089247
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 1",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7138578738431,
+    "max_area_ratio": 1.1683193959108782,
+    "min_angle_deg": 13.213449526549,
+    "min_area_ratio": 0.8146835572003311
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.8785714285714284,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.1654998723669947,
+   "solve_fe": 3.110338781987364,
+   "seconds": 10.569871625048108,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.020499999999999997,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.01071115226496602,
+   "mean_full": 1.5868639260768647,
+   "stds": [
+    0.015205636216515045,
+    0.045830523641026445,
+    0.09153963073448756
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 2",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7306191636384,
+    "max_area_ratio": 1.0890015076630781,
+    "min_angle_deg": 13.238885227061008,
+    "min_area_ratio": 0.8400266556689725
+   },
+   "newton_iterations": 199,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.946716008867219,
+   "solve_fe": 3.887923477484205,
+   "seconds": 13.17841833399143,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004399999999999999,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008567926671868866,
+   "mean_full": 1.4480302884867777,
+   "stds": [
+    0.010163360139937641,
+    0.04052383023593434,
+    0.08259813536360229
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 3",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1529479346109432,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.7480349332563127
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.6693403015045376,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.750575040643239,
+   "solve_fe": 4.6655081729810455,
+   "seconds": 15.862571584060788,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0026,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.013252617404640338,
+   "mean_full": 1.4317189941360244,
+   "stds": [
+    0.012824899523962947,
+    0.05063585220133118,
+    0.10258727907828308
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 4",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1444098195211583,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.8854193878768258
+   },
+   "newton_iterations": 195,
+   "admissible": true,
+   "min_h": 0.7923869796891096,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 5.528092321089084,
+   "solve_fe": 5.443092868477886,
+   "seconds": 18.458767500007525,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.0010999999999999998,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008607306972133341,
+   "mean_full": 1.4473945997699496,
+   "stds": [
+    0.010153611454550734,
+    0.040612505281966374,
+    0.08279393432664986
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 5",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1098746595814222,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9881573774720525
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.9394950987443131,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 6.296971854940508,
+   "solve_fe": 6.220677563974727,
+   "seconds": 21.026121250004508,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.01005,
+    0.001
+   ],
+   "F": 0.008602586350779207,
+   "mean_full": 1.4489064094618151,
+   "stds": [
+    0.010194317380830193,
+    0.04057217664892141,
+    0.08278019525156259
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 6",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.2902214261085276,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.7568078189369556
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.7790364378419308,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.07615451224106,
+   "solve_fe": 6.998262259471567,
+   "seconds": 23.62787800002843,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.00115
+   ],
+   "F": 0.008585324709560426,
+   "mean_full": 1.4475502716570958,
+   "stds": [
+    0.010145431197156569,
+    0.040559209714742944,
+    0.08268824246952942
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 7",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1924408253763965,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9095660100526889
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.8714793755890836,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.073701263769253,
+   "solve_fe": 7.998262259471567,
+   "seconds": 26.95877091703005,
+   "kind": "validate",
+   "x": [
+    0.007,
+    0.008,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F_val": 0.010249123762798826,
+   "mean_full": 1.4637941731060233,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 8.834538123997834,
+   "solve_fe": 8.775846954968408,
+   "seconds": 29.499269500025548,
+   "kind": "train",
+   "x": [
+    0.0061,
+    0.008999999999999975,
+    0.01779743571144634,
+    0.004399999999999998,
+    0.002,
+    0.0009000000000000006,
+    0.01005,
+    0.0011499999999999924
+   ],
+   "F": 0.004083601548158697,
+   "mean_full": 1.4349166384033176,
+   "stds": [
+    0.00881349921316293,
+    0.027483737370085408,
+    0.05701375237563692
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8077262577027,
+    "max_area_ratio": 1.4772879051271273,
+    "min_angle_deg": 13.175973675202325,
+    "min_area_ratio": 0.6432190071582
+   },
+   "newton_iterations": 182,
+   "admissible": true,
+   "min_h": 0.6996397406278775,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 9.608434452080623,
+   "solve_fe": 9.55343165046525,
+   "seconds": 32.08337474998552,
+   "kind": "train",
+   "x": [
+    0.00655,
+    0.008499999999999999,
+    0.01838039529884949,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "F": 0.006185168112083424,
+   "mean_full": 1.4516125864435563,
+   "stds": [
+    0.00996610572247981,
+    0.034190481094830846,
+    0.07012029557350563
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76178188261093,
+    "max_area_ratio": 1.3170358103697104,
+    "min_angle_deg": 13.194205716646685,
+    "min_area_ratio": 0.7921906128305138
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8248198703139381,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.604421981347611,
+   "solve_fe": 10.55343165046525,
+   "seconds": 35.409061292069964,
+   "kind": "validate",
+   "x": [
+    0.00655,
+    0.008499999999999999,
+    0.01838039529884949,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "F_val": 0.007165437316425557,
+   "mean_full": 1.4494956823992107,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 11.372107662503163,
+   "solve_fe": 11.331016345962091,
+   "seconds": 37.97242866700981,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.00931111433407341,
+    0.017770919169733477,
+    0.004380233850503434,
+    0.0018500000000000003,
+    0.0008500000000000003,
+    0.007531119096275325,
+    0.0009249999999999981
+   ],
+   "F": 0.0029843508877758712,
+   "mean_full": 1.4459976794637837,
+   "stds": [
+    0.00775982351995828,
+    0.023411774224620003,
+    0.04874448537394145
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.79249327619078,
+    "max_area_ratio": 1.5372637189630252,
+    "min_angle_deg": 13.177844953363401,
+    "min_area_ratio": 0.6096994080774666
+   },
+   "newton_iterations": 181,
+   "admissible": true,
+   "min_h": 0.7543478260869566,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.135772630851095,
+   "solve_fe": 12.108601041458932,
+   "seconds": 40.52237054205034,
+   "kind": "train",
+   "x": [
+    0.0061,
+    0.008851980107310172,
+    0.01795208319731987,
+    0.004399999999999998,
+    0.0020000000000000005,
+    0.0010000000000000002,
+    0.010049999999999996,
+    0.0011499999999999978
+   ],
+   "F": 0.004178426822680728,
+   "mean_full": 1.4492796832143446,
+   "stds": [
+    0.00919731479980344,
+    0.027871798262807248,
+    0.0575933944541509
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8137395599164,
+    "max_area_ratio": 1.4322182076293695,
+    "min_angle_deg": 13.177970919413935,
+    "min_area_ratio": 0.6488082303096112
+   },
+   "newton_iterations": 182,
+   "admissible": true,
+   "min_h": 0.6996397406278748,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.901410707373316,
+   "solve_fe": 12.886185736955774,
+   "seconds": 43.0789007920539,
+   "kind": "train",
+   "x": [
+    0.006775000000000001,
+    0.008499999999999999,
+    0.01838039529884949,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "F": 0.006306347703792686,
+   "mean_full": 1.4368527855246043,
+   "stds": [
+    0.008952854476498247,
+    0.03450014362299001,
+    0.07096431631819188
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.73030107155557,
+    "max_area_ratio": 1.315141908704411,
+    "min_angle_deg": 13.199116184095523,
+    "min_area_ratio": 0.7546484078370105
+   },
+   "newton_iterations": 183,
+   "admissible": true,
+   "min_h": 0.8248198703139381,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 13.680827585431128,
+   "solve_fe": 13.663770432452615,
+   "seconds": 45.681439624982886,
+   "kind": "train",
+   "x": [
+    0.006325000000000001,
+    0.008250000000000009,
+    0.018227387110230937,
+    0.0040999999999999995,
+    0.0020750000000000005,
+    0.0009591460628906977,
+    0.009176461638868594,
+    0.0010829090624072026
+   ],
+   "F": 0.005123782673000345,
+   "mean_full": 1.4505967718825277,
+   "stds": [
+    0.009670912625981937,
+    0.03101691268311397,
+    0.06378249955582685
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.82634970428768,
+    "max_area_ratio": 1.2932401830419575,
+    "min_angle_deg": 13.18122590651793,
+    "min_area_ratio": 0.7339026433095743
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.8436444654458337,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.451735182674517,
+   "solve_fe": 14.441355127949457,
+   "seconds": 48.25556525005959,
+   "kind": "train",
+   "x": [
+    0.006437500000000006,
+    0.008420813471126793,
+    0.018295897543774194,
+    0.004249999999999997,
+    0.0021125000000000007,
+    0.0009612722569044404,
+    0.009149728179823801,
+    0.0010689909376787555
+   ],
+   "F": 0.005638795763648187,
+   "mean_full": 1.4511143970788933,
+   "stds": [
+    0.009835080352821567,
+    0.032595247807997746,
+    0.06692993932790428
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.79000258124296,
+    "max_area_ratio": 1.314056471298096,
+    "min_angle_deg": 13.188198532976408,
+    "min_area_ratio": 0.7743743634069022
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8159392235536871,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 15.22116682653256,
+   "solve_fe": 15.218939823446298,
+   "seconds": 50.82476254203357,
+   "kind": "train",
+   "x": [
+    0.00655,
+    0.008562499999999999,
+    0.01838039529884949,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "F": 0.006194081981302387,
+   "mean_full": 1.4524883381311517,
+   "stds": [
+    0.009987644742589471,
+    0.03421652776515459,
+    0.07016807081211951
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7556164256947,
+    "max_area_ratio": 1.3277015176899625,
+    "min_angle_deg": 13.195167591360995,
+    "min_area_ratio": 0.7817621535216924
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8248198703139381,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 15.99158654062778,
+   "solve_fe": 15.99652451894314,
+   "seconds": 53.39725908404216,
+   "kind": "train",
+   "x": [
+    0.00649375000000001,
+    0.008562499999999994,
+    0.01832007460675159,
+    0.004175000000000006,
+    0.0021312500000000003,
+    0.000954583215192686,
+    0.009173883969196613,
+    0.0010842508852963904
+   ],
+   "F": 0.005907808600714435,
+   "mean_full": 1.4509510867119373,
+   "stds": [
+    0.009885157394188774,
+    0.03338349133727761,
+    0.06852470189749432
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76682674828785,
+    "max_area_ratio": 1.3351453773293578,
+    "min_angle_deg": 13.192273495459222,
+    "min_area_ratio": 0.788551320071728
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8249938004084825,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 16.7597204482314,
+   "solve_fe": 16.77410921443998,
+   "seconds": 55.96212312497664,
+   "kind": "train",
+   "x": [
+    0.006521875000000001,
+    0.00853125,
+    0.0183476228257606,
+    0.004212499999999999,
+    0.002140625,
+    0.0009468750000000005,
+    0.009206249999999994,
+    0.0010703124999999981
+   ],
+   "F": 0.006041924481855425,
+   "mean_full": 1.4510869830345672,
+   "stds": [
+    0.00992072223635824,
+    0.03377546289982326,
+    0.06930167283743673
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76444901995325,
+    "max_area_ratio": 1.3263772828101037,
+    "min_angle_deg": 13.19316743040102,
+    "min_area_ratio": 0.7902576028581986
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8219036512342414,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 17.541611944414065,
+   "solve_fe": 17.551693909936823,
+   "seconds": 58.57292491698172,
+   "kind": "train",
+   "x": [
+    0.00655,
+    0.008499999999999999,
+    0.018403832798849492,
+    0.004199999999999999,
+    0.0021500000000000004,
+    0.0009500000000000002,
+    0.00915,
+    0.001074999999999998
+   ],
+   "F": 0.0062076274980067715,
+   "mean_full": 1.4539739743178757,
+   "stds": [
+    0.01003631810552646,
+    0.03426202972817119,
+    0.07023541226331179
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7604830916545,
+    "max_area_ratio": 1.3143491583390567,
+    "min_angle_deg": 13.19485330926924,
+    "min_area_ratio": 0.7932007634386117
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8248198703139381,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.32395966595908,
+   "solve_fe": 18.329278605433664,
+   "seconds": 61.185250084032305,
+   "kind": "train",
+   "x": [
+    0.006535937500000001,
+    0.008484374999999999,
+    0.01836694151899295,
+    0.004206249999999999,
+    0.0021453125000000005,
+    0.0009484375000000002,
+    0.00912187500000001,
+    0.0010769820744377981
+   ],
+   "F": 0.0061112350418696445,
+   "mean_full": 1.4511677022132707,
+   "stds": [
+    0.009940196638837212,
+    0.03397833140420022,
+    0.06969864078758807
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76603523499048,
+    "max_area_ratio": 1.3160268546901877,
+    "min_angle_deg": 13.193286702700602,
+    "min_area_ratio": 0.7965606350131047
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.8234579007651117,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 19.327637114633625,
+   "solve_fe": 19.329278605433664,
+   "seconds": 64.53661391697824,
+   "kind": "validate",
+   "x": [
+    0.006535937500000001,
+    0.008484374999999999,
+    0.01836694151899295,
+    0.004206249999999999,
+    0.0021453125000000005,
+    0.0009484375000000002,
+    0.00912187500000001,
+    0.0010769820744377981
+   ],
+   "F_val": 0.00707963217956598,
+   "mean_full": 1.4490607996544667,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  }
+ ],
+ "refusals": [],
+ "restorations": [],
+ "restarts": null,
+ "surrogate_initial_set": [
+  {
+   "coordinate": 0,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 1,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 2,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 3,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 4,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 5,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 6,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 7,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  }
+ ],
+ "surrogate_steps": [
+  {
+   "delta": 0.1,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.05,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.1,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.05,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.025,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.0125,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.00625,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.003125,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.0015625,
+   "geometry": false,
+   "accepted": true
+  }
+ ],
+ "assessment": {
+  "held_out_training": [
+   {
+    "note": "candidate",
+    "F_pred": 0.00425451812627643,
+    "F_train": 0.004083601548158697,
+    "rel_F": 0.04185437195624514,
+    "stds_pred": [
+     0.009281149894483837,
+     0.027763602175573866,
+     0.058288599032306675
+    ],
+    "stds_train": [
+     0.00881349921316293,
+     0.027483737370085408,
+     0.05701375237563692
+    ],
+    "mean_pred": 1.4511199497296359,
+    "mean_train": 1.4349166384033176,
+    "rel_mean": 0.011292162131695848
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.006243546980123692,
+    "F_train": 0.006185168112083424,
+    "rel_F": 0.009438525676645531,
+    "stds_pred": [
+     0.009747641634582393,
+     0.03430864284730425,
+     0.07050849231591587
+    ],
+    "stds_train": [
+     0.00996610572247981,
+     0.034190481094830846,
+     0.07012029557350563
+    ],
+    "mean_pred": 1.451119949729566,
+    "mean_train": 1.4516125864435563,
+    "rel_mean": 0.00033937203258709345
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0027782834386218353,
+    "F_train": 0.0029843508877758712,
+    "rel_F": 0.06904933665746339,
+    "stds_pred": [
+     0.008087324594036728,
+     0.02249454334368661,
+     0.04697737901683669
+    ],
+    "stds_train": [
+     0.00775982351995828,
+     0.023411774224620003,
+     0.04874448537394145
+    ],
+    "mean_pred": 1.4511199497296359,
+    "mean_train": 1.4459976794637837,
+    "rel_mean": 0.0035423779295079465
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.004217420854166703,
+    "F_train": 0.004178426822680728,
+    "rel_F": 0.009332227927102426,
+    "stds_pred": [
+     0.009483145063048792,
+     0.027919360647393206,
+     0.05786190555901757
+    ],
+    "stds_train": [
+     0.00919731479980344,
+     0.027871798262807248,
+     0.0575933944541509
+    ],
+    "mean_pred": 1.4511199497296365,
+    "mean_train": 1.4492796832143446,
+    "rel_mean": 0.001269780109806265
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.006154342435056045,
+    "F_train": 0.006306347703792686,
+    "rel_F": 0.024103534387300535,
+    "stds_pred": [
+     0.008801952876534307,
+     0.03411442423730621,
+     0.0700933243581185
+    ],
+    "stds_train": [
+     0.008952854476498247,
+     0.03450014362299001,
+     0.07096431631819188
+    ],
+    "mean_pred": 1.437379914993205,
+    "mean_train": 1.4368527855246043,
+    "rel_mean": 0.0003668639361743764
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.005040243163376506,
+    "F_train": 0.005123782673000345,
+    "rel_F": 0.01630426482841453,
+    "stds_pred": [
+     0.00960795242287212,
+     0.03073947086294209,
+     0.06326938710531868
+    ],
+    "stds_train": [
+     0.009670912625981937,
+     0.03101691268311397,
+     0.06378249955582685
+    ],
+    "mean_pred": 1.4511199497296348,
+    "mean_train": 1.4505967718825277,
+    "rel_mean": 0.00036066387106882417
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.005621874203104715,
+    "F_train": 0.005638795763648187,
+    "rel_F": 0.00300091743924479,
+    "stds_pred": [
+     0.009793699097974057,
+     0.032542665916481056,
+     0.06683511469378474
+    ],
+    "stds_train": [
+     0.009835080352821567,
+     0.032595247807997746,
+     0.06692993932790428
+    ],
+    "mean_pred": 1.4511199497296263,
+    "mean_train": 1.4511143970788933,
+    "rel_mean": 3.826473463542786e-06
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.006196154335609802,
+    "F_train": 0.006194081981302387,
+    "rel_F": 0.00033457004826063487,
+    "stds_pred": [
+     0.00999262739349301,
+     0.034223557691556133,
+     0.07017869927775339
+    ],
+    "stds_train": [
+     0.009987644742589471,
+     0.03421652776515459,
+     0.07016807081211951
+    ],
+    "mean_pred": 1.45257257114918,
+    "mean_train": 1.4524883381311517,
+    "rel_mean": 5.7992216403305394e-05
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.005898026944097969,
+    "F_train": 0.005907808600714435,
+    "rel_F": 0.0016557165740412666,
+    "stds_pred": [
+     0.009863275354451433,
+     0.033358717040786606,
+     0.06846852372275142
+    ],
+    "stds_train": [
+     0.009885157394188774,
+     0.03338349133727761,
+     0.06852470189749432
+    ],
+    "mean_pred": 1.4511199497296277,
+    "mean_train": 1.4509510867119373,
+    "rel_mean": 0.00011638091679095539
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.006036763661871089,
+    "F_train": 0.006041924481855425,
+    "rel_F": 0.000854168237261942,
+    "stds_pred": [
+     0.009912937454746584,
+     0.03376316695959212,
+     0.06927153737104497
+    ],
+    "stds_train": [
+     0.00992072223635824,
+     0.03377546289982326,
+     0.06930167283743673
+    ],
+    "mean_pred": 1.4511199497296359,
+    "mean_train": 1.4510869830345672,
+    "rel_mean": 2.2718620905654635e-05
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.006209231445210084,
+    "F_train": 0.0062076274980067715,
+    "rel_F": 0.00025838328795139916,
+    "stds_pred": [
+     0.01004246099588478,
+     0.03426515391663551,
+     0.07024442788880478
+    ],
+    "stds_train": [
+     0.01003631810552646,
+     0.03426202972817119,
+     0.07023541226331179
+    ],
+    "mean_pred": 1.4538511258659015,
+    "mean_train": 1.4539739743178757,
+    "rel_mean": 8.449150682481972e-05
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.006110442313695962,
+    "F_train": 0.0061112350418696445,
+    "rel_F": 0.00012971652509698688,
+    "stds_pred": [
+     0.009940746451181735,
+     0.033976546363741734,
+     0.06969374556502031
+    ],
+    "stds_train": [
+     0.009940196638837212,
+     0.03397833140420022,
+     0.06969864078758807
+    ],
+    "mean_pred": 1.4511199497296356,
+    "mean_train": 1.4511677022132707,
+    "rel_mean": 3.290624754276022e-05
+   }
+  ],
+  "new_design_validation_model_checks": [
+   {
+    "validation": 0,
+    "std_half_pred": 0.04118504828025673,
+    "std_half_val": 0.04397177351238927,
+    "rel_std_half": 0.06337532033697402,
+    "F_pred": 0.008843949403996137,
+    "F_val": 0.010249123762798826,
+    "rel_F": 0.13710190171603165,
+    "mean_pred": 1.4662534508369254,
+    "mean_val": 1.4637941731060233,
+    "rel_mean": 0.0016800707203825686
+   },
+   {
+    "validation": 1,
+    "std_half_pred": 0.034190481094830846,
+    "std_half_val": 0.036471481870879334,
+    "rel_std_half": 0.06254203720386128,
+    "F_pred": 0.006185168112083424,
+    "F_val": 0.007165437316425557,
+    "rel_F": 0.13680521663277012,
+    "mean_pred": 1.4516125864435563,
+    "mean_val": 1.4494956823992107,
+    "rel_mean": 0.0014604417729908003
+   },
+   {
+    "validation": 2,
+    "std_half_pred": 0.03397833140420021,
+    "std_half_val": 0.03624419160227541,
+    "rel_std_half": 0.06251650534627878,
+    "F_pred": 0.006111235041869643,
+    "F_val": 0.00707963217956598,
+    "rel_F": 0.13678636306719896,
+    "mean_pred": 1.4511677022132712,
+    "mean_val": 1.4490607996544667,
+    "rel_mean": 0.0014539780244603416
+   }
+  ]
+ },
+ "aborted_request": {
+  "category": "forward",
+  "op": "train",
+  "x": [
+   0.006507812500000001,
+   0.008453124999999999,
+   0.018347875936360596,
+   0.004218749999999999,
+   0.0021359375000000033,
+   0.0009481416760576907,
+   0.009154060301147366,
+   0.0010752376930848568
+  ]
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.339084521
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 66.78169042,
+  "total_fe": 20.0,
+  "total_seconds": 66.78169042,
+  "elapsed_seconds": 66.78815229202155,
+  "solve_fe": 19.329278605433664,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.777584695496841,
+   "adjoint_eval": 0.17466612010927285,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.012959744924947348,
+   "adjoint_solve": 0.0029111020018212142,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0.00037270900793373585,
+    "fe": 0.00011162011790648405,
+    "entries": 1,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 56.66551046301428,
+    "fe": 16.97037319859274,
+    "entries": 22,
+    "forward_solves": 1260,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "line_search": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.009396959,
+    "fe": 0.0028142321468357942,
+    "entries": 24,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 10.004517708,
+    "fe": 2.9961858243120525,
+    "entries": 3,
+    "forward_solves": 180,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0.003650042344816029,
+    "fe": 0.0010931266704572373,
+    "entries": 22,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "geometry_check": {
+    "seconds": 0.002345457,
+    "fe": 0.0007024251663140215,
+    "entries": 170,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.09589708163297231,
+    "fe": 0.028719572993693713,
+    "entries": 365,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.039735416998155415,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.0016724170418456197,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "geometry_check",
+    "seconds": 2.3042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 3,
+    "category": "overhead",
+    "seconds": 0.0002500830133365384,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 9.929097723215818e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 5,
+    "category": "geometry_check",
+    "seconds": 1.2792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 6,
+    "category": "mesh_motion",
+    "seconds": 0.000461,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 7,
+    "category": "forward",
+    "seconds": 2.60749825,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 8,
+    "category": "overhead",
+    "seconds": 0.0003104999725849211,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 9,
+    "category": "overhead",
+    "seconds": 9.529199451208115e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 10,
+    "category": "geometry_check",
+    "seconds": 2.1917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 11,
+    "category": "overhead",
+    "seconds": 0.00019545799628195581,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 3.5958015359938145e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 13,
+    "category": "geometry_check",
+    "seconds": 1.6417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 14,
+    "category": "mesh_motion",
+    "seconds": 0.000387833,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 15,
+    "category": "forward",
+    "seconds": 2.588314167,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 16,
+    "category": "overhead",
+    "seconds": 0.0002293750718491694,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 17,
+    "category": "overhead",
+    "seconds": 9.712495375424623e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 18,
+    "category": "geometry_check",
+    "seconds": 1.5875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 19,
+    "category": "overhead",
+    "seconds": 0.0001554159433991842,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 3.1125033274292946e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 21,
+    "category": "geometry_check",
+    "seconds": 1.1792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 22,
+    "category": "mesh_motion",
+    "seconds": 0.000388916,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 23,
+    "category": "forward",
+    "seconds": 2.610592834,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 24,
+    "category": "overhead",
+    "seconds": 0.00020133297489888236,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 25,
+    "category": "overhead",
+    "seconds": 7.620907854288816e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 26,
+    "category": "geometry_check",
+    "seconds": 1.9e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 27,
+    "category": "overhead",
+    "seconds": 0.00022237494619936626,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 6.420805584639311e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 29,
+    "category": "geometry_check",
+    "seconds": 1.1084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 30,
+    "category": "mesh_motion",
+    "seconds": 0.00038125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 31,
+    "category": "forward",
+    "seconds": 2.718013167,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 32,
+    "category": "overhead",
+    "seconds": 0.00023070698103566656,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 7.424992509186268e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 34,
+    "category": "geometry_check",
+    "seconds": 1.4916e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 35,
+    "category": "overhead",
+    "seconds": 0.00015708402912473218,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 36,
+    "category": "overhead",
+    "seconds": 3.1374976970255375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 37,
+    "category": "geometry_check",
+    "seconds": 1.1792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 38,
+    "category": "mesh_motion",
+    "seconds": 0.000376708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 39,
+    "category": "forward",
+    "seconds": 2.607663042,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 40,
+    "category": "overhead",
+    "seconds": 0.00021754201213575186,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 41,
+    "category": "overhead",
+    "seconds": 0.00010499998461455107,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 42,
+    "category": "geometry_check",
+    "seconds": 1.8833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 43,
+    "category": "overhead",
+    "seconds": 0.00019520809429529606,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 44,
+    "category": "overhead",
+    "seconds": 3.187498077750206e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 45,
+    "category": "geometry_check",
+    "seconds": 1.6042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 46,
+    "category": "mesh_motion",
+    "seconds": 0.00038175,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 47,
+    "category": "forward",
+    "seconds": 2.683184166,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 48,
+    "category": "overhead",
+    "seconds": 0.00022037600966839932,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 49,
+    "category": "overhead",
+    "seconds": 8.091598283499479e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 50,
+    "category": "geometry_check",
+    "seconds": 1.7708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 0.00017470894826665528,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 52,
+    "category": "overhead",
+    "seconds": 3.1125033274292946e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 53,
+    "category": "geometry_check",
+    "seconds": 1.1791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 54,
+    "category": "mesh_motion",
+    "seconds": 0.000386333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 55,
+    "category": "forward",
+    "seconds": 2.5952900420000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 56,
+    "category": "overhead",
+    "seconds": 0.00020329198235913282,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 57,
+    "category": "overhead",
+    "seconds": 7.620907854288816e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 58,
+    "category": "geometry_check",
+    "seconds": 1.6416e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 59,
+    "category": "overhead",
+    "seconds": 0.000155333969011906,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 4.0874932892620564e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 61,
+    "category": "geometry_check",
+    "seconds": 2.0333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 62,
+    "category": "mesh_motion",
+    "seconds": 0.000388875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 63,
+    "category": "forward",
+    "seconds": 2.566369916,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 64,
+    "category": "overhead",
+    "seconds": 0.00028579201653755604,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 65,
+    "category": "overhead",
+    "seconds": 0.00010220904368907213,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 66,
+    "category": "geometry_check",
+    "seconds": 1.9166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 67,
+    "category": "overhead",
+    "seconds": 0.00016220895498975096,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 3.162503708153963e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 69,
+    "category": "geometry_check",
+    "seconds": 9.875e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 70,
+    "category": "mesh_motion",
+    "seconds": 0.000386833,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 71,
+    "category": "forward",
+    "seconds": 2.600837332,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 72,
+    "category": "overhead",
+    "seconds": 0.00020750098816080254,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 73,
+    "category": "overhead",
+    "seconds": 6.733404006808996e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 74,
+    "category": "setup_calibration",
+    "seconds": 0.00037270900793373585,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe fit"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 0.00012495694682002068,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 76,
+    "category": "geometry_check",
+    "seconds": 1.8791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 77,
+    "category": "mesh_motion",
+    "seconds": 0.000437292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 78,
+    "category": "validation",
+    "seconds": 3.329690083,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 79,
+    "category": "overhead",
+    "seconds": 0.00018175100679940215,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 80,
+    "category": "overhead",
+    "seconds": 6.104202475398779e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 81,
+    "category": "overhead",
+    "seconds": 0.0008895409991964698,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 82,
+    "category": "geometry_check",
+    "seconds": 1.7958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 83,
+    "category": "overhead",
+    "seconds": 0.00019120901760061315,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 84,
+    "category": "overhead",
+    "seconds": 0.00016887497622519732,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 85,
+    "category": "geometry_check",
+    "seconds": 1.275e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 86,
+    "category": "overhead",
+    "seconds": 0.00016320803365132974,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 87,
+    "category": "overhead",
+    "seconds": 0.00015283399261534214,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 88,
+    "category": "geometry_check",
+    "seconds": 1.2208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 89,
+    "category": "overhead",
+    "seconds": 0.00012395799608100333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 90,
+    "category": "overhead",
+    "seconds": 0.00012274994514882565,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 91,
+    "category": "geometry_check",
+    "seconds": 1.0458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 0.00012808403280217817,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 93,
+    "category": "overhead",
+    "seconds": 0.00015341700054705143,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 94,
+    "category": "geometry_check",
+    "seconds": 1.1958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 95,
+    "category": "overhead",
+    "seconds": 0.0001363750270257924,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 96,
+    "category": "overhead",
+    "seconds": 0.00012183294165879488,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 97,
+    "category": "geometry_check",
+    "seconds": 1.3417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 98,
+    "category": "overhead",
+    "seconds": 0.00012695799204109903,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 99,
+    "category": "overhead",
+    "seconds": 0.0001169589813798666,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 100,
+    "category": "geometry_check",
+    "seconds": 1.1e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 101,
+    "category": "overhead",
+    "seconds": 0.0001230000890188876,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 102,
+    "category": "overhead",
+    "seconds": 0.00013491592835634947,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 103,
+    "category": "geometry_check",
+    "seconds": 1.0667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 104,
+    "category": "overhead",
+    "seconds": 0.00012104203548446435,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 105,
+    "category": "overhead",
+    "seconds": 0.00010099995415657759,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 106,
+    "category": "geometry_check",
+    "seconds": 1.0583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 107,
+    "category": "overhead",
+    "seconds": 0.00011258301350736133,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 108,
+    "category": "overhead",
+    "seconds": 0.00010820897296071053,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 109,
+    "category": "geometry_check",
+    "seconds": 9.041e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 110,
+    "category": "overhead",
+    "seconds": 0.00010195903030307818,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 111,
+    "category": "overhead",
+    "seconds": 9.920797310769558e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 112,
+    "category": "geometry_check",
+    "seconds": 8.542e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 113,
+    "category": "overhead",
+    "seconds": 9.79160865206552e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 114,
+    "category": "overhead",
+    "seconds": 0.00010391697287559509,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 115,
+    "category": "geometry_check",
+    "seconds": 8.834e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 116,
+    "category": "overhead",
+    "seconds": 9.562395487705544e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 117,
+    "category": "overhead",
+    "seconds": 9.841704741120338e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 118,
+    "category": "geometry_check",
+    "seconds": 8.959e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 119,
+    "category": "overhead",
+    "seconds": 0.00014695801958453103,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 120,
+    "category": "overhead",
+    "seconds": 0.00010149995796382427,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 121,
+    "category": "geometry_check",
+    "seconds": 1.2041e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 122,
+    "category": "overhead",
+    "seconds": 0.0001108339752029508,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 123,
+    "category": "surrogate_update",
+    "seconds": 9.754206985235214e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 124,
+    "category": "overhead",
+    "seconds": 6.220792420208454e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 125,
+    "category": "geometry_check",
+    "seconds": 8.709e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 126,
+    "category": "mesh_motion",
+    "seconds": 0.0003865,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 127,
+    "category": "forward",
+    "seconds": 2.535255416,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 128,
+    "category": "overhead",
+    "seconds": 0.00021566602937639345,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 129,
+    "category": "overhead",
+    "seconds": 0.00014283403288573027,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 130,
+    "category": "surrogate_update",
+    "seconds": 0.0001954999752342701,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 131,
+    "category": "overhead",
+    "seconds": 2.0124949514865875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 132,
+    "category": "overhead",
+    "seconds": 0.0003279580269008875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 133,
+    "category": "geometry_check",
+    "seconds": 1.7042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 134,
+    "category": "overhead",
+    "seconds": 0.00017379100139791603,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 135,
+    "category": "overhead",
+    "seconds": 0.00012366706505417824,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 136,
+    "category": "geometry_check",
+    "seconds": 1.6125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 137,
+    "category": "overhead",
+    "seconds": 0.00018512496081157792,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 138,
+    "category": "overhead",
+    "seconds": 0.00023141701240092516,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 139,
+    "category": "geometry_check",
+    "seconds": 1.9208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 140,
+    "category": "overhead",
+    "seconds": 0.00023474992908845138,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 141,
+    "category": "overhead",
+    "seconds": 0.00022200006060302258,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 142,
+    "category": "geometry_check",
+    "seconds": 1.4583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 143,
+    "category": "overhead",
+    "seconds": 0.00018129194898719447,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 144,
+    "category": "overhead",
+    "seconds": 0.00018025003373622894,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 145,
+    "category": "geometry_check",
+    "seconds": 9.833e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 146,
+    "category": "overhead",
+    "seconds": 0.0001257920140815827,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 147,
+    "category": "overhead",
+    "seconds": 0.00011870800517499447,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 148,
+    "category": "geometry_check",
+    "seconds": 1.4709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 149,
+    "category": "overhead",
+    "seconds": 0.00017166599306506214,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 150,
+    "category": "overhead",
+    "seconds": 0.00019154197070747614,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 151,
+    "category": "geometry_check",
+    "seconds": 9.625e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 152,
+    "category": "overhead",
+    "seconds": 0.0001306669879177491,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 153,
+    "category": "overhead",
+    "seconds": 0.0001259580021724105,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 154,
+    "category": "geometry_check",
+    "seconds": 1.4417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 155,
+    "category": "overhead",
+    "seconds": 0.00012912507087392555,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 156,
+    "category": "overhead",
+    "seconds": 0.00012474996037781239,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 157,
+    "category": "geometry_check",
+    "seconds": 1.4125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 158,
+    "category": "overhead",
+    "seconds": 0.00012558304866416847,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 159,
+    "category": "overhead",
+    "seconds": 0.0001152500044554472,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 160,
+    "category": "geometry_check",
+    "seconds": 1.4917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 161,
+    "category": "overhead",
+    "seconds": 0.00013216595930032327,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 162,
+    "category": "overhead",
+    "seconds": 0.0001634999644011259,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 163,
+    "category": "geometry_check",
+    "seconds": 8.959e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 164,
+    "category": "overhead",
+    "seconds": 0.00011991602089267417,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 165,
+    "category": "overhead",
+    "seconds": 0.00011937494855374098,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 166,
+    "category": "geometry_check",
+    "seconds": 1.1167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 167,
+    "category": "overhead",
+    "seconds": 0.00011816704650513543,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 168,
+    "category": "overhead",
+    "seconds": 0.0001235000090673566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 169,
+    "category": "geometry_check",
+    "seconds": 9e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 170,
+    "category": "overhead",
+    "seconds": 0.0001096250010519384,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 171,
+    "category": "overhead",
+    "seconds": 5.158304702490568e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 172,
+    "category": "geometry_check",
+    "seconds": 9.666e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 173,
+    "category": "overhead",
+    "seconds": 0.00010583394815100178,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 174,
+    "category": "overhead",
+    "seconds": 4.5874970965087414e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 175,
+    "category": "geometry_check",
+    "seconds": 9.041e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 176,
+    "category": "overhead",
+    "seconds": 0.00010095902268858481,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 177,
+    "category": "overhead",
+    "seconds": 4.575005732476711e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 178,
+    "category": "geometry_check",
+    "seconds": 9.333e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 179,
+    "category": "overhead",
+    "seconds": 0.00010508393641117664,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 180,
+    "category": "overhead",
+    "seconds": 4.291604273021221e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 181,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 182,
+    "category": "overhead",
+    "seconds": 9.920891665515796e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 183,
+    "category": "overhead",
+    "seconds": 4.325003828853369e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 184,
+    "category": "geometry_check",
+    "seconds": 8.959e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 185,
+    "category": "overhead",
+    "seconds": 9.974904544662877e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 186,
+    "category": "overhead",
+    "seconds": 4.116701893508434e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 187,
+    "category": "geometry_check",
+    "seconds": 9.041e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 188,
+    "category": "overhead",
+    "seconds": 9.849998184563447e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 189,
+    "category": "overhead",
+    "seconds": 0.0004718339769169688,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 190,
+    "category": "geometry_check",
+    "seconds": 8.709e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 191,
+    "category": "overhead",
+    "seconds": 0.00010749898613937603,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 192,
+    "category": "overhead",
+    "seconds": 4.258297849446535e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 193,
+    "category": "geometry_check",
+    "seconds": 9e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 194,
+    "category": "overhead",
+    "seconds": 9.82500599562286e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 195,
+    "category": "overhead",
+    "seconds": 4.291697405278683e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 196,
+    "category": "geometry_check",
+    "seconds": 8.917e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 197,
+    "category": "overhead",
+    "seconds": 9.825005583152802e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 198,
+    "category": "overhead",
+    "seconds": 4.2874948121607304e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 199,
+    "category": "geometry_check",
+    "seconds": 9.041e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 200,
+    "category": "overhead",
+    "seconds": 9.966704544694949e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 201,
+    "category": "overhead",
+    "seconds": 4.6291970647871494e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 202,
+    "category": "geometry_check",
+    "seconds": 1.0459e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 203,
+    "category": "overhead",
+    "seconds": 9.924893664603474e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 204,
+    "category": "overhead",
+    "seconds": 0.00019283301662653685,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 205,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 206,
+    "category": "overhead",
+    "seconds": 9.912498120812074e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 207,
+    "category": "overhead",
+    "seconds": 6.675010081380606e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 208,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 209,
+    "category": "overhead",
+    "seconds": 0.00010508393228647606,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 210,
+    "category": "overhead",
+    "seconds": 4.475004971027374e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 211,
+    "category": "geometry_check",
+    "seconds": 9.041e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 212,
+    "category": "overhead",
+    "seconds": 0.00010137497463347245,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 213,
+    "category": "overhead",
+    "seconds": 4.216702654957771e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 214,
+    "category": "geometry_check",
+    "seconds": 9.042e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 215,
+    "category": "overhead",
+    "seconds": 9.949992078261971e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 216,
+    "category": "overhead",
+    "seconds": 4.1624996811151505e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 217,
+    "category": "geometry_check",
+    "seconds": 8.875e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 218,
+    "category": "overhead",
+    "seconds": 0.0001104160131077947,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 219,
+    "category": "overhead",
+    "seconds": 4.083407111465931e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 220,
+    "category": "geometry_check",
+    "seconds": 8.875e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 221,
+    "category": "overhead",
+    "seconds": 0.0001614999876480283,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 222,
+    "category": "overhead",
+    "seconds": 0.0001687499461695552,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 223,
+    "category": "geometry_check",
+    "seconds": 8.833e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 224,
+    "category": "overhead",
+    "seconds": 0.00014412497493410115,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 225,
+    "category": "overhead",
+    "seconds": 8.712499402463436e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 226,
+    "category": "geometry_check",
+    "seconds": 1.7458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 227,
+    "category": "overhead",
+    "seconds": 0.00017687502804974997,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 228,
+    "category": "overhead",
+    "seconds": 5.8750039897859097e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 229,
+    "category": "geometry_check",
+    "seconds": 1.1667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 230,
+    "category": "overhead",
+    "seconds": 0.0001653329507824708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 231,
+    "category": "overhead",
+    "seconds": 0.00016920908819884062,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 232,
+    "category": "geometry_check",
+    "seconds": 8.417e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 233,
+    "category": "overhead",
+    "seconds": 0.00014420791069724714,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 234,
+    "category": "overhead",
+    "seconds": 6.24579843133688e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 235,
+    "category": "geometry_check",
+    "seconds": 1.6709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 236,
+    "category": "overhead",
+    "seconds": 0.00014541609944984657,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 237,
+    "category": "overhead",
+    "seconds": 0.0001672079088166356,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 238,
+    "category": "geometry_check",
+    "seconds": 1.6167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 239,
+    "category": "overhead",
+    "seconds": 0.00015816703991333725,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 240,
+    "category": "overhead",
+    "seconds": 9.950005915015936e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 241,
+    "category": "geometry_check",
+    "seconds": 1.525e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 242,
+    "category": "overhead",
+    "seconds": 0.00013737491069676366,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 243,
+    "category": "overhead",
+    "seconds": 5.183299072086811e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 244,
+    "category": "geometry_check",
+    "seconds": 1e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 245,
+    "category": "overhead",
+    "seconds": 0.0001256250140819759,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 246,
+    "category": "overhead",
+    "seconds": 8.67500202730298e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 247,
+    "category": "geometry_check",
+    "seconds": 1.0583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 248,
+    "category": "overhead",
+    "seconds": 0.00012920898410939685,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 249,
+    "category": "surrogate_update",
+    "seconds": 0.00014287501107901335,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 250,
+    "category": "overhead",
+    "seconds": 6.212503649294376e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 251,
+    "category": "geometry_check",
+    "seconds": 1e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 252,
+    "category": "mesh_motion",
+    "seconds": 0.000383209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 253,
+    "category": "forward",
+    "seconds": 2.572918125,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 254,
+    "category": "overhead",
+    "seconds": 0.00026720693425374975,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 255,
+    "category": "overhead",
+    "seconds": 0.0001714590471237898,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 256,
+    "category": "surrogate_update",
+    "seconds": 0.0001823750790208578,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 257,
+    "category": "overhead",
+    "seconds": 7.720792200416327e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 258,
+    "category": "geometry_check",
+    "seconds": 1.9375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 259,
+    "category": "mesh_motion",
+    "seconds": 0.00038175,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 260,
+    "category": "validation",
+    "seconds": 3.324659792,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 261,
+    "category": "overhead",
+    "seconds": 0.00019458303628994145,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 262,
+    "category": "overhead",
+    "seconds": 8.129200432449579e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 263,
+    "category": "overhead",
+    "seconds": 0.0004105829866603017,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 264,
+    "category": "geometry_check",
+    "seconds": 1.9333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 265,
+    "category": "overhead",
+    "seconds": 0.0002368340262393076,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 266,
+    "category": "overhead",
+    "seconds": 0.0002239999594166875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 267,
+    "category": "geometry_check",
+    "seconds": 1.7583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 268,
+    "category": "overhead",
+    "seconds": 0.00016324992525085236,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 269,
+    "category": "overhead",
+    "seconds": 0.0001561670796945691,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 270,
+    "category": "geometry_check",
+    "seconds": 1.7083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 271,
+    "category": "overhead",
+    "seconds": 0.00015704195799060017,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 272,
+    "category": "overhead",
+    "seconds": 0.00011237501166760921,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 273,
+    "category": "geometry_check",
+    "seconds": 1.1542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 274,
+    "category": "overhead",
+    "seconds": 0.00014687399087875974,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 275,
+    "category": "overhead",
+    "seconds": 0.00017620902508497238,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 276,
+    "category": "geometry_check",
+    "seconds": 1.1458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 277,
+    "category": "overhead",
+    "seconds": 0.00017199997434147463,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 278,
+    "category": "overhead",
+    "seconds": 0.00023808307014405727,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 279,
+    "category": "geometry_check",
+    "seconds": 9.458e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 280,
+    "category": "overhead",
+    "seconds": 0.0001432509625587386,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 281,
+    "category": "overhead",
+    "seconds": 0.0001760829472914338,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 282,
+    "category": "geometry_check",
+    "seconds": 8.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 283,
+    "category": "overhead",
+    "seconds": 0.00011745806228447009,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 284,
+    "category": "overhead",
+    "seconds": 0.00011183402966707945,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 285,
+    "category": "geometry_check",
+    "seconds": 8.875e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 286,
+    "category": "overhead",
+    "seconds": 0.00011674993793775457,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 287,
+    "category": "overhead",
+    "seconds": 0.00015691597945988178,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 288,
+    "category": "geometry_check",
+    "seconds": 8.792e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 289,
+    "category": "overhead",
+    "seconds": 0.00010791703768120442,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 290,
+    "category": "overhead",
+    "seconds": 0.00010779104195535183,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 291,
+    "category": "geometry_check",
+    "seconds": 8.791e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 292,
+    "category": "overhead",
+    "seconds": 0.00012083396839557281,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 293,
+    "category": "overhead",
+    "seconds": 0.0001616249792277813,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 294,
+    "category": "geometry_check",
+    "seconds": 8.5e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 295,
+    "category": "overhead",
+    "seconds": 0.0001272089495287787,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 296,
+    "category": "overhead",
+    "seconds": 0.00012979109305888414,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 297,
+    "category": "geometry_check",
+    "seconds": 1.1833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 298,
+    "category": "overhead",
+    "seconds": 0.0001375839700870074,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 299,
+    "category": "overhead",
+    "seconds": 0.00011954200454056263,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 300,
+    "category": "geometry_check",
+    "seconds": 9e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 301,
+    "category": "overhead",
+    "seconds": 0.00013254100790760504,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 302,
+    "category": "overhead",
+    "seconds": 0.00012866698671132326,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 303,
+    "category": "geometry_check",
+    "seconds": 1.0542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 304,
+    "category": "overhead",
+    "seconds": 0.00011908296839635568,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 305,
+    "category": "overhead",
+    "seconds": 9.929202497005463e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 306,
+    "category": "geometry_check",
+    "seconds": 9.083e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 307,
+    "category": "overhead",
+    "seconds": 0.00010666700826078568,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 308,
+    "category": "overhead",
+    "seconds": 0.00011629099026322365,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 309,
+    "category": "geometry_check",
+    "seconds": 8.958e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 310,
+    "category": "overhead",
+    "seconds": 0.00010600096614865606,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 311,
+    "category": "overhead",
+    "seconds": 0.0001003750367090106,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 312,
+    "category": "geometry_check",
+    "seconds": 8.417e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 313,
+    "category": "overhead",
+    "seconds": 0.00010495801928556148,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 314,
+    "category": "overhead",
+    "seconds": 0.00012191594578325748,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 315,
+    "category": "geometry_check",
+    "seconds": 8.542e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 316,
+    "category": "overhead",
+    "seconds": 0.0006351250664664576,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 317,
+    "category": "overhead",
+    "seconds": 0.00011341692879796028,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 318,
+    "category": "geometry_check",
+    "seconds": 8.666e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 319,
+    "category": "overhead",
+    "seconds": 0.00010091702300485395,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 320,
+    "category": "surrogate_update",
+    "seconds": 8.333404548466206e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 321,
+    "category": "overhead",
+    "seconds": 5.966599564999342e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 322,
+    "category": "geometry_check",
+    "seconds": 9.292e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 323,
+    "category": "mesh_motion",
+    "seconds": 0.0003875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 324,
+    "category": "forward",
+    "seconds": 2.556305999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 325,
+    "category": "overhead",
+    "seconds": 0.00022183395061858846,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 326,
+    "category": "overhead",
+    "seconds": 0.0001947920536622405,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 327,
+    "category": "surrogate_update",
+    "seconds": 0.00020337500609457493,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 328,
+    "category": "overhead",
+    "seconds": 2.1165935322642326e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 329,
+    "category": "overhead",
+    "seconds": 0.00035441701766103506,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 330,
+    "category": "geometry_check",
+    "seconds": 1.9542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 331,
+    "category": "overhead",
+    "seconds": 0.00017404096413287107,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 332,
+    "category": "overhead",
+    "seconds": 0.0001180840190500021,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 333,
+    "category": "geometry_check",
+    "seconds": 9.709e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 334,
+    "category": "overhead",
+    "seconds": 0.00010620701651475883,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 335,
+    "category": "overhead",
+    "seconds": 0.0001069169957190752,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 336,
+    "category": "geometry_check",
+    "seconds": 8.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 337,
+    "category": "overhead",
+    "seconds": 0.00011145801659750987,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 338,
+    "category": "overhead",
+    "seconds": 0.0001015419838950038,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 339,
+    "category": "geometry_check",
+    "seconds": 8.791e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 340,
+    "category": "overhead",
+    "seconds": 0.0001515840279182612,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 341,
+    "category": "overhead",
+    "seconds": 0.0002281669294461608,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 342,
+    "category": "geometry_check",
+    "seconds": 1.6708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 343,
+    "category": "overhead",
+    "seconds": 0.0001620420223176211,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 344,
+    "category": "overhead",
+    "seconds": 0.00012345798313617706,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 345,
+    "category": "geometry_check",
+    "seconds": 1.6083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 346,
+    "category": "overhead",
+    "seconds": 0.0001575840965344355,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 347,
+    "category": "overhead",
+    "seconds": 0.00018362491391599178,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 348,
+    "category": "geometry_check",
+    "seconds": 1.1541e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 349,
+    "category": "overhead",
+    "seconds": 0.0001474170206208214,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 350,
+    "category": "surrogate_update",
+    "seconds": 0.00010495795868337154,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 351,
+    "category": "overhead",
+    "seconds": 6.379210390150547e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 352,
+    "category": "geometry_check",
+    "seconds": 1.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 353,
+    "category": "mesh_motion",
+    "seconds": 0.000391125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 354,
+    "category": "forward",
+    "seconds": 2.54640575,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 355,
+    "category": "overhead",
+    "seconds": 0.0002277499754228529,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 356,
+    "category": "overhead",
+    "seconds": 0.00023424997925758362,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 357,
+    "category": "surrogate_update",
+    "seconds": 0.00021974998526275158,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 358,
+    "category": "overhead",
+    "seconds": 3.733299672603607e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 359,
+    "category": "geometry_check",
+    "seconds": 1.7125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 360,
+    "category": "overhead",
+    "seconds": 0.00020708404133529257,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 361,
+    "category": "overhead",
+    "seconds": 2.6708003133535385e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 362,
+    "category": "geometry_check",
+    "seconds": 1.9083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 363,
+    "category": "mesh_motion",
+    "seconds": 0.000388,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 364,
+    "category": "forward",
+    "seconds": 2.555072,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 365,
+    "category": "overhead",
+    "seconds": 0.0003089169978451878,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 366,
+    "category": "overhead",
+    "seconds": 0.00019579194486141205,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 367,
+    "category": "surrogate_update",
+    "seconds": 0.00020070804748684168,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 368,
+    "category": "overhead",
+    "seconds": 1.4791963621973991e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 369,
+    "category": "overhead",
+    "seconds": 0.0003333750646561384,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 370,
+    "category": "geometry_check",
+    "seconds": 1.9e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 371,
+    "category": "overhead",
+    "seconds": 0.00018262493455978301,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 372,
+    "category": "overhead",
+    "seconds": 0.00021287507843226194,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 373,
+    "category": "geometry_check",
+    "seconds": 1.0375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 374,
+    "category": "overhead",
+    "seconds": 0.00013616592956111617,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 375,
+    "category": "overhead",
+    "seconds": 0.00016366702038794756,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 376,
+    "category": "geometry_check",
+    "seconds": 1.1083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 377,
+    "category": "overhead",
+    "seconds": 0.00013620904122291222,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 378,
+    "category": "overhead",
+    "seconds": 0.00011583289597183466,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 379,
+    "category": "geometry_check",
+    "seconds": 1.1083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 380,
+    "category": "overhead",
+    "seconds": 0.00013787506089357748,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 381,
+    "category": "overhead",
+    "seconds": 0.0001312090316787362,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 382,
+    "category": "geometry_check",
+    "seconds": 1.6459e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 383,
+    "category": "overhead",
+    "seconds": 0.00015370690572780177,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 384,
+    "category": "overhead",
+    "seconds": 0.00012512505054473877,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 385,
+    "category": "geometry_check",
+    "seconds": 1.2167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 386,
+    "category": "overhead",
+    "seconds": 0.00012420796158352232,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 387,
+    "category": "overhead",
+    "seconds": 0.00012154201976954937,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 388,
+    "category": "geometry_check",
+    "seconds": 9.583e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 389,
+    "category": "overhead",
+    "seconds": 0.00011162502421058207,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 390,
+    "category": "overhead",
+    "seconds": 0.000106374965980649,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 391,
+    "category": "geometry_check",
+    "seconds": 9.167e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 392,
+    "category": "overhead",
+    "seconds": 0.00010579208256444872,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 393,
+    "category": "overhead",
+    "seconds": 0.00010612490586936474,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 394,
+    "category": "geometry_check",
+    "seconds": 9.166e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 395,
+    "category": "overhead",
+    "seconds": 9.979198914322751e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 396,
+    "category": "overhead",
+    "seconds": 9.825010783970356e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 397,
+    "category": "geometry_check",
+    "seconds": 9.375e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 398,
+    "category": "overhead",
+    "seconds": 0.00010420793704923881,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 399,
+    "category": "surrogate_update",
+    "seconds": 2.6875059120357037e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 400,
+    "category": "overhead",
+    "seconds": 6.208394188433886e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 401,
+    "category": "geometry_check",
+    "seconds": 9.167e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 402,
+    "category": "mesh_motion",
+    "seconds": 0.000394667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 403,
+    "category": "forward",
+    "seconds": 2.5984972920000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 404,
+    "category": "overhead",
+    "seconds": 0.00021341496436377838,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 405,
+    "category": "overhead",
+    "seconds": 0.00019950000569224358,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 406,
+    "category": "surrogate_update",
+    "seconds": 0.00022787507623434067,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 407,
+    "category": "overhead",
+    "seconds": 2.058397512882948e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 408,
+    "category": "overhead",
+    "seconds": 0.00034087500534951687,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 409,
+    "category": "geometry_check",
+    "seconds": 1.7667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 410,
+    "category": "overhead",
+    "seconds": 0.00016887400131082586,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 411,
+    "category": "overhead",
+    "seconds": 0.00012795894872397184,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 412,
+    "category": "geometry_check",
+    "seconds": 1.55e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 413,
+    "category": "overhead",
+    "seconds": 0.00017458305389084217,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 414,
+    "category": "overhead",
+    "seconds": 0.00015320803504437208,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 415,
+    "category": "geometry_check",
+    "seconds": 1.0208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 416,
+    "category": "overhead",
+    "seconds": 0.00013983388753757708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 417,
+    "category": "overhead",
+    "seconds": 0.00014441704843193293,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 418,
+    "category": "geometry_check",
+    "seconds": 1.2916e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 419,
+    "category": "overhead",
+    "seconds": 0.00012975004557347347,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 420,
+    "category": "overhead",
+    "seconds": 6.0249934904277325e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 421,
+    "category": "geometry_check",
+    "seconds": 1.225e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 422,
+    "category": "overhead",
+    "seconds": 0.00012350004413974602,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 423,
+    "category": "overhead",
+    "seconds": 0.00011737493332475424,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 424,
+    "category": "geometry_check",
+    "seconds": 1.2291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 425,
+    "category": "overhead",
+    "seconds": 0.00013191801425449512,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 426,
+    "category": "overhead",
+    "seconds": 9.891600348055363e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 427,
+    "category": "geometry_check",
+    "seconds": 9e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 428,
+    "category": "overhead",
+    "seconds": 0.00015004207248381363,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 429,
+    "category": "overhead",
+    "seconds": 0.00023395800963044167,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 430,
+    "category": "geometry_check",
+    "seconds": 8.834e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 431,
+    "category": "overhead",
+    "seconds": 0.00013312493891248778,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 432,
+    "category": "overhead",
+    "seconds": 0.00012362503912299871,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 433,
+    "category": "geometry_check",
+    "seconds": 1.3667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 434,
+    "category": "overhead",
+    "seconds": 0.0001254160148036476,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 435,
+    "category": "overhead",
+    "seconds": 0.0001064579701051116,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 436,
+    "category": "geometry_check",
+    "seconds": 1.1833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 437,
+    "category": "overhead",
+    "seconds": 0.00011654201708211076,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 438,
+    "category": "overhead",
+    "seconds": 0.00014887494035065174,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 439,
+    "category": "geometry_check",
+    "seconds": 1.225e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 440,
+    "category": "overhead",
+    "seconds": 0.00012404207387817223,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 441,
+    "category": "overhead",
+    "seconds": 0.00010324991308152676,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 442,
+    "category": "geometry_check",
+    "seconds": 1.2416e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 443,
+    "category": "overhead",
+    "seconds": 0.00012604209735656013,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 444,
+    "category": "surrogate_update",
+    "seconds": 0.00014100095722824335,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 445,
+    "category": "overhead",
+    "seconds": 6.474903784692287e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 446,
+    "category": "geometry_check",
+    "seconds": 1.3375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 447,
+    "category": "mesh_motion",
+    "seconds": 0.000392,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 448,
+    "category": "forward",
+    "seconds": 2.569288001,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 449,
+    "category": "overhead",
+    "seconds": 0.00022687398180920582,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 450,
+    "category": "overhead",
+    "seconds": 0.0001937500201165676,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 451,
+    "category": "surrogate_update",
+    "seconds": 0.00020012492313981056,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 452,
+    "category": "overhead",
+    "seconds": 3.5792007111012936e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 453,
+    "category": "geometry_check",
+    "seconds": 1.8625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 454,
+    "category": "overhead",
+    "seconds": 0.00018354196429726244,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 455,
+    "category": "overhead",
+    "seconds": 2.6250025257468224e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 456,
+    "category": "geometry_check",
+    "seconds": 1.55e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 457,
+    "category": "mesh_motion",
+    "seconds": 0.000387167,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 458,
+    "category": "forward",
+    "seconds": 2.567918084,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 459,
+    "category": "overhead",
+    "seconds": 0.00021845703405176664,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 460,
+    "category": "overhead",
+    "seconds": 0.00019749999046325684,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 461,
+    "category": "surrogate_update",
+    "seconds": 0.00023666606284677982,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 462,
+    "category": "overhead",
+    "seconds": 1.7416896298527718e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 463,
+    "category": "overhead",
+    "seconds": 0.0003550840774551034,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 464,
+    "category": "geometry_check",
+    "seconds": 1.6583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 465,
+    "category": "overhead",
+    "seconds": 0.00020783291136439175,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 466,
+    "category": "overhead",
+    "seconds": 0.0002350840950384736,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 467,
+    "category": "geometry_check",
+    "seconds": 1.7291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 468,
+    "category": "overhead",
+    "seconds": 0.0001987090149171422,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 469,
+    "category": "overhead",
+    "seconds": 0.00015979097224771976,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 470,
+    "category": "geometry_check",
+    "seconds": 1.4875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 471,
+    "category": "overhead",
+    "seconds": 0.0001809589707946202,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 472,
+    "category": "overhead",
+    "seconds": 0.00020220805890858173,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 473,
+    "category": "geometry_check",
+    "seconds": 1.9375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 474,
+    "category": "overhead",
+    "seconds": 0.00016766693644143515,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 475,
+    "category": "overhead",
+    "seconds": 0.00019929104018956423,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 476,
+    "category": "geometry_check",
+    "seconds": 1.6583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 477,
+    "category": "overhead",
+    "seconds": 0.00014616701690073342,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 478,
+    "category": "overhead",
+    "seconds": 0.00013083394151180983,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 479,
+    "category": "geometry_check",
+    "seconds": 4.9709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 480,
+    "category": "overhead",
+    "seconds": 0.0003476240603887959,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 481,
+    "category": "overhead",
+    "seconds": 0.0001301249722018838,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 482,
+    "category": "geometry_check",
+    "seconds": 1.325e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 483,
+    "category": "overhead",
+    "seconds": 0.0003285829870307566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 484,
+    "category": "overhead",
+    "seconds": 0.00024220894556492567,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 485,
+    "category": "geometry_check",
+    "seconds": 1.2167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 486,
+    "category": "overhead",
+    "seconds": 0.0001875830658022437,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 487,
+    "category": "overhead",
+    "seconds": 0.00016924994997680187,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 488,
+    "category": "geometry_check",
+    "seconds": 3.0292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 489,
+    "category": "overhead",
+    "seconds": 0.00023633308025949873,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 490,
+    "category": "overhead",
+    "seconds": 0.00015862495638430119,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 491,
+    "category": "geometry_check",
+    "seconds": 1.5e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 492,
+    "category": "overhead",
+    "seconds": 0.00017491599790986356,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 493,
+    "category": "overhead",
+    "seconds": 0.00010475004091858864,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 494,
+    "category": "geometry_check",
+    "seconds": 1.7333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 495,
+    "category": "overhead",
+    "seconds": 0.00019191690530817596,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 496,
+    "category": "overhead",
+    "seconds": 0.00015408406034111977,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 497,
+    "category": "geometry_check",
+    "seconds": 1.1875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 498,
+    "category": "overhead",
+    "seconds": 0.00017387495920218043,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 499,
+    "category": "overhead",
+    "seconds": 8.558307308703661e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 500,
+    "category": "geometry_check",
+    "seconds": 9.708e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 501,
+    "category": "overhead",
+    "seconds": 0.00013504199625202773,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 502,
+    "category": "overhead",
+    "seconds": 7.474992889910936e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 503,
+    "category": "geometry_check",
+    "seconds": 1.5208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 504,
+    "category": "overhead",
+    "seconds": 0.00017612500520414187,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 505,
+    "category": "surrogate_update",
+    "seconds": 5.837494973093271e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 506,
+    "category": "overhead",
+    "seconds": 8.4084109403193e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 507,
+    "category": "geometry_check",
+    "seconds": 1.3959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 508,
+    "category": "mesh_motion",
+    "seconds": 0.000396459,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 509,
+    "category": "forward",
+    "seconds": 2.565751959,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 510,
+    "category": "overhead",
+    "seconds": 0.00022587297935672268,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 511,
+    "category": "overhead",
+    "seconds": 0.00021208298858255148,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 512,
+    "category": "surrogate_update",
+    "seconds": 0.00022291706409305334,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 513,
+    "category": "overhead",
+    "seconds": 1.9999919459223747e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 514,
+    "category": "overhead",
+    "seconds": 0.00033133302349597216,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 515,
+    "category": "geometry_check",
+    "seconds": 1.8667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 516,
+    "category": "overhead",
+    "seconds": 0.00022191597276588482,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 517,
+    "category": "overhead",
+    "seconds": 0.00023362506181001663,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 518,
+    "category": "geometry_check",
+    "seconds": 1.7459e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 519,
+    "category": "overhead",
+    "seconds": 0.00016791598545040642,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 520,
+    "category": "overhead",
+    "seconds": 0.00012154201976954937,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 521,
+    "category": "geometry_check",
+    "seconds": 1.4417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 522,
+    "category": "overhead",
+    "seconds": 0.00013787496287420709,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 523,
+    "category": "surrogate_update",
+    "seconds": 8.720799814909697e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 524,
+    "category": "overhead",
+    "seconds": 7.220800034701824e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 525,
+    "category": "geometry_check",
+    "seconds": 1.1542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 526,
+    "category": "mesh_motion",
+    "seconds": 0.000380292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 527,
+    "category": "forward",
+    "seconds": 2.562392292,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 528,
+    "category": "overhead",
+    "seconds": 0.00020074893767940694,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 529,
+    "category": "overhead",
+    "seconds": 0.0002059590769931674,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 530,
+    "category": "surrogate_update",
+    "seconds": 0.00020858296193182468,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 531,
+    "category": "overhead",
+    "seconds": 3.229198046028614e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 532,
+    "category": "geometry_check",
+    "seconds": 1.7625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 533,
+    "category": "overhead",
+    "seconds": 0.00015591601874120897,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 534,
+    "category": "overhead",
+    "seconds": 3.01670515909791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 535,
+    "category": "geometry_check",
+    "seconds": 1.1166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 536,
+    "category": "mesh_motion",
+    "seconds": 0.000377458,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 537,
+    "category": "forward",
+    "seconds": 2.609517834,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 538,
+    "category": "overhead",
+    "seconds": 0.0002447919153567568,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 539,
+    "category": "overhead",
+    "seconds": 0.0002584171015769243,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 540,
+    "category": "surrogate_update",
+    "seconds": 0.00030341697856783867,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 541,
+    "category": "overhead",
+    "seconds": 1.8040998838841915e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 542,
+    "category": "overhead",
+    "seconds": 0.0003346250159665942,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 543,
+    "category": "geometry_check",
+    "seconds": 4.5167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 544,
+    "category": "overhead",
+    "seconds": 0.0001905829906760914,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 545,
+    "category": "overhead",
+    "seconds": 0.00011891697067767382,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 546,
+    "category": "geometry_check",
+    "seconds": 1.1833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 547,
+    "category": "overhead",
+    "seconds": 0.0001892920471675552,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 548,
+    "category": "overhead",
+    "seconds": 0.00015424995217472315,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 549,
+    "category": "geometry_check",
+    "seconds": 3.5375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 550,
+    "category": "overhead",
+    "seconds": 0.0003215409889563148,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 551,
+    "category": "overhead",
+    "seconds": 0.00027779198717325926,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 552,
+    "category": "geometry_check",
+    "seconds": 2.9084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 553,
+    "category": "overhead",
+    "seconds": 0.00030437406878291995,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 554,
+    "category": "overhead",
+    "seconds": 0.00038549990858882666,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 555,
+    "category": "geometry_check",
+    "seconds": 2.825e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 556,
+    "category": "overhead",
+    "seconds": 0.0003270000857042987,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 557,
+    "category": "surrogate_update",
+    "seconds": 0.00015166704542934895,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 558,
+    "category": "overhead",
+    "seconds": 8.195789996534586e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 559,
+    "category": "geometry_check",
+    "seconds": 1.4958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 560,
+    "category": "mesh_motion",
+    "seconds": 0.000386709,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 561,
+    "category": "forward",
+    "seconds": 2.6081188749999997,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 562,
+    "category": "overhead",
+    "seconds": 0.00023754201033199251,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 563,
+    "category": "overhead",
+    "seconds": 0.00022466597147285938,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 564,
+    "category": "surrogate_update",
+    "seconds": 0.0002658329904079437,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 565,
+    "category": "overhead",
+    "seconds": 8.245906792581081e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 566,
+    "category": "geometry_check",
+    "seconds": 1.725e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 567,
+    "category": "mesh_motion",
+    "seconds": 0.000387333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 568,
+    "category": "validation",
+    "seconds": 3.350167833,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 569,
+    "category": "overhead",
+    "seconds": 0.00021845891613736512,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 570,
+    "category": "overhead",
+    "seconds": 0.0001432080753147602,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 571,
+    "category": "overhead",
+    "seconds": 0.0005447919247671962,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 572,
+    "category": "geometry_check",
+    "seconds": 1.9459e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 573,
+    "category": "overhead",
+    "seconds": 0.00017512408815889557,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 574,
+    "category": "overhead",
+    "seconds": 0.0001354999840259552,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 575,
+    "category": "geometry_check",
+    "seconds": 1.1584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 576,
+    "category": "overhead",
+    "seconds": 0.00018379094517229078,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 577,
+    "category": "overhead",
+    "seconds": 0.00011487503070384264,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 578,
+    "category": "geometry_check",
+    "seconds": 1e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 579,
+    "category": "overhead",
+    "seconds": 0.0001976249802453367,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 580,
+    "category": "overhead",
+    "seconds": 0.00017662497702986002,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 581,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 582,
+    "category": "overhead",
+    "seconds": 0.00012891705904394257,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 583,
+    "category": "overhead",
+    "seconds": 0.0001807080116122961,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 584,
+    "category": "geometry_check",
+    "seconds": 1.5834e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 585,
+    "category": "overhead",
+    "seconds": 0.00019345793124614374,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 586,
+    "category": "overhead",
+    "seconds": 0.00013170798774808645,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 587,
+    "category": "geometry_check",
+    "seconds": 3.1208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 588,
+    "category": "overhead",
+    "seconds": 0.00018091701451794506,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 589,
+    "category": "overhead",
+    "seconds": 0.00010729208588600159,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 590,
+    "category": "geometry_check",
+    "seconds": 1.0917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 591,
+    "category": "overhead",
+    "seconds": 0.00024762489880458816,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 592,
+    "category": "overhead",
+    "seconds": 0.00017075007781386375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 593,
+    "category": "geometry_check",
+    "seconds": 1.425e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 594,
+    "category": "overhead",
+    "seconds": 0.0002695830110468478,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 595,
+    "category": "overhead",
+    "seconds": 0.000315624987706542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 596,
+    "category": "geometry_check",
+    "seconds": 3.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 597,
+    "category": "overhead",
+    "seconds": 0.00029016694290362466,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 598,
+    "category": "overhead",
+    "seconds": 0.00011875003110617399,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 599,
+    "category": "geometry_check",
+    "seconds": 1.1667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 600,
+    "category": "overhead",
+    "seconds": 0.00016216598837104357,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 601,
+    "category": "overhead",
+    "seconds": 0.00010429206304252148,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 602,
+    "category": "geometry_check",
+    "seconds": 8.875e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 603,
+    "category": "overhead",
+    "seconds": 0.0001563749195128139,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 604,
+    "category": "surrogate_update",
+    "seconds": 8.90830997377634e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 605,
+    "category": "overhead",
+    "seconds": 7.708289194852114e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 606,
+    "category": "forward",
+    "seconds": 2.240305920014279,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "train aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "file_sha256": "687d57c75c51c9e427899d2c6f815ff38563293a89472706a746f2a31af5ab32",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "in_run_start_time": 1792313054.319214,
+ "in_run_end_time": 1792313121.1081758,
+ "post_run_diagnostic": {
+  "counted_in_run_budget": false,
+  "fractions": [
+   0.25,
+   0.75
+  ],
+  "prediction": {
+   "x": [
+    0.006535937500000001,
+    0.008484374999999999,
+    0.01836694151899295,
+    0.004206249999999999,
+    0.0021453125000000005,
+    0.0009484375000000002,
+    0.00912187500000001,
+    0.0010769820744377981
+   ],
+   "points": 21,
+   "exact_fit": true,
+   "predictions": [
+    {
+     "fraction": 0.25,
+     "neighbours": [
+      0.0,
+      0.5
+     ],
+     "std_pred": 0.021959264021518713,
+     "mean_pred": 0.33187029182212985
+    },
+    {
+     "fraction": 0.75,
+     "neighbours": [
+      0.5,
+      1.0
+     ],
+     "std_pred": 0.05183848609589415,
+     "mean_pred": 1.0574545960126351
+    }
+   ],
+   "rule": "linear in the current fraction between C's per-current RBF predictions at the neighbouring training fractions (0, 0.5, 1); the means at 0 and 0.5 are post-run fits"
+  },
+  "status": "ok",
+  "error": null,
+  "charges": [
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 0.000489958
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "forward",
+    "forward_solves": 40,
+    "note": "diagnostic training",
+    "seconds": 1.7961402089999998
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 0.000471834
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "validation",
+    "forward_solves": 40,
+    "note": "diagnostic validation",
+    "seconds": 2.243566375
+   }
+  ],
+  "seconds": 4.201891792006791,
+  "rows": [
+   {
+    "fraction": 0.25,
+    "neighbours": [
+     0.0,
+     0.5
+    ],
+    "std_pred": 0.021959264021518713,
+    "mean_pred": 0.33187029182212985,
+    "std_train": 0.017835729080171486,
+    "mean_train": 0.3173428170616487,
+    "std_val": 0.01783610928120657,
+    "mean_val": 0.31711380034378883,
+    "rel_std_train": 0.23119519941192002,
+    "rel_mean_train": 0.04577848931636281,
+    "rel_std_val": 0.2311689548043193,
+    "rel_mean_val": 0.0465337410807831
+   },
+   {
+    "fraction": 0.75,
+    "neighbours": [
+     0.5,
+     1.0
+    ],
+    "std_pred": 0.05183848609589415,
+    "mean_pred": 1.0574545960126351,
+    "std_train": 0.051564906581545826,
+    "mean_train": 1.0411425646250665,
+    "std_val": 0.05569746934368373,
+    "mean_val": 1.039882888740448,
+    "rel_std_train": 0.005305536894858511,
+    "rel_mean_train": 0.015667433012349172,
+    "rel_std_val": 0.0692847142475639,
+    "rel_mean_val": 0.016897775184540893
+   }
+  ],
+  "validation_mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76603523499048,
+    "max_area_ratio": 1.3160268546901877,
+    "min_angle_deg": 13.193286702700602,
+    "min_area_ratio": 0.7965606350131047
+   }
+  }
+ },
+ "post_run_end_time": 1792313125.310775,
+ "in_run_wall_seconds": 66.78169042,
+ "post_run_wall_seconds": 4.201891792006791,
+ "load_after": [
+  23.30712890625,
+  21.4619140625,
+  22.1796875
+ ],
+ "finished_utc": "2026-10-18T08:45:25Z",
+ "host_contaminated": true,
+ "pre_run_load": 19.8828125,
+ "pre_run_wait_s": 0.0,
+ "host_gate": false,
+ "longest_overload_s": 64.76922273635864,
+ "in_run_load": {
+  "samples": 13,
+  "max": 23.32568359375,
+  "mean": 22.255220853365383
+ },
+ "diagnostic_load": {
+  "samples": 1,
+  "max": 23.30712890625,
+  "mean": 23.30712890625
+ }
+}

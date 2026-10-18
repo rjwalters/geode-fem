@@ -41,6 +41,8 @@ CENTRE_U = np.array([0.7, 0.6, 0.4, 0.55])
 FAKE_FRACTIONS = {"T50": 0.5, "T90": 0.1, "T99": 0.01}
 MOTION = 1 / 64
 IO = 1 / 512
+GEOM = 1 / 1024
+TAU = 0.05
 TRAIN = MOTION + 1.0
 VALIDATE = MOTION + 2.0
 WEIGHTS = {"validation_solve": 1 / 60, "train_forward_solve": 0.4 / 60,
@@ -84,7 +86,13 @@ class FakeEvaluator:
     1/64, solves 2, fresh mesh 1/4 when u_0 > 0.95; io (outside the
     charges) 1/512 per request."""
 
-    def __init__(self, clock, io=IO, validator_sha=SHA, tamper=None, post=0.0):
+    def __init__(self, clock, io=IO, validator_sha=SHA, tamper=None, post=0.0, wall=None,
+                 mesh_bad=None):
+        """`wall`: the coupled geometry guard m = wall - u_0 - u_3 (the
+        analogue of SW2-min with SW1/SW4-max; default 1.9, outside the
+        box); a second guard m = u_2 + 0.5 never binds. Buildable when
+        every m > 0, admissible when every h = m / m(u_0) - 0.05 >= 0.
+        `mesh_bad(u)`: designs whose every remesh attempt fails."""
         self.clock = clock
         self.io = io
         # Driver-side time after the reply has arrived (parsing it): not
@@ -95,6 +103,8 @@ class FakeEvaluator:
         self.width = np.array(UPPER) - self.lower
         self.u0 = (np.array(X0) - self.lower) / self.width
         self.scale = 1.0 / (0.002 + float(np.sum((self.u0 - CENTRE_U) ** 2)))
+        self.wall = 1.9 if wall is None else wall
+        self.mesh_bad = mesh_bad or (lambda u: False)
         self.requests = []
         self.emitted = {c: 0.0 for c in CATEGORIES}
         self.ready = {"op": "ready", "ok": True,
@@ -112,11 +122,45 @@ class FakeEvaluator:
     def mean(self, u):
         return MEAN0 * (1.004 + 0.02 * (u[1] - CENTRE_U[1]))
 
+    def margins(self, u):
+        return np.array([self.wall - u[0] - u[3], u[2] + 0.5])
+
+    def domain(self, u):
+        m = self.margins(u)
+        s = np.abs(self.margins(self.u0))
+        h = m / s - TAU
+        dm_du = np.array([[-1.0, 0.0, 0.0, -1.0], [0.0, 0.0, 1.0, 0.0]])
+        dh_dx = dm_du / s[:, None] / self.width
+        buildable = bool(np.all(m > 0))
+        return {"buildable": buildable, "admissible": buildable and bool(np.all(h >= 0)),
+                "h": h.tolist(), "min_h": float(h.min()), "jacobian_defined": True,
+                "inadmissible_guards": [f"g{i}" for i in range(2) if h[i] < 0],
+                "construction_error": None if buildable else "slot flank degenerates",
+                "guards": [{"name": f"g{i}", "unit": "m", "margin": float(m[i]),
+                            "scale": float(s[i]), "c": float(m[i] / s[i]), "h": float(h[i]),
+                            "pass": bool(m[i] > 0), "dh_dx": dh_dx[i].tolist()}
+                           for i in range(2)],
+                "discrete": [{"name": "components_finite", "pass": True}]}
+
     def request(self, op, timeout=None, **f):
         self.requests.append((op, f))
         x = np.array(from_bits(f["x_bits"]))
         u = (x - self.lower) / self.width
-        if op == "train":
+        dom = self.domain(u)
+        if op == "geometry":
+            charges = [("geometry_check", GEOM, 0, 0)]
+        elif op in ("train", "validate", "mesh_check") and not dom["buildable"]:
+            raise AssertionError(f"{op} of a point that is not buildable reached the evaluator")
+        if op == "geometry":
+            pass
+        elif op == "mesh_check":
+            charges = [("geometry_check", GEOM, 0, 0), ("mesh_motion", MOTION, 0, 0)]
+            if self.mesh_bad(u):
+                charges.append(("remesh", 4 * 0.5, 0, 0))
+        elif op == "train" and self.mesh_bad(u):
+            charges = [("geometry_check", GEOM, 0, 0), ("mesh_motion", MOTION, 0, 0),
+                       ("remesh", 4 * 0.5, 0, 0)]
+        elif op == "train":
             charges = [("mesh_motion", MOTION, 0, 0)]
             if u[0] > 0.95:
                 charges.append(("remesh", 0.5, 0, 0))
@@ -147,6 +191,15 @@ class FakeEvaluator:
         reply = {"ok": True, "op": op, "x_bits": echo,
                  "charges": [{"category": c, "seconds": s, "forward_solves": nf,
                               "adjoint_solves": na, "note": ""} for c, s, nf, na in charges]}
+        if op == "geometry":
+            reply["geometry"] = dom
+            return reply
+        if op == "mesh_check":
+            reply["status"] = "mesh_infeasible" if self.mesh_bad(u) else "ok"
+            return reply
+        if op == "train" and self.mesh_bad(u):
+            reply.update(status="mesh_infeasible", attempts=[{"attempt": k} for k in range(4)])
+            return reply
         fval, mval = F0 * self.q(u), self.mean(u)
         if op == "diagnose":
             fr = f["fractions"]
@@ -161,7 +214,10 @@ class FakeEvaluator:
             g = f.get("gradient")
             dmean = np.zeros(N)
             dmean[1] = 0.99 * MEAN0 * 0.02 / self.width[1]
-            reply.update(F=0.9 * fval, mean_full=0.99 * mval, fractions=[0.0, 0.5, 1.0],
+            reply.update(status="ok", F=0.9 * fval, mean_full=0.99 * mval,
+                         fractions=[0.0, 0.5, 1.0],
+                         remesh_meshes=([{"name": "remesh000", "attempt": 0,
+                                          "msh_sha256": "f" * 64}] if u[0] > 0.95 else []),
                          stds=[0.0, math.sqrt(0.3 * 0.9 * fval), math.sqrt(0.7 * 0.9 * fval)],
                          means=[0.0, 0.5 * mval, 0.99 * mval],
                          dF=(0.9 * F0 * self.dq_dx(u)).tolist() if g else None,
@@ -176,14 +232,19 @@ class FakeEvaluator:
             d = max(0.10 * fval, 2.5e-7)
             mean_ok = mval >= MEAN0 * (1.0 + 0.0025)
             flip = self.tamper.get("flip_attained", ())
+            adm = dom["admissible"] if "admissible" not in self.tamper \
+                else self.tamper["admissible"]
             targets = [{"name": n, "T": fr[n] * F0,
-                        "attained": ((fval + d <= fr[n] * F0) and mean_ok) != (n in flip),
+                        "attained": ((fval + d <= fr[n] * F0) and mean_ok and adm)
+                        != (n in flip),
                         "F_ok": True, "slack": 0.0}
                        for n in ("T50", "T90", "T99")]
-            reply.update(F_val=fval, mean_full=mval, fractions=[0.0, 0.5, 1.0],
+            reply.update(status="ok", F_val=fval, mean_full=mval, fractions=[0.0, 0.5, 1.0],
+                         admissibility={"buildable": True, "admissible": adm,
+                                        "min_h": dom["min_h"]},
                          stds=[0.0, math.sqrt(0.3 * fval), math.sqrt(0.7 * fval)],
                          means=[0.0, 0.5 * mval, mval],
-                         acceptance={"F_val": fval, "mean_full": mval,
+                         acceptance={"F_val": fval, "mean_full": mval, "admissible": adm,
                                      "mean_ok": mean_ok, "targets": targets},
                          mesh={"kind": "fresh" if u[0] > 0.95 else "moved"},
                          msh_sha256=SHA,
@@ -278,7 +339,8 @@ class ChargingTests(unittest.TestCase):
         for c in CATEGORIES:
             self.assertGreater(totals[c]["seconds"], 0.0, c)
         # Each reply charge reaches its own category, in full.
-        for c in ("forward", "adjoint", "line_search", "mesh_motion", "remesh", "validation"):
+        for c in ("forward", "adjoint", "line_search", "mesh_motion", "remesh", "validation",
+                  "geometry_check"):
             self.assertEqual(totals[c]["seconds"], fake.emitted[c], c)
         self.assertEqual(totals["setup_calibration"]["seconds"], 0.0625)
         self.assertEqual(totals["surrogate_update"]["seconds"], 0.078125)
@@ -286,12 +348,13 @@ class ChargingTests(unittest.TestCase):
         self.assertEqual(totals["adjoint"]["adjoint_solves"], 60)
         self.assertEqual(totals["line_search"]["forward_solves"], 60)
         # The io outside the charges is overhead, and nothing is excluded.
-        self.assertEqual(totals["overhead"]["seconds"], 5 * IO)
+        self.assertEqual(totals["overhead"]["seconds"], len(fake.requests) * IO)
         self.assertAlmostEqual(led.charged_seconds(), led.elapsed(), places=12)
 
     def test_validation_is_charged_before_attainment_is_stamped(self):
         run, fake, led, clock = make_run()
         u = near_centre(run)
+        run.geometry(u)
         before = led.total_fe()
         v = run.validate(u)
         self.assertEqual(v["wall_fe"] - before, VALIDATE + IO)
@@ -301,15 +364,20 @@ class ChargingTests(unittest.TestCase):
 
     def test_repeated_points_are_not_charged_twice(self):
         run, fake, led, clock = make_run()
+
+        def n(op):
+            return sum(1 for o, _ in fake.requests if o == op)
         u = run.problem.u_of(X0)
         run.train(u, gradient=False)
         run.train(u, gradient=False)
-        self.assertEqual(len(fake.requests), 1)
+        self.assertEqual(n("train"), 1)
         run.train(u, gradient=True)  # needs the gradient: a new request
-        self.assertEqual(len(fake.requests), 2)
+        self.assertEqual(n("train"), 2)
         run.validate(u)
         run.validate(u)
-        self.assertEqual(len(fake.requests), 3)
+        self.assertEqual(n("validate"), 1)
+        # The geometry of a point is requested once.
+        self.assertEqual(n("geometry"), 1)
 
 
 class BudgetTests(unittest.TestCase):
@@ -328,7 +396,7 @@ class BudgetTests(unittest.TestCase):
             self.assertAlmostEqual(clock() - led.t0, 7.3, places=12)
 
     def test_validation_ending_exactly_at_the_budget_is_credited(self):
-        run, fake, led, clock = make_run(budget_fe=TRAIN + VALIDATE, io=0.0)
+        run, fake, led, clock = make_run(budget_fe=GEOM + TRAIN + VALIDATE, io=0.0)
         u = near_centre(run)
         run.train(u, gradient=False)
         with self.assertRaises(BudgetExhausted):
@@ -337,24 +405,24 @@ class BudgetTests(unittest.TestCase):
         self.assertTrue(run.validations[0]["credited"])
         self.assertIn("T50", run.attained)
         self.assertNotIn("T99", run.attained)
-        self.assertEqual(led.total_fe(), TRAIN + VALIDATE)
-        self.assertEqual(len(fake.requests), 2)
+        self.assertEqual(led.total_fe(), GEOM + TRAIN + VALIDATE)
+        self.assertEqual([o for o, _ in fake.requests], ["geometry", "train", "validate"])
 
     def test_validation_beyond_the_budget_is_aborted_and_not_credited(self):
-        run, fake, led, clock = make_run(budget_fe=TRAIN + VALIDATE - 1 / 64, io=0.0)
+        run, fake, led, clock = make_run(budget_fe=GEOM + TRAIN + VALIDATE - 1 / 64, io=0.0)
         u = near_centre(run)
         run.train(u, gradient=False)
         with self.assertRaises(BudgetExhausted):
             run.validate(u)
         self.assertEqual(run.validations, [])
         self.assertEqual(run.attained, {})
-        self.assertEqual(led.total_fe(), TRAIN + VALIDATE - 1 / 64)
+        self.assertEqual(led.total_fe(), GEOM + TRAIN + VALIDATE - 1 / 64)
         self.assertEqual(led.entries[-1]["category"], "validation")
 
     def test_validation_whose_reply_lands_after_the_budget_is_not_credited(self):
         # The reply arrives before the deadline, but the driver's handling
         # of it carries the total past the budget: recorded, not credited.
-        run, fake, led, clock = make_run(budget_fe=TRAIN + VALIDATE + 1 / 1024, io=0.0)
+        run, fake, led, clock = make_run(budget_fe=GEOM + TRAIN + VALIDATE + 1 / 1024, io=0.0)
         u = near_centre(run)
         run.train(u, gradient=False)
         fake.post = 1 / 256
@@ -407,24 +475,24 @@ class AcceptanceWiringTests(unittest.TestCase):
         f = t50 / 1.1
         while f + 0.1 * f > t50:
             f = math.nextafter(f, 0.0)
-        self.assertTrue(rule(a, f, floor)[0]["T50"])
+        self.assertTrue(rule(a, f, floor, True)[0]["T50"])
         g = math.nextafter(f, 1.0)
         while g + 0.1 * g <= t50:
             g = math.nextafter(g, 1.0)
-        self.assertFalse(rule(a, g, floor)[0]["T50"])
+        self.assertFalse(rule(a, g, floor, True)[0]["T50"])
         # Absolute regime: delta_F = 2.5e-7 at small F_val.
         self.assertEqual(acceptance.delta_f(1e-7), 2.5e-7)
         self.assertEqual(acceptance.delta_f(1e-3), 1e-4)
         # At F0 = 1e-6, T50 = 5e-7 is attained at F_val = 2.5e-7 exactly
         # (delta_F = 2.5e-7, absolute), and not one float above.
         small = Anchor(1e-6, MEAN0, 0, SHA)
-        self.assertTrue(rule(small, 2.5e-7, floor)[0]["T50"])
-        self.assertFalse(rule(small, math.nextafter(2.5e-7, 1.0), floor)[0]["T50"])
-        self.assertFalse(any(rule(small, 0.0, floor)[0][n] for n in ("T90", "T99")))
+        self.assertTrue(rule(small, 2.5e-7, floor, True)[0]["T50"])
+        self.assertFalse(rule(small, math.nextafter(2.5e-7, 1.0), floor, True)[0]["T50"])
+        self.assertFalse(any(rule(small, 0.0, floor, True)[0][n] for n in ("T90", "T99")))
         # The floor is inclusive; below it nothing is attained.
-        self.assertTrue(rule(a, 1e-9, floor)[0]["T99"])
-        self.assertFalse(rule(a, 1e-9, math.nextafter(floor, 0.0))[0]["T99"])
-        self.assertFalse(any(rule(a, math.nan, floor)[0].values()))
+        self.assertTrue(rule(a, 1e-9, floor, True)[0]["T99"])
+        self.assertFalse(rule(a, 1e-9, math.nextafter(floor, 0.0), True)[0]["T99"])
+        self.assertFalse(any(rule(a, math.nan, floor, True)[0].values()))
 
     def test_wrong_target_in_the_evaluator_is_refused(self):
         run, fake, led, clock = make_run(tamper={"target_fractions": {"T90": 0.2}})
@@ -489,7 +557,7 @@ class AcceptanceWiringTests(unittest.TestCase):
 class MethodTests(unittest.TestCase):
     def test_slsqp_labels_line_search_trials(self):
         run, fake, led, clock = make_run()
-        fun, jac, con, con_jac, cb = driver.slsqp_callables(run)
+        fun, jac, con, con_jac, geo, geo_jac, cb = driver.slsqp_callables(run)
         u0 = run.problem.u_of(X0)
         fun(u0)
         jac(u0)
@@ -498,9 +566,9 @@ class MethodTests(unittest.TestCase):
         con(u0 + 0.05)
         con_jac(u0 + 0.05)
         fun(u0 + 0.2)  # after the gradient again
-        purposes = [f["purpose"] for op, f in fake.requests]
+        purposes = [f["purpose"] for op, f in fake.requests if op == "train"]
         self.assertEqual(purposes, ["iterate", "iterate", "line_search", "iterate"])
-        self.assertTrue(all(f["gradient"] for op, f in fake.requests))
+        self.assertTrue(all(f["gradient"] for op, f in fake.requests if op == "train"))
 
     def test_methods_end_to_end_write_a_trace(self):
         with tempfile.TemporaryDirectory() as d:
@@ -695,7 +763,8 @@ class ProtocolTests(unittest.TestCase):
         st = json.loads((HERE / "starts.json").read_text())
         g = st["generator"]
         sb = st["spaces"]["b"]
-        for name, seed in (("lhs1", 1), ("lhs2", 2)):
+        first = {1: 1, 2: 4, 3: 0, 4: 0}
+        for name, seed in (("lhs1", 1), ("lhs2", 2), ("lhs3", 3), ("lhs4", 4)):
             e = st["starts"][name]
             u = latin_hypercube(seed, g["points_per_seed"], g["dimensions"])[e["index"]]
             self.assertEqual(u, e["u"])
@@ -706,7 +775,12 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(to_bits(xb[:8]), e["a_bits"])
             self.assertEqual(from_bits(e["b_bits"]), e["b"])
             self.assertTrue(all(lo <= v <= hi for v, lo, hi in zip(xb, sb["lower"], sb["upper"])))
-            self.assertEqual([r["index"] for r in e["rejected"]], list(range(e["index"])))
+            self.assertEqual([r["index"] for r in e["rejected"]],
+                             list(range(first[seed], e["index"])))
+            for c in e["checks"].values():
+                self.assertIsNone(c["verdict"], name)
+                self.assertGreaterEqual(c["min_h"], 0.0)
+            self.assertEqual(set(e["checks"]), {"a_L0", "a_L1", "b_L0", "b_L1"})
 
 
 if __name__ == "__main__":

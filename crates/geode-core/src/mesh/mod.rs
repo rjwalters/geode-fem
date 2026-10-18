@@ -21,6 +21,7 @@ pub mod design_remesh;
 pub mod electrostatic_fixtures;
 pub mod extrude;
 pub mod icem_controlpoints;
+pub mod icem_domain;
 pub mod icem_parametric;
 pub mod magnetostatic_fixtures;
 pub mod msh_tags;

@@ -291,6 +291,7 @@ jobs:
               --test motor_design_gradient \
               --test motor_design_remesh \
               --test motor_experiment2 \
+              --test motor_experiment2_domain \
               --test motor_experiment2_harness \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
@@ -385,6 +386,7 @@ jobs:
               --test motor_design_gradient \
               --test motor_design_remesh \
               --test motor_experiment2 \
+              --test motor_experiment2_domain \
               --test motor_experiment2_harness \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
@@ -906,3 +908,13 @@ jobs:
         run: |
           /tmp/harness-venv/bin/python -I \
               benchmarks/motor_optimization/harness/test_harness.py
+
+      - name: Fetch the pilot commit (issue #1201 replay of the pilot failures)
+        # recover_pilot_failures.py --check re-drives the pilot's own harness
+        # (git archive at the pilot commit of runs/pilot/manifest.json).
+        run: git fetch --no-tags --depth=1 origin 89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4
+
+      - name: Safeguard tests (issue #1201, amendment 7; #1197)
+        run: |
+          /tmp/harness-venv/bin/python -I \
+              benchmarks/motor_optimization/harness/test_safeguards.py

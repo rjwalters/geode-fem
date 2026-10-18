@@ -344,7 +344,9 @@ fn inverted_moved_mesh_gives_no_field() {
         Err(EvalError::Mesh(RemeshError::Invalid { .. }))
     ));
     match e.evaluate(&p, false) {
-        Err(EvalError::Mesh(RemeshError::Remesh { trigger, message })) => {
+        Err(EvalError::Mesh(RemeshError::Remesh {
+            trigger, message, ..
+        })) => {
             println!("remesh refused ({trigger:?}): {message}");
         }
         other => panic!("expected a failed remesh, got {:?}", other.map(|v| v.f)),

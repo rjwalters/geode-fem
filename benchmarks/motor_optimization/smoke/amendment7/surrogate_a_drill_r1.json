@@ -1,0 +1,8082 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "method": "surrogate",
+ "method_label": "empirical RBF surrogate (trust region)",
+ "method_spec": {
+  "letter": "C",
+  "optimizer": "surrogate",
+  "resolution": null,
+  "label": "empirical RBF surrogate (trust region)"
+ },
+ "space": "a",
+ "start": "drill",
+ "repeat": 1,
+ "order_position": 14,
+ "session": "smoke-20261018T084413Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.339084521,
+ "started_utc": "2026-10-18T08:46:28Z",
+ "load_before": [
+  23.5029296875,
+  21.865234375,
+  22.27734375
+ ],
+ "x_start": [
+  0.006415846828977368,
+  0.003982647861813153,
+  0.018076691642321067,
+  0.005694188583748558,
+  0.0011009327242675992,
+  0.0010021636923088567,
+  0.016429013439493587,
+  0.0013799259063831696
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "wall_fe": 6.063468069680056,
+   "solve_fe": 7.998262259471567,
+   "seconds": 20.246432375046425,
+   "validation": 0,
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F_val": 0.0007502271756066245,
+   "mean_full": 1.483579095057085,
+   "attained": true,
+   "censored": false
+  },
+  "T90": {
+   "wall_fe": 6.063468069680056,
+   "solve_fe": 7.998262259471567,
+   "seconds": 20.246432375046425,
+   "validation": 0,
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F_val": 0.0007502271756066245,
+   "mean_full": 1.483579095057085,
+   "attained": true,
+   "censored": false
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "checkpoint_60": {
+  "fe": 60.0,
+  "rule": "validations completed by the checkpoint",
+  "targets": {
+   "T50": {
+    "attained": true,
+    "wall_fe": 6.063468069680056,
+    "validation": 0
+   },
+   "T90": {
+    "attained": true,
+    "wall_fe": 6.063468069680056,
+    "validation": 0
+   },
+   "T99": {
+    "attained": false,
+    "censored": true
+   }
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 6.063468069680056,
+   "solve_fe": 7.998262259471567,
+   "seconds": 20.246432375046425,
+   "index": 0,
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "note": "surrogate doe incumbent",
+   "status": "ok",
+   "F_val": 0.0007502271756066245,
+   "mean_full": 1.483579095057085,
+   "stds": [
+    0.001814702880744957,
+    0.01225949994915779,
+    0.024426188610952807
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.465655333,
+      "msh_sha256": "fe09f7a4fd5588c851a919d7c452fdea7596d6cb40411a87e621b1bf81da2d6f",
+      "outcome": "passed",
+      "setup_s": 0.012673833
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh000_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.465072125,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 161.24022792147076,
+     "max_area_ratio": 2.6414844561048194,
+     "min_angle_deg": 1.5373200733023864,
+     "min_area_ratio": 0.03313665838003464
+    },
+    "msh_sha256": "fe09f7a4fd5588c851a919d7c452fdea7596d6cb40411a87e621b1bf81da2d6f",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 117.66422689912329,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 23.661719012926273,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.5373200733023864,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "fe09f7a4fd5588c851a919d7c452fdea7596d6cb40411a87e621b1bf81da2d6f",
+   "min_h": 1.0546939016586876e-10,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017601505309209474,
+      "scale": 0.013999999999999999,
+      "c": 1.2572503792292482,
+      "h": 1.2072503792292482,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003982647861813153,
+      "scale": 0.007,
+      "c": 0.5689496945447361,
+      "h": 0.518949694544736,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009788345821160532,
+      "scale": 0.0095,
+      "c": 1.0303521917011087,
+      "h": 0.9803521917011087,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005504663621337996,
+      "scale": 0.00115,
+      "c": 0.47866640185547793,
+      "h": 0.42866640185547794,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003371542061510817,
+      "scale": 0.002772008423644617,
+      "c": 1.2162813188994346,
+      "h": 1.1662813188994345,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0494511819237815e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.3859495228483966,
+      "h": 0.33594952284839663,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0011343155699681737,
+      "scale": 0.0018379416028071888,
+      "c": 0.6171662735288604,
+      "h": 0.5671662735288604,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007103607584951399,
+      "scale": 0.0010180704175208324,
+      "c": 0.6977520869577807,
+      "h": 0.6477520869577806,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0013799259063831696,
+      "scale": 0.001,
+      "c": 1.3799259063831697,
+      "h": 1.3299259063831697,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.00010423775710762941,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000010546939,
+      "h": 1.0546939016586876e-10,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0025475681881814913,
+      "scale": 0.010528559286427139,
+      "c": 0.24196740682893636,
+      "h": 0.19196740682893637,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 7.502271756066246e-05,
+   "F_upper": 0.000825249893167287,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0006371968952989871,
+   "mean_train": 1.4830623404450827
+  },
+  {
+   "wall_fe": 12.639877532493047,
+   "solve_fe": 16.77410921443998,
+   "seconds": 42.20561941608321,
+   "index": 1,
+   "x": [
+    0.006401784328977368,
+    0.003967022861813154,
+    0.019553254142321064,
+    0.0056969455012322,
+    0.0010962452242675993,
+    0.0010037212157081752,
+    0.016400888439493586,
+    0.0013809126985232607
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0007435177829462319,
+   "mean_full": 1.4815555767063537,
+   "stds": [
+    0.0017944048481888162,
+    0.012236996929830178,
+    0.02430131272845883
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.470917959,
+      "msh_sha256": "19cf3a799f829c67f95bde25257f49087759b63658338b6cf71945ddd5056d48",
+      "outcome": "passed",
+      "setup_s": 0.012722875
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh001_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.470338125,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 161.0453435490783,
+     "max_area_ratio": 2.6398204844906017,
+     "min_angle_deg": 1.631084086044606,
+     "min_area_ratio": 0.03745747460436538
+    },
+    "msh_sha256": "19cf3a799f829c67f95bde25257f49087759b63658338b6cf71945ddd5056d48",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 123.55007548279218,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 16.845067007978713,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.631084086044606,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "19cf3a799f829c67f95bde25257f49087759b63658338b6cf71945ddd5056d48",
+   "min_h": 3.191891195797325e-16,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017631192809209474,
+      "scale": 0.013999999999999999,
+      "c": 1.259370914943534,
+      "h": 1.2093709149435339,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003967022861813154,
+      "scale": 0.007,
+      "c": 0.5667175516875935,
+      "h": 0.5167175516875935,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009776627071160532,
+      "scale": 0.0095,
+      "c": 1.0291186390695297,
+      "h": 0.9791186390695297,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005481226121337997,
+      "scale": 0.00115,
+      "c": 0.4766283583772171,
+      "h": 0.42662835837721713,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0033738858115108174,
+      "scale": 0.002772008423644617,
+      "c": 1.2171268249880915,
+      "h": 1.1671268249880915,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0491257995074582e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.3858298591703844,
+      "h": 0.33582985917038444,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001134046610615301,
+      "scale": 0.0018379416028071888,
+      "c": 0.6170199362608745,
+      "h": 0.5670199362608744,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007114408491419506,
+      "scale": 0.0010180704175208324,
+      "c": 0.6988130063482496,
+      "h": 0.6488130063482496,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0013809126985232607,
+      "scale": 0.001,
+      "c": 1.3809126985232607,
+      "h": 1.3309126985232607,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.00010423775688775222,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000000000032,
+      "h": 3.191891195797325e-16,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.002573193081004059,
+      "scale": 0.010528559286427139,
+      "c": 0.24440125291608353,
+      "h": 0.1944012529160835,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 7.43517782946232e-05,
+   "F_upper": 0.0008178695612408552,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0006230866637015731,
+   "mean_train": 1.4809854525926844
+  },
+  {
+   "wall_fe": 14.64292150544616,
+   "solve_fe": 19.329278605433664,
+   "seconds": 48.893952541053295,
+   "index": 2,
+   "x": [
+    0.0063877218289773675,
+    0.003951397861813154,
+    0.019529816642321063,
+    0.0056906955012322,
+    0.0010915577242675994,
+    0.0010021587157081752,
+    0.016425310673529932,
+    0.001381829275618725
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0007242815959820529,
+   "mean_full": 1.4792880044293615,
+   "stds": [
+    0.0017875914724307972,
+    0.012099505165312094,
+    0.02397265290835229
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.465129666,
+      "msh_sha256": "c54f0cbf6889fb25859eb782093c2d4b6f90cba37ca3ad223622ad9cb64b7b2e",
+      "outcome": "passed",
+      "setup_s": 0.012478416
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh002_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.46453075,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 161.2487783263298,
+     "max_area_ratio": 2.6404724146133125,
+     "min_angle_deg": 1.5390107243564353,
+     "min_area_ratio": 0.033131272378929114
+    },
+    "msh_sha256": "c54f0cbf6889fb25859eb782093c2d4b6f90cba37ca3ad223622ad9cb64b7b2e",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 119.99999999999991,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 23.644010262577705,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.5390107243564353,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "c54f0cbf6889fb25859eb782093c2d4b6f90cba37ca3ad223622ad9cb64b7b2e",
+   "min_h": 2.1510571102112408e-16,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01766088030920948,
+      "scale": 0.013999999999999999,
+      "c": 1.2614914506578203,
+      "h": 1.2114914506578203,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003951397861813154,
+      "scale": 0.007,
+      "c": 0.5644854088304506,
+      "h": 0.5144854088304506,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009764908321160531,
+      "scale": 0.0095,
+      "c": 1.0278850864379507,
+      "h": 0.9778850864379507,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005457788621337997,
+      "scale": 0.00115,
+      "c": 0.47459031489895626,
+      "h": 0.42459031489895627,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0033762295615108176,
+      "scale": 0.002772008423644617,
+      "c": 1.2179723310767485,
+      "h": 1.1679723310767485,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0586232608781991e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.38932267593732456,
+      "h": 0.33932267593732457,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.00113897049382794,
+      "scale": 0.0018379416028071888,
+      "c": 0.6196989567504908,
+      "h": 0.5696989567504908,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007172050459830963,
+      "scale": 0.0010180704175208324,
+      "c": 0.7044748905774196,
+      "h": 0.6544748905774196,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001381829275618725,
+      "scale": 0.001,
+      "c": 1.381829275618725,
+      "h": 1.3318292756187249,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.000104237756887752,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000000000022,
+      "h": 2.1510571102112408e-16,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0025446826241650178,
+      "scale": 0.010528559286427139,
+      "c": 0.2416933366605522,
+      "h": 0.19169333666055222,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 7.242815959820529e-05,
+   "F_upper": 0.0007967097555802581,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0006089092827884037,
+   "mean_train": 1.4789155740695117
+  },
+  {
+   "wall_fe": 16.086871814187536,
+   "solve_fe": 21.106863300930506,
+   "seconds": 53.71542466606479,
+   "index": 3,
+   "x": [
+    0.006359596828977367,
+    0.003920147861813154,
+    0.01948294164232106,
+    0.00568608170069779,
+    0.0010821827242675996,
+    0.0009990337157081753,
+    0.016393308854843126,
+    0.001386516775618725
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0006868986227648206,
+   "mean_full": 1.4752584035112926,
+   "stds": [
+    0.0017328048153314125,
+    0.011822844609289668,
+    0.02332630179821429
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.461721792,
+      "msh_sha256": "c2720857a26aaef211d22d931aebbd4058b493088b94facf20ec57e65f5d946c",
+      "outcome": "passed",
+      "setup_s": 0.012643083
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh003_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.461148625,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 161.02664017962775,
+     "max_area_ratio": 2.6370415677121497,
+     "min_angle_deg": 1.6316001828626492,
+     "min_area_ratio": 0.03754875419972556
+    },
+    "msh_sha256": "c2720857a26aaef211d22d931aebbd4058b493088b94facf20ec57e65f5d946c",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 117.61018986866455,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 23.553629578104452,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.6316001828626492,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "c2720857a26aaef211d22d931aebbd4058b493088b94facf20ec57e65f5d946c",
+   "min_h": 3.191891195797325e-16,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017720255309209475,
+      "scale": 0.013999999999999999,
+      "c": 1.265732522086391,
+      "h": 1.215732522086391,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003920147861813154,
+      "scale": 0.007,
+      "c": 0.5600211231161649,
+      "h": 0.5100211231161649,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.00974147082116053,
+      "scale": 0.0095,
+      "c": 1.0254179811747928,
+      "h": 0.9754179811747927,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005410913621337998,
+      "scale": 0.00115,
+      "c": 0.4705142279424346,
+      "h": 0.4205142279424346,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003380917061510817,
+      "scale": 0.002772008423644617,
+      "c": 1.2196633432540624,
+      "h": 1.1696633432540624,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0684301587193107e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.3929292920501976,
+      "h": 0.3429292920501976,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001143940760430437,
+      "scale": 0.0018379416028071888,
+      "c": 0.6224032138361923,
+      "h": 0.5724032138361923,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007243652058883776,
+      "scale": 0.0010180704175208324,
+      "c": 0.7115079599821053,
+      "h": 0.6615079599821052,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001386516775618725,
+      "scale": 0.001,
+      "c": 1.386516775618725,
+      "h": 1.336516775618725,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.00010423775688775222,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000000000032,
+      "h": 3.191891195797325e-16,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.002569902028263314,
+      "scale": 0.010528559286427139,
+      "c": 0.2440886695273014,
+      "h": 0.19408866952730142,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 6.868986227648206e-05,
+   "F_upper": 0.0007555884850413027,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005811828560904059,
+   "mean_train": 1.4747212973402837
+  },
+  {
+   "wall_fe": 18.105777819575476,
+   "solve_fe": 23.66203269192419,
+   "seconds": 60.45672245800961,
+   "index": 4,
+   "x": [
+    0.006331471828977368,
+    0.003888897861813156,
+    0.01943606664232106,
+    0.005683984555917301,
+    0.0010728077242675997,
+    0.0009959087157081752,
+    0.016346869342927034,
+    0.001391204275618725
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0006644369328555941,
+   "mean_full": 1.4709001824135606,
+   "stds": [
+    0.0017102478182445119,
+    0.011673895635572478,
+    0.022917943754742612
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.472615708,
+      "msh_sha256": "aaa9ea40364a35d047de70582562f2eb8f812291a83ee3f5463ee0b421db48c8",
+      "outcome": "passed",
+      "setup_s": 0.012963667
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh004_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.472040833,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 160.68703036738808,
+     "max_area_ratio": 2.6329873659003566,
+     "min_angle_deg": 1.6342160129457464,
+     "min_area_ratio": 0.0381584626654668
+    },
+    "msh_sha256": "aaa9ea40364a35d047de70582562f2eb8f812291a83ee3f5463ee0b421db48c8",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 123.42712593090012,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 16.86929795126024,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.6342160129457464,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "aaa9ea40364a35d047de70582562f2eb8f812291a83ee3f5463ee0b421db48c8",
+   "min_h": 3.191891195797325e-16,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017779630309209475,
+      "scale": 0.013999999999999999,
+      "c": 1.2699735935149628,
+      "h": 1.2199735935149627,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003888897861813156,
+      "scale": 0.007,
+      "c": 0.5555568374018794,
+      "h": 0.5055568374018794,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.00971803332116053,
+      "scale": 0.0095,
+      "c": 1.0229508759116348,
+      "h": 0.9729508759116348,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005364038621337999,
+      "scale": 0.00115,
+      "c": 0.4664381409859129,
+      "h": 0.4164381409859129,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0033856045615108174,
+      "scale": 0.002772008423644617,
+      "c": 1.2213543554313766,
+      "h": 1.1713543554313766,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0752643099486148e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.39544264136215757,
+      "h": 0.3454426413621576,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0011473351905606083,
+      "scale": 0.0018379416028071888,
+      "c": 0.6242500788970773,
+      "h": 0.5742500788970772,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007301296521527573,
+      "scale": 0.0010180704175208324,
+      "c": 0.7171700892073283,
+      "h": 0.6671700892073282,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001391204275618725,
+      "scale": 0.001,
+      "c": 1.3912042756187248,
+      "h": 1.3412042756187248,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.00010423775688775222,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000000000032,
+      "h": 3.191891195797325e-16,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0026110138059913454,
+      "scale": 0.010528559286427139,
+      "c": 0.2479934561756542,
+      "h": 0.19799345617565417,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 6.644369328555941e-05,
+   "F_upper": 0.0007308806261411535,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005542421734950566,
+   "mean_train": 1.47047872839424
+  },
+  {
+   "wall_fe": 19.545833622840345,
+   "solve_fe": 25.43961738742103,
+   "seconds": 65.26519050006755,
+   "index": 5,
+   "x": [
+    0.006275221828977368,
+    0.003826397861813156,
+    0.01934231664232106,
+    0.005680028770548866,
+    0.0010540577242676,
+    0.0009896587157081755,
+    0.01625262205473831,
+    0.0014005792756187248
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0006087992265659019,
+   "mean_full": 1.4621999180135603,
+   "stds": [
+    0.0016450853861446943,
+    0.01127894994105094,
+    0.021883286061866077
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "attempts": [
+     {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 0.466878167,
+      "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+      "outcome": "passed",
+      "setup_s": 0.012982708
+     }
+    ],
+    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh005_L0.msh",
+    "kind": "fresh",
+    "mesh_s": 0.466296041,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 159.99646849232568,
+     "max_area_ratio": 2.624807999733264,
+     "min_angle_deg": 1.639537231297724,
+     "min_area_ratio": 0.03848593693058376
+    },
+    "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 131.23472365641683,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 16.891088166826908,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 1.639537231297724,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+   "min_h": 3.191891195797325e-16,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01789838030920947,
+      "scale": 0.013999999999999999,
+      "c": 1.278455736372105,
+      "h": 1.228455736372105,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003826397861813156,
+      "scale": 0.007,
+      "c": 0.546628265973308,
+      "h": 0.49662826597330806,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.00967115832116053,
+      "scale": 0.0095,
+      "c": 1.0180166653853189,
+      "h": 0.9680166653853188,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005270288621338,
+      "scale": 0.00115,
+      "c": 0.4582859670728696,
+      "h": 0.4082859670728696,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0033949795615108172,
+      "scale": 0.002772008423644617,
+      "c": 1.2247363797860045,
+      "h": 1.1747363797860044,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0885265580851122e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.4003200081500011,
+      "h": 0.35032000815000114,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0011538859414734828,
+      "scale": 0.0018379416028071888,
+      "c": 0.6278142568355217,
+      "h": 0.5778142568355217,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007415184122916087,
+      "scale": 0.0010180704175208324,
+      "c": 0.7283567025720352,
+      "h": 0.6783567025720352,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0014005792756187248,
+      "scale": 0.001,
+      "c": 1.4005792756187248,
+      "h": 1.3505792756187247,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.00010423775688775222,
+      "scale": 0.002084755137755031,
+      "c": 0.05000000000000032,
+      "h": 3.191891195797325e-16,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0026948329869631096,
+      "scale": 0.010528559286427139,
+      "c": 0.2559545815957123,
+      "h": 0.20595458159571234,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "delta_F": 6.087992265659019e-05,
+   "F_upper": 0.0006696791492224921,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005026767346905471,
+   "mean_train": 1.4618586076784048
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 19.545833622840345,
+  "solve_fe": 25.43961738742103,
+  "seconds": 65.26519050006755,
+  "index": 5,
+  "x": [
+   0.006275221828977368,
+   0.003826397861813156,
+   0.01934231664232106,
+   0.005680028770548866,
+   0.0010540577242676,
+   0.0009896587157081755,
+   0.01625262205473831,
+   0.0014005792756187248
+  ],
+  "note": "surrogate acceptance",
+  "status": "ok",
+  "F_val": 0.0006087992265659019,
+  "mean_full": 1.4621999180135603,
+  "stds": [
+   0.0016450853861446943,
+   0.01127894994105094,
+   0.021883286061866077
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": true,
+   "T90": true,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "attempts": [
+    {
+     "attempt": 0,
+     "detail": null,
+     "label": "default",
+     "mesh_s": 0.466878167,
+     "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+     "outcome": "passed",
+     "setup_s": 0.012982708
+    }
+   ],
+   "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/validation/icem_remesh_remesh005_L0.msh",
+   "kind": "fresh",
+   "mesh_s": 0.466296041,
+   "moved_quality": {
+    "inverted": 0,
+    "max_angle_deg": 159.99646849232568,
+    "max_area_ratio": 2.624807999733264,
+    "min_angle_deg": 1.639537231297724,
+    "min_area_ratio": 0.03848593693058376
+   },
+   "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 131.23472365641683,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 16.891088166826908,
+    "min_area_ratio": 1.0
+   },
+   "trigger": {
+    "kind": "min_angle",
+    "min_angle_deg": 1.639537231297724,
+    "threshold_deg": 5.0
+   }
+  },
+  "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+  "min_h": 3.191891195797325e-16,
+  "geometry": {
+   "buildable": true,
+   "admissible": true,
+   "construction_error": null,
+   "guards": [
+    {
+     "name": "magnet_shaft_clearance",
+     "unit": "m",
+     "margin": 0.01789838030920947,
+     "scale": 0.013999999999999999,
+     "c": 1.278455736372105,
+     "h": 1.228455736372105,
+     "pass": true
+    },
+    {
+     "name": "magnet_height",
+     "unit": "m",
+     "margin": 0.003826397861813156,
+     "scale": 0.007,
+     "c": 0.546628265973308,
+     "h": 0.49662826597330806,
+     "pass": true
+    },
+    {
+     "name": "magnet_half_width",
+     "unit": "m",
+     "margin": 0.00967115832116053,
+     "scale": 0.0095,
+     "c": 1.0180166653853189,
+     "h": 0.9680166653853188,
+     "pass": true
+    },
+    {
+     "name": "opening_half_width",
+     "unit": "m",
+     "margin": 0.0005270288621338,
+     "scale": 0.00115,
+     "c": 0.4582859670728696,
+     "h": 0.4082859670728696,
+     "pass": true
+    },
+    {
+     "name": "opening_vs_pitch",
+     "unit": "m",
+     "margin": 0.0033949795615108172,
+     "scale": 0.002772008423644617,
+     "c": 1.2247363797860045,
+     "h": 1.1747363797860044,
+     "pass": true
+    },
+    {
+     "name": "slot_top_discriminant",
+     "unit": "m^2",
+     "margin": 1.0885265580851122e-06,
+     "scale": 2.7191410269886834e-06,
+     "c": 0.4003200081500011,
+     "h": 0.35032000815000114,
+     "pass": true
+    },
+    {
+     "name": "arc_centre_beyond_opening",
+     "unit": "m",
+     "margin": 0.0011538859414734828,
+     "scale": 0.0018379416028071888,
+     "c": 0.6278142568355217,
+     "h": 0.5778142568355217,
+     "pass": true
+    },
+    {
+     "name": "arc_radius_vs_opening",
+     "unit": "m",
+     "margin": 0.0007415184122916087,
+     "scale": 0.0010180704175208324,
+     "c": 0.7283567025720352,
+     "h": 0.6783567025720352,
+     "pass": true
+    },
+    {
+     "name": "fillet_radius",
+     "unit": "m",
+     "margin": 0.0014005792756187248,
+     "scale": 0.001,
+     "c": 1.4005792756187248,
+     "h": 1.3505792756187247,
+     "pass": true
+    },
+    {
+     "name": "fillet_centre_y",
+     "unit": "m",
+     "margin": 0.00010423775688775222,
+     "scale": 0.002084755137755031,
+     "c": 0.05000000000000032,
+     "h": 3.191891195797325e-16,
+     "pass": true
+    },
+    {
+     "name": "flank_length",
+     "unit": "m",
+     "margin": 0.0026948329869631096,
+     "scale": 0.010528559286427139,
+     "c": 0.2559545815957123,
+     "h": 0.20595458159571234,
+     "pass": true
+    }
+   ],
+   "discrete": [
+    {
+     "name": "components_finite",
+     "pass": true
+    }
+   ]
+  },
+  "delta_F": 6.087992265659019e-05,
+  "F_upper": 0.0006696791492224921,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "admissible": true,
+  "F_train": 0.0005026767346905471,
+  "mean_train": 1.4618586076784048
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.7164077662653008,
+   "solve_fe": 0.777584695496841,
+   "seconds": 2.392146083060652,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.000471453518120104,
+   "mean_full": 1.3408243399673647,
+   "stds": [
+    0.002267898799845867,
+    0.009730082785315666,
+    0.019277853670589613
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe start",
+   "generation": 1,
+   "remesh": true,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 164,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [
+    {
+     "attempt": 0,
+     "error": null,
+     "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/train/icem_remesh_remesh000_L0.msh",
+     "label": "default",
+     "msh_sha256": "c924ee318d9cf6dfca8007aec859ba33dff42b0346b1ea929a64d100e7d38fcd",
+     "name": "remesh000",
+     "seconds": 0.466713958
+    }
+   ],
+   "attempts": [
+    {
+     "attempt": 0,
+     "detail": null,
+     "label": "default",
+     "mesh_s": 0.467304125,
+     "msh_sha256": "c924ee318d9cf6dfca8007aec859ba33dff42b0346b1ea929a64d100e7d38fcd",
+     "outcome": "passed",
+     "setup_s": 0.013280875
+    }
+   ]
+  },
+  {
+   "wall_fe": 1.2781086945240123,
+   "solve_fe": 1.555169390993682,
+   "seconds": 4.267712958040647,
+   "kind": "train",
+   "x": [
+    0.007315846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0005560626440569434,
+   "mean_full": 1.2898729085453868,
+   "stds": [
+    0.001245704207661264,
+    0.010562281925542727,
+    0.02104635516210139
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 0",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.3737802528987533,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.849592198147701
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 1.8359685376167907,
+   "solve_fe": 2.3327540864905227,
+   "seconds": 6.130454124999233,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.004982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0005304817688944787,
+   "mean_full": 1.3874135416425903,
+   "stds": [
+    0.002582681392736851,
+    0.010186023022372386,
+    0.020495278985800346
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 1",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.3342094988656605,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.8328732282527315
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.4017933132837146,
+   "solve_fe": 3.110338781987364,
+   "seconds": 8.019790875026956,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0006371968952989871,
+   "mean_full": 1.4830623404450827,
+   "stds": [
+    0.0034574493217865918,
+    0.011079210473757968,
+    0.022416378716564284
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 2",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.1027027394840423,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.8468359729156641
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.959283443991554,
+   "solve_fe": 3.887923477484205,
+   "seconds": 9.881297541083768,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005294188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.00047214244246838826,
+   "mean_full": 1.340740797869355,
+   "stds": [
+    0.0022588420237523513,
+    0.00974088895673145,
+    0.019291323373805798
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 3",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.4141372425886,
+    "max_area_ratio": 2.9321542097824596,
+    "min_angle_deg": 18.495418842805766,
+    "min_area_ratio": 0.8228021783336205
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 0.09630098235169245,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.5295514036785365,
+   "solve_fe": 4.6655081729810455,
+   "seconds": 11.785470458096825,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0014009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0010418377862950986,
+   "mean_full": 1.331516820079485,
+   "stds": [
+    0.0035163195425008237,
+    0.013932996540730712,
+    0.028902333652598217
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 4",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.67203797106268,
+    "max_area_ratio": 1.2972484829767452,
+    "min_angle_deg": 23.674862489430463,
+    "min_area_ratio": 0.8295679244009638
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.086731656602498,
+   "solve_fe": 5.443092868477886,
+   "seconds": 13.64594241604209,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0011021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0004778511527320529,
+   "mean_full": 1.3406688308596475,
+   "stds": [
+    0.002287995254004133,
+    0.009784195329728986,
+    0.019413545585477605
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 5",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.65613045757169,
+    "max_area_ratio": 1.1066884803775523,
+    "min_angle_deg": 23.642706963199082,
+    "min_area_ratio": 0.9562837015916427
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.086808648972146,
+   "solve_fe": 5.443092868477886,
+   "seconds": 13.646199500071816,
+   "kind": "refused",
+   "reason": "not_buildable",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.01822901343949359,
+    0.0013799259063831696
+   ]
+  },
+  {
+   "wall_fe": 4.645483947329335,
+   "solve_fe": 6.220677563974727,
+   "seconds": 15.511663541081361,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.014629013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.00047280648613044475,
+   "mean_full": 1.3403157592927308,
+   "stds": [
+    0.002228565680819621,
+    0.009772809258461324,
+    0.019295910974464262
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 6",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 134.74496736781646,
+    "max_area_ratio": 2.680590594420166,
+    "min_angle_deg": 18.79520018682168,
+    "min_area_ratio": 0.8588054578779702
+   },
+   "newton_iterations": 166,
+   "admissible": true,
+   "min_h": 0.07553865282045678,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.645564096534835,
+   "solve_fe": 6.220677563974727,
+   "seconds": 15.511931166052818,
+   "kind": "refused",
+   "reason": "not_buildable",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0015299259063831696
+   ]
+  },
+  {
+   "wall_fe": 5.20444900863922,
+   "solve_fe": 6.998262259471567,
+   "seconds": 17.378095125081018,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0012299259063831697
+   ],
+   "F": 0.0004715171241582538,
+   "mean_full": 1.3408028500256708,
+   "stds": [
+    0.002266057720968923,
+    0.009732041571418791,
+    0.01927873111529043
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 7",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 134.0800493509787,
+    "max_area_ratio": 2.5826153374499587,
+    "min_angle_deg": 20.92028375450588,
+    "min_area_ratio": 0.8063007283003946
+   },
+   "newton_iterations": 166,
+   "admissible": true,
+   "min_h": 0.07852062451638576,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 6.063468069680056,
+   "solve_fe": 7.998262259471567,
+   "seconds": 20.246432375046425,
+   "kind": "validate",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F_val": 0.0007502271756066245,
+   "mean_full": 1.483579095057085,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 6.647390120999343,
+   "solve_fe": 8.775846954968408,
+   "seconds": 22.196197458077222,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0029826478618131527,
+    0.019443056123439724,
+    0.00570657463311937,
+    0.0010000000000000005,
+    0.0009021636923088566,
+    0.01822901343949357,
+    0.001229925906383171
+   ],
+   "F": 0.0003178468240822772,
+   "mean_full": 1.4227841104987555,
+   "stds": [
+    0.0026731526602116877,
+    0.008350575855869246,
+    0.01552317499137512
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.22144769183683,
+    "max_area_ratio": 1.2768599205687028,
+    "min_angle_deg": 13.829479314912835,
+    "min_area_ratio": 0.3489239552756158
+   },
+   "newton_iterations": 170,
+   "admissible": false,
+   "min_h": -3.122502256758253e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.222192569383106,
+   "solve_fe": 9.55343165046525,
+   "seconds": 24.115511416108347,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.003482647861813153,
+    0.019333624231635562,
+    0.005700381608653004,
+    0.001,
+    0.0009521636923088567,
+    0.017329013439493585,
+    0.0013049259063831703
+   ],
+   "F": 0.00035224816504764265,
+   "mean_full": 1.4568754647041287,
+   "stds": [
+    0.0028772612614714034,
+    0.008696911532959867,
+    0.016380881004047013
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.46603314074545,
+    "max_area_ratio": 1.1989940397075254,
+    "min_angle_deg": 23.131883685727765,
+    "min_area_ratio": 0.6634857846861102
+   },
+   "newton_iterations": 171,
+   "admissible": false,
+   "min_h": -2.0816681711721685e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.786462902180991,
+   "solve_fe": 10.331016345962091,
+   "seconds": 25.999657750013284,
+   "kind": "train",
+   "x": [
+    0.006640846828977368,
+    0.003982647861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0006709735326794451,
+   "mean_full": 1.4674371433681084,
+   "stds": [
+    0.0031331475679036093,
+    0.011358331061066632,
+    0.02306827333166472
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.1814871466523416,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.8385484803371728
+   },
+   "newton_iterations": 167,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.358894154218907,
+   "solve_fe": 11.108601041458932,
+   "seconds": 27.91105408302974,
+   "kind": "train",
+   "x": [
+    0.0061908468289773675,
+    0.0037326478618131525,
+    0.019214169547867244,
+    0.005692670313664761,
+    0.0010259327242675993,
+    0.0009771636923088566,
+    0.016879013439493586,
+    0.0013445483174479348
+   ],
+   "F": 0.0004314226769553687,
+   "mean_full": 1.4499978629743553,
+   "stds": [
+    0.0028831475822189913,
+    0.009418036621916485,
+    0.018286900315875116
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.56280169897633,
+    "max_area_ratio": 1.1296544480394823,
+    "min_angle_deg": 23.393932298701372,
+    "min_area_ratio": 0.827422963786048
+   },
+   "newton_iterations": 170,
+   "admissible": true,
+   "min_h": 1.0408340855860843e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.926835565418937,
+   "solve_fe": 11.886185736955774,
+   "seconds": 29.807458458002657,
+   "kind": "train",
+   "x": [
+    0.006303346828977368,
+    0.0038576478618131526,
+    0.019389191642321064,
+    0.0056926403280700534,
+    0.0010634327242675992,
+    0.0009896636923088565,
+    0.016204013439493587,
+    0.0013986759063831695
+   ],
+   "F": 0.0005279088753799944,
+   "mean_full": 1.4661711003935642,
+   "stds": [
+    0.003152816881038505,
+    0.010233953190524852,
+    0.020328178058763142
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.74639222949286,
+    "max_area_ratio": 1.1062758980659233,
+    "min_angle_deg": 23.786148438034974,
+    "min_area_ratio": 0.8446206036803277
+   },
+   "newton_iterations": 169,
+   "admissible": false,
+   "min_h": -8.326672684688674e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 9.497504420911069,
+   "solve_fe": 12.663770432452615,
+   "seconds": 31.71296999999322,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.004045147861813153,
+    0.019576691642321065,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0006427968874161514,
+   "mean_full": 1.4869090509121583,
+   "stds": [
+    0.0034906608988484883,
+    0.011117562206017142,
+    0.02251692662200463
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.1233012542340401,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.8445332779981033
+   },
+   "newton_iterations": 170,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.06585336628051,
+   "solve_fe": 13.441355127949457,
+   "seconds": 33.610735166002996,
+   "kind": "train",
+   "x": [
+    0.006359596828977368,
+    0.003920147861813153,
+    0.019482941642321065,
+    0.005693414456128346,
+    0.0010821827242675993,
+    0.0009959136923088567,
+    0.01631651343949359,
+    0.0013893009063831695
+   ],
+   "F": 0.0005809909764666745,
+   "mean_full": 1.4747060600342659,
+   "stds": [
+    0.0033051146971364996,
+    0.010651080618641347,
+    0.021368707844899033
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.7051902862766,
+    "max_area_ratio": 1.094709238554976,
+    "min_angle_deg": 23.723764811125108,
+    "min_area_ratio": 0.8494088041908294
+   },
+   "newton_iterations": 169,
+   "admissible": false,
+   "min_h": -1.0408340855860843e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.63308367961733,
+   "solve_fe": 14.218939823446298,
+   "seconds": 35.50476512510795,
+   "kind": "train",
+   "x": [
+    0.006387721828977368,
+    0.003951397861813154,
+    0.019529816642321063,
+    0.005693801520157495,
+    0.0010915577242675992,
+    0.0009990386923088568,
+    0.016372763439493586,
+    0.0013846134063831687
+   ],
+   "F": 0.000608699607668926,
+   "mean_full": 1.4789064425842233,
+   "stds": [
+    0.003381292433934124,
+    0.010863760366250122,
+    0.02189166918829715
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.68467778434716,
+    "max_area_ratio": 1.0911823704752384,
+    "min_angle_deg": 23.692699820850066,
+    "min_area_ratio": 0.8516959790008372
+   },
+   "newton_iterations": 169,
+   "admissible": false,
+   "min_h": -3.122502256758253e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 11.202358714716421,
+   "solve_fe": 14.99652451894314,
+   "seconds": 37.40562258299906,
+   "kind": "train",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.019600129142321066,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0013799259063831696
+   ],
+   "F": 0.0006403044601836871,
+   "mean_full": 1.4852737868296066,
+   "stds": [
+    0.0034787729068548098,
+    0.011102085279116741,
+    0.022471010251019854
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66422689912329,
+    "max_area_ratio": 1.1043074697884803,
+    "min_angle_deg": 23.661719012926273,
+    "min_area_ratio": 0.844442784992471
+   },
+   "newton_iterations": 170,
+   "admissible": true,
+   "min_h": 1.0546939016586876e-10,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 11.77031552446011,
+   "solve_fe": 15.774109214439981,
+   "seconds": 39.30207837501075,
+   "kind": "train",
+   "x": [
+    0.006401784328977368,
+    0.003967022861813154,
+    0.019553254142321064,
+    0.0056969455012322,
+    0.0010962452242675993,
+    0.0010037212157081752,
+    0.016400888439493586,
+    0.0013809126985232607
+   ],
+   "F": 0.0006230866637015731,
+   "mean_full": 1.4809854525926844,
+   "stds": [
+    0.0034203337146720917,
+    0.010972924085975186,
+    0.02215813435254142
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.67320438253684,
+    "max_area_ratio": 1.095986540108634,
+    "min_angle_deg": 23.676202474815838,
+    "min_area_ratio": 0.8503219530601301
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 3.191891195797325e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.639877532493047,
+   "solve_fe": 16.77410921443998,
+   "seconds": 42.20561941608321,
+   "kind": "validate",
+   "x": [
+    0.006401784328977368,
+    0.003967022861813154,
+    0.019553254142321064,
+    0.0056969455012322,
+    0.0010962452242675993,
+    0.0010037212157081752,
+    0.016400888439493586,
+    0.0013809126985232607
+   ],
+   "F_val": 0.0007435177829462319,
+   "mean_full": 1.4815555767063537,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 13.204457718216462,
+   "solve_fe": 17.551693909936823,
+   "seconds": 44.09080037509557,
+   "kind": "train",
+   "x": [
+    0.006373659328977367,
+    0.003935772861813154,
+    0.019506379142321062,
+    0.0056844455012322,
+    0.0010868702242675997,
+    0.0010005962157081751,
+    0.016414128616439955,
+    0.0013856001985232606
+   ],
+   "F": 0.0005949518338902987,
+   "mean_full": 1.4768247802879861,
+   "stds": [
+    0.0033458305330823414,
+    0.010757298433061967,
+    0.021634180880177444
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.67258889935803,
+    "max_area_ratio": 1.0917921372289485,
+    "min_angle_deg": 23.671130757057515,
+    "min_area_ratio": 0.8505613020496033
+   },
+   "newton_iterations": 168,
+   "admissible": false,
+   "min_h": -3.122502256758253e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 13.772872549887245,
+   "solve_fe": 18.329278605433664,
+   "seconds": 45.988785541034304,
+   "kind": "train",
+   "x": [
+    0.0063877218289773675,
+    0.003951397861813154,
+    0.019529816642321063,
+    0.0056906955012322,
+    0.0010915577242675994,
+    0.0010021587157081752,
+    0.016425310673529932,
+    0.001381829275618725
+   ],
+   "F": 0.0006089092827884037,
+   "mean_full": 1.4789155740695117,
+   "stds": [
+    0.0033835843493927164,
+    0.010864309860948784,
+    0.02189583090417533
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.66649876335742,
+    "max_area_ratio": 1.0911823704752324,
+    "min_angle_deg": 23.663945863903304,
+    "min_area_ratio": 0.8516959790008362
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 2.1510571102112408e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.64292150544616,
+   "solve_fe": 19.329278605433664,
+   "seconds": 48.893952541053295,
+   "kind": "validate",
+   "x": [
+    0.0063877218289773675,
+    0.003951397861813154,
+    0.019529816642321063,
+    0.0056906955012322,
+    0.0010915577242675994,
+    0.0010021587157081752,
+    0.016425310673529932,
+    0.001381829275618725
+   ],
+   "F_val": 0.0007242815959820529,
+   "mean_full": 1.4792880044293615,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 15.211130068334134,
+   "solve_fe": 20.106863300930506,
+   "seconds": 50.79124895809218,
+   "kind": "train",
+   "x": [
+    0.006359596828977367,
+    0.003920147861813154,
+    0.01948294164232106,
+    0.00568608170069779,
+    0.0010821827242675996,
+    0.0009990337157081753,
+    0.016393308854843126,
+    0.001386516775618725
+   ],
+   "F": 0.0005811828560904059,
+   "mean_full": 1.4747212973402837,
+   "stds": [
+    0.0033079668447700107,
+    0.010651040329424445,
+    0.02137277593915405
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.67959936994335,
+    "max_area_ratio": 1.094709238554976,
+    "min_angle_deg": 23.682344386535416,
+    "min_area_ratio": 0.8494088041908305
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 3.191891195797325e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 16.086871814187536,
+   "solve_fe": 21.106863300930506,
+   "seconds": 53.71542466606479,
+   "kind": "validate",
+   "x": [
+    0.006359596828977367,
+    0.003920147861813154,
+    0.01948294164232106,
+    0.00568608170069779,
+    0.0010821827242675996,
+    0.0009990337157081753,
+    0.016393308854843126,
+    0.001386516775618725
+   ],
+   "F_val": 0.0006868986227648206,
+   "mean_full": 1.4752584035112926,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 16.654402671260105,
+   "solve_fe": 21.884447996427348,
+   "seconds": 55.61045816610567,
+   "kind": "train",
+   "x": [
+    0.006303346828977367,
+    0.003857647861813157,
+    0.01938919164232106,
+    0.005685010537093095,
+    0.0010634327242676001,
+    0.0009927837157081756,
+    0.01628251290518472,
+    0.0013958917756187246
+   ],
+   "F": 0.000528082059603025,
+   "mean_full": 1.4661868316959135,
+   "stds": [
+    0.003155649996596881,
+    0.010233754897091586,
+    0.020332097614566412
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.72013590192122,
+    "max_area_ratio": 1.1062758980659233,
+    "min_angle_deg": 23.74362734458741,
+    "min_area_ratio": 0.8446206036803277
+   },
+   "newton_iterations": 168,
+   "admissible": false,
+   "min_h": -2.0816681711721685e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 17.22173351091881,
+   "solve_fe": 22.66203269192419,
+   "seconds": 57.50482379109599,
+   "kind": "train",
+   "x": [
+    0.006331471828977368,
+    0.003888897861813156,
+    0.01943606664232106,
+    0.005683984555917301,
+    0.0010728077242675997,
+    0.0009959087157081752,
+    0.016346869342927034,
+    0.001391204275618725
+   ],
+   "F": 0.0005542421734950566,
+   "mean_full": 1.47047872839424,
+   "stds": [
+    0.00323200273718089,
+    0.010440830261337432,
+    0.02085150822496666
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.6971138755269,
+    "max_area_ratio": 1.100512917469081,
+    "min_angle_deg": 23.708284234009213,
+    "min_area_ratio": 0.8470503457506631
+   },
+   "newton_iterations": 169,
+   "admissible": true,
+   "min_h": 3.191891195797325e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.105777819575476,
+   "solve_fe": 23.66203269192419,
+   "seconds": 60.45672245800961,
+   "kind": "validate",
+   "x": [
+    0.006331471828977368,
+    0.003888897861813156,
+    0.01943606664232106,
+    0.005683984555917301,
+    0.0010728077242675997,
+    0.0009959087157081752,
+    0.016346869342927034,
+    0.001391204275618725
+   ],
+   "F_val": 0.0006644369328555941,
+   "mean_full": 1.4709001824135606,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 18.67700428779899,
+   "solve_fe": 24.43961738742103,
+   "seconds": 62.36409591604024,
+   "kind": "train",
+   "x": [
+    0.006275221828977368,
+    0.003826397861813156,
+    0.01934231664232106,
+    0.005680028770548866,
+    0.0010540577242676,
+    0.0009896587157081755,
+    0.01625262205473831,
+    0.0014005792756187248
+   ],
+   "F": 0.0005026767346905471,
+   "mean_full": 1.4618586076784048,
+   "stds": [
+    0.003080171431759555,
+    0.010028639879597132,
+    0.019814531556584258
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 117.73268988189307,
+    "max_area_ratio": 1.1119981803454972,
+    "min_angle_deg": 23.761061023500528,
+    "min_area_ratio": 0.8421195779798339
+   },
+   "newton_iterations": 170,
+   "admissible": true,
+   "min_h": 3.191891195797325e-16,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 19.545833622840345,
+   "solve_fe": 25.43961738742103,
+   "seconds": 65.26519050006755,
+   "kind": "validate",
+   "x": [
+    0.006275221828977368,
+    0.003826397861813156,
+    0.01934231664232106,
+    0.005680028770548866,
+    0.0010540577242676,
+    0.0009896587157081755,
+    0.01625262205473831,
+    0.0014005792756187248
+   ],
+   "F_val": 0.0006087992265659019,
+   "mean_full": 1.4621999180135603,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  }
+ ],
+ "refusals": [
+  {
+   "wall_fe": 4.086808648972146,
+   "solve_fe": 5.443092868477886,
+   "seconds": 13.646199500071816,
+   "kind": "not_buildable",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.01822901343949359,
+    0.0013799259063831696
+   ],
+   "method": "surrogate",
+   "geometry": {
+    "buildable": false,
+    "admissible": false,
+    "construction_error": "construction: slot flank degenerates: fillet centre y = -5.3242e-5 m, flank from x = 4.702322e-2 to 4.777079e-2 m",
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017601505309209474,
+      "scale": 0.013999999999999999,
+      "c": 1.2572503792292482,
+      "h": 1.2072503792292482,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003982647861813153,
+      "scale": 0.007,
+      "c": 0.5689496945447361,
+      "h": 0.518949694544736,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009038345821160533,
+      "scale": 0.0095,
+      "c": 0.9514048232800562,
+      "h": 0.9014048232800561,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005504663621337996,
+      "scale": 0.00115,
+      "c": 0.47866640185547793,
+      "h": 0.42866640185547794,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003371542061510817,
+      "scale": 0.002772008423644617,
+      "c": 1.2162813188994346,
+      "h": 1.1662813188994345,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0494511819237815e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.3859495228483966,
+      "h": 0.33594952284839663,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0011343155699681737,
+      "scale": 0.0018379416028071888,
+      "c": 0.6171662735288604,
+      "h": 0.5671662735288604,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007103607584951399,
+      "scale": 0.0010180704175208324,
+      "c": 0.6977520869577807,
+      "h": 0.6477520869577806,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0013799259063831696,
+      "scale": 0.001,
+      "c": 1.3799259063831697,
+      "h": 1.3299259063831697,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": -5.324183723903359e-05,
+      "scale": 0.002084755137755031,
+      "c": -0.025538652609518004,
+      "h": -0.075538652609518,
+      "pass": false
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0007475681881814883,
+      "scale": 0.010528559286427139,
+      "c": 0.07100384467086714,
+      "h": 0.021003844670867133,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "failed_guards": [
+    "fillet_centre_y"
+   ],
+   "construction_error": "construction: slot flank degenerates: fillet centre y = -5.3242e-5 m, flank from x = 4.702322e-2 to 4.777079e-2 m",
+   "min_h": -0.075538652609518
+  },
+  {
+   "wall_fe": 4.645564096534835,
+   "solve_fe": 6.220677563974727,
+   "seconds": 15.511931166052818,
+   "kind": "not_buildable",
+   "x": [
+    0.006415846828977368,
+    0.003982647861813153,
+    0.018076691642321067,
+    0.005694188583748558,
+    0.0011009327242675992,
+    0.0010021636923088567,
+    0.016429013439493587,
+    0.0015299259063831696
+   ],
+   "method": "surrogate",
+   "geometry": {
+    "buildable": false,
+    "admissible": false,
+    "construction_error": "construction: slot flank degenerates: fillet centre y = -5.9459e-5 m, flank from x = 4.702322e-2 to 4.940772e-2 m",
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.017601505309209474,
+      "scale": 0.013999999999999999,
+      "c": 1.2572503792292482,
+      "h": 1.2072503792292482,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.003982647861813153,
+      "scale": 0.007,
+      "c": 0.5689496945447361,
+      "h": 0.518949694544736,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009038345821160533,
+      "scale": 0.0095,
+      "c": 0.9514048232800562,
+      "h": 0.9014048232800561,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005504663621337996,
+      "scale": 0.00115,
+      "c": 0.47866640185547793,
+      "h": 0.42866640185547794,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003371542061510817,
+      "scale": 0.002772008423644617,
+      "c": 1.2162813188994346,
+      "h": 1.1662813188994345,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 1.0494511819237815e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.3859495228483966,
+      "h": 0.33594952284839663,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0011343155699681737,
+      "scale": 0.0018379416028071888,
+      "c": 0.6171662735288604,
+      "h": 0.5671662735288604,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0007103607584951399,
+      "scale": 0.0010180704175208324,
+      "c": 0.6977520869577807,
+      "h": 0.6477520869577806,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0015299259063831696,
+      "scale": 0.001,
+      "c": 1.5299259063831696,
+      "h": 1.4799259063831696,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": -5.9458518052761604e-05,
+      "scale": 0.002084755137755031,
+      "c": -0.028520624305446978,
+      "h": -0.07852062430544698,
+      "pass": false
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0023844948267693414,
+      "scale": 0.010528559286427139,
+      "c": 0.2264787386288745,
+      "h": 0.17647873862887448,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ]
+   },
+   "failed_guards": [
+    "fillet_centre_y"
+   ],
+   "construction_error": "construction: slot flank degenerates: fillet centre y = -5.9459e-5 m, flank from x = 4.702322e-2 to 4.940772e-2 m",
+   "min_h": -0.07852062430544698
+  }
+ ],
+ "restorations": [],
+ "restarts": null,
+ "surrogate_initial_set": [
+  {
+   "coordinate": 0,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 1,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 2,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 3,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 4,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 5,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 6,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": false,
+     "refused": "not_buildable"
+    },
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 7,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": false,
+     "refused": "not_buildable"
+    },
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  }
+ ],
+ "surrogate_steps": [
+  {
+   "delta": 0.1,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.05,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.025,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.0125,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.00625,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.003125,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.0015625,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.003125,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.0015625,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.003125,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.00625,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.003125,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.00625,
+   "geometry": false,
+   "accepted": true
+  }
+ ],
+ "assessment": {
+  "held_out_training": [
+   {
+    "note": "candidate",
+    "F_pred": 0.0003630231980084799,
+    "F_train": 0.0003178468240822772,
+    "rel_F": 0.1421325320982552,
+    "stds_pred": [
+     0.0031066506915780963,
+     0.008609303383771695,
+     0.016710829265334935
+    ],
+    "stds_train": [
+     0.0026731526602116877,
+     0.008350575855869246,
+     0.01552317499137512
+    ],
+    "mean_pred": 1.4511199497296376,
+    "mean_train": 1.4227841104987555,
+    "rel_mean": 0.019915768683239667
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0003609158000543418,
+    "F_train": 0.00035224816504764265,
+    "rel_F": 0.02460661507073238,
+    "stds_pred": [
+     0.0029757338091191223,
+     0.008671453198743594,
+     0.01663931211840221
+    ],
+    "stds_train": [
+     0.0028772612614714034,
+     0.008696911532959867,
+     0.016380881004047013
+    ],
+    "mean_pred": 1.4511199497296356,
+    "mean_train": 1.4568754647041287,
+    "rel_mean": 0.003950588168949547
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.0006629960275219886,
+    "F_train": 0.0006709735326794451,
+    "rel_F": 0.011889448344705001,
+    "stds_pred": [
+     0.0032235955815802957,
+     0.011289004900612146,
+     0.022916431384540647
+    ],
+    "stds_train": [
+     0.0031331475679036093,
+     0.011358331061066632,
+     0.02306827333166472
+    ],
+    "mean_pred": 1.4701208659201928,
+    "mean_train": 1.4674371433681084,
+    "rel_mean": 0.0018288500902495983
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.00042204022459474167,
+    "F_train": 0.0004314226769553687,
+    "rel_F": 0.021747703265949707,
+    "stds_pred": [
+     0.0029082967550178545,
+     0.009319562108880233,
+     0.018075613314026667
+    ],
+    "stds_train": [
+     0.0028831475822189913,
+     0.009418036621916485,
+     0.018286900315875116
+    ],
+    "mean_pred": 1.4511199497296359,
+    "mean_train": 1.4499978629743553,
+    "rel_mean": 0.0007738540751907493
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.000528728587480341,
+    "F_train": 0.0005279088753799944,
+    "rel_F": 0.00155275301965046,
+    "stds_pred": [
+     0.003217167009247207,
+     0.010224292627854964,
+     0.020343113433664548
+    ],
+    "stds_train": [
+     0.003152816881038505,
+     0.010233953190524852,
+     0.020328178058763142
+    ],
+    "mean_pred": 1.467268923222577,
+    "mean_train": 1.4661711003935642,
+    "rel_mean": 0.0007487685637222971
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.0006415551796061821,
+    "F_train": 0.0006427968874161514,
+    "rel_F": 0.0019317265442285918,
+    "stds_pred": [
+     0.003488920106981312,
+     0.011103343348264018,
+     0.02249663047178054
+    ],
+    "stds_train": [
+     0.0034906608988484883,
+     0.011117562206017142,
+     0.02251692662200463
+    ],
+    "mean_pred": 1.486247294404523,
+    "mean_train": 1.4869090509121583,
+    "rel_mean": 0.00044505513449478583
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0005811697611363612,
+    "F_train": 0.0005809909764666745,
+    "rel_F": 0.00030772365996787064,
+    "stds_pred": [
+     0.003308965308635784,
+     0.010654022777697317,
+     0.02137082844381361
+    ],
+    "stds_train": [
+     0.0033051146971364996,
+     0.010651080618641347,
+     0.021368707844899033
+    ],
+    "mean_pred": 1.4746530353359746,
+    "mean_train": 1.4747060600342659,
+    "rel_mean": 3.595611337627425e-05
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.000608659932130168,
+    "F_train": 0.000608699607668926,
+    "rel_F": 6.518081867996507e-05,
+    "stds_pred": [
+     0.00338216865518576,
+     0.010863327463126047,
+     0.021890842463161128
+    ],
+    "stds_train": [
+     0.003381292433934124,
+     0.010863760366250122,
+     0.02189166918829715
+    ],
+    "mean_pred": 1.4789046392498333,
+    "mean_train": 1.4789064425842233,
+    "rel_mean": 1.2193701630557358e-06
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.0006397698429847098,
+    "F_train": 0.0006403044601836871,
+    "rel_F": 0.0008349421755143602,
+    "stds_pred": [
+     0.0034764132337163087,
+     0.011098675511682875,
+     0.022461161944554935
+    ],
+    "stds_train": [
+     0.0034787729068548098,
+     0.011102085279116741,
+     0.022471010251019854
+    ],
+    "mean_pred": 1.4852593528566214,
+    "mean_train": 1.4852737868296066,
+    "rel_mean": 9.718055427406333e-06
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0006227840271438518,
+    "F_train": 0.0006230866637015731,
+    "rel_F": 0.0004857054007920289,
+    "stds_pred": [
+     0.0034269098140823264,
+     0.01096746806398487,
+     0.022152989878015786
+    ],
+    "stds_train": [
+     0.0034203337146720917,
+     0.010972924085975186,
+     0.02215813435254142
+    ],
+    "mean_pred": 1.481041898004332,
+    "mean_train": 1.4809854525926844,
+    "rel_mean": 3.811341397635264e-05
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0005948861585136169,
+    "F_train": 0.0005949518338902987,
+    "rel_F": 0.00011038772038465449,
+    "stds_pred": [
+     0.003350606045316607,
+     0.01075545480256567,
+     0.021632840535460707
+    ],
+    "stds_train": [
+     0.0033458305330823414,
+     0.010757298433061967,
+     0.021634180880177444
+    ],
+    "mean_pred": 1.4768265359667425,
+    "mean_train": 1.4768247802879861,
+    "rel_mean": 1.188819946557402e-06
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0006088955062539658,
+    "F_train": 0.0006089092827884037,
+    "rel_F": 2.2624937453554853e-05,
+    "stds_pred": [
+     0.0033845240080895033,
+     0.010864406564460801,
+     0.021895323096376828
+    ],
+    "stds_train": [
+     0.0033835843493927164,
+     0.010864309860948784,
+     0.02189583090417533
+    ],
+    "mean_pred": 1.4789057586711774,
+    "mean_train": 1.4789155740695117,
+    "rel_mean": 6.636888884282417e-06
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0005812222470597969,
+    "F_train": 0.0005811828560904059,
+    "rel_F": 6.77772390879354e-05,
+    "stds_pred": [
+     0.003308521158432068,
+     0.010651031771420287,
+     0.021373615908596277
+    ],
+    "stds_train": [
+     0.0033079668447700107,
+     0.010651040329424445,
+     0.02137277593915405
+    ],
+    "mean_pred": 1.4747321234075126,
+    "mean_train": 1.4747212973402837,
+    "rel_mean": 7.3410937025414016e-06
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.000528107034779598,
+    "F_train": 0.000528082059603025,
+    "rel_F": 4.729412052320694e-05,
+    "stds_pred": [
+     0.003156384307763623,
+     0.010232821866331574,
+     0.02033306739115444
+    ],
+    "stds_train": [
+     0.003155649996596881,
+     0.010233754897091586,
+     0.020332097614566412
+    ],
+    "mean_pred": 1.4662247934855688,
+    "mean_train": 1.4661868316959135,
+    "rel_mean": 2.5891509072828475e-05
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0005542471314637757,
+    "F_train": 0.0005542421734950566,
+    "rel_F": 8.94549162129928e-06,
+    "stds_pred": [
+     0.003231850321080484,
+     0.010441173569865292,
+     0.020851478831244902
+    ],
+    "stds_train": [
+     0.00323200273718089,
+     0.010440830261337432,
+     0.02085150822496666
+    ],
+    "mean_pred": 1.4704699355798494,
+    "mean_train": 1.47047872839424,
+    "rel_mean": 5.9795590516239195e-06
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0005026107182270295,
+    "F_train": 0.0005026767346905471,
+    "rel_F": 0.00013132985666864123,
+    "stds_pred": [
+     0.003081036192629402,
+     0.010026484848255768,
+     0.01981382183715284
+    ],
+    "stds_train": [
+     0.003080171431759555,
+     0.010028639879597132,
+     0.019814531556584258
+    ],
+    "mean_pred": 1.4618985326176994,
+    "mean_train": 1.4618586076784048,
+    "rel_mean": 2.7311081307662392e-05
+   }
+  ],
+  "new_design_validation_model_checks": [
+   {
+    "validation": 0,
+    "std_half_pred": 0.011079210473757968,
+    "std_half_val": 0.01225949994915779,
+    "rel_std_half": 0.09627549902481194,
+    "F_pred": 0.0006371968952989871,
+    "F_val": 0.0007502271756066245,
+    "rel_F": 0.15066140494876437,
+    "mean_pred": 1.4830623404450822,
+    "mean_val": 1.483579095057085,
+    "rel_mean": 0.00034831618598869633
+   },
+   {
+    "validation": 1,
+    "std_half_pred": 0.010972924085975187,
+    "std_half_val": 0.012236996929830178,
+    "rel_std_half": 0.10329926951060642,
+    "F_pred": 0.0006230866637015731,
+    "F_val": 0.0007435177829462319,
+    "rel_F": 0.16197476645070086,
+    "mean_pred": 1.4809854525926847,
+    "mean_val": 1.4815555767063537,
+    "rel_mean": 0.00038481453050618746
+   },
+   {
+    "validation": 2,
+    "std_half_pred": 0.010864309860948782,
+    "std_half_val": 0.012099505165312094,
+    "rel_std_half": 0.10208643142733445,
+    "F_pred": 0.0006089092827884038,
+    "F_val": 0.0007242815959820529,
+    "rel_F": 0.15929206793832146,
+    "mean_pred": 1.4789155740695121,
+    "mean_val": 1.4792880044293615,
+    "rel_mean": 0.00025176325281770775
+   },
+   {
+    "validation": 3,
+    "std_half_pred": 0.010651040329424441,
+    "std_half_val": 0.011822844609289668,
+    "rel_std_half": 0.0991135651858686,
+    "F_pred": 0.0005811828560904059,
+    "F_val": 0.0006868986227648206,
+    "rel_F": 0.15390301155198205,
+    "mean_pred": 1.4747212973402843,
+    "mean_val": 1.4752584035112926,
+    "rel_mean": 0.00036407599491034226
+   },
+   {
+    "validation": 4,
+    "std_half_pred": 0.010440830261337432,
+    "std_half_val": 0.011673895635572478,
+    "rel_std_half": 0.10562586926661156,
+    "F_pred": 0.0005542421734950565,
+    "F_val": 0.0006644369328555941,
+    "rel_F": 0.16584683046883986,
+    "mean_pred": 1.47047872839424,
+    "mean_val": 1.4709001824135606,
+    "rel_mean": 0.00028652795367054473
+   },
+   {
+    "validation": 5,
+    "std_half_pred": 0.010028639879597135,
+    "std_half_val": 0.01127894994105094,
+    "rel_std_half": 0.11085340993518981,
+    "F_pred": 0.0005026767346905473,
+    "F_val": 0.0006087992265659019,
+    "rel_F": 0.174314432812222,
+    "mean_pred": 1.461858607678405,
+    "mean_val": 1.4621999180135603,
+    "rel_mean": 0.00023342248276074019
+   }
+  ]
+ },
+ "aborted_request": {
+  "category": "forward",
+  "op": "train",
+  "x": [
+   0.006162721828977368,
+   0.003701397861813156,
+   0.019222332822727936,
+   0.005730028770548858,
+   0.0010165577242676,
+   0.0009771587157081756,
+   0.01602762205473831,
+   0.0013956214230592097
+  ]
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.339084521
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 66.78169042,
+  "total_fe": 20.0,
+  "total_seconds": 66.78169042,
+  "elapsed_seconds": 66.78515445801895,
+  "solve_fe": 25.43961738742103,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.777584695496841,
+   "adjoint_eval": 0.17466612010927285,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.012959744924947348,
+   "adjoint_solve": 0.0029111020018212142,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0.0004723750753328204,
+    "fe": 0.0001414684391371297,
+    "entries": 1,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 48.74867496389795,
+    "fe": 14.599413299456861,
+    "entries": 26,
+    "forward_solves": 1500,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "line_search": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.011121375,
+    "fe": 0.003330665914581082,
+    "entries": 31,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 3.359968207,
+    "fe": 1.0062543148784222,
+    "entries": 7,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 14.564010749,
+    "fe": 4.361677776469797,
+    "entries": 6,
+    "forward_solves": 360,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0.00541799864731729,
+    "fe": 0.0016226000310093048,
+    "entries": 30,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "geometry_check": {
+    "seconds": 0.001887508,
+    "fe": 0.0005652770956018576,
+    "entries": 134,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.09013724337933185,
+    "fe": 0.02699459771456676,
+    "entries": 301,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.03641737508587539,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.001471332972869277,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "geometry_check",
+    "seconds": 1.7542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 3,
+    "category": "overhead",
+    "seconds": 0.00020158295139986043,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 5.920801777392626e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 5,
+    "category": "geometry_check",
+    "seconds": 1.3584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 6,
+    "category": "mesh_motion",
+    "seconds": 0.00039100100000000003,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 7,
+    "category": "remesh",
+    "seconds": 0.48058500000000004,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 8,
+    "category": "forward",
+    "seconds": 1.8724935839999999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 9,
+    "category": "overhead",
+    "seconds": 0.0004958730327335736,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 10,
+    "category": "overhead",
+    "seconds": 0.00019829196389764547,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 11,
+    "category": "geometry_check",
+    "seconds": 2.2166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 0.00020883401271820645,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 13,
+    "category": "overhead",
+    "seconds": 3.950006794184446e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 14,
+    "category": "geometry_check",
+    "seconds": 1.1917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 15,
+    "category": "mesh_motion",
+    "seconds": 0.000346125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 16,
+    "category": "forward",
+    "seconds": 1.874478625,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 17,
+    "category": "overhead",
+    "seconds": 0.00026141593543727026,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 18,
+    "category": "overhead",
+    "seconds": 9.545800276100636e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 19,
+    "category": "geometry_check",
+    "seconds": 1.9542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 0.00018554198301856673,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 21,
+    "category": "overhead",
+    "seconds": 3.1250063329935074e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 22,
+    "category": "geometry_check",
+    "seconds": 2.3791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 23,
+    "category": "mesh_motion",
+    "seconds": 0.000339958,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 24,
+    "category": "forward",
+    "seconds": 1.861826417,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 25,
+    "category": "overhead",
+    "seconds": 0.00021920890947590976,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 26,
+    "category": "overhead",
+    "seconds": 7.504108361899853e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 27,
+    "category": "geometry_check",
+    "seconds": 1.9917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 0.00019095794678758438,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 29,
+    "category": "overhead",
+    "seconds": 3.6334036849439144e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 30,
+    "category": "geometry_check",
+    "seconds": 1.175e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 31,
+    "category": "mesh_motion",
+    "seconds": 0.000348625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 32,
+    "category": "forward",
+    "seconds": 1.8884339589999999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 0.00022016596046725567,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 34,
+    "category": "overhead",
+    "seconds": 7.991597522050142e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 35,
+    "category": "geometry_check",
+    "seconds": 1.9709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 36,
+    "category": "overhead",
+    "seconds": 0.00021887500527384418,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 37,
+    "category": "overhead",
+    "seconds": 5.9125013649463654e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 38,
+    "category": "geometry_check",
+    "seconds": 1.0791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 39,
+    "category": "mesh_motion",
+    "seconds": 0.000344875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 40,
+    "category": "forward",
+    "seconds": 1.860537709,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 41,
+    "category": "overhead",
+    "seconds": 0.00023566606266811618,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 42,
+    "category": "overhead",
+    "seconds": 7.941701915115118e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 43,
+    "category": "geometry_check",
+    "seconds": 1.925e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 44,
+    "category": "overhead",
+    "seconds": 0.0001873329467034779,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 45,
+    "category": "overhead",
+    "seconds": 3.800005652010441e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 46,
+    "category": "geometry_check",
+    "seconds": 9.959e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 47,
+    "category": "mesh_motion",
+    "seconds": 0.000338834,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 48,
+    "category": "forward",
+    "seconds": 1.9032945,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 49,
+    "category": "overhead",
+    "seconds": 0.00020562399068246862,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 50,
+    "category": "overhead",
+    "seconds": 9.3999900855124e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 51,
+    "category": "geometry_check",
+    "seconds": 1.6625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 52,
+    "category": "overhead",
+    "seconds": 0.00016012500708484367,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 53,
+    "category": "overhead",
+    "seconds": 4.145805723965168e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 54,
+    "category": "geometry_check",
+    "seconds": 1.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 55,
+    "category": "mesh_motion",
+    "seconds": 0.000344625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 56,
+    "category": "forward",
+    "seconds": 1.859599625,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 57,
+    "category": "overhead",
+    "seconds": 0.00020399998008535647,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 58,
+    "category": "overhead",
+    "seconds": 8.029199671000242e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 59,
+    "category": "geometry_check",
+    "seconds": 8.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 0.00016854203301619464,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 61,
+    "category": "overhead",
+    "seconds": 0.00012854102533310652,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 62,
+    "category": "geometry_check",
+    "seconds": 1.3792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 63,
+    "category": "overhead",
+    "seconds": 0.00016491692770514987,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 64,
+    "category": "overhead",
+    "seconds": 6.216601468622684e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 65,
+    "category": "geometry_check",
+    "seconds": 1.05e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 66,
+    "category": "mesh_motion",
+    "seconds": 0.000344208,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 67,
+    "category": "forward",
+    "seconds": 1.864510209,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 0.00022970804181987603,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 69,
+    "category": "overhead",
+    "seconds": 7.704191375523806e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 70,
+    "category": "geometry_check",
+    "seconds": 8.125e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 71,
+    "category": "overhead",
+    "seconds": 0.00018245805770078505,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 72,
+    "category": "overhead",
+    "seconds": 6.866699550300837e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 73,
+    "category": "geometry_check",
+    "seconds": 1.6666e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 74,
+    "category": "overhead",
+    "seconds": 0.00017475105706665772,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 5.183299072086811e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 76,
+    "category": "geometry_check",
+    "seconds": 1.3542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 77,
+    "category": "mesh_motion",
+    "seconds": 0.000338791,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 78,
+    "category": "forward",
+    "seconds": 1.8652437910000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 79,
+    "category": "overhead",
+    "seconds": 0.00025591798490864903,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 80,
+    "category": "overhead",
+    "seconds": 8.26249597594142e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 81,
+    "category": "setup_calibration",
+    "seconds": 0.0004723750753328204,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe fit"
+   },
+   {
+    "seq": 82,
+    "category": "overhead",
+    "seconds": 0.00014299992471933365,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 83,
+    "category": "geometry_check",
+    "seconds": 1.8417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 84,
+    "category": "mesh_motion",
+    "seconds": 0.000559583,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 85,
+    "category": "remesh",
+    "seconds": 0.47832916600000003,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 86,
+    "category": "validation",
+    "seconds": 2.387875291,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 87,
+    "category": "overhead",
+    "seconds": 0.0008567930055924933,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 88,
+    "category": "overhead",
+    "seconds": 7.175002247095108e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 89,
+    "category": "overhead",
+    "seconds": 0.001099540968425572,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 90,
+    "category": "geometry_check",
+    "seconds": 1.8125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 91,
+    "category": "overhead",
+    "seconds": 0.00017595901567446504,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 0.00011562497820705175,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 93,
+    "category": "geometry_check",
+    "seconds": 1.3959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 94,
+    "category": "overhead",
+    "seconds": 0.00014208200190068965,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 95,
+    "category": "overhead",
+    "seconds": 0.00015008402988314629,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 96,
+    "category": "geometry_check",
+    "seconds": 1.2084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 97,
+    "category": "overhead",
+    "seconds": 0.00012545697744670292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 98,
+    "category": "overhead",
+    "seconds": 0.00010050006676465273,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 99,
+    "category": "geometry_check",
+    "seconds": 1.1583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 100,
+    "category": "overhead",
+    "seconds": 0.0001597089911378191,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 101,
+    "category": "overhead",
+    "seconds": 0.00012916699051856995,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 102,
+    "category": "geometry_check",
+    "seconds": 9.541e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 103,
+    "category": "overhead",
+    "seconds": 0.00012820894295018093,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 104,
+    "category": "overhead",
+    "seconds": 0.0001537500647827983,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 105,
+    "category": "geometry_check",
+    "seconds": 1.1208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 106,
+    "category": "overhead",
+    "seconds": 0.00012699992082687572,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 107,
+    "category": "overhead",
+    "seconds": 0.00010125001426786184,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 108,
+    "category": "geometry_check",
+    "seconds": 1.1208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 109,
+    "category": "overhead",
+    "seconds": 0.00013262499276223139,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 110,
+    "category": "overhead",
+    "seconds": 9.787501767277718e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 111,
+    "category": "geometry_check",
+    "seconds": 1.0875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 112,
+    "category": "overhead",
+    "seconds": 0.0001119169710790402,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 113,
+    "category": "overhead",
+    "seconds": 9.591702837496996e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 114,
+    "category": "geometry_check",
+    "seconds": 1.0667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 115,
+    "category": "overhead",
+    "seconds": 0.00010483306456521291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 116,
+    "category": "overhead",
+    "seconds": 9.458290878683329e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 117,
+    "category": "geometry_check",
+    "seconds": 1.0625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 118,
+    "category": "overhead",
+    "seconds": 0.00011937505855996733,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 119,
+    "category": "overhead",
+    "seconds": 0.00011691695544868708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 120,
+    "category": "geometry_check",
+    "seconds": 1.8125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 121,
+    "category": "overhead",
+    "seconds": 0.0001693750307332209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 122,
+    "category": "overhead",
+    "seconds": 0.00010629103053361177,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 123,
+    "category": "geometry_check",
+    "seconds": 1.2917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 124,
+    "category": "overhead",
+    "seconds": 0.00013383301148195414,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 125,
+    "category": "surrogate_update",
+    "seconds": 0.00014762498904019594,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 126,
+    "category": "overhead",
+    "seconds": 7.045897655189037e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 127,
+    "category": "geometry_check",
+    "seconds": 9.417e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 128,
+    "category": "mesh_motion",
+    "seconds": 0.000345291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 129,
+    "category": "forward",
+    "seconds": 1.944670959,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 130,
+    "category": "overhead",
+    "seconds": 0.0003067910099439075,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 131,
+    "category": "overhead",
+    "seconds": 0.00016133300960063934,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 132,
+    "category": "surrogate_update",
+    "seconds": 0.0001983750844374299,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 133,
+    "category": "overhead",
+    "seconds": 2.087489701807499e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 134,
+    "category": "overhead",
+    "seconds": 0.00036095897667109966,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 135,
+    "category": "geometry_check",
+    "seconds": 1.6667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 136,
+    "category": "overhead",
+    "seconds": 0.00022066600622494548,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 137,
+    "category": "overhead",
+    "seconds": 0.0002441250253468752,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 138,
+    "category": "geometry_check",
+    "seconds": 1.0792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 139,
+    "category": "overhead",
+    "seconds": 0.00034037493470506774,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 140,
+    "category": "overhead",
+    "seconds": 0.00011604104656726122,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 141,
+    "category": "geometry_check",
+    "seconds": 1.8458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 142,
+    "category": "overhead",
+    "seconds": 0.00015050102808800148,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 143,
+    "category": "overhead",
+    "seconds": 0.0001035409513860941,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 144,
+    "category": "geometry_check",
+    "seconds": 1.3792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 145,
+    "category": "overhead",
+    "seconds": 0.0001530419828021934,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 146,
+    "category": "overhead",
+    "seconds": 9.604101069271564e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 147,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 148,
+    "category": "overhead",
+    "seconds": 0.0001617090433150281,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 149,
+    "category": "overhead",
+    "seconds": 9.941600728780031e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 150,
+    "category": "geometry_check",
+    "seconds": 8.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 151,
+    "category": "overhead",
+    "seconds": 0.00022937497966069031,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 152,
+    "category": "overhead",
+    "seconds": 0.00024154200218617916,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 153,
+    "category": "geometry_check",
+    "seconds": 1.6584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 154,
+    "category": "overhead",
+    "seconds": 0.00024070794749064817,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 155,
+    "category": "overhead",
+    "seconds": 0.00023504102136939764,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 156,
+    "category": "geometry_check",
+    "seconds": 2.55e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 157,
+    "category": "overhead",
+    "seconds": 0.00017504203923834893,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 158,
+    "category": "overhead",
+    "seconds": 0.00012262503150850534,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 159,
+    "category": "geometry_check",
+    "seconds": 1.0083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 160,
+    "category": "overhead",
+    "seconds": 0.00012812492082758808,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 161,
+    "category": "overhead",
+    "seconds": 0.00010995904449373484,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 162,
+    "category": "geometry_check",
+    "seconds": 9.291e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 163,
+    "category": "overhead",
+    "seconds": 0.0001275839653906985,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 164,
+    "category": "surrogate_update",
+    "seconds": 8.704094216227531e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 165,
+    "category": "overhead",
+    "seconds": 5.8875069953501225e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 166,
+    "category": "geometry_check",
+    "seconds": 8.792e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 167,
+    "category": "mesh_motion",
+    "seconds": 0.0003475,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 168,
+    "category": "forward",
+    "seconds": 1.914437167,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 169,
+    "category": "overhead",
+    "seconds": 0.00019841606269821455,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 170,
+    "category": "overhead",
+    "seconds": 0.00014454196207225323,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 171,
+    "category": "surrogate_update",
+    "seconds": 0.00020362494979053736,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 172,
+    "category": "overhead",
+    "seconds": 3.504205960780382e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 173,
+    "category": "geometry_check",
+    "seconds": 1.6417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 174,
+    "category": "overhead",
+    "seconds": 0.00017749902836428078,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 175,
+    "category": "overhead",
+    "seconds": 2.7666916139423847e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 176,
+    "category": "geometry_check",
+    "seconds": 1.6333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 177,
+    "category": "mesh_motion",
+    "seconds": 0.000345041,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 178,
+    "category": "forward",
+    "seconds": 1.8829668750000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 179,
+    "category": "overhead",
+    "seconds": 0.000213292988959779,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 180,
+    "category": "overhead",
+    "seconds": 0.00014287501107901335,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 181,
+    "category": "surrogate_update",
+    "seconds": 0.00022587506100535393,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 182,
+    "category": "overhead",
+    "seconds": 1.5915953554213047e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 183,
+    "category": "overhead",
+    "seconds": 0.00032820901833474636,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 184,
+    "category": "geometry_check",
+    "seconds": 1.9791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 185,
+    "category": "overhead",
+    "seconds": 0.0001822500029220464,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 186,
+    "category": "overhead",
+    "seconds": 0.0001163750421255827,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 187,
+    "category": "geometry_check",
+    "seconds": 1.6292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 188,
+    "category": "overhead",
+    "seconds": 0.00014433297161176029,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 189,
+    "category": "overhead",
+    "seconds": 9.745894931256771e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 190,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 191,
+    "category": "overhead",
+    "seconds": 0.0001415000419378032,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 192,
+    "category": "overhead",
+    "seconds": 0.0002127080224454403,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 193,
+    "category": "geometry_check",
+    "seconds": 1.5417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 194,
+    "category": "overhead",
+    "seconds": 0.00016929092565476367,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 195,
+    "category": "overhead",
+    "seconds": 0.00016549997963011265,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 196,
+    "category": "geometry_check",
+    "seconds": 1.3792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 197,
+    "category": "overhead",
+    "seconds": 0.00018050004985425971,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 198,
+    "category": "overhead",
+    "seconds": 0.00024025002494454384,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 199,
+    "category": "geometry_check",
+    "seconds": 1.7833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 200,
+    "category": "overhead",
+    "seconds": 0.00016341692493426763,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 201,
+    "category": "overhead",
+    "seconds": 0.00017012504395097494,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 202,
+    "category": "geometry_check",
+    "seconds": 9.583e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 203,
+    "category": "overhead",
+    "seconds": 0.00014533401196814566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 204,
+    "category": "overhead",
+    "seconds": 0.00018566602375358343,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 205,
+    "category": "geometry_check",
+    "seconds": 9.125e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 206,
+    "category": "overhead",
+    "seconds": 0.00014408396636866883,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 207,
+    "category": "overhead",
+    "seconds": 0.00017845805268734694,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 208,
+    "category": "geometry_check",
+    "seconds": 1.65e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 209,
+    "category": "overhead",
+    "seconds": 0.00016845798576525794,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 210,
+    "category": "overhead",
+    "seconds": 0.00011666701175272465,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 211,
+    "category": "geometry_check",
+    "seconds": 9.459e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 212,
+    "category": "overhead",
+    "seconds": 0.00011787398353746426,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 213,
+    "category": "overhead",
+    "seconds": 0.00010225002188235521,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 214,
+    "category": "geometry_check",
+    "seconds": 1.4208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 215,
+    "category": "overhead",
+    "seconds": 0.0001644169922592198,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 216,
+    "category": "overhead",
+    "seconds": 0.00025208399165421724,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 217,
+    "category": "geometry_check",
+    "seconds": 1.1667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 218,
+    "category": "overhead",
+    "seconds": 0.00015920799145519027,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 219,
+    "category": "surrogate_update",
+    "seconds": 4.6874978579580784e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 220,
+    "category": "overhead",
+    "seconds": 7.654097862541676e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 221,
+    "category": "geometry_check",
+    "seconds": 9.334e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 222,
+    "category": "mesh_motion",
+    "seconds": 0.000342291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 223,
+    "category": "forward",
+    "seconds": 1.9060831249999999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 224,
+    "category": "overhead",
+    "seconds": 0.0002441670028652254,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 225,
+    "category": "overhead",
+    "seconds": 0.00019183300901204348,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 226,
+    "category": "surrogate_update",
+    "seconds": 0.00021254201419651508,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 227,
+    "category": "overhead",
+    "seconds": 2.0417035557329655e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 228,
+    "category": "overhead",
+    "seconds": 0.0003412079531699419,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 229,
+    "category": "geometry_check",
+    "seconds": 1.9333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 230,
+    "category": "overhead",
+    "seconds": 0.00022933396912705462,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 231,
+    "category": "overhead",
+    "seconds": 0.0002454580971971154,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 232,
+    "category": "geometry_check",
+    "seconds": 1.6083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 233,
+    "category": "overhead",
+    "seconds": 0.0001994589206262276,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 234,
+    "category": "overhead",
+    "seconds": 0.00022670801263302565,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 235,
+    "category": "geometry_check",
+    "seconds": 1.2042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 236,
+    "category": "overhead",
+    "seconds": 0.00014941603965468175,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 237,
+    "category": "surrogate_update",
+    "seconds": 0.00014154298696666956,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 238,
+    "category": "overhead",
+    "seconds": 6.312399636954069e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 239,
+    "category": "geometry_check",
+    "seconds": 1.1542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 240,
+    "category": "mesh_motion",
+    "seconds": 0.000340167,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 241,
+    "category": "forward",
+    "seconds": 1.893764333,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 242,
+    "category": "overhead",
+    "seconds": 0.0002198329384057729,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 243,
+    "category": "overhead",
+    "seconds": 0.000161500065587461,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 244,
+    "category": "surrogate_update",
+    "seconds": 0.00020433298777788877,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 245,
+    "category": "overhead",
+    "seconds": 3.875000402331352e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 246,
+    "category": "geometry_check",
+    "seconds": 1.6417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 247,
+    "category": "overhead",
+    "seconds": 0.00016549998472825678,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 248,
+    "category": "overhead",
+    "seconds": 2.6708003133535385e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 249,
+    "category": "geometry_check",
+    "seconds": 1.1584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 250,
+    "category": "mesh_motion",
+    "seconds": 0.00033675,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 251,
+    "category": "forward",
+    "seconds": 1.9042911660000001,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 252,
+    "category": "overhead",
+    "seconds": 0.0002588339453133415,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 253,
+    "category": "overhead",
+    "seconds": 0.00015716603957116604,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 254,
+    "category": "surrogate_update",
+    "seconds": 0.0002087079919874668,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 255,
+    "category": "overhead",
+    "seconds": 1.4709075912833214e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 256,
+    "category": "overhead",
+    "seconds": 0.0003371249185875058,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 257,
+    "category": "geometry_check",
+    "seconds": 1.8083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 258,
+    "category": "overhead",
+    "seconds": 0.00018487500641128918,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 259,
+    "category": "overhead",
+    "seconds": 0.00011725001968443394,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 260,
+    "category": "geometry_check",
+    "seconds": 1.775e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 261,
+    "category": "overhead",
+    "seconds": 0.0002421249706507922,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 262,
+    "category": "surrogate_update",
+    "seconds": 0.00020379212219268084,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 263,
+    "category": "overhead",
+    "seconds": 7.474992889910936e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 264,
+    "category": "geometry_check",
+    "seconds": 1.0583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 265,
+    "category": "mesh_motion",
+    "seconds": 0.000343125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 266,
+    "category": "forward",
+    "seconds": 1.895592083,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 267,
+    "category": "overhead",
+    "seconds": 0.00024304193587454392,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 268,
+    "category": "overhead",
+    "seconds": 0.0001870420528575778,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 269,
+    "category": "surrogate_update",
+    "seconds": 0.0002079580444842577,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 270,
+    "category": "overhead",
+    "seconds": 2.0333915017545223e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 271,
+    "category": "overhead",
+    "seconds": 0.00032658304553478956,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 272,
+    "category": "geometry_check",
+    "seconds": 1.9416e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 273,
+    "category": "overhead",
+    "seconds": 0.0001752089976747584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 274,
+    "category": "surrogate_update",
+    "seconds": 0.00010316690895706415,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 275,
+    "category": "overhead",
+    "seconds": 6.079103332012892e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 276,
+    "category": "geometry_check",
+    "seconds": 1.6875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 277,
+    "category": "mesh_motion",
+    "seconds": 0.000347917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 278,
+    "category": "forward",
+    "seconds": 1.8923463329999999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 279,
+    "category": "overhead",
+    "seconds": 0.0002183341071102518,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 280,
+    "category": "overhead",
+    "seconds": 0.00015595799777656794,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 281,
+    "category": "surrogate_update",
+    "seconds": 0.00021491700317710638,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 282,
+    "category": "overhead",
+    "seconds": 3.233295865356922e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 283,
+    "category": "geometry_check",
+    "seconds": 2.0375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 284,
+    "category": "overhead",
+    "seconds": 0.00021141698615423365,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 285,
+    "category": "overhead",
+    "seconds": 5.462497938424349e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 286,
+    "category": "geometry_check",
+    "seconds": 1.0167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 287,
+    "category": "mesh_motion",
+    "seconds": 0.000341,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 288,
+    "category": "forward",
+    "seconds": 1.899578124,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 289,
+    "category": "overhead",
+    "seconds": 0.00023854196596317934,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 290,
+    "category": "overhead",
+    "seconds": 0.00017495802603662014,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 291,
+    "category": "surrogate_update",
+    "seconds": 0.00021624995861202478,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 292,
+    "category": "overhead",
+    "seconds": 1.566705759614706e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 293,
+    "category": "overhead",
+    "seconds": 0.000317416968755424,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 294,
+    "category": "geometry_check",
+    "seconds": 1.8667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 295,
+    "category": "overhead",
+    "seconds": 0.00017024899029394192,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 296,
+    "category": "overhead",
+    "seconds": 0.00011612509842962027,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 297,
+    "category": "geometry_check",
+    "seconds": 1.7625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 298,
+    "category": "overhead",
+    "seconds": 0.00018129199776240057,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 299,
+    "category": "overhead",
+    "seconds": 0.0002091249916702509,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 300,
+    "category": "geometry_check",
+    "seconds": 9.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 301,
+    "category": "overhead",
+    "seconds": 0.00014279190657617846,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 302,
+    "category": "overhead",
+    "seconds": 0.00011487503070384264,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 303,
+    "category": "geometry_check",
+    "seconds": 1.575e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 304,
+    "category": "overhead",
+    "seconds": 0.00014241604718279177,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 305,
+    "category": "overhead",
+    "seconds": 0.00011779193300753832,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 306,
+    "category": "geometry_check",
+    "seconds": 1.3834e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 307,
+    "category": "overhead",
+    "seconds": 0.00015162407011359846,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 308,
+    "category": "overhead",
+    "seconds": 0.0001621670089662075,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 309,
+    "category": "geometry_check",
+    "seconds": 8.792e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 310,
+    "category": "overhead",
+    "seconds": 0.00012149991177068387,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 311,
+    "category": "surrogate_update",
+    "seconds": 3.1540985219180584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 312,
+    "category": "overhead",
+    "seconds": 6.895908154547215e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 313,
+    "category": "geometry_check",
+    "seconds": 1.3167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 314,
+    "category": "mesh_motion",
+    "seconds": 0.000334083,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 315,
+    "category": "forward",
+    "seconds": 1.893357958,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 316,
+    "category": "overhead",
+    "seconds": 0.00021141694745097084,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 317,
+    "category": "overhead",
+    "seconds": 0.00016475003212690353,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 318,
+    "category": "surrogate_update",
+    "seconds": 0.00021020800340920687,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 319,
+    "category": "overhead",
+    "seconds": 7.508299313485622e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 320,
+    "category": "geometry_check",
+    "seconds": 1.5791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 321,
+    "category": "mesh_motion",
+    "seconds": 0.000387125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 322,
+    "category": "remesh",
+    "seconds": 0.483640834,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 323,
+    "category": "validation",
+    "seconds": 2.418226375,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 324,
+    "category": "overhead",
+    "seconds": 0.0008208750437788126,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 325,
+    "category": "overhead",
+    "seconds": 8.358398918062449e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 326,
+    "category": "overhead",
+    "seconds": 0.0004220829578116536,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 327,
+    "category": "geometry_check",
+    "seconds": 1.5875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 328,
+    "category": "overhead",
+    "seconds": 0.00017429198933882617,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 329,
+    "category": "overhead",
+    "seconds": 0.00012800004333257675,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 330,
+    "category": "geometry_check",
+    "seconds": 1.6834e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 331,
+    "category": "overhead",
+    "seconds": 0.00018337404367940735,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 332,
+    "category": "overhead",
+    "seconds": 0.00021674996241927147,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 333,
+    "category": "geometry_check",
+    "seconds": 9.667e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 334,
+    "category": "overhead",
+    "seconds": 0.00017329097053675468,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 335,
+    "category": "surrogate_update",
+    "seconds": 0.00019799999427050352,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 336,
+    "category": "overhead",
+    "seconds": 7.66250304877758e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 337,
+    "category": "geometry_check",
+    "seconds": 8.75e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 338,
+    "category": "mesh_motion",
+    "seconds": 0.000337333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 339,
+    "category": "forward",
+    "seconds": 1.8829193329999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 340,
+    "category": "overhead",
+    "seconds": 0.00021716803130544804,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 341,
+    "category": "overhead",
+    "seconds": 0.0001619159011170268,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 342,
+    "category": "surrogate_update",
+    "seconds": 0.00026412494480609894,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 343,
+    "category": "overhead",
+    "seconds": 2.308411058038473e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 344,
+    "category": "overhead",
+    "seconds": 0.0003258329816162586,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 345,
+    "category": "geometry_check",
+    "seconds": 1.8917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 346,
+    "category": "overhead",
+    "seconds": 0.00020633302714401225,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 347,
+    "category": "overhead",
+    "seconds": 0.00022304197773337364,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 348,
+    "category": "geometry_check",
+    "seconds": 9.958e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 349,
+    "category": "overhead",
+    "seconds": 0.000137083049786213,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 350,
+    "category": "overhead",
+    "seconds": 0.00011770892888307571,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 351,
+    "category": "geometry_check",
+    "seconds": 1.5667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 352,
+    "category": "overhead",
+    "seconds": 0.00015524908606323606,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 353,
+    "category": "overhead",
+    "seconds": 0.00017312495037913322,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 354,
+    "category": "geometry_check",
+    "seconds": 1.0084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 355,
+    "category": "overhead",
+    "seconds": 0.000127083051431498,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 356,
+    "category": "surrogate_update",
+    "seconds": 0.0001170838950201869,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 357,
+    "category": "overhead",
+    "seconds": 7.441604975610971e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 358,
+    "category": "geometry_check",
+    "seconds": 9.25e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 359,
+    "category": "mesh_motion",
+    "seconds": 0.00034025,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 360,
+    "category": "forward",
+    "seconds": 1.8952678339999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 361,
+    "category": "overhead",
+    "seconds": 0.00020712398441702362,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 362,
+    "category": "overhead",
+    "seconds": 0.00016487506218254566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 363,
+    "category": "surrogate_update",
+    "seconds": 0.0002544579328969121,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 364,
+    "category": "overhead",
+    "seconds": 8.079200051724911e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 365,
+    "category": "geometry_check",
+    "seconds": 1.7041e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 366,
+    "category": "mesh_motion",
+    "seconds": 0.000393125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 367,
+    "category": "remesh",
+    "seconds": 0.477608082,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 368,
+    "category": "validation",
+    "seconds": 2.42586775,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 369,
+    "category": "overhead",
+    "seconds": 0.0007808770233879159,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 370,
+    "category": "overhead",
+    "seconds": 8.345895912498236e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 371,
+    "category": "overhead",
+    "seconds": 0.00041745800990611315,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 372,
+    "category": "geometry_check",
+    "seconds": 1.7375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 373,
+    "category": "overhead",
+    "seconds": 0.00019200005178277024,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 374,
+    "category": "overhead",
+    "seconds": 0.0009369580075144768,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 375,
+    "category": "geometry_check",
+    "seconds": 1.5709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 376,
+    "category": "overhead",
+    "seconds": 0.00016508294705630533,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 377,
+    "category": "overhead",
+    "seconds": 0.0001997080398723483,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 378,
+    "category": "geometry_check",
+    "seconds": 1.6959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 379,
+    "category": "overhead",
+    "seconds": 0.00020391602293301503,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 380,
+    "category": "overhead",
+    "seconds": 0.00018562492914497852,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 381,
+    "category": "geometry_check",
+    "seconds": 9.542e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 382,
+    "category": "overhead",
+    "seconds": 0.00014450003440913406,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 383,
+    "category": "overhead",
+    "seconds": 0.0001373749691992998,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 384,
+    "category": "geometry_check",
+    "seconds": 1.1333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 385,
+    "category": "overhead",
+    "seconds": 0.00013504203772640722,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 386,
+    "category": "surrogate_update",
+    "seconds": 0.00010437495075166225,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 387,
+    "category": "overhead",
+    "seconds": 7.641699630767107e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 388,
+    "category": "geometry_check",
+    "seconds": 9.291e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 389,
+    "category": "mesh_motion",
+    "seconds": 0.0003385,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 390,
+    "category": "forward",
+    "seconds": 1.8936682079999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 391,
+    "category": "overhead",
+    "seconds": 0.00022758408315581846,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 392,
+    "category": "overhead",
+    "seconds": 0.00019158294890075922,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 393,
+    "category": "surrogate_update",
+    "seconds": 0.0002692079870030284,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 394,
+    "category": "overhead",
+    "seconds": 7.791700772941113e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 395,
+    "category": "geometry_check",
+    "seconds": 1.9958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 396,
+    "category": "mesh_motion",
+    "seconds": 0.000397542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 397,
+    "category": "remesh",
+    "seconds": 0.474364875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 398,
+    "category": "validation",
+    "seconds": 2.448062167,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 399,
+    "category": "overhead",
+    "seconds": 0.0007924580289682126,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 400,
+    "category": "overhead",
+    "seconds": 8.529203478246927e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 401,
+    "category": "overhead",
+    "seconds": 0.0004207500023767352,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 402,
+    "category": "geometry_check",
+    "seconds": 1.8125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 403,
+    "category": "overhead",
+    "seconds": 0.00017508299038127006,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 404,
+    "category": "overhead",
+    "seconds": 0.00015391700435429811,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 405,
+    "category": "geometry_check",
+    "seconds": 1.1875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 406,
+    "category": "overhead",
+    "seconds": 0.00016604195427305513,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 407,
+    "category": "overhead",
+    "seconds": 0.00021983298938721418,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 408,
+    "category": "geometry_check",
+    "seconds": 1.6375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 409,
+    "category": "overhead",
+    "seconds": 0.00014895804005732316,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 410,
+    "category": "overhead",
+    "seconds": 0.00012091698590666056,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 411,
+    "category": "geometry_check",
+    "seconds": 1.225e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 412,
+    "category": "overhead",
+    "seconds": 0.00014358296772343238,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 413,
+    "category": "overhead",
+    "seconds": 0.00016204197891056538,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 414,
+    "category": "geometry_check",
+    "seconds": 1.5209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 415,
+    "category": "overhead",
+    "seconds": 0.00015187399517913036,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 416,
+    "category": "overhead",
+    "seconds": 0.0001750420778989792,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 417,
+    "category": "geometry_check",
+    "seconds": 1.6584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 418,
+    "category": "overhead",
+    "seconds": 0.00017179100829167737,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 419,
+    "category": "surrogate_update",
+    "seconds": 0.00011112494394183159,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 420,
+    "category": "overhead",
+    "seconds": 7.54169886931777e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 421,
+    "category": "geometry_check",
+    "seconds": 1.5916e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 422,
+    "category": "mesh_motion",
+    "seconds": 0.000343584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 423,
+    "category": "forward",
+    "seconds": 1.891882584,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 424,
+    "category": "overhead",
+    "seconds": 0.0002193320787284847,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 425,
+    "category": "overhead",
+    "seconds": 0.00017741695046424866,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 426,
+    "category": "surrogate_update",
+    "seconds": 0.00028137501794844866,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 427,
+    "category": "overhead",
+    "seconds": 2.529192715883255e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 428,
+    "category": "overhead",
+    "seconds": 0.00034083309583365917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 429,
+    "category": "geometry_check",
+    "seconds": 1.7708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 430,
+    "category": "overhead",
+    "seconds": 0.00017433397451327437,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 431,
+    "category": "overhead",
+    "seconds": 0.0001206250162795186,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 432,
+    "category": "geometry_check",
+    "seconds": 1.5291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 433,
+    "category": "overhead",
+    "seconds": 0.00017316701242009458,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 434,
+    "category": "overhead",
+    "seconds": 0.000247957999818027,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 435,
+    "category": "geometry_check",
+    "seconds": 1.85e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 436,
+    "category": "overhead",
+    "seconds": 0.00016758395475591215,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 437,
+    "category": "overhead",
+    "seconds": 0.000128875020891428,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 438,
+    "category": "geometry_check",
+    "seconds": 1.4208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 439,
+    "category": "overhead",
+    "seconds": 0.00013887500498555028,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 440,
+    "category": "overhead",
+    "seconds": 0.0001260829158127308,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 441,
+    "category": "geometry_check",
+    "seconds": 1.275e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 442,
+    "category": "overhead",
+    "seconds": 0.00013816709792280335,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 443,
+    "category": "overhead",
+    "seconds": 0.0001255829120054841,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 444,
+    "category": "geometry_check",
+    "seconds": 1.2e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 445,
+    "category": "overhead",
+    "seconds": 0.00012870898760297678,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 446,
+    "category": "surrogate_update",
+    "seconds": 0.00013099994976073503,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 447,
+    "category": "overhead",
+    "seconds": 7.870804984122515e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 448,
+    "category": "geometry_check",
+    "seconds": 1.1292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 449,
+    "category": "mesh_motion",
+    "seconds": 0.000346667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 450,
+    "category": "forward",
+    "seconds": 1.890985792,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 451,
+    "category": "overhead",
+    "seconds": 0.000226832102285357,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 452,
+    "category": "overhead",
+    "seconds": 0.00020899996161460876,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 453,
+    "category": "surrogate_update",
+    "seconds": 0.00027970795053988695,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 454,
+    "category": "overhead",
+    "seconds": 7.925101090222597e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 455,
+    "category": "geometry_check",
+    "seconds": 1.675e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 456,
+    "category": "mesh_motion",
+    "seconds": 0.000393458,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 457,
+    "category": "remesh",
+    "seconds": 0.48557937500000004,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 458,
+    "category": "validation",
+    "seconds": 2.464549833,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 459,
+    "category": "overhead",
+    "seconds": 0.0007912919905663784,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 460,
+    "category": "overhead",
+    "seconds": 9.516708087176085e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 461,
+    "category": "overhead",
+    "seconds": 0.00040637492202222347,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 462,
+    "category": "geometry_check",
+    "seconds": 1.7667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 463,
+    "category": "overhead",
+    "seconds": 0.00019229105971163563,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 464,
+    "category": "overhead",
+    "seconds": 0.00016024999786168337,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 465,
+    "category": "geometry_check",
+    "seconds": 9.5e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 466,
+    "category": "overhead",
+    "seconds": 0.00012145792383222442,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 467,
+    "category": "overhead",
+    "seconds": 0.00011495908256620169,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 468,
+    "category": "geometry_check",
+    "seconds": 1.0834e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 469,
+    "category": "overhead",
+    "seconds": 0.00013174892503542424,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 470,
+    "category": "overhead",
+    "seconds": 0.00015991705004125834,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 471,
+    "category": "geometry_check",
+    "seconds": 9e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 472,
+    "category": "overhead",
+    "seconds": 0.00010954094918957935,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 473,
+    "category": "overhead",
+    "seconds": 0.00010425003711134195,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 474,
+    "category": "geometry_check",
+    "seconds": 9.042e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 475,
+    "category": "overhead",
+    "seconds": 0.00010670800826062532,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 476,
+    "category": "overhead",
+    "seconds": 0.00011350004933774471,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 477,
+    "category": "geometry_check",
+    "seconds": 8.625e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 478,
+    "category": "overhead",
+    "seconds": 0.00010316700373635967,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 479,
+    "category": "surrogate_update",
+    "seconds": 8.108292240649462e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 480,
+    "category": "overhead",
+    "seconds": 7.591699250042439e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 481,
+    "category": "geometry_check",
+    "seconds": 1.6875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 482,
+    "category": "mesh_motion",
+    "seconds": 0.000337334,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 483,
+    "category": "forward",
+    "seconds": 1.904650084,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 484,
+    "category": "overhead",
+    "seconds": 0.00022816502614375622,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 485,
+    "category": "overhead",
+    "seconds": 0.00018541701138019562,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 486,
+    "category": "surrogate_update",
+    "seconds": 0.0002887500450015068,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 487,
+    "category": "overhead",
+    "seconds": 8.37499974295497e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 488,
+    "category": "geometry_check",
+    "seconds": 1.9e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 489,
+    "category": "mesh_motion",
+    "seconds": 0.000386667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 490,
+    "category": "remesh",
+    "seconds": 0.479860875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 491,
+    "category": "validation",
+    "seconds": 2.419429333,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 492,
+    "category": "overhead",
+    "seconds": 0.0008407919734878533,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 493,
+    "category": "overhead",
+    "seconds": 0.00011462497059255838,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 494,
+    "category": "overhead",
+    "seconds": 0.0004497499903663993,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 495,
+    "category": "geometry_check",
+    "seconds": 1.5583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 496,
+    "category": "overhead",
+    "seconds": 0.00016495807203398272,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 497,
+    "category": "overhead",
+    "seconds": 0.0001229170011356473,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 498,
+    "category": "geometry_check",
+    "seconds": 1.7709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 499,
+    "category": "overhead",
+    "seconds": 0.00018729093115155138,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 500,
+    "category": "overhead",
+    "seconds": 0.00022058305330574512,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 501,
+    "category": "geometry_check",
+    "seconds": 1.0042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 502,
+    "category": "overhead",
+    "seconds": 0.0001350829700044187,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 503,
+    "category": "overhead",
+    "seconds": 0.00011725001968443394,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 504,
+    "category": "geometry_check",
+    "seconds": 1.375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 505,
+    "category": "overhead",
+    "seconds": 0.00013808398500714247,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 506,
+    "category": "overhead",
+    "seconds": 0.00012220803182572126,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 507,
+    "category": "geometry_check",
+    "seconds": 1.1542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 508,
+    "category": "overhead",
+    "seconds": 0.0001251659094094748,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 509,
+    "category": "overhead",
+    "seconds": 0.00013250007759779692,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 510,
+    "category": "geometry_check",
+    "seconds": 1.5167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 511,
+    "category": "overhead",
+    "seconds": 0.00014662491879846584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 512,
+    "category": "overhead",
+    "seconds": 0.00017495802603662014,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 513,
+    "category": "geometry_check",
+    "seconds": 1.9166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 514,
+    "category": "overhead",
+    "seconds": 0.00020133404917999087,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 515,
+    "category": "overhead",
+    "seconds": 0.00016950001008808613,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 516,
+    "category": "geometry_check",
+    "seconds": 1.5708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 517,
+    "category": "overhead",
+    "seconds": 0.00014845902418869628,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 518,
+    "category": "overhead",
+    "seconds": 0.0001278329873457551,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 519,
+    "category": "geometry_check",
+    "seconds": 1.175e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 520,
+    "category": "overhead",
+    "seconds": 0.0001362499627930447,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 521,
+    "category": "overhead",
+    "seconds": 0.00016670895274728537,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 522,
+    "category": "geometry_check",
+    "seconds": 1.575e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 523,
+    "category": "overhead",
+    "seconds": 0.0001472910551996165,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 524,
+    "category": "overhead",
+    "seconds": 0.00012199999764561653,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 525,
+    "category": "geometry_check",
+    "seconds": 1.4625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 526,
+    "category": "overhead",
+    "seconds": 0.0001599589836018822,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 527,
+    "category": "overhead",
+    "seconds": 0.00012116599828004837,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 528,
+    "category": "geometry_check",
+    "seconds": 1.375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 529,
+    "category": "overhead",
+    "seconds": 0.0001650000223207826,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 530,
+    "category": "overhead",
+    "seconds": 9.991694241762161e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 531,
+    "category": "geometry_check",
+    "seconds": 1.1125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 532,
+    "category": "overhead",
+    "seconds": 0.00014766701237078905,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 533,
+    "category": "surrogate_update",
+    "seconds": 0.00017333310097455978,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 534,
+    "category": "overhead",
+    "seconds": 8.124997839331627e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 535,
+    "category": "forward",
+    "seconds": 1.511794586897949,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "train aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "file_sha256": "687d57c75c51c9e427899d2c6f815ff38563293a89472706a746f2a31af5ab32",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "in_run_start_time": 1792313188.8962922,
+ "in_run_end_time": 1792313255.682131,
+ "post_run_diagnostic": {
+  "counted_in_run_budget": false,
+  "fractions": [
+   0.25,
+   0.75
+  ],
+  "prediction": {
+   "x": [
+    0.006275221828977368,
+    0.003826397861813156,
+    0.01934231664232106,
+    0.005680028770548866,
+    0.0010540577242676,
+    0.0009896587157081755,
+    0.01625262205473831,
+    0.0014005792756187248
+   ],
+   "points": 25,
+   "exact_fit": true,
+   "predictions": [
+    {
+     "fraction": 0.25,
+     "neighbours": [
+      0.0,
+      0.5
+     ],
+     "std_pred": 0.006554405655678343,
+     "mean_pred": 0.335083291789628
+    },
+    {
+     "fraction": 0.75,
+     "neighbours": [
+      0.5,
+      1.0
+     ],
+     "std_pred": 0.014921585718090699,
+     "mean_pred": 1.0660121747326317
+    }
+   ],
+   "rule": "linear in the current fraction between C's per-current RBF predictions at the neighbouring training fractions (0, 0.5, 1); the means at 0 and 0.5 are post-run fits"
+  },
+  "status": "ok",
+  "error": null,
+  "charges": [
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 0.000548875
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "remesh",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 0.48259191700000004
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "forward",
+    "forward_solves": 40,
+    "note": "diagnostic training",
+    "seconds": 1.3134903750000002
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 0.000472542
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "remesh",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 0.5094344989999999
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "validation",
+    "forward_solves": 40,
+    "note": "diagnostic validation",
+    "seconds": 1.6796619160000001
+   }
+  ],
+  "seconds": 4.028317958000116,
+  "rows": [
+   {
+    "fraction": 0.25,
+    "neighbours": [
+     0.0,
+     0.5
+    ],
+    "std_pred": 0.006554405655678343,
+    "mean_pred": 0.335083291789628,
+    "std_train": 0.004506993056937286,
+    "mean_train": 0.3210593987963068,
+    "std_val": 0.0053840473588585075,
+    "mean_val": 0.32111978335102115,
+    "rel_std_train": 0.4542746289767684,
+    "rel_mean_train": 0.04368005747814446,
+    "rel_std_val": 0.21737518614025864,
+    "rel_mean_val": 0.04348380001036279
+   },
+   {
+    "fraction": 0.75,
+    "neighbours": [
+     0.5,
+     1.0
+    ],
+    "std_pred": 0.014921585718090699,
+    "mean_pred": 1.0660121747326317,
+    "std_train": 0.015085288475554787,
+    "mean_train": 1.050372996476409,
+    "std_val": 0.01676135705269554,
+    "mean_val": 1.0504412850525855,
+    "rel_std_train": 0.01085181484791377,
+    "rel_mean_train": 0.014889166332994053,
+    "rel_std_val": 0.10976267188992142,
+    "rel_mean_val": 0.014823188979350406
+   }
+  ],
+  "validation_mesh": {
+   "attempts": [
+    {
+     "attempt": 0,
+     "detail": null,
+     "label": "default",
+     "mesh_s": 0.496770083,
+     "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+     "outcome": "passed",
+     "setup_s": 0.012664416
+    }
+   ],
+   "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/surrogate_a_drill_r1.meshes/diagnostic/validation/icem_remesh_remesh000_L0.msh",
+   "kind": "fresh",
+   "mesh_s": 0.4961885,
+   "moved_quality": {
+    "inverted": 0,
+    "max_angle_deg": 159.99646849232568,
+    "max_area_ratio": 2.624807999733264,
+    "min_angle_deg": 1.639537231297724,
+    "min_area_ratio": 0.03848593693058376
+   },
+   "msh_sha256": "4a1011156cba12252ed2904d5db0b08e43d8870795ca07c8473c94c831f08f7d",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 131.23472365641683,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 16.891088166826908,
+    "min_area_ratio": 1.0
+   },
+   "trigger": {
+    "kind": "min_angle",
+    "min_angle_deg": 1.639537231297724,
+    "threshold_deg": 5.0
+   }
+  }
+ },
+ "post_run_end_time": 1792313259.7111208,
+ "in_run_wall_seconds": 66.78169042,
+ "post_run_wall_seconds": 4.028317958000116,
+ "load_after": [
+  23.59228515625,
+  22.3740234375,
+  22.4443359375
+ ],
+ "finished_utc": "2026-10-18T08:47:39Z",
+ "host_contaminated": true,
+ "pre_run_load": 23.5029296875,
+ "pre_run_wait_s": 0.0,
+ "host_gate": false,
+ "longest_overload_s": 64.15917015075684,
+ "in_run_load": {
+  "samples": 13,
+  "max": 24.85302734375,
+  "mean": 24.487229567307693
+ },
+ "diagnostic_load": {
+  "samples": 1,
+  "max": 23.59228515625,
+  "mean": 23.59228515625
+ }
+}
