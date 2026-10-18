@@ -20,7 +20,15 @@ from session_journal import Journal, freeze, read_events
 def good_cal():
     return {"host": {"gate": True, "host_contaminated": False}, "deterministic": True,
             "anchor_agrees_4ulp": True, "space_b_theta0_train_agrees_bitwise": True,
+            "processes": 1, "theta0_validation": {"F": 1., "mean_full": 2.},
+            "single_process": {"theta0_validation": {"F": 1., "mean_full": 2.}},
+            "per_process": [{"theta0_validation": {"F": 1., "mean_full": 2.}}],
             "unit_seconds": 3., "theta0_train": {"F": 1., "mean_full": 2.}, "weights": {}}
+
+
+def good_anchor():
+    return {"status": "PASS", "spaces_agree_bitwise": True,
+            "calibration_reference": {"F": 1., "mean_full": 2.}}
 
 
 class JournalTests(unittest.TestCase):
@@ -61,7 +69,7 @@ class JournalTests(unittest.TestCase):
             root = Path(td) / "session"; j = Journal(root, {})
             cal = good_cal(); cal["host"]["host_contaminated"] = True
             with self.assertRaisesRegex(SystemExit, "calibration rejected"):
-                session.accept_calibration(cal, root, "calibration.json", True, j)
+                session.accept_calibration(cal, root, "calibration.json", True, j, good_anchor())
             j.close()
             saved = json.loads((root / "calibration.json").read_text())
             self.assertFalse(saved["accepted_for_dispatch"])
@@ -79,6 +87,7 @@ class JournalTests(unittest.TestCase):
                      patch("build_provenance.verify", return_value={"verified": True}), \
                      patch.object(session, "sha256", return_value="fixture-hash"), \
                      patch("start_preflight.verify", return_value={"status": "PASS"}), \
+                     patch("anchor_preflight.verify", return_value=good_anchor()), \
                      patch.object(session, "gated_calibration", side_effect=cals), \
                      patch.object(session, "schedule") as dispatch:
                     with self.assertRaisesRegex(SystemExit, "calibration rejected"):
@@ -107,6 +116,8 @@ class JournalTests(unittest.TestCase):
             (root / "starts.json").write_text("{}")
             def preflight(binary, starts, meshes, path, **kwargs):
                 record = {"status": "PASS"}; freeze(path, record); return record
+            def anchor_preflight(binary, train, val, anchor, path, **kwargs):
+                record = good_anchor(); freeze(path, record); return record
             def schedule(jobs, *a, **k):
                 rows = [dict(job, job_name=job["name"], status="ran", exit=0, host_contaminated=False,
                              optimizer_completed=True, diagnostic_status="not_requested", stop_reason="budget")
@@ -122,6 +133,7 @@ class JournalTests(unittest.TestCase):
                  patch("recovery_bindings.capture", return_value={"schema": 1, "source": {"tree_clean": True}}) as capture, \
                  patch("recovery_bindings.validate_setup"), \
                  patch("start_preflight.verify", side_effect=preflight), \
+                 patch("anchor_preflight.verify", side_effect=anchor_preflight), \
                  patch.object(session, "gated_calibration", side_effect=[good_cal() for _ in range(4)]), \
                  patch.object(session, "schedule", side_effect=schedule) as dispatch, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(session.main(["--main", "--procs", "1", "--out", str(out),

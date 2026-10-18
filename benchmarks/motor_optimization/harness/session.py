@@ -244,6 +244,7 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_u
     cal = combine_calibrations(cals, common_unit=common_unit)
     cal["single_process"] = {"unit_seconds": single["unit_seconds"],
                              "validation_seconds": single["validation_seconds"],
+                             "theta0_validation": single["theta0_validation"],
                              "weights": single["weights"],
                              "process_resources": single["process_resources"],
                              "note": "diagnostic only; not the unit"}
@@ -576,13 +577,14 @@ def gated_calibration(ctx, fn, max_deferrals, wait=wait_for_idle, clock=time.tim
     return cal
 
 
-def accept_calibration(cal, out, name, main, journal=None):
+def accept_calibration(cal, out, name, main, journal=None, anchor_check=None):
     """Archive even a rejected calibration before deciding whether to dispatch."""
+    from anchor_preflight import calibration_matches
     accepted = (not main or (cal.get("host", {}).get("gate") is True
                 and cal["host"].get("host_contaminated") is False
                 and cal["host"].get("monitor_error") is None
                 and cal.get("deterministic") is True
-                and cal.get("anchor_agrees_4ulp") is True
+                and calibration_matches(cal, anchor_check)
                 and cal.get("space_b_theta0_train_agrees_bitwise") is True))
     evidence = session_journal.freeze(Path(out) / name,
                                      {"accepted_for_dispatch": accepted, "calibration": cal})
@@ -718,6 +720,7 @@ def _main(argv=None, stop=None):
             if budget != 120.0:
                 raise SystemExit("the main budget is 120 FE (amendment 7 §4)")
         preflight = None
+        anchor_check = None
         if not a.smoke:
             from start_preflight import verify
             preflight = verify(a.binary, starts_path,
@@ -725,6 +728,13 @@ def _main(argv=None, stop=None):
                                out / "start_preflight.json", stop=stop, process_journal=journal)
             if preflight["status"] != "PASS":
                 raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
+            from anchor_preflight import verify as verify_anchor
+            anchor_check = verify_anchor(a.binary, train_mesh, val_mesh, anchor,
+                                         out / "anchor_preflight.json", stop=stop, process_journal=journal)
+            journal.emit("anchor_recomputation_completed", status=anchor_check["status"],
+                         sha256=sha256(out / "anchor_preflight.json"))
+            if anchor_check["status"] != "PASS":
+                raise SystemExit("anchor recomputation failed; no calibration or main jobs launched")
         meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
                   "validation": {"file": str(val_mesh), "level": vl, "sha256": sha256(val_mesh)},
                   "anchor": {"file": str(anchor), "sha256": sha256(anchor)},
@@ -735,7 +745,7 @@ def _main(argv=None, stop=None):
                "monitor": monitor, "gate": a.host_gate == "on", "journal": journal, "stop": stop}
         cal = gated_calibration(ctx, lambda: calibrate(a.binary, train_mesh, val_mesh, tl, vl,
                                                        anchor, out, a.procs, stop=stop, process_journal=journal), a.max_deferrals)
-        accept_calibration(cal, out, "calibration_primary.json", not a.smoke, journal)
+        accept_calibration(cal, out, "calibration_primary.json", not a.smoke, journal, anchor_check)
         session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
         primary = f"L{tl}"
         models = {primary: {"train_mesh": str(train_mesh), "train_level": tl,
@@ -749,7 +759,7 @@ def _main(argv=None, stop=None):
             secondary_cal = gated_calibration(ctx, lambda: calibrate(
                 a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
                 common_unit=cal["unit_seconds"], stop=stop, process_journal=journal), a.max_deferrals)
-            accept_calibration(secondary_cal, out, "calibration_secondary.json", True, journal)
+            accept_calibration(secondary_cal, out, "calibration_secondary.json", True, journal, anchor_check)
             models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
                             "train_mesh_sha256": sha256(l0_mesh),
                             "theta0_train": secondary_cal["theta0_train"],
@@ -765,6 +775,9 @@ def _main(argv=None, stop=None):
                    "linear_algebra": prov["linear_algebra"]}
         if a.build_receipt is not None:
             session["evaluator"]["build_receipt"] = str(a.build_receipt.resolve())
+        if anchor_check is not None:
+            session["anchor_recomputation"] = {"file": str(out / "anchor_preflight.json"),
+                                                "sha256": sha256(out / "anchor_preflight.json")}
         interruption.check(stop)
         session_journal.freeze(out / "session.json", session)
         jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
@@ -804,6 +817,8 @@ def _main(argv=None, stop=None):
             pinned.append("calibration_secondary.json")
         if preflight is not None:
             pinned.append("start_preflight.json")
+        if anchor_check is not None:
+            pinned.append("anchor_preflight.json")
         meshes["training_models"] = {key: {"file": m["train_mesh"], "level": m["train_level"],
                                            "sha256": m["train_mesh_sha256"]} for key, m in models.items()}
         session_journal.freeze(out / "bindings.json", {

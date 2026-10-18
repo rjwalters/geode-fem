@@ -1161,3 +1161,40 @@ Compare the complete `jobs` array with the session's frozen `queue.json`.
 Archive actual dispatch/start order separately: concurrent starts and deferred
 jobs can differ from planned order. The export supplies neither a time unit
 nor permission to bypass build, calibration, host, or review prerequisites.
+
+### Cross-platform anchor preflight (#1185 ruling, 2026-10-18)
+
+The [adopted rule](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196)
+separates anchor-file parsing from recomputing the same model on another host.
+Main setup runs `anchor_preflight.py` after frozen-start checks and before any
+calibration. It recomputes the full theta0 validation waveform in both spaces,
+using the fixed L1/L2 meshes and the canonical anchor file. It requires relative
+F0 and full-current-mean differences at most `1e-9`, and absolute torque
+differences at most `1e-9 N m` at every angle and current. Mesh/reference-data
+hashes, physical settings and theta0 design must match. Newton counts are
+recorded without requiring equality. Both spaces must agree bitwise on this host.
+
+The strict four-ulp anchor-file parse check remains. Recomputed values never
+replace the canonical targets, delta-F or mean floor. The older
+`anchor_agrees_bitwise` and `anchor_agrees_4ulp` recomputation flags remain in
+calibration evidence, including `false` on the cloud probe; they are not the
+cross-platform acceptance rule. Every calibration process and the single-process
+diagnostic must match this host's preflight F and mean exactly. Same-host
+determinism and the space-B training check remain required.
+
+`anchor_preflight.json` retains requests/replies, comparisons, source/input/binary
+hashes, process resource receipts and setup wall time. Its cost is outside run
+budgets and the calibration unit. A failed comparison stops before calibration
+or optimizer dispatch. The report is included in the frozen recovery bindings.
+The standalone command is:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/anchor_preflight.py --binary RECORDED_EVALUATOR --out NEW_ANCHOR_PREFLIGHT.json
+```
+
+`test_anchor_preflight.py` covers observed platform noise, independent `2e-9`
+violations of each observable/current/angle, malformed or mismatched inputs,
+exact same-host values and the pre-calibration stop. The disposable mutation
+runner is `anchor_preflight_mutations.py`. Python is pinned to the 3.12 minor
+series by `pyrun.sh`; the actual patch version and package/backend contents are
+recorded and fixed within the session and its recovery generations.
