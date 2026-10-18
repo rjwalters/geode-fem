@@ -3,6 +3,6 @@
 runs/*.meshes/*.msh
 # Harness (#1195): fresh meshes and per-run plans written by the evaluator
 # (each SHA-256 is in the run trace), and the locked Python environment.
-**/meshes/**/*.msh
-**/meshes/**/plan_*.json
+**/*.meshes/**/*.msh
+**/*.meshes/**/plan_*.json
 harness/.venv/
