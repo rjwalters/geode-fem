@@ -143,6 +143,8 @@ choices support a bounded same-domain comparison; they do not establish a
 fixed-resource manufacturable design comparison or superiority to untested
 optimizers. The differences need an explicit scientific scope decision before
 declaring M4/M5 complete; see the reconciliation table in `EXPERIMENTS.md`.
+An independent derivation of the physical bounds already implied by the box and
+construction is recorded in `refs/geometry-bounds-audit.md`, pending review.
 
 Count mesh updates, assembly, nonlinear iterations, factorizations, RHS
 solves, derivative assembly, constraints, line searches and calibration.
