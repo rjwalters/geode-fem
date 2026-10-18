@@ -7,8 +7,13 @@
 //!   icem_harness_eval --space a|b --train-mesh FILE --val-mesh FILE
 //!                     [--anchor FILE.json] [--mesh-out DIR]
 //!                     [--train-level L] [--val-level L] [--newton default|tight]
-//!                     [--degrees 0:20]
+//!                     [--degrees 0:20] [--drill-mesher-fails K]
 //! ```
+//!
+//! * `--drill-mesher-fails K` (a labelled smoke session only): the first K
+//!   attempts of every fresh training mesh fail without running gmsh (K of
+//!   4 or more: the mesh-infeasible path; K = 1: a repair that succeeds at
+//!   attempt 1; #1201). Refused with the registered levels.
 //!
 //! * The defaults are the registered session (training h45 L1 g20,
 //!   validation h93 L2 g20). `--train-mesh` and `--val-mesh` are the θ0
@@ -57,6 +62,7 @@ struct Args {
     anchor: Option<PathBuf>,
     mesh_out: PathBuf,
     cfg: SessionConfig,
+    drill_mesher_fails: Option<usize>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -68,9 +74,16 @@ fn parse_args() -> Result<Args, String> {
         anchor: None,
         mesh_out: std::env::temp_dir().join("icem_harness_meshes"),
         cfg: SessionConfig::registered(),
+        drill_mesher_fails: None,
     };
     let mut i = 0;
     while i < argv.len() {
+        if argv[i] == "--drill-mesher-fails" {
+            let k = argv.get(i + 1).ok_or("--drill-mesher-fails needs K")?;
+            a.drill_mesher_fails = Some(k.parse::<usize>().map_err(|e| format!("{k}: {e}"))?);
+            i += 2;
+            continue;
+        }
         let v = argv
             .get(i + 1)
             .cloned()
@@ -105,6 +118,9 @@ fn parse_args() -> Result<Args, String> {
     }
     if a.train_mesh.as_os_str().is_empty() || a.val_mesh.as_os_str().is_empty() {
         return Err("--train-mesh and --val-mesh are required".into());
+    }
+    if a.drill_mesher_fails.is_some() && a.cfg.is_registered() {
+        return Err("--drill-mesher-fails is for a labelled smoke session only".into());
     }
     Ok(a)
 }
@@ -159,8 +175,15 @@ fn start() -> Result<(), String> {
     let train = read(&a.train_mesh)?;
     let val = read(&a.val_mesh)?;
     let anchor = anchor_of(&a.anchor)?;
-    let tsrc = MeshSource::Gmsh {
-        out_dir: a.mesh_out.join("train"),
+    let tsrc = if let Some(first) = a.drill_mesher_fails {
+        MeshSource::DrillFail {
+            first,
+            out_dir: Some(a.mesh_out.join("train")),
+        }
+    } else {
+        MeshSource::Gmsh {
+            out_dir: a.mesh_out.join("train"),
+        }
     };
     let vsrc = MeshSource::Gmsh {
         out_dir: a.mesh_out.join("validation"),

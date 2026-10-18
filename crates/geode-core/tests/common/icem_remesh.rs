@@ -59,12 +59,16 @@ use geode_core::assembly::magnetostatic_nonlinear::NewtonConfig;
 use geode_core::assembly::magnetostatic_sector::SectorError;
 use geode_core::assembly::magnetostatic_shape::SectorShapeProblem;
 use geode_core::mesh::design_remesh::{
-    MovingMesh, NodalTransfer, PreparedMesh, RemeshError, RemeshEvent, RemeshPolicy, RemeshTrigger,
-    Remesher, RemeshingReference,
+    AttemptError, MovingMesh, NodalTransfer, PreparedMesh, RemeshError, RemeshEvent, RemeshPolicy,
+    RemeshTrigger, Remesher, RemeshingReference,
 };
-use geode_core::mesh::icem_controlpoints::{IcemCpDesign, N_ROTOR_GROUPS, sector_curves_cp_f64};
+use geode_core::mesh::icem_controlpoints::{
+    IcemCpDesign, N_ROTOR_GROUPS, cp_param_names, sector_curves_cp_f64,
+};
+use geode_core::mesh::icem_domain::{Domain, cp_domain, scalar_domain};
 use geode_core::mesh::icem_parametric::{
-    Curve, CurveShape, IcemDesign, IcemParamError, MotionQuality, N_PARAMS, sector_curves_f64,
+    Curve, CurveShape, IcemDesign, IcemParamError, MotionQuality, N_PARAMS, PARAM_NAMES,
+    sector_curves_f64,
 };
 use serde_json::{Value, json};
 
@@ -113,6 +117,11 @@ pub trait Space {
     fn problem_at(s: &Self::Setup, g: &Self::Geo) -> Result<SectorShapeProblem, SectorError>;
     /// The construction curves at `g` (for the fresh-mesh plan).
     fn curves(g: &Self::Geo) -> Result<Vec<Curve<f64>>, IcemParamError>;
+    /// The geometry domain at `g` (#1185 amendment 7 §1): margins, scales,
+    /// `h` and `∂h/∂g` over [`geo_names`](Self::geo_names).
+    fn domain(g: &Self::Geo) -> Domain;
+    /// Names of the geometric components of `g`.
+    fn geo_names() -> Vec<&'static str>;
     /// The set-up on `msh`, meshed at `theta0`.
     fn setup(
         level: usize,
@@ -247,6 +256,12 @@ impl Space for ScalarSpace {
     fn problem_at(s: &DesignSetup, g: &IcemDesign) -> Result<SectorShapeProblem, SectorError> {
         s.problem_at(g)
     }
+    fn domain(g: &IcemDesign) -> Domain {
+        scalar_domain(g)
+    }
+    fn geo_names() -> Vec<&'static str> {
+        PARAM_NAMES.to_vec()
+    }
     fn curves(g: &IcemDesign) -> Result<Vec<Curve<f64>>, IcemParamError> {
         sector_curves_f64(g)
     }
@@ -335,6 +350,12 @@ impl Space for CpSpace {
     }
     fn problem_at(s: &CpDesignSetup, g: &IcemCpDesign) -> Result<SectorShapeProblem, SectorError> {
         s.problem_at(g)
+    }
+    fn domain(g: &IcemCpDesign) -> Domain {
+        cp_domain(g)
+    }
+    fn geo_names() -> Vec<&'static str> {
+        cp_param_names().to_vec()
     }
     fn curves(g: &IcemCpDesign) -> Result<Vec<Curve<f64>>, IcemParamError> {
         sector_curves_cp_f64(g)
@@ -426,6 +447,15 @@ pub enum MeshSource {
     /// A fixed MSH text for every design (tests: a remesh "at θ0" with the
     /// committed mesh of θ0).
     Fixed(String),
+    /// Attempts `0..first` fail as mesher failures without running gmsh;
+    /// later attempts run gmsh into `out_dir` (none with `out_dir: None`).
+    /// An injected fault that drives the mesh-infeasible path (`first` of
+    /// 4 or more) or a repair that succeeds after a failed attempt in a
+    /// labelled smoke session (#1201). Never a registered source.
+    DrillFail {
+        first: usize,
+        out_dir: Option<PathBuf>,
+    },
 }
 
 /// The fresh mesh builder `benchmarks/motor_shape_gradient/design/build_design_mesh.py`.
@@ -433,13 +463,71 @@ pub fn design_mesh_script() -> PathBuf {
     icem::motor_reference_dir().join("../motor_shape_gradient/design/build_design_mesh.py")
 }
 
-/// One fresh mesh made by [`IcemRemesher`].
+/// One fresh mesh made by [`IcemRemesher`] (one mesh-repair attempt).
 #[derive(Debug, Clone)]
 pub struct FreshMeshRecord {
     pub name: String,
     pub file: Option<PathBuf>,
     pub seconds: f64,
     pub log: String,
+    /// 0-based mesh-repair attempt ([`IcemRemesher::attempts`]).
+    pub attempt: usize,
+    /// The attempt's label.
+    pub label: &'static str,
+    /// SHA-256 of the MSH bytes (`None`: the mesher produced none).
+    pub sha256: Option<String>,
+    /// The mesher's error, if it produced no mesh.
+    pub error: Option<String>,
+}
+
+/// One mesh-repair attempt of #1185 amendment 7 §3: gmsh options set on
+/// top of `build_design_mesh.py`'s defaults, and nothing else. Each attempt
+/// is a fresh `build_design_mesh.py` process (a fresh `gmsh.initialize`)
+/// with only its own options, so no setting carries over between attempts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeshAttempt {
+    pub label: &'static str,
+    pub options: &'static [(&'static str, f64)],
+}
+
+/// The frozen mesh-repair sequence (amendment 7 §3, with the #1185 ruling
+/// on attempt 2): the default (`Mesh.Algorithm = 6`, Frontal-Delaunay);
+/// `Mesh.Algorithm = 5` (Delaunay); the characteristic length factor 0.9;
+/// then 0.8 (`Mesh.MeshSizeFactor`, gmsh 4's name of
+/// `Mesh.CharacteristicLengthFactor`). The registered attempt 2 (`Mesh.Optimize
+/// = 1` with `Mesh.OptimizeNetgen = 1`) acts on tetrahedra only and gave the
+/// default's 2-D mesh byte for byte; the ruling replaced it. The coupling
+/// circles are transfinite, so neither the algorithm nor the size factor
+/// changes the coupling grid (`120 · 2^L` segments).
+pub const MESH_REPAIR_ATTEMPTS: [MeshAttempt; 4] = [
+    MeshAttempt {
+        label: "default",
+        options: &[],
+    },
+    MeshAttempt {
+        label: "algorithm_delaunay",
+        options: &[("Mesh.Algorithm", 5.0)],
+    },
+    MeshAttempt {
+        label: "size_factor_0.9",
+        options: &[("Mesh.MeshSizeFactor", 0.9)],
+    },
+    MeshAttempt {
+        label: "size_factor_0.8",
+        options: &[("Mesh.MeshSizeFactor", 0.8)],
+    },
+];
+
+/// The single default attempt (no repair; the behaviour before #1201).
+pub const SINGLE_ATTEMPT: [MeshAttempt; 1] = [MESH_REPAIR_ATTEMPTS[0]];
+
+/// SHA-256 (hex) of bytes.
+fn sha256_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// [`Remesher`] for a [`Space`]: a fresh mesh of the design (from
@@ -451,6 +539,9 @@ pub struct IcemRemesher<Sp: Space> {
     pub degrees: Vec<i64>,
     pub source: MeshSource,
     pub records: Vec<FreshMeshRecord>,
+    /// The mesh-repair attempts, in order ([`SINGLE_ATTEMPT`] by default;
+    /// [`MESH_REPAIR_ATTEMPTS`] with [`with_repair`](Self::with_repair)).
+    pub attempts: Vec<MeshAttempt>,
     _sp: std::marker::PhantomData<Sp>,
 }
 
@@ -469,8 +560,19 @@ impl<Sp: Space> IcemRemesher<Sp> {
             degrees: degrees.to_vec(),
             source,
             records: Vec::new(),
+            attempts: SINGLE_ATTEMPT.to_vec(),
             _sp: std::marker::PhantomData,
         }
+    }
+
+    /// With the mesh repair of amendment 7 §3 (or without).
+    pub fn with_repair(mut self, repair: bool) -> Self {
+        self.attempts = if repair {
+            MESH_REPAIR_ATTEMPTS.to_vec()
+        } else {
+            SINGLE_ATTEMPT.to_vec()
+        };
+        self
     }
 
     /// The set-up on `msh` at `theta0` with this remesher's angle set.
@@ -479,6 +581,33 @@ impl<Sp: Space> IcemRemesher<Sp> {
         Sp::set_degrees(&mut s, &self.degrees);
         Ok(s)
     }
+}
+
+/// The `build_design_mesh.py` arguments (after the script path) of one
+/// fresh mesh: the plan, the level, the output directory, the design, and
+/// one `--option NAME=VALUE` per option of **this** attempt only.
+pub fn design_mesh_args(
+    plan: &Path,
+    level: usize,
+    out_dir: &Path,
+    name: &str,
+    options: &[(&str, f64)],
+) -> Vec<String> {
+    let mut v = vec![
+        "--plan".to_string(),
+        plan.display().to_string(),
+        "--levels".into(),
+        level.to_string(),
+        "--out".into(),
+        out_dir.display().to_string(),
+        "--designs".into(),
+        name.to_string(),
+    ];
+    for (k, x) in options {
+        v.push("--option".into());
+        v.push(format!("{k}={x:?}"));
+    }
+    v
 }
 
 /// Run `build_design_mesh.py` on a plan of `theta0` (for the winding tags)
@@ -490,19 +619,61 @@ pub fn gmsh_fresh_mesh<Sp: Space>(
     level: usize,
     out_dir: &Path,
 ) -> Result<(PathBuf, String), String> {
-    std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+    gmsh_fresh_mesh_with::<Sp>(geo, theta0, name, level, out_dir, &[]).map_err(|e| match e {
+        AttemptError::Failed(m) | AttemptError::Fatal(m) => m,
+    })
+}
+
+/// Exit status of `build_design_mesh.py` for gmsh's own meshing failure,
+/// with [`MESH_FAILURE_MARKER`] on its stderr.
+pub const MESH_FAILURE_EXIT: i32 = 3;
+/// The stderr marker of a gmsh meshing failure.
+pub const MESH_FAILURE_MARKER: &str = "MESH_FAILURE";
+
+/// How a failed mesher process is classified (#1201): a design-dependent
+/// attempt failure only when gmsh itself failed to mesh this design (exit
+/// status [`MESH_FAILURE_EXIT`] and the [`MESH_FAILURE_MARKER`]); any other
+/// non-zero exit (a Python import or environment error, `uv`, a `FAIL:`
+/// check, a crash by signal) is an infrastructure failure, recorded with
+/// its output, and ends the request as `failed`.
+pub fn classify_mesher_exit(code: Option<i32>, log: &str, msg: String) -> AttemptError {
+    if code == Some(MESH_FAILURE_EXIT) && log.contains(MESH_FAILURE_MARKER) {
+        AttemptError::Failed(msg)
+    } else {
+        AttemptError::Fatal(msg)
+    }
+}
+
+/// [`gmsh_fresh_mesh`] with gmsh `options` on top of the defaults.
+///
+/// # Errors
+///
+/// [`AttemptError::Failed`] when gmsh failed to mesh this design
+/// ([`classify_mesher_exit`]); [`AttemptError::Fatal`] when the process
+/// could not be started, the plan could not be written, or it failed in
+/// any other way.
+pub fn gmsh_fresh_mesh_with<Sp: Space>(
+    geo: &Sp::Geo,
+    theta0: &Sp::Geo,
+    name: &str,
+    level: usize,
+    out_dir: &Path,
+    options: &[(&str, f64)],
+) -> Result<(PathBuf, String), AttemptError> {
+    let fatal = AttemptError::Fatal;
+    std::fs::create_dir_all(out_dir).map_err(|e| fatal(format!("{}: {e}", out_dir.display())))?;
     let curves = |g: &Sp::Geo| {
         Sp::curves(g)
             .map(|c| curves_json(&c))
             .map_err(|e| e.to_string())
     };
     let plan = json!({"issue": 1184, "space": Sp::NAME, "designs": [
-        {"name": "theta0", "curves": curves(theta0)?},
-        {"name": name, "curves": curves(geo)?},
+        {"name": "theta0", "curves": curves(theta0).map_err(fatal)?},
+        {"name": name, "curves": curves(geo).map_err(fatal)?},
     ]});
     let plan_path = out_dir.join(format!("plan_{name}.json"));
     std::fs::write(&plan_path, serde_json::to_string(&plan).unwrap())
-        .map_err(|e| format!("{}: {e}", plan_path.display()))?;
+        .map_err(|e| fatal(format!("{}: {e}", plan_path.display())))?;
     let out = Command::new("uv")
         .args([
             "run",
@@ -515,23 +686,17 @@ pub fn gmsh_fresh_mesh<Sp: Space>(
             "-I",
         ])
         .arg(design_mesh_script())
-        .arg("--plan")
-        .arg(&plan_path)
-        .args(["--levels", &level.to_string(), "--out"])
-        .arg(out_dir)
-        .args(["--designs", name])
+        .args(design_mesh_args(&plan_path, level, out_dir, name, options))
         .output()
-        .map_err(|e| format!("uv: {e}"))?;
+        .map_err(|e| fatal(format!("uv: {e}")))?;
     let log = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
     if !out.status.success() {
-        return Err(format!(
-            "build_design_mesh.py failed ({}): {log}",
-            out.status
-        ));
+        let msg = format!("build_design_mesh.py failed ({}): {log}", out.status);
+        return Err(classify_mesher_exit(out.status.code(), &log, msg));
     }
     Ok((
         out_dir.join(format!("icem_remesh_{name}_L{level}.msh")),
@@ -539,19 +704,43 @@ pub fn gmsh_fresh_mesh<Sp: Space>(
     ))
 }
 
-impl<Sp: Space> Remesher<Sp::Setup> for IcemRemesher<Sp> {
-    fn fresh_mesh(&mut self, theta: &Sp::Geo) -> Result<String, String> {
+impl<Sp: Space> IcemRemesher<Sp> {
+    /// Attempt `attempt` (0-based) at `theta`, recorded in
+    /// [`records`](Self::records) whether or not it produced a mesh.
+    fn attempt_at(&mut self, theta: &Sp::Geo, attempt: usize) -> Result<String, AttemptError> {
         let t0 = Instant::now();
         let name = format!("remesh{:03}", self.records.len());
-        let (text, file, log) = match &self.source {
-            MeshSource::Fixed(t) => (t.clone(), None, String::new()),
-            MeshSource::Gmsh { out_dir } => {
+        let spec = self
+            .attempts
+            .get(attempt)
+            .copied()
+            .ok_or_else(|| AttemptError::Fatal(format!("no mesh-repair attempt {attempt}")))?;
+        let made: Result<(String, Option<PathBuf>, String), AttemptError> = match &self.source {
+            MeshSource::Fixed(t) => Ok((t.clone(), None, String::new())),
+            MeshSource::DrillFail { first, .. } if attempt < *first => Err(AttemptError::Failed(
+                format!("drill: injected mesher failure (attempt {attempt})"),
+            )),
+            MeshSource::DrillFail { out_dir: None, .. } => Err(AttemptError::Fatal(
+                "drill: no mesher after the injected failures".into(),
+            )),
+            MeshSource::DrillFail {
+                out_dir: Some(out_dir),
+                ..
+            }
+            | MeshSource::Gmsh { out_dir } => {
                 let theta0 = Sp::geo_initial();
-                let (path, log) =
-                    gmsh_fresh_mesh::<Sp>(theta, &theta0, &name, self.level, out_dir)?;
-                let text = std::fs::read_to_string(&path)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
-                (text, Some(path), log)
+                gmsh_fresh_mesh_with::<Sp>(theta, &theta0, &name, self.level, out_dir, spec.options)
+                    .and_then(|(path, log)| {
+                        std::fs::read_to_string(&path)
+                            .map(|text| (text, Some(path.clone()), log))
+                            .map_err(|e| AttemptError::Fatal(format!("{}: {e}", path.display())))
+                    })
+            }
+        };
+        let (text, file, log, error) = match &made {
+            Ok((t, f, l)) => (Some(t.clone()), f.clone(), l.clone(), None),
+            Err(AttemptError::Failed(m) | AttemptError::Fatal(m)) => {
+                (None, None, String::new(), Some(m.clone()))
             }
         };
         self.records.push(FreshMeshRecord {
@@ -559,13 +748,48 @@ impl<Sp: Space> Remesher<Sp::Setup> for IcemRemesher<Sp> {
             file,
             seconds: t0.elapsed().as_secs_f64(),
             log,
+            attempt,
+            label: spec.label,
+            sha256: text.as_ref().map(|t| sha256_of(t.as_bytes())),
+            error,
         });
-        Ok(text)
+        made.map(|(t, _, _)| t)
+    }
+}
+
+impl<Sp: Space> Remesher<Sp::Setup> for IcemRemesher<Sp> {
+    fn fresh_mesh(&mut self, theta: &Sp::Geo) -> Result<String, String> {
+        self.attempt_at(theta, 0).map_err(|e| match e {
+            AttemptError::Failed(m) | AttemptError::Fatal(m) => m,
+        })
     }
 
     fn reference_on(&mut self, msh: &str, theta: &Sp::Geo) -> Result<Sp::Setup, String> {
         self.setup_on(msh.as_bytes(), *theta)
             .map_err(|e| e.to_string())
+    }
+
+    fn attempts(&self) -> usize {
+        self.attempts.len()
+    }
+
+    fn attempt_label(&self, attempt: usize) -> String {
+        self.attempts
+            .get(attempt)
+            .map(|a| a.label.to_string())
+            .unwrap_or_default()
+    }
+
+    fn last_mesh_sha256(&self) -> Option<String> {
+        self.records.last().and_then(|r| r.sha256.clone())
+    }
+
+    fn fresh_mesh_attempt(
+        &mut self,
+        theta: &Sp::Geo,
+        attempt: usize,
+    ) -> Result<String, AttemptError> {
+        self.attempt_at(theta, attempt)
     }
 }
 
@@ -597,6 +821,9 @@ pub struct EvaluatorConfig {
     pub policy: RemeshPolicy,
     /// Keep replaced references reachable ([`RemeshEvaluator::evaluate_on`]).
     pub keep_retired: bool,
+    /// The mesh repair of #1185 amendment 7 §3 ([`MESH_REPAIR_ATTEMPTS`]);
+    /// off by default (one attempt, the behaviour before #1201).
+    pub mesh_repair: bool,
 }
 
 impl EvaluatorConfig {
@@ -615,6 +842,7 @@ impl EvaluatorConfig {
             warm: WarmStart::Cold,
             policy: RemeshPolicy::default(),
             keep_retired: false,
+            mesh_repair: false,
         }
     }
 
@@ -751,7 +979,8 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
         source: MeshSource,
     ) -> Result<Self, SectorError> {
         let remesher =
-            IcemRemesher::<Sp>::new(cfg.level, reference, cfg.mode, &cfg.degrees, source);
+            IcemRemesher::<Sp>::new(cfg.level, reference, cfg.mode, &cfg.degrees, source)
+                .with_repair(cfg.mesh_repair);
         let initial = remesher.setup_on(msh, theta0)?;
         let refm =
             RemeshingReference::new(initial, cfg.policy, remesher).with_retired(cfg.keep_retired);
@@ -781,6 +1010,20 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
     /// The fresh meshes made so far.
     pub fn fresh_meshes(&mut self) -> &[FreshMeshRecord] {
         &self.refm.remesher_mut().records
+    }
+
+    /// The mesh step of [`evaluate`](Self::evaluate) alone at `p`: move the
+    /// reference, and remesh (with repair) if the policy fires, exactly as
+    /// `evaluate` would; no solve. A fresh mesh that passes becomes the
+    /// reference, as `evaluate` at `p` would make it, so the next
+    /// evaluation at `p` reuses it (the mesh-feasibility test of a
+    /// restoration, #1185 amendment 7 §3).
+    ///
+    /// # Errors
+    ///
+    /// As [`RemeshingReference::prepare`]; the reference is unchanged.
+    pub fn prepare_mesh(&mut self, p: &Sp::Point) -> Result<PreparedMesh, RemeshError> {
+        self.refm.prepare(&Sp::geo(p))
     }
 
     /// Evaluate at `p` in the design loop: move, check, remesh if a trigger

@@ -9,7 +9,13 @@ run instead of producing a number.
 
 - delta_F = max(0.10 F_val, 2.5e-7 N^2 m^2), at the candidate;
 - target T in {T50, T90, T99} = {0.5, 0.1, 0.01} F0 is attained when
-  F_val + delta_F <= T and mean_full >= (1 + 0.25%) mean0.
+  F_val + delta_F <= T and mean_full >= (1 + 0.25%) mean0,
+- **and the candidate is admissible** (#1185 amendment 7, adoption
+  correction 2): every h_i >= -CREDIT_H_TOLERANCE (1e-12, the ruled
+  tolerance), every discrete guard passes, and the validation mesh passes
+  the policy. A buildable but inadmissible trial may
+  be evaluated, but it never earns credit, at a callback or at
+  termination; nor does it count as the best feasible point.
 """
 import hashlib
 import json
@@ -18,6 +24,11 @@ import math
 DELTA_F_REL = 0.10
 DELTA_F_ABS = 2.5e-7
 MEAN_FLOOR_MARGIN = 0.0025
+#: The tolerance on h for credit and the best feasible point (the #1185
+#: ruling on amendment 7): every h_i >= -1e-12, the same for every method.
+#: Buildability, the optimizers' constraints, the restoration anchor and the
+#: start rule keep h >= 0 exactly.
+CREDIT_H_TOLERANCE = 1e-12
 TARGETS = (("T50", 0.5), ("T90", 0.1), ("T99", 0.01))
 TARGET_NAMES = tuple(n for n, _ in TARGETS)
 
@@ -71,24 +82,30 @@ def delta_f(f_val):
     return max(DELTA_F_REL * f_val, DELTA_F_ABS)
 
 
-def rule(anchor, f_val, mean_full):
-    """The rule on validation values: {name: attained}, and the values."""
+def rule(anchor, f_val, mean_full, admissible):
+    """The rule on validation values and the candidate's admissibility:
+    {name: attained}, and the values."""
     d = delta_f(f_val)
     upper = f_val + d
     mean_ok = mean_full >= anchor.mean_floor()
     flags = {}
     for name, t in anchor.targets():
-        flags[name] = (upper <= t) and mean_ok
+        flags[name] = (upper <= t) and mean_ok and admissible is True
     return flags, {"delta_F": d, "F_upper": upper, "mean_ok": mean_ok,
-                   "mean_floor": anchor.mean_floor()}
+                   "mean_floor": anchor.mean_floor(), "admissible": admissible is True}
 
 
-def check_acceptance(anchor, f_val, mean_full, reply):
+def check_acceptance(anchor, f_val, mean_full, reply, admissible):
     """The driver's decision, after checking it against the evaluator's
-    acceptance `reply` (Acceptance::to_json). Raises AcceptanceMismatch."""
-    flags, values = rule(anchor, f_val, mean_full)
+    acceptance `reply` (Acceptance::to_json, with admissibility applied).
+    `admissible` is the driver's own geometry record of the candidate.
+    Raises AcceptanceMismatch."""
+    flags, values = rule(anchor, f_val, mean_full, admissible)
     if reply.get("F_val") != f_val or reply.get("mean_full") != mean_full:
         raise AcceptanceMismatch("acceptance values are not the validation's")
+    if reply.get("admissible") is not (admissible is True):
+        raise AcceptanceMismatch(f"admissibility: evaluator {reply.get('admissible')}, "
+                                 f"driver {admissible}")
     got = {t["name"]: t for t in reply.get("targets", [])}
     if set(got) != set(TARGET_NAMES):
         raise AcceptanceMismatch(f"targets {sorted(got)}")

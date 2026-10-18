@@ -43,7 +43,7 @@ use icem_experiment2::{
     Anchor, FrozenSpace, ValidationConfig, Validator, accept, space_a, space_b,
 };
 use icem_harness::{Session, SessionConfig, latin_hypercube, median, x_bits};
-use icem_remesh::{CpSpace, MeshSource, Space};
+use icem_remesh::{CpSpace, MeshSource, ScalarSpace, Space};
 use serde_json::{Value, json};
 
 const DEGREES: [i64; 4] = [0, 3, 7, 12];
@@ -242,7 +242,7 @@ fn training_replies_charge_motion_solves_adjoints_and_remeshes() {
     let c = charges(&a);
     assert_eq!(
         c.keys().collect::<Vec<_>>(),
-        ["adjoint", "forward", "mesh_motion"]
+        ["adjoint", "forward", "geometry_check", "mesh_motion"]
     );
     assert_eq!((c["forward"].1, c["forward"].2), (n, 0));
     assert_eq!((c["adjoint"].1, c["adjoint"].2), (0, n));
@@ -254,7 +254,10 @@ fn training_replies_charge_motion_solves_adjoints_and_remeshes() {
     // go to the line search, not to the forward category.
     let b = train(&mut s, &x, false, "line_search");
     let c = charges(&b);
-    assert_eq!(c.keys().collect::<Vec<_>>(), ["line_search", "mesh_motion"]);
+    assert_eq!(
+        c.keys().collect::<Vec<_>>(),
+        ["geometry_check", "line_search", "mesh_motion"]
+    );
     assert_eq!(c["line_search"].1, n);
     // A remesh: a 15° threshold fires on any moved design of the L0 mesh
     // (13.2° minimum angle); the fresh mesh (the construction fixture,
@@ -266,18 +269,93 @@ fn training_replies_charge_motion_solves_adjoints_and_remeshes() {
         ..fd_cfg()
     };
     let fx = String::from_utf8(fixture()).unwrap();
-    let mut t = session(space_b(&r), cfg, &l0(), &l0(), None, MeshSource::Fixed(fx)).unwrap();
+    let mut t = session(
+        space_b(&r),
+        cfg.clone(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(fx),
+    )
+    .unwrap();
     let e = train(&mut t, &x, false, "iterate");
     assert_eq!(e["generation"], 1);
     assert!(e["event"].is_object());
     let c = charges(&e);
     assert_eq!(
         c.keys().collect::<Vec<_>>(),
-        ["forward", "mesh_motion", "remesh"]
+        ["forward", "geometry_check", "mesh_motion", "remesh"]
     );
     let ev = &e["event"];
     let remesh = ev["mesh_s"].as_f64().unwrap() + ev["setup_s"].as_f64().unwrap();
     assert_eq!(c["remesh"].0, remesh);
+    // The training remesh's .msh is pinned in the reply (the #1200 Judge's
+    // finding 1), with its attempt.
+    let meshes = e["remesh_meshes"].as_array().unwrap();
+    assert_eq!(meshes.len(), 1);
+    assert_eq!(meshes[0]["attempt"], 0);
+    assert_eq!(
+        meshes[0]["msh_sha256"].as_str().unwrap(),
+        icem_experiment2::sha256_hex(&fixture())
+    );
+    assert_eq!(e["attempts"][0]["outcome"], "passed");
+    assert_eq!(e["attempts"][0]["msh_sha256"], meshes[0]["msh_sha256"]);
+
+    // Mesh-infeasible (amendment 7 §3): every one of the 4 repair attempts
+    // fails (the injected mesher failure of a smoke drill). Not `failed`:
+    // a recorded outcome with no value, every attempt charged to remesh, the
+    // reference unchanged.
+    let mut d = session(
+        space_b(&r),
+        cfg.clone(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::DrillFail {
+            first: usize::MAX,
+            out_dir: None,
+        },
+    )
+    .unwrap();
+    let e = train(&mut d, &x, true, "iterate");
+    assert_eq!(e["status"], "mesh_infeasible", "{e}");
+    assert!(e.get("F").is_none() && e.get("dF").is_none());
+    let attempts = e["attempts"].as_array().unwrap();
+    assert_eq!(attempts.len(), 4);
+    for (k, a) in attempts.iter().enumerate() {
+        assert_eq!(a["attempt"], k as u64);
+        assert_eq!(a["outcome"], "mesher_failed");
+    }
+    assert_eq!(e["remesh_meshes"].as_array().unwrap().len(), 4);
+    let c = charges(&e);
+    assert_eq!(
+        c.keys().collect::<Vec<_>>(),
+        ["geometry_check", "mesh_motion", "remesh"]
+    );
+    let att: f64 = attempts
+        .iter()
+        .map(|a| a["mesh_s"].as_f64().unwrap() + a["setup_s"].as_f64().unwrap())
+        .sum();
+    assert_eq!(c["remesh"].0, att);
+    assert_eq!(d.training().reference().generation(), 0);
+    // The mesh step alone (a restoration probe) says the same.
+    let m = d.handle(&json!({"op": "mesh_check", "x_bits": x_bits(&x)}));
+    assert_eq!(m["status"], "mesh_infeasible", "{m}");
+    // Near θ0 with the registered 5° policy the moved mesh passes: ok.
+    let mut p = session(
+        space_b(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::DrillFail {
+            first: usize::MAX,
+            out_dir: None,
+        },
+    )
+    .unwrap();
+    let m = p.handle(&json!({"op": "mesh_check", "x_bits": x_bits(&x)}));
+    assert_eq!(m["status"], "ok", "{m}");
 }
 
 #[test]
@@ -363,8 +441,18 @@ fn validate_reply_is_the_anchor_acceptance_on_the_anchor_mesh() {
     assert_eq!(v["F_val"].as_f64().unwrap().to_bits(), val.f.to_bits());
     let mean = val.full_current_mean().unwrap();
     assert_eq!(v["mean_full"].as_f64().unwrap().to_bits(), mean.to_bits());
-    assert_eq!(v["acceptance"], acc.to_json());
-    assert_eq!(v["acceptance"], accept(&anchor, val.f, mean).to_json());
+    // θ0 + 1e-9 is admissible: credit follows the amendment-2 rule.
+    assert_eq!(v["admissibility"]["admissible"], true);
+    assert_eq!(
+        v["acceptance"],
+        acc.clone().with_admissibility(true).to_json()
+    );
+    assert_eq!(
+        v["acceptance"],
+        accept(&anchor, val.f, mean)
+            .with_admissibility(true)
+            .to_json()
+    );
     // The validation on the training mesh would be another value.
     let mut on_train = Validator::<CpSpace>::new(
         &fixture(),
@@ -378,7 +466,10 @@ fn validate_reply_is_the_anchor_acceptance_on_the_anchor_mesh() {
     assert_ne!(other.f.to_bits(), val.f.to_bits());
     // Charged: the motion and the 60 solves of the primary model.
     let c = charges(&v);
-    assert_eq!(c.keys().collect::<Vec<_>>(), ["mesh_motion", "validation"]);
+    assert_eq!(
+        c.keys().collect::<Vec<_>>(),
+        ["geometry_check", "mesh_motion", "validation"]
+    );
     assert_eq!(c["validation"].1, 60);
     assert_eq!(c["validation"].0, v["solve_seconds"].as_f64().unwrap());
     assert!(c["validation"].0 > 0.0);
@@ -537,10 +628,34 @@ fn committed_lhs_starts_are_rederived_bit_for_bit_and_valid() {
         MeshSource::Fixed(String::new()),
     )
     .unwrap();
-    for (name, seed) in [("lhs1", 1u64), ("lhs2", 2)] {
+    // Amendment 7 §5: seeds 1 and 2 keep the pilot indices 1 and 4 when
+    // valid (else the next valid index, recorded); seeds 3 and 4 take their
+    // first valid index. The L1 half of the rule (amendment 8) needs the
+    // gitignored L1 θ0 mesh: its record is
+    // `benchmarks/motor_optimization/logs/make_starts.log`.
+    for (name, seed) in [("lhs1", 1u64), ("lhs2", 2), ("lhs3", 3), ("lhs4", 4)] {
         let e = &st["starts"][name];
         assert_eq!(e["seed"], seed);
+        let first = match seed {
+            1 => 1,
+            2 => 4,
+            _ => 0,
+        };
         let k = e["index"].as_u64().unwrap() as usize;
+        let rejected: Vec<u64> = e["rejected"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["index"].as_u64().unwrap())
+            .collect();
+        assert_eq!(
+            rejected,
+            (first as u64..k as u64).collect::<Vec<_>>(),
+            "{name}"
+        );
+        if seed <= 2 {
+            assert_eq!(e["kept_pilot_start"], k == first, "{name}");
+        }
         let u = &latin_hypercube(seed, m, b.n())[k];
         // Space B's box is space A's in the first 8 components: the two
         // starts share their scalars.
@@ -570,6 +685,8 @@ fn committed_lhs_starts_are_rederived_bit_for_bit_and_valid() {
             // The moved L0 θ0 mesh passes the remesh policy: no start
             // begins with a remesh.
             assert!(s["trigger"].is_null(), "{name}: {s}");
+            // Admissible (amendment 7 §1).
+            assert_eq!(s["geometry"]["admissible"], true, "{name}: {s}");
             assert_eq!(s["x_bits"], json!(bits(x)));
         }
     }
@@ -625,4 +742,92 @@ fn diagnose_runs_both_models_at_the_requested_currents_and_restores_the_session(
         let e = s.handle(&json!({"op": "diagnose", "x_bits": x_bits(&x), "fractions": bad}));
         assert_eq!(e["ok"], false);
     }
+}
+
+// ── Each space's own mesh motion (#1201 disclosure) ─────────────────────
+
+#[test]
+fn every_mesh_decision_uses_its_own_spaces_motion() {
+    // Space A moves the θ0 mesh with the Jacobian-stiffened extension
+    // (χ = 1), space B with the plain harmonic one (χ = 0). A session
+    // serves one space, and its moved-mesh check (`check`, the start rule),
+    // its mesh step (`mesh_check`, the restoration probe) and its training
+    // remesh decision all move that space's own map.
+    use geode_core::mesh::design_remesh::MovingMesh;
+    use geode_core::mesh::icem_parametric::motion_quality;
+    let r = icem::load_reference();
+    let mut sa = session(
+        space_a(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let mut sb = session(
+        space_b(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let ma = sa.training().reference().current().map.options();
+    let mb = sb.training().reference().current().map.options();
+    assert_eq!((ma.stiffening, mb.stiffening), (1.0, 0.0));
+    // The same scalars in both spaces (B's offsets at θ0): the two motions
+    // give different moved meshes, and each reply is its own space's.
+    let mut xa = space_a(&r).x0();
+    xa[6] += 0.25 * (space_a(&r).upper[6] - xa[6]);
+    let mut xb = space_b(&r).x0();
+    xb[..xa.len()].copy_from_slice(&xa);
+    let qa = sa.handle(&json!({"op": "check", "x_bits": x_bits(&xa)}));
+    let qb = sb.handle(&json!({"op": "check", "x_bits": x_bits(&xb)}));
+    let own_a = {
+        let s = sa.training().reference().current();
+        let p = space_a(&r).point(&xa).unwrap();
+        motion_quality(
+            s.reference_mesh(),
+            &s.moved_positions(&ScalarSpace::geo(&p)).unwrap(),
+        )
+    };
+    let own_b = {
+        let s = sb.training().reference().current();
+        let p = space_b(&r).point(&xb).unwrap();
+        motion_quality(
+            s.reference_mesh(),
+            &s.moved_positions(&CpSpace::geo(&p)).unwrap(),
+        )
+    };
+    assert_eq!(
+        qa["quality"]["min_angle_deg"].as_f64().unwrap(),
+        own_a.min_angle_deg
+    );
+    assert_eq!(
+        qb["quality"]["min_angle_deg"].as_f64().unwrap(),
+        own_b.min_angle_deg
+    );
+    // Same scalars, same θ0 mesh: the two motions move its nodes
+    // differently.
+    let pa = {
+        let s = sa.training().reference().current();
+        s.moved_positions(&ScalarSpace::geo(&space_a(&r).point(&xa).unwrap()))
+            .unwrap()
+    };
+    let pb = {
+        let s = sb.training().reference().current();
+        s.moved_positions(&CpSpace::geo(&space_b(&r).point(&xb).unwrap()))
+            .unwrap()
+    };
+    assert_eq!(pa.len(), pb.len());
+    let diff = pa
+        .iter()
+        .zip(&pb)
+        .map(|(a, b)| (a[0] - b[0]).hypot(a[1] - b[1]))
+        .fold(0.0, f64::max);
+    assert!(diff > 1e-7, "the two motions differ (max {diff:e} m)");
+    let ma = sa.handle(&json!({"op": "mesh_check", "x_bits": x_bits(&xa)}));
+    assert_eq!(ma["status"], "ok", "{ma}");
 }

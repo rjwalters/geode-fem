@@ -504,7 +504,7 @@ fn triggering_candidate_is_validated_on_a_fresh_mesh() {
     .unwrap();
     assert!(matches!(
         w.validate(&p),
-        Err(ValidationError::FreshInvalid(_))
+        Err(ValidationError::FreshInvalid { .. })
     ));
 }
 

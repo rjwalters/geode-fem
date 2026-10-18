@@ -1,0 +1,6454 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "method": "surrogate",
+ "method_label": "empirical RBF surrogate (trust region)",
+ "method_spec": {
+  "letter": "C",
+  "optimizer": "surrogate",
+  "resolution": null,
+  "label": "empirical RBF surrogate (trust region)"
+ },
+ "space": "b",
+ "start": "theta0",
+ "repeat": 1,
+ "order_position": 8,
+ "session": "smoke-20261018T125328Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.318281604,
+ "started_utc": "2026-10-18T12:54:35Z",
+ "load_before": [
+  19.185546875,
+  18.208984375,
+  19.94775390625
+ ],
+ "linear_algebra": {
+  "system": "Darwin",
+  "machine": "arm64",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "accelerate",
+  "numpy_blas_version": "unknown",
+  "numpy_lapack": "accelerate",
+  "numpy_lapack_version": "unknown",
+  "scipy_blas": "Accelerate",
+  "scipy_blas_version": "unknown",
+  "scipy_lapack": "Accelerate",
+  "scipy_lapack_version": "unknown"
+ },
+ "x_start": [
+  0.007,
+  0.007,
+  0.019,
+  0.004,
+  0.0023,
+  0.001,
+  0.00825,
+  0.001,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "attained": false,
+   "censored": true
+  },
+  "T90": {
+   "attained": false,
+   "censored": true
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "checkpoint_60": {
+  "fe": 60.0,
+  "rule": "validations completed by the checkpoint",
+  "targets": {
+   "T50": {
+    "attained": false,
+    "censored": true
+   },
+   "T90": {
+    "attained": false,
+    "censored": true
+   },
+   "T99": {
+    "attained": false,
+    "censored": true
+   }
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 15.898037637736614,
+   "solve_fe": 15.833212974199402,
+   "seconds": 52.754165833001025,
+   "index": 0,
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "note": "surrogate doe incumbent",
+   "status": "ok",
+   "F_val": 0.0078163210608299,
+   "mean_full": 1.4487125958021108,
+   "stds": [
+    0.0068186953930692035,
+    0.03578538119717066,
+    0.08055577537668929
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.74787973054939,
+     "max_area_ratio": 1.2052089768652772,
+     "min_angle_deg": 13.200079371564984,
+     "min_area_ratio": 0.9491123380672654
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.95,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.013999999999999999,
+      "scale": 0.013999999999999999,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.007,
+      "scale": 0.007,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.0095,
+      "scale": 0.0095,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.00115,
+      "scale": 0.00115,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.002772008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.7191410269886834e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0018379416028071888,
+      "scale": 0.0018379416028071888,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0010180704175208324,
+      "scale": 0.0010180704175208324,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001,
+      "scale": 0.001,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.002084755137755031,
+      "scale": 0.002084755137755031,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010528559286427139,
+      "scale": 0.010528559286427139,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p00",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p01",
+      "unit": "m",
+      "margin": 0.00037922180097311325,
+      "scale": 0.00037922180097311325,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p02",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p03",
+      "unit": "m",
+      "margin": 0.0004998287492445699,
+      "scale": 0.0004998287492445699,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p04",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p05",
+      "unit": "m",
+      "margin": 0.0006043027704339052,
+      "scale": 0.0004543027704339078,
+      "c": 1.3301762827832444,
+      "h": 1.2801762827832444,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p06",
+      "unit": "m",
+      "margin": 0.0004531110024680665,
+      "scale": 0.0004531110024680665,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p07",
+      "unit": "m",
+      "margin": 0.0004522904054248683,
+      "scale": 0.0004522904054248683,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p08",
+      "unit": "m",
+      "margin": 0.00045187200657748755,
+      "scale": 0.00045187200657748755,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p09",
+      "unit": "m",
+      "margin": 0.00045187200657750143,
+      "scale": 0.00045187200657750143,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p10",
+      "unit": "m",
+      "margin": 0.0004522904054248614,
+      "scale": 0.0004522904054248614,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p11",
+      "unit": "m",
+      "margin": 0.0004531110024680596,
+      "scale": 0.0004531110024680596,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p12",
+      "unit": "m",
+      "margin": 0.0006043027704339052,
+      "scale": 0.0004543027704339078,
+      "c": 1.3301762827832444,
+      "h": 1.2801762827832444,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p13",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p14",
+      "unit": "m",
+      "margin": 0.0004998287492445699,
+      "scale": 0.0004998287492445699,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p15",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p16",
+      "unit": "m",
+      "margin": 0.0003792218009731202,
+      "scale": 0.0003792218009731202,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p17",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth0",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth1",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941906,
+      "scale": 0.0005214278954941906,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941975,
+      "scale": 0.0005214278954941975,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth2",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth3",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941837,
+      "scale": 0.0005214278954941837,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth4",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941975,
+      "scale": 0.0005214278954941975,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941906,
+      "scale": 0.0005214278954941906,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth5",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.mid_lo",
+      "unit": "m",
+      "margin": 0.0005214278954941906,
+      "scale": 0.0005214278954941906,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.open_mid",
+      "unit": "m",
+      "margin": 0.0005147016459204554,
+      "scale": 0.0005147016459204554,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.mid_hi",
+      "unit": "m",
+      "margin": 0.0005214278954941906,
+      "scale": 0.0005214278954941906,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth6",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0004999999999999935,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 0.00078163210608299,
+   "F_upper": 0.00859795316691289,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0068891659524913185,
+   "mean_train": 1.4512778703437248
+  },
+  {
+   "wall_fe": 19.950825728631255,
+   "solve_fe": 19.955994652978223,
+   "seconds": 66.20245799992699,
+   "index": 1,
+   "x": [
+    0.006775,
+    0.007086001225392345,
+    0.018796628557999268,
+    0.0040999999999999995,
+    0.0022249999999999995,
+    0.001024999999999999,
+    0.008544891134675821,
+    0.0010238332077696008,
+    0.0,
+    -3.7499999999999556e-05,
+    -2.4999999999998873e-05,
+    -0.00018749999999999995,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.2499999999999433e-05,
+    1.2499999999999867e-05
+   ],
+   "note": "surrogate acceptance",
+   "status": "ok",
+   "F_val": 0.0055054398686687125,
+   "mean_full": 1.4492539345736368,
+   "stds": [
+    0.0070748654542770505,
+    0.029892036115234753,
+    0.06754148595017799
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.7748077143113,
+     "max_area_ratio": 1.2611505889684838,
+     "min_angle_deg": 13.138280974524783,
+     "min_area_ratio": 0.9197712833455852
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.9010733881715467,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.014138998774607649,
+      "scale": 0.013999999999999999,
+      "c": 1.0099284839005465,
+      "h": 0.9599284839005464,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.007086001225392345,
+      "scale": 0.007,
+      "c": 1.0122858893417637,
+      "h": 0.9622858893417636,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009398314278999634,
+      "scale": 0.0095,
+      "c": 0.9892962398946983,
+      "h": 0.9392962398946982,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0011124999999999998,
+      "scale": 0.00115,
+      "c": 0.9673913043478259,
+      "h": 0.9173913043478259,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0028095084236446173,
+      "scale": 0.002772008423644617,
+      "c": 1.013528097418512,
+      "h": 0.9635280974185119,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.613910949815848e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 0.961300250289198,
+      "h": 0.9113002502891979,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001801279978110061,
+      "scale": 0.0018379416028071888,
+      "c": 0.9800528892533188,
+      "h": 0.9300528892533187,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0010046362283849938,
+      "scale": 0.0010180704175208324,
+      "c": 0.9868042633351894,
+      "h": 0.9368042633351894,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0010238332077696008,
+      "scale": 0.001,
+      "c": 1.0238332077696009,
+      "h": 0.9738332077696008,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.001982755132372717,
+      "scale": 0.002084755137755031,
+      "c": 0.9510733881715467,
+      "h": 0.9010733881715467,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010214037154232948,
+      "scale": 0.010528559286427139,
+      "c": 0.9701267643902945,
+      "h": 0.9201267643902945,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p00",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p01",
+      "unit": "m",
+      "margin": 0.0004167218009731091,
+      "scale": 0.00037922180097311325,
+      "c": 1.098886719866231,
+      "h": 1.048886719866231,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p02",
+      "unit": "m",
+      "margin": 0.0005249999999999977,
+      "scale": 0.0004999999999999935,
+      "c": 1.050000000000009,
+      "h": 1.0000000000000089,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p03",
+      "unit": "m",
+      "margin": 0.0005248287492445672,
+      "scale": 0.0004998287492445699,
+      "c": 1.0500171309429114,
+      "h": 1.0000171309429113,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p04",
+      "unit": "m",
+      "margin": 0.0005249999999999908,
+      "scale": 0.0004999999999999935,
+      "c": 1.0499999999999952,
+      "h": 0.9999999999999951,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p05",
+      "unit": "m",
+      "margin": 0.000641802770433908,
+      "scale": 0.0004543027704339078,
+      "c": 1.4127203534790633,
+      "h": 1.3627203534790633,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p06",
+      "unit": "m",
+      "margin": 0.0004531110024680665,
+      "scale": 0.0004531110024680665,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p07",
+      "unit": "m",
+      "margin": 0.0004522904054248683,
+      "scale": 0.0004522904054248683,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p08",
+      "unit": "m",
+      "margin": 0.00045187200657748755,
+      "scale": 0.00045187200657748755,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p09",
+      "unit": "m",
+      "margin": 0.00045187200657750143,
+      "scale": 0.00045187200657750143,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p10",
+      "unit": "m",
+      "margin": 0.0004522904054248614,
+      "scale": 0.0004522904054248614,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p11",
+      "unit": "m",
+      "margin": 0.0004531110024680596,
+      "scale": 0.0004531110024680596,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p12",
+      "unit": "m",
+      "margin": 0.0006418027704339149,
+      "scale": 0.0004543027704339078,
+      "c": 1.4127203534790784,
+      "h": 1.3627203534790784,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p13",
+      "unit": "m",
+      "margin": 0.0005249999999999977,
+      "scale": 0.0005000000000000004,
+      "c": 1.0499999999999945,
+      "h": 0.9999999999999944,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p14",
+      "unit": "m",
+      "margin": 0.0005248287492445741,
+      "scale": 0.0004998287492445699,
+      "c": 1.0500171309429251,
+      "h": 1.000017130942925,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p15",
+      "unit": "m",
+      "margin": 0.0005249999999999977,
+      "scale": 0.0005000000000000004,
+      "c": 1.0499999999999945,
+      "h": 0.9999999999999944,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p16",
+      "unit": "m",
+      "margin": 0.00041672180097311606,
+      "scale": 0.0003792218009731202,
+      "c": 1.0988867198662293,
+      "h": 1.0488867198662293,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.rotor.p17",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth0",
+      "unit": "m",
+      "margin": 0.000512500000000006,
+      "scale": 0.0005000000000000004,
+      "c": 1.025000000000011,
+      "h": 0.975000000000011,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684490035,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704525,
+      "h": 0.9750908573704524,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.corner_lo",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0005000000000000004,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983093,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992331868,
+      "h": 0.9481666992331867,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot0.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704391,
+      "h": 0.9750908573704391,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth1",
+      "unit": "m",
+      "margin": 0.000512500000000006,
+      "scale": 0.0005000000000000004,
+      "c": 1.025000000000011,
+      "h": 0.975000000000011,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684489896,
+      "scale": 0.0005214278954941906,
+      "c": 1.0250908573704123,
+      "h": 0.9750908573704122,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.corner_lo",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0005000000000000004,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983163,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992332002,
+      "h": 0.9481666992332002,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000074,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot1.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684489896,
+      "scale": 0.0005214278954941975,
+      "c": 1.0250908573703987,
+      "h": 0.9750908573703987,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth2",
+      "unit": "m",
+      "margin": 0.0005124999999999991,
+      "scale": 0.0004999999999999935,
+      "c": 1.0250000000000115,
+      "h": 0.9750000000000114,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704391,
+      "h": 0.9750908573704391,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000074,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983093,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992331868,
+      "h": 0.9481666992331867,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.corner_hi",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0005000000000000004,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot2.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704391,
+      "h": 0.9750908573704391,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth3",
+      "unit": "m",
+      "margin": 0.0005124999999999991,
+      "scale": 0.0005000000000000004,
+      "c": 1.0249999999999972,
+      "h": 0.9749999999999972,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704391,
+      "h": 0.9750908573704391,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.corner_lo",
+      "unit": "m",
+      "margin": 0.0004999999999999935,
+      "scale": 0.0005000000000000004,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983093,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992331868,
+      "h": 0.9481666992331867,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000074,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot3.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941837,
+      "c": 1.0250908573704391,
+      "h": 0.9750908573704391,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth4",
+      "unit": "m",
+      "margin": 0.0005124999999999991,
+      "scale": 0.0004999999999999935,
+      "c": 1.0250000000000115,
+      "h": 0.9750000000000114,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684489965,
+      "scale": 0.0005214278954941975,
+      "c": 1.025090857370412,
+      "h": 0.975090857370412,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983163,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992332002,
+      "h": 0.9481666992332002,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000004,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot4.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684489896,
+      "scale": 0.0005214278954941906,
+      "c": 1.0250908573704123,
+      "h": 0.9750908573704122,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth5",
+      "unit": "m",
+      "margin": 0.0005124999999999991,
+      "scale": 0.0004999999999999935,
+      "c": 1.0250000000000115,
+      "h": 0.9750000000000114,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.mid_lo",
+      "unit": "m",
+      "margin": 0.0005345109684489896,
+      "scale": 0.0005214278954941906,
+      "c": 1.0250908573704123,
+      "h": 0.9750908573704122,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.corner_lo",
+      "unit": "m",
+      "margin": 0.0005000000000000074,
+      "scale": 0.0005000000000000074,
+      "c": 1.0,
+      "h": 0.95,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.open_mid",
+      "unit": "m",
+      "margin": 0.0005137580429983163,
+      "scale": 0.0005147016459204554,
+      "c": 0.9981666992332002,
+      "h": 0.9481666992332002,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.corner_hi",
+      "unit": "m",
+      "margin": 0.0005000000000000004,
+      "scale": 0.0005000000000000074,
+      "c": 0.9999999999999861,
+      "h": 0.9499999999999861,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.slot5.mid_hi",
+      "unit": "m",
+      "margin": 0.0005345109684490035,
+      "scale": 0.0005214278954941906,
+      "c": 1.025090857370439,
+      "h": 0.9750908573704389,
+      "pass": true
+     },
+     {
+      "name": "cp_coupling.tooth6",
+      "unit": "m",
+      "margin": 0.0005124999999999991,
+      "scale": 0.0004999999999999935,
+      "c": 1.0250000000000115,
+      "h": 0.9750000000000114,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 0.0005505439868668712,
+   "F_upper": 0.006055983855535583,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00482187446673888,
+   "mean_train": 1.4517056828544483
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 19.950825728631255,
+  "solve_fe": 19.955994652978223,
+  "seconds": 66.20245799992699,
+  "index": 1,
+  "x": [
+   0.006775,
+   0.007086001225392345,
+   0.018796628557999268,
+   0.0040999999999999995,
+   0.0022249999999999995,
+   0.001024999999999999,
+   0.008544891134675821,
+   0.0010238332077696008,
+   0.0,
+   -3.7499999999999556e-05,
+   -2.4999999999998873e-05,
+   -0.00018749999999999995,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   1.2499999999999433e-05,
+   1.2499999999999867e-05
+  ],
+  "note": "surrogate acceptance",
+  "status": "ok",
+  "F_val": 0.0055054398686687125,
+  "mean_full": 1.4492539345736368,
+  "stds": [
+   0.0070748654542770505,
+   0.029892036115234753,
+   0.06754148595017799
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": false,
+   "T90": false,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7748077143113,
+    "max_area_ratio": 1.2611505889684838,
+    "min_angle_deg": 13.138280974524783,
+    "min_area_ratio": 0.9197712833455852
+   }
+  },
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "min_h": 0.9010733881715467,
+  "h_nonnegative": true,
+  "geometry": {
+   "buildable": true,
+   "admissible": true,
+   "construction_error": null,
+   "guards": [
+    {
+     "name": "magnet_shaft_clearance",
+     "unit": "m",
+     "margin": 0.014138998774607649,
+     "scale": 0.013999999999999999,
+     "c": 1.0099284839005465,
+     "h": 0.9599284839005464,
+     "pass": true
+    },
+    {
+     "name": "magnet_height",
+     "unit": "m",
+     "margin": 0.007086001225392345,
+     "scale": 0.007,
+     "c": 1.0122858893417637,
+     "h": 0.9622858893417636,
+     "pass": true
+    },
+    {
+     "name": "magnet_half_width",
+     "unit": "m",
+     "margin": 0.009398314278999634,
+     "scale": 0.0095,
+     "c": 0.9892962398946983,
+     "h": 0.9392962398946982,
+     "pass": true
+    },
+    {
+     "name": "opening_half_width",
+     "unit": "m",
+     "margin": 0.0011124999999999998,
+     "scale": 0.00115,
+     "c": 0.9673913043478259,
+     "h": 0.9173913043478259,
+     "pass": true
+    },
+    {
+     "name": "opening_vs_pitch",
+     "unit": "m",
+     "margin": 0.0028095084236446173,
+     "scale": 0.002772008423644617,
+     "c": 1.013528097418512,
+     "h": 0.9635280974185119,
+     "pass": true
+    },
+    {
+     "name": "slot_top_discriminant",
+     "unit": "m^2",
+     "margin": 2.613910949815848e-06,
+     "scale": 2.7191410269886834e-06,
+     "c": 0.961300250289198,
+     "h": 0.9113002502891979,
+     "pass": true
+    },
+    {
+     "name": "arc_centre_beyond_opening",
+     "unit": "m",
+     "margin": 0.001801279978110061,
+     "scale": 0.0018379416028071888,
+     "c": 0.9800528892533188,
+     "h": 0.9300528892533187,
+     "pass": true
+    },
+    {
+     "name": "arc_radius_vs_opening",
+     "unit": "m",
+     "margin": 0.0010046362283849938,
+     "scale": 0.0010180704175208324,
+     "c": 0.9868042633351894,
+     "h": 0.9368042633351894,
+     "pass": true
+    },
+    {
+     "name": "fillet_radius",
+     "unit": "m",
+     "margin": 0.0010238332077696008,
+     "scale": 0.001,
+     "c": 1.0238332077696009,
+     "h": 0.9738332077696008,
+     "pass": true
+    },
+    {
+     "name": "fillet_centre_y",
+     "unit": "m",
+     "margin": 0.001982755132372717,
+     "scale": 0.002084755137755031,
+     "c": 0.9510733881715467,
+     "h": 0.9010733881715467,
+     "pass": true
+    },
+    {
+     "name": "flank_length",
+     "unit": "m",
+     "margin": 0.010214037154232948,
+     "scale": 0.010528559286427139,
+     "c": 0.9701267643902945,
+     "h": 0.9201267643902945,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p00",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000004,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p01",
+     "unit": "m",
+     "margin": 0.0004167218009731091,
+     "scale": 0.00037922180097311325,
+     "c": 1.098886719866231,
+     "h": 1.048886719866231,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p02",
+     "unit": "m",
+     "margin": 0.0005249999999999977,
+     "scale": 0.0004999999999999935,
+     "c": 1.050000000000009,
+     "h": 1.0000000000000089,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p03",
+     "unit": "m",
+     "margin": 0.0005248287492445672,
+     "scale": 0.0004998287492445699,
+     "c": 1.0500171309429114,
+     "h": 1.0000171309429113,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p04",
+     "unit": "m",
+     "margin": 0.0005249999999999908,
+     "scale": 0.0004999999999999935,
+     "c": 1.0499999999999952,
+     "h": 0.9999999999999951,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p05",
+     "unit": "m",
+     "margin": 0.000641802770433908,
+     "scale": 0.0004543027704339078,
+     "c": 1.4127203534790633,
+     "h": 1.3627203534790633,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p06",
+     "unit": "m",
+     "margin": 0.0004531110024680665,
+     "scale": 0.0004531110024680665,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p07",
+     "unit": "m",
+     "margin": 0.0004522904054248683,
+     "scale": 0.0004522904054248683,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p08",
+     "unit": "m",
+     "margin": 0.00045187200657748755,
+     "scale": 0.00045187200657748755,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p09",
+     "unit": "m",
+     "margin": 0.00045187200657750143,
+     "scale": 0.00045187200657750143,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p10",
+     "unit": "m",
+     "margin": 0.0004522904054248614,
+     "scale": 0.0004522904054248614,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p11",
+     "unit": "m",
+     "margin": 0.0004531110024680596,
+     "scale": 0.0004531110024680596,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p12",
+     "unit": "m",
+     "margin": 0.0006418027704339149,
+     "scale": 0.0004543027704339078,
+     "c": 1.4127203534790784,
+     "h": 1.3627203534790784,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p13",
+     "unit": "m",
+     "margin": 0.0005249999999999977,
+     "scale": 0.0005000000000000004,
+     "c": 1.0499999999999945,
+     "h": 0.9999999999999944,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p14",
+     "unit": "m",
+     "margin": 0.0005248287492445741,
+     "scale": 0.0004998287492445699,
+     "c": 1.0500171309429251,
+     "h": 1.000017130942925,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p15",
+     "unit": "m",
+     "margin": 0.0005249999999999977,
+     "scale": 0.0005000000000000004,
+     "c": 1.0499999999999945,
+     "h": 0.9999999999999944,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p16",
+     "unit": "m",
+     "margin": 0.00041672180097311606,
+     "scale": 0.0003792218009731202,
+     "c": 1.0988867198662293,
+     "h": 1.0488867198662293,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.rotor.p17",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000004,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth0",
+     "unit": "m",
+     "margin": 0.000512500000000006,
+     "scale": 0.0005000000000000004,
+     "c": 1.025000000000011,
+     "h": 0.975000000000011,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot0.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684490035,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704525,
+     "h": 0.9750908573704524,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot0.corner_lo",
+     "unit": "m",
+     "margin": 0.0004999999999999935,
+     "scale": 0.0005000000000000004,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot0.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983093,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992331868,
+     "h": 0.9481666992331867,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot0.corner_hi",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000004,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot0.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704391,
+     "h": 0.9750908573704391,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth1",
+     "unit": "m",
+     "margin": 0.000512500000000006,
+     "scale": 0.0005000000000000004,
+     "c": 1.025000000000011,
+     "h": 0.975000000000011,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot1.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684489896,
+     "scale": 0.0005214278954941906,
+     "c": 1.0250908573704123,
+     "h": 0.9750908573704122,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot1.corner_lo",
+     "unit": "m",
+     "margin": 0.0004999999999999935,
+     "scale": 0.0005000000000000004,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot1.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983163,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992332002,
+     "h": 0.9481666992332002,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot1.corner_hi",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000074,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot1.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684489896,
+     "scale": 0.0005214278954941975,
+     "c": 1.0250908573703987,
+     "h": 0.9750908573703987,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth2",
+     "unit": "m",
+     "margin": 0.0005124999999999991,
+     "scale": 0.0004999999999999935,
+     "c": 1.0250000000000115,
+     "h": 0.9750000000000114,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot2.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704391,
+     "h": 0.9750908573704391,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot2.corner_lo",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000074,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot2.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983093,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992331868,
+     "h": 0.9481666992331867,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot2.corner_hi",
+     "unit": "m",
+     "margin": 0.0004999999999999935,
+     "scale": 0.0005000000000000004,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot2.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704391,
+     "h": 0.9750908573704391,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth3",
+     "unit": "m",
+     "margin": 0.0005124999999999991,
+     "scale": 0.0005000000000000004,
+     "c": 1.0249999999999972,
+     "h": 0.9749999999999972,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot3.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704391,
+     "h": 0.9750908573704391,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot3.corner_lo",
+     "unit": "m",
+     "margin": 0.0004999999999999935,
+     "scale": 0.0005000000000000004,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot3.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983093,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992331868,
+     "h": 0.9481666992331867,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot3.corner_hi",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000074,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot3.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941837,
+     "c": 1.0250908573704391,
+     "h": 0.9750908573704391,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth4",
+     "unit": "m",
+     "margin": 0.0005124999999999991,
+     "scale": 0.0004999999999999935,
+     "c": 1.0250000000000115,
+     "h": 0.9750000000000114,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot4.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684489965,
+     "scale": 0.0005214278954941975,
+     "c": 1.025090857370412,
+     "h": 0.975090857370412,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot4.corner_lo",
+     "unit": "m",
+     "margin": 0.0005000000000000074,
+     "scale": 0.0005000000000000074,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot4.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983163,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992332002,
+     "h": 0.9481666992332002,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot4.corner_hi",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000004,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot4.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684489896,
+     "scale": 0.0005214278954941906,
+     "c": 1.0250908573704123,
+     "h": 0.9750908573704122,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth5",
+     "unit": "m",
+     "margin": 0.0005124999999999991,
+     "scale": 0.0004999999999999935,
+     "c": 1.0250000000000115,
+     "h": 0.9750000000000114,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot5.mid_lo",
+     "unit": "m",
+     "margin": 0.0005345109684489896,
+     "scale": 0.0005214278954941906,
+     "c": 1.0250908573704123,
+     "h": 0.9750908573704122,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot5.corner_lo",
+     "unit": "m",
+     "margin": 0.0005000000000000074,
+     "scale": 0.0005000000000000074,
+     "c": 1.0,
+     "h": 0.95,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot5.open_mid",
+     "unit": "m",
+     "margin": 0.0005137580429983163,
+     "scale": 0.0005147016459204554,
+     "c": 0.9981666992332002,
+     "h": 0.9481666992332002,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot5.corner_hi",
+     "unit": "m",
+     "margin": 0.0005000000000000004,
+     "scale": 0.0005000000000000074,
+     "c": 0.9999999999999861,
+     "h": 0.9499999999999861,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.slot5.mid_hi",
+     "unit": "m",
+     "margin": 0.0005345109684490035,
+     "scale": 0.0005214278954941906,
+     "c": 1.025090857370439,
+     "h": 0.9750908573704389,
+     "pass": true
+    },
+    {
+     "name": "cp_coupling.tooth6",
+     "unit": "m",
+     "margin": 0.0005124999999999991,
+     "scale": 0.0004999999999999935,
+     "c": 1.0250000000000115,
+     "h": 0.9750000000000114,
+     "pass": true
+    }
+   ],
+   "discrete": [
+    {
+     "name": "components_finite",
+     "pass": true
+    }
+   ],
+   "credit_admissible": true
+  },
+  "delta_F": 0.0005505439868668712,
+  "F_upper": 0.006055983855535583,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "admissible": true,
+  "F_train": 0.00482187446673888,
+  "mean_train": 1.4517056828544483
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.8186859667533268,
+   "solve_fe": 0.7806954196947054,
+   "seconds": 2.71663058293052,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008584802316481453,
+   "mean_full": 1.4475011967377915,
+   "stds": [
+    0.010143707533009428,
+    0.0405590283375799,
+    0.08268538404263241
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe start",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 1.592398492826683,
+   "solve_fe": 1.5613908393894107,
+   "seconds": 5.284026624984108,
+   "kind": "train",
+   "x": [
+    0.0079,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008431889675308835,
+   "mean_full": 1.3874901480551383,
+   "stds": [
+    0.005405159641933315,
+    0.04023371378915152,
+    0.08236456883446115
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 0",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 135.98499375617084,
+    "max_area_ratio": 1.1991224178474587,
+    "min_angle_deg": 13.32668235627035,
+    "min_area_ratio": 0.848340196662313
+   },
+   "newton_iterations": 185,
+   "admissible": true,
+   "min_h": 0.8857142857142853,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.3691529921552075,
+   "solve_fe": 2.342086259084116,
+   "seconds": 7.861516790930182,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.008,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008845232057287034,
+   "mean_full": 1.4662380086893656,
+   "stds": [
+    0.010669914985782689,
+    0.04118444144976835,
+    0.08387625858342637
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 1",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.08294585584557,
+    "max_area_ratio": 1.142857142857146,
+    "min_angle_deg": 13.31152989106756,
+    "min_area_ratio": 0.8314880244475882
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.8785714285714284,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.1747000677156865,
+   "solve_fe": 3.1227816787788214,
+   "seconds": 10.534548832918517,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.020499999999999997,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.010713816697357409,
+   "mean_full": 1.5868146412030095,
+   "stds": [
+    0.015223049289249302,
+    0.04584242603807144,
+    0.09154532998814546
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 2",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.2792660906435,
+    "max_area_ratio": 1.078947368421054,
+    "min_angle_deg": 13.466544128170467,
+    "min_area_ratio": 0.84742418717041
+   },
+   "newton_iterations": 195,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.9530565260412263,
+   "solve_fe": 3.9034770984735268,
+   "seconds": 13.117354749934748,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004399999999999999,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008567279641982367,
+   "mean_full": 1.4480335356775396,
+   "stds": [
+    0.01016272807733518,
+    0.04052215212691187,
+    0.08259511963192451
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 3",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.132475279410334,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.7502233905577983
+   },
+   "newton_iterations": 186,
+   "admissible": true,
+   "min_h": 0.6693403015045376,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.760124519256083,
+   "solve_fe": 4.684172518168232,
+   "seconds": 15.795433624996804,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0026,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.013253983736070821,
+   "mean_full": 1.4317170834602628,
+   "stds": [
+    0.012827088045809142,
+    0.05063860942479126,
+    0.10259230372625094
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 4",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1306757558219025,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.8925667022543377
+   },
+   "newton_iterations": 195,
+   "admissible": true,
+   "min_h": 0.7923869796891096,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 5.540341491133759,
+   "solve_fe": 5.4648679378629375,
+   "seconds": 18.384413249907084,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.0010999999999999998,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008608053170707149,
+   "mean_full": 1.4473923627662741,
+   "stds": [
+    0.010153768024069016,
+    0.040614291104372084,
+    0.08279754539664727
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 5",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1037480184373492,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9893841296136903
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.9394950987443131,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 6.309757566286459,
+   "solve_fe": 6.245563357557643,
+   "seconds": 20.93755245790817,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.01005,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008601732969541342,
+   "mean_full": 1.4489088527758898,
+   "stds": [
+    0.010194054587418504,
+    0.040570212391226726,
+    0.08277603570563662
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 6",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.2883455256380176,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.7948123430644531
+   },
+   "newton_iterations": 182,
+   "admissible": true,
+   "min_h": 0.7790364378419308,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.093737781186076,
+   "solve_fe": 7.026258777252348,
+   "seconds": 23.539019582909532,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.00115,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008585269649811305,
+   "mean_full": 1.4475520029472564,
+   "stds": [
+    0.010145395701128714,
+    0.04055899940713531,
+    0.08268801704582607
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 7",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.2005173798477853,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9068886018673739
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.8714793755890836,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.871940357165247,
+   "solve_fe": 7.8069541969470535,
+   "seconds": 26.12131487496663,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.010009095763628089,
+   "mean_full": 1.4401147381211195,
+   "stds": [
+    0.01000546013344358,
+    0.04211788833892871,
+    0.09019462297174756
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 8",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.58335091138866,
+    "max_area_ratio": 1.2999999999996932,
+    "min_angle_deg": 13.16752380089979,
+    "min_area_ratio": 0.9923925485580886
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.644642106435953,
+   "solve_fe": 8.587649616641759,
+   "seconds": 28.68535687495023,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.006749680255052385,
+   "mean_full": 1.4420493894787743,
+   "stds": [
+    0.009118358995472151,
+    0.03775210790753916,
+    0.07239692074128289
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 9",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.5671821495654,
+    "max_area_ratio": 1.1513538483049035,
+    "min_angle_deg": 13.184211430031272,
+    "min_area_ratio": 0.9676020964686051
+   },
+   "newton_iterations": 185,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 9.415737677977141,
+   "solve_fe": 9.368345036336464,
+   "seconds": 31.244069124921225,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    -9.999999999999994e-05,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008313662571993499,
+   "mean_full": 1.4584296724825887,
+   "stds": [
+    0.01065590854240775,
+    0.04042225860725392,
+    0.0810318159380476
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 10",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.35893487899602,
+    "max_area_ratio": 1.217415092623783,
+    "min_angle_deg": 13.198439526512411,
+    "min_area_ratio": 0.9233259209670007
+   },
+   "newton_iterations": 185,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.199780726626,
+   "solve_fe": 10.14904045603117,
+   "seconds": 33.84574474999681,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.0068891659524913185,
+   "mean_full": 1.4512778703437248,
+   "stds": [
+    0.010821197341553663,
+    0.033916471549583875,
+    0.07497826750607631
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 11",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.74787973054939,
+    "max_area_ratio": 1.2052089768652772,
+    "min_angle_deg": 13.200079371564984,
+    "min_area_ratio": 0.9491123380672654
+   },
+   "newton_iterations": 188,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.995756532845453,
+   "solve_fe": 10.929735875725875,
+   "seconds": 36.48701662500389,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.009184658884861061,
+   "mean_full": 1.4365632226869036,
+   "stds": [
+    0.0070625475153369985,
+    0.043521430538627774,
+    0.08509209358880569
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 12",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.79831050107836,
+    "max_area_ratio": 1.2272206748970358,
+    "min_angle_deg": 13.199138272096771,
+    "min_area_ratio": 0.9582184418633647
+   },
+   "newton_iterations": 192,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 11.782766804914012,
+   "solve_fe": 11.71043129542058,
+   "seconds": 39.09853833296802,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.009296967304194473,
+   "mean_full": 1.4303762552750823,
+   "stds": [
+    0.014632812663620072,
+    0.04139550402331544,
+    0.08584439611530591
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 13",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.81157031886855,
+    "max_area_ratio": 1.228049196463965,
+    "min_angle_deg": 13.198148883932053,
+    "min_area_ratio": 0.9603004173348204
+   },
+   "newton_iterations": 189,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.559596519103364,
+   "solve_fe": 12.491126715115286,
+   "seconds": 41.676278083003126,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.008468133742592943,
+   "mean_full": 1.429226644153536,
+   "stds": [
+    0.008855363136523197,
+    0.040668326439131625,
+    0.08207194106973148
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 14",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8122404333273,
+    "max_area_ratio": 1.2998963495147609,
+    "min_angle_deg": 13.198077234097685,
+    "min_area_ratio": 0.960809390051319
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 13.336920376991465,
+   "solve_fe": 13.271822134809991,
+   "seconds": 44.25565754098352,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    5e-05,
+    0.0,
+    0.0
+   ],
+   "F": 0.010212830247137122,
+   "mean_full": 1.434621049110293,
+   "stds": [
+    0.011411300906034757,
+    0.04433494537185245,
+    0.09009453411635976
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 15",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.1076110892942892,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9493908369064801
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.115025764074137,
+   "solve_fe": 14.052517554504696,
+   "seconds": 46.83763033291325,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    5e-05,
+    0.0
+   ],
+   "F": 0.007999777731935855,
+   "mean_full": 1.4385225202823098,
+   "stds": [
+    0.010094103495779602,
+    0.03913231144904029,
+    0.07979065739300345
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 16",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.0525505284036811,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9775501718233875
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.892665850116488,
+   "solve_fe": 14.833212974199402,
+   "seconds": 49.418059124960564,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    5e-05
+   ],
+   "F": 0.006933826451977817,
+   "mean_full": 1.4395864489882608,
+   "stds": [
+    0.009398547439010021,
+    0.036381169874465595,
+    0.07430951646040884
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 17",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.114377904004263,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 0.9464225759053759
+   },
+   "newton_iterations": 187,
+   "admissible": true,
+   "min_h": 0.95,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 15.898037637736614,
+   "solve_fe": 15.833212974199402,
+   "seconds": 52.754165833001025,
+   "kind": "validate",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F_val": 0.0078163210608299,
+   "mean_full": 1.4487125958021108,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 16.643319346187898,
+   "solve_fe": 16.613908393894107,
+   "seconds": 55.227220415952615,
+   "kind": "train",
+   "x": [
+    0.0061,
+    0.007999999999999997,
+    0.018040120127168,
+    0.004399999999999998,
+    0.002,
+    0.0009000000000000004,
+    0.01005,
+    0.00115,
+    0.0,
+    -0.00014999999999999974,
+    -9.999999999999994e-05,
+    -0.0002999999999999999,
+    -2.168404344971009e-19,
+    0.0,
+    0.0,
+    5.698505987000737e-21,
+    4.999999999999985e-05,
+    5e-05
+   ],
+   "F": 0.001508427232109457,
+   "mean_full": 1.4497523090475621,
+   "stds": [
+    0.007917511593812843,
+    0.015401885596713426,
+    0.034763805348912075
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.42283146809984,
+    "max_area_ratio": 1.5359472419529865,
+    "min_angle_deg": 12.999158073160707,
+    "min_area_ratio": 0.7089721904853287
+   },
+   "newton_iterations": 174,
+   "admissible": true,
+   "min_h": 0.6996397406278737,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 17.41872436483674,
+   "solve_fe": 17.394603813588812,
+   "seconds": 57.800232624984346,
+   "kind": "train",
+   "x": [
+    0.00655,
+    0.006500000000000001,
+    0.018744838222802512,
+    0.0038000000000000004,
+    0.00215,
+    0.0010500000000000002,
+    0.007350000000000007,
+    0.0009250000000000007,
+    0.0,
+    -7.499999999999911e-05,
+    -5.000000000000002e-05,
+    -0.00022499999999999994,
+    0.0,
+    0.0,
+    -4.336808689942018e-19,
+    2.397386171919382e-19,
+    2.5e-05,
+    2.5e-05
+   ],
+   "F": 0.0033149289204184463,
+   "mean_full": 1.4489315382982535,
+   "stds": [
+    0.009700357120813656,
+    0.023321310132142243,
+    0.051739235458862026
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.2350767424742,
+    "max_area_ratio": 1.3192177359617594,
+    "min_angle_deg": 13.028044736305805,
+    "min_area_ratio": 0.7702863440040354
+   },
+   "newton_iterations": 185,
+   "admissible": true,
+   "min_h": 0.8750000000000007,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.197661808794212,
+   "solve_fe": 18.175299233283518,
+   "seconds": 60.384966415935196,
+   "kind": "train",
+   "x": [
+    0.0072250000000000005,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "F": 0.006738880776073076,
+   "mean_full": 1.4354807927289501,
+   "stds": [
+    0.009554110344941477,
+    0.033482586196466636,
+    0.07434054192152449
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate geometry",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.54204231211227,
+    "max_area_ratio": 1.2052089768652772,
+    "min_angle_deg": 13.232130229759752,
+    "min_area_ratio": 0.9620851849363544
+   },
+   "newton_iterations": 186,
+   "admissible": true,
+   "min_h": 0.9339285714285712,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.970797894345424,
+   "solve_fe": 18.955994652978223,
+   "seconds": 62.95044966600835,
+   "kind": "train",
+   "x": [
+    0.006775,
+    0.007086001225392345,
+    0.018796628557999268,
+    0.0040999999999999995,
+    0.0022249999999999995,
+    0.001024999999999999,
+    0.008544891134675821,
+    0.0010238332077696008,
+    0.0,
+    -3.7499999999999556e-05,
+    -2.4999999999998873e-05,
+    -0.00018749999999999995,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.2499999999999433e-05,
+    1.2499999999999867e-05
+   ],
+   "F": 0.00482187446673888,
+   "mean_full": 1.4517056828544483,
+   "stds": [
+    0.01034677493692851,
+    0.028259885556146568,
+    0.06257953006772203
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7748077143113,
+    "max_area_ratio": 1.2611505889684838,
+    "min_angle_deg": 13.138280974524783,
+    "min_area_ratio": 0.9197712833455852
+   },
+   "newton_iterations": 184,
+   "admissible": true,
+   "min_h": 0.9010733881715467,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 19.950825728631255,
+   "solve_fe": 19.955994652978223,
+   "seconds": 66.20245799992699,
+   "kind": "validate",
+   "x": [
+    0.006775,
+    0.007086001225392345,
+    0.018796628557999268,
+    0.0040999999999999995,
+    0.0022249999999999995,
+    0.001024999999999999,
+    0.008544891134675821,
+    0.0010238332077696008,
+    0.0,
+    -3.7499999999999556e-05,
+    -2.4999999999998873e-05,
+    -0.00018749999999999995,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.2499999999999433e-05,
+    1.2499999999999867e-05
+   ],
+   "F_val": 0.0055054398686687125,
+   "mean_full": 1.4492539345736368,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  }
+ ],
+ "refusals": [],
+ "restorations": [],
+ "restarts": null,
+ "surrogate_initial_set": [
+  {
+   "coordinate": 0,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 1,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 2,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 3,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 4,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 5,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 6,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 7,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 8,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 9,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 10,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 11,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 12,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 13,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 14,
+   "tried": [
+    {
+     "step": -0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 15,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 16,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  },
+  {
+   "coordinate": 17,
+   "tried": [
+    {
+     "step": 0.1,
+     "evaluated": true,
+     "refused": null
+    }
+   ]
+  }
+ ],
+ "surrogate_steps": [
+  {
+   "delta": 0.1,
+   "geometry": false,
+   "accepted": false
+  },
+  {
+   "delta": 0.05,
+   "geometry": false,
+   "accepted": false,
+   "geometry_point_after": [
+    0.0072250000000000005,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001,
+    0.0,
+    0.0,
+    0.0,
+    -0.00014999999999999996,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "delta": 0.025,
+   "geometry": false,
+   "accepted": true
+  }
+ ],
+ "assessment": {
+  "held_out_training": [
+   {
+    "note": "candidate",
+    "F_pred": 0.000524859343168751,
+    "F_train": 0.001508427232109457,
+    "rel_F": 0.6520486159383622,
+    "stds_pred": [
+     0.009582773651540687,
+     0.006134860560135596,
+     0.019884498440236844
+    ],
+    "stds_train": [
+     0.007917511593812843,
+     0.015401885596713426,
+     0.034763805348912075
+    ],
+    "mean_pred": 1.4511199497296359,
+    "mean_train": 1.4497523090475621,
+    "rel_mean": 0.0009433616166972877
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.002947169655844562,
+    "F_train": 0.0033149289204184463,
+    "rel_F": 0.11094031679190924,
+    "stds_pred": [
+     0.010231126229308586,
+     0.021078800024982747,
+     0.048971194608987266
+    ],
+    "stds_train": [
+     0.009700357120813656,
+     0.023321310132142243,
+     0.051739235458862026
+    ],
+    "mean_pred": 1.451119949729633,
+    "mean_train": 1.4489315382982535,
+    "rel_mean": 0.0015103622038276166
+   },
+   {
+    "note": "geometry",
+    "F_pred": 0.0068270591254549415,
+    "F_train": 0.006738880776073076,
+    "rel_F": 0.013085014012260015,
+    "stds_pred": [
+     0.009653224212052149,
+     0.03375874734228509,
+     0.07479452764505269
+    ],
+    "stds_train": [
+     0.009554110344941477,
+     0.033482586196466636,
+     0.07434054192152449
+    ],
+    "mean_pred": 1.4363290526630421,
+    "mean_train": 1.4354807927289501,
+    "rel_mean": 0.0005909239178877388
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.004797159525514336,
+    "F_train": 0.00482187446673888,
+    "rel_F": 0.005125587859042525,
+    "stds_pred": [
+     0.010387526131948469,
+     0.027853885107246994,
+     0.06255733298986384
+    ],
+    "stds_train": [
+     0.01034677493692851,
+     0.028259885556146568,
+     0.06257953006772203
+    ],
+    "mean_pred": 1.4511199497296365,
+    "mean_train": 1.4517056828544483,
+    "rel_mean": 0.0004034792532189404
+   }
+  ],
+  "new_design_validation_model_checks": [
+   {
+    "validation": 0,
+    "std_half_pred": 0.03391647154958386,
+    "std_half_val": 0.03578538119717066,
+    "rel_std_half": 0.052225506200128516,
+    "F_pred": 0.006889165952491318,
+    "F_val": 0.0078163210608299,
+    "rel_F": 0.11861783838241427,
+    "mean_pred": 1.4512778703437248,
+    "mean_val": 1.4487125958021108,
+    "rel_mean": 0.0017707270227699777
+   },
+   {
+    "validation": 1,
+    "std_half_pred": 0.028259885556146593,
+    "std_half_val": 0.029892036115234753,
+    "rel_std_half": 0.05460151837085194,
+    "F_pred": 0.004821874466738878,
+    "F_val": 0.0055054398686687125,
+    "rel_F": 0.1241618141758271,
+    "mean_pred": 1.4517056828544488,
+    "mean_val": 1.4492539345736368,
+    "rel_mean": 0.0016917313262518432
+   }
+  ]
+ },
+ "aborted_request": {
+  "category": "forward",
+  "op": "train",
+  "x": [
+   0.006887248137464466,
+   0.006902574319797495,
+   0.01889899269327643,
+   0.004065808728743083,
+   0.0020749999999999996,
+   0.0010749999999999991,
+   0.008261036136207961,
+   0.0010002283832802757,
+   -4.336808689942018e-19,
+   -0.00011249999999999954,
+   -7.4999999999999e-05,
+   -0.00026249999999999993,
+   0.0,
+   0.0,
+   0.0,
+   2.66385550796976e-19,
+   3.7499999999999434e-05,
+   3.7499999999999766e-05
+  ]
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.318281604
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 66.36563208,
+  "total_fe": 20.0,
+  "total_seconds": 66.36563208,
+  "elapsed_seconds": 66.37785254092887,
+  "solve_fe": 19.955994652978223,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.7806954196947054,
+   "adjoint_eval": 0.1750375728509147,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.013011590328245089,
+   "adjoint_solve": 0.0029172928808485783,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0.0005472080083563924,
+    "fe": 0.00016490704336146885,
+    "entries": 1,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 59.58170203308401,
+    "fe": 17.95558941147781,
+    "entries": 24,
+    "forward_solves": 1380,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "line_search": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.010401252,
+    "fe": 0.0031345296274619613,
+    "entries": 25,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 6.585156709,
+    "fe": 1.9845080963176744,
+    "entries": 2,
+    "forward_solves": 120,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0.0025224557612091303,
+    "fe": 0.0007601692870696849,
+    "entries": 8,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "geometry_check": {
+    "seconds": 0.006135792,
+    "fe": 0.0018490871879600728,
+    "entries": 80,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.17916663014644876,
+    "fe": 0.05399379905866746,
+    "entries": 171,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.051662915968336165,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.07077145902439952,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "geometry_check",
+    "seconds": 0.000107791,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 3,
+    "category": "overhead",
+    "seconds": 0.0006502089510198872,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 0.00011745805386453867,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 5,
+    "category": "geometry_check",
+    "seconds": 8.7791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 6,
+    "category": "mesh_motion",
+    "seconds": 0.0004365,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 7,
+    "category": "forward",
+    "seconds": 2.592485042,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 8,
+    "category": "overhead",
+    "seconds": 0.0003114169329001548,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 9,
+    "category": "overhead",
+    "seconds": 8.662499021738768e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 10,
+    "category": "geometry_check",
+    "seconds": 9.5916e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 11,
+    "category": "overhead",
+    "seconds": 0.0005975010378374002,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 9.116600267589092e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 13,
+    "category": "geometry_check",
+    "seconds": 8.2708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 14,
+    "category": "mesh_motion",
+    "seconds": 0.000411917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 15,
+    "category": "forward",
+    "seconds": 2.565761917,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 16,
+    "category": "overhead",
+    "seconds": 0.000268292022857608,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 17,
+    "category": "overhead",
+    "seconds": 0.00010629103053361177,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 18,
+    "category": "geometry_check",
+    "seconds": 8.7917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 19,
+    "category": "overhead",
+    "seconds": 0.0005929999426559363,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 0.00010649999603629112,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 21,
+    "category": "geometry_check",
+    "seconds": 7.2833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 22,
+    "category": "mesh_motion",
+    "seconds": 0.000432542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 23,
+    "category": "forward",
+    "seconds": 2.575837416,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 24,
+    "category": "overhead",
+    "seconds": 0.0002536669768478106,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 25,
+    "category": "overhead",
+    "seconds": 8.320901542901993e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 26,
+    "category": "geometry_check",
+    "seconds": 9.3167e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 27,
+    "category": "overhead",
+    "seconds": 0.0005400829906418991,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 8.487503509968519e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 29,
+    "category": "geometry_check",
+    "seconds": 7.0375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 30,
+    "category": "mesh_motion",
+    "seconds": 0.000406333,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 31,
+    "category": "forward",
+    "seconds": 2.671516332,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 32,
+    "category": "overhead",
+    "seconds": 0.00023766794716451045,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 7.937499321997166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 34,
+    "category": "geometry_check",
+    "seconds": 8.5791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 35,
+    "category": "overhead",
+    "seconds": 0.0006653340441893363,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 36,
+    "category": "overhead",
+    "seconds": 0.00010654202196747065,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 37,
+    "category": "geometry_check",
+    "seconds": 6.5292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 38,
+    "category": "mesh_motion",
+    "seconds": 0.000402125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 39,
+    "category": "forward",
+    "seconds": 2.581145958,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 40,
+    "category": "overhead",
+    "seconds": 0.0002554999568520344,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 41,
+    "category": "overhead",
+    "seconds": 0.00010212499182671309,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 42,
+    "category": "geometry_check",
+    "seconds": 8.5333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 43,
+    "category": "overhead",
+    "seconds": 0.0005866669946659187,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 44,
+    "category": "overhead",
+    "seconds": 9.520805906504393e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 45,
+    "category": "geometry_check",
+    "seconds": 8.3791e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 46,
+    "category": "mesh_motion",
+    "seconds": 0.000406584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 47,
+    "category": "forward",
+    "seconds": 2.676464333,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 48,
+    "category": "overhead",
+    "seconds": 0.00025483401649850634,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 49,
+    "category": "overhead",
+    "seconds": 8.120795246213675e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 50,
+    "category": "geometry_check",
+    "seconds": 8.3667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 0.0006170000348344473,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 52,
+    "category": "overhead",
+    "seconds": 0.00013783294707536697,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 53,
+    "category": "geometry_check",
+    "seconds": 8.175e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 54,
+    "category": "mesh_motion",
+    "seconds": 0.000406125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 55,
+    "category": "forward",
+    "seconds": 2.5873266249999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 56,
+    "category": "overhead",
+    "seconds": 0.0002454169759076308,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 57,
+    "category": "overhead",
+    "seconds": 9.14580887183547e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 58,
+    "category": "geometry_check",
+    "seconds": 8.4917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 59,
+    "category": "overhead",
+    "seconds": 0.0005341659444688673,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 0.00010100007057189941,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 61,
+    "category": "geometry_check",
+    "seconds": 7.1875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 62,
+    "category": "mesh_motion",
+    "seconds": 0.000413375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 63,
+    "category": "forward",
+    "seconds": 2.551490792,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 64,
+    "category": "overhead",
+    "seconds": 0.0003516248973269853,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 65,
+    "category": "overhead",
+    "seconds": 0.0001651250058785081,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 66,
+    "category": "geometry_check",
+    "seconds": 9.2959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 67,
+    "category": "overhead",
+    "seconds": 0.0005813330959369978,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 0.00010687496978789568,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 69,
+    "category": "geometry_check",
+    "seconds": 7.2042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 70,
+    "category": "mesh_motion",
+    "seconds": 0.000406209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 71,
+    "category": "forward",
+    "seconds": 2.599807708,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 72,
+    "category": "overhead",
+    "seconds": 0.00023487392975951593,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 73,
+    "category": "overhead",
+    "seconds": 8.204206824302673e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 74,
+    "category": "geometry_check",
+    "seconds": 8.3125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 0.0005595410111176591,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 76,
+    "category": "overhead",
+    "seconds": 0.00015024992171674967,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 77,
+    "category": "geometry_check",
+    "seconds": 8.7166e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 78,
+    "category": "mesh_motion",
+    "seconds": 0.000405916,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 8"
+   },
+   {
+    "seq": 79,
+    "category": "forward",
+    "seconds": 2.580664374,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 8"
+   },
+   {
+    "seq": 80,
+    "category": "overhead",
+    "seconds": 0.0002628780560200994,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 81,
+    "category": "overhead",
+    "seconds": 8.533301297575235e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 82,
+    "category": "geometry_check",
+    "seconds": 8.6917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 83,
+    "category": "overhead",
+    "seconds": 0.0006097500043757975,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 84,
+    "category": "overhead",
+    "seconds": 0.00011112494394183159,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 85,
+    "category": "geometry_check",
+    "seconds": 9.6333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 86,
+    "category": "mesh_motion",
+    "seconds": 0.000429084,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 9"
+   },
+   {
+    "seq": 87,
+    "category": "forward",
+    "seconds": 2.562381292,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 9"
+   },
+   {
+    "seq": 88,
+    "category": "overhead",
+    "seconds": 0.00024216602230708872,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 89,
+    "category": "overhead",
+    "seconds": 8.554104715585709e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 90,
+    "category": "geometry_check",
+    "seconds": 9.0625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 91,
+    "category": "overhead",
+    "seconds": 0.0006108340082704444,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 0.0001124159898608923,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 93,
+    "category": "geometry_check",
+    "seconds": 7.4125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 94,
+    "category": "mesh_motion",
+    "seconds": 0.000409125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 10"
+   },
+   {
+    "seq": 95,
+    "category": "forward",
+    "seconds": 2.557070999,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 10"
+   },
+   {
+    "seq": 96,
+    "category": "overhead",
+    "seconds": 0.0002585849257066286,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 97,
+    "category": "overhead",
+    "seconds": 0.00010362500324845314,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 98,
+    "category": "geometry_check",
+    "seconds": 8.2042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 99,
+    "category": "overhead",
+    "seconds": 0.0005829160318491233,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 100,
+    "category": "overhead",
+    "seconds": 9.999994654208422e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 101,
+    "category": "geometry_check",
+    "seconds": 9.1625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 102,
+    "category": "mesh_motion",
+    "seconds": 0.000412375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 11"
+   },
+   {
+    "seq": 103,
+    "category": "forward",
+    "seconds": 2.600067292,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 11"
+   },
+   {
+    "seq": 104,
+    "category": "overhead",
+    "seconds": 0.0002357500939496049,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 105,
+    "category": "overhead",
+    "seconds": 8.945795707404613e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 106,
+    "category": "geometry_check",
+    "seconds": 0.000113416,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 107,
+    "category": "overhead",
+    "seconds": 0.0006305009567100228,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 108,
+    "category": "overhead",
+    "seconds": 0.00011733302380889654,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 109,
+    "category": "geometry_check",
+    "seconds": 7.2666e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 110,
+    "category": "mesh_motion",
+    "seconds": 0.00040125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 12"
+   },
+   {
+    "seq": 111,
+    "category": "forward",
+    "seconds": 2.639600876,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 12"
+   },
+   {
+    "seq": 112,
+    "category": "overhead",
+    "seconds": 0.00024637506948010923,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 113,
+    "category": "overhead",
+    "seconds": 9.64159844443202e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 114,
+    "category": "geometry_check",
+    "seconds": 7.9875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 115,
+    "category": "overhead",
+    "seconds": 0.0005620419949394773,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 116,
+    "category": "overhead",
+    "seconds": 9.104202035814524e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 117,
+    "category": "geometry_check",
+    "seconds": 8.5542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 118,
+    "category": "mesh_motion",
+    "seconds": 0.000411459,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 13"
+   },
+   {
+    "seq": 119,
+    "category": "forward",
+    "seconds": 2.609960291,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 13"
+   },
+   {
+    "seq": 120,
+    "category": "overhead",
+    "seconds": 0.00023504096439097566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 121,
+    "category": "overhead",
+    "seconds": 9.091699030250311e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 122,
+    "category": "geometry_check",
+    "seconds": 9.325e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 123,
+    "category": "overhead",
+    "seconds": 0.0005727910435879835,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 124,
+    "category": "overhead",
+    "seconds": 0.00010204198770225048,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 125,
+    "category": "geometry_check",
+    "seconds": 7.0708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 126,
+    "category": "mesh_motion",
+    "seconds": 0.000408625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 14"
+   },
+   {
+    "seq": 127,
+    "category": "forward",
+    "seconds": 2.576170833,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 14"
+   },
+   {
+    "seq": 128,
+    "category": "overhead",
+    "seconds": 0.00023058401351505609,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 129,
+    "category": "overhead",
+    "seconds": 9.716697968542576e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 130,
+    "category": "geometry_check",
+    "seconds": 8.4209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 131,
+    "category": "overhead",
+    "seconds": 0.0005547069243547753,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 132,
+    "category": "overhead",
+    "seconds": 9.733403567224741e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 133,
+    "category": "geometry_check",
+    "seconds": 7.5625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 134,
+    "category": "mesh_motion",
+    "seconds": 0.000402875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 15"
+   },
+   {
+    "seq": 135,
+    "category": "forward",
+    "seconds": 2.5778295,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 15"
+   },
+   {
+    "seq": 136,
+    "category": "overhead",
+    "seconds": 0.00023804104068148035,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 137,
+    "category": "overhead",
+    "seconds": 0.00010283396113663912,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 138,
+    "category": "geometry_check",
+    "seconds": 8.9542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 139,
+    "category": "overhead",
+    "seconds": 0.0005979159703457526,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 140,
+    "category": "overhead",
+    "seconds": 0.00010675005614757538,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 141,
+    "category": "geometry_check",
+    "seconds": 7.0333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 142,
+    "category": "mesh_motion",
+    "seconds": 0.000405208,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 16"
+   },
+   {
+    "seq": 143,
+    "category": "forward",
+    "seconds": 2.580371958,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 16"
+   },
+   {
+    "seq": 144,
+    "category": "overhead",
+    "seconds": 0.0002282509421078771,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 145,
+    "category": "overhead",
+    "seconds": 8.150003850460052e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 146,
+    "category": "geometry_check",
+    "seconds": 9.0042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 147,
+    "category": "overhead",
+    "seconds": 0.0005461250093645731,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 148,
+    "category": "overhead",
+    "seconds": 9.02500469237566e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 149,
+    "category": "geometry_check",
+    "seconds": 7.1583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 150,
+    "category": "mesh_motion",
+    "seconds": 0.000405125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 17"
+   },
+   {
+    "seq": 151,
+    "category": "forward",
+    "seconds": 2.5788892910000003,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 17"
+   },
+   {
+    "seq": 152,
+    "category": "overhead",
+    "seconds": 0.0002548759525211608,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 153,
+    "category": "overhead",
+    "seconds": 8.462497498840094e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 154,
+    "category": "setup_calibration",
+    "seconds": 0.0005472080083563924,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe fit"
+   },
+   {
+    "seq": 155,
+    "category": "overhead",
+    "seconds": 0.00017716700676828623,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 156,
+    "category": "geometry_check",
+    "seconds": 8.75e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 157,
+    "category": "mesh_motion",
+    "seconds": 0.000563083,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 158,
+    "category": "validation",
+    "seconds": 3.33442725,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 159,
+    "category": "overhead",
+    "seconds": 0.00021987505034815058,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 160,
+    "category": "overhead",
+    "seconds": 8.533301297575235e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 161,
+    "category": "overhead",
+    "seconds": 0.0018805419094860554,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 162,
+    "category": "geometry_check",
+    "seconds": 8.9667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 163,
+    "category": "overhead",
+    "seconds": 0.0006237080477831114,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 164,
+    "category": "overhead",
+    "seconds": 0.000291000003926456,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 165,
+    "category": "geometry_check",
+    "seconds": 8.475e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 166,
+    "category": "overhead",
+    "seconds": 0.0006135830240481255,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 167,
+    "category": "overhead",
+    "seconds": 0.0003767500165849924,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 168,
+    "category": "geometry_check",
+    "seconds": 8.2375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 169,
+    "category": "overhead",
+    "seconds": 0.0005362499665935161,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 170,
+    "category": "overhead",
+    "seconds": 0.00030266703106462955,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 171,
+    "category": "geometry_check",
+    "seconds": 6.5291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 172,
+    "category": "overhead",
+    "seconds": 0.0005144589325141169,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 173,
+    "category": "overhead",
+    "seconds": 0.000328000052832067,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 174,
+    "category": "geometry_check",
+    "seconds": 6.3458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 175,
+    "category": "overhead",
+    "seconds": 0.00061270896469523,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 176,
+    "category": "overhead",
+    "seconds": 0.0003982910420745611,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 177,
+    "category": "geometry_check",
+    "seconds": 7.0042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 178,
+    "category": "overhead",
+    "seconds": 0.0005678329385503389,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 179,
+    "category": "overhead",
+    "seconds": 0.0003094170242547989,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 180,
+    "category": "geometry_check",
+    "seconds": 6.3209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 181,
+    "category": "overhead",
+    "seconds": 0.0005473739961630031,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 182,
+    "category": "overhead",
+    "seconds": 0.0003485840279608965,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 183,
+    "category": "geometry_check",
+    "seconds": 6.2959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 184,
+    "category": "overhead",
+    "seconds": 0.0005853319666400125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 185,
+    "category": "overhead",
+    "seconds": 0.0003200840437784791,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 186,
+    "category": "geometry_check",
+    "seconds": 6.5959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 187,
+    "category": "overhead",
+    "seconds": 0.0005772489244435519,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 188,
+    "category": "overhead",
+    "seconds": 0.00042987498454749584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 189,
+    "category": "geometry_check",
+    "seconds": 6.8083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 190,
+    "category": "overhead",
+    "seconds": 0.0005585000015742025,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 191,
+    "category": "overhead",
+    "seconds": 0.0003749170573428273,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 192,
+    "category": "geometry_check",
+    "seconds": 6.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 193,
+    "category": "overhead",
+    "seconds": 0.0005105419576381109,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 194,
+    "category": "overhead",
+    "seconds": 0.00027650000993162394,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 195,
+    "category": "geometry_check",
+    "seconds": 6.6042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 196,
+    "category": "overhead",
+    "seconds": 0.0005074160336135947,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 197,
+    "category": "overhead",
+    "seconds": 0.0003042499301955104,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 198,
+    "category": "geometry_check",
+    "seconds": 5.8584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 199,
+    "category": "overhead",
+    "seconds": 0.0005133740221907601,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 200,
+    "category": "overhead",
+    "seconds": 0.0003320419928058982,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 201,
+    "category": "geometry_check",
+    "seconds": 6.5875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 202,
+    "category": "overhead",
+    "seconds": 0.0005098750184728829,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 203,
+    "category": "overhead",
+    "seconds": 0.000271082972176373,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 204,
+    "category": "geometry_check",
+    "seconds": 6.4e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 205,
+    "category": "overhead",
+    "seconds": 0.0005026250362973883,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 206,
+    "category": "overhead",
+    "seconds": 0.0002583339810371399,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 207,
+    "category": "geometry_check",
+    "seconds": 6.2708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 208,
+    "category": "overhead",
+    "seconds": 0.0004976250209836053,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 209,
+    "category": "surrogate_update",
+    "seconds": 0.00030162406619638205,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 210,
+    "category": "overhead",
+    "seconds": 8.983397856354713e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 211,
+    "category": "geometry_check",
+    "seconds": 6.5375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 212,
+    "category": "mesh_motion",
+    "seconds": 0.000404292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 213,
+    "category": "forward",
+    "seconds": 2.455189874,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 214,
+    "category": "overhead",
+    "seconds": 0.00024295896167103592,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 215,
+    "category": "overhead",
+    "seconds": 0.0001735419500619173,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 216,
+    "category": "surrogate_update",
+    "seconds": 0.0003146659582853317,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 217,
+    "category": "overhead",
+    "seconds": 2.4376087822020054e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 218,
+    "category": "overhead",
+    "seconds": 0.0005119160050526261,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 219,
+    "category": "geometry_check",
+    "seconds": 8.4958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 220,
+    "category": "overhead",
+    "seconds": 0.0006048760070598291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 221,
+    "category": "overhead",
+    "seconds": 0.0004297910491004586,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 222,
+    "category": "geometry_check",
+    "seconds": 6.3625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 223,
+    "category": "overhead",
+    "seconds": 0.0005186249515460872,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 224,
+    "category": "overhead",
+    "seconds": 0.000309542054310441,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 225,
+    "category": "geometry_check",
+    "seconds": 6.9e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 226,
+    "category": "overhead",
+    "seconds": 0.0005615829156155883,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 227,
+    "category": "surrogate_update",
+    "seconds": 0.0003344169817864895,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 228,
+    "category": "overhead",
+    "seconds": 7.850001566112041e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 229,
+    "category": "geometry_check",
+    "seconds": 8.1917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 230,
+    "category": "mesh_motion",
+    "seconds": 0.000399417,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 231,
+    "category": "forward",
+    "seconds": 2.568199624,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 232,
+    "category": "overhead",
+    "seconds": 0.00025183405541895354,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 233,
+    "category": "overhead",
+    "seconds": 0.00016345793846994638,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 234,
+    "category": "surrogate_update",
+    "seconds": 0.0003144999500364065,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 235,
+    "category": "overhead",
+    "seconds": 4.358310252428055e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 236,
+    "category": "geometry_check",
+    "seconds": 8.7375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 237,
+    "category": "overhead",
+    "seconds": 0.0005442089709717379,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 238,
+    "category": "overhead",
+    "seconds": 8.729100227355957e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 239,
+    "category": "geometry_check",
+    "seconds": 6.7417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 240,
+    "category": "mesh_motion",
+    "seconds": 0.000398916,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 241,
+    "category": "forward",
+    "seconds": 2.582740876,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate geometry"
+   },
+   {
+    "seq": 242,
+    "category": "overhead",
+    "seconds": 0.00028616598657293935,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 243,
+    "category": "overhead",
+    "seconds": 0.0001650420017540455,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 244,
+    "category": "surrogate_update",
+    "seconds": 0.00030066596809774637,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 245,
+    "category": "overhead",
+    "seconds": 1.9251019693911076e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 246,
+    "category": "overhead",
+    "seconds": 0.0004895000020042062,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 247,
+    "category": "geometry_check",
+    "seconds": 8.3417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 248,
+    "category": "overhead",
+    "seconds": 0.0006034580788281119,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 249,
+    "category": "overhead",
+    "seconds": 0.000408291001804173,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 250,
+    "category": "geometry_check",
+    "seconds": 6.2958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 251,
+    "category": "overhead",
+    "seconds": 0.0005674589073692005,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 252,
+    "category": "overhead",
+    "seconds": 0.00020350003615021706,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 253,
+    "category": "geometry_check",
+    "seconds": 6.0042e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 254,
+    "category": "overhead",
+    "seconds": 0.0005848750177790407,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 255,
+    "category": "overhead",
+    "seconds": 0.0004041249630972743,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 256,
+    "category": "geometry_check",
+    "seconds": 6.3209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 257,
+    "category": "overhead",
+    "seconds": 0.0005465410445353314,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 258,
+    "category": "overhead",
+    "seconds": 0.0003560000332072377,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 259,
+    "category": "geometry_check",
+    "seconds": 5.9292e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 260,
+    "category": "overhead",
+    "seconds": 0.0005561239782423399,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 261,
+    "category": "overhead",
+    "seconds": 0.0004231249913573265,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 262,
+    "category": "geometry_check",
+    "seconds": 8.0833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 263,
+    "category": "overhead",
+    "seconds": 0.0005655420032724123,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 264,
+    "category": "overhead",
+    "seconds": 0.0003693340113386512,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 265,
+    "category": "geometry_check",
+    "seconds": 6.8208e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 266,
+    "category": "overhead",
+    "seconds": 0.0005380829960728306,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 267,
+    "category": "overhead",
+    "seconds": 0.0003450419753789902,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 268,
+    "category": "geometry_check",
+    "seconds": 6.1084e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 269,
+    "category": "overhead",
+    "seconds": 0.0004951659864005364,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 270,
+    "category": "surrogate_update",
+    "seconds": 0.00028012495022267103,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 271,
+    "category": "overhead",
+    "seconds": 8.200004231184721e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 272,
+    "category": "geometry_check",
+    "seconds": 6.6375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 273,
+    "category": "mesh_motion",
+    "seconds": 0.000407709,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 274,
+    "category": "forward",
+    "seconds": 2.555912375,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 275,
+    "category": "overhead",
+    "seconds": 0.000254499064233471,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 276,
+    "category": "overhead",
+    "seconds": 0.00017224997282028198,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 277,
+    "category": "surrogate_update",
+    "seconds": 0.00032504089176654816,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 278,
+    "category": "overhead",
+    "seconds": 8.120911661535501e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 279,
+    "category": "geometry_check",
+    "seconds": 8.3333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 280,
+    "category": "mesh_motion",
+    "seconds": 0.000415083,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 281,
+    "category": "validation",
+    "seconds": 3.250729459,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 282,
+    "category": "overhead",
+    "seconds": 0.00020195893743846227,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 283,
+    "category": "overhead",
+    "seconds": 8.658308070152998e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 284,
+    "category": "overhead",
+    "seconds": 0.0005760829662904143,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 285,
+    "category": "geometry_check",
+    "seconds": 7.8792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 286,
+    "category": "overhead",
+    "seconds": 0.0005798749478600485,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 287,
+    "category": "overhead",
+    "seconds": 0.0003946250071749091,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 288,
+    "category": "geometry_check",
+    "seconds": 6.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 289,
+    "category": "overhead",
+    "seconds": 0.0005664579829414151,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 290,
+    "category": "overhead",
+    "seconds": 0.0003867500927299261,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 291,
+    "category": "geometry_check",
+    "seconds": 5.9417e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 292,
+    "category": "overhead",
+    "seconds": 0.0005373329455409248,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 293,
+    "category": "overhead",
+    "seconds": 0.00026179198175668716,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 294,
+    "category": "geometry_check",
+    "seconds": 8.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 295,
+    "category": "overhead",
+    "seconds": 0.0005633330823400229,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 296,
+    "category": "overhead",
+    "seconds": 0.00035462493542581797,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 297,
+    "category": "geometry_check",
+    "seconds": 6.1958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 298,
+    "category": "overhead",
+    "seconds": 0.0005372089604520625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 299,
+    "category": "overhead",
+    "seconds": 0.000309542054310441,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 300,
+    "category": "geometry_check",
+    "seconds": 7.0583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 301,
+    "category": "overhead",
+    "seconds": 0.0005462079596156855,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 302,
+    "category": "overhead",
+    "seconds": 0.0002793750027194619,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 303,
+    "category": "geometry_check",
+    "seconds": 6.7583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 304,
+    "category": "overhead",
+    "seconds": 0.000505334051609907,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 305,
+    "category": "overhead",
+    "seconds": 0.00032354192808270454,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 306,
+    "category": "geometry_check",
+    "seconds": 6.9375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 307,
+    "category": "overhead",
+    "seconds": 0.0005618330659018511,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 308,
+    "category": "surrogate_update",
+    "seconds": 0.00035141699481755495,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 309,
+    "category": "overhead",
+    "seconds": 8.499994874000549e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 310,
+    "category": "forward",
+    "seconds": 0.15481645508400277,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "train aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "file_sha256": "01292abae8a66e616918b839e4c6cd43a64897f6fe7fc5d7e92c727cd7ab6f8b",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "in_run_start_time": 1792328075.670366,
+ "in_run_end_time": 1792328142.048796,
+ "post_run_diagnostic": {
+  "counted_in_run_budget": false,
+  "fractions": [
+   0.25,
+   0.75
+  ],
+  "prediction": {
+   "x": [
+    0.006775,
+    0.007086001225392345,
+    0.018796628557999268,
+    0.0040999999999999995,
+    0.0022249999999999995,
+    0.001024999999999999,
+    0.008544891134675821,
+    0.0010238332077696008,
+    0.0,
+    -3.7499999999999556e-05,
+    -2.4999999999998873e-05,
+    -0.00018749999999999995,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.2499999999999433e-05,
+    1.2499999999999867e-05
+   ],
+   "points": 23,
+   "exact_fit": true,
+   "predictions": [
+    {
+     "fraction": 0.25,
+     "neighbours": [
+      0.0,
+      0.5
+     ],
+     "std_pred": 0.019303330246537537,
+     "mean_pred": 0.3346366144279853
+    },
+    {
+     "fraction": 0.75,
+     "neighbours": [
+      0.5,
+      1.0
+     ],
+     "std_pred": 0.0454197078119343,
+     "mean_pred": 1.0604900322232877
+    }
+   ],
+   "rule": "linear in the current fraction between C's per-current RBF predictions at the neighbouring training fractions (0, 0.5, 1); the means at 0 and 0.5 are post-run fits"
+  },
+  "status": "ok",
+  "error": null,
+  "charges": [
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 0.000510166
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "forward",
+    "forward_solves": 40,
+    "note": "diagnostic training",
+    "seconds": 1.730779667
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 0.000470625
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "validation",
+    "forward_solves": 40,
+    "note": "diagnostic validation",
+    "seconds": 2.185028125
+   }
+  ],
+  "seconds": 3.971243624924682,
+  "rows": [
+   {
+    "fraction": 0.25,
+    "neighbours": [
+     0.0,
+     0.5
+    ],
+    "std_pred": 0.019303330246537537,
+    "mean_pred": 0.3346366144279853,
+    "std_train": 0.01535597324607105,
+    "mean_train": 0.32125204452882994,
+    "std_val": 0.014837196538758191,
+    "mean_val": 0.32092729363926703,
+    "rel_std_train": 0.25705677765988894,
+    "rel_mean_train": 0.04166376565411776,
+    "rel_std_val": 0.30100927059318594,
+    "rel_mean_val": 0.0427178400230677
+   },
+   {
+    "fraction": 0.75,
+    "neighbours": [
+     0.5,
+     1.0
+    ],
+    "std_pred": 0.0454197078119343,
+    "mean_pred": 1.0604900322232877,
+    "std_train": 0.04420623359085722,
+    "mean_train": 1.0456713413107397,
+    "std_val": 0.04753563907483221,
+    "mean_val": 1.0441395923974328,
+    "rel_std_train": 0.027450296542070738,
+    "rel_mean_train": 0.014171461268100705,
+    "rel_std_val": 0.04451252374175376,
+    "rel_mean_val": 0.0156592470440786
+   }
+  ],
+  "validation_mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.7748077143113,
+    "max_area_ratio": 1.2611505889684838,
+    "min_angle_deg": 13.138280974524783,
+    "min_area_ratio": 0.9197712833455852
+   }
+  }
+ },
+ "post_run_end_time": 1792328146.020728,
+ "in_run_wall_seconds": 66.36563208,
+ "post_run_wall_seconds": 3.971243624924682,
+ "load_after": [
+  19.11279296875,
+  18.3623046875,
+  19.86474609375
+ ],
+ "finished_utc": "2026-10-18T12:55:46Z",
+ "host_contaminated": true,
+ "pre_run_load": 19.185546875,
+ "pre_run_wait_s": 0.0,
+ "host_gate": false,
+ "longest_overload_s": 65.4058268070221,
+ "in_run_load": {
+  "samples": 14,
+  "max": 19.259765625,
+  "mean": 18.990827287946427
+ },
+ "diagnostic_load": {
+  "samples": 0,
+  "max": null,
+  "mean": null
+ }
+}
