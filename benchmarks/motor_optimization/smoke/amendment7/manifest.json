@@ -1,7 +1,7 @@
 {
  "issue": 1201,
  "label": "smoke",
- "session_id": "smoke-20261018T100028Z",
+ "session_id": "smoke-20261018T110340Z",
  "preregistration": "#1185 with amendments 1-7 (amendment 7 revision 1 with the adoption corrections)",
  "method_labels": {
   "slsqp": "safeguarded SLSQP with restarts (adjoint)",
@@ -34,11 +34,11 @@
   "cpu_model": "Apple M3 Ultra",
   "cpu_count": 28,
   "load": [
-   16.333984375,
-   15.33642578125,
-   15.67041015625
+   22.4853515625,
+   22.91796875,
+   22.54638671875
   ],
-  "utc": "2026-10-18T09:59:18Z"
+  "utc": "2026-10-18T11:02:29Z"
  },
  "host_after": {
   "host": "robb-studio",
@@ -46,11 +46,11 @@
   "cpu_model": "Apple M3 Ultra",
   "cpu_count": 28,
   "load": [
-   16.9853515625,
-   17.3388671875,
-   16.560546875
+   24.2001953125,
+   24.82958984375,
+   23.6025390625
   ],
-  "utc": "2026-10-18T10:04:45Z"
+  "utc": "2026-10-18T11:08:00Z"
  },
  "host_idle": false,
  "host_rule": {
@@ -60,278 +60,282 @@
   "max_deferrals": 3,
   "calibration": {
    "gate": false,
-   "pre_run_load": 16.26953125,
+   "pre_run_load": 22.349609375,
    "pre_run_wait_s": 0.0,
    "deferrals": 0,
    "host_contaminated": false,
-   "longest_overload_s": 52.49344515800476,
+   "longest_overload_s": 52.99220299720764,
    "load": {
     "samples": 11,
-    "max": 17.3857421875,
-    "mean": 16.558416193181817
+    "max": 23.9833984375,
+    "mean": 22.47216796875
    }
   },
   "contamination_load": 9.0,
   "contamination_seconds": 60.0,
   "load_samples": [
    [
-    1792317571.2315588,
-    16.26953125
+    1792321362.281166,
+    22.349609375
    ],
    [
-    1792317576.235911,
-    16.32763671875
+    1792321367.287682,
+    22.2412109375
    ],
    [
-    1792317581.245993,
-    16.06103515625
+    1792321372.28983,
+    22.2216796875
    ],
    [
-    1792317586.255244,
-    15.7353515625
+    1792321377.291201,
+    22.28369140625
    ],
    [
-    1792317591.256614,
-    16.39697265625
+    1792321382.301274,
+    21.5400390625
    ],
    [
-    1792317596.260025,
-    16.28466796875
+    1792321387.306519,
+    21.17626953125
    ],
    [
-    1792317601.269768,
-    16.26171875
+    1792321392.311401,
+    21.40234375
    ],
    [
-    1792317606.27072,
-    16.88134765625
+    1792321397.3185122,
+    22.2509765625
    ],
    [
-    1792317611.2807941,
-    16.73046875
+    1792321402.328589,
+    23.03125
    ],
    [
-    1792317616.281634,
-    16.83203125
+    1792321407.333777,
+    23.4287109375
    ],
    [
-    1792317621.2841442,
-    17.24560546875
+    1792321412.343852,
+    23.63427734375
    ],
    [
-    1792317626.294291,
-    17.3857421875
+    1792321417.353926,
+    23.9833984375
    ],
    [
-    1792317631.301356,
-    17.1142578125
+    1792321422.36184,
+    23.50390625
    ],
    [
-    1792317636.30371,
-    17.42529296875
+    1792321427.362066,
+    23.78369140625
    ],
    [
-    1792317641.308438,
-    17.63134765625
+    1792321432.3692532,
+    24.041015625
    ],
    [
-    1792317646.3137422,
-    17.66064453125
+    1792321437.3723369,
+    24.11767578125
    ],
    [
-    1792317651.3238258,
-    17.927734375
+    1792321442.375315,
+    24.10791015625
    ],
    [
-    1792317656.3338938,
-    18.09326171875
+    1792321447.385391,
+    23.77880859375
    ],
    [
-    1792317661.343977,
-    18.56591796875
+    1792321452.3954618,
+    23.87646484375
    ],
    [
-    1792317666.3532548,
-    18.7607421875
+    1792321457.397114,
+    24.52685546875
    ],
    [
-    1792317671.3633301,
-    18.61962890625
+    1792321462.4071941,
+    24.884765625
    ],
    [
-    1792317676.372113,
-    18.72998046875
+    1792321467.417272,
+    25.2138671875
    ],
    [
-    1792317681.379709,
-    18.51123046875
+    1792321472.424701,
+    25.0361328125
    ],
    [
-    1792317686.389784,
-    18.47021484375
+    1792321477.432012,
+    24.873046875
    ],
    [
-    1792317691.398816,
-    19.47314453125
+    1792321482.442104,
+    25.68359375
    ],
    [
-    1792317696.4036238,
-    19.35498046875
+    1792321487.452201,
+    26.10888671875
    ],
    [
-    1792317701.4059079,
-    19.326171875
+    1792321492.4580271,
+    26.34033203125
    ],
    [
-    1792317706.414261,
-    19.7802734375
+    1792321497.466083,
+    26.55322265625
    ],
    [
-    1792317711.424347,
-    20.0380859375
+    1792321502.476158,
+    26.6689453125
    ],
    [
-    1792317716.434437,
-    19.63427734375
+    1792321507.485363,
+    26.775390625
    ],
    [
-    1792317721.440622,
-    19.8232421875
+    1792321512.486743,
+    27.353515625
    ],
    [
-    1792317726.450697,
-    19.7568359375
+    1792321517.496824,
+    27.0048828125
    ],
    [
-    1792317731.4555461,
-    19.61572265625
+    1792321522.499864,
+    27.16455078125
    ],
    [
-    1792317736.456355,
-    19.56640625
+    1792321527.50994,
+    27.3916015625
    ],
    [
-    1792317741.466454,
-    19.60107421875
+    1792321532.515237,
+    26.87939453125
    ],
    [
-    1792317746.472301,
-    19.712890625
+    1792321537.5206442,
+    27.9296875
    ],
    [
-    1792317751.4823759,
-    19.65576171875
+    1792321542.522789,
+    28.73583984375
    ],
    [
-    1792317756.4872892,
-    19.84326171875
+    1792321547.523969,
+    28.5166015625
    ],
    [
-    1792317761.4914172,
-    19.6953125
+    1792321552.52947,
+    28.15478515625
    ],
    [
-    1792317766.501585,
-    19.47900390625
+    1792321557.53668,
+    28.06201171875
    ],
    [
-    1792317771.511797,
-    19.7607421875
+    1792321562.542971,
+    28.056640625
    ],
    [
-    1792317776.515606,
-    19.53955078125
+    1792321567.550497,
+    27.8115234375
    ],
    [
-    1792317781.5201979,
-    19.896484375
+    1792321572.559785,
+    28.06640625
    ],
    [
-    1792317786.525237,
-    19.423828125
+    1792321577.569869,
+    27.82080078125
    ],
    [
-    1792317791.5353138,
-    18.9892578125
+    1792321582.574243,
+    27.4345703125
    ],
    [
-    1792317796.53964,
-    18.98974609375
+    1792321587.5844731,
+    27.7197265625
    ],
    [
-    1792317801.5456588,
-    19.470703125
+    1792321592.58522,
+    27.74169921875
    ],
    [
-    1792317806.548043,
-    19.1923828125
+    1792321597.593091,
+    27.84228515625
    ],
    [
-    1792317811.5503209,
-    19.4970703125
+    1792321602.595809,
+    27.6943359375
    ],
    [
-    1792317816.552156,
-    19.77734375
+    1792321607.601838,
+    27.638671875
    ],
    [
-    1792317821.5622458,
-    19.474609375
+    1792321612.612021,
+    27.74755859375
    ],
    [
-    1792317826.566725,
-    19.4365234375
+    1792321617.617633,
+    27.607421875
    ],
    [
-    1792317831.572601,
-    19.4013671875
+    1792321622.618453,
+    27.55859375
    ],
    [
-    1792317836.582678,
-    19.048828125
+    1792321627.628331,
+    27.11328125
    ],
    [
-    1792317841.585,
-    18.64404296875
+    1792321632.632216,
+    26.78369140625
    ],
    [
-    1792317846.592591,
-    18.27197265625
+    1792321637.6373491,
+    26.080078125
    ],
    [
-    1792317851.594891,
-    18.73046875
+    1792321642.640703,
+    26.3935546875
    ],
    [
-    1792317856.604966,
-    18.671875
+    1792321647.65078,
+    26.68212890625
    ],
    [
-    1792317861.605912,
-    18.37744140625
+    1792321652.6579251,
+    26.06689453125
    ],
    [
-    1792317866.615985,
-    18.18701171875
+    1792321657.6604679,
+    25.5009765625
    ],
    [
-    1792317871.626059,
-    17.771484375
+    1792321662.670539,
+    25.06005859375
    ],
    [
-    1792317876.636068,
-    17.78955078125
+    1792321667.6742349,
+    25.13525390625
    ],
    [
-    1792317881.640838,
-    17.24560546875
+    1792321672.680017,
+    24.9638671875
+   ],
+   [
+    1792321677.683419,
+    24.56591796875
    ]
   ]
  },
  "procs": 6,
  "provenance": {
-  "commit": "00e4703b8d7f8e282ad8b3333a81ea588abcddc8",
-  "tree_clean": false,
+  "commit": "88a10da7f706e69bc86873e46cbf46e20fbfcbad",
+  "tree_clean": true,
   "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
   "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
   "python_isolated": true,
@@ -342,7 +346,7 @@
   },
   "evaluator": {
    "binary": "/Volumes/Stripe/cargo-target-1201/release/examples/icem_harness_eval",
-   "sha256": "225784f36789bb25dff03cf7c399ec3f33829c2132991309e7257f402aab012c"
+   "sha256": "85dbef17d73b582611bd575fac228127c9affce5cb3de9a36f3e20eea14c1f9a"
   },
   "threads": {
    "RAYON_NUM_THREADS": "1",
@@ -363,7 +367,7 @@
   },
   "anchor": {
    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
-   "sha256": "3820849018ee7f93cd425ca49796b0e01c1aafcc9341afe0b59b23d4cff7b7d3"
+   "sha256": "81995d49da19024e59348f2936b5b3112bcfb12e158eed3e5bc6cf440cc8579f"
   },
   "starts": {
    "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/starts_smoke.json",
@@ -371,76 +375,76 @@
   }
  },
  "calibration": {
-  "unit_seconds": 3.328648979,
+  "unit_seconds": 3.366327667,
   "unit_rule": "median of the 3N cold \u03b80 validation timings of N simultaneous calibration processes (#1185 amendment 4 addition 6)",
   "processes": 6,
   "validation_seconds": [
-   3.33430275,
-   3.315271709,
-   3.334104458,
-   3.333637042,
-   3.325609792,
-   3.329012083,
-   3.339019125,
-   3.3262730830000002,
-   3.32106325,
-   3.33248875,
-   3.328285875,
-   3.32200075,
-   3.336615167,
-   3.322793625,
-   3.326734375,
-   3.3390394580000002,
-   3.330910583,
-   3.326914292
+   3.367605458,
+   3.355055959,
+   3.3671216250000002,
+   3.380132334,
+   3.353353209,
+   3.361599417,
+   3.376471959,
+   3.355388167,
+   3.366905459,
+   3.391721041,
+   3.355923833,
+   3.365749875,
+   3.372748,
+   3.362162875,
+   3.369256708,
+   3.37666,
+   3.357496958,
+   3.363015458
   ],
   "train_forward_seconds": [
-   2.5991361250000002,
-   2.601485958,
-   2.607157209,
-   2.591678458,
-   2.598534666,
-   2.6068145830000002,
-   2.595284667,
-   2.597667209,
-   2.6079420840000003,
-   2.59934575,
-   2.600961375,
-   2.609470958,
-   2.588717291,
-   2.596052041,
-   2.61275475,
-   2.5927305,
-   2.60521475,
-   2.606737042
+   2.62354275,
+   2.624639917,
+   2.6595271670000002,
+   2.61752525,
+   2.61679025,
+   2.651454292,
+   2.624546834,
+   2.619015458,
+   2.6434690830000003,
+   2.622829334,
+   2.622173708,
+   2.641076708,
+   2.621993209,
+   2.624914709,
+   2.631378625,
+   2.620798458,
+   2.617941375,
+   2.642813125
   ],
   "train_adjoint_seconds": [
-   0.5849844640000003,
-   0.5854857960000001,
-   0.5855894579999997,
-   0.5828201300000001,
-   0.5826879560000002,
-   0.5832109650000001,
-   0.5825501270000001,
-   0.5850112940000001,
-   0.5831865030000003,
-   0.5846379180000002,
-   0.5846941219999995,
-   0.5841758320000003,
-   0.584298336,
-   0.5802317510000001,
-   0.5857811260000003,
-   0.5837457089999998,
-   0.5835288719999999,
-   0.5825133329999997
+   0.5908634999999998,
+   0.5884075050000002,
+   0.5888607520000001,
+   0.5888907099999998,
+   0.5896644600000006,
+   0.5897830009999998,
+   0.5878642039999996,
+   0.5882377849999998,
+   0.587619789,
+   0.588889289,
+   0.5879283770000003,
+   0.589189332,
+   0.595075045,
+   0.5883122070000003,
+   0.5878402930000002,
+   0.5898014160000005,
+   0.5879245419999998,
+   0.5851450869999999
   ],
   "weights": {
    "validation_eval": 1.0,
-   "train_forward_eval": 0.7811438150745303,
-   "adjoint_eval": 0.17543477073855795,
+   "train_forward_eval": 0.779497735090801,
+   "adjoint_eval": 0.1748594274616702,
    "validation_solve": 0.016666666666666666,
-   "train_forward_solve": 0.013019063584575505,
-   "adjoint_solve": 0.0029239128456426326,
+   "train_forward_solve": 0.012991628918180016,
+   "adjoint_solve": 0.002914323791027837,
    "validation_solves_per_eval": 60,
    "train_solves_per_eval": 60
   },
@@ -491,258 +495,258 @@
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 0",
+      "seconds": 4.2e-08
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 3.367326625
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 4.2e-08
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 3.354776209
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 2",
+      "seconds": 1.67e-07
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 2",
+      "seconds": 3.366841291
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 0",
+      "seconds": 0.000388917
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 0",
+      "seconds": 2.623058416
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 1",
+      "seconds": 0.000391875
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 1",
+      "seconds": 2.6241794570000003
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 2",
+      "seconds": 0.00039075
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 2",
+      "seconds": 2.659059126
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 0.000394667
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 2.6329920400000004
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 0.5908634999999998
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 0.00037
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 2.618632162
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 0.5884075050000002
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 0.000369291
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 2.623901706
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 0.5888607520000001
+     }
+    ],
+    "deterministic": true,
+    "handler_s": 27.642629666,
+    "id": 1,
+    "ok": true,
+    "op": "calibrate_unit",
+    "repeats": 3,
+    "theta0_train": {
+     "F": 0.008584802316481453,
+     "fractions": [
+      0.0,
+      0.5,
+      1.0
+     ],
+     "mean_full": 1.4475011967377915,
+     "means": [
+      -1.2762695866793371e-06,
+      0.6647621484399652,
+      1.4475011967377915
+     ],
+     "stds": [
+      0.010143707533009428,
+      0.0405590283375799,
+      0.08268538404263241
+     ],
+     "x": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+     ]
+    },
+    "theta0_validation": {
+     "F": 0.009963070019754905,
+     "mean_full": 1.4450083651405945,
+     "mesh": "own"
+    },
+    "train_adjoint_seconds": [
+     0.5908634999999998,
+     0.5884075050000002,
+     0.5888607520000001
+    ],
+    "train_forward_seconds": [
+     2.62354275,
+     2.624639917,
+     2.6595271670000002
+    ],
+    "train_gradient_seconds": [
+     3.224322792,
+     3.207484542,
+     3.213200958
+    ],
+    "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
+    "unit_seconds": 3.3671216250000002,
+    "validation_seconds": [
+     3.367605458,
+     3.355055959,
+     3.3671216250000002
+    ],
+    "validation_solve_seconds": [
+     3.367326625,
+     3.354776209,
+     3.366841291
+    ],
+    "weights": {
+     "adjoint_eval": 0.17488550090613375,
+     "adjoint_solve": 0.0029147583484355625,
+     "train_forward_eval": 0.7794906775902399,
+     "train_forward_solve": 0.012991511293170666,
+     "train_solves_per_eval": 60,
+     "validation_eval": 1.0,
+     "validation_solve": 0.016666666666666666,
+     "validation_solves_per_eval": 60
+    }
+   },
+   {
+    "anchor_agrees_4ulp": true,
+    "anchor_agrees_bitwise": false,
+    "charges": [
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 1.25e-07
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 3.379857208
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 1",
       "seconds": 0.0
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.334024584
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
       "note": "calibrate \u03b80 validation 1",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.3149960419999998
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 2",
-      "seconds": 5.83e-07
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.333823292
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000465458
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.598596667
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000381041
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.601034667
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000388333
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.606688083
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.000391791
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.6027785779999997
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.5849844640000003
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.0003675
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.604217413
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5854857960000001
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000372125
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.5917513750000003
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5855894579999997
-     }
-    ],
-    "deterministic": true,
-    "handler_s": 27.347706875,
-    "id": 1,
-    "ok": true,
-    "op": "calibrate_unit",
-    "repeats": 3,
-    "theta0_train": {
-     "F": 0.008584802316481453,
-     "fractions": [
-      0.0,
-      0.5,
-      1.0
-     ],
-     "mean_full": 1.4475011967377915,
-     "means": [
-      -1.2762695866793371e-06,
-      0.6647621484399652,
-      1.4475011967377915
-     ],
-     "stds": [
-      0.010143707533009428,
-      0.0405590283375799,
-      0.08268538404263241
-     ],
-     "x": [
-      0.007,
-      0.007,
-      0.019,
-      0.004,
-      0.0023,
-      0.001,
-      0.00825,
-      0.001
-     ]
-    },
-    "theta0_validation": {
-     "F": 0.009963070019754905,
-     "mean_full": 1.4450083651405945,
-     "mesh": "own"
-    },
-    "train_adjoint_seconds": [
-     0.5849844640000003,
-     0.5854857960000001,
-     0.5855894579999997
-    ],
-    "train_forward_seconds": [
-     2.5991361250000002,
-     2.601485958,
-     2.607157209
-    ],
-    "train_gradient_seconds": [
-     3.188220334,
-     3.190137333,
-     3.177782292
-    ],
-    "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.334104458,
-    "validation_seconds": [
-     3.33430275,
-     3.315271709,
-     3.334104458
-    ],
-    "validation_solve_seconds": [
-     3.334024584,
-     3.3149960419999998,
-     3.333823292
-    ],
-    "weights": {
-     "adjoint_eval": 0.17560511476932258,
-     "adjoint_solve": 0.0029267519128220432,
-     "train_forward_eval": 0.7802652828581533,
-     "train_forward_solve": 0.013004421380969222,
-     "train_solves_per_eval": 60,
-     "validation_eval": 1.0,
-     "validation_solve": 0.016666666666666666,
-     "validation_solves_per_eval": 60
-    }
-   },
-   {
-    "anchor_agrees_4ulp": true,
-    "anchor_agrees_bitwise": false,
-    "charges": [
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.333340542
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 1",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.325334125
+      "seconds": 3.353079041
      },
      {
       "adjoint_solves": 0,
@@ -756,116 +760,116 @@
       "category": "validation",
       "forward_solves": 60,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.328735125
+      "seconds": 3.361255791
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000492542
+      "seconds": 0.000392583
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.591101001
+      "seconds": 2.617045583
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000383625
+      "seconds": 0.000390875
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.598084042
+      "seconds": 2.616326625
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000398542
+      "seconds": 0.000395583
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.606336668
+      "seconds": 2.650979376
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.00038175
+      "seconds": 0.000392708
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.6025479129999995
+      "seconds": 2.6218597070000005
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.5828201300000001
+      "seconds": 0.5888907099999998
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.000392166
+      "seconds": 0.000373625
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.5979075849999997
+      "seconds": 2.6161547909999996
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5826879560000002
+      "seconds": 0.5896644600000006
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000363583
+      "seconds": 0.000368584
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.5879447019999997
+      "seconds": 2.620212458
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5832109650000001
+      "seconds": 0.5897830009999998
      }
     ],
     "deterministic": true,
-    "handler_s": 27.323827041,
+    "handler_s": 27.608876875,
     "id": 1,
     "ok": true,
     "op": "calibrate_unit",
@@ -905,37 +909,37 @@
      "mesh": "own"
     },
     "train_adjoint_seconds": [
-     0.5828201300000001,
-     0.5826879560000002,
-     0.5832109650000001
+     0.5888907099999998,
+     0.5896644600000006,
+     0.5897830009999998
     ],
     "train_forward_seconds": [
-     2.591678458,
-     2.598534666,
-     2.6068145830000002
+     2.61752525,
+     2.61679025,
+     2.651454292
     ],
     "train_gradient_seconds": [
-     3.185824208,
-     3.181055708,
-     3.171589292
+     3.211226125,
+     3.206264334,
+     3.210436083
     ],
     "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.329012083,
+    "unit_seconds": 3.361599417,
     "validation_seconds": [
-     3.333637042,
-     3.325609792,
-     3.329012083
+     3.380132334,
+     3.353353209,
+     3.361599417
     ],
     "validation_solve_seconds": [
-     3.333340542,
-     3.325334125,
-     3.328735125
+     3.379857208,
+     3.353079041,
+     3.361255791
     ],
     "weights": {
-     "adjoint_eval": 0.175072999276945,
-     "adjoint_solve": 0.0029178833212824165,
-     "train_forward_eval": 0.7805723143120235,
-     "train_forward_solve": 0.013009538571867058,
+     "adjoint_eval": 0.17541187597130067,
+     "adjoint_solve": 0.0029235312661883444,
+     "train_forward_eval": 0.7786547191681643,
+     "train_forward_solve": 0.012977578652802739,
      "train_solves_per_eval": 60,
      "validation_eval": 1.0,
      "validation_solve": 0.016666666666666666,
@@ -951,14 +955,14 @@
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 0",
-      "seconds": 4.2e-08
+      "seconds": 1.25e-07
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
       "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.338728583
+      "seconds": 3.376197292
      },
      {
       "adjoint_solves": 0,
@@ -972,130 +976,130 @@
       "category": "validation",
       "forward_solves": 60,
       "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.3259965
+      "seconds": 3.355114
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 4.2e-08
+      "seconds": 1.25e-07
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.320771083
+      "seconds": 3.3666285
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000481958
+      "seconds": 0.000379958
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.594733666
+      "seconds": 2.624076625
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000370208
+      "seconds": 0.000383167
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.597230999
+      "seconds": 2.618549583
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000378792
+      "seconds": 0.000390083
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.607493208
+      "seconds": 2.643001458
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.000375959
+      "seconds": 0.000384833
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.595822831
+      "seconds": 2.6314099620000007
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.5825501270000001
+      "seconds": 0.5878642039999996
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.000375333
+      "seconds": 0.000368292
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.6007295389999996
+      "seconds": 2.6188678390000004
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5850112940000001
+      "seconds": 0.5882377849999998
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000369083
+      "seconds": 0.000369375
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.586413955
+      "seconds": 2.622889127
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5831865030000003
+      "seconds": 0.587619789
      }
     ],
     "deterministic": true,
-    "handler_s": 27.322362041,
+    "handler_s": 27.624167833,
     "id": 1,
     "ok": true,
     "op": "calibrate_unit",
@@ -1135,37 +1139,37 @@
      "mesh": "own"
     },
     "train_adjoint_seconds": [
-     0.5825501270000001,
-     0.5850112940000001,
-     0.5831865030000003
+     0.5878642039999996,
+     0.5882377849999998,
+     0.587619789
     ],
     "train_forward_seconds": [
-     2.595284667,
-     2.597667209,
-     2.6079420840000003
+     2.624546834,
+     2.619015458,
+     2.6434690830000003
     ],
     "train_gradient_seconds": [
-     3.178812792,
-     3.186184291,
-     3.170041459
+     3.2197435,
+     3.207549625,
+     3.2109465
     ],
     "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.3262730830000002,
+    "unit_seconds": 3.366905459,
     "validation_seconds": [
-     3.339019125,
-     3.3262730830000002,
-     3.32106325
+     3.376471959,
+     3.355388167,
+     3.366905459
     ],
     "validation_solve_seconds": [
-     3.338728583,
-     3.3259965,
-     3.320771083
+     3.376197292,
+     3.355114,
+     3.3666285
     ],
     "weights": {
-     "adjoint_eval": 0.17532730730395063,
-     "adjoint_solve": 0.0029221217883991773,
-     "train_forward_eval": 0.780954282520044,
-     "train_forward_solve": 0.013015904708667399,
+     "adjoint_eval": 0.17460074574668943,
+     "adjoint_solve": 0.0029100124291114907,
+     "train_forward_eval": 0.7795130769069808,
+     "train_forward_solve": 0.012991884615116347,
      "train_solves_per_eval": 60,
      "validation_eval": 1.0,
      "validation_solve": 0.016666666666666666,
@@ -1181,151 +1185,381 @@
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 0",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.332210333
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 1",
       "seconds": 4.1e-08
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 3.391443875
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
       "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.328009708
+      "seconds": 0.0
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 3.355642708
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 2",
+      "seconds": 2.08e-07
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 2",
+      "seconds": 3.365469709
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 0",
+      "seconds": 0.000386291
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 0",
+      "seconds": 2.6223624589999996
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 1",
+      "seconds": 0.00039375
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 1",
+      "seconds": 2.621702875
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 forward 2",
+      "seconds": 0.000390833
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 forward 2",
+      "seconds": 2.640608125
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 0.000389208
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 2.649170126
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 0",
+      "seconds": 0.588889289
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 0.000368292
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 2.619547914
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 1",
+      "seconds": 0.5879283770000003
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 0.000371792
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "forward",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 2.623503585
+     },
+     {
+      "adjoint_solves": 60,
+      "category": "adjoint",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 gradient 2",
+      "seconds": 0.589189332
+     }
+    ],
+    "deterministic": true,
+    "handler_s": 27.659199292,
+    "id": 1,
+    "ok": true,
+    "op": "calibrate_unit",
+    "repeats": 3,
+    "theta0_train": {
+     "F": 0.008584802316481453,
+     "fractions": [
+      0.0,
+      0.5,
+      1.0
+     ],
+     "mean_full": 1.4475011967377915,
+     "means": [
+      -1.2762695866793371e-06,
+      0.6647621484399652,
+      1.4475011967377915
+     ],
+     "stds": [
+      0.010143707533009428,
+      0.0405590283375799,
+      0.08268538404263241
+     ],
+     "x": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+     ]
+    },
+    "theta0_validation": {
+     "F": 0.009963070019754905,
+     "mean_full": 1.4450083651405945,
+     "mesh": "own"
+    },
+    "train_adjoint_seconds": [
+     0.588889289,
+     0.5879283770000003,
+     0.589189332
+    ],
+    "train_forward_seconds": [
+     2.622829334,
+     2.622173708,
+     2.641076708
+    ],
+    "train_gradient_seconds": [
+     3.23852375,
+     3.207920792,
+     3.213182583
+    ],
+    "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
+    "unit_seconds": 3.365749875,
+    "validation_seconds": [
+     3.391721041,
+     3.355923833,
+     3.365749875
+    ],
+    "validation_solve_seconds": [
+     3.391443875,
+     3.355642708,
+     3.365469709
+    ],
+    "weights": {
+     "adjoint_eval": 0.17496525614518518,
+     "adjoint_solve": 0.002916087602419753,
+     "train_forward_eval": 0.779270424543951,
+     "train_forward_solve": 0.01298784040906585,
+     "train_solves_per_eval": 60,
+     "validation_eval": 1.0,
+     "validation_solve": 0.016666666666666666,
+     "validation_solves_per_eval": 60
+    }
+   },
+   {
+    "anchor_agrees_4ulp": true,
+    "anchor_agrees_bitwise": false,
+    "charges": [
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 0",
       "seconds": 8.3e-08
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 3.372453708
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 8.3e-08
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 3.36187475
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.3217245
+      "seconds": 1.25e-07
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 2",
+      "seconds": 3.368976625
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000547208
+      "seconds": 0.000390959
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.598724376
+      "seconds": 2.621524958
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000369583
+      "seconds": 0.00039125
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.600522791
+      "seconds": 2.6244527069999997
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000385625
+      "seconds": 0.000389708
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.609014583
+      "seconds": 2.630912625
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.00038275
+      "seconds": 0.000401542
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.604466583
+      "seconds": 2.63812458
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.5846379180000002
+      "seconds": 0.595075045
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.000378417
+      "seconds": 0.000370875
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.6028934610000003
+      "seconds": 2.6214768759999996
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5846941219999995
+      "seconds": 0.5883122070000003
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000373
+      "seconds": 0.000371709
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.5895034609999996
+      "seconds": 2.6237920399999997
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5841758320000003
+      "seconds": 0.5878402930000002
      }
     ],
     "deterministic": true,
-    "handler_s": 27.344330208,
+    "handler_s": 27.638546833,
     "id": 1,
     "ok": true,
     "op": "calibrate_unit",
@@ -1365,37 +1599,37 @@
      "mesh": "own"
     },
     "train_adjoint_seconds": [
-     0.5846379180000002,
-     0.5846941219999995,
-     0.5841758320000003
+     0.595075045,
+     0.5883122070000003,
+     0.5878402930000002
     ],
     "train_forward_seconds": [
-     2.59934575,
-     2.600961375,
-     2.609470958
+     2.621993209,
+     2.624914709,
+     2.631378625
     ],
     "train_gradient_seconds": [
-     3.1895535,
-     3.188036291,
-     3.174118125
+     3.233677917,
+     3.21022775,
+     3.212073167
     ],
     "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.328285875,
+    "unit_seconds": 3.369256708,
     "validation_seconds": [
-     3.33248875,
-     3.328285875,
-     3.32200075
+     3.372748,
+     3.362162875,
+     3.369256708
     ],
     "validation_solve_seconds": [
-     3.332210333,
-     3.328009708,
-     3.3217245
+     3.372453708,
+     3.36187475,
+     3.368976625
     ],
     "weights": {
-     "adjoint_eval": 0.1756573623652446,
-     "adjoint_solve": 0.00292762270608741,
-     "train_forward_eval": 0.7814717463234734,
-     "train_forward_solve": 0.013024529105391223,
+     "adjoint_eval": 0.17461186783515348,
+     "adjoint_solve": 0.002910197797252558,
+     "train_forward_eval": 0.7790782764540837,
+     "train_forward_solve": 0.012984637940901395,
      "train_solves_per_eval": 60,
      "validation_eval": 1.0,
      "validation_solve": 0.016666666666666666,
@@ -1411,151 +1645,151 @@
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 0",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.336326542
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 1",
       "seconds": 0.0
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 0",
+      "seconds": 3.376381916
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "mesh_motion",
+      "forward_solves": 0,
       "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.322489042
+      "seconds": 8.3e-08
+     },
+     {
+      "adjoint_solves": 0,
+      "category": "validation",
+      "forward_solves": 60,
+      "note": "calibrate \u03b80 validation 1",
+      "seconds": 3.357210833
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 4.1e-08
+      "seconds": 1.25e-07
      },
      {
       "adjoint_solves": 0,
       "category": "validation",
       "forward_solves": 60,
       "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.326455375
+      "seconds": 3.362732333
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000454166
+      "seconds": 0.000390792
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.588178624
+      "seconds": 2.620328167
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000380042
+      "seconds": 0.000388291
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.5955970429999997
+      "seconds": 2.6174687089999997
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000389917
+      "seconds": 0.000385583
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.612291958
+      "seconds": 2.642355709
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.000394042
+      "seconds": 0.000394958
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.602846622
+      "seconds": 2.6199867919999997
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.584298336
+      "seconds": 0.5898014160000005
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.000366417
+      "seconds": 0.000372125
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.5961496229999996
+      "seconds": 2.62077575
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5802317510000001
+      "seconds": 0.5879245419999998
      },
      {
       "adjoint_solves": 0,
       "category": "mesh_motion",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000368
+      "seconds": 0.0003925
      },
      {
       "adjoint_solves": 0,
       "category": "forward",
       "forward_solves": 60,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.5967256249999995
+      "seconds": 2.6246553720000003
      },
      {
       "adjoint_solves": 60,
       "category": "adjoint",
       "forward_solves": 0,
       "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5857811260000003
+      "seconds": 0.5851450869999999
      }
     ],
     "deterministic": true,
-    "handler_s": 27.33110825,
+    "handler_s": 27.608536084,
     "id": 1,
     "ok": true,
     "op": "calibrate_unit",
@@ -1595,267 +1829,37 @@
      "mesh": "own"
     },
     "train_adjoint_seconds": [
-     0.584298336,
-     0.5802317510000001,
-     0.5857811260000003
+     0.5898014160000005,
+     0.5879245419999998,
+     0.5851450869999999
     ],
     "train_forward_seconds": [
-     2.588717291,
-     2.596052041,
-     2.61275475
+     2.620798458,
+     2.617941375,
+     2.642813125
     ],
     "train_gradient_seconds": [
-     3.1876045,
-     3.17682025,
-     3.182943833
+     3.210258292,
+     3.209148916,
+     3.210275042
     ],
     "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.326734375,
+    "unit_seconds": 3.363015458,
     "validation_seconds": [
-     3.336615167,
-     3.322793625,
-     3.326734375
+     3.37666,
+     3.357496958,
+     3.363015458
     ],
     "validation_solve_seconds": [
-     3.336326542,
-     3.322489042,
-     3.326455375
+     3.376381916,
+     3.357210833,
+     3.362732333
     ],
     "weights": {
-     "adjoint_eval": 0.17563720758438972,
-     "adjoint_solve": 0.002927286793073162,
-     "train_forward_eval": 0.7803604821920896,
-     "train_forward_solve": 0.013006008036534827,
-     "train_solves_per_eval": 60,
-     "validation_eval": 1.0,
-     "validation_solve": 0.016666666666666666,
-     "validation_solves_per_eval": 60
-    }
-   },
-   {
-    "anchor_agrees_4ulp": true,
-    "anchor_agrees_bitwise": false,
-    "charges": [
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 0",
-      "seconds": 3.338744792
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 1",
-      "seconds": 0.0
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 1",
-      "seconds": 3.330628
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 validation 2",
-      "seconds": 4.2e-08
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "validation",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 validation 2",
-      "seconds": 3.326631041
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 0",
-      "seconds": 0.000514959
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 0",
-      "seconds": 2.5921452919999997
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 1",
-      "seconds": 0.000390708
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 1",
-      "seconds": 2.604756791
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 forward 2",
-      "seconds": 0.000395917
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 forward 2",
-      "seconds": 2.6062724580000003
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.000395458
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 2.6081544580000005
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 0",
-      "seconds": 0.5837457089999998
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.000380334
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 2.599686127
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 1",
-      "seconds": 0.5835288719999999
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "mesh_motion",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.000391666
-     },
-     {
-      "adjoint_solves": 0,
-      "category": "forward",
-      "forward_solves": 60,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 2.5944005000000003
-     },
-     {
-      "adjoint_solves": 60,
-      "category": "adjoint",
-      "forward_solves": 0,
-      "note": "calibrate \u03b80 gradient 2",
-      "seconds": 0.5825133329999997
-     }
-    ],
-    "deterministic": true,
-    "handler_s": 27.355030583,
-    "id": 1,
-    "ok": true,
-    "op": "calibrate_unit",
-    "repeats": 3,
-    "theta0_train": {
-     "F": 0.008584802316481453,
-     "fractions": [
-      0.0,
-      0.5,
-      1.0
-     ],
-     "mean_full": 1.4475011967377915,
-     "means": [
-      -1.2762695866793371e-06,
-      0.6647621484399652,
-      1.4475011967377915
-     ],
-     "stds": [
-      0.010143707533009428,
-      0.0405590283375799,
-      0.08268538404263241
-     ],
-     "x": [
-      0.007,
-      0.007,
-      0.019,
-      0.004,
-      0.0023,
-      0.001,
-      0.00825,
-      0.001
-     ]
-    },
-    "theta0_validation": {
-     "F": 0.009963070019754905,
-     "mean_full": 1.4450083651405945,
-     "mesh": "own"
-    },
-    "train_adjoint_seconds": [
-     0.5837457089999998,
-     0.5835288719999999,
-     0.5825133329999997
-    ],
-    "train_forward_seconds": [
-     2.5927305,
-     2.60521475,
-     2.606737042
-    ],
-    "train_gradient_seconds": [
-     3.192374917,
-     3.183666417,
-     3.177369541
-    ],
-    "unit_rule": "median wall time of cold \u03b80 validations (Validator::validate), amendment 3 \u00a71",
-    "unit_seconds": 3.330910583,
-    "validation_seconds": [
-     3.3390394580000002,
-     3.330910583,
-     3.326914292
-    ],
-    "validation_solve_seconds": [
-     3.338744792,
-     3.330628,
-     3.326631041
-    ],
-    "weights": {
-     "adjoint_eval": 0.17518599117555475,
-     "adjoint_solve": 0.0029197665195925793,
-     "train_forward_eval": 0.7821328988223999,
-     "train_forward_solve": 0.013035548313706664,
+     "adjoint_eval": 0.17482064811847195,
+     "adjoint_solve": 0.002913677468641199,
+     "train_forward_eval": 0.77930015211961,
+     "train_forward_solve": 0.012988335868660167,
      "train_solves_per_eval": 60,
      "validation_eval": 1.0,
      "validation_solve": 0.016666666666666666,
@@ -1864,17 +1868,17 @@
    }
   ],
   "single_process": {
-   "unit_seconds": 3.331459542,
+   "unit_seconds": 3.33532425,
    "validation_seconds": [
-    3.333523,
-    3.331459542,
-    3.320184834
+    3.343157125,
+    3.33532425,
+    3.334670292
    ],
    "weights": {
-    "adjoint_eval": 0.1749805617180147,
-    "adjoint_solve": 0.002916342695300245,
-    "train_forward_eval": 0.7779198226264997,
-    "train_forward_solve": 0.01296533037710833,
+    "adjoint_eval": 0.17605778238802425,
+    "adjoint_solve": 0.0029342963731337373,
+    "train_forward_eval": 0.7837520594886688,
+    "train_forward_solve": 0.013062534324811146,
     "train_solves_per_eval": 60,
     "validation_eval": 1.0,
     "validation_solve": 0.016666666666666666,
@@ -1885,19 +1889,19 @@
   "space_b_theta0_train_agrees_bitwise": true,
   "host": {
    "gate": false,
-   "pre_run_load": 16.26953125,
+   "pre_run_load": 22.349609375,
    "pre_run_wait_s": 0.0,
    "deferrals": 0,
    "host_contaminated": false,
-   "longest_overload_s": 52.49344515800476,
+   "longest_overload_s": 52.99220299720764,
    "load": {
     "samples": 11,
-    "max": 17.3857421875,
-    "mean": 16.558416193181817
+    "max": 23.9833984375,
+    "mean": 22.47216796875
    }
   }
  },
- "unit_seconds": 3.328648979,
+ "unit_seconds": 3.366327667,
  "budget_fe": 20.0,
  "jobs": [
   {
@@ -1909,18 +1913,18 @@
    "order_index": 0,
    "name": "slsqp_a_theta0_r1",
    "job_name": "slsqp_a_theta0_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 67.00104212760925,
+   "wall_s": 67.76188588142395,
    "trace": "slsqp_a_theta0_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 64.3912889957428,
+   "longest_overload_s": 65.64688396453857,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -1942,18 +1946,18 @@
    "order_index": 1,
    "name": "cobyqa_a_theta0_r1",
    "job_name": "cobyqa_a_theta0_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 67.00090503692627,
+   "wall_s": 67.75861406326294,
    "trace": "cobyqa_a_theta0_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 64.39553189277649,
+   "longest_overload_s": 65.63967084884644,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -1975,22 +1979,22 @@
    "order_index": 2,
    "name": "surrogate_a_theta0_r1",
    "job_name": "surrogate_a_theta0_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 71.05433297157288,
+   "wall_s": 71.91166806221008,
    "trace": "surrogate_a_theta0_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 4.058192832977511,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.14807279210072,
    "host_contaminated": true,
-   "longest_overload_s": 64.3899347782135,
+   "longest_overload_s": 65.6453869342804,
    "diagnostic_load": {
-    "samples": 1,
-    "max": 19.35498046875,
-    "mean": 19.35498046875
+    "samples": 0,
+    "max": null,
+    "mean": null
    },
    "attained": {
     "T50": false,
@@ -2008,18 +2012,18 @@
    "order_index": 0,
    "name": "slsqp_a_lhs1_r1",
    "job_name": "slsqp_a_lhs1_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.99552488327026,
+   "wall_s": 67.75797009468079,
    "trace": "slsqp_a_lhs1_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 64.39479303359985,
+   "longest_overload_s": 65.64683294296265,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2041,18 +2045,18 @@
    "order_index": 1,
    "name": "cobyqa_a_lhs1_r1",
    "job_name": "cobyqa_a_lhs1_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.99892973899841,
+   "wall_s": 67.75451588630676,
    "trace": "cobyqa_a_lhs1_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 64.39579796791077,
+   "longest_overload_s": 65.64222812652588,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2074,22 +2078,22 @@
    "order_index": 2,
    "name": "surrogate_a_lhs1_r1",
    "job_name": "surrogate_a_lhs1_r1",
-   "pre_run_load": 17.1142578125,
+   "pre_run_load": 23.50390625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 70.99774694442749,
+   "wall_s": 71.87065410614014,
    "trace": "surrogate_a_lhs1_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 4.003843541955575,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.114403499988839,
    "host_contaminated": true,
-   "longest_overload_s": 64.39472579956055,
+   "longest_overload_s": 65.6438958644867,
    "diagnostic_load": {
-    "samples": 1,
-    "max": 19.35498046875,
-    "mean": 19.35498046875
+    "samples": 0,
+    "max": null,
+    "mean": null
    },
    "attained": {
     "T50": true,
@@ -2107,18 +2111,18 @@
    "order_index": 0,
    "name": "slsqp_b_theta0_r1",
    "job_name": "slsqp_b_theta0_r1",
-   "pre_run_load": 19.35498046875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 30.94040322303772,
+   "wall_s": 31.34471082687378,
    "trace": "slsqp_b_theta0_r1.json",
    "stop_reason": "T99",
-   "total_fe": 9.168510252829343,
-   "in_run_wall_s": 30.518752292031422,
+   "total_fe": 9.180515403449359,
+   "in_run_wall_s": 30.904622999951243,
    "post_run_wall_s": 0.0,
    "host_contaminated": false,
-   "longest_overload_s": 30.24432110786438,
+   "longest_overload_s": 26.89690589904785,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2140,18 +2144,18 @@
    "order_index": 1,
    "name": "cobyqa_b_theta0_r1",
    "job_name": "cobyqa_b_theta0_r1",
-   "pre_run_load": 19.35498046875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 67.00052309036255,
+   "wall_s": 67.77308082580566,
    "trace": "cobyqa_b_theta0_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 66.30772924423218,
+   "longest_overload_s": 63.32925987243652,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2173,22 +2177,22 @@
    "order_index": 2,
    "name": "surrogate_b_theta0_r1",
    "job_name": "surrogate_b_theta0_r1",
-   "pre_run_load": 19.35498046875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 71.09533214569092,
+   "wall_s": 71.78897380828857,
    "trace": "surrogate_b_theta0_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 4.100292833056301,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.025154500035569,
    "host_contaminated": true,
-   "longest_overload_s": 66.29969000816345,
+   "longest_overload_s": 63.3259859085083,
    "diagnostic_load": {
     "samples": 1,
-    "max": 19.47900390625,
-    "mean": 19.47900390625
+    "max": 28.06201171875,
+    "mean": 28.06201171875
    },
    "attained": {
     "T50": false,
@@ -2206,18 +2210,18 @@
    "order_index": 0,
    "name": "slsqp_b_lhs1_r1",
    "job_name": "slsqp_b_lhs1_r1",
-   "pre_run_load": 19.35498046875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 33.343475103378296,
+   "wall_s": 33.83407926559448,
    "trace": "slsqp_b_lhs1_r1.json",
    "stop_reason": "T99",
-   "total_fe": 9.892940586937923,
-   "in_run_wall_s": 32.93012658401858,
+   "total_fe": 9.925316909445568,
+   "in_run_wall_s": 33.41186891600955,
    "post_run_wall_s": 0.0,
    "host_contaminated": false,
-   "longest_overload_s": 32.65571713447571,
+   "longest_overload_s": 29.40389585494995,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2239,18 +2243,18 @@
    "order_index": 1,
    "name": "cobyqa_b_lhs1_r1",
    "job_name": "cobyqa_b_lhs1_r1",
-   "pre_run_load": 19.326171875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.96976900100708,
+   "wall_s": 67.64457964897156,
    "trace": "cobyqa_b_lhs1_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 65.16955327987671,
+   "longest_overload_s": 67.33319592475891,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2272,22 +2276,22 @@
    "order_index": 2,
    "name": "surrogate_b_lhs1_r1",
    "job_name": "surrogate_b_lhs1_r1",
-   "pre_run_load": 19.326171875,
+   "pre_run_load": 26.34033203125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 70.80971002578735,
+   "wall_s": 71.70198583602905,
    "trace": "surrogate_b_lhs1_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 3.9468082500388846,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.053624332998879,
    "host_contaminated": true,
-   "longest_overload_s": 65.20806002616882,
+   "longest_overload_s": 62.33464288711548,
    "diagnostic_load": {
-    "samples": 0,
-    "max": null,
-    "mean": null
+    "samples": 1,
+    "max": 28.056640625,
+    "mean": 28.056640625
    },
    "attained": {
     "T50": false,
@@ -2305,18 +2309,18 @@
    "order_index": 0,
    "name": "slsqp_a_drill_r1",
    "job_name": "slsqp_a_drill_r1",
-   "pre_run_load": 19.7568359375,
+   "pre_run_load": 27.16455078125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.97110915184021,
+   "wall_s": 67.77238464355469,
    "trace": "slsqp_a_drill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 62.16718888282776,
+   "longest_overload_s": 64.63143181800842,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2338,18 +2342,18 @@
    "order_index": 0,
    "name": "cobyqa_a_drill_r1",
    "job_name": "cobyqa_a_drill_r1",
-   "pre_run_load": 19.61572265625,
+   "pre_run_load": 27.16455078125,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.86985921859741,
+   "wall_s": 67.62060809135437,
    "trace": "cobyqa_a_drill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 64.4800488948822,
+   "longest_overload_s": 66.98861598968506,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2371,22 +2375,22 @@
    "order_index": 0,
    "name": "surrogate_a_drill_r1",
    "job_name": "surrogate_a_drill_r1",
-   "pre_run_load": 19.47900390625,
+   "pre_run_load": 28.06201171875,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 71.04538798332214,
+   "wall_s": 71.78139019012451,
    "trace": "surrogate_a_drill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 3.9961703330045566,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.045964666991495,
    "host_contaminated": true,
-   "longest_overload_s": 63.25656485557556,
+   "longest_overload_s": 65.98756098747253,
    "diagnostic_load": {
-    "samples": 1,
-    "max": 19.4013671875,
-    "mean": 19.4013671875
+    "samples": 0,
+    "max": null,
+    "mean": null
    },
    "attained": {
     "T50": true,
@@ -2405,18 +2409,18 @@
    "name": "slsqp_b_lhs1_meshdrill_r1",
    "session_file": "session_meshdrill.json",
    "job_name": "slsqp_b_lhs1_meshdrill_r1",
-   "pre_run_load": 19.47900390625,
+   "pre_run_load": 28.056640625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 47.847026109695435,
+   "wall_s": 48.68079209327698,
    "trace": "slsqp_b_lhs1_meshdrill_r1.json",
    "stop_reason": "restoration_failed",
-   "total_fe": 14.281717950685525,
-   "in_run_wall_s": 47.53882587491535,
+   "total_fe": 14.364038597896483,
+   "in_run_wall_s": 48.35406054195482,
    "post_run_wall_s": 0.0,
    "host_contaminated": false,
-   "longest_overload_s": 43.009116888046265,
+   "longest_overload_s": 45.90998697280884,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2439,18 +2443,18 @@
    "name": "cobyqa_b_lhs1_meshdrill_r1",
    "session_file": "session_meshdrill.json",
    "job_name": "cobyqa_b_lhs1_meshdrill_r1",
-   "pre_run_load": 19.47900390625,
+   "pre_run_load": 28.056640625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.86014699935913,
+   "wall_s": 67.62830519676208,
    "trace": "cobyqa_b_lhs1_meshdrill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 62.15951585769653,
+   "longest_overload_s": 64.90529203414917,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2473,22 +2477,22 @@
    "name": "surrogate_b_lhs1_meshdrill_r1",
    "session_file": "session_meshdrill.json",
    "job_name": "surrogate_b_lhs1_meshdrill_r1",
-   "pre_run_load": 19.7607421875,
+   "pre_run_load": 27.8115234375,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 70.36963391304016,
+   "wall_s": 71.18712878227234,
    "trace": "surrogate_b_lhs1_meshdrill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 3.4873057500226423,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 3.52967658394482,
    "host_contaminated": true,
-   "longest_overload_s": 65.9324631690979,
+   "longest_overload_s": 63.96587800979614,
    "diagnostic_load": {
-    "samples": 0,
-    "max": null,
-    "mean": null
+    "samples": 1,
+    "max": 26.78369140625,
+    "mean": 26.78369140625
    },
    "attained": {
     "T50": false,
@@ -2507,18 +2511,18 @@
    "name": "slsqp_b_lhs1_repairdrill_r1",
    "session_file": "session_repairdrill.json",
    "job_name": "slsqp_b_lhs1_repairdrill_r1",
-   "pre_run_load": 18.98974609375,
+   "pre_run_load": 27.7197265625,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 33.09478402137756,
+   "wall_s": 33.819437980651855,
    "trace": "slsqp_b_lhs1_repairdrill_r1.json",
    "stop_reason": "T99",
-   "total_fe": 9.813992690744659,
-   "in_run_wall_s": 32.66733674996067,
+   "total_fe": 9.922213589714143,
+   "in_run_wall_s": 33.40142212493811,
    "post_run_wall_s": 0.0,
    "host_contaminated": false,
-   "longest_overload_s": 30.183053970336914,
+   "longest_overload_s": 33.365355014801025,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2541,18 +2545,18 @@
    "name": "cobyqa_b_lhs1_repairdrill_r1",
    "session_file": "session_repairdrill.json",
    "job_name": "cobyqa_b_lhs1_repairdrill_r1",
-   "pre_run_load": 18.98974609375,
+   "pre_run_load": 27.74169921875,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 66.86619997024536,
+   "wall_s": 67.62945604324341,
    "trace": "cobyqa_b_lhs1_repairdrill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
+   "in_run_wall_s": 67.32655334,
    "post_run_wall_s": 0.0,
    "host_contaminated": true,
-   "longest_overload_s": 66.26738500595093,
+   "longest_overload_s": 64.53442287445068,
    "diagnostic_load": {
     "samples": 0,
     "max": null,
@@ -2575,22 +2579,22 @@
    "name": "surrogate_b_lhs1_repairdrill_r1",
    "session_file": "session_repairdrill.json",
    "job_name": "surrogate_b_lhs1_repairdrill_r1",
-   "pre_run_load": 19.77734375,
+   "pre_run_load": 27.74755859375,
    "pre_run_wait_s": 0.0,
    "status": "ran",
    "exit": 0,
-   "wall_s": 70.89727330207825,
+   "wall_s": 71.78371810913086,
    "trace": "surrogate_b_lhs1_repairdrill_r1.json",
    "stop_reason": "budget",
    "total_fe": 20.0,
-   "in_run_wall_s": 66.57297958,
-   "post_run_wall_s": 4.012040082947351,
+   "in_run_wall_s": 67.32655334,
+   "post_run_wall_s": 4.032462707953528,
    "host_contaminated": true,
-   "longest_overload_s": 64.98328900337219,
+   "longest_overload_s": 63.638213872909546,
    "diagnostic_load": {
     "samples": 1,
-    "max": 17.24560546875,
-    "mean": 17.24560546875
+    "max": 24.56591796875,
+    "mean": 24.56591796875
    },
    "attained": {
     "T50": false,
@@ -2610,8 +2614,8 @@
    "order_index": 0,
    "name": "slsqp_a_theta0_r1_gatedrill",
    "job_name": "slsqp_a_theta0_r1_gatedrill",
-   "pre_run_load": 16.9853515625,
-   "pre_run_wait_s": 8.25000461190939e-06,
+   "pre_run_load": 24.2001953125,
+   "pre_run_wait_s": 8.041970431804657e-06,
    "status": "deferred",
    "exit": null,
    "host_contaminated": null,
@@ -2627,8 +2631,8 @@
    "order_index": 0,
    "name": "slsqp_a_theta0_r1_gatedrill",
    "job_name": "slsqp_a_theta0_r1_gatedrill",
-   "pre_run_load": 16.9853515625,
-   "pre_run_wait_s": 1.7919810488820076e-06,
+   "pre_run_load": 24.2001953125,
+   "pre_run_wait_s": 2.00001522898674e-06,
    "status": "deferred",
    "exit": null,
    "host_contaminated": null,

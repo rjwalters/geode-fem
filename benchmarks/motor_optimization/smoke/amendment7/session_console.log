@@ -4,19 +4,19 @@ surrogate_a_theta0_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T
 slsqp_a_lhs1_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
 cobyqa_a_lhs1_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
 surrogate_a_lhs1_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
-slsqp_b_theta0_r1: ran exit 0 T99 9.168510252829343 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
+slsqp_b_theta0_r1: ran exit 0 T99 9.180515403449359 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
 cobyqa_b_theta0_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 surrogate_b_theta0_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
-slsqp_b_lhs1_r1: ran exit 0 T99 9.892940586937923 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
+slsqp_b_lhs1_r1: ran exit 0 T99 9.925316909445568 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
 cobyqa_b_lhs1_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 surrogate_b_lhs1_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 slsqp_a_drill_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
 cobyqa_a_drill_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
 surrogate_a_drill_r1: ran exit 0 budget 20.0 FE {'T50': True, 'T90': True, 'T99': False} contaminated True
-slsqp_b_lhs1_meshdrill_r1: ran exit 0 restoration_failed 14.281717950685525 FE {'T50': True, 'T90': True, 'T99': False} contaminated False
+slsqp_b_lhs1_meshdrill_r1: ran exit 0 restoration_failed 14.364038597896483 FE {'T50': True, 'T90': True, 'T99': False} contaminated False
 cobyqa_b_lhs1_meshdrill_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 surrogate_b_lhs1_meshdrill_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
-slsqp_b_lhs1_repairdrill_r1: ran exit 0 T99 9.813992690744659 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
+slsqp_b_lhs1_repairdrill_r1: ran exit 0 T99 9.922213589714143 FE {'T50': True, 'T90': True, 'T99': True} contaminated False
 cobyqa_b_lhs1_repairdrill_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 surrogate_b_lhs1_repairdrill_r1: ran exit 0 budget 20.0 FE {'T50': False, 'T90': False, 'T99': False} contaminated True
 exit 0

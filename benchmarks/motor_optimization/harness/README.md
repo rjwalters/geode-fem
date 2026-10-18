@@ -454,11 +454,12 @@ unedited run.
     `mesh_check` and 7 restarts at the restored y, then one
     `restoration_failed` (the injected mesher failure in every attempt);
   - mesh repair succeeding after a failed attempt (5, the `repairdrill`);
-    a real, not injected, mesh-infeasible point (all 4 gmsh attempts at a
-    4.017° minimum angle that no size factor changes: the angle is the
-    geometry's);
-  - inadmissible validations denied credit (6; 4 of them would have
-    attained T50 on F and the mean alone);
+    a real, not injected, mesh-infeasible point in the first smoke (all 4
+    gmsh attempts at a 4.017° minimum angle: the angle is the geometry's;
+    see the limitations);
+  - the credit tolerance: 5 validations at h between −1e-16 and −5e-16
+    (an optimizer holding `fillet_centre_y` active) are credit-admissible
+    though not h ≥ 0; none was further out;
   - the gate drill (deferred twice, never started) and the gated,
     monitored calibration.
   - **Not exercised by the smoke:** A never asked for a non-buildable

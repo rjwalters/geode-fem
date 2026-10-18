@@ -13,14 +13,14 @@
  "start": "theta0",
  "repeat": 1,
  "order_position": 8,
- "session": "smoke-20261018T100028Z",
+ "session": "smoke-20261018T110340Z",
  "budget_fe": 20.0,
- "unit_seconds": 3.328648979,
- "started_utc": "2026-10-18T10:01:36Z",
+ "unit_seconds": 3.366327667,
+ "started_utc": "2026-10-18T11:04:48Z",
  "load_before": [
-  19.35498046875,
-  16.64697265625,
-  16.1259765625
+  26.34033203125,
+  23.896484375,
+  22.96240234375
  ],
  "x_start": [
   0.007,
@@ -79,9 +79,9 @@
  },
  "validations": [
   {
-   "wall_fe": 15.913954104842341,
-   "solve_fe": 15.841732486416081,
-   "seconds": 52.97196708293632,
+   "wall_fe": 15.920987067094336,
+   "solve_fe": 15.810456966725223,
+   "seconds": 53.59525924990885,
    "index": 0,
    "x": [
     0.007,
@@ -135,6 +135,7 @@
    },
    "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
    "min_h": 0.95,
+   "h_nonnegative": true,
    "geometry": {
     "buildable": true,
     "admissible": true,
@@ -740,7 +741,8 @@
       "name": "components_finite",
       "pass": true
      }
-    ]
+    ],
+    "credit_admissible": true
    },
    "delta_F": 0.00078163210608299,
    "F_upper": 0.00859795316691289,
@@ -751,9 +753,9 @@
    "mean_train": 1.4512778703437248
   },
   {
-   "wall_fe": 19.966882986540934,
-   "solve_fe": 19.966307746714197,
-   "seconds": 66.46274466696195,
+   "wall_fe": 19.96146145149684,
+   "solve_fe": 19.928447907088422,
+   "seconds": 67.1968199579278,
    "index": 1,
    "x": [
     0.006775,
@@ -807,6 +809,7 @@
    },
    "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
    "min_h": 0.9010733881715467,
+   "h_nonnegative": true,
    "geometry": {
     "buildable": true,
     "admissible": true,
@@ -1412,7 +1415,8 @@
       "name": "components_finite",
       "pass": true
      }
-    ]
+    ],
+    "credit_admissible": true
    },
    "delta_F": 0.0005505439868668712,
    "F_upper": 0.006055983855535583,
@@ -1424,9 +1428,9 @@
   }
  ],
  "best_validated_feasible": {
-  "wall_fe": 19.966882986540934,
-  "solve_fe": 19.966307746714197,
-  "seconds": 66.46274466696195,
+  "wall_fe": 19.96146145149684,
+  "solve_fe": 19.928447907088422,
+  "seconds": 67.1968199579278,
   "index": 1,
   "x": [
    0.006775,
@@ -1480,6 +1484,7 @@
   },
   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
   "min_h": 0.9010733881715467,
+  "h_nonnegative": true,
   "geometry": {
    "buildable": true,
    "admissible": true,
@@ -2085,7 +2090,8 @@
      "name": "components_finite",
      "pass": true
     }
-   ]
+   ],
+   "credit_admissible": true
   },
   "delta_F": 0.0005505439868668712,
   "F_upper": 0.006055983855535583,
@@ -2099,9 +2105,9 @@
  "infeasible": false,
  "events": [
   {
-   "wall_fe": 0.8062936395127768,
-   "solve_fe": 0.7811438150745303,
-   "seconds": 2.6838684999383986,
+   "wall_fe": 0.8156780487848428,
+   "solve_fe": 0.779497735090801,
+   "seconds": 2.7458395829889923,
    "kind": "train",
    "x": [
     0.007,
@@ -2149,9 +2155,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 1.5799079296654017,
-   "solve_fe": 1.5622876301490607,
-   "seconds": 5.258958916994743,
+   "wall_fe": 1.604219726692164,
+   "solve_fe": 1.558995470181602,
+   "seconds": 5.40032924991101,
    "kind": "train",
    "x": [
     0.0079,
@@ -2199,9 +2205,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 2.360130894416889,
-   "solve_fe": 2.343431445223591,
-   "seconds": 7.856047292007133,
+   "wall_fe": 2.398975792570381,
+   "solve_fe": 2.3384932052724032,
+   "seconds": 8.075738582992926,
    "kind": "train",
    "x": [
     0.007,
@@ -2249,9 +2255,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 3.1673548035556047,
-   "solve_fe": 3.1245752602981214,
-   "seconds": 10.543012332986109,
+   "wall_fe": 3.2119930908746595,
+   "solve_fe": 3.117990940363204,
+   "seconds": 10.812621208024211,
    "kind": "train",
    "x": [
     0.007,
@@ -2299,9 +2305,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 3.94714726332517,
-   "solve_fe": 3.9057190753726516,
-   "seconds": 13.13866770802997,
+   "wall_fe": 3.986883307458203,
+   "solve_fe": 3.897488675454005,
+   "seconds": 13.421155582997017,
    "kind": "train",
    "x": [
     0.007,
@@ -2349,9 +2355,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 4.7530159808898675,
-   "solve_fe": 4.686862890447182,
-   "seconds": 15.82112179195974,
+   "wall_fe": 4.795798497326787,
+   "solve_fe": 4.676986410544806,
+   "seconds": 16.14422916690819,
    "kind": "train",
    "x": [
     0.007,
@@ -2399,9 +2405,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 5.532146622892937,
-   "solve_fe": 5.468006705521713,
-   "seconds": 18.414574207970873,
+   "wall_fe": 5.574757044266537,
+   "solve_fe": 5.456484145635606,
+   "seconds": 18.76645887491759,
    "kind": "train",
    "x": [
     0.007,
@@ -2449,9 +2455,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 6.297152465531881,
-   "solve_fe": 6.249150520596244,
-   "seconds": 20.96101012500003,
+   "wall_fe": 6.339128231390815,
+   "solve_fe": 6.235981880726407,
+   "seconds": 21.339582749991678,
    "kind": "train",
    "x": [
     0.007,
@@ -2499,9 +2505,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 7.078663615658627,
-   "solve_fe": 7.030294335670774,
-   "seconds": 23.562386416946538,
+   "wall_fe": 7.117227954323778,
+   "solve_fe": 7.015479615817208,
+   "seconds": 23.958921374985948,
    "kind": "train",
    "x": [
     0.007,
@@ -2549,9 +2555,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 7.859702113977876,
-   "solve_fe": 7.811438150745305,
-   "seconds": 26.1621894169366,
+   "wall_fe": 7.896290311421091,
+   "solve_fe": 7.794977350908009,
+   "seconds": 26.581500542000867,
    "kind": "train",
    "x": [
     0.007,
@@ -2599,9 +2605,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 8.633844909219201,
-   "solve_fe": 8.592581965819836,
-   "seconds": 28.73903904191684,
+   "wall_fe": 8.669226556305526,
+   "solve_fe": 8.57447508599881,
+   "seconds": 29.18345720798243,
    "kind": "train",
    "x": [
     0.007,
@@ -2649,9 +2655,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 9.412175752272605,
-   "solve_fe": 9.373725780894366,
-   "seconds": 31.32982920797076,
+   "wall_fe": 9.445254746494749,
+   "solve_fe": 9.353972821089611,
+   "seconds": 31.795822374988347,
    "kind": "train",
    "x": [
     0.007,
@@ -2699,9 +2705,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 10.197373032443751,
-   "solve_fe": 10.154869595968897,
-   "seconds": 33.94347533292603,
+   "wall_fe": 10.225883746373531,
+   "solve_fe": 10.133470556180413,
+   "seconds": 34.42367537494283,
    "kind": "train",
    "x": [
     0.007,
@@ -2749,9 +2755,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 10.99176355717417,
-   "solve_fe": 10.936013411043428,
-   "seconds": 36.58772254199721,
+   "wall_fe": 11.01990692902819,
+   "solve_fe": 10.912968291271214,
+   "seconds": 37.096617582952604,
    "kind": "train",
    "x": [
     0.007,
@@ -2799,9 +2805,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 11.780416693780042,
-   "solve_fe": 11.717157226117958,
-   "seconds": 39.21287199994549,
+   "wall_fe": 11.80388666244956,
+   "solve_fe": 11.692466026362016,
+   "seconds": 39.735750249936245,
    "kind": "train",
    "x": [
     0.007,
@@ -2849,9 +2855,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 12.563701899416607,
-   "solve_fe": 12.498301041192489,
-   "seconds": 41.82015349995345,
+   "wall_fe": 12.584274251795344,
+   "solve_fe": 12.471963761452818,
+   "seconds": 42.362790582934394,
    "kind": "train",
    "x": [
     0.007,
@@ -2899,9 +2905,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 13.34386568100162,
-   "solve_fe": 13.27944485626702,
-   "seconds": 44.41704487497918,
+   "wall_fe": 13.36214986820525,
+   "solve_fe": 13.25146149654362,
+   "seconds": 44.98137479193974,
    "kind": "train",
    "x": [
     0.007,
@@ -2949,9 +2955,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 14.123858034157156,
-   "solve_fe": 14.06058867134155,
-   "seconds": 47.01336562493816,
+   "wall_fe": 14.141200936743754,
+   "solve_fe": 14.030959231634421,
+   "seconds": 47.60391595796682,
    "kind": "train",
    "x": [
     0.007,
@@ -2999,9 +3005,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 14.904378216498786,
-   "solve_fe": 14.841732486416081,
-   "seconds": 49.611443332978524,
+   "wall_fe": 14.920262439796817,
+   "solve_fe": 14.810456966725223,
+   "seconds": 50.22649224998895,
    "kind": "train",
    "x": [
     0.007,
@@ -3049,9 +3055,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 15.913954104842341,
-   "solve_fe": 15.841732486416081,
-   "seconds": 52.97196708293632,
+   "wall_fe": 15.920987067094336,
+   "solve_fe": 15.810456966725223,
+   "seconds": 53.59525924990885,
    "kind": "validate",
    "x": [
     0.007,
@@ -3084,9 +3090,9 @@
    "admissible": true
   },
   {
-   "wall_fe": 16.65618539227345,
-   "solve_fe": 16.62287630149061,
-   "seconds": 55.442594500025734,
+   "wall_fe": 16.665212549846316,
+   "solve_fe": 16.589954701816023,
+   "seconds": 56.10056608298328,
    "kind": "train",
    "x": [
     0.0061,
@@ -3134,9 +3140,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 17.433293078979606,
-   "solve_fe": 17.40402011656514,
-   "seconds": 58.02931320795324,
+   "wall_fe": 17.4383162006142,
+   "solve_fe": 17.369452436906823,
+   "seconds": 58.70308629202191,
    "kind": "train",
    "x": [
     0.00655,
@@ -3184,9 +3190,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 18.209941270266828,
-   "solve_fe": 18.185163931639668,
-   "seconds": 60.61450241692364,
+   "wall_fe": 18.214105740213878,
+   "solve_fe": 18.148950171997623,
+   "seconds": 61.314648082945496,
    "kind": "train",
    "x": [
     0.0072250000000000005,
@@ -3234,9 +3240,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 18.987732655398773,
-   "solve_fe": 18.966307746714197,
-   "seconds": 63.203496916918084,
+   "wall_fe": 18.98557763002364,
+   "solve_fe": 18.928447907088422,
+   "seconds": 63.91167524992488,
    "kind": "train",
    "x": [
     0.006775,
@@ -3284,9 +3290,9 @@
    "attempts": null
   },
   {
-   "wall_fe": 19.966882986540934,
-   "solve_fe": 19.966307746714197,
-   "seconds": 66.46274466696195,
+   "wall_fe": 19.96146145149684,
+   "solve_fe": 19.928447907088422,
+   "seconds": 67.1968199579278,
    "kind": "validate",
    "x": [
     0.006775,
@@ -3674,36 +3680,36 @@
  "ledger": {
   "fe_rule": {
    "rule": "wall_time",
-   "unit_seconds": 3.328648979
+   "unit_seconds": 3.366327667
   },
   "budget_fe": 20.0,
-  "budget_seconds": 66.57297958,
+  "budget_seconds": 67.32655334,
   "total_fe": 20.0,
-  "total_seconds": 66.57297958,
-  "elapsed_seconds": 66.57562187500298,
-  "solve_fe": 19.966307746714197,
+  "total_seconds": 67.32655334,
+  "elapsed_seconds": 67.33624624996446,
+  "solve_fe": 19.928447907088422,
   "weights": {
    "validation_eval": 1.0,
-   "train_forward_eval": 0.7811438150745303,
-   "adjoint_eval": 0.17543477073855795,
+   "train_forward_eval": 0.779497735090801,
+   "adjoint_eval": 0.1748594274616702,
    "validation_solve": 0.016666666666666666,
-   "train_forward_solve": 0.013019063584575505,
-   "adjoint_solve": 0.0029239128456426326,
+   "train_forward_solve": 0.012991628918180016,
+   "adjoint_solve": 0.002914323791027837,
    "validation_solves_per_eval": 60,
    "train_solves_per_eval": 60
   },
   "exhausted": true,
   "totals": {
    "setup_calibration": {
-    "seconds": 0.0004989169538021088,
-    "fe": 0.00014988572148932162,
+    "seconds": 0.0005185001064091921,
+    "fe": 0.00015402544187603353,
     "entries": 1,
     "forward_solves": 0,
     "adjoint_solves": 0
    },
    "forward": {
-    "seconds": 59.82301137203654,
-    "fe": 17.97215980100392,
+    "seconds": 60.54083384401108,
+    "fe": 17.984236780480668,
     "entries": 24,
     "forward_solves": 1380,
     "adjoint_solves": 0
@@ -3723,8 +3729,8 @@
     "adjoint_solves": 0
    },
    "mesh_motion": {
-    "seconds": 0.010387167,
-    "fe": 0.003120535408068331,
+    "seconds": 0.010683001,
+    "fe": 0.003173488161810601,
     "entries": 25,
     "forward_solves": 0,
     "adjoint_solves": 0
@@ -3737,29 +3743,29 @@
     "adjoint_solves": 0
    },
    "validation": {
-    "seconds": 6.616925,
-    "fe": 1.987871067735076,
+    "seconds": 6.650801875,
+    "fe": 1.9756846430006183,
     "entries": 2,
     "forward_solves": 120,
     "adjoint_solves": 0
    },
    "surrogate_update": {
-    "seconds": 0.0026734600542113185,
-    "fe": 0.000803166711503021,
+    "seconds": 0.0025462897028774023,
+    "fe": 0.0007563998382684481,
     "entries": 8,
     "forward_solves": 0,
     "adjoint_solves": 0
    },
    "geometry_check": {
-    "seconds": 0.00646409,
-    "fe": 0.0019419560430616375,
+    "seconds": 0.00656542,
+    "fe": 0.0019503211361034747,
     "entries": 80,
     "forward_solves": 0,
     "adjoint_solves": 0
    },
    "overhead": {
-    "seconds": 0.11301957395542621,
-    "fe": 0.03395358737687619,
+    "seconds": 0.11460441017966902,
+    "fe": 0.03404434194066498,
     "entries": 171,
     "forward_solves": 0,
     "adjoint_solves": 0
@@ -3769,7 +3775,7 @@
    {
     "seq": 0,
     "category": "overhead",
-    "seconds": 0.05571716697886586,
+    "seconds": 0.055070457980036736,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "process start-up"
@@ -3777,7 +3783,7 @@
    {
     "seq": 1,
     "category": "overhead",
-    "seconds": 0.001646250020712614,
+    "seconds": 0.0007358749862760305,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3785,7 +3791,7 @@
    {
     "seq": 2,
     "category": "geometry_check",
-    "seconds": 0.000108917,
+    "seconds": 0.000109167,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -3793,7 +3799,7 @@
    {
     "seq": 3,
     "category": "overhead",
-    "seconds": 0.0006414989584641456,
+    "seconds": 0.0005981249979691503,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -3801,7 +3807,7 @@
    {
     "seq": 4,
     "category": "overhead",
-    "seconds": 0.00014500005636364222,
+    "seconds": 0.0001189579488709569,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3809,7 +3815,7 @@
    {
     "seq": 5,
     "category": "geometry_check",
-    "seconds": 9.6584e-05,
+    "seconds": 7.5208e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -3817,7 +3823,7 @@
    {
     "seq": 6,
     "category": "mesh_motion",
-    "seconds": 0.000466958,
+    "seconds": 0.000530667,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe start"
@@ -3825,7 +3831,7 @@
    {
     "seq": 7,
     "category": "forward",
-    "seconds": 2.624772417,
+    "seconds": 2.688261791,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe start"
@@ -3833,7 +3839,7 @@
    {
     "seq": 8,
     "category": "overhead",
-    "seconds": 0.0002737079239922835,
+    "seconds": 0.00033933407583930375,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -3841,7 +3847,7 @@
    {
     "seq": 9,
     "category": "overhead",
-    "seconds": 8.895806968212128e-05,
+    "seconds": 0.00014466699212789536,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3849,7 +3855,7 @@
    {
     "seq": 10,
     "category": "geometry_check",
-    "seconds": 9.925e-05,
+    "seconds": 9.8667e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -3857,7 +3863,7 @@
    {
     "seq": 11,
     "category": "overhead",
-    "seconds": 0.0005717090088577237,
+    "seconds": 0.0006085409461067393,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -3865,7 +3871,7 @@
    {
     "seq": 12,
     "category": "overhead",
-    "seconds": 8.195789996534586e-05,
+    "seconds": 9.54590504989028e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3873,7 +3879,7 @@
    {
     "seq": 13,
     "category": "geometry_check",
-    "seconds": 7.4875e-05,
+    "seconds": 7.9084e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -3881,7 +3887,7 @@
    {
     "seq": 14,
     "category": "mesh_motion",
-    "seconds": 0.000406958,
+    "seconds": 0.000409291,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 0"
@@ -3889,7 +3895,7 @@
    {
     "seq": 15,
     "category": "forward",
-    "seconds": 2.573556916,
+    "seconds": 2.65275075,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 0"
@@ -3897,7 +3903,7 @@
    {
     "seq": 16,
     "category": "overhead",
-    "seconds": 0.00020979307783974832,
+    "seconds": 0.00030320793328453277,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -3905,7 +3911,7 @@
    {
     "seq": 17,
     "category": "overhead",
-    "seconds": 8.116592653095722e-05,
+    "seconds": 8.333299774676561e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3913,7 +3919,7 @@
    {
     "seq": 18,
     "category": "geometry_check",
-    "seconds": 8.5875e-05,
+    "seconds": 9.0333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -3921,7 +3927,7 @@
    {
     "seq": 19,
     "category": "overhead",
-    "seconds": 0.0005327091048137333,
+    "seconds": 0.0005650840977322602,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -3929,7 +3935,7 @@
    {
     "seq": 20,
     "category": "overhead",
-    "seconds": 9.52909467741847e-05,
+    "seconds": 0.00010362500324845314,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3937,7 +3943,7 @@
    {
     "seq": 21,
     "category": "geometry_check",
-    "seconds": 6.7166e-05,
+    "seconds": 8.2708e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -3945,7 +3951,7 @@
    {
     "seq": 22,
     "category": "mesh_motion",
-    "seconds": 0.00041025,
+    "seconds": 0.000414625,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 1"
@@ -3953,7 +3959,7 @@
    {
     "seq": 23,
     "category": "forward",
-    "seconds": 2.595576376,
+    "seconds": 2.673748834,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 1"
@@ -3961,7 +3967,7 @@
    {
     "seq": 24,
     "category": "overhead",
-    "seconds": 0.0002395420342722332,
+    "seconds": 0.00032079098318860133,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -3969,7 +3975,7 @@
    {
     "seq": 25,
     "category": "overhead",
-    "seconds": 9.958294685930014e-05,
+    "seconds": 0.00010841700714081526,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -3977,7 +3983,7 @@
    {
     "seq": 26,
     "category": "geometry_check",
-    "seconds": 9.8584e-05,
+    "seconds": 9.1709e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -3985,7 +3991,7 @@
    {
     "seq": 27,
     "category": "overhead",
-    "seconds": 0.0005637910086875308,
+    "seconds": 0.0006449159337797994,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -3993,7 +3999,7 @@
    {
     "seq": 28,
     "category": "overhead",
-    "seconds": 8.008303120732307e-05,
+    "seconds": 0.00011329201515763998,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4001,7 +4007,7 @@
    {
     "seq": 29,
     "category": "geometry_check",
-    "seconds": 9.0167e-05,
+    "seconds": 8.9083e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4009,7 +4015,7 @@
    {
     "seq": 30,
     "category": "mesh_motion",
-    "seconds": 0.000408042,
+    "seconds": 0.000450292,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 2"
@@ -4017,7 +4023,7 @@
    {
     "seq": 31,
     "category": "forward",
-    "seconds": 2.685389625,
+    "seconds": 2.735096626,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 2"
@@ -4025,7 +4031,7 @@
    {
     "seq": 32,
     "category": "overhead",
-    "seconds": 0.00023516599222261902,
+    "seconds": 0.0002882900752076978,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4033,7 +4039,7 @@
    {
     "seq": 33,
     "category": "overhead",
-    "seconds": 7.579196244478226e-05,
+    "seconds": 9.416695684194565e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4041,7 +4047,7 @@
    {
     "seq": 34,
     "category": "geometry_check",
-    "seconds": 9.1541e-05,
+    "seconds": 8.8958e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4049,7 +4055,7 @@
    {
     "seq": 35,
     "category": "overhead",
-    "seconds": 0.0005447090134858001,
+    "seconds": 0.0005596669621965589,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4057,7 +4063,7 @@
    {
     "seq": 36,
     "category": "overhead",
-    "seconds": 8.458306547254324e-05,
+    "seconds": 0.00015720806550234556,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4065,7 +4071,7 @@
    {
     "seq": 37,
     "category": "geometry_check",
-    "seconds": 7.9625e-05,
+    "seconds": 8.7042e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4073,7 +4079,7 @@
    {
     "seq": 38,
     "category": "mesh_motion",
-    "seconds": 0.000423333,
+    "seconds": 0.000412375,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 3"
@@ -4081,7 +4087,7 @@
    {
     "seq": 39,
     "category": "forward",
-    "seconds": 2.594134542,
+    "seconds": 2.6068624590000002,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 3"
@@ -4089,7 +4095,7 @@
    {
     "seq": 40,
     "category": "overhead",
-    "seconds": 0.00022125000245765136,
+    "seconds": 0.0002724989882647577,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4097,7 +4103,7 @@
    {
     "seq": 41,
     "category": "overhead",
-    "seconds": 9.295891504734755e-05,
+    "seconds": 8.583394810557365e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4105,7 +4111,7 @@
    {
     "seq": 42,
     "category": "geometry_check",
-    "seconds": 9.4292e-05,
+    "seconds": 8.5333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4113,7 +4119,7 @@
    {
     "seq": 43,
     "category": "overhead",
-    "seconds": 0.0006077079902695459,
+    "seconds": 0.0006266250404838303,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4121,7 +4127,7 @@
    {
     "seq": 44,
     "category": "overhead",
-    "seconds": 9.533308912068605e-05,
+    "seconds": 0.00010212499182671309,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4129,7 +4135,7 @@
    {
     "seq": 45,
     "category": "geometry_check",
-    "seconds": 8.475e-05,
+    "seconds": 7.425e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4137,7 +4143,7 @@
    {
     "seq": 46,
     "category": "mesh_motion",
-    "seconds": 0.000415209,
+    "seconds": 0.000410709,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 4"
@@ -4145,7 +4151,7 @@
    {
     "seq": 47,
     "category": "forward",
-    "seconds": 2.680828709,
+    "seconds": 2.7214545,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 4"
@@ -4153,7 +4159,7 @@
    {
     "seq": 48,
     "category": "overhead",
-    "seconds": 0.0002351239353330925,
+    "seconds": 0.0002342079307560141,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4161,7 +4167,7 @@
    {
     "seq": 49,
     "category": "overhead",
-    "seconds": 7.862504571676254e-05,
+    "seconds": 8.008303120732307e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4169,7 +4175,7 @@
    {
     "seq": 50,
     "category": "geometry_check",
-    "seconds": 8.7959e-05,
+    "seconds": 9.2916e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4177,7 +4183,7 @@
    {
     "seq": 51,
     "category": "overhead",
-    "seconds": 0.0005882489428881144,
+    "seconds": 0.0005820840175090325,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4185,7 +4191,7 @@
    {
     "seq": 52,
     "category": "overhead",
-    "seconds": 0.00013191706966608763,
+    "seconds": 0.00015108298975974321,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4193,7 +4199,7 @@
    {
     "seq": 53,
     "category": "geometry_check",
-    "seconds": 6.7625e-05,
+    "seconds": 6.8834e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4201,7 +4207,7 @@
    {
     "seq": 54,
     "category": "mesh_motion",
-    "seconds": 0.000412917,
+    "seconds": 0.000409,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 5"
@@ -4209,7 +4215,7 @@
    {
     "seq": 55,
     "category": "forward",
-    "seconds": 2.5918704999999997,
+    "seconds": 2.620583,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 5"
@@ -4217,7 +4223,7 @@
    {
     "seq": 56,
     "category": "overhead",
-    "seconds": 0.00021462395286064861,
+    "seconds": 0.00026270797092209364,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4225,7 +4231,7 @@
    {
     "seq": 57,
     "category": "overhead",
-    "seconds": 6.904196925461292e-05,
+    "seconds": 0.00010587507858872414,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4233,7 +4239,7 @@
    {
     "seq": 58,
     "category": "geometry_check",
-    "seconds": 7.9875e-05,
+    "seconds": 8.1875e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4241,7 +4247,7 @@
    {
     "seq": 59,
     "category": "overhead",
-    "seconds": 0.0005506670538402147,
+    "seconds": 0.0005775829899690166,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4249,7 +4255,7 @@
    {
     "seq": 60,
     "category": "overhead",
-    "seconds": 8.466595318168402e-05,
+    "seconds": 9.162502828985453e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4257,7 +4263,7 @@
    {
     "seq": 61,
     "category": "geometry_check",
-    "seconds": 8.8792e-05,
+    "seconds": 8.7e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4265,7 +4271,7 @@
    {
     "seq": 62,
     "category": "mesh_motion",
-    "seconds": 0.000409083,
+    "seconds": 0.000413708,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 6"
@@ -4273,7 +4279,7 @@
    {
     "seq": 63,
     "category": "forward",
-    "seconds": 2.544905624,
+    "seconds": 2.571513375,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 6"
@@ -4281,7 +4287,7 @@
    {
     "seq": 64,
     "category": "overhead",
-    "seconds": 0.0002481680528774177,
+    "seconds": 0.000252833977242517,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4289,7 +4295,7 @@
    {
     "seq": 65,
     "category": "overhead",
-    "seconds": 7.954193279147148e-05,
+    "seconds": 8.333299774676561e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4297,7 +4303,7 @@
    {
     "seq": 66,
     "category": "geometry_check",
-    "seconds": 9.5625e-05,
+    "seconds": 8.2334e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4305,7 +4311,7 @@
    {
     "seq": 67,
     "category": "overhead",
-    "seconds": 0.0005756660253553036,
+    "seconds": 0.000569040924929709,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4313,7 +4319,7 @@
    {
     "seq": 68,
     "category": "overhead",
-    "seconds": 0.00010583398398011923,
+    "seconds": 0.00012195901945233345,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4321,7 +4327,7 @@
    {
     "seq": 69,
     "category": "geometry_check",
-    "seconds": 8.2084e-05,
+    "seconds": 8.675e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4329,7 +4335,7 @@
    {
     "seq": 70,
     "category": "mesh_motion",
-    "seconds": 0.000413208,
+    "seconds": 0.000407,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 7"
@@ -4337,7 +4343,7 @@
    {
     "seq": 71,
     "category": "forward",
-    "seconds": 2.599786874,
+    "seconds": 2.617720126,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 7"
@@ -4345,7 +4351,7 @@
    {
     "seq": 72,
     "category": "overhead",
-    "seconds": 0.00023745900438143508,
+    "seconds": 0.0002680820521447913,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4353,7 +4359,7 @@
    {
     "seq": 73,
     "category": "overhead",
-    "seconds": 9.329104796051979e-05,
+    "seconds": 9.691703598946333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4361,7 +4367,7 @@
    {
     "seq": 74,
     "category": "geometry_check",
-    "seconds": 9.075e-05,
+    "seconds": 9.3292e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4369,7 +4375,7 @@
    {
     "seq": 75,
     "category": "overhead",
-    "seconds": 0.0006192089565786318,
+    "seconds": 0.0006014159673419783,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4377,7 +4383,7 @@
    {
     "seq": 76,
     "category": "overhead",
-    "seconds": 9.079102892428637e-05,
+    "seconds": 9.116693399846554e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4385,7 +4391,7 @@
    {
     "seq": 77,
     "category": "geometry_check",
-    "seconds": 8.8792e-05,
+    "seconds": 8.2834e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4393,7 +4399,7 @@
    {
     "seq": 78,
     "category": "mesh_motion",
-    "seconds": 0.000412584,
+    "seconds": 0.000415708,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 8"
@@ -4401,7 +4407,7 @@
    {
     "seq": 79,
     "category": "forward",
-    "seconds": 2.598179709,
+    "seconds": 2.620953,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 8"
@@ -4409,7 +4415,7 @@
    {
     "seq": 80,
     "category": "overhead",
-    "seconds": 0.0002278739566001775,
+    "seconds": 0.0002448330775912666,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4417,7 +4423,7 @@
    {
     "seq": 81,
     "category": "overhead",
-    "seconds": 9.083305485546589e-05,
+    "seconds": 8.295790757983923e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4425,7 +4431,7 @@
    {
     "seq": 82,
     "category": "geometry_check",
-    "seconds": 9.175e-05,
+    "seconds": 9.2041e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4433,7 +4439,7 @@
    {
     "seq": 83,
     "category": "overhead",
-    "seconds": 0.000563999929138248,
+    "seconds": 0.0006257920561161257,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4441,7 +4447,7 @@
    {
     "seq": 84,
     "category": "overhead",
-    "seconds": 8.037500083446503e-05,
+    "seconds": 0.00011300004553049803,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4449,7 +4455,7 @@
    {
     "seq": 85,
     "category": "geometry_check",
-    "seconds": 8.2375e-05,
+    "seconds": 6.4167e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4457,7 +4463,7 @@
    {
     "seq": 86,
     "category": "mesh_motion",
-    "seconds": 0.000411417,
+    "seconds": 0.000408,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 9"
@@ -4465,7 +4471,7 @@
    {
     "seq": 87,
     "category": "forward",
-    "seconds": 2.575308667,
+    "seconds": 2.600328416,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 9"
@@ -4473,7 +4479,7 @@
    {
     "seq": 88,
     "category": "overhead",
-    "seconds": 0.0002202079954116698,
+    "seconds": 0.00024229197233438526,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4481,7 +4487,7 @@
    {
     "seq": 89,
     "category": "overhead",
-    "seconds": 9.15410928428173e-05,
+    "seconds": 9.14999982342124e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4489,7 +4495,7 @@
    {
     "seq": 90,
     "category": "geometry_check",
-    "seconds": 8.5583e-05,
+    "seconds": 0.000183,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4497,7 +4503,7 @@
    {
     "seq": 91,
     "category": "overhead",
-    "seconds": 0.0005618759463317247,
+    "seconds": 0.0010630419675337066,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4505,7 +4511,7 @@
    {
     "seq": 92,
     "category": "overhead",
-    "seconds": 9.412504732608795e-05,
+    "seconds": 0.00011329201515763998,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4513,7 +4519,7 @@
    {
     "seq": 93,
     "category": "geometry_check",
-    "seconds": 8.1666e-05,
+    "seconds": 8.0917e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4521,7 +4527,7 @@
    {
     "seq": 94,
     "category": "mesh_motion",
-    "seconds": 0.000407375,
+    "seconds": 0.000420958,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 10"
@@ -4529,7 +4535,7 @@
    {
     "seq": 95,
     "category": "forward",
-    "seconds": 2.589178918,
+    "seconds": 2.610082291,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 10"
@@ -4537,7 +4543,7 @@
    {
     "seq": 96,
     "category": "overhead",
-    "seconds": 0.0002890819674163936,
+    "seconds": 0.0003301670249946653,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4545,7 +4551,7 @@
    {
     "seq": 97,
     "category": "overhead",
-    "seconds": 8.733395952731371e-05,
+    "seconds": 8.645793423056602e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4553,7 +4559,7 @@
    {
     "seq": 98,
     "category": "geometry_check",
-    "seconds": 8.8917e-05,
+    "seconds": 9.0584e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4561,7 +4567,7 @@
    {
     "seq": 99,
     "category": "overhead",
-    "seconds": 0.0005775410432704575,
+    "seconds": 0.0006290830630959476,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4569,7 +4575,7 @@
    {
     "seq": 100,
     "category": "overhead",
-    "seconds": 9.120802860707045e-05,
+    "seconds": 0.00010349997319281101,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4577,7 +4583,7 @@
    {
     "seq": 101,
     "category": "geometry_check",
-    "seconds": 7.4375e-05,
+    "seconds": 6.6583e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4585,7 +4591,7 @@
    {
     "seq": 102,
     "category": "mesh_motion",
-    "seconds": 0.000404584,
+    "seconds": 0.000417083,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 11"
@@ -4593,7 +4599,7 @@
    {
     "seq": 103,
     "category": "forward",
-    "seconds": 2.612097625,
+    "seconds": 2.626225126,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 11"
@@ -4601,7 +4607,7 @@
    {
     "seq": 104,
     "category": "overhead",
-    "seconds": 0.00022454092385970625,
+    "seconds": 0.0002345829839711655,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4609,7 +4615,7 @@
    {
     "seq": 105,
     "category": "overhead",
-    "seconds": 0.00010937510523945093,
+    "seconds": 9.14169941097498e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4617,7 +4623,7 @@
    {
     "seq": 106,
     "category": "geometry_check",
-    "seconds": 9.2959e-05,
+    "seconds": 8.4e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4625,7 +4631,7 @@
    {
     "seq": 107,
     "category": "overhead",
-    "seconds": 0.000571207989736422,
+    "seconds": 0.0005596660187308089,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4633,7 +4639,7 @@
    {
     "seq": 108,
     "category": "overhead",
-    "seconds": 0.00011504197027534246,
+    "seconds": 0.0010722089791670442,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4641,7 +4647,7 @@
    {
     "seq": 109,
     "category": "geometry_check",
-    "seconds": 8.35e-05,
+    "seconds": 9.0209e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4649,7 +4655,7 @@
    {
     "seq": 110,
     "category": "mesh_motion",
-    "seconds": 0.000405375,
+    "seconds": 0.000414375,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 12"
@@ -4657,7 +4663,7 @@
    {
     "seq": 111,
     "category": "forward",
-    "seconds": 2.642634584,
+    "seconds": 2.670384375,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 12"
@@ -4665,7 +4671,7 @@
    {
     "seq": 112,
     "category": "overhead",
-    "seconds": 0.0002351660059289884,
+    "seconds": 0.0002459570177677506,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4673,7 +4679,7 @@
    {
     "seq": 113,
     "category": "overhead",
-    "seconds": 9.724998380988836e-05,
+    "seconds": 0.00010933401063084602,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4681,7 +4687,7 @@
    {
     "seq": 114,
     "category": "geometry_check",
-    "seconds": 9.5667e-05,
+    "seconds": 9.1209e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4689,7 +4695,7 @@
    {
     "seq": 115,
     "category": "overhead",
-    "seconds": 0.0006037490357897468,
+    "seconds": 0.0005857490068095217,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4697,7 +4703,7 @@
    {
     "seq": 116,
     "category": "overhead",
-    "seconds": 8.808390703052282e-05,
+    "seconds": 9.39579913392663e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4705,7 +4711,7 @@
    {
     "seq": 117,
     "category": "geometry_check",
-    "seconds": 8.6708e-05,
+    "seconds": 9.0667e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4713,7 +4719,7 @@
    {
     "seq": 118,
     "category": "mesh_motion",
-    "seconds": 0.000402459,
+    "seconds": 0.000416375,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 13"
@@ -4721,7 +4727,7 @@
    {
     "seq": 119,
     "category": "forward",
-    "seconds": 2.6235363339999997,
+    "seconds": 2.6375090419999996,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 13"
@@ -4729,7 +4735,7 @@
    {
     "seq": 120,
     "category": "overhead",
-    "seconds": 0.0002392070216572506,
+    "seconds": 0.00023633297486469473,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4737,7 +4743,7 @@
    {
     "seq": 121,
     "category": "overhead",
-    "seconds": 0.00010349997319281101,
+    "seconds": 9.983300697058439e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4745,7 +4751,7 @@
    {
     "seq": 122,
     "category": "geometry_check",
-    "seconds": 8.6709e-05,
+    "seconds": 8.5042e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4753,7 +4759,7 @@
    {
     "seq": 123,
     "category": "overhead",
-    "seconds": 0.0006176240697328694,
+    "seconds": 0.0005800419932242562,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4761,7 +4767,7 @@
    {
     "seq": 124,
     "category": "overhead",
-    "seconds": 8.349993731826544e-05,
+    "seconds": 8.770800195634365e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4769,7 +4775,7 @@
    {
     "seq": 125,
     "category": "geometry_check",
-    "seconds": 9.2375e-05,
+    "seconds": 8.7e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4777,7 +4783,7 @@
    {
     "seq": 126,
     "category": "mesh_motion",
-    "seconds": 0.000418833,
+    "seconds": 0.000422833,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 14"
@@ -4785,7 +4791,7 @@
    {
     "seq": 127,
     "category": "forward",
-    "seconds": 2.605594416,
+    "seconds": 2.625431376,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 14"
@@ -4793,7 +4799,7 @@
    {
     "seq": 128,
     "category": "overhead",
-    "seconds": 0.00028454302771052653,
+    "seconds": 0.00024649899599182845,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4801,7 +4807,7 @@
    {
     "seq": 129,
     "category": "overhead",
-    "seconds": 8.937506936490536e-05,
+    "seconds": 9.250000584870577e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4809,7 +4815,7 @@
    {
     "seq": 130,
     "category": "geometry_check",
-    "seconds": 9.7167e-05,
+    "seconds": 9.3e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4817,7 +4823,7 @@
    {
     "seq": 131,
     "category": "overhead",
-    "seconds": 0.0005657909002039219,
+    "seconds": 0.000587541968904759,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4825,7 +4831,7 @@
    {
     "seq": 132,
     "category": "overhead",
-    "seconds": 8.158409036695957e-05,
+    "seconds": 0.0001164580462500453,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4833,7 +4839,7 @@
    {
     "seq": 133,
     "category": "geometry_check",
-    "seconds": 7.3375e-05,
+    "seconds": 6.6167e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4841,7 +4847,7 @@
    {
     "seq": 134,
     "category": "mesh_motion",
-    "seconds": 0.0004055,
+    "seconds": 0.000402042,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 15"
@@ -4849,7 +4855,7 @@
    {
     "seq": 135,
     "category": "forward",
-    "seconds": 2.595352291,
+    "seconds": 2.616994833,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 15"
@@ -4857,7 +4863,7 @@
    {
     "seq": 136,
     "category": "overhead",
-    "seconds": 0.00022629196580226107,
+    "seconds": 0.00023166698434806676,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4865,7 +4871,7 @@
    {
     "seq": 137,
     "category": "overhead",
-    "seconds": 8.770800195634365e-05,
+    "seconds": 0.00010083301458507776,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4873,7 +4879,7 @@
    {
     "seq": 138,
     "category": "geometry_check",
-    "seconds": 9.1292e-05,
+    "seconds": 8.2708e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4881,7 +4887,7 @@
    {
     "seq": 139,
     "category": "overhead",
-    "seconds": 0.000627333029548538,
+    "seconds": 0.0006376249587347615,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4889,7 +4895,7 @@
    {
     "seq": 140,
     "category": "overhead",
-    "seconds": 0.00010537495836615562,
+    "seconds": 0.00010904204100370407,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4897,7 +4903,7 @@
    {
     "seq": 141,
     "category": "geometry_check",
-    "seconds": 6.95e-05,
+    "seconds": 8.8e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4905,7 +4911,7 @@
    {
     "seq": 142,
     "category": "mesh_motion",
-    "seconds": 0.000413333,
+    "seconds": 0.00041025,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 16"
@@ -4913,7 +4919,7 @@
    {
     "seq": 143,
     "category": "forward",
-    "seconds": 2.594692458,
+    "seconds": 2.6208817509999998,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 16"
@@ -4921,7 +4927,7 @@
    {
     "seq": 144,
     "category": "overhead",
-    "seconds": 0.00023375096910882576,
+    "seconds": 0.0002309570127536631,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4929,7 +4935,7 @@
    {
     "seq": 145,
     "category": "overhead",
-    "seconds": 9.774998761713505e-05,
+    "seconds": 0.00010762503370642662,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4937,7 +4943,7 @@
    {
     "seq": 146,
     "category": "geometry_check",
-    "seconds": 9.0834e-05,
+    "seconds": 8.4791e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -4945,7 +4951,7 @@
    {
     "seq": 147,
     "category": "overhead",
-    "seconds": 0.0005472909986607988,
+    "seconds": 0.0006314589241540602,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -4953,7 +4959,7 @@
    {
     "seq": 148,
     "category": "overhead",
-    "seconds": 8.770800195634365e-05,
+    "seconds": 0.00012266705743968487,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -4961,7 +4967,7 @@
    {
     "seq": 149,
     "category": "geometry_check",
-    "seconds": 7.4666e-05,
+    "seconds": 8.2334e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -4969,7 +4975,7 @@
    {
     "seq": 150,
     "category": "mesh_motion",
-    "seconds": 0.000404417,
+    "seconds": 0.000438542,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "doe 17"
@@ -4977,7 +4983,7 @@
    {
     "seq": 151,
     "category": "forward",
-    "seconds": 2.596548041,
+    "seconds": 2.6208438750000003,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "doe 17"
@@ -4985,7 +4991,7 @@
    {
     "seq": 152,
     "category": "overhead",
-    "seconds": 0.00022700105213147026,
+    "seconds": 0.0002649990068377406,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -4993,7 +4999,7 @@
    {
     "seq": 153,
     "category": "overhead",
-    "seconds": 8.754199370741844e-05,
+    "seconds": 9.595800656825304e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5001,7 +5007,7 @@
    {
     "seq": 154,
     "category": "setup_calibration",
-    "seconds": 0.0004989169538021088,
+    "seconds": 0.0005185001064091921,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate doe fit"
@@ -5009,7 +5015,7 @@
    {
     "seq": 155,
     "category": "overhead",
-    "seconds": 0.0001735830446705222,
+    "seconds": 0.00017624988686293364,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5017,7 +5023,7 @@
    {
     "seq": 156,
     "category": "geometry_check",
-    "seconds": 9.0417e-05,
+    "seconds": 8.8958e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -5025,7 +5031,7 @@
    {
     "seq": 157,
     "category": "mesh_motion",
-    "seconds": 0.00050175,
+    "seconds": 0.000575792,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate doe incumbent"
@@ -5033,7 +5039,7 @@
    {
     "seq": 158,
     "category": "validation",
-    "seconds": 3.3589659579999998,
+    "seconds": 3.366995708,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate doe incumbent"
@@ -5041,7 +5047,7 @@
    {
     "seq": 159,
     "category": "overhead",
-    "seconds": 0.0002055829656129049,
+    "seconds": 0.00031583392006240274,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io validate"
@@ -5049,7 +5055,7 @@
    {
     "seq": 160,
     "category": "overhead",
-    "seconds": 7.225002627819777e-05,
+    "seconds": 7.950002327561378e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5057,7 +5063,7 @@
    {
     "seq": 161,
     "category": "overhead",
-    "seconds": 0.001653374987654388,
+    "seconds": 0.0010995420161634684,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5065,7 +5071,7 @@
    {
     "seq": 162,
     "category": "geometry_check",
-    "seconds": 9.0208e-05,
+    "seconds": 9.3e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5073,7 +5079,7 @@
    {
     "seq": 163,
     "category": "overhead",
-    "seconds": 0.0006122919940736438,
+    "seconds": 0.0007748330341357246,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5081,7 +5087,7 @@
    {
     "seq": 164,
     "category": "overhead",
-    "seconds": 0.0004027499817311764,
+    "seconds": 0.0004302079323679209,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5089,7 +5095,7 @@
    {
     "seq": 165,
     "category": "geometry_check",
-    "seconds": 7.0167e-05,
+    "seconds": 8.7709e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5097,7 +5103,7 @@
    {
     "seq": 166,
     "category": "overhead",
-    "seconds": 0.000572542084789518,
+    "seconds": 0.0005404160389304025,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5105,7 +5111,7 @@
    {
     "seq": 167,
     "category": "overhead",
-    "seconds": 0.00039379100780934095,
+    "seconds": 0.00029845896642655134,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5113,7 +5119,7 @@
    {
     "seq": 168,
     "category": "geometry_check",
-    "seconds": 6.575e-05,
+    "seconds": 6.9208e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5121,7 +5127,7 @@
    {
     "seq": 169,
     "category": "overhead",
-    "seconds": 0.0005456669955279381,
+    "seconds": 0.0005270420581524604,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5129,7 +5135,7 @@
    {
     "seq": 170,
     "category": "overhead",
-    "seconds": 0.00034737493842840195,
+    "seconds": 0.0002805000403895974,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5137,7 +5143,7 @@
    {
     "seq": 171,
     "category": "geometry_check",
-    "seconds": 6.5417e-05,
+    "seconds": 8.5083e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5145,7 +5151,7 @@
    {
     "seq": 172,
     "category": "overhead",
-    "seconds": 0.0005065000439969936,
+    "seconds": 0.0005944579135501726,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5153,7 +5159,7 @@
    {
     "seq": 173,
     "category": "overhead",
-    "seconds": 0.00026491598691791296,
+    "seconds": 0.00030104198958724737,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5161,7 +5167,7 @@
    {
     "seq": 174,
     "category": "geometry_check",
-    "seconds": 7.0458e-05,
+    "seconds": 8.2333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5169,7 +5175,7 @@
    {
     "seq": 175,
     "category": "overhead",
-    "seconds": 0.0005978759597624617,
+    "seconds": 0.0005240000220041452,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5177,7 +5183,7 @@
    {
     "seq": 176,
     "category": "overhead",
-    "seconds": 0.0003202080260962248,
+    "seconds": 0.00034904200583696365,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5185,7 +5191,7 @@
    {
     "seq": 177,
     "category": "geometry_check",
-    "seconds": 7.0625e-05,
+    "seconds": 7.1458e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5193,7 +5199,7 @@
    {
     "seq": 178,
     "category": "overhead",
-    "seconds": 0.000552167053037067,
+    "seconds": 0.0006123750300517372,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5201,7 +5207,7 @@
    {
     "seq": 179,
     "category": "overhead",
-    "seconds": 0.00035037496127188206,
+    "seconds": 0.0004522500094026327,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5209,7 +5215,7 @@
    {
     "seq": 180,
     "category": "geometry_check",
-    "seconds": 8.3375e-05,
+    "seconds": 0.000121375,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5217,7 +5223,7 @@
    {
     "seq": 181,
     "category": "overhead",
-    "seconds": 0.0005761250158968778,
+    "seconds": 0.0005920839832285196,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5225,7 +5231,7 @@
    {
     "seq": 182,
     "category": "overhead",
-    "seconds": 0.000321083003655076,
+    "seconds": 0.0003309999592602253,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5233,7 +5239,7 @@
    {
     "seq": 183,
     "category": "geometry_check",
-    "seconds": 7.3542e-05,
+    "seconds": 8.1166e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5241,7 +5247,7 @@
    {
     "seq": 184,
     "category": "overhead",
-    "seconds": 0.0005335829954375981,
+    "seconds": 0.0006494590045065252,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5249,7 +5255,7 @@
    {
     "seq": 185,
     "category": "overhead",
-    "seconds": 0.00034808297641575336,
+    "seconds": 0.00033533305395394564,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5257,7 +5263,7 @@
    {
     "seq": 186,
     "category": "geometry_check",
-    "seconds": 7.325e-05,
+    "seconds": 6.9292e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5265,7 +5271,7 @@
    {
     "seq": 187,
     "category": "overhead",
-    "seconds": 0.0005805000303240604,
+    "seconds": 0.000536124949839234,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5273,7 +5279,7 @@
    {
     "seq": 188,
     "category": "overhead",
-    "seconds": 0.00035429198760539293,
+    "seconds": 0.0003493750700727105,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5281,7 +5287,7 @@
    {
     "seq": 189,
     "category": "geometry_check",
-    "seconds": 7.6542e-05,
+    "seconds": 6.7958e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5289,7 +5295,7 @@
    {
     "seq": 190,
     "category": "overhead",
-    "seconds": 0.0005155829976359882,
+    "seconds": 0.0005040829098987842,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5297,7 +5303,7 @@
    {
     "seq": 191,
     "category": "overhead",
-    "seconds": 0.00027654203586280346,
+    "seconds": 0.00028641708195209503,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5305,7 +5311,7 @@
    {
     "seq": 192,
     "category": "geometry_check",
-    "seconds": 6.4667e-05,
+    "seconds": 6.7041e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5313,7 +5319,7 @@
    {
     "seq": 193,
     "category": "overhead",
-    "seconds": 0.0005165409180065694,
+    "seconds": 0.0005091260181515622,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5321,7 +5327,7 @@
    {
     "seq": 194,
     "category": "overhead",
-    "seconds": 0.0003311249893158674,
+    "seconds": 0.0003406249452382326,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5329,7 +5335,7 @@
    {
     "seq": 195,
     "category": "geometry_check",
-    "seconds": 6.4334e-05,
+    "seconds": 7.0792e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5337,7 +5343,7 @@
    {
     "seq": 196,
     "category": "overhead",
-    "seconds": 0.000494541035493512,
+    "seconds": 0.0005942080577767683,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5345,7 +5351,7 @@
    {
     "seq": 197,
     "category": "overhead",
-    "seconds": 0.0002631669631227851,
+    "seconds": 0.00037587492261081934,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5353,7 +5359,7 @@
    {
     "seq": 198,
     "category": "geometry_check",
-    "seconds": 7.3875e-05,
+    "seconds": 7.3375e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5361,7 +5367,7 @@
    {
     "seq": 199,
     "category": "overhead",
-    "seconds": 0.0005272500661703816,
+    "seconds": 0.0005674160259445671,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5369,7 +5375,7 @@
    {
     "seq": 200,
     "category": "overhead",
-    "seconds": 0.0003168749390169978,
+    "seconds": 0.00034366699401289225,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5377,7 +5383,7 @@
    {
     "seq": 201,
     "category": "geometry_check",
-    "seconds": 7.3792e-05,
+    "seconds": 7.15e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5385,7 +5391,7 @@
    {
     "seq": 202,
     "category": "overhead",
-    "seconds": 0.000566458043941509,
+    "seconds": 0.0005354580558716293,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5393,7 +5399,7 @@
    {
     "seq": 203,
     "category": "overhead",
-    "seconds": 0.0003439999418333173,
+    "seconds": 0.00029616698157042265,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5401,7 +5407,7 @@
    {
     "seq": 204,
     "category": "geometry_check",
-    "seconds": 7.9833e-05,
+    "seconds": 7.1333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5409,7 +5415,7 @@
    {
     "seq": 205,
     "category": "overhead",
-    "seconds": 0.0005218750740993983,
+    "seconds": 0.0004972499091806526,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5417,7 +5423,7 @@
    {
     "seq": 206,
     "category": "overhead",
-    "seconds": 0.00029095797799527645,
+    "seconds": 0.0002986250910907984,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5425,7 +5431,7 @@
    {
     "seq": 207,
     "category": "geometry_check",
-    "seconds": 7.25e-05,
+    "seconds": 6.45e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5433,7 +5439,7 @@
    {
     "seq": 208,
     "category": "overhead",
-    "seconds": 0.0005190419897047605,
+    "seconds": 0.0005222920117446961,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5441,7 +5447,7 @@
    {
     "seq": 209,
     "category": "surrogate_update",
-    "seconds": 0.0003219170030206442,
+    "seconds": 0.00033212488051503897,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "trust-region subproblem"
@@ -5449,7 +5455,7 @@
    {
     "seq": 210,
     "category": "overhead",
-    "seconds": 8.945795707404613e-05,
+    "seconds": 9.462505113333464e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5457,7 +5463,7 @@
    {
     "seq": 211,
     "category": "geometry_check",
-    "seconds": 6.9667e-05,
+    "seconds": 6.5167e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -5465,7 +5471,7 @@
    {
     "seq": 212,
     "category": "mesh_motion",
-    "seconds": 0.000424667,
+    "seconds": 0.000424917,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5473,7 +5479,7 @@
    {
     "seq": 213,
     "category": "forward",
-    "seconds": 2.45293375,
+    "seconds": 2.487563084,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5481,7 +5487,7 @@
    {
     "seq": 214,
     "category": "overhead",
-    "seconds": 0.0002299161004089001,
+    "seconds": 0.0002515400365936671,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -5489,7 +5495,7 @@
    {
     "seq": 215,
     "category": "overhead",
-    "seconds": 0.00016075000166893005,
+    "seconds": 0.00017129199113696814,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5497,7 +5503,7 @@
    {
     "seq": 216,
     "category": "surrogate_update",
-    "seconds": 0.0004833340644836426,
+    "seconds": 0.0003131250850856304,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate refit"
@@ -5505,7 +5511,7 @@
    {
     "seq": 217,
     "category": "overhead",
-    "seconds": 3.483286127448082e-05,
+    "seconds": 2.1166866645216942e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5513,7 +5519,7 @@
    {
     "seq": 218,
     "category": "overhead",
-    "seconds": 0.0005506660090759397,
+    "seconds": 0.000520208035595715,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5521,7 +5527,7 @@
    {
     "seq": 219,
     "category": "geometry_check",
-    "seconds": 8.9833e-05,
+    "seconds": 8.8375e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5529,7 +5535,7 @@
    {
     "seq": 220,
     "category": "overhead",
-    "seconds": 0.0006698340184314588,
+    "seconds": 0.0005941249582051,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5537,7 +5543,7 @@
    {
     "seq": 221,
     "category": "overhead",
-    "seconds": 0.0003334999782964587,
+    "seconds": 0.00032837502658367157,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5545,7 +5551,7 @@
    {
     "seq": 222,
     "category": "geometry_check",
-    "seconds": 8.8625e-05,
+    "seconds": 7.225e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5553,7 +5559,7 @@
    {
     "seq": 223,
     "category": "overhead",
-    "seconds": 0.0005797919638936833,
+    "seconds": 0.0005263750471300455,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5561,7 +5567,7 @@
    {
     "seq": 224,
     "category": "overhead",
-    "seconds": 0.00040145800448954105,
+    "seconds": 0.00035141699481755495,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5569,7 +5575,7 @@
    {
     "seq": 225,
     "category": "geometry_check",
-    "seconds": 7.0083e-05,
+    "seconds": 6.4209e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5577,7 +5583,7 @@
    {
     "seq": 226,
     "category": "overhead",
-    "seconds": 0.0005752089915347369,
+    "seconds": 0.0005165409401257648,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5585,7 +5591,7 @@
    {
     "seq": 227,
     "category": "surrogate_update",
-    "seconds": 0.0003046670462936163,
+    "seconds": 0.00026062491815537214,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "trust-region subproblem"
@@ -5593,7 +5599,7 @@
    {
     "seq": 228,
     "category": "overhead",
-    "seconds": 8.124904707074165e-05,
+    "seconds": 7.504108361899853e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5601,7 +5607,7 @@
    {
     "seq": 229,
     "category": "geometry_check",
-    "seconds": 7.2292e-05,
+    "seconds": 6.4417e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -5609,7 +5615,7 @@
    {
     "seq": 230,
     "category": "mesh_motion",
-    "seconds": 0.000405708,
+    "seconds": 0.00040775,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5617,7 +5623,7 @@
    {
     "seq": 231,
     "category": "forward",
-    "seconds": 2.581586042,
+    "seconds": 2.597874957,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5625,7 +5631,7 @@
    {
     "seq": 232,
     "category": "overhead",
-    "seconds": 0.00023083294099990326,
+    "seconds": 0.00026996009152924216,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -5633,7 +5639,7 @@
    {
     "seq": 233,
     "category": "overhead",
-    "seconds": 0.00015691702719777822,
+    "seconds": 0.00016804097685962915,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5641,7 +5647,7 @@
    {
     "seq": 234,
     "category": "surrogate_update",
-    "seconds": 0.00029545905999839306,
+    "seconds": 0.0003226250410079956,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate refit"
@@ -5649,7 +5655,7 @@
    {
     "seq": 235,
     "category": "overhead",
-    "seconds": 3.99579294025898e-05,
+    "seconds": 4.095898475497961e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5657,7 +5663,7 @@
    {
     "seq": 236,
     "category": "geometry_check",
-    "seconds": 8.6542e-05,
+    "seconds": 9.4709e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5665,7 +5671,7 @@
    {
     "seq": 237,
     "category": "overhead",
-    "seconds": 0.0005414989870686782,
+    "seconds": 0.0006047069193684251,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5673,7 +5679,7 @@
    {
     "seq": 238,
     "category": "overhead",
-    "seconds": 8.716701995581388e-05,
+    "seconds": 0.0001283750170841813,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5681,7 +5687,7 @@
    {
     "seq": 239,
     "category": "geometry_check",
-    "seconds": 7.4e-05,
+    "seconds": 6.7458e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -5689,7 +5695,7 @@
    {
     "seq": 240,
     "category": "mesh_motion",
-    "seconds": 0.000400583,
+    "seconds": 0.000428875,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate geometry"
@@ -5697,7 +5703,7 @@
    {
     "seq": 241,
     "category": "forward",
-    "seconds": 2.5832945,
+    "seconds": 2.609421041,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate geometry"
@@ -5705,7 +5711,7 @@
    {
     "seq": 242,
     "category": "overhead",
-    "seconds": 0.0002125839467836954,
+    "seconds": 0.0002850009845190016,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -5713,7 +5719,7 @@
    {
     "seq": 243,
     "category": "overhead",
-    "seconds": 0.00015587499365210533,
+    "seconds": 0.000161041971296072,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5721,7 +5727,7 @@
    {
     "seq": 244,
     "category": "surrogate_update",
-    "seconds": 0.0003108750097453594,
+    "seconds": 0.00031595793552696705,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate refit"
@@ -5729,7 +5735,7 @@
    {
     "seq": 245,
     "category": "overhead",
-    "seconds": 1.970806624740362e-05,
+    "seconds": 1.825008075684309e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5737,7 +5743,7 @@
    {
     "seq": 246,
     "category": "overhead",
-    "seconds": 0.0005108329933136702,
+    "seconds": 0.0005087089957669377,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5745,7 +5751,7 @@
    {
     "seq": 247,
     "category": "geometry_check",
-    "seconds": 9.3542e-05,
+    "seconds": 8.7834e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5753,7 +5759,7 @@
    {
     "seq": 248,
     "category": "overhead",
-    "seconds": 0.0005837500023631037,
+    "seconds": 0.0006034570612314383,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5761,7 +5767,7 @@
    {
     "seq": 249,
     "category": "overhead",
-    "seconds": 0.0002817499917000532,
+    "seconds": 0.00036220892798155546,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5769,7 +5775,7 @@
    {
     "seq": 250,
     "category": "geometry_check",
-    "seconds": 7.4333e-05,
+    "seconds": 8.5875e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5777,7 +5783,7 @@
    {
     "seq": 251,
     "category": "overhead",
-    "seconds": 0.0005316250482536589,
+    "seconds": 0.0005705000794122839,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5785,7 +5791,7 @@
    {
     "seq": 252,
     "category": "overhead",
-    "seconds": 0.00014054193161427975,
+    "seconds": 0.00012199999764561653,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5793,7 +5799,7 @@
    {
     "seq": 253,
     "category": "geometry_check",
-    "seconds": 6.7792e-05,
+    "seconds": 7.1584e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5801,7 +5807,7 @@
    {
     "seq": 254,
     "category": "overhead",
-    "seconds": 0.0005100830637516651,
+    "seconds": 0.0005237489382494687,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5809,7 +5815,7 @@
    {
     "seq": 255,
     "category": "overhead",
-    "seconds": 0.00030037492979317904,
+    "seconds": 0.0003655829932540655,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5817,7 +5823,7 @@
    {
     "seq": 256,
     "category": "geometry_check",
-    "seconds": 6.7708e-05,
+    "seconds": 7.2375e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5825,7 +5831,7 @@
    {
     "seq": 257,
     "category": "overhead",
-    "seconds": 0.0005763750184115679,
+    "seconds": 0.0005089170862788706,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5833,7 +5839,7 @@
    {
     "seq": 258,
     "category": "overhead",
-    "seconds": 0.0004104999825358391,
+    "seconds": 0.00029620795976370573,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5841,7 +5847,7 @@
    {
     "seq": 259,
     "category": "geometry_check",
-    "seconds": 8.4583e-05,
+    "seconds": 6.4041e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5849,7 +5855,7 @@
    {
     "seq": 260,
     "category": "overhead",
-    "seconds": 0.0005781260042425629,
+    "seconds": 0.0005618339635873326,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5857,7 +5863,7 @@
    {
     "seq": 261,
     "category": "overhead",
-    "seconds": 0.0004254580708220601,
+    "seconds": 0.0004564999835565686,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5865,7 +5871,7 @@
    {
     "seq": 262,
     "category": "geometry_check",
-    "seconds": 6.85e-05,
+    "seconds": 6.6083e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5873,7 +5879,7 @@
    {
     "seq": 263,
     "category": "overhead",
-    "seconds": 0.0005559169781008677,
+    "seconds": 0.0005450840518292921,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5881,7 +5887,7 @@
    {
     "seq": 264,
     "category": "overhead",
-    "seconds": 0.0004245409509167075,
+    "seconds": 0.0003022500313818455,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5889,7 +5895,7 @@
    {
     "seq": 265,
     "category": "geometry_check",
-    "seconds": 7.4292e-05,
+    "seconds": 8.1458e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5897,7 +5903,7 @@
    {
     "seq": 266,
     "category": "overhead",
-    "seconds": 0.000522499971474133,
+    "seconds": 0.0005824999078214432,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5905,7 +5911,7 @@
    {
     "seq": 267,
     "category": "overhead",
-    "seconds": 0.0002891670446842909,
+    "seconds": 0.0003427501069381833,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5913,7 +5919,7 @@
    {
     "seq": 268,
     "category": "geometry_check",
-    "seconds": 7.1083e-05,
+    "seconds": 7.3333e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -5921,7 +5927,7 @@
    {
     "seq": 269,
     "category": "overhead",
-    "seconds": 0.0005270420433234335,
+    "seconds": 0.0005813339173954546,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -5929,7 +5935,7 @@
    {
     "seq": 270,
     "category": "surrogate_update",
-    "seconds": 0.00031654094345867634,
+    "seconds": 0.00039333291351795197,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "trust-region subproblem"
@@ -5937,7 +5943,7 @@
    {
     "seq": 271,
     "category": "overhead",
-    "seconds": 8.395896293222904e-05,
+    "seconds": 8.841708768159151e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5945,7 +5951,7 @@
    {
     "seq": 272,
     "category": "geometry_check",
-    "seconds": 7.2834e-05,
+    "seconds": 9.3125e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -5953,7 +5959,7 @@
    {
     "seq": 273,
     "category": "mesh_motion",
-    "seconds": 0.000406916,
+    "seconds": 0.000401084,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5961,7 +5967,7 @@
    {
     "seq": 274,
     "category": "forward",
-    "seconds": 2.5795679160000002,
+    "seconds": 2.587414834,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate candidate"
@@ -5969,7 +5975,7 @@
    {
     "seq": 275,
     "category": "overhead",
-    "seconds": 0.0002894589930875213,
+    "seconds": 0.000304956988507854,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io train"
@@ -5977,7 +5983,7 @@
    {
     "seq": 276,
     "category": "overhead",
-    "seconds": 0.0001740830484777689,
+    "seconds": 0.0001883330987766385,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -5985,7 +5991,7 @@
    {
     "seq": 277,
     "category": "surrogate_update",
-    "seconds": 0.00034199992660433054,
+    "seconds": 0.00033837498631328344,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate refit"
@@ -5993,7 +5999,7 @@
    {
     "seq": 278,
     "category": "overhead",
-    "seconds": 8.5500068962574e-05,
+    "seconds": 8.345895912498236e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6001,7 +6007,7 @@
    {
     "seq": 279,
     "category": "geometry_check",
-    "seconds": 8.7542e-05,
+    "seconds": 9.2667e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "buildability"
@@ -6009,7 +6015,7 @@
    {
     "seq": 280,
     "category": "mesh_motion",
-    "seconds": 0.000395708,
+    "seconds": 0.00042075,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "surrogate acceptance"
@@ -6017,7 +6023,7 @@
    {
     "seq": 281,
     "category": "validation",
-    "seconds": 3.257959042,
+    "seconds": 3.283806167,
     "forward_solves": 60,
     "adjoint_solves": 0,
     "note": "surrogate acceptance"
@@ -6025,7 +6031,7 @@
    {
     "seq": 282,
     "category": "overhead",
-    "seconds": 0.00020387499982632562,
+    "seconds": 0.00021495695870044074,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io validate"
@@ -6033,7 +6039,7 @@
    {
     "seq": 283,
     "category": "overhead",
-    "seconds": 8.462497498840094e-05,
+    "seconds": 0.00013162498362362385,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6041,7 +6047,7 @@
    {
     "seq": 284,
     "category": "overhead",
-    "seconds": 0.000590750016272068,
+    "seconds": 0.0006242090603336692,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6049,7 +6055,7 @@
    {
     "seq": 285,
     "category": "geometry_check",
-    "seconds": 9.1458e-05,
+    "seconds": 8.6083e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6057,7 +6063,7 @@
    {
     "seq": 286,
     "category": "overhead",
-    "seconds": 0.0006117920579953307,
+    "seconds": 0.0006473329454337318,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6065,7 +6071,7 @@
    {
     "seq": 287,
     "category": "overhead",
-    "seconds": 0.00027912494260817766,
+    "seconds": 0.0004135000053793192,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6073,7 +6079,7 @@
    {
     "seq": 288,
     "category": "geometry_check",
-    "seconds": 8.4375e-05,
+    "seconds": 7.4875e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6081,7 +6087,7 @@
    {
     "seq": 289,
     "category": "overhead",
-    "seconds": 0.0005721249930559225,
+    "seconds": 0.0005649170660717573,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6089,7 +6095,7 @@
    {
     "seq": 290,
     "category": "overhead",
-    "seconds": 0.0003842500736936927,
+    "seconds": 0.00032712495885789394,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6097,7 +6103,7 @@
    {
     "seq": 291,
     "category": "geometry_check",
-    "seconds": 7.7958e-05,
+    "seconds": 8.6875e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6105,7 +6111,7 @@
    {
     "seq": 292,
     "category": "overhead",
-    "seconds": 0.0005876249492899888,
+    "seconds": 0.0005447919751020436,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6113,7 +6119,7 @@
    {
     "seq": 293,
     "category": "overhead",
-    "seconds": 0.0003432920202612877,
+    "seconds": 0.00026791600976139307,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6121,7 +6127,7 @@
    {
     "seq": 294,
     "category": "geometry_check",
-    "seconds": 6.6292e-05,
+    "seconds": 7.1042e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6129,7 +6135,7 @@
    {
     "seq": 295,
     "category": "overhead",
-    "seconds": 0.0005197080383112507,
+    "seconds": 0.0005542919815866298,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6137,7 +6143,7 @@
    {
     "seq": 296,
     "category": "overhead",
-    "seconds": 0.0002809999277815223,
+    "seconds": 0.0004035830497741699,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6145,7 +6151,7 @@
    {
     "seq": 297,
     "category": "geometry_check",
-    "seconds": 7.2375e-05,
+    "seconds": 6.6667e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6153,7 +6159,7 @@
    {
     "seq": 298,
     "category": "overhead",
-    "seconds": 0.0005383330262134223,
+    "seconds": 0.000537082998846472,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6161,7 +6167,7 @@
    {
     "seq": 299,
     "category": "overhead",
-    "seconds": 0.00037329201586544514,
+    "seconds": 0.00031879195012152195,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6169,7 +6175,7 @@
    {
     "seq": 300,
     "category": "geometry_check",
-    "seconds": 6.6292e-05,
+    "seconds": 6.4625e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6177,7 +6183,7 @@
    {
     "seq": 301,
     "category": "overhead",
-    "seconds": 0.0005307080056553559,
+    "seconds": 0.0006017910173454766,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6185,7 +6191,7 @@
    {
     "seq": 302,
     "category": "overhead",
-    "seconds": 0.00032762496266514063,
+    "seconds": 0.00040695909410715103,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6193,7 +6199,7 @@
    {
     "seq": 303,
     "category": "geometry_check",
-    "seconds": 7.5041e-05,
+    "seconds": 8.0625e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6201,7 +6207,7 @@
    {
     "seq": 304,
     "category": "overhead",
-    "seconds": 0.0005932090243163657,
+    "seconds": 0.0005834579378785065,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6209,7 +6215,7 @@
    {
     "seq": 305,
     "category": "overhead",
-    "seconds": 0.0003810829948633909,
+    "seconds": 0.0003990420373156667,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6217,7 +6223,7 @@
    {
     "seq": 306,
     "category": "geometry_check",
-    "seconds": 6.575e-05,
+    "seconds": 6.3791e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "geometry"
@@ -6225,7 +6231,7 @@
    {
     "seq": 307,
     "category": "overhead",
-    "seconds": 0.0005341249984383012,
+    "seconds": 0.0005273339900213614,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "io geometry"
@@ -6233,7 +6239,7 @@
    {
     "seq": 308,
     "category": "surrogate_update",
-    "seconds": 0.0002986670006066561,
+    "seconds": 0.0002701239427551627,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "trust-region subproblem"
@@ -6241,7 +6247,7 @@
    {
     "seq": 309,
     "category": "overhead",
-    "seconds": 0.0001194999786093831,
+    "seconds": 8.054205682128668e-05,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "driver"
@@ -6249,7 +6255,7 @@
    {
     "seq": 310,
     "category": "forward",
-    "seconds": 0.10168453803653676,
+    "seconds": 0.12093438201108597,
     "forward_solves": 0,
     "adjoint_solves": 0,
     "note": "train aborted at the budget"
@@ -6268,14 +6274,14 @@
   },
   "mean_floor": 1.448620886053446,
   "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
-  "file_sha256": "3820849018ee7f93cd425ca49796b0e01c1aafcc9341afe0b59b23d4cff7b7d3",
+  "file_sha256": "81995d49da19024e59348f2936b5b3112bcfb12e158eed3e5bc6cf440cc8579f",
   "file_values": {
    "F0": 0.009963070019754905,
    "mean0": 1.4450083651405945
   }
  },
- "in_run_start_time": 1792317696.12713,
- "in_run_end_time": 1792317762.7033138,
+ "in_run_start_time": 1792321488.447189,
+ "in_run_end_time": 1792321555.784013,
  "post_run_diagnostic": {
   "counted_in_run_budget": false,
   "fractions": [
@@ -6335,31 +6341,31 @@
     "category": "mesh_motion",
     "forward_solves": 0,
     "note": "diagnostic training",
-    "seconds": 0.000439042
+    "seconds": 0.000580666
    },
    {
     "adjoint_solves": 0,
     "category": "forward",
     "forward_solves": 40,
     "note": "diagnostic training",
-    "seconds": 1.728809708
+    "seconds": 1.752693708
    },
    {
     "adjoint_solves": 0,
     "category": "mesh_motion",
     "forward_solves": 0,
     "note": "diagnostic validation",
-    "seconds": 0.0004295
+    "seconds": 0.000622292
    },
    {
     "adjoint_solves": 0,
     "category": "validation",
     "forward_solves": 40,
     "note": "diagnostic validation",
-    "seconds": 2.192545583
+    "seconds": 2.213006833
    }
   ],
-  "seconds": 4.100292833056301,
+  "seconds": 4.025154500035569,
   "rows": [
    {
     "fraction": 0.25,
@@ -6407,28 +6413,28 @@
    }
   }
  },
- "post_run_end_time": 1792317766.804259,
- "in_run_wall_seconds": 66.57297958,
- "post_run_wall_seconds": 4.100292833056301,
+ "post_run_end_time": 1792321559.809847,
+ "in_run_wall_seconds": 67.32655334,
+ "post_run_wall_seconds": 4.025154500035569,
  "load_after": [
-  19.47900390625,
-  17.2890625,
-  16.41064453125
+  28.056640625,
+  24.9423828125,
+  23.43017578125
  ],
- "finished_utc": "2026-10-18T10:02:46Z",
+ "finished_utc": "2026-10-18T11:05:59Z",
  "host_contaminated": true,
- "pre_run_load": 19.35498046875,
+ "pre_run_load": 26.34033203125,
  "pre_run_wait_s": 0.0,
  "host_gate": false,
- "longest_overload_s": 66.29969000816345,
+ "longest_overload_s": 63.3259859085083,
  "in_run_load": {
-  "samples": 14,
-  "max": 20.0380859375,
-  "mean": 19.671735491071427
+  "samples": 13,
+  "max": 28.73583984375,
+  "mean": 27.34375
  },
  "diagnostic_load": {
   "samples": 1,
-  "max": 19.47900390625,
-  "mean": 19.47900390625
+  "max": 28.06201171875,
+  "mean": 28.06201171875
  }
 }
