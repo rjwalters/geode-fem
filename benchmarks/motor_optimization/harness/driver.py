@@ -33,7 +33,7 @@ import time
 import numpy as np
 from scipy.optimize import Bounds, NonlinearConstraint, minimize
 
-from acceptance import MEAN_FLOOR_MARGIN, TARGET_NAMES, check_acceptance
+from acceptance import MEAN_FLOOR_MARGIN, TARGET_NAMES, Anchor, check_acceptance
 from evaluator import Aborted, EvaluatorFailure, to_bits
 from ledger import BudgetExhausted
 from surrogate import Models
@@ -110,9 +110,19 @@ class Run:
         if ready.get("validation_msh_sha256") != self.anchor.mesh_sha256:
             raise WiringError(f"validation mesh {ready.get('validation_msh_sha256')} "
                               f"is not the anchor's {self.anchor.mesh_sha256}")
+        # The evaluator parses the anchor file with serde_json, which can be
+        # an ulp off the decimal; within 4 ulp it is the same anchor, and the
+        # driver then scores with the evaluator's exact values (its replies
+        # print them exactly), so both sides compare the same targets.
         a = ready.get("anchor") or {}
-        if a.get("F0") != self.anchor.f0 or a.get("mean0_full_current") != self.anchor.mean0:
+        f0, m0 = a.get("F0"), a.get("mean0_full_current")
+        if not (ulp_close(f0, self.anchor.f0) and ulp_close(m0, self.anchor.mean0)
+                and a.get("level") == self.anchor.level
+                and a.get("msh_sha256") == self.anchor.mesh_sha256):
             raise WiringError("evaluator anchor is not the driver's")
+        self.anchor_file_values = {"F0": self.anchor.f0, "mean0": self.anchor.mean0}
+        self.anchor = Anchor(f0, m0, self.anchor.level, self.anchor.mesh_sha256,
+                             source=self.anchor.source, file_sha256=self.anchor.file_sha256)
         if list(ready["space"]["free"]) != self.problem.names:
             raise WiringError("evaluator space is not the driver's")
 
@@ -232,7 +242,14 @@ class Run:
             "events": self.events,
             "assessment": self.assessment if self.method == "surrogate" else None,
             "ledger": self.ledger.to_json(),
+            "anchor": dict(self.anchor.to_json(), file_values=self.anchor_file_values),
         }
+
+
+def ulp_close(a, b, ulps=4):
+    """|a - b| <= ulps * eps * |b| (serde_json's float parse is within an
+    ulp or so of the correctly rounded value)."""
+    return isinstance(a, float) and abs(a - b) <= ulps * 2.220446049250313e-16 * abs(b)
 
 
 def rel(pred, actual):

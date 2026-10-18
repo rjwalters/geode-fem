@@ -384,6 +384,22 @@ class AcceptanceWiringTests(unittest.TestCase):
         with self.assertRaises(AcceptanceMismatch):
             run.validate(near_centre(run))
 
+    def test_evaluator_anchor_within_an_ulp_is_adopted_otherwise_refused(self):
+        clock = FakeClock()
+        fake = FakeEvaluator(clock)
+        f0_parsed = math.nextafter(F0, 1.0)  # the evaluator's parse, an ulp up
+        fake.ready["anchor"] = dict(fake.ready["anchor"], F0=f0_parsed)
+        led = Ledger(1.0, 100.0, weights=WEIGHTS, clock=clock)
+        prob = Problem(fake.ready["space"], theta0_train(fake))
+        run = Run(fake, led, Anchor(F0, MEAN0, 0, SHA), prob, "slsqp", clock=clock)
+        self.assertEqual(run.anchor.f0, f0_parsed)
+        self.assertEqual(run.result()["anchor"]["file_values"]["F0"], F0)
+        for bad in (dict(F0=F0 * (1 + 1e-9)), dict(mean0_full_current=MEAN0 * 1.001),
+                    dict(level=2), dict(msh_sha256="d" * 64)):
+            fake.ready["anchor"] = dict(anchor_json(), **bad)
+            with self.assertRaises(WiringError, msg=str(bad)):
+                Run(fake, led, Anchor(F0, MEAN0, 0, SHA), prob, "slsqp", clock=clock)
+
     def test_validation_on_another_mesh_is_refused(self):
         with self.assertRaises(WiringError):
             make_run(validator_sha="b" * 64)
