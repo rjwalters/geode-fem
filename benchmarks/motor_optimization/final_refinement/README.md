@@ -235,8 +235,8 @@ Remaining caller obligations include complete recovery-chain reconciliation,
 raw file/source/runtime/anchor bindings, actual geometry reconstruction from
 coordinates, full design/settings identity, and verification of referenced mesh
 bytes. Recorded quality and matching mesh digests alone do not discharge those
-obligations. The native refinement runner and its independent review remain
-pending.
+obligations. The native runner below implements execution; the complete driver
+and independent review remain pending.
 
 ```sh
 python3 -I benchmarks/motor_optimization/final_refinement/test_validation_evidence.py
@@ -306,8 +306,8 @@ or a change to target thresholds. Seventy relevant tests pass, including eight n
 selection/planning/comparison checks. Seventeen selector, five comparison and six
 matching-reference mutations are detected. `matched-reference-checks.json` binds
 this evidence and a synthetic four-design, 24-check example. The motion distinction
-is established by the source implementation; actual full-design adaptation and
-native refinement wiring remain pending.
+is established by the source implementation. The coordinate adapter and native
+executor below now implement those parts; complete main-capture integration is pending.
 
 
 `design_evidence.RegisteredDesigns.load` reads the reference and frozen-start
@@ -340,9 +340,9 @@ both probes, scripts and raw data.
 This maps the complete registered parameter vector; it does not reconstruct
 curves or mesh nodes or authenticate the caller's source/build/runtime claims.
 The caller must bind these declarations to the verified main capture, canonical
-anchor, actual mesh bytes and independently reviewed execution. Actual native
-refinement, conforming checks and complete end-to-end main-data adaptation remain
-pending. Run the local checks with:
+anchor, actual mesh bytes and independently reviewed execution. Native refinement
+and conforming checks are implemented below; complete end-to-end main-data
+adaptation remains pending. Run the local checks with:
 
 ```sh
 python3 -I benchmarks/motor_optimization/final_refinement/test_design_evidence.py
@@ -397,9 +397,9 @@ that a supplied harmonic base mesh was built at theta0. Those bindings and the
 closed-study capture must be verified by the complete driver. A solve error can
 lack partial waveforms; no missing current or angle is counted as completed.
 The validator also retains the completed repair history before a failed solve,
-so the preceding mesh costs and quality checks remain inspectable. Native coverage
-of the matrix, both maps, fresh-mesh branches and failures remains required
-before interpreting main-study refinement outcomes.
+so the preceding mesh costs and quality checks remain inspectable. The bounded
+coverage below exercises the matrix and both maps. Independent review and the
+complete frozen-cohort driver are required before interpreting main-study outcomes.
 
 `native-execution-checks.json` records the initial native wiring evidence at
 `63b3e3d8`: six Rust tests, private recorded build, and real theta0 primary checks
@@ -408,5 +408,22 @@ shifted-angle solve and a successful newly generated conforming mesh add 120
 samples, for 240 raw torque samples in total. Wrong point bits, wrong mesh hash
 and undefined nonzero-stator conforming inputs retain refusal/unavailable records.
 The hashed archive includes the fresh mesh and build receipt. These are bounded
-wiring checks; L3/g40/tight/withheld, moved candidates and the complete closed-study
-driver still need execution coverage and independent review.
+wiring checks; the remaining configuration coverage follows below. The complete
+closed-study driver and independent review are still required.
+
+
+`native-matrix-checks.json` completes the bounded configuration coverage on the
+same recorded binary, without changing runner code. It retains 400 additional
+samples from g40, tight, withheld, L3 and lhs1 in both spaces (640 with the first
+archive). The scalar lhs1 uses mesh motion; CP lhs1 triggers and passes fresh
+remeshing. Both have mean torque below the reference floor, so their small ripple
+alone is not success. The regenerated L3 mesh matches its committed hash, and
+the g40/L3 waveforms match the existing reference records bit for bit.
+
+At theta0, relative changes in the registered sum of variances versus primary
+are `+2.46764e-6` (g40), `+8.36056e-8` (tight), `+5.25812e-6` (independent shifted)
+and `-0.0127382` (L3). These are numerical sensitivity checks at the reference
+design, not optimizer gains. Withheld-current sums remain separate from that
+objective. The archive includes raw waveforms, fresh meshes, generation logs,
+source bindings and exact reference comparisons. Main-capture authentication,
+frozen-cohort execution/reporting and independent review remain pending.
