@@ -1,0 +1,41 @@
+## Findings (written after inspecting the results; feasibility and budget only)
+
+1. **The targets are partly attainable.**
+   - **Space B.** Every run of every method attained T50 and T90. T99 was attained by:
+     - A (SLSQP): 6/6, at 5.96–11.14 wall-time FE;
+     - B (COBYQA): 4/6, at 39.40–59.66 FE. Both θ0 runs were censored by the budget.
+     - C (the surrogate): 0/6. Its best was 0.014 F0, and its runs stopped on the budget or failed.
+
+     T99 is therefore not a common target in space B.
+   - **Space A.** Every method attained T50 and T90 in at least one run (A 6/6 and 6/6, B 6/6 and 4/6, C 4/6 and 4/6). No run of any method attained T99.
+     - The best feasible validated value in space A is about 0.043 F0. SLSQP reaches 0.0433–0.0435 F0 from all three starts.
+     - T99 (F_val + δF ≤ 0.01 F0) is censored for every method in space A. Under amendment 2 it stays censored and is not replaced.
+2. **Failed runs.** 13 of 36 runs ended `failed`. All six SLSQP runs in space A failed. Two causes, both under the pre-registered rule (amendment 4 ruling 4):
+   - **Geometry that cannot be built (11 runs).** The method stepped to a design inside the reference box whose construction cannot be built ("slot flank degenerates").
+   - **A remesh below the angle floor (2 runs).** For SLSQP in space A from θ0, both repeats remeshed to a fresh mesh whose minimum angle is 4.88°, below the 5° policy.
+
+   The harness applied these rules as pre-registered, so neither cause is a harness defect, and no run was patched or re-run. Both causes recur identically on the repeats: the same design, the same request.
+
+   **For the main runs, this is a protocol question for the operator, not settled here.** The frozen reference box contains designs that cannot be built, and a failed request ends the run. These two facts decide most space-A outcomes.
+3. **Is 60 FE binding?**
+   - **Yes, for B and C.** 13 runs stopped on the budget, and their best feasible validated value was still improving: the last improvement came at a median of 58.6 FE. COBYQA's space-B lhs2 runs reached T99 at 59.6–59.7 FE, at the edge of the budget.
+   - **No, for A in space B.** It reached T99 in ≤ 11.14 FE.
+4. **The repeats differ only in timing.** Each method's path is deterministic, so repeats 1 and 2 differ only in how far a run gets within the budget.
+   - C, space A, lhs2: repeat 1 reached its failing request at 56.89 FE. Repeat 2 ran under a heavier load, so it hit the budget at 60 FE before reaching that request, and its best was 0.0672 F0 against 0.0623 F0.
+   - C, space A, θ0: the two repeats differ in the 4th digit (0.05356 against 0.05386 F0) for the same reason.
+5. **The host was not idle.**
+   - During the session, other agents' processes raised the 1-minute load average from about 12 to as high as about 67, on 28 cores. This session contributed 6.
+   - The unit, 37.66 s, was measured at a load of about 16, including the 6 calibration processes.
+   - In-run validations cost a median of about 0.93 FE each. This rose to about 1.0 FE during the load spike, which shows the slowdown directly (see the host-load table).
+6. **Solve-count FE against wall-time FE.** The solve-count weights come from cold θ0 calibration evaluations. In-run evaluations were cheaper:
+   - a training forward took a median of about 0.29 FE, against the 0.331 FE weight;
+   - a validation took about 0.93 FE, against 1.
+
+   Solve-count FE therefore runs up to about 1.7× wall-time FE at some attainment points (for example COBYQA, space B, lhs1: T50 at 11.18 wall against 19.23 solve). Both counts are reported for every attainment, as amendment 3 §1 requires.
+7. **Method C details.**
+   - C's surrogate fits cost under 0.01 FE per run (`setup_calibration` and `surrogate_update`). Its cost is its training forwards and validations.
+   - Both C runs in space A from lhs1 failed at 6.0–6.7 FE, on training request 12: the third trust-region candidate after the 9-point initial design. None of their 3 validations met the mean floor, so they have no feasible validated value and no curve. Their held-out-current diagnostic was evaluated at the final incumbent, which was infeasible on the validation model.
+   - The held-out-current diagnostic (§5) measures **C's linear-in-current interpolation rule**, not intrinsic current generalization.
+     - **Against the training model at fraction 0.25, in space A,** the rule over-predicts the torque std by 31–42%. Torque std is not linear in current there.
+     - **Against the validation model,** the std error is 1.4–18% at 0.25 and 2–13% at 0.75.
+8. **No speedup claim.** No speedup ratio is computed or implied. The host was not idle, and T99 is not common to the methods in either space.

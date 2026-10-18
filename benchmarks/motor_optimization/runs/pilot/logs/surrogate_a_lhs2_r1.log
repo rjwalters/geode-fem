@@ -1,0 +1,1 @@
+surrogate_a_lhs2_r1.json: failed total 56.894 FE attained {'T50': True, 'T90': True, 'T99': False} train: evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = 1.0146e-3 m, flank from x = 4.739334e-2 to 4.710304e-2 m

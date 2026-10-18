@@ -16,7 +16,8 @@ physical or waveform model (amendment 6 §1). A comparison against a
 physics-based inexpensive model remains open (amendment 6 §4).
 
 This directory holds the harness and its checks. **It holds no pilot
-results.** The pilot (36 runs) runs separately, on a run host to be chosen.
+results.** The pilot (36 runs, #1198; host not idle, feasibility and budget
+only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 
 ## Files
 
@@ -30,6 +31,7 @@ results.** The pilot (36 runs) runs separately, on a run host to be chosen.
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
 | `session.py` | The run manifest: calibrates the unit, then launches every job (`--procs N --out DIR`; the pilot by default, `--smoke` for the smoke). |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
+| `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
 | `lhs.py`, `make_starts.py`, `starts.json` | The deterministic LHS starts (committed). |
 | `fd_check.py` | FD check of the gradient replies through the process. |
 | `mutation_checks.py` | Mutations of the harness wiring. |
@@ -299,6 +301,7 @@ $H/pyrun.sh $H/fd_check.py --binary ... --space a --level 1 --newton tight --out
 $H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 --out benchmarks/motor_optimization/smoke
 $H/pyrun.sh $H/summarize_session.py benchmarks/motor_optimization/smoke
 $H/pyrun.sh $H/mutation_checks.py
-# The pilot (not run here; needs the L1 and L2 θ0 meshes, run_all.sh meshes):
-# $H/pyrun.sh $H/session.py --procs N --out benchmarks/motor_optimization/runs/pilot
+# The pilot (#1198; needs the L1 and L2 θ0 meshes, run_all.sh meshes):
+# $H/pyrun.sh $H/session.py --procs 6 --out benchmarks/motor_optimization/runs/pilot
+# $H/pyrun.sh $H/summarize_pilot.py benchmarks/motor_optimization/runs/pilot
 ```
