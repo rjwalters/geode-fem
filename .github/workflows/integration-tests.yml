@@ -291,6 +291,7 @@ jobs:
               --test motor_design_gradient \
               --test motor_design_remesh \
               --test motor_experiment2 \
+              --test motor_experiment2_harness \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
@@ -384,6 +385,7 @@ jobs:
               --test motor_design_gradient \
               --test motor_design_remesh \
               --test motor_experiment2 \
+              --test motor_experiment2_harness \
               --test motor_icem_controlpoints \
               --test motor_icem_forward \
               --test motor_icem_harmonic \
@@ -874,3 +876,33 @@ jobs:
       - name: geode-optimize (all targets, debug)
         run: |
           cargo test -p geode-optimize
+
+  motor-harness-driver:
+    # Issue #1195: the Python driver of the experiment-2 optimizer harness
+    # (benchmarks/motor_optimization/harness/): charging, the exact budget
+    # stop, the acceptance and mesh wiring, the three methods end to end on
+    # a fake evaluator, the ordering rule and the committed starts. The
+    # evaluator side is the Rust target motor_experiment2_harness
+    # (core-tests-b). The environment is exactly the hash-pinned lock
+    # (scipy 1.18.1, numpy 2.5.4) on CPython 3.12; the tests take about 1 s.
+    name: motor harness driver tests (python, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the locked driver environment
+        run: |
+          python3 -m venv /tmp/harness-venv
+          /tmp/harness-venv/bin/python -m pip install --require-hashes --no-deps \
+              -r benchmarks/motor_optimization/harness/requirements.lock
+
+      - name: Driver tests
+        run: |
+          /tmp/harness-venv/bin/python -I \
+              benchmarks/motor_optimization/harness/test_harness.py
